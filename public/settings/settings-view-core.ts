@@ -1,5 +1,10 @@
+import { WorkflowsSettings } from '#shared/contracts/workflows.ts';
+import type { WorkflowRule } from '#shared/contracts/workflows.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';
-import type { SettingsOption, SettingsSection, SettingsSetting } from './settings-map.ts';
+import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
+import {
+  cloneValue, deleteValueAtPath, displayValue, isReadOnlySetting, parsePosthogProjectSelection, setValueAtPath, settingsOf, valueAtPath, wireValue,
+} from '#shared/settings/registry-core.ts';
 import { projectSelectionChoices, unionProjectSelection } from './settings-projects-core.ts';
 
 export type SettingsValues = Record<string, unknown>;
@@ -19,6 +24,13 @@ export interface SettingsProject {
   recordNames?: string[];
 }
 
+export interface WorkflowRuleToggleRow {
+  id: string;
+  name: string;
+  isEnabled: boolean;
+  summary: string;
+}
+
 const payloadByHydratedValues = new WeakMap<object, unknown>();
 
 export const SECRET_PRESENCE_SUFFIX = 'Configured';
@@ -29,22 +41,6 @@ export function secretEnvironmentSource(setting: SettingsSetting, payload: Setti
   if (!sources || typeof sources !== 'object') return null;
   const source = (sources as Record<string, unknown>)[setting.path];
   return typeof source === 'string' ? source : null;
-}
-
-export function parsePosthogProjectSelection(value: unknown): 'all' | number[] | null {
-  const text = String(value ?? '').trim().toLowerCase();
-  if (!text || text === 'all') return 'all';
-  if (text === 'none') return [];
-  const tokens = text.split(',').map((token) => token.trim());
-  if (!tokens.every((token) => /^\d+$/.test(token) && Number.isSafeInteger(Number(token)) && Number(token) > 0)) return null;
-  return tokens.map(Number);
-}
-
-export function visionsActivityLimitText(values: SettingsValues): string {
-  const overallLimit = Number(values['visions.dispatch.maxPerHour']);
-  const activityLimit = Number(values['visions.dispatch.activityMaxPerHour']);
-  if (!Number.isSafeInteger(overallLimit) || overallLimit < 1 || !Number.isSafeInteger(activityLimit) || activityLimit < 0) return '';
-  return `Effective activity limit: ${Math.min(activityLimit, overallLimit - 1)} per hour. One slot is reserved for edit reviews.`;
 }
 
 export function rtkInstallStatusText(payload: SettingsPayload): string {
@@ -63,75 +59,6 @@ function secretPresencePath(setting: SettingsSetting) {
   return `${setting.path}${SECRET_PRESENCE_SUFFIX}`;
 }
 
-function cloneValue(value: unknown): unknown {
-  if (Array.isArray(value)) return (value as unknown[]).map(cloneValue);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, cloneValue(nested)]));
-}
-
-function valueAtPath(source: unknown, path: string): unknown {
-  let value: unknown = source;
-  for (const part of path.split('.')) {
-    if (value == null || typeof value !== 'object') return undefined;
-    value = (value as Record<string, unknown>)[part];
-  }
-  return value;
-}
-
-function deleteValueAtPath(target: unknown, path: string) {
-  const parts = path.split('.');
-  let cursor: unknown = target;
-  for (const part of parts.slice(0, -1)) {
-    if (!cursor || typeof cursor !== 'object') return;
-    cursor = (cursor as Record<string, unknown>)[part];
-  }
-  if (cursor && typeof cursor === 'object') delete (cursor as Record<string, unknown>)[parts.at(-1) as string];
-}
-
-function setValueAtPath(target: Record<string, unknown>, path: string, value: unknown) {
-  const parts = path.split('.');
-  let cursor: Record<string, unknown> = target;
-  for (const part of parts.slice(0, -1)) {
-    if (!cursor[part] || typeof cursor[part] !== 'object' || Array.isArray(cursor[part])) cursor[part] = {};
-    cursor = cursor[part] as Record<string, unknown>;
-  }
-  cursor[parts.at(-1) as string] = cloneValue(value);
-}
-
-function settingsOf(map: readonly SettingsSection[]): SettingsSetting[] {
-  return map.flatMap((section) => section.settings || []);
-}
-
-function isReadOnlySetting(setting: SettingsSetting) {
-  return setting.fileOnly || setting.control === 'readonly';
-}
-
-function searchTokens(value: unknown) {
-  return String(value || '').toLowerCase().match(/[a-z0-9]+/g) || [];
-}
-
-const EXACT_MATCH_QUALITY = 3;
-const PREFIX_MATCH_QUALITY = 2;
-const INFIX_MATCH_QUALITY = 1;
-const MIN_INFIX_QUERY_LENGTH = 3;
-
-function tokenMatchQuality(fieldToken: string, queryToken: string) {
-  if (fieldToken === queryToken) return EXACT_MATCH_QUALITY;
-  if (fieldToken.startsWith(queryToken)) return PREFIX_MATCH_QUALITY;
-  if (queryToken.length >= MIN_INFIX_QUERY_LENGTH && fieldToken.includes(queryToken)) return INFIX_MATCH_QUALITY;
-  return 0;
-}
-
-function fieldScore(tokens: string[], queryTokens: string[], weight: number) {
-  let totalMatchQuality = 0;
-  for (const queryToken of queryTokens) {
-    const bestMatchQuality = Math.max(0, ...tokens.map((fieldToken) => tokenMatchQuality(fieldToken, queryToken)));
-    if (bestMatchQuality === 0) return 0;
-    totalMatchQuality += bestMatchQuality;
-  }
-  return totalMatchQuality * weight;
-}
-
 function valuesEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) && Array.isArray(right)) {
@@ -146,37 +73,13 @@ function valuesEqual(left: unknown, right: unknown): boolean {
     && valuesEqual((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
 }
 
-function displayValue(setting: SettingsSetting, value: unknown): unknown {
-  if (setting.valueKind !== 'posthog-projects') return cloneValue(value);
-  if (Array.isArray(value)) return value.length === 0 ? 'none' : value.join(', ');
-  return value ?? 'all';
-}
-
-function wireValue(setting: SettingsSetting, value: unknown): unknown {
-  if (setting.control === 'number') {
-    if (setting.nullable && (value == null || String(value).trim() === '')) return null;
-    const number = Number(value);
-    if (setting.zeroIsNull && number <= 0) return null;
-    return number;
-  }
-  if (setting.valueKind === 'posthog-projects') {
-    return parsePosthogProjectSelection(value);
-  }
-  if (setting.control === 'text' || setting.control === 'password') {
-    const text = String(value ?? '').trim();
-    if (setting.nullable && !text) return null;
-    return text;
-  }
-  return cloneValue(value);
-}
-
 function hydratedPayload(values: SettingsValues): SettingsPayload | null {
   return (payloadByHydratedValues.get(values) || null) as SettingsPayload | null;
 }
 
-export function hydrateFromSettings(map: readonly SettingsSection[], settingsPayload: SettingsPayload = {}): SettingsValues {
+export function hydrateFromSettings(sections: readonly SettingsSection[], settingsPayload: SettingsPayload = {}): SettingsValues {
   const values: SettingsValues = {};
-  for (const setting of settingsOf(map)) {
+  for (const setting of settingsOf(sections)) {
     if (isReadOnlySetting(setting)) continue;
     if (setting.path.startsWith('pref:')) {
       const preferenceName = setting.path.slice(5);
@@ -197,18 +100,18 @@ export function hydrateFromSettings(map: readonly SettingsSection[], settingsPay
 }
 
 export function rehydratePreservingDirtySections(
-  map: readonly SettingsSection[],
+  sections: readonly SettingsSection[],
   settingsPayload: SettingsPayload,
   currentOriginal: SettingsValues | null | undefined,
   currentEdited: SettingsValues | null | undefined,
   options: { rehydrateSectionIds?: string[] } = {},
 ) {
   const { rehydrateSectionIds = [] } = options;
-  const original = hydrateFromSettings(map, settingsPayload);
-  const edited = hydrateFromSettings(map, settingsPayload);
+  const original = hydrateFromSettings(sections, settingsPayload);
+  const edited = hydrateFromSettings(sections, settingsPayload);
   if (!currentOriginal || !currentEdited) return { original, edited };
   const forcedSections = new Set(rehydrateSectionIds);
-  for (const section of map) {
+  for (const section of sections) {
     if (forcedSections.has(section.id)) continue;
     const isDirty = section.settings.some((setting) => {
       if (setting.path.startsWith('pref:')) return false;
@@ -223,8 +126,8 @@ export function rehydratePreservingDirtySections(
   return { original, edited };
 }
 
-export function collectDirtyBlocks(map: readonly SettingsSection[], original: SettingsValues, edited: SettingsValues): SettingsPayload {
-  const changedSettings = settingsOf(map).filter((setting) => {
+export function collectDirtyBlocks(sections: readonly SettingsSection[], original: SettingsValues, edited: SettingsValues): SettingsPayload {
+  const changedSettings = settingsOf(sections).filter((setting) => {
     if (isReadOnlySetting(setting)) return false;
     if (setting.path.startsWith('pref:')) return false;
     if (secretEnvironmentSource(setting, hydratedPayload(original) || {})) return false;
@@ -264,7 +167,7 @@ export function collectDirtyBlocks(map: readonly SettingsSection[], original: Se
     }
     setValueAtPath(payload, setting.path, value);
   }
-  for (const setting of settingsOf(map)) {
+  for (const setting of settingsOf(sections)) {
     if (!isSecretSetting(setting)) continue;
     deleteValueAtPath(payload, secretPresencePath(setting));
   }
@@ -279,10 +182,10 @@ function rangeMessage(range: SettingsRange, setting: SettingsSetting) {
   return `Must be a ${noun} between ${range.min} and ${range.max}.`;
 }
 
-function numberError(setting: SettingsSetting, rawValue: unknown, settingsRanges: Record<string, SettingsRange>) {
+function numberError(setting: SettingsSetting, rawValue: unknown) {
   if (setting.nullable && (rawValue == null || String(rawValue).trim() === '')) return null;
   const value = Number(rawValue);
-  const range = settingsRanges[setting.range ?? ''];
+  const range = setting.range;
   if (!range) return 'Allowed range is unavailable.';
   if (!Number.isFinite(value)) return rangeMessage(range, setting);
   if (setting.integer !== false && !Number.isSafeInteger(value)) return rangeMessage(range, setting);
@@ -300,19 +203,19 @@ function posthogProjectsError(value: unknown) {
   return 'Must be "all", "none", or a comma-separated list of positive safe integer ids without empty entries.';
 }
 
-export function validateLocally(map: readonly SettingsSection[], edited: SettingsValues, settingsRanges: Record<string, SettingsRange> = {}) {
+export function validateLocally(sections: readonly SettingsSection[], edited: SettingsValues) {
   const errors: Record<string, string> = {};
-  for (const setting of settingsOf(map)) {
+  for (const setting of settingsOf(sections)) {
     if (isReadOnlySetting(setting)) continue;
     let error: string | null = null;
-    if (setting.control === 'number') error = numberError(setting, edited[setting.path], settingsRanges);
+    if (setting.control === 'number') error = numberError(setting, edited[setting.path]);
     if (setting.valueKind === 'posthog-projects') error = posthogProjectsError(edited[setting.path]);
-    if (setting.control === 'select' && !(setting.options as SettingsOption[]).some((option) => option.value === edited[setting.path])) {
+    if (setting.control === 'select' && !(setting.options ?? []).some((option) => option.value === edited[setting.path])) {
       error = 'Choose one of the available options.';
     }
     if (error) errors[setting.id] = error;
   }
-  addReversedPairErrors(settingsOf(map), edited, errors);
+  addReversedPairErrors(settingsOf(sections), edited, errors);
   return errors;
 }
 
@@ -328,87 +231,16 @@ function addReversedPairErrors(settings: readonly SettingsSetting[], edited: Set
   }
 }
 
-export function pairedSettingOf(map: readonly SettingsSection[], setting: SettingsSetting): SettingsSetting | undefined {
-  return settingsOf(map).find((candidate) => candidate.id === setting.maximumSettingId || candidate.maximumSettingId === setting.id);
+export function pairedSettingOf(sections: readonly SettingsSection[], setting: SettingsSetting): SettingsSetting | undefined {
+  return settingsOf(sections).find((candidate) => candidate.id === setting.maximumSettingId || candidate.maximumSettingId === setting.id);
 }
 
-export function sectionsByLevel(map: readonly SettingsSection[]): Record<string, SettingsSection[]> {
-  const grouped: Record<string, SettingsSection[]> = { browser: [], machine: [], lanes: [], projects: [] };
-  for (const section of map) {
-    if (!grouped[section.level]) grouped[section.level] = [];
-    grouped[section.level].push(section);
-  }
-  return grouped;
-}
-
-export function scoreSettingsSearch(map: readonly SettingsSection[], query: unknown) {
-  const queryTokens = searchTokens(query);
-  if (queryTokens.length === 0) return [];
-  const results: { section: SettingsSection; setting: SettingsSetting; score: number }[] = [];
-  for (const section of map) {
-    const sectionTokens = searchTokens(section.title);
-    for (const setting of section.settings || []) {
-      const titleScore = fieldScore(searchTokens(setting.title), queryTokens, 1000);
-      const keywordScore = fieldScore(searchTokens((setting.keywords || []).join(' ')), queryTokens, 100);
-      const sectionScore = fieldScore(sectionTokens, queryTokens, 10);
-      const descriptionScore = fieldScore(searchTokens(setting.description), queryTokens, 1);
-      const score = titleScore + keywordScore + sectionScore + descriptionScore;
-      if (score === 0) continue;
-      results.push({ section, setting, score });
-    }
-  }
-  return results
-    .sort((left, right) => right.score - left.score
-      || left.section.title.localeCompare(right.section.title)
-      || left.setting.title.localeCompare(right.setting.title))
-    .slice(0, 30);
-}
-
-export function parseSettingsHash(
-  hash: unknown,
-  map: readonly SettingsSection[],
-  aliases: Record<string, string> = {},
-  movedSettings: Readonly<Record<string, Readonly<Record<string, string>>>> = {},
-) {
-  const match = /^#settings\/([^/]+)(?:\/([^/]+))?$/.exec(String(hash || ''));
-  if (!match) return null;
-  let requestedSectionId: string;
-  let requestedSettingId: string | null;
-  try {
-    requestedSectionId = decodeURIComponent(match[1]);
-    requestedSettingId = match[2] ? decodeURIComponent(match[2]) : null;
-  } catch {
-    return null;
-  }
-  const movedSectionId = requestedSettingId ? movedSettings[requestedSectionId]?.[requestedSettingId] : undefined;
-  const sectionId = movedSectionId || aliases[requestedSectionId] || requestedSectionId;
-  const section = map.find((entry) => entry.id === sectionId);
-  if (!section) return null;
-  const setting = requestedSettingId
-    ? (section.settings || []).find((entry) => entry.id === requestedSettingId)
-    : null;
-  if (requestedSettingId && !setting) return null;
-  return {
-    sectionId,
-    settingId: setting?.id || null,
-    hash: `#settings/${sectionId}${setting ? `/${setting.id}` : ''}`,
-  };
-}
-
-export function orderSections(map: readonly SettingsSection[]): SettingsSection[] {
-  const unattendedId = 'lanes-unattended';
-  const unattended = map.find((section) => section.id === unattendedId);
-  if (!unattended) return [...map];
-  const ordered = map.filter((section) => section.id !== unattendedId);
-  const lastLaneIndex = ordered.findLastIndex((section) => section.level === 'lanes');
-  ordered.splice(lastLaneIndex + 1, 0, unattended);
-  return ordered;
-}
-
-function projectSetting(projectId: string, suffix: string, fields: Omit<SettingsSetting, 'id' | 'projectId'>): SettingsSetting {
+function projectSetting(projectId: string, suffix: string, fields: Omit<SettingsSetting, 'id' | 'projectId' | 'scope' | 'takesEffect'>): SettingsSetting {
   return {
     id: `project-${projectId}-${suffix}`,
     projectId,
+    scope: 'machine',
+    takesEffect: 'new-sessions',
     ...fields,
   };
 }
@@ -444,6 +276,7 @@ export function buildProjectSections(projects: SettingsProject[] = []): Settings
           title: 'Agent',
           description: 'Agent configured for this project.',
           control: 'readonly',
+          access: 'readout',
           keywords: ['cli', 'runtime'],
           value: project.agent || 'Not available in the current dashboard payload',
         }),
@@ -452,6 +285,7 @@ export function buildProjectSections(projects: SettingsProject[] = []): Settings
           title: 'Default permission mode',
           description: 'Permission mode used for newly spawned sessions.',
           control: 'readonly',
+          access: 'readout',
           keywords: ['approval', 'sandbox'],
           value: project.permissionMode || 'Not available in the current dashboard payload',
         }),
@@ -459,9 +293,10 @@ export function buildProjectSections(projects: SettingsProject[] = []): Settings
           path: `projects.${project.id}.codexBypassHookTrust`,
           title: 'Codex hook trust bypass',
           description: 'Configured only on this project record.',
-          control: 'readonly',
+          control: 'toggle',
+          access: 'file-only',
+          fileOnlyReason: 'A per-project record field with no dashboard control.',
           keywords: ['hooks', 'codex'],
-          fileOnly: true,
         }),
       ],
     }));
@@ -502,6 +337,30 @@ export function shouldShowDangerWarning(setting: Pick<SettingsSetting, 'danger' 
   return setting.danger === true && Boolean(setting.warning) && value === true;
 }
 
-export function resolveEntry(map: readonly SettingsSection[], sectionId: string): SettingsSection | null {
-  return map.find((section) => section.id === sectionId) || map[0] || null;
+export function resolveEntry(sections: readonly SettingsSection[], sectionId: string): SettingsSection | null {
+  return sections.find((section) => section.id === sectionId) || sections[0] || null;
+}
+
+function workflowRuleSummary(rule: WorkflowRule): string {
+  return [rule.repos.join(', '), rule.trigger, rule.actions.map((action) => action.type).join(', ')].join('  ');
+}
+
+export function workflowRuleSummaryLines(workflows: unknown): string[] {
+  if (workflows === null || workflows === undefined) return ['No rules. Add workflows.rules to config.json.'];
+  const parsed = WorkflowsSettings.safeParse(workflows);
+  if (!parsed.success) return [`The workflows block is invalid, so no rule runs: ${parsed.error.issues[0]?.message ?? 'unknown problem'}`];
+  if (parsed.data.rules.length === 0) return ['No rules. Add workflows.rules to config.json.'];
+  return parsed.data.rules.map((rule) => [rule.name, rule.enabled ? 'enabled' : 'disabled', workflowRuleSummary(rule)].join('  '));
+}
+
+export function workflowRuleToggleRows(workflows: unknown): WorkflowRuleToggleRow[] {
+  const parsed = WorkflowsSettings.safeParse(workflows ?? {});
+  if (!parsed.success) return [];
+  return parsed.data.rules.map((rule) => ({ id: rule.id, name: rule.name, isEnabled: rule.enabled, summary: workflowRuleSummary(rule) }));
+}
+
+export function withoutWorkflowRuleDefinitions(settings: Record<string, unknown>): Record<string, unknown> {
+  const workflows = settings.workflows;
+  if (typeof workflows !== 'object' || workflows === null || Array.isArray(workflows)) return settings;
+  return { ...settings, workflows: Object.fromEntries(Object.entries(workflows).filter(([key]) => key !== 'rules')) };
 }

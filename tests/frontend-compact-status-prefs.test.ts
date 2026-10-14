@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { isCompactStatusLabels, setCompactStatusLabels, getThemeId } from '../public/ui-prefs.ts';
-import { SETTINGS_MAP } from '../public/settings/settings-map.ts';
+import { SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
 import { stubLocalStorageForTest } from './helpers/frontend-global-stub.ts';
 
 const PLAN_PROMPT_KIND = 'plan';
@@ -18,7 +18,7 @@ test('compact sidebar status defaults off, normalizes booleans and persists with
   assert.equal(JSON.parse(storedValues.get('glimmervoid-ui-prefs') ?? '{}').compactStatusLabels, true);
   setCompactStatusLabels(false);
   assert.equal(isCompactStatusLabels(), false);
-  const setting = SETTINGS_MAP.find((section) => section.id === 'browser-appearance')?.settings.find((entry) => entry.id === 'compact-status');
+  const setting = SETTINGS_REGISTRY.sections.find((section) => section.id === 'browser-appearance')?.settings.find((entry) => entry.id === 'compact-status');
   assert.equal(setting?.path, 'pref:compactStatusLabels');
   assert.equal(setting?.control, 'toggle');
   assert.ok(setting && 'defaultValue' in setting);

@@ -13,8 +13,18 @@ export const NON_NEGATIVE_NUMBER_RANGE: SettingsRange = Object.freeze({ min: 0, 
 export const FLYING_ANIMALS_GAP_RANGE = Object.freeze({ min: 0, max: 300 });
 export const FLYING_ANIMALS_DURATION_RANGE = Object.freeze({ min: 1, max: 60 });
 export const FLYING_ANIMALS_SCALE_RANGE = Object.freeze({ min: 0.5, max: 2 });
+export const FLYING_ANIMALS_DEFAULTS = Object.freeze({
+  flyingAnimalsMinGapSeconds: 20,
+  flyingAnimalsMaxGapSeconds: 40,
+  flyingAnimalsMinDurationSeconds: 6.9,
+  flyingAnimalsMaxDurationSeconds: 11.5,
+  flyingAnimalsScale: 1,
+  flyingAnimalsOnPhone: true,
+});
 
 export const REPLAY_BUFFER_KB_RANGE = Object.freeze({ min: 64, max: 16384 });
+export const PORT_RANGE = Object.freeze({ min: 0, max: 65535 });
+export const TASK_TITLE_TIMEOUT_RANGE = Object.freeze({ min: 0, exclusiveMin: true, max: 2_147_483_647 / 1000 });
 
 
 export const BRANCH_GC_STALE_DAYS_RANGE = POSITIVE_NUMBER_RANGE;
@@ -66,6 +76,7 @@ export const SETTINGS_RANGES = Object.freeze({
   FLYING_ANIMALS_SCALE_RANGE,
   CHANGE_MAP_NARRATOR_TIMEOUT_RANGE,
   KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE,
+  PORT_RANGE,
   POSTHOG_ESCALATION_RANGE,
   POSTHOG_FIX_TIMEOUT_RANGE,
   POSTHOG_INTERVAL_RANGE,
@@ -77,6 +88,7 @@ export const SETTINGS_RANGES = Object.freeze({
   POSTHOG_TRAFFIC_MIN_USERS_RANGE,
   POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
   REPLAY_BUFFER_KB_RANGE,
+  TASK_TITLE_TIMEOUT_RANGE,
   USAGE_BUDGET_RANGE,
   USAGE_RETAIN_DAYS_RANGE,
   USAGE_SCAN_INTERVAL_RANGE,

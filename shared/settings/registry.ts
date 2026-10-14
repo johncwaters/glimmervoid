@@ -1,0 +1,1109 @@
+import { CHANGE_MAP_NARRATOR_ENGINES, POST_TURN_CHECK_MODES, UPDATE_CHANNELS } from '../contracts/browser-config.ts';
+import {
+  CHANGE_MAP_NARRATOR_TIMEOUT_RANGE, FACTORY_MAX_LIVE_WORKERS_RANGE, FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_GAP_RANGE,
+  FLYING_ANIMALS_SCALE_RANGE, KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, NON_NEGATIVE_NUMBER_RANGE, PORT_RANGE, POSITIVE_NUMBER_RANGE,
+  POSTHOG_FIX_TIMEOUT_RANGE, POSTHOG_TRAFFIC_BASELINE_RANGE, POSTHOG_TRAFFIC_MIN_USERS_RANGE, POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
+  REPLAY_BUFFER_KB_RANGE, TASK_TITLE_TIMEOUT_RANGE, USAGE_BUDGET_RANGE, USAGE_INTEGER_RANGES, USAGE_RETAIN_DAYS_RANGE, USAGE_SCAN_INTERVAL_RANGE,
+  WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE, WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE,
+} from '../settings-ranges.ts';
+import type { SettingsRange } from '../settings-ranges.ts';
+import { USAGE_COST_MODES } from '../usage-config.ts';
+
+type SettingsScope = 'browser' | 'machine';
+type SettingsAccess = 'editable' | 'advanced' | 'readout' | 'file-only';
+type SettingsEffect = 'now' | 'new-sessions' | 'restart';
+export type SettingsLevel = 'browser' | 'machine' | 'lanes' | 'projects';
+type SettingsControl = 'toggle' | 'number' | 'text' | 'password' | 'select' | 'list' | 'projects' | 'json' | 'readonly';
+
+interface SettingsOption {
+  value: string;
+  label: string;
+}
+
+interface SettingsUnit {
+  label: string;
+  storedPerDisplay: number;
+}
+
+interface SettingsLegacyId {
+  sectionId: string;
+  settingId: string;
+}
+
+export interface SettingsSetting {
+  id: string;
+  path: string;
+  title: string;
+  description: string;
+  keywords: readonly string[];
+  control: SettingsControl;
+  scope: SettingsScope;
+  access: SettingsAccess;
+  takesEffect: SettingsEffect;
+  fileOnlyReason?: string;
+  group?: string;
+  legacyIds?: readonly SettingsLegacyId[];
+  options?: readonly SettingsOption[];
+  optionsFrom?: string;
+  listPlaceholder?: string;
+  listEmptyText?: string;
+  defaultValue?: unknown;
+  integer?: boolean;
+  nullable?: boolean;
+  zeroIsNull?: boolean;
+  step?: number | 'any';
+  range?: SettingsRange;
+  unit?: SettingsUnit;
+  maximumSettingId?: string;
+  valueKind?: string;
+  warning?: string;
+  danger?: boolean;
+  commitOnChange?: boolean;
+  status?: string;
+  projectId?: string;
+  value?: unknown;
+}
+
+interface SettingsSectionLink {
+  settingId: string;
+  title: string;
+}
+
+export interface SettingsSection {
+  id: string;
+  level: SettingsLevel;
+  title: string;
+  description: string;
+  caption?: string;
+  legacyIds?: readonly string[];
+  unattendedLinks?: readonly SettingsSectionLink[];
+  project?: unknown;
+  settings: readonly SettingsSetting[];
+}
+
+export interface SettingsGroup {
+  title: string;
+  description: string;
+}
+
+export interface SettingsRegistry {
+  sections: readonly SettingsSection[];
+  fileOnly: readonly SettingsSetting[];
+}
+
+const BROWSER_NOW = { scope: 'browser', access: 'editable', takesEffect: 'now' } as const;
+const BROWSER_ADVANCED = { scope: 'browser', access: 'advanced', takesEffect: 'now' } as const;
+const MACHINE_NOW = { scope: 'machine', access: 'editable', takesEffect: 'now' } as const;
+const MACHINE_NEW_SESSIONS = { scope: 'machine', access: 'editable', takesEffect: 'new-sessions' } as const;
+const READOUT = { scope: 'machine', access: 'readout', takesEffect: 'now' } as const;
+const FILE_ONLY = { scope: 'machine', access: 'file-only' } as const;
+
+const WHOLE = { label: 'count', storedPerDisplay: 1 };
+const SECONDS = { label: 'seconds', storedPerDisplay: 1 };
+const MINUTES = { label: 'minutes', storedPerDisplay: 1 };
+const HOURS = { label: 'hours', storedPerDisplay: 1 };
+const DAYS = { label: 'days', storedPerDisplay: 1 };
+const MILLISECONDS = { label: 'ms', storedPerDisplay: 1 };
+const USD = { label: 'USD', storedPerDisplay: 1 };
+const USERS = { label: 'users', storedPerDisplay: 1 };
+const PER_HOUR = { label: 'per hour', storedPerDisplay: 1 };
+const MULTIPLIER = { label: 'times', storedPerDisplay: 1 };
+
+const TUNING_KNOB = 'A tuning knob kept out of the Settings view; the default suits almost every install.';
+const DIAGNOSTIC = 'A diagnostic switch kept out of the Settings view; change it in config.json while investigating.';
+const PROCESS_SETTING = 'Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind.';
+const STRUCTURED_VALUE = 'A structured value with no dashboard control; edit it in config.json.';
+
+function capitalizedOptions(values: readonly string[]): SettingsOption[] {
+  return values.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }));
+}
+
+export const FILE_ONLY_GROUPS: Readonly<Record<string, SettingsGroup>> = Object.freeze({
+  'machine-terminal': { title: 'Terminal', description: 'Terminal behavior shared by dashboard clients.' },
+  'machine-detection-sessions': { title: 'Detection and sessions', description: 'Config-file-only detection, timing, worktree and process settings.' },
+});
+
+const SECTIONS: readonly SettingsSection[] = Object.freeze([
+  {
+    id: 'browser-appearance',
+    level: 'browser',
+    title: 'Appearance and alerts',
+    description: 'Preferences stored only in this browser.',
+    settings: [
+      {
+        id: 'theme', path: 'pref:themeId', title: 'Theme',
+        description: 'Color scheme for the dashboard.',
+        control: 'select', optionsFrom: 'themes', keywords: ['color', 'palette'], defaultValue: 'phyrexian', ...BROWSER_NOW,
+      },
+      {
+        id: 'compact-status', path: 'pref:compactStatusLabels', title: 'Hide status words in sidebar',
+        description: 'Hide status words in the sidebar and on the phone Board while keeping the colored status mark and the phone Plan ready badge. Saved per browser, so turn it on in each one.',
+        control: 'toggle', keywords: ['sidebar', 'status', 'compact'], defaultValue: false, ...BROWSER_NOW,
+      },
+      {
+        id: 'session-usage-chips', path: 'pref:sessionUsageChips', title: 'Show usage on session cards',
+        description: "Shows each card's transcript token count and CLI-reported cost when available, otherwise a calculated API list-price estimate.",
+        control: 'toggle', keywords: ['usage', 'cost', 'tokens', 'card', 'price'], defaultValue: false, ...BROWSER_NOW,
+      },
+      {
+        id: 'alert-sounds-enabled', path: 'pref:soundEnabled', title: 'Alert sounds',
+        description: 'Play sounds when a session needs attention and when a merge celebration plays. The same switch as the note button in the desktop header.',
+        control: 'toggle', keywords: ['audio', 'mute', 'sound', 'notification'], defaultValue: true, ...BROWSER_NOW,
+      },
+      {
+        id: 'alert-sound', path: 'pref:soundId', title: 'Alert sound',
+        description: 'Sound played when a session needs attention. Your own .ogg, .mp3, .wav, .m4a or .webm files dropped into the sounds folder of the Glimmervoid home (~/.glimmervoid/sounds/, or $GLIMMERVOID_HOME/sounds/) are listed after the built-in sounds. Glimmervoid never creates that folder, so make it yourself; new files show up the next time Settings opens.',
+        control: 'select', optionsFrom: 'sounds', keywords: ['audio', 'notification', 'custom'], defaultValue: 'chime', ...BROWSER_NOW,
+      },
+      {
+        id: 'desktop-notifications', path: 'pref:notificationsEnabled', title: 'Desktop notifications',
+        description: 'Raise a browser notification when a session needs attention while this dashboard is in the background.',
+        control: 'toggle', keywords: ['browser', 'attention'], defaultValue: true, ...BROWSER_NOW,
+      },
+    ],
+  },
+  {
+    id: 'browser-flying-animals',
+    level: 'browser',
+    title: 'Flying animals',
+    description: 'Choose your flying animals. Changes apply immediately in this browser.',
+    legacyIds: ['animals', 'flying-animals'],
+    settings: [
+      {
+        id: 'flying-animals', path: 'pref:flyingAnimalsEnabled', title: 'Flying animals',
+        description: 'Show animated animals flying across the dashboard.',
+        control: 'toggle', keywords: ['animation', 'motion'], defaultValue: false, ...BROWSER_NOW,
+        legacyIds: [{ sectionId: 'browser-appearance', settingId: 'flying-animals' }],
+      },
+      {
+        id: 'animals-min-gap', path: 'pref:flyingAnimalsMinGapSeconds', title: 'Time between flights: minimum (seconds)',
+        description: 'Shortest pause between flights.', control: 'number', commitOnChange: true, integer: false, step: 0.1,
+        range: FLYING_ANIMALS_GAP_RANGE, unit: SECONDS, maximumSettingId: 'animals-max-gap', keywords: ['animals', 'frequency'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinGapSeconds, ...BROWSER_ADVANCED,
+      },
+      {
+        id: 'animals-max-gap', path: 'pref:flyingAnimalsMaxGapSeconds', title: 'Time between flights: maximum (seconds)',
+        description: 'Longest pause between flights.', control: 'number', commitOnChange: true, integer: false, step: 0.1,
+        range: FLYING_ANIMALS_GAP_RANGE, unit: SECONDS, keywords: ['animals', 'frequency'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxGapSeconds, ...BROWSER_ADVANCED,
+      },
+      {
+        id: 'animals-min-duration', path: 'pref:flyingAnimalsMinDurationSeconds', title: 'Flight duration: minimum (seconds)',
+        description: 'Shortest flight, for faster animals.', control: 'number', commitOnChange: true, integer: false, step: 0.1,
+        range: FLYING_ANIMALS_DURATION_RANGE, unit: SECONDS, maximumSettingId: 'animals-max-duration', keywords: ['animals', 'speed'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinDurationSeconds, ...BROWSER_ADVANCED,
+      },
+      {
+        id: 'animals-max-duration', path: 'pref:flyingAnimalsMaxDurationSeconds', title: 'Flight duration: maximum (seconds)',
+        description: 'Longest flight, for slower animals.', control: 'number', commitOnChange: true, integer: false, step: 0.1,
+        range: FLYING_ANIMALS_DURATION_RANGE, unit: SECONDS, keywords: ['animals', 'speed'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxDurationSeconds, ...BROWSER_ADVANCED,
+      },
+      {
+        id: 'animals-scale', path: 'pref:flyingAnimalsScale', title: 'Size multiplier',
+        description: 'Scale applied on top of the viewport size.', control: 'number', commitOnChange: true, integer: false, step: 0.1,
+        range: FLYING_ANIMALS_SCALE_RANGE, unit: MULTIPLIER, keywords: ['animals', 'size'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsScale, ...BROWSER_ADVANCED,
+      },
+      {
+        id: 'animals-on-phone', path: 'pref:flyingAnimalsOnPhone', title: 'Show on phone layout',
+        description: 'Allow flights on the phone layout.', control: 'toggle',
+        keywords: ['animals', 'mobile'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsOnPhone, ...BROWSER_ADVANCED,
+      },
+    ],
+  },
+  {
+    id: 'browser-shortcuts',
+    level: 'browser',
+    title: 'Shortcuts and about',
+    description: 'Keyboard reference and build information.',
+    legacyIds: ['shortcuts'],
+    settings: [],
+  },
+  {
+    id: 'machine-general',
+    level: 'machine',
+    title: 'General',
+    description: 'Machine-wide session startup and diagnostics.',
+    legacyIds: ['general'],
+    settings: [
+      {
+        id: 'auto-resume', path: 'autoResume', title: 'Auto-resume sessions on startup',
+        description: 'Resume conversations that were live when Glimmervoid last shut down or crashed.',
+        control: 'toggle', keywords: ['startup', 'conversation'], defaultValue: true, ...MACHINE_NOW,
+      },
+      {
+        id: 'calm-layout', path: 'calmLayout', title: 'Calm layout (experimental)',
+        description: 'Replace the Focus rail with a view that prioritizes sessions needing attention and also shows ready and working indicators. Applies to every browser on this machine.',
+        control: 'toggle', keywords: ['experimental', 'attention', 'priority'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'streamer-mode', path: 'streamerMode', title: 'Streamer mode',
+        description: 'Hide sensitive details in the dashboard while screen sharing or streaming. Applies to every browser on this machine.',
+        control: 'toggle', keywords: ['streaming', 'screen share', 'privacy'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'custom-agents', path: 'status:custom-agents', title: 'Custom agents',
+        description: 'Extra agent CLIs a session can be spawned with, declared under customAgents in config.json.',
+        control: 'readonly', keywords: ['adapters', 'cli'], status: 'custom-agents', ...READOUT,
+      },
+    ],
+    unattendedLinks: [
+      { settingId: 'skip-permissions-by-default', title: 'Skip permission prompts by default' },
+      { settingId: 'rtk-compression', title: 'rtk output compression' },
+    ],
+  },
+  {
+    id: 'machine-updates',
+    level: 'machine',
+    title: 'Updates',
+    description: 'See which Glimmervoid version is running, which one is newest, and update in one step.',
+    legacyIds: ['updates'],
+    settings: [
+      {
+        id: 'update-summary', path: 'status:update-summary', title: 'Status',
+        description: 'Whether this install is up to date, and what an update would move it to.',
+        control: 'readonly', keywords: ['version', 'available', 'current'], status: 'update-summary', ...READOUT,
+      },
+      {
+        id: 'update-actions', path: 'status:update-actions', title: 'Actions',
+        description: 'Update and restart stages the newest build, then restarts to run it. Update without restart stages it for a later restart.',
+        control: 'readonly', keywords: ['check', 'restart'], status: 'update-actions', ...READOUT,
+      },
+      {
+        id: 'update-installed', path: 'status:update-installed', title: 'Running version',
+        description: 'The version loaded when the server started, alongside the commit, branch and state of the current disk checkout.',
+        control: 'readonly', keywords: ['version', 'commit', 'installed'], status: 'update-installed', ...READOUT,
+      },
+      {
+        id: 'update-latest', path: 'status:update-latest', title: 'Latest version',
+        description: 'The newest target found on the selected update channel.',
+        control: 'readonly', keywords: ['release', 'commit'], status: 'update-latest', ...READOUT,
+      },
+      {
+        id: 'update-last-checked', path: 'status:update-last-checked', title: 'Last checked',
+        description: 'The most recent update check, or why automatic checks are off.',
+        control: 'readonly', keywords: ['time', 'failure'], status: 'update-last-checked', ...READOUT,
+      },
+      {
+        id: 'update-channel', path: 'updateChannel', title: 'Channel',
+        description: 'Track tagged releases or the upstream of the checked-out branch.',
+        control: 'select', options: capitalizedOptions(UPDATE_CHANNELS),
+        keywords: ['release', 'branch'], defaultValue: 'release', ...MACHINE_NOW,
+      },
+      {
+        id: 'check-updates', path: 'checkForUpdates', title: 'Check for updates automatically',
+        description: 'Check for a newer Glimmervoid at launch, while a dashboard is connected, and when this page opens.',
+        control: 'toggle', keywords: ['release', 'github'], defaultValue: true, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'machine-repositories',
+    level: 'machine',
+    title: 'Repositories',
+    description: 'Project discovery roots for new sessions.',
+    legacyIds: ['repos', 'repositories'],
+    settings: [
+      {
+        id: 'repository-roots', path: 'repoRoots', title: 'Repository roots',
+        description: 'Directories scanned for projects when adding sessions.',
+        control: 'list', keywords: ['folders', 'project discovery'], defaultValue: [], ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'machine-telegram',
+    level: 'machine',
+    title: 'Telegram',
+    description: 'One bot shared by session, PR review and PostHog notifications.',
+    legacyIds: ['telegram', 'notifications'],
+    settings: [
+      {
+        id: 'telegram-bot-token', path: 'telegram.botToken', title: 'Bot token',
+        description: 'Credential used by the shared Telegram bot. When GLIMMERVOID_TELEGRAM_BOT_TOKEN supplies it, this field is read-only.',
+        control: 'password', keywords: ['credential', 'api'], defaultValue: '', ...MACHINE_NOW,
+      },
+      {
+        id: 'telegram-chat-id', path: 'telegram.chatId', title: 'Chat id',
+        description: 'Destination chat for enabled Telegram lanes.',
+        control: 'text', keywords: ['destination', 'channel'], defaultValue: '', ...MACHINE_NOW,
+      },
+      {
+        id: 'telegram-session-notifications', path: 'telegramNotifications', title: 'Send session notifications',
+        description: 'Send session completion, input and failure alerts when no dashboard is open. Unacknowledged alerts also escalate after the phone escalation delay while a dashboard remains open.',
+        control: 'toggle', keywords: ['phone', 'off dashboard'], defaultValue: false, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'machine-usage',
+    level: 'machine',
+    title: 'Usage',
+    description: 'Local transcript accounting and estimated-cost budgets.',
+    legacyIds: ['usage'],
+    settings: [
+      {
+        id: 'usage-enabled', path: 'usage.enabled', title: 'Track token usage',
+        description: 'Read local CLI transcripts and roll them into the Usage view and session chips.',
+        control: 'toggle', keywords: ['tokens', 'cost'], defaultValue: true, status: 'usage-last-report', ...MACHINE_NOW,
+      },
+      {
+        id: 'usage-retain-days', path: 'usage.retainDays', title: 'Retain transcript detail (days)',
+        description: 'How long live transcript detail stays available. A monthly budget keeps detail from the start of the current month when that is longer.',
+        control: 'number', range: USAGE_RETAIN_DAYS_RANGE, unit: DAYS, keywords: ['history', 'retention'], defaultValue: 90, ...MACHINE_NOW,
+      },
+      {
+        id: 'usage-daily-budget', path: 'usage.budget.dailyUsd', title: 'Daily budget (USD)',
+        description: 'Estimated daily spend alert threshold. Alerts at 50%, 75% and 100% do not stop spending. Zero or below disables the threshold.',
+        control: 'number', range: USAGE_BUDGET_RANGE, unit: USD, keywords: ['spend', 'alert'], defaultValue: null,
+        integer: false, nullable: true, zeroIsNull: true, step: 0.01, ...MACHINE_NOW,
+      },
+      {
+        id: 'usage-monthly-budget', path: 'usage.budget.monthlyUsd', title: 'Monthly budget (USD)',
+        description: 'Estimated monthly spend alert threshold. Alerts at 50%, 75% and 100% do not stop spending. Zero or below disables the threshold.',
+        control: 'number', range: USAGE_BUDGET_RANGE, unit: USD, keywords: ['spend', 'alert'], defaultValue: null,
+        integer: false, nullable: true, zeroIsNull: true, step: 0.01, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'machine-privacy',
+    level: 'machine',
+    title: 'Privacy',
+    description: 'What Glimmervoid sends about itself.',
+    legacyIds: ['privacy', 'telemetry'],
+    settings: [
+      {
+        id: 'telemetry-enabled', path: 'telemetry.enabled', title: 'Send anonymous usage and error data',
+        description: 'Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated costs from the usage scan, and factory outcomes as the kind of decision, how it came out, its duration and attempt number, under a random install id. Never error messages, paths, repository or branch names, prompts, objectives or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless.',
+        control: 'toggle', keywords: ['telemetry', 'analytics', 'tracking', 'opt out'], defaultValue: true, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'lanes-change-map',
+    level: 'lanes',
+    title: 'Change map',
+    description: 'Optional model narration for deterministic change facts.',
+    legacyIds: ['change-map'],
+    settings: [
+      {
+        id: 'change-map-narrator-enabled', path: 'changeMap.narrator.enabled', title: 'Enable narration',
+        description: 'Add cited model claims to the change map.',
+        control: 'toggle', keywords: ['review', 'claims'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'change-map-narrator-engine', path: 'changeMap.narrator.engine', title: 'Narrator engine',
+        description: 'CLI used to generate change map claims.',
+        control: 'select', options: capitalizedOptions(CHANGE_MAP_NARRATOR_ENGINES),
+        keywords: ['claude', 'codex'], defaultValue: 'claude', ...MACHINE_NOW,
+      },
+      {
+        id: 'change-map-narrator-model', path: 'changeMap.narrator.model', title: 'Narrator model',
+        description: 'Blank uses the engine default: haiku for Claude, the configured Codex model for Codex.',
+        control: 'text', keywords: ['claude', 'codex', 'haiku'], defaultValue: '', ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'lanes-visions',
+    level: 'lanes',
+    title: 'Visions',
+    description: 'Editor-buffer findings and bounded model comments.',
+    legacyIds: ['visions'],
+    settings: [
+      {
+        id: 'visions-enabled', path: 'visions.enabled', title: 'Enable Visions',
+        description: 'Set up supported editors detected on this machine, then show their buffer findings in the Visions view.',
+        control: 'toggle', keywords: ['editor', 'findings', 'lsp'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'visions-dispatch-enabled', path: 'visions.dispatch.enabled', title: 'Enable model comments',
+        description: 'Start bounded review sessions for local editor buffers.',
+        control: 'toggle', keywords: ['review', 'dispatch'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'visions-max-per-hour', path: 'visions.dispatch.maxPerHour', title: 'Max per hour',
+        description: 'Maximum review sessions dispatched per hour. One slot is reserved for edit reviews; activity-driven reviews take the rest, up to the activity cap set by visions.dispatch.activityMaxPerHour.',
+        control: 'number', range: POSITIVE_NUMBER_RANGE, unit: PER_HOUR, keywords: ['rate limit', 'reviews'], defaultValue: 6, ...MACHINE_NOW,
+      },
+      {
+        id: 'visions-model', path: 'visions.dispatch.model', title: 'Model override',
+        description: 'Leave blank to use the opus model alias.',
+        control: 'text', keywords: ['claude', 'override'], defaultValue: '', ...MACHINE_NOW,
+      },
+      {
+        id: 'visions-projects', path: 'visions.projects', title: 'Projects',
+        description: 'Clear every selection, including unavailable projects, to accept buffers from every configured project.',
+        control: 'projects', keywords: ['repositories', 'filter'], defaultValue: [], ...MACHINE_NOW,
+      },
+      {
+        id: 'visions-auto-fix', path: 'visions.autoFix', title: 'Apply tier 1 fixes',
+        description: 'Allow Visions to edit eligible open Markdown buffers, including inactive buffers, without asking.',
+        control: 'toggle', keywords: ['automatic', 'edits'], danger: true,
+        warning: 'Enabling this control lets Visions edit eligible buffers without a carbon unit present.', defaultValue: false, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'lanes-ingest',
+    level: 'lanes',
+    title: 'Ingest',
+    description: 'Machine-context ingest behind Visions.',
+    legacyIds: ['ingest'],
+    settings: [
+      {
+        id: 'ingest-enabled', path: 'ingest.enabled', title: 'Enable machine context ingest',
+        description: 'Enable the local activity feed behind Visions. Turning Visions on enables ingest unless ingest.enabled is explicitly false.',
+        control: 'toggle', keywords: ['events', 'activity'], defaultValue: false, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'lanes-posthog',
+    level: 'lanes',
+    title: 'PostHog',
+    description: 'Error monitoring, investigations and traffic-spike alerts.',
+    legacyIds: ['posthog'],
+    settings: [
+      {
+        id: 'posthog-enabled', path: 'posthog.enabled', title: 'Enable PostHog monitoring',
+        description: 'Poll PostHog error tracking and investigate issues that move.',
+        control: 'toggle', keywords: ['errors', 'monitoring'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'posthog-host', path: 'posthog.host', title: 'Host',
+        description: 'PostHog cloud or self-hosted HTTP URL.',
+        control: 'text', keywords: ['url', 'server'], defaultValue: 'https://us.posthog.com', ...MACHINE_NOW,
+      },
+      {
+        id: 'posthog-api-key', path: 'posthog.apiKey', title: 'Personal API key',
+        description: 'Credential with read access to PostHog projects. When GLIMMERVOID_POSTHOG_API_KEY supplies it, this field is read-only.',
+        control: 'password', keywords: ['credential', 'token'], defaultValue: '', ...MACHINE_NOW,
+      },
+      {
+        id: 'posthog-projects', path: 'posthog.projects', title: 'Projects',
+        description: 'Use all, none for an empty selection, or a comma-separated list of positive integer PostHog project ids. Blank means all.',
+        control: 'text', keywords: ['project ids', 'filter'], defaultValue: 'all', valueKind: 'posthog-projects', ...MACHINE_NOW,
+      },
+      {
+        id: 'posthog-interval', path: 'posthog.intervalMinutes', title: 'Poll interval (minutes)',
+        description: 'Delay between PostHog polling passes.',
+        control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 15, ...MACHINE_NOW,
+      },
+      {
+        id: 'posthog-max-investigations', path: 'posthog.maxConcurrentInvestigations', title: 'Max concurrent investigations',
+        description: 'Maximum investigation sessions running together.',
+        control: 'number', range: POSITIVE_NUMBER_RANGE, unit: WHOLE, keywords: ['parallel', 'workers'], defaultValue: 2, ...MACHINE_NOW,
+      },
+      {
+        id: 'posthog-min-users', path: 'posthog.minUsersToInvestigate', title: 'Min users to investigate',
+        description: 'Minimum affected users for a new issue investigation. Regressions, worsening issues and eligible error spikes bypass this minimum.',
+        control: 'number', range: POSITIVE_NUMBER_RANGE, unit: USERS, keywords: ['threshold', 'affected'], defaultValue: 1, ...MACHINE_NOW,
+      },
+      {
+        id: 'posthog-traffic-enabled', path: 'posthog.trafficSpikeEnabled', title: 'Traffic spike alerts',
+        description: 'Ping when recent unique users exceed a project baseline.',
+        control: 'toggle', keywords: ['analytics', 'alert'], defaultValue: true, ...MACHINE_NOW,
+      },
+      {
+        id: 'posthog-auto-fix', path: 'posthog.autoFix', title: 'Attempt fixes for major issues',
+        description: 'Allow an isolated agent to fix an issue, push a branch and open a pull request.',
+        control: 'toggle', keywords: ['automatic', 'pull request'], danger: true,
+        warning: 'Enabling this control lets PostHog fixes commit, push and open pull requests automatically.', defaultValue: false, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'lanes-team-review',
+    level: 'lanes',
+    title: 'Team review',
+    description: "Draft reviews of teammates' pull requests for you to post from the Reviews tab.",
+    legacyIds: ['team-review', 'reviews'],
+    settings: [
+      {
+        id: 'team-review-enabled', path: 'teamReview.enabled', title: 'Enable team review',
+        description: 'Poll open pull requests from the team and draft a review of each one. Nothing is posted until you choose Approve or Comment.',
+        control: 'toggle', keywords: ['pull requests', 'github'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'github-teams', path: 'github.teams', title: 'GitHub teams',
+        description: 'Teams to search for review requests and members, one org/slug per entry. Leave empty to fall back to the legacy teamReview.org and teamReview.team keys in config.json.',
+        control: 'list', keywords: ['github', 'teams', 'review requests'], defaultValue: [],
+        listPlaceholder: 'org/team-slug', listEmptyText: 'No GitHub teams configured.', ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-re-review-after-hours', path: 'teamReview.reReviewAfterHours', title: 'Re-review after (hours)',
+        description: 'When a reviewed PR has a new head, review it again after this many hours since its last review. Queue review runs it at any time.',
+        control: 'number', range: POSITIVE_NUMBER_RANGE, unit: HOURS, keywords: ['review', 'delay'], defaultValue: 24, integer: false, step: 0.5, ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-skip-idle-after-days', path: 'teamReview.skipIdleAfterDays', title: 'Skip PRs idle for (days)',
+        description: 'Leave pull requests without GitHub activity for this long out of automatic review.',
+        control: 'number', range: POSITIVE_NUMBER_RANGE, unit: DAYS, keywords: ['idle', 'activity'], defaultValue: 14, integer: false, step: 0.5, ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-skill', path: 'teamReview.skill', title: 'Review skill',
+        description: 'Name of a Claude Code skill installed for the review agent, for example your own PR review skill. Leave empty to let the agent review with whatever skills it has.',
+        control: 'text', keywords: ['skill', 'claude code', 'pr review'], defaultValue: '', ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-auto-rebase-my-prs', path: 'teamReview.autoRebaseMyPrs', title: 'Keep my pull requests rebased',
+        description: 'On each poll, rebase your open, non-draft pull requests that are behind their base branch. A pull request with conflicts or checks still running is left alone, and a failed rebase is not retried until you push again.',
+        control: 'toggle', keywords: ['rebase', 'update branch', 'behind', 'my prs'], danger: true,
+        warning: 'Enabling this control rewrites your pull request branches on GitHub. Pull before you push from a local checkout of one.', defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-keep-mergeable-enabled', path: 'teamReview.keepMergeableEnabled', title: 'Keep mergeable',
+        description: 'Offer Keep mergeable on your pull requests: a sandboxed agent repairs conflicts and failing checks and pushes the repair. Off hides the control and starts no repair; the pull requests you chose stay chosen for when you turn it back on.',
+        control: 'toggle', keywords: ['repair', 'conflicts', 'my prs'], defaultValue: true, ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-keep-mergeable-timeout', path: 'teamReview.keepMergeableTimeoutMinutes', title: 'Keep mergeable deadline (minutes)',
+        description: 'Longest a Keep mergeable repair session may run before it is stopped and nothing is pushed.',
+        control: 'number', range: KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, unit: MINUTES, keywords: ['timeout', 'repair'], defaultValue: 30, ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-merge-queue-enabled', path: 'teamReview.mergeQueueEnabled', title: 'Merge when ready',
+        description: 'Offer Merge when ready on your pull requests: queued pull requests are rebased when behind and merged once ready, one per repository per poll. Off hides the control and merges nothing; the queue is kept for when you turn it back on.',
+        control: 'toggle', keywords: ['merge queue', 'auto merge', 'my prs'], defaultValue: true, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'lanes-benchmarks',
+    level: 'lanes',
+    title: 'Benchmarks',
+    description: 'Compare agent setups on frozen cases from the suites in the benchmarks folder of the Glimmervoid home.',
+    legacyIds: ['benchmarks'],
+    settings: [
+      {
+        id: 'benchmarks-enabled', path: 'benchmarks.enabled', title: 'Enable benchmarks',
+        description: 'Show the Bench tab. Nothing runs until you choose Mine or Run there.',
+        control: 'toggle', keywords: ['eval', 'arms', 'recall', 'compare'], defaultValue: false, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'lanes-factory',
+    level: 'lanes',
+    title: 'Factory',
+    description: 'Read Coherence reports from repositories whose integration branch holds a coherence.config.json and show their status in the Factory tab.',
+    legacyIds: ['factory'],
+    settings: [
+      {
+        id: 'factory-enabled', path: 'factory.enabled', title: 'Enable the factory',
+        description: 'Enable Coherence status polling and show the Factory tab. Off by default.',
+        control: 'toggle', keywords: ['orchestrator', 'intents', 'queue', 'coherence', 'guardrails'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'factory-max-risk', path: 'factory.maxRisk', title: 'Worker risk ceiling',
+        description: 'Highest risk admitted for a ticket.', control: 'select', defaultValue: 'medium',
+        options: ['low', 'medium', 'high', 'critical'].map((value) => ({ value, label: value })), keywords: ['risk', 'admission'], ...MACHINE_NOW,
+      },
+      {
+        id: 'factory-max-live-workers', path: 'factory.maxLiveWorkers', title: 'Live worker cap',
+        description: 'Most live workers per factory project.', control: 'number', range: FACTORY_MAX_LIVE_WORKERS_RANGE, unit: WHOLE, defaultValue: 2, keywords: ['workers', 'parallel'], ...MACHINE_NOW,
+      },
+      {
+        id: 'factory-checks', path: 'factory.checks', title: 'Worker checks',
+        description: 'Commands glimmervoid runs before merging worker commits.', control: 'list',
+        defaultValue: ['npm run typecheck', 'npm run lint', 'npm test'], keywords: ['tests', 'checks'], ...MACHINE_NOW,
+      },
+      {
+        id: 'factory-protected-paths', path: 'factory.protectedPaths', title: 'Protected paths',
+        description: 'Repo-relative files, directory prefixes ending in /, or **/NAME basenames workers cannot change.', control: 'list',
+        defaultValue: ['coherence.config.json', '.coherence/', 'package.json', 'package-lock.json', '**/AGENTS.md', '**/CLAUDE.md', '**/CLAUDE.local.md', '.claude/', '.github/'], keywords: ['fence', 'scope'], ...MACHINE_NOW,
+      },
+      {
+        id: 'factory-reviewer-model', path: 'factory.reviewerModel', title: 'Reviewer model',
+        description: 'Claude model for independent worker review. Blank uses the CLI default.', control: 'text',
+        defaultValue: null, nullable: true, keywords: ['claude', 'review'], ...MACHINE_NOW,
+      },
+      {
+        id: 'factory-daily-budget', path: 'factory.dailyBudgetUsd', title: 'Factory daily budget (USD)',
+        description: 'Factory lane spend ceiling. Blank means no ceiling. Needs usage tracking: with it off, dispatch refuses.', control: 'number', range: NON_NEGATIVE_NUMBER_RANGE, unit: USD,
+        integer: false, nullable: true, step: 0.01, defaultValue: null, keywords: ['spend', 'budget'], ...MACHINE_NOW,
+      },
+      {
+        id: 'factory-verifier-model', path: 'factory.verifierModel', title: 'Verifier model',
+        description: 'Claude model for independent intent verification. Blank uses the CLI default.', control: 'text',
+        nullable: true, defaultValue: null, keywords: ['claude', 'verification'], ...MACHINE_NOW,
+      },
+      {
+        id: 'factory-mirror-harness-runs', path: 'factory.mirrorHarnessRuns', title: 'Mirror harness runs',
+        description: 'Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after. Needs factory.enabled on. The harness turns it off on the instance it boots.',
+        control: 'toggle', defaultValue: true, keywords: ['harness', 'test', 'read-only'], ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'lanes-knowledge-graph',
+    level: 'lanes',
+    title: 'Knowledge graph (experimental)',
+    description: 'A typed local graph of projects, tasks, notes, references and questions, driven from the glimmervoid kg command. Its SQLite database defaults to the Glimmervoid home; --db selects another path.',
+    legacyIds: ['knowledge-graph'],
+    settings: [
+      {
+        id: 'knowledge-graph-enabled', path: 'knowledgeGraph.enabled', title: 'Enable the knowledge graph',
+        description: 'Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents\' tickets disagree, without modifying those ledgers. Graph writes go to the selected SQLite database, which can be inside a repository when --db names that path. Off by default.',
+        control: 'toggle', keywords: ['experimental', 'kg', 'tasks', 'notes', 'references', 'coherence'], defaultValue: false, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'lanes-workflows',
+    level: 'lanes',
+    title: 'Workflows',
+    description: 'Rules that act on pull request events in the repositories you choose.',
+    legacyIds: ['workflows'],
+    settings: [
+      {
+        id: 'workflows-enabled', path: 'workflows.enabled', title: 'Run workflows',
+        description: 'Poll the repositories your enabled rules watch and run their actions. Off stops polling and every action, whatever each rule says.',
+        control: 'toggle', keywords: ['pull requests', 'automation', 'master switch'], defaultValue: true, ...MACHINE_NOW,
+      },
+      {
+        id: 'workflows-max-concurrent-sessions', path: 'workflows.maxConcurrentSessions', title: 'Concurrent agent sessions',
+        description: 'Most workflow agent sessions running at once. Up to twenty later spawns wait for a free slot; additional spawns are dropped and logged.',
+        control: 'number', range: WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE, unit: WHOLE, keywords: ['parallel', 'spawn'], defaultValue: 2, ...MACHINE_NOW,
+      },
+      {
+        id: 'workflows-rules', path: 'status:workflow-rules', title: 'Workflow rules',
+        description: 'Each rule watches repositories for one pull request event (opened, checks-failed, review-requested, approved, commented or merged), narrows it by author, labels, base branch, your own pull requests or a review request to your team, and then notifies you, labels or comments on the pull request, or starts a sandboxed agent session that pushes nothing. Rules start disabled. Turn each rule on or off here; everything else about a rule is set in config.json under workflows.rules.',
+        control: 'readonly', keywords: ['pull requests', 'automation', 'github', 'rules'], status: 'workflows', ...READOUT,
+      },
+    ],
+  },
+  {
+    id: 'machine-guardrails',
+    level: 'machine',
+    title: 'Session guardrails',
+    description: 'Claude Code sessions on Linux and macOS write anywhere this account can, except credentials, Glimmervoid\'s own state and the blocked folders below. Changes apply to sessions started after the change.',
+    settings: [
+      {
+        id: 'guardrails-unguarded-repos', path: 'guardrails.unguardedRepos', title: 'Unguarded repositories',
+        description: 'Folders whose sessions run without guardrails. A session started in one of these folders, or below it, is not guarded. Applies to sessions created after the change.',
+        control: 'list', keywords: ['guardrails', 'opt out', 'dotfiles'], danger: true,
+        warning: 'A session without guardrails can read credentials and write anywhere this account can.',
+        defaultValue: [], ...MACHINE_NEW_SESSIONS,
+      },
+      {
+        id: 'guardrails-blocked-paths', path: 'guardrails.blockedPaths', title: 'Blocked folders',
+        description: 'Extra folders and files a guarded session cannot write, on top of credentials and Glimmervoid\'s own state. A leading ~ means the home folder.',
+        control: 'list', keywords: ['guardrails', 'block', 'protect'], defaultValue: [], ...MACHINE_NEW_SESSIONS,
+      },
+      {
+        id: 'guardrails-unreadable-paths', path: 'guardrails.unreadablePaths', title: 'Unreadable folders',
+        description: 'Extra folders and files a guarded session cannot read, on top of the built-in credential list. A leading ~ means the home folder.',
+        control: 'list', keywords: ['guardrails', 'secrets', 'credentials'], defaultValue: [], ...MACHINE_NEW_SESSIONS,
+      },
+    ],
+  },
+  {
+    id: 'lanes-unattended',
+    level: 'lanes',
+    title: 'Unattended actions',
+    description: 'Controls that let automated work change repositories or install executable tooling.',
+    legacyIds: ['unattended'],
+    settings: [
+      {
+        id: 'skip-permissions-by-default', path: 'skipPermissionsByDefault', title: 'Skip permission prompts by default',
+        description: 'Start sessions whose project sets no permission choice with the agent CLI permission bypass flag.',
+        control: 'toggle', keywords: ['permissions', 'yolo', 'dangerously'], danger: true,
+        warning: 'Enabling this control lets agents edit files and run shell commands without asking, and restarts running sessions that inherit it.',
+        defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'sane-yolo', path: 'saneYolo', title: 'Sane YOLO',
+        description: 'Block catastrophic commands in sessions that skip permission prompts when the cc-safety-net executable is available and trusted hooks are installed. Missing or untrusted hooks leave a session unprotected. Applies to sessions created after the change.',
+        control: 'toggle', keywords: ['permissions', 'yolo', 'safety'], defaultValue: true, ...MACHINE_NEW_SESSIONS,
+      },
+      {
+        id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
+        description: 'Also delete stale remote branches with no merge proof. Off keeps every unmerged branch.',
+        control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true,
+        warning: 'Enabling this control lets branch cleanup delete stale remote branches without merge proof.',
+        defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'post-turn-checks-mode', path: 'postTurnChecks.mode', title: 'Post-turn checks mode',
+        description: 'Default mode for post-turn checks. Project and individual rule modes override it, so Report can still allow file fixes.',
+        control: 'select', options: capitalizedOptions(POST_TURN_CHECK_MODES),
+        keywords: ['quality', 'fixes'], defaultValue: 'report', ...MACHINE_NOW,
+      },
+      {
+        id: 'rtk-compression', path: 'rtk', title: 'rtk output compression',
+        description: 'Compress Bash output for newly spawned or restarted sessions.',
+        control: 'toggle', keywords: ['bash', 'tokens'], danger: true, status: 'rtk-install',
+        warning: 'Enabling this control permits Glimmervoid to install the pinned rtk executable automatically.', defaultValue: false, ...MACHINE_NEW_SESSIONS,
+      },
+    ],
+  },
+]);
+
+const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
+  {
+    id: 'file-debug-mode', path: 'debugMode', title: 'Debug mode', group: 'machine-general',
+    description: 'Show session-card diagnostics for state, transitions and detection signals.',
+    control: 'toggle', keywords: ['diagnostics', 'state'], defaultValue: false, takesEffect: 'now', fileOnlyReason: DIAGNOSTIC, ...FILE_ONLY,
+  },
+  {
+    id: 'file-replay-buffer', path: 'replayBufferKB', title: 'Replay buffer (KB)', group: 'machine-terminal',
+    description: 'PTY output retained for clients that reconnect or join late.',
+    control: 'number', range: REPLAY_BUFFER_KB_RANGE, unit: { label: 'KB', storedPerDisplay: 1 }, keywords: ['history', 'backfill'], defaultValue: 512,
+    takesEffect: 'new-sessions', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-cursor-blink', path: 'cursorBlink', title: 'Cursor blink', group: 'machine-terminal',
+    description: 'Blink the cursor in every terminal.',
+    control: 'toggle', keywords: ['caret', 'terminal'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-detect-background-agents', path: 'detectBackgroundAgents', title: 'Detect background agents', group: 'machine-detection-sessions',
+    description: 'Hold completion while tracked background work is active. Changes apply to newly created sessions; recreate existing sessions to apply them.',
+    control: 'toggle', keywords: ['subagents', 'completion'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: DIAGNOSTIC, ...FILE_ONLY,
+  },
+  {
+    id: 'file-record-signals', path: 'recordSignals', title: 'Record structural signals', group: 'machine-detection-sessions',
+    description: 'Keep forensic status and hook recordings for newly created sessions. Full capture (capture.enabled) records these signals even when this is off. Recreate existing sessions to change recording.',
+    control: 'toggle', keywords: ['recordings', 'diagnostics'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: DIAGNOSTIC, ...FILE_ONLY,
+  },
+  {
+    id: 'file-trace-enabled', path: 'trace.enabled', title: 'Capture session traces', group: 'machine-detection-sessions',
+    description: 'Keep normalized Claude transcript traces for session debugging. Requires a server restart.',
+    control: 'toggle', keywords: ['transcripts', 'diagnostics'], defaultValue: true, takesEffect: 'restart', fileOnlyReason: DIAGNOSTIC, ...FILE_ONLY,
+  },
+  {
+    id: 'file-detect-scheduled-wakeups', path: 'detectScheduledWakeups', title: 'Detect scheduled wakeups', group: 'machine-detection-sessions',
+    description: 'Surface advisory wakeup timing for scheduled sessions. Requires a server restart to update the configuration, and newly created sessions use the change.',
+    control: 'toggle', keywords: ['schedule', 'sleep'], defaultValue: true, takesEffect: 'restart', fileOnlyReason: DIAGNOSTIC, ...FILE_ONLY,
+  },
+  {
+    id: 'file-worktree-auto-rebase', path: 'worktreeAutoRebase', title: 'Worktree auto-rebase', group: 'machine-detection-sessions',
+    description: 'Rebase eligible session worktrees when the integration branch moves. Changes apply to newly created sessions; recreate existing sessions to apply them.',
+    control: 'toggle', keywords: ['git', 'branch'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-worktree-sync-on-start', path: 'worktreeSyncOnStart', title: 'Worktree sync on start', group: 'machine-detection-sessions',
+    description: 'Fetch origin and fast-forward the local integration branch before a session starts its worktree.',
+    control: 'toggle', keywords: ['git', 'fetch', 'fast-forward'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-worktree-rerere', path: 'worktreeRerere', title: 'Worktree rerere', group: 'machine-detection-sessions',
+    description: 'Reuse recorded Git conflict resolutions. Requires a server restart.',
+    control: 'toggle', keywords: ['git', 'conflicts'], defaultValue: true, takesEffect: 'restart', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-integration-branch', path: 'integrationBranch', title: 'Integration branch', group: 'machine-detection-sessions',
+    description: "Base branch for session worktrees. Empty = each repo's default branch. Reload affects newly created sessions and does not retarget existing sessions.",
+    control: 'text', nullable: true, keywords: ['git', 'merge'], defaultValue: null, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-worktree-root', path: 'worktreeRoot', title: 'Worktree root', group: 'machine-detection-sessions',
+    description: 'Directory that contains session worktrees. Changes apply to newly created sessions and do not relocate existing worktrees; recreate existing sessions to change where they create worktrees.',
+    control: 'text', keywords: ['git', 'directory'], defaultValue: '', takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-worktree-share', path: 'worktreeShare', title: 'Shared worktree paths', group: 'machine-detection-sessions',
+    description: 'Local paths copied or linked during worktree preparation. Changes apply to newly created sessions; recreate existing sessions to use a new share list.',
+    control: 'list', keywords: ['files', 'context'], defaultValue: ['node_modules', '.env', '.env.local', '.claude'], takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-port', path: 'port', title: 'Local port', group: 'machine-detection-sessions',
+    description: 'Port used by the local dashboard listener. Requires a server restart.',
+    control: 'number', range: PORT_RANGE, unit: { label: 'port', storedPerDisplay: 1 }, keywords: ['server', 'listener'], defaultValue: 3000, takesEffect: 'restart', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-auto-recover-seconds', path: 'autoRecoverSeconds', title: 'Auto-recovery delay', group: 'machine-detection-sessions',
+    description: 'Delay before an interrupted state can recover.',
+    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: SECONDS, keywords: ['timer', 'recovery'], defaultValue: 3, takesEffect: 'new-sessions', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-input-grace-seconds', path: 'inputGraceSeconds', title: 'Input grace period', group: 'machine-detection-sessions',
+    description: 'Grace window around operator input.',
+    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: SECONDS, keywords: ['timer', 'prompt'], defaultValue: 5, takesEffect: 'new-sessions', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-prompt-detection-ms', path: 'promptDetectionMs', title: 'Prompt detection delay', group: 'machine-detection-sessions',
+    description: 'Timing threshold used by prompt detection.',
+    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MILLISECONDS, keywords: ['timer', 'detection'], defaultValue: 1500, takesEffect: 'new-sessions', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-notify-debounce-ms', path: 'notifyDebounceMs', title: 'Notification debounce', group: 'machine-detection-sessions',
+    description: 'Delay used to coalesce notification state changes.',
+    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MILLISECONDS, keywords: ['timer', 'alerts'], defaultValue: 3000, takesEffect: 'new-sessions', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-phone-escalation-ms', path: 'phoneEscalationMs', title: 'Phone escalation delay', group: 'machine-detection-sessions',
+    description: 'Delay before off-dashboard escalation.',
+    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MILLISECONDS, keywords: ['timer', 'telegram'], defaultValue: 300000, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-post-turn-checks', path: 'postTurnChecks', title: 'Post-turn checks', group: 'machine-detection-sessions',
+    description: 'Deterministic checks run after eligible turns. The global mode is a default; project and individual rule modes can select fixes even when the global mode is report.',
+    control: 'json', keywords: ['quality', 'fixes'], defaultValue: { enabled: true, mode: 'report', rules: { trailingWs: true, finalNewline: true, bom: true, slop: false } },
+    takesEffect: 'now', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
+  },
+  {
+    id: 'file-branch-gc-enabled', path: 'branchGc.enabled', title: 'Branch cleanup', group: 'machine-detection-sessions',
+    description: 'Enable cleanup of eligible session branches.',
+    control: 'toggle', keywords: ['git', 'cleanup'], defaultValue: true, takesEffect: 'now', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-branch-gc-worktrees', path: 'branchGc.worktrees', title: 'Local worktree cleanup', group: 'machine-detection-sessions',
+    description: 'Enable cleanup of eligible local worktrees.',
+    control: 'toggle', keywords: ['git', 'worktree', 'cleanup'], defaultValue: true, takesEffect: 'now', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-branch-gc-prefixes', path: 'branchGc.prefixes', title: 'Branch cleanup prefixes', group: 'machine-detection-sessions',
+    description: 'Branch prefixes that filter both remote branch cleanup and local worktree cleanup.',
+    control: 'list', keywords: ['git', 'branch'], defaultValue: ['glimmervoid/session/', 'worktree-agent-'], takesEffect: 'now', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-branch-gc-dry-run', path: 'branchGc.dryRun', title: 'Branch cleanup dry run', group: 'machine-detection-sessions',
+    description: 'Report planned cleanup without deleting remote branches.',
+    control: 'toggle', keywords: ['git', 'safety'], defaultValue: false, takesEffect: 'now', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-branch-gc-stale-days', path: 'branchGc.staleDays', title: 'Branch stale days', group: 'machine-detection-sessions',
+    description: 'Age threshold for orphan branch cleanup when unmerged deletion is on.',
+    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: DAYS, keywords: ['git', 'retention'], defaultValue: 14, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-branch-gc-interval-ms', path: 'branchGc.intervalMs', title: 'Branch cleanup interval', group: 'machine-detection-sessions',
+    description: 'Delay between branch cleanup passes.',
+    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MILLISECONDS, keywords: ['git', 'schedule'], defaultValue: 21600000, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-custom-agents', path: 'customAgents', title: 'Custom agents', group: 'machine-detection-sessions',
+    description: 'Extra agent CLIs a session can be spawned with. The General section lists the declared agents and whether each command resolves.',
+    control: 'json', keywords: ['adapters', 'cli'], defaultValue: [], takesEffect: 'new-sessions', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
+  },
+  {
+    id: 'file-task-title-refiner-enabled', path: 'taskTitle.refiner.enabled', title: 'Refine task titles', group: 'machine-detection-sessions',
+    description: 'Keep session card titles useful when prompts change topic by asking a model for a short title.',
+    control: 'toggle', keywords: ['title', 'refiner', 'card'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-task-title-refiner-model', path: 'taskTitle.refiner.model', title: 'Task title model', group: 'machine-detection-sessions',
+    description: 'Claude model alias the title refiner asks.',
+    control: 'text', keywords: ['title', 'refiner', 'model'], defaultValue: 'haiku', takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-task-title-refiner-min-interval', path: 'taskTitle.refiner.minIntervalSeconds', title: 'Task title refresh interval (seconds)', group: 'machine-detection-sessions',
+    description: 'Shortest pause between two title refinements of one session.',
+    control: 'number', integer: false, step: 'any', range: NON_NEGATIVE_NUMBER_RANGE, unit: SECONDS, keywords: ['title', 'refiner', 'interval'], defaultValue: 60, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-task-title-refiner-timeout', path: 'taskTitle.refiner.timeoutSeconds', title: 'Task title timeout (seconds)', group: 'machine-detection-sessions',
+    description: 'Maximum time allowed for one title refinement.',
+    control: 'number', integer: false, step: 'any', range: TASK_TITLE_TIMEOUT_RANGE, unit: SECONDS, keywords: ['title', 'refiner', 'deadline'], defaultValue: 60, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-usage-codex', path: 'usage.vendors.codex', title: 'Track Codex usage', group: 'machine-usage',
+    description: 'Include local Codex CLI transcripts in usage reports.',
+    control: 'toggle', keywords: ['openai', 'vendor'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-usage-grok', path: 'usage.vendors.grok', title: 'Track Grok usage', group: 'machine-usage',
+    description: 'Include local Grok CLI transcripts in usage reports.',
+    control: 'toggle', keywords: ['xai', 'vendor'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-usage-fetch-pricing', path: 'usage.fetchPricing', title: 'Fetch current model prices', group: 'machine-usage',
+    description: 'Load public model prices when usage tracking starts, using a cached table for up to one day. Falls back to cached or bundled prices if the fetch fails; no daily refresh runs while tracking continues.',
+    control: 'toggle', keywords: ['rates', 'models'], defaultValue: true, takesEffect: 'restart', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-usage-plan-limits', path: 'usage.planLimits', title: 'Show plan limits', group: 'machine-usage',
+    description: 'Read the Claude plan limit the CLI reports and show it beside usage.',
+    control: 'toggle', keywords: ['plan', 'limits', 'quota'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-usage-rtk-savings', path: 'usage.rtkSavings', title: 'Estimate rtk savings', group: 'machine-usage',
+    description: 'Estimate the tokens rtk output compression saved and show it in the Usage view.',
+    control: 'toggle', keywords: ['rtk', 'savings', 'tokens'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-usage-scan-interval', path: 'usage.scanIntervalMinutes', title: 'Scan interval (minutes)', group: 'machine-usage',
+    description: 'Periodic transcript polling interval. Session activity can also trigger scans between timer ticks.',
+    control: 'number', range: USAGE_SCAN_INTERVAL_RANGE, unit: MINUTES, keywords: ['poll', 'refresh'], defaultValue: 5, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-usage-warehouse-retain-days', path: 'usage.warehouseRetainDays', title: 'Retain usage history (days)', group: 'machine-usage',
+    description: 'How long the daily usage warehouse keeps rolled-up totals after transcript detail expires.',
+    control: 'number', range: USAGE_INTEGER_RANGES.warehouseRetainDays, unit: DAYS, keywords: ['history', 'warehouse', 'retention'], defaultValue: 365, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-usage-session-block-hours', path: 'usage.sessionBlockHours', title: 'Session block length (hours)', group: 'machine-usage',
+    description: 'Length of the rolling block the Usage view groups activity into.',
+    control: 'number', range: USAGE_INTEGER_RANGES.sessionBlockHours, unit: HOURS, keywords: ['block', 'window', 'hours'], defaultValue: 5, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-usage-cost-mode', path: 'usage.costMode', title: 'Cost mode', group: 'machine-usage',
+    description: 'Choose whether recorded costs, calculated costs or both can appear.',
+    control: 'select', options: capitalizedOptions(USAGE_COST_MODES), keywords: ['pricing', 'estimate'], defaultValue: 'auto', takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-usage-extra-projects-dirs', path: 'usage.extraProjectsDirs', title: 'Extra transcript folders', group: 'machine-usage',
+    description: 'Absolute paths of additional Claude projects folders the usage scan reads.',
+    control: 'list', keywords: ['transcripts', 'folders', 'scan'], defaultValue: [], takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-change-map-narrator-timeout', path: 'changeMap.narrator.timeoutSeconds', title: 'Narrator timeout (seconds)', group: 'lanes-change-map',
+    description: 'Maximum time allowed for one narration.',
+    control: 'number', range: CHANGE_MAP_NARRATOR_TIMEOUT_RANGE, unit: SECONDS, keywords: ['deadline', 'narration'], defaultValue: 90, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-visions-quiet-delay', path: 'visions.dispatch.quietMs', title: 'Quiet delay (ms)', group: 'lanes-visions',
+    description: 'Editor quiet time before a scheduled review. Saves and blank-line boundaries can dispatch immediately, subject to the other review limits.',
+    control: 'number', range: POSITIVE_NUMBER_RANGE, unit: MILLISECONDS, keywords: ['debounce', 'idle'], defaultValue: 30000, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-visions-cooldown', path: 'visions.dispatch.cooldownMs', title: 'Cooldown (ms)', group: 'lanes-visions',
+    description: 'Minimum delay between reviews of the same document. Initial orientation reviews bypass this delay.',
+    control: 'number', range: POSITIVE_NUMBER_RANGE, unit: MILLISECONDS, keywords: ['rate limit', 'delay'], defaultValue: 300000, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-visions-activity-max-per-hour', path: 'visions.dispatch.activityMaxPerHour', title: 'Activity max per hour', group: 'lanes-visions',
+    description: 'Maximum activity-driven reviews dispatched per hour, capped at the overall hourly limit minus one to reserve an edit-review slot.',
+    control: 'number', range: NON_NEGATIVE_NUMBER_RANGE, unit: PER_HOUR, keywords: ['rate limit', 'events'], defaultValue: 2, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-visions-dispatch-timeout', path: 'visions.dispatch.dispatchTimeoutSeconds', title: 'Dispatch timeout (seconds)', group: 'lanes-visions',
+    description: 'Maximum time allowed for one review session.',
+    control: 'number', range: POSITIVE_NUMBER_RANGE, unit: SECONDS, keywords: ['deadline', 'review'], defaultValue: 180, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-visions-intent-thread-ttl', path: 'visions.intent.threadTtlMs', title: 'Intent thread lifetime (ms)', group: 'lanes-visions',
+    description: 'How long an intent thread nobody advanced stays live before it retires.',
+    control: 'number', range: POSITIVE_NUMBER_RANGE, unit: MILLISECONDS, keywords: ['intent', 'decay', 'thread'], defaultValue: 259200000, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-ingest-terminal', path: 'ingest.sources.terminal.enabled', title: 'Terminal output source', group: 'lanes-ingest',
+    description: 'Include terminal output in the ingest feed.',
+    control: 'toggle', keywords: ['pty', 'source'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-ingest-agent-logs', path: 'ingest.sources.agentLogs.enabled', title: 'Agent logs source', group: 'lanes-ingest',
+    description: 'Include local agent logs in the ingest feed.',
+    control: 'toggle', keywords: ['transcript', 'source'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-ingest-git', path: 'ingest.sources.git.enabled', title: 'Git activity source', group: 'lanes-ingest',
+    description: 'Include local Git activity in the ingest feed.',
+    control: 'toggle', keywords: ['commits', 'source'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-ingest-fs', path: 'ingest.sources.fs.enabled', title: 'File changes source', group: 'lanes-ingest',
+    description: 'Include watched file changes in the ingest feed.',
+    control: 'toggle', keywords: ['filesystem', 'source'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-ingest-shell-history', path: 'ingest.sources.shellHistory.enabled', title: 'Shell history source', group: 'lanes-ingest',
+    description: 'Include local shell history in the ingest feed.',
+    control: 'toggle', keywords: ['commands', 'source'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-ingest-editor', path: 'ingest.sources.editor.enabled', title: 'Editor events source', group: 'lanes-ingest',
+    description: 'Include local editor events in the ingest feed.',
+    control: 'toggle', keywords: ['buffers', 'source'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-posthog-investigation-timeout', path: 'posthog.investigationTimeoutSeconds', title: 'Investigation timeout (seconds)', group: 'lanes-posthog',
+    description: 'Maximum time allowed for one investigation.',
+    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: SECONDS, keywords: ['deadline', 'session'], defaultValue: 900, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-posthog-escalation', path: 'posthog.userEscalationThreshold', title: 'Escalation threshold (users)', group: 'lanes-posthog',
+    description: 'Affected-user count that escalates an issue.',
+    control: 'number', range: POSITIVE_NUMBER_RANGE, unit: USERS, keywords: ['threshold', 'severity'], defaultValue: 25, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-posthog-fix-timeout', path: 'posthog.fixTimeoutSeconds', title: 'Fix timeout (seconds)', group: 'lanes-posthog',
+    description: 'Maximum time allowed for one fix session.',
+    control: 'number', integer: false, step: 'any', range: POSTHOG_FIX_TIMEOUT_RANGE, unit: SECONDS, keywords: ['deadline', 'repair'], defaultValue: 1800, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-posthog-traffic-multiplier', path: 'posthog.trafficSpikeMultiplier', title: 'Spike multiplier', group: 'lanes-posthog',
+    description: 'Baseline multiplier required to classify a traffic spike.',
+    control: 'number', integer: false, step: 'any', range: POSTHOG_TRAFFIC_MULTIPLIER_RANGE, unit: MULTIPLIER, keywords: ['baseline', 'ratio'], defaultValue: 3, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-posthog-traffic-min-users', path: 'posthog.trafficSpikeMinUsers', title: 'Min users to alert', group: 'lanes-posthog',
+    description: 'Minimum recent unique users for an initial traffic-spike alert. Escalation and recovery alerts bypass this minimum.',
+    control: 'number', range: POSTHOG_TRAFFIC_MIN_USERS_RANGE, unit: USERS, keywords: ['threshold', 'analytics'], defaultValue: 10, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-posthog-traffic-cooldown', path: 'posthog.trafficSpikeCooldownMinutes', title: 'Spike cooldown (minutes)', group: 'lanes-posthog',
+    description: 'Cooldown for new traffic spikes. Escalation and recovery alerts bypass it. Zero removes the time delay; repeated active-spike alerts are still suppressed.',
+    control: 'number', integer: false, step: 'any', range: NON_NEGATIVE_NUMBER_RANGE, unit: MINUTES, keywords: ['silence', 'delay'], defaultValue: 360, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-posthog-traffic-baseline', path: 'posthog.trafficSpikeBaselineDays', title: 'Baseline window (days)', group: 'lanes-posthog',
+    description: 'Historical window used to calculate normal hourly traffic.',
+    control: 'number', range: POSTHOG_TRAFFIC_BASELINE_RANGE, unit: DAYS, keywords: ['history', 'analytics'], defaultValue: 7, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-posthog-recurrence-dedupe', path: 'posthog.recurrenceDedupe', title: 'Deduplicate recurring issues', group: 'lanes-posthog',
+    description: 'Treat an issue seen again inside the recurrence window as the same investigation instead of opening a new one.',
+    control: 'toggle', keywords: ['recurrence', 'dedupe', 'issues'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-posthog-recurrence-window-days', path: 'posthog.recurrenceWindowDays', title: 'Recurrence window (days)', group: 'lanes-posthog',
+    description: 'How far back an issue counts as a recurrence of an investigated one.',
+    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: DAYS, keywords: ['recurrence', 'window'], defaultValue: 7, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-posthog-transient-recurrence-limit', path: 'posthog.transientRecurrenceLimit', title: 'Transient recurrence limit', group: 'lanes-posthog',
+    description: 'How many times a transient issue may recur before it is investigated again.',
+    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: WHOLE, keywords: ['recurrence', 'transient', 'limit'], defaultValue: 3, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-posthog-repo-path', path: 'posthog.repoPath', title: 'Repository path', group: 'lanes-posthog',
+    description: 'Absolute path of the local checkout investigations read and fixes branch from, for every project the project map does not name.',
+    control: 'text', keywords: ['repository', 'checkout', 'path'], defaultValue: '', takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-posthog-project-map', path: 'posthog.projectMap', title: 'Project map', group: 'lanes-posthog',
+    description: 'PostHog project id to a label: the name shown for that project, and, when it is an absolute path to a checkout, the repository its issues are investigated in.',
+    control: 'json', keywords: ['projects', 'repositories', 'map'], defaultValue: {}, takesEffect: 'now', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
+  },
+  {
+    id: 'file-team-review-org', path: 'teamReview.org', title: 'GitHub organization (legacy)', group: 'lanes-team-review',
+    description: 'Organization login that owns the team, for example PostHog. Read only when github.teams is empty.',
+    control: 'text', keywords: ['github', 'owner', 'legacy'], defaultValue: '', takesEffect: 'now',
+    fileOnlyReason: 'A legacy key: github.teams names teams as org/slug entries and wins whenever it is set.', ...FILE_ONLY,
+  },
+  {
+    id: 'file-team-review-team', path: 'teamReview.team', title: 'GitHub team (legacy)', group: 'lanes-team-review',
+    description: 'Team slug whose members and review requests are polled. Read only when github.teams is empty.',
+    control: 'text', keywords: ['github', 'slug', 'legacy'], defaultValue: '', takesEffect: 'now',
+    fileOnlyReason: 'A legacy key: github.teams names teams as org/slug entries and wins whenever it is set.', ...FILE_ONLY,
+  },
+  {
+    id: 'file-workflows-max-actions-per-poll', path: 'workflows.maxActionsPerPoll', title: 'Actions per poll', group: 'lanes-workflows',
+    description: 'Most actions run in one poll. The rest are dropped and logged.',
+    control: 'number', range: WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE, unit: WHOLE, keywords: ['cap', 'rate limit'], defaultValue: 20, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-workflows-rules', path: 'workflows.rules', title: 'Workflow rule definitions', group: 'lanes-workflows',
+    description: 'The rules the Workflows section switches on and off: each names its repositories, one pull request event, its filters and its actions.',
+    control: 'json', keywords: ['pull requests', 'automation', 'rules'], defaultValue: [], takesEffect: 'now',
+    fileOnlyReason: 'Rule definitions are written in config.json; the Workflows section only switches each rule on or off.', ...FILE_ONLY,
+  },
+]);
+
+export const SETTINGS_REGISTRY: SettingsRegistry = Object.freeze({ sections: SECTIONS, fileOnly: FILE_ONLY_SETTINGS });
+
+export const SETTINGS_SECTION_ALIASES: Readonly<Record<string, string>> = Object.freeze(Object.fromEntries(
+  SECTIONS.flatMap((section) => (section.legacyIds ?? []).map((legacyId) => [legacyId, section.id])),
+));
+
+export const SETTINGS_MOVED_SETTINGS: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.freeze(
+  SECTIONS.reduce<Record<string, Record<string, string>>>((moved, section) => {
+    for (const setting of section.settings) {
+      for (const legacy of setting.legacyIds ?? []) {
+        moved[legacy.sectionId] = { ...moved[legacy.sectionId], [legacy.settingId]: section.id };
+      }
+    }
+    return moved;
+  }, {}),
+);

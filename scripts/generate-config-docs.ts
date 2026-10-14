@@ -2,10 +2,10 @@ import { isRecord } from "../shared/coerce.ts";
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { SETTINGS_MAP } from '../public/settings/settings-map.ts';
-import type { SettingsSection, SettingsSetting } from '../public/settings/settings-map.ts';
+import { FILE_ONLY_GROUPS, SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
+import type { SettingsRegistry, SettingsSection, SettingsSetting } from '../shared/settings/registry.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
-import { Config, HIDDEN_CONFIG_KEYS } from '../shared/contracts/config.ts';
+import { Config } from '../shared/contracts/config.ts';
 import {
   TELEMETRY_BASE_PROPERTY_KEYS, TELEMETRY_EVENT_SCHEMAS, TELEMETRY_EVENTS, TELEMETRY_KILL_SWITCH_FLAG, TELEMETRY_OPTIONAL_BASE_PROPERTY_KEYS,
 } from '../shared/contracts/telemetry.ts';
@@ -39,12 +39,10 @@ export const ENVIRONMENT_VARIABLES: readonly EnvironmentVariable[] = Object.free
 ]);
 
 export const UNLISTED_KEY_NOTES: Readonly<Record<string, string>> = Object.freeze({
-  coder: '**File-only.** Set `coder.appSlug` to an existing `coder_app` slug on the workspace agent to prevent Coder autostop while Glimmervoid sessions are running. Requires `CODER_AGENT_URL` and `CODER_AGENT_TOKEN` (or `CODER_AGENT_TOKEN_FILE`) in the environment; Coder supplies them when started from a workspace terminal or startup script.',
+  coder: 'Set `coder.appSlug` to an existing `coder_app` slug on the workspace agent to prevent Coder autostop while Glimmervoid sessions are running. Requires `CODER_AGENT_URL` and `CODER_AGENT_TOKEN` (or `CODER_AGENT_TOKEN_FILE`) in the environment; Coder supplies them when started from a workspace terminal or startup script.',
   projects: 'Projects shown in the dashboard, added from the Add Session dialog. Each entry has `path` (required), optional `name`, `repos` (two or more member repositories for a workspace session), `agent` (an agent id, see `customAgents`) and `codexBypassHookTrust` (file-only, default off).',
   remote: 'Opt-in remote listener: `enabled`, `port` (required when enabled, must differ from the local port), `publicHost`, `allowedOrigins` and `ownerLogin` (when set, only that Tailscale login is answered; trustworthy only when the remote port is reached solely through HTTP-mode `tailscale serve`, since any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, lets a client send its own `Tailscale-User-Login`). See [Remote access](../README.md#remote-access).',
   hooks: 'Operator-defined hooks per project, managed from the dashboard Hooks panel.',
-  worktreeSyncOnStart: 'Fetch origin and fast-forward the local integration branch before a session starts its worktree.',
-  taskTitle: 'The refiner keeps session card titles useful when prompts change topic; its model and timing remain file-only to keep advanced tuning out of Settings.',
   planReview: 'Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`).',
 });
 
@@ -80,45 +78,48 @@ function rootKeyOf(settingPath: string): string {
   return settingPath.split('.')[0];
 }
 
-function isFileOnly(setting: SettingsSetting): boolean {
-  if (setting.fileOnly) return true;
-  return HIDDEN_CONFIG_KEYS.includes(rootKeyOf(setting.path));
-}
-
-function isStatusDisplay(setting: SettingsSetting): boolean {
-  return setting.control === 'readonly' && Boolean(setting.status) && !setting.fileOnly;
+function isConfigKeyRow(setting: SettingsSetting): boolean {
+  return !setting.path.startsWith('status:') && !setting.path.startsWith('pref:');
 }
 
 function configRowsOf(section: SettingsSection): SettingsSetting[] {
-  const seenPaths = new Set<string>();
-  const rows: SettingsSetting[] = [];
-  for (const setting of section.settings) {
-    if (isStatusDisplay(setting) || seenPaths.has(setting.path)) continue;
-    seenPaths.add(setting.path);
-    rows.push(setting);
-  }
-  return rows;
+  return section.settings.filter(isConfigKeyRow);
+}
+
+function fileOnlyRowsOf(registry: SettingsRegistry, groupId: string): SettingsSetting[] {
+  return registry.fileOnly.filter((setting) => setting.group === groupId);
 }
 
 function settingRow(setting: SettingsSetting): string {
-  const notes = [setting.description ?? '', isFileOnly(setting) ? '**File-only.**' : ''].filter(Boolean).join(' ');
+  const fileOnlyNote = setting.access === 'file-only' ? `**File-only.** ${setting.fileOnlyReason ?? ''}` : '';
+  const notes = [setting.description, fileOnlyNote].filter(Boolean).join(' ');
   return `| \`${setting.path}\` | ${escapeCell(setting.title)} | ${formatDefault(resolvedDefault(setting))} | ${escapeCell(notes)} |`;
 }
 
-function sectionMarkdown(section: SettingsSection): string[] {
-  const rows = configRowsOf(section);
+function settingsTable(title: string, description: string, rows: readonly SettingsSetting[], preamble: readonly string[] = []): string[] {
   if (rows.length === 0) return [];
-  const lines = [`### ${section.title}`, '', section.description ?? '', ''];
-  if (section.id === 'lanes-posthog') {
-    lines.push('The PostHog lane only starts when `posthog.host`, `posthog.apiKey`, `telegram.botToken` and `telegram.chatId` are all set: its alerts go to Telegram, so configure the Telegram section first.', '');
-  }
-  lines.push('| Key | Setting | Default | Notes |', '|-----|---------|---------|-------|');
-  lines.push(...rows.map(settingRow), '');
-  return lines;
+  return [
+    `### ${title}`, '', description, '',
+    ...preamble,
+    '| Key | Setting | Default | Notes |', '|-----|---------|---------|-------|',
+    ...rows.map(settingRow), '',
+  ];
+}
+
+function sectionMarkdown(registry: SettingsRegistry, section: SettingsSection): string[] {
+  const rows = [...configRowsOf(section), ...fileOnlyRowsOf(registry, section.id)];
+  const preamble = section.id === 'lanes-posthog'
+    ? ['The PostHog lane only starts when `posthog.host`, `posthog.apiKey`, `telegram.botToken` and `telegram.chatId` are all set: its alerts go to Telegram, so configure the Telegram section first.', '']
+    : [];
+  return settingsTable(section.title, section.description, rows, preamble);
+}
+
+function fileOnlyGroupsMarkdown(registry: SettingsRegistry): string[] {
+  return Object.entries(FILE_ONLY_GROUPS).flatMap(([groupId, group]) => settingsTable(group.title, group.description, fileOnlyRowsOf(registry, groupId)));
 }
 
 function browserPreferencesMarkdown(sections: readonly SettingsSection[]): string[] {
-  const rows = sections.filter((section) => section.level === BROWSER_LEVEL).flatMap(configRowsOf);
+  const rows = sections.filter((section) => section.level === BROWSER_LEVEL).flatMap((section) => section.settings);
   return [
     '## Browser preferences',
     '',
@@ -126,18 +127,21 @@ function browserPreferencesMarkdown(sections: readonly SettingsSection[]): strin
     '',
     '| Setting | Default | Notes |',
     '|---------|---------|-------|',
-    ...rows.map((setting) => `| ${escapeCell(setting.title)} | ${formatDefault(setting.defaultValue)} | ${escapeCell(setting.description ?? '')} |`),
+    ...rows.map((setting) => `| ${escapeCell(setting.title)} | ${formatDefault(setting.defaultValue)} | ${escapeCell(setting.description)} |`),
     '',
   ];
 }
 
-export function unlistedConfigKeys(sections: readonly SettingsSection[] = SETTINGS_MAP): string[] {
-  const listedRoots = new Set(sections.flatMap((section) => section.settings.map((setting) => rootKeyOf(setting.path))));
+export function unlistedConfigKeys(registry: SettingsRegistry = SETTINGS_REGISTRY): string[] {
+  const listedRoots = new Set([
+    ...registry.sections.flatMap((section) => configRowsOf(section).map((setting) => rootKeyOf(setting.path))),
+    ...registry.fileOnly.map((setting) => rootKeyOf(setting.path)),
+  ]);
   return Object.keys(Config.shape).filter((key) => !listedRoots.has(key));
 }
 
-function unlistedKeysMarkdown(sections: readonly SettingsSection[]): string[] {
-  const rows = unlistedConfigKeys(sections).map((key) => `| \`${key}\` | ${formatDefault(defaultAtPath(key))} | ${escapeCell(UNLISTED_KEY_NOTES[key] ?? '')} |`);
+function unlistedKeysMarkdown(registry: SettingsRegistry): string[] {
+  const rows = unlistedConfigKeys(registry).map((key) => `| \`${key}\` | ${formatDefault(defaultAtPath(key))} | ${escapeCell(UNLISTED_KEY_NOTES[key] ?? '')} |`);
   return [
     '## Keys outside the Settings view',
     '',
@@ -188,26 +192,27 @@ function environmentMarkdown(): string[] {
 }
 
 export function renderConfigurationDoc(): string {
-  const sections: readonly SettingsSection[] = SETTINGS_MAP;
-  const configSections = sections.filter((section) => section.level !== BROWSER_LEVEL);
+  const registry = SETTINGS_REGISTRY;
+  const configSections = registry.sections.filter((section) => section.level !== BROWSER_LEVEL);
   const lines = [
     '# Configuration reference',
     '',
-    'Generated by `npm run docs:config` from `public/settings/settings-map.ts`, `shared/contracts/config.ts` and the defaults in `server/config-store.ts`. Do not edit it by hand: `tests/config-docs.test.ts` fails when it drifts from the code.',
+    'Generated by `npm run docs:config` from `shared/settings/registry.ts`, `shared/contracts/config.ts` and the defaults in `server/config-store.ts`. Do not edit it by hand: `tests/config-docs.test.ts` fails when it drifts from the code.',
     '',
     '## Where the config lives',
     '',
     'Glimmervoid reads `GLIMMERVOID_CONFIG` (or `--config <path>`) when set, and that file must exist. Otherwise it uses `config.json` under `GLIMMERVOID_HOME`, which defaults to `~/.glimmervoid`, and creates it with defaults on first run.',
     '',
-    'Most settings are edited from the dashboard Settings view. Rows marked **File-only** are changed by editing `config.json`, which the server watches and reloads. A block key such as `posthog` accepts more nested keys than listed here; `shared/contracts/config.ts` is the full schema.',
+    'Most settings are edited from the dashboard Settings view. Rows marked **File-only** are changed by editing `config.json`, which the server watches and reloads; the dashboard search still finds them and shows their key. A block key such as `posthog` accepts more nested keys than listed here; `shared/contracts/config.ts` is the full schema.',
     '',
     '## Settings',
     '',
-    ...configSections.flatMap(sectionMarkdown),
-    ...unlistedKeysMarkdown(sections),
+    ...configSections.flatMap((section) => sectionMarkdown(registry, section)),
+    ...fileOnlyGroupsMarkdown(registry),
+    ...unlistedKeysMarkdown(registry),
     ...environmentMarkdown(),
     ...telemetryMarkdown(),
-    ...browserPreferencesMarkdown(sections),
+    ...browserPreferencesMarkdown(registry.sections),
   ];
   return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`;
 }

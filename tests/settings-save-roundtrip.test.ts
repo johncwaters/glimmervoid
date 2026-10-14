@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SETTINGS_MAP } from '../public/settings/settings-map.ts';
+import { SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
 import { collectDirtyBlocks, hydrateFromSettings } from '../public/settings/settings-view-core.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
@@ -11,6 +11,8 @@ interface SettingsFrame {
   message?: string;
   settings?: Record<string, unknown>;
 }
+
+const SETTINGS_MAP = SETTINGS_REGISTRY.sections;
 
 const serverSavedToggles = SETTINGS_MAP
   .filter((section) => section.level !== 'browser')

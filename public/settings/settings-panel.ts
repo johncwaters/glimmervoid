@@ -2,7 +2,6 @@ import { renderCompactStatusPreview } from '../compact-status-preview.ts';
 import { renderFlyingAnimalsGallery } from '../flying-animals-gallery.ts';
 import { onLayoutChange } from '../form-factor.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';
-import { SETTINGS_RANGES } from '#shared/settings-ranges.ts';
 import type { CustomAgentSummaryRow } from '#shared/contracts/control-messages.ts';
 import type { UpdateJournal } from '#shared/contracts/update-journal.ts';
 import { REPO_SLUG } from '#shared/repo.ts';
@@ -12,30 +11,28 @@ import { el } from '../dom-helpers.ts';
 import { ensureNotificationPermission, notificationPermission, notificationsSupported } from '../notifications.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
-import type { SettingsSection, SettingsSetting, SettingsOption, WorkflowRuleToggleRow } from './settings-map.ts';
-import {
-  SETTINGS_MAP, SETTINGS_MOVED_SETTINGS, SETTINGS_SECTION_ALIASES, withoutWorkflowRuleDefinitions, workflowRuleSummaryLines, workflowRuleToggleRows,
-} from './settings-map.ts';
+import type { SettingsLevel, SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
+import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '#shared/settings/registry.ts';
+import type { SettingsSearchResult } from '#shared/settings/registry-core.ts';
+import { orderSections, parseSettingsHash, scoreSettingsSearch, sectionsByLevel } from '#shared/settings/registry-core.ts';
 import {
   buildProjectSections,
   collectDirtyBlocks,
   enrichProjectsById,
   firstProjectPerPath,
   hydrateFromSettings,
-  orderSections,
   pairedSettingOf,
-  parseSettingsHash,
   rehydratePreservingDirtySections,
   resolveEntry,
-  scoreSettingsSearch,
-  sectionsByLevel,
   shouldShowDangerWarning,
   secretEnvironmentSource,
-  visionsActivityLimitText,
   rtkInstallStatusText,
   validateLocally,
+  withoutWorkflowRuleDefinitions,
+  workflowRuleSummaryLines,
+  workflowRuleToggleRows,
 } from './settings-view-core.ts';
-import type { SettingsPayload, SettingsProject, SettingsValues } from './settings-view-core.ts';
+import type { SettingsPayload, SettingsProject, SettingsValues, WorkflowRuleToggleRow } from './settings-view-core.ts';
 import { includesRepositoryRoot, projectSelectionChoices } from './settings-projects-core.ts';
 import { appendShortcutChord, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { isStreamerMode, onStreamerModeChanged, saveStreamerMode } from '../streamer-mode.ts';
@@ -82,13 +79,9 @@ import {
 } from '../updates-view-core.ts';
 import type { UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from '../updates-view-core.ts';
 
-const RANGES_BY_NAME: Record<string, SettingsRange> = SETTINGS_RANGES;
+type SectionSearchResult = SettingsSearchResult & { section: SettingsSection };
 
-interface SearchResult {
-  section: SettingsSection;
-  setting: SettingsSetting;
-  score: number;
-}
+const LEVEL_ORDER: readonly SettingsLevel[] = ['browser', 'machine', 'lanes', 'projects'];
 
 const OPTION_CATALOGS: Readonly<Record<string, () => { id: string; label: string }[]>> = Object.freeze({
   sounds: () => soundOptions(),
@@ -105,7 +98,7 @@ function resolveSettingOptions(setting: SettingsSetting): SettingsSetting {
 }
 
 function buildStaticSettingsViewMap() {
-  return Object.freeze(SETTINGS_MAP.map((section) => ({
+  return Object.freeze(SETTINGS_REGISTRY.sections.map((section) => ({
     ...section,
     settings: section.settings.map(resolveSettingOptions),
   })));
@@ -115,7 +108,7 @@ let staticSettingsViewMap = buildStaticSettingsViewMap();
 
 let SETTINGS_VIEW_MAP = orderSections(staticSettingsViewMap);
 
-const LEVEL_LABELS: Readonly<Record<string, string>> = Object.freeze({
+const LEVEL_LABELS: Readonly<Record<SettingsLevel, string>> = Object.freeze({
   browser: 'This browser',
   machine: 'Machine',
   lanes: 'Lanes',
@@ -315,7 +308,7 @@ function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
   }
   const writeFlyingAnimalsPreference = FLYING_ANIMALS_PREFERENCE_WRITERS[setting.path];
   if (writeFlyingAnimalsPreference) {
-    const errors = validateLocally([selectedSection], editedValues ?? {}, RANGES_BY_NAME);
+    const errors = validateLocally([selectedSection], editedValues ?? {});
     if (errors[setting.id]) return;
     writeFlyingAnimalsPreference(value);
     const pairedSetting = pairedSettingOf([selectedSection], setting);
@@ -341,7 +334,7 @@ function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
 function refreshFooter() {
   if (!contentEl || !editedValues) return;
   contentEl.querySelector('.settings-view-footer')?.remove();
-  const errors = validateLocally([selectedSection], editedValues, RANGES_BY_NAME);
+  const errors = validateLocally([selectedSection], editedValues);
   const footer = renderFooter(errors);
   if (footer) contentEl.appendChild(footer);
 }
@@ -404,13 +397,13 @@ function renderInput(setting: SettingsSetting) {
 
 function renderNumber(setting: SettingsSetting) {
   const input = el('input', 'settings-view-input');
-  const range = RANGES_BY_NAME[setting.range ?? ''];
+  const range = setting.range;
   input.type = 'number';
   input.value = String(settingValue(setting) ?? '');
   input.step = String(setting.step ?? 1);
-  const minimum = inputMinimum(setting, range);
+  const minimum = range ? inputMinimum(setting, range) : undefined;
   if (minimum != null) input.min = String(minimum);
-  if (range.max != null) input.max = String(range.max);
+  if (range?.max != null) input.max = String(range.max);
   input.autocomplete = 'off';
   input.setAttribute('aria-labelledby', setting.id);
   if (setting.commitOnChange) {
@@ -424,7 +417,7 @@ function renderNumber(setting: SettingsSetting) {
 function renderSelect(setting: SettingsSetting) {
   const select = el('select', 'settings-view-input');
   select.setAttribute('aria-labelledby', setting.id);
-  for (const choice of setting.options as SettingsOption[]) {
+  for (const choice of setting.options ?? []) {
     const option = el('option', null, choice.label);
     option.value = choice.value;
     select.appendChild(option);
@@ -637,11 +630,12 @@ function renderReadonly(setting: SettingsSetting) {
   if (setting.status === 'update-latest') return buildLatestUpdateStatus();
   if (setting.status === 'update-last-checked') return buildLastUpdateCheckStatus();
   if (setting.status === 'update-actions') return buildUpdateActions();
+  if (setting.status === 'custom-agents' || setting.status === 'workflows') return document.createDocumentFragment();
   return el('div', 'settings-readonly', String(setting.value || 'Not configured'));
 }
 
 function renderControl(setting: SettingsSetting) {
-  if (setting.fileOnly) return renderFileOnly(setting);
+  if (setting.access === 'file-only') return renderFileOnly(setting);
   if (setting.control === 'readonly') return renderReadonly(setting);
   if (setting.control === 'toggle') return renderToggle(setting);
   if (setting.control === 'number') return renderNumber(setting);
@@ -654,7 +648,6 @@ function renderControl(setting: SettingsSetting) {
 function statusText(setting: SettingsSetting) {
   const environmentSource = secretEnvironmentSource(setting, settingsPayload);
   if (environmentSource) return `Supplied by ${environmentSource}. Change the server environment and restart to replace this credential.`;
-  if (setting.status === 'visions-activity-limit') return visionsActivityLimitText(editedValues || {});
   if (setting.id === 'desktop-notifications' && !notificationsSupported()) {
     return 'Desktop notifications are unavailable for this page.';
   }
@@ -755,7 +748,7 @@ function revertSelectedSection() {
 async function saveSelectedSection() {
   const section = selectedSection;
   const sectionMap = [section];
-  const errors = validateLocally(sectionMap, editedValues ?? {}, RANGES_BY_NAME);
+  const errors = validateLocally(sectionMap, editedValues ?? {});
   if (Object.keys(errors).length > 0) {
     serverError = 'Fix the highlighted settings before saving.';
     renderContent();
@@ -964,11 +957,11 @@ function renderContent() {
     return;
   }
 
-  const errors = validateLocally([selectedSection], editedValues, RANGES_BY_NAME);
+  const errors = validateLocally([selectedSection], editedValues);
   const stack = el('div', 'settings-view-stack');
-  for (const setting of selectedSection.settings.filter((entry) => !entry.advanced)) stack.appendChild(renderSetting(setting, errors));
+  for (const setting of selectedSection.settings.filter((entry) => entry.access !== 'advanced')) stack.appendChild(renderSetting(setting, errors));
   if (selectedSection.id === 'browser-flying-animals') stack.append(renderFlyingAnimalsGallery());
-  const advancedSettings = selectedSection.settings.filter((entry) => entry.advanced);
+  const advancedSettings = selectedSection.settings.filter((entry) => entry.access === 'advanced');
   if (advancedSettings.length > 0) stack.append(renderAdvancedSettings(advancedSettings, errors));
   for (const link of selectedSection.unattendedLinks || []) {
     const row = el('div', 'settings-view-unattended-link');
@@ -1012,7 +1005,11 @@ function markCurrentSection(container: Element | null) {
   }
 }
 
-function chooseSearchResult(searchResult: SearchResult) {
+function hasSection(result: SettingsSearchResult): result is SectionSearchResult {
+  return result.section !== null;
+}
+
+function chooseSearchResult(searchResult: SectionSearchResult) {
   setSectionPickerOpen(false);
   if (!searchEl) return;
   searchEl.value = '';
@@ -1021,21 +1018,39 @@ function chooseSearchResult(searchResult: SearchResult) {
   selectSection(searchResult.section.id, { settingId: searchResult.setting.id });
 }
 
-function appendSearchResults(target: HTMLElement, results: SearchResult[]) {
+function searchSettings(query: string) {
+  return scoreSettingsSearch(SETTINGS_VIEW_MAP, query, SETTINGS_REGISTRY.fileOnly);
+}
+
+const FILE_ONLY_RESULT_GROUP = 'config.json';
+
+function appendFileOnlyResult(group: HTMLElement, result: SettingsSearchResult) {
+  const row = el('div', 'settings-view-nav-item settings-view-search-result settings-view-search-file-only', result.setting.title);
+  row.appendChild(el('code', 'settings-view-key-path', result.setting.path));
+  row.title = result.setting.fileOnlyReason ?? '';
+  group.appendChild(row);
+}
+
+function appendSearchResults(target: HTMLElement, results: SettingsSearchResult[]) {
   if (results.length === 0) {
     target.appendChild(el('div', 'settings-empty settings-view-search-empty', 'No settings found.'));
     return;
   }
-  const resultsBySection = new Map<string, SearchResult[]>();
+  const resultsByGroup = new Map<string, SettingsSearchResult[]>();
   for (const result of results) {
-    if (!resultsBySection.has(result.section.id)) resultsBySection.set(result.section.id, []);
-    resultsBySection.get(result.section.id)?.push(result);
+    const groupId = result.section?.id ?? FILE_ONLY_RESULT_GROUP;
+    if (!resultsByGroup.has(groupId)) resultsByGroup.set(groupId, []);
+    resultsByGroup.get(groupId)?.push(result);
   }
-  for (const sectionResults of resultsBySection.values()) {
-    const section = sectionResults[0].section;
+  for (const groupResults of resultsByGroup.values()) {
+    const section = groupResults[0].section;
     const group = el('div', 'settings-view-nav-group');
-    group.appendChild(el('div', 'settings-view-nav-label', `${section.title} (${LEVEL_LABELS[section.level]})`));
-    for (const result of sectionResults) {
+    group.appendChild(el('div', 'settings-view-nav-label', section ? `${section.title} (${LEVEL_LABELS[section.level]})` : FILE_ONLY_RESULT_GROUP));
+    for (const result of groupResults) {
+      if (!hasSection(result)) {
+        appendFileOnlyResult(group, result);
+        continue;
+      }
       const button = el('button', 'settings-view-nav-item settings-view-search-result', result.setting.title);
       button.type = 'button';
       button.addEventListener('click', () => chooseSearchResult(result));
@@ -1047,10 +1062,10 @@ function appendSearchResults(target: HTMLElement, results: SearchResult[]) {
 
 function appendSectionGroups(
   container: HTMLElement,
-  grouped: Record<string, SettingsSection[]>,
+  grouped: Record<SettingsLevel, SettingsSection[]>,
   { groupClassName, headingClassName, createButton }: { groupClassName: string; headingClassName: string; createButton: (section: SettingsSection) => HTMLElement }
 ) {
-  for (const level of ['browser', 'machine', 'lanes', 'projects']) {
+  for (const level of LEVEL_ORDER) {
     if (grouped[level].length === 0) continue;
     const group = el('div', groupClassName);
     group.appendChild(el('div', headingClassName, LEVEL_LABELS[level]));
@@ -1059,7 +1074,7 @@ function appendSectionGroups(
   }
 }
 
-function renderSectionPicker(grouped: Record<string, SettingsSection[]>) {
+function renderSectionPicker(grouped: Record<SettingsLevel, SettingsSection[]>) {
   if (!sectionPickerEl) return;
   sectionPickerEl.textContent = '';
   appendSectionGroups(sectionPickerEl, grouped, {
@@ -1108,7 +1123,7 @@ function renderNavigation() {
   shellEl.dataset.searching = String(Boolean(searchQuery));
   phoneSearchResultsEl.hidden = !searchQuery;
   if (searchQuery) {
-    const results = scoreSettingsSearch(SETTINGS_VIEW_MAP, searchQuery);
+    const results = searchSettings(searchQuery);
     appendSearchResults(navigationEl, results);
     appendSearchResults(phoneSearchResultsEl, results);
     return;
@@ -1130,7 +1145,7 @@ function renderNavigation() {
 
 function handleNavigationKeydown(event: KeyboardEvent) {
   if (searchQuery && event.key === 'Enter') {
-    const first = scoreSettingsSearch(SETTINGS_VIEW_MAP, searchQuery)[0];
+    const first = searchSettings(searchQuery).find(hasSection);
     if (!first) return;
     event.preventDefault();
     chooseSearchResult(first);

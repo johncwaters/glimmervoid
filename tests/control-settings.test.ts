@@ -770,11 +770,11 @@ test('with no launch defaults (production) every boolean persists exactly as bef
 });
 
 test('the browser round trip never sees a credential and never blanks one', async () => {
-  const [{ SETTINGS_MAP }, view] = await Promise.all([
-    import('../public/settings/settings-map.ts'),
+  const [{ SETTINGS_REGISTRY }, view] = await Promise.all([
+    import('../shared/settings/registry.ts'),
     import('../public/settings/settings-view-core.ts'),
   ]);
-  const telegramSection = SETTINGS_MAP.filter((section) => section.id === 'machine-telegram');
+  const telegramSection = SETTINGS_REGISTRY.sections.filter((section) => section.id === 'machine-telegram');
   const stored = {
     telegram: { botToken: 'stored-tok', chatId: '123' },
     posthog: { enabled: true, apiKey: 'phx_stored' },

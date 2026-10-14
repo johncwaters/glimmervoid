@@ -52,7 +52,7 @@ const TaskTitleSettings = z.object({
     enabled: optionalBoolean('taskTitle.refiner.enabled'),
     model: optionalString('taskTitle.refiner.model', true),
     minIntervalSeconds: optionalNumber('taskTitle.refiner.minIntervalSeconds', { min: 0 }),
-    timeoutSeconds: optionalNumber('taskTitle.refiner.timeoutSeconds', { min: 0, exclusiveMin: true, max: 2_147_483_647 / 1000 }),
+    timeoutSeconds: optionalNumber('taskTitle.refiner.timeoutSeconds', ranges.TASK_TITLE_TIMEOUT_RANGE),
   }, { error: 'taskTitle.refiner must be an object' }).nullable().optional(),
 }, { error: 'taskTitle must be an object' }).nullable().optional();
 
@@ -249,7 +249,7 @@ const TelemetrySettings = z.object(telemetryShape, { error: 'telemetry must be a
 export const TelemetryFileSettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).passthrough().optional();
 
 const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean) => ({
-  port: z.number().int().min(0).max(65535).optional(),
+  port: z.number().int().min(ranges.PORT_RANGE.min).max(ranges.PORT_RANGE.max).optional(),
   autoRecoverSeconds: z.number().finite().nonnegative().optional(),
   inputGraceSeconds: z.number().finite().nonnegative().optional(),
   promptDetectionMs: z.number().finite().nonnegative().optional(),

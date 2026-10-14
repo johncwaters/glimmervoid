@@ -1,14 +1,7 @@
-import { FLYING_ANIMALS_GAP_RANGE, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_SCALE_RANGE } from '#shared/settings-ranges.ts';
+import { FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_GAP_RANGE, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_SCALE_RANGE } from '#shared/settings-ranges.ts';
 import { ANIMALS } from './nyan-animals-core.ts';
 
-export const FLYING_ANIMALS_DEFAULTS = Object.freeze({
-  flyingAnimalsMinGapSeconds: 20,
-  flyingAnimalsMaxGapSeconds: 40,
-  flyingAnimalsMinDurationSeconds: 6.9,
-  flyingAnimalsMaxDurationSeconds: 11.5,
-  flyingAnimalsScale: 1,
-  flyingAnimalsOnPhone: true,
-});
+export { FLYING_ANIMALS_DEFAULTS };
 
 type FlyingAnimalsAdvanced = { [Key in keyof typeof FLYING_ANIMALS_DEFAULTS]: typeof FLYING_ANIMALS_DEFAULTS[Key] extends boolean ? boolean : number };
 export type FlyingAnimalsOptions = FlyingAnimalsAdvanced & { flyingAnimalsExcludedSprites: string[] };
