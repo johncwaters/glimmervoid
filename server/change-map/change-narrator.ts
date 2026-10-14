@@ -2,13 +2,13 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { CHANGE_MAP_CLAIMS_MAX } from '../shared/contracts/change-map.ts';
-import type { ChangeMap, ChangeNarrative } from '../shared/contracts/change-map.ts';
-import { BrowserConfig } from '../shared/contracts/config.ts';
-import type { CHANGE_MAP_NARRATOR_ENGINES } from '../shared/contracts/config.ts';
+import { CHANGE_MAP_CLAIMS_MAX } from '../../shared/contracts/change-map.ts';
+import type { ChangeMap, ChangeNarrative } from '../../shared/contracts/change-map.ts';
+import { BrowserConfig } from '../../shared/contracts/config.ts';
+import type { CHANGE_MAP_NARRATOR_ENGINES } from '../../shared/contracts/config.ts';
 import type { ChangeMapNarration, ChangeMapNarrator } from './change-map-wiring.ts';
-import { createLaneSpawn, readLaneResultFile } from './lanes/lane-spawn.ts';
-import type { LaneSpawn } from './lanes/lane-spawn.ts';
+import { createLaneSpawn, readLaneResultFile } from '../lanes/lane-spawn.ts';
+import type { LaneSpawn } from '../lanes/lane-spawn.ts';
 import {
   buildNarrativePrompt, factsHashInput, hasNarratableFacts, knownNarrativeFactIds, narrativeFacts, validateNarrative,
 } from './core/change-narrative-core.ts';

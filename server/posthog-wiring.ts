@@ -15,8 +15,8 @@ import { appendTrailStep, createInvestigationTrail, trailStepFromHook } from './
 import type { InvestigationTrail } from './core/investigation-trail-core.ts';
 import { nulSeparatedPaths } from './git/core/git-changed-paths-core.ts';
 import * as core from './core/posthog-core.ts';
-import type { SandboxRole } from './core/sandbox-policy-core.ts';
-import { LANE_CREDENTIAL_ENV, workRole } from './core/sandbox-roles-core.ts';
+import type { SandboxRole } from './sandbox/core/sandbox-policy-core.ts';
+import { LANE_CREDENTIAL_ENV, workRole } from './sandbox/core/sandbox-roles-core.ts';
 import type { PosthogIssue } from './core/posthog-core.ts';
 import {
   awaitSessionExit, createJobResultFile, readResultFile, registerEphemeralSession,

@@ -15,8 +15,8 @@ import { FACTORY_ORCHESTRATOR_ALLOW, FACTORY_ORCHESTRATOR_DENY, createFactoryOrc
 import type { FactoryOrchestratorSession } from '../server/factory-orchestrator.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/lanes/core/lane-permissions-core.ts';
-import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
-import { LANE_CREDENTIAL_ENV } from '../server/core/sandbox-roles-core.ts';
+import type { SandboxRole } from '../server/sandbox/core/sandbox-policy-core.ts';
+import { LANE_CREDENTIAL_ENV } from '../server/sandbox/core/sandbox-roles-core.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import type { SessionSpawnOverrides } from '../server/session/session-factory.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';

@@ -57,7 +57,7 @@ import type { ScreenSnapshot } from "./session-output.ts";
 import type { ScreenKeeperFactory } from "./screen-keeper.ts";
 import { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
 import type { HookRouterPort } from "./session-hook-lifecycle.ts";
-import type { SandboxLaunch, SandboxLaunchResult } from "../server/sandbox-launch.ts";
+import type { SandboxLaunch, SandboxLaunchResult } from "../server/sandbox/sandbox-launch.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
 import { signalWindowChangeBelow } from "./window-change-signal.ts";
 import type { GitIsolationOptions } from "../server/git/core/git-invocation-core.ts";

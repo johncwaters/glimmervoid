@@ -7,14 +7,14 @@ import { Session } from '../../session/sessions.ts';
 import type { SessionOptions } from '../../session/sessions.ts';
 import { buildLanePermissions } from './core/lane-permissions-core.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
-import { judgeRole, LANE_CREDENTIAL_ENV } from '../core/sandbox-roles-core.ts';
+import { judgeRole, LANE_CREDENTIAL_ENV } from '../sandbox/core/sandbox-roles-core.ts';
 import { resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { writeJsonAtomic } from '../json-file.ts';
-import { allowSandboxedSpawn } from '../sandbox-deps.ts';
-import { prepareSandboxLaunch } from '../sandbox-launch.ts';
+import { allowSandboxedSpawn } from '../sandbox/sandbox-deps.ts';
+import { prepareSandboxLaunch } from '../sandbox/sandbox-launch.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
-import type { SandboxSpawnRefusal } from '../sandbox-deps.ts';
+import type { SandboxSpawnRefusal } from '../sandbox/sandbox-deps.ts';
 
 const SETTINGS_DIR_PREFIX = 'glimmervoid-lane-settings-';
 const UNWRAPPED_PLATFORM = 'win32';

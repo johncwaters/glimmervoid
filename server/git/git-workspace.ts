@@ -24,7 +24,7 @@ import type { MarkerProbes } from '../core/integration-branch-core.ts';
 import { MERGE_DRIVER_KEY_PATTERN, driverEnumerationEnv, mergeProbeEnv, neutralGitConfigEnv } from '../core/merge-proof-core.ts';
 import type { MergeProbeEnvResult, MergeTreeOutcome } from '../core/merge-proof-core.ts';
 import type { CheckoutTreeState, IntegrationSyncOutcome } from '../core/integration-sync-core.ts';
-import { SANDBOX_PLACEHOLDER_NAMES } from '../core/sandbox-policy-core.ts';
+import { SANDBOX_PLACEHOLDER_NAMES } from '../sandbox/core/sandbox-policy-core.ts';
 import { normalizeSha } from '../core/update-core.ts';
 import { isMissingFileError } from '../../shared/text.ts';
 import { runGit } from './git-exec.ts';

@@ -8,7 +8,7 @@ import { confinedPrRole, createMyPrMergeabilityFix, createMyPrsStateIo, keepMerg
 import { createRepoCache } from '../server/git/repo-cache.ts';
 import type { CommandResult } from '../server/git/repo-cache.ts';
 import { createTeamReviewSpawn, hooksPathPinnedSpawnEnv, teamReviewSpawnEnv } from '../server/team-review-wiring.ts';
-import { SANDBOX_PLACEHOLDER_NAMES } from '../server/core/sandbox-policy-core.ts';
+import { SANDBOX_PLACEHOLDER_NAMES } from '../server/sandbox/core/sandbox-policy-core.ts';
 import type { TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import {
   MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_BOOTSTRAP_PROMPT, MY_PRS_FIX_CHECKOUT_DIRNAME, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, MY_PRS_FIX_PROMPT_FILENAME, keepMergeableTimeoutSeconds,

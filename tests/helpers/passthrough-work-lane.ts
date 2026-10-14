@@ -1,4 +1,4 @@
-import type { SandboxRole } from '../../server/core/sandbox-policy-core.ts';
+import type { SandboxRole } from '../../server/sandbox/core/sandbox-policy-core.ts';
 import type { WorkLaneDependencies } from '../../server/lanes/work-lane.ts';
 
 function passthroughWorkLane(preparedRoles: SandboxRole[] = []): Pick<WorkLaneDependencies, 'prepareSandbox' | 'sandboxRefusal' | 'platform'> {

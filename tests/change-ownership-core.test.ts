@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CHANGE_MAP_LIST_CAP, CollisionFact, SubsystemFact } from '../shared/contracts/change-map.ts';
-import { computeCollisions, computeSubsystems, readAgentsTitle } from '../server/core/change-ownership-core.ts';
+import { computeCollisions, computeSubsystems, readAgentsTitle } from '../server/change-map/core/change-ownership-core.ts';
 
 test('readAgentsTitle extracts the first H1 after other lines', () => {
   assert.equal(readAgentsTitle('<!-- note -->\n## Not the title\n#  Actual title  \n# Later'), 'Actual title');

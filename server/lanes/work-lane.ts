@@ -6,13 +6,13 @@ import type { PrepareSessionSandbox, SessionSandboxFacts } from '../../session/s
 import { errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { LANE_ENVIRONMENT_ARGS, buildShellLanePermissions } from './core/lane-permissions-core.ts';
-import type { SandboxRole } from '../core/sandbox-policy-core.ts';
-import { isWorktreeAdminDirOf, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, workRole } from '../core/sandbox-roles-core.ts';
+import type { SandboxRole } from '../sandbox/core/sandbox-policy-core.ts';
+import { isWorktreeAdminDirOf, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, workRole } from '../sandbox/core/sandbox-roles-core.ts';
 import { runHardenedGit } from '../git/git-workspace.ts';
 import { resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
-import { allowSandboxedSpawn } from '../sandbox-deps.ts';
-import type { SandboxSpawnRefusal } from '../sandbox-deps.ts';
-import { prepareSandboxLaunch } from '../sandbox-launch.ts';
+import { allowSandboxedSpawn } from '../sandbox/sandbox-deps.ts';
+import type { SandboxSpawnRefusal } from '../sandbox/sandbox-deps.ts';
+import { prepareSandboxLaunch } from '../sandbox/sandbox-launch.ts';
 
 const UNWRAPPED_PLATFORM = 'win32';
 const GUARD_HOOK_UNAVAILABLE_ERROR = 'Sane YOLO is unavailable';

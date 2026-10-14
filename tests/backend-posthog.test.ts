@@ -25,7 +25,7 @@ import { createSpawnGate } from '../server/spawn-gate.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
-import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
+import type { SandboxRole } from '../server/sandbox/core/sandbox-policy-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import type { ExecFileFn, ExecFileOptions } from '../server/git/git-exec.ts';
 import type { resolveHookTools as resolveSharedHookTools } from '../server/hook-tools.ts';

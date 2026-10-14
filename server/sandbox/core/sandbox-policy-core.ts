@@ -1,8 +1,8 @@
 import path from 'node:path';
 import type { FilesystemConfig, FilesystemPathEntry, NetworkConfig } from '@anthropic-ai/sandbox-runtime';
-import { encodeProjectDir } from '../../session/core/conversation-history.ts';
-import { HOOK_VIA_SANDBOX_PROXY_ENV } from '../../session/core/sandbox-proxy-core.ts';
-import { isPathInside } from '../../shared/paths.ts';
+import { encodeProjectDir } from '../../../session/core/conversation-history.ts';
+import { HOOK_VIA_SANDBOX_PROXY_ENV } from '../../../session/core/sandbox-proxy-core.ts';
+import { isPathInside } from '../../../shared/paths.ts';
 
 type SandboxVendor = 'claude' | 'codex';
 

@@ -7,8 +7,8 @@ import path from 'node:path';
 
 import {
   SANDBOX_INSTALL_HINT, requiredSandboxBinaries, sandboxBootWarning, sandboxDependencyReport, sandboxDoctorRows, sandboxInstallNotice, sandboxSpawnRefusal,
-} from '../server/core/sandbox-deps-core.ts';
-import { checkSandboxDependencies, probeSandboxDependencies } from '../server/sandbox-deps.ts';
+} from '../server/sandbox/core/sandbox-deps-core.ts';
+import { checkSandboxDependencies, probeSandboxDependencies } from '../server/sandbox/sandbox-deps.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
 const isLinuxWithWhich = process.platform === 'linux' && fs.existsSync('/usr/bin/which');

@@ -4,7 +4,7 @@ import { CHANGE_MAP_CLAIMS_MAX, CHANGE_MAP_LIST_CAP, changeMapFactId } from '../
 import type { ChangeMap } from '../shared/contracts/change-map.ts';
 import {
   buildNarrativePrompt, factsHashInput, hasNarratableFacts, knownNarrativeFactIds, narrativeFacts, validateNarrative,
-} from '../server/core/change-narrative-core.ts';
+} from '../server/change-map/core/change-narrative-core.ts';
 
 function mapWithFiles(paths: string[] = ['server/a.ts']): ChangeMap {
   return {

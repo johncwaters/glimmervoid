@@ -15,7 +15,7 @@ import { DEFAULT_CONFIG } from './config-store.ts';
 import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, listFailingTestFilesOutsideScopes, listIntentCapClosings, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail, summarizeFailedCheckOutput } from './core/factory-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from './lanes/core/lane-permissions-core.ts';
-import { SANDBOX_PLACEHOLDER_NAMES } from './core/sandbox-policy-core.ts';
+import { SANDBOX_PLACEHOLDER_NAMES } from './sandbox/core/sandbox-policy-core.ts';
 import { nulSeparatedPaths } from './git/core/git-changed-paths-core.ts';
 import { prepareHardenedGitCommand, runHardenedGit } from './git/git-workspace.ts';
 import { makeHostScratchDirectory } from './host-scratch.ts';

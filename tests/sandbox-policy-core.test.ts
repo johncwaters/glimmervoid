@@ -3,9 +3,9 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { FilesystemConfigSchema, SandboxRuntimeConfigSchema } from '@anthropic-ai/sandbox-runtime';
-import { buildSandboxLaunchPlan, sandboxPolicyProbePaths, standardWriteBlockCandidates } from '../server/core/sandbox-policy-core.ts';
-import type { SandboxHost, SandboxLaunchPlan, SandboxNetworkAccess, SandboxRole } from '../server/core/sandbox-policy-core.ts';
-import { isSessionConfined, sessionRole } from '../server/core/sandbox-roles-core.ts';
+import { buildSandboxLaunchPlan, sandboxPolicyProbePaths, standardWriteBlockCandidates } from '../server/sandbox/core/sandbox-policy-core.ts';
+import type { SandboxHost, SandboxLaunchPlan, SandboxNetworkAccess, SandboxRole } from '../server/sandbox/core/sandbox-policy-core.ts';
+import { isSessionConfined, sessionRole } from '../server/sandbox/core/sandbox-roles-core.ts';
 import { HOOK_VIA_SANDBOX_PROXY_ENV } from '../session/core/sandbox-proxy-core.ts';
 
 const homeDir = path.resolve('/home/operator');

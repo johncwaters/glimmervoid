@@ -4,7 +4,7 @@ import type { FactoryState } from '../../shared/contracts/factory.ts';
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
-import type { ChangeMapNarrator } from '../change-map-wiring.ts';
+import type { ChangeMapNarrator } from '../change-map/change-map-wiring.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
 import type { FactoryControl, BenchmarkControl, MyPrMergeControl, TeamReviewActionControl } from '../control-handlers.ts';

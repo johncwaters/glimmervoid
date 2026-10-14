@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
-import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
+import type { SandboxRole } from '../server/sandbox/core/sandbox-policy-core.ts';
 import type { SessionSandboxFacts } from '../session/sessions.ts';
 
 type ContractRoleName = 'check' | 'judge' | 'worker';
@@ -53,8 +53,8 @@ await writeFile(path.join(homeToolFolder, HOME_TOOL_NAME), '#!/bin/sh\nexit 0\n'
 const { execFileAsync } = await import('../server/child-process-safe.ts');
 const { awaitSessionExit, createJobResultFile } = await import('../server/lanes/ephemeral-session.ts');
 const { createGitWorkspace, runHardenedGit } = await import('../server/git/git-workspace.ts');
-const { judgeRole, workRole } = await import('../server/core/sandbox-roles-core.ts');
-const { SANDBOX_PLACEHOLDER_NAMES } = await import('../server/core/sandbox-policy-core.ts');
+const { judgeRole, workRole } = await import('../server/sandbox/core/sandbox-roles-core.ts');
+const { SANDBOX_PLACEHOLDER_NAMES } = await import('../server/sandbox/core/sandbox-policy-core.ts');
 const { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS, runFactoryReview } = await import('../server/factory-closeout.ts');
 const { encodeProjectDir } = await import('../session/core/conversation-history.ts');
 const { resolveRequiredSaneYoloHookTools } = await import('../server/hook-tools.ts');
@@ -64,8 +64,8 @@ const { createVisionsSpawn, makeVisionsWorkDir, PROMPT_FILE: VISIONS_PROMPT_FILE
 const { MY_PRS_FIX_CHECKOUT_DIRNAME } = await import('../server/core/my-prs-core.ts');
 const { createSandboxedPrStaging, keepMergeableRole } = await import('../server/my-prs-wiring.ts');
 const { createTeamReviewSpawn, describeTeamReviewRole, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions, teamReviewClaudeArgs } = await import('../server/team-review-wiring.ts');
-const { prepareSandboxLaunch } = await import('../server/sandbox-launch.ts');
-const { createSessionSandbox } = await import('../server/session-sandbox.ts');
+const { prepareSandboxLaunch } = await import('../server/sandbox/sandbox-launch.ts');
+const { createSessionSandbox } = await import('../server/sandbox/session-sandbox.ts');
 const { Session } = await import('../session/sessions.ts');
 
 const EXPECTATIONS: Readonly<Record<ContractRoleName, Readonly<Record<string, Expectation>>>> = {

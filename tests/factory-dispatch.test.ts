@@ -13,7 +13,7 @@ import { buildCoherenceShims, buildCoherenceUserHooks } from '../server/core/coh
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
 import { createFactoryDispatch } from '../server/factory-dispatch.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/lanes/core/lane-permissions-core.ts';
-import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
+import type { SandboxRole } from '../server/sandbox/core/sandbox-policy-core.ts';
 import type { LaneSpend } from '../server/core/usage-scan-core.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { cliPath, resolvePackageBin } from '../server/runtime-paths.ts';

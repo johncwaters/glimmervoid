@@ -29,7 +29,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `child-process-safe.ts` | THE ONLY importer of `node:child_process` (`tests/no-direct-child-process.test.ts`) |
 | `update-check.ts` | Startup release-tag check, advisory only |
 | `team-review-wiring.ts` | Team review session and state helpers |
-| `session-sandbox.ts` | Ordinary session sandbox: the session role, rebuilt from the live checkout at every spawn; the session factory's default |
+| `sandbox/session-sandbox.ts` | Ordinary session sandbox: the session role, rebuilt from the live checkout at every spawn; the session factory's default |
 | `team-review-poller.ts` | Team review poller, IO-free |
 | `pr-gh.ts` | `gh` issue queries shared with the control plane |
 | `benchmark-wiring.ts` | Benchmark lane: suites under `~/.glimmervoid/benchmarks`, mining, one serial run (pure rules in `core/benchmark-core.ts`, `core/benchmark-mining-core.ts`) |

@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { ACCEPT_EDITS_MODE, buildLanePermissions } from '../server/lanes/core/lane-permissions-core.ts';
 import { buildHookSettings } from '../detection/settings-injector.ts';
-import { makeNarrationWorkDir } from '../server/change-narrator.ts';
+import { makeNarrationWorkDir } from '../server/change-map/change-narrator.ts';
 import { LANE_SPAWN_DENY_TOOLS } from '../server/lanes/lane-spawn.ts';
 import { VISIONS_DENY_TOOLS, makeVisionsWorkDir } from '../server/visions-dispatch.ts';
 
@@ -83,7 +83,7 @@ test('the lanes outside the seam are named, and the ones on it all cwd into a th
 
   const LANE_WORK_DIRS = [
     { file: 'visions-dispatch.ts', dir: await makeVisionsWorkDir(), cleanup: (dir: string) => fs.rmSync(dir, { recursive: true, force: true }) },
-    { file: 'change-narrator.ts', dir: await makeNarrationWorkDir(), cleanup: (dir: string) => fs.rmSync(dir, { recursive: true, force: true }) },
+    { file: 'change-map/change-narrator.ts', dir: await makeNarrationWorkDir(), cleanup: (dir: string) => fs.rmSync(dir, { recursive: true, force: true }) },
   ];
   const realTmp = fs.realpathSync(os.tmpdir());
 

@@ -1,8 +1,8 @@
 import os from 'node:os';
 
 import { formatPathNotice, npmGlobalBinDir, onPath } from '../bin/path-doctor.ts';
-import { sandboxInstallNotice } from '../server/core/sandbox-deps-core.ts';
-import { probeSandboxDependencies } from '../server/sandbox-deps.ts';
+import { sandboxInstallNotice } from '../server/sandbox/core/sandbox-deps-core.ts';
+import { probeSandboxDependencies } from '../server/sandbox/sandbox-deps.ts';
 
 function printPathNotice(): void {
   if (process.env.npm_config_global !== 'true') return;

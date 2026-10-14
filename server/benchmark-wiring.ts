@@ -11,8 +11,8 @@ import { absolutePathReadRule } from './core/team-review-core.ts';
 import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from './json-file.ts';
 import type { LaneSpawn } from './lanes/lane-spawn.ts';
 import type { PrGh } from './pr-gh.ts';
-import { allowSandboxedSpawn } from './sandbox-deps.ts';
-import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
+import { allowSandboxedSpawn } from './sandbox/sandbox-deps.ts';
+import type { SandboxSpawnRefusal } from './sandbox/sandbox-deps.ts';
 import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions } from './team-review-wiring.ts';
 import type { LaneSettingsSandbox, TeamReviewRepoCache, TeamReviewSpawn } from './team-review-wiring.ts';
 import {

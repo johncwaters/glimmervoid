@@ -4,13 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../server/lanes/core/lane-permissions-core.ts';
-import { LANE_CREDENTIAL_ENV } from '../server/core/sandbox-roles-core.ts';
+import { LANE_CREDENTIAL_ENV } from '../server/sandbox/core/sandbox-roles-core.ts';
 import { createLaneSpawn } from '../server/lanes/lane-spawn.ts';
 import { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS } from '../server/factory-closeout.ts';
 import { THREAD_JUDGE_TOOLS } from '../server/team-review-thread-judge.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
-import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
+import type { SandboxRole } from '../server/sandbox/core/sandbox-policy-core.ts';
 
 async function spawnedOptions(allowTools: readonly string[] | undefined, hasHookRouter: boolean): Promise<SessionOptions> {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-lane-spawn-test-'));

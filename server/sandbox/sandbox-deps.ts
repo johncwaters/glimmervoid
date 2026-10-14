@@ -1,5 +1,5 @@
-import { resolvePathCommandMatches } from '../session/core/spawn-command.ts';
-import { execSync } from './child-process-safe.ts';
+import { resolvePathCommandMatches } from '../../session/core/spawn-command.ts';
+import { execSync } from '../child-process-safe.ts';
 import { requiredSandboxBinaries, sandboxBootWarning, sandboxDependencyReport, sandboxSpawnRefusal } from './core/sandbox-deps-core.ts';
 import type { SandboxDependencyReport } from './core/sandbox-deps-core.ts';
 

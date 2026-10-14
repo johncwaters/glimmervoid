@@ -1,18 +1,18 @@
 import { mkdir, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { PrepareSessionSandbox, SessionSandboxFacts } from '../session/sessions.ts';
-import { rawTextOr } from '../shared/coerce.ts';
-import { errorMessage } from '../shared/text.ts';
-import { execFileAsync } from './child-process-safe.ts';
-import { repositoryRootOfCommonGitDir } from './core/claude-trust-core.ts';
+import type { PrepareSessionSandbox, SessionSandboxFacts } from '../../session/sessions.ts';
+import { rawTextOr } from '../../shared/coerce.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { execFileAsync } from '../child-process-safe.ts';
+import { repositoryRootOfCommonGitDir } from '../core/claude-trust-core.ts';
 import type { SandboxRole } from './core/sandbox-policy-core.ts';
 import { sessionRole } from './core/sandbox-roles-core.ts';
-import { expandTilde } from './core/usage-scan-core.ts';
+import { expandTilde } from '../core/usage-scan-core.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { prepareSandboxLaunch } from './sandbox-launch.ts';
-import { existingRealPaths, readGitDirsOfOwnCheckout } from './lanes/work-lane.ts';
+import { existingRealPaths, readGitDirsOfOwnCheckout } from '../lanes/work-lane.ts';
 
 interface SessionSandboxSettings {
   blockedPaths: readonly string[];

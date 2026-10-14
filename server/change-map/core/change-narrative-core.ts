@@ -1,7 +1,7 @@
 import {
   CHANGE_MAP_CLAIM_MAX_CHARS, CHANGE_MAP_CLAIMS_MAX, CHANGE_MAP_LIST_CAP,
-} from '../../shared/contracts/change-map.ts';
-import type { BlastRadiusFact, ChangeMap, ChangeNarrative, CrossRepoLink, SubsystemFact } from '../../shared/contracts/change-map.ts';
+} from '../../../shared/contracts/change-map.ts';
+import type { BlastRadiusFact, ChangeMap, ChangeNarrative, CrossRepoLink, SubsystemFact } from '../../../shared/contracts/change-map.ts';
 
 type FactGroup = 'files' | 'subsystems' | 'coChangeGaps' | 'hotspots' | 'blastRadius' | 'untestedFiles' | 'collisions' | 'links';
 const FACT_GROUPS: readonly FactGroup[] = [

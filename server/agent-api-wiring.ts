@@ -13,7 +13,7 @@ import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
   decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding, describePushRouteRefusal, parseAgentVerb,
 } from './core/agent-api-core.ts';
-import { isConfinedSessionVendor } from './core/sandbox-roles-core.ts';
+import { isConfinedSessionVendor } from './sandbox/core/sandbox-roles-core.ts';
 import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session/session-factory.ts';

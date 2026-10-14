@@ -7,8 +7,8 @@ import { firstLine } from './lanes/ephemeral-session.ts';
 import { createTickLoop } from './lanes/lane-runner.ts';
 import type { SharedClock, TickOutcome } from './lanes/lane-runner.ts';
 import type { PrReference, PrReviewSnapshot, PrSearchResult, PrGh } from './pr-gh.ts';
-import { allowSandboxedSpawn } from './sandbox-deps.ts';
-import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
+import { allowSandboxedSpawn } from './sandbox/sandbox-deps.ts';
+import type { SandboxSpawnRefusal } from './sandbox/sandbox-deps.ts';
 import { hasStandingViewerApproval, ReviewDraft } from '../shared/contracts/team-review.ts';
 import type {
   InFlightReview, PrDetail, PriorReview, ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,

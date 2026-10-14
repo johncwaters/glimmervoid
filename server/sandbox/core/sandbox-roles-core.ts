@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { isPathInside } from '../../shared/paths.ts';
+import { isPathInside } from '../../../shared/paths.ts';
 import type { SandboxRole } from './sandbox-policy-core.ts';
 
 type SandboxRoleVendor = SandboxRole['vendors'][number];

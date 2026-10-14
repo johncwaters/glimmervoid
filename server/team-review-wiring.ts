@@ -32,11 +32,11 @@ import type { TeamReviewReapOptions } from './team-review-reaper.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
 import { bootStaggerDelay } from './boot-stagger.ts';
 import type { DraftExpectation, DraftPatch, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
-import { allowSandboxedSpawn } from './sandbox-deps.ts';
-import { judgeRole } from './core/sandbox-roles-core.ts';
-import { prepareSandboxLaunch } from './sandbox-launch.ts';
-import type { SandboxRole } from './core/sandbox-policy-core.ts';
-import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
+import { allowSandboxedSpawn } from './sandbox/sandbox-deps.ts';
+import { judgeRole } from './sandbox/core/sandbox-roles-core.ts';
+import { prepareSandboxLaunch } from './sandbox/sandbox-launch.ts';
+import type { SandboxRole } from './sandbox/core/sandbox-policy-core.ts';
+import type { SandboxSpawnRefusal } from './sandbox/sandbox-deps.ts';
 import { TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
   PostingPlan, PrDetail, PriorReview, ResumableReview, ReviewComment, ReviewResult, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,

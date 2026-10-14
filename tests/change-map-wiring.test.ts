@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { ChangeMap } from '../shared/contracts/change-map.ts';
 import type { ChangeScope } from '../session/session-worktree-lifecycle.ts';
-import { createChangeMapService } from '../server/change-map-wiring.ts';
-import type { ChangeMapNarrator, ChangeMapSession } from '../server/change-map-wiring.ts';
+import { createChangeMapService } from '../server/change-map/change-map-wiring.ts';
+import type { ChangeMapNarrator, ChangeMapSession } from '../server/change-map/change-map-wiring.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 
 function writeRepoFile(root: string, repoPath: string, contents: string): void {

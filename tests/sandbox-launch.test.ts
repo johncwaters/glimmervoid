@@ -4,8 +4,8 @@ import path from 'node:path';
 import test from 'node:test';
 import pty from 'node-pty';
 import { glimmervoidHomeDir } from '../server/config-store.ts';
-import { workRole } from '../server/core/sandbox-roles-core.ts';
-import { prepareSandboxLaunch } from '../server/sandbox-launch.ts';
+import { workRole } from '../server/sandbox/core/sandbox-roles-core.ts';
+import { prepareSandboxLaunch } from '../server/sandbox/sandbox-launch.ts';
 
 async function launchLockedCheckout(checkout: string, launchId: string) {
   const prepared = await prepareSandboxLaunch({ role: workRole({ vendor: 'claude', cwd: checkout, checkout, agentSessionId: null, readablePaths: [] }), launchId });

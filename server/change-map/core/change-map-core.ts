@@ -1,5 +1,5 @@
-import { changeMapFactId } from '../../shared/contracts/change-map.ts';
-import type { ChangedFile, ChangedFileStatus } from '../../shared/contracts/change-map.ts';
+import { changeMapFactId } from '../../../shared/contracts/change-map.ts';
+import type { ChangedFile, ChangedFileStatus } from '../../../shared/contracts/change-map.ts';
 
 const STATUS_BY_LETTER: Record<string, ChangedFileStatus> = {
   A: 'added',

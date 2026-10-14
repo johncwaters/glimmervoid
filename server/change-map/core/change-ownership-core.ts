@@ -3,7 +3,7 @@ import {
   changeMapFactId,
   type CollisionFact,
   type SubsystemFact,
-} from '../../shared/contracts/change-map.ts';
+} from '../../../shared/contracts/change-map.ts';
 
 export function readAgentsTitle(markdown: string): string {
   const heading = markdown.match(/^# (.*)$/m);

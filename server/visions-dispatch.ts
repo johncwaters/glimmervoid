@@ -6,7 +6,7 @@ import type { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { buildLanePermissions } from './lanes/core/lane-permissions-core.ts';
-import { LANE_CREDENTIAL_ENV, workRole } from './core/sandbox-roles-core.ts';
+import { LANE_CREDENTIAL_ENV, workRole } from './sandbox/core/sandbox-roles-core.ts';
 import {
   DEFAULT_TIMEOUT_SECONDS,
   ERROR_SOURCE_SESSION,

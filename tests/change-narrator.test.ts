@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createChangeNarrator } from '../server/change-narrator.ts';
+import { createChangeNarrator } from '../server/change-map/change-narrator.ts';
 import { CHANGE_MAP_CLAIMS_MAX, changeMapFactId } from '../shared/contracts/change-map.ts';
 import type { ChangeMap, ChangeNarrative } from '../shared/contracts/change-map.ts';
 

@@ -416,7 +416,7 @@ export function appendFactoryLandedSha(landedShas: readonly string[], landedSha:
 }
 
 export { absolutePathEditRule } from '../lanes/core/lane-permissions-core.ts';
-export { isWorktreeAdminDirOf, parseGitdirPointer } from './sandbox-roles-core.ts';
+export { isWorktreeAdminDirOf, parseGitdirPointer } from '../sandbox/core/sandbox-roles-core.ts';
 
 export function buildWorkerPrompt({ projectName, intent, order, claudeSessionId, checks = DEFAULT_FACTORY_CHECKS }: {
   projectName: string; intent: FactoryWorkOrder; order: FactoryWorkOrder; claudeSessionId: string; checks?: string[];

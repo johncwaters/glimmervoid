@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ChangeMap } from '../shared/contracts/change-map.ts';
-import type { ChangedFile, ChangeNarrative, NarratorState, RepoChangeMap } from '../shared/contracts/change-map.ts';
-import type { ChangeScope } from '../session/session-worktree-lifecycle.ts';
-import { gitCommandFailure, runGit } from './git/git-exec.ts';
+import { ChangeMap } from '../../shared/contracts/change-map.ts';
+import type { ChangedFile, ChangeNarrative, NarratorState, RepoChangeMap } from '../../shared/contracts/change-map.ts';
+import type { ChangeScope } from '../../session/session-worktree-lifecycle.ts';
+import { gitCommandFailure, runGit } from '../git/git-exec.ts';
 import {
   isAgentsDocPath,
   isSourcePath,
@@ -14,15 +14,15 @@ import {
   presentPaths,
   readImportsMap,
 } from './core/change-map-core.ts';
-import { CO_CHANGE_LOG_ARGS, computeCoChange, parseCoChangeLog } from './core/co-change-core.ts';
-import type { CommitFiles } from './core/co-change-core.ts';
+import { CO_CHANGE_LOG_ARGS, computeCoChange, parseCoChangeLog } from '../core/co-change-core.ts';
+import type { CommitFiles } from '../core/co-change-core.ts';
 import { computeCollisions, computeSubsystems, readAgentsTitle } from './core/change-ownership-core.ts';
-import { buildImportGraph, computeBlastRadius, extractImportSpecifiers, extractPythonImportSpecifiers } from './core/import-graph-core.ts';
-import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from './core/tsconfig-paths-core.ts';
-import type { TsconfigPaths } from './core/tsconfig-paths-core.ts';
-import { computeCrossRepoLinks, indexImportersByPackage, readPackageManifest } from './core/workspace-links-core.ts';
-import type { PackageManifest, RepoPackageFacts } from './core/workspace-links-core.ts';
-import { errorMessage } from '../shared/text.ts';
+import { buildImportGraph, computeBlastRadius, extractImportSpecifiers, extractPythonImportSpecifiers } from '../core/import-graph-core.ts';
+import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from '../core/tsconfig-paths-core.ts';
+import type { TsconfigPaths } from '../core/tsconfig-paths-core.ts';
+import { computeCrossRepoLinks, indexImportersByPackage, readPackageManifest } from '../core/workspace-links-core.ts';
+import type { PackageManifest, RepoPackageFacts } from '../core/workspace-links-core.ts';
+import { errorMessage } from '../../shared/text.ts';
 
 const GIT_TIMEOUT_MS = 15000;
 const GIT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
