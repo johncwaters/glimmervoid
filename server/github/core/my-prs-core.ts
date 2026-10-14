@@ -19,9 +19,17 @@ export const MyPrsLaneState = MyPrsState.extend({
 export type MyPrsLaneState = z.infer<typeof MyPrsLaneState>;
 export const emptyMyPrsLaneState = (): MyPrsLaneState => MyPrsLaneState.parse({ keepMergeableKeys: [], keepMergeableAttemptKeys: [] });
 
-export function prunedFailedAutoRebaseAttempts(attemptKeys: ReadonlySet<string>, nodes: readonly MyPrSearchNode[]): Set<string> {
+export const FAILED_GITHUB_ACTION_RETRY_MS = 60 * 60 * 1000;
+
+export function isFailedAttemptRetryDue(failedAt: number, nowMs: number): boolean {
+  return nowMs - failedAt >= FAILED_GITHUB_ACTION_RETRY_MS;
+}
+
+export function prunedFailedAutoRebaseAttempts(attemptKeys: ReadonlySet<string>, nodes: readonly MyPrSearchNode[], failureByAttemptKey: ReadonlyMap<string, MyPrAutoRebase>, nowMs: number): Set<string> {
   const currentAttemptByPrKey = new Map(nodes.map((node) => [prKey(node.repository.nameWithOwner, node.number), autoRebaseAttemptKey(node)]));
   return new Set([...attemptKeys].filter((attemptKey) => {
+    const failure = failureByAttemptKey.get(attemptKey);
+    if (!failure || isFailedAttemptRetryDue(failure.at, nowMs)) return false;
     const pullRequestKey = attemptKey.slice(0, attemptKey.lastIndexOf('@'));
     const currentAttempt = currentAttemptByPrKey.get(pullRequestKey);
     return currentAttempt === undefined || currentAttempt === attemptKey;

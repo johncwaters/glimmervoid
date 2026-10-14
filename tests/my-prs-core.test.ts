@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { MyPrsLaneState, prunedFailedAutoRebaseAttempts } from '../server/github/core/my-prs-core.ts';
+import { FAILED_GITHUB_ACTION_RETRY_MS, MyPrsLaneState, prunedFailedAutoRebaseAttempts } from '../server/github/core/my-prs-core.ts';
 import assert from 'node:assert/strict';
 import { autoRebaseRecord, consecutiveKeepMergeableAttempts, currentKeepMergeableAttempt, deriveStage, hasUnresolvedThreads, isHeadPushedByKeepMergeable, isMovedBranchPushRejection, pushFailureReason, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, mergeAttemptKey, mergeQueuePositions, mergeQueuePrsToMerge, prunedMergeQueueKeys, shouldFixMergeability, shouldAutoRebase, shouldRebaseMyPr, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/github/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
@@ -31,13 +31,17 @@ test('failed auto-rebase persistence accepts old state and validates head keys',
   assert.equal(MyPrsLaneState.safeParse({ ...oldState, failedAutoRebaseRecords: [{ ...failureRecord, attemptKey: 'invalid' }] }).success, false);
 });
 
-test('failed auto-rebase suppression clears only for a listed PR whose head changed', () => {
+test('failed auto-rebase suppression clears for a listed PR whose head changed, after the retry delay, or with no failure on record', () => {
   const sameHeadKey = `Acme/app#7@${SHA}`;
   const olderHeadKey = `Acme/app#7@${'b'.repeat(40)}`;
   const unlistedKey = `Acme/other#8@${SHA}`;
   const attempts = new Set([sameHeadKey, olderHeadKey, unlistedKey]);
-  assert.deepEqual([...prunedFailedAutoRebaseAttempts(attempts, [searchNode()])], [sameHeadKey, unlistedKey]);
-  assert.deepEqual(prunedFailedAutoRebaseAttempts(attempts, []), attempts);
+  const failure = { outcome: 'failed' as const, at: NOW, message: 'Rebase refused' };
+  const failures = new Map([...attempts].map((attemptKey) => [attemptKey, failure]));
+  assert.deepEqual([...prunedFailedAutoRebaseAttempts(attempts, [searchNode()], failures, NOW)], [sameHeadKey, unlistedKey]);
+  assert.deepEqual(prunedFailedAutoRebaseAttempts(attempts, [], failures, NOW), attempts);
+  assert.deepEqual([...prunedFailedAutoRebaseAttempts(attempts, [], failures, NOW + FAILED_GITHUB_ACTION_RETRY_MS)], []);
+  assert.deepEqual([...prunedFailedAutoRebaseAttempts(attempts, [], new Map(), NOW)], []);
 });
 
 test('keep mergeable dispatches only flagged open conflicting or failing heads once per head', () => {

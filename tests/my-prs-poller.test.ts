@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { createMyPrsPoller } from '../server/github/my-prs-poller.ts';
+import { FAILED_GITHUB_ACTION_RETRY_MS } from '../server/github/core/my-prs-core.ts';
 import { MyPrsState as MyPrsStateSchema } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode, MyPrMergeabilityFixResult, MyPrsState, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 
@@ -647,8 +648,9 @@ test('fetches thread detail only for open pull requests with unresolved threads'
 function autoRebaseHarness({ shouldAutoRebase, rebaseResult }: { shouldAutoRebase: boolean; rebaseResult: { ok: boolean; err: string } }) {
   const rebases: string[] = [];
   const statuses: MyPrsStatus[] = [];
+  let nowMs = NOW;
   const poller = createMyPrsPoller({
-    org: 'Acme', shouldAutoRebase, now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
+    org: 'Acme', shouldAutoRebase, now: () => nowMs, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
     setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
     log: { warn() {} },
     github: {
@@ -663,7 +665,7 @@ function autoRebaseHarness({ shouldAutoRebase, rebaseResult }: { shouldAutoRebas
       async rateLimitWaitMs() { return null; },
     },
   });
-  return { poller, rebases, statuses };
+  return { poller, rebases, statuses, advanceClock: (elapsedMs: number) => { nowMs += elapsedMs; } };
 }
 
 test('auto-rebase rebases a behind open pull request pinned to its polled head and reports it', async () => {
@@ -675,8 +677,8 @@ test('auto-rebase rebases a behind open pull request pinned to its polled head a
   await poller.stop();
 });
 
-test('a failed auto-rebase is reported and not retried at the same head', async () => {
-  const { poller, rebases, statuses } = autoRebaseHarness({ shouldAutoRebase: true, rebaseResult: { ok: false, err: 'gh: Protected branch update failed\nmore' } });
+test('a failed auto-rebase is reported and retried at the same head only after the retry delay', async () => {
+  const { poller, rebases, statuses, advanceClock } = autoRebaseHarness({ shouldAutoRebase: true, rebaseResult: { ok: false, err: 'gh: Protected branch update failed\nmore' } });
   await poller.start();
   await poller.tick();
   assert.equal(rebases.length, 1);
@@ -684,6 +686,10 @@ test('a failed auto-rebase is reported and not retried at the same head', async 
     { outcome: 'failed', at: NOW, message: 'gh: Protected branch update failed' },
     { outcome: 'failed', at: NOW, message: 'gh: Protected branch update failed' },
   ]);
+  advanceClock(FAILED_GITHUB_ACTION_RETRY_MS);
+  await poller.tick();
+  assert.equal(rebases.length, 2);
+  assert.deepEqual(statuses.at(-1)?.prs[0]?.autoRebase, { outcome: 'failed', at: NOW + FAILED_GITHUB_ACTION_RETRY_MS, message: 'gh: Protected branch update failed' });
   await poller.stop();
 });
 
@@ -935,13 +941,15 @@ function mergeQueueHarness({ items, mergeOutcome = { ok: true, kind: 'merged' },
   isAutoRebaseOn?: boolean; beforeMergeReturns?: (pr: MyPr) => Promise<void>; beforeRebaseReturns?: (pullRequestId: string) => Promise<void>;
 }) {
   let listedItems = items;
+  let nowMs = NOW;
+  let currentMergeOutcome = mergeOutcome;
   let saved: MyPrsState = { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: savedQueue, keepMergeablePushedHeadKeys: savedPushedHeadKeys, keepMergeableAttempts: [] };
   const statuses: MyPrsStatus[] = [];
   const merges: string[] = [];
   const rebases: string[] = [];
   const warnings: string[] = [];
   const poller = createMyPrsPoller({
-    org: 'Acme', shouldAutoRebase: isAutoRebaseOn, isMergeQueueEnabled, now: () => NOW, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
+    org: 'Acme', shouldAutoRebase: isAutoRebaseOn, isMergeQueueEnabled, now: () => nowMs, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
     setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
     log: { warn: (message: string) => { warnings.push(message); } },
     readState: async () => saved,
@@ -957,10 +965,13 @@ function mergeQueueHarness({ items, mergeOutcome = { ok: true, kind: 'merged' },
     mergePr: async (pr) => {
       merges.push(`${pr.key}@${pr.headRefOid}:${pr.mergeMethod}`);
       await beforeMergeReturns(pr);
-      return mergeOutcome;
+      return currentMergeOutcome;
     },
   });
-  return { poller, statuses, merges, rebases, warnings, savedState: () => saved, setItems: (nextItems: MyPrSearchNode[]) => { listedItems = nextItems; } };
+  return {
+    poller, statuses, merges, rebases, warnings, savedState: () => saved, setItems: (nextItems: MyPrSearchNode[]) => { listedItems = nextItems; },
+    advanceClock: (elapsedMs: number) => { nowMs += elapsedMs; }, setMergeOutcome: (nextOutcome: typeof mergeOutcome) => { currentMergeOutcome = nextOutcome; },
+  };
 }
 
 function queuePositions(status: MyPrsStatus | undefined): Record<string, number | null | undefined> {
@@ -994,17 +1005,30 @@ test('merge when ready refuses untracked and no longer open PRs', async () => {
   await harness.poller.stop();
 });
 
-test('a failed queued merge is logged, stays queued, and is retried only at a new head', async () => {
-  const harness = mergeQueueHarness({ items: [queueNode('Acme/app', 1)], mergeOutcome: { ok: false, error: 'GraphQL: Base branch was modified' }, savedQueue: ['Acme/app#1'] });
+test('a failed queued merge is shown, stays queued, and is retried after the retry delay, at a new head, or when queued again', async () => {
+  const refusal = 'GraphQL: Resource not accessible by integration (mergePullRequest)';
+  const harness = mergeQueueHarness({ items: [queueNode('Acme/app', 1)], mergeOutcome: { ok: false, error: refusal }, savedQueue: ['Acme/app#1'] });
+  const firstHead = `Acme/app#1@${'a'.repeat(40)}:SQUASH`;
   await harness.poller.tick();
   await harness.poller.tick();
-  assert.deepEqual(harness.merges, [`Acme/app#1@${'a'.repeat(40)}:SQUASH`]);
-  assert.ok(harness.warnings.some((warning) => warning.includes('Acme/app#1') && warning.includes('Base branch was modified')));
+  assert.deepEqual(harness.merges, [firstHead]);
+  assert.ok(harness.warnings.some((warning) => warning.includes('Acme/app#1') && warning.includes(refusal)));
   assert.deepEqual(harness.savedState().mergeQueueKeys, ['Acme/app#1']);
   assert.equal(harness.statuses.at(-1)?.prs[0]?.mergeQueuePosition, 1);
+  assert.deepEqual(harness.statuses.at(-1)?.prs[0]?.mergeQueueFailure, { at: NOW, message: refusal });
+  harness.advanceClock(FAILED_GITHUB_ACTION_RETRY_MS);
+  await harness.poller.tick();
+  assert.deepEqual(harness.merges, [firstHead, firstHead]);
+  assert.equal((await harness.poller.setMergeWhenReady({ repo: 'Acme/app', number: 1, mergeWhenReady: true })).ok, true);
+  assert.equal(harness.statuses.at(-1)?.prs[0]?.mergeQueueFailure, undefined);
+  harness.setMergeOutcome({ ok: true, kind: 'merged' });
+  await harness.poller.tick();
+  assert.deepEqual(harness.merges, [firstHead, firstHead, firstHead]);
+  assert.equal(harness.statuses.at(-1)?.prs[0]?.mergeQueueFailure, undefined);
+  harness.setMergeOutcome({ ok: false, error: refusal });
   harness.setItems([queueNode('Acme/app', 1, { headRefOid: 'c'.repeat(40) })]);
   await harness.poller.tick();
-  assert.deepEqual(harness.merges, [`Acme/app#1@${'a'.repeat(40)}:SQUASH`, `Acme/app#1@${'c'.repeat(40)}:SQUASH`]);
+  assert.deepEqual(harness.merges, [firstHead, firstHead, firstHead, `Acme/app#1@${'c'.repeat(40)}:SQUASH`]);
   await harness.poller.stop();
 });
 

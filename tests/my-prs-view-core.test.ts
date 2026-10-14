@@ -171,12 +171,19 @@ test('review rows list the newest review first with a readable verdict', () => {
   ]);
 });
 
-test('an auto-rebase outcome adds its own readiness row', () => {
+test('an auto-rebase outcome adds its own readiness row, a failure blocking only when GitHub requires the update', () => {
   const rebased = { ...toMyPr(node, 0), autoRebase: { outcome: 'rebased' as const, at: 1, message: 'Rebased onto main' } };
   assert.deepEqual(readinessRows(rebased).at(-1), { label: 'Auto-rebase', tone: 'ok', icon: 'passed', text: 'Rebased onto main' });
-  const failed = { ...toMyPr(node, 0), autoRebase: { outcome: 'failed' as const, at: 1, message: 'Protected branch' } };
+  const failed = { ...toMyPr(node, 0), mergeStateStatus: 'BEHIND', autoRebase: { outcome: 'failed' as const, at: 1, message: 'Protected branch' } };
   assert.deepEqual(readinessRows(failed).at(-1), { label: 'Auto-rebase', tone: 'danger', icon: 'failed', text: 'Protected branch' });
+  assert.deepEqual(readinessRows({ ...failed, mergeStateStatus: 'CLEAN' }).at(-1), { label: 'Auto-rebase', tone: 'warn', icon: 'failed', text: 'Protected branch' });
   assert.equal(readinessRows(toMyPr(node, 0)).some((row) => row.label === 'Auto-rebase'), false);
+});
+
+test('a failed merge when ready shows as a readiness row and in the queue status', () => {
+  const failedMerge = { ...toMyPr(node, 0), mergeQueuePosition: 1, mergeQueueFailure: { at: 1, message: 'GraphQL: Resource not accessible by integration (mergePullRequest)' } };
+  assert.deepEqual(readinessRows(failedMerge).at(-1), { label: 'Merge when ready', tone: 'danger', icon: 'failed', text: 'Merge failed: GraphQL: Resource not accessible by integration (mergePullRequest)' });
+  assert.equal(mergeWhenReadyControlState(failedMerge, false).statusText, 'Queued, the last merge failed and retries an hour later once it is ready');
 });
 
 test('the merge control is hidden once merged and disabled with the blocking reason beside it', () => {

@@ -6,7 +6,7 @@ import { drainPending, firstLine } from '../lanes/ephemeral-session.ts';
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import type { PrGh } from './pr-gh.ts';
-import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeQueueFailure, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
@@ -51,6 +51,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   const keepMergeablePushedHeadKeys = new Set<string>();
   let mergeQueueKeys: string[] = [];
   const attemptedMergeKeys = new Set<string>();
+  const mergeFailuresByKey = new Map<string, { attemptKey: string; failure: MyPrMergeQueueFailure }>();
   const fixesInFlight = new Set<string>();
   const pendingFixes = new Set<Promise<void>>();
   const fixControllersByKey = new Map<string, AbortController>();
@@ -131,7 +132,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     const threadsByPr = threadedPrs.length > 0 ? await github.reviewThreadsBatch(threadedPrs) : new Map<string, MyPrThreadNode[]>();
     if (loop.isStopped()) return { failed: false };
     const prs: MyPr[] = [];
-    failedAutoRebaseAttempts = core.prunedFailedAutoRebaseAttempts(failedAutoRebaseAttempts, search.items);
+    failedAutoRebaseAttempts = core.prunedFailedAutoRebaseAttempts(failedAutoRebaseAttempts, search.items, failedAutoRebaseRecordsByAttemptKey, timestamp);
     for (const attemptKey of [...failedAutoRebaseRecordsByAttemptKey.keys()]) {
       if (!failedAutoRebaseAttempts.has(attemptKey)) failedAutoRebaseRecordsByAttemptKey.delete(attemptKey);
     }
@@ -140,8 +141,8 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       const key = `${node.repository.nameWithOwner}#${node.number}`;
       const behindBy = node.state === 'OPEN' ? behindCounts.get(key) ?? null : null;
       const attemptKey = core.autoRebaseAttemptKey(node);
-      const isFailedRecordForAnotherHead = autoRebaseByKey.get(key)?.outcome === 'failed' && !failedAutoRebaseAttempts.has(attemptKey);
-      if (isFailedRecordForAnotherHead) autoRebaseByKey.delete(key);
+      const isFailedRecordReleased = autoRebaseByKey.get(key)?.outcome === 'failed' && !failedAutoRebaseAttempts.has(attemptKey);
+      if (isFailedRecordReleased) autoRebaseByKey.delete(key);
       const failureFromBeforeRestart = failedAutoRebaseRecordsByAttemptKey.get(attemptKey);
       if (failureFromBeforeRestart && !autoRebaseByKey.has(key)) autoRebaseByKey.set(key, failureFromBeforeRestart);
       if (core.shouldRebaseMyPr(node, behindBy, failedAutoRebaseAttempts, { isAutoRebaseOn: shouldAutoRebase, mergeQueueKeys: new Set(isMergeQueueEnabled ? mergeQueueKeys : []), keepMergeablePushedHeadKeys })) {
@@ -165,6 +166,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       if (!listedKeys.has(key)) autoRebaseByKey.delete(key);
     }
     previousPrs = core.sortedMyPrs(prs, timestamp);
+    pruneMergeFailures(timestamp);
     pruneKeepMergeableState(search.items.length, search.totalCount);
     if (isMergeQueueEnabled) mergeQueueKeys = core.prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: search.items.length, totalCount: search.totalCount });
     previousPrs = withOperatorFlags(previousPrs);
@@ -193,10 +195,25 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     for (const pushedHeadKey of prunedState.keepMergeablePushedHeadKeys) keepMergeablePushedHeadKeys.add(pushedHeadKey);
   }
 
+  function pruneMergeFailures(nowMs: number): void {
+    const currentAttemptKeys = new Set(previousPrs.map(core.mergeAttemptKey));
+    for (const [key, { attemptKey, failure }] of [...mergeFailuresByKey]) {
+      if (currentAttemptKeys.has(attemptKey) && !core.isFailedAttemptRetryDue(failure.at, nowMs)) continue;
+      attemptedMergeKeys.delete(attemptKey);
+      if (!currentAttemptKeys.has(attemptKey)) mergeFailuresByKey.delete(key);
+    }
+  }
+
+  function currentMergeFailure(pr: MyPr, isQueued: boolean): MyPrMergeQueueFailure | undefined {
+    const recorded = mergeFailuresByKey.get(pr.key);
+    if (!isQueued || recorded?.attemptKey !== core.mergeAttemptKey(pr)) return undefined;
+    return recorded.failure;
+  }
+
   function withOperatorFlags(prs: MyPr[]): MyPr[] {
     const queuePositionByKey = core.mergeQueuePositions(mergeQueueKeys, prs);
     return prs.map((pr) => ({
-      ...pr, keepMergeableAttempt: core.currentKeepMergeableAttempt(pr, keepMergeableAttemptsByKey.get(pr.key)), isKeepMergeableFixInFlight: fixesInFlight.has(pr.key), keepMergeable: keepMergeableKeys.has(pr.key), mergeQueuePosition: queuePositionByKey.get(pr.key) ?? null,
+      ...pr, mergeQueueFailure: currentMergeFailure(pr, queuePositionByKey.has(pr.key)), keepMergeableAttempt: core.currentKeepMergeableAttempt(pr, keepMergeableAttemptsByKey.get(pr.key)), isKeepMergeableFixInFlight: fixesInFlight.has(pr.key), keepMergeable: keepMergeableKeys.has(pr.key), mergeQueuePosition: queuePositionByKey.get(pr.key) ?? null,
       isMergeQueueHeldForRepairPush: queuePositionByKey.has(pr.key) && core.isHeadPushedByKeepMergeable(pr, keepMergeablePushedHeadKeys),
     }));
   }
@@ -207,10 +224,18 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     for (const pr of core.mergeQueuePrsToMerge(mergeQueueKeys, previousPrs, { attemptedMergeKeys, keepMergeablePushedHeadKeys, rebasedThisTickKeys })) {
       if (loop.isStopped()) return;
       if (!mergeQueueKeys.includes(pr.key)) continue;
-      attemptedMergeKeys.add(core.mergeAttemptKey(pr));
+      const attemptKey = core.mergeAttemptKey(pr);
+      attemptedMergeKeys.add(attemptKey);
       const merged = await mergePr(pr);
-      if (!merged.ok) log?.warn(`[${core.MY_PRS_LANE_ID}] merge when ready for ${pr.key} failed and waits for a new head: ${firstLine(merged.error ?? '')}`);
+      if (merged.ok) {
+        mergeFailuresByKey.delete(pr.key);
+        continue;
+      }
+      const message = firstLine(merged.error ?? '') || 'GitHub refused the merge';
+      mergeFailuresByKey.set(pr.key, { attemptKey, failure: { at: now(), message } });
+      log?.warn(`[${core.MY_PRS_LANE_ID}] merge when ready for ${pr.key} failed and retries in an hour or at a new head: ${message}`);
     }
+    previousPrs = withOperatorFlags(previousPrs);
   }
 
   function forgetAttempt(attemptKey: string): Promise<void> {
@@ -295,11 +320,19 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     if (!loop.isStopped()) publishStatus();
   }
 
+  function forgetMergeFailure(key: string): void {
+    const recorded = mergeFailuresByKey.get(key);
+    if (!recorded) return;
+    attemptedMergeKeys.delete(recorded.attemptKey);
+    mergeFailuresByKey.delete(key);
+  }
+
   async function setMergeWhenReady(request: MyPrMergeWhenReadyRequest): Promise<Omit<MyPrMergeWhenReadyResult, 'key'>> {
     if (!isMergeQueueEnabled) return { ok: false, error: 'Merge when ready is turned off in Settings' };
     const refusal = await toggleRefusal(request, request.mergeWhenReady);
     if (refusal) return { ok: false, error: refusal };
     const key = prKey(request.repo, request.number);
+    if (request.mergeWhenReady) forgetMergeFailure(key);
     if (request.mergeWhenReady && !mergeQueueKeys.includes(key)) mergeQueueKeys = [...mergeQueueKeys, key];
     if (!request.mergeWhenReady) mergeQueueKeys = mergeQueueKeys.filter((queuedKey) => queuedKey !== key);
     await saveAndPublishFlags();

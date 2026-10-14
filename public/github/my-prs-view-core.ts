@@ -11,7 +11,7 @@ interface ThreadRow {
   waiting: { tone: StateTone; icon: PrStatusIcon; text: string } | null;
 }
 interface ReviewRow { reviewer: string; text: string; tone: StateTone; icon: PrStatusIcon; submittedAt: string | null }
-interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase'; tone: StateTone; icon: PrStatusIcon; text: string }
+interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase' | 'Merge when ready'; tone: StateTone; icon: PrStatusIcon; text: string }
 
 export interface ToggleControlState { isVisible: boolean; isPressed: boolean; isDisabled: boolean; statusText: string }
 
@@ -59,15 +59,16 @@ function ordinal(count: number): string {
   return `${count}${ORDINAL_SUFFIXES[ordinalRules.select(count)] ?? 'th'}`;
 }
 
-function mergeQueueStatusText(position: number | null, isHeldForRepairPush: boolean): string {
+function mergeQueueStatusText(position: number | null, isHeldForRepairPush: boolean, hasMergeFailed: boolean): string {
   if (position === null) return 'Not queued';
   if (isHeldForRepairPush) return 'Repair pushed, waiting for you';
+  if (hasMergeFailed) return 'Queued, the last merge failed and retries an hour later once it is ready';
   return `Queued, ${ordinal(position)} in line for this repository`;
 }
 
 export function mergeWhenReadyControlState(pr: MyPr, isPending: boolean, errorText = '', isFeatureEnabled = true): ToggleControlState {
   const position = pr.mergeQueuePosition ?? null;
-  return toggleControlState(pr, position !== null, isPending, errorText, mergeQueueStatusText(position, !!pr.isMergeQueueHeldForRepairPush), isFeatureEnabled);
+  return toggleControlState(pr, position !== null, isPending, errorText, mergeQueueStatusText(position, !!pr.isMergeQueueHeldForRepairPush, !!pr.mergeQueueFailure), isFeatureEnabled);
 }
 
 const SECTION_TITLES_BY_URGENCY = ['Needs you', 'Waiting', 'Ready to merge', 'Drafts', 'Merged today'] as const;
@@ -275,8 +276,15 @@ export function reviewRows(pr: MyPr): ReviewRow[] {
 export function readinessRows(pr: MyPr, viewer: string | null = null): ReadinessRow[] {
   if (pr.state === 'MERGED') return [];
   const rows = [checksReadiness(pr), reviewReadiness(pr), threadsReadiness(pr, viewer), conflictsReadiness(pr), baseReadiness(pr)];
-  if (!pr.autoRebase) return rows;
-  return [...rows, pr.autoRebase.outcome === 'rebased' ? { label: 'Auto-rebase', tone: 'ok', icon: 'passed', text: pr.autoRebase.message } : { label: 'Auto-rebase', tone: 'danger', icon: 'failed', text: pr.autoRebase.message }];
+  const autoRebaseRows = pr.autoRebase ? [autoRebaseReadiness(pr, pr.autoRebase)] : [];
+  const mergeFailureRows: ReadinessRow[] = pr.mergeQueueFailure ? [{ label: 'Merge when ready', tone: 'danger', icon: 'failed', text: `Merge failed: ${pr.mergeQueueFailure.message}` }] : [];
+  return [...rows, ...autoRebaseRows, ...mergeFailureRows];
+}
+
+function autoRebaseReadiness(pr: MyPr, autoRebase: NonNullable<MyPr['autoRebase']>): ReadinessRow {
+  if (autoRebase.outcome === 'rebased') return { label: 'Auto-rebase', tone: 'ok', icon: 'passed', text: autoRebase.message };
+  const isUpdateRequired = pr.mergeStateStatus === 'BEHIND';
+  return { label: 'Auto-rebase', tone: isUpdateRequired ? 'danger' : 'warn', icon: 'failed', text: autoRebase.message };
 }
 
 export function emptyStateText(status: MyPrsStatusType | null): string {

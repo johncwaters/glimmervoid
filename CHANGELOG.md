@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Harness runs show in the Factory tab by default**: `factory.mirrorHarnessRuns` now defaults to on, so a factory harness run appears in the Factory tab as a read-only project without a settings change. A config that only sets `factory.enabled` gets the mirror too. The harness turns the mirror off on the instance it boots, so a harness run never mirrors itself. An install first set up on v0.32.0 through v0.35.1 stored the old `false` and keeps the mirror off until the toggle is flipped in Settings > Lanes > Factory.
 
+### Fixed
+
+- **A failed Merge when ready shows on the card and retries**: when GitHub refuses a queued merge, My PRs now shows a red Merge when ready row with GitHub's error, and the queue status says the last merge failed, so a stuck PR no longer looks queued and on its way. Before, the failure only went to the server log, and that head was never tried again until a new commit or a server restart. Now a failed merge retries an hour later once the PR is ready again, at a new head, or when Merge when ready is turned off and on again.
+- **A failed auto-rebase retries after an hour**: a failed auto-rebase no longer blocks the same head forever, even across restarts. It retries hourly, so the error clears once the cause is fixed (for example a token that gained repository access). The Auto-rebase row now shows as a warning, not a blocker, when GitHub does not require the update before merging.
+
 ## [0.35.1] - 2026-10-14
 
 ### Fixed

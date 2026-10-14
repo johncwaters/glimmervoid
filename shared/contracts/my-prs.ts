@@ -65,6 +65,9 @@ const MyPrReview = z.object({ reviewer: z.string().nullable(), state: z.string()
 export const MyPrAutoRebase = z.object({ outcome: z.enum(['rebased', 'failed']), at: z.number().finite(), message: z.string() });
 export type MyPrAutoRebase = z.infer<typeof MyPrAutoRebase>;
 
+export const MyPrMergeQueueFailure = z.object({ at: z.number().finite(), message: z.string() });
+export type MyPrMergeQueueFailure = z.infer<typeof MyPrMergeQueueFailure>;
+
 export const MyPr = z.object({
   key: z.string(), repo: repositoryName, number: z.number().int().positive(), title: z.string(), url: z.url(),
   isDraft: z.boolean(), state: z.enum(['OPEN', 'MERGED', 'CLOSED']), createdAt: z.string(), mergedAt: z.string().nullable(), updatedAt: z.string(),
@@ -75,7 +78,7 @@ export const MyPr = z.object({
   reviewRequests: z.array(z.object({ name: z.string(), isTeam: z.boolean(), avatarUrl: z.string().nullable() })),
   approvals: nonnegativeInteger, reviews: z.array(MyPrReview), stage: MyPrStage, autoRebase: MyPrAutoRebase.optional(), keepMergeable: z.boolean().optional(),
   keepMergeableAttempt: MyPrKeepMergeableAttempt.optional(), isKeepMergeableFixInFlight: z.boolean().optional(),
-  mergeQueuePosition: z.number().int().positive().nullable().optional(), isMergeQueueHeldForRepairPush: z.boolean().optional(),
+  mergeQueuePosition: z.number().int().positive().nullable().optional(), isMergeQueueHeldForRepairPush: z.boolean().optional(), mergeQueueFailure: MyPrMergeQueueFailure.optional(),
 }).refine((pr) => pr.key === `${pr.repo}#${pr.number}`);
 export type MyPr = z.infer<typeof MyPr>;
 
