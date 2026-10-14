@@ -4,7 +4,7 @@
 # tests
 
 ## Purpose
-The automated test suite, run with `npm test` (node:test, no test framework dependency). Covers the pure cores, detection stack, session lifecycle, and the frontend's pure `.mjs` modules. Recorded-session fixtures drive the version-aware replay harness.
+The automated test suite, run with `npm test` (node:test, no test framework dependency). Covers the pure cores, detection stack, session lifecycle, and the frontend's pure `-core.ts` modules. Recorded-session fixtures drive the version-aware replay harness.
 
 ## Key Files
 Tests are named `<module>.test.ts` after the module under test. Notable clusters:
@@ -33,7 +33,7 @@ Tests are named `<module>.test.ts` after the module under test. Notable clusters
 - Tests assert on pure modules or injected fakes; no real PTY, no network, no live `claude`. Git-touching tests build temp repos.
 - No-dash rule applies to test sources too: build em/en dash/ellipsis expectations via `String.fromCharCode`, never literals.
 - New detection scenarios get a fixture recording plus a replay assertion, not a hand-rolled signal sequence only.
-- Frontend `.mjs` cores are dynamic-imported from `../public/`; keep them DOM-free or these tests break.
+- Frontend `-core.ts` modules are imported from `../public/`; keep them DOM-free or these tests break.
 
 ### Testing Requirements
 - `npm test` runs the whole suite; `node --import ./tests/helpers/isolate-home.ts --test tests/<file>` runs one file.
@@ -41,6 +41,6 @@ Tests are named `<module>.test.ts` after the module under test. Notable clusters
 ## Dependencies
 
 ### Internal
-- Everything under test: `../server/`, `../session/`, `../notifications/`, `../session/core/`, `../detection/`, `../public/**/*.mjs`, `../shared/`.
+- Everything under test: `../server/`, `../session/`, `../notifications/`, `../session/core/`, `../detection/`, `../public/`, `../shared/`.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

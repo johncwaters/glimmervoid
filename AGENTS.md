@@ -4,7 +4,7 @@ This file is loaded into EVERY session, so it holds only what every session need
 
 ## Purpose
 
-Glimmervoid is a local agent orchestrator, not a harness: a lightweight Node.js background process that spawns and supervises coding agent sessions (Claude Code, Codex, Grok, custom CLIs) via node-pty, streams terminal output to a browser dashboard over WebSockets, derives session status from structural signals (Claude Code hooks plus an OSC-0 title fallback, never screen scraping), and notifies the operator through browser notifications.
+Glimmervoid is a local agent orchestrator, not a harness: a Node.js background process that spawns and supervises coding agent sessions (Claude Code, Codex, Grok, custom CLIs) via node-pty, streams terminal output to a browser dashboard over WebSockets, derives session status from structural signals (Claude Code hooks plus an OSC-0 title fallback, never screen scraping), and notifies the operator through browser notifications and Telegram.
 
 ## Architecture Map
 
@@ -72,11 +72,11 @@ Each subsystem states its own rules beside its code, so a rule is loaded when th
 
 | Subsystem | Rules live in |
 |---|---|
-| Status Detection, Session Recording, Session Trace | `detection/AGENTS.md` |
+| Status Detection, Operator Hooks, Session Recording, Session Trace | `detection/AGENTS.md` |
 | Agent Adapters | `session/adapters/AGENTS.md` |
 | Session Spawning, Auto-Resume and Shutdown | `session/AGENTS.md` |
 | Notifications | `notifications/AGENTS.md` |
-| Worktree Auto-Rebase, Remote Branch GC, Radar / PostHog Auto-Fix, Usage Tracking, Ephemeral Lane Write Boundaries, Plan Review, Security: Trust Boundary, Transport and Session Identity | `server/AGENTS.md` |
+| Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Radar / PostHog Auto-Fix, Team PR Review, Benchmarks, Usage Tracking, Ephemeral Lane Write Boundaries, Plan Review, Security: Trust Boundary, Transport and Session Identity | `server/AGENTS.md` |
 | Dashboard Layouts | `public/AGENTS.md` |
 
 ## Coding Style
@@ -97,7 +97,9 @@ Windows 11, Linux and macOS. Node floor and module split are stated under Workin
 
 ## Dependencies
 
-Runtime: `express`, `ws` (no Socket.IO and no abstraction over WebSockets, ever), `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `addon-fit` and `addon-webgl`.
+Runtime: `express`, `ws` (no Socket.IO and no abstraction over WebSockets, ever), `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`.
+
+`@xterm/headless` with `@xterm/addon-serialize` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `@anthropic-ai/sandbox-runtime` (Seatbelt on macOS, bubblewrap on Linux) and `cc-safety-net` back the session guardrails. `@danilocampos/coherence` reads the Coherence work ledgers for the factory and the knowledge graph.
 
 `@parcel/watcher` backs the fs ingest source only, chosen because it applies ignores BEFORE watch registration, which keeps a `node_modules` tree from exhausting `inotify.max_user_watches` on Linux. A load failure disables that one source and nothing else.
 
