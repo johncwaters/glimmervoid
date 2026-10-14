@@ -10,7 +10,10 @@ import {
 } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
 import { ENV_SECRET_BINDINGS } from '../server/core/config-secrets-core.ts';
+import { settingsBlockSpecFor } from '../server/core/settings-block-core.ts';
 import { getAdapter, setCustomAgents } from '../session/adapters/index.ts';
+import { SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
+import { settingsOf } from '../shared/settings/registry-core.ts';
 import { ConfigUpdate } from '../shared/contracts/index.ts';
 import { SECRET_PRESENCE_SUFFIX as CLIENT_SECRET_PRESENCE_SUFFIX } from '../public/settings/settings-view-core.ts';
 import { waitForFsWatchToArm } from './helpers/wait-for.ts';
@@ -428,7 +431,7 @@ test('applySettings applies each runtime scalar it is handed', () => {
   });
 });
 
-test('workflow rules default to none, reach the dashboard read-only and apply live from a config.json edit', () => {
+test('workflow rules default to none, reach the dashboard whole and read-only even when invalid, and apply live from a config.json edit', () => {
   withStore({ projects: [] }, (store) => {
     assert.deepEqual(DEFAULT_CONFIG.workflows, { enabled: true, maxConcurrentSessions: 2, maxActionsPerPoll: 20, rules: [] });
     assert.equal(store.getSettings().workflows, null);
@@ -436,6 +439,10 @@ test('workflow rules default to none, reach the dashboard read-only and apply li
     store.applySettings({ projects: [], workflows });
     assert.deepEqual(store.config.workflows, workflows);
     assert.deepEqual(store.getSettings().workflows, workflows);
+  });
+  const misspelledWorkflows = { enabled: true, maxConcurentSessions: 2, rules: [{ id: 'one', name: 'One', enabled: true, repos: ['Acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] };
+  withStore({ projects: [], workflows: misspelledWorkflows }, (store) => {
+    assert.deepEqual(store.getSettings().workflows, misspelledWorkflows);
   });
 });
 
@@ -614,14 +621,74 @@ test('loading legacy fractional settings migrates counts without rejecting the f
   });
 });
 
-test('getSettings drops posthog keys outside the dashboard allow-list', () => {
+test('getSettings drops posthog keys outside the dashboard allow-list and a project map nested too deeply to send, warning about it once', () => {
   withStore({ projects: [] }, (store) => {
     store.config.posthog = { enabled: true, apiKey: 'phx_secret', internalOnlyKey: 'leak-me' };
     const settings = store.getSettings();
 
     assert.equal(Object.hasOwn(block(settings.posthog), 'internalOnlyKey'), false);
     assert.deepEqual(settings.posthog, { enabled: true, apiKeyConfigured: true });
+
+    let deepProjectMap: Record<string, unknown> = {};
+    for (let level = 0; level < 3500; level += 1) deepProjectMap = { app: deepProjectMap };
+    store.config.posthog = { enabled: true, projectMap: deepProjectMap };
+    const warnings = warningsFrom(() => {
+      assert.deepEqual(store.getSettings().posthog, { enabled: true, apiKeyConfigured: false });
+      assert.deepEqual(store.getSettings().posthog, { enabled: true, apiKeyConfigured: false });
+    });
+    assert.equal(warnings.filter((warning) => warning.includes('posthog.projectMap is nested too deeply')).length, 1, warnings.join('\n'));
   });
+});
+
+test('every block of the settings payload is picked through the registry spec, so an unlisted key never reaches the dashboard', () => {
+  withStore({
+    projects: [],
+    visions: { enabled: true, futureKey: 'kept-on-disk', dispatch: { enabled: false, junk: 1 } },
+    teamReview: { enabled: true, org: 'PostHog', ignored: true },
+    telemetry: { enabled: false, installId: 'install-1' },
+    usage: { enabled: true, budget: { dailyUsd: 5, secretLedger: 'x' } },
+  }, (store) => {
+    const settings = store.getSettings();
+    assert.deepEqual(settings.visions, { enabled: true, dispatch: { enabled: false } });
+    assert.deepEqual(settings.teamReview, { enabled: true, org: 'PostHog' });
+    assert.deepEqual(settings.telemetry, { enabled: false });
+    assert.deepEqual(settings.usage, { enabled: true, budget: { dailyUsd: 5 } });
+    assert.equal(block(store.config.visions).futureKey, 'kept-on-disk', 'the file keeps what the payload leaves out');
+  });
+});
+
+test('the payload carries the whole post-turn checks block, which the registry lists as one structured value', () => {
+  withStore({ projects: [], postTurnChecks: { enabled: false, mode: 'fix', rules: { bom: false } } }, (store) => {
+    assert.deepEqual(store.getSettings().postTurnChecks, { enabled: false, mode: 'fix', rules: { bom: false } });
+  });
+  withStore({ projects: [] }, (store) => {
+    assert.deepEqual(store.getSettings().postTurnChecks, DEFAULT_CONFIG.postTurnChecks);
+  });
+});
+
+test('blocks with defaults still project their defaults through the registry pick', () => {
+  withStore({ projects: [], guardrails: { blockedPaths: ['~/.cargo'] }, trace: {} }, (store) => {
+    const settings = store.getSettings();
+    assert.deepEqual(settings.guardrails, { ...DEFAULT_CONFIG.guardrails, blockedPaths: ['~/.cargo'] });
+    assert.deepEqual(settings.trace, { enabled: true });
+    assert.deepEqual(settings.telemetry, { enabled: true });
+    assert.deepEqual(settings.taskTitle, DEFAULT_CONFIG.taskTitle);
+    assert.deepEqual(settings.branchGc, DEFAULT_CONFIG.branchGc);
+    assert.equal(settings.changeMap, null);
+  });
+});
+
+test('the environment secret bindings and the password leaves of the registry are the same set, so each shows as configured and never as its value', () => {
+  const boundPaths = ENV_SECRET_BINDINGS.map((binding) => `${binding.blockName}.${binding.secretKey}`).sort();
+  const passwordPaths = [...settingsOf(SETTINGS_REGISTRY.sections), ...SETTINGS_REGISTRY.fileOnly]
+    .filter((setting) => setting.control === 'password')
+    .map((setting) => setting.path)
+    .sort();
+  assert.deepEqual(passwordPaths, boundPaths);
+  for (const binding of ENV_SECRET_BINDINGS) {
+    const leaf = settingsBlockSpecFor(binding.blockName).values?.[binding.secretKey];
+    assert.equal(leaf?.control, 'password', `${binding.blockName}.${binding.secretKey}`);
+  }
 });
 
 test('applySettings preserves branchGc defaults and merges partial overrides', () => {

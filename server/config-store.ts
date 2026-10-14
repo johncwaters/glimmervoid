@@ -14,7 +14,7 @@ import { AGENT_ID_SHAPE_MESSAGE, BranchGcFileSettings, Config, configIssueMessag
 import type { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS } from '../shared/contracts/workflows.ts';
 import type { WorkflowRule } from '../shared/contracts/workflows.ts';
-import { INGEST_SPEC, pickSettingsBlock } from './core/settings-block-core.ts';
+import { SECRET_PRESENCE_SUFFIX, pickSettingsBlock, settingsBlockSpecFor } from './core/settings-block-core.ts';
 import { writeJsonAtomicSync, writeTextAtomic, writeTextAtomicSync } from './json-file.ts';
 import { errorLabel, errorMessage } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
@@ -326,34 +326,10 @@ function resolveBranchGcAndWarn(branchGc: unknown): BranchGcBlock {
   return resolved.block;
 }
 
-const POSTHOG_SETTINGS_KEYS = Object.freeze([
-  'enabled', 'recurrenceDedupe', 'trafficSpikeEnabled', 'autoFix',
-  'host', 'repoPath', 'projects', 'projectMap',
-  'intervalMinutes', 'maxConcurrentInvestigations', 'investigationTimeoutSeconds', 'fixTimeoutSeconds',
-  'minUsersToInvestigate', 'userEscalationThreshold', 'recurrenceWindowDays', 'transientRecurrenceLimit',
-  'trafficSpikeMultiplier', 'trafficSpikeMinUsers', 'trafficSpikeCooldownMinutes', 'trafficSpikeBaselineDays',
-]);
-const POSTHOG_SECRET_KEYS = Object.freeze(['apiKey']);
-const TELEGRAM_SETTINGS_KEYS = Object.freeze(['chatId']);
-const TELEGRAM_SECRET_KEYS = Object.freeze(['botToken']);
-const SECRET_PRESENCE_SUFFIX = 'Configured';
-
-function pickRedactedBlock(
-  stored: unknown,
-  allowedKeys: readonly string[],
-  secretKeys: readonly string[],
-): Record<string, unknown> | null {
-  if (!isRecord(stored)) return null;
-  const source: Record<string, unknown> = stored;
-  const redacted: Record<string, unknown> = {};
-  for (const key of allowedKeys) {
-    if (source[key] !== undefined) redacted[key] = source[key];
-  }
-  for (const secretKey of secretKeys) {
-    const secret = source[secretKey];
-    redacted[`${secretKey}${SECRET_PRESENCE_SUFFIX}`] = typeof secret === 'string' && secret.length > 0;
-  }
-  return redacted;
+function secretSourcesOf(env: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(readEnvSecrets(env).map((secret) => [
+    `${secret.blockName}.${secret.secretKey}`, secret.environmentVariable,
+  ]));
 }
 
 function retiredGuardrailKeysWarning(config: GlimmervoidConfig): string | null {
@@ -495,6 +471,19 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     return scheduledSave;
   }
 
+  const warnedTooDeepPaths = new Set<string>();
+
+  function pickBlock(blockName: string, stored: unknown): Record<string, unknown> | null {
+    const tooDeepPaths: string[] = [];
+    const picked = pickSettingsBlock(stored, settingsBlockSpecFor(blockName), tooDeepPaths);
+    for (const tooDeepPath of tooDeepPaths) {
+      if (warnedTooDeepPaths.has(tooDeepPath)) continue;
+      warnedTooDeepPaths.add(tooDeepPath);
+      console.warn(`[config] ${tooDeepPath} is nested too deeply to send to the dashboard, so Settings leaves it out; config.json keeps it as it is.`);
+    }
+    return picked;
+  }
+
   function getSettings() {
     return {
       port: config.port,
@@ -510,9 +499,9 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       streamerMode: config.streamerMode ?? effectiveDefaults.streamerMode,
       detectBackgroundAgents: config.detectBackgroundAgents ?? effectiveDefaults.detectBackgroundAgents,
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,
-      trace: { enabled: config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled },
-      guardrails: { ...DEFAULT_CONFIG.guardrails, ...config.guardrails },
-      telemetry: { enabled: config.telemetry?.enabled ?? DEFAULT_CONFIG.telemetry.enabled },
+      trace: pickBlock('trace', { ...DEFAULT_CONFIG.trace, ...config.trace }),
+      guardrails: pickBlock('guardrails', { ...DEFAULT_CONFIG.guardrails, ...config.guardrails }),
+      telemetry: pickBlock('telemetry', { ...DEFAULT_CONFIG.telemetry, ...config.telemetry }),
       telemetryForcedOff: isTelemetryForcedOff(process.env),
       rtk: config.rtk ?? effectiveDefaults.rtk,
       rtkInstallSupported: assetForPlatform(process.platform, process.arch) !== null,
@@ -528,27 +517,25 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       repoRoots: config.repoRoots,
       repositoryRootCaseInsensitive: equalsIgnoringCaseOnWindows('root', 'ROOT'),
 
-      taskTitle: config.taskTitle ? { ...config.taskTitle } : { ...DEFAULT_CONFIG.taskTitle },
-      changeMap: config.changeMap ? { ...config.changeMap } : null,
-      branchGc: { ...config.branchGc },
-      postTurnChecks: config.postTurnChecks ? { ...config.postTurnChecks } : { ...DEFAULT_CONFIG.postTurnChecks },
-      visions: config.visions ? { ...config.visions } : null,
-      github: config.github ? { ...config.github } : null,
-      teamReview: config.teamReview ? { ...config.teamReview } : null,
-      benchmarks: config.benchmarks ? { ...config.benchmarks } : null,
-      factory: config.factory ? { ...config.factory } : null,
-      knowledgeGraph: config.knowledgeGraph ? { ...config.knowledgeGraph } : null,
+      taskTitle: pickBlock('taskTitle', config.taskTitle ?? DEFAULT_CONFIG.taskTitle),
+      changeMap: pickBlock('changeMap', config.changeMap),
+      branchGc: pickBlock('branchGc', config.branchGc),
+      postTurnChecks: pickBlock('postTurnChecks', config.postTurnChecks ?? DEFAULT_CONFIG.postTurnChecks),
+      visions: pickBlock('visions', config.visions),
+      github: pickBlock('github', config.github),
+      teamReview: pickBlock('teamReview', config.teamReview),
+      benchmarks: pickBlock('benchmarks', config.benchmarks),
+      factory: pickBlock('factory', config.factory),
+      knowledgeGraph: pickBlock('knowledgeGraph', config.knowledgeGraph),
       workflows: config.workflows ?? null,
 
-      posthog: pickRedactedBlock(config.posthog, POSTHOG_SETTINGS_KEYS, POSTHOG_SECRET_KEYS),
-      secretSources: Object.fromEntries(readEnvSecrets(process.env).map((secret) => [
-        `${secret.blockName}.${secret.secretKey}`, secret.environmentVariable,
-      ])),
+      posthog: pickBlock('posthog', config.posthog),
+      secretSources: secretSourcesOf(process.env),
 
-      usage: config.usage ? { ...config.usage } : null,
-      telegram: pickRedactedBlock(config.telegram, TELEGRAM_SETTINGS_KEYS, TELEGRAM_SECRET_KEYS),
+      usage: pickBlock('usage', config.usage),
+      telegram: pickBlock('telegram', config.telegram),
 
-      ingest: pickSettingsBlock(config.ingest, INGEST_SPEC),
+      ingest: pickBlock('ingest', config.ingest),
 
       projectChoices: (config.projects || []).map((p) => ({ id: p.id, name: p.name, path: p.path })),
     };

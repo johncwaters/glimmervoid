@@ -4,9 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
-import { DASHBOARD_SETTING_PATHS } from '../server/control-handlers.ts';
 import { INGEST_SPEC } from '../server/core/settings-block-core.ts';
-import type { SettingsBlockSpec } from '../server/core/settings-block-core.ts';
 import { UPDATE_CHANNELS } from '../shared/contracts/browser-config.ts';
 import { BranchGcFileSettings, Config, ConfigUpdate } from '../shared/contracts/config.ts';
 import { FLYING_ANIMALS_DEFAULTS } from '../shared/settings-ranges.ts';
@@ -17,6 +15,7 @@ import {
 } from '../shared/settings/registry-core.ts';
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../public/radar/radar-core.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } from '../public/github/team-review-view-core.ts';
+import { settableFromDashboard, specAllows } from './helpers/settings-allow-list.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
 const ALL_ENTRIES: readonly SettingsSetting[] = [...settingsOf(SETTINGS_REGISTRY.sections), ...SETTINGS_REGISTRY.fileOnly];
@@ -253,6 +252,17 @@ test('the block spec builder reproduces the server ingest spec from the registry
   assert.deepEqual(settingsBlockSpec('telemetry'), { name: 'telemetry', booleans: ['enabled'], blocks: {} });
 });
 
+const PER_BLOCK_KEY_LIST = /^(?:export )?const [A-Z][A-Z0-9_]*_KEYS\b/m;
+const DASHBOARD_PATH_LIST = /DASHBOARD_SETTING_PATHS/;
+
+test('the control handlers and the config store declare no per-block settings key list and no dashboard path list', () => {
+  for (const file of ['server/control-handlers.ts', 'server/config-store.ts']) {
+    const source = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    assert.equal(PER_BLOCK_KEY_LIST.test(source), false, `${file} declares a settings key list; the registry block spec is the only per-block list`);
+    assert.equal(DASHBOARD_PATH_LIST.test(source), false, `${file} names DASHBOARD_SETTING_PATHS; the registry is the dashboard allow-list`);
+  }
+});
+
 const KNOWN_LINK_IDS: Readonly<Record<string, string>> = Object.freeze({
   UPDATES_SECTION_ID, UPDATES_ACTIONS_SETTING_ID, TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
 });
@@ -328,20 +338,9 @@ function sectionById(id: string) {
   return section;
 }
 
-const DASHBOARD_SETTING_PATH_SET = new Set(DASHBOARD_SETTING_PATHS);
 const OPTION_CATALOGS = new Set(['sounds', 'themes']);
 
-function specAllows(spec: SettingsBlockSpec, parts: readonly string[]): boolean {
-  if (parts.length === 0) return true;
-  const [key, ...remaining] = parts;
-  if (spec.booleans.includes(key) && remaining.length === 0) return true;
-  const block = spec.blocks[key];
-  if (!block) return false;
-  return specAllows(block, remaining);
-}
-
 const DEFAULT_CONFIG_RECORD: Record<string, unknown> = DEFAULT_CONFIG;
-const BLOCK_SPECS_BY_KEY: Record<string, SettingsBlockSpec> = { ingest: INGEST_SPEC };
 
 function walkPath(root: unknown, parts: readonly string[]): boolean {
   let cursor = root;
@@ -358,9 +357,7 @@ function pathIsKnown(settingPath: string): boolean {
   if (Object.hasOwn(DEFAULT_CONFIG_RECORD, topLevel)) {
     return walkPath(DEFAULT_CONFIG_RECORD[topLevel], remaining);
   }
-  if (DASHBOARD_SETTING_PATH_SET.has(settingPath)) return true;
-  const blockSpec = BLOCK_SPECS_BY_KEY[topLevel];
-  return !!blockSpec && specAllows(blockSpec, remaining);
+  return settableFromDashboard(settingPath);
 }
 
 test('the registry has known paths, status readouts and searchable option catalogs', () => {
@@ -382,6 +379,8 @@ test('the registry never exposes remote and ingest keys stay inside the dashboar
     assert.equal(specAllows(INGEST_SPEC, setting.path.split('.').slice(1)), true, setting.path);
   }
   assert.equal(pathIsKnown('visions.dispatch.quietMS'), false);
+  assert.equal(settableFromDashboard('remote.port'), false);
+  assert.equal(settableFromDashboard('ingest.sources.fs.roots'), false);
 });
 
 test('the machine Updates section owns its alias, channel, status rows, actions and moved toggle', () => {
@@ -432,7 +431,7 @@ test('the tuning knobs, diagnostics and legacy team keys are the file-only listi
 
 test('the agent API row is gone and the custom agents readout sits beside its file-only key', () => {
   assert.equal(ALL_ENTRIES.some((setting) => setting.path.startsWith('agentApi')), false);
-  assert.equal(DASHBOARD_SETTING_PATH_SET.has('agentApi.enabled'), false);
+  assert.equal(settableFromDashboard('agentApi.enabled'), false);
 
   const readout = settingById('custom-agents');
   assert.equal(readout.control, 'readonly');
@@ -441,7 +440,7 @@ test('the agent API row is gone and the custom agents readout sits beside its fi
   const key = settingById('file-custom-agents');
   assert.equal(key.path, 'customAgents');
   assert.equal(key.access, 'file-only');
-  assert.equal(DASHBOARD_SETTING_PATH_SET.has('customAgents'), false);
+  assert.equal(settableFromDashboard('customAgents'), false);
 });
 
 test('the Team review lane section owns its settings and deep link, with org and team left to config.json', () => {
@@ -460,7 +459,7 @@ test('the Team review lane section owns its settings and deep link, with org and
     ['team-review-merge-queue-enabled', 'teamReview.mergeQueueEnabled', 'toggle'],
   ]);
   assert.equal(section.settings.some((setting) => setting.id === TEAM_REVIEW_SETTINGS_SETTING_ID), true);
-  for (const setting of section.settings) assert.equal(DASHBOARD_SETTING_PATH_SET.has(setting.path), true, setting.path);
+  for (const setting of section.settings) assert.equal(settableFromDashboard(setting.path), true, setting.path);
   assert.deepEqual(SETTINGS_REGISTRY.fileOnly.filter((setting) => setting.path.startsWith('teamReview.')).map((setting) => setting.path), ['teamReview.org', 'teamReview.team']);
 });
 
@@ -489,5 +488,5 @@ test('the machine Privacy section owns the telemetry toggle and the privacy deep
   const toggle = privacy.settings.find((setting) => setting.path === 'telemetry.enabled');
   assert.equal(toggle?.control, 'toggle');
   assert.equal(toggle?.defaultValue, DEFAULT_CONFIG.telemetry.enabled);
-  assert.equal(DASHBOARD_SETTING_PATH_SET.has('telemetry.enabled'), true);
+  assert.equal(settableFromDashboard('telemetry.enabled'), true);
 });

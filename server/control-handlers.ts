@@ -11,7 +11,6 @@ import os from 'node:os';
 import path from 'node:path';
 import type { WebSocket, WebSocketServer } from 'ws';
 import {
-  BRANCH_GC_CONTROL_BOOLEAN_KEYS, BRANCH_GC_CONTROL_NUMERIC_KEYS,
   ClientMessage, RUNTIME_CONFIG_SCALAR_KEYS, ConfigUpdate, configIssueMessage,
   type ClientMessageOf,
 } from '../shared/contracts/index.ts';
@@ -24,9 +23,7 @@ import { glimmervoidHomeDir, ABORT_CONFIG_SAVE } from './config-store.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord, ReplayLog } from './core/control-replay-core.ts';
 import { normalizeClientTrust } from './core/request-trust.ts';
-import {
-  INGEST_SPEC, mergeSettingsBlock, validateSettingsBlock,
-} from './core/settings-block-core.ts';
+import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from './core/settings-block-core.ts';
 import { readPosthogReport } from './radar/radar-report.ts';
 import * as radarLaneCore from './radar/core/radar-lane-core.ts';
 import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
@@ -47,8 +44,6 @@ import { HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TI
 import { describeBuiltinHooks } from '../detection/settings-injector.ts';
 import { PlanDecision } from '../shared/contracts/plan-review.ts';
 import { getRtkPath } from './rtk-resolver.ts';
-import { USAGE_INTEGER_RANGES } from '../shared/settings-ranges.ts';
-import { USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../shared/usage-config.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { ChangeMap } from '../shared/contracts/change-map.ts';
 import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
@@ -183,90 +178,22 @@ function scanRepoRoots(roots: string[] | undefined): { root: string; projects: {
 }
 
 const SETTINGS_NOT_SAVED_MESSAGE = 'Settings were not saved: the config file could not be read, validated or written. The server log names the cause.';
-const VISIONS_BOOLEAN_KEYS =Object.freeze(['enabled', 'autoFix']);
-const TEAM_REVIEW_BOOLEAN_KEYS = Object.freeze(['enabled', 'autoRebaseMyPrs', 'keepMergeableEnabled', 'mergeQueueEnabled']);
-const TEAM_REVIEW_STRING_KEYS = Object.freeze(['org', 'team', 'skill']);
-const VISIONS_VALUE_KEYS = Object.freeze(['projects']);
-const VISIONS_DISPATCH_BOOLEAN_KEYS = Object.freeze(['enabled']);
-const VISIONS_DISPATCH_STRING_KEYS = Object.freeze(['model']);
-const VISIONS_DISPATCH_NUMERIC_KEYS = Object.freeze(['quietMs', 'cooldownMs', 'maxPerHour', 'activityMaxPerHour', 'dispatchTimeoutSeconds']);
-const VISIONS_INTENT_NUMERIC_KEYS = Object.freeze(['threadTtlMs']);
-const POSTHOG_NUMERIC_KEYS = Object.freeze([
-  'intervalMinutes',
-  'maxConcurrentInvestigations',
-  'investigationTimeoutSeconds',
-  'fixTimeoutSeconds',
-  'minUsersToInvestigate',
-  'userEscalationThreshold',
-  'recurrenceWindowDays',
-  'transientRecurrenceLimit',
-  'trafficSpikeMultiplier',
-  'trafficSpikeMinUsers',
-  'trafficSpikeCooldownMinutes',
-  'trafficSpikeBaselineDays',
-]);
+const WORKFLOWS_SETTINGS_KEY = 'workflows';
 
-const POSTHOG_BOOLEAN_KEYS = Object.freeze(['enabled', 'recurrenceDedupe', 'trafficSpikeEnabled', 'autoFix']);
-const POSTHOG_STRING_KEYS = Object.freeze(['host', 'apiKey', 'repoPath']);
-const POSTHOG_VALUE_KEYS = Object.freeze(['projects', 'projectMap']);
+type IncomingSettingsBlock = readonly [key: string, block: Record<string, unknown>];
 
-const USAGE_BOOLEAN_KEYS = Object.freeze(['enabled', 'fetchPricing', 'planLimits', 'rtkSavings']);
-const USAGE_VALUE_KEYS = Object.freeze(['costMode', 'extraProjectsDirs']);
-const TELEGRAM_STRING_KEYS = Object.freeze(['botToken', 'chatId']);
+function incomingSettingsBlocks(incoming: Record<string, unknown>): IncomingSettingsBlock[] {
+  return Object.entries(incoming)
+    .filter((entry): entry is [string, Record<string, unknown>] => entry[0] !== WORKFLOWS_SETTINGS_KEY && isRecord(entry[1]));
+}
 
-function mergeSettingsBlockOverStored(stored: unknown, incoming: Record<string, unknown>): Record<string, unknown> {
-  const merged: Record<string, unknown> = isRecord(stored) ? { ...stored } : {};
-  for (const [key, value] of Object.entries(incoming)) {
-    if (value === undefined) continue;
-    merged[key] = value;
+function incomingSettingsBlocksError(blocks: readonly IncomingSettingsBlock[]): string | null {
+  for (const [key, block] of blocks) {
+    const error = validateSettingsBlock(block, settingsBlockSpecFor(key));
+    if (error) return error;
   }
-  return merged;
+  return null;
 }
-function mergeNestedSettingsOverStored(stored: unknown, incoming: Record<string, unknown>, nestedKey: string): Record<string, unknown> {
-  const merged = mergeSettingsBlockOverStored(stored, incoming);
-  const storedSettings = stored && typeof stored === 'object' ? Object.getOwnPropertyDescriptor(stored, nestedKey)?.value : undefined;
-  const incomingSettings = incoming[nestedKey];
-  if (!incomingSettings || typeof incomingSettings !== 'object') return merged;
-  merged[nestedKey] = mergeSettingsBlockOverStored(storedSettings, { ...incomingSettings });
-  return merged;
-}
-const DASHBOARD_SETTING_PATHS = Object.freeze([
-  ...BRANCH_GC_CONTROL_BOOLEAN_KEYS.map((key) => `branchGc.${key}`),
-  ...BRANCH_GC_CONTROL_NUMERIC_KEYS.map((key) => `branchGc.${key}`),
-  'postTurnChecks.mode',
-  ...VISIONS_BOOLEAN_KEYS.map((key) => `visions.${key}`),
-  ...VISIONS_VALUE_KEYS.map((key) => `visions.${key}`),
-  ...VISIONS_DISPATCH_BOOLEAN_KEYS.map((key) => `visions.dispatch.${key}`),
-  ...VISIONS_DISPATCH_STRING_KEYS.map((key) => `visions.dispatch.${key}`),
-  ...VISIONS_DISPATCH_NUMERIC_KEYS.map((key) => `visions.dispatch.${key}`),
-  ...VISIONS_INTENT_NUMERIC_KEYS.map((key) => `visions.intent.${key}`),
-  'github.teams',
-  ...TEAM_REVIEW_BOOLEAN_KEYS.map((key) => `teamReview.${key}`),
-  ...TEAM_REVIEW_STRING_KEYS.map((key) => `teamReview.${key}`),
-  'teamReview.reReviewAfterHours',
-  'teamReview.skipIdleAfterDays',
-  'teamReview.keepMergeableTimeoutMinutes',
-  'benchmarks.enabled',
-  'factory.enabled', 'factory.maxRisk', 'factory.maxLiveWorkers', 'factory.checks', 'factory.protectedPaths', 'factory.reviewerModel', 'factory.dailyBudgetUsd', 'factory.verifierModel', 'factory.mirrorHarnessRuns',
-  'knowledgeGraph.enabled',
-  'workflows.enabled',
-  'workflows.maxConcurrentSessions',
-  'workflows.maxActionsPerPoll',
-  ...POSTHOG_BOOLEAN_KEYS.map((key) => `posthog.${key}`),
-  ...POSTHOG_STRING_KEYS.map((key) => `posthog.${key}`),
-  ...POSTHOG_VALUE_KEYS.map((key) => `posthog.${key}`),
-  ...POSTHOG_NUMERIC_KEYS.map((key) => `posthog.${key}`),
-  ...USAGE_BOOLEAN_KEYS.map((key) => `usage.${key}`),
-  ...Object.keys(USAGE_INTEGER_RANGES).map((key) => `usage.${key}`),
-  ...USAGE_VALUE_KEYS.map((key) => `usage.${key}`),
-  ...USAGE_VENDOR_KEYS.map((key) => `usage.vendors.${key}`),
-  ...USAGE_BUDGET_KEYS.map((key) => `usage.budget.${key}`),
-  ...TELEGRAM_STRING_KEYS.map((key) => `telegram.${key}`),
-  'guardrails.unguardedRepos',
-  'guardrails.blockedPaths',
-  'guardrails.unreadablePaths',
-  'telemetry.enabled',
-]);
 
 const USAGE_REPORT_MAX_DAYS = 3650;
 const CONVERSATION_HISTORY_GIT_TIMEOUT_MS = 20000;
@@ -827,9 +754,10 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       return;
     }
 
-    const ingestError = validateSettingsBlock(incoming.ingest, INGEST_SPEC);
-    if (ingestError) {
-      sendError(ws, ingestError, { type: 'settings-error', requestId: msg.requestId || null });
+    const blocks = incomingSettingsBlocks(incoming);
+    const blockError = incomingSettingsBlocksError(blocks);
+    if (blockError) {
+      sendError(ws, blockError, { type: 'settings-error', requestId: msg.requestId || null });
       return;
     }
 
@@ -849,22 +777,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         cfg[key] = incoming[key];
       }
       if (s.repoRoots != null) cfg.repoRoots = s.repoRoots;
-      if (s.taskTitle != null) cfg.taskTitle = mergeNestedSettingsOverStored(cfg.taskTitle, s.taskTitle, 'refiner');
-      if (s.changeMap != null) cfg.changeMap = mergeNestedSettingsOverStored(cfg.changeMap, s.changeMap, 'narrator');
-      if (s.branchGc != null) cfg.branchGc = mergeSettingsBlockOverStored(cfg.branchGc, s.branchGc);
-      if (s.postTurnChecks != null) cfg.postTurnChecks = mergeSettingsBlockOverStored(cfg.postTurnChecks, s.postTurnChecks);
-      if (s.visions != null) cfg.visions = s.visions;
-      if (s.github != null) cfg.github = mergeSettingsBlockOverStored(cfg.github, s.github);
-      if (s.teamReview != null) cfg.teamReview = mergeSettingsBlockOverStored(cfg.teamReview, s.teamReview);
-      if (s.benchmarks != null) cfg.benchmarks = mergeSettingsBlockOverStored(cfg.benchmarks, s.benchmarks);
-      if (s.factory != null) cfg.factory = mergeSettingsBlockOverStored(cfg.factory, s.factory);
-      if (s.knowledgeGraph != null) cfg.knowledgeGraph = mergeSettingsBlockOverStored(cfg.knowledgeGraph, s.knowledgeGraph);
-      if (s.posthog != null) cfg.posthog = mergeSettingsBlockOverStored(cfg.posthog, s.posthog);
-      if (s.usage != null) cfg.usage = s.usage;
-      if (incoming.ingest != null) cfg.ingest = mergeSettingsBlock(cfg.ingest, incoming.ingest, INGEST_SPEC);
-      if (s.telegram != null) cfg.telegram = mergeSettingsBlockOverStored(cfg.telegram, s.telegram);
-      if (s.guardrails != null) cfg.guardrails = mergeSettingsBlockOverStored(cfg.guardrails, s.guardrails);
-      if (s.telemetry != null) cfg.telemetry = mergeSettingsBlockOverStored(cfg.telemetry, s.telemetry);
+      for (const [key, block] of blocks) cfg[key] = mergeSettingsBlock(cfg[key], block, settingsBlockSpecFor(key));
       if (!workflowsUpdate) return undefined;
       const storedWorkflowsMerge = mergeWorkflowsUpdateOverStored(cfg.workflows, workflowsUpdate);
       if (!storedWorkflowsMerge.ok) {
@@ -1685,7 +1598,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 }
 
 export {
-  DASHBOARD_SETTING_PATHS,
   registerControlHandlers,
 };
 export type { FactoryControl, BenchmarkControl, ControlHandlerDeps, MyPrMergeControl, TeamReviewActionControl };

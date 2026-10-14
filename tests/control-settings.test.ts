@@ -273,6 +273,56 @@ test('a valid visions payload persists and echoes in settings-updated', () => {
   assert.equal(h.reloadCalls.length, 1, 'settings reload still runs once');
 });
 
+test('a visions save carrying one leaf leaves every stored sibling and nested leaf as it was', () => {
+  const stored = { enabled: true, autoFix: true, projects: ['p1'], dispatch: { enabled: false, model: 'opus', quietMs: 5000 }, intent: { threadTtlMs: 3600000 } };
+  const h = harness({ projects: [], visions: structuredClone(stored) });
+  h.send({ type: 'update-settings', settings: { visions: { dispatch: { enabled: true } } } });
+  assert.equal(errorFrom(h), undefined);
+  assert.deepEqual(h.cfg.visions, { ...stored, dispatch: { ...stored.dispatch, enabled: true } });
+});
+
+test('a usage save carrying one budget leaf leaves the other budget leaf and the stored usage keys as they were', () => {
+  const stored = { enabled: true, costMode: 'display', vendors: { codex: false }, budget: { dailyUsd: 5, monthlyUsd: 10 } };
+  const h = harness({ projects: [], usage: structuredClone(stored) });
+  h.send({ type: 'update-settings', settings: { usage: { budget: { monthlyUsd: 20 } } } });
+  assert.equal(errorFrom(h), undefined);
+  assert.deepEqual(h.cfg.usage, { ...stored, budget: { dailyUsd: 5, monthlyUsd: 20 } });
+});
+
+test('a list value is one leaf: a saved list replaces the stored list whole and leaves sibling lists alone', () => {
+  const h = harness({ projects: [], factory: { enabled: true, checks: ['npm test', 'npm run lint'], protectedPaths: ['.github/'] } });
+  h.send({ type: 'update-settings', settings: { factory: { checks: ['npm run typecheck'] } } });
+  assert.equal(errorFrom(h), undefined);
+  assert.deepEqual(h.cfg.factory, { enabled: true, checks: ['npm run typecheck'], protectedPaths: ['.github/'] });
+});
+
+test('a leaf the registry does not list is refused by name even where the schema lets the block pass through', () => {
+  const h = harness({ projects: [], ingest: { enabled: true } });
+  h.send({ type: 'update-settings', settings: { ingest: { sources: { fs: { roots: ['/'] } } } } });
+  assert.match(String(errorFrom(h)?.message ?? ''), /ingest\.sources\.fs\.roots is not settable from the dashboard/);
+  assert.deepEqual(h.cfg.ingest, { enabled: true });
+});
+
+test('an environment-supplied secret stays read-only through a dashboard save', () => {
+  const previous = process.env.GLIMMERVOID_TELEGRAM_BOT_TOKEN;
+  process.env.GLIMMERVOID_TELEGRAM_BOT_TOKEN = 'bot-from-env';
+  try {
+    withRealStore({ projects: [], telegram: { chatId: '123' } }, undefined, (h, store, readDisk) => {
+      h.send({ type: 'update-settings', settings: { telegram: { botToken: 'typed-tok', chatId: '456' } } });
+      assert.equal(errorFrom(h), undefined);
+      assert.deepEqual(readDisk().telegram, { chatId: '456' }, 'the file never holds a token the environment supplies');
+      assert.equal(blockOf(store.config.telegram, 'botToken'), 'bot-from-env', 'the environment value stays in force');
+      const payload = store.getSettings();
+      assert.deepEqual(payload.telegram, { chatId: '456', botTokenConfigured: true });
+      assert.deepEqual(payload.secretSources, { 'telegram.botToken': 'GLIMMERVOID_TELEGRAM_BOT_TOKEN' });
+      assert.equal(JSON.stringify(payload).includes('bot-from-env'), false);
+    });
+  } finally {
+    if (previous == null) delete process.env.GLIMMERVOID_TELEGRAM_BOT_TOKEN;
+    if (previous != null) process.env.GLIMMERVOID_TELEGRAM_BOT_TOKEN = previous;
+  }
+});
+
 test('visions validation rejects wrong scalar types and ranges', () => {
   const cases: [Record<string, unknown>, RegExp][] = [
     [{ enabled: 'yes' }, /visions.enabled must be a boolean/],
@@ -637,6 +687,16 @@ test('a non-object posthog.projectMap is rejected with settings-error', () => {
   const h = harness({ projects: [] });
   h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ projectMap: ['web'] }) } });
   assert.ok(h.sent.find((m) => m.type === 'settings-error' && /projectMap/.test(String(m.message))));
+});
+
+test('a posthog.projectMap nested thousands of levels deep is refused by name and stores nothing instead of crashing the server', () => {
+  let deepProjectMap: Record<string, unknown> = {};
+  for (let level = 0; level < 3500; level += 1) deepProjectMap = { app: deepProjectMap };
+  const h = harness({ projects: [], posthog: { enabled: true } });
+  h.send({ type: 'update-settings', requestId: 'deep', settings: { posthog: { projectMap: deepProjectMap } } });
+  assert.equal(errorFrom(h)?.message, 'posthog.projectMap is nested too deeply');
+  assert.deepEqual(h.cfg.posthog, { enabled: true });
+  assert.equal(h.reloadCalls.length, 0);
 });
 
 test('retired posthog keys are dropped rather than persisted', () => {

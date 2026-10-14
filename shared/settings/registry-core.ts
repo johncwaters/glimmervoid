@@ -18,10 +18,24 @@ interface SettingsIndex {
   byPath: ReadonlyMap<string, SettingsSetting>;
 }
 
+type ClonedContainer = unknown[] | Record<string, unknown>;
+
 export function cloneValue(value: unknown): unknown {
-  if (Array.isArray(value)) return (value as unknown[]).map(cloneValue);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, cloneValue(nested)]));
+  const containersToFill: [original: object, copy: ClonedContainer][] = [];
+  const startCopyOf = (original: unknown): unknown => {
+    if (!original || typeof original !== 'object') return original;
+    const copy: ClonedContainer = Array.isArray(original) ? [] : {};
+    containersToFill.push([original, copy]);
+    return copy;
+  };
+  const root = startCopyOf(value);
+  for (let next = containersToFill.pop(); next; next = containersToFill.pop()) {
+    const [original, copy] = next;
+    for (const [key, nested] of Object.entries(original)) {
+      Object.defineProperty(copy, key, { value: startCopyOf(nested), writable: true, enumerable: true, configurable: true });
+    }
+  }
+  return root;
 }
 
 export function valueAtPath(source: unknown, path: string): unknown {

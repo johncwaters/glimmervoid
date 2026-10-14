@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
-import { DASHBOARD_SETTING_PATHS } from '../server/control-handlers.ts';
 import { POST_TURN_CHECK_MODES } from '../shared/contracts/browser-config.ts';
 import type { SettingsLevel, SettingsSection, SettingsSetting } from '../shared/settings/registry.ts';
 import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '../shared/settings/registry.ts';
@@ -12,9 +11,9 @@ import {
   pairedSettingOf, rehydratePreservingDirtySections, shouldShowDangerWarning, validateLocally, withoutWorkflowRuleDefinitions,
   workflowRuleSummaryLines, workflowRuleToggleRows,
 } from '../public/settings/settings-view-core.ts';
+import { settableFromDashboard } from './helpers/settings-allow-list.ts';
 
 const SECTIONS = SETTINGS_REGISTRY.sections;
-const DASHBOARD_SETTING_PATH_SET = new Set(DASHBOARD_SETTING_PATHS);
 
 function sectionById(id: string): SettingsSection {
   const section = SECTIONS.find((candidate) => candidate.id === id);
@@ -312,7 +311,7 @@ test('unattended actions expose branch deletion and post-turn mode as editable c
   assert.ok(branchDeletion.warning);
   assert.equal(branchDeletion.defaultValue, false);
   assert.equal(branchDeletion.access, 'editable');
-  assert.equal(DASHBOARD_SETTING_PATH_SET.has(branchDeletion.path), true);
+  assert.equal(settableFromDashboard(branchDeletion.path), true);
 
   const postTurnMode = unattended.settings.find((setting) => setting.path === 'postTurnChecks.mode');
   assert.ok(postTurnMode);
@@ -320,7 +319,7 @@ test('unattended actions expose branch deletion and post-turn mode as editable c
   assert.deepEqual(postTurnMode.options, POST_TURN_CHECK_MODES.map((value) => ({ value, label: value === 'report' ? 'Report' : 'Fix' })));
   assert.equal(postTurnMode.defaultValue, 'report');
   assert.equal(postTurnMode.access, 'editable');
-  assert.equal(DASHBOARD_SETTING_PATH_SET.has(postTurnMode.path), true);
+  assert.equal(settableFromDashboard(postTurnMode.path), true);
   assert.equal(SETTINGS_INDEX.byId.has('file-branch-gc-delete-unmerged'), false);
 
   const original = hydrateFromSettings([unattended], DEFAULT_CONFIG);
@@ -352,7 +351,7 @@ test('the Workflows section owns the master switch, the session cap and the rule
     ['status:workflow-rules', 'readonly', undefined],
   ]);
   assert.equal(section.settings.find((setting) => setting.control === 'readonly')?.status, 'workflows');
-  for (const setting of section.settings.filter((entry) => entry.control !== 'readonly')) assert.equal(DASHBOARD_SETTING_PATH_SET.has(setting.path), true, setting.path);
+  for (const setting of section.settings.filter((entry) => entry.control !== 'readonly')) assert.equal(settableFromDashboard(setting.path), true, setting.path);
   assert.deepEqual(SETTINGS_REGISTRY.fileOnly.filter((setting) => setting.path.startsWith('workflows.')).map((setting) => setting.path), ['workflows.maxActionsPerPoll', 'workflows.rules']);
 
   const stored = { workflows: { maxActionsPerPoll: 9, rules: [{ id: 'one', name: 'One', enabled: true, repos: ['Acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] } };
