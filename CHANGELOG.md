@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Merged PRs show when they merged**: in the Reviews tab, a merged pull request's row now reads "merged 2h ago" instead of when it was opened.
 - **Merge celebrations name the pull request**: the celebration card now shows the merged PR's title under its repository and number, so it says what landed instead of just a number. When several PRs merge at once, it lists the first three by number and title, then how many more.
 - **A failed Merge when ready shows on the card and retries**: when GitHub refuses a queued merge, My PRs now shows a red Merge when ready row with GitHub's error, and the queue status says the last merge failed, so a stuck PR no longer looks queued and on its way. Before, the failure only went to the server log, and that head was never tried again until a new commit or a server restart. Now a failed merge retries an hour later once the PR is ready again, at a new head, or when Merge when ready is turned off and on again.
 - **A failed auto-rebase retries after an hour**: a failed auto-rebase no longer blocks the same head forever, even across restarts. It retries hourly, so the error clears once the cause is fixed (for example a token that gained repository access). The Auto-rebase row now shows as a warning, not a blocker, when GitHub does not require the update before merging.

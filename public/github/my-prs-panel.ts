@@ -326,7 +326,9 @@ function render(): void {
       top.append(el('strong', 'pr-queue-ref', pr.key), el('span', 'pr-queue-title', pr.title));
       const bottom = el('span', 'pr-queue-bottom');
       if (parentKey) bottom.append(el('span', 'my-pr-stage', `Stacked on ${parentKey}`));
-      bottom.append(stageChip(pr, { hasGlyph: false }), el('span', 'pr-queue-elapsed', `opened ${formatAgo(Date.parse(pr.createdAt))}`));
+      const mergedAt = pr.state === 'MERGED' ? pr.mergedAt : null;
+      const ageText = mergedAt ? `merged ${formatAgo(Date.parse(mergedAt))}` : `opened ${formatAgo(Date.parse(pr.createdAt))}`;
+      bottom.append(stageChip(pr, { hasGlyph: false }), el('span', 'pr-queue-elapsed', ageText));
       const repairLabel = keepMergeableRowLabel(pr, keepMergeableToggle.isFeatureEnabled(latest), formatAgo(pr.keepMergeableAttempt?.at));
       if (repairLabel) {
         const repairChip = el('span', 'my-pr-stage', repairLabel.text);
