@@ -1,4 +1,6 @@
 import type { FactoryProjectState } from '#shared/contracts/factory.ts';
+import { BADGE_LABELS, STATES } from '#shared/states.ts';
+import type { SessionState } from '#shared/states.ts';
 import { ANIMALS } from '../nyan-animals-core.ts';
 
 type FactoryOrder = FactoryProjectState['orders'][number];
@@ -23,7 +25,7 @@ export interface FactoryFloor {
   note: string | null;
   intent: { id: string; objective: string; criteria: { text: string; isMet: boolean }[]; shippedCount: number; childCount: number } | null;
   upNext: { id: string; objective: string }[];
-  orchestrator: { action: string; reason: string; isException: boolean; sessionId: string | null; state: string | null };
+  orchestrator: { action: string; reason: string; isException: boolean; sessionId: string | null; stateLabel: string | null };
   stations: Record<FactoryStation, FactoryCrate[]>;
   ledger: { orderId: string; event: string; at: string; session: string }[];
   selectedOrder: { id: string; intent: string | null; writeScopes: string[]; dependsOn: string[]; station: string; owner: string | null } | null;
@@ -51,6 +53,13 @@ function orderStatus(order: FactoryOrder, hasConflict: boolean, station: Factory
   if (station === 'review') return 'Unverified';
   if (station === 'shipped') return 'Shipped';
   return 'Ready';
+}
+
+function describeOrchestratorState(orchestratorState: SessionState | null, liveWorkerCount: number): string | null {
+  if (orchestratorState === null) return null;
+  if (orchestratorState === STATES.RUNNING) return 'Planning';
+  if (orchestratorState !== STATES.IDLE && orchestratorState !== STATES.COMPLETE) return BADGE_LABELS[orchestratorState];
+  return liveWorkerCount > 0 ? 'Waiting on workers' : 'Idle';
 }
 
 function findIntent(order: FactoryOrder, ordersById: Map<string, FactoryOrder>): FactoryOrder | null {
@@ -90,6 +99,7 @@ export function buildFactoryFloor(state: FactoryProjectState, selectedOrderId: s
   const ordersById = new Map(state.orders.map((order) => [order.id, order]));
   const selectedOrder = selectedOrderId === null ? undefined : ordersById.get(selectedOrderId);
   const selectedIntent = selectedOrder ? findIntent(selectedOrder, ordersById) : null;
+  const orchestratorStateLabel = describeOrchestratorState(state.orchestrator?.state ?? null, state.liveWorkers?.length ?? 0);
   return {
     paused: state.paused,
     spend: `Factory today: $${(state.spentTodayUsd ?? 0).toFixed(2)} / ${state.dailyBudgetUsd == null ? 'unlimited' : `$${state.dailyBudgetUsd.toFixed(2)}`}`,
@@ -101,8 +111,8 @@ export function buildFactoryFloor(state: FactoryProjectState, selectedOrderId: s
     } : null,
     upNext: openRoots.filter((root) => root.id !== activeIntent?.id).map(({ id, objective }) => ({ id, objective })),
     orchestrator: state.error === null
-      ? { action: state.heading.action, reason: state.heading.reasons[0] ?? '', isException: false, sessionId: state.orchestrator?.sessionId ?? null, state: state.orchestrator?.state ?? null }
-      : { action: 'Exception', reason: state.error, isException: true, sessionId: state.orchestrator?.sessionId ?? null, state: state.orchestrator?.state ?? null },
+      ? { action: state.heading.action, reason: state.heading.reasons[0] ?? '', isException: false, sessionId: state.orchestrator?.sessionId ?? null, stateLabel: orchestratorStateLabel }
+      : { action: 'Exception', reason: state.error, isException: true, sessionId: state.orchestrator?.sessionId ?? null, stateLabel: orchestratorStateLabel },
     stations,
     ledger: state.orders.flatMap((order) => order.lastEvent ? [{ orderId: order.id, ...order.lastEvent }] : [])
       .sort((left, right) => Date.parse(right.at) - Date.parse(left.at)).slice(0, 50),

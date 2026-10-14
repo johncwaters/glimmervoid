@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Team review: Discard is now Not mine, on every review row**: the Reviews tab's Discard action is renamed Not mine, and the Discarded list is now Not mine. Use it for pull requests that are not yours to review. You can now use it on a queued or in-review pull request, and on a failed or out-of-date review, not just on a ready draft. Not mine on a pull request that is in review stops that review, so it uses no more tokens. A pull request marked Not mine is not reviewed again, even after new commits, until you click Queue review. Nothing is sent to GitHub.
+- **The Factory tab says what the orchestrator is doing**: the orchestrator panel now reads Planning while the orchestrator works, Waiting on workers once it has handed tickets to running workers, and Idle when nothing is running. Before, it showed the orchestrator session's raw status, so it read COMPLETE in the middle of a run while its workers were still busy.
 - **Harness runs show in the Factory tab by default**: `factory.mirrorHarnessRuns` now defaults to on, so a factory harness run appears in the Factory tab as a read-only project without a settings change. A config that only sets `factory.enabled` gets the mirror too. The harness turns the mirror off on the instance it boots, so a harness run never mirrors itself. An install first set up on v0.32.0 through v0.35.1 stored the old `false` and keeps the mirror off until the toggle is flipped in Settings > Lanes > Factory.
 
 ### Fixed

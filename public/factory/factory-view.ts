@@ -249,7 +249,7 @@ function buildTop(floor: FactoryFloor, project: FactoryProjectState): HTMLElemen
     orchestrator.append(terminalButton);
   }
   if (!sessionId || !openTerminal || isReadOnly) orchestrator.append(owl);
-  if (floor.orchestrator.state) heading.append(el('span', 'factory-orchestrator-state', floor.orchestrator.state));
+  if (floor.orchestrator.stateLabel) heading.append(el('span', 'factory-orchestrator-state', floor.orchestrator.stateLabel));
   orchestrator.append(heading);
   const upNext = buildRegion('Up next', 'factory-up-next');
   const intents = el('ol', 'factory-intent-queue');

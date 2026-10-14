@@ -108,8 +108,8 @@ test('worker animals remain stable across ordering and changing objectives', () 
 
 test('orchestrator shows the first reason or replaces it with the project error', () => {
   const project = makeProject([]);
-  assert.deepEqual(buildFactoryFloor(project, null).orchestrator, { action: 'dispatch', reason: 'Ready work', isException: false, sessionId: null, state: null });
-  assert.deepEqual(buildFactoryFloor({ ...project, error: 'Inspection failed' }, null).orchestrator, { action: 'Exception', reason: 'Inspection failed', isException: true, sessionId: null, state: null });
+  assert.deepEqual(buildFactoryFloor(project, null).orchestrator, { action: 'dispatch', reason: 'Ready work', isException: false, sessionId: null, stateLabel: null });
+  assert.deepEqual(buildFactoryFloor({ ...project, error: 'Inspection failed' }, null).orchestrator, { action: 'Exception', reason: 'Inspection failed', isException: true, sessionId: null, stateLabel: null });
   assert.equal(buildFactoryFloor({ ...project, heading: { action: 'steady', reasons: [] } }, null).orchestrator.reason, '');
 });
 
@@ -185,14 +185,20 @@ test('intent and up next follow opening time rather than coherence work id order
 });
 
 
-test('floor shows live orchestrator state and selects the intent held by its session', () => {
+test('floor shows the orchestrator as planning, waiting on workers or idle and selects the intent held by its session', () => {
   const project = makeProject([
     makeOrder('first', { parent: null }), makeOrder('held', { parent: null }),
   ], { orchestrator: { sessionId: 'factory-orch-project', intentId: 'held', state: 'RUNNING' } });
   const floor = buildFactoryFloor(project, null);
   assert.equal(floor.intent?.id, 'held');
-  assert.equal(floor.orchestrator.state, 'RUNNING');
+  assert.equal(floor.orchestrator.stateLabel, 'Planning');
   assert.equal(floor.orchestrator.sessionId, 'factory-orch-project');
+  const stateLabelOf = (state: 'IDLE' | 'COMPLETE' | 'WAITING', liveWorkers: { workId: string; sessionId: string }[]) =>
+    buildFactoryFloor({ ...project, orchestrator: { sessionId: 'factory-orch-project', intentId: 'held', state }, liveWorkers }, null).orchestrator.stateLabel;
+  assert.equal(stateLabelOf('COMPLETE', [{ workId: 'work', sessionId: 'worker' }]), 'Waiting on workers');
+  assert.equal(stateLabelOf('IDLE', [{ workId: 'work', sessionId: 'worker' }]), 'Waiting on workers');
+  assert.equal(stateLabelOf('COMPLETE', []), 'Idle');
+  assert.equal(stateLabelOf('WAITING', []), 'Needs Input');
   assert.equal(buildFactoryFloor({ ...project, error: 'factory-exception: backoff' }, null).orchestrator.reason, 'factory-exception: backoff');
 });
 
