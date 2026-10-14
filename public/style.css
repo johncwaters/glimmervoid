@@ -7565,7 +7565,9 @@ html[data-layout="phone"] .phone-shell[hidden] { display: none; }
 .phone-topbar > .header-title { flex: 0 0 auto; font-size: 14px; white-space: nowrap; }
 .phone-topbar > .celebration-tray { flex: none; margin-left: auto; }
 .phone-topbar > .celebration-tray + .btn-add-header { margin-left: 0; }
-.phone-topbar > :is(.btn-help, .btn-mute, .header-menu) { display: none; }
+.phone-topbar > :is(.btn-help, .btn-mute) { display: none; }
+.phone-topbar > .header-menu { flex: none; }
+.phone-topbar .menu-item { min-height: 44px; }
 .phone-topbar > .status-indicator,
 .phone-topbar .header-connection { min-width: 0; overflow: hidden; }
 
