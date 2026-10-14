@@ -59,7 +59,7 @@ const { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEW
 const { encodeProjectDir } = await import('../session/core/conversation-history.ts');
 const { resolveRequiredSaneYoloHookTools } = await import('../server/hook-tools.ts');
 const { createLaneSpawn } = await import('../server/lanes/lane-spawn.ts');
-const { createPosthogWiring, REPORT_DIR: POSTHOG_REPORT_DIR } = await import('../server/radar/radar-wiring.ts');
+const { createRadarWiring, REPORT_DIR: POSTHOG_REPORT_DIR } = await import('../server/radar/radar-wiring.ts');
 const { createVisionsSpawn, makeVisionsWorkDir, PROMPT_FILE: VISIONS_PROMPT_FILE, VISIONS_BOOTSTRAP_PROMPT } = await import('../server/visions/visions-dispatch.ts');
 const { MY_PRS_FIX_CHECKOUT_DIRNAME } = await import('../server/github/core/my-prs-core.ts');
 const { createSandboxedPrStaging, keepMergeableRole } = await import('../server/github/my-prs-wiring.ts');
@@ -450,7 +450,7 @@ async function probePosthog(roleRoot: string): Promise<void> {
   const hooksFile = path.join(repoPath, '.git', 'hooks', 'role-probe');
   const repoFile = path.join(repoPath, 'owned.txt');
   const outsideFile = path.join(roleRoot, 'outside-posthog.txt');
-  const wiring = createPosthogWiring({
+  const wiring = createRadarWiring({
     config: { posthog: { enabled: true, host: 'https://posthog.invalid', apiKey: 'role-probe-key' } }, investigationSessions: new Map(), closeSessionDataClients: () => {},
     hookRouter: { register: () => {}, unregister: () => {} }, getHookPort: () => hookPort, spawnGate: { run: async (task) => task() },
   });

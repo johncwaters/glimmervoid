@@ -1,7 +1,7 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { createAttentionAck } from '../attention-ack-core.ts';
 import { buildPanelSection, buildStatChip, el, externalLink, isPanelHidden, projectsOf } from '../dom-helpers.ts';
-import { createInvestigationDialog, createPosthogReportDialog } from '../dialogs.ts';
+import { createInvestigationDialog, createRadarReportDialog } from '../dialogs.ts';
 import type { InvestigationDialog } from '../dialogs.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { createPollAgoTicker, formatAgo, formatDuration } from '../poll-ago.ts';
@@ -195,20 +195,20 @@ function refreshOpenInvestigation() {
 function openIssueReport(issue: { issueId?: unknown; title?: unknown }) {
   const issueId = issueReportId(issue);
   if (!issueId) return;
-  sendControlRequest('get-posthog-report', { issueId })
+  sendControlRequest('get-radar-report', { issueId })
     .then((msg) => {
       if (!msg.ok) {
-        createPosthogReportDialog({ issueId, issueTitle: String(issue.title ?? ''), error: String(msg.error || 'Could not read report') });
+        createRadarReportDialog({ issueId, issueTitle: String(issue.title ?? ''), error: String(msg.error || 'Could not read report') });
         return;
       }
       if (!msg.found) {
-        createPosthogReportDialog({ issueId, issueTitle: String(issue.title ?? ''), message: String(msg.message || 'Report not found') });
+        createRadarReportDialog({ issueId, issueTitle: String(issue.title ?? ''), message: String(msg.message || 'Report not found') });
         return;
       }
-      createPosthogReportDialog({ issueId, issueTitle: String(issue.title ?? ''), format: String(msg.format ?? ''), content: String(msg.content || '') });
+      createRadarReportDialog({ issueId, issueTitle: String(issue.title ?? ''), format: String(msg.format ?? ''), content: String(msg.content || '') });
     })
     .catch((err: unknown) => {
-      createPosthogReportDialog({ issueId, issueTitle: String(issue.title ?? ''), error: String((err as Error | null)?.message || 'Could not read report') });
+      createRadarReportDialog({ issueId, issueTitle: String(issue.title ?? ''), error: String((err as Error | null)?.message || 'Could not read report') });
     });
 }
 
@@ -319,7 +319,7 @@ function buildIssueActions(issue: RadarIssue, projectId: unknown, projectLabel: 
   if (!issue.inFlight) {
     addButton('Open session', 'Paste an investigation prompt into the mapped project session', () => {
       requestIssueAction(
-        'posthog-open-session',
+        'radar-open-session',
         {},
         'Opening session',
         (message) => (
@@ -336,10 +336,10 @@ function buildIssueActions(issue: RadarIssue, projectId: unknown, projectLabel: 
   }
 
   addButton('Resolve', 'Mark this issue resolved in PostHog', () => {
-    requestIssueAction('posthog-issue-action', { action: 'resolve' }, 'Resolving in PostHog', () => 'Marked resolved');
+    requestIssueAction('radar-issue-action', { action: 'resolve' }, 'Resolving in PostHog', () => 'Marked resolved');
   });
   addButton('Suppress', 'Suppress this issue in PostHog', () => {
-    requestIssueAction('posthog-issue-action', { action: 'suppress' }, 'Suppressing in PostHog', () => 'Marked suppressed');
+    requestIssueAction('radar-issue-action', { action: 'suppress' }, 'Suppressing in PostHog', () => 'Marked suppressed');
   });
 
   return wrap;
@@ -594,7 +594,7 @@ function buildInvestigationActions(row: InvestigationRow) {
   addButton('Archive', 'Remove this investigation from the inbox', () => {
     request(
       `archive:${row.id}`,
-      'posthog-archive-investigation',
+      'radar-archive-investigation',
       { id: row.id },
       'Archiving',
       () => 'Archived',
@@ -711,7 +711,7 @@ export function mountRadarView(parent: HTMLElement) {
   return root;
 }
 
-export function applyPosthogStatus(msg: unknown) {
+export function applyRadarStatus(msg: unknown) {
   _latest = msg as RadarSnapshot;
 
   retainKnownInvestigationIds(_latest, _archivedLocally);
@@ -720,7 +720,7 @@ export function applyPosthogStatus(msg: unknown) {
   refreshOpenInvestigation();
 }
 
-export function applyInvestigationActivity(frame: ServerMessageOf<'posthog-investigation-activity'>) {
+export function applyInvestigationActivity(frame: ServerMessageOf<'radar-investigation-activity'>) {
   const wasInFlight = findIssueInSnapshot(_latest, frame.projectId, frame.issueId)?.inFlight === true;
   if (!patchInvestigationActivity(_latest, frame)) return;
   refreshOpenInvestigation();
@@ -735,7 +735,7 @@ function finishOpenInvestigationFromFrame(frame: InvestigationFinishedFrame) {
   _openInvestigation.dialog.update(finishedViewOf(frame));
 }
 
-export function applyInvestigationFinished(frame: ServerMessageOf<'posthog-investigation-finished'>) {
+export function applyInvestigationFinished(frame: ServerMessageOf<'radar-investigation-finished'>) {
   if (!patchInvestigationFinished(_latest, frame)) {
     finishOpenInvestigationFromFrame(frame);
     return;

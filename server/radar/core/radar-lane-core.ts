@@ -24,14 +24,14 @@ export interface PosthogIssue {
   title?: unknown;
 }
 
-export interface PosthogFixRecord {
+export interface RadarFixRecord {
   at: number;
   verdict: string;
   reproduced: boolean;
   prUrl: string | null;
 }
 
-export interface PosthogHistoryPoint {
+export interface RadarHistoryPoint {
   ts: number;
   occurrences: number;
 }
@@ -48,13 +48,13 @@ export interface PosthogStateEntry {
   inFlight: boolean;
   pingedPhases: string[];
   recurrenceOf: string | null;
-  fix: PosthogFixRecord | null;
-  history: PosthogHistoryPoint[];
+  fix: RadarFixRecord | null;
+  history: RadarHistoryPoint[];
   vanishedAt?: number;
   pendingInvestigationChange?: string;
 }
 
-export interface PosthogVerdictInfo {
+export interface RadarVerdictInfo {
   observedAt?: number | null;
   inFlight?: boolean;
   pingedPhases?: string[];
@@ -170,7 +170,7 @@ function summaryLineFromReportText(text: unknown): string | null {
   return trimmed.slice(0, MAX_SUMMARY_LINE_CHARS);
 }
 
-function appendHistory(existingHistory: unknown, occurrences: unknown, ts: unknown): PosthogHistoryPoint[] {
+function appendHistory(existingHistory: unknown, occurrences: unknown, ts: unknown): RadarHistoryPoint[] {
   const history = Array.isArray(existingHistory) ? existingHistory : [];
   const kept = history
     .filter((entry) => entry && typeof entry === 'object' && Number.isFinite(Number(entry.ts)))
@@ -382,7 +382,7 @@ function pingFor(
 function nextState(
   prevEntry: Partial<PosthogStateEntry> | null | undefined,
   current: PosthogIssue,
-  verdictInfo: PosthogVerdictInfo = {},
+  verdictInfo: RadarVerdictInfo = {},
 ): PosthogStateEntry {
   const prev = prevEntry || {};
   const info = verdictInfo || {};
@@ -415,7 +415,7 @@ function nextState(
   return entry;
 }
 
-function normalizeFixRecord(fix: unknown): PosthogFixRecord | null {
+function normalizeFixRecord(fix: unknown): RadarFixRecord | null {
   if (!fix || typeof fix !== 'object') return null;
   const fields = fix as { at?: unknown; verdict?: unknown; reproduced?: unknown; prUrl?: unknown };
   return {

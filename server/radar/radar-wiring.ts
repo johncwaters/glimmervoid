@@ -28,7 +28,7 @@ import { emptyLaneStatus } from '../lanes/lane-status.ts';
 import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from '../json-file.ts';
 import { createPosthogApi } from './posthog-api.ts';
 import type { PosthogApi } from './posthog-api.ts';
-import { createPosthogPoller } from './radar-poller.ts';
+import { createRadarPoller } from './radar-poller.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
 import type { PosthogState, SpawnInvestigationArgs } from './radar-poller.ts';
 import { DEFAULT_POSTHOG_REPORT_DIR } from './radar-report.ts';
@@ -73,7 +73,7 @@ const WORK_DIR = path.join(glimmervoidHomeDir(), 'posthog-work');
 const REPORT_RETAIN_FILES = 20;
 const FORCE_TICK_DEBOUNCE_MS = 3000;
 
-interface PosthogLaneConfig {
+interface RadarLaneConfig {
   enabled?: boolean;
   apiKey?: string;
   host?: string;
@@ -97,12 +97,12 @@ interface PosthogLaneConfig {
   userEscalationThreshold?: number;
 }
 
-interface PosthogWiringConfig {
+interface RadarWiringConfig {
   replayBufferKB?: number;
   worktreeRoot?: string;
   integrationBranch?: string | null;
   saneYolo?: boolean;
-  posthog?: PosthogLaneConfig | null;
+  posthog?: RadarLaneConfig | null;
   telegram?: { botToken?: string; chatId?: string } | null;
 }
 
@@ -138,8 +138,8 @@ interface HandoffResult {
   summary: string | null;
 }
 
-interface PosthogWiringOptions {
-  config: PosthogWiringConfig;
+interface RadarWiringOptions {
+  config: RadarWiringConfig;
   investigationSessions: Map<string, unknown>;
   closeSessionDataClients: (id: string) => void;
   hookRouter: Pick<HookRouter, 'register' | 'unregister'> | null;
@@ -154,12 +154,12 @@ interface PosthogWiringOptions {
   sandbox?: RoleSandboxDependencies;
 }
 
-interface PosthogLaneAccess {
+interface RadarLaneAccess {
   writableRoots: readonly string[];
   commitCheckout: string | null;
 }
 
-async function posthogLaneRole(facts: SessionSandboxFacts, { writableRoots, commitCheckout }: PosthogLaneAccess): Promise<SandboxRole> {
+async function radarLaneRole(facts: SessionSandboxFacts, { writableRoots, commitCheckout }: RadarLaneAccess): Promise<SandboxRole> {
   const commitCheckouts = commitCheckout === null ? [] : [{ checkout: commitCheckout, gitDir: await readLaneCommonGitDir(commitCheckout) }];
   return {
     ...workRole({ vendor: 'claude', cwd: facts.cwd, checkout: facts.cwd, readablePaths: facts.readablePaths, agentSessionId: facts.agentSessionId }),
@@ -442,7 +442,7 @@ function fallbackPrBody(
   ].join('\n');
 }
 
-function posthogShouldStart(cfg: PosthogWiringConfig): LaneRunnerGate {
+function radarShouldStart(cfg: RadarWiringConfig): LaneRunnerGate {
   const p = cfg.posthog;
   if (!p || !p.enabled) return { start: false, reason: null };
   if (!p.apiKey) return { start: false, reason: 'posthog.enabled but apiKey missing' };
@@ -453,11 +453,11 @@ function posthogShouldStart(cfg: PosthogWiringConfig): LaneRunnerGate {
   return { start: true, reason: null };
 }
 
-function posthogCfgKey(cfg: PosthogWiringConfig): string {
+function posthogCfgKey(cfg: RadarWiringConfig): string {
   return stableConfigKey({ posthog: cfg.posthog || null, telegram: cfg.telegram || null });
 }
 
-function makeResolveProjects(api: PosthogApi, config: PosthogWiringConfig): () => Promise<ResolvedProject[]> {
+function makeResolveProjects(api: PosthogApi, config: RadarWiringConfig): () => Promise<ResolvedProject[]> {
   return async function resolveProjects() {
     const configured = config.posthog?.projects;
     const projectMap = config.posthog?.projectMap || {};
@@ -486,7 +486,7 @@ function makeResolveProjects(api: PosthogApi, config: PosthogWiringConfig): () =
   };
 }
 
-function createPosthogWiring({
+function createRadarWiring({
   config, investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate,
   gitWorkspace = null,
   runCommand = runCli,
@@ -495,8 +495,8 @@ function createPosthogWiring({
   makeSession = (options: SessionOptions) => new Session(options),
   resolveHookTools = resolveSharedHookTools,
   sandbox = {},
-}: PosthogWiringOptions) {
-  function activePosthogConfig(): PosthogLaneConfig & { host: string; apiKey: string } {
+}: RadarWiringOptions) {
+  function activePosthogConfig(): RadarLaneConfig & { host: string; apiKey: string } {
     const posthogConfig = config.posthog;
     if (!posthogConfig?.apiKey) {
       throw new Error('PostHog lane started without its required configuration');
@@ -511,12 +511,12 @@ function createPosthogWiring({
       path: string;
       initialPrompt: string;
       spawnEnv?: Record<string, string>;
-      access: PosthogLaneAccess;
+      access: RadarLaneAccess;
       permissions?: { deny: string[] };
       onActivity?: ((trail: InvestigationTrail) => void) | null;
     },
   ): Session {
-    const prepareSandbox = prepareRoleSandbox((facts) => posthogLaneRole(facts, access), sandbox);
+    const prepareSandbox = prepareRoleSandbox((facts) => radarLaneRole(facts, access), sandbox);
     const sess = makeSession({
       id,
       name,
@@ -582,7 +582,7 @@ function createPosthogWiring({
 
   const waitForExit = (sess: Session, signal: AbortSignal | null | undefined) => awaitSessionExit(sess, { signal, spawnGate });
 
-  async function posthogFixSpawn(
+  async function radarFixSpawn(
     { issue, projectId, projectName, url, signal, onActivity = null }: {
       issue: PosthogIssue;
       projectId: string | number;
@@ -673,12 +673,12 @@ function createPosthogWiring({
     }
   }
 
-  async function posthogInvestigationSpawn(
+  async function radarInvestigationSpawn(
     { issue, projectId, projectName, url, mode, signal, onActivity }: SpawnInvestigationArgs,
   ) {
     const posthogConfig = activePosthogConfig();
     if (core.normalizeJobMode(mode) === core.JOB_MODES.fix) {
-      const fixed = await posthogFixSpawn({ issue, projectId, projectName, url, signal, onActivity });
+      const fixed = await radarFixSpawn({ issue, projectId, projectName, url, signal, onActivity });
       if (fixed) return fixed;
     }
     const issueId = safeIssueId(issue.issueId);
@@ -748,13 +748,13 @@ function createPosthogWiring({
   const runner = createLaneRunner({
     tag: 'posthog-poller',
     gate: () => {
-      const verdict = posthogShouldStart(config);
+      const verdict = radarShouldStart(config);
       if (verdict.reason) return verdict;
       return { start: verdict.start };
     },
     cfgKey: () => posthogCfgKey(config),
     emptyStatus: () => ({
-      ...emptyLaneStatus('posthog-status', posthogShouldStart(config)),
+      ...emptyLaneStatus('radar-status', radarShouldStart(config)),
       intervalMinutes: config.posthog?.intervalMinutes || core.DEFAULT_INTERVAL_MINUTES,
       investigations: [],
     }),
@@ -769,12 +769,12 @@ function createPosthogWiring({
       const botToken = telegramConfig.botToken;
       const chatId = telegramConfig.chatId;
       const api = createPosthogApi({ host: posthogConfig.host, apiKey: posthogConfig.apiKey });
-      return createPosthogPoller({
+      return createRadarPoller({
         firstTickDelayMs: bootStaggerDelay,
         api,
         host: posthogConfig.host,
         resolveProjects: makeResolveProjects(api, config),
-        spawnInvestigation: posthogInvestigationSpawn,
+        spawnInvestigation: radarInvestigationSpawn,
         telegram: (text: string) => { void sendTelegramMessage({ botToken, chatId, text, tag: 'posthog' }); },
         readState: readPosthogState,
         writeState: writePosthogState,
@@ -832,7 +832,7 @@ function createPosthogWiring({
     setIssueStatus,
     archiveInvestigation,
     _makeInvestigationSession: makeInvestigationSession,
-    _investigationSpawn: posthogInvestigationSpawn,
+    _investigationSpawn: radarInvestigationSpawn,
   };
 }
 
@@ -845,15 +845,15 @@ export {
   WORK_DIR,
   buildFixPrompt,
   buildInvestigationPrompt,
-  createPosthogWiring,
-  posthogLaneRole,
+  createRadarWiring,
+  radarLaneRole,
   makeResolveProjects,
   posthogCfgKey,
-  posthogShouldStart,
+  radarShouldStart,
   pushFixBranch,
   readFixResult,
   readInvestigationResult,
   runCli,
   sweepReports,
 };
-export type { PosthogGitWorkspace, PosthogWiringConfig, PosthogWiringOptions, PosthogWorkspace };
+export type { PosthogGitWorkspace, RadarWiringConfig, RadarWiringOptions, PosthogWorkspace };

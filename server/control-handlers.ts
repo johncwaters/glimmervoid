@@ -28,7 +28,7 @@ import {
   INGEST_SPEC, mergeSettingsBlock, validateSettingsBlock,
 } from './core/settings-block-core.ts';
 import { readPosthogReport } from './radar/radar-report.ts';
-import * as posthogCore from './radar/core/radar-lane-core.ts';
+import * as radarLaneCore from './radar/core/radar-lane-core.ts';
 import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './github/core/github-issues-core.ts';
 import { machineSkipsPermissionsByDefault } from './session/core/session-registry-core.ts';
@@ -70,7 +70,7 @@ import { isRecord } from '../shared/coerce.ts';
 type ControlRequest = ClientMessage;
 type ControlHandler<Type extends ClientMessage['type']> = (msg: ClientMessageOf<Type>, ws: ControlSocket) => unknown;
 
-interface PosthogLaneStatus {
+interface RadarLaneStatus {
   projects?: unknown;
   [key: string]: unknown;
 }
@@ -122,10 +122,10 @@ interface ControlHandlerDeps {
   applyUpdate?: (() => Promise<UpdateApplyOutcome>) | null;
   isStaging?: (() => boolean) | null;
   noteRestartRequested?: (() => void) | null;
-  getPosthogStatus?: (() => PosthogLaneStatus | null) | null;
+  getRadarStatus?: (() => RadarLaneStatus | null) | null;
   posthogReportsDir?: string | null;
   posthogSetIssueStatus?: ((args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>) | null;
-  posthogArchiveInvestigation?: ((args: { id: string }) => Promise<Record<string, unknown>>) | null;
+  radarArchiveInvestigation?: ((args: { id: string }) => Promise<Record<string, unknown>>) | null;
   getTeamReviewStatus?: (() => TeamReviewStatus | null) | null;
   getMyPrsStatus?: (() => MyPrsStatus | null) | null;
   getIssuesStatus?: (() => IssuesStatus | null) | null;
@@ -300,12 +300,12 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'update-settings': () => ({ type: 'settings-error', requestId, message }),
     'scan-repo-roots': () => ({ type: 'repo-roots-scanned', requestId, directories: [], error: message }),
     'list-agents': () => ({ type: 'agents-listed', requestId, agents: [], error: message }),
-    'get-posthog-report': () => ({ type: 'posthog-report', requestId, ok: false, found: false, issueId: null, error: message }),
-    'posthog-open-session': () => ({ type: 'posthog-open-session-result', requestId, ok: false, error: message }),
+    'get-radar-report': () => ({ type: 'radar-report', requestId, ok: false, found: false, issueId: null, error: message }),
+    'radar-open-session': () => ({ type: 'radar-open-session-result', requestId, ok: false, error: message }),
     'issue-detail': () => ({ type: 'issue-detail-result', requestId, ok: false, body: null, error: message }),
     'open-issue-session': () => ({ type: 'open-issue-session-result', requestId, ok: false, error: message }),
-    'posthog-issue-action': () => ({ type: 'posthog-issue-action-result', requestId, ok: false, error: message }),
-    'posthog-archive-investigation': () => ({ type: 'posthog-archive-investigation-result', requestId, ok: false, error: message }),
+    'radar-issue-action': () => ({ type: 'radar-issue-action-result', requestId, ok: false, error: message }),
+    'radar-archive-investigation': () => ({ type: 'radar-archive-investigation-result', requestId, ok: false, error: message }),
     'team-review-action': () => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
     'reviews-refresh': () => ({ type: 'reviews-refresh-result', requestId, ok: false, error: message }),
     'my-pr-merge': () => ({ type: 'my-pr-merge-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
@@ -370,11 +370,11 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     isStaging = null,
     noteRestartRequested = null,
 
-    getPosthogStatus,
+    getRadarStatus,
     posthogReportsDir = null,
 
     posthogSetIssueStatus = null,
-    posthogArchiveInvestigation = null,
+    radarArchiveInvestigation = null,
     getTeamReviewStatus = null,
     getMyPrsStatus = null,
     getIssuesStatus = null,
@@ -882,17 +882,17 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }));
   }
 
-  async function handleGetPosthogReport(msg: ClientMessageOf<'get-posthog-report'>, ws: ControlSocket): Promise<void> {
+  async function handleGetRadarReport(msg: ClientMessageOf<'get-radar-report'>, ws: ControlSocket): Promise<void> {
     const result = await readPosthogReport(msg.issueId, { reportDir: posthogReportsDir || undefined });
     ws.send(JSON.stringify({
-      type: 'posthog-report',
+      type: 'radar-report',
       requestId: msg.requestId || null,
       ...result,
     }));
   }
 
   function findPosthogIssue(projectId: unknown, issueId: unknown) {
-    const status = typeof getPosthogStatus === 'function' ? getPosthogStatus() : null;
+    const status = typeof getRadarStatus === 'function' ? getRadarStatus() : null;
     const projects = Array.isArray(status?.projects) ? status.projects : [];
     for (const project of projects) {
       if (String(project.projectId) !== String(projectId)) continue;
@@ -917,7 +917,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   function listSiblingRepoDirs(): { name: string; path: string }[] {
     const entries: { name: string; path: string }[] = [];
-    for (const parent of posthogCore.projectParentDirs(config.projects)) {
+    for (const parent of radarLaneCore.projectParentDirs(config.projects)) {
       try {
         for (const dirent of fs.readdirSync(parent, { withFileTypes: true })) {
           if (!dirent.isDirectory() || dirent.name.startsWith('.') || dirent.name === 'node_modules') continue;
@@ -969,14 +969,14 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       ? (projectMap as Record<string, unknown>)[String(projectId)]
       : undefined;
     const mapped = String(mappedEntry ?? '').trim();
-    const mappedDir = posthogCore.isAbsolutePathish(mapped) && isExistingDirectory(mapped) ? mapped : null;
-    const match = mappedDir ? null : posthogCore.pickDirectoryForProjectName(posthogProjectName, listSiblingRepoDirs());
+    const mappedDir = radarLaneCore.isAbsolutePathish(mapped) && isExistingDirectory(mapped) ? mapped : null;
+    const match = mappedDir ? null : radarLaneCore.pickDirectoryForProjectName(posthogProjectName, listSiblingRepoDirs());
     const repoDir = mappedDir || (match && isExistingDirectory(match.path) ? match.path : null);
     if (!repoDir) return null;
 
     const resolvedPath = path.resolve(repoDir);
-    const name = posthogCore.sanitizeSessionName(path.basename(resolvedPath))
-      || posthogCore.sanitizeSessionName(posthogProjectName);
+    const name = radarLaneCore.sanitizeSessionName(path.basename(resolvedPath))
+      || radarLaneCore.sanitizeSessionName(posthogProjectName);
     if (!name) return null;
     const created = createProjectSession({ name, path: resolvedPath, agent: undefined });
     if (!created.ok) return null;
@@ -1050,13 +1050,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }
   }
 
-  function handlePosthogOpenSession(msg: ClientMessageOf<'posthog-open-session'>, ws: ControlSocket): void {
-    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'posthog-open-session-result', { ok: false, error: null, ...payload });
-    const ref = posthogCore.validateIssueRef(msg);
+  function handleRadarOpenSession(msg: ClientMessageOf<'radar-open-session'>, ws: ControlSocket): void {
+    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'radar-open-session-result', { ok: false, error: null, ...payload });
+    const ref = radarLaneCore.validateIssueRef(msg);
     if (!ref.ok) { reply({ error: ref.error }); return; }
     const found = findPosthogIssue(ref.projectId, ref.issueId);
     if (!found) { reply({ error: 'That issue is not in the latest PostHog poll' }); return; }
-    const project = posthogCore.resolveIssueProject(config.posthog, config.projects, ref.projectId)
+    const project = radarLaneCore.resolveIssueProject(config.posthog, config.projects, ref.projectId)
       || autoCreatePosthogProject(ref.projectId, found.projectName);
     if (!project) {
       reply({ error: 'No Glimmervoid session is mapped to this PostHog project (set posthog.projectMap)' });
@@ -1064,7 +1064,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }
     const sess = project.id ? sessions.get(project.id) : undefined;
     if (!sess) { reply({ error: `Session "${project.name}" is not loaded` }); return; }
-    const prompt = posthogCore.buildIssueSessionPrompt({
+    const prompt = radarLaneCore.buildIssueSessionPrompt({
       issue: found.issue,
       projectName: found.projectName,
       host: found.host,
@@ -1076,13 +1076,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     console.log(`[control] posthog-open-session: issue=${ref.issueId} -> session=${sess.name}`);
   }
 
-  async function handlePosthogIssueAction(msg: ClientMessageOf<'posthog-issue-action'>, ws: ControlSocket): Promise<void> {
-    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'posthog-issue-action-result', { ok: false, error: null, ...payload });
-    const ref = posthogCore.validateIssueRef(msg);
+  async function handleRadarIssueAction(msg: ClientMessageOf<'radar-issue-action'>, ws: ControlSocket): Promise<void> {
+    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'radar-issue-action-result', { ok: false, error: null, ...payload });
+    const ref = radarLaneCore.validateIssueRef(msg);
     if (!ref.ok) { reply({ error: ref.error }); return; }
     const found = findPosthogIssue(ref.projectId, ref.issueId);
     if (!found) { reply({ error: 'That issue is not in the latest PostHog poll' }); return; }
-    const decision = posthogCore.decideIssueAction(msg.action);
+    const decision = radarLaneCore.decideIssueAction(msg.action);
     if (!decision.ok) { reply({ error: decision.error }); return; }
     if (!posthogSetIssueStatus) { reply({ error: 'PostHog monitoring is not running' }); return; }
     const res = await posthogSetIssueStatus({
@@ -1170,12 +1170,12 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     replyTo(ws, msg, 'benchmark-action-result', await benchmarks.submitAction(parsed.data));
   }
 
-  async function handlePosthogArchiveInvestigation(msg: ClientMessageOf<'posthog-archive-investigation'>, ws: ControlSocket): Promise<void> {
-    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'posthog-archive-investigation-result', { ok: false, error: null, ...payload });
-    const ref = posthogCore.validateInvestigationId(msg.id);
+  async function handleRadarArchiveInvestigation(msg: ClientMessageOf<'radar-archive-investigation'>, ws: ControlSocket): Promise<void> {
+    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'radar-archive-investigation-result', { ok: false, error: null, ...payload });
+    const ref = radarLaneCore.validateInvestigationId(msg.id);
     if (!ref.ok) { reply({ error: ref.error }); return; }
-    if (!posthogArchiveInvestigation) { reply({ error: 'PostHog monitoring is not running' }); return; }
-    const res = await posthogArchiveInvestigation({ id: ref.id });
+    if (!radarArchiveInvestigation) { reply({ error: 'PostHog monitoring is not running' }); return; }
+    const res = await radarArchiveInvestigation({ id: ref.id });
     reply({ ok: res.ok === true, error: res.error || null });
   }
 
@@ -1342,12 +1342,12 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'update-settings':  handleUpdateSettings,
     'scan-repo-roots':  handleScanRepoRoots,
     'list-agents':      handleListAgents,
-    'get-posthog-report': handleGetPosthogReport,
-    'posthog-open-session': handlePosthogOpenSession,
+    'get-radar-report': handleGetRadarReport,
+    'radar-open-session': handleRadarOpenSession,
     'issue-detail': handleIssueDetail,
     'open-issue-session': (msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket) => issueOpenQueue.run(`${msg.repo.toLowerCase()}#${msg.issueNumber}`, () => handleOpenIssueSession(msg, ws)),
-    'posthog-issue-action': handlePosthogIssueAction,
-    'posthog-archive-investigation': handlePosthogArchiveInvestigation,
+    'radar-issue-action': handleRadarIssueAction,
+    'radar-archive-investigation': handleRadarArchiveInvestigation,
     'team-review-action': handleTeamReviewAction,
     'my-pr-merge': handleMyPrMerge,
     'my-pr-keep-mergeable': handleMyPrKeepMergeable,
@@ -1528,9 +1528,9 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const updateJournal = typeof getUpdateJournal === 'function' ? getUpdateJournal() : null;
     if (updateJournal) ws.send(JSON.stringify({ type: 'update-progress', journal: updateJournal }));
 
-    const posthogStatus = typeof getPosthogStatus === 'function' ? getPosthogStatus() : null;
-    if (posthogStatus) {
-      ws.send(JSON.stringify(posthogStatus));
+    const radarStatus = typeof getRadarStatus === 'function' ? getRadarStatus() : null;
+    if (radarStatus) {
+      ws.send(JSON.stringify(radarStatus));
     }
 
     const teamReviewStatus = typeof getTeamReviewStatus === 'function' ? getTeamReviewStatus() : null;

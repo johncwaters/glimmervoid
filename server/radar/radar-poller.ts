@@ -39,7 +39,7 @@ const TRAFFIC_RETRY_DELAY_MS = 1000;
 
 type PosthogState = Record<string, unknown>;
 
-interface PosthogMeta {
+interface RadarMeta {
   lastTickAt: Record<string, number>;
 }
 
@@ -73,7 +73,7 @@ interface SpawnInvestigationArgs {
 }
 
 interface InvestigationProgressFrame {
-  type: 'posthog-investigation-activity';
+  type: 'radar-investigation-activity';
   projectId: string | number;
   issueId: string;
   inFlight: true;
@@ -82,7 +82,7 @@ interface InvestigationProgressFrame {
 }
 
 interface InvestigationFinishedFrame {
-  type: 'posthog-investigation-finished';
+  type: 'radar-investigation-finished';
   projectId: string | number;
   issueId: string;
   verdict: string;
@@ -125,7 +125,7 @@ interface PollerProject {
   name?: string;
 }
 
-interface PosthogPollerDependencies {
+interface RadarPollerDependencies {
   api: PosthogApi;
   host?: string;
   resolveProjects?: () => Promise<PollerProject[]>;
@@ -163,7 +163,7 @@ interface PosthogPollerDependencies {
   waitForTrafficRetry?: () => Promise<void>;
 }
 
-interface PosthogPoller {
+interface RadarPoller {
   start: () => Promise<void>;
   stop: () => Promise<void>;
   tick: () => Promise<void>;
@@ -182,7 +182,7 @@ function issueEntryOf(state: PosthogState, key: string): PosthogStateEntry | und
   return value as PosthogStateEntry;
 }
 
-function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
+function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
   const {
     api,
     host = '',
@@ -242,10 +242,10 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
   });
   const persist = () => loop.persist();
 
-  function meta(): PosthogMeta {
+  function meta(): RadarMeta {
     const existing = state[META_KEY];
     const record = existing && typeof existing === 'object' && !Array.isArray(existing)
-      ? existing as PosthogMeta
+      ? existing as RadarMeta
       : { lastTickAt: {} };
     if (!record.lastTickAt) record.lastTickAt = {};
     state[META_KEY] = record;
@@ -363,7 +363,7 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
     cancelPendingActivity(change.key);
     const trail = trails.get(change.key);
     onInvestigationActivity({
-      type: 'posthog-investigation-finished',
+      type: 'radar-investigation-finished',
       projectId: change.projectId,
       issueId: String(change.issue.issueId),
       verdict,
@@ -396,7 +396,7 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
     const trail = trails.get(change.key);
     if (!trail) return;
     onInvestigationActivity({
-      type: 'posthog-investigation-activity',
+      type: 'radar-investigation-activity',
       projectId: change.projectId,
       issueId: String(change.issue.issueId),
       inFlight: true,
@@ -771,7 +771,7 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
     }));
     lastTickStatus = { ts, projects };
     onTickComplete({
-      type: 'posthog-status',
+      type: 'radar-status',
       ts,
       intervalMinutes,
       projects,
@@ -804,15 +804,15 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
   };
 }
 
-export { createPosthogPoller };
+export { createRadarPoller };
 export type {
   InvestigationActivity,
   InvestigationFinishedFrame,
   InvestigationProgressFrame,
   IssueChange,
   IssueSummary,
-  PosthogPoller,
-  PosthogPollerDependencies,
+  RadarPoller,
+  RadarPollerDependencies,
   PosthogState,
   ProjectSummary,
   SpawnInvestigationArgs,

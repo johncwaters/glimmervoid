@@ -66,13 +66,13 @@ test('radarPlaceholder: reports configured or legacy statuses as waiting for fir
 
 test('radarLoadPhase: distinguishes pending, placeholder and ready snapshots', () => {
   const completedTickSummary = {
-    type: 'posthog-status',
+    type: 'radar-status',
     ts: 1700000000000,
     intervalMinutes: 15,
     projects: [],
     investigations: [],
   };
-  const emptyLaneStatus = { type: 'posthog-status', ts: 1700000000000, configured: true, reason: null, projects: [] };
+  const emptyLaneStatus = { type: 'radar-status', ts: 1700000000000, configured: true, reason: null, projects: [] };
   const cases: { snapshot: Parameters<typeof radarLoadPhase>[0]; projectCount: number; expectedPhase: string }[] = [
     { snapshot: { ...completedTickSummary, configured: true }, projectCount: 0, expectedPhase: 'placeholder' },
     { snapshot: { ...completedTickSummary, configured: true }, projectCount: 2, expectedPhase: 'ready' },
@@ -438,7 +438,7 @@ const investigationRecord = (over = {}) => ({
 });
 
 test('investigationRows: absent field renders nothing (older server payload)', () => {
-  assert.deepEqual(investigationRows({ type: 'posthog-status', projects: [] }), []);
+  assert.deepEqual(investigationRows({ type: 'radar-status', projects: [] }), []);
   assert.deepEqual(investigationRows(null), []);
   assert.deepEqual(investigationRows({ investigations: ['nope'] }), []);
 });

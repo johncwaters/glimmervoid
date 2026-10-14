@@ -10,17 +10,17 @@ import {
   POSTHOG_DENY,
   buildFixPrompt,
   buildInvestigationPrompt,
-  createPosthogWiring,
+  createRadarWiring,
   makeResolveProjects,
   posthogCfgKey,
-  posthogShouldStart,
+  radarShouldStart,
   pushFixBranch,
   readFixResult,
   readInvestigationResult,
   runCli,
   sweepReports,
 } from '../server/radar/radar-wiring.ts';
-import type { PosthogGitWorkspace, PosthogWiringConfig, PosthogWorkspace } from '../server/radar/radar-wiring.ts';
+import type { PosthogGitWorkspace, RadarWiringConfig, PosthogWorkspace } from '../server/radar/radar-wiring.ts';
 import { createSpawnGate } from '../server/spawn-gate.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
@@ -56,39 +56,39 @@ function inertWiringDeps() {
   };
 }
 
-test('posthogShouldStart: inert when posthog absent or disabled (no reason, silent)', () => {
-  assert.deepEqual(posthogShouldStart({}), { start: false, reason: null });
-  assert.deepEqual(posthogShouldStart({ posthog: { enabled: false } }), { start: false, reason: null });
+test('radarShouldStart: inert when posthog absent or disabled (no reason, silent)', () => {
+  assert.deepEqual(radarShouldStart({}), { start: false, reason: null });
+  assert.deepEqual(radarShouldStart({ posthog: { enabled: false } }), { start: false, reason: null });
 });
 
-test('posthogShouldStart: an omitted host uses the cloud default but a missing apiKey prevents starting', () => {
-  const noHost = posthogShouldStart({ posthog: { enabled: true }, telegram: TELEGRAM });
+test('radarShouldStart: an omitted host uses the cloud default but a missing apiKey prevents starting', () => {
+  const noHost = radarShouldStart({ posthog: { enabled: true }, telegram: TELEGRAM });
   assert.equal(noHost.start, false);
   assert.ok(noHost.reason);
   assert.match(noHost.reason, /apiKey/);
-  assert.deepEqual(posthogShouldStart({ posthog: { enabled: true, apiKey: 'phx_secret' }, telegram: TELEGRAM }), { start: true, reason: null });
+  assert.deepEqual(radarShouldStart({ posthog: { enabled: true, apiKey: 'phx_secret' }, telegram: TELEGRAM }), { start: true, reason: null });
 
-  const noKey = posthogShouldStart({ posthog: { enabled: true, host: 'https://ph.test' }, telegram: TELEGRAM });
+  const noKey = radarShouldStart({ posthog: { enabled: true, host: 'https://ph.test' }, telegram: TELEGRAM });
   assert.equal(noKey.start, false);
   assert.ok(noKey.reason);
   assert.match(noKey.reason, /apiKey/);
 });
 
-test('posthogShouldStart: enabled but telegram missing -> does not start, with a reason', () => {
-  const r = posthogShouldStart({ posthog: ENABLED });
+test('radarShouldStart: enabled but telegram missing -> does not start, with a reason', () => {
+  const r = radarShouldStart({ posthog: ENABLED });
   assert.equal(r.start, false);
   assert.ok(r.reason);
   assert.match(r.reason, /telegram/);
-  const partial = posthogShouldStart({ posthog: ENABLED, telegram: { botToken: 'x' } });
+  const partial = radarShouldStart({ posthog: ENABLED, telegram: { botToken: 'x' } });
   assert.equal(partial.start, false, 'chatId still missing');
 });
 
-test('posthogShouldStart: fully configured -> starts', () => {
-  assert.deepEqual(posthogShouldStart({ posthog: ENABLED, telegram: TELEGRAM }), { start: true, reason: null });
+test('radarShouldStart: fully configured -> starts', () => {
+  assert.deepEqual(radarShouldStart({ posthog: ENABLED, telegram: TELEGRAM }), { start: true, reason: null });
 });
 
-function assertPosthogStatusShape(status: Record<string, unknown>, { configured, reason }: { configured: boolean; reason: string | null }): void {
-  assert.equal(status.type, 'posthog-status');
+function assertRadarStatusShape(status: Record<string, unknown>, { configured, reason }: { configured: boolean; reason: string | null }): void {
+  assert.equal(status.type, 'radar-status');
   assert.equal(status.configured, configured);
   assert.equal(status.reason, reason);
   assert.deepEqual(status.projects, []);
@@ -98,15 +98,15 @@ function assertPosthogStatusShape(status: Record<string, unknown>, { configured,
 }
 
 test('PostHog getStatus: disabled config synthesizes an off status', () => {
-  const wiring = createPosthogWiring({
+  const wiring = createRadarWiring({
     config: { posthog: { enabled: false }, replayBufferKB: 256 },
     ...inertWiringDeps(),
   });
-  assertPosthogStatusShape(wiring.getStatus(), { configured: false, reason: null });
+  assertRadarStatusShape(wiring.getStatus(), { configured: false, reason: null });
 });
 
 test('PostHog getStatus: an off status carries the configured interval and no investigations', () => {
-  const wiring = createPosthogWiring({
+  const wiring = createRadarWiring({
     config: { posthog: { enabled: false, intervalMinutes: 30 }, replayBufferKB: 256 },
     ...inertWiringDeps(),
   });
@@ -116,11 +116,11 @@ test('PostHog getStatus: an off status carries the configured interval and no in
 });
 
 test('PostHog getStatus: enabled without telegram synthesizes a misconfigured status', () => {
-  const wiring = createPosthogWiring({
+  const wiring = createRadarWiring({
     config: { posthog: ENABLED, replayBufferKB: 256 },
     ...inertWiringDeps(),
   });
-  assertPosthogStatusShape(wiring.getStatus(), {
+  assertRadarStatusShape(wiring.getStatus(), {
     configured: false,
     reason: 'posthog.enabled but telegram botToken/chatId missing',
   });
@@ -225,7 +225,7 @@ test('an investigation session reports its tool trail from routed hooks, pretool
   };
   const trails: InvestigationTrail[] = [];
   const wrappedRoles: SandboxRole[] = [];
-  const wiring = createPosthogWiring({
+  const wiring = createRadarWiring({
     config: { posthog: { ...ENABLED }, replayBufferKB: 256 },
     ...inertWiringDeps(),
     hookRouter,
@@ -286,7 +286,7 @@ interface FixHarness {
   repoDir: string;
   calls: { create: CreateCall[]; discard: DiscardCall[] };
   gitWorkspace: PosthogGitWorkspace;
-  config: PosthogWiringConfig;
+  config: RadarWiringConfig;
   lane: Record<string, unknown>;
   runCommand?: (cmd: string, args: string[], cwd: string) => Promise<CliResult>;
 }
@@ -303,7 +303,7 @@ function fixWiringHarness({ createResult }: { createResult?: PosthogWorkspace } 
     discard: async (args) => { calls.discard.push(args); },
   };
   const lane: Record<string, unknown> = { ...ENABLED, repoPath: repoDir };
-  const config: PosthogWiringConfig = {
+  const config: RadarWiringConfig = {
     posthog: lane,
     worktreeRoot: path.join(repoDir, 'wts'),
     replayBufferKB: 256,
@@ -313,7 +313,7 @@ function fixWiringHarness({ createResult }: { createResult?: PosthogWorkspace } 
 
 async function runFixSpawn(harness: FixHarness, resolveHookTools?: typeof resolveSharedHookTools) {
   const { makeSession, constructed, created } = recordingSessionFactory();
-  const wiring = createPosthogWiring({
+  const wiring = createRadarWiring({
     config: harness.config,
     ...inertWiringDeps(),
     gitWorkspace: harness.gitWorkspace,
@@ -423,7 +423,7 @@ test('a lane with no repo configured never reaches the worktree at all', async (
 
 test('an investigation with an omitted host receives the advertised cloud host in its prompt and environment', async () => {
   const { makeSession, constructed, created } = recordingSessionFactory();
-  const wiring = createPosthogWiring({
+  const wiring = createRadarWiring({
     config: { posthog: { enabled: true, apiKey: 'phx_secret' }, replayBufferKB: 256 },
     ...inertWiringDeps(), makeSession,
   });

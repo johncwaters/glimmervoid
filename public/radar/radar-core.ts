@@ -23,11 +23,11 @@ export interface RadarIssue {
   status?: unknown;
 }
 
-export type TrailStepRow = ServerMessageOf<'posthog-investigation-activity'>['trail'][number];
+export type TrailStepRow = ServerMessageOf<'radar-investigation-activity'>['trail'][number];
 
-export type InvestigationActivityFrame = Partial<Pick<ServerMessageOf<'posthog-investigation-activity'>, 'projectId' | 'issueId' | 'inFlight' | 'startedAt' | 'trail'>>;
+export type InvestigationActivityFrame = Partial<Pick<ServerMessageOf<'radar-investigation-activity'>, 'projectId' | 'issueId' | 'inFlight' | 'startedAt' | 'trail'>>;
 
-export type InvestigationFinishedFrame = Partial<Pick<ServerMessageOf<'posthog-investigation-finished'>, 'projectId' | 'issueId' | 'startedAt' | 'trail' | 'verdict' | 'summaryLine'>>;
+export type InvestigationFinishedFrame = Partial<Pick<ServerMessageOf<'radar-investigation-finished'>, 'projectId' | 'issueId' | 'startedAt' | 'trail' | 'verdict' | 'summaryLine'>>;
 
 export interface InvestigationView {
   inFlight: boolean;

@@ -111,17 +111,17 @@ test('a reconnect with ?since replays only the missed replayable broadcasts, aft
 
 test('a cached lane status replayed on connect carries no stale seq', () => {
   const replayLog = createReplayLog();
-  const posthogStatus = { type: 'posthog-status', configured: true };
+  const radarStatus = { type: 'radar-status', configured: true };
   const server = createControlServer(controlDeps({ projects: [] }, {
     broadcastControl: (msg) => { replayLog.stamp({ ...msg }); },
     controlReplayLog: replayLog,
-    getPosthogStatus: () => posthogStatus,
+    getRadarStatus: () => radarStatus,
   }));
-  replayLog.stamp({ ...posthogStatus });
+  replayLog.stamp({ ...radarStatus });
 
   const { sent } = connectControl<DispatchFrame>(server, { url: '/control' });
 
-  const replayed = sent.filter((m) => m.type === 'posthog-status');
+  const replayed = sent.filter((m) => m.type === 'radar-status');
   assert.equal(replayed.length, 1, 'the cached lane status replays');
   for (const msg of replayed) assert.equal(msg.seq, undefined, `${msg.type} must be seq-less`);
 });

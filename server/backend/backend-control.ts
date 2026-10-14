@@ -30,7 +30,7 @@ interface LaneReader {
   currentVisions: () => SnapshotLane | null;
 }
 
-interface PosthogControl {
+interface RadarControl {
   getStatus: () => Record<string, unknown> | null;
   setIssueStatus: (args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>;
   archiveInvestigation: (args: { id: string }) => Promise<Record<string, unknown>>;
@@ -72,7 +72,7 @@ interface BackendControlDependencies {
   isStaging: () => boolean;
   noteRestartRequested: () => void;
   laneAssembly: LaneReader;
-  posthog: PosthogControl;
+  posthog: RadarControl;
   teamReview: TeamReviewControl;
   myPrs: MyPrMergeControl & { getStatus: () => MyPrsStatus };
   issues: { getStatus: () => IssuesStatus; refresh: () => Promise<ReviewsRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]>; getLinkedSessionId: (issueKey: string) => Promise<string | null>; linkSession: (issueKey: string, sessionId: string) => Promise<void> };
@@ -133,9 +133,9 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     applyUpdate: dependencies.applyUpdate,
     isStaging: dependencies.isStaging,
     noteRestartRequested: dependencies.noteRestartRequested,
-    getPosthogStatus: () => posthog.getStatus(),
+    getRadarStatus: () => posthog.getStatus(),
     posthogSetIssueStatus: (args) => posthog.setIssueStatus(args),
-    posthogArchiveInvestigation: (args) => posthog.archiveInvestigation(args),
+    radarArchiveInvestigation: (args) => posthog.archiveInvestigation(args),
     getTeamReviewStatus: () => teamReview.getStatus(),
     getMyPrsStatus: () => myPrs.getStatus(),
     getIssuesStatus: () => issues.getStatus(),
@@ -187,7 +187,7 @@ export { createBackendControl };
 export type {
   BackendControlDependencies,
   LaneReader,
-  PosthogControl,
+  RadarControl,
   SnapshotLane,
   TeamReviewControl,
   UsageControl,

@@ -207,7 +207,7 @@ export function createAddSessionDialog() {
   requestAnimationFrame(() => pickerEl.focus());
 }
 
-export function createPosthogReportDialog({
+export function createRadarReportDialog({
   issueId,
   issueTitle,
   format,

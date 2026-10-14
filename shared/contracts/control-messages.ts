@@ -164,11 +164,11 @@ const clientVariants = [
   loose('update-settings', { settings: z.record(z.string(), z.unknown()), requestId }),
   loose('scan-repo-roots', { requestId }),
   loose('list-agents', { requestId }),
-  loose('get-posthog-report', { issueId: z.union([z.string(), z.number()]), requestId }),
-  loose('posthog-open-session', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), requestId }),
+  loose('get-radar-report', { issueId: z.union([z.string(), z.number()]), requestId }),
+  loose('radar-open-session', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), requestId }),
   loose('issue-detail', { requestId: z.string().min(1), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
   loose('open-issue-session', { requestId, projectId: z.string(), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
-  loose('posthog-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
+  loose('radar-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }),
   loose('factory-queue-intent', { ...FactoryQueueIntentRequest.shape, requestId }),
   loose('factory-control', { ...FactoryControlRequest.shape, requestId }),
@@ -177,7 +177,7 @@ const clientVariants = [
   loose('my-pr-keep-mergeable', { ...MyPrKeepMergeableRequest.shape, requestId }),
   loose('my-pr-merge-when-ready', { ...MyPrMergeWhenReadyRequest.shape, requestId }),
   loose('reviews-refresh', { ...ReviewsRefreshRequest.shape, requestId }),
-  loose('posthog-archive-investigation', { id: z.unknown().optional(), requestId }),
+  loose('radar-archive-investigation', { id: z.unknown().optional(), requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
   loose('request-hooks-report', { requestId }),
   loose('send-diff-annotations', {
@@ -273,14 +273,14 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'conversations',
   'resume-conversation-ack',
   'health-snapshot',
-  'posthog-status',
-  'posthog-investigation-activity',
-  'posthog-investigation-finished',
-  'posthog-report',
-  'posthog-open-session-result',
+  'radar-status',
+  'radar-investigation-activity',
+  'radar-investigation-finished',
+  'radar-report',
+  'radar-open-session-result',
   'issue-detail-result',
   'open-issue-session-result',
-  'posthog-issue-action-result',
+  'radar-issue-action-result',
   'team-review-action-result',
   'benchmark-action-result',
   'factory-queue-intent-result',
@@ -289,7 +289,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'my-pr-keep-mergeable-result',
   'my-pr-merge-when-ready-result',
   'reviews-refresh-result',
-  'posthog-archive-investigation-result',
+  'radar-archive-investigation-result',
   'team-review-status',
   'benchmark-status',
   'factory-state',
@@ -490,20 +490,20 @@ const serverVariants = [
     requestId,
   }),
   loose('health-snapshot', { stats: opaqueObject }),
-  loose('posthog-status', {
+  loose('radar-status', {
     ts: timestamp,
     intervalMinutes: z.number(),
     projects: z.array(opaqueObject),
     investigations: z.array(opaqueObject),
   }),
-  loose('posthog-investigation-activity', {
+  loose('radar-investigation-activity', {
     projectId: z.union([z.string(), z.number()]),
     issueId: z.string(),
     inFlight: z.literal(true),
     startedAt: timestamp.nullable(),
     trail: trailSteps,
   }),
-  loose('posthog-investigation-finished', {
+  loose('radar-investigation-finished', {
     projectId: z.union([z.string(), z.number()]),
     issueId: z.string(),
     verdict: z.string(),
@@ -511,7 +511,7 @@ const serverVariants = [
     startedAt: timestamp.nullable(),
     trail: trailSteps,
   }),
-  loose('posthog-report', {
+  loose('radar-report', {
     requestId,
     ok: z.boolean(),
     found: z.boolean(),
@@ -521,7 +521,7 @@ const serverVariants = [
     message: z.string().optional(),
     error: z.string().optional(),
   }),
-  loose('posthog-open-session-result', {
+  loose('radar-open-session-result', {
     requestId,
     ok: z.boolean(),
     error: optionalError,
@@ -539,7 +539,7 @@ const serverVariants = [
     pending: z.boolean().optional(),
     existing: z.boolean().optional(),
   }),
-  loose('posthog-issue-action-result', {
+  loose('radar-issue-action-result', {
     requestId,
     ok: z.boolean(),
     error: optionalError,
@@ -553,7 +553,7 @@ const serverVariants = [
   loose('my-pr-keep-mergeable-result', { ...MyPrKeepMergeableResult.shape, requestId }),
   loose('my-pr-merge-when-ready-result', { ...MyPrMergeWhenReadyResult.shape, requestId }),
   loose('reviews-refresh-result', { ...ReviewsRefreshResult.shape, requestId }),
-  loose('posthog-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
+  loose('radar-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
   TeamReviewStatus,
   BenchmarkStatus,
   loose('factory-state', FactoryState.shape),

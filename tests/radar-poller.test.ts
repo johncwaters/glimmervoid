@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createPosthogPoller } from '../server/radar/radar-poller.ts';
-import type { PosthogPollerDependencies } from '../server/radar/radar-poller.ts';
+import { createRadarPoller } from '../server/radar/radar-poller.ts';
+import type { RadarPollerDependencies } from '../server/radar/radar-poller.ts';
 import type { PosthogApi } from '../server/radar/posthog-api.ts';
 
-type Poller = ReturnType<typeof createPosthogPoller>;
-type JobResult = Awaited<ReturnType<PosthogPollerDependencies['spawnInvestigation']>>;
+type Poller = ReturnType<typeof createRadarPoller>;
+type JobResult = Awaited<ReturnType<RadarPollerDependencies['spawnInvestigation']>>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -71,7 +71,7 @@ function tickProject(summaries: Record<string, unknown>[], index = 0): TickProje
   return project;
 }
 
-type SpawnArgs = Parameters<PosthogPollerDependencies['spawnInvestigation']>[0];
+type SpawnArgs = Parameters<RadarPollerDependencies['spawnInvestigation']>[0];
 
 function spawnAt(calls: SpawnArgs[], index: number): SpawnArgs {
   const args = calls[index];
@@ -241,7 +241,7 @@ test('a deferred regression keeps its trigger across restart and produces no dup
     finishFirst({ verdict: 'ROOT_CAUSE' });
     await flush();
     await lane.poller.stop();
-    restarted = createPosthogPoller(lane.deps);
+    restarted = createRadarPoller(lane.deps);
     await restarted.start();
     await flush();
     assert.deepEqual(calls, ['busy', 'iss-1']);
@@ -432,7 +432,7 @@ function makeApi(over: Partial<PosthogApi> = {}): PosthogApi {
   };
 }
 
-type HarnessOverrides = Omit<Partial<PosthogPollerDependencies>, 'api'> & {
+type HarnessOverrides = Omit<Partial<RadarPollerDependencies>, 'api'> & {
   initialState?: Record<string, unknown>;
   api?: Partial<PosthogApi>;
 };
@@ -443,7 +443,7 @@ function harness(over: HarnessOverrides = {}) {
   const stateStore: { value: Record<string, unknown> } = {
     value: over.initialState ? JSON.parse(JSON.stringify(over.initialState)) : {},
   };
-  const deps: PosthogPollerDependencies = {
+  const deps: RadarPollerDependencies = {
     api: makeApi(over.api),
     host: HOST,
     resolveProjects: over.resolveProjects || (async () => [{ projectId: 1, name: 'web' }]),
@@ -475,13 +475,13 @@ function harness(over: HarnessOverrides = {}) {
     trafficSpikeCooldownMinutes: over.trafficSpikeCooldownMinutes,
     trafficSpikeBaselineDays: over.trafficSpikeBaselineDays,
   };
-  return { deps, pings, summaries, stateStore, poller: createPosthogPoller(deps) };
+  return { deps, pings, summaries, stateStore, poller: createRadarPoller(deps) };
 }
 
 test('start() investigates a new issue, arms an unref-d interval, stop() clears it', async () => {
   const armed: { cb: (() => void) | null } = { cb: null };
   let cleared = false;
-  const spawnCalls: Parameters<PosthogPollerDependencies['spawnInvestigation']>[0][] = [];
+  const spawnCalls: Parameters<RadarPollerDependencies['spawnInvestigation']>[0][] = [];
   const { poller, pings } = harness({
     spawnInvestigation: async (args) => { spawnCalls.push(args); return { verdict: 'ROOT_CAUSE' }; },
     setIntervalFn: (fn) => { armed.cb = fn; return heldTimer(); },
@@ -810,7 +810,7 @@ test('onTickComplete emits the dashboard broadcast payload', async () => {
   await poller.start();
   await flush();
   const summary = lastTick(summaries);
-  assert.equal(summary.type, 'posthog-status');
+  assert.equal(summary.type, 'radar-status');
   assert.equal(summary.ts, 1000);
   assert.equal(summary.intervalMinutes, 15, 'every completed tick carries a finite interval, which is what the dashboard keys its load phase off');
   assert.equal(Object.hasOwn(summaries.at(-1) ?? {}, 'configured'), false, 'the poller leaves the configured field to the lane wrapper that stamps it');
@@ -864,13 +864,13 @@ test('an in-flight trail rides the snapshot and coalesces into one live activity
   assert.equal(coalescers.length, 1, 'two steps arm one coalescing timer, the job timeout aside');
   coalescers[0]?.fn();
   assert.equal(activity.length, 1);
-  assert.equal(activity[0].type, 'posthog-investigation-activity');
+  assert.equal(activity[0].type, 'radar-investigation-activity');
   assert.equal(activity[0].inFlight, true);
   assert.deepEqual(activity[0].trail, [{ at: 950, tool: 'Read', detail: 'a.ts' }]);
   gate.release?.();
   await flush();
   const done = activity.at(-1);
-  assert.equal(done?.type, 'posthog-investigation-finished', 'the terminal frame is its own type, since a dropped refreshable frame is never resent');
+  assert.equal(done?.type, 'radar-investigation-finished', 'the terminal frame is its own type, since a dropped refreshable frame is never resent');
   assert.equal(done?.verdict, 'ROOT_CAUSE');
   assert.equal(done?.summaryLine, 'the retry path double-fires');
   assert.equal(done?.issueId, 'iss-1');
@@ -898,7 +898,7 @@ test('a hook that lands after the run finished publishes nothing, so a dead inve
   await poller.start();
   await flush();
   const framesAtFinish = activity.length;
-  assert.equal(activity.at(-1)?.type, 'posthog-investigation-finished');
+  assert.equal(activity.at(-1)?.type, 'radar-investigation-finished');
 
   hook.emit?.({ startedAt: 900, steps: [{ at: 950, tool: 'Read', detail: 'a.ts' }, { at: 1200, tool: 'Bash', detail: 'npm test' }] });
   const coalescers = timers.filter((timer) => timer.ms < 1000);

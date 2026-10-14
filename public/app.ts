@@ -35,7 +35,7 @@ import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSe
 import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './github/issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar/radar-core.ts';
-import { applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus } from './radar/radar-panel.ts';
+import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from './radar/radar-panel.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse, setSessionSaneYolo } from './session-card/card-dom.ts';
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
@@ -403,9 +403,9 @@ const messageHandlers = {
   'session-error':      (msg) => { applySessionPlanError(msg); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
   'settings-updated':   (msg) => { if (msg.settings) applyDashboardSettings(msg.settings, { isLiveSettingsChange: true }); },
   'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot & ServerMessageOf<'health-snapshot'>['stats']); },
-  'posthog-status':     (msg) => applyPosthogStatus(msg),
-  'posthog-investigation-activity': (msg) => applyInvestigationActivity(msg),
-  'posthog-investigation-finished': (msg) => applyInvestigationFinished(msg),
+  'radar-status':     (msg) => applyRadarStatus(msg),
+  'radar-investigation-activity': (msg) => applyInvestigationActivity(msg),
+  'radar-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
   'my-prs-status': (msg) => applyMyPrsStatus(msg),
   'factory-state': (msg) => applyFactoryState(msg),

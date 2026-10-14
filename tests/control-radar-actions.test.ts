@@ -10,7 +10,7 @@ import { connectControl, controlDeps, createControlServer } from './helpers/cont
 import { plainSession } from './helpers/fake-session.ts';
 
 const STATUS = {
-  type: 'posthog-status',
+  type: 'radar-status',
   ts: 1000,
   projects: [{
     projectId: 7,
@@ -31,7 +31,7 @@ const STATUS = {
   }],
 };
 
-interface PosthogFrame {
+interface RadarFrame {
   type: string;
   requestId?: string;
   ok?: boolean;
@@ -54,7 +54,7 @@ interface HarnessOverrides {
   actionResult?: Record<string, unknown>;
   archiveResult?: Record<string, unknown>;
   posthogSetIssueStatus?: null;
-  posthogArchiveInvestigation?: null;
+  radarArchiveInvestigation?: null;
 }
 
 function harness(over: HarnessOverrides = {}) {
@@ -91,18 +91,18 @@ function harness(over: HarnessOverrides = {}) {
         created.push(project);
       }
     },
-    getPosthogStatus: () => (over.status === undefined ? STATUS : over.status),
+    getRadarStatus: () => (over.status === undefined ? STATUS : over.status),
     posthogSetIssueStatus: over.posthogSetIssueStatus === null ? null : async (args) => {
       actionCalls.push(args);
       return over.actionResult || { ok: true, status: 'resolved' };
     },
-    posthogArchiveInvestigation: over.posthogArchiveInvestigation === null ? null : async (args) => {
+    radarArchiveInvestigation: over.radarArchiveInvestigation === null ? null : async (args) => {
       archiveCalls.push(args);
       return over.archiveResult || { ok: true };
     },
   }));
 
-  const connection = connectControl<PosthogFrame>(server);
+  const connection = connectControl<RadarFrame>(server);
   connection.sent.length = 0;
   return {
     sent: connection.sent,
@@ -118,10 +118,10 @@ function harness(over: HarnessOverrides = {}) {
 test('posthog-open-session pastes the investigation prompt into the mapped session', () => {
   const h = harness();
 
-  h.send({ type: 'posthog-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
+  h.send({ type: 'radar-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
 
   const reply = h.sent[0];
-  assert.equal(reply.type, 'posthog-open-session-result');
+  assert.equal(reply.type, 'radar-open-session-result');
   assert.equal(reply.requestId, 'r1');
   assert.equal(reply.ok, true);
   assert.equal(reply.sessionId, 'p1');
@@ -139,7 +139,7 @@ test('posthog-open-session builds the prompt from the cached tick, never from th
   const h = harness();
 
   h.send({
-    type: 'posthog-open-session',
+    type: 'radar-open-session',
     requestId: 'r1',
     projectId: 7,
     issueId: 'iss-1',
@@ -155,7 +155,7 @@ test('posthog-open-session builds the prompt from the cached tick, never from th
 test('posthog-open-session refuses cleanly when no Glimmervoid project maps to the PostHog project', () => {
   const h = harness({ posthog: { projectMap: { 9: 'C:/elsewhere' } } });
 
-  h.send({ type: 'posthog-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
+  h.send({ type: 'radar-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
 
   assert.equal(h.sent[0].ok, false);
   assert.match(String(h.sent[0].error), /No Glimmervoid session is mapped/);
@@ -165,7 +165,7 @@ test('posthog-open-session refuses cleanly when no Glimmervoid project maps to t
 test('posthog-open-session refuses an issue the latest poll does not carry', () => {
   const h = harness();
 
-  h.send({ type: 'posthog-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-unknown' });
+  h.send({ type: 'radar-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-unknown' });
 
   assert.equal(h.sent[0].ok, false);
   assert.match(String(h.sent[0].error), /latest PostHog poll/);
@@ -174,7 +174,7 @@ test('posthog-open-session refuses an issue the latest poll does not carry', () 
 test('posthog-open-session refuses a malformed issue id before any lookup', () => {
   const h = harness();
 
-  h.send({ type: 'posthog-open-session', requestId: 'r1', projectId: 7, issueId: '../outside' });
+  h.send({ type: 'radar-open-session', requestId: 'r1', projectId: 7, issueId: '../outside' });
 
   assert.equal(h.sent[0].ok, false);
   assert.equal(h.sent[0].error, 'Invalid issue id');
@@ -199,7 +199,7 @@ test('posthog-open-session auto-creates the session from a projectMap directory'
     status: statusNamed('CardHarbor'),
   });
 
-  h.send({ type: 'posthog-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
+  h.send({ type: 'radar-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
 
   assert.equal(h.sent[0].ok, true);
   assert.equal(h.sent[0].sessionName, 'card-harbor');
@@ -217,7 +217,7 @@ test('posthog-open-session auto-creates from a name-derived sibling directory', 
     status: statusNamed('CardHarbor'),
   });
 
-  h.send({ type: 'posthog-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
+  h.send({ type: 'radar-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
 
   assert.equal(h.sent[0].ok, true);
   assert.deepEqual(h.created.map((p) => p.path), [path.join(root, 'Projects/card-harbor')]);
@@ -234,7 +234,7 @@ test('posthog-open-session refuses rather than guessing between two matching dir
     status: statusNamed('CardHarbor'),
   });
 
-  h.send({ type: 'posthog-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
+  h.send({ type: 'radar-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
 
   assert.equal(h.sent[0].ok, false);
   assert.match(String(h.sent[0].error), /No Glimmervoid session is mapped/);
@@ -249,7 +249,7 @@ test('posthog-open-session does not auto-create when the derived name collides w
     status: statusNamed('web-app'),
   });
 
-  h.send({ type: 'posthog-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
+  h.send({ type: 'radar-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
 
   assert.equal(h.sent[0].ok, false);
   assert.match(String(h.sent[0].error), /No Glimmervoid session is mapped/);
@@ -264,7 +264,7 @@ test('posthog-open-session keeps the mapping error when no directory resolves', 
     status: statusNamed('CardHarbor'),
   });
 
-  h.send({ type: 'posthog-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
+  h.send({ type: 'radar-open-session', requestId: 'r1', projectId: 7, issueId: 'iss-1' });
 
   assert.equal(h.sent[0].ok, false);
   assert.equal(h.sent[0].error, 'No Glimmervoid session is mapped to this PostHog project (set posthog.projectMap)');
@@ -274,10 +274,10 @@ test('posthog-open-session keeps the mapping error when no directory resolves', 
 test('posthog-issue-action forwards a valid action and echoes the result', async () => {
   const h = harness();
 
-  await h.send({ type: 'posthog-issue-action', requestId: 'r1', projectId: 7, issueId: 'iss-1', action: 'resolve' });
+  await h.send({ type: 'radar-issue-action', requestId: 'r1', projectId: 7, issueId: 'iss-1', action: 'resolve' });
 
   assert.deepEqual(h.actionCalls, [{ projectId: '7', issueId: 'iss-1', action: 'resolve' }]);
-  assert.equal(h.sent[0].type, 'posthog-issue-action-result');
+  assert.equal(h.sent[0].type, 'radar-issue-action-result');
   assert.equal(h.sent[0].ok, true);
   assert.equal(h.sent[0].status, 'resolved');
 });
@@ -285,7 +285,7 @@ test('posthog-issue-action forwards a valid action and echoes the result', async
 test('posthog-issue-action refuses an issue the latest poll does not carry', async () => {
   const h = harness();
 
-  await h.send({ type: 'posthog-issue-action', requestId: 'r1', projectId: 7, issueId: 'iss-unknown', action: 'resolve' });
+  await h.send({ type: 'radar-issue-action', requestId: 'r1', projectId: 7, issueId: 'iss-unknown', action: 'resolve' });
 
   assert.deepEqual(h.actionCalls, []);
   assert.equal(h.sent[0].ok, false);
@@ -295,7 +295,7 @@ test('posthog-issue-action refuses an issue the latest poll does not carry', asy
 test('posthog-issue-action refuses an unlisted action without calling PostHog', async () => {
   const h = harness();
 
-  await h.send({ type: 'posthog-issue-action', requestId: 'r1', projectId: 7, issueId: 'iss-1', action: 'delete' });
+  await h.send({ type: 'radar-issue-action', requestId: 'r1', projectId: 7, issueId: 'iss-1', action: 'delete' });
 
   assert.deepEqual(h.actionCalls, []);
   assert.equal(h.sent[0].ok, false);
@@ -305,7 +305,7 @@ test('posthog-issue-action refuses an unlisted action without calling PostHog', 
 test('posthog-issue-action reports a PostHog refusal to the requesting client', async () => {
   const h = harness({ actionResult: { ok: false, error: 'PostHog refused the change (HTTP 403)' } });
 
-  await h.send({ type: 'posthog-issue-action', requestId: 'r1', projectId: 7, issueId: 'iss-1', action: 'suppress' });
+  await h.send({ type: 'radar-issue-action', requestId: 'r1', projectId: 7, issueId: 'iss-1', action: 'suppress' });
 
   assert.equal(h.sent[0].ok, false);
   assert.match(String(h.sent[0].error), /403/);
@@ -314,7 +314,7 @@ test('posthog-issue-action reports a PostHog refusal to the requesting client', 
 test('posthog-issue-action answers cleanly when the lane is not wired in', async () => {
   const h = harness({ posthogSetIssueStatus: null });
 
-  await h.send({ type: 'posthog-issue-action', requestId: 'r1', projectId: 7, issueId: 'iss-1', action: 'resolve' });
+  await h.send({ type: 'radar-issue-action', requestId: 'r1', projectId: 7, issueId: 'iss-1', action: 'resolve' });
 
   assert.equal(h.sent[0].ok, false);
   assert.match(String(h.sent[0].error), /not running/);
@@ -323,19 +323,19 @@ test('posthog-issue-action answers cleanly when the lane is not wired in', async
 test('posthog-archive-investigation forwards a valid id and reports success', async () => {
   const h = harness();
 
-  h.send({ type: 'posthog-archive-investigation', requestId: 'r1', id: 'iss-1@1700' });
+  h.send({ type: 'radar-archive-investigation', requestId: 'r1', id: 'iss-1@1700' });
   await new Promise(setImmediate);
 
   assert.deepEqual(h.archiveCalls, [{ id: 'iss-1@1700' }]);
   assert.deepEqual(h.sent[0], {
-    type: 'posthog-archive-investigation-result', requestId: 'r1', ok: true, error: null,
+    type: 'radar-archive-investigation-result', requestId: 'r1', ok: true, error: null,
   });
 });
 
 test('posthog-archive-investigation reports an unknown id without touching the lane', async () => {
   const h = harness({ archiveResult: { ok: false, error: 'Unknown investigation' } });
 
-  h.send({ type: 'posthog-archive-investigation', requestId: 'r1', id: 'iss-9@1700' });
+  h.send({ type: 'radar-archive-investigation', requestId: 'r1', id: 'iss-9@1700' });
   await new Promise(setImmediate);
 
   assert.equal(h.sent[0].ok, false);
@@ -345,7 +345,7 @@ test('posthog-archive-investigation reports an unknown id without touching the l
 test('posthog-archive-investigation refuses a malformed id before the lane is called', () => {
   const h = harness();
 
-  h.send({ type: 'posthog-archive-investigation', requestId: 'r1', id: '../etc/passwd' });
+  h.send({ type: 'radar-archive-investigation', requestId: 'r1', id: '../etc/passwd' });
 
   assert.equal(h.sent[0].ok, false);
   assert.match(String(h.sent[0].error), /Invalid investigation id/);
@@ -355,16 +355,16 @@ test('posthog-archive-investigation refuses a malformed id before the lane is ca
 test('posthog-archive-investigation refuses a missing id', () => {
   const h = harness();
 
-  h.send({ type: 'posthog-archive-investigation', requestId: 'r1' });
+  h.send({ type: 'radar-archive-investigation', requestId: 'r1' });
 
   assert.equal(h.sent[0].ok, false);
   assert.match(String(h.sent[0].error), /id is required/);
 });
 
 test('posthog-archive-investigation answers cleanly when the lane is not wired in', () => {
-  const h = harness({ posthogArchiveInvestigation: null });
+  const h = harness({ radarArchiveInvestigation: null });
 
-  h.send({ type: 'posthog-archive-investigation', requestId: 'r1', id: 'iss-1@1700' });
+  h.send({ type: 'radar-archive-investigation', requestId: 'r1', id: 'iss-1@1700' });
 
   assert.equal(h.sent[0].ok, false);
   assert.match(String(h.sent[0].error), /not running/);

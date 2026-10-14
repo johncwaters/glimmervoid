@@ -25,8 +25,8 @@ function harness() {
 test('get-posthog-report rejects traversal and dotted issue ids', async () => {
   const h = harness();
 
-  await h.send({ type: 'get-posthog-report', requestId: 'r1', issueId: '../outside' });
-  await h.send({ type: 'get-posthog-report', requestId: 'r2', issueId: 'issue.with.dot' });
+  await h.send({ type: 'get-radar-report', requestId: 'r1', issueId: '../outside' });
+  await h.send({ type: 'get-radar-report', requestId: 'r2', issueId: 'issue.with.dot' });
 
   assert.deepEqual(h.sent.map((msg) => ({ requestId: msg.requestId, ok: msg.ok, found: msg.found, error: msg.error })), [
     { requestId: 'r1', ok: false, found: false, error: 'Invalid issue id' },
@@ -37,10 +37,10 @@ test('get-posthog-report rejects traversal and dotted issue ids', async () => {
 test('get-posthog-report returns not found for a missing report', async () => {
   const h = harness();
 
-  await h.send({ type: 'get-posthog-report', requestId: 'r1', issueId: 'iss-1' });
+  await h.send({ type: 'get-radar-report', requestId: 'r1', issueId: 'iss-1' });
 
   assert.deepEqual(h.sent[0], {
-    type: 'posthog-report',
+    type: 'radar-report',
     requestId: 'r1',
     ok: true,
     found: false,
@@ -56,13 +56,13 @@ test('get-posthog-report prefers the html report when html and markdown both exi
   fs.writeFileSync(path.join(h.reportDir, `${issueId}.html`), '<!doctype html><h1>Report</h1>\n');
 
   await h.send({
-    type: 'get-posthog-report',
+    type: 'get-radar-report',
     requestId: 'r1',
     issueId,
   });
 
   assert.deepEqual(h.sent[0], {
-    type: 'posthog-report',
+    type: 'radar-report',
     requestId: 'r1',
     ok: true,
     found: true,
@@ -77,13 +77,13 @@ test('get-posthog-report falls back to the markdown report for a safe issue id',
   fs.writeFileSync(path.join(h.reportDir, '018fb7a4-1a2b-7c3d-9e4f-aaaaaaaaaaaa.md'), '# Report\n\nRoot cause found.\n');
 
   await h.send({
-    type: 'get-posthog-report',
+    type: 'get-radar-report',
     requestId: 'r1',
     issueId: '018fb7a4-1a2b-7c3d-9e4f-aaaaaaaaaaaa',
   });
 
   assert.deepEqual(h.sent[0], {
-    type: 'posthog-report',
+    type: 'radar-report',
     requestId: 'r1',
     ok: true,
     found: true,
