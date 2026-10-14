@@ -1,6 +1,7 @@
 import { createNotifyGate, decideAcknowledge, explainNotification } from '../../session/core/notify-gate.ts';
 import type { ClaudeSessionIdEvent, Session } from '../../session/sessions.ts';
 import type { PersistedTaskTitle } from '../../shared/contracts/config.ts';
+import type { SessionPrLinks } from '../../shared/contracts/my-prs.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../../shared/contracts/session.ts';
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
@@ -337,6 +338,10 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     });
     session.on('task-title-change', ({ taskTitle, isCustom }: { taskTitle: string | null; isCustom: boolean }) => {
       dependencies.broadcastControl({ type: 'session-title', id: session.id, taskTitle, isCustom });
+    });
+    session.on('pr-links-change', (prLinks: SessionPrLinks) => {
+      if (!session.ephemeral) persistProjectField('prLinks', prLinks);
+      dependencies.broadcastControl({ type: 'session-prs', id: session.id, linkedPrs: prLinks.links });
     });
     session.on('worktree-changed', ({ sig }: { sig: string }) => {
       dependencies.broadcastControl({ type: 'session-changed', id: session.id, sig });

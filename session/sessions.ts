@@ -9,6 +9,8 @@ import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
 import { buildPersistedTaskTitle, cleanTaskPrompt, extractOscTaskTitle, extractPromptTaskTitle, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle, seedTaskTitleSources } from "./core/task-title-core.ts";
 import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
+import type { LinkedPr, SessionPrLinks } from "../shared/contracts/my-prs.ts";
+import { mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink } from "./core/session-pr-links-core.ts";
 import type { TaskTitleRefinementResult, TaskTitleSources } from "./core/task-title-core.ts";
 import { readTranscriptTaskTitle } from "./session-task-title.ts";
 import os from "node:os";
@@ -192,6 +194,7 @@ interface SpawnCommand {
 interface SessionOptions {
   customTitle?: string;
   taskTitleState?: PersistedTaskTitle;
+  prLinks?: SessionPrLinks;
   id: string;
   name: string;
   path: string;
@@ -269,6 +272,7 @@ class Session extends EventEmitter {
   _taskTitleReadSequence: number;
   _recentTaskPrompts: string[];
   taskTitlePromptRevision: number;
+  _prLinks: SessionPrLinks;
   id: string;
   name: string;
   path: string;
@@ -392,7 +396,7 @@ class Session extends EventEmitter {
 
     resumeSessionId = null,
     taskTitleState = undefined,
-
+    prLinks = undefined,
 
     settingsPermissions = null,
     settingsSandbox = null,
@@ -452,6 +456,7 @@ class Session extends EventEmitter {
     this._taskTitleReadSequence = 0;
     this._recentTaskPrompts = [];
     this.taskTitlePromptRevision = 0;
+    this._prLinks = seedSessionPrLinks(prLinks);
     this.path = projectPath;
     this.dangerouslySkipPermissions = dangerouslySkipPermissions;
     this.ptyProcess = null;
@@ -664,6 +669,28 @@ class Session extends EventEmitter {
 
   get refocusTaskTitle(): string | null {
     return resolveRefocusTaskTitle(this._taskTitleSources);
+  }
+
+  get linkedPrs(): LinkedPr[] {
+    return this._prLinks.links;
+  }
+
+  linkPr(link: LinkedPr): void {
+    this._replacePrLinks(mergeSessionPrLink(this._prLinks, link));
+  }
+
+  linkPrManually(link: LinkedPr): void {
+    this._replacePrLinks(withManualPrLink(this._prLinks, link));
+  }
+
+  unlinkPr(pullRequestKey: string): void {
+    this._replacePrLinks(withoutPrLink(this._prLinks, pullRequestKey));
+  }
+
+  _replacePrLinks(next: SessionPrLinks): void {
+    if (next === this._prLinks) return;
+    this._prLinks = next;
+    this.emit("pr-links-change", next);
   }
 
   get recentTaskPrompts(): readonly string[] {
@@ -1294,6 +1321,7 @@ class Session extends EventEmitter {
       mergeReason: this.mergeReason,
       worktreeNotice: this.worktreeNotice,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
+      linkedPrs: this.linkedPrs,
       auditLog: this.auditLog,
       detection: {
         ...this.getDetectionStats(),

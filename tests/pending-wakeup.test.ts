@@ -83,10 +83,9 @@ test('PostToolUse maps by tool_name; unknown tools are ignored', () => {
   assert.equal(mapHookToSignal('PostToolUse', {}), null);
 });
 
-test('buildHookSettings emits a matched PostToolUse group by default and none when switched off', () => {
+test('buildHookSettings emits a matched wakeup PostToolUse entry by default and drops only it when switched off', () => {
   const base = { port: 1234, glimmervoidId: 'abc', token: 'tok', timeoutSec: 5 };
   const on = buildHookSettings(base);
-  assert.equal(on.hooks.PostToolUse.length, 1);
   assert.equal(on.hooks.PostToolUse[0].matcher, WAKEUP_TOOL_MATCHER, 'matcher is mandatory: matcher-less would POST every tool call');
   assert.match(String(on.hooks.PostToolUse[0].hooks[0].url), /\/hook\/abc\/posttooluse\?t=tok$/);
 
@@ -94,7 +93,11 @@ test('buildHookSettings emits a matched PostToolUse group by default and none wh
     assert.equal(Object.hasOwn(on.hooks[event][0], 'matcher'), false, `${event} stays matcher-less`);
   }
   const off = buildHookSettings({ ...base, detectScheduledWakeups: false });
-  assert.equal('PostToolUse' in off.hooks, false, 'kill switch removes the group at the source');
+  assert.equal(
+    off.hooks.PostToolUse.some((entry) => entry.matcher === WAKEUP_TOOL_MATCHER),
+    false,
+    'kill switch removes the wakeup entry at the source',
+  );
 });
 
 test('ScheduleWakeup populates pendingWakeup and emits wakeup-change; no transition', () => {

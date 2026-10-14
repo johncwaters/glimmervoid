@@ -13,7 +13,10 @@ import {
   DIFF_ANNOTATION_NOTE_MAX_CHARS,
   DIFF_ANNOTATION_PATH_MAX_CHARS,
   DIFF_ANNOTATIONS_MAX,
+  pullRequestKeyFromReference,
 } from '../shared/contracts/control-messages.ts';
+import { Session } from '../session/sessions.ts';
+import { MyPr, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 import {
   PLAN_BODY_CAP_BYTES,
   PLAN_COMMENTS_MAX,
@@ -119,6 +122,7 @@ const SESSION = {
   mergeReason: null,
   worktreeNotice: null,
   effectiveBase: 'develop',
+  linkedPrs: [{ repo: 'acme/app', number: 42, url: 'https://github.com/acme/app/pull/42', source: 'hook', linkedAt: NOW }],
   auditLog: [],
 };
 
@@ -129,6 +133,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-removed', id: 'session-1', session: 'glimmervoid' },
   { type: 'session-renamed', id: 'session-1', oldName: 'old', newName: 'glimmervoid' },
   { type: 'session-title', id: 'session-1', taskTitle: 'Fix dashboard', isCustom: false },
+  { type: 'session-prs', id: 'session-1', linkedPrs: [{ repo: 'PostHog/glimmervoid', number: 42, url: 'https://github.com/PostHog/glimmervoid/pull/42', source: 'hook', linkedAt: NOW }] },
   { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, resumeSessionId: null },
   { type: 'session-git', id: 'session-1', worktree: true },
   { type: 'session-agents', id: 'session-1', activeAgents: 2, awaitingBackgroundTasks: true, session: 'glimmervoid', timestamp: NOW },
@@ -354,6 +359,57 @@ test('team review actions carry editable text and diff comments', () => {
   assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: false, error: 'stale head' }).success, true);
   assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: true, warning: 'Do not post it again' }).success, true);
   assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: true, warning: 4 }).success, false);
+});
+
+test('a pull request reference parses from a github.com URL or owner/repo#number into one key', () => {
+  for (const reference of ['https://github.com/PostHog/glimmervoid/pull/42', ' https://github.com/PostHog/glimmervoid/pull/42/files?w=1 ', 'PostHog/glimmervoid#42']) {
+    assert.equal(pullRequestKeyFromReference(reference), 'PostHog/glimmervoid#42', reference);
+  }
+  for (const reference of ['', '42', '#42', 'PostHog/glimmervoid#0', 'https://gitlab.com/PostHog/glimmervoid/pull/42', 'PostHog/../x#4']) {
+    assert.equal(pullRequestKeyFromReference(reference), null, reference);
+  }
+  assert.equal(ClientMessage.safeParse({ type: 'link-session-pr', id: 's1', key: 'PostHog/glimmervoid#42' }).success, true);
+  assert.equal(ClientMessage.safeParse({ type: 'unlink-session-pr', id: 's1', key: 'https://github.com/PostHog/glimmervoid/pull/42' }).success, false);
+});
+
+test('a manual link resolves against my PRs, and an unlink removes it and blocks auto relink until linked again', () => {
+  const session = new Session({ id: 's1', name: 'project', path: '/project' });
+  try {
+    const knownPrUrl = 'https://github.com/PostHog/glimmervoid/pull/42?from=status';
+    const knownPr = MyPr.parse({
+      key: 'PostHog/glimmervoid#42', repo: 'PostHog/glimmervoid', number: 42, title: 'PR 42', url: knownPrUrl,
+      isDraft: false, state: 'MERGED', createdAt: '', mergedAt: null, updatedAt: '',
+      baseRefName: 'main', baseRefOid: 'a'.repeat(40), headRefName: 'feature', isCrossRepository: false, headRefOid: 'b'.repeat(40),
+      isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
+      checks: { state: null, failing: [], pendingCount: 0 }, unresolvedThreads: 0, threads: [], behindBy: null,
+      reviewRequests: [], approvals: 0, reviews: [], stage: 'merged',
+    });
+    const myPrsStatus = MyPrsStatus.parse({ type: 'my-prs-status', ts: NOW, configured: true, viewer: 'octo', prs: [knownPr] });
+    const broadcasts: unknown[] = [];
+    session.on('pr-links-change', (prLinks) => broadcasts.push(prLinks));
+    const server = createControlServer(controlDeps({ projects: [] }, {
+      sessions: new Map([['s1', session]]),
+      getMyPrsStatus: () => myPrsStatus,
+    }));
+    const connection = connectControl<ServerPayload>(server);
+    connection.send({ type: 'link-session-pr', id: 's1', key: 'PostHog/glimmervoid#42' });
+    connection.send({ type: 'link-session-pr', id: 's1', key: 'PostHog/glimmervoid#7' });
+    assert.deepEqual(session.linkedPrs.map((link) => [link.number, link.url, link.source]).sort(), [
+      [42, knownPrUrl, 'manual'], [7, 'https://github.com/PostHog/glimmervoid/pull/7', 'manual'],
+    ]);
+    connection.send({ type: 'unlink-session-pr', id: 's1', key: 'PostHog/glimmervoid#42' });
+    assert.deepEqual(session.linkedPrs.map((link) => link.number), [7]);
+    session.linkPr({ repo: 'PostHog/glimmervoid', number: 42, url: knownPrUrl, source: 'hook', linkedAt: NOW });
+    assert.deepEqual(session.linkedPrs.map((link) => link.number), [7]);
+    connection.send({ type: 'link-session-pr', id: 's1', key: 'PostHog/glimmervoid#42' });
+    assert.deepEqual(session.linkedPrs.map((link) => link.number).sort(), [42, 7]);
+    assert.deepEqual(session._prLinks.unlinkedKeys, []);
+    assert.equal(broadcasts.length, 4);
+    connection.send({ type: 'link-session-pr', id: 'missing', key: 'PostHog/glimmervoid#42' });
+    assert.equal(connection.sent.at(-1)?.type, 'error');
+  } finally {
+    session.destroy();
+  }
 });
 
 test('benchmark actions name a suite and one of the three actions', () => {

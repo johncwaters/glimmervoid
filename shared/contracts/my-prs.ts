@@ -36,6 +36,19 @@ export const MyPrsState = z.strictObject({
 });
 export type MyPrsState = z.infer<typeof MyPrsState>;
 
+export const SESSION_PR_LINKS_MAX = 20;
+
+export const LinkedPr = z.strictObject({
+  repo: repositoryName, number: z.number().int().positive(), url: z.url(), source: z.enum(['hook', 'sha', 'manual']), linkedAt: z.number().finite(),
+});
+export type LinkedPr = z.infer<typeof LinkedPr>;
+
+export const SessionPrLinks = z.strictObject({
+  links: z.array(LinkedPr).max(SESSION_PR_LINKS_MAX),
+  unlinkedKeys: z.array(pullRequestKey).default([]),
+});
+export type SessionPrLinks = z.infer<typeof SessionPrLinks>;
+
 export const MyPrKeepMergeableRequest = z.object({ repo: repositoryName, number: z.number().int().positive(), keepMergeable: z.boolean() });
 export type MyPrKeepMergeableRequest = z.infer<typeof MyPrKeepMergeableRequest>;
 

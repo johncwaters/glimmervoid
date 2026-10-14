@@ -87,7 +87,7 @@ test('an operator PostToolUse hook stays after the built-in matcher', () => {
       id: 'read-audit', name: 'read audit', event: 'PostToolUse', matcher: 'Read', type: 'command', command: 'echo', enabled: true,
     }],
   });
-  assert.deepEqual(settings.hooks.PostToolUse.map((entry) => entry.hooks[0].type), ['http', 'command']);
+  assert.deepEqual(settings.hooks.PostToolUse.map((entry) => entry.hooks[0].type), ['http', 'http', 'command']);
 });
 
 function byRow(a: { event: string; matcher: string | null }, b: { event: string; matcher: string | null }) {
@@ -119,7 +119,7 @@ test('ExitPlanMode joins the PostToolUse matchers without displacing the wakeup 
   const settings = buildHookSettings({ ...base, planReview: true });
   assert.deepEqual(
     settings.hooks.PostToolUse.map((entry) => entry.matcher),
-    ['ScheduleWakeup|CronCreate|CronDelete', 'ExitPlanMode'],
+    ['ScheduleWakeup|CronCreate|CronDelete', 'Bash', 'ExitPlanMode'],
   );
 });
 
@@ -129,10 +129,11 @@ test('the plan tool result has its own URL segment, so only it carries the raise
     settings.hooks.PostToolUse.map((entry) => entry.hooks[0].url),
     [
       'http://127.0.0.1:3000/hook/g1/posttooluse?t=tok',
+      'http://127.0.0.1:3000/hook/g1/posttooluse?t=tok',
       'http://127.0.0.1:3000/hook/g1/posttooluse-plan?t=tok',
     ],
   );
-  assert.equal(settings.hooks.PostToolUse[1].hooks[0].timeout, DEFAULT_TIMEOUT_SEC, 'only the held request waits a day');
+  assert.equal(settings.hooks.PostToolUse[2].hooks[0].timeout, DEFAULT_TIMEOUT_SEC, 'only the held request waits a day');
 });
 
 test('plan review off leaves the settings byte-identical', () => {

@@ -37,6 +37,7 @@ import { createRepoCache } from '../git/repo-cache.ts';
 import { commandFor } from '../../session/adapters/index.ts';
 import { createMyPrMergeabilityFix, createMyPrsWiring, createSandboxedPrStaging, sweepKeepMergeableLeftovers } from '../github/my-prs-wiring.ts';
 import { keepMergeableTimeoutSeconds } from '../github/core/my-prs-core.ts';
+import { createSessionPrLinkWiring } from '../github/session-pr-link-wiring.ts';
 import { createWorkflowSpawn, createWorkflowsWiring } from '../workflows-wiring.ts';
 import { createGithubClock } from '../github/github-clock.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from '../github/core/github-clock-core.ts';
@@ -196,9 +197,14 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     repoCache: sharedRepoCache,
     sandboxRefusal,
   });
+  const sessionPrLink = createSessionPrLinkWiring({ git: gitWorkspace, log: logger });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
-    config, broadcast: broadcastControl, log: logger, clock: githubClock,
+    config, log: logger, clock: githubClock,
+    broadcast: (status) => {
+      broadcastControl(status);
+      void sessionPrLink.onMyPrsStatus(status);
+    },
     sweepLeftovers: () => sweepKeepMergeableLeftovers({ workRoot: myPrsWorkRoot, repoCache: sharedRepoCache, gitWorkspace, log: logger }),
     fixMergeability: createMyPrMergeabilityFix({
       workRoot: myPrsWorkRoot,
@@ -385,6 +391,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   }
 
   function tapIngestForSession(session: Session): void {
+    sessionPrLink.attachSession(session);
     if (ingestLane?.terminalEnabled) ingestLane.attachSessionTap(session);
     if (ingestLane?.fsEnabled) ingestLane.noteSessionRoots(session);
   }

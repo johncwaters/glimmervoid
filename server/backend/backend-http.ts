@@ -41,6 +41,7 @@ import {
 
 const HOOK_BODY_CAP_BYTES = 64 * 1024;
 const UNNAMED_HOOK_EVENT = 'an unknown event';
+const SILENT_OVERSIZE_HOOK_EVENT = 'posttooluse';
 const KNOWN_HOOK_EVENTS: ReadonlySet<string> = new Set([
   ...HOOK_EVENTS.map((event) => event.toLowerCase()),
   'pretooluse',
@@ -361,8 +362,10 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       return;
     }
     const bodyCapBytes = hookBodyCapBytes(req.params.event, getPlanReview());
+    const hookEventName = knownHookEventName(req.params.event);
     const overCap = (declaredBytes: string) => {
-      logger.warn(`[hook] ${knownHookEventName(req.params.event)} body of ${declaredBytes} bytes is over the ${bodyCapBytes} byte cap and was refused`);
+      if (hookEventName === SILENT_OVERSIZE_HOOK_EVENT) return;
+      logger.warn(`[hook] ${hookEventName} body of ${declaredBytes} bytes is over the ${bodyCapBytes} byte cap and was refused`);
     };
     void readCappedBody(req, bodyCapBytes, overCap).then((body) => {
       if (body === null) return;

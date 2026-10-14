@@ -1,4 +1,5 @@
 
+import { pullRequestKeyFromReference } from '#shared/contracts/control-messages.ts';
 import { TASK_TITLE_MAX_LENGTH } from '#shared/contracts/session.ts';
 import { localClockText } from '#shared/display-text.ts';
 import { STATES } from '#shared/states.ts';
@@ -6,6 +7,7 @@ import { sendControlMsg } from '../control-ws.ts';
 import { escapeMarkup } from '#shared/escape-markup.ts';
 import { el } from '../dom-helpers.ts';
 import type { CardOptions } from './card-options-core.ts';
+import { buildDialogShell } from './modal.ts';
 import type { SessionUi } from './card-registry.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
 import { showErrorToast } from './toast.ts';
@@ -26,6 +28,13 @@ export function onDebugModeChanged(listener: (isEnabled: boolean) => void) {
 
 export function isDebugModeEnabled() {
   return _debugMode;
+}
+
+type PrChipsPainter = (slot: HTMLElement, sessionId: string) => void;
+let paintCardPrChips: PrChipsPainter | null = null;
+
+export function setCardPrChipsPainter(painter: PrChipsPainter) {
+  paintCardPrChips = painter;
 }
 
 interface TagBadgeSpec {
@@ -96,6 +105,9 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   if (permsBadge) paintPermsBadge(permsBadge, options.saneYolo === true);
   const taskTitleEl = el('span', 'session-task-title');
   paintTaskTitle(taskTitleEl, options.taskTitle);
+  const prChipsEl = el('span', 'session-pr-chips session-card-prs');
+  prChipsEl.hidden = true;
+  paintCardPrChips?.(prChipsEl, sessionId);
 
   const elapsedEl = el('span', 'card-elapsed');
   elapsedEl.setAttribute('aria-hidden', 'true');
@@ -118,7 +130,13 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const btnRestartFresh = buildRestartMenuItem('Restart fresh', 'Ends this conversation and starts a new one', 'overflow-restart-fresh');
   const btnResume = buildRestartMenuItem('Resume conversation...', 'Pick an earlier conversation', 'overflow-resume');
   const btnWorkspaceRepos = buildRestartMenuItem('Edit repositories...', 'Add or remove repositories in this workspace', 'overflow-workspace-repos');
-  restartMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos);
+  const btnLinkPr = buildRestartMenuItem('Link pull request...', 'Show a pull request on this card', 'overflow-link-pr visible');
+  btnLinkPr.onclick = () => {
+    restartMenu.classList.remove('open');
+    btnRestartMenu.setAttribute('aria-expanded', 'false');
+    openLinkPullRequestDialog(sessionId);
+  };
+  restartMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnLinkPr);
   restartMenuWrap.append(btnRestartMenu, restartMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug', '\u2699');
@@ -148,7 +166,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec));
   if (permsBadge) tagChildren.push(permsBadge);
   tags.append(...tagChildren);
-  header.append(nameEl, elapsedEl, taskTitleEl, tags, actions);
+  header.append(nameEl, elapsedEl, taskTitleEl, prChipsEl, tags, actions);
 
   const termWrap = el('div', 'terminal-wrap');
 
@@ -164,6 +182,45 @@ function buildRestartMenuItem(label: string, hint: string, className: string) {
   button.setAttribute('aria-label', label);
   button.append(el('span', 'restart-menu-label', label), el('span', 'restart-menu-hint', hint));
   return button;
+}
+
+function openLinkPullRequestDialog(sessionId: string) {
+  const { dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Link pull request' });
+  const hint = el('p', 'dialog-message', 'Paste a GitHub pull request URL or owner/repo#number.');
+  const input = el('input', 'dialog-input');
+  input.type = 'text';
+  input.placeholder = 'owner/repo#123';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.setAttribute('aria-label', 'Pull request URL or owner/repo#number');
+  const errorEl = el('div', 'dialog-error');
+  errorEl.setAttribute('role', 'alert');
+  const btnLink = el('button', 'btn-dialog btn-dialog-confirm', 'Link');
+  btnLink.type = 'button';
+  actions.append(btnLink);
+  dialog.append(hint, input, errorEl, actions);
+
+  function submitLink() {
+    const pullRequestKey = pullRequestKeyFromReference(input.value);
+    if (!pullRequestKey) {
+      errorEl.textContent = 'Enter a github.com pull request URL or owner/repo#number.';
+      return;
+    }
+    if (!sendControlMsg({ type: 'link-session-pr', id: sessionId, key: pullRequestKey })) {
+      errorEl.textContent = 'Not connected to the server.';
+      return;
+    }
+    close();
+  }
+
+  btnCancel.addEventListener('click', close);
+  btnLink.addEventListener('click', submitLink);
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    submitLink();
+  });
+  requestAnimationFrame(() => input.focus());
 }
 
 export function makeTitleEditable(titleEl: HTMLElement, onActivate: () => void) {

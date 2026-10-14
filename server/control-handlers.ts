@@ -54,7 +54,7 @@ import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import { BenchmarkActionRequest } from '../shared/contracts/benchmark.ts';
 import type { BenchmarkActionResult, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
 import type { TeamReviewActionResult, TeamReviewStatus } from '../shared/contracts/team-review.ts';
-import { MyPrKeepMergeableRequest, MyPrMergeRequest, MyPrMergeWhenReadyRequest } from '../shared/contracts/my-prs.ts';
+import { LinkedPr, MyPrKeepMergeableRequest, MyPrMergeRequest, MyPrMergeWhenReadyRequest } from '../shared/contracts/my-prs.ts';
 import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 import type { UpdateStatus } from './backend/backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
@@ -284,6 +284,17 @@ function sendError(ws: ControlSocket, message: string, { type = 'error', request
     message,
   };
   ws.send(JSON.stringify(payload));
+}
+
+function manualPrLink(pullRequestKey: string, myPrsStatus: MyPrsStatus | null, nowMs: number): LinkedPr | null {
+  const separatorIndex = pullRequestKey.lastIndexOf('#');
+  const repo = pullRequestKey.slice(0, separatorIndex);
+  const number = Number(pullRequestKey.slice(separatorIndex + 1));
+  const comparableKey = pullRequestKey.toLowerCase();
+  const knownPr = myPrsStatus?.prs.find((pr) => pr.key.toLowerCase() === comparableKey);
+  const canonicalPr = knownPr ?? { repo, number, url: `https://github.com/${repo}/pull/${number}` };
+  const parsed = LinkedPr.safeParse({ repo: canonicalPr.repo, number: canonicalPr.number, url: canonicalPr.url, source: 'manual', linkedAt: nowMs });
+  return parsed.success ? parsed.data : null;
 }
 
 function myPrMergeKey(msg: Record<string, unknown> | null | undefined): string {
@@ -664,6 +675,29 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       project.customTitle = parsedTitle.data;
     });
     if (freshConfig) applyConfigReload(freshConfig);
+  }
+
+  function handleLinkSessionPr(msg: ClientMessageOf<'link-session-pr'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      sendError(ws, 'Session not found', { id: msg.id });
+      return;
+    }
+    const link = manualPrLink(msg.key, typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null, Date.now());
+    if (!link) {
+      sendError(ws, `Not a GitHub pull request: ${msg.key}`, { id: msg.id });
+      return;
+    }
+    session.linkPrManually(link);
+  }
+
+  function handleUnlinkSessionPr(msg: ClientMessageOf<'unlink-session-pr'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      sendError(ws, 'Session not found', { id: msg.id });
+      return;
+    }
+    session.unlinkPr(msg.key);
   }
 
   function handleReorderSessions(msg: ClientMessageOf<'reorder-sessions'>, ws: ControlSocket): void {
@@ -1336,6 +1370,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'get-workspace-repos': handleGetWorkspaceRepos,
     'set-workspace-repos': handleSetWorkspaceRepos,
     'set-session-title': handleSetSessionTitle,
+    'link-session-pr':  handleLinkSessionPr,
+    'unlink-session-pr': handleUnlinkSessionPr,
     'reorder-sessions': handleReorderSessions,
     'ping':             handlePing,
     'get-settings':     handleGetSettings,

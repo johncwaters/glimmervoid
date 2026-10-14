@@ -8,7 +8,7 @@ export function acknowledgePrsViewAttention(): void {
   if (getPrsMode() === 'team') acknowledgeTeamReviewAttention();
 }
 
-export function mountPrsView(viewPrsElement: HTMLElement): void {
+export function mountPrsView(viewPrsElement: HTMLElement, navigation?: { openTerminal: (sessionId: string) => void }): void {
   const onSelectMode = (mode: 'team' | 'mine', isKeyboard: boolean): void => {
     applyPrsMode(mode);
     acknowledgePrsViewAttention();
@@ -28,7 +28,7 @@ export function mountPrsView(viewPrsElement: HTMLElement): void {
   minePrsRoot.className = 'pr-mode-root';
   viewPrsElement.append(teamPrsRoot, minePrsRoot);
   mountTeamReviewView(teamPrsRoot, teamScopeTabs);
-  mountMyPrsView(minePrsRoot, mineScopeTabs);
+  mountMyPrsView(minePrsRoot, mineScopeTabs, navigation);
 
   function applyPrsMode(mode: 'team' | 'mine'): void {
     resyncPrQueueLayouts();

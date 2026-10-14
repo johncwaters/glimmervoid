@@ -28,6 +28,8 @@ import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShe
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus } from './github/my-prs-panel.ts';
+import { forgetSessionLinkedPrs, paintSessionPrChips, refreshSessionPrChipStages, setSessionLinkedPrs } from './github/session-pr-chips.ts';
+import { setPillPrChipsPainter } from './focus-view/pill-dom.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
 import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryState, setFactoryRequestSender } from './factory/factory-view.ts';
@@ -36,7 +38,7 @@ import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, a
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar/radar-core.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from './radar/radar-panel.ts';
-import { handleDebugStateRefresh, handleDebugStateResponse, setSessionSaneYolo } from './session-card/card-dom.ts';
+import { handleDebugStateRefresh, handleDebugStateResponse, setCardPrChipsPainter, setSessionSaneYolo } from './session-card/card-dom.ts';
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
@@ -227,6 +229,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
   })));
   for (const s of rows) {
     if (!s.ephemeral) noteKnownProjectPath(s.path);
+    setSessionLinkedPrs(s.id, s.linkedPrs);
     const exists = hasSession(s.id);
     if (exists) applyState(s.id, s.state, s.stateSince);
     if (exists) setSessionSaneYolo(s.id, !!s.saneYolo);
@@ -345,6 +348,8 @@ setTraceRequestSender(sendControlMsg);
 setIssuesRequestSender(sendControlMsg);
 setBenchmarkRequestSender(sendControlMsg);
 setFactoryRequestSender(sendControlMsg);
+setCardPrChipsPainter(paintSessionPrChips);
+setPillPrChipsPainter(paintSessionPrChips);
 
 function refreshViewsIfVisible(reason: ViewRefreshReason) {
   refreshVisibleViews(VIEW_TABS, { isPhoneShellActive: isPhoneShellActive(), activeView: getActiveView(), phoneScreen: uiState.snapshot().phoneScreen }, reason);
@@ -360,15 +365,17 @@ const messageHandlers = {
   'delete-hook-result': (msg) => applyDeleteHookResult(msg),
 
   'state-change':       (msg) => handleStateChange(msg),
-  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
-  'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
+  'session-prs': (msg) => setSessionLinkedPrs(msg.id, msg.linkedPrs),
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
     if (!msg.ephemeral) noteKnownProjectPath(msg.path);
     const previousUi = sessionUIs.get(String(msg.id));
     removeSessionCard(msg.id);
     forgetReviewSession(msg.id);
+    setSessionLinkedPrs(msg.id, msg.linkedPrs);
     createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg));
     setSessionAgent(msg.id, msg.agent);
     carryOverClientSessionFields(msg.id, previousUi);
@@ -411,7 +418,7 @@ const messageHandlers = {
   'radar-investigation-activity': (msg) => applyInvestigationActivity(msg),
   'radar-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
-  'my-prs-status': (msg) => applyMyPrsStatus(msg),
+  'my-prs-status': (msg) => { applyMyPrsStatus(msg); refreshSessionPrChipStages(); },
   'factory-state': (msg) => applyFactoryState(msg),
   'factory-queue-intent-result': (msg) => applyFactoryQueueIntentResult(msg),
   'factory-control-result': (msg) => applyFactoryControlResult(msg),

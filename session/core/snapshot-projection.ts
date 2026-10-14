@@ -1,5 +1,6 @@
 import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
 import type { PendingPromptDetail } from "../../shared/contracts/session.ts";
+import type { LinkedPr } from "../../shared/contracts/my-prs.ts";
 
 interface SessionCardSource {
   taskTitle?: string | null;
@@ -14,6 +15,7 @@ interface SessionCardSource {
   isWorkspace?: boolean;
   resumeSessionId?: string | null;
   ephemeral?: boolean;
+  linkedPrs?: LinkedPr[];
 }
 
 interface SessionCardIdentity {
@@ -39,6 +41,7 @@ function projectSessionCard(
     worktree: !!source.isWorktree,
     resumeSessionId: source.resumeSessionId || null,
     ...(source.isWorkspace ? { workspace: true } : {}),
+    ...(source.linkedPrs?.length ? { linkedPrs: source.linkedPrs } : {}),
   };
   if (source.ephemeral === undefined) return card;
   return { ...card, ephemeral: source.ephemeral };
@@ -72,6 +75,7 @@ interface SnapshotSource {
   mergeReason: string | null;
   worktreeNotice: string | null;
   effectiveBase: string | null;
+  linkedPrs: LinkedPr[];
   auditLog: Record<string, unknown>[];
   detection: Record<string, unknown>;
   decisions: Record<string, unknown>[];
@@ -106,6 +110,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     mergeReason: source.mergeReason,
     worktreeNotice: source.worktreeNotice,
     effectiveBase: source.effectiveBase ?? null,
+    linkedPrs: source.linkedPrs,
     auditLog: source.auditLog.slice(-100),
   };
   const debug = {

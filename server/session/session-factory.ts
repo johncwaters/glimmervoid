@@ -65,6 +65,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       name: project.name,
       customTitle: project.customTitle,
       taskTitleState: project.taskTitleState,
+      prLinks: project.prLinks,
       path: project.path,
       workspaceRepos: project.repos,
       dangerouslySkipPermissions: skipPermissions,

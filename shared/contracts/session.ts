@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { STATES } from '../states.ts';
 import { TOOL_DETAIL_MAX_CHARS } from '../tool-detail.ts';
+import { LinkedPr } from './my-prs.ts';
 
 export const TASK_TITLE_MAX_LENGTH = 120;
 export const TASK_TITLE_CONTROL_CHARACTERS = /[\x00-\x1f\x7f-\x9f]/;
@@ -62,6 +63,7 @@ export const SessionSnapshot = z.object({
   mergeReason: z.string().nullable(),
   worktreeNotice: z.string().nullable(),
   effectiveBase: z.string().nullable(),
+  linkedPrs: z.array(LinkedPr).default([]),
   auditLog: z.array(z.unknown()),
 }).passthrough();
 

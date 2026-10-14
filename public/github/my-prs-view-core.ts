@@ -1,7 +1,7 @@
 import { githubPollingErrorNotice } from './github-polling-retry-core.ts';
 import { MyPrMergeResult, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { mergeMethodLabel, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
-import type { MyPr, MyPrMergeKind, MyPrStage, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
+import type { LinkedPr, MyPr, MyPrMergeKind, MyPrStage, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 
@@ -301,6 +301,23 @@ export function queueNotices(status: MyPrsStatusType | null, nowMs = 0): QueueNo
   const errorNotice = githubPollingErrorNotice(status, nowMs);
   const notices: QueueNotice[] = errorNotice ? [{ text: errorNotice, tone: 'error' }] : [];
   return status.truncatedNote ? [...notices, { text: status.truncatedNote, tone: 'info' }] : notices;
+}
+
+export interface LiveSessionLinks { id: string; title: string; links: readonly Pick<LinkedPr, 'repo' | 'number'>[] }
+export interface LinkedLiveSession { id: string; title: string }
+
+export function liveSessionsByPrKey(sessions: Iterable<LiveSessionLinks>): Map<string, LinkedLiveSession[]> {
+  const sessionsByPrKey = new Map<string, LinkedLiveSession[]>();
+  for (const session of sessions) {
+    for (const link of session.links) {
+      const prKey = `${link.repo}#${link.number}`;
+      const linkedSessions = sessionsByPrKey.get(prKey) ?? [];
+      if (linkedSessions.at(-1)?.id === session.id) continue;
+      linkedSessions.push({ id: session.id, title: session.title });
+      sessionsByPrKey.set(prKey, linkedSessions);
+    }
+  }
+  return sessionsByPrKey;
 }
 
 export function chooseSelectedKey(sections: readonly MyPrSection[], previousKey: string | null): string | null {

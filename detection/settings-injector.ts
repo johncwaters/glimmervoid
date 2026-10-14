@@ -90,6 +90,7 @@ const HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', '
 
 const WAKEUP_TOOL_MATCHER = 'ScheduleWakeup|CronCreate|CronDelete';
 const PLAN_TOOL_MATCHER = PLAN_TOOL_NAME;
+const PR_LINK_TOOL_MATCHER = 'Bash';
 
 const RELAY_PATH = relayPath('statusline-relay');
 const COMMAND_HOOK_RELAY_PATH = relayPath('command-hook-relay');
@@ -159,6 +160,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   }
   const sharedPostToolUseMatchers: string[] = [];
   if (detectScheduledWakeups) sharedPostToolUseMatchers.push(WAKEUP_TOOL_MATCHER);
+  sharedPostToolUseMatchers.push(PR_LINK_TOOL_MATCHER);
   const sharedPostToolUseUrl = hookUrl('PostToolUse');
   const postToolUse: SettingsHookEntry[] = sharedPostToolUseMatchers
     .map((matcher) => ({ matcher, hooks: [{ type: 'http', url: sharedPostToolUseUrl, timeout: timeoutSec }] }));
@@ -217,6 +219,7 @@ function describeBuiltinHooks(
   const rows = HOOK_EVENTS.map((event) => ({ event, matcher: null as string | null, purpose: 'Status detection: POST to the Glimmervoid hook router' }));
   if (planReview) rows.push({ event: 'PermissionRequest', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: POST the plan to the Glimmervoid plan endpoint' });
   if (detectScheduledWakeups) rows.push({ event: 'PostToolUse', matcher: WAKEUP_TOOL_MATCHER, purpose: 'Scheduled wakeup tracking' });
+  rows.push({ event: 'PostToolUse', matcher: PR_LINK_TOOL_MATCHER, purpose: 'Pull request linking: read the git operation a shell command reports' });
   if (planReview) rows.push({ event: 'PostToolUse', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: record the approved plan' });
   if (observeToolCalls) rows.push({ event: 'PreToolUse', matcher: null, purpose: 'Investigation trail: POST every tool call to the Glimmervoid hook router' });
   for (const tool of hookTools) {
@@ -283,4 +286,4 @@ function sweepOrphans(baseDir: string = DEFAULT_BASE_DIR, maxAgeMs: number = 24 
 
 const safeDirSegment = safePathSegment;
 
-export { buildHookSettings, describeBuiltinHooks, writeSessionSettings, sweepOrphans, generateToken, safeDirSegment, buildStatuslineCommand, readUserStatuslineCommand, HOOK_EVENTS, WAKEUP_TOOL_MATCHER, DEFAULT_TIMEOUT_SEC, PLAN_HOOK_TIMEOUT_SEC, PLAN_HOLD_RELEASE_MS, DIR_MODE, FILE_MODE, RELAY_PATH, COMMAND_HOOK_RELAY_PATH, NO_CHAIN };
+export { buildHookSettings, describeBuiltinHooks, writeSessionSettings, sweepOrphans, generateToken, safeDirSegment, buildStatuslineCommand, readUserStatuslineCommand, HOOK_EVENTS, WAKEUP_TOOL_MATCHER, PR_LINK_TOOL_MATCHER, DEFAULT_TIMEOUT_SEC, PLAN_HOOK_TIMEOUT_SEC, PLAN_HOLD_RELEASE_MS, DIR_MODE, FILE_MODE, RELAY_PATH, COMMAND_HOOK_RELAY_PATH, NO_CHAIN };

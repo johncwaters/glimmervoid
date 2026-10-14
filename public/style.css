@@ -680,6 +680,62 @@ body {
   overflow: hidden;
 }
 
+.session-pr-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.session-pr-chips[hidden] { display: none; }
+.session-card[data-pr-attention] .session-card-prs::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--perms-warn);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--perms-warn) 30%, transparent);
+}
+.session-pr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  color: var(--text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.session-pr-chip:hover { border-color: var(--border-hover); color: var(--text-head); }
+.session-pr-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.session-pr-chip-overflow { font-size: 10px; font-weight: 700; color: var(--text-dim); white-space: nowrap; }
+.session-pr-chip-item { display: inline-flex; align-items: center; }
+.session-pr-chip-item .session-pr-chip { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.session-pr-chip-unlink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--border-dim);
+  border-left: none;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: none;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.session-pr-chip-unlink:hover { border-color: var(--border-hover); color: var(--text-head); }
+.session-pr-chip-unlink:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .session-actions {
   display: flex;
   align-items: center;
@@ -3075,6 +3131,10 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-row-
 .pr-queue-row-quiet .pr-queue-bottom { grid-column: 1; }
 .pr-queue-row-compact { grid-template-rows: auto; min-height: 26px; padding-block: 3px; }
 .pr-queue-row-compact .pr-queue-ref { color: var(--text-dim); font-weight: 400; }
+
+.my-pr-session-focus { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; padding: 0 14px 6px 38px; }
+.my-pr-session-focus-button { min-height: 24px; max-width: 100%; padding: 2px 10px; overflow: hidden; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .my-pr-session-focus { display: none; }
 
 .pr-queue-row:hover { background: var(--bg-surface); }
 
@@ -6068,6 +6128,7 @@ html[data-compact-status] .focus-pill-label { display: none; }
 }
 
 .focus-pill-merge:empty { display: none; }
+.focus-pill-prs { grid-column: 1 / -1; margin-top: 4px; }
 
 :is(.focus-pill, .status-legend-row)[data-state="RUNNING"] { --st: var(--state-running); }
 :is(.focus-pill, .status-legend-row)[data-state="RUNNING"][data-monitoring] { --st: var(--state-monitoring); }

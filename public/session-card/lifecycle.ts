@@ -507,6 +507,12 @@ function paintCardBadge(ui: SessionUi, selector: string, datasetKey: string, bad
   if (title !== undefined) badge.title = title;
 }
 
+export function setSessionPrAttention(sessionId: unknown, isShown: boolean) {
+  const ui = findSessionUi(sessionId);
+  if (!ui) return;
+  paintCardBadge(ui, '.session-card-prs', 'prAttention', { on: isShown });
+}
+
 export function setSessionEndedTurn(sessionId: unknown, hasEndedTurn: boolean) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;

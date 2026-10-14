@@ -1,7 +1,7 @@
 import { hasGithubPollingCountdown, githubPollingErrorNotice, githubPollingRefreshText } from './github-polling-retry-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import type { GithubPollingRefreshRequest } from '#shared/contracts/github-polling.ts';
-import type { MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
+import type { LinkedPr, MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { errorMessage } from '#shared/text.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from '../dom-helpers.ts';
 import { formatAgo } from '../poll-ago.ts';
@@ -10,8 +10,9 @@ import { createPrStatusIcon } from './pr-status-icon.ts';
 import { nextRequestId, sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { queueMergeCelebration } from '../merge-celebration.ts';
-import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
-import type { MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
+import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
+import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, liveSessionsByPrKey, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import type { LinkedLiveSession, LiveSessionLinks, MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
 let scopeTabs: HTMLElement | null = null;
@@ -23,6 +24,9 @@ let pollingControls: ReturnType<typeof createGithubPollingControls> | null = nul
 const mergeAttempts = new Map<string, MergeAttempt>();
 const celebratedMergeKeys = new Set<string>();
 const pendingMergeRequests = new Map<string, { requestId: string; head: string; timer: number }>();
+let sessionLinksById: ReadonlyMap<string, readonly LinkedPr[]> = new Map();
+let isRenderQueued = false;
+let openTerminal: ((sessionId: string) => void) | null = null;
 interface PrToggle {
   label: string;
   pendingKeys: Set<string>;
@@ -303,6 +307,42 @@ function renderDetail(pr: MyPr | undefined): void {
   detail.replaceChildren(content);
 }
 
+function liveSessionLinks(): LiveSessionLinks[] {
+  return [...sessionLinksById].flatMap(([id, links]) => {
+    const ui = sessionUIs.get(id);
+    if (!ui || links.length === 0) return [];
+    return [{ id, title: sessionName(ui) || id, links }];
+  });
+}
+
+function createSessionFocusControls(linkedSessions: readonly LinkedLiveSession[] | undefined): HTMLElement | null {
+  if (!linkedSessions || linkedSessions.length === 0) return null;
+  const controls = el('div', 'my-pr-session-focus');
+  for (const session of linkedSessions) {
+    const button = el('button', 'pr-action my-pr-session-focus-button', session.title);
+    button.type = 'button';
+    button.title = `Focus session ${session.title}`;
+    button.setAttribute('aria-label', `Focus session ${session.title}`);
+    button.addEventListener('click', () => openTerminal?.(session.id));
+    controls.append(button);
+  }
+  return controls;
+}
+
+function queueRender(): void {
+  if (isRenderQueued) return;
+  isRenderQueued = true;
+  queueMicrotask(() => {
+    isRenderQueued = false;
+    render();
+  });
+}
+
+export function setMyPrsSessionLinks(linksBySessionId: ReadonlyMap<string, readonly LinkedPr[]>): void {
+  sessionLinksById = linksBySessionId;
+  queueRender();
+}
+
 function render(): void {
   createShell();
   if (!queue) return;
@@ -310,6 +350,7 @@ function render(): void {
   const sections = sectionStackedMyPrs(prs);
   selectedKey = chooseSelectedKey(sections, selectedKey);
   const focusedKey = document.activeElement instanceof HTMLElement && queue.contains(document.activeElement) ? document.activeElement.dataset.prKey : null;
+  const sessionsByPrKey = liveSessionsByPrKey(liveSessionLinks());
   const sectionElements = sections.filter((section) => section.rows.length > 0).map((section) => {
     const sectionElement = el('section', 'pr-queue-section');
     sectionElement.append(el('h3', 'pr-section-heading', `${section.title} ${section.rows.length}`));
@@ -344,6 +385,10 @@ function render(): void {
         if (document.documentElement.dataset.layout === 'phone') detail?.scrollIntoView({ block: 'start', behavior: 'smooth' });
       });
       sectionElement.append(row);
+      const sessionFocusControls = createSessionFocusControls(sessionsByPrKey.get(pr.key));
+      if (!sessionFocusControls) continue;
+      if (parentKey) sessionFocusControls.style.paddingInlineStart = `${36 + Math.min(depth, 6) * 16}px`;
+      sectionElement.append(sessionFocusControls);
     }
     return sectionElement;
   });
@@ -360,7 +405,8 @@ function render(): void {
   renderDetail(prs.find((pr) => pr.key === selectedKey));
 }
 
-export function mountMyPrsView(parent: HTMLElement, tabs: HTMLElement): HTMLDivElement {
+export function mountMyPrsView(parent: HTMLElement, tabs: HTMLElement, navigation?: { openTerminal: (sessionId: string) => void }): HTMLDivElement {
+  openTerminal = navigation?.openTerminal ?? null;
   if (root) return root;
   scopeTabs = tabs;
   root = el('div', 'pr-content');
@@ -368,6 +414,10 @@ export function mountMyPrsView(parent: HTMLElement, tabs: HTMLElement): HTMLDivE
   pollingControls = createGithubPollingControls('my-prs', root);
   render();
   return root;
+}
+
+export function latestMyPrsStatus(): MyPrsStatus | null {
+  return latest;
 }
 
 export function applyMyPrsStatus(message: unknown): void {

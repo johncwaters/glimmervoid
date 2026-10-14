@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, keepMergeableRowLabel, mergeCelebrationText, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/github/my-prs-view-core.ts';
+import { emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, keepMergeableRowLabel, liveSessionsByPrKey, mergeCelebrationText, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/github/my-prs-view-core.ts';
 import { toMyPr } from '../server/github/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode, MyPrThread } from '../shared/contracts/my-prs.ts';
 
@@ -365,4 +365,14 @@ test('merge celebration text names one PR or counts several', () => {
     message: 'Merged 5 pull requests',
     detailLines: ['Acme/app#7 Fix', 'Acme/app#8 Fix', 'Acme/app#9 Fix', 'and 2 more'],
   });
+});
+
+test('live sessions index by the My PRs row key, one entry per session, and unlinked PRs have none', () => {
+  const sessionsByPrKey = liveSessionsByPrKey([
+    { id: 'one', title: 'Fix login', links: [{ repo: 'Acme/app', number: 1 }, { repo: 'Acme/app', number: 1 }, { repo: 'Acme/api', number: 4 }] },
+    { id: 'two', title: 'Review login', links: [{ repo: 'Acme/app', number: 1 }] },
+  ]);
+  assert.deepEqual(sessionsByPrKey.get(pr('ready', 1).key), [{ id: 'one', title: 'Fix login' }, { id: 'two', title: 'Review login' }]);
+  assert.deepEqual(sessionsByPrKey.get('Acme/api#4'), [{ id: 'one', title: 'Fix login' }]);
+  assert.equal(sessionsByPrKey.get(pr('ready', 2).key), undefined);
 });

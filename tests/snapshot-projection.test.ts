@@ -27,6 +27,7 @@ function snapshotSource() {
     mergeReason: null,
     worktreeNotice: null,
     effectiveBase: "main",
+    linkedPrs: [],
     auditLog: [{ from: "RUNNING", to: "COMPLETE", event: "task_complete", timestamp: 41, detail: { source: "hook" } }],
     detection: { hookSeen: true },
     decisions: [{ kind: "signal", decision: "transition" }],
@@ -82,6 +83,13 @@ test('card and reconnect snapshots carry the effective title and its custom mark
   const card = projectSessionCard({ ...titledSource, agentId: titledSource.agent, state: 'COMPLETE' }, { id: 's1', name: 'Session One' });
   assert.equal(card.taskTitle, wire.taskTitle);
   assert.equal(card.taskTitleIsCustom, wire.taskTitleIsCustom);
+});
+
+test('card and reconnect snapshots carry the session linked PRs', () => {
+  const linkedPrs = [{ repo: 'acme/app', number: 42, url: 'https://github.com/acme/app/pull/42', source: 'hook' as const, linkedAt: 1 }];
+  const linkedSource = { ...snapshotSource(), linkedPrs };
+  assert.deepEqual(projectSessionSnapshots(linkedSource).wire.linkedPrs, linkedPrs);
+  assert.deepEqual(projectSessionCard({ ...linkedSource, agentId: linkedSource.agent, state: 'COMPLETE' }, { id: 's1', name: 'Session One' }).linkedPrs, linkedPrs);
 });
 
 test('the session card carries the same agent id the reconnect snapshot does', () => {

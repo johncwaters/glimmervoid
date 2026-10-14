@@ -10,6 +10,8 @@ import {
   DIR_MODE,
   FILE_MODE,
   WAKEUP_TOOL_MATCHER,
+  PR_LINK_TOOL_MATCHER,
+  DEFAULT_TIMEOUT_SEC,
 } from '../detection/settings-injector.ts';
 
 const POSIX = process.platform !== 'win32';
@@ -86,7 +88,16 @@ test('no Read matcher reaches PostToolUse, since no builtin hook consumes reads'
   const settings = buildHookSettings(base);
   assert.deepEqual(settings.hooks.PostToolUse.map((entry: { matcher?: string }) => entry.matcher), [
     WAKEUP_TOOL_MATCHER,
+    PR_LINK_TOOL_MATCHER,
   ]);
+});
+
+test('the Bash PR link matcher stays on with wakeup detection off and shares the posttooluse URL', () => {
+  const settings = buildHookSettings({ port: 3000, glimmervoidId: 'metrics', token: 'tok', detectScheduledWakeups: false });
+  assert.deepEqual(settings.hooks.PostToolUse, [{
+    matcher: PR_LINK_TOOL_MATCHER,
+    hooks: [{ type: 'http', url: 'http://127.0.0.1:3000/hook/metrics/posttooluse?t=tok', timeout: DEFAULT_TIMEOUT_SEC }],
+  }]);
 });
 
 test('a sandbox block is written verbatim as the top-level sandbox key and is absent when none is given', () => {

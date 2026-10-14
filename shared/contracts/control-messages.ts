@@ -17,11 +17,23 @@ import { PendingPromptDetail, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, Session
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus, hasRequiredActionHead } from './team-review.ts';
-import { MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus } from './my-prs.ts';
+import { LinkedPr, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus, SessionPrLinks } from './my-prs.ts';
 import { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } from './benchmark.ts';
 
 const requestId = z.string().nullable().optional();
 const sessionId = z.string();
+
+const PullRequestKey = SessionPrLinks.shape.unlinkedKeys.unwrap().element;
+
+const GITHUB_PULL_REQUEST_URL_RE = /^https:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/pull\/([0-9]+)(?:[/?#].*)?$/i;
+
+export function pullRequestKeyFromReference(reference: string): string | null {
+  const trimmedReference = reference.trim();
+  const urlMatch = GITHUB_PULL_REQUEST_URL_RE.exec(trimmedReference);
+  const candidateKey = urlMatch ? `${urlMatch[1]}#${urlMatch[2]}` : trimmedReference;
+  const parsedKey = PullRequestKey.safeParse(candidateKey);
+  return parsedKey.success ? parsedKey.data : null;
+}
 function loose<const Type extends string>(type: Type): z.ZodObject<{ type: z.ZodLiteral<Type> }, z.core.$loose>;
 function loose<const Type extends string, Shape extends z.ZodRawShape>(type: Type, shape: Shape): z.ZodObject<{ type: z.ZodLiteral<Type> } & Shape, z.core.$loose>;
 function loose(type: string, shape?: z.ZodRawShape) {
@@ -66,6 +78,7 @@ export const SessionCardFields = z.object({
   workspace: z.boolean().optional(),
   resumeSessionId: nullableString,
   ephemeral: z.boolean().optional(),
+  linkedPrs: z.array(LinkedPr).optional(),
 });
 export type SessionCardFields = z.infer<typeof SessionCardFields>;
 
@@ -158,6 +171,8 @@ const clientVariants = [
   loose('get-workspace-repos', { id: sessionId, requestId }),
   loose('set-workspace-repos', { id: sessionId, repos: z.array(z.string()), requestId }),
   loose('set-session-title', { id: sessionId, title: TaskTitle }),
+  loose('link-session-pr', { id: sessionId, key: PullRequestKey }),
+  loose('unlink-session-pr', { id: sessionId, key: PullRequestKey }),
   loose('reorder-sessions', { order: z.array(sessionId) }),
   loose('ping', { requestId }),
   loose('get-settings', { requestId }),
@@ -231,6 +246,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'session-removed',
   'session-renamed',
   'session-title',
+  'session-prs',
   'session-modified',
   'session-git',
   'session-agents',
@@ -350,6 +366,7 @@ const serverVariants = [
   loose('session-removed', { id: sessionId, session: z.string() }),
   loose('session-renamed', { id: sessionId, oldName: z.string(), newName: z.string() }),
   loose('session-title', { id: sessionId, taskTitle: TaskTitle.nullable(), isCustom: z.boolean() }),
+  loose('session-prs', { id: sessionId, linkedPrs: z.array(LinkedPr) }),
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-agents', { id: sessionId, activeAgents: z.number().int().nonnegative(), awaitingBackgroundTasks: z.boolean(), timestamp }),
   loose('session-wakeup', { id: sessionId, pendingWakeup: PendingWakeup.nullable(), timestamp }),

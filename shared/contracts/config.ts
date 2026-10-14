@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { z } from 'zod';
 import { TaskTitle } from './session.ts';
+import { SessionPrLinks } from './my-prs.ts';
 import {
   FactorySettings, BranchGcControlSettings, ChangeMapSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject,
@@ -97,6 +98,7 @@ export const ProjectConfig = z.object({
   name: z.string().optional(),
   customTitle: TaskTitle.optional(),
   taskTitleState: PersistedTaskTitle.optional().catch(undefined),
+  prLinks: SessionPrLinks.optional().catch(undefined),
   path: z.string(),
   repos: z.array(z.string()).min(2).optional(),
   agent: z.string({ error: 'projects[].agent must be a string' }).regex(AGENT_ID_RE, { error: `projects[].agent must be ${AGENT_ID_SHAPE_MESSAGE}` }).optional(),
