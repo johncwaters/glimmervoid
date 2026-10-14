@@ -1,6 +1,6 @@
 import { createGithubPollingControls } from './my-prs-panel.ts';
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
-import type { DraftComment, FindingSeverity, InFlightReview, QueuedReview, ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
+import type { DraftComment, FindingSeverity, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { createAttentionAck } from '../attention-ack-core.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
@@ -13,7 +13,7 @@ import { formatTrailOffset } from '../radar/radar-core.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview,
-  answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionOrder, nextAttentionKey, buildActionRequest, chooseSelectedReviewKey,
+  answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionOrder, nextAttentionKey, buildActionRequest, buildNotMineRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, caughtUpSelectionView, planActionReply, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
@@ -521,18 +521,43 @@ const MORE_ACTIONS_LABEL = 'More review actions';
 const MORE_ICON_PATH = 'M3 8h0.01M8 8h0.01M13 8h0.01';
 const FOLLOW_UP_APPROVAL_HINT = 'Your comments are on GitHub. Approve adds an approval without posting them again.';
 
-function sendAction(origin: DetailOrigin, draft: ReviewDraft, action: TeamReviewAction, body: string, comments: ReviewComment[], settle: (isDone: boolean, text: string) => void, threadId?: string): boolean {
+function sendAction(origin: DetailOrigin, review: Pick<ReviewDraft, 'key' | 'repo' | 'number'>, request: TeamReviewActionRequest, settle: (isDone: boolean, text: string) => void): boolean {
   const capturedOrder = attentionOrder(groupDrafts(_latest));
   showActionNotice(null);
   const requestId = nextRequestId('team-review-action');
-  const isSent = sendControlMsg({ type: 'team-review-action', requestId, ...buildActionRequest(draft, action, body, comments, threadId) });
+  const isSent = sendControlMsg({ type: 'team-review-action', requestId, ...request });
   if (!isSent) return false;
   const timer = window.setTimeout(() => {
-    _pendingActions.delete(draft.key);
+    _pendingActions.delete(review.key);
     settle(false, 'No reply from the server. Check GitHub before trying again.');
   }, ACTION_REPLY_TIMEOUT_MS);
-  _pendingActions.set(draft.key, { requestId, action, origin, capturedOrder, pullRequest: pullRequestLabel(draft.repo, draft.number), timer, settle });
+  _pendingActions.set(review.key, { requestId, action: request.action, origin, capturedOrder, pullRequest: pullRequestLabel(review.repo, review.number), timer, settle });
   return true;
+}
+
+function createNotMineFooter(review: QueuedReview | InFlightReview): HTMLElement {
+  const footer = el('footer', 'pr-footer');
+  const button = createFooterButton('discard', () => {
+    if (_pendingActions.has(review.key)) return;
+    button.disabled = true;
+    status.dataset.tone = 'busy';
+    status.textContent = actionProgressText('discard');
+    if (sendAction('other', review, buildNotMineRequest(review.key), settle)) return;
+    settle(false, 'Not connected to the server.');
+  });
+  const isPending = _pendingActions.has(review.key);
+  button.disabled = isPending;
+  const status = el('span', 'pr-action-status', isPending ? actionProgressText('discard') : '');
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  const settle = (isDone: boolean, text: string) => {
+    button.disabled = isDone;
+    status.dataset.tone = isDone ? 'ok' : 'error';
+    status.textContent = text;
+    if (!isDone) showActionNotice({ text: `${pullRequestLabel(review.repo, review.number)}: ${text}`, tone: 'error' });
+  };
+  footer.append(button, status);
+  return footer;
 }
 
 let _moreMenuCount = 0;
@@ -587,7 +612,7 @@ function createMoreActions(actions: readonly TeamReviewAction[], runAction: (act
   });
   const controls: HTMLButtonElement[] = [toggle];
   for (const action of actions) {
-    const item = el('button', action === 'discard' ? 'review-btn review-btn-danger' : 'review-btn', actionLabel(action));
+    const item = el('button', 'review-btn', actionLabel(action));
     item.type = 'button';
     item.dataset.action = action;
     item.setAttribute('role', 'menuitem');
@@ -679,7 +704,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     status.dataset.tone = 'busy';
     status.textContent = actionProgressText(action);
     const comments = draft.comments.filter((_comment, index) => includedIndexes.has(index));
-    if (sendAction('ready', draft, action, withReviewerNote(noteInput.value, bodyInput.value), comments, settle)) return;
+    if (sendAction('ready', draft, buildActionRequest(draft, action, withReviewerNote(noteInput.value, bodyInput.value), comments), settle)) return;
     settle(false, 'Not connected to the server.');
   };
   const layout = detailActionLayout(draft);
@@ -713,7 +738,7 @@ function createQueuedDetail(review: QueuedReview, runningCount: number): HTMLEle
   const openedAge = createAgeReadout('Opened', review.prCreatedAt);
   if (openedAge) metadata.append(openedAge);
   heading.append(title, metadata);
-  detail.append(heading, el('p', 'pr-attention-detail', queuedDetailText(runningCount)));
+  detail.append(heading, el('p', 'pr-attention-detail', queuedDetailText(runningCount)), createNotMineFooter(review));
   return detail;
 }
 
@@ -744,7 +769,7 @@ function createInReviewDetail(review: InFlightReview): HTMLElement {
     list.append(item);
   }
   steps.append(list);
-  detail.append(steps);
+  detail.append(steps, createNotMineFooter(review));
   return detail;
 }
 
@@ -803,7 +828,7 @@ function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
       if (_pendingActions.has(draft.key)) return;
       button.disabled = true;
       status.textContent = actionProgressText('resolve-thread');
-      if (sendAction('other', draft, 'resolve-thread', '', [], settle, item.thread.id)) return;
+      if (sendAction('other', draft, buildActionRequest(draft, 'resolve-thread', '', [], item.thread.id), settle)) return;
       settle(false, 'Not connected to the server.');
     });
     row.append(reply);
@@ -843,7 +868,7 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
     for (const button of buttons) button.disabled = true;
     status.dataset.tone = 'busy';
     status.textContent = actionProgressText(action);
-    if (sendAction('other', draft, action, '', [], settle)) return;
+    if (sendAction('other', draft, buildActionRequest(draft, action, '', []), settle)) return;
     settle(false, 'Not connected to the server.');
   };
   const footerButtons = layout.footer.map((action) => createFooterButton(action, runAction));
@@ -1033,7 +1058,7 @@ function render(): void {
   if (sections.handReview.length) queueSections.push(createHandReviewSection(sections.handReview, hasMultipleRepos));
   if (sections.attention.length) queueSections.push(createQueueSection('Needs attention', sections.attention, 'attention', hasMultipleRepos));
   if (sections.posted.length) queueSections.push(createQueueSection('Waiting on author', sections.posted, 'posted', hasMultipleRepos));
-  if (sections.discarded.length) queueSections.push(createQueueSection('Discarded', sections.discarded, 'discarded', hasMultipleRepos));
+  if (sections.discarded.length) queueSections.push(createQueueSection('Not mine', sections.discarded, 'discarded', hasMultipleRepos));
   _queue.replaceChildren(...(pollingControls ? [pollingControls.notice] : []), ...laneNoticeElements(), ...queueSections);
   pollingControls?.update(_latest);
   restoreQueueFocus(focusedReviewKey);

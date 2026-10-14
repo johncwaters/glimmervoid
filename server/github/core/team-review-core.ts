@@ -369,6 +369,7 @@ function restoreDraftAtReviewedHead(entry: TeamReviewStateEntry, currentHead: st
   if (entry.draft?.status !== 'stale') return false;
   if (entry.reviewedHead === null || entry.reviewedHead !== currentHead) return false;
   if (entry.draft.reviewedHead !== currentHead) return false;
+  if (isUnreviewedDraft(entry.draft)) return false;
   entry.draft = { ...entry.draft, status: 'ready' };
   entry.updatedAt = nowMs;
   return true;
@@ -504,6 +505,16 @@ function errorDraft(
     ...draftBase(candidate, tier, reasons, reviewedHead),
     verdict: 'BLOCKED', summary: error, body: '', comments: [], status: 'error', error,
   };
+}
+
+function notMineDraft(candidate: TeamReviewCandidate, reviewedHead: string): ReviewDraft {
+  const draft: ReviewDraft = { ...draftBase(candidate, 'full', [], reviewedHead), verdict: 'BLOCKED', summary: '', body: '', comments: [], status: 'discarded' };
+  delete draft.error;
+  return draft;
+}
+
+function isUnreviewedDraft(draft: ReviewDraft): boolean {
+  return draft.summary === '' && draft.body === '' && draft.comments.length === 0;
 }
 
 const FINDING_LINE = /^- file: (.+?) \| line: (\d+|general) \|(?: side: (\w+) \|)? severity: (\w+) \|(?: origin: \w+ \|)? reviewer: (.+?) \|(?: disposition: (\w+) \|)? body: (.+)$/;
@@ -1041,5 +1052,5 @@ function absolutePathReadRule(absolutePath: string): string {
   return `Read(/${posixPath}/**)`;
 }
 
-export { STAMP_MODEL, FULL_MODEL, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS, advanceAwakeElapsed, handReviewRows, REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, HAND_APPROVAL_LINE, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSameQueuedReview, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, priorReviewFor, readyDraft, reReviewResult, repoFromSearchItem, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
+export { STAMP_MODEL, FULL_MODEL, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS, advanceAwakeElapsed, handReviewRows, REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, HAND_APPROVAL_LINE, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSameQueuedReview, isSettledAtHead, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, priorReviewFor, readyDraft, reReviewResult, repoFromSearchItem, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
 export type { CommentableLines, NewWorkPointer, NewWorkRange, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };

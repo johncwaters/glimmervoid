@@ -88,7 +88,7 @@ export function queueRowExceptionReason(review: ExceptionReviewFields): string |
 }
 
 const FIXED_ROW_GLYPHS: Readonly<Partial<Record<QueueRowKind, QueueRowGlyph>>> = {
-  discarded: { tone: 'muted', icon: 'discarded', meaning: 'Discarded' },
+  discarded: { tone: 'muted', icon: 'discarded', meaning: 'Not mine' },
   handReview: { tone: 'warn', icon: 'fork', meaning: 'From a fork' },
 };
 
@@ -319,7 +319,7 @@ const ACTION_OUTCOME_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.f
   approve: 'Approved on GitHub',
   'approve-only': 'Approved on GitHub',
   comment: 'Comment posted on GitHub',
-  discard: 'Draft discarded',
+  discard: 'Marked not mine. Not reviewed again until queued.',
   requeue: 'Queued. The next poll reviews it again.',
   'resolve-thread': 'Thread resolved on GitHub',
 });
@@ -328,7 +328,7 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
   approve: 'Posting the approval',
   'approve-only': 'Posting the approval',
   comment: 'Posting the comment',
-  discard: 'Discarding the draft',
+  discard: 'Marking not mine',
   requeue: 'Queueing the review',
   'resolve-thread': 'Resolving thread',
 });
@@ -665,7 +665,7 @@ export function inFlightProgressText(review: InFlightReview, nowMs: number): str
 
 export function attentionDetail(draft: ReviewDraft): string {
   if (draft.status === 'stale') return 'Out of date. Automatic review runs at the next poll after the configured wait. Queue review bypasses the wait.';
-  if (draft.status === 'discarded') return 'Not reviewed again until queued.';
+  if (draft.status === 'discarded') return 'Marked not mine. Not reviewed again until queued.';
   return draft.error || draft.summary || 'The review failed.';
 }
 
@@ -690,6 +690,10 @@ export function withReviewerNote(reviewerNote: string, reviewBody: string): stri
   return `${trimmedNote}\n\n${reviewBody}`;
 }
 
+export function buildNotMineRequest(key: string): TeamReviewActionRequest {
+  return { key, action: 'discard', body: '', comments: [] };
+}
+
 export function buildActionRequest(draft: ReviewDraft, action: TeamReviewAction, body: string, comments: readonly ReviewComment[], threadId?: string): TeamReviewActionRequest {
   if (action === 'approve-only') return { key: draft.key, head: draft.reviewedHead, action, body: '', comments: [] };
   return { key: draft.key, head: draft.reviewedHead, action, body, ...(threadId ? { threadId } : {}), comments: comments.map(({ path, line, side, body: commentBody }) => ({ path, line, side, body: commentBody })) };
@@ -699,7 +703,7 @@ const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = Object.freeze(
   approve: 'Approve and comment',
   'approve-only': 'Approve',
   comment: 'Comment',
-  discard: 'Discard',
+  discard: 'Not mine',
   requeue: 'Queue review',
   'resolve-thread': 'Resolve',
 });
@@ -716,6 +720,7 @@ export function actionLabel(action: TeamReviewAction): string {
 export function detailActionLayout(draft: Pick<ReviewDraft, 'status' | 'postedEvent'>): DetailActionLayout {
   if (draft.status === 'ready') return { footer: ['comment', 'approve-only', 'approve'], more: ['requeue', 'discard'] };
   if (canApproveAfterComment(draft)) return { footer: ['approve-only'], more: ['requeue'] };
+  if (draft.status === 'error' || draft.status === 'stale') return { footer: ['requeue'], more: ['discard'] };
   if (hasRequeueFooter(draft.status)) return { footer: ['requeue'], more: [] };
   return { footer: [], more: [] };
 }

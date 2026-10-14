@@ -31,7 +31,7 @@ import { reapTeamReviewProcesses } from './team-review-reaper.ts';
 import type { TeamReviewReapOptions } from './team-review-reaper.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
-import type { DraftExpectation, DraftPatch, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
+import type { DraftExpectation, DraftPatch, NotMineOutcome, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
 import { allowSandboxedSpawn } from '../sandbox/sandbox-deps.ts';
 import { judgeRole } from '../sandbox/core/sandbox-roles-core.ts';
 import { prepareSandboxLaunch } from '../sandbox/sandbox-launch.ts';
@@ -179,6 +179,7 @@ interface TeamReviewDraftStore {
   getDraft(key: string): ReviewDraft | null;
   updateDraft(key: string, expected: DraftExpectation, patch: DraftPatch): Promise<ReviewDraft | null>;
   requeue(key: string, head: string): Promise<boolean>;
+  markNotMine(key: string): Promise<NotMineOutcome>;
   updateThread?: (key: string, threadId: string, patch: { isResolved?: boolean; resolveError?: string }) => Promise<boolean>;
 }
 
@@ -513,7 +514,7 @@ function createTeamReviewDispatcher({
   }
 
   function spawnWithTimeout(
-    { candidate, detail, tier, reasons, reportProgress, resume, priorReview, timeoutMs, workDir, checkoutPath, cachedClone, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
+    { candidate, detail, tier, reasons, reportProgress, resume, priorReview, signal: cancelSignal, timeoutMs, workDir, checkoutPath, cachedClone, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
       timeoutMs: number; workDir: string; checkoutPath: string; cachedClone: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null;
       onPending: (pending: Promise<unknown>) => void;
       onSessionId: (id: string) => void;
@@ -535,7 +536,7 @@ function createTeamReviewDispatcher({
         extraClaudeArgs: teamReviewClaudeArgs(tier, { checkoutPath, linkedCheckout }),
         settingsPermissions: teamReviewAcceptEditsPermissions(),
         sandboxRole: await describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout }),
-        signal: shutdownSignal ? AbortSignal.any([signal, shutdownSignal]) : signal,
+        signal: AbortSignal.any([signal, shutdownSignal, cancelSignal].filter((candidate): candidate is AbortSignal => candidate instanceof AbortSignal)),
         onSessionId,
         resumeSessionId: resume?.sessionId,
         initialPrompt: resume ? core.REVIEW_RESUME_PROMPT : core.REVIEW_BOOTSTRAP_PROMPT,
@@ -770,10 +771,10 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
     return updated;
   }
 
-  async function discard(key: string, draft: ReviewDraft): Promise<TeamReviewActionOutcome> {
-    if (draft.status === 'posted') return { ok: false, error: 'That review was already posted' };
-    const discarded = await markDraft(key, draft, { status: 'discarded' });
-    return discarded ? { ok: true } : { ok: false, error: 'The draft could not be discarded' };
+  async function markNotMine(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome> {
+    const draft = drafts.getDraft(request.key);
+    if (request.head !== undefined && draft?.reviewedHead !== request.head) return { ok: false, error: REPLACED_DRAFT_ERROR };
+    return drafts.markNotMine(request.key);
   }
 
   async function misplacedCommentsError(draft: ReviewDraft, comments: readonly ReviewComment[]): Promise<string | null> {
@@ -807,7 +808,7 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
     }
     const liveHead = await github.prHead(draft.repo, draft.number);
     if (!liveHead) return { ok: false, error: 'Could not read the pull request head from GitHub' };
-    if (!core.canPost(draft, request.head, liveHead, event)) {
+    if (!core.canPost(draft, draft.reviewedHead, liveHead, event)) {
       if (isFollowUpApproval) return { ok: false, error: `The pull request moved to ${shortSha(liveHead)} after the comments were posted, so nothing was approved. Queue a review to look at the new commits` };
       await markDraft(key, draft, { status: 'stale' });
       return { ok: false, error: `The pull request moved to ${shortSha(liveHead)} after this review, so nothing was posted. It will be reviewed again` };
@@ -851,13 +852,13 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
   }
 
   async function runAction(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome> {
+    if (request.action === 'discard') return markNotMine(request);
     const draft = drafts.getDraft(request.key);
     if (!draft) return { ok: false, error: 'That review draft no longer exists' };
     if (draft.reviewedHead !== request.head) return { ok: false, error: REPLACED_DRAFT_ERROR };
     if (request.action === 'resolve-thread') return resolveThread(draft, request);
-    if (request.action === 'discard') return discard(request.key, draft);
     if (request.action === 'requeue') {
-      const isQueued = await drafts.requeue(request.key, request.head);
+      const isQueued = await drafts.requeue(request.key, draft.reviewedHead);
       return isQueued ? { ok: true } : { ok: false, error: 'only a failed, ready, stale, discarded or posted review can be queued again' };
     }
     return post(request.key, draft, request);
@@ -1023,12 +1024,16 @@ function createTeamReviewWiring({
     return (await runner.getPoller()?.requeue(key, head)) ?? false;
   }
 
+  async function markNotMineForPoller(key: string): Promise<NotMineOutcome> {
+    return (await runner.getPoller()?.markNotMine(key)) ?? { ok: false, error: 'Team review is not running' };
+  }
+
   function isRunning(): boolean {
     return runner.getPoller() !== null;
   }
 
   const actions = createTeamReviewActions({
-    drafts: { getDraft, updateDraft, updateThread, requeue },
+    drafts: { getDraft, updateDraft, updateThread, requeue, markNotMine: markNotMineForPoller },
     github: {
       teamReviewThreads: github.teamReviewThreads?.bind(github),
       resolveReviewThread: github.resolveReviewThread?.bind(github),

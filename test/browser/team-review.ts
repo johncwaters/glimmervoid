@@ -335,6 +335,19 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
   const caughtUpTitle = page.locator('.pr-detail-host .pr-caught-up-title');
   const caughtUpDetailText = page.locator('.pr-detail-host .pr-caught-up-detail');
   try {
+    for (const unreviewed of [9, 10]) {
+      await applyStatus(page, { ...withDrafts([createDraft(1), createDraft(2)]), inFlight: snapshot.inFlight, queued: snapshot.queued });
+      await reviewRow(unreviewed).click();
+      assert.equal(await page.locator('.pr-detail button[data-action="discard"]').textContent(), 'Not mine');
+      await clickReviewAction(page, 'discard');
+      const sentRequest = JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { key?: string; action?: string; head?: string };
+      assert.deepEqual([sentRequest.key, sentRequest.action, sentRequest.head], [`Acme/app#${unreviewed}`, 'discard', undefined]);
+      await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(unreviewed, { status: 'discarded' })]));
+      await replyToCapturedAction(page, true);
+      assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
+      assert.equal(await actionNotice.isVisible(), false);
+      assert.equal(await page.locator('.pr-queue-section', { has: reviewRow(unreviewed) }).locator('.pr-section-heading').textContent(), 'Not mine 1');
+    }
     for (const action of ['approve', 'approve-only', 'comment', 'discard', 'requeue'] as const) {
       await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
       await reviewRow(1).click();

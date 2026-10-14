@@ -340,6 +340,8 @@ test('team review actions carry editable text and diff comments', () => {
   assert.deepEqual(ClientMessage.parse(action), action);
   const requeue = { ...action, action: 'requeue', body: '', comments: [] };
   assert.deepEqual(ClientMessage.parse(requeue), requeue);
+  const notMine = { type: 'team-review-action', requestId: 'review-2', key: action.key, action: 'discard', body: '', comments: [] };
+  assert.deepEqual(ClientMessage.parse(notMine), notMine);
   for (const invalid of [
     { ...action, action: 'merge' },
     { ...action, comments: [{ path: 'src/agent/index.ts', line: 0, body: 'Check this' }] },

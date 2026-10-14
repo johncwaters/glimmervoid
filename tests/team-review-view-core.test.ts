@@ -310,11 +310,11 @@ test('queue review sends an empty action payload and has stable progress and out
   assert.equal(actionOutcomeText('requeue'), 'Queued. The next poll reviews it again.');
 });
 
-test('a ready review offers Comment, Approve and Approve and comment, and keeps Queue review and Discard in the More menu', () => {
+test('a ready review offers Comment, Approve and Approve and comment, and keeps Queue review and Not mine in the More menu', () => {
   const ready = draft(1);
   assert.deepEqual(detailActionLayout(ready), { footer: ['comment', 'approve-only', 'approve'], more: ['requeue', 'discard'] });
   assert.deepEqual(detailActionLayout(ready).footer.map((action) => actionLabel(action)), ['Comment', 'Approve', 'Approve and comment']);
-  assert.deepEqual(detailActionLayout(ready).more.map((action) => actionLabel(action)), ['Queue review', 'Discard']);
+  assert.deepEqual(detailActionLayout(ready).more.map((action) => actionLabel(action)), ['Queue review', 'Not mine']);
 });
 
 test('a posted comment review offers a plain Approve with Queue review in the More menu', () => {
@@ -323,9 +323,12 @@ test('a posted comment review offers a plain Approve with Queue review in the Mo
   assert.equal(actionLabel('approve-only'), 'Approve');
 });
 
-test('a review with nothing to post keeps Queue review as its only footer action', () => {
-  for (const settled of [draft(1, { status: 'posted', postedEvent: 'APPROVE' }), draft(1, { status: 'error', error: 'boom' }), draft(1, { status: 'stale' }), draft(1, { status: 'discarded' })]) {
+test('a review with nothing to post keeps Queue review as its only footer action, and a failed or stale one can still be marked not mine', () => {
+  for (const settled of [draft(1, { status: 'posted', postedEvent: 'APPROVE' }), draft(1, { status: 'discarded' })]) {
     assert.deepEqual(detailActionLayout(settled), { footer: ['requeue'], more: [] });
+  }
+  for (const unsettled of [draft(1, { status: 'error', error: 'boom' }), draft(1, { status: 'stale' })]) {
+    assert.deepEqual(detailActionLayout(unsettled), { footer: ['requeue'], more: ['discard'] });
   }
 });
 
@@ -341,7 +344,7 @@ test('low-severity inline comments start excluded and every other comment starts
 test('attention rows explain a stale draft and surface the error of a failed one', () => {
   assert.equal(attentionDetail(draft(1, { status: 'stale' })), 'Out of date. Automatic review runs at the next poll after the configured wait. Queue review bypasses the wait.');
   assert.equal(attentionDetail(draft(1, { status: 'error', error: 'no result file' })), 'no result file');
-  assert.equal(attentionDetail(draft(1, { status: 'discarded' })), 'Not reviewed again until queued.');
+  assert.equal(attentionDetail(draft(1, { status: 'discarded' })), 'Marked not mine. Not reviewed again until queued.');
 });
 
 test('progress text shows elapsed time before the agent starts, then the timeout budget and tool calls', () => {

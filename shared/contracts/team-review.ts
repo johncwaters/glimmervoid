@@ -265,14 +265,19 @@ export function canApproveAfterComment(draft: Pick<ReviewDraft, 'status' | 'post
 export const TeamReviewAction = z.enum(['approve', 'approve-only', 'comment', 'discard', 'requeue', 'resolve-thread']);
 export type TeamReviewAction = z.infer<typeof TeamReviewAction>;
 
+export function hasRequiredActionHead(request: { action: TeamReviewAction; head?: string }): boolean {
+  return request.action === 'discard' || request.head !== undefined;
+}
+
 export const TeamReviewActionRequest = z.object({
   key: z.string().min(1),
-  head: CommitSha,
+  head: CommitSha.optional(),
   action: TeamReviewAction,
   threadId: ReviewThreadId.optional(),
   body: z.string(),
   comments: z.array(ReviewComment),
-}).refine((request) => request.action !== 'resolve-thread' || request.threadId !== undefined, { message: 'resolve-thread requires threadId', path: ['threadId'] });
+}).refine((request) => request.action !== 'resolve-thread' || request.threadId !== undefined, { message: 'resolve-thread requires threadId', path: ['threadId'] })
+  .refine(hasRequiredActionHead, { message: 'only discard may omit head', path: ['head'] });
 export type TeamReviewActionRequest = z.infer<typeof TeamReviewActionRequest>;
 
 export const TeamReviewActionResult = z.object({

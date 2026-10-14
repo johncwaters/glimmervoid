@@ -517,6 +517,40 @@ test('discarded draft stays settled after a new head until manually queued', asy
   await poller.stop();
 });
 
+test('not mine cancels a running review, drops a waiting one before it spawns, and neither is reviewed again on a new head', async () => {
+  const runningKey = `${REPO}#1`;
+  const waitingKey = `${REPO}#2`;
+  const { poller, github, spawned, statuses } = setup({
+    maxConcurrentReviews: 1,
+    spawnReview: async (args) => {
+      spawned.push(args);
+      await new Promise<void>((resolve) => args.signal?.addEventListener('abort', () => resolve(), { once: true }));
+      return errorDraft({ candidate: args.candidate, tier: args.tier, reasons: args.reasons, reviewedHead: args.detail.headRefOid, error: 'review ended without a result' });
+    },
+  });
+  github.requested = [searchItem(1, 'teammate'), searchItem(2, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  github.heads.set(2, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.deepEqual(spawned.map((args) => args.candidate.key), [runningKey]);
+  assert.deepEqual(statuses.at(-1)?.queued.map((queued) => queued.key), [waitingKey]);
+  assert.deepEqual(await poller.markNotMine(waitingKey), { ok: true });
+  assert.deepEqual(await poller.markNotMine(runningKey), { ok: true });
+  await settle();
+  assert.equal(spawned[0]?.signal?.aborted, true);
+  assert.equal(poller.getDraft(runningKey)?.status, 'discarded');
+  assert.equal(poller.getDraft(waitingKey)?.status, 'discarded');
+  github.heads.set(1, HEAD_TWO);
+  github.heads.set(2, HEAD_TWO);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.deepEqual(statuses.at(-1)?.queued, []);
+  assert.deepEqual(await poller.markNotMine(`${REPO}#9`), { ok: false, error: 'That pull request is no longer in the review queue' });
+  await poller.stop();
+});
+
 test('saved drafts are published at start before the first GitHub search finishes', async () => {
   const key = `${REPO}#1`;
   const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate', requestSource: 'team' as const };

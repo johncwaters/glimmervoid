@@ -40,11 +40,14 @@ interface SpawnReviewArgs {
   resume?: ResumableReview;
   priorReview?: PriorReview;
   reportProgress?: (event: ReviewProgressEvent) => void;
+  signal?: AbortSignal;
 }
 
 type ReviewOutcome = ReviewDraftType | { kind: 'stopped'; resumable: ResumableReview | null };
 
 type DraftPatch = Partial<Omit<ReviewDraftType, 'key' | 'repo' | 'number'>>;
+
+type NotMineOutcome = { ok: true } | { ok: false; error: string };
 
 interface DraftExpectation {
   reviewedHead: ReviewDraftType['reviewedHead'];
@@ -94,6 +97,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   let self: string | null = null;
   let teamProfile: TeamReviewStatus['team'] = null;
   const progressByKey = new Map<string, InFlightReview>();
+  const reviewCancellersByKey = new Map<string, AbortController>();
+  const notMineWhileReviewingKeys = new Set<string>();
   let waitingForSlot: TeamReviewCandidate[] = [];
   let lastEmitAt = Number.NEGATIVE_INFINITY;
   let pendingProgressEmit: NodeJS.Timeout | null = null;
@@ -184,6 +189,11 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     entry.inFlight = false;
     hasSlotFreedSinceSlotCount = true;
     progressByKey.delete(args.candidate.key);
+    reviewCancellersByKey.delete(args.candidate.key);
+    if (notMineWhileReviewingKeys.delete(args.candidate.key)) {
+      await settleNotMineReview(entry, args, outcome);
+      return;
+    }
     if ('kind' in outcome) {
       if (outcome.resumable) entry.resumable = outcome.resumable;
       await persist();
@@ -211,6 +221,17 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     entry.draft.reviewedAt = entry.reviewedAt;
     await persist();
     emitStatus();
+    if (waitingForSlot.length > 0 && !loop.isStopped()) void loop.tick();
+  }
+
+  async function settleNotMineReview(entry: TeamReviewStateEntry, args: SpawnReviewArgs, outcome: ReviewOutcome): Promise<void> {
+    if ('kind' in outcome && outcome.resumable) await discardResumable(outcome.resumable);
+    entry.resumable = null;
+    const hasFinishedReview = !('kind' in outcome) && outcome.status !== 'error';
+    entry.draft = hasFinishedReview ? { ...outcome, status: 'discarded' } : core.notMineDraft(args.candidate, args.detail.headRefOid);
+    entry.reviewedHead = entry.draft.reviewedHead;
+    entry.skipReason = null;
+    await settleNotMine(args.candidate.key, entry);
     if (waitingForSlot.length > 0 && !loop.isStopped()) void loop.tick();
   }
 
@@ -249,7 +270,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         delete entry.handReview;
         isDirty = true;
       }
-      if (entry.skipReason === 'fork' && entry.reviewedHead === head && !core.isSameQueuedReview(entry.handReview, candidate)) {
+      if (entry.skipReason === 'fork' && entry.reviewedHead === head && entry.draft?.status !== 'discarded' && !core.isSameQueuedReview(entry.handReview, candidate)) {
         entry.handReview = { ...candidate };
         isDirty = true;
       }
@@ -423,6 +444,10 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         entry.resumable = null;
         await persist();
       }
+      if (entry.draft?.status === 'discarded') {
+        if (resume) await discardResumable(resume);
+        continue;
+      }
       entry.updatedAt = now();
       delete entry.handReview;
       isDirty = true;
@@ -442,11 +467,13 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       if (earlierReviewKept) entry.priorReview = earlierReviewKept;
       entry.inFlight = true;
       freeSlots -= 1;
+      const reviewCanceller = new AbortController();
+      reviewCancellersByKey.set(candidate.key, reviewCanceller);
       progressByKey.set(candidate.key, core.startReviewProgress({
         candidate, tier: triage.tier, reasons: triage.reasons, head: detail.headRefOid, at: now(), priorReviewedHead: priorReview?.head,
       }));
       const args: SpawnReviewArgs = {
-        candidate, detail, tier: triage.tier, reasons: triage.reasons, resume, priorReview, reportProgress: progressReporter(candidate.key),
+        candidate, detail, tier: triage.tier, reasons: triage.reasons, resume, priorReview, reportProgress: progressReporter(candidate.key), signal: reviewCanceller.signal,
       };
       loop.track(runReview(args).catch((error: unknown) => {
         log.warn(`[${core.TEAM_REVIEW_LANE_ID}] review crashed for ${candidate.key}: ${errorMessage(error)}`);
@@ -564,6 +591,43 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return true;
   }
 
+  async function markNotMine(key: string): Promise<NotMineOutcome> {
+    const entry = state[key];
+    if (entry?.inFlight) {
+      notMineWhileReviewingKeys.add(key);
+      reviewCancellersByKey.get(key)?.abort();
+      return { ok: true };
+    }
+    if (entry?.draft?.status === 'posted') return { ok: false, error: 'That review was already posted' };
+    if (entry?.draft && !isThreadPlaceholderDraft(entry.draft)) {
+      entry.draft = { ...entry.draft, status: 'discarded' };
+      return settleNotMine(key, entry);
+    }
+    const candidate = waitingForSlot.find((queued) => queued.key === key) ?? entry?.handReview ?? entry?.draft ?? undefined;
+    if (!candidate) return { ok: false, error: 'That pull request is no longer in the review queue' };
+    const head = entry?.liveHead ?? await github.prHead(candidate.repo, candidate.number);
+    if (!head) return { ok: false, error: 'Could not read the pull request head from GitHub' };
+    const notMineEntry = entryFor(key);
+    notMineEntry.draft = core.notMineDraft(candidate, head);
+    notMineEntry.reviewedHead = head;
+    delete notMineEntry.handReview;
+    return settleNotMine(key, notMineEntry);
+  }
+
+  async function settleNotMine(key: string, entry: TeamReviewStateEntry): Promise<NotMineOutcome> {
+    delete entry.requeuedHead;
+    entry.updatedAt = now();
+    waitingForSlot = waitingForSlot.filter((queued) => queued.key !== key);
+    const abandonedResumable = entry.resumable;
+    if (abandonedResumable) {
+      entry.resumable = null;
+      await discardResumable(abandonedResumable);
+    }
+    await persist();
+    emitStatus();
+    return { ok: true };
+  }
+
   async function start(): Promise<void> {
     await loop.start(async () => {
       state = (await readState()) || {};
@@ -586,10 +650,10 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     cancelPendingProgressEmit();
   }
 
-  return { start, stop, tick: loop.tick, refresh: loop.refresh, getDraft, updateDraft, updateThread, requeue, _state: () => state };
+  return { start, stop, tick: loop.tick, refresh: loop.refresh, getDraft, updateDraft, updateThread, requeue, markNotMine, _state: () => state };
 }
 
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;
 
 export { createTeamReviewPoller };
-export type { DraftExpectation, DraftPatch, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller, TeamReviewPollerDependencies };
+export type { DraftExpectation, DraftPatch, NotMineOutcome, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller, TeamReviewPollerDependencies };

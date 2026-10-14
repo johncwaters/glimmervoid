@@ -1701,6 +1701,7 @@ function actionHarness(options: ActionHarnessOptions = {}) {
   const dismissed: DismissArgs[] = [];
   const patches: DraftPatch[] = [];
   const requeues: string[] = [];
+  const notMineKeys: string[] = [];
   const actions = createTeamReviewActions({
     drafts: {
       getDraft: (key) => (key === draft.key ? draft : null),
@@ -1709,6 +1710,10 @@ function actionHarness(options: ActionHarnessOptions = {}) {
         patches.push(patch);
         draft = ReviewDraft.parse({ ...draft, ...patch });
         return draft;
+      },
+      markNotMine: async (key) => {
+        notMineKeys.push(key);
+        return { ok: true };
       },
       requeue: async (key, head) => {
         requeues.push(`${key}@${head}`);
@@ -1741,7 +1746,7 @@ function actionHarness(options: ActionHarnessOptions = {}) {
     key: ACTION_KEY, head: HEAD, body: 'LGTM', comments: [], ...overrides,
   });
   return {
-    submit, posted, dismissed, patches, requeues, headLookups, diffLookups,
+    submit, posted, dismissed, patches, requeues, notMineKeys, headLookups, diffLookups,
     currentDraft: () => draft,
     replaceDraft: (next: ReviewDraftType) => { draft = next; },
   };
@@ -1867,7 +1872,7 @@ test('discard of a draft replaced after it was shown is refused and the new draf
   assert.equal(outcome.ok, false);
   assert.match(String(outcome.error), /replaced/);
   assert.equal(h.currentDraft().status, 'ready');
-  assert.deepEqual(h.patches, []);
+  assert.deepEqual(h.notMineKeys, []);
 });
 
 test('a live head that moved marks the draft stale and never posts', async () => {
@@ -1915,10 +1920,11 @@ test('a postReview failure reports the gh error and leaves the draft ready', asy
   assert.deepEqual(h.patches, []);
 });
 
-test('discard marks the draft discarded without touching GitHub', async () => {
+test('not mine hands the pull request to the poller with or without a reviewed head and never touches GitHub', async () => {
   const h = actionHarness();
   assert.deepEqual(await h.submit({ action: 'discard' }), { ok: true });
-  assert.equal(h.currentDraft().status, 'discarded');
+  assert.deepEqual(await h.submit({ action: 'discard', head: undefined }), { ok: true });
+  assert.deepEqual(h.notMineKeys, [ACTION_KEY, ACTION_KEY]);
   assert.deepEqual(h.headLookups, []);
   assert.deepEqual(h.posted, []);
 });
@@ -2212,7 +2218,7 @@ test('resolve action rechecks permissions and reply before mutating, and needs n
     if (scenario === 'reply') node.comments.nodes[1].createdAt = '2026-10-02T12:00:00Z';
     if (scenario === 'no-judgement') delete draft.threads?.[0].judgement;
     const actions = createTeamReviewActions({
-      drafts: { getDraft: () => draft, updateDraft: async () => draft, requeue: async () => false, updateThread: async (_key, _id, patch) => { patches.push(patch); return true; } },
+      drafts: { getDraft: () => draft, updateDraft: async () => draft, requeue: async () => false, markNotMine: async () => ({ ok: false, error: 'must not mark not mine' }), updateThread: async (_key, _id, patch) => { patches.push(patch); return true; } },
       github: {
         prHead: async () => scenario === 'head' ? OTHER_HEAD : HEAD,
         prDiff: async () => null,
@@ -2253,7 +2259,7 @@ test('a nit whose automatic resolve failed resolves by hand, and each refusal na
     const patches: { isResolved?: boolean; resolveError?: string }[] = [];
     let mutations = 0;
     const actions = createTeamReviewActions({
-      drafts: { getDraft: () => draft, updateDraft: async () => draft, requeue: async () => false, updateThread: async (_key, _id, patch) => { patches.push(patch); return true; } },
+      drafts: { getDraft: () => draft, updateDraft: async () => draft, requeue: async () => false, markNotMine: async () => ({ ok: false, error: 'must not mark not mine' }), updateThread: async (_key, _id, patch) => { patches.push(patch); return true; } },
       github: {
         prHead: async () => HEAD,
         prDiff: async () => null,
