@@ -2,8 +2,8 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { SOURCE_DEFAULTS } from './ingest-core.ts';
-import { errorMessage } from '../../shared/text.ts';
-import { HEX_SHA_RE, shortSha } from '../../shared/git-text.ts';
+import { errorMessage } from '../../../shared/text.ts';
+import { HEX_SHA_RE, shortSha } from '../../../shared/git-text.ts';
 
 const SOURCE = 'git';
 

@@ -1,6 +1,6 @@
 
 import path from 'node:path';
-import { rawTextOr } from '../../shared/coerce.ts';
+import { rawTextOr } from '../../../shared/coerce.ts';
 
 
 const SOURCE = 'shellHistory';

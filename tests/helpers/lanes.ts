@@ -1,5 +1,5 @@
 import type { createBackend } from '../../server/backend/backend.ts';
-import type { createIngestLane } from '../../server/ingest-wiring.ts';
+import type { createIngestLane } from '../../server/ingest/ingest-wiring.ts';
 import type { createUsageWiring } from '../../server/usage-wiring.ts';
 import type { createVisionsWiring } from '../../server/visions-wiring.ts';
 

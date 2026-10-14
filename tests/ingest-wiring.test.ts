@@ -4,10 +4,10 @@ import { EventEmitter } from 'node:events';
 
 import {
   BATCH_INTERVAL_MS, MAX_EVENTS_PER_FRAME, SNAPSHOT_EVENT_LIMIT, createIngestLane,
-} from '../server/ingest-wiring.ts';
-import type { IngestLaneOptions } from '../server/ingest-wiring.ts';
-import { resolveIngestConfig } from '../server/core/ingest-core.ts';
-import { TRUNCATION_NOTE } from '../server/core/ingest-terminal-core.ts';
+} from '../server/ingest/ingest-wiring.ts';
+import type { IngestLaneOptions } from '../server/ingest/ingest-wiring.ts';
+import { resolveIngestConfig } from '../server/ingest/core/ingest-core.ts';
+import { TRUNCATION_NOTE } from '../server/ingest/core/ingest-terminal-core.ts';
 
 const NOW = 1700000000000;
 

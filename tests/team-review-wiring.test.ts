@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { answeredViewerThreads } from '../server/core/team-review-threads-core.ts';
 import { threadNode } from './helpers/team-review-thread-fixture.ts';
-import { isDispatchWorkdir } from '../server/core/ingest-agent-core.ts';
+import { isDispatchWorkdir } from '../server/ingest/core/ingest-agent-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { ACCEPT_EDITS_MODE } from '../server/lanes/core/lane-permissions-core.ts';

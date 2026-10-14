@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { EditorState } from '../server/core/ingest-editor-core.ts';
+import type { EditorState } from '../server/ingest/core/ingest-editor-core.ts';
 
-import { applyEditorNotification, createEditorState } from '../server/core/ingest-editor-core.ts';
+import { applyEditorNotification, createEditorState } from '../server/ingest/core/ingest-editor-core.ts';
 import { deepestRootFor } from '../server/core/visions-scope-core.ts';
 
 const ROOTS = ['/home/op/Projects/glimmervoid', '/home/op/Projects/glimmervoid/vendor/inner'];

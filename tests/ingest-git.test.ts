@@ -5,12 +5,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createGitIngest } from '../server/ingest-git.ts';
-import type { GitIngestOptions } from '../server/ingest-git.ts';
-import { createIngestLane } from '../server/ingest-wiring.ts';
-import { resolveIngestConfig } from '../server/core/ingest-core.ts';
-import { LOG_FIELD_SEPARATOR } from '../server/core/ingest-git-core.ts';
-import type { GitIngestEvent } from '../server/core/ingest-git-core.ts';
+import { createGitIngest } from '../server/ingest/ingest-git.ts';
+import type { GitIngestOptions } from '../server/ingest/ingest-git.ts';
+import { createIngestLane } from '../server/ingest/ingest-wiring.ts';
+import { resolveIngestConfig } from '../server/ingest/core/ingest-core.ts';
+import { LOG_FIELD_SEPARATOR } from '../server/ingest/core/ingest-git-core.ts';
+import type { GitIngestEvent } from '../server/ingest/core/ingest-git-core.ts';
 import type { WatchDebounce } from '../detection/watch-debounce.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 

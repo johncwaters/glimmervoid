@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { HistoryParseState } from '../server/core/ingest-shell-core.ts';
+import type { HistoryParseState } from '../server/ingest/core/ingest-shell-core.ts';
 import path from 'node:path';
 
 import {
   MAX_COMMAND_CHARS, MAX_CONTINUATION_LINES, SHELLS, createParseState, decideCommandEvent, defaultShellsFor,
   historyLocations, isTrivialCommand, matchesLocation, normalizeShells, parseHistoryLines, unescapeFish,
-} from '../server/core/ingest-shell-core.ts';
+} from '../server/ingest/core/ingest-shell-core.ts';
 
 function parse(shell: string, lines: string[], state: HistoryParseState | null = null) {
   return parseHistoryLines({ shell, lines, state: state || createParseState() });

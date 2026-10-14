@@ -4,10 +4,10 @@ import assert from 'node:assert/strict';
 import {
   HEAD_SAMPLE_BYTES, LISTING_SETTLE_MS, applyRead, canTrustCachedListing,
   createTailState, fileIdentity, headChanged, headSample, isActiveMtime, pickStaleByMtime, planRead,
-} from '../server/core/ingest-tail-core.ts';
+} from '../server/ingest/core/ingest-tail-core.ts';
 import {
   MAX_RAW_CHARS, isDispatchWorkdir, mapAgentLine, parseTimestamp, toolTarget,
-} from '../server/core/ingest-agent-core.ts';
+} from '../server/ingest/core/ingest-agent-core.ts';
 
 const NOW = 1700000000000;
 

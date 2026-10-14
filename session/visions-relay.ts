@@ -23,7 +23,7 @@ import {
 } from "../server/core/visions-buffer-core.ts";
 import type { Range } from "../server/core/visions-buffer-core.ts";
 import { decideConfigPath, glimmervoidHomeDir } from "../server/core/config-path-core.ts";
-import { ACTIVITY_METHOD } from "../server/core/ingest-editor-core.ts";
+import { ACTIVITY_METHOD } from "../server/ingest/core/ingest-editor-core.ts";
 import {
   MAX_DAEMON_FRAME_BYTES,
   daemonMessage,

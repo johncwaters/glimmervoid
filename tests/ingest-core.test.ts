@@ -1,7 +1,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { IngestEvent, IngestRing } from '../server/core/ingest-core.ts';
+import type { IngestEvent, IngestRing } from '../server/ingest/core/ingest-core.ts';
 
 import {
   DIGEST_HEADER,
@@ -18,7 +18,7 @@ import {
   ringStats,
   scrubText,
   snapshotEvents,
-} from '../server/core/ingest-core.ts';
+} from '../server/ingest/core/ingest-core.ts';
 
 const NOW = 1700000000000;
 

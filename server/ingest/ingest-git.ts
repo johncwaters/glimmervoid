@@ -1,24 +1,24 @@
 
 import fsp from 'node:fs/promises';
 
-import { execFileAsync } from './child-process-safe.ts';
-import { runGit as runGitCommand } from './git/git-exec.ts';
-import type { ExecFileFn } from './git/git-exec.ts';
-import { createWatchDebounce } from '../detection/watch-debounce.ts';
-import type { WatchDebounce } from '../detection/watch-debounce.ts';
-import { canonicalizePath } from '../shared/canonical-paths.ts';
+import { execFileAsync } from '../child-process-safe.ts';
+import { runGit as runGitCommand } from '../git/git-exec.ts';
+import type { ExecFileFn } from '../git/git-exec.ts';
+import { createWatchDebounce } from '../../detection/watch-debounce.ts';
+import type { WatchDebounce } from '../../detection/watch-debounce.ts';
+import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import {
   DEFAULT_DEBOUNCE_MS, DEFAULT_POLL_MS, LOG_ARGS, REV_PARSE_ARGS, STATUS_ARGS, createRepoState,
   classifyGitStatusFailure, decideGitEvents, deriveWatchDirs, isNoiseGitFile, parseCommitLine, parsePorcelainStatus, parseRevParse,
   shouldReadCommit,
 } from './core/ingest-git-core.ts';
 import type { GitCommit, GitIngestEvent, GitLayout, GitRepoState } from './core/ingest-git-core.ts';
-import { createLaneLog } from './lanes/lane-log.ts';
-import type { LaneLogger } from './lanes/lane-log.ts';
-import { errorMessage, isMissingFileError } from '../shared/text.ts';
-import { positiveIntOr } from '../shared/coerce.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
-import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
+import { createLaneLog } from '../lanes/lane-log.ts';
+import type { LaneLogger } from '../lanes/lane-log.ts';
+import { errorMessage, isMissingFileError } from '../../shared/text.ts';
+import { positiveIntOr } from '../../shared/coerce.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
 const DEFAULT_MAX_REPOS = 16;
 const DEFAULT_GIT_TIMEOUT_MS = 15000;

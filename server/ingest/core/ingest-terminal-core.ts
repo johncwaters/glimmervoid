@@ -1,6 +1,6 @@
 
 import { MAX_SUMMARY_CHARS as RING_SUMMARY_CHARS, SOURCE_DEFAULTS, scrubText } from './ingest-core.ts';
-import { positiveIntOr } from '../../shared/coerce.ts';
+import { positiveIntOr } from '../../../shared/coerce.ts';
 
 const DEFAULT_ACCUMULATOR_BYTES = SOURCE_DEFAULTS.terminal.accumulatorBytes;
 const DEFAULT_WINDOW_BYTES = SOURCE_DEFAULTS.terminal.windowBytes;

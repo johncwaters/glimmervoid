@@ -5,7 +5,7 @@ import {
   CoChangeGap,
   HotspotFact,
 } from '../shared/contracts/change-map.ts';
-import { LOG_FIELD_SEPARATOR } from '../server/core/ingest-git-core.ts';
+import { LOG_FIELD_SEPARATOR } from '../server/ingest/core/ingest-git-core.ts';
 import {
   CO_CHANGE_MAX_FILES_PER_COMMIT,
   computeCoChange,

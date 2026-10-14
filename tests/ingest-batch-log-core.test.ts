@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { drainBatchLog, emptyBatchLogState, recordBatchLog } from '../server/core/ingest-batch-log-core.ts';
+import { drainBatchLog, emptyBatchLogState, recordBatchLog } from '../server/ingest/core/ingest-batch-log-core.ts';
 
 test('a minute summary rolls up batches and resets for the next minute', () => {
   const first = recordBatchLog(emptyBatchLogState(), { events: 2, overflowed: 0, firstSeq: 3, lastSeq: 4 });

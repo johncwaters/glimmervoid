@@ -1,4 +1,4 @@
-import { SOURCE_NAMES } from './ingest-core.ts';
+import { SOURCE_NAMES } from '../ingest/core/ingest-core.ts';
 import { isRecord } from '../../shared/coerce.ts';
 
 export interface SettingsBlockSpec {

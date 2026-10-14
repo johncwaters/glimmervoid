@@ -8,7 +8,7 @@ import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 
 import type { ControlBroadcast } from './backend/backend-websockets.ts';
-import { ACTIVITY_METHOD } from './core/ingest-editor-core.ts';
+import { ACTIVITY_METHOD } from './ingest/core/ingest-editor-core.ts';
 import {
   applyDidChange, applyDidClose, applyDidOpen, createDocStore, detectBlankLineBoundary, formatRange, getDoc, listDocs, uriOfParams,
 } from './core/visions-buffer-core.ts';

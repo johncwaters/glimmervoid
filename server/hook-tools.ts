@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { SANE_YOLO_FILES } from '../session/core/sane-yolo.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
-import { dataHome } from './core/ingest-shell-core.ts';
+import { dataHome } from './ingest/core/ingest-shell-core.ts';
 import { getRtkPath } from './rtk-resolver.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 import { writeTextAtomicSync } from './json-file.ts';

@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createAgentLogIngest } from '../server/ingest-agent-logs.ts';
-import type { AgentLogIngestOptions, TranscriptFileSystem } from '../server/ingest-agent-logs.ts';
-import { createIngestLane } from '../server/ingest-wiring.ts';
-import { resolveIngestConfig } from '../server/core/ingest-core.ts';
-import type { AgentIngestEvent } from '../server/core/ingest-agent-core.ts';
+import { createAgentLogIngest } from '../server/ingest/ingest-agent-logs.ts';
+import type { AgentLogIngestOptions, TranscriptFileSystem } from '../server/ingest/ingest-agent-logs.ts';
+import { createIngestLane } from '../server/ingest/ingest-wiring.ts';
+import { resolveIngestConfig } from '../server/ingest/core/ingest-core.ts';
+import type { AgentIngestEvent } from '../server/ingest/core/ingest-agent-core.ts';
 import { encodeProjectDir } from '../session/core/conversation-history.ts';
 
 type AgentLogIngest = ReturnType<typeof createAgentLogIngest>;

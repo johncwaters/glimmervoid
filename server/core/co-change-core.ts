@@ -1,4 +1,4 @@
-import { LOG_FIELD_SEPARATOR } from './ingest-git-core.ts';
+import { LOG_FIELD_SEPARATOR } from '../ingest/core/ingest-git-core.ts';
 import {
   CHANGE_MAP_LIST_CAP,
   changeMapFactId,

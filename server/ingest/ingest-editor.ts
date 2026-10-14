@@ -1,8 +1,8 @@
 import { applyEditorNotification, createEditorState } from './core/ingest-editor-core.ts';
 import type { EditorEvent } from './core/ingest-editor-core.ts';
-import { createLaneLog } from './lanes/lane-log.ts';
-import type { LaneLogger } from './lanes/lane-log.ts';
-import { errorMessage } from '../shared/text.ts';
+import { createLaneLog } from '../lanes/lane-log.ts';
+import type { LaneLogger } from '../lanes/lane-log.ts';
+import { errorMessage } from '../../shared/text.ts';
 
 interface EditorIngestOptions {
   publish: (event: EditorEvent) => unknown;

@@ -1,5 +1,5 @@
-import { textOr } from '../../shared/coerce.ts';
-import { parseJsonRecord } from './json-core.ts';
+import { textOr } from '../../../shared/coerce.ts';
+import { parseJsonRecord } from '../../core/json-core.ts';
 const SOURCE = 'agentLogs';
 
 const MAX_RAW_CHARS = 4000;

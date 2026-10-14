@@ -2,8 +2,8 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { SOURCE_DEFAULTS, scrubText } from './ingest-core.ts';
-import { textOr } from '../../shared/coerce.ts';
-import { isPathInside } from '../../shared/paths.ts';
+import { textOr } from '../../../shared/coerce.ts';
+import { isPathInside } from '../../../shared/paths.ts';
 
 const SOURCE = 'fs';
 const KIND = 'file-change';

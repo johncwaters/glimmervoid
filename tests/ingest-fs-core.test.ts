@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { FsBatch } from '../server/core/ingest-fs-core.ts';
-import type { IngestRing } from '../server/core/ingest-core.ts';
+import type { FsBatch } from '../server/ingest/core/ingest-fs-core.ts';
+import type { IngestRing } from '../server/ingest/core/ingest-core.ts';
 import path from 'node:path';
 
 import {
@@ -9,8 +9,8 @@ import {
   batchSize, buildIgnorePatterns, createBatch, daemonWriteRules, decideFsEvents, dedupeRoots,
   deriveSessionRoots, isActiveSessionState, isIgnoredChange, mergeChange, normalizeRoots,
   recordChange, relativeWithin,
-} from '../server/core/ingest-fs-core.ts';
-import { createIngestStore, publishEvent, resolveIngestConfig, ringStats } from '../server/core/ingest-core.ts';
+} from '../server/ingest/core/ingest-fs-core.ts';
+import { createIngestStore, publishEvent, resolveIngestConfig, ringStats } from '../server/ingest/core/ingest-core.ts';
 
 const WIN = process.platform === 'win32';
 const ROOT = WIN ? 'C:\\work\\project' : '/work/project';

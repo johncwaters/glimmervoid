@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { INGEST_SPEC, mergeSettingsBlock, pickSettingsBlock, validateSettingsBlock } from '../server/core/settings-block-core.ts';
-import { resolveIngestConfig } from '../server/core/ingest-core.ts';
+import { resolveIngestConfig } from '../server/ingest/core/ingest-core.ts';
 
 test('an absent block is valid, so an untouched tab writes nothing', () => {
   assert.equal(validateSettingsBlock(null, INGEST_SPEC), null);

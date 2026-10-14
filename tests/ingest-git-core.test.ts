@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { GitStatus, GitStatusCounts } from '../server/core/ingest-git-core.ts';
+import type { GitStatus, GitStatusCounts } from '../server/ingest/core/ingest-git-core.ts';
 import path from 'node:path';
 
 import {
   CLEAN_SIGNATURE, LOG_FIELD_SEPARATOR, createRepoState, decideGitEvents, deriveWatchDirs,
   classifyGitStatusFailure, isNoiseGitFile, parseCommitLine, parsePorcelainStatus, parseRevParse, shouldReadCommit, signatureOf,
-} from '../server/core/ingest-git-core.ts';
+} from '../server/ingest/core/ingest-git-core.ts';
 
 const NOW = 1700000000000;
 const SHA = '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b';

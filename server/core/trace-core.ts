@@ -1,6 +1,6 @@
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
 import { MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
-import { firstTextBlock, parseTimestamp } from './ingest-agent-core.ts';
+import { firstTextBlock, parseTimestamp } from '../ingest/core/ingest-agent-core.ts';
 import { parseJsonRecord } from './json-core.ts';
 import { rawTextOr } from '../../shared/coerce.ts';
 

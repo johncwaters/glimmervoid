@@ -6,12 +6,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
-import { createFsIngest } from '../server/ingest-fs.ts';
-import type { FsIngestOptions, WatcherModule } from '../server/ingest-fs.ts';
-import { createIngestLane } from '../server/ingest-wiring.ts';
-import { MAX_FILES_PER_BATCH } from '../server/core/ingest-fs-core.ts';
-import type { FsIngestEvent } from '../server/core/ingest-fs-core.ts';
-import { resolveIngestConfig } from '../server/core/ingest-core.ts';
+import { createFsIngest } from '../server/ingest/ingest-fs.ts';
+import type { FsIngestOptions, WatcherModule } from '../server/ingest/ingest-fs.ts';
+import { createIngestLane } from '../server/ingest/ingest-wiring.ts';
+import { MAX_FILES_PER_BATCH } from '../server/ingest/core/ingest-fs-core.ts';
+import type { FsIngestEvent } from '../server/ingest/core/ingest-fs-core.ts';
+import { resolveIngestConfig } from '../server/ingest/core/ingest-core.ts';
 
 const PROJECT = path.resolve('/work/project');
 

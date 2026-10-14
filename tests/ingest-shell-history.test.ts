@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createShellHistoryIngest } from '../server/ingest-shell-history.ts';
-import type { ShellHistoryOptions } from '../server/ingest-shell-history.ts';
-import { createIngestLane } from '../server/ingest-wiring.ts';
-import { resolveIngestConfig } from '../server/core/ingest-core.ts';
-import type { ShellIngestEvent } from '../server/core/ingest-shell-core.ts';
+import { createShellHistoryIngest } from '../server/ingest/ingest-shell-history.ts';
+import type { ShellHistoryOptions } from '../server/ingest/ingest-shell-history.ts';
+import { createIngestLane } from '../server/ingest/ingest-wiring.ts';
+import { resolveIngestConfig } from '../server/ingest/core/ingest-core.ts';
+import type { ShellIngestEvent } from '../server/ingest/core/ingest-shell-core.ts';
 
 type ShellHistoryIngest = ReturnType<typeof createShellHistoryIngest>;
 

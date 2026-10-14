@@ -1,5 +1,5 @@
-import { isRecord, positiveIntOr, textOr } from '../../shared/coerce.ts';
-import { COMPACT_FLOORED_AGO, elapsedText } from '../../shared/display-text.ts';
+import { isRecord, positiveIntOr, textOr } from '../../../shared/coerce.ts';
+import { COMPACT_FLOORED_AGO, elapsedText } from '../../../shared/display-text.ts';
 
 
 export type SourceName = 'terminal' | 'agentLogs' | 'git' | 'fs' | 'shellHistory' | 'editor';

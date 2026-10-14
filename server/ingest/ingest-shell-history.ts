@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FileHandle } from 'node:fs/promises';
 
-import { canonicalizePath } from '../shared/canonical-paths.ts';
+import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import {
   HEAD_SAMPLE_BYTES, MAX_CATCH_UP_BYTES, applyRead, createTailState, headChanged, headSample,
   pickStaleByMtime, planRead,
@@ -15,12 +15,12 @@ import {
   parseHistoryLines,
 } from './core/ingest-shell-core.ts';
 import type { HistoryLocation, HistoryParseState, ShellIngestEvent } from './core/ingest-shell-core.ts';
-import { createLaneLog } from './lanes/lane-log.ts';
-import type { LaneLogger } from './lanes/lane-log.ts';
-import { errorMessage } from '../shared/text.ts';
-import { positiveIntOr } from '../shared/coerce.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
-import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
+import { createLaneLog } from '../lanes/lane-log.ts';
+import type { LaneLogger } from '../lanes/lane-log.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { positiveIntOr } from '../../shared/coerce.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
 const DEFAULT_POLL_MS = 2000;
 const DEFAULT_DISCOVER_MS = 30000;

@@ -1,18 +1,18 @@
 
 import { createRequire } from 'node:module';
-import { canonicalizePath } from '../shared/canonical-paths.ts';
+import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import {
   DEFAULT_BATCH_MS, buildIgnorePatterns, createBatch, daemonWriteRules, decideFsEvents, dedupeRoots,
   isIgnoredChange, normalizeRoots, recordChange, relativeWithin,
 } from './core/ingest-fs-core.ts';
 import type { FsBatch, FsIngestEvent } from './core/ingest-fs-core.ts';
-import { createLaneLog } from './lanes/lane-log.ts';
-import type { LaneLogger } from './lanes/lane-log.ts';
-import { errorMessage } from '../shared/text.ts';
-import { positiveIntOr } from '../shared/coerce.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
-import { createSerialQueue } from './spawn-gate.ts';
+import { createLaneLog } from '../lanes/lane-log.ts';
+import type { LaneLogger } from '../lanes/lane-log.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { positiveIntOr } from '../../shared/coerce.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
+import { createSerialQueue } from '../spawn-gate.ts';
 
 const DEFAULT_MAX_ROOTS = 8;
 const CONFIG_HOLDER = 'config:fs.roots';

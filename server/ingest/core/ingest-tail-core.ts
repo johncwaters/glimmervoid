@@ -1,5 +1,5 @@
-import { decideFileRead, splitLines } from './usage-scan-core.ts';
-import { coercedNumberOr } from '../../shared/coerce.ts';
+import { decideFileRead, splitLines } from '../../core/usage-scan-core.ts';
+import { coercedNumberOr } from '../../../shared/coerce.ts';
 
 const MAX_CATCH_UP_BYTES = 256 * 1024;
 const DEFAULT_MAX_TRACKED = 256;

@@ -8,7 +8,7 @@ import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 
 import vscode from './helpers/vscode-stub.ts';
-import { ACTIVITY_METHOD } from '../server/core/ingest-editor-core.ts';
+import { ACTIVITY_METHOD } from '../server/ingest/core/ingest-editor-core.ts';
 
 const requireFromHere = createRequire(import.meta.url);
 

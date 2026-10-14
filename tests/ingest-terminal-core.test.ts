@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { TerminalAccumulator, TerminalIngestEvent } from '../server/core/ingest-terminal-core.ts';
+import type { TerminalAccumulator, TerminalIngestEvent } from '../server/ingest/core/ingest-terminal-core.ts';
 
 import {
   DEFAULT_ACCUMULATOR_BYTES,
@@ -14,7 +14,7 @@ import {
   segmentLines,
   stripAnsi,
   summarize,
-} from '../server/core/ingest-terminal-core.ts';
+} from '../server/ingest/core/ingest-terminal-core.ts';
 
 const NOW = 1700000000000;
 const ESC = String.fromCharCode(27);

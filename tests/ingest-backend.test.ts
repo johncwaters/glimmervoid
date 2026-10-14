@@ -14,7 +14,7 @@ import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { ingestLane, settleBackendShutdown, visionsLane } from './helpers/lanes.ts';
 import { createReplayLog } from '../server/core/control-replay-core.ts';
-import { ACTIVITY_METHOD } from '../server/core/ingest-editor-core.ts';
+import { ACTIVITY_METHOD } from '../server/ingest/core/ingest-editor-core.ts';
 import { registerEphemeralSession } from '../server/lanes/ephemeral-session.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 
