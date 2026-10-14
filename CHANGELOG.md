@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-10-14
+
 ### Added
 
 - **`glimmervoid limits` for sessions**: a session can run `glimmervoid limits` to see which of `push`, `spawn`, `attention`, `board` and `edit` answer for it, each refusal with its reason. `glimmervoid --help` run inside a session prints the same report under the command list, or one line saying the limits are unknown when Glimmervoid does not answer within two seconds. `push` answers only for a session with a worktree of its own, so a session in a folder that is not a git checkout, or in a multi-repository workspace, is told it has nothing of its own to land. An operator session with guardrails, or a session it spawned, is also told what its guardrails block and the route that still works: credential folders, Glimmervoid's own folder and any path you blocked are off limits, so it flags you with `glimmervoid attention` instead of retrying. A factory orchestrator is still limited to `dispatch`, `reopen` and `cancel`.
