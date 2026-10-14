@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FileHandle } from 'node:fs/promises';
 
-import { canonicalizePath } from '../shared/paths.ts';
+import { canonicalizePath } from '../shared/canonical-paths.ts';
 import { claudeProjectsDir } from '../session/core/conversation-history.ts';
 import {
   codexHomes, codexRootCandidates, codexSessionIdFromPath, grokHomes, grokRootCandidates, isUsageFile,

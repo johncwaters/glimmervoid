@@ -4,7 +4,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { FileHandle } from 'node:fs/promises';
 
-import { canonicalizePath } from '../shared/paths.ts';
+import { canonicalizePath } from '../shared/canonical-paths.ts';
 import { claudeProjectsDir } from '../session/core/conversation-history.ts';
 import { PLAN_HOLD_RELEASE_MS } from '../detection/settings-injector.ts';
 import {

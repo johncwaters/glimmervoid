@@ -7,7 +7,8 @@ import path from 'node:path';
 import { execFileAsync, execFileSync } from '../server/child-process-safe.ts';
 import { createSerialQueue, isQueueAdmissionTimeout } from './spawn-gate.ts';
 import { matchedPrefix, sessionIdFromBranch, usablePrefixes } from './core/branch-gc-core.ts';
-import { comparableDirectoryPath, isSameDirectoryPath, sanitizeWorktreeName } from '../shared/paths.ts';
+import { comparableDirectoryPath, isSameDirectoryPath } from '../shared/canonical-paths.ts';
+import { sanitizeWorktreeName } from '../shared/paths.ts';
 import type { RemoteBranchTip } from './core/branch-gc-core.ts';
 import {
   GIT_FETCH_TIMEOUT_MS,

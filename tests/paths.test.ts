@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { canonicalizePath, isSameDirectoryPath } from '../shared/paths.ts';
+import { canonicalizePath, isSameDirectoryPath } from '../shared/canonical-paths.ts';
 import { SHORT_NAMES_AVAILABLE, shortPathOf, withTempDir } from './helpers/short-path.ts';
 
 const WIN = process.platform === 'win32';

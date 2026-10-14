@@ -8,7 +8,7 @@ import { execFileAsync } from '../server/child-process-safe.ts';
 
 import { createGitWorkspace, createGitWorkspaceSync } from '../server/git-workspace.ts';
 import type { WorkspaceHandle } from '../server/git-workspace.ts';
-import { comparableDirectoryPath, isSameDirectoryPath } from '../shared/paths.ts';
+import { comparableDirectoryPath, isSameDirectoryPath } from '../shared/canonical-paths.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 
 function deferredResolve(): { promise: Promise<void>; resolve: () => void } {

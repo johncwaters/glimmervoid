@@ -74,6 +74,6 @@ test("every fs.watch target is canonicalized first (Windows 8.3 short paths abor
   assert.deepEqual(
     offenders,
     [],
-    `These fs.watch targets must be wrapped in canonicalizePath (shared/paths.ts):\n  ${offenders.join("\n  ")}`,
+    `These fs.watch targets must be wrapped in canonicalizePath (shared/canonical-paths.ts):\n  ${offenders.join("\n  ")}`,
   );
 });

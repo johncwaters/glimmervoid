@@ -5,7 +5,7 @@ import type { WebSocket } from 'ws';
 import type { HookRouter } from '../detection/hook-source.ts';
 import type { Session } from '../session/sessions.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
-import { comparableDirectoryPath } from '../shared/paths.ts';
+import { comparableDirectoryPath } from '../shared/canonical-paths.ts';
 import { createBenchmarkWiring } from './benchmark-wiring.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionSpawnOverrides } from './session-factory.ts';

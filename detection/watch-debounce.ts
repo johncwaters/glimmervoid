@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import type { FSWatcher, WatchListener } from 'node:fs';
 
 import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
-import { canonicalizePath } from '../shared/paths.ts';
+import { canonicalizePath } from '../shared/canonical-paths.ts';
 
 export interface WatchDebounce {
   fire: () => void;

@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { canonicalizePath, equalsIgnoringCaseOnWindows } from '../shared/paths.ts';
+import { canonicalizePath } from '../shared/canonical-paths.ts';
+import { equalsIgnoringCaseOnWindows } from '../shared/paths.ts';
 import { DEFAULT_BRANCH_GC_PREFIXES } from './core/branch-gc-core.ts';
 import { decideConfigPath, glimmervoidHomeDir as resolveGlimmervoidHomeDir } from './core/config-path-core.ts';
 import { readEnvSecrets, withEnvSecrets, withoutEnvSecrets } from './core/config-secrets-core.ts';

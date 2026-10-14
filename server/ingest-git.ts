@@ -6,7 +6,7 @@ import { runGit as runGitCommand } from './git-exec.ts';
 import type { ExecFileFn } from './git-exec.ts';
 import { createWatchDebounce } from '../detection/watch-debounce.ts';
 import type { WatchDebounce } from '../detection/watch-debounce.ts';
-import { canonicalizePath } from '../shared/paths.ts';
+import { canonicalizePath } from '../shared/canonical-paths.ts';
 import {
   DEFAULT_DEBOUNCE_MS, DEFAULT_POLL_MS, LOG_ARGS, REV_PARSE_ARGS, STATUS_ARGS, createRepoState,
   classifyGitStatusFailure, decideGitEvents, deriveWatchDirs, isNoiseGitFile, parseCommitLine, parsePorcelainStatus, parseRevParse,

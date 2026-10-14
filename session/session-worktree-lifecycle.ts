@@ -8,7 +8,7 @@ import { buildHardenedGitInvocation } from "../server/core/git-invocation-core.t
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "../server/child-process-safe.ts";
-import { isSameDirectoryPath } from "../shared/paths.ts";
+import { isSameDirectoryPath } from "../shared/canonical-paths.ts";
 import { createCoalescedTimer } from "../shared/coalesce-timer.ts";
 import type { CoalescedTimer } from "../shared/coalesce-timer.ts";
 import { STATES, MERGEABLE_LIVE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";

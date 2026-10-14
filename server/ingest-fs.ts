@@ -1,6 +1,6 @@
 
 import { createRequire } from 'node:module';
-import { canonicalizePath } from '../shared/paths.ts';
+import { canonicalizePath } from '../shared/canonical-paths.ts';
 import {
   DEFAULT_BATCH_MS, buildIgnorePatterns, createBatch, daemonWriteRules, decideFsEvents, dedupeRoots,
   isIgnoredChange, normalizeRoots, recordChange, relativeWithin,

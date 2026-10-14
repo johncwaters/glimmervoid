@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FileHandle } from 'node:fs/promises';
 
-import { canonicalizePath } from '../shared/paths.ts';
+import { canonicalizePath } from '../shared/canonical-paths.ts';
 import {
   HEAD_SAMPLE_BYTES, MAX_CATCH_UP_BYTES, applyRead, createTailState, headChanged, headSample,
   pickStaleByMtime, planRead,

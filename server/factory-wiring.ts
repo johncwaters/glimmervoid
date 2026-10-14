@@ -3,7 +3,7 @@ import path from 'node:path';
 import { CoherenceTicketCreated, CoherenceWorkCreated } from '../shared/contracts/coherence.ts';
 import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest, FactoryLaneState, FactoryQueueIntentRequest, isSingleFactoryPathSegment } from '../shared/contracts/factory.ts';
 import type { FactoryControlResult, FactoryQueueIntentResult, FactoryUnlandedRecord } from '../shared/contracts/factory.ts';
-import { comparableDirectoryPath } from '../shared/paths.ts';
+import { comparableDirectoryPath } from '../shared/canonical-paths.ts';
 import type { Config } from '../shared/contracts/config.ts';
 import type { AgentTicketReply, AgentTicketRequest, TicketAgentVerb } from '../shared/contracts/session.ts';
 import { execFileAsync } from './child-process-safe.ts';
