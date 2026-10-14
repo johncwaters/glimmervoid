@@ -7,6 +7,7 @@ import { openExternalUrl } from '../external-link.ts';
 import { setSessionPrAttention } from '../session-card/lifecycle.ts';
 import { uiState } from '../ui-state-core.ts';
 import { latestMyPrsStatus, setMyPrsSessionLinks } from './my-prs-panel.ts';
+import { comparablePrKey } from './my-prs-view-core.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
 import { buildSessionPrChips, nextMyPrsByKey } from './session-pr-chips-core.ts';
 import type { MyPrsByKey, SessionPrChip } from './session-pr-chips-core.ts';
@@ -24,7 +25,7 @@ let paintRevision = 0;
 function attentionPrsFor(sessionId: string): MyPr[] {
   const attentionPrs: MyPr[] = [];
   for (const link of linksBySessionId.get(sessionId) ?? []) {
-    const pr = prsByKey.get(`${link.repo}#${link.number}`);
+    const pr = prsByKey.get(comparablePrKey(link));
     if (pr && ATTENTION_STAGES.has(pr.stage)) attentionPrs.push(pr);
   }
   return attentionPrs;

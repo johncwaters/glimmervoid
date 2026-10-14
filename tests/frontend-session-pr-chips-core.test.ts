@@ -26,8 +26,9 @@ test('chips put open before merged before closed, newest first within each, keep
   assert.match(view.overflowHoverText, /^#2 [^\n]+\n#1 /);
 });
 
-test('a link missing from My PRs shows its number without a stage, and unconfigured My PRs drops every stage', () => {
+test('a link missing from My PRs shows its number without a stage, a link in other letter case still finds its stage, and unconfigured My PRs drops every stage', () => {
   const configured = nextMyPrsByKey(new Map(), status({ prs: [myPr(3, 'OPEN', 'ready')] }));
+  assert.equal(buildSessionPrChips([{ ...link(3, 1), repo: 'acme/APP' }], configured).chips[0]?.stage?.icon, 'ready');
   const missing = buildSessionPrChips([link(9, 1)], configured);
   assert.deepEqual(missing.chips, [{ key: 'Acme/app#9', numberText: '#9', url: 'https://github.com/Acme/app/pull/9', hoverText: 'Acme/app', stage: null }]);
   const unconfigured = nextMyPrsByKey(configured, status({ configured: false, prs: [myPr(3, 'OPEN', 'ready')] }));

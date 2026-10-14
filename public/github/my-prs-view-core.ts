@@ -306,11 +306,15 @@ export function queueNotices(status: MyPrsStatusType | null, nowMs = 0): QueueNo
 export interface LiveSessionLinks { id: string; title: string; links: readonly Pick<LinkedPr, 'repo' | 'number'>[] }
 export interface LinkedLiveSession { id: string; title: string }
 
+export function comparablePrKey(pr: Pick<LinkedPr, 'repo' | 'number'>): string {
+  return `${pr.repo}#${pr.number}`.toLowerCase();
+}
+
 export function liveSessionsByPrKey(sessions: Iterable<LiveSessionLinks>): Map<string, LinkedLiveSession[]> {
   const sessionsByPrKey = new Map<string, LinkedLiveSession[]>();
   for (const session of sessions) {
     for (const link of session.links) {
-      const prKey = `${link.repo}#${link.number}`;
+      const prKey = comparablePrKey(link);
       const linkedSessions = sessionsByPrKey.get(prKey) ?? [];
       if (linkedSessions.at(-1)?.id === session.id) continue;
       linkedSessions.push({ id: session.id, title: session.title });

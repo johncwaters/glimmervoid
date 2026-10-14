@@ -11,7 +11,7 @@ import { nextRequestId, sendControlMsg, sendControlRequest } from '../control-ws
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { queueMergeCelebration } from '../merge-celebration.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
-import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, liveSessionsByPrKey, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import { chooseSelectedKey, comparablePrKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, liveSessionsByPrKey, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { LinkedLiveSession, LiveSessionLinks, MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
@@ -385,7 +385,7 @@ function render(): void {
         if (document.documentElement.dataset.layout === 'phone') detail?.scrollIntoView({ block: 'start', behavior: 'smooth' });
       });
       sectionElement.append(row);
-      const sessionFocusControls = createSessionFocusControls(sessionsByPrKey.get(pr.key));
+      const sessionFocusControls = createSessionFocusControls(sessionsByPrKey.get(comparablePrKey(pr)));
       if (!sessionFocusControls) continue;
       if (parentKey) sessionFocusControls.style.paddingInlineStart = `${36 + Math.min(depth, 6) * 16}px`;
       sectionElement.append(sessionFocusControls);
