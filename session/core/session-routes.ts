@@ -72,11 +72,20 @@ function spawnRoute({ isEphemeral, isSpawnedChild, factoryRole }: SessionKindFac
   return ANSWERS;
 }
 
-function attentionRoute({ isEphemeral, isSpawnedChild, factoryRole }: SessionKindFacts): RouteVerdict {
-  if (!isEphemeral) return ANSWERS;
-  if (factoryRole !== null) return ANSWERS;
-  if (isSpawnedChild) return ANSWERS;
+function hasOperatorCard({ isEphemeral, isSpawnedChild, factoryRole }: SessionKindFacts): boolean {
+  if (!isEphemeral) return true;
+  if (factoryRole !== null) return true;
+  return isSpawnedChild;
+}
+
+function attentionRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
   return { answers: false, reason: 'a lane session cannot raise attention, because its notes are not delivered to the operator' };
+}
+
+function editRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot surface a file, because it has no card for the operator to open the file from' };
 }
 
 const COMMAND_ROUTES: Readonly<Record<SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
@@ -84,6 +93,7 @@ const COMMAND_ROUTES: Readonly<Record<SessionCommand, (facts: SessionRoleFacts) 
   spawn: spawnRoute,
   attention: attentionRoute,
   board: () => ANSWERS,
+  edit: editRoute,
 });
 
 function commandLimit(name: SessionCommand, facts: SessionRoleFacts): SessionCommandLimit {
@@ -123,5 +133,5 @@ function formatSessionLimits({ commands, sandboxed, deadEnds }: SessionLimits): 
   ];
 }
 
-export { supervisionLine, permitsHelpCommand, pushRoute, spawnRoute, attentionRoute, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
+export { supervisionLine, permitsHelpCommand, pushRoute, spawnRoute, attentionRoute, editRoute, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
 export type { SessionRoleFacts, RouteVerdict };

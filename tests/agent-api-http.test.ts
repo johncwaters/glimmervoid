@@ -583,18 +583,19 @@ test('limits tells a session which commands answer, and a guarded operator sessi
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'attention', 'board'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'attention', 'board', 'edit'].map((name) => ({ name, answers: true })),
     ]);
     assert.equal(operatorLimits.sandboxed, true);
     assert.deepEqual(operatorLimits.deadEnds.map(({ route }) => route), ['flag the operator with glimmervoid attention']);
     const laneLimits = await limitsOf(sandboxedLane);
-    assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [['push', false], ['spawn', false], ['attention', false], ['board', true]]);
+    assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [['push', false], ['spawn', false], ['attention', false], ['board', true], ['edit', false]]);
     assert.deepEqual([laneLimits.sandboxed, laneLimits.deadEnds], [true, []]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],
       [sandboxedLane, laneLimits, 'push', {}],
       [sandboxedLane, laneLimits, 'spawn', { prompt: 'help me' }],
       [sandboxedLane, laneLimits, 'attention', { note: 'look' }],
+      [sandboxedLane, laneLimits, 'edit', { path: 'notes.md' }],
     ];
     for (const [session, limits, command, payload] of refusedCalls) {
       const refusal = await fixture.wiring.handle(session, command, payload);

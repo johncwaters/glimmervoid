@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 import { AGENT_API_VERBS, AgentDispatchRequest, AgentAttentionRequest, AgentEditRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, OrchestratorAgentVerb, TicketAgentVerb } from '../../shared/contracts/session.ts';
-import { attentionRoute, NO_OWN_WORKTREE_REASON, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
+import { attentionRoute, editRoute, NO_OWN_WORKTREE_REASON, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
 import type { RouteVerdict, SessionRoleFacts } from '../../session/core/session-routes.ts';
 
 const MAX_LIVE_CHILDREN = 3;
@@ -116,6 +116,10 @@ function decideAttentionAllowance(caller: SessionRoleFacts): AgentVerdict {
   return refuseByRole(attentionRoute(caller));
 }
 
+function decideEditAllowance(caller: SessionRoleFacts): AgentVerdict {
+  return refuseByRole(editRoute(caller));
+}
+
 function describePushRouteRefusal(caller: SessionRoleFacts): AgentPushReply | null {
   const route = pushRoute(caller);
   if (route.answers) return null;
@@ -211,7 +215,7 @@ function deriveChildSessionName(parentName: string, existingNames: readonly stri
 }
 
 export {
-  decideAgentRequest, decideAttentionAllowance, decideSpawnAllowance, decideTicketAction, deriveChildSessionName, describePushLanding,
+  decideAgentRequest, decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, decideTicketAction, deriveChildSessionName, describePushLanding,
   describePushRouteRefusal, isAgentApiVerb, isOrchestratorAgentVerb, parseAgentVerb, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
   REFUSAL_REASON, REFUSAL_STATUS,
 };

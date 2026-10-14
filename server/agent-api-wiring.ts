@@ -11,7 +11,7 @@ import type {
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './control-replay-core.ts';
 import {
-  decideAttentionAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding, describePushRouteRefusal, parseAgentVerb,
+  decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding, describePushRouteRefusal, parseAgentVerb,
 } from './core/agent-api-core.ts';
 import { isConfinedSessionVendor } from './core/sandbox-roles-core.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
@@ -177,6 +177,8 @@ function createAgentApiWiring({
     if (parsed.verb === 'limits') return { status: 200, body: limits(session) };
     if (parsed.verb === 'attention') return attention(session, parsed.request);
     if (parsed.verb === 'edit') {
+      const allowance = decideEditAllowance(roleFactsOf(session));
+      if (!allowance.ok) return { status: allowance.status, body: { ok: false, error: allowance.reason } };
       const reply = await sessionDocs.surface(session, parsed.request);
       if (!reply.ok) return { status: 400, body: reply };
       return { status: 200, body: { ok: true, path: reply.doc.path, name: reply.doc.name } };

@@ -149,7 +149,7 @@ export const SessionDoc = z.object({
 export type AgentEditRequest = z.infer<typeof AgentEditRequest>;
 export type SessionDoc = z.infer<typeof SessionDoc>;
 
-export const SESSION_COMMANDS = ['push', 'spawn', 'attention', 'board'] as const;
+export const SESSION_COMMANDS = ['push', 'spawn', 'attention', 'board', 'edit'] as const;
 
 export const SessionLimits = z.object({
   commands: z.array(z.object({
