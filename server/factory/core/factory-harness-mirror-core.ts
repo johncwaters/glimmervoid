@@ -4,6 +4,7 @@ import type { FactoryHarnessVerdict, FactoryProjectState, FactoryState } from '.
 import type { Config } from '../../../shared/contracts/config.ts';
 
 export const HARNESS_MIRROR_MAX_IDLE_MS = 24 * 60 * 60 * 1000;
+const HARNESS_MIRROR_MAX_BATCHES = 16;
 const HARNESS_MIRROR_PROJECT_PREFIX = 'harness-';
 const BATCH_NAME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}$/;
 const RUN_NAME_PATTERN = /^\d{4}$/;
@@ -26,16 +27,12 @@ export function harnessRunName(run: number): string {
   return String(run).padStart(4, '0');
 }
 
-function latestMatchingName(names: readonly string[], pattern: RegExp): string | null {
-  return names.filter((name) => pattern.test(name)).sort().at(-1) ?? null;
-}
-
-export function latestHarnessBatchName(names: readonly string[]): string | null {
-  return latestMatchingName(names, BATCH_NAME_PATTERN);
+export function newestHarnessBatchNames(names: readonly string[]): string[] {
+  return names.filter((name) => BATCH_NAME_PATTERN.test(name)).sort().reverse().slice(0, HARNESS_MIRROR_MAX_BATCHES);
 }
 
 export function latestHarnessRunName(names: readonly string[]): string | null {
-  return latestMatchingName(names, RUN_NAME_PATTERN);
+  return names.filter((name) => RUN_NAME_PATTERN.test(name)).sort().at(-1) ?? null;
 }
 
 function parseStateLine(line: string): FactoryState | null {
@@ -61,8 +58,9 @@ export function describeHarnessOutcome(verdict: FactoryHarnessVerdict | null): s
   return verdict.failureClass ? `${verdict.outcome} (${verdict.failureClass})` : verdict.outcome;
 }
 
-export function mirrorHarnessProjects(state: FactoryState, observedRun: NonNullable<FactoryProjectState['observedRun']>): FactoryProjectState[] {
+export function mirrorHarnessProjects(state: FactoryState, batchName: string, observedRun: NonNullable<FactoryProjectState['observedRun']>): FactoryProjectState[] {
+  const batchId = batchName.slice(-8);
   return state.projects.map((project) => ({
-    ...project, projectId: `${HARNESS_MIRROR_PROJECT_PREFIX}${project.projectId}`, projectName: `Harness run: ${project.projectName}`, observedRun,
+    ...project, projectId: `${HARNESS_MIRROR_PROJECT_PREFIX}${batchId}-${project.projectId}`, projectName: `Harness ${batchId}: ${project.projectName}`, observedRun,
   }));
 }

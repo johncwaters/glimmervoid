@@ -19,6 +19,7 @@ type RequestStatus = { requestId: string | null; text: string; hasError: boolean
 const draftsByProject = new Map<string, IntentDraft>();
 const queueStatusByProject = new Map<string, RequestStatus>();
 const controlStatusByProject = new Map<string, RequestStatus>();
+const projectIdsWithFloorOptInOpen = new Set<string>();
 
 function intentDraft(projectId: string): IntentDraft {
   const previous = draftsByProject.get(projectId);
@@ -55,9 +56,18 @@ function sendFactoryRequest(projectId: string, type: 'factory-queue-intent' | 'f
   render();
 }
 
-function buildFloorAllowanceField(draft: IntentDraft, isPending: boolean): HTMLFieldSetElement {
-  const fieldset = el('fieldset', 'factory-form-field');
-  fieldset.append(el('legend', 'factory-label', 'Protected floor opt-in'));
+function buildFloorAllowanceField(projectId: string, draft: IntentDraft, isPending: boolean): HTMLDetailsElement {
+  const disclosure = el('details', 'factory-floor-opt-in');
+  disclosure.open = projectIdsWithFloorOptInOpen.has(projectId) || (draft.floorAllowances?.length ?? 0) > 0;
+  disclosure.addEventListener('toggle', () => {
+    if (disclosure.open) { projectIdsWithFloorOptInOpen.add(projectId); return; }
+    projectIdsWithFloorOptInOpen.delete(projectId);
+  });
+  const summary = el('summary', 'factory-label factory-floor-opt-in-summary', 'Protected floor opt-in');
+  summary.dataset.factoryField = 'floor-opt-in';
+  disclosure.append(summary);
+  const fieldset = el('fieldset', 'factory-floor-allowances');
+  fieldset.append(el('legend', 'sr-only', 'Protected floor opt-in'));
   for (const pattern of FACTORY_PROTECTED_PATH_FLOOR) {
     const option = el('label', 'factory-floor-allowance');
     const checkbox = el('input');
@@ -74,7 +84,8 @@ function buildFloorAllowanceField(draft: IntentDraft, isPending: boolean): HTMLF
     option.append(checkbox, el('span', null, pattern));
     fieldset.append(option);
   }
-  return fieldset;
+  disclosure.append(fieldset);
+  return disclosure;
 }
 
 function buildQueueForm(projectId: string): HTMLFormElement {
@@ -111,7 +122,7 @@ function buildQueueForm(projectId: string): HTMLFormElement {
   risk.value = draft.risk;
   risk.addEventListener('change', () => { draft.risk = FactoryQueueIntentRequest.shape.risk.parse(risk.value); });
   riskField.append(el('span', 'factory-label', 'Risk'), risk);
-  form.append(buildFloorAllowanceField(draft, isPending));
+  form.append(buildFloorAllowanceField(projectId, draft, isPending));
   const submit = el('button', 'factory-action', 'Queue intent');
   submit.type = 'submit';
   submit.disabled = !isConnected || isPending;

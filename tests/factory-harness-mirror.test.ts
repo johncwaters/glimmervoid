@@ -17,7 +17,7 @@ function stateLine(headSha: string): string {
   return `${JSON.stringify({ arrivedAt: new Date().toISOString(), state: { type: 'factory-state', ts: 1, projects: [harnessProject(headSha)] } })}\n`;
 }
 
-test('the harness mirror shows the newest run read-only until it has been idle for a day, and nothing before any run', async () => {
+test('the harness mirror shows the newest run of every concurrent batch read-only until it has been idle for a day, and nothing before any run', async () => {
   const runsDirectory = await mkdtemp(path.join(os.tmpdir(), 'factory-harness-mirror-'));
   try {
     assert.deepEqual(await createFactoryHarnessMirror({ runsDirectory: path.join(runsDirectory, 'missing') }).listObservedProjects(), []);
@@ -30,10 +30,12 @@ test('the harness mirror shows the newest run read-only until it has been idle f
     let nowMs = Date.now();
     const mirror = createFactoryHarnessMirror({ runsDirectory, now: () => nowMs });
 
-    const [running] = await mirror.listObservedProjects();
-    assert.equal(running.projectId, 'harness-seed');
+    const [running, alsoRunning] = await mirror.listObservedProjects();
+    assert.equal(running.projectId, 'harness-5f782baa-seed');
     assert.equal(running.headSha, 'c'.repeat(40));
     assert.deepEqual(running.observedRun, { recordDirectory: newerRun, outcome: null });
+    assert.equal(alsoRunning.projectId, 'harness-94aa1998-seed');
+    assert.equal(alsoRunning.headSha, 'a'.repeat(40));
 
     await writeFile(path.join(newerRun, HARNESS_VERDICT_FILE_NAME), JSON.stringify({ outcome: 'fail', failureClass: 'stalled' }));
     assert.equal((await mirror.listObservedProjects())[0].observedRun?.outcome, 'fail (stalled)');
@@ -41,6 +43,7 @@ test('the harness mirror shows the newest run read-only until it has been idle f
     const lastWrite = new Date(nowMs);
     await utimes(path.join(newerRun, HARNESS_STATE_FILE_NAME), lastWrite, lastWrite);
     await utimes(path.join(newerRun, HARNESS_VERDICT_FILE_NAME), lastWrite, lastWrite);
+    await utimes(path.join(olderRun, HARNESS_STATE_FILE_NAME), lastWrite, lastWrite);
     nowMs += HARNESS_MIRROR_MAX_IDLE_MS + 1000;
     assert.deepEqual(await mirror.listObservedProjects(), []);
   } finally {

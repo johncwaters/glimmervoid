@@ -5,7 +5,7 @@ import type { Stats } from 'node:fs';
 import path from 'node:path';
 import { FactoryHarnessVerdict } from '../../shared/contracts/factory.ts';
 import type { FactoryProjectState, FactoryState } from '../../shared/contracts/factory.ts';
-import { HARNESS_STATE_FILE_NAME, HARNESS_VERDICT_FILE_NAME, describeHarnessOutcome, isHarnessRunFresh, latestHarnessBatchName, latestHarnessRunName, latestHarnessState, mirrorHarnessProjects } from './core/factory-harness-mirror-core.ts';
+import { HARNESS_STATE_FILE_NAME, HARNESS_VERDICT_FILE_NAME, describeHarnessOutcome, isHarnessRunFresh, latestHarnessRunName, latestHarnessState, mirrorHarnessProjects, newestHarnessBatchNames } from './core/factory-harness-mirror-core.ts';
 
 const STATE_TAIL_MAX_BYTES = 4 * 1024 * 1024;
 const NON_BLOCKING_READ_FLAGS = constants.O_RDONLY | constants.O_NONBLOCK;
@@ -64,20 +64,23 @@ async function readVerdict(verdictPath: string): Promise<{ verdict: FactoryHarne
 }
 
 export function createFactoryHarnessMirror({ runsDirectory, now = Date.now }: { runsDirectory: string; now?: () => number }) {
-  let cached: { statePath: string; modifiedMs: number; size: number; state: FactoryState | null } | null = null;
+  type CachedState = { modifiedMs: number; size: number; state: FactoryState | null };
+  let cachedStatesByPath = new Map<string, CachedState>();
 
-  async function readLatestState(statePath: string, stateFile: RegularFile): Promise<FactoryState | null> {
+  async function readLatestState(statePath: string, stateFile: RegularFile, nextCachedStatesByPath: Map<string, CachedState>): Promise<FactoryState | null> {
     const { mtimeMs: modifiedMs, size } = stateFile.stats;
-    if (cached?.statePath === statePath && cached.modifiedMs === modifiedMs && cached.size === size) return cached.state;
+    const cached = cachedStatesByPath.get(statePath);
+    if (cached?.modifiedMs === modifiedMs && cached.size === size) {
+      nextCachedStatesByPath.set(statePath, cached);
+      return cached.state;
+    }
     const { tail, isCutAtStart } = await readTail(stateFile.handle, size);
     const state = latestHarnessState(tail, isCutAtStart);
-    cached = { statePath, modifiedMs, size, state };
+    nextCachedStatesByPath.set(statePath, { modifiedMs, size, state });
     return state;
   }
 
-  async function listObservedProjects(): Promise<FactoryProjectState[]> {
-    const batchName = latestHarnessBatchName(await listNames(runsDirectory));
-    if (!batchName) return [];
+  async function listBatchProjects(batchName: string, nextCachedStatesByPath: Map<string, CachedState>): Promise<FactoryProjectState[]> {
     const batchDirectory = path.join(runsDirectory, batchName);
     const runName = latestHarnessRunName(await listNames(batchDirectory));
     if (!runName) return [];
@@ -88,10 +91,18 @@ export function createFactoryHarnessMirror({ runsDirectory, now = Date.now }: { 
     try {
       const { verdict, modifiedMs: verdictModifiedMs } = await readVerdict(path.join(recordDirectory, HARNESS_VERDICT_FILE_NAME));
       if (!isHarnessRunFresh(Math.max(stateFile.stats.mtimeMs, verdictModifiedMs ?? 0), now())) return [];
-      const state = await readLatestState(statePath, stateFile);
+      const state = await readLatestState(statePath, stateFile, nextCachedStatesByPath);
       if (!state) return [];
-      return mirrorHarnessProjects(state, { recordDirectory, outcome: describeHarnessOutcome(verdict) });
+      return mirrorHarnessProjects(state, batchName, { recordDirectory, outcome: describeHarnessOutcome(verdict) });
     } finally { await stateFile.handle.close(); }
+  }
+
+  async function listObservedProjects(): Promise<FactoryProjectState[]> {
+    const nextCachedStatesByPath = new Map<string, CachedState>();
+    const projects: FactoryProjectState[] = [];
+    for (const batchName of newestHarnessBatchNames(await listNames(runsDirectory))) projects.push(...await listBatchProjects(batchName, nextCachedStatesByPath));
+    cachedStatesByPath = nextCachedStatesByPath;
+    return projects;
   }
 
   return { listObservedProjects };
