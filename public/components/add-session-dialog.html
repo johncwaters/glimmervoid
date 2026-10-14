@@ -30,8 +30,8 @@
   <span>Skip permission prompts</span>
   <span class="dialog-hint">The agent edits files and runs shell commands without asking first, so a bad instruction or a hostile file in the repo can act on this machine unchecked. Leave this off unless you trust the repo and the task.</span>
 </label>
-<label class="dialog-label dialog-checkbox-label" id="add-session-unconfined-label">
-  <input type="checkbox" class="dialog-checkbox" id="add-session-unconfined">
+<label class="dialog-label dialog-checkbox-label" id="add-session-unguarded-label">
+  <input type="checkbox" class="dialog-checkbox" id="add-session-unguarded">
   <span>Run without guardrails</span>
   <span class="dialog-hint">Claude Code sessions run with guardrails that block writes to credentials and Glimmervoid's own state and hide credentials and other agents' settings. Turn this on only for work the guardrails cannot serve.</span>
 </label>
