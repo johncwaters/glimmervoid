@@ -2,7 +2,7 @@ import { SESSION_COMMANDS } from '../../shared/contracts/session.ts';
 import type { SessionCommand, SessionLimits } from '../../shared/contracts/session.ts';
 
 const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
-const SANDBOX_LINE = 'It runs in an OS-enforced sandbox, so a refused write or connection will not succeed on retry.';
+const GUARDRAILS_LINE = 'Its guardrails are OS-enforced, so a read, write or connection they refuse will not succeed on retry.';
 const NO_OWN_WORKTREE_REASON = 'this session has no worktree of its own, so there is nothing of its own to land';
 
 interface SessionRoleFacts {
@@ -29,7 +29,7 @@ const ANSWERS: { answers: true } = Object.freeze({ answers: true });
 
 function supervisionLine({ isSandboxed }: { isSandboxed: boolean }): string {
   if (!isSandboxed) return SUPERVISION_LINE;
-  return `${SUPERVISION_LINE} ${SANDBOX_LINE}`;
+  return `${SUPERVISION_LINE} ${GUARDRAILS_LINE}`;
 }
 
 function pushRoute({ isEphemeral, isSpawnedChild, hasOwnWorktree }: SessionRoleFacts): PushRouteVerdict {
@@ -44,7 +44,7 @@ function spawnRoute({ isEphemeral, isSpawnedChild, factoryRole }: SessionKindFac
   if (factoryRole === 'worker') return { answers: false, reason: 'the factory starts and counts its workers, so a worker may not spawn a session' };
   if (isSpawnedChild) return { answers: false, reason: 'a spawned session may not spawn another' };
   if (isEphemeral) {
-    return { answers: false, reason: 'only an operator session may spawn a session, because the new session gets an operator session sandbox, which can be wider than this one' };
+    return { answers: false, reason: "only an operator session may spawn a session, because the new session gets an operator session's guardrails, which can be wider than this one's" };
   }
   return ANSWERS;
 }
@@ -74,33 +74,28 @@ function runsUnderOperatorSessionSandbox({ isSandboxed, isEphemeral, isSpawnedCh
   return !isEphemeral || isSpawnedChild;
 }
 
-function operatorSessionSandboxDeadEnds(facts: SessionRoleFacts): SessionDeadEnd[] {
-  const landingRoute = pushRoute(facts).answers ? 'land your commits with glimmervoid push' : 'leave the merge to the operator';
-  return [
-    { blocked: 'the main checkout, git hooks and git config are read-only', route: landingRoute },
-    { blocked: '/tmp is read-only', route: 'write temporary files under $TMPDIR' },
-    {
-      blocked: "git over SSH, Docker, the system keyring, unix sockets and edits to the agent's own settings are unavailable",
-      route: 'flag the operator with glimmervoid attention',
-    },
-  ];
-}
+const OPERATOR_SESSION_GUARDRAIL_DEAD_ENDS: readonly SessionDeadEnd[] = Object.freeze([
+  {
+    blocked: "credential folders, Glimmervoid's own folder and any path the operator blocked are off limits",
+    route: 'flag the operator with glimmervoid attention',
+  },
+]);
 
 function describeSessionLimits(facts: SessionLimitFacts): SessionLimits {
   return {
     commands: SESSION_COMMANDS.map((name) => commandLimit(name, facts)),
     sandboxed: facts.isSandboxed,
-    deadEnds: runsUnderOperatorSessionSandbox(facts) ? operatorSessionSandboxDeadEnds(facts) : [],
+    deadEnds: runsUnderOperatorSessionSandbox(facts) ? [...OPERATOR_SESSION_GUARDRAIL_DEAD_ENDS] : [],
   };
 }
 
 function formatSessionLimits({ commands, sandboxed, deadEnds }: SessionLimits): string[] {
   const commandLines = commands.map(({ name, answers, reason }) => (answers ? `  ${name}: available` : `  ${name}: not available, ${reason}`));
-  if (!sandboxed) return ['This session:', ...commandLines, '  sandbox: none'];
+  if (!sandboxed) return ['This session:', ...commandLines, '  guardrails: none'];
   return [
     'This session:',
     ...commandLines,
-    '  sandbox: OS-enforced, so a refused write or connection will not succeed on retry',
+    '  guardrails: OS-enforced, so a read, write or connection they refuse will not succeed on retry',
     ...deadEnds.map(({ blocked, route }) => `  ${blocked}: ${route}`),
   ];
 }

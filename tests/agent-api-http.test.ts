@@ -567,7 +567,7 @@ test('a lane session is refused a spawn and an attention note with the reason, a
   }
 });
 
-test('limits tells a session which commands answer, and a sandboxed operator session each dead end with the route that still works', async () => {
+test('limits tells a session which commands answer, and a guarded operator session what its guardrails block with the route that still works', async () => {
   const fixture = wiringFixture({ parentIsSandboxed: true });
   const sandboxedLane = new Session({
     id: 'review-lane', name: 'review', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty(),
@@ -586,9 +586,7 @@ test('limits tells a session which commands answer, and a sandboxed operator ses
       ...['spawn', 'attention', 'board'].map((name) => ({ name, answers: true })),
     ]);
     assert.equal(operatorLimits.sandboxed, true);
-    assert.deepEqual(operatorLimits.deadEnds.map(({ route }) => route), [
-      'leave the merge to the operator', 'write temporary files under $TMPDIR', 'flag the operator with glimmervoid attention',
-    ]);
+    assert.deepEqual(operatorLimits.deadEnds.map(({ route }) => route), ['flag the operator with glimmervoid attention']);
     const laneLimits = await limitsOf(sandboxedLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [['push', false], ['spawn', false], ['attention', false], ['board', true]]);
     assert.deepEqual([laneLimits.sandboxed, laneLimits.deadEnds], [true, []]);

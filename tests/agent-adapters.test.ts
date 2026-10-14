@@ -75,7 +75,7 @@ test('buildArgs keeps the order: perms, resume, supervision line, lane flags, pr
 test('a sandboxed Claude launch also reads that a refused write or connection will not succeed on retry', () => {
   assert.deepEqual(claudeCode.buildArgs({ hasOuterSandbox: true }), [
     '--append-system-prompt',
-    `${SUPERVISION_LINE} It runs in an OS-enforced sandbox, so a refused write or connection will not succeed on retry.`,
+    `${SUPERVISION_LINE} Its guardrails are OS-enforced, so a read, write or connection they refuse will not succeed on retry.`,
   ]);
 });
 

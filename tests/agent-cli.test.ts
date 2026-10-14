@@ -31,14 +31,14 @@ const LIMITS_REPLY = JSON.stringify({
   ok: true,
   commands: [{ name: 'push', answers: true }, { name: 'spawn', answers: false, reason: 'a spawned session may not spawn another' }],
   sandboxed: true,
-  deadEnds: [{ blocked: '/tmp is read-only', route: 'write temporary files under $TMPDIR' }],
+  deadEnds: [{ blocked: 'credential folders are off limits', route: 'flag the operator with glimmervoid attention' }],
 });
 const LIMITS_LINES = [
   'This session:',
   '  push: available',
   '  spawn: not available, a spawned session may not spawn another',
-  '  sandbox: OS-enforced, so a refused write or connection will not succeed on retry',
-  '  /tmp is read-only: write temporary files under $TMPDIR',
+  '  guardrails: OS-enforced, so a read, write or connection they refuse will not succeed on retry',
+  '  credential folders are off limits: flag the operator with glimmervoid attention',
 ];
 
 async function helpOutput(agentUrl: string | null): Promise<string[]> {

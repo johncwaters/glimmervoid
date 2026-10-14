@@ -103,7 +103,7 @@ test('buildArgs on a plain session adds the update-check flag, the supervision l
 });
 
 test('a sandboxed Codex launch also reads that a refused write or connection will not succeed on retry', () => {
-  const sandboxedLine = `${SUPERVISION_LINE} It runs in an OS-enforced sandbox, so a refused write or connection will not succeed on retry.`;
+  const sandboxedLine = `${SUPERVISION_LINE} Its guardrails are OS-enforced, so a read, write or connection they refuse will not succeed on retry.`;
   const sandboxedArgs = codex.buildArgs({ hasOuterSandbox: true }).slice(2, 4);
   assert.deepEqual(sandboxedArgs, ['-c', `developer_instructions='''${sandboxedLine}'''`]);
   assert.equal(sandboxedArgs[1].includes('"'), false, 'no double quotes reach a cmd.exe re-parse');
