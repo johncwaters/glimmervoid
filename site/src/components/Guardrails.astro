@@ -4,37 +4,43 @@
     <h2>Agents move fast. Mistakes stay small.</h2>
     <p>Risk reduction, not a security boundary. Claude Code focus sessions on macOS and Linux run open with a short block list. Lanes that read outside input run closed.</p>
   </div>
-  <div class="ledger diagram reveal" role="table" aria-label="What focus sessions and outside input lanes can and cannot do">
-    <div class="ledger-row ledger-head" role="row">
-      <span role="columnheader"></span>
-      <span role="columnheader" class="yes"><span class="column-name">Your focus sessions</span><span class="posture">Open, blocks a list</span></span>
-      <span role="columnheader" class="no"><span class="column-name">Outside input lanes</span><span class="posture">Closed, allows a list</span></span>
-    </div>
-    <div class="ledger-row" role="row">
-      <span class="aspect" role="rowheader">Writes</span>
-      <span role="cell" class="yes" data-level="Your focus sessions"><span class="verdict">Anywhere</span><span class="detail">Except credentials, Glimmervoid's state, <code>blockedPaths</code></span></span>
-      <span role="cell" class="no" data-level="Outside input lanes"><span class="verdict">Own folder only</span><span class="detail">Not even git hooks</span></span>
-    </div>
-    <div class="ledger-row" role="row">
-      <span class="aspect" role="rowheader">Reads</span>
-      <span role="cell" class="yes" data-level="Your focus sessions"><span class="verdict">All but credentials and state</span><span class="detail">And <code>unreadablePaths</code></span></span>
-      <span role="cell" class="no" data-level="Outside input lanes"><span class="verdict">No credentials, no state</span></span>
-    </div>
-    <div class="ledger-row" role="row">
-      <span class="aspect" role="rowheader">Network</span>
-      <span role="cell" class="yes" data-level="Your focus sessions"><span class="verdict">Open</span></span>
-      <span role="cell" class="no" data-level="Outside input lanes"><span class="verdict">Allowlist for reviews</span><span class="detail">Open for lanes that push a fix</span></span>
-    </div>
-    <div class="ledger-row" role="row">
-      <span class="aspect" role="rowheader">Tools</span>
-      <span role="cell" class="yes" data-level="Your focus sessions"><span class="verdict">Everything</span></span>
-      <span role="cell" class="no" data-level="Outside input lanes"><span class="verdict">Own terminal only</span></span>
-    </div>
-    <div class="ledger-row" role="row">
-      <span class="aspect" role="rowheader">Opt out</span>
-      <span role="cell" class="yes" data-level="Your focus sessions"><span class="verdict">Per project</span></span>
-      <span role="cell" class="no" data-level="Outside input lanes"><span class="verdict">Never</span></span>
-    </div>
+  <div class="ledger diagram reveal">
+    <table aria-label="What focus sessions and outside input lanes can and cannot do">
+      <thead>
+        <tr>
+          <td></td>
+          <th scope="col" class="yes"><span class="column-name">Your focus sessions</span><span class="posture">Open, blocks a list</span></th>
+          <th scope="col" class="no"><span class="column-name">Outside input lanes</span><span class="posture">Closed, allows a list</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row" class="aspect">Writes</th>
+          <td class="yes" data-level="Your focus sessions"><span class="verdict">Anywhere</span><span class="detail">Except credentials, Glimmervoid's state, <code>blockedPaths</code></span></td>
+          <td class="no" data-level="Outside input lanes"><span class="verdict">Own folder only</span><span class="detail">Not even git hooks</span></td>
+        </tr>
+        <tr>
+          <th scope="row" class="aspect">Reads</th>
+          <td class="yes" data-level="Your focus sessions"><span class="verdict">All but credentials and state</span><span class="detail">And <code>unreadablePaths</code></span></td>
+          <td class="no" data-level="Outside input lanes"><span class="verdict">No credentials, no state</span></td>
+        </tr>
+        <tr>
+          <th scope="row" class="aspect">Network</th>
+          <td class="yes" data-level="Your focus sessions"><span class="verdict">Open</span></td>
+          <td class="no" data-level="Outside input lanes"><span class="verdict">Allowlist for reviews</span><span class="detail">Open for lanes that push a fix</span></td>
+        </tr>
+        <tr>
+          <th scope="row" class="aspect">Tools</th>
+          <td class="yes" data-level="Your focus sessions"><span class="verdict">Everything</span></td>
+          <td class="no" data-level="Outside input lanes"><span class="verdict">Own terminal only</span></td>
+        </tr>
+        <tr>
+          <th scope="row" class="aspect">Opt out</th>
+          <td class="yes" data-level="Your focus sessions"><span class="verdict">Per project</span></td>
+          <td class="no" data-level="Outside input lanes"><span class="verdict">Never</span></td>
+        </tr>
+      </tbody>
+    </table>
   </div>
   <p class="built-on reveal">Built on <a href="https://github.com/anthropics/sandbox-runtime">Anthropic's sandbox-runtime</a> (Seatbelt on macOS, bubblewrap on Linux) and <a href="https://ccsafetynet.com">CC Safety Net</a>.</p>
   <div class="yolo reveal">
@@ -42,46 +48,50 @@
       <h3>Sane YOLO</h3>
       <p>Skip prompts without betting the repo. Claude Code, Codex and Grok commands are checked before they run; <code>git reset --hard</code>, <code>git push --force</code> and unverifiable <code>rm -rf</code> are refused. On by default.</p>
     </div>
-    <pre class="yolo-term" aria-label="A blocked command in a session"><span class="prompt">$</span> rm -rf "$BUILD_DIR"
+    <figure aria-label="A blocked command in a session"><pre class="yolo-term"><span class="prompt">$</span> rm -rf "$BUILD_DIR"
 <span class="blocked">BLOCKED by CC Safety Net</span>
 
 Reason: rm -rf target contains shell variables
-that cannot be verified safely.</pre>
+that cannot be verified safely.</pre></figure>
   </div>
 </section>
 
 <style>
   .ledger { padding: 0; overflow-x: visible; }
-  .ledger-row { display: grid; grid-template-columns: 8rem minmax(0, 1fr) minmax(0, 1fr); border-top: 1px solid var(--border-dim); }
-  .ledger-row:first-child { border-top: 0; }
-  .ledger-row > * { padding: 12px 18px; min-width: 0; }
-  .ledger-row > .no { background: color-mix(in srgb, var(--border-dim) 45%, transparent); border-left: 1px solid var(--border-dim); }
-  .ledger-head > [role="columnheader"] { display: flex; flex-direction: column; gap: 4px; padding-block: 16px; }
-  .ledger .column-name, .ledger .aspect, .ledger [role="cell"]::before { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: var(--text-dim); }
-  .ledger-head .yes .column-name { color: var(--accent); }
-  .ledger-head .no .column-name { color: var(--text-head); }
+  .ledger table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+  .ledger tr { border-top: 1px solid var(--border-dim); }
+  .ledger thead tr { border-top: 0; }
+  .ledger th, .ledger td { padding: 12px 18px; text-align: left; vertical-align: top; font-weight: 400; }
+  .ledger thead td { width: 8rem; }
+  .ledger th.no, .ledger td.no { background: color-mix(in srgb, var(--border-dim) 45%, transparent); border-left: 1px solid var(--border-dim); }
+  .ledger thead th { padding-block: 16px; }
+  .ledger .column-name, .ledger .posture, .ledger .verdict, .ledger .detail { display: block; }
+  .ledger .posture { margin-top: 4px; }
+  .ledger .column-name, .ledger .aspect, .ledger td::before { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: var(--text-dim); }
+  .ledger thead .yes .column-name { color: var(--accent); }
+  .ledger thead .no .column-name { color: var(--text-head); }
   .ledger .posture, .ledger .verdict { font-weight: 700; color: var(--text-head); }
   .ledger .aspect { padding-top: 15px; }
-  .ledger [role="cell"] { display: flex; flex-direction: column; gap: 2px; }
   .ledger .verdict { padding-left: 1.4em; text-indent: -1.4em; }
   .ledger .verdict::before { display: inline-block; width: 1.4em; text-indent: 0; }
   .ledger .yes .verdict::before { content: '\2713'; color: var(--state-running); }
   .ledger .no .verdict::before { content: '\2715'; color: var(--text-dim); }
   .ledger .detail, .built-on, .yolo-copy p, .yolo-term { font-size: 13px; color: var(--text-dim); }
-  .ledger .detail { padding-left: 1.4em; }
+  .ledger .detail { margin-top: 2px; padding-left: 1.4em; }
   .ledger code, .yolo code { font-size: inherit; overflow-wrap: anywhere; }
   .built-on { margin-top: 14px; }
   .yolo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: center; margin-top: 48px; }
+  .yolo figure { margin: 0; min-width: 0; }
   .yolo-copy { display: flex; flex-direction: column; gap: 10px; max-width: 60ch; }
   .yolo-term { margin: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 18px; font-family: var(--font-mono); line-height: 1.6; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
   .yolo-term .prompt { color: var(--text-dim); }
   .yolo-term .blocked { color: var(--state-waiting); font-weight: 700; }
   @media (max-width: 820px) { .yolo { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 720px) {
-    .ledger-row { grid-template-columns: minmax(0, 1fr); }
-    .ledger-head > :first-child { display: none; }
-    .ledger-row > .no { border-left: 0; border-top: 1px solid var(--border-dim); }
+    .ledger table, .ledger thead, .ledger tbody, .ledger tr, .ledger th, .ledger td { display: block; }
+    .ledger thead td { display: none; }
+    .ledger th.no, .ledger td.no { border-left: 0; border-top: 1px solid var(--border-dim); }
     .ledger .aspect { padding-bottom: 0; }
-    .ledger [role="cell"]::before { content: attr(data-level); margin-bottom: 4px; }
+    .ledger td::before { content: attr(data-level); display: block; margin-bottom: 4px; }
   }
 </style>
