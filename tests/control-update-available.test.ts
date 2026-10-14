@@ -5,7 +5,7 @@ import { createBackendUpdateCheck } from '../server/backend-update.ts';
 import type { UpdateStatus } from '../server/backend-update.ts';
 import { decideUpdateStatus } from '../server/core/update-core.ts';
 import type { ControlHandlerDeps } from '../server/control-handlers.ts';
-import type { ControlMessageRecord } from '../server/control-replay-core.ts';
+import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 import { plainSession } from './helpers/fake-session.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import type { GlimmervoidConfig } from '../server/config-store.ts';
 import type { ControlHandlerDeps } from '../server/control-handlers.ts';
-import type { ControlMessageRecord } from '../server/control-replay-core.ts';
+import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 
 interface UsageFrame {

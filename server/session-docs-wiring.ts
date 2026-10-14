@@ -9,7 +9,7 @@ import { openContainedFile } from './contained-file.ts';
 import type { OpenedFile } from './contained-file.ts';
 import { decodeDocBytes, describeDocRefusal, encodeDocText, hashDocBytes, withSurfacedDoc } from './core/session-docs-core.ts';
 import type { DocRefusal } from './core/session-docs-core.ts';
-import type { ControlMessageRecord } from './control-replay-core.ts';
+import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import { createKeyedSerialQueue } from './spawn-gate.ts';
 
 interface DocSession {

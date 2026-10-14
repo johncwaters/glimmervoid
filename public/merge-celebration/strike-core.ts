@@ -1,4 +1,4 @@
-import { ANIMALS } from '../nyan-animals.ts';
+import { ANIMALS } from '../nyan-animals-core.ts';
 import { freeFallDurationMs, GRAVITY_PX_PER_SECOND_SQUARED, randomBetween, shuffled } from './motion-core.ts';
 
 const PIN_ROW_SIZES = [1, 2, 3, 4];

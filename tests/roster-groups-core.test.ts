@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { NO_PATH_KEY, groupRoster, visibleOrder } from '../public/focus-view/roster-groups.ts';
+import { NO_PATH_KEY, groupRoster, visibleOrder } from '../public/focus-view/roster-groups-core.ts';
 
 interface RosterRow {
   id: string;

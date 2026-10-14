@@ -22,7 +22,7 @@ import type { Session } from '../session/sessions.ts';
 import type { ControlSocket } from './backend-websockets.ts';
 import { glimmervoidHomeDir, ABORT_CONFIG_SAVE } from './config-store.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
-import type { ControlMessageRecord, ReplayLog } from './control-replay-core.ts';
+import type { ControlMessageRecord, ReplayLog } from './core/control-replay-core.ts';
 import { normalizeClientTrust } from './core/request-trust.ts';
 import {
   INGEST_SPEC, mergeSettingsBlock, validateSettingsBlock,

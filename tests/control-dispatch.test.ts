@@ -2,8 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createReplayLog } from '../server/control-replay-core.ts';
-import type { ReplayLog } from '../server/control-replay-core.ts';
+import { createReplayLog } from '../server/core/control-replay-core.ts';
+import type { ReplayLog } from '../server/core/control-replay-core.ts';
 import type { ControlConnection } from './helpers/control-harness.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 import { plainSession } from './helpers/fake-session.ts';

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ANIMALS } from '../public/nyan-animals.ts';
+import { ANIMALS } from '../public/nyan-animals-core.ts';
 import { deriveNyanGeometry, nyanFlightStyleProperties } from '../public/nyan-geometry-core.ts';
 
 test('ANIMALS: 19 entries, all sprite/trail classes unique', () => {

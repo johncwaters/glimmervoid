@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { groupSessionsForBoard } from '../public/phone/board-groups-core.ts';
-import { groupRoster, NO_PATH_KEY } from '../public/focus-view/roster-groups.ts';
+import { groupRoster, NO_PATH_KEY } from '../public/focus-view/roster-groups-core.ts';
 
 interface BoardRow {
   id: string;

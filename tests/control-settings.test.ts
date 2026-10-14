@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { createConfigStore } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
-import type { ControlMessageRecord } from '../server/control-replay-core.ts';
+import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
 import { buildSettingsPayload } from '../server/settings-payload.ts';
 import { commandFor, resetCommandCache, setCustomAgents } from '../session/adapters/index.ts';
 import { CustomAgentDeclaration } from '../shared/contracts/index.ts';

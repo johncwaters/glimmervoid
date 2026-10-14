@@ -1,6 +1,6 @@
 import { setStyleProperties } from './dom-helpers.ts';
 import { isPhoneLayout } from './form-factor.ts';
-import { ANIMALS } from './nyan-animals.ts';
+import { ANIMALS } from './nyan-animals-core.ts';
 import { deriveNyanGeometry, nyanFlightStyleProperties } from './nyan-geometry-core.ts';
 import { deriveFlyingAnimalLaunch, flyingAnimalsFlightBlockReason } from './flying-animals-core.ts';
 import { getFlyingAnimalsOptions, isFlyingAnimalsEnabled } from './ui-prefs.ts';

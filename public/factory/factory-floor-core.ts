@@ -1,5 +1,5 @@
 import type { FactoryProjectState } from '#shared/contracts/factory.ts';
-import { ANIMALS } from '../nyan-animals.ts';
+import { ANIMALS } from '../nyan-animals-core.ts';
 
 type FactoryOrder = FactoryProjectState['orders'][number];
 export type FactoryStation = 'queue' | 'workers' | 'review' | 'shipped';

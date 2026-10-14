@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ANIMALS } from '../public/nyan-animals.ts';
+import { ANIMALS } from '../public/nyan-animals-core.ts';
 import {
   deriveFlyingAnimalLaunch,
   FLYING_ANIMALS_DEFAULTS,

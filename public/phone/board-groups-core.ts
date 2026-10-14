@@ -1,4 +1,4 @@
-import { groupRoster, visibleOrder } from '../focus-view/roster-groups.ts';
+import { groupRoster, visibleOrder } from '../focus-view/roster-groups-core.ts';
 import { orderSessionsForTriage } from './triage-core.ts';
 
 const NO_COLLAPSED_GROUPS = new Set<string>();

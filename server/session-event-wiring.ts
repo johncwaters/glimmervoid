@@ -4,7 +4,7 @@ import type { PersistedTaskTitle } from '../shared/contracts/config.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
-import type { ControlMessageRecord } from './control-replay-core.ts';
+import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import { decideWasActiveFlip } from './core/session-registry-core.ts';
 import { adapterBucket, classifySessionExit } from './core/telemetry-core.ts';
 import { INTERACTIVE_LANE } from './core/usage-lane-core.ts';

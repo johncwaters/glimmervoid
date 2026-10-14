@@ -3,7 +3,7 @@ import { hasIncludedAnimals } from './flying-animals-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
 import { currentFlightBlockReason, flyAnimalNow } from './nyan-cat.ts';
 import { buildFlyingAnimalPreview } from './flying-animal-preview.ts';
-import { ANIMALS } from './nyan-animals.ts';
+import { ANIMALS } from './nyan-animals-core.ts';
 import { getFlyingAnimalsOptions, isFlyingAnimalsEnabled, setFlyingAnimalsExcludedSprites } from './ui-prefs.ts';
 
 export function renderFlyingAnimalsGallery() {

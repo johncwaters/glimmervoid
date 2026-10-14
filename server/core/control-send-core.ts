@@ -1,4 +1,4 @@
-import { isReplayable } from '../control-replay-core.ts';
+import { isReplayable } from './control-replay-core.ts';
 
 export type ControlMessageClass = 'critical' | 'refreshable' | 'normal';
 export type ControlSendAction = 'send' | 'drop' | 'close';

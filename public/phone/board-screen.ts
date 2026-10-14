@@ -2,8 +2,8 @@ import { createUnseenCompleteTracker } from '../focus-view/unseen-complete-core.
 import { el, MERGE_TAGS, observeHeaderHeight, queryTag, stateChip } from '../dom-helpers.ts';
 import type { SessionRow } from '../focus-view/attention-core.ts';
 import { attentionSummaryText, countSessionsNeedingAttention, orderRoster } from '../focus-view/attention-core.ts';
-import type { RosterGroup } from '../focus-view/roster-groups.ts';
-import { NO_PATH_KEY } from '../focus-view/roster-groups.ts';
+import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
+import { NO_PATH_KEY } from '../focus-view/roster-groups-core.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { quickAddSession, readSessionRows, requestSessionRemoval } from '../session-actions.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';

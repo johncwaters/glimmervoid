@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 import { createUsageWiring, resolveUsageConfig, budgetAlertText, DEFAULT_USAGE_CONFIG } from '../server/usage-wiring.ts';
 import type { UsageWiringOptions } from '../server/usage-wiring.ts';
-import { createReplayLog } from '../server/control-replay-core.ts';
+import { createReplayLog } from '../server/core/control-replay-core.ts';
 import { sendTelegramMessage } from '../server/telegram-transport.ts';
 import type { PassOutcome } from '../server/core/usage-scan-core.ts';
 import { waitFor } from './helpers/wait-for.ts';

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { GlimmervoidConfig } from '../server/config-store.ts';
-import type { ControlMessageRecord } from '../server/control-replay-core.ts';
+import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
 import type { Session } from '../session/sessions.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
 import { plainSession } from './helpers/fake-session.ts';

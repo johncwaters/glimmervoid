@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createReplayLog } from '../server/control-replay-core.ts';
+import { createReplayLog } from '../server/core/control-replay-core.ts';
 
 test('stamp assigns a monotonic seq to every broadcast, replayable or not', () => {
   const log = createReplayLog();

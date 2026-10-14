@@ -1,5 +1,5 @@
 import { FLYING_ANIMALS_GAP_RANGE, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_SCALE_RANGE } from '#shared/settings-ranges.ts';
-import { ANIMALS } from './nyan-animals.ts';
+import { ANIMALS } from './nyan-animals-core.ts';
 
 export const FLYING_ANIMALS_DEFAULTS = Object.freeze({
   flyingAnimalsMinGapSeconds: 20,

@@ -1,6 +1,6 @@
 import { el } from './dom-helpers.ts';
 import { pickIncludedAnimalIndex } from './flying-animals-core.ts';
-import { ANIMALS } from './nyan-animals.ts';
+import { ANIMALS } from './nyan-animals-core.ts';
 import { deriveNyanGeometry } from './nyan-geometry-core.ts';
 import { getFlyingAnimalsOptions } from './ui-prefs.ts';
 

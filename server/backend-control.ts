@@ -8,7 +8,7 @@ import type { ChangeMapNarrator } from './change-map-wiring.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { registerControlHandlers } from './control-handlers.ts';
 import type { FactoryControl, BenchmarkControl, MyPrMergeControl, TeamReviewActionControl } from './control-handlers.ts';
-import type { ReplayLog } from './control-replay-core.ts';
+import type { ReplayLog } from './core/control-replay-core.ts';
 import type { PlanDecision } from '../shared/contracts/plan-review.ts';
 import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type { MyPrsStatus } from '../shared/contracts/my-prs.ts';

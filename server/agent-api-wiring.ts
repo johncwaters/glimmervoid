@@ -9,7 +9,7 @@ import type {
   AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentLimitsReply, AgentSpawnRequest,
 } from '../shared/contracts/session.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
-import type { ControlMessageRecord } from './control-replay-core.ts';
+import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
   decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding, describePushRouteRefusal, parseAgentVerb,
 } from './core/agent-api-core.ts';

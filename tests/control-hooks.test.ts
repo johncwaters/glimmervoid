@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { GlimmervoidConfig } from '../server/config-store.ts';
-import type { ControlMessageRecord } from '../server/control-replay-core.ts';
+import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
 import { HOOK_EVENTS } from '../detection/settings-injector.ts';
 import { MAX_TIMEOUT_SEC, rawStoredHooks, readStoredHooks } from '../session/core/user-hooks-core.ts';
 import type { UserHook } from '../session/core/user-hooks-core.ts';

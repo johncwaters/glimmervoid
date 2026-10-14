@@ -16,7 +16,6 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `backend-*.ts` | Wiring extracted from the factory, one concern per file |
 | `session-{factory,registry,event-wiring}.ts` | Session construction, config reconciliation, and one-time event wiring |
 | `control-handlers.ts` | Control-WebSocket message handlers (kill, restart, rename, settings) |
-| `control-replay-core.ts` | Pure control-broadcast replay log |
 | `server-lifecycle.ts` | Boot/shutdown helpers; restart strategy in `core/restart-strategy.ts` |
 | `ws-sender.ts` | Data-WebSocket sender: batching and backpressure |
 | `post-turn-checker.ts` | Post-turn hygiene IO runner (rules in `session/core/post-turn-rules.ts`) |

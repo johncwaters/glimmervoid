@@ -12,7 +12,7 @@ import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { settleBackendShutdown, visionsLane } from './helpers/lanes.ts';
 import type { Backend } from './helpers/lanes.ts';
-import { createReplayLog } from '../server/control-replay-core.ts';
+import { createReplayLog } from '../server/core/control-replay-core.ts';
 
 const MARKDOWN_URI = 'file:///tmp/plan-visions.md';
 const REPEATED_WORD_MARKDOWN = '# Title\n\nA line with with a repeat.\n';

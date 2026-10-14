@@ -15,8 +15,8 @@ import { getRailWidth, setRailWidth } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
 import type { SessionRow } from './attention-core.ts';
 import { attentionSummaryText, countSessionsNeedingAttention, needsAttention, orderRoster, pickAdjacent, pickNextAttention } from './attention-core.ts';
-import type { RosterGroup } from './roster-groups.ts';
-import { groupRoster, NO_PATH_KEY, visibleOrder } from './roster-groups.ts';
+import type { RosterGroup } from './roster-groups-core.ts';
+import { groupRoster, NO_PATH_KEY, visibleOrder } from './roster-groups-core.ts';
 import { buildPillSkeleton, paintPillStatus } from './pill-dom.ts';
 import { createUnseenCompleteTracker } from './unseen-complete-core.ts';
 

@@ -15,7 +15,7 @@ State of the public website work as of 2026-10-01, written so another agent can 
 
 - Lives in `site/`, an Astro static site that is its own npm package (`npm --prefix site install` once).
 - `npm run site:dev` serves it with reload; `npm run site:build` writes `site/dist/`. `.github/workflows/site.yml` deploys every main push touching `site/`, `public/` or `shared/` to GitHub Pages at https://johncwaters.github.io/glimmervoid/ (Astro `base: '/glimmervoid'`), and the `site` job in `test.yml` builds it on every PR.
-- The flying animals come from the dashboard at build time: `site/src/lib/animal-styles.ts` rescopes the block in `public/style.css` to `.sky`, and the animal list is `public/nyan-animals.ts`, so the site cannot drift from the product.
+- The flying animals come from the dashboard at build time: `site/src/lib/animal-styles.ts` rescopes the block in `public/style.css` to `.sky`, and the animal list is `public/nyan-animals-core.ts`, so the site cannot drift from the product.
 - The hero plays `site/public/capture/dashboard.webm` (poster `hero.webp`) through `DashboardRecording.astro`: the real dashboard replaying recorded sessions. Everything else is a diagram, not a picture of the UI, so it may stay hand-built.
 
 ## Capture tool
