@@ -1,4 +1,4 @@
-import { reviewsPollingShape } from './reviews.ts';
+import { githubPollingShape } from './github-polling.ts';
 import { z } from 'zod';
 import { CommitSha } from './team-review.ts';
 import { NODE_ID_RE, REPO_SLUG_RE } from './github-ids.ts';
@@ -82,7 +82,7 @@ export const MyPr = z.object({
 export type MyPr = z.infer<typeof MyPr>;
 
 export const MyPrsStatus = z.object({
-  ...reviewsPollingShape,
+  ...githubPollingShape,
   type: z.literal('my-prs-status'), ts: z.number().finite(), configured: z.boolean(), reason: z.string().nullable().optional(),
   viewer: z.string().nullable(), prs: z.array(MyPr), truncatedNote: z.string().nullable().optional(),
   isKeepMergeableEnabled: z.boolean().optional(), isMergeQueueEnabled: z.boolean().optional(),

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { REPO_SLUG_RE } from './github-ids.ts';
-import { reviewsPollingShape } from './reviews.ts';
+import { githubPollingShape } from './github-polling.ts';
 
 export const IssueRepoSlug = z.string().regex(REPO_SLUG_RE);
 export const IssueKey = z.string().regex(new RegExp(`${REPO_SLUG_RE.source.slice(0, -1)}#[1-9][0-9]*$`));
@@ -57,6 +57,6 @@ export const IssuesState = z.object({
 export type IssuesState = z.infer<typeof IssuesState>;
 export const IssuesStatus = z.object({
   type: z.literal('issues-status'), ts: z.number().finite(), configured: z.boolean(), reason: z.string().nullable(),
-  lastSyncAt: z.number().finite().nonnegative().nullable(), issues: z.array(IssueRow), ...reviewsPollingShape,
+  lastSyncAt: z.number().finite().nonnegative().nullable(), issues: z.array(IssueRow), ...githubPollingShape,
 }).passthrough();
 export type IssuesStatus = z.infer<typeof IssuesStatus>;

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { IssueKey, IssuesState } from '../../shared/contracts/issues.ts';
 import type { CachedIssueRow, IssuesStatus as IssuesStatusType } from '../../shared/contracts/issues.ts';
-import type { ReviewsRefreshResult } from '../../shared/contracts/reviews.ts';
+import type { GithubPollingRefreshResult } from '../../shared/contracts/github-polling.ts';
 import type { GlimmervoidConfig } from '../config-store.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import * as core from './core/issues-core.ts';
@@ -122,7 +122,7 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
       readState: async () => { await loadState(); return cachedState; }, writeState,
     }),
   });
-  async function refresh(): Promise<ReviewsRefreshResult> {
+  async function refresh(): Promise<GithubPollingRefreshResult> {
     const poller = runner.getPoller();
     if (!poller) return { ok: false, error: 'Issues polling is not running.' };
     return poller.refresh();

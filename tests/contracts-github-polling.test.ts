@@ -26,11 +26,11 @@ test('Reviews statuses accept old snapshots and optional polling metadata', () =
 
 test('Reviews refresh accepts only the two lanes with an optional request id', () => {
   for (const lane of ['my-prs', 'team-review']) {
-    assert.equal(ClientMessage.safeParse({ type: 'reviews-refresh', lane }).success, true);
-    assert.equal(ClientMessage.safeParse({ type: 'reviews-refresh', lane, requestId: 'refresh-1' }).success, true);
+    assert.equal(ClientMessage.safeParse({ type: 'github-polling-refresh', lane }).success, true);
+    assert.equal(ClientMessage.safeParse({ type: 'github-polling-refresh', lane, requestId: 'refresh-1' }).success, true);
   }
-  assert.equal(ClientMessage.safeParse({ type: 'reviews-refresh', lane: 'posthog' }).success, false);
-  assert.equal(ClientMessage.safeParse({ type: 'reviews-refresh' }).success, false);
-  assert.equal(ServerMessage.safeParse({ type: 'reviews-refresh-result', requestId: 'refresh-1', ok: false, error: 'GitHub rate limit asks to wait.' }).success, true);
-  assert.equal(ServerMessage.safeParse({ type: 'reviews-refresh-result', ok: 'yes' }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'github-polling-refresh', lane: 'posthog' }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'github-polling-refresh' }).success, false);
+  assert.equal(ServerMessage.safeParse({ type: 'github-polling-refresh-result', requestId: 'refresh-1', ok: false, error: 'GitHub rate limit asks to wait.' }).success, true);
+  assert.equal(ServerMessage.safeParse({ type: 'github-polling-refresh-result', ok: 'yes' }).success, false);
 });

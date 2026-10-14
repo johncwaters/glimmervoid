@@ -1,4 +1,4 @@
-import { createReviewsPollingControls } from './my-prs-panel.ts';
+import { createGithubPollingControls } from './my-prs-panel.ts';
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { DraftComment, FindingSeverity, InFlightReview, QueuedReview, ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
@@ -45,7 +45,7 @@ type DetailOrigin = 'ready' | 'other';
 let _latest: TeamReviewStatusType | null = null;
 let _root: HTMLDivElement | null = null;
 let _scopeTabs: HTMLElement | null = null;
-let pollingControls: ReturnType<typeof createReviewsPollingControls> | null = null;
+let pollingControls: ReturnType<typeof createGithubPollingControls> | null = null;
 let _queue: HTMLElement | null = null;
 let _renderedQueueSignature: string | null = null;
 let _detail: HTMLElement | null = null;
@@ -1060,7 +1060,7 @@ export function mountTeamReviewView(parent: HTMLElement, scopeTabs: HTMLElement)
   _scopeTabs = scopeTabs;
   _root = el('div', 'pr-content');
   parent.append(_root);
-  pollingControls = createReviewsPollingControls('team-review', _root);
+  pollingControls = createGithubPollingControls('team-review', _root);
   _progressTicker.ensure();
   _detailProgressTicker.ensure();
   _ageTicker.ensure();

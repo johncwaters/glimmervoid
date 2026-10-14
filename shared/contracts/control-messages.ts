@@ -1,5 +1,5 @@
 import { IssueRepoSlug, IssuesStatus } from './issues.ts';
-import { ReviewsRefreshRequest, ReviewsRefreshResult } from './reviews.ts';
+import { GithubPollingRefreshRequest, GithubPollingRefreshResult } from './github-polling.ts';
 import { z } from 'zod';
 import { FactoryControlRequest, FactoryControlResult, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from './factory.ts';
 import {
@@ -176,7 +176,7 @@ const clientVariants = [
   loose('my-pr-merge', { ...MyPrMergeRequest.shape, requestId }),
   loose('my-pr-keep-mergeable', { ...MyPrKeepMergeableRequest.shape, requestId }),
   loose('my-pr-merge-when-ready', { ...MyPrMergeWhenReadyRequest.shape, requestId }),
-  loose('reviews-refresh', { ...ReviewsRefreshRequest.shape, requestId }),
+  loose('github-polling-refresh', { ...GithubPollingRefreshRequest.shape, requestId }),
   loose('radar-archive-investigation', { id: z.unknown().optional(), requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
   loose('request-hooks-report', { requestId }),
@@ -288,7 +288,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'my-pr-merge-result',
   'my-pr-keep-mergeable-result',
   'my-pr-merge-when-ready-result',
-  'reviews-refresh-result',
+  'github-polling-refresh-result',
   'radar-archive-investigation-result',
   'team-review-status',
   'benchmark-status',
@@ -552,7 +552,7 @@ const serverVariants = [
   loose('my-pr-merge-result', { ...MyPrMergeResult.shape, requestId }),
   loose('my-pr-keep-mergeable-result', { ...MyPrKeepMergeableResult.shape, requestId }),
   loose('my-pr-merge-when-ready-result', { ...MyPrMergeWhenReadyResult.shape, requestId }),
-  loose('reviews-refresh-result', { ...ReviewsRefreshResult.shape, requestId }),
+  loose('github-polling-refresh-result', { ...GithubPollingRefreshResult.shape, requestId }),
   loose('radar-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
   TeamReviewStatus,
   BenchmarkStatus,

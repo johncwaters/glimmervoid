@@ -4,7 +4,7 @@ import { FACTORY_ERROR_MAX_CHARS } from '../shared/contracts/factory.ts';
 import type { FactoryControlRequest, FactoryControlResult, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from '../shared/contracts/factory.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
-import type { ReviewsRefreshResult } from '../shared/contracts/reviews.ts';
+import type { GithubPollingRefreshResult } from '../shared/contracts/github-polling.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -78,13 +78,13 @@ interface RadarLaneStatus {
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
 
 interface TeamReviewActionControl {
-  refresh?: () => Promise<ReviewsRefreshResult>;
+  refresh?: () => Promise<GithubPollingRefreshResult>;
   isRunning(): boolean;
   submitAction(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome>;
 }
 
 interface MyPrMergeControl {
-  refresh?: () => Promise<ReviewsRefreshResult>;
+  refresh?: () => Promise<GithubPollingRefreshResult>;
   mergePr(request: MyPrMergeRequest): Promise<Omit<MyPrMergeResult, 'key'>>;
   setKeepMergeable?: (request: MyPrKeepMergeableRequest) => Promise<Omit<MyPrKeepMergeableResult, 'key'>>;
   setMergeWhenReady?: (request: MyPrMergeWhenReadyRequest) => Promise<Omit<MyPrMergeWhenReadyResult, 'key'>>;
@@ -129,7 +129,7 @@ interface ControlHandlerDeps {
   getTeamReviewStatus?: (() => TeamReviewStatus | null) | null;
   getMyPrsStatus?: (() => MyPrsStatus | null) | null;
   getIssuesStatus?: (() => IssuesStatus | null) | null;
-  issues?: { refresh: () => Promise<ReviewsRefreshResult>; getLinkedSessionId?: (issueKey: string) => Promise<string | null>; linkSession?: (issueKey: string, sessionId: string) => Promise<void> } | null;
+  issues?: { refresh: () => Promise<GithubPollingRefreshResult>; getLinkedSessionId?: (issueKey: string) => Promise<string | null>; linkSession?: (issueKey: string, sessionId: string) => Promise<void> } | null;
   teamReview?: TeamReviewActionControl | null;
   myPrs?: MyPrMergeControl | null;
   getFactoryState?: (() => FactoryState | null) | null;
@@ -307,7 +307,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'radar-issue-action': () => ({ type: 'radar-issue-action-result', requestId, ok: false, error: message }),
     'radar-archive-investigation': () => ({ type: 'radar-archive-investigation-result', requestId, ok: false, error: message }),
     'team-review-action': () => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
-    'reviews-refresh': () => ({ type: 'reviews-refresh-result', requestId, ok: false, error: message }),
+    'github-polling-refresh': () => ({ type: 'github-polling-refresh-result', requestId, ok: false, error: message }),
     'my-pr-merge': () => ({ type: 'my-pr-merge-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'my-pr-keep-mergeable': () => ({ type: 'my-pr-keep-mergeable-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'my-pr-merge-when-ready': () => ({ type: 'my-pr-merge-when-ready-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
@@ -1100,13 +1100,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply(await teamReview.submitAction(parsed.data));
   }
 
-  async function handleReviewsRefresh(msg: ClientMessageOf<'reviews-refresh'>, ws: ControlSocket): Promise<void> {
+  async function handleGithubPollingRefresh(msg: ClientMessageOf<'github-polling-refresh'>, ws: ControlSocket): Promise<void> {
     const lane = { 'my-prs': myPrs, 'team-review': teamReview, issues }[msg.lane];
     if (!lane?.refresh) {
-      replyTo(ws, msg, 'reviews-refresh-result', { ok: false, error: 'Reviews polling is not running.' });
+      replyTo(ws, msg, 'github-polling-refresh-result', { ok: false, error: 'Reviews polling is not running.' });
       return;
     }
-    replyTo(ws, msg, 'reviews-refresh-result', await lane.refresh());
+    replyTo(ws, msg, 'github-polling-refresh-result', await lane.refresh());
   }
 
   async function handleMyPrMerge(msg: ClientMessageOf<'my-pr-merge'>, ws: ControlSocket): Promise<void> {
@@ -1352,7 +1352,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'my-pr-merge': handleMyPrMerge,
     'my-pr-keep-mergeable': handleMyPrKeepMergeable,
     'my-pr-merge-when-ready': handleMyPrMergeWhenReady,
-    'reviews-refresh': handleReviewsRefresh,
+    'github-polling-refresh': handleGithubPollingRefresh,
     'benchmark-action': handleBenchmarkAction,
     'factory-queue-intent': handleFactoryQueueIntent,
     'factory-control': handleFactoryControl,

@@ -195,7 +195,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'open-issue-session-result', requestId: 'issues-2', ok: true, error: null, sessionId: 'session-2', sessionName: 'issue-42-fix-reconnect', pending: false },
   { type: 'radar-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },
   { type: 'team-review-action-result', requestId: 'review-1', key: 'PostHog/wizard#1350', ok: true },
-  { type: 'reviews-refresh-result', requestId: 'refresh-1', ok: true },
+  { type: 'github-polling-refresh-result', requestId: 'refresh-1', ok: true },
   { type: 'factory-queue-intent-result', requestId: 'factory-1', projectId: 'project-1', ok: true, workId: 'wrk-123' },
   { type: 'factory-control-result', requestId: 'factory-2', projectId: 'project-1', action: 'pause', ok: true },
   { type: 'benchmark-action-result', requestId: 'bench-1', suiteId: 'review-ladder', action: 'run', ok: true, runId: 'run-1' },

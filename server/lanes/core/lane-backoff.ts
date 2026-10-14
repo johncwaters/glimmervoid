@@ -1,11 +1,11 @@
-import type { ReviewsRetry } from '../../../shared/contracts/reviews.ts';
+import type { GithubPollingRetry } from '../../../shared/contracts/github-polling.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
 
 export const QUICK_RETRY_DELAYS_MS = Object.freeze([10_000, 30_000, 90_000]);
 
 export function nextRetrySchedule({ failureStreak, quickRetryCount, quickRetries, retryAfterMs, baseMs, maxMs, random }: {
   failureStreak: number; quickRetryCount: number; quickRetries: boolean; retryAfterMs?: number; baseMs: number; maxMs: number; random: () => number;
-}): { waitMs: number; retry: ReviewsRetry | null } {
+}): { waitMs: number; retry: GithubPollingRetry | null } {
   const hasRateLimitWait = typeof retryAfterMs === 'number' && Number.isFinite(retryAfterMs) && retryAfterMs > 0;
   const quickRetryDelayMs = quickRetries && !hasRateLimitWait ? QUICK_RETRY_DELAYS_MS[quickRetryCount] : undefined;
   if (quickRetryDelayMs !== undefined) return { waitMs: quickRetryDelayMs, retry: { attempt: quickRetryCount + 1, limit: QUICK_RETRY_DELAYS_MS.length } };

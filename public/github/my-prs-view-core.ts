@@ -1,4 +1,4 @@
-import { reviewsErrorNotice } from './github-polling-retry-core.ts';
+import { githubPollingErrorNotice } from './github-polling-retry-core.ts';
 import { MyPrMergeResult, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { mergeMethodLabel, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
 import type { MyPr, MyPrMergeKind, MyPrStage, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
@@ -290,7 +290,7 @@ export interface QueueNotice { text: string; tone: 'error' | 'info' }
 
 export function queueNotices(status: MyPrsStatusType | null, nowMs = 0): QueueNotice[] {
   if (!status) return [];
-  const errorNotice = reviewsErrorNotice(status, nowMs);
+  const errorNotice = githubPollingErrorNotice(status, nowMs);
   const notices: QueueNotice[] = errorNotice ? [{ text: errorNotice, tone: 'error' }] : [];
   return status.truncatedNote ? [...notices, { text: status.truncatedNote, tone: 'info' }] : notices;
 }

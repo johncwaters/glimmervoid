@@ -1,5 +1,5 @@
 import type { IssuesStatus } from '../../shared/contracts/issues.ts';
-import type { ReviewsRefreshResult } from '../../shared/contracts/reviews.ts';
+import type { GithubPollingRefreshResult } from '../../shared/contracts/github-polling.ts';
 import type { FactoryState } from '../../shared/contracts/factory.ts';
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { Session } from '../../session/sessions.ts';
@@ -75,7 +75,7 @@ interface BackendControlDependencies {
   posthog: RadarControl;
   teamReview: TeamReviewControl;
   myPrs: MyPrMergeControl & { getStatus: () => MyPrsStatus };
-  issues: { getStatus: () => IssuesStatus; refresh: () => Promise<ReviewsRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]>; getLinkedSessionId: (issueKey: string) => Promise<string | null>; linkSession: (issueKey: string, sessionId: string) => Promise<void> };
+  issues: { getStatus: () => IssuesStatus; refresh: () => Promise<GithubPollingRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]>; getLinkedSessionId: (issueKey: string) => Promise<string | null>; linkSession: (issueKey: string, sessionId: string) => Promise<void> };
   benchmarks: BenchmarkControl;
   factory?: FactoryControl & { getState: () => FactoryState | null };
   usage: UsageControl;

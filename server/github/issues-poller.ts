@@ -1,7 +1,7 @@
 import * as core from './core/issues-core.ts';
 import { IssuesState } from '../../shared/contracts/issues.ts';
 import type { CachedIssueRow, IssuePullRequest, IssuesState as IssuesStateType, IssuesStatus } from '../../shared/contracts/issues.ts';
-import type { ReviewsRefreshResult } from '../../shared/contracts/reviews.ts';
+import type { GithubPollingRefreshResult } from '../../shared/contracts/github-polling.ts';
 import type { PrGh } from './pr-gh.ts';
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
@@ -148,7 +148,7 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     })),
   });
 
-  async function refresh(): Promise<ReviewsRefreshResult> {
+  async function refresh(): Promise<GithubPollingRefreshResult> {
     if (loop.scheduleStatus().isRefreshing) return loop.refresh();
     shouldReconcile = true;
     return loop.refresh();

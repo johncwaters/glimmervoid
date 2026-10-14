@@ -1,6 +1,6 @@
-import { hasReviewsCountdown, reviewsErrorNotice, reviewsRefreshText } from './github-polling-retry-core.ts';
-import type { ReviewsPollingStatus } from './github-polling-retry-core.ts';
-import type { ReviewsRefreshRequest } from '#shared/contracts/reviews.ts';
+import { hasGithubPollingCountdown, githubPollingErrorNotice, githubPollingRefreshText } from './github-polling-retry-core.ts';
+import type { GithubPollingStatus } from './github-polling-retry-core.ts';
+import type { GithubPollingRefreshRequest } from '#shared/contracts/github-polling.ts';
 import type { MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { errorMessage } from '#shared/text.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from '../dom-helpers.ts';
@@ -19,7 +19,7 @@ let queue: HTMLElement | null = null;
 let detail: HTMLElement | null = null;
 let latest: MyPrsStatus | null = null;
 let selectedKey: string | null = null;
-let pollingControls: ReturnType<typeof createReviewsPollingControls> | null = null;
+let pollingControls: ReturnType<typeof createGithubPollingControls> | null = null;
 const mergeAttempts = new Map<string, MergeAttempt>();
 const celebratedMergeKeys = new Set<string>();
 const pendingMergeRequests = new Map<string, { requestId: string; head: string; timer: number }>();
@@ -52,7 +52,7 @@ const mergeWhenReadyToggle: PrToggle = {
 const MERGE_REPLY_TIMEOUT_MS = 60000;
 const MERGE_NO_REPLY_TEXT = 'No reply from the server. Check GitHub before trying again.';
 
-export function createReviewsPollingControls(lane: ReviewsRefreshRequest['lane'], panel: HTMLElement) {
+export function createGithubPollingControls(lane: GithubPollingRefreshRequest['lane'], panel: HTMLElement) {
   const control = el('div', 'reviews-refresh-control');
   const button = el('button', 'pr-action reviews-refresh-button', 'Refresh');
   button.type = 'button';
@@ -60,15 +60,15 @@ export function createReviewsPollingControls(lane: ReviewsRefreshRequest['lane']
   progress.setAttribute('role', 'status');
   const notice = el('p', 'my-pr-error reviews-retry-notice');
   control.append(button, progress);
-  let currentStatus: ReviewsPollingStatus | null = null;
+  let currentStatus: GithubPollingStatus | null = null;
   let isPending = false;
   let outcomeText = '';
   let countdownTimer: number | null = null;
 
   function updateCountdown(): void {
-    notice.textContent = reviewsErrorNotice(currentStatus, Date.now());
+    notice.textContent = githubPollingErrorNotice(currentStatus, Date.now());
     if (notice.hidden !== !currentStatus?.error) notice.hidden = !currentStatus?.error;
-    const shouldTick = notice.isConnected && !isPanelHidden(panel) && !document.hidden && notice.getClientRects().length > 0 && hasReviewsCountdown(currentStatus, Date.now());
+    const shouldTick = notice.isConnected && !isPanelHidden(panel) && !document.hidden && notice.getClientRects().length > 0 && hasGithubPollingCountdown(currentStatus, Date.now());
     if (!shouldTick && countdownTimer !== null) {
       window.clearInterval(countdownTimer);
       countdownTimer = null;
@@ -76,11 +76,11 @@ export function createReviewsPollingControls(lane: ReviewsRefreshRequest['lane']
     if (shouldTick && countdownTimer === null) countdownTimer = window.setInterval(updateCountdown, 1000);
   }
 
-  function update(status: ReviewsPollingStatus | null): void {
+  function update(status: GithubPollingStatus | null): void {
     if (status !== currentStatus) outcomeText = '';
     currentStatus = status;
     button.disabled = isPending || !!status?.isRefreshing || !status?.configured;
-    progress.textContent = reviewsRefreshText(status, isPending, outcomeText);
+    progress.textContent = githubPollingRefreshText(status, isPending, outcomeText);
     progress.hidden = !progress.textContent;
     updateCountdown();
   }
@@ -91,8 +91,8 @@ export function createReviewsPollingControls(lane: ReviewsRefreshRequest['lane']
     outcomeText = '';
     update(currentStatus);
     try {
-      const response = await sendControlRequest('reviews-refresh', { lane });
-      if (response.type === 'reviews-refresh-result') outcomeText = response.ok ? 'Refreshed.' : response.error ?? 'Could not refresh from GitHub.';
+      const response = await sendControlRequest('github-polling-refresh', { lane });
+      if (response.type === 'github-polling-refresh-result') outcomeText = response.ok ? 'Refreshed.' : response.error ?? 'Could not refresh from GitHub.';
     } catch (error: unknown) {
       outcomeText = errorMessage(error);
     } finally {
@@ -363,7 +363,7 @@ export function mountMyPrsView(parent: HTMLElement, tabs: HTMLElement): HTMLDivE
   scopeTabs = tabs;
   root = el('div', 'pr-content');
   parent.append(root);
-  pollingControls = createReviewsPollingControls('my-prs', root);
+  pollingControls = createGithubPollingControls('my-prs', root);
   render();
   return root;
 }

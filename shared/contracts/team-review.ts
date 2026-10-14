@@ -1,4 +1,4 @@
-import { reviewsPollingShape } from './reviews.ts';
+import { githubPollingShape } from './github-polling.ts';
 import { z } from 'zod';
 import { NODE_ID_RE } from './github-ids.ts';
 import { FULL_SHA_RE } from '../git-text.ts';
@@ -372,7 +372,7 @@ export type InFlightReview = z.infer<typeof InFlightReview>;
 
 
 export const TeamReviewStatus = z.object({
-  ...reviewsPollingShape,
+  ...githubPollingShape,
   type: z.literal('team-review-status'),
   ts: z.number().finite(),
   configured: z.boolean(),

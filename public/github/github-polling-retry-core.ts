@@ -1,12 +1,12 @@
 import type { MyPrsStatus } from '#shared/contracts/my-prs.ts';
 
-export type ReviewsPollingStatus = Pick<MyPrsStatus, 'error' | 'nextAttemptAt' | 'retry' | 'isRefreshing' | 'refreshNotice' | 'configured'>;
+export type GithubPollingStatus = Pick<MyPrsStatus, 'error' | 'nextAttemptAt' | 'retry' | 'isRefreshing' | 'refreshNotice' | 'configured'>;
 
-export function hasReviewsCountdown(status: ReviewsPollingStatus | null, nowMs: number): boolean {
+export function hasGithubPollingCountdown(status: GithubPollingStatus | null, nowMs: number): boolean {
   return !!status?.error && !status.isRefreshing && typeof status.nextAttemptAt === 'number' && status.nextAttemptAt > nowMs;
 }
 
-export function reviewsErrorNotice(status: ReviewsPollingStatus | null, nowMs: number): string | null {
+export function githubPollingErrorNotice(status: GithubPollingStatus | null, nowMs: number): string | null {
   if (!status?.error) return null;
   const errorText = status.error.trim().replace(/[.!]+$/, '');
   const prefix = `Could not reach GitHub: ${errorText}.`;
@@ -19,7 +19,7 @@ export function reviewsErrorNotice(status: ReviewsPollingStatus | null, nowMs: n
   return `${prefix} Next try in ${waitText}.`;
 }
 
-export function reviewsRefreshText(status: ReviewsPollingStatus | null, isPending: boolean, outcomeText: string): string {
+export function githubPollingRefreshText(status: GithubPollingStatus | null, isPending: boolean, outcomeText: string): string {
   if (status?.refreshNotice && status.isRefreshing) return status.refreshNotice;
   if (isPending || status?.isRefreshing) return 'Refreshing.';
   return outcomeText || status?.refreshNotice || '';

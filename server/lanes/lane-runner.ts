@@ -1,4 +1,4 @@
-import type { ReviewsRefreshResult, ReviewsRetry } from '../../shared/contracts/reviews.ts';
+import type { GithubPollingRefreshResult, GithubPollingRetry } from '../../shared/contracts/github-polling.ts';
 import { nextRetrySchedule, shouldSkipTick } from './core/lane-backoff.ts';
 import { DEFAULT_BASE_MS, DEFAULT_MAX_MS } from '../../shared/backoff.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -43,8 +43,8 @@ interface TickLoop {
   start(prelude?: (() => Promise<void> | void) | null): Promise<void>;
   stop(): Promise<void>;
   tick(): Promise<void>;
-  refresh(): Promise<ReviewsRefreshResult>;
-  scheduleStatus(): { nextAttemptAt: number | null; retry: ReviewsRetry | null; isRefreshing: boolean; refreshNotice: string | null };
+  refresh(): Promise<GithubPollingRefreshResult>;
+  scheduleStatus(): { nextAttemptAt: number | null; retry: GithubPollingRetry | null; isRefreshing: boolean; refreshNotice: string | null };
   persist(): Promise<void>;
   track<T>(promise: Promise<T>): Promise<T>;
   isStopped(): boolean;
@@ -83,7 +83,7 @@ function createTickLoop({
   let quickRetryCount = 0;
   let retryTimer: NodeJS.Timeout | null = null;
   let nextAttemptAt: number | null = null;
-  let retry: ReviewsRetry | null = null;
+  let retry: GithubPollingRetry | null = null;
   let rateLimitedUntil = 0;
   let isRefreshing = false;
   let refreshNotice: string | null = null;
@@ -107,7 +107,7 @@ function createTickLoop({
     retryTimer = null;
   }
 
-  function scheduleAttempt(waitMs: number, scheduledRetry: ReviewsRetry | null): void {
+  function scheduleAttempt(waitMs: number, scheduledRetry: GithubPollingRetry | null): void {
     clearRetryTimer();
     backoffUntil = now() + waitMs;
     nextAttemptAt = backoffUntil;
@@ -124,7 +124,7 @@ function createTickLoop({
     return { nextAttemptAt, retry, isRefreshing, refreshNotice };
   }
 
-  async function runTick(trigger: TickTrigger): Promise<ReviewsRefreshResult> {
+  async function runTick(trigger: TickTrigger): Promise<GithubPollingRefreshResult> {
     const isManual = trigger === 'manual';
     if (stopped) return { ok: false, error: 'Reviews polling is stopped.' };
     if (tickRunning) {
@@ -189,7 +189,7 @@ function createTickLoop({
     await runTick('interval');
   }
 
-  function refresh(): Promise<ReviewsRefreshResult> {
+  function refresh(): Promise<GithubPollingRefreshResult> {
     return runTick('manual');
   }
 
