@@ -12,7 +12,7 @@ import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/co
 import { ENV_SECRET_BINDINGS } from '../server/core/config-secrets-core.ts';
 import { getAdapter, setCustomAgents } from '../session/adapters/index.ts';
 import { ConfigUpdate } from '../shared/contracts/index.ts';
-import { SECRET_PRESENCE_SUFFIX as CLIENT_SECRET_PRESENCE_SUFFIX } from '../public/settings-view-core.ts';
+import { SECRET_PRESENCE_SUFFIX as CLIENT_SECRET_PRESENCE_SUFFIX } from '../public/settings/settings-view-core.ts';
 import { waitForFsWatchToArm } from './helpers/wait-for.ts';
 
 type ConfigFileContent = Record<string, unknown>;

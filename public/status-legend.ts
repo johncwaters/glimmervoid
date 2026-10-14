@@ -1,8 +1,8 @@
 import { el } from './dom-helpers.ts';
 import { paintPillStatus } from './focus-view/pill-dom.ts';
-import { PR_STATUS_LEGEND } from './pr-status-icon-core.ts';
-import type { PrStatusIcon } from './pr-status-icon-core.ts';
-import { createPrStatusIcon } from './pr-status-icon.ts';
+import { PR_STATUS_LEGEND } from './github/pr-status-icon-core.ts';
+import type { PrStatusIcon } from './github/pr-status-icon-core.ts';
+import { createPrStatusIcon } from './github/pr-status-icon.ts';
 import { STATUS_LEGEND } from './status-legend-core.ts';
 
 function buildLegendSection(title: string, rows: readonly HTMLElement[]) {

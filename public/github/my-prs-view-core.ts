@@ -1,9 +1,9 @@
-import { reviewsErrorNotice } from './reviews-retry-core.ts';
+import { reviewsErrorNotice } from './github-polling-retry-core.ts';
 import { MyPrMergeResult, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { mergeMethodLabel, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
 import type { MyPr, MyPrMergeKind, MyPrStage, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
-import type { StateTone } from './state-tone-core.ts';
+import type { StateTone } from '../state-tone-core.ts';
 
 export interface MyPrSection { title: string; prs: MyPr[] }
 export interface ThreadRow {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { IssueFilters, IssueRow } from '../public/issues-view-core.ts';
-import { filterIssues, groupIssuesByRepo, issueFilterOptions, issueFilterSummary, issueAgo, issueRelativeAge, issueScopeCounts, matchesIssueScope, issuesPlaceholder, summarizeIssues } from '../public/issues-view-core.ts';
+import type { IssueFilters, IssueRow } from '../public/github/issues-view-core.ts';
+import { filterIssues, groupIssuesByRepo, issueFilterOptions, issueFilterSummary, issueAgo, issueRelativeAge, issueScopeCounts, matchesIssueScope, issuesPlaceholder, summarizeIssues } from '../public/github/issues-view-core.ts';
 
 const issueWithLabels = (number: number, labels: string[]): IssueRow => ({
   key: `acme/app#${number}`, repo: 'acme/app', number, title: 'Issue', labels,

@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { SettingsSection } from '../public/settings-map.ts';
+import type { SettingsSection } from '../public/settings/settings-map.ts';
 import { SETTINGS_RANGES } from '../shared/settings-ranges.ts';
-import { SETTINGS_MOVED_SETTINGS, SETTINGS_SECTION_ALIASES } from '../public/settings-map.ts';
+import { SETTINGS_MOVED_SETTINGS, SETTINGS_SECTION_ALIASES } from '../public/settings/settings-map.ts';
 
 async function load() {
   const [{ SETTINGS_MAP }, core] = await Promise.all([
-    import('../public/settings-map.ts'),
-    import('../public/settings-view-core.ts'),
+    import('../public/settings/settings-map.ts'),
+    import('../public/settings/settings-view-core.ts'),
   ]);
   return { SETTINGS_MAP, ...core };
 }

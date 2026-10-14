@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { isSessionUsageChips, setSessionUsageChips, getThemeId } from '../public/ui-prefs.ts';
-import { SETTINGS_MAP } from '../public/settings-map.ts';
+import { SETTINGS_MAP } from '../public/settings/settings-map.ts';
 import { stubLocalStorageForTest } from './helpers/frontend-global-stub.ts';
 
 test('session usage chips defaults off, normalizes booleans and persists without changing other preferences', (context) => {

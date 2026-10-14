@@ -1,14 +1,14 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { IssuesStatus } from '#shared/contracts/issues.ts';
 import { STATES } from '#shared/states.ts';
-import { nextRequestId } from './control-ws.ts';
-import { el, externalLink, isPanelHidden, stateChip } from './dom-helpers.ts';
+import { nextRequestId } from '../control-ws.ts';
+import { el, externalLink, isPanelHidden, stateChip } from '../dom-helpers.ts';
 import { createReviewsPollingControls } from './my-prs-panel.ts';
 import { createPrQueueFoot, createPrQueueHead } from './pr-queue-columns.ts';
 import { filterIssues, groupIssuesByRepo, issueFilterOptions, issueFilterSummary, issueAgo, issueRelativeAge, issueScopeCounts, issuesPlaceholder } from './issues-view-core.ts';
 import type { IssueFilters, IssueRow, IssueScope, IssueSort } from './issues-view-core.ts';
-import { selectSession } from './session-actions.ts';
-import { sessionName, sessionUIs } from './session-card/card-registry.ts';
+import { selectSession } from '../session-actions.ts';
+import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 
 type IssuesRequestSender = (message: Record<string, unknown>) => boolean;
 

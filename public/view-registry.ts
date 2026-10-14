@@ -5,12 +5,12 @@ import { activateFocusView, deactivateFocusView, mountFocusView } from './focus-
 import { applyBenchmarkConnectionState, mountBenchmarkView } from './benchmark-panel.ts';
 import { applyFactoryConnectionState, mountFactoryView } from './factory/factory-view.ts';
 import { mountHooksView, refreshHooksView, requestHooksReport } from './hooks-panel.ts';
-import { applyIssuesConnectionState, mountIssuesView, refreshIssuesViewOnShow } from './issues-panel.ts';
-import { acknowledgePrsViewAttention, mountPrsView } from './prs-view.ts';
+import { applyIssuesConnectionState, mountIssuesView, refreshIssuesViewOnShow } from './github/issues-panel.ts';
+import { acknowledgePrsViewAttention, mountPrsView } from './github/prs-view.ts';
 import { acknowledgeRadarAttention, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar-panel.ts';
 import { onDebugModeChanged } from './session-card/card-dom.ts';
-import { mountSettingsView } from './settings-panel.ts';
-import { setTeamReviewActivityCallback } from './team-review-panel.ts';
+import { mountSettingsView } from './settings/settings-panel.ts';
+import { setTeamReviewActivityCallback } from './github/team-review-panel.ts';
 import { applyTraceConnectionState, mountTraceView, openTraceForSession, refreshTraceView } from './trace-panel.ts';
 import { acknowledgeUsageAttention, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback } from './usage/usage-panel.ts';
 import { acknowledgeVisionsAttention, mountVisionsView, refreshVisionsView, setVisionsActivityCallback } from './visions/visions-panel.ts';

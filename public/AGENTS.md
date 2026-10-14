@@ -15,10 +15,8 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `control-ws.ts` | Control WebSocket client: connection, reconnect, request/response |
 | `reconnect-backoff.ts` | Pure `nextReconnectDelayMs(attempt, random)`: the ONE retry delay for both WS clients (500ms doubling to a 30s cap, jittered to 50-100%) |
 | `dialogs.ts` | Add Session and investigation-report dialog factories |
-| `settings-map.ts` / `settings-view-core.ts` / `settings-panel.ts` | Declarative settings source, pure search/hash/project/dirty rules, primary-view DOM shell |
 | `external-link.ts` / `external-link-core.ts` | THE opener for every off-dashboard link: inside an editor's Electron browser view it asks the host (`POST /open-external`) because that view keeps every popup as an internal tab |
-| `pr-status-icon.ts` / `pr-status-icon-core.ts` | THE pull request status icon set (Octicons, crisp only at their native 16px) and its help-page legend; separate from the agent status glyphs in `stateChip` |
-| `settings-link.ts` | `createSettingsLink`, the one anchor builder for `#settings/` deep links from other views |
+| `github/pr-status-icon.ts` / `github/pr-status-icon-core.ts` | THE pull request status icon set (Octicons, crisp only at their native 16px) and its help-page legend; separate from the agent status glyphs in `stateChip` |
 | `render-scheduler.ts` | Global xterm WRITE scheduler: callback-gated round-robin with per-frame budget |
 | `notifications.ts` | Native Web Notifications (browser routes to Windows Action Center); replaces the server-side toast path |
 | `notify-dedupe-core.ts` | Pure cross-tab claim (short-TTL localStorage) so exactly one open tab raises each notification |
@@ -51,6 +49,8 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `plan/` | Safe plan parsing and the session card's shared plan face (see `plan/AGENTS.md`) |
 | `sidebar/` | Review sidebar: diff rendering, selection, merge actions (see `sidebar/AGENTS.md`) |
 | `usage/` | Usage tab: the DOM shell and its pure formatting core |
+| `github/` | GitHub views: issues, my PRs, team review, the PR queue and status icons, and the shared polling retry text |
+| `settings/` | Settings view: the declarative settings source, pure search, hash, project and dirty rules, the DOM shell, and `createSettingsLink`, the one builder for `#settings/` deep links |
 | `components/` | Static HTML fragments imported `?raw` (see `components/AGENTS.md`) |
 
 ## For AI Agents

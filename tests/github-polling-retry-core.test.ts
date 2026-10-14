@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasReviewsCountdown, reviewsErrorNotice, reviewsRefreshText } from '../public/reviews-retry-core.ts';
-import type { ReviewsPollingStatus } from '../public/reviews-retry-core.ts';
+import { hasReviewsCountdown, reviewsErrorNotice, reviewsRefreshText } from '../public/github/github-polling-retry-core.ts';
+import type { ReviewsPollingStatus } from '../public/github/github-polling-retry-core.ts';
 
 const failingStatus: ReviewsPollingStatus = { configured: true, error: 'offline.', nextAttemptAt: 25_000, retry: { attempt: 2, limit: 3 } };
 

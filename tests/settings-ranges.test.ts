@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 
 import * as ranges from '../shared/settings-ranges.ts';
 import type { SettingsRange } from '../shared/settings-ranges.ts';
-import { SETTINGS_MAP } from '../public/settings-map.ts';
-import type { SettingsSection } from '../public/settings-map.ts';
+import { SETTINGS_MAP } from '../public/settings/settings-map.ts';
+import type { SettingsSection } from '../public/settings/settings-map.ts';
 
 test('every map number setting names a range the shared catalog carries', () => {
   const catalog: Record<string, SettingsRange | undefined> = ranges.SETTINGS_RANGES;

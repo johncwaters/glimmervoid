@@ -1,17 +1,17 @@
-import { renderCompactStatusPreview } from './compact-status-preview.ts';
-import { renderFlyingAnimalsGallery } from './flying-animals-gallery.ts';
-import { onLayoutChange } from './form-factor.ts';
+import { renderCompactStatusPreview } from '../compact-status-preview.ts';
+import { renderFlyingAnimalsGallery } from '../flying-animals-gallery.ts';
+import { onLayoutChange } from '../form-factor.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';
 import { SETTINGS_RANGES } from '#shared/settings-ranges.ts';
 import type { CustomAgentSummaryRow } from '#shared/contracts/control-messages.ts';
 import type { UpdateJournal } from '#shared/contracts/update-journal.ts';
 import { REPO_SLUG } from '#shared/repo.ts';
-import { loadCustomSounds, playAlertSound, resolveSoundId, soundOptions } from './alert-sound.ts';
-import { sendControlMsg, sendControlRequest } from './control-ws.ts';
-import { el } from './dom-helpers.ts';
-import { ensureNotificationPermission, notificationPermission, notificationsSupported } from './notifications.ts';
-import { formatAgo } from './poll-ago.ts';
-import { UPDATES_SECTION_ID } from './radar-core.ts';
+import { loadCustomSounds, playAlertSound, resolveSoundId, soundOptions } from '../alert-sound.ts';
+import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
+import { el } from '../dom-helpers.ts';
+import { ensureNotificationPermission, notificationPermission, notificationsSupported } from '../notifications.ts';
+import { formatAgo } from '../poll-ago.ts';
+import { UPDATES_SECTION_ID } from '../radar-core.ts';
 import type { SettingsSection, SettingsSetting, SettingsOption, WorkflowRuleToggleRow } from './settings-map.ts';
 import {
   SETTINGS_MAP, SETTINGS_MOVED_SETTINGS, SETTINGS_SECTION_ALIASES, withoutWorkflowRuleDefinitions, workflowRuleSummaryLines, workflowRuleToggleRows,
@@ -37,11 +37,11 @@ import {
 } from './settings-view-core.ts';
 import type { SettingsPayload, SettingsProject, SettingsValues } from './settings-view-core.ts';
 import { includesRepositoryRoot, projectSelectionChoices } from './settings-projects-core.ts';
-import { appendShortcutChord, SHORTCUT_PLATFORM } from './shortcuts.ts';
-import { shortcutGroupsFor } from './shortcuts-core.ts';
-import { renderPrStatusLegend, renderStatusLegend } from './status-legend.ts';
-import { applyFlyingAnimals } from './flying-animals.ts';
-import { applyCompactStatusLabels, applySessionUsageChips, applyTheme, getThemeList } from './theme.ts';
+import { appendShortcutChord, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { shortcutGroupsFor } from '../shortcuts-core.ts';
+import { renderPrStatusLegend, renderStatusLegend } from '../status-legend.ts';
+import { applyFlyingAnimals } from '../flying-animals.ts';
+import { applyCompactStatusLabels, applySessionUsageChips, applyTheme, getThemeList } from '../theme.ts';
 import {
   isFlyingAnimalsEnabled,
   getFlyingAnimalsEnteredValues,
@@ -64,9 +64,9 @@ import {
   setNotificationsEnabled,
   setSoundId,
   setThemeId,
-} from './ui-prefs.ts';
-import { usageStatusLines } from './usage/usage-panel.ts';
-import { applySoundEnabled, onSoundEnabledChange } from './mute-button.ts';
+} from '../ui-prefs.ts';
+import { usageStatusLines } from '../usage/usage-panel.ts';
+import { applySoundEnabled, onSoundEnabledChange } from '../mute-button.ts';
 import {
   IDLE_UPDATE_REQUEST,
   NOT_CONNECTED_TEXT,
@@ -78,8 +78,8 @@ import {
   shouldAutoCheckUpdates,
   updateActionAvailability,
   updateSummary,
-} from './updates-view-core.ts';
-import type { UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from './updates-view-core.ts';
+} from '../updates-view-core.ts';
+import type { UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from '../updates-view-core.ts';
 
 const RANGES_BY_NAME: Record<string, SettingsRange> = SETTINGS_RANGES;
 

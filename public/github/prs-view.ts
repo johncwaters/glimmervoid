@@ -2,7 +2,7 @@ import { mountMyPrsView } from './my-prs-panel.ts';
 import { resyncPrQueueLayouts } from './pr-queue-columns.ts';
 import { createPrScopeTabs } from './pr-scope-tabs.ts';
 import { acknowledgeTeamReviewAttention, mountTeamReviewView } from './team-review-panel.ts';
-import { getPrsMode, setPrsMode } from './ui-prefs.ts';
+import { getPrsMode, setPrsMode } from '../ui-prefs.ts';
 
 export function acknowledgePrsViewAttention(): void {
   if (getPrsMode() === 'team') acknowledgeTeamReviewAttention();

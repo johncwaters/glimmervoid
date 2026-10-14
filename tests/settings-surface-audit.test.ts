@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BrowserConfig, Config, ConfigUpdate } from '../shared/contracts/config.ts';
 import { normalizeLegacyConfigNumbers } from '../shared/contracts/config-numbers-core.ts';
-import { SETTINGS_MAP } from '../public/settings-map.ts';
-import type { SettingsSection, SettingsSetting } from '../public/settings-map.ts';
+import { SETTINGS_MAP } from '../public/settings/settings-map.ts';
+import type { SettingsSection, SettingsSetting } from '../public/settings/settings-map.ts';
 import { SETTINGS_RANGES } from '../shared/settings-ranges.ts';
-import { includesRepositoryRoot, projectSelectionChoices } from '../public/settings-projects-core.ts';
+import { includesRepositoryRoot, projectSelectionChoices } from '../public/settings/settings-projects-core.ts';
 import {
   collectDirtyBlocks, hydrateFromSettings, parsePosthogProjectSelection, rtkInstallStatusText,
   secretEnvironmentSource, validateLocally, visionsActivityLimitText,
-} from '../public/settings-view-core.ts';
+} from '../public/settings/settings-view-core.ts';
 
 const INTEGER_FIELDS = [
   ['replay-buffer', 'replayBufferKB'],

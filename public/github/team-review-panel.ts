@@ -2,15 +2,15 @@ import { createReviewsPollingControls } from './my-prs-panel.ts';
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { DraftComment, FindingSeverity, InFlightReview, QueuedReview, ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
-import { createAttentionAck } from './attention-ack-core.ts';
-import { nextRequestId, sendControlMsg } from './control-ws.ts';
-import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from './dom-helpers.ts';
-import { createPollAgoTicker, formatAgo } from './poll-ago.ts';
+import { createAttentionAck } from '../attention-ack-core.ts';
+import { nextRequestId, sendControlMsg } from '../control-ws.ts';
+import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from '../dom-helpers.ts';
+import { createPollAgoTicker, formatAgo } from '../poll-ago.ts';
 import { createPrQueueColumns, createPrQueueFoot, createPrQueueHead } from './pr-queue-columns.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
-import { createSvgIcon as svgIcon, createSvgShape as svgShape } from './svg-dom.ts';
-import { formatTrailOffset } from './radar-core.ts';
-import { createSettingsLink } from './settings-link.ts';
+import { createSvgIcon as svgIcon, createSvgShape as svgShape } from '../svg-dom.ts';
+import { formatTrailOffset } from '../radar-core.ts';
+import { createSettingsLink } from '../settings/settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview,
   answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionOrder, nextAttentionKey, buildActionRequest, chooseSelectedReviewKey,
@@ -19,7 +19,7 @@ import {
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, caughtUpSelectionView, planActionReply, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { ActionReplyNotice, CaughtUpSelectionView, QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
-import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
+import { getPrsAttentionAck, setPrsAttentionAck } from '../ui-prefs.ts';
 
 const ACTION_REPLY_TIMEOUT_MS = 120000;
 const SHARD_PATH = 'M4.5 0.5L8.5 5.5L4.5 10.5L0.5 5.5Z';

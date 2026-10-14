@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SETTINGS_MAP } from '../public/settings-map.ts';
-import { collectDirtyBlocks, hydrateFromSettings } from '../public/settings-view-core.ts';
+import { SETTINGS_MAP } from '../public/settings/settings-map.ts';
+import { collectDirtyBlocks, hydrateFromSettings } from '../public/settings/settings-view-core.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
 

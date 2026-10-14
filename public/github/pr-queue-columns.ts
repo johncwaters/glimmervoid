@@ -1,7 +1,7 @@
-import { wireColumnResizer } from './column-resizer.ts';
-import { el } from './dom-helpers.ts';
-import { createSvgIcon, createSvgShape } from './svg-dom.ts';
-import { getPrsQueueWidth, isPrsQueueCollapsed, setPrsQueueCollapsed, setPrsQueueWidth } from './ui-prefs.ts';
+import { wireColumnResizer } from '../column-resizer.ts';
+import { el } from '../dom-helpers.ts';
+import { createSvgIcon, createSvgShape } from '../svg-dom.ts';
+import { getPrsQueueWidth, isPrsQueueCollapsed, setPrsQueueCollapsed, setPrsQueueWidth } from '../ui-prefs.ts';
 
 const QUEUE_BOUNDS = { minPx: 220, maxPx: 720 };
 const QUEUE_KEY_STEP_PX = 16;

@@ -4,10 +4,10 @@ import type {
 } from '#shared/contracts/team-review.ts';
 import { shortSha } from '#shared/git-text.ts';
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
-import { attentionSignature } from './attention-ack-core.ts';
-import { formatClockOffset } from './radar-core.ts';
+import { attentionSignature } from '../attention-ack-core.ts';
+import { formatClockOffset } from '../radar-core.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
-import type { StateTone } from './state-tone-core.ts';
+import type { StateTone } from '../state-tone-core.ts';
 
 export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded' | 'handReview';
 

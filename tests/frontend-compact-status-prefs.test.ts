@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { isCompactStatusLabels, setCompactStatusLabels, getThemeId } from '../public/ui-prefs.ts';
-import { SETTINGS_MAP } from '../public/settings-map.ts';
+import { SETTINGS_MAP } from '../public/settings/settings-map.ts';
 import { stubLocalStorageForTest } from './helpers/frontend-global-stub.ts';
 
 const PLAN_PROMPT_KIND = 'plan';

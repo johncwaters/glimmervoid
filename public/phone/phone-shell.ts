@@ -7,7 +7,7 @@ import { sessionUIs } from '../session-card/card-registry.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
 import { reparentReviewPanel } from '../sidebar/review-sidebar.ts';
 import { uiState } from '../ui-state-core.ts';
-import { closeSettingsSectionPicker } from '../settings-panel.ts';
+import { closeSettingsSectionPicker } from '../settings/settings-panel.ts';
 import { createBoardScreen } from './board-screen.ts';
 import type { PushedPhoneHistoryEntry } from './phone-history-core.ts';
 import type { PhonePanel } from './phone-panels-core.ts';

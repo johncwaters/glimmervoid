@@ -6,7 +6,7 @@ import type { InvestigationDialog } from './dialogs.ts';
 import { sendControlRequest } from './control-ws.ts';
 import { createPollAgoTicker, formatAgo, formatDuration } from './poll-ago.ts';
 import { createRenderHold } from './radar-hold-core.ts';
-import { createSettingsLink } from './settings-link.ts';
+import { createSettingsLink } from './settings/settings-link.ts';
 import { getRadarAttentionAck, setRadarAttentionAck } from './ui-prefs.ts';
 import {
   applyInvestigationActivity as patchInvestigationActivity,

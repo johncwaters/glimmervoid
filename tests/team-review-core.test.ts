@@ -52,7 +52,7 @@ import {
   startReviewProgress,
   triagePr,
 } from '../server/github/core/team-review-core.ts';
-import { parseReviewComment } from '../public/team-review-view-core.ts';
+import { parseReviewComment } from '../public/github/team-review-view-core.ts';
 import { FindingSeverity, InFlightReview, PostingPlan, PrDetail, QueuedReview, ReviewDraft, ReviewResult, SearchedPr, TeamReviewState } from '../shared/contracts/team-review.ts';
 import { findingHeader, findingSeveritiesIn } from '../shared/team-review-markdown.ts';
 import type { NewWorkPointer } from '../server/github/core/team-review-core.ts';

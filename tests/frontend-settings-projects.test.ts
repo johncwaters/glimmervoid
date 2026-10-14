@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const load = () => import('../public/settings-projects-core.ts');
+const load = () => import('../public/settings/settings-projects-core.ts');
 
 test('a checked box is the selection when every stored id was rendered', async () => {
   const { unionProjectSelection } = await load();

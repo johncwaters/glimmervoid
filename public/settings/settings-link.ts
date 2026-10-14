@@ -1,4 +1,4 @@
-import { el } from './dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
 
 export function createSettingsLink(sectionId: string, settingId: string, label: string) {
   const link = el('a', 'settings-link', label);

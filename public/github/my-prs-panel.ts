@@ -1,15 +1,15 @@
-import { hasReviewsCountdown, reviewsErrorNotice, reviewsRefreshText } from './reviews-retry-core.ts';
-import type { ReviewsPollingStatus } from './reviews-retry-core.ts';
+import { hasReviewsCountdown, reviewsErrorNotice, reviewsRefreshText } from './github-polling-retry-core.ts';
+import type { ReviewsPollingStatus } from './github-polling-retry-core.ts';
 import type { ReviewsRefreshRequest } from '#shared/contracts/reviews.ts';
 import type { MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { errorMessage } from '#shared/text.ts';
-import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from './dom-helpers.ts';
-import { formatAgo } from './poll-ago.ts';
+import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from '../dom-helpers.ts';
+import { formatAgo } from '../poll-ago.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
-import { nextRequestId, sendControlMsg, sendControlRequest } from './control-ws.ts';
-import { openConfirmDialog } from './session-card/modal.ts';
-import { queueMergeCelebration } from './merge-celebration.ts';
+import { nextRequestId, sendControlMsg, sendControlRequest } from '../control-ws.ts';
+import { openConfirmDialog } from '../session-card/modal.ts';
+import { queueMergeCelebration } from '../merge-celebration.ts';
 import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 

@@ -1,4 +1,4 @@
-import { FLYING_ANIMALS_DEFAULTS } from './flying-animals-core.ts';
+import { FLYING_ANIMALS_DEFAULTS } from '../flying-animals-core.ts';
 import { WorkflowsSettings } from '#shared/contracts/workflows.ts';
 import { CHANGE_MAP_NARRATOR_ENGINES, POST_TURN_CHECK_MODES, UPDATE_CHANNELS } from '#shared/contracts/browser-config.ts';
 import { USAGE_COST_MODES } from '#shared/usage-config.ts';
