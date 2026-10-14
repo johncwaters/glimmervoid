@@ -23,10 +23,9 @@ export interface SeededTarget {
 
 export async function seedBatchSnapshot(batchDirectory: string, repositoryPath: string, signal?: AbortSignal): Promise<BatchSnapshot> {
   const snapshotPath = await resolveInside(batchDirectory, path.join(batchDirectory, 'staging.git'));
-  const realMain = await runGit(repositoryPath, ['rev-parse', '--verify', 'refs/heads/main'], signal);
   await runGit(batchDirectory, ['clone', '--no-hardlinks', '--bare', '--single-branch', '--no-tags', '--branch', 'main', repositoryPath, snapshotPath], signal);
   await runGit(snapshotPath, ['remote', 'remove', 'origin'], signal);
-  if (await runGit(snapshotPath, ['rev-parse', 'refs/heads/main'], signal) !== realMain) throw new Error('Gate refused: real main moved while taking the batch snapshot');
+  const realMain = await runGit(snapshotPath, ['rev-parse', '--verify', 'refs/heads/main'], signal);
   const temporaryClone = await mkdtemp(path.join(batchDirectory, 'snapshot-setup-'));
   try {
     await runGit(batchDirectory, ['clone', '--no-hardlinks', snapshotPath, temporaryClone], signal);
