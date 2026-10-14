@@ -75,6 +75,7 @@ interface AgentArgsOptions {
   initialPrompt?: string | null;
   hasOuterSandbox?: boolean;
   hasOperatorInstructions?: boolean;
+  canRunHelpCommand?: boolean;
 }
 
 interface AgentLaunchSessionOptions {

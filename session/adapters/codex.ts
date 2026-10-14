@@ -210,9 +210,10 @@ function buildArgs({
   initialPrompt = null,
   hasOuterSandbox = false,
   hasOperatorInstructions = false,
+  canRunHelpCommand = true,
 }: AgentArgsOptions = {}): string[] {
   const args = [...UPDATE_CHECK_ARGS];
-  if (!hasOperatorInstructions && !extraArgs.some(isDeveloperInstructionsOverride)) {
+  if (canRunHelpCommand && !hasOperatorInstructions && !extraArgs.some(isDeveloperInstructionsOverride)) {
     args.push("-c", `${DEVELOPER_INSTRUCTIONS_KEY}='''${supervisionLine({ isSandboxed: hasOuterSandbox })}'''`);
   }
   if (resumeSessionId) args.push("resume", resumeSessionId);

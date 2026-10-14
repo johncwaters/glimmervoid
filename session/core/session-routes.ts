@@ -3,6 +3,10 @@ import type { SessionCommand, SessionLimits } from '../../shared/contracts/sessi
 
 const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
 const GUARDRAILS_LINE = 'Its guardrails are OS-enforced, so a read, write or connection they refuse will not succeed on retry.';
+const HELP_COMMAND = 'glimmervoid --help';
+const SHELL_TOOL_RULE = 'Bash';
+const SHELL_PREFIX_RULE = /^Bash\((.+):\*\)$/;
+const NEVER_ASK_MODE = 'dontAsk';
 const NO_OWN_WORKTREE_REASON = 'this session has no worktree of its own, so there is nothing of its own to land';
 
 interface SessionRoleFacts {
@@ -30,6 +34,25 @@ const ANSWERS: { answers: true } = Object.freeze({ answers: true });
 function supervisionLine({ isSandboxed }: { isSandboxed: boolean }): string {
   if (!isSandboxed) return SUPERVISION_LINE;
   return `${SUPERVISION_LINE} ${GUARDRAILS_LINE}`;
+}
+
+function coversHelpCommand(permissionRule: unknown): boolean {
+  if (typeof permissionRule !== 'string') return false;
+  if (permissionRule === SHELL_TOOL_RULE) return true;
+  const commandPrefix = SHELL_PREFIX_RULE.exec(permissionRule)?.[1];
+  if (commandPrefix === undefined) return false;
+  return HELP_COMMAND === commandPrefix || HELP_COMMAND.startsWith(`${commandPrefix} `);
+}
+
+function permissionRules(listed: unknown): unknown[] {
+  return Array.isArray(listed) ? listed : [];
+}
+
+function permitsHelpCommand(settingsPermissions: Record<string, unknown> | null): boolean {
+  if (settingsPermissions === null) return true;
+  if (permissionRules(settingsPermissions.deny).some(coversHelpCommand)) return false;
+  if (settingsPermissions.defaultMode !== NEVER_ASK_MODE) return true;
+  return permissionRules(settingsPermissions.allow).some(coversHelpCommand);
 }
 
 function pushRoute({ isEphemeral, isSpawnedChild, hasOwnWorktree }: SessionRoleFacts): PushRouteVerdict {
@@ -100,5 +123,5 @@ function formatSessionLimits({ commands, sandboxed, deadEnds }: SessionLimits): 
   ];
 }
 
-export { supervisionLine, pushRoute, spawnRoute, attentionRoute, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
+export { supervisionLine, permitsHelpCommand, pushRoute, spawnRoute, attentionRoute, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
 export type { SessionRoleFacts, RouteVerdict };

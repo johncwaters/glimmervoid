@@ -89,6 +89,34 @@ test('a session with no team options spawns with the supervision line and no oth
   }
 });
 
+test('the supervision line is withheld exactly when the permission rules stop the session running glimmervoid --help', async () => {
+  const permissionCases: [string, Record<string, unknown>, boolean][] = [
+    ['a factory worker denies the glimmervoid command', { defaultMode: 'dontAsk', allow: ['Bash(coherence context:*)'], deny: ['Bash(glimmervoid:*)'] }, false],
+    ['a judge lane denies the shell outright', { defaultMode: 'acceptEdits', deny: ['Bash', 'Edit'] }, false],
+    ['a never-ask lane allows other commands only', { defaultMode: 'dontAsk', allow: ['Bash(git diff:*)', 'Bash(glimmervoid dispatch:*)'], deny: ['Edit'] }, false],
+    ['a never-ask lane allows the glimmervoid command', { defaultMode: 'dontAsk', allow: ['Bash(glimmervoid:*)'], deny: [] }, true],
+    ['a lane denies commands other than glimmervoid', { defaultMode: 'acceptEdits', deny: ['Bash(git push:*)', 'Bash(gh:*)'] }, true],
+  ];
+  for (const [label, settingsPermissions, isLineExpected] of permissionCases) {
+    const calls: ArgvCall[] = [];
+    const lane = new Session({
+      id: `lane-${permissionCases.findIndex(([caseLabel]) => caseLabel === label)}`,
+      name: 'lane',
+      path: process.cwd(),
+      ephemeral: true,
+      settingsPermissions,
+      spawnCommand: { path: process.execPath, kind: 'exe' },
+      ptySpawn: (file, args) => { calls.push({ file, args }); return fakePty(); },
+    });
+    try {
+      await lane.start();
+      assert.equal(calls[0].args.includes(SUPERVISION_ARGS[1]), isLineExpected, label);
+    } finally {
+      lane.destroy();
+    }
+  }
+});
+
 test('normal restart keeps the captured resume id in spawn args', async () => {
   const calls: ArgvCall[] = [];
   const resumeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';

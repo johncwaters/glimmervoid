@@ -23,6 +23,7 @@ import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
 import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
 import { commitSigningEnv } from "./core/commit-signing-env.ts";
+import { permitsHelpCommand } from "./core/session-routes.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, isSamePromptQuestion, type AgentAttentionReply, type PendingPromptDetail } from "../shared/contracts/session.ts";
 import { generateToken } from "../detection/settings-injector.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
@@ -331,6 +332,7 @@ class Session extends EventEmitter {
   _commitSigningProgram: string | null;
   _commitSigningToken: string | null;
   _factoryRole: 'orchestrator' | 'worker' | null;
+  _canRunHelpCommand: boolean;
   _agentLiveChildren: number;
   _agentLifetimeSpawns: number;
   _agentSpawnsInFlight: number;
@@ -577,6 +579,7 @@ class Session extends EventEmitter {
     this._commitSigningProgram = commitSigningProgram;
     this._commitSigningToken = commitSigningProgram === null ? null : generateToken();
     this._factoryRole = factoryRole;
+    this._canRunHelpCommand = permitsHelpCommand(settingsPermissions);
     this._agentLiveChildren = 0;
     this._agentLifetimeSpawns = 0;
     this._agentSpawnsInFlight = 0;
@@ -1480,6 +1483,7 @@ class Session extends EventEmitter {
       initialPrompt: this._initialPrompt,
       hasOuterSandbox: this._prepareSandbox !== null,
       hasOperatorInstructions: this._hasOperatorInstructions(env),
+      canRunHelpCommand: this._canRunHelpCommand,
     });
 
     const spawnCommand = await this._sandboxedSpawnCommand(this._adapter.buildSpawnCommand({
