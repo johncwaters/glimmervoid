@@ -282,10 +282,11 @@ export function updateAggregateStatus() {
     _lastAggregateSeverity = severity;
     aggregateEl.dataset.severity = severity;
     aggregateEl.textContent = '';
+    aggregateEl.title = text;
     if (text) {
       const glyph = el('span', 'aggregate-glyph', AGGREGATE_GLYPHS[severity] ?? AGGREGATE_GLYPHS['']);
       glyph.setAttribute('aria-hidden', 'true');
-      aggregateEl.append(glyph, document.createTextNode(text));
+      aggregateEl.append(glyph, el('span', 'aggregate-text', text));
     }
   }
 
