@@ -1,4 +1,4 @@
-import { execFileSync } from './child-process-safe.ts';
+import { execFileSync } from '../child-process-safe.ts';
 import { gitBootWarning, gitVersionReport } from './core/git-version-core.ts';
 import type { GitVersionReport } from './core/git-version-core.ts';
 

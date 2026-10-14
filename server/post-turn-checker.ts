@@ -8,7 +8,7 @@ import {
   shouldCheckPath,
 } from '../session/core/post-turn-rules.ts';
 import type { RuleConfig } from '../session/core/post-turn-rules.ts';
-import { runGit } from './git-exec.ts';
+import { runGit } from './git/git-exec.ts';
 import { errorMessage } from '../shared/text.ts';
 import { writeJsonAtomicSync } from './json-file.ts';
 

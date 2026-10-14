@@ -1,7 +1,7 @@
 import { GithubIssueResponse, GithubIssuePullRequestsRepository, IssueKey, IssueUpdate, IssuesSearchResponse } from '../shared/contracts/issues.ts';
 import type { IssuePullRequest, IssuesFetchResult } from '../shared/contracts/issues.ts';
-import { runCommand } from './git-exec.ts';
-import type { CommandResult } from './git-exec.ts';
+import { runCommand } from './git/git-exec.ts';
+import type { CommandResult } from './git/git-exec.ts';
 import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../shared/contracts/github-ids.ts';
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
 import { z } from 'zod';

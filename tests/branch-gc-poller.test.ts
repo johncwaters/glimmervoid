@@ -11,7 +11,7 @@ import { createBranchGcWiring } from '../server/branch-gc-wiring.ts';
 import { DAY_MS, UNMERGED_KEPT_REASON } from '../server/core/branch-gc-core.ts';
 import type { LocalWorktreeTip } from '../server/core/branch-gc-core.ts';
 import type { MergeProbeEnvResult, MergeTreeOutcome } from '../server/core/merge-proof-core.ts';
-import { createGitWorkspace } from '../server/git-workspace.ts';
+import { createGitWorkspace } from '../server/git/git-workspace.ts';
 
 const NOW_MS = Date.parse('2026-08-25T12:00:00Z');
 

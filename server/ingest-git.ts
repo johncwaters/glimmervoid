@@ -2,8 +2,8 @@
 import fsp from 'node:fs/promises';
 
 import { execFileAsync } from './child-process-safe.ts';
-import { runGit as runGitCommand } from './git-exec.ts';
-import type { ExecFileFn } from './git-exec.ts';
+import { runGit as runGitCommand } from './git/git-exec.ts';
+import type { ExecFileFn } from './git/git-exec.ts';
 import { createWatchDebounce } from '../detection/watch-debounce.ts';
 import type { WatchDebounce } from '../detection/watch-debounce.ts';
 import { canonicalizePath } from '../shared/canonical-paths.ts';

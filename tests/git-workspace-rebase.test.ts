@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { createGitWorkspace } from '../server/git-workspace.ts';
-import type { WorkspaceHandle } from '../server/git-workspace.ts';
+import { createGitWorkspace } from '../server/git/git-workspace.ts';
+import type { WorkspaceHandle } from '../server/git/git-workspace.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 
 const GIT = hasGit();

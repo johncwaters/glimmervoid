@@ -7,7 +7,7 @@ import type { MyPr, MyPrKeepMergeableResult, MyPrMergeabilityFixResult, MyPrMerg
 import { myPrMergeRefusal } from '../shared/my-pr-merge.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import * as core from './core/my-prs-core.ts';
-import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
+import { nulSeparatedPaths } from './git/core/git-changed-paths-core.ts';
 import { createLaneRunner } from './lane-runner.ts';
 import type { SharedClock } from './lane-runner.ts';
 import { createMyPrsPoller } from './my-prs-poller.ts';
@@ -18,7 +18,7 @@ import { prBaseRef, prKey, readTeamReviewSettings } from './core/team-review-cor
 import type { TeamReviewSettingsSource } from './core/team-review-core.ts';
 import { createJsonStateStore } from './json-file.ts';
 import { drainPending, firstLine, raceWithAbort } from './ephemeral-session.ts';
-import type { CommandResult } from './git-exec.ts';
+import type { CommandResult } from './git/git-exec.ts';
 import { emptyGhConfigDir, hooksPathPinnedSpawnEnv, makeTeamReviewWorkDir, sweepLeftoverCheckouts } from './team-review-wiring.ts';
 import { judgeRole } from './core/sandbox-roles-core.ts';
 import type { SandboxRole } from './core/sandbox-policy-core.ts';
@@ -30,7 +30,7 @@ import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { CommitSha } from '../shared/contracts/team-review.ts';
 import { errorMessage } from '../shared/text.ts';
 import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
-import { runGit } from './git-exec.ts';
+import { runGit } from './git/git-exec.ts';
 import { createSshSigner, readSigningKeySetting } from './ssh-signing.ts';
 
 type MyPrsPoller = ReturnType<typeof createMyPrsPoller>;

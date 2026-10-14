@@ -31,9 +31,9 @@ import {
   retireAtBoot,
 } from './core/update-apply-core.ts';
 import type { RenameOperation } from './core/update-apply-core.ts';
-import type { GitWorkspaceInstance } from './git-workspace.ts';
-import { runCommand as execCommand, runGit } from './git-exec.ts';
-import type { CommandResult } from './git-exec.ts';
+import type { GitWorkspaceInstance } from './git/git-workspace.ts';
+import { runCommand as execCommand, runGit } from './git/git-exec.ts';
+import type { CommandResult } from './git/git-exec.ts';
 import { createJsonStateWriter, writeJsonAtomic } from './json-file.ts';
 import { isMissingFileError } from '../shared/text.ts';
 import { probeBranchAndUpstream } from './update-check.ts';

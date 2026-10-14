@@ -16,10 +16,10 @@ import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryChec
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
 import { SANDBOX_PLACEHOLDER_NAMES } from './core/sandbox-policy-core.ts';
-import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
-import { prepareHardenedGitCommand, runHardenedGit } from './git-workspace.ts';
+import { nulSeparatedPaths } from './git/core/git-changed-paths-core.ts';
+import { prepareHardenedGitCommand, runHardenedGit } from './git/git-workspace.ts';
 import { makeHostScratchDirectory } from './host-scratch.ts';
-import type { GitWorkspaceInstance } from './git-workspace.ts';
+import type { GitWorkspaceInstance } from './git/git-workspace.ts';
 import { readLaneResultFile } from './lane-spawn.ts';
 import { writeJsonAtomic, writeTextAtomic } from './json-file.ts';
 import { z } from 'zod';

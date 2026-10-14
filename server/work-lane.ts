@@ -8,7 +8,7 @@ import { glimmervoidHomeDir } from './config-store.ts';
 import { LANE_ENVIRONMENT_ARGS, buildShellLanePermissions } from './core/lane-permissions-core.ts';
 import type { SandboxRole } from './core/sandbox-policy-core.ts';
 import { isWorktreeAdminDirOf, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, workRole } from './core/sandbox-roles-core.ts';
-import { runHardenedGit } from './git-workspace.ts';
+import { runHardenedGit } from './git/git-workspace.ts';
 import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';

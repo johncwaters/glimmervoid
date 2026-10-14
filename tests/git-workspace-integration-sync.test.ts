@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createGitWorkspace } from '../server/git-workspace.ts';
+import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 
 const GIT = hasGit();

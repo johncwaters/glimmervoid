@@ -1,10 +1,10 @@
-import { gitCommandFailure, runGit } from "../server/git-exec.ts";
-import type { RunGitOptions } from "../server/git-exec.ts";
+import { gitCommandFailure, runGit } from "../server/git/git-exec.ts";
+import type { RunGitOptions } from "../server/git/git-exec.ts";
 import { errorMessage } from "../shared/text.ts";
 import fs from "node:fs";
 import os from "node:os";
-import { isolateGitWorkspace, runHardenedGit } from "../server/git-workspace.ts";
-import { buildHardenedGitInvocation } from "../server/core/git-invocation-core.ts";
+import { isolateGitWorkspace, runHardenedGit } from "../server/git/git-workspace.ts";
+import { buildHardenedGitInvocation } from "../server/git/core/git-invocation-core.ts";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "../server/child-process-safe.ts";
@@ -33,9 +33,9 @@ import {
   buildResyncCommand,
   firstGitErrorLine,
 } from "../server/core/branch-sync-core.ts";
-import type { GitIsolationOptions } from "../server/core/git-invocation-core.ts";
-import type { WorktreeArgs } from "../server/git-workspace.ts";
-import type { GitWorkspaceInstance } from "../server/git-workspace.ts";
+import type { GitIsolationOptions } from "../server/git/core/git-invocation-core.ts";
+import type { WorktreeArgs } from "../server/git/git-workspace.ts";
+import type { GitWorkspaceInstance } from "../server/git/git-workspace.ts";
 import { planWorkspaceMembers } from "./core/workspace-core.ts";
 import type { WorkspaceMember } from "./core/workspace-core.ts";
 import { createSessionWorkspaceMembers } from "./session-workspace-members.ts";

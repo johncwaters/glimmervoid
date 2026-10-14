@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isCredentialLikePath, nulSeparatedPaths } from '../server/core/git-changed-paths-core.ts';
+import { isCredentialLikePath, nulSeparatedPaths } from '../server/git/core/git-changed-paths-core.ts';
 
 test('reads NUL separated git paths verbatim, keeping non-ASCII, tab, quote, newline and trailing space bytes', () => {
   const awkwardWorkflowPaths = ['.github/workflows/é.yml', '.github/workflows/a\tb.yml', '.github/workflows/"q".yml', '.github/workflows/line\nbreak.yml', '.github/workflows/trailing .yml '];

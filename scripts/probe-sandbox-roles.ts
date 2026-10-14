@@ -52,7 +52,7 @@ await writeFile(path.join(homeToolFolder, HOME_TOOL_NAME), '#!/bin/sh\nexit 0\n'
 
 const { execFileAsync } = await import('../server/child-process-safe.ts');
 const { awaitSessionExit, createJobResultFile } = await import('../server/ephemeral-session.ts');
-const { createGitWorkspace, runHardenedGit } = await import('../server/git-workspace.ts');
+const { createGitWorkspace, runHardenedGit } = await import('../server/git/git-workspace.ts');
 const { judgeRole, workRole } = await import('../server/core/sandbox-roles-core.ts');
 const { SANDBOX_PLACEHOLDER_NAMES } = await import('../server/core/sandbox-policy-core.ts');
 const { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS, runFactoryReview } = await import('../server/factory-closeout.ts');

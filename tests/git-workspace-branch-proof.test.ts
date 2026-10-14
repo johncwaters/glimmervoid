@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { ancestryFromResult, buildTipProbe, proveMergedAcrossTips } from '../server/core/merge-proof-core.ts';
 import type { MergeProof, MergeTreeOutcome } from '../server/core/merge-proof-core.ts';
-import { createGitWorkspace } from '../server/git-workspace.ts';
+import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 
 const GIT = hasGit();

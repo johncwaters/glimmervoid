@@ -4,12 +4,12 @@ import { GIT_CONFIG_LISTING_ARGS, buildHardenedGitInvocation, gitInvocationEnvir
 import type { GitIsolationOptions } from './core/git-invocation-core.ts';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileAsync, execFileSync } from '../server/child-process-safe.ts';
-import { createSerialQueue, isQueueAdmissionTimeout } from './spawn-gate.ts';
-import { matchedPrefix, sessionIdFromBranch, usablePrefixes } from './core/branch-gc-core.ts';
-import { comparableDirectoryPath, isSameDirectoryPath } from '../shared/canonical-paths.ts';
-import { sanitizeWorktreeName } from '../shared/paths.ts';
-import type { RemoteBranchTip } from './core/branch-gc-core.ts';
+import { execFileAsync, execFileSync } from '../child-process-safe.ts';
+import { createSerialQueue, isQueueAdmissionTimeout } from '../spawn-gate.ts';
+import { matchedPrefix, sessionIdFromBranch, usablePrefixes } from '../core/branch-gc-core.ts';
+import { comparableDirectoryPath, isSameDirectoryPath } from '../../shared/canonical-paths.ts';
+import { sanitizeWorktreeName } from '../../shared/paths.ts';
+import type { RemoteBranchTip } from '../core/branch-gc-core.ts';
 import {
   GIT_FETCH_TIMEOUT_MS,
   parseLeftRightCount,
@@ -17,16 +17,16 @@ import {
   decideResyncAction,
   buildResyncCommand,
   firstGitErrorLine,
-} from './core/branch-sync-core.ts';
-import { decideIntegrationSync, classifyRefusedIntegrationSync } from './core/integration-sync-core.ts';
-import { DEFAULT_BRANCH_FALLBACKS, decideMarkerBase, defaultBranchFromRemoteHead, markerProbeCommands } from './core/integration-branch-core.ts';
-import type { MarkerProbes } from './core/integration-branch-core.ts';
-import { MERGE_DRIVER_KEY_PATTERN, driverEnumerationEnv, mergeProbeEnv, neutralGitConfigEnv } from './core/merge-proof-core.ts';
-import type { MergeProbeEnvResult, MergeTreeOutcome } from './core/merge-proof-core.ts';
-import type { CheckoutTreeState, IntegrationSyncOutcome } from './core/integration-sync-core.ts';
-import { SANDBOX_PLACEHOLDER_NAMES } from './core/sandbox-policy-core.ts';
-import { normalizeSha } from './core/update-core.ts';
-import { isMissingFileError } from '../shared/text.ts';
+} from '../core/branch-sync-core.ts';
+import { decideIntegrationSync, classifyRefusedIntegrationSync } from '../core/integration-sync-core.ts';
+import { DEFAULT_BRANCH_FALLBACKS, decideMarkerBase, defaultBranchFromRemoteHead, markerProbeCommands } from '../core/integration-branch-core.ts';
+import type { MarkerProbes } from '../core/integration-branch-core.ts';
+import { MERGE_DRIVER_KEY_PATTERN, driverEnumerationEnv, mergeProbeEnv, neutralGitConfigEnv } from '../core/merge-proof-core.ts';
+import type { MergeProbeEnvResult, MergeTreeOutcome } from '../core/merge-proof-core.ts';
+import type { CheckoutTreeState, IntegrationSyncOutcome } from '../core/integration-sync-core.ts';
+import { SANDBOX_PLACEHOLDER_NAMES } from '../core/sandbox-policy-core.ts';
+import { normalizeSha } from '../core/update-core.ts';
+import { isMissingFileError } from '../../shared/text.ts';
 import { runGit } from './git-exec.ts';
 
 const fsp = fs.promises;

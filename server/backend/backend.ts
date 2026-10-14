@@ -37,7 +37,7 @@ import { detectInstallFlavor } from '../update-check.ts';
 import type { CheckForUpdate } from './backend-update.ts';
 import { createBackendSessionRuntime } from './backend-session-runtime.ts';
 import { checkSandboxDependencies } from '../sandbox-deps.ts';
-import { warnWhenGitIsTooOld } from '../git-version.ts';
+import { warnWhenGitIsTooOld } from '../git/git-version.ts';
 import { createOutcomesLane } from '../outcomes-wiring.ts';
 import { createUpdateApplyLane } from '../update-apply.ts';
 import { bundled, packageRoot } from '../runtime-paths.ts';

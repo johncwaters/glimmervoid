@@ -2,7 +2,7 @@ import { errorMessage } from "../shared/text.ts";
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { GitWorkspaceInstance } from '../server/git-workspace.ts';
+import type { GitWorkspaceInstance } from '../server/git/git-workspace.ts';
 import { caseFoldedPathKey } from '../shared/paths.ts';
 import { renderWorkspaceAgentsMd, WORKSPACE_CLAUDE_MD } from './core/workspace-core.ts';
 import type { WorkspacePlan, WorkspaceMember } from './core/workspace-core.ts';

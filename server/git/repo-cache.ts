@@ -1,15 +1,15 @@
 import path from 'node:path';
 import os from 'node:os';
 import { lstat, mkdir, readdir } from 'node:fs/promises';
-import { prBaseRef, prHeadRef } from './core/team-review-core.ts';
-import type { NewWorkRange } from './core/team-review-core.ts';
-import { GH_SEGMENT, repoParts } from '../shared/contracts/github-ids.ts';
+import { prBaseRef, prHeadRef } from '../core/team-review-core.ts';
+import type { NewWorkRange } from '../core/team-review-core.ts';
+import { GH_SEGMENT, repoParts } from '../../shared/contracts/github-ids.ts';
 import { runGit } from './git-exec.ts';
 import type { CommandResult } from './git-exec.ts';
-import { createSerialQueue } from './spawn-gate.ts';
-import { CommitSha } from '../shared/contracts/team-review.ts';
-import { errorMessage, isMissingFileError } from '../shared/text.ts';
-import { firstLine } from './core/text-core.ts';
+import { createSerialQueue } from '../spawn-gate.ts';
+import { CommitSha } from '../../shared/contracts/team-review.ts';
+import { errorMessage, isMissingFileError } from '../../shared/text.ts';
+import { firstLine } from '../core/text-core.ts';
 
 type NewWorkIsolation = { ok: true; range: NewWorkRange } | { ok: false; reason: string };
 

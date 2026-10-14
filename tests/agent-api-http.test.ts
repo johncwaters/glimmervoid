@@ -11,7 +11,7 @@ import { createBackend } from '../server/backend/backend.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
-import { createGitWorkspace } from '../server/git-workspace.ts';
+import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { decideTicketAction, describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { AgentLimitsReply } from '../shared/contracts/session.ts';

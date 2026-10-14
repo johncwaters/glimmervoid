@@ -7,7 +7,7 @@ import path from 'node:path';
 import { answeredViewerThreads } from '../server/core/team-review-threads-core.ts';
 import { threadNode } from './helpers/team-review-thread-fixture.ts';
 import { isDispatchWorkdir } from '../server/core/ingest-agent-core.ts';
-import { createGitWorkspace } from '../server/git-workspace.ts';
+import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { ACCEPT_EDITS_MODE } from '../server/core/lane-permissions-core.ts';
 import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, HAND_APPROVAL_LINE, REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/core/team-review-core.ts';

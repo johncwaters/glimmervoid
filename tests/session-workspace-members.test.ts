@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createGitWorkspace } from '../server/git-workspace.ts';
+import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { planWorkspace } from '../session/core/workspace-core.ts';
 import { createSessionWorkspaceMembers } from '../session/session-workspace-members.ts';
 import { carryWorktreeAcrossRecreate } from '../server/session/session-registry.ts';

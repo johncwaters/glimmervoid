@@ -6,7 +6,7 @@ import { execFileAsync } from '../../server/child-process-safe.ts';
 import { glimmervoidHomeDir } from '../../server/config-store.ts';
 import { factoryWrittenRecordId } from '../../server/core/factory-core.ts';
 import { captureFactoryLedgerRecord, commitAndLandFactoryLedger } from '../../server/factory-ledger.ts';
-import { createGitWorkspace } from '../../server/git-workspace.ts';
+import { createGitWorkspace } from '../../server/git/git-workspace.ts';
 import { resolvePackageBin } from '../../server/runtime-paths.ts';
 import { CoherenceOrient, CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
 import type { FactoryUnlandedRecord } from '../../shared/contracts/factory.ts';

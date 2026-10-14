@@ -9,7 +9,7 @@ import { STATES } from '../../shared/states.ts';
 import type { AgentId, RegistryProject } from './core/session-registry-core.ts';
 import { diffProjects, machineSkipsPermissionsByDefault, shouldStartAfterModify } from './core/session-registry-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
-import type { SessionWorktree, WorktreeArgs } from '../git-workspace.ts';
+import type { SessionWorktree, WorktreeArgs } from '../git/git-workspace.ts';
 import { errorMessage } from '../../shared/text.ts';
 
 interface RegistryConfig extends Record<string, unknown> {

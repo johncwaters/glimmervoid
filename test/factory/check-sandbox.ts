@@ -30,10 +30,10 @@ const checkoutPath = path.join(checkoutParent, 'checkout');
 try {
   const { isMissingFileError } = await import('../../shared/text.ts');
   const { prepareSandboxedCheckRunner } = await import('../../server/factory-check-sandbox.ts');
-  const { createGitWorkspace, runHardenedGit } = await import('../../server/git-workspace.ts');
+  const { createGitWorkspace, runHardenedGit } = await import('../../server/git/git-workspace.ts');
   const { DEFAULT_CONFIG } = await import('../../server/config-store.ts');
   const { buildFactoryCheckEnv } = await import('../../server/core/factory-core.ts');
-  const { nulSeparatedPaths } = await import('../../server/core/git-changed-paths-core.ts');
+  const { nulSeparatedPaths } = await import('../../server/git/core/git-changed-paths-core.ts');
   const projectPath = fileURLToPath(new URL('../../', import.meta.url));
   const checkEnv = buildFactoryCheckEnv(process.env, process.platform);
   const isolation = { disableHooks: true, disableRepoCommands: true, replaceEnv: checkEnv };

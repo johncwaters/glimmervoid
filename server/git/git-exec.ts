@@ -1,5 +1,5 @@
-import { errorMessage } from '../shared/text.ts';
-import { execFileAsync } from './child-process-safe.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { execFileAsync } from '../child-process-safe.ts';
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 20_000;
 

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { gitVersionReport } from '../server/core/git-version-core.ts';
-import { probeGitVersion, warnWhenGitIsTooOld } from '../server/git-version.ts';
+import { gitVersionReport } from '../server/git/core/git-version-core.ts';
+import { probeGitVersion, warnWhenGitIsTooOld } from '../server/git/git-version.ts';
 
 test('git older than 2.48 is reported as too old to isolate new work, across the version strings git prints', () => {
   const isTooOldByOutput: [string, string, boolean][] = [

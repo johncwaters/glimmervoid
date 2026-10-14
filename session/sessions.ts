@@ -60,7 +60,7 @@ import type { HookRouterPort } from "./session-hook-lifecycle.ts";
 import type { SandboxLaunch, SandboxLaunchResult } from "../server/sandbox-launch.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
 import { signalWindowChangeBelow } from "./window-change-signal.ts";
-import type { GitIsolationOptions } from "../server/core/git-invocation-core.ts";
+import type { GitIsolationOptions } from "../server/git/core/git-invocation-core.ts";
 import type { GitWorkspace } from "./session-worktree-lifecycle.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";

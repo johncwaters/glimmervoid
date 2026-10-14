@@ -7,8 +7,8 @@ import { pathToFileURL } from 'node:url';
 
 import { createBenchmarkWiring } from '../server/benchmark-wiring.ts';
 import type { BenchmarkWiringOptions } from '../server/benchmark-wiring.ts';
-import { createGitWorkspace } from '../server/git-workspace.ts';
-import { createRepoCache } from '../server/repo-cache.ts';
+import { createGitWorkspace } from '../server/git/git-workspace.ts';
+import { createRepoCache } from '../server/git/repo-cache.ts';
 import claudeCode from '../session/adapters/claude-code.ts';
 import type { LaneSpawn } from '../server/lane-spawn.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../server/core/lane-permissions-core.ts';

@@ -4,7 +4,7 @@ import { SANDBOX_PLACEHOLDER_NAMES } from './sandbox-policy-core.ts';
 import { prKey } from './team-review-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
 import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../shared/settings-ranges.ts';
-import { isCredentialLikePath, isGithubDirectoryPath } from './git-changed-paths-core.ts';
+import { isCredentialLikePath, isGithubDirectoryPath } from '../git/core/git-changed-paths-core.ts';
 import { myPrMergeBlocker } from '../../shared/my-pr-merge.ts';
 import { REPO_SLUG_RE } from '../../shared/contracts/github-ids.ts';
 import { nextBackoffMs } from '../../shared/backoff.ts';

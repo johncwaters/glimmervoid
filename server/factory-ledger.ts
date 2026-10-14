@@ -2,13 +2,13 @@ import { constants } from 'node:fs';
 import { mkdir, open, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { isMissingFileError } from '../shared/text.ts';
-import { runHardenedGit } from './git-workspace.ts';
+import { runHardenedGit } from './git/git-workspace.ts';
 import { makeHostScratchDirectory } from './host-scratch.ts';
 import { FACTORY_INTEGRATION_MOVED_OUTSIDE, appendedLedgerLines, factoryRecordIdOf, findForbiddenLedgerWrites, isFactoryLedgerLineOfWrite } from './core/factory-core.ts';
 import type { FactoryDeclaredRecord, FactoryLedgerChange } from './core/factory-core.ts';
 import type { FactoryUnlandedRecord } from '../shared/contracts/factory.ts';
-import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
-import type { GitWorkspaceInstance } from './git-workspace.ts';
+import { nulSeparatedPaths } from './git/core/git-changed-paths-core.ts';
+import type { GitWorkspaceInstance } from './git/git-workspace.ts';
 
 const LEDGER_GIT_OPTIONS = { encoding: 'utf8' as const, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 };
 

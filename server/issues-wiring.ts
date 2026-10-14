@@ -13,7 +13,7 @@ import { createJsonStateStore } from './json-file.ts';
 import { bootStaggerDelay } from './boot-stagger.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
-import type { createGitWorkspace } from './git-workspace.ts';
+import type { createGitWorkspace } from './git/git-workspace.ts';
 import { errorMessage } from '../shared/text.ts';
 import { createSerialQueue } from './spawn-gate.ts';
 

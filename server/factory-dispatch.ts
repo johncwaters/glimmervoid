@@ -15,9 +15,9 @@ import {
 } from './core/factory-core.ts';
 import type { FactoryLiveWorker, FactoryStallSession } from './core/factory-core.ts';
 import type { LaneSpend } from './core/usage-scan-core.ts';
-import { parseFilterDriverNames } from './core/git-invocation-core.ts';
+import { parseFilterDriverNames } from './git/core/git-invocation-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
-import { runHardenedGit } from './git-workspace.ts';
+import { runHardenedGit } from './git/git-workspace.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
 import { resolveWorkLane } from './work-lane.ts';

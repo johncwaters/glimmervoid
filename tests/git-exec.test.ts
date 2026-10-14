@@ -1,7 +1,7 @@
 import assert from 'node:assert';
 import { test } from 'node:test';
-import { DEFAULT_COMMAND_TIMEOUT_MS, gitCommandFailure, runCommand, runGh, runGit } from '../server/git-exec.ts';
-import type { ExecFileFn, ExecFileOptions } from '../server/git-exec.ts';
+import { DEFAULT_COMMAND_TIMEOUT_MS, gitCommandFailure, runCommand, runGh, runGit } from '../server/git/git-exec.ts';
+import type { ExecFileFn, ExecFileOptions } from '../server/git/git-exec.ts';
 
 function recordingExec(outcome: { stdout?: string; stderr?: string; failure?: Record<string, unknown> }): { calls: { file: string; args: readonly string[]; options: ExecFileOptions }[]; execFileFn: ExecFileFn } {
   const calls: { file: string; args: readonly string[]; options: ExecFileOptions }[] = [];

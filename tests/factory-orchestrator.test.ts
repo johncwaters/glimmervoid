@@ -13,7 +13,7 @@ import { createFactoryPoller } from '../server/factory-poller.ts';
 import type { FactoryPoller } from '../server/factory-poller.ts';
 import { FACTORY_ORCHESTRATOR_ALLOW, FACTORY_ORCHESTRATOR_DENY, createFactoryOrchestrator } from '../server/factory-orchestrator.ts';
 import type { FactoryOrchestratorSession } from '../server/factory-orchestrator.ts';
-import { createGitWorkspace } from '../server/git-workspace.ts';
+import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
 import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
 import { LANE_CREDENTIAL_ENV } from '../server/core/sandbox-roles-core.ts';

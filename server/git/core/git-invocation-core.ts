@@ -1,4 +1,4 @@
-import { buildFactoryCheckEnv } from './factory-core.ts';
+import { buildFactoryCheckEnv } from '../../core/factory-core.ts';
 
 export type GitIsolationOptions = { disableHooks?: boolean; disableRepoCommands?: boolean; replaceEnv?: Record<string, string> };
 

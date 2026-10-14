@@ -4,7 +4,7 @@ import path from 'node:path';
 import { ChangeMap } from '../shared/contracts/change-map.ts';
 import type { ChangedFile, ChangeNarrative, NarratorState, RepoChangeMap } from '../shared/contracts/change-map.ts';
 import type { ChangeScope } from '../session/session-worktree-lifecycle.ts';
-import { gitCommandFailure, runGit } from './git-exec.ts';
+import { gitCommandFailure, runGit } from './git/git-exec.ts';
 import {
   isAgentsDocPath,
   isSourcePath,

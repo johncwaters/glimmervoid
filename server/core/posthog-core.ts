@@ -1,4 +1,4 @@
-import { isWorkflowPath } from './git-changed-paths-core.ts';
+import { isWorkflowPath } from '../git/core/git-changed-paths-core.ts';
 
 const DEFAULT_INTERVAL_MINUTES = 15;
 const DEFAULT_POSTHOG_HOST = 'https://us.posthog.com';

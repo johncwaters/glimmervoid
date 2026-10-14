@@ -6,8 +6,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { execFileAsync } from '../server/child-process-safe.ts';
 
-import { createGitWorkspace, createGitWorkspaceSync } from '../server/git-workspace.ts';
-import type { WorkspaceHandle } from '../server/git-workspace.ts';
+import { createGitWorkspace, createGitWorkspaceSync } from '../server/git/git-workspace.ts';
+import type { WorkspaceHandle } from '../server/git/git-workspace.ts';
 import { comparableDirectoryPath, isSameDirectoryPath } from '../shared/canonical-paths.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 

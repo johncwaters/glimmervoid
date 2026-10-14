@@ -27,7 +27,7 @@ import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
-import type { ExecFileFn, ExecFileOptions } from '../server/git-exec.ts';
+import type { ExecFileFn, ExecFileOptions } from '../server/git/git-exec.ts';
 import type { resolveHookTools as resolveSharedHookTools } from '../server/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { readEnvSecrets, withEnvSecrets } from '../server/core/config-secrets-core.ts';

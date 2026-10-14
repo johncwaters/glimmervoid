@@ -4,7 +4,7 @@ import assert from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
 
-import * as gitWorkspace from "../server/git-workspace.ts";
+import * as gitWorkspace from "../server/git/git-workspace.ts";
 
 const ROOT = path.join(import.meta.dirname, "..");
 
@@ -24,8 +24,8 @@ const SKIP_DIRS = new Set([
 ]);
 
 const ALLOWED = new Set([
-  path.join(ROOT, "server", "git-workspace.js"),
-  path.join(ROOT, "server", "git-workspace.ts"),
+  path.join(ROOT, "server", "git", "git-workspace.js"),
+  path.join(ROOT, "server", "git", "git-workspace.ts"),
   path.join(ROOT, "session", "core", "conversation-history.js"),
   path.join(ROOT, "session", "core", "conversation-history.ts"),
 ]);
@@ -65,7 +65,7 @@ test("only git-workspace.ts (plus the documented read-only exception) issues `gi
   assert.deepEqual(
     offenders,
     [],
-    `These modules must go through server/git-workspace.ts instead of issuing 'git worktree' directly:\n  ${offenders.join("\n  ")}`,
+    `These modules must go through server/git/git-workspace.ts instead of issuing 'git worktree' directly:\n  ${offenders.join("\n  ")}`,
   );
 });
 

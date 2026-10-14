@@ -16,8 +16,8 @@ import { errorText } from '../shared/text.ts';
 import { probeNodePty } from '../server/node-pty-preflight.ts';
 import { sandboxDoctorRows } from '../server/core/sandbox-deps-core.ts';
 import { probeSandboxDependencies } from '../server/sandbox-deps.ts';
-import { gitDoctorRows } from '../server/core/git-version-core.ts';
-import { probeGitVersion } from '../server/git-version.ts';
+import { gitDoctorRows } from '../server/git/core/git-version-core.ts';
+import { probeGitVersion } from '../server/git/git-version.ts';
 import { packageRoot } from '../server/runtime-paths.ts';
 import { formatPathNotice, npmGlobalBinDir, onPath, pnpmGlobalBinDir } from './path-doctor.ts';
 

@@ -5,8 +5,8 @@ import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { execFileAsync } from '../server/child-process-safe.ts';
-import { createRepoCache } from '../server/repo-cache.ts';
-import type { CommandRunner } from '../server/repo-cache.ts';
+import { createRepoCache } from '../server/git/repo-cache.ts';
+import type { CommandRunner } from '../server/git/repo-cache.ts';
 
 async function git(args: string[], cwd: string, env?: Record<string, string>, timeoutMs?: number): Promise<string> {
   const { stdout } = await execFileAsync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', env: { ...process.env, ...env }, timeout: timeoutMs });

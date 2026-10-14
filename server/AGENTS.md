@@ -23,7 +23,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `usage-pricing.ts` | Claude model pricing loader |
 | `data/claude-pricing.json` | Bundled LiteLLM pricing snapshot |
 | `spawn-gate.ts` | Process-wide async serialization of `pty.spawn` initiation (ConPTY wedge avoidance) |
-| `git-workspace.ts` | THE ONLY module allowed to run `git worktree` (`tests/no-direct-git-worktree.test.ts`) |
+| `git/git-workspace.ts` | THE ONLY module allowed to run `git worktree` (`tests/no-direct-git-worktree.test.ts`) |
 | `config-store.ts` | Runtime config load/save/defaults |
 | `child-process-safe.ts` | THE ONLY importer of `node:child_process` (`tests/no-direct-child-process.test.ts`) |
 | `update-check.ts` | Startup release-tag check, advisory only |

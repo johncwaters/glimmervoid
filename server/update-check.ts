@@ -16,7 +16,7 @@ import {
 import type { InstallFlavor } from './core/update-core.ts';
 import { loadJsonStateFileSync, loadedJsonValue, writeJsonAtomicSync } from './json-file.ts';
 import { packageRoot as resolvedPackageRoot } from './runtime-paths.ts';
-import { runGit } from './git-exec.ts';
+import { runGit } from './git/git-exec.ts';
 
 const NPM_REGISTRY_LATEST_URL = 'https://registry.npmjs.org/glimmervoid/latest';
 const DEFAULT_TIMEOUT_MS = 8000;
