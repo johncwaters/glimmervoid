@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { FactoryHarnessStateLine } from '../../../shared/contracts/factory.ts';
 import type { FactoryHarnessVerdict, FactoryProjectState, FactoryState } from '../../../shared/contracts/factory.ts';
+import type { Config } from '../../../shared/contracts/config.ts';
 
 export const HARNESS_MIRROR_MAX_IDLE_MS = 24 * 60 * 60 * 1000;
 const HARNESS_MIRROR_PROJECT_PREFIX = 'harness-';
@@ -8,6 +9,10 @@ const BATCH_NAME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]
 const RUN_NAME_PATTERN = /^\d{4}$/;
 export const HARNESS_STATE_FILE_NAME = 'factory-state.jsonl';
 export const HARNESS_VERDICT_FILE_NAME = 'verdict.json';
+
+export function isHarnessMirrorEnabled(factory: Config['factory'] | undefined): boolean {
+  return factory?.mirrorHarnessRuns ?? true;
+}
 
 export function factoryHarnessRunsDirectory(environment: NodeJS.ProcessEnv, homeDirectory: string): string {
   return path.join(environment.XDG_STATE_HOME || path.join(homeDirectory, '.local/state'), 'glimmervoid-factory-runs');

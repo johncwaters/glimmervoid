@@ -13,7 +13,7 @@ import type { ProjectEntry } from '../config-store.ts';
 import { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS } from '../factory/factory-closeout.ts';
 import { createFactoryWiring } from '../factory/factory-wiring.ts';
 import { createFactoryHarnessMirror } from '../factory/factory-harness-mirror.ts';
-import { factoryHarnessRunsDirectory } from '../factory/core/factory-harness-mirror-core.ts';
+import { factoryHarnessRunsDirectory, isHarnessMirrorEnabled } from '../factory/core/factory-harness-mirror-core.ts';
 import { createCoderActivityWiring } from '../coder-activity-wiring.ts';
 import { createBranchGcWiring } from '../branch-gc-wiring.ts';
 import { createClaudeCredentials } from '../claude-credentials.ts';
@@ -153,7 +153,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       return usage.laneSpendSince('factory', localDay.getTime());
     },
     notify: (projectName, category, message) => { notificationManager.trigger(projectName, category, message); },
-    listObservedProjects: async () => config.factory?.mirrorHarnessRuns ? factoryHarnessMirror.listObservedProjects() : [],
+    listObservedProjects: async () => isHarnessMirrorEnabled(config.factory) ? factoryHarnessMirror.listObservedProjects() : [],
     spawnReviewer: createLaneSpawn({
       sessions: agentSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
       replayBufferKB: config.replayBufferKB, laneName: 'factory', allowTools: FACTORY_REVIEWER_TOOLS,

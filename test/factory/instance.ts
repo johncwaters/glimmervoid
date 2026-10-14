@@ -34,7 +34,7 @@ export async function prepareInstance(tempDirectory: string, project: { projectP
   const document = withoutTelemetryConfig(JSON.parse(await readFile(isolated.configPath, 'utf8')));
   await writeFile(isolated.configPath, JSON.stringify({
     ...document, projects: project ? [{ id: project.projectId, name: 'Factory seed', path: project.projectPath }] : [],
-    factory: { enabled: project !== null, ...factory }, usage: { enabled: true },
+    factory: { enabled: project !== null, mirrorHarnessRuns: false, ...factory }, usage: { enabled: true },
     capture: { enabled: true, retainDays: 0, retainFiles: 0, retainBytes: 0 },
   }, null, 2));
   if (telemetry.runHomeSeed) await seedTelemetryState(isolated.isolatedHome, telemetry.runHomeSeed);

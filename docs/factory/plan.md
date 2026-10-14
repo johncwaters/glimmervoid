@@ -39,18 +39,24 @@ This file records the state of the Factory lane as of 2026-10-12, so that anothe
 - The run harness in `test/factory/` replaced the gate steps that used to be done by hand.
 - The operator's own gated clone exists as of 2026-10-11, with `coherence.config.json` on its staging remote only. No intent has run against it yet: harness runs build a gated clone of their own.
 
-## How to run a gate
+## How to run the factory
 
-Never use the live instance on port 3000; do not restart it without asking the operator. The harness runs an isolated instance built from your worktree, with its own home and port:
+Two paths. Pick by what is under test.
+
+**Running an intent (the default).** Use the live instance and its Factory tab. First the operator registers the gated clone below as a project in the live config, once, so the live orchestrator, workers and verifier run as ordinary sessions and the Factory tab shows them with pause, queue and terminal controls. Then queue the intent from the Factory tab or with a `factory-queue-intent` control request. This runs the installed build, which is what an operator intent should run against. Do not restart the live instance without asking the operator.
+
+**Proving a factory code change (the gate).** Use the harness, which boots an isolated instance built from your worktree, with its own home, config and port, so unshipped factory code runs without touching live sessions or live config:
 
 - `npm run factory:run -- --help` lists the options, and `--list-intents` prints the intent catalog.
 - `node test/factory/run.ts --runs 1 --intent one-file-change` runs one intent on a throwaway repo, in about two minutes.
 - `node test/factory/run.ts --runs 1 --target gated-clone --intent gated-one-file-change` runs one intent on a fresh gated clone of glimmervoid with the default checks.
 - `--intent-file <path>` queues any `factory-queue-intent` request written as JSON, which is how a rendered design spec reaches a run.
 
-Every run bills Claude usage. A run builds `dist/` from the worktree when it starts, so leave the worktree alone until it ends.
+A harness run reaches the live Factory tab only through the read-only mirror (`factory.mirrorHarnessRuns`); nothing else from it reaches the live dashboard.
 
-A run passes when the intent is `completed`, the heading is `steady`, `origin/main` of the run's own remote holds the worker commits plus `factory: verify and close <intentId>`, and, for a gated clone, the real `main` did not move. The run prints its record folder, which holds the verdict, every `factory-state` broadcast, the server log, the decision log and the git logs.
+Every run bills Claude usage. A harness run builds `dist/` from the worktree when it starts, so leave the worktree alone until it ends.
+
+A run passes when the intent is `completed`, the heading is `steady`, `origin/main` of the run's own remote holds the worker commits plus `factory: verify and close <intentId>`, and, for a gated clone, the real `main` did not move. The harness prints its record folder, which holds the verdict, every `factory-state` broadcast, the server log, the decision log and the git logs.
 
 ## The gated self-host clone
 
@@ -59,14 +65,14 @@ The gate is setup, not code. Build it once:
 1. Make the staging remote: `git clone --no-hardlinks --bare --single-branch --branch main <glimmervoid checkout> <staging>.git`, then `git -C <staging>.git remote remove origin`, so that it has no path to GitHub.
 2. Make the clone: `git clone --no-hardlinks <staging>.git <clone>`, then run `npm ci` in the clone so that it has its own install. Nothing in the clone may link into the real checkout, and that goes for every `worktreeShare` entry, not only `node_modules`. The `--no-hardlinks` flag is there because a local clone otherwise shares object files by hard link.
 3. Commit `coherence.config.json` holding `{}` in the clone and push it to the staging remote.
-4. Register the clone as the factory project: in a sandbox instance's `projects` for a gate, or in the operator's own instance. The second is the operator's choice alone, made knowing what the gate does not hold.
+4. Register the clone as the factory project: in the operator's own instance, its normal home, or in a sandbox instance's `projects` only for a harness gate. The first is the operator's choice alone, made knowing what the gate does not hold.
 
 What the gate holds:
 
 - Everything the factory pushes from the clone, merges and ledger landings alike, reaches the staging remote only.
 - That holds only while the clone shares no files with the real checkout. A link from the clone into the real checkout gives worker-written code a way to write there.
 
-What the gate does not hold. It guards the factory's normal flow, its merges and pushes, and it is not containment of a misbehaving worker. Two holes that used to sit here are closed: sessions now reach a hook listener of their own instead of the dashboard port, and close-out checks run inside a sandbox. What remains is the security pass below, so agents still run gated intents in a sandbox instance, which keeps gated runs away from the operator's live sessions and state.
+What the gate does not hold. It guards the factory's normal flow, its merges and pushes, and it is not containment of a misbehaving worker. Two holes that used to sit here are closed: sessions now reach a hook listener of their own instead of the dashboard port, and close-out checks run inside a sandbox. What remains is the security pass below, still pending, so a gated intent on the live instance runs beside the operator's live sessions and state, and the operator accepts that until the pass lands.
 
 Sandboxed checks need `bwrap`, `socat` and `rg` on PATH on Linux, and a close-out fails when the sandbox cannot start. A check cannot open a unix socket, write outside its checkout and temp folder, or write into the shared `node_modules`, so a suite must pass under those limits before its project can merge through the factory.
 

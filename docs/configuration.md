@@ -218,7 +218,7 @@ Read Coherence reports from repositories whose integration branch holds a cohere
 | `factory.reviewerModel` | Reviewer model | `null` | Claude model for independent worker review. Blank uses the CLI default. |
 | `factory.dailyBudgetUsd` | Factory daily budget (USD) | `null` | Factory lane spend ceiling. Blank means no ceiling. Needs usage tracking: with it off, dispatch refuses. |
 | `factory.verifierModel` | Verifier model | `null` | Claude model for independent intent verification. Blank uses the CLI default. |
-| `factory.mirrorHarnessRuns` | Mirror harness runs | `false` | Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after. Needs factory.enabled on; leave it off on a harness instance. |
+| `factory.mirrorHarnessRuns` | Mirror harness runs | `true` | Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after. Needs factory.enabled on. The harness turns it off on the instance it boots. |
 
 ### Knowledge graph (experimental)
 

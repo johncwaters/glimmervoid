@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Harness runs show in the Factory tab by default**: `factory.mirrorHarnessRuns` now defaults to on, so a factory harness run appears in the Factory tab as a read-only project without a settings change. A config that only sets `factory.enabled` gets the mirror too. The harness turns the mirror off on the instance it boots, so a harness run never mirrors itself. An install first set up on v0.32.0 through v0.35.1 stored the old `false` and keeps the mirror off until the toggle is flipped in Settings > Lanes > Factory.
+
 ## [0.35.1] - 2026-10-14
 
 ### Fixed
