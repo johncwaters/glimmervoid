@@ -1,4 +1,4 @@
-import { advanceAwakeElapsed } from './core/team-review-core.ts';
+import { advanceAwakeElapsed } from './github/core/team-review-core.ts';
 
 const DEFAULT_TICK_MS = 15000;
 

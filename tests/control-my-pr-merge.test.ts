@@ -4,11 +4,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createMyPrsWiring } from '../server/my-prs-wiring.ts';
-import { createMyPrsPoller } from '../server/my-prs-poller.ts';
-import { createPrGh } from '../server/pr-gh.ts';
-import type { CommandResult } from '../server/pr-gh.ts';
-import { myPrsStatus, toMyPr } from '../server/core/my-prs-core.ts';
+import { createMyPrsWiring } from '../server/github/my-prs-wiring.ts';
+import { createMyPrsPoller } from '../server/github/my-prs-poller.ts';
+import { createPrGh } from '../server/github/pr-gh.ts';
+import type { CommandResult } from '../server/github/pr-gh.ts';
+import { myPrsStatus, toMyPr } from '../server/github/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 

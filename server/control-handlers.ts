@@ -30,12 +30,12 @@ import {
 import { readPosthogReport } from './posthog-report.ts';
 import * as posthogCore from './core/posthog-core.ts';
 import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
-import { buildGithubIssuePrompt, deriveIssueSessionName } from './core/github-issues-core.ts';
+import { buildGithubIssuePrompt, deriveIssueSessionName } from './github/core/github-issues-core.ts';
 import { machineSkipsPermissionsByDefault } from './session/core/session-registry-core.ts';
-import { prKey } from './core/team-review-core.ts';
+import { prKey } from './github/core/team-review-core.ts';
 import { mergeWorkflowsUpdateOverStored } from './core/workflows-core.ts';
-import { createPrGh } from './pr-gh.ts';
-import type { PrGh } from './pr-gh.ts';
+import { createPrGh } from './github/pr-gh.ts';
+import type { PrGh } from './github/pr-gh.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from './settings-payload.ts';
 import { RESUME_ID_RE } from '../session/core/auto-resume.ts';
 import { listDroppedRepoPaths, planWorkspace, planWorkspaceMembers } from '../session/core/workspace-core.ts';

@@ -1,4 +1,4 @@
-import { sanitizeSessionName, scrubForPaste } from './posthog-core.ts';
+import { sanitizeSessionName, scrubForPaste } from '../../core/posthog-core.ts';
 
 interface GithubIssueInput {
   number?: unknown;

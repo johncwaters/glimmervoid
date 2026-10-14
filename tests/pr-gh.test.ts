@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { threadNode } from './helpers/team-review-thread-fixture.ts';
-import { createPrGh } from '../server/pr-gh.ts';
-import type { CommandResult } from '../server/pr-gh.ts';
+import { createPrGh } from '../server/github/pr-gh.ts';
+import type { CommandResult } from '../server/github/pr-gh.ts';
 import type { MyPrMergeKind } from '../shared/contracts/my-prs.ts';
 
 const HEAD_SHA = 'a'.repeat(40);

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createIssuesPoller } from '../server/issues-poller.ts';
-import { createIssuesStateIo, createIssuesWiring } from '../server/issues-wiring.ts';
-import { emptyIssuesState } from '../server/core/issues-core.ts';
+import { createIssuesPoller } from '../server/github/issues-poller.ts';
+import { createIssuesStateIo, createIssuesWiring } from '../server/github/issues-wiring.ts';
+import { emptyIssuesState } from '../server/github/core/issues-core.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
 import type { CachedIssueRow, IssuePullRequest, IssueUpdate, IssuesFetchResult, IssuesState, IssuesStatus } from '../shared/contracts/issues.ts';
 

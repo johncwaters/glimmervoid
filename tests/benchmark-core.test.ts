@@ -11,7 +11,7 @@ import {
   runBenchmark, scoreCell, subjectVariables, validateJudgeOutput,
   type BenchmarkFinding, type BenchmarkRunnerDependencies,
 } from '../server/core/benchmark-core.ts';
-import { fencedUntrusted } from '../server/core/team-review-core.ts';
+import { fencedUntrusted } from '../server/github/core/team-review-core.ts';
 
 function fixture(name: string): string {
   return readFileSync(new URL(`./fixtures/benchmark/${name}`, import.meta.url), 'utf8');

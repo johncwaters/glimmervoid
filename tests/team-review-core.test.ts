@@ -51,11 +51,11 @@ import {
   shouldPruneEntry,
   startReviewProgress,
   triagePr,
-} from '../server/core/team-review-core.ts';
+} from '../server/github/core/team-review-core.ts';
 import { parseReviewComment } from '../public/team-review-view-core.ts';
 import { FindingSeverity, InFlightReview, PostingPlan, PrDetail, QueuedReview, ReviewDraft, ReviewResult, SearchedPr, TeamReviewState } from '../shared/contracts/team-review.ts';
 import { findingHeader, findingSeveritiesIn } from '../shared/team-review-markdown.ts';
-import type { NewWorkPointer } from '../server/core/team-review-core.ts';
+import type { NewWorkPointer } from '../server/github/core/team-review-core.ts';
 import type { PriorReview, TeamReviewStateEntry } from '../shared/contracts/team-review.ts';
 
 test('prKey formats as repoSlug#prNumber', () => {

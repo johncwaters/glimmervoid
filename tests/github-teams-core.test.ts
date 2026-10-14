@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { readGithubTeams } from '../server/core/github-teams-core.ts';
+import { readGithubTeams } from '../server/github/core/github-teams-core.ts';
 import { BrowserConfig, Config, ConfigUpdate } from '../shared/contracts/config.ts';
 
 test('shared teams take precedence and deduplicate ignoring case in configured order', () => {

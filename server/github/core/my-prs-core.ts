@@ -1,14 +1,14 @@
-import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
-import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../lanes/core/lane-permissions-core.ts';
-import { SANDBOX_PLACEHOLDER_NAMES } from '../sandbox/core/sandbox-policy-core.ts';
+import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
+import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../../lanes/core/lane-permissions-core.ts';
+import { SANDBOX_PLACEHOLDER_NAMES } from '../../sandbox/core/sandbox-policy-core.ts';
 import { prKey } from './team-review-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
-import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../shared/settings-ranges.ts';
-import { isCredentialLikePath, isGithubDirectoryPath } from '../git/core/git-changed-paths-core.ts';
-import { myPrMergeBlocker } from '../../shared/my-pr-merge.ts';
-import { REPO_SLUG_RE } from '../../shared/contracts/github-ids.ts';
-import { nextBackoffMs } from '../../shared/backoff.ts';
-import { MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrsState } from '../../shared/contracts/my-prs.ts';
+import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../../shared/settings-ranges.ts';
+import { isCredentialLikePath, isGithubDirectoryPath } from '../../git/core/git-changed-paths-core.ts';
+import { myPrMergeBlocker } from '../../../shared/my-pr-merge.ts';
+import { REPO_SLUG_RE } from '../../../shared/contracts/github-ids.ts';
+import { nextBackoffMs } from '../../../shared/backoff.ts';
+import { MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrsState } from '../../../shared/contracts/my-prs.ts';
 import { z } from 'zod';
 
 const FailedAutoRebaseRecord = z.strictObject({ attemptKey: MyPrsState.shape.keepMergeableAttemptKeys.element, autoRebase: MyPrAutoRebaseSchema });

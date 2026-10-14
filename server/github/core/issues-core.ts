@@ -1,5 +1,5 @@
-import { IssuesStatus } from '../../shared/contracts/issues.ts';
-import type { CachedIssueRow, IssueSource, IssuesFetchResult, IssuesState, IssuesStatus as IssuesStatusType } from '../../shared/contracts/issues.ts';
+import { IssuesStatus } from '../../../shared/contracts/issues.ts';
+import type { CachedIssueRow, IssueSource, IssuesFetchResult, IssuesState, IssuesStatus as IssuesStatusType } from '../../../shared/contracts/issues.ts';
 import { githubRepoSlugFromRemote } from './team-review-core.ts';
 
 export const ISSUES_LANE_ID = 'issues';

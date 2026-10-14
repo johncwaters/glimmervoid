@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { threadNode, THREAD_BASE } from './helpers/team-review-thread-fixture.ts';
-import { THREAD_PLACEHOLDER_ERROR } from '../server/core/team-review-threads-core.ts';
-import { DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, MAX_REVIEW_ATTEMPTS, POSTED_RETENTION_MS, errorDraft, readyDraft } from '../server/core/team-review-core.ts';
-import { createTeamReviewPoller } from '../server/team-review-poller.ts';
-import type { PrReviewSnapshot } from '../server/pr-gh.ts';
-import type { SpawnReviewArgs, TeamReviewGithub, TeamReviewPollerDependencies } from '../server/team-review-poller.ts';
+import { THREAD_PLACEHOLDER_ERROR } from '../server/github/core/team-review-threads-core.ts';
+import { DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, MAX_REVIEW_ATTEMPTS, POSTED_RETENTION_MS, errorDraft, readyDraft } from '../server/github/core/team-review-core.ts';
+import { createTeamReviewPoller } from '../server/github/team-review-poller.ts';
+import type { PrReviewSnapshot } from '../server/github/pr-gh.ts';
+import type { SpawnReviewArgs, TeamReviewGithub, TeamReviewPollerDependencies } from '../server/github/team-review-poller.ts';
 import { PrDetail, SearchedPr, TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type { ReviewDraft, TeamReviewState, TeamReviewStatus as TeamReviewStatusType } from '../shared/contracts/team-review.ts';
 

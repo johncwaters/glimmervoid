@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { viewerThreadTally, answeredViewerThreads, buildThreadJudgePrompt, parseThreadJudgeResult, shouldAutoResolveThread, shouldJudgeThread, threadJudgePatch, THREAD_PROMPT_MAX_CHARS } from '../server/core/team-review-threads-core.ts';
+import { viewerThreadTally, answeredViewerThreads, buildThreadJudgePrompt, parseThreadJudgeResult, shouldAutoResolveThread, shouldJudgeThread, threadJudgePatch, THREAD_PROMPT_MAX_CHARS } from '../server/github/core/team-review-threads-core.ts';
 import { AUTOMATED_REVIEW_NOTE } from '../shared/team-review-markdown.ts';
 import { threadNode, THREAD_BASE, THREAD_HEAD, THREAD_REPLY_AT } from './helpers/team-review-thread-fixture.ts';
 

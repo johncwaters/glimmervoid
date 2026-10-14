@@ -1,14 +1,14 @@
 import * as core from './core/issues-core.ts';
-import { IssuesState } from '../shared/contracts/issues.ts';
-import type { CachedIssueRow, IssuePullRequest, IssuesState as IssuesStateType, IssuesStatus } from '../shared/contracts/issues.ts';
-import type { ReviewsRefreshResult } from '../shared/contracts/reviews.ts';
+import { IssuesState } from '../../shared/contracts/issues.ts';
+import type { CachedIssueRow, IssuePullRequest, IssuesState as IssuesStateType, IssuesStatus } from '../../shared/contracts/issues.ts';
+import type { ReviewsRefreshResult } from '../../shared/contracts/reviews.ts';
 import type { PrGh } from './pr-gh.ts';
-import { createTickLoop } from './lanes/lane-runner.ts';
-import type { SharedClock } from './lanes/lane-runner.ts';
+import { createTickLoop } from '../lanes/lane-runner.ts';
+import type { SharedClock } from '../lanes/lane-runner.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
-import { secondaryRateLimitWaitMs } from './lanes/core/lane-backoff.ts';
-import { errorMessage } from '../shared/text.ts';
-import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
+import { secondaryRateLimitWaitMs } from '../lanes/core/lane-backoff.ts';
+import { errorMessage } from '../../shared/text.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
 interface IssuesPollerDependencies {
   teams: string[];

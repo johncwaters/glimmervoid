@@ -1,21 +1,21 @@
 import path from 'node:path';
-import { IssueKey, IssuesState } from '../shared/contracts/issues.ts';
-import type { CachedIssueRow, IssuesStatus as IssuesStatusType } from '../shared/contracts/issues.ts';
-import type { ReviewsRefreshResult } from '../shared/contracts/reviews.ts';
-import type { GlimmervoidConfig } from './config-store.ts';
-import { glimmervoidHomeDir } from './config-store.ts';
+import { IssueKey, IssuesState } from '../../shared/contracts/issues.ts';
+import type { CachedIssueRow, IssuesStatus as IssuesStatusType } from '../../shared/contracts/issues.ts';
+import type { ReviewsRefreshResult } from '../../shared/contracts/reviews.ts';
+import type { GlimmervoidConfig } from '../config-store.ts';
+import { glimmervoidHomeDir } from '../config-store.ts';
 import * as core from './core/issues-core.ts';
 import { readGithubTeams } from './core/github-teams-core.ts';
 import { createIssuesPoller } from './issues-poller.ts';
-import { createLaneRunner } from './lanes/lane-runner.ts';
-import type { SharedClock } from './lanes/lane-runner.ts';
-import { createJsonStateStore } from './json-file.ts';
-import { bootStaggerDelay } from './boot-stagger.ts';
+import { createLaneRunner } from '../lanes/lane-runner.ts';
+import type { SharedClock } from '../lanes/lane-runner.ts';
+import { createJsonStateStore } from '../json-file.ts';
+import { bootStaggerDelay } from '../boot-stagger.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
-import type { createGitWorkspace } from './git/git-workspace.ts';
-import { errorMessage } from '../shared/text.ts';
-import { createSerialQueue } from './spawn-gate.ts';
+import type { createGitWorkspace } from '../git/git-workspace.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { createSerialQueue } from '../spawn-gate.ts';
 
 export function createIssuesStateIo(statePath: string, log: Pick<Console, 'warn'>) {
   let loaded = core.emptyIssuesState();

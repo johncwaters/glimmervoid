@@ -5,7 +5,7 @@ import {
   type BenchmarkInFlightCell, type BenchmarkMatchVerdict, type BenchmarkReference,
   type BenchmarkReport, type BenchmarkReportRow, type BenchmarkRun, type BenchmarkSubjectOutput, type BenchmarkSuite,
 } from '../../shared/contracts/benchmark.ts';
-import { fencedUntrusted, parseFindingLine, sectionAfter } from './team-review-core.ts';
+import { fencedUntrusted, parseFindingLine, sectionAfter } from '../github/core/team-review-core.ts';
 
 interface PlannedCell {
   index: number;

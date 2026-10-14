@@ -1,5 +1,5 @@
-import type { Config } from '../../shared/contracts/config.ts';
-import { repoParts } from '../../shared/contracts/github-ids.ts';
+import type { Config } from '../../../shared/contracts/config.ts';
+import { repoParts } from '../../../shared/contracts/github-ids.ts';
 
 export function readGithubTeams(config: Pick<Config, 'github' | 'teamReview'>): Array<{ org: string; slug: string }> {
   const configuredTeams = config.github?.teams;

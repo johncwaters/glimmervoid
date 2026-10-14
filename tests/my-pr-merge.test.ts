@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { myPrMergeBlocker, myPrMergeRefusal } from '../shared/my-pr-merge.ts';
-import { toMyPr } from '../server/core/my-prs-core.ts';
+import { toMyPr } from '../server/github/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 
 const HEAD = 'a'.repeat(40);

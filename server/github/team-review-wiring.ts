@@ -2,51 +2,51 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { HookRouter } from '../detection/hook-source.ts';
-import { Session } from '../session/sessions.ts';
-import type { SessionOptions, SessionSandboxFacts } from '../session/sessions.ts';
-import { type AwakeStopwatch, createAwakeTimeoutFn, startAwakeStopwatch } from './awake-timer.ts';
-import { glimmervoidHomeDir } from './config-store.ts';
-import { resolveHookTools as resolveSharedHookTools } from './hook-tools.ts';
-import { trailStepFromHook } from './core/investigation-trail-core.ts';
-import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES } from './lanes/core/lane-permissions-core.ts';
+import type { HookRouter } from '../../detection/hook-source.ts';
+import { Session } from '../../session/sessions.ts';
+import type { SessionOptions, SessionSandboxFacts } from '../../session/sessions.ts';
+import { type AwakeStopwatch, createAwakeTimeoutFn, startAwakeStopwatch } from '../awake-timer.ts';
+import { glimmervoidHomeDir } from '../config-store.ts';
+import { resolveHookTools as resolveSharedHookTools } from '../hook-tools.ts';
+import { trailStepFromHook } from '../core/investigation-trail-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
 import * as core from './core/team-review-core.ts';
 import type { CommentableLines, NewWorkPointer, ReviewTier, TeamReviewCandidate, TeamReviewSettingsSource } from './core/team-review-core.ts';
 import {
   awaitSessionExit, drainPending, firstLine, raceWithAbort,
   registerEphemeralSession,
-} from './lanes/ephemeral-session.ts';
-import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
-import { createJsonStateStore } from './json-file.ts';
-import { createLaneRunner } from './lanes/lane-runner.ts';
-import type { LaneRunnerGate, LaneStatusRecord, SharedClock } from './lanes/lane-runner.ts';
+} from '../lanes/ephemeral-session.ts';
+import type { RecordLane, SpawnGate } from '../lanes/ephemeral-session.ts';
+import { createJsonStateStore } from '../json-file.ts';
+import { createLaneRunner } from '../lanes/lane-runner.ts';
+import type { LaneRunnerGate, LaneStatusRecord, SharedClock } from '../lanes/lane-runner.ts';
 import { THREAD_JUDGE_TOOLS, createThreadJudge } from './team-review-thread-judge.ts';
-import { createLaneSpawn } from './lanes/lane-spawn.ts';
-import { TeamReviewActionRequest as ActionRequestSchema } from '../shared/contracts/team-review.ts';
+import { createLaneSpawn } from '../lanes/lane-spawn.ts';
+import { TeamReviewActionRequest as ActionRequestSchema } from '../../shared/contracts/team-review.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
-import { createRepoCache } from './git/repo-cache.ts';
-import type { NewWorkIsolation } from './git/repo-cache.ts';
+import { createRepoCache } from '../git/repo-cache.ts';
+import type { NewWorkIsolation } from '../git/repo-cache.ts';
 import { reapTeamReviewProcesses } from './team-review-reaper.ts';
 import type { TeamReviewReapOptions } from './team-review-reaper.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
-import { bootStaggerDelay } from './boot-stagger.ts';
+import { bootStaggerDelay } from '../boot-stagger.ts';
 import type { DraftExpectation, DraftPatch, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
-import { allowSandboxedSpawn } from './sandbox/sandbox-deps.ts';
-import { judgeRole } from './sandbox/core/sandbox-roles-core.ts';
-import { prepareSandboxLaunch } from './sandbox/sandbox-launch.ts';
-import type { SandboxRole } from './sandbox/core/sandbox-policy-core.ts';
-import type { SandboxSpawnRefusal } from './sandbox/sandbox-deps.ts';
-import { TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import { allowSandboxedSpawn } from '../sandbox/sandbox-deps.ts';
+import { judgeRole } from '../sandbox/core/sandbox-roles-core.ts';
+import { prepareSandboxLaunch } from '../sandbox/sandbox-launch.ts';
+import type { SandboxRole } from '../sandbox/core/sandbox-policy-core.ts';
+import type { SandboxSpawnRefusal } from '../sandbox/sandbox-deps.ts';
+import { TeamReviewStateEntry, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type {
   PostingPlan, PrDetail, PriorReview, ResumableReview, ReviewComment, ReviewResult, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,
   TeamReviewState as TeamReviewStateType, TeamReviewStateEntry as TeamReviewStateEntryType, TeamReviewStatus as TeamReviewStatusType,
-} from '../shared/contracts/team-review.ts';
-import { errorMessage, isMissingFileError } from '../shared/text.ts';
-import { shortSha } from '../shared/git-text.ts';
-import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
-import { isPathInside } from '../shared/paths.ts';
+} from '../../shared/contracts/team-review.ts';
+import { errorMessage, isMissingFileError } from '../../shared/text.ts';
+import { shortSha } from '../../shared/git-text.ts';
+import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
+import { isPathInside } from '../../shared/paths.ts';
 
 const TEAM_REVIEW_DENY_RULES = Object.freeze([
   'Bash(gh:*)',

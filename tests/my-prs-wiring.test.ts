@@ -4,15 +4,15 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync, execFileSync } from '../server/child-process-safe.ts';
-import { confinedPrRole, createMyPrMergeabilityFix, createMyPrsStateIo, keepMergeableRole, sweepKeepMergeableLeftovers } from '../server/my-prs-wiring.ts';
+import { confinedPrRole, createMyPrMergeabilityFix, createMyPrsStateIo, keepMergeableRole, sweepKeepMergeableLeftovers } from '../server/github/my-prs-wiring.ts';
 import { createRepoCache } from '../server/git/repo-cache.ts';
 import type { CommandResult } from '../server/git/repo-cache.ts';
-import { createTeamReviewSpawn, hooksPathPinnedSpawnEnv, teamReviewSpawnEnv } from '../server/team-review-wiring.ts';
+import { createTeamReviewSpawn, hooksPathPinnedSpawnEnv, teamReviewSpawnEnv } from '../server/github/team-review-wiring.ts';
 import { SANDBOX_PLACEHOLDER_NAMES } from '../server/sandbox/core/sandbox-policy-core.ts';
-import type { TeamReviewSpawn } from '../server/team-review-wiring.ts';
+import type { TeamReviewSpawn } from '../server/github/team-review-wiring.ts';
 import {
   MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_BOOTSTRAP_PROMPT, MY_PRS_FIX_CHECKOUT_DIRNAME, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, MY_PRS_FIX_PROMPT_FILENAME, keepMergeableTimeoutSeconds,
-} from '../server/core/my-prs-core.ts';
+} from '../server/github/core/my-prs-core.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/lanes/core/lane-permissions-core.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';

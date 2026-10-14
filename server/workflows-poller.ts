@@ -1,12 +1,12 @@
 import * as core from './core/workflows-core.ts';
 import type { PlannedWorkflowAction } from './core/workflows-core.ts';
-import { mergedSinceDate } from './core/my-prs-core.ts';
-import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
+import { mergedSinceDate } from './github/core/my-prs-core.ts';
+import { GITHUB_RATE_LIMIT_WINDOW_MS } from './github/core/github-rate-limit-core.ts';
 import { secondaryRateLimitWaitMs } from './lanes/core/lane-backoff.ts';
 import { firstLine } from './lanes/ephemeral-session.ts';
 import { createTickLoop } from './lanes/lane-runner.ts';
 import type { LaneStatusRecord, SharedClock } from './lanes/lane-runner.ts';
-import type { PrGh } from './pr-gh.ts';
+import type { PrGh } from './github/pr-gh.ts';
 import { WorkflowsState } from '../shared/contracts/workflows.ts';
 import type { WorkflowRule, WorkflowsState as WorkflowsStateType } from '../shared/contracts/workflows.ts';
 import { errorMessage } from '../shared/text.ts';

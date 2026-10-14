@@ -4,23 +4,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { answeredViewerThreads } from '../server/core/team-review-threads-core.ts';
+import { answeredViewerThreads } from '../server/github/core/team-review-threads-core.ts';
 import { threadNode } from './helpers/team-review-thread-fixture.ts';
 import { isDispatchWorkdir } from '../server/ingest/core/ingest-agent-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { ACCEPT_EDITS_MODE } from '../server/lanes/core/lane-permissions-core.ts';
-import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, HAND_APPROVAL_LINE, REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/core/team-review-core.ts';
-import type { ReviewProgressEvent, ReviewTier } from '../server/core/team-review-core.ts';
-import { createTeamReviewPoller } from '../server/team-review-poller.ts';
-import type { DraftPatch, SpawnReviewArgs } from '../server/team-review-poller.ts';
-import type { PostedReview } from '../server/pr-gh.ts';
+import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, HAND_APPROVAL_LINE, REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/github/core/team-review-core.ts';
+import type { ReviewProgressEvent, ReviewTier } from '../server/github/core/team-review-core.ts';
+import { createTeamReviewPoller } from '../server/github/team-review-poller.ts';
+import type { DraftPatch, SpawnReviewArgs } from '../server/github/team-review-poller.ts';
+import type { PostedReview } from '../server/github/pr-gh.ts';
 import {
   TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, emptyTeamReviewStatus,
   createTeamReviewStateIo, makeTeamReviewWorkDir, readTeamReviewSettings, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewRole, teamReviewShouldStart, teamReviewSpawnEnv,
   hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions,
-} from '../server/team-review-wiring.ts';
-import type { TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/team-review-wiring.ts';
+} from '../server/github/team-review-wiring.ts';
+import type { TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/github/team-review-wiring.ts';
 import { PrDetail, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type { ResumableReview, ReviewComment, ReviewDraft as ReviewDraftType, TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import { SANDBOX_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';

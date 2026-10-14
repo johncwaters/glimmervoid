@@ -79,7 +79,7 @@ test('--tools is never the last token, since only a following option ends the va
 test('the lanes outside the seam are named, and the ones on it all cwd into a throwaway dir', async () => {
   const readSource = (file: string) => fs.readFileSync(path.join(import.meta.dirname, '..', 'server', file), 'utf8');
   const LANES_ON_THE_SEAM = ['visions/visions-dispatch.ts', 'lanes/lane-spawn.ts'];
-  const LANES_OFF_THE_SEAM = ['posthog-wiring.ts', 'team-review-wiring.ts'];
+  const LANES_OFF_THE_SEAM = ['posthog-wiring.ts', 'github/team-review-wiring.ts'];
 
   const LANE_WORK_DIRS = [
     { file: 'visions/visions-dispatch.ts', dir: await makeVisionsWorkDir(), cleanup: (dir: string) => fs.rmSync(dir, { recursive: true, force: true }) },

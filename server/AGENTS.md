@@ -20,18 +20,16 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `spawn-gate.ts` | Process-wide async serialization of `pty.spawn` initiation (ConPTY wedge avoidance) |
 | `lanes/` | Ephemeral and interactive lane spawning, logging and status (`lanes/AGENTS.md`) |
 | `usage/` | Usage lane: transcript scanner, pricing loader, lane ledger and wiring (`usage/AGENTS.md`) |
+| `github/` | GitHub lanes: issues, my PRs, team PR review and its reaper and thread judge, `gh` queries, the shared clock and rate limit (`github/AGENTS.md`) |
 | `git/git-workspace.ts` | THE ONLY module allowed to run `git worktree` (`tests/no-direct-git-worktree.test.ts`) |
 | `config-store.ts` | Runtime config load/save/defaults |
 | `child-process-safe.ts` | THE ONLY importer of `node:child_process` (`tests/no-direct-child-process.test.ts`) |
 | `update-check.ts` | Startup release-tag check, advisory only |
-| `team-review-wiring.ts` | Team review session and state helpers |
 | `sandbox/session-sandbox.ts` | Ordinary session sandbox: the session role, rebuilt from the live checkout at every spawn; the session factory's default |
-| `team-review-poller.ts` | Team review poller, IO-free |
-| `pr-gh.ts` | `gh` issue queries shared with the control plane |
 | `benchmark-wiring.ts` | Benchmark lane: suites under `~/.glimmervoid/benchmarks`, mining, one serial run (pure rules in `core/benchmark-core.ts`, `core/benchmark-mining-core.ts`) |
 | `claude-credentials.ts` | The operator's Claude Code access token for benchmark arms (decisions in `core/claude-credentials-core.ts`) |
 | `claude-trust.ts` | Grants Claude Code folder trust for a factory project under Claude Code's own config lock (decisions in `core/claude-trust-core.ts`) |
-| `core/team-review-core.ts` | Pure team review decisions |
+| `github/core/team-review-core.ts` | Pure team review decisions |
 | `core/branch-sync-core.ts` | Pure ahead/behind decisions for the branch-sync indicator |
 | `core/restart-strategy.ts` | Pure restart strategy, keyed on systemd's `INVOCATION_ID` |
 | `core/upgrade-route.ts` | Pure WS-upgrade target classification by PATHNAME |
@@ -68,16 +66,6 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - The branch name carries a random discriminator: a deterministic one collides with a previous fix's pushed branch, burning the timeout on a regression after a fix.
 - Both sessions start inside the sandbox runtime with open network, because they fetch untrusted issue data (`posthogLaneRole`): an investigation writes only its report and result folders, a fix also commits in its own worktree, and the repository's hooks and git config stay locked (`node scripts/probe-sandbox-roles.ts --role posthog`).
 - The live investigation view is the hook-derived tool trail, never the PTY: `claude -p` writes nothing to its terminal until the final answer, so a terminal viewer would show a blank screen for the whole run.
-
-### Team PR Review (opt-in)
-
-- Only the operator's Approve or Comment posts, and only when the clicked head equals both the reviewed and the live head, since a review lands under the operator's name (`tests/team-review-core.test.ts`, `tests/team-review-wiring.test.ts`).
-- Glimmervoid owns the report contract, not the procedure: skills differ per machine, so the review runs `teamReview.skill`; its cwd is an empty work dir and the untrusted checkout is never an `--add-dir` (`tests/team-review-wiring.test.ts`).
-- The review starts inside the sandbox runtime (`teamReviewRole`: closed egress, credential folders unreadable, a Codex home of its own, no secret in env); a session that cannot apply it never spawns (`tests/session-hook-lifecycle.test.ts`, `tests/team-review-wiring.test.ts`).
-- The wrap still runs PR code (linked `node_modules`, tests, lint) as the operator, and the linked clone's `.env` deny is root-level only. `api.github.com` stays reachable because Codex stalls at startup without it; no GitHub credential is readable inside.
-- PR text is untrusted data, fenced in the prompt (`tests/team-review-core.test.ts`).
-- Thread resolution also acts under the operator's name: only answered nit threads resolve without a click and each at most once, a judge failure never resolves, and the judge reading untrusted replies gets only Read and Write (`tests/team-review-poller.test.ts`, `tests/team-review-thread-judge.test.ts`).
-- Review dirs are deleted on every exit and swept at start, bar a shutdown's resume record (`tests/team-review-wiring.test.ts`).
 
 ### Benchmarks (opt-in)
 

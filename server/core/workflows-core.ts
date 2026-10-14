@@ -2,9 +2,9 @@ import { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_
 import type {
   WorkflowAction, WorkflowPr, WorkflowRepoSnapshot, WorkflowRule, WorkflowSearchNode, WorkflowsSettings as WorkflowsSettingsType, WorkflowsSettingsUpdate, WorkflowsState, WorkflowTrigger,
 } from '../../shared/contracts/workflows.ts';
-import { MERGED_RETENTION_MS } from './my-prs-core.ts';
-import { prKey } from './team-review-core.ts';
-import type { TeamReviewSettings } from './team-review-core.ts';
+import { MERGED_RETENTION_MS } from '../github/core/my-prs-core.ts';
+import { prKey } from '../github/core/team-review-core.ts';
+import type { TeamReviewSettings } from '../github/core/team-review-core.ts';
 import { isRecord } from '../../shared/coerce.ts';
 
 export const WORKFLOWS_LANE_ID = 'workflows';

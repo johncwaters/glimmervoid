@@ -1,10 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { execFileAsync } from './child-process-safe.ts';
+import { execFileAsync } from '../child-process-safe.ts';
 import { isContainedReviewDirectory, parseCwdTable, parseProcessTable, protectedProcessIds, selectTeamReviewProcessIds } from './core/team-review-reaper-core.ts';
 import type { OwnedDirectoryScope, ProcessRow } from './core/team-review-reaper-core.ts';
-import { errorMessage } from '../shared/text.ts';
+import { errorMessage } from '../../shared/text.ts';
 
 const PROCESS_LIST_TIMEOUT_MS = 5000;
 const TERMINATION_GRACE_MS = 2000;

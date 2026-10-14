@@ -1,10 +1,10 @@
 import test from 'node:test';
-import { createMyPrsStateIo } from '../server/my-prs-wiring.ts';
+import { createMyPrsStateIo } from '../server/github/my-prs-wiring.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { createMyPrsPoller } from '../server/my-prs-poller.ts';
+import { createMyPrsPoller } from '../server/github/my-prs-poller.ts';
 import { MyPrsState as MyPrsStateSchema } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode, MyPrMergeabilityFixResult, MyPrsState, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 

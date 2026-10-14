@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { IssuesState } from '../shared/contracts/issues.ts';
 import type { CachedIssueRow, IssueUpdate, IssuesFetchResult } from '../shared/contracts/issues.ts';
-import { issuesSettingsGate, issuesStatus, mergeIssues, pruneIssueSessionLinks, resolveIssuesProjects } from '../server/core/issues-core.ts';
+import { issuesSettingsGate, issuesStatus, mergeIssues, pruneIssueSessionLinks, resolveIssuesProjects } from '../server/github/core/issues-core.ts';
 
 const update = (number = 1, repo = 'acme/app'): IssueUpdate => ({
   key: `${repo}#${number}`, repo, number, title: 'Fix reconnect', url: `https://github.com/${repo}/issues/${number}`,

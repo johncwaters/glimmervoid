@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GITHUB_CLOCK_INTERVAL_MINUTES, runsEveryTicks } from '../server/core/github-clock-core.ts';
-import { POLL_INTERVAL_MINUTES as MY_PRS_POLL_INTERVAL_MINUTES } from '../server/core/my-prs-core.ts';
-import { POLL_INTERVAL_MINUTES as TEAM_REVIEW_POLL_INTERVAL_MINUTES } from '../server/core/team-review-core.ts';
-import { createGithubClock } from '../server/github-clock.ts';
+import { GITHUB_CLOCK_INTERVAL_MINUTES, runsEveryTicks } from '../server/github/core/github-clock-core.ts';
+import { POLL_INTERVAL_MINUTES as MY_PRS_POLL_INTERVAL_MINUTES } from '../server/github/core/my-prs-core.ts';
+import { POLL_INTERVAL_MINUTES as TEAM_REVIEW_POLL_INTERVAL_MINUTES } from '../server/github/core/team-review-core.ts';
+import { createGithubClock } from '../server/github/github-clock.ts';
 import { createTickLoop } from '../server/lanes/lane-runner.ts';
 
 const FIVE_MINUTES_MS = 5 * 60000;

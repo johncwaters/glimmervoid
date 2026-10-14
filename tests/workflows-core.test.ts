@@ -6,7 +6,7 @@ import {
   DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, diffPrEvents, fillPromptTemplate, matchRules, mergeWorkflowsUpdateOverStored, nextRepoSnapshot, resolveWorkflowsSettings, toWorkflowPr,
   watchedWorkflowRepos, withOwnPostedComment, WORKFLOW_SEARCH_LAG_GRACE_MS, workflowNotification, workflowSpawnPrompt, workflowSessionLimit, workflowSpawnQueueKey, workflowsShouldStart, workflowTeamName,
 } from '../server/core/workflows-core.ts';
-import { MERGED_RETENTION_MS } from '../server/core/my-prs-core.ts';
+import { MERGED_RETENTION_MS } from '../server/github/core/my-prs-core.ts';
 import type { WorkflowEvent } from '../server/core/workflows-core.ts';
 import { WorkflowRule } from '../shared/contracts/workflows.ts';
 import type { WorkflowPr, WorkflowRepoSnapshot, WorkflowSearchNode, WorkflowTrigger } from '../shared/contracts/workflows.ts';

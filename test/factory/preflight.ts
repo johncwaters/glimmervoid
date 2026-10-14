@@ -1,7 +1,7 @@
 import { access, link, open, readFile, readlink, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { execFileAsync, spawn } from '../../server/child-process-safe.ts';
-import { parseCwdTable, parseProcessTable } from '../../server/core/team-review-reaper-core.ts';
+import { parseCwdTable, parseProcessTable } from '../../server/github/core/team-review-reaper-core.ts';
 import { repoRoot } from './instance.ts';
 import { processesUsingBuildOutput, readBuildOutput } from './verdict.ts';
 import type { RunningProcess } from './verdict.ts';

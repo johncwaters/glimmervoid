@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { isPathInside } from '../../shared/paths.ts';
+import { isPathInside } from '../../../shared/paths.ts';
 
 interface ProcessRow {
   pid: number;

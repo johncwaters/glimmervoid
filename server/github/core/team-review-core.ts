@@ -1,13 +1,13 @@
-import { hasStandingViewerApproval, canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../shared/contracts/team-review.ts';
-import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, parseLeadingFindingHeader, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
+import { hasStandingViewerApproval, canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../../shared/contracts/team-review.ts';
+import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import type {
   GithubReview, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
   ResumableReview, ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
-} from '../../shared/contracts/team-review.ts';
-import { positiveNumberOr } from '../../shared/coerce.ts';
-import { GH_SEGMENT } from '../../shared/contracts/github-ids.ts';
-import type { Config } from '../../shared/contracts/config.ts';
+} from '../../../shared/contracts/team-review.ts';
+import { positiveNumberOr } from '../../../shared/coerce.ts';
+import { GH_SEGMENT } from '../../../shared/contracts/github-ids.ts';
+import type { Config } from '../../../shared/contracts/config.ts';
 import { readGithubTeams } from './github-teams-core.ts';
 
 const STAMP_MODEL = 'sonnet';

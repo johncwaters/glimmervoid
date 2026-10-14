@@ -5,10 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
-import type { PrGh } from '../server/pr-gh.ts';
+import type { PrGh } from '../server/github/pr-gh.ts';
 import type { ServerMessage } from '../shared/contracts/control-messages.ts';
-import { issuesStatus } from '../server/core/issues-core.ts';
-import { createIssuesWiring } from '../server/issues-wiring.ts';
+import { issuesStatus } from '../server/github/core/issues-core.ts';
+import { createIssuesWiring } from '../server/github/issues-wiring.ts';
 import type { Session } from '../session/sessions.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
 import { plainSession } from './helpers/fake-session.ts';

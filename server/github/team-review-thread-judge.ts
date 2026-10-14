@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { readLaneResultFile } from './lanes/lane-spawn.ts';
-import type { LaneSpawn } from './lanes/lane-spawn.ts';
+import { readLaneResultFile } from '../lanes/lane-spawn.ts';
+import type { LaneSpawn } from '../lanes/lane-spawn.ts';
 import { parseThreadJudgeResult } from './core/team-review-threads-core.ts';
-import type { TeamReviewThreadResult } from '../shared/contracts/team-review.ts';
+import type { TeamReviewThreadResult } from '../../shared/contracts/team-review.ts';
 
 export const THREAD_JUDGE_TOOLS = Object.freeze(['Read', 'Write']);
 export const THREAD_JUDGE_TIMEOUT_MS = 120000;

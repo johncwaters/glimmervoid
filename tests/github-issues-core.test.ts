@@ -5,7 +5,7 @@ import {
   GITHUB_ISSUE_BODY_MAX_CHARS,
   buildGithubIssuePrompt,
   deriveIssueSessionName,
-} from '../server/core/github-issues-core.ts';
+} from '../server/github/core/github-issues-core.ts';
 
 const ISSUE = {
   number: 42,

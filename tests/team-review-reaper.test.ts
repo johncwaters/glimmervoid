@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { spawn, execFileAsync } from '../server/child-process-safe.ts';
-import { isContainedReviewDirectory, parseCwdTable, parseProcessTable, protectedProcessIds, selectTeamReviewProcessIds } from '../server/core/team-review-reaper-core.ts';
-import type { ProcessRow } from '../server/core/team-review-reaper-core.ts';
-import { listTeamReviewProcesses, reapTeamReviewProcesses } from '../server/team-review-reaper.ts';
+import { isContainedReviewDirectory, parseCwdTable, parseProcessTable, protectedProcessIds, selectTeamReviewProcessIds } from '../server/github/core/team-review-reaper-core.ts';
+import type { ProcessRow } from '../server/github/core/team-review-reaper-core.ts';
+import { listTeamReviewProcesses, reapTeamReviewProcesses } from '../server/github/team-review-reaper.ts';
 
 const SIGNED_BASH_ARGS = 'bash -c source /home/op/.claude/shell-snapshots/snapshot-bash-1.sh && eval npm test';
 

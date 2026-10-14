@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { execFileAsync, spawn } from '../../server/child-process-safe.ts';
-import { parseProcessTable } from '../../server/core/team-review-reaper-core.ts';
+import { parseProcessTable } from '../../server/github/core/team-review-reaper-core.ts';
 import { glimmervoidHomeDir } from '../../server/core/config-path-core.ts';
 import { prepareIsolatedEnvironment } from '../support/backend-harness.ts';
 import type { FactoryOverrides } from './arguments.ts';

@@ -7,14 +7,14 @@ import { OVERRIDE_TOKEN_ENV } from './claude-credentials.ts';
 import { pairedReport, runBenchmark } from './core/benchmark-core.ts';
 import type { BenchmarkRunnerDependencies, PlannedCell } from './core/benchmark-core.ts';
 import { mineCandidates } from './core/benchmark-mining-core.ts';
-import { absolutePathReadRule } from './core/team-review-core.ts';
+import { absolutePathReadRule } from './github/core/team-review-core.ts';
 import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from './json-file.ts';
 import type { LaneSpawn } from './lanes/lane-spawn.ts';
-import type { PrGh } from './pr-gh.ts';
+import type { PrGh } from './github/pr-gh.ts';
 import { allowSandboxedSpawn } from './sandbox/sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox/sandbox-deps.ts';
-import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions } from './team-review-wiring.ts';
-import type { LaneSettingsSandbox, TeamReviewRepoCache, TeamReviewSpawn } from './team-review-wiring.ts';
+import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions } from './github/team-review-wiring.ts';
+import type { LaneSettingsSandbox, TeamReviewRepoCache, TeamReviewSpawn } from './github/team-review-wiring.ts';
 import {
   BenchmarkCase, BenchmarkId, BenchmarkRun, BenchmarkStatus, BenchmarkSuite, PrCheckoutCaseInput,
 } from '../shared/contracts/benchmark.ts';

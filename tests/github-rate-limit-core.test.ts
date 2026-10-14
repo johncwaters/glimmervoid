@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { githubRateLimitWaitMs } from '../server/core/github-rate-limit-core.ts';
+import { githubRateLimitWaitMs } from '../server/github/core/github-rate-limit-core.ts';
 
 test('no exhausted resource means no rate-limit wait', () => {
   assert.equal(githubRateLimitWaitMs({ core: { remaining: 1, reset: 5 }, search: { remaining: 30, reset: 5 } }, 0, ['core', 'search']), null);
