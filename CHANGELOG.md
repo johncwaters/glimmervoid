@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A commit right after the laptop wakes signs instead of failing**: a forwarded ssh agent drops while the laptop sleeps and comes back a few seconds after it wakes. A session commit made in that gap used to fail with "no reachable ssh agent holds the signing key". Glimmervoid now waits up to 30 seconds for a forwarded agent that holds the key before giving up.
+
 ## [0.35.0] - 2026-10-14
 
 ### Added
