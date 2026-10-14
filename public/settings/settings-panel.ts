@@ -38,6 +38,7 @@ import {
 import type { SettingsPayload, SettingsProject, SettingsValues } from './settings-view-core.ts';
 import { includesRepositoryRoot, projectSelectionChoices } from './settings-projects-core.ts';
 import { appendShortcutChord, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { isStreamerMode, onStreamerModeChanged, saveStreamerMode } from '../streamer-mode.ts';
 import { shortcutGroupsFor } from '../shortcuts-core.ts';
 import { renderPrStatusLegend, renderStatusLegend } from '../status-legend.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
@@ -916,9 +917,32 @@ function renderAdvancedSettings(advancedSettings: SettingsSetting[], errors: Rec
   return advanced;
 }
 
+function renderStreamerPlaceholder(container: HTMLElement) {
+  const placeholder = el('div', 'settings-view-streamer-placeholder');
+  const turnOff = el('button', 'btn-dialog btn-dialog-confirm', 'Turn off streamer mode');
+  turnOff.type = 'button';
+  const status = el('span', 'settings-view-copy-status', '');
+  status.setAttribute('role', 'status');
+  turnOff.addEventListener('click', async () => {
+    turnOff.disabled = true;
+    status.textContent = '';
+    const saveError = await saveStreamerMode(false);
+    turnOff.disabled = false;
+    status.textContent = saveError;
+  });
+  placeholder.append(el('p', 'settings-view-section-description', 'Settings are hidden in streamer mode.'), turnOff, status);
+  container.appendChild(placeholder);
+}
+
+onStreamerModeChanged(() => renderContent());
+
 function renderContent() {
   if (!contentEl || !editedValues) return;
   contentEl.textContent = '';
+  if (isStreamerMode()) {
+    renderStreamerPlaceholder(contentEl);
+    return;
+  }
   const header = el('header', 'settings-view-section-header');
   const titleRow = el('div', 'settings-view-title-row');
   const title = el('h1', 'settings-view-section-title', selectedSection.title);

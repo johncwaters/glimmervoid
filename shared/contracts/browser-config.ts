@@ -259,6 +259,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
   calmLayout: optionalBoolean('calmLayout'),
+  streamerMode: optionalBoolean('streamerMode'),
   detectBackgroundAgents: optionalBoolean('detectBackgroundAgents'),
   recordSignals: optionalBoolean('recordSignals'),
   rtk: optionalBoolean('rtk'),

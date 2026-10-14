@@ -23,6 +23,7 @@ import {
   isTypedInputType,
 } from './ime-core.ts';
 import { osc8LinkHandler, registerUrlLinkProvider } from './terminal-links.ts';
+import { installTerminalSecretMask, resetTerminalSecretMask } from './terminal-secret-mask.ts';
 import { isTerminalSubmitKeystroke } from './terminal-submit-core.ts';
 import { decideTerminalLinkState } from './terminal-link-core.ts';
 import { showErrorToast } from './toast.ts';
@@ -173,6 +174,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
       frameState.hasSeenSize = true;
       frameState.lastSeq = frame.seq;
       term.reset();
+      resetTerminalSecretMask(term);
       ui.ptySize = { cols: frame.cols, rows: frame.rows };
       ui._syncGrid?.();
       return;
@@ -274,6 +276,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
   ensureConnectingOverlay(termWrap);
   term.open(termWrap);
   registerUrlLinkProvider(term);
+  installTerminalSecretMask(term, ui.abortController.signal);
 
   ui.term = term;
   ui.fitAddon = fitAddon;

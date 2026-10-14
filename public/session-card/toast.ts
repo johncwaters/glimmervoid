@@ -1,6 +1,7 @@
 import { el, queryTag } from '../dom-helpers.ts';
 
 const AUTO_DISMISS_MS = 6000;
+const STREAMER_TOAST_MESSAGE = 'Something went wrong. Details are hidden in streamer mode.';
 
 const EXIT_FALLBACK_MS = 400;
 const CLOSE_GLYPH = String.fromCharCode(0x00d7);
@@ -37,7 +38,7 @@ function dismiss(notice: Element) {
 }
 
 export function showErrorToast(rawMessage: unknown, opts: { persist?: boolean } = {}) {
-  const message = typeof rawMessage === 'string' ? rawMessage : String(rawMessage);
+  const message = document.documentElement.hasAttribute('data-streamer') ? STREAMER_TOAST_MESSAGE : String(rawMessage);
   const persist = opts.persist === true;
   const region = ensureRegion();
 

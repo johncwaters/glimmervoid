@@ -5,6 +5,7 @@ import { el } from './dom-helpers.ts';
 import { parsePlanMarkdown } from './plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from './plan/plan-render.ts';
 import { findSessionUi } from './session-card/card-registry.ts';
+import { isStreamerMode } from './streamer-mode.ts';
 import { applyDialogAria, createModalOverlay, openConfirmDialog } from './session-card/modal.ts';
 
 type EditorMode = 'edit' | 'preview';
@@ -181,7 +182,7 @@ export function openDocEditor(sessionId: string) {
   applyDialogAria(modal.dialog, titleId);
 
   const currentEditor: OpenEditor = {
-    sessionId, docPath: firstDoc.path, baseHash: null, hasUnsavedChanges: false, isBusy: false, mode: 'edit',
+    sessionId, docPath: firstDoc.path, baseHash: null, hasUnsavedChanges: false, isBusy: false, mode: isStreamerMode() ? 'preview' : 'edit',
     title, select, textarea, preview, status, btnEdit, btnPreview, btnReload, btnSave,
     close: () => {
       openEditor = null;
@@ -215,7 +216,7 @@ export function openDocEditor(sessionId: string) {
   btnClose.addEventListener('click', requestClose);
 
   void loadDoc(currentEditor, firstDoc.path);
-  textarea.focus();
+  if (currentEditor.mode === 'edit') textarea.focus();
 }
 
 function applyDocsToOpenEditor(sessionId: string) {

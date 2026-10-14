@@ -20,9 +20,11 @@ import {
 } from './team-review-view-core.ts';
 import type { ActionReplyNotice, CaughtUpSelectionView, QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from '../ui-prefs.ts';
+import { isStreamerMode, onStreamerModeChanged } from '../streamer-mode.ts';
 
 const ACTION_REPLY_TIMEOUT_MS = 120000;
 const SHARD_PATH = 'M4.5 0.5L8.5 5.5L4.5 10.5L0.5 5.5Z';
+const STREAMER_GITHUB_REVIEW_TITLE = 'GitHub review';
 
 interface ActionDetailHandle {
   signature: string;
@@ -134,17 +136,26 @@ function createAgeReadout(label: string, timestamp: number | string | null | und
   return readout;
 }
 
+function paintQueueRowTitle(row: HTMLElement): void {
+  const title = _queueRowTitles.get(row);
+  if (!title) return;
+  row.title = title();
+  row.setAttribute('aria-label', row.title);
+}
+
+function repaintStreamerSensitiveTitles(): void {
+  _ageTicker.reset();
+  trackAges(_root);
+}
+
+onStreamerModeChanged(repaintStreamerSensitiveTitles);
+
 function trackAges(root: Element | null): void {
   if (!root) return;
   for (const row of root.querySelectorAll<HTMLElement>('.pr-queue-row')) {
-    const title = _queueRowTitles.get(row);
-    if (!title) continue;
-    const paintTitle = () => {
-      row.title = title();
-      row.setAttribute('aria-label', row.title);
-    };
-    paintTitle();
-    _ageTicker.onTick(paintTitle);
+    if (!_queueRowTitles.has(row)) continue;
+    paintQueueRowTitle(row);
+    _ageTicker.onTick(() => paintQueueRowTitle(row));
   }
   for (const notice of root.querySelectorAll<HTMLElement>('.pr-rereview-notice')) {
     const draft = _latest?.drafts.find((review) => review.key === notice.dataset.reviewKey);
@@ -154,19 +165,21 @@ function trackAges(root: Element | null): void {
     paintNotice();
     _ageTicker.onTick(paintNotice);
   }
+  for (const avatar of root.querySelectorAll<HTMLElement>('[data-review-title]')) {
+    const reviewTitle = avatar.dataset.reviewTitle ?? '';
+    const at = avatar.dataset.ageAt === undefined ? null : Number(avatar.dataset.ageAt);
+    const paintTitle = () => {
+      const age = at === null ? null : formatAgo(at);
+      const title = isStreamerMode() ? githubReviewTitle(STREAMER_GITHUB_REVIEW_TITLE, age) : githubReviewTitle(reviewTitle, age);
+      avatar.title = title;
+      avatar.setAttribute('aria-label', title);
+    };
+    paintTitle();
+    _ageTicker.onTick(paintTitle);
+  }
   for (const readout of root.querySelectorAll<HTMLElement>('[data-age-at]')) {
+    if (readout.dataset.reviewTitle !== undefined) continue;
     const at = Number(readout.dataset.ageAt);
-    const reviewTitle = readout.dataset.reviewTitle;
-    if (reviewTitle !== undefined) {
-      const paintTitle = () => {
-        const title = githubReviewTitle(reviewTitle, formatAgo(at));
-        readout.title = title;
-        readout.setAttribute('aria-label', title);
-      };
-      paintTitle();
-      _ageTicker.onTick(paintTitle);
-      continue;
-    }
     const label = readout.dataset.ageLabel ?? '';
     _ageTicker.track(readout, at, () => `${label}${label ? ' ' : ''}${formatAgo(at)}`);
   }
@@ -178,16 +191,15 @@ function createGithubReviewSummary(draft: ReviewDraft, className: string, avatar
   const summary = el('span', className);
   const items = reviews.map((review) => ({
     login: review.login, tone: review.tone,
-    title: githubReviewTitle(review.text, formatTimestampAge(review.submittedAt)),
+    title: githubReviewTitle(isStreamerMode() ? STREAMER_GITHUB_REVIEW_TITLE : review.text, formatTimestampAge(review.submittedAt)),
   }));
   const stack = createReviewerStack(items, avatarCssPx);
   for (const [index, review] of reviews.entries()) {
     const avatar = stack.children[index];
-    if (!(avatar instanceof HTMLElement) || !review.submittedAt) continue;
-    const at = ageTimestamp(review.submittedAt);
-    if (at === null) continue;
-    avatar.dataset.ageAt = String(at);
+    if (!(avatar instanceof HTMLElement)) continue;
     avatar.dataset.reviewTitle = review.text;
+    const at = ageTimestamp(review.submittedAt);
+    if (at !== null) avatar.dataset.ageAt = String(at);
   }
   summary.append(stack);
   return summary;
@@ -200,8 +212,12 @@ function formatTimestampAge(timestampValue: number | string | null | undefined):
 
 function createAuthor(login: string, cssPx: number, className: string): HTMLElement {
   const author = el('span', className);
-  author.append(createAvatar({ login, cssPx }), el('span', null, login));
+  author.append(createAvatar({ login, cssPx }), el('span', 'pr-author-login', login));
   return author;
+}
+
+function streamerQueueRowTitle(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): string {
+  return `${pullRequestLabel(review.repo, review.number)}\n${queueRowGlyph(review, kind).meaning}`;
 }
 
 function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind, hasMultipleRepos: boolean): HTMLButtonElement {
@@ -210,16 +226,15 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   row.dataset.reviewKey = review.key;
   row.setAttribute('aria-current', String(review.key === _selectedKey));
   const approvalContext = 'reviewedHead' in review ? viewerApprovalContext(review) : null;
-  const title = () => queueRowTitle(review, kind, {
+  const title = () => isStreamerMode() ? streamerQueueRowTitle(review, kind) : queueRowTitle(review, kind, {
     opened: formatTimestampAge(review.prCreatedAt),
     reviewed: 'reviewedHead' in review ? formatTimestampAge(review.reviewedAt) : null,
     posted: 'reviewedHead' in review ? formatTimestampAge(review.postedAt) : null,
     viewerApproval: formatTimestampAge(approvalContext?.submittedAt),
     githubReviews: 'reviewedHead' in review ? githubReviewItems(review, { isViewerShown: kind !== 'posted' }).map((item) => formatTimestampAge(item.submittedAt)) : [],
   });
-  row.title = title();
-  row.setAttribute('aria-label', row.title);
   _queueRowTitles.set(row, title);
+  paintQueueRowTitle(row);
   const top = createQueueRowTop(review, hasMultipleRepos);
   if (kind === 'inReview') {
     const inFlight = review as InFlightReview;
@@ -301,9 +316,9 @@ function createHandReviewSection(reviews: QueuedReview[], hasMultipleRepos: bool
   section.append(el('h3', 'pr-section-heading', `Review by hand ${reviews.length}`));
   for (const review of reviews) {
     const row = externalLink('pr-queue-row', '', review.url);
-    const title = () => queueRowTitle(review, 'handReview', { opened: formatTimestampAge(review.prCreatedAt) });
-    row.title = title();
+    const title = () => isStreamerMode() ? streamerQueueRowTitle(review, 'handReview') : queueRowTitle(review, 'handReview', { opened: formatTimestampAge(review.prCreatedAt) });
     _queueRowTitles.set(row, title);
+    paintQueueRowTitle(row);
     const handReviewGlyph = queueRowGlyph(review, 'handReview');
     const glyph = el('span', 'pr-queue-glyph');
     glyph.append(createPrStatusIcon(handReviewGlyph.icon, handReviewGlyph.tone));
@@ -811,7 +826,8 @@ function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
     if (item.thread.viewerComment) {
       row.append(el('div', 'my-pr-thread-meta', 'Your comment'), createThreadBody(item.thread.viewerComment, true, item.thread.viewerCommentTruncated === true, item.thread.url));
     }
-    const reply = el('div', 'pr-detail-meta pr-thread-reply-meta', `${item.thread.lastReplyAuthor} replied`);
+    const reply = el('div', 'pr-detail-meta pr-thread-reply-meta');
+    reply.append(el('span', 'pr-author-login', item.thread.lastReplyAuthor), ' replied');
     const age = createAgeReadout('', item.thread.lastReplyAt);
     if (age) reply.append(age);
     const status = el('span', 'pr-action-status');

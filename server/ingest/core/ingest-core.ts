@@ -1,5 +1,6 @@
 import { isRecord, positiveIntOr, textOr } from '../../../shared/coerce.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '../../../shared/display-text.ts';
+import { PREFIXED_SECRET_PATTERNS, SECRET_SHAPE_PATTERNS } from '../../../shared/secret-patterns.ts';
 
 
 type SourceName = 'terminal' | 'agentLogs' | 'git' | 'fs' | 'shellHistory' | 'editor';
@@ -143,39 +144,10 @@ function enabledSourceNames(config: IngestConfig | null | undefined): SourceName
 }
 
 
-const SECRET_WORD = '(?:password|passwd|pwd|token|api[_-]?key|secret|credential|auth[_-]?token|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|connection[_-]?string)';
-const QUOTED_OR_BARE = '(?:"[^"\\r\\n]*"|\'[^\'\\r\\n]*\'|[^\\s\\r\\n]+)';
-const GAP = '[^\\S\\r\\n]';
-const FLAG_REACH = '[^\\r\\n;&|]{0,200}?';
-const MYSQL_TOOLS = '(?:mysql|mysqldump|mysqladmin|mysqlshow|mariadb|mariadb-dump)';
-
-const SCRUB_PATTERNS = [
-  new RegExp(`(${SECRET_WORD}${GAP}*(?:=>|[:=])${GAP}*)${QUOTED_OR_BARE}`, 'gi'),
-  new RegExp(`((?:^|\\s)--?${SECRET_WORD}${GAP}+)${QUOTED_OR_BARE}`, 'gi'),
-  new RegExp(`((?:^|\\s)-(?:pwd|pw)(?![a-z])${GAP}*=?${GAP}*)${QUOTED_OR_BARE}`, 'g'),
-  new RegExp(`(-AsPlainText${GAP}+)${QUOTED_OR_BARE}`, 'gi'),
-  new RegExp(`((?:^|\\s)setx${GAP}+[^\\s\\r\\n]*${SECRET_WORD}[^\\s\\r\\n]*${GAP}+)${QUOTED_OR_BARE}`, 'gi'),
-  new RegExp(`(\\bBearer${GAP}+)[A-Za-z0-9._~+/=-]{8,}`, 'gi'),
-  new RegExp(`(\\bauthorization${GAP}*:${GAP}*Basic${GAP}+)[A-Za-z0-9+/=_-]{8,}`, 'gi'),
-  new RegExp(`(\\bdocker${GAP}+login\\b${FLAG_REACH}${GAP}-p(?:${GAP}+|=))${QUOTED_OR_BARE}`, 'gi'),
-  new RegExp(`(\\bcurl\\b${FLAG_REACH}${GAP}(?:--user|-u)(?:${GAP}+|=)[^\\s:\\r\\n]+:)${QUOTED_OR_BARE}`, 'gi'),
-  new RegExp(`(\\b${MYSQL_TOOLS}\\b${FLAG_REACH}${GAP}-p)${QUOTED_OR_BARE}`, 'g'),
-  /\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:)[^\s@/]+(?=@)/gi,
-];
-
-const SECRET_SHAPE_PATTERNS = [
-  /\bAKIA[0-9A-Z]{16}\b/g,
-  /\bgh[pousr]_[A-Za-z0-9]{16,}\b/g,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
-  /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g,
-  /\beyJ[A-Za-z0-9_=-]{6,}\.[A-Za-z0-9_=-]{6,}\.[A-Za-z0-9_=-]{4,}/g,
-  /-----BEGIN(?:[A-Z0-9 ]+)? PRIVATE KEY-----/g,
-];
-
 function scrubText(text: unknown): string {
   if (typeof text !== 'string' || !text) return typeof text === 'string' ? text : '';
   let scrubbed = text;
-  for (const pattern of SCRUB_PATTERNS) {
+  for (const pattern of PREFIXED_SECRET_PATTERNS) {
     pattern.lastIndex = 0;
     scrubbed = scrubbed.replace(pattern, (_match: string, prefix: string) => `${prefix}${SCRUB_PLACEHOLDER}`);
   }

@@ -229,6 +229,11 @@ export const SETTINGS_MAP = Object.freeze([
         description: 'Replace the Focus rail with a view that prioritizes sessions needing attention and also shows ready and working indicators. Applies to every browser on this machine.',
         control: 'toggle', keywords: ['experimental', 'attention', 'priority'], defaultValue: false,
       },
+      {
+        id: 'streamer-mode', path: 'streamerMode', title: 'Streamer mode',
+        description: 'Hide sensitive details in the dashboard while screen sharing or streaming. Applies to every browser on this machine.',
+        control: 'toggle', keywords: ['streaming', 'screen share', 'privacy'], defaultValue: false,
+      },
     ],
     unattendedLinks: [
       { settingId: 'skip-permissions-by-default', title: 'Skip permission prompts by default' },

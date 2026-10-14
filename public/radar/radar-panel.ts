@@ -8,6 +8,7 @@ import { createPollAgoTicker, formatAgo, formatDuration } from '../poll-ago.ts';
 import { createRenderHold } from './radar-hold-core.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import { getRadarAttentionAck, setRadarAttentionAck } from '../ui-prefs.ts';
+import { isStreamerMode, onStreamerModeChanged } from '../streamer-mode.ts';
 import {
   applyInvestigationActivity as patchInvestigationActivity,
   applyInvestigationFinished as patchInvestigationFinished,
@@ -72,6 +73,8 @@ const _archivedLocally = new Set<string>();
 let _openInvestigation: { projectId: string; issueId: string; dialog: InvestigationDialog } | null = null;
 
 const _issueRows = new Map<string, { copy: HTMLElement; summary: HTMLElement | null }>();
+const _openableRowLabels = new WeakMap<HTMLElement, () => string>();
+const STREAMER_ISSUE_NAME = 'this issue';
 
 const _pollTicker = createPollAgoTicker(() => _root);
 
@@ -345,12 +348,30 @@ function buildIssueActions(issue: RadarIssue, projectId: unknown, projectLabel: 
   return wrap;
 }
 
-function makeRowOpenable(row: HTMLDivElement, label: string, open: () => void) {
+function shownIssueName(issueName: string) {
+  return isStreamerMode() ? STREAMER_ISSUE_NAME : issueName;
+}
+
+function paintOpenableRowLabel(row: HTMLElement) {
+  const openableRowLabel = _openableRowLabels.get(row);
+  if (!openableRowLabel) return;
+  row.title = openableRowLabel();
+  row.setAttribute('aria-label', row.title);
+}
+
+function repaintOpenableRowLabels() {
+  if (!_root) return;
+  for (const row of _root.querySelectorAll<HTMLElement>('.radar-issue-reportable')) paintOpenableRowLabel(row);
+}
+
+onStreamerModeChanged(repaintOpenableRowLabels);
+
+function makeRowOpenable(row: HTMLDivElement, openableRowLabel: () => string, open: () => void) {
   row.classList.add('radar-issue-reportable');
   row.tabIndex = 0;
   row.setAttribute('role', 'button');
-  row.setAttribute('aria-label', label);
-  row.title = label;
+  _openableRowLabels.set(row, openableRowLabel);
+  paintOpenableRowLabel(row);
   row.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;
     if (event.target.closest('a, button')) return;
@@ -430,7 +451,7 @@ function buildIssueRow(issue: RadarIssue, projectId: unknown, projectLabel: stri
       issueMeta.append(elapsed);
     }
     if (issueReportId(issue)) {
-      makeRowOpenable(row, `Watch the investigation of ${issueName}`, () => openInvestigationView(issue, projectId, projectLabel));
+      makeRowOpenable(row, () => `Watch the investigation of ${shownIssueName(issueName)}`, () => openInvestigationView(issue, projectId, projectLabel));
     }
   }
   if (!issue.inFlight && issue.verdict) {
@@ -438,7 +459,7 @@ function buildIssueRow(issue: RadarIssue, projectId: unknown, projectLabel: stri
     chip.dataset.verdict = issue.verdict;
     issueMeta.append(chip);
     if (issueReportId(issue)) {
-      makeRowOpenable(row, `View investigation report for ${issueName}`, () => openIssueReport(issue));
+      makeRowOpenable(row, () => `View investigation report for ${shownIssueName(issueName)}`, () => openIssueReport(issue));
     }
   }
   if (issueMeta.childElementCount > 0) titleWrap.append(issueMeta);

@@ -15,7 +15,8 @@ type DashboardShortcutAction =
   | 'merge'
   | 'resolve-or-resync'
   | 'calm-home'
-  | 'calm-terminal';
+  | 'calm-terminal'
+  | 'streamer-mode';
 
 export interface ShortcutContext {
   isCalmAvailable: boolean;
@@ -66,6 +67,7 @@ const DASHBOARD_SHORTCUTS: readonly DashboardShortcut[] = [
   { action: 'resolve-or-resync', keyCaptions: ['U'], label: 'Resolve a parked merge, or resync the base branch', stepByCode: new Map([['KeyU', 0]]), availability: 'always' },
   { action: 'calm-home', keyCaptions: ['H'], label: 'Go to the Calm view (Calm layout)', stepByCode: new Map([['KeyH', 0]]), availability: 'calm-surface', unavailablePlatform: 'mac' },
   { action: 'calm-terminal', keyCaptions: ['T'], label: 'Open the terminal of the open Calm panel (Calm layout)', stepByCode: new Map([['KeyT', 0]]), availability: 'calm-view', unavailablePlatform: 'mac' },
+  { action: 'streamer-mode', keyCaptions: ['\\'], label: 'Turn streamer mode on or off', stepByCode: new Map([['Backslash', 0]]), availability: 'always' },
 ];
 
 function shortcutsOn(platform: ShortcutPlatform) {

@@ -38,6 +38,7 @@ const DEFAULT_CONFIG = {
   cursorBlink: false,
   debugMode: false,
   calmLayout: false,
+  streamerMode: false,
 
   detectBackgroundAgents: true,
 
@@ -506,6 +507,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       cursorBlink: config.cursorBlink ?? effectiveDefaults.cursorBlink,
       debugMode: config.debugMode ?? effectiveDefaults.debugMode,
       calmLayout: config.calmLayout ?? effectiveDefaults.calmLayout,
+      streamerMode: config.streamerMode ?? effectiveDefaults.streamerMode,
       detectBackgroundAgents: config.detectBackgroundAgents ?? effectiveDefaults.detectBackgroundAgents,
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,
       trace: { enabled: config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled },

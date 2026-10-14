@@ -47,6 +47,7 @@ export function showDesktopNotification({
   const notificationApi = getNotificationApi();
   if (!notificationApi || !isNotificationsEnabled()) return;
   if (notificationApi.permission !== 'granted') return;
+  if (document.documentElement.hasAttribute('data-streamer')) return;
 
   if (!ignoreFocus && typeof document !== 'undefined' && typeof document.hasFocus === 'function' && document.hasFocus()) return;
 

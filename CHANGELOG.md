@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Streamer mode**: a mode for screen sharing and live streams. While it is on, tokens and keys (GitHub, Anthropic, OpenAI, PostHog, AWS, Slack, JWTs, bearer values, private key blocks, passwords in URLs and command-line flags, and `NAME=value` lines whose name says secret, token, key or password) are covered by an opaque block in session terminals, live and after a reload or resize, and masked in diffs and session doc previews; your home directory shows as `~`; Radar issue titles and reports, team-review PR titles, logins and avatars are hidden; error toasts show a generic line; and no browser notification fires (Telegram is unchanged). The doc editor opens in Preview, and Edit still shows the raw text. A screen button in the header, Alt+\ (Command+\ on a Mac), and the Streamer mode setting in Settings > Machine > General turn it on or off for every open dashboard. While it is on, a STREAMER badge hangs below the header and the Settings tab shows only a line saying settings are hidden, with a Turn off streamer mode button.
+
 ### Changed
 
 - **Team review: Discard is now Not mine, on every review row**: the Reviews tab's Discard action is renamed Not mine, and the Discarded list is now Not mine. Use it for pull requests that are not yours to review. You can now use it on a queued or in-review pull request, and on a failed or out-of-date review, not just on a ready draft. Not mine on a pull request that is in review stops that review, so it uses no more tokens. A pull request marked Not mine is not reviewed again, even after new commits, until you click Queue review. Nothing is sent to GitHub.

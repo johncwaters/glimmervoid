@@ -54,6 +54,8 @@ import { currentShortcutContext, SHORTCUT_PLATFORM, setShortcutContextProvider }
 import { resolveDashboardShortcut } from './shortcuts-core.ts';
 import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
+import { mountStreamerToggle, onStreamerModeChanged, setStreamerMode, toggleStreamerMode } from './streamer-mode.ts';
+import { mountStreamerTextMask } from './streamer-text-mask.ts';
 import { applyCompactStatusLabels, applySessionUsageChips, applyTheme } from './theme.ts';
 import { applyTraceChanged, applyTraceError, applyTraceResponse, setTraceNavigate, setTraceRequestSender, setTraceSessions } from './trace-panel.ts';
 import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
@@ -348,6 +350,8 @@ function refreshViewsIfVisible(reason: ViewRefreshReason) {
   refreshVisibleViews(VIEW_TABS, { isPhoneShellActive: isPhoneShellActive(), activeView: getActiveView(), phoneScreen: uiState.snapshot().phoneScreen }, reason);
 }
 
+onStreamerModeChanged(() => refreshViewsIfVisible('settings-updated'));
+
 const messageHandlers = {
   'snapshot':           (msg) => { noteServerBuild(msg.serverBuild); handleSnapshot(msg.sessions); },
 
@@ -535,6 +539,9 @@ queryTag(document, '#btn-add-session-header', 'button').addEventListener('click'
 
 const btnMute = queryTag(document, '#btn-mute', 'button');
 mountMuteButton(btnMute);
+const btnStreamer = queryTag(document, '#btn-streamer', 'button');
+mountStreamerToggle(btnStreamer);
+mountStreamerTextMask();
 
 const powerMenu = queryTag(document, '#power-menu', 'div');
 const btnPower = queryTag(document, '#btn-power', 'button');
@@ -720,12 +727,13 @@ function applySurfaceSettings(settings: FeatureSurfaceSettings, { isLiveSettings
   activateView('calm');
 }
 
-function applyDashboardSettings(settings: FeatureSurfaceSettings, { isLiveSettingsChange = false } = {}) {
+function applyDashboardSettings(settings: FeatureSurfaceSettings & { streamerMode?: boolean }, { isLiveSettingsChange = false } = {}) {
   applyTerminalSettings(settings);
   applySettingsBroadcast(settings);
   applyVisionsSettings(settings);
   applySurfaceSettings(settings, { isLiveSettingsChange });
   syncTelemetryBanner(settings);
+  setStreamerMode(settings.streamerMode === true);
 }
 
 for (const viewTab of VIEW_TABS) {
@@ -798,6 +806,8 @@ mountPhoneShell({
     queryTag(document, '#btn-add-session-header', 'button'),
     queryTag(document, '#btn-help', 'button'),
     btnMute,
+    queryTag(document, '#streamer-badge', 'span'),
+    btnStreamer,
     powerMenu,
   ],
 });
@@ -916,6 +926,9 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
       return true;
     case 'calm-terminal':
       return openSelectedPanelTerminal();
+    case 'streamer-mode':
+      toggleStreamerMode();
+      return true;
   }
 }
 
