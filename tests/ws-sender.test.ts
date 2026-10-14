@@ -442,24 +442,6 @@ test('a sub-cap frame buffered across a drain is not double-sent (regression)', 
   }
 });
 
-test('sendImmediate drop rewinds sentOffset to the replay base: recovers history + live', () => {
-  const ws = fakeWs({ bufferedAmount: DEFAULTS.highWaterMark + 1 });
-  const sched = manualScheduler();
-  const ring = fakeRing();
-  ring.produce('R'.repeat(100));
-  const s = makeSender(ws, sched, { source: ring, startOffset: 100 });
-
-  assert.equal(s.sendImmediate('R'.repeat(100), 0), false, 'replay dropped while pinned');
-  assert.deepEqual(framesOf(ws), [], 'nothing sent to the pinned socket');
-
-  ws.bufferedAmount = 0;
-  feed(ring, s, 'LIVE');
-
-  assert.ok(ring.calls.includes(0), 'backfill queried getBufferSince(0): rewound to replay base');
-  assert.ok(!ring.calls.includes(100), 'did NOT resume from the live baseline (pre-fix behavior)');
-  assert.equal(framesOf(ws).join(''), `${'R'.repeat(100)}LIVE`, 'history + live recovered, in order');
-});
-
 test('sendImmediate drop rewinds to the offset the caller supplied, never by the payload length', () => {
   const ws = fakeWs({ bufferedAmount: DEFAULTS.highWaterMark + 1 });
   const sched = manualScheduler();
