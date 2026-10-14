@@ -8,6 +8,10 @@ import { execFileAsync, spawn } from '../server/child-process-safe.ts';
 import { parseSshPublicKey } from '../server/core/ssh-signing-core.ts';
 import { createSshSigner } from '../server/ssh-signing.ts';
 
+const UNIX_SOCKET_PATH_MAX_BYTES = process.platform === 'darwin' ? 103 : 107;
+const SOCKET_WAIT_LIMIT_MS = 10_000;
+const AGENT_SOCKET_PATH_TEMPLATE = path.join(os.tmpdir(), 'gv-sign-wait-XXXXXX', 'auth-agent1', 'listener.sock');
+
 function isExecutableFile(candidatePath: string): boolean {
   try {
     accessSync(candidatePath, fsConstants.X_OK);
@@ -17,21 +21,27 @@ function isExecutableFile(candidatePath: string): boolean {
   }
 }
 
-function sshAgentMissingReason(): string | false {
+function forwardedAgentSkipReason(): string | false {
   const executableName = process.platform === 'win32' ? 'ssh-agent.exe' : 'ssh-agent';
   const searchDirectories = (process.env.PATH ?? '').split(path.delimiter).filter((directory) => directory !== '');
   const isSshAgentOnPath = searchDirectories.some((directory) => isExecutableFile(path.join(directory, executableName)));
-  return isSshAgentOnPath ? false : 'ssh-agent is not on PATH';
+  if (!isSshAgentOnPath) return 'ssh-agent is not on PATH';
+  if (process.platform !== 'win32' && Buffer.byteLength(AGENT_SOCKET_PATH_TEMPLATE) > UNIX_SOCKET_PATH_MAX_BYTES) return `the temp dir leaves no room for a unix socket path: ${AGENT_SOCKET_PATH_TEMPLATE}`;
+  return false;
 }
 
-async function waitForSocket(socketPath: string): Promise<void> {
-  const stats = await fs.lstat(socketPath).catch(() => null);
-  if (stats?.isSocket()) return;
-  await new Promise((resolve) => { setTimeout(resolve, 50); });
-  return waitForSocket(socketPath);
+async function waitForSocket(socketPath: string, agent: ReturnType<typeof spawn>, readAgentStderr: () => string): Promise<void> {
+  const deadlineMs = Date.now() + SOCKET_WAIT_LIMIT_MS;
+  while (Date.now() < deadlineMs) {
+    const stats = await fs.lstat(socketPath).catch(() => null);
+    if (stats?.isSocket()) return;
+    if (agent.exitCode !== null || agent.signalCode !== null) throw new Error(`ssh-agent exited before listening on ${socketPath}: ${readAgentStderr().trim()}`);
+    await new Promise((resolve) => { setTimeout(resolve, 50); });
+  }
+  throw new Error(`ssh-agent did not listen on ${socketPath} within ${SOCKET_WAIT_LIMIT_MS} ms: ${readAgentStderr().trim()}`);
 }
 
-test('signing waits for a forwarded agent that reconnects after the request arrives', { skip: sshAgentMissingReason() }, async () => {
+test('signing waits for a forwarded agent that reconnects after the request arrives', { skip: forwardedAgentSkipReason() }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gv-sign-wait-'));
   const keyPath = path.join(root, 'signing-key');
   await execFileAsync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', keyPath]);
@@ -44,9 +54,11 @@ test('signing waits for a forwarded agent that reconnects after the request arri
   try {
     await new Promise((resolve) => { setTimeout(resolve, 1500); });
     await fs.mkdir(path.dirname(socketPath), { mode: 0o700 });
-    const agent = spawn('ssh-agent', ['-D', '-a', socketPath], { stdio: 'ignore' });
+    const agentStderrChunks: Buffer[] = [];
+    const agent = spawn('ssh-agent', ['-D', '-a', socketPath], { stdio: ['ignore', 'ignore', 'pipe'] });
+    agent.stderr?.on('data', (chunk: Buffer) => { agentStderrChunks.push(chunk); });
     reconnectingAgent.stop = () => { agent.kill(); };
-    await waitForSocket(socketPath);
+    await waitForSocket(socketPath, agent, () => Buffer.concat(agentStderrChunks).toString());
     await execFileAsync('ssh-add', [keyPath], { env: { ...process.env, SSH_AUTH_SOCK: socketPath } });
     const outcome = await signing;
     assert.equal(outcome.ok, true, outcome.ok ? '' : outcome.error);
