@@ -30,6 +30,7 @@ function initOneCommitRepo() {
   git(['config', 'user.email', 'test@example.com'], dir);
   git(['config', 'user.name', 'Glimmervoid Test'], dir);
   git(['config', 'commit.gpgsign', 'false'], dir);
+  git(['config', 'tag.gpgsign', 'false'], dir);
   fs.writeFileSync(path.join(dir, 'README.md'), '# repo\n', 'utf8');
   git(['add', '-A'], dir);
   git(['commit', '-m', 'init'], dir);
