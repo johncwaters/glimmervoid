@@ -756,7 +756,7 @@ export async function runCase({
       return passedOutcome('issues', 'queue filters, live states, descriptions, sessions and pane navigation verified');
     }
     if (step.kind === 'assert-team-review') {
-      await verifyTeamReviewRows(viewer.page, viewer.layout);
+      await verifyTeamReviewRows(viewer.page, viewer.layout, sessionId);
       return passedOutcome('team-review-rows', 'quiet rows, accessible names, repo refs and detail presentation verified');
     }
     if (step.kind === 'open') return runOpen(viewer, sessionId, deadlines);

@@ -1,3 +1,4 @@
+import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { createGithubPollingControls } from './my-prs-panel.ts';
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { DraftComment, FindingSeverity, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
@@ -58,6 +59,8 @@ let _actionNotice: ActionReplyNotice | null = null;
 let _actionNoticeLine: HTMLElement | null = null;
 let _renderedDetailSignature: string | null = null;
 let _activityCallback: ((isActive: boolean) => void) | null = null;
+let _openTerminal: ((sessionId: string) => void) | null = null;
+const _sessionOpenByKey = new Map<string, { requestId: string | null; timer: number; text: string; tone: 'busy' | 'error' }>();
 const _progressTicker = createPollAgoTicker(() => _root);
 const _detailProgressTicker = createPollAgoTicker(() => _root);
 const _ageTicker = createPollAgoTicker(() => _root);
@@ -354,6 +357,59 @@ function createQueueSection(title: string, reviews: (ReviewDraft | InFlightRevie
   return section;
 }
 
+const OPEN_SESSION_LABEL = 'Open in session';
+
+const SESSION_OPEN_BUSY_TEXT = 'Preparing the branch and session.';
+
+function showSettledSessionOpen(key: string, text: string, tone: 'error' | null): void {
+  for (const status of document.querySelectorAll<HTMLElement>('.pr-session-open-status')) {
+    if (status.dataset.reviewKey !== key) continue;
+    status.textContent = text;
+    if (tone) status.dataset.tone = tone;
+    if (!tone) delete status.dataset.tone;
+    const button = status.parentElement?.querySelector<HTMLButtonElement>('.pr-session-open-button');
+    if (button) button.disabled = false;
+  }
+}
+
+function settleSessionOpen(key: string, text: string): void {
+  const opening = _sessionOpenByKey.get(key);
+  if (opening) window.clearTimeout(opening.timer);
+  _sessionOpenByKey.set(key, { requestId: null, timer: 0, text, tone: 'error' });
+  showSettledSessionOpen(key, text, 'error');
+}
+
+function openReviewSession(key: string, button: HTMLButtonElement, status: HTMLElement): void {
+  if (_sessionOpenByKey.get(key)?.requestId) return;
+  const requestId = nextRequestId('open-team-review-session');
+  if (!sendControlMsg({ type: 'open-team-review-session', requestId, key })) {
+    status.dataset.tone = 'error';
+    status.textContent = 'Not connected to the server.';
+    return;
+  }
+  const timer = window.setTimeout(() => settleSessionOpen(key, 'No reply from the server.'), ACTION_REPLY_TIMEOUT_MS);
+  _sessionOpenByKey.set(key, { requestId, timer, text: SESSION_OPEN_BUSY_TEXT, tone: 'busy' });
+  button.disabled = true;
+  status.dataset.tone = 'busy';
+  status.textContent = SESSION_OPEN_BUSY_TEXT;
+}
+
+function createOpenSessionControl(review: Pick<ReviewDraft, 'key'>): HTMLElement {
+  const row = el('div', 'pr-session-open');
+  const button = el('button', 'pr-action pr-session-open-button', OPEN_SESSION_LABEL);
+  button.type = 'button';
+  const opening = _sessionOpenByKey.get(review.key);
+  button.disabled = Boolean(opening?.requestId);
+  const status = el('span', 'pr-action-status pr-session-open-status', opening?.text ?? '');
+  status.dataset.reviewKey = review.key;
+  if (opening) status.dataset.tone = opening.tone;
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  button.addEventListener('click', () => openReviewSession(review.key, button, status));
+  row.append(button, status);
+  return row;
+}
+
 function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement {
   const heading = el('div', 'pr-detail-heading');
   heading.dataset.signature = detailHeadingSignature(review);
@@ -374,7 +430,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
   }
   const githubSummary = 'reviewedHead' in review ? createGithubReviewSummary(review, 'pr-detail-github', 20) : null;
   if (githubSummary) metadata.append(githubSummary);
-  heading.append(title, metadata);
+  heading.append(title, metadata, createOpenSessionControl(review));
   if ('reviewedHead' in review) {
     const tallyText = viewerThreadsText(review.viewerThreads);
     if (tallyText) {
@@ -752,7 +808,7 @@ function createQueuedDetail(review: QueuedReview, runningCount: number): HTMLEle
   metadata.append(createAuthor(review.author, 20, 'pr-detail-author'));
   const openedAge = createAgeReadout('Opened', review.prCreatedAt);
   if (openedAge) metadata.append(openedAge);
-  heading.append(title, metadata);
+  heading.append(title, metadata, createOpenSessionControl(review));
   detail.append(heading, el('p', 'pr-attention-detail', queuedDetailText(runningCount)), createNotMineFooter(review));
   return detail;
 }
@@ -1096,7 +1152,8 @@ export function setTeamReviewActivityCallback(callback: (isActive: boolean) => v
   refreshActivity();
 }
 
-export function mountTeamReviewView(parent: HTMLElement, scopeTabs: HTMLElement): HTMLDivElement {
+export function mountTeamReviewView(parent: HTMLElement, scopeTabs: HTMLElement, navigation?: { openTerminal: (sessionId: string) => void }): HTMLDivElement {
+  _openTerminal = navigation?.openTerminal ?? _openTerminal;
   if (_root) return _root;
   _scopeTabs = scopeTabs;
   _root = el('div', 'pr-content');
@@ -1132,6 +1189,21 @@ function replaceInReviewSection(): boolean {
   if (sections.inReview.some((review) => review.key === _selectedKey)) renderSelectedDetail(sections);
   trackAges(_root);
   return true;
+}
+
+export function applyOpenTeamReviewSessionResult(message: ServerMessageOf<'open-team-review-session-result'>): void {
+  const key = message.key;
+  if (!key) return;
+  const opening = _sessionOpenByKey.get(key);
+  if (!opening || opening.requestId !== message.requestId) return;
+  if (!message.ok || !message.sessionId) {
+    settleSessionOpen(key, message.error || 'Could not open a session.');
+    return;
+  }
+  window.clearTimeout(opening.timer);
+  _sessionOpenByKey.delete(key);
+  showSettledSessionOpen(key, '', null);
+  _openTerminal?.(message.sessionId);
 }
 
 export function applyTeamReviewActionResult(message: unknown): void {

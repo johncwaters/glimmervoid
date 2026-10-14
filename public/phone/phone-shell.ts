@@ -452,6 +452,12 @@ export function refreshPhoneBoard() {
   if (dot) dot.hidden = boardScreen.getAttentionCount() === 0;
 }
 
+export function showPhoneSession(sessionId: string) {
+  if (!active) return false;
+  openSession(sessionId);
+  return true;
+}
+
 export function showPhoneScreen(screenId: string) {
   if (!active || !canShowScreen(screenId)) return false;
   showScreen(screenId);

@@ -43,6 +43,22 @@ function isSpawnableCommand(command: string): boolean {
   return AGENT_COMMAND_ABSOLUTE_RE.test(command);
 }
 
+const GIT_BRANCH_FORBIDDEN_PUNCTUATION_RE = /[~^:?*[\\]/;
+const GIT_BRANCH_FORBIDDEN_SEQUENCES = ['..', '@{', '//'];
+
+function isControlOrSpaceCharacter(character: string): boolean {
+  const codePoint = character.charCodeAt(0);
+  return codePoint <= 0x20 || codePoint === 0x7f;
+}
+
+function isGitBranchName(name: string): boolean {
+  if (name === '' || name === '@' || name === 'HEAD') return false;
+  if (name.startsWith('-') || name.startsWith('/') || name.endsWith('/') || name.endsWith('.')) return false;
+  if (GIT_BRANCH_FORBIDDEN_SEQUENCES.some((sequence) => name.includes(sequence))) return false;
+  if (GIT_BRANCH_FORBIDDEN_PUNCTUATION_RE.test(name) || [...name].some(isControlOrSpaceCharacter)) return false;
+  return name.split('/').every((component) => !component.startsWith('.') && !component.endsWith('.lock'));
+}
+
 export const CustomAgentDeclaration = z.object({
   id: z.string({ error: 'customAgents[].id must be a string' }).regex(AGENT_ID_RE, { error: `customAgents[].id must be ${AGENT_ID_SHAPE_MESSAGE}` }),
   label: z.string({ error: 'customAgents[].label must be a string' })
@@ -101,6 +117,7 @@ export const ProjectConfig = z.object({
   prLinks: SessionPrLinks.optional().catch(undefined),
   path: z.string(),
   repos: z.array(z.string()).min(2).optional(),
+  baseBranch: z.string().refine(isGitBranchName, { error: 'projects[].baseBranch must be a git branch name' }).optional(),
   agent: z.string({ error: 'projects[].agent must be a string' }).regex(AGENT_ID_RE, { error: `projects[].agent must be ${AGENT_ID_SHAPE_MESSAGE}` }).optional(),
   codexBypassHookTrust: z.boolean().optional(),
   dangerouslySkipPermissions: z.boolean({ error: 'projects[].dangerouslySkipPermissions must be a boolean' }).optional(),

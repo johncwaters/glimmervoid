@@ -1011,6 +1011,42 @@ function createGitWorkspace(opts: {
     return run(['fetch', '--prune', 'origin'], projectPath, fetchOptions);
   }
 
+  async function seedBranchFromOriginBody({ projectPath, name }: WorktreeArgs): Promise<GitResult> {
+    const branchName = name ?? '';
+    const isBranchName = await run(['check-ref-format', '--branch', branchName], projectPath);
+    if (!isBranchName.ok || branchName.startsWith('-')) return { ok: false, out: '', err: `not a branch name: ${branchName}` };
+    const remoteRef = `refs/remotes/origin/${branchName}`;
+    const fetched = await run(
+      ['fetch', '--quiet', 'origin', `+refs/heads/${branchName}:${remoteRef}`],
+      projectPath,
+      { timeout: GIT_FETCH_TIMEOUT_MS, env: { GIT_TERMINAL_PROMPT: '0' } },
+    );
+    if (!fetched.ok) return fetched;
+    const originTip = await run(['rev-parse', '--verify', '--quiet', remoteRef], projectPath);
+    if (!originTip.ok) return originTip;
+    const localRef = `refs/heads/${branchName}`;
+    const existing = await run(['rev-parse', '--verify', '--quiet', localRef], projectPath);
+    if (existing.ok) return fastForwardSeededBranch(projectPath, branchName, existing.out, originTip.out);
+    const created = await run(['branch', '--', branchName, remoteRef], projectPath);
+    if (!created.ok) return created;
+    return run(['rev-parse', '--verify', '--quiet', localRef], projectPath);
+  }
+
+  async function fastForwardSeededBranch(projectPath: string, branchName: string, localSha: string, originSha: string): Promise<GitResult> {
+    if (localSha === originSha) return okResult(localSha);
+    const mismatch = `local branch ${branchName} is at ${localSha} but origin has ${originSha}`;
+    const ancestry = await isAncestor({ projectPath, ancestorSha: localSha, descendantSha: originSha });
+    if (!ancestry.ok) return { ok: false, out: '', err: `could not compare ${mismatch}` };
+    if (!ancestry.isAncestor) return { ok: false, out: '', err: `${mismatch}, and the local branch has commits that are not on origin` };
+    const listed = await run(['worktree', 'list', '--porcelain'], projectPath);
+    if (!listed.ok) return listed;
+    const isCheckedOut = parseWorktreeBranches(listed.out).some((entry) => entry.branch === branchName);
+    if (isCheckedOut) return { ok: false, out: '', err: `${mismatch}, and it is checked out in a worktree` };
+    const updated = await run(['update-ref', `refs/heads/${branchName}`, originSha, localSha], projectPath);
+    if (!updated.ok) return updated;
+    return okResult(originSha);
+  }
+
   async function stageDetachedWorktreeBody({ projectPath, worktreePath, sha, disableHooks, replaceEnv }: StageDetachedWorktreeArgs): Promise<GitResult> {
     if (!worktreePath) return { ok: false, out: '', err: 'a detached worktree needs a path' };
     if (normalizeSha(sha) !== sha) return { ok: false, out: '', err: 'a detached worktree sha must be 40 lowercase hexadecimal characters' };
@@ -1381,6 +1417,7 @@ function createGitWorkspace(opts: {
       admissionRefused: true,
     })),
     fetchOrigin: serialized(fetchOriginBody),
+    seedBranchFromOrigin: serialized(seedBranchFromOriginBody),
     pruneWorktrees: serialized(pruneWorktreesBody),
     stageDetachedWorktree: serialized(stageDetachedWorktreeBody),
     checkoutDetached: serialized(checkoutDetachedBody),

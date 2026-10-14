@@ -11,6 +11,7 @@ const PREVIOUS_HEAD = 'b'.repeat(40);
 interface TeamReviewPanelModule {
   applyTeamReviewStatus(message: unknown): void;
   applyTeamReviewActionResult(message: unknown): void;
+  applyOpenTeamReviewSessionResult(message: unknown): void;
 }
 
 function createDraft(number: number, overrides: Partial<ReviewDraft> = {}): ReviewDraft {
@@ -425,14 +426,73 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
   }
 }
 
-export async function verifyTeamReviewRows(page: Page, layout: Layout): Promise<void> {
-  await page.locator('#loading-screen').waitFor({ state: 'hidden' });
-  await page.route('https://avatars.githubusercontent.com/**', (route) => route.fulfill({ status: 204 }));
+async function openReviewsView(page: Page, layout: Layout): Promise<void> {
   if (layout === 'phone') {
     await page.getByRole('button', { name: 'More', exact: true }).click();
     await page.getByRole('button', { name: 'Reviews', exact: true }).click();
   }
   if (layout === 'desktop') await page.locator('#tab-prs').click();
+}
+
+async function replyToSessionOpen(page: Page, reply: { ok: boolean; sessionId?: string; sessionName?: string; error?: string }): Promise<{ key: string; type: string }> {
+  return page.evaluate(async (outcome) => {
+    const requestText = document.documentElement.dataset.teamReviewSessionOpen;
+    if (!requestText) throw new Error('No open-team-review-session request was sent');
+    const request = JSON.parse(requestText) as { key: string; requestId: string; type: string };
+    delete document.documentElement.dataset.teamReviewSessionOpen;
+    const panelUrl = '/github/team-review-panel.ts';
+    const panel: TeamReviewPanelModule = await import(panelUrl);
+    panel.applyOpenTeamReviewSessionResult({ type: 'open-team-review-session-result', requestId: request.requestId, key: request.key, ...outcome });
+    return { key: request.key, type: request.type };
+  }, reply);
+}
+
+async function verifyOpenInSession(page: Page, layout: Layout, snapshot: TeamReviewStatus, sessionId: string): Promise<void> {
+  await page.evaluate(() => {
+    const captureWindow = window as ActionCaptureWindow;
+    const originalSend = WebSocket.prototype.send;
+    captureWindow.teamReviewOriginalSend = originalSend;
+    WebSocket.prototype.send = function(message) {
+      if (typeof message === 'string' && (JSON.parse(message) as { type?: string }).type === 'open-team-review-session') {
+        document.documentElement.dataset.teamReviewSessionOpen = message;
+        return;
+      }
+      originalSend.call(this, message);
+    };
+  });
+  try {
+    for (const number of [1, 10]) {
+      await applyStatus(page, snapshot);
+      await page.locator(`.pr-queue-row[data-review-key="Acme/app#${number}"]`).click();
+      const openButton = page.locator('.pr-detail .pr-session-open-button');
+      const openStatus = page.locator('.pr-detail .pr-session-open-status');
+      assert.equal(await openButton.textContent(), 'Open in session');
+      await openButton.click();
+      assert.equal(await openButton.textContent(), 'Open in session');
+      assert.equal(await openButton.isDisabled(), true);
+      assert.equal(await openStatus.textContent(), 'Preparing the branch and session.');
+      assert.deepEqual(await replyToSessionOpen(page, { ok: false, error: 'Could not fetch branch feature' }), { key: `Acme/app#${number}`, type: 'open-team-review-session' });
+      assert.equal(await openStatus.textContent(), 'Could not fetch branch feature');
+      assert.equal(await openButton.isDisabled(), false);
+      await openButton.click();
+      await replyToSessionOpen(page, { ok: true, sessionId, sessionName: 'pr-app-1' });
+      if (layout === 'phone') await page.locator('section.phone-screen[data-screen="terminal"]').waitFor({ state: 'visible' });
+      if (layout === 'desktop') await page.waitForFunction(() => document.body.dataset.activeView === 'focus');
+      await openReviewsView(page, layout);
+    }
+  } finally {
+    await page.evaluate(() => {
+      const captureWindow = window as ActionCaptureWindow;
+      if (captureWindow.teamReviewOriginalSend) WebSocket.prototype.send = captureWindow.teamReviewOriginalSend;
+      delete captureWindow.teamReviewOriginalSend;
+    });
+  }
+}
+
+export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId: string): Promise<void> {
+  await page.locator('#loading-screen').waitFor({ state: 'hidden' });
+  await page.route('https://avatars.githubusercontent.com/**', (route) => route.fulfill({ status: 204 }));
+  await openReviewsView(page, layout);
   const status = createStatus();
   await applyStatus(page, status);
   await page.evaluate(async () => { await document.fonts.ready; });
@@ -470,6 +530,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout): Promise<
   await verifyQueueRebuildsAfterEmptyStatus(page, status);
   await verifyViewerThreadCounts(page, status);
   await verifyAnsweredThreadConversation(page, status);
+  await verifyOpenInSession(page, layout, status, sessionId);
   await verifyActionAdvancement(page, status);
   await verifyMyPrKeepMergeable(page);
 }

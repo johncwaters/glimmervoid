@@ -112,7 +112,12 @@ interface TeamReviewGitWorkspace {
   populate(args: { projectPath: string; wtDir: string; shareList: string[]; keepTrackableLinks?: boolean }): Promise<void>;
   removeWorktreeByPath(args: { projectPath: string; cwd?: string | null }): Promise<{ ok: boolean; err?: string }>;
   pruneWorktrees(args: { projectPath: string }): Promise<{ ok: boolean; err?: string }>;
+  seedBranchFromOrigin?(args: { projectPath: string; name: string }): Promise<{ ok: boolean; out: string; err?: string }>;
 }
+
+type PrSessionCheckout =
+  | { ok: true; repo: string; detail: PrDetail; draft: ReviewDraft | null; checkoutPath: string; baseBranch: string; isConfiguredProject: boolean }
+  | { ok: false; error: string };
 
 type TeamReviewSpawn = (options: TeamReviewConfinement & {
   id: string;
@@ -1028,6 +1033,34 @@ function createTeamReviewWiring({
     return (await runner.getPoller()?.markNotMine(key)) ?? { ok: false, error: 'Team review is not running' };
   }
 
+  async function findConfiguredCheckout(repo: string, projectPaths: readonly string[]): Promise<string | null> {
+    const excludedRoots = [repoCacheRoot, worktreeRoot, workRoot];
+    for (const projectPath of projectPaths) {
+      if (excludedRoots.some((root) => isPathInside(root, path.resolve(projectPath)))) continue;
+      const origin = await gitWorkspace.originUrl({ projectPath }).catch(() => null);
+      if (origin && core.remoteMatchesGithubRepo(origin, repo)) return projectPath;
+    }
+    return null;
+  }
+
+  async function preparePrSession(key: string, projectPaths: readonly string[]): Promise<PrSessionCheckout> {
+    const separatorIndex = key.lastIndexOf('#');
+    const repo = key.slice(0, separatorIndex);
+    const number = Number(key.slice(separatorIndex + 1));
+    const detail = await github.viewPr(repo, number).catch(() => null);
+    if (!detail) return { ok: false, error: `Could not read ${key} from GitHub` };
+    if (detail.isCrossRepository || !detail.headRefName) return { ok: false, error: 'This pull request comes from a fork, so its branch is not in the repository' };
+    const configuredCheckout = await findConfiguredCheckout(repo, projectPaths);
+    const checkoutPath = configuredCheckout ?? await repoCache.ensureRepo(repo).catch(() => null);
+    if (!checkoutPath) return { ok: false, error: `Could not clone ${repo}` };
+    if (!gitWorkspace.seedBranchFromOrigin) return { ok: false, error: 'This build cannot check out a pull request branch' };
+    const seeded = await gitWorkspace.seedBranchFromOrigin({ projectPath: checkoutPath, name: detail.headRefName })
+      .catch((error: unknown) => ({ ok: false, out: '', err: errorMessage(error) }));
+    if (!seeded.ok) return { ok: false, error: `Could not fetch branch ${detail.headRefName}: ${firstLine(seeded.err ?? '')}` };
+    if (seeded.out.trim() !== detail.headRefOid) return { ok: false, error: `Branch ${detail.headRefName} is at ${seeded.out.trim()} but the pull request head is ${detail.headRefOid}` };
+    return { ok: true, repo, detail, draft: getDraft(key), checkoutPath, baseBranch: detail.headRefName, isConfiguredProject: configuredCheckout !== null };
+  }
+
   function isRunning(): boolean {
     return runner.getPoller() !== null;
   }
@@ -1059,9 +1092,10 @@ function createTeamReviewWiring({
     refresh,
     isRunning,
     submitAction: actions.submitAction,
+    preparePrSession,
   };
 }
 
 export { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir, emptyGhConfigDir, emptyTeamReviewStatus, hooksPathPinnedSpawnEnv, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewCfgKey, describeTeamReviewRole, teamReviewClaudeArgs, teamReviewRole, teamReviewShouldStart, teamReviewSpawnEnv };
 export { readTeamReviewSettings } from './core/team-review-core.ts';
-export type { TeamReviewActionGithub, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewGitWorkspace, LaneSettingsSandbox, TeamReviewRepoCache, TeamReviewSpawn };
+export type { PrSessionCheckout, TeamReviewActionGithub, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewGitWorkspace, LaneSettingsSandbox, TeamReviewRepoCache, TeamReviewSpawn };

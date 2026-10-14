@@ -27,7 +27,7 @@ export function mountPrsView(viewPrsElement: HTMLElement, navigation?: { openTer
   const minePrsRoot = document.createElement('div');
   minePrsRoot.className = 'pr-mode-root';
   viewPrsElement.append(teamPrsRoot, minePrsRoot);
-  mountTeamReviewView(teamPrsRoot, teamScopeTabs);
+  mountTeamReviewView(teamPrsRoot, teamScopeTabs, navigation);
   mountMyPrsView(minePrsRoot, mineScopeTabs, navigation);
 
   function applyPrsMode(mode: 'team' | 'mine'): void {

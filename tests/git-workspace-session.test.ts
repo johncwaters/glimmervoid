@@ -1655,3 +1655,47 @@ test('listSessionWorktrees (injected git): a failing status keeps the worktree e
   const [entry] = await gw.listSessionWorktrees({ projectPath: '/repo', integrationBranch: 'main', configuredIntegrationBranch: 'main' });
   assert.equal(entry.hasWork, true, 'a status that never ran cannot prove the worktree is empty, so it is never discarded');
 });
+
+test('a session based on a pull request branch forks from its origin tip and a branch missing on origin is never seeded from main', { skip: !GIT }, async (context) => {
+  const upstream = initRepoOnMain('glimmervoid-pr-upstream-');
+  git(['checkout', '-b', 'feature/pr-branch'], upstream);
+  fs.writeFileSync(path.join(upstream, 'feature.txt'), 'pr work\n', 'utf8');
+  git(['add', '-A'], upstream);
+  git(['commit', '-m', 'pr work'], upstream);
+  const pullRequestHead = git(['rev-parse', 'HEAD'], upstream).trim();
+  git(['checkout', 'main'], upstream);
+  const checkout = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pr-checkout-'));
+  git(['clone', '--quiet', upstream, checkout], os.tmpdir());
+  const worktreeBase = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pr-worktrees-'));
+  context.after(() => {
+    for (const dir of [upstream, checkout, worktreeBase]) fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const workspace = createGitWorkspace();
+
+  const missing = await workspace.seedBranchFromOrigin({ projectPath: checkout, name: 'not-on-origin' });
+  assert.equal(missing.ok, false);
+  assert.equal(git(['branch', '--list', 'not-on-origin'], checkout).trim(), '');
+
+  const seeded = await workspace.seedBranchFromOrigin({ projectPath: checkout, name: 'feature/pr-branch' });
+  assert.equal(seeded.ok, true);
+  assert.equal(seeded.out, pullRequestHead);
+  const session = await workspace.create({ projectPath: checkout, teamId: 'session', label: 'pr-session', baseBranch: 'feature/pr-branch', worktreeBase });
+  assert.equal(session.isGit, true);
+  assert.equal(session.base, 'feature/pr-branch');
+  assert.equal(git(['rev-parse', 'HEAD'], session.cwd).trim(), pullRequestHead);
+
+  git(['checkout', 'feature/pr-branch'], upstream);
+  fs.writeFileSync(path.join(upstream, 'feature.txt'), 'pr work pushed later\n', 'utf8');
+  git(['commit', '-am', 'more pr work'], upstream);
+  const fastForwardedHead = git(['rev-parse', 'HEAD'], upstream).trim();
+  const fastForwarded = await workspace.seedBranchFromOrigin({ projectPath: checkout, name: 'feature/pr-branch' });
+  assert.equal(fastForwarded.out, fastForwardedHead);
+  assert.equal(git(['rev-parse', 'refs/heads/feature/pr-branch'], checkout).trim(), fastForwardedHead);
+
+  fs.writeFileSync(path.join(upstream, 'feature.txt'), 'pr work rewritten\n', 'utf8');
+  git(['commit', '--amend', '-am', 'rewritten pr work'], upstream);
+  git(['checkout', 'main'], upstream);
+  const forcePushed = await workspace.seedBranchFromOrigin({ projectPath: checkout, name: 'feature/pr-branch' });
+  assert.equal(forcePushed.ok, false);
+  assert.equal(git(['rev-parse', 'refs/heads/feature/pr-branch'], checkout).trim(), fastForwardedHead);
+});

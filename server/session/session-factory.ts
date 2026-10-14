@@ -75,7 +75,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       hookRouter: dependencies.hookRouter,
       getHookPort: dependencies.getHookPort,
       gitWorkspace: dependencies.getGitWorkspace(),
-      integrationBranch: configuredIntegrationBranch(config),
+      integrationBranch: project.baseBranch || configuredIntegrationBranch(config),
       autoRebase: config.worktreeAutoRebase !== false,
       syncOnStart: config.worktreeSyncOnStart !== false,
       liveWorktreeReview: config.liveWorktreeReview !== false,

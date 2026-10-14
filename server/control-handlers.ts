@@ -32,7 +32,8 @@ import * as radarLaneCore from './radar/core/radar-lane-core.ts';
 import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './github/core/github-issues-core.ts';
 import { machineSkipsPermissionsByDefault } from './session/core/session-registry-core.ts';
-import { prKey } from './github/core/team-review-core.ts';
+import { prKey, prSessionName, prSessionPrompt } from './github/core/team-review-core.ts';
+import type { PrSessionCheckout } from './github/team-review-wiring.ts';
 import { mergeWorkflowsUpdateOverStored } from './core/workflows-core.ts';
 import { createPrGh } from './github/pr-gh.ts';
 import type { PrGh } from './github/pr-gh.ts';
@@ -81,6 +82,7 @@ interface TeamReviewActionControl {
   refresh?: () => Promise<GithubPollingRefreshResult>;
   isRunning(): boolean;
   submitAction(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome>;
+  preparePrSession?(key: string, projectPaths: readonly string[]): Promise<PrSessionCheckout>;
 }
 
 interface MyPrMergeControl {
@@ -315,6 +317,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'radar-open-session': () => ({ type: 'radar-open-session-result', requestId, ok: false, error: message }),
     'issue-detail': () => ({ type: 'issue-detail-result', requestId, ok: false, body: null, error: message }),
     'open-issue-session': () => ({ type: 'open-issue-session-result', requestId, ok: false, error: message }),
+    'open-team-review-session': () => ({ type: 'open-team-review-session-result', requestId, ok: false, error: message }),
     'radar-issue-action': () => ({ type: 'radar-issue-action-result', requestId, ok: false, error: message }),
     'radar-archive-investigation': () => ({ type: 'radar-archive-investigation-result', requestId, ok: false, error: message }),
     'team-review-action': () => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
@@ -966,7 +969,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return entries;
   }
 
-  function createProjectSession({ name, path: projectPath, repos, agent, dangerouslySkipPermissions, unguarded, requireExistingPath }: { name: string; path: string; repos?: string[]; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; unguarded?: boolean; requireExistingPath?: boolean }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
+  function createProjectSession({ name, path: projectPath, repos, baseBranch, agent, dangerouslySkipPermissions, unguarded, requireExistingPath }: { name: string; path: string; repos?: string[]; baseBranch?: string; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; unguarded?: boolean; requireExistingPath?: boolean }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
     for (const [, session] of sessions) {
       if (session.name !== name) continue;
       return { ok: false, error: `Session "${name}" already exists` };
@@ -986,6 +989,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (requireExistingPath && !fs.existsSync(resolvedPath)) return { ok: false, error: `Path does not exist: ${projectPath}` };
     const project: ProjectEntry = { id, name, path: resolvedPath };
     if (workspaceRepos) project.repos = workspaceRepos;
+    if (baseBranch) project.baseBranch = baseBranch;
     if (typeof dangerouslySkipPermissions === 'boolean') project.dangerouslySkipPermissions = dangerouslySkipPermissions;
     if (unguarded) project.unguarded = true;
     if (agent) project.agent = agent;
@@ -1081,6 +1085,50 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       console.log(`[control] open-issue-session: issue=${repo}#${issueNumber} -> session=${session.name}`);
     } catch (error) {
       reply({ error: `Could not open GitHub issue session: ${errorMessage(error)}` });
+    }
+  }
+
+  const prSessionOpenQueue = createKeyedSerialQueue();
+
+  function sessionLinkedToPr(pullRequestKey: string): Session | null {
+    const comparableKey = pullRequestKey.toLowerCase();
+    for (const [, session] of sessions) {
+      if (session.linkedPrs.some((link) => prKey(link.repo, link.number).toLowerCase() === comparableKey)) return session;
+    }
+    return null;
+  }
+
+  async function handleOpenTeamReviewSession(msg: ClientMessageOf<'open-team-review-session'>, ws: ControlSocket): Promise<void> {
+    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'open-team-review-session-result', { ok: false, error: null, key: msg.key, ...payload });
+    try {
+      const linkedSession = sessionLinkedToPr(msg.key);
+      if (linkedSession) {
+        reply({ ok: true, sessionId: linkedSession.id, sessionName: linkedSession.name, existing: true });
+        return;
+      }
+      if (!teamReview?.preparePrSession) { reply({ error: 'Team review is not running' }); return; }
+      const singleRepoProjects = config.projects.filter((project) => !project.repos);
+      const checkout = await teamReview.preparePrSession(msg.key, singleRepoProjects.map((project) => project.path));
+      if (!checkout.ok) { reply({ error: checkout.error }); return; }
+      const sourceProject = checkout.isConfiguredProject ? singleRepoProjects.find((project) => project.path === checkout.checkoutPath) : undefined;
+      const created = createProjectSession({
+        name: prSessionName(checkout.repo, checkout.detail.number, checkout.detail.title),
+        path: checkout.checkoutPath,
+        baseBranch: checkout.baseBranch,
+        agent: sourceProject?.agent,
+        dangerouslySkipPermissions: false,
+      });
+      if (!created.ok) { reply({ error: created.error }); return; }
+      const session = sessions.get(created.project.id);
+      if (!session) { reply({ error: `Session "${created.project.name}" is not loaded` }); return; }
+      const link = manualPrLink(msg.key, typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null, Date.now());
+      if (link) session.linkPrManually(link);
+      const pasted = session.pasteTextWhenReady(prSessionPrompt({ repo: checkout.repo, detail: checkout.detail, draft: checkout.draft }));
+      if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
+      reply({ ok: true, sessionId: session.id, sessionName: session.name, pending: pasted.deferred === true });
+      console.log(`[control] open-team-review-session: pr=${msg.key} -> session=${session.name}`);
+    } catch (error) {
+      reply({ error: `Could not open a session for ${msg.key}: ${errorMessage(error)}` });
     }
   }
 
@@ -1381,6 +1429,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'get-radar-report': handleGetRadarReport,
     'radar-open-session': handleRadarOpenSession,
     'issue-detail': handleIssueDetail,
+    'open-team-review-session': (msg: ClientMessageOf<'open-team-review-session'>, ws: ControlSocket) => prSessionOpenQueue.run(msg.key.toLowerCase(), () => handleOpenTeamReviewSession(msg, ws)),
     'open-issue-session': (msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket) => issueOpenQueue.run(`${msg.repo.toLowerCase()}#${msg.issueNumber}`, () => handleOpenIssueSession(msg, ws)),
     'radar-issue-action': handleRadarIssueAction,
     'radar-archive-investigation': handleRadarArchiveInvestigation,

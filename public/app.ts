@@ -24,9 +24,9 @@ import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVi
 import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, setHooksRequestSender } from './hooks-panel.ts';
 import { initNotifications, showDesktopNotification } from './notifications.ts';
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
-import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneCalmAvailable, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen } from './phone/phone-shell.ts';
+import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneCalmAvailable, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
-import { applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-panel.ts';
+import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus } from './github/my-prs-panel.ts';
 import { forgetSessionLinkedPrs, paintSessionPrChips, refreshSessionPrChipStages, setSessionLinkedPrs } from './github/session-pr-chips.ts';
 import { setPillPrChipsPainter } from './focus-view/pill-dom.ts';
@@ -426,6 +426,7 @@ const messageHandlers = {
   'benchmark-action-result': (msg) => applyBenchmarkActionResult(msg),
   'my-pr-merge-result': (msg) => applyMyPrMergeResult(msg),
   'team-review-action-result': (msg) => applyTeamReviewActionResult(msg),
+  'open-team-review-session-result': (msg) => applyOpenTeamReviewSessionResult(msg),
   'issues-status':      (msg) => applyIssuesStatus(msg),
   'issue-detail-result': (msg) => applyIssueDetailResult(msg),
   'open-issue-session-result': (msg) => applyOpenIssueSessionResult(msg),
@@ -640,7 +641,11 @@ queryTag(document, '#btn-help', 'button').addEventListener('click', () => {
 const VIEW_TABS = createDashboardViews({
   onRestart: confirmServerRestart,
   onConfirmUpdateAndRestart: confirmUpdateAndRestart,
-  openTerminal: (id) => { activateView('focus'); centerSessionQuietly(id); },
+  openTerminal: (id) => {
+    if (showPhoneSession(id)) return;
+    activateView('focus');
+    centerSessionQuietly(id);
+  },
   openPlan: (id) => { activateView('focus'); openPlanInFocus(id); },
   openCalm: () => activateView('calm'),
   setPhoneAttention: setPhoneScreenAttention,

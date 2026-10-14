@@ -29,6 +29,7 @@ export const PrDetail = z.object({
   isCrossRepository: z.boolean(),
   baseRefName: z.string(),
   baseRefOid: CommitSha,
+  headRefName: z.string().optional(),
   headRefOid: CommitSha,
   additions: z.number().int().nonnegative(),
   deletions: z.number().int().nonnegative(),
