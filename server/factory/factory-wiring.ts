@@ -10,6 +10,7 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { buildCoherenceShims } from '../core/coherence-session-core.ts';
 import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, exceedsRiskCeiling, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines, withIntentFloorAllowances } from './core/factory-core.ts';
+import type { FactoryWorkRefusal } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import type { LaneSpend } from '../usage/core/usage-scan-core.ts';
 import { captureFactoryLedgerRecord, commitAndLandFactoryLedger, discardPendingLedgerWrites, hasCodeChangedBetween, listRecordsMissingFromHead, readCodeDiffBetween, screenPendingLedgerWrites } from './factory-ledger.ts';
@@ -582,11 +583,11 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         });
       };
       const refresh = refreshAfter('state');
-      const refusalsByWork = new Map<string, { projectId: string; reason: string | null }>();
+      const refusalsByWork = new Map<string, FactoryWorkRefusal & { projectId: string }>();
       const notifyOrchestrator = (projectId: string, event: FactoryDecisionWorkerEvent) => {
         const refusalKey = JSON.stringify([projectId, event.workId]);
         const shouldRecord = event.event !== 'refused' || refusalsByWork.get(refusalKey)?.reason !== (event.detail ?? null);
-        if (event.event === 'refused') refusalsByWork.set(refusalKey, { projectId, reason: event.detail ?? null });
+        if (event.event === 'refused') refusalsByWork.set(refusalKey, { projectId, workId: event.workId, reason: event.detail ?? null });
         if (event.event === 'dispatch available' || event.event === 'dispatched' || event.event === 'ended') refusalsByWork.delete(refusalKey);
         if (shouldRecord) decisionLog.recordEvent(projectId, { ...event, intentId: event.intentId ?? activeIntentIdOf(projectId) ?? undefined });
         if (!isLogOnlyFactoryEvent(event)) activeOrchestrator?.notifyOrchestrator(projectId, event);
@@ -636,10 +637,14 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       let activeStalls = new Map<string, ReturnType<typeof decideFactoryStalls>[number]>();
       const projectIdleSinceMs = new Map<string, number>();
       const stallClock = pollerDeps.now ?? orchestratorOptions?.now ?? Date.now;
+      function unraisedRefusalsOf(projectId: string): FactoryWorkRefusal[] {
+        return [...refusalsByWork.values()].filter((refusal) => refusal.projectId === projectId && refusal.reason !== exceptions.get(projectId));
+      }
       function checkStalls(): void {
         const stalls = decideFactoryStalls({
           sessions: [
-            ...(activeOrchestrator?.getStallSessions() ?? []).map((session) => ({ ...session, projectIdleSinceMs: projectIdleSinceMs.get(session.projectId) ?? null })),
+            ...(activeOrchestrator?.getStallSessions() ?? []).map((session) => ({ ...session, projectIdleSinceMs: projectIdleSinceMs.get(session.projectId) ?? null,
+              projectRefusals: unraisedRefusalsOf(session.projectId) })),
             ...activeDispatcher?.getStallSessions() ?? [],
           ],
           nowMs: stallClock(),

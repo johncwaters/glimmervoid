@@ -43,7 +43,17 @@ export type FactoryStallSession = {
   spawnedAtMs: number;
   hasFirstHook: boolean;
   projectIdleSinceMs?: number | null;
+  projectRefusals?: readonly FactoryWorkRefusal[];
 };
+
+export type FactoryWorkRefusal = { workId: string; reason: string | null };
+
+function describeIdleStall(refusals: readonly FactoryWorkRefusal[]): string {
+  const idleReason = 'factory orchestrator ended its turn with nothing running';
+  if (refusals.length === 0) return idleReason;
+  const refusalPhrases = refusals.map(({ workId, reason }) => (reason === null ? `${workId} was refused` : `${workId} was refused: ${reason}`));
+  return `${idleReason}; ${refusalPhrases.join('; ')}`;
+}
 
 export function isFactoryProjectInFlight({ paused, liveWorkers, verifierIntentIds }: Pick<FactoryProjectState, 'paused' | 'liveWorkers' | 'verifierIntentIds'>): boolean {
   return paused || (liveWorkers?.length ?? 0) > 0 || (verifierIntentIds?.length ?? 0) > 0;
@@ -68,7 +78,7 @@ export function decideFactoryStalls({ sessions, nowMs, stallMs = FACTORY_STALL_M
     if (session.role === 'orchestrator' && session.hasFirstHook && hasEndedTurn && projectIdleSinceMs !== null
       && nowMs - Math.max(session.stateSinceMs, projectIdleSinceMs) > stallMs) {
       stalls.push({ projectId: session.projectId, episodeId: `${session.sessionId}:idle:${session.stateSinceMs}`,
-        reason: 'factory orchestrator ended its turn with nothing running' });
+        reason: describeIdleStall(session.projectRefusals ?? []) });
     }
     return stalls;
   });
