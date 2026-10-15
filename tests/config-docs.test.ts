@@ -50,11 +50,13 @@ test('docs/configuration.md matches what npm run docs:config generates', () => {
   assert.equal(committed, renderConfigurationDoc(), 'docs/configuration.md is stale: run npm run docs:config');
 });
 
-test('each settings row in the reference states its scope and when a change takes effect', () => {
-  const rowsByFirstCell = new Map(renderConfigurationDoc().split('\n').map((line) => [line.split(' | ')[0], line]));
-  assert.match(rowsByFirstCell.get('| `port`') ?? '', /Scope: this machine\. Requires a server restart\./);
-  assert.match(rowsByFirstCell.get('| `guardrails.unguardedRepos`') ?? '', /Scope: this machine\. Applies to sessions created after the change\./);
-  assert.match(rowsByFirstCell.get('| Theme') ?? '', /Scope: this browser\. Takes effect at once\./);
+test('a settings row names when a change takes effect only where it is not at once', () => {
+  const doc = renderConfigurationDoc();
+  const rowsByFirstCell = new Map(doc.split('\n').map((line) => [line.split(' | ')[0], line]));
+  assert.match(doc, /A change to a setting in the tables below takes effect at once unless its row says it applies to new sessions or needs a server restart\./);
+  assert.match(rowsByFirstCell.get('| `port`') ?? '', /Needs a server restart\./);
+  assert.match(rowsByFirstCell.get('| `guardrails.unguardedRepos`') ?? '', /Applies to new sessions\./);
+  assert.doesNotMatch(rowsByFirstCell.get('| `autoResume`') ?? '', /new sessions|restart/);
 });
 
 test('every GLIMMERVOID_* variable the code reads has a row in the environment table', () => {

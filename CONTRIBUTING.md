@@ -1,12 +1,8 @@
 # Contributing
 
-## Prerequisites
-
-- Node.js 24 (the version in `.nvmrc`, which CI also uses; the runtime floor is 22.18.0)
-- Git, and the Claude Code CLI to exercise sessions end to end
-- Linux: `build-essential` and `python3` for node-pty. Windows: Visual Studio Build Tools only if the node-pty prebuild does not load.
-
 ## Set up
+
+You need Node.js 24 (the version in `.nvmrc`, which CI uses), git, and an agent CLI such as Claude Code to try sessions end to end. On Linux, also `build-essential` and `python3` for node-pty.
 
 ```bash
 git clone https://github.com/johncwaters/glimmervoid.git
@@ -15,11 +11,11 @@ npm ci
 npm run dev
 ```
 
-`npm run dev` serves the dashboard with hot reload on http://localhost:5173 with the backend attached in the same process. `npm run build` then `npm start` runs the production build.
+`npm run dev` serves the dashboard on http://localhost:5173 with hot reload and the backend in the same process. `npm run build && npm start` runs the production build.
 
 ## Checks
 
-All three must pass before a pull request is reviewed, and CI runs them on every push:
+CI runs these on every push, and all three must pass before review:
 
 ```bash
 npm run lint
@@ -27,22 +23,20 @@ npm run typecheck
 npm test
 ```
 
-`npm test` is safe with `GLIMMERVOID_POSTHOG_API_KEY` and `GLIMMERVOID_TELEGRAM_BOT_TOKEN` set: its preload, `tests/helpers/isolate-home.ts`, deletes both from the test process and points `GLIMMERVOID_HOME` at a throwaway directory. A command that bypasses that preload, such as `node --test tests/some.test.ts` run directly, still sees them and lets those lanes reach the live services and hang, so unset them first:
+`npm test` isolates itself: it points `GLIMMERVOID_HOME` at a throwaway directory and drops `GLIMMERVOID_POSTHOG_API_KEY` and `GLIMMERVOID_TELEGRAM_BOT_TOKEN`. Running a single file with `node --test` skips that, so lanes can reach live services and hang. Use the same preload instead:
 
 ```bash
-env -u GLIMMERVOID_POSTHOG_API_KEY -u GLIMMERVOID_TELEGRAM_BOT_TOKEN node --test tests/some.test.ts
+node --import ./tests/helpers/isolate-home.ts --test tests/some.test.ts
 ```
 
-In PowerShell, `Remove-Item Env:GLIMMERVOID_POSTHOG_API_KEY, Env:GLIMMERVOID_TELEGRAM_BOT_TOKEN -ErrorAction SilentlyContinue` first. Or pass `--import ./tests/helpers/isolate-home.ts` to get the same isolation `npm test` has.
-
-If you change a setting, a config key or an environment variable, run `npm run docs:config` and commit the regenerated `docs/configuration.md`; `tests/config-docs.test.ts` fails otherwise.
+Changed a setting, config key or environment variable? Run `npm run docs:config` and commit the regenerated `docs/configuration.md`. `tests/config-docs.test.ts` fails otherwise.
 
 ## Conventions
 
-Code conventions, invariants and the architecture map live in [AGENTS.md](AGENTS.md) and the `AGENTS.md` nearest the code you touch. Most of them are enforced by tests, so a failing test usually names the rule.
+Code conventions, invariants and the architecture map are in [AGENTS.md](AGENTS.md) and the `AGENTS.md` nearest the code you touch. Tests enforce most of them, so a failing test usually names the rule.
 
 ## Commits and pull requests
 
-Commit messages follow Conventional Commits with a scope, as in the history: `feat(review): let Queue review re-run a ready draft`, `fix(git): run status probes without optional locks`. User-visible changes also get a line under `## [Unreleased]` in `CHANGELOG.md`.
+Commit messages use Conventional Commits with a scope, as in the history: `feat(review): let Queue review re-run a ready draft`, `fix(git): run status probes without optional locks`. Anything a user would notice also gets a line under `## [Unreleased]` in `CHANGELOG.md`, which becomes the release notes.
 
-A pull request says what changed and why, lists the checks you ran, and is merged only with CI green. Report security issues privately as described in [SECURITY.md](SECURITY.md), not in a pull request or issue.
+A pull request says what changed and why and lists the checks you ran. It merges only with CI green. Report security issues privately as described in [SECURITY.md](SECURITY.md).

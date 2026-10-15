@@ -2,42 +2,42 @@
   <div class="section-head reveal">
     <p class="eyebrow">Guardrails</p>
     <h2>Agents move fast. Mistakes stay small.</h2>
-    <p>Risk reduction, not a security boundary. Claude Code focus sessions on macOS and Linux run open with a short block list. Lanes that read outside input run closed.</p>
+    <p>Risk reduction, not a security boundary. Your Claude Code sessions on macOS and Linux run open, minus a short block list. Automated lanes that read outside input, like pull requests and error reports, run locked down.</p>
   </div>
   <div class="ledger diagram reveal">
-    <table aria-label="What focus sessions and outside input lanes can and cannot do">
+    <table aria-label="What your sessions and automated lanes can and cannot do">
       <thead>
         <tr>
           <td></td>
-          <th scope="col" class="yes"><span class="column-name">Your focus sessions</span><span class="posture">Open, blocks a list</span></th>
-          <th scope="col" class="no"><span class="column-name">Outside input lanes</span><span class="posture">Closed, allows a list</span></th>
+          <th scope="col" class="yes"><span class="column-name">Your sessions</span><span class="posture">Open, blocks a list</span></th>
+          <th scope="col" class="no"><span class="column-name">Automated lanes</span><span class="posture">Closed, allows a list</span></th>
         </tr>
       </thead>
       <tbody>
         <tr>
           <th scope="row" class="aspect">Writes</th>
-          <td class="yes" data-level="Your focus sessions"><span class="verdict">Anywhere</span><span class="detail">Except credentials, Glimmervoid's state, <code>blockedPaths</code></span></td>
-          <td class="no" data-level="Outside input lanes"><span class="verdict">Own folder only</span><span class="detail">Not even git hooks</span></td>
+          <td class="yes" data-level="Your sessions"><span class="verdict">Anywhere</span><span class="detail">Except credentials, Glimmervoid's state, <code>blockedPaths</code></span></td>
+          <td class="no" data-level="Automated lanes"><span class="verdict">Own folder only</span><span class="detail">Not even git hooks</span></td>
         </tr>
         <tr>
           <th scope="row" class="aspect">Reads</th>
-          <td class="yes" data-level="Your focus sessions"><span class="verdict">All but credentials and state</span><span class="detail">And <code>unreadablePaths</code></span></td>
-          <td class="no" data-level="Outside input lanes"><span class="verdict">No credentials, no state</span></td>
+          <td class="yes" data-level="Your sessions"><span class="verdict">All but credentials and state</span><span class="detail">And <code>unreadablePaths</code></span></td>
+          <td class="no" data-level="Automated lanes"><span class="verdict">No credentials, no state</span></td>
         </tr>
         <tr>
           <th scope="row" class="aspect">Network</th>
-          <td class="yes" data-level="Your focus sessions"><span class="verdict">Open</span></td>
-          <td class="no" data-level="Outside input lanes"><span class="verdict">Allowlist for reviews</span><span class="detail">Open for lanes that push a fix</span></td>
+          <td class="yes" data-level="Your sessions"><span class="verdict">Open</span></td>
+          <td class="no" data-level="Automated lanes"><span class="verdict">Allowlist for reviews</span><span class="detail">Open for lanes that push a fix</span></td>
         </tr>
         <tr>
           <th scope="row" class="aspect">Tools</th>
-          <td class="yes" data-level="Your focus sessions"><span class="verdict">Everything</span></td>
-          <td class="no" data-level="Outside input lanes"><span class="verdict">Own terminal only</span></td>
+          <td class="yes" data-level="Your sessions"><span class="verdict">Everything</span></td>
+          <td class="no" data-level="Automated lanes"><span class="verdict">Own terminal only</span></td>
         </tr>
         <tr>
           <th scope="row" class="aspect">Opt out</th>
-          <td class="yes" data-level="Your focus sessions"><span class="verdict">Per project</span></td>
-          <td class="no" data-level="Outside input lanes"><span class="verdict">Never</span></td>
+          <td class="yes" data-level="Your sessions"><span class="verdict">Per project</span></td>
+          <td class="no" data-level="Automated lanes"><span class="verdict">Never</span></td>
         </tr>
       </tbody>
     </table>

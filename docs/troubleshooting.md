@@ -1,6 +1,17 @@
 # Troubleshooting
 
-Start with `glimmervoid doctor`. It changes nothing and starts no server: it reports versions, where the CLI runs from, whether npm's global bin directory is on PATH, which agent CLIs resolve, whether node-pty loads, and which config file would be used.
+Start with `glimmervoid doctor`. It changes nothing and starts no server. It reports versions, where the CLI runs from, whether npm's global bin directory is on PATH, which agent CLIs it finds, whether node-pty loads, and which config file it would use.
+
+## + Session shows "No projects found"
+
+A fresh install knows no projects. Open **Settings**, then **Sessions**, and add the folder that holds your git checkouts under **Repository roots**; each subfolder becomes a project. For a single folder anywhere else, use **Advanced options** in the **+ Session** dialog.
+
+## No browser notifications
+
+- A notification appears only while the dashboard tab is in the background. A focused tab already shows the change.
+- Check that the browser allowed notifications for the dashboard, and that **Desktop notifications** is on under **Settings**, **Notifications**.
+- With no dashboard tab open anywhere, only Telegram can reach you. Set it up under **Settings**, **Notifications**, **Telegram**.
+- Streamer mode (**Settings**, **Sessions**) suppresses browser notifications. Telegram is unaffected.
 
 ## `EACCES` on a global install
 
@@ -32,7 +43,7 @@ The install worked, but npm's global command directory is not on PATH (common wi
 
 ## The server refuses to start: node-pty did not load
 
-Glimmervoid checks the node-pty native binding before it boots and refuses to start without it, printing the repair command. The usual cause on Linux is that node-pty was never compiled: it has no Linux prebuilds, and npm 12 blocks dependency install scripts unless told otherwise.
+Glimmervoid checks the node-pty native module before it boots and refuses to start without it, printing the repair command. The usual cause on Linux is that node-pty was never compiled: it has no Linux prebuilds, and npm 12 blocks dependency install scripts unless `--allow-scripts=node-pty` allows them. npm 10 and 11 still run install scripts, so the flag is harmless there.
 
 1. Install the build tools: `sudo apt install build-essential python3` (Windows: Visual Studio Build Tools, rarely needed because Windows prebuilds ship).
 2. Rebuild node-pty inside the global install:
@@ -72,7 +83,7 @@ The server exits with `Another Glimmervoid is already running on port <port>` wh
 
 ## Refusing to bind a non-loopback host
 
-`GLIMMERVOID_HOST` set to anything but a loopback address is refused, because the local listener has no authentication. Use the `remote` block behind a reverse proxy instead (see the README). `GLIMMERVOID_INSECURE_BIND=1` overrides the refusal and exposes full control of the machine to anyone who can reach the port.
+`GLIMMERVOID_HOST` set to anything but a loopback address is refused, because the local listener has no authentication. Use [remote access](../README.md#remote-access) behind a reverse proxy instead. `GLIMMERVOID_INSECURE_BIND=1` overrides the refusal and exposes full control of the machine to anyone who can reach the port.
 
 ## Legacy install from GitHub
 

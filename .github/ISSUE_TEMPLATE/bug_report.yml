@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in Glimmervoid does not work as documented.
+description: Something in Glimmervoid does not work as expected.
 labels: [bug]
 body:
   - type: textarea
@@ -40,6 +40,7 @@ body:
       label: Operating system
       options:
         - Windows 11
+        - macOS
         - Linux
         - Other
     validations:
@@ -62,5 +63,5 @@ body:
     id: logs
     attributes:
       label: Server output
-      description: Relevant lines from the terminal running glimmervoid.
+      description: Relevant lines from the terminal running glimmervoid, if any.
       render: text

@@ -2,7 +2,7 @@
 
 Glimmervoid ships as the `glimmervoid` package on the npm registry, built and published by CI from a release tag. The GitHub repo stays the source of truth; the registry only carries the built `dist/`, because Node refuses type stripping inside `node_modules`, so an installed package can only run compiled `.js`.
 
-The install and update commands are in the README Quickstart; the traps around node-pty and npm 12's install-script policy are in `troubleshooting.md`.
+Install and update commands are in the [README Quickstart](../README.md#quickstart); the node-pty and npm 12 install-script traps are in [troubleshooting.md](troubleshooting.md).
 
 ## Releases
 

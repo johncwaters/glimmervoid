@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Clearer `glimmervoid --help`**: commands are grouped into everyday commands, editor integration, commands for use inside a session, and experimental ones, and `visions uninstall` is now listed.
+
 ### Fixed
 
 - **Telegram stops piling up while you work in another session**: an unacknowledged session used to reach your phone after the phone escalation delay (5 minutes by default) even while you were typing in a different session. Now the phone ping waits while you type in any session. If you kept typing for the full delay after a session finished, you had it on the dashboard and moved on, so it never pings. Sessions you left less than the delay after they finished reach the phone once you have been idle for the delay, and pings that come due within a second of each other arrive together in one Telegram message, split only where they would pass Telegram's length limit. Mouse-reported scrolling, focus changes and terminal replies do not count as typing, but scrolling that the terminal turns into arrow keys, as in a full-screen app without mouse support, does.

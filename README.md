@@ -1,44 +1,47 @@
 # Glimmervoid
 
 [![CI](https://github.com/johncwaters/glimmervoid/actions/workflows/test.yml/badge.svg)](https://github.com/johncwaters/glimmervoid/actions/workflows/test.yml)
+[![npm](https://img.shields.io/npm/v/glimmervoid.svg)](https://www.npmjs.com/package/glimmervoid)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.18-brightgreen.svg)](https://nodejs.org)
 [![Platform: Windows | Linux | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-0078d4)](https://github.com/johncwaters/glimmervoid)
 
 **Mission control for your coding agents. Run dozens of Claude Code, Codex and Grok sessions at once. See every one. Miss nothing.**
 
-Website: [glimmervoid.dev](https://glimmervoid.dev)
+[glimmervoid.dev](https://glimmervoid.dev)
 
-Running more than a couple of coding agents at once turns into alt-tabbing between terminal windows, missing the exact moment one finishes or silently blocks on a prompt, and merging work you never watched happen. Glimmervoid is one browser dashboard with live terminal output for every session, exact status instead of a guess, a notification the moment an agent needs you, and per-agent git worktrees you can review and merge without leaving the page.
+Glimmervoid is one browser dashboard for all your coding agents: a live terminal for every session, exact status instead of a guess, a notification the moment an agent needs you, and a git worktree per agent that you review and merge from the same page.
 
-Glimmervoid is an agent orchestrator, sometimes called an agent manager or an agentic development environment. It is not an agent harness: Claude Code, Codex and Grok are the harnesses, the loop that turns a model into an agent. Glimmervoid runs those harnesses unmodified, as real processes in real terminals on your own machine, and supervises all of them from one screen. No cloud service, no account.
-
-Glimmervoid is developed inside Glimmervoid.
+It is an orchestrator, not a harness. Claude Code, Codex and Grok run unmodified, as real processes in real terminals on your own machine. No cloud service, no account. Glimmervoid is developed inside Glimmervoid.
 
 ![Glimmervoid dashboard replaying recorded Claude Code sessions: one fixes a flaky upload test with its diff in the terminal, three more work on their own projects in the session rail](assets/pictures/glimmervoid-demo.gif)
 
 ## Quickstart
 
-Windows and macOS:
+**1. Start it.** Windows and macOS:
 
 ```bash
 npx glimmervoid@latest
 ```
 
-Linux (node-pty ships no Linux prebuilds, so it compiles at install time, and npm runs that build only when allowed):
+Linux, where node-pty compiles at install time:
 
 ```bash
 sudo apt install build-essential python3 git
 npx --allow-scripts=node-pty glimmervoid@latest
 ```
 
-To install it globally instead, run `npm install -g glimmervoid` (add `--allow-scripts=node-pty` on Linux); if that fails with `EACCES`, see [docs/troubleshooting.md](docs/troubleshooting.md#eacces-on-a-global-install) and never use `sudo npm`.
+**2. Open http://localhost:3000.**
 
-Open http://localhost:3000. A fresh install knows no projects, so **+ Session** shows "No projects found" until you say where your repositories live: open **Settings**, then **Repositories**, and add the folder that holds your git checkouts under **Repository roots** (each subfolder becomes a project). For a one-off, **+ Session** then **Advanced options** takes a name and a path directly. That is the whole setup; everything else is optional.
+**3. Add your repositories.** Open **Settings**, then **Sessions**, and add the folder that holds your git checkouts under **Repository roots**. Each subfolder becomes a project.
 
-To check notifications, allow them when the dashboard asks (or turn on **Desktop notifications** under **Settings**, **Appearance and alerts**) and keep a dashboard tab open. A notification only appears while that tab is not focused, since a focused tab already shows the change. With no dashboard tab open anywhere, only Telegram reaches you (the `telegram` keys in [docs/configuration.md](docs/configuration.md)).
+**4. Start a session.** Click **+ Session**, pick a project and an agent. For a folder outside your roots, use **Advanced options** in the same dialog.
 
-The Linux flag matters on npm 12, which blocks dependency install scripts by default; npm 10 and 11 run them (npm 11 prints a notice), so there it is harmless. Keep `@latest` so npx checks for a new release instead of rerunning the version it cached first. If the native module still fails to load, the server refuses to start and prints the repair command; `glimmervoid doctor` runs the same check. See [docs/troubleshooting.md](docs/troubleshooting.md).
+That is the whole setup. Allow notifications when the dashboard asks, and keep a dashboard tab open: a notification appears whenever that tab is in the background, unless Streamer mode is on.
+
+Keep `@latest` so npx picks up new releases. To install globally instead, run `npm install -g glimmervoid` (add `--allow-scripts=node-pty` on Linux), then `glimmervoid`. Never use `sudo npm`; see [EACCES on a global install](docs/troubleshooting.md#eacces-on-a-global-install).
+
+If something fails, run `glimmervoid doctor` and see [troubleshooting](docs/troubleshooting.md).
 
 ### From source
 
@@ -50,92 +53,96 @@ npm run build
 npm start
 ```
 
-Update a clone with `git pull --ff-only && npm ci && npm run build`, then restart the server. The dashboard's update check prints the right command for whichever way you installed.
+To update, run `git pull --ff-only && npm ci && npm run build` and restart. The dashboard's update banner shows the right command for however you installed.
 
 ## Requirements
 
-- **Node.js >= 22.18.0** (the `engines` floor). npm 12 itself needs Node 22.22.2 or newer; distro-packaged Node is usually older than either, so use nodesource, nvm or the official installer.
+- **Node.js 22.18 or newer.** Distro-packaged Node is usually older; use nvm, NodeSource or the official installer.
 - **Windows 11, Linux or macOS.** CI runs on Linux; Windows and macOS are tested by hand.
-- **Claude Code CLI** on PATH, or another supported agent below.
+- **An agent CLI** on PATH: Claude Code, Codex, Grok or another terminal agent.
 - **git** on PATH, for per-session worktrees.
-- **Linux only:** `build-essential` and `python3` for node-pty.
-- **Linux only:** `bubblewrap` (`bwrap`), `socat` and `ripgrep` (`rg`) for the sandbox runtime behind session guardrails and factory checks (`sudo apt install bubblewrap socat ripgrep`). `glimmervoid doctor` reports all three.
+- **Linux only:** `build-essential` and `python3` to compile node-pty, plus `bubblewrap`, `socat` and `ripgrep` for session guardrails (`sudo apt install bubblewrap socat ripgrep`).
+
+`glimmervoid doctor` checks all of these.
 
 ## Supported agents
 
-- **Claude Code** (`claude`), the default and the most complete: hooks, background agent gating, auto-resume.
-- **Codex CLI** (`codex`), with hook-based status. Codex has no notification event, so a question it asks in prose looks like a finished turn.
-- **Grok Build** (`grok`). Run `glimmervoid agent setup grok` once to install its hook relay.
-- **Any other terminal agent**, declared under `customAgents` in `config.json` with an `id`, `label`, `command` and optional `args`, `idleTitle` and `busyTitle`. Custom agents get status from the terminal title only.
+| Agent | Command | Status from |
+|-------|---------|-------------|
+| Claude Code (default, most complete) | `claude` | Hooks, with background agent gating and auto-resume |
+| Codex CLI | `codex` | Hooks. Codex has no notification event, so a question asked in prose looks like a finished turn |
+| Grok Build | `grok` | Hooks, after running `glimmervoid agent setup grok` once |
+| Any other terminal agent | your own | Terminal title only |
 
-The Add Session dialog only offers agents whose command resolves on PATH, and `glimmervoid doctor` lists what it found. A project can default to an agent with `projects[].agent`.
+Declare another agent under `customAgents` in `config.json` with an `id`, `label` and `command`, plus optional `args`, `idleTitle` and `busyTitle`. The **+ Session** dialog offers only the agents it finds on PATH, and a project can default to one with `projects[].agent`.
 
-## Usage
+## Features
+
+- **Focus view.** A rail of every session on the left, the selected session's live terminal in the middle, its changes on the right.
+- **A worktree per agent.** Every session in a git repo gets its own worktree, so agents never step on your checkout or each other. Review the diff and merge with one click while the agent keeps working. A conflicted merge parks, and **Resolve in session** hands it back to the agent that wrote it.
+- **Exact status.** Hooks report every state change and the terminal title fills the gaps. The screen is never scraped ([how](#how-status-detection-works)).
+- **Notifications.** Browser notifications when a session needs input, finishes or fails, with your own alert sounds if you like (drop `.ogg`, `.mp3`, `.wav`, `.m4a` or `.webm` files into `~/.glimmervoid/sounds/`). Telegram covers you when no dashboard is open.
+- **Phone layout.** Board, terminal and review screens, attention first, with a terminal that resizes around the keyboard.
+- **Plan review.** Read, edit and approve Claude Code plans from the dashboard or your phone.
+- **Guardrails.** Guarded Claude Code sessions on macOS and Linux (on unless a project or folder opts out) cannot touch credentials or Glimmervoid's own state, and Sane YOLO, once its hooks are installed and trusted, refuses commands like `git reset --hard` and `git push --force` in sessions that skip permission prompts.
+- **Usage.** Tokens and estimated cost from local Claude Code, Codex and Grok transcripts, with optional budgets.
+- **Auto-resume.** Sessions live when Glimmervoid stopped come back with their conversation resumed.
+- **Remote access** (opt-in). Reach the dashboard from another device through single-use pairing links.
+- **Radar** (opt-in). Watches PostHog error tracking, pings Telegram on a spike, regression or new issue, and sends an agent to investigate. Optional auto-fix opens a pull request the agent can never push or merge itself.
+- **Team PR review** (opt-in). Drafts a review of each open pull request from a GitHub team in a sandboxed agent, optionally with your own review skill. Nothing posts until you choose Approve or Comment.
+
+### Keyboard
+
+Cmd on a Mac, Alt elsewhere:
+
+| Keys | Action |
+|------|--------|
+| `Cmd/Alt+J` | Next session that needs you |
+| `Cmd/Alt+1` to `9` | Jump to a session |
+| `Cmd/Alt+Up` / `Down` | Move through the rail |
+| `Cmd/Alt+I` | Merge the selected session |
+| `Cmd/Alt+U` | Resolve a parked merge, or resync the base branch |
+| `Cmd/Alt+0` | Add a session |
+
+## Commands
 
 ```
-glimmervoid                   # start the server on port 3000
-glimmervoid --port 3001       # start on another port
-glimmervoid doctor            # diagnose the install, PATH, agents and native module
-glimmervoid pair --name phone # mint a single-use pairing link for a remote device
-glimmervoid --version
+glimmervoid                    # start the server on port 3000
+glimmervoid --port 3001        # start on another port
+glimmervoid doctor             # check the install, PATH, agents and native module
+glimmervoid settings list      # read and change settings from the terminal
+glimmervoid pair --name phone  # pair a remote device
 ```
 
 `glimmervoid --help` lists every command.
 
-## Features
-
-- Focus view: a roster rail of every session, the selected session's live terminal in the center, and a worktree review sidebar
-- Per-session git worktree isolation: review and merge each agent's committed work from the dashboard while it keeps running
-- Real-time terminal output via xterm.js with WebGL rendering
-- Structural status detection: hooks as the authoritative signal, an OSC-0 title fallback, never screen scraping (see below)
-- Background sub-agent completion gate: a session with live background agents or tasks stays out of Complete until they finish
-- Browser notifications when a session needs input, finishes or fails
-- Custom alert sounds: drop your own `.ogg`, `.mp3`, `.wav`, `.m4a` or `.webm` files into `~/.glimmervoid/sounds/` (or `$GLIMMERVOID_HOME/sounds/`) and pick one in Settings
-- Phone layout as a first-class second layout: board, terminal and review screens, attention-first ordering, and a terminal that resizes around the soft keyboard instead of hiding behind it
-- Remote access (opt-in): a separate listener with single-use device pairing and cookie auth
-- Telegram notifications (opt-in), sent only when no dashboard tab is open anywhere
-- Plan review: read, edit and approve a Claude Code plan from the dashboard or phone
-- Usage tracking: token use and estimated cost from local Claude Code, Codex and Grok transcripts, with optional budgets
-- Radar (opt-in): polls PostHog error tracking, pings Telegram when an issue spikes, regresses or first appears, and sends an agent to investigate; optional auto-fix opens a pull request the agent itself can never push or merge
-- Team PR review (opt-in): drafts a review of each open pull request from a GitHub team in a sandboxed agent, optionally with your own Claude Code review skill (`teamReview.skill`); nothing posts until you choose Approve or Comment
-- Auto-resume: sessions that were live when Glimmervoid stopped come back with their conversation resumed
-- Hot-reloaded configuration and a Settings view for most of it
-
-## Why the status detection is hard (and how Glimmervoid does it)
-
-The obvious way to know if a Claude Code session finished, is waiting on you, or is still working is to scrape the terminal: watch for a prompt string, a spinner glyph, some text pattern. It breaks constantly. Every TUI redraw, every theme change, every Claude Code release that adjusts spacing invalidates the scrape. Glimmervoid never does this.
-
-Instead, at spawn Glimmervoid injects Claude Code hooks scoped to that one session, no changes to the target repo, that POST to a local HTTP endpoint on every lifecycle event: prompt submitted, turn stopped, notification raised, sub-agent started or finished. These hooks are the authoritative signal. An OSC-0 terminal title fallback (spinner glyph = working, idle glyph = ready) covers the gap for anything that predates or bypasses the hooks. The two are merged with explicit precedence (hook beats title) and a short conflict window so a racing signal can still win before the UI settles.
-
-That design didn't arrive whole. Three incidents shaped it:
-
-`/clear` and `/compact` fire no `UserPromptSubmit` and no `Stop`, but the terminal redraw briefly flashes a spinner then an idle glyph in the title. Early on, that flash looked exactly like a finished work cycle, so Glimmervoid fired a "session complete" notification on every `/clear`. (The bug report was, more or less, "why did my terminal congratulate me for clearing the screen.") The fix: on a detected clear/compact, reset both signal sources and mute title-only signals until the next real prompt.
-
-A background sub-agent (launched via `Task` with `run_in_background`, or Ctrl+B) can still be running when the main agent's own turn ends and its `Stop` hook fires. Treating that `Stop` as completion closed the card while real work was still happening in the background. The fix is a completion gate: Glimmervoid counts live sub-agents from `SubagentStart`/`SubagentStop` and reconciles that count against `background_tasks`, a field Claude Code's own hook payloads declare independently. Staleness between the two is resolved by a sequence number, not a timestamp, because concurrent signals routinely land in the same millisecond.
-
-Boot auto-resume (reattaching a session's Claude conversation after Glimmervoid restarts) depends on capturing Claude's session id from a hook. It was wired to capture that id from `SessionStart`, which seemed reasonable until testing showed Claude Code doesn't reliably fire `SessionStart` on interactive startup at all, silently dead in production, no error, resume just never happened. The fix: capture the session id from whichever main-agent hook arrives first, since they all carry it.
-
-Every session also writes a JSONL forensic recording by default (hook payloads and state transitions, not raw terminal bytes), and a version-aware replay harness drives recorded traffic back through the detection code as regression fixtures. That's how bugs like the ones above get diagnosed from real session data instead of guesswork, and how they stay caught if the logic regresses.
-
-## Focus
-
-Glimmervoid centers on one session at a time. A left **roster rail** lists one pill per session (grouped by project, with a live working heartbeat and a "needs you" queue); the **center** borrows that session's live terminal as the work surface; a right **review sidebar** shows its changes.
-
-Every git-repo session runs in its own git worktree forked from the integration branch, so an agent's edits stay out of your main checkout until you review them. `integrationBranch` is unset by default, which means each repo's own default branch: `origin/HEAD`, then `main`, then `master`. The sidebar splits **Committed** (the mergeable unit) from **Uncommitted** work, keeps the diff live, and merges into the integration branch with one click while the session keeps running. If a merge hits conflicts it parks, and **Resolve in session** hands the conflict back to the agent that owns the worktree with a ready-to-run prompt.
-
-Navigate it from the keyboard with Cmd on a Mac and Alt elsewhere, never more than two keys: `Cmd/Alt+J` steps through the sessions needing attention, `Cmd/Alt+1`..`9` jump to a session, `Cmd/Alt+Up`/`Down` move through the rail, `Cmd/Alt+I` merges the selected one, `Cmd/Alt+U` resolves or resyncs it, and `Cmd/Alt+0` opens Add Session.
-
 ## Configuration
 
-On first run Glimmervoid creates `~/.glimmervoid/config.json`. Most settings are edited from the dashboard's Settings view, and the server reloads the file when you edit it by hand. Every key, its default and every environment variable are in [docs/configuration.md](docs/configuration.md), which is generated from the code.
+Glimmervoid creates `~/.glimmervoid/config.json` on first run. Most settings live in the dashboard's **Settings** view; the rest you can change with `glimmervoid settings` or by editing the file, which the server reloads on save. Every key, default and environment variable is in the [configuration reference](docs/configuration.md), generated from the code.
 
-Glimmervoid sends anonymous usage and error data by default; what it sends and how to turn it off are in [Telemetry](docs/configuration.md#telemetry).
+Worktrees branch from each repo's default branch (`origin/HEAD`, then `main`, then `master`) unless you set `integrationBranch`.
+
+Glimmervoid sends anonymous usage and error data by default. [Telemetry](docs/configuration.md#telemetry) lists exactly what is sent and how to turn it off.
+
+## How status detection works
+
+The obvious way to tell whether an agent is working, waiting or done is to scrape the terminal for a prompt or a spinner. That breaks on every redraw, theme change and CLI release, so Glimmervoid never does it.
+
+Instead, each session gets Claude Code hooks scoped to that one session, with no change to your repo. They POST every lifecycle event to a local endpoint: prompt submitted, turn stopped, notification raised, sub-agent started or finished. Hooks are the authoritative signal. The terminal title (spinner glyph means working, idle glyph means ready) covers anything the hooks miss, and a hook wins any conflict.
+
+Three bugs shaped the details:
+
+- **`/clear` looked like a finished turn.** It fires no hooks but flashes a spinner, then an idle glyph, in the title, so early builds sent "session complete" on every clear. Now a clear or compact resets both signals and mutes the title until the next real prompt.
+- **A background sub-agent outlived its parent's turn.** The main agent's `Stop` fired while a sub-agent was still working. Now a session stays out of Complete until the live sub-agent count, reconciled against Claude Code's own `background_tasks` field, reaches zero.
+- **Auto-resume silently never ran.** It waited for `SessionStart`, which Claude Code does not reliably fire on interactive startup. Now the conversation id comes from whichever hook arrives first.
+
+Every session writes a JSONL recording of hook payloads and state transitions (never terminal bytes), and a replay harness runs recorded sessions back through the detection code as regression tests.
 
 ## Remote access
 
-Remote access is off by default. It is a second loopback listener meant to sit behind an HTTPS reverse proxy, never a wider bind, and it is created only at startup:
+Off by default. Remote access is a second listener on `127.0.0.1` that you put behind an HTTPS reverse proxy; Glimmervoid never binds a wider address unless `GLIMMERVOID_INSECURE_BIND=1` is set.
 
-1. Add a `remote` block to `~/.glimmervoid/config.json`. `enabled` defaults to `false`; `port` has no default and is required once enabled (it must differ from the local port); `publicHost` defaults to empty and is the hostname your proxy serves, used for shareable pairing links and the allowed origin.
+1. Add a `remote` block to `~/.glimmervoid/config.json`. `port` must differ from the dashboard port, and `publicHost` is the hostname your proxy serves:
 
    ```json
    {
@@ -143,16 +150,14 @@ Remote access is off by default. It is a second loopback listener meant to sit b
    }
    ```
 
-2. Restart Glimmervoid (stop and start it, or `systemctl --user restart glimmervoid` when it runs as a service). The log line `Glimmervoid remote listener on http://127.0.0.1:3456 (paired devices only)` confirms the listener is up.
-3. Point an HTTPS reverse proxy at that port. With Tailscale, `tailscale serve --bg 3456` serves `https://<machine>.<tailnet>.ts.net`, which is the name `publicHost` should hold. When the port is reached solely through HTTP-mode `tailscale serve`, also set `"ownerLogin": "you@example.com"` in the `remote` block: the listener then refuses every request and WebSocket whose `Tailscale-User-Login` is not that login, including Funnel and tagged-device traffic, which carry none. Only HTTP-mode `tailscale serve` strips a client-sent `Tailscale-User-Login`; behind any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, a client can forge it, so `ownerLogin` proves nothing there. It works on top of pairing, never instead of it.
-4. Verify from the device: `https://<publicHost>/` should answer with Glimmervoid's "Pairing required" page.
-5. On the host, run `glimmervoid pair --name phone`. It prints a single-use URL valid for 10 minutes that sets an auth cookie when opened on the device.
+2. Restart Glimmervoid. The log shows `Glimmervoid remote listener on http://127.0.0.1:3456 (paired devices only)`.
+3. Point an HTTPS reverse proxy at that port. With Tailscale, `tailscale serve --bg 3456` serves `https://<machine>.<tailnet>.ts.net`, which is what `publicHost` should hold.
+4. From the device, open `https://<publicHost>/`. You should see Glimmervoid's "Pairing required" page.
+5. On the host, run `glimmervoid pair --name phone` and open the printed link on the device. It is single-use and expires in 10 minutes.
 
-`glimmervoid pair --list` and `glimmervoid pair --revoke <id>` manage devices, and a revoke applies without a restart. A pairing grants full control of the machine as the server account, so treat pairing URLs as passwords.
+`glimmervoid pair --list` shows paired devices, and `glimmervoid pair --revoke <id>` removes one without a restart.
 
-## Security
-
-Glimmervoid runs agents with your account's privileges and trusts every local process. Read [SECURITY.md](SECURITY.md) for the trust model and how to report a vulnerability, and [Limitations](#limitations) for the short version.
+A paired device has full control of the machine as your account, so treat pairing links like passwords. Behind HTTP-mode `tailscale serve`, you can also set `"ownerLogin": "you@example.com"` in the `remote` block so only that Tailscale login gets through, on top of pairing. Only HTTP-mode `tailscale serve` strips a forged `Tailscale-User-Login` header; behind any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, `ownerLogin` proves nothing.
 
 ## Running as a service (Linux)
 
@@ -178,20 +183,19 @@ systemctl --user enable --now glimmervoid
 loginctl enable-linger "$USER"
 ```
 
-`secrets.env` is optional and can hold `GLIMMERVOID_POSTHOG_API_KEY` and `GLIMMERVOID_TELEGRAM_BOT_TOKEN`, which keeps both out of `config.json`. The unit's `PATH` must reach `node`, `glimmervoid` and your agent CLIs; with nvm, set `Environment=PATH=...` or point `ExecStart` at absolute paths. For a source checkout, use `ExecStart=/usr/bin/env node dist/server/index.js` with `WorkingDirectory=` set to the checkout.
+The unit's `PATH` must reach `node`, `glimmervoid` and your agent CLIs. With nvm, set `Environment=PATH=...` or use absolute paths in `ExecStart`. For a source checkout, use `ExecStart=/usr/bin/env node dist/server/index.js` with `WorkingDirectory=` set to the checkout.
 
-## Development
+`secrets.env` is optional. Put `GLIMMERVOID_POSTHOG_API_KEY` and `GLIMMERVOID_TELEGRAM_BOT_TOKEN` there to keep them out of `config.json`.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+## Security
 
-## Limitations
+Glimmervoid runs agents with your account's privileges. The local dashboard has no login and binds only `127.0.0.1` unless `GLIMMERVOID_INSECURE_BIND=1` is set, so any local process can drive it and the port must never be exposed to the network. Use [remote access](#remote-access) to reach it from elsewhere.
 
-- **Local-first, with an opt-in remote door.** By default Glimmervoid binds `127.0.0.1` and has no login on the local listener, so any local process can drive it. That is a deliberate single-user choice, and it means the local port must never be exposed to the network. Remote access is a separate listener gated by single-use pairing tokens and cookies, meant to sit behind a reverse proxy; a pairing cookie grants full code execution as the server account.
-- **Requires an agent CLI.** Glimmervoid spawns and supervises Claude Code, Codex, Grok or another terminal agent; it does not replace them.
+[SECURITY.md](SECURITY.md) has the full trust model and how to report a vulnerability privately.
 
-## Changelog
+## Contributing
 
-See [CHANGELOG.md](CHANGELOG.md) for release history.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Release history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

@@ -26,32 +26,41 @@ const pkg = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), '
 
 const USAGE = `Usage: glimmervoid [command] [options]
 
+With no command, starts the server.
+
 Commands:
-  doctor            Diagnose install / PATH issues and exit
-  agent setup grok  Install Glimmervoid's env-inert Grok hook relay
-  pair              Mint a single-use pairing link for a remote device
-  pair --list       List paired devices
+  doctor              Check the install, PATH, agent CLIs and native module, then exit
+  settings <cmd>      Read and change config.json: list, get, set, unset, search, schema (each takes --json)
+  pair                Mint a single-use pairing link for a remote device
+  pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
-  visions relay     Run the Visions LSP relay on stdio (what an editor's LSP client spawns)
-  visions install   Install the Visions extension into every VS Code family editor on PATH
-  visions setup     Print LSP client config for Neovim, Helix, Emacs, Kate, Sublime, JetBrains
-  visions status    Report the relay path and which editors carry the extension
-  spawn <prompt>    From inside a Glimmervoid session, start a sibling session on that prompt
-  attention <note>  From inside a Glimmervoid session, flag it as needing the operator
-  board             From inside a Glimmervoid session, list the live sessions
-  push              From inside a Glimmervoid session, land its commits on the integration branch and push it
-  edit <path>       From inside a Glimmervoid session, surface a text file for the operator to edit in the dashboard
-  limits            From inside a Glimmervoid session, list which of these commands answer and what its guardrails block
-  ssh-sign          What git runs inside a Glimmervoid session to sign a commit with the operator's forwarded ssh agent
-  kg [command]      Experimental typed knowledge and task graph (Settings > Lanes > Knowledge graph)
-  settings <cmd>    Read and change config.json: list, get, set, unset, search, schema (each takes --json)
+  agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
+
+Editor integration (Visions):
+  visions install     Install the Visions extension into every VS Code family editor on PATH
+  visions uninstall   Remove the Visions extension and the editor config it wrote
+  visions setup       Print LSP client config for Neovim, Helix, Emacs, Kate, Sublime, JetBrains
+  visions status      Show the relay path and which editors have the extension
+  visions relay       Run the Visions LSP relay on stdio (an editor's LSP client starts this)
+
+Inside a Glimmervoid session:
+  spawn <prompt>      Start a sibling session on that prompt
+  attention <note>    Flag this session as needing the operator
+  board               List the live sessions
+  push                Land this session's commits on the integration branch and push it
+  edit <path>         Open a text file for the operator to edit in the dashboard
+  limits              List which of these commands answer here and what the guardrails block
+  ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
+
+Experimental:
+  kg [command]        Typed knowledge and task graph (Settings > Lanes > Knowledge graph)
 
 Options:
-  --name <label>    Label for the device being paired (with: pair)
-  --port <number>   Override the server port (default: 3000)
-  --config <path>   Path to config file (default: ~/.glimmervoid/config.json)
-  --version         Show version number
-  --help, -h        Show this help message`;
+  --port <number>     Server port (default: 3000)
+  --config <path>     Config file (default: ~/.glimmervoid/config.json)
+  --name <label>      Name for the device being paired (with pair)
+  --version           Print the version
+  --help, -h          Print this help`;
 
 const commandLine = parseCommandLine(args);
 
