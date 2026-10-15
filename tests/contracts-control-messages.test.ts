@@ -115,7 +115,6 @@ const SESSION = {
   isCompacting: false,
   pendingWakeup: null,
   pendingPromptKind: null,
-  pendingPromptDetail: null,
   hasPlan: false,
   mergeStatus: 'none',
   mergeReason: null,
@@ -285,45 +284,6 @@ test('session-added and session-modified reject a card that does not name its ag
     assert.equal(ServerMessage.parse(card).agent, 'codex', type);
     const { agent: _omittedAgent, ...cardWithoutAgent } = card;
     assert.equal(ServerMessage.safeParse(cardWithoutAgent).success, false, type);
-  }
-});
-
-test('session-prompt parses with and without a pending prompt detail and rejects a malformed one', () => {
-  const prompt = { type: 'session-prompt', id: 'session-1', pendingPromptKind: 'permission', session: 'glimmervoid', timestamp: NOW };
-  assert.equal(ServerMessage.safeParse(prompt).success, true);
-  assert.equal(ServerMessage.safeParse({ ...prompt, pendingPromptDetail: null }).success, true);
-  const detailed = { ...prompt, pendingPromptDetail: { toolName: 'Bash', summary: 'npm test', isComplete: true } };
-  assert.deepEqual(ServerMessage.parse(detailed), detailed);
-  assert.equal(ServerMessage.safeParse({ ...prompt, pendingPromptDetail: 'npm test' }).success, false);
-  assert.equal(ServerMessage.safeParse({ ...prompt, pendingPromptDetail: { toolName: 'Bash', isComplete: true } }).success, false);
-  assert.equal(ServerMessage.safeParse({ ...prompt, pendingPromptDetail: { toolName: 'Bash', summary: 'npm test' } }).success, false);
-  assert.equal(ServerMessage.safeParse({ ...prompt, pendingPromptDetail: { toolName: 'Bash', summary: 'npm test', isComplete: 'yes' } }).success, false);
-  assert.equal(ServerMessage.safeParse({ ...prompt, pendingPromptDetail: { toolName: 'Bash', summary: 'x'.repeat(161), isComplete: false } }).success, false);
-});
-
-test('session-prompt parses a pending prompt detail with and without an AskUserQuestion question and rejects a malformed one', () => {
-  const prompt = { type: 'session-prompt', id: 'session-1', pendingPromptKind: 'permission', session: 'glimmervoid', timestamp: NOW };
-  const question = { text: 'Which database?', options: ['Postgres', 'SQLite'], multiSelect: false };
-  const detailWith = (questionValue: unknown) => ({ ...prompt, pendingPromptDetail: { toolName: 'AskUserQuestion', summary: '', isComplete: false, question: questionValue } });
-  assert.deepEqual(ServerMessage.parse(detailWith(question)), detailWith(question));
-  assert.deepEqual(ServerMessage.parse(detailWith(null)), detailWith(null));
-  const withoutQuestion = { ...prompt, pendingPromptDetail: { toolName: 'AskUserQuestion', summary: '', isComplete: false } };
-  assert.deepEqual(ServerMessage.parse(withoutQuestion), withoutQuestion);
-  assert.equal(ServerMessage.safeParse(detailWith({ ...question, text: 'q'.repeat(300), options: Array.from({ length: 8 }, () => 'x'.repeat(80)) })).success, true);
-  for (const malformed of [
-    'Which database?',
-    { ...question, text: '' },
-    { ...question, text: 'q'.repeat(301) },
-    { ...question, text: `Which${String.fromCharCode(0x202e)}database?` },
-    { ...question, options: [] },
-    { ...question, options: Array.from({ length: 9 }, () => 'x') },
-    { ...question, options: ['x'.repeat(81)] },
-    { ...question, options: [''] },
-    { ...question, options: [`SQ${String.fromCharCode(0x1b)}Lite`] },
-    { ...question, multiSelect: 'no' },
-    { text: 'Which database?', options: ['Postgres'] },
-  ]) {
-    assert.equal(ServerMessage.safeParse(detailWith(malformed)).success, false, JSON.stringify(malformed));
   }
 });
 
@@ -781,8 +741,8 @@ test('state-change accepts Sane YOLO alongside skipPerms and rejects a non-boole
   assert.equal(ServerMessage.safeParse({ ...change, saneYolo: 'true' }).success, false);
 });
 
-test('session-prompt carries a validated compaction flag beside the prompt detail', () => {
-  const message = { type: 'session-prompt', id: 'session-1', pendingPromptKind: null, pendingPromptDetail: null, isCompacting: true, timestamp: NOW };
+test('session-prompt carries a validated compaction flag beside the prompt kind', () => {
+  const message = { type: 'session-prompt', id: 'session-1', pendingPromptKind: null, isCompacting: true, timestamp: NOW };
   assert.equal(ServerMessage.safeParse(message).success, true);
   assert.equal(ServerMessage.safeParse({ ...message, isCompacting: 'true' }).success, false);
 });

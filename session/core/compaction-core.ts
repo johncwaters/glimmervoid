@@ -1,6 +1,5 @@
 import { STATES } from "../../shared/states.ts";
 import type { SessionState } from "../../shared/states.ts";
-import type { PendingPromptDetail } from "../../shared/contracts/session.ts";
 import { COMPACTION_RESTORE_EVENTS } from "../../shared/compaction-restore-events.ts";
 
 type SettledState = typeof STATES.IDLE | typeof STATES.COMPLETE | typeof STATES.WAITING;
@@ -8,7 +7,7 @@ type SettledState = typeof STATES.IDLE | typeof STATES.COMPLETE | typeof STATES.
 interface CompactionReturnState {
   state: SettledState;
   pendingPromptKind: string | null;
-  pendingPromptDetail: PendingPromptDetail | null;
+  pendingPromptToolName: string | null;
 }
 
 interface CompactionTracking {
@@ -24,7 +23,7 @@ interface CompactionObservation {
   state: SessionState;
   source?: string | null;
   pendingPromptKind?: string | null;
-  pendingPromptDetail?: PendingPromptDetail | null;
+  pendingPromptToolName?: string | null;
 }
 
 function createCompactionTracking(): CompactionTracking {
@@ -34,7 +33,7 @@ function createCompactionTracking(): CompactionTracking {
 function settledStateOf(observation: CompactionObservation): CompactionReturnState | null {
   const { state } = observation;
   if (state !== STATES.IDLE && state !== STATES.COMPLETE && state !== STATES.WAITING) return null;
-  return { state, pendingPromptKind: observation.pendingPromptKind ?? null, pendingPromptDetail: observation.pendingPromptDetail ?? null };
+  return { state, pendingPromptKind: observation.pendingPromptKind ?? null, pendingPromptToolName: observation.pendingPromptToolName ?? null };
 }
 
 function observeCompaction(tracking: CompactionTracking, observation: CompactionObservation): CompactionTracking {

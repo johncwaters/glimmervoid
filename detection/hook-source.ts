@@ -2,7 +2,7 @@ import { errorMessage } from "../shared/text.ts";
 import claudeCode from '../session/adapters/claude-code.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import { HookEnvelope } from '../shared/contracts/index.ts';
-import type { HookPayload, PendingPromptDetail } from '../shared/contracts/index.ts';
+import type { HookPayload } from '../shared/contracts/index.ts';
 
 const { mapHookToSignal, mapHookConfidence, mapHookPromptKind } = claudeCode;
 
@@ -10,7 +10,7 @@ export interface HookProfile {
   mapSignal(event: string, payload?: HookPayload): string | null;
   mapConfidence(event: string, payload?: HookPayload): string | null;
   mapPromptKind(event: string, payload?: HookPayload): string | null;
-  mapPromptDetail?(event: string, payload?: HookPayload): PendingPromptDetail | null;
+  mapPromptToolName?(event: string, payload?: HookPayload): string | null;
   mapPayload?(event: string, payload: HookPayload): HookPayload;
 }
 
@@ -19,7 +19,7 @@ export type HookSignal = {
   source: 'hook';
   confidence?: string;
   promptKind?: string;
-  promptDetail?: PendingPromptDetail;
+  promptToolName?: string;
   ts: number;
 
   event?: string;
@@ -105,15 +105,15 @@ class HookRouter {
     }
     const confidence = hooks.mapConfidence(event, mappedPayload);
     const promptKind = signal === 'awaiting-input' ? hooks.mapPromptKind(event, mappedPayload) : null;
-    const promptDetail = promptKind && typeof hooks.mapPromptDetail === 'function'
-      ? hooks.mapPromptDetail(event, mappedPayload)
+    const promptToolName = promptKind && typeof hooks.mapPromptToolName === 'function'
+      ? hooks.mapPromptToolName(event, mappedPayload)
       : null;
     try {
       entry.onSignal({
         signal, source: 'hook',
         ...(confidence ? { confidence } : {}),
         ...(promptKind ? { promptKind } : {}),
-        ...(promptDetail ? { promptDetail } : {}),
+        ...(promptToolName ? { promptToolName } : {}),
         ts: Date.now(), event, payload: mappedPayload,
       });
     } catch (err) {

@@ -8,7 +8,6 @@ import { createSessionEventWiring } from '../server/session/session-event-wiring
 import { createCustomAdapter } from '../session/adapters/custom.ts';
 import { Session } from '../session/sessions.ts';
 import { ASK_USER_QUESTION_TOOL_NAME } from '../shared/contracts/session.ts';
-import type { PendingPromptDetail } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import { capturingPty } from './helpers/fake-pty.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
@@ -103,17 +102,17 @@ async function bootHarness(session: Session): Promise<WaitingInputHarness> {
   return { session, ptyWrites, acknowledgedIds, sendInput, close };
 }
 
-function claudeCodeAtPermissionPrompt(promptDetail: PendingPromptDetail | undefined = undefined, titleBeforePrompt: string | null = null): Session {
+function claudeCodeAtPermissionPrompt(promptToolName: string | undefined = undefined, titleBeforePrompt: string | null = null): Session {
   const session = new Session({ id: SESSION_ID, name: 'question lane', path: process.cwd() });
   session.state = STATES.RUNNING;
   if (titleBeforePrompt !== null) session._titleSource.feed(titleBeforePrompt);
-  session.ingestHookSignal({ signal: 'awaiting-input', source: 'hook', event: 'PermissionRequest', promptKind: 'permission', promptDetail, ts: Date.now() });
+  session.ingestHookSignal({ signal: 'awaiting-input', source: 'hook', event: 'PermissionRequest', promptKind: 'permission', promptToolName, ts: Date.now() });
   assert.equal(session.state, STATES.WAITING);
   return session;
 }
 
 function claudeCodeAtAskUserQuestion(): Session {
-  return claudeCodeAtPermissionPrompt({ toolName: ASK_USER_QUESTION_TOOL_NAME, summary: '', isComplete: false, question: null });
+  return claudeCodeAtPermissionPrompt(ASK_USER_QUESTION_TOOL_NAME);
 }
 
 test('a Claude Code card stays WAITING while the operator moves through the question, and the notification is acknowledged', async () => {

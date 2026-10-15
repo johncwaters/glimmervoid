@@ -1,11 +1,9 @@
 import { z } from 'zod';
 import { STATES } from '../states.ts';
-import { TOOL_DETAIL_MAX_CHARS } from '../tool-detail.ts';
 import { LinkedPr } from './my-prs.ts';
 
 export const TASK_TITLE_MAX_LENGTH = 120;
 export const TASK_TITLE_CONTROL_CHARACTERS = /[\x00-\x1f\x7f-\x9f]/;
-export const PROMPT_DETAIL_HIDDEN_CHARACTERS = new RegExp(`${TASK_TITLE_CONTROL_CHARACTERS.source}|[\\p{Cf}\\u2028\\u2029]`, 'u');
 export const TaskTitle = z.string().refine((title) => !TASK_TITLE_CONTROL_CHARACTERS.test(title)).trim().max(TASK_TITLE_MAX_LENGTH);
 export const RefinedTaskTitle = z.object({ title: z.string().nullable() }).strict();
 export const SessionState = z.enum(STATES);
@@ -16,24 +14,6 @@ export const PendingWakeup = z.object({
 }).passthrough();
 
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
-const PROMPT_QUESTION_MAX_CHARS = 300;
-const PROMPT_QUESTION_OPTION_MAX_CHARS = 80;
-const PROMPT_QUESTION_MAX_OPTIONS = 8;
-
-const hasNoHiddenCharacters = (text: string) => !PROMPT_DETAIL_HIDDEN_CHARACTERS.test(text);
-
-export const PendingPromptQuestion = z.object({
-  text: z.string().min(1).max(PROMPT_QUESTION_MAX_CHARS).refine(hasNoHiddenCharacters),
-  options: z.array(z.string().min(1).max(PROMPT_QUESTION_OPTION_MAX_CHARS).refine(hasNoHiddenCharacters)).min(1).max(PROMPT_QUESTION_MAX_OPTIONS),
-  multiSelect: z.boolean(),
-});
-
-export const PendingPromptDetail = z.object({
-  toolName: z.string().max(TOOL_DETAIL_MAX_CHARS),
-  summary: z.string().max(TOOL_DETAIL_MAX_CHARS),
-  isComplete: z.boolean(),
-  question: PendingPromptQuestion.nullable().optional(),
-});
 
 export const SessionSnapshot = z.object({
   id: z.string(),
@@ -56,7 +36,6 @@ export const SessionSnapshot = z.object({
   isCompacting: z.boolean().default(false),
   pendingWakeup: PendingWakeup.nullable(),
   pendingPromptKind: z.string().nullable(),
-  pendingPromptDetail: PendingPromptDetail.nullable().default(null),
   hasPlan: z.boolean().default(false),
   mergeStatus: z.string().nullable(),
   mergeReason: z.string().nullable(),
@@ -69,16 +48,6 @@ export const SessionSnapshot = z.object({
 export type SessionState = z.infer<typeof SessionState>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type PendingWakeup = z.infer<typeof PendingWakeup>;
-export type PendingPromptDetail = z.infer<typeof PendingPromptDetail>;
-export type PendingPromptQuestion = z.infer<typeof PendingPromptQuestion>;
-
-export function isSamePromptQuestion(left: PendingPromptQuestion | null | undefined, right: PendingPromptQuestion | null | undefined): boolean {
-  if (!left || !right) return !left && !right;
-  return left.text === right.text
-    && left.multiSelect === right.multiSelect
-    && left.options.length === right.options.length
-    && left.options.every((option, index) => option === right.options[index]);
-}
 
 export const AGENT_URL_ENV = 'GLIMMERVOID_AGENT_URL';
 export const SIGN_URL_ENV = 'GLIMMERVOID_SIGN_URL';

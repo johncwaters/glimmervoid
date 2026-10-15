@@ -236,137 +236,42 @@ test('awaiting-input with promptKind sets pendingPromptKind, surfaces in snapsho
   s.destroy();
 });
 
-const BASH_DETAIL = { toolName: 'Bash', summary: 'npm test', isComplete: true };
+const QUESTION_TOOL_NAME = 'AskUserQuestion';
+const OPTION_DIGIT = '1';
 
-test('a permission request surfaces its detail in the snapshot and on prompt-kind-change', () => {
+test('a question permission request holds WAITING through an option digit, also after its notification', () => {
   const s = makeSession(STATES.RUNNING);
-  const deltas: unknown[] = [];
-  s.on('prompt-kind-change', (e) => deltas.push(e));
-  hook(s, 'awaiting-input', { promptKind: 'permission', promptDetail: BASH_DETAIL });
-  assert.deepEqual(s.toSnapshot().pendingPromptDetail, BASH_DETAIL);
-  assert.deepEqual(deltas, [{ pendingPromptKind: 'permission', pendingPromptDetail: BASH_DETAIL, isCompacting: false }]);
-  s.destroy();
-});
-
-test('a later permission notification keeps the detail of the pending permission request', () => {
-  const s = makeSession(STATES.RUNNING);
-  const deltas: unknown[] = [];
-  s.on('prompt-kind-change', (e) => deltas.push(e));
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptToolName: QUESTION_TOOL_NAME });
   hook(s, 'awaiting-input', { event: 'Notification', promptKind: 'permission' });
-  assert.deepEqual(s.toSnapshot().pendingPromptDetail, BASH_DETAIL);
-  assert.equal(deltas.length, 1);
-  s.destroy();
-});
-
-test('a permission request without a detail clears the detail of the earlier request', () => {
-  const s = makeSession(STATES.RUNNING);
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission' });
-  assert.equal(s.toSnapshot().pendingPromptKind, 'permission');
-  assert.equal(s.toSnapshot().pendingPromptDetail, null);
-  s.destroy();
-});
-
-test('a permission detail does not survive into a new waiting episode', () => {
-  const s = makeSession(STATES.RUNNING);
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
+  s.noteOperatorInput(OPTION_DIGIT);
   assert.equal(s.state, STATES.WAITING);
+  s.destroy();
+});
+
+test('a question tool name does not survive into a new waiting episode', () => {
+  const s = makeSession(STATES.RUNNING);
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptToolName: QUESTION_TOOL_NAME });
   title(s, 'working');
   assert.notEqual(s.state, STATES.WAITING);
-  assert.equal(s.toSnapshot().pendingPromptDetail, null);
   hook(s, 'awaiting-input', { event: 'Notification', promptKind: 'permission' });
-  assert.equal(s.toSnapshot().pendingPromptKind, 'permission');
-  assert.equal(s.toSnapshot().pendingPromptDetail, null);
-  s.destroy();
-});
-
-test('two permission details that differ only in completeness emit twice and store the second', () => {
-  const s = makeSession(STATES.RUNNING);
-  const details: unknown[] = [];
-  s.on('prompt-kind-change', (e) => details.push(e.pendingPromptDetail));
-  const incompleteBashDetail = { ...BASH_DETAIL, isComplete: false };
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: incompleteBashDetail });
-  assert.deepEqual(details, [BASH_DETAIL, incompleteBashDetail]);
-  assert.deepEqual(s.toSnapshot().pendingPromptDetail, incompleteBashDetail);
-  s.destroy();
-});
-
-test('a second permission request with a different detail emits again', () => {
-  const s = makeSession(STATES.RUNNING);
-  const details: unknown[] = [];
-  s.on('prompt-kind-change', (e) => details.push(e.pendingPromptDetail));
-  hook(s, 'awaiting-input', { promptKind: 'permission', promptDetail: BASH_DETAIL });
-  hook(s, 'awaiting-input', { promptKind: 'permission', promptDetail: { toolName: 'Write', summary: '/repo/a.ts', isComplete: false } });
-  assert.deepEqual(details, [BASH_DETAIL, { toolName: 'Write', summary: '/repo/a.ts', isComplete: false }]);
-  s.destroy();
-});
-
-const QUESTION_DETAIL = { toolName: 'AskUserQuestion', summary: '', isComplete: false, question: { text: 'Which database?', options: ['Postgres', 'SQLite'], multiSelect: false } };
-
-test('a second AskUserQuestion with a different question emits again and stores the new question', () => {
-  const s = makeSession(STATES.RUNNING);
-  const details: unknown[] = [];
-  s.on('prompt-kind-change', (e) => details.push(e.pendingPromptDetail));
-  const nextQuestionDetail = { ...QUESTION_DETAIL, question: { ...QUESTION_DETAIL.question, text: 'Which cache?' } };
-  const reorderedOptionsDetail = { ...nextQuestionDetail, question: { ...nextQuestionDetail.question, options: ['SQLite', 'Postgres'] } };
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: QUESTION_DETAIL });
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: { ...QUESTION_DETAIL } });
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: nextQuestionDetail });
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: reorderedOptionsDetail });
-  assert.deepEqual(details, [QUESTION_DETAIL, nextQuestionDetail, reorderedOptionsDetail]);
-  assert.deepEqual(s.toSnapshot().pendingPromptDetail, reorderedOptionsDetail);
-  s.destroy();
-});
-
-test('an AskUserQuestion that loses its answerable question emits again', () => {
-  const s = makeSession(STATES.RUNNING);
-  const details: unknown[] = [];
-  s.on('prompt-kind-change', (e) => details.push(e.pendingPromptDetail));
-  const unanswerableDetail = { ...QUESTION_DETAIL, question: null };
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: QUESTION_DETAIL });
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: unanswerableDetail });
-  assert.deepEqual(details, [QUESTION_DETAIL, unanswerableDetail]);
-  s.destroy();
-});
-
-test('two different permission requests in one waiting episode keep the detail incomplete for the rest of it', () => {
-  const s = makeSession(STATES.RUNNING);
-  const writeDetail = { toolName: 'Write', summary: '/repo/a.ts', isComplete: true };
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: writeDetail });
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
-  assert.deepEqual(s.toSnapshot().pendingPromptDetail, { ...BASH_DETAIL, isComplete: false });
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
-  assert.deepEqual(s.toSnapshot().pendingPromptDetail, { ...BASH_DETAIL, isComplete: false });
-  hook(s, 'awaiting-input', { event: 'Notification', promptKind: 'permission' });
-  assert.deepEqual(s.toSnapshot().pendingPromptDetail, { ...BASH_DETAIL, isComplete: false });
-  s.destroy();
-});
-
-test('a single complete permission request in a new waiting episode is complete again after a queued one', () => {
-  const s = makeSession(STATES.RUNNING);
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: { toolName: 'Write', summary: '/repo/a.ts', isComplete: true } });
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
-  title(s, 'working');
+  s.noteOperatorInput(OPTION_DIGIT);
   assert.notEqual(s.state, STATES.WAITING);
-  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
-  assert.equal(s.state, STATES.WAITING);
-  assert.deepEqual(s.toSnapshot().pendingPromptDetail, BASH_DETAIL);
   s.destroy();
 });
 
-test('the prompt detail clears when the kind changes away from permission', () => {
-  const s = makeSession(STATES.RUNNING);
-  hook(s, 'awaiting-input', { promptKind: 'permission', promptDetail: BASH_DETAIL });
-  hook(s, 'awaiting-input', { promptKind: 'elicitation', promptDetail: BASH_DETAIL });
-  assert.equal(s.toSnapshot().pendingPromptDetail, null);
-  hook(s, 'awaiting-input', { promptKind: 'permission', promptDetail: BASH_DETAIL });
-  title(s, 'working');
-  assert.equal(s.toSnapshot().pendingPromptKind, null);
-  assert.equal(s.toSnapshot().pendingPromptDetail, null);
-  s.destroy();
-});
+for (const [description, nextPrompt] of [
+  ['a permission request without a tool name', { event: 'PermissionRequest', promptKind: 'permission' }],
+  ['an elicitation', { promptKind: 'elicitation', promptToolName: QUESTION_TOOL_NAME }],
+] as const) {
+  test(`${description} after a question lets an option digit end WAITING`, () => {
+    const s = makeSession(STATES.RUNNING);
+    hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptToolName: QUESTION_TOOL_NAME });
+    hook(s, 'awaiting-input', nextPrompt);
+    s.noteOperatorInput(OPTION_DIGIT);
+    assert.notEqual(s.state, STATES.WAITING);
+    s.destroy();
+  });
+}
 
 test('awaiting-input with no promptKind leaves pendingPromptKind null (no false chip)', () => {
   const s = makeSession(STATES.RUNNING);
@@ -1457,11 +1362,11 @@ test('a low-confidence hook ready still completes from RUNNING (quiescence confi
 
 for (const state of [STATES.IDLE, STATES.COMPLETE, STATES.WAITING]) {
   for (const endSignal of ['compaction-end', 'session-start']) {
-    test(`idle compaction restores ${state} on ${endSignal} and retains prompt detail`, (t) => {
+    test(`idle compaction restores ${state} on ${endSignal} and retains the prompt tool name`, (t) => {
       t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
       const session = makeSession(state);
       t.after(() => session.destroy());
-      if (state === STATES.WAITING) session._setPendingPromptKind('permission', BASH_DETAIL);
+      if (state === STATES.WAITING) session._setPendingPromptKind('permission', QUESTION_TOOL_NAME);
       const details: { isCompacting: boolean }[] = [];
       session.on('prompt-kind-change', (detail) => details.push(detail));
       let postTurnChecks = 0;
@@ -1481,7 +1386,8 @@ for (const state of [STATES.IDLE, STATES.COMPLETE, STATES.WAITING]) {
       assert.equal(postTurnChecks, 0);
       assert.equal(attentionRequests, 0);
       assert.equal(session.toSnapshot().pendingPromptKind, state === STATES.WAITING ? 'permission' : null);
-      assert.deepEqual(session.toSnapshot().pendingPromptDetail, state === STATES.WAITING ? BASH_DETAIL : null);
+      session.noteOperatorInput(OPTION_DIGIT);
+      assert.equal(session.state, state);
       assert.equal(session._titleQuiet, true);
     });
   }
@@ -1562,12 +1468,13 @@ test('mid-turn compaction at a permission prompt remains WAITING until the answe
   const session = makeSession(STATES.IDLE);
   t.after(() => session.destroy());
   hook(session, 'resume', { event: 'UserPromptSubmit' });
-  hook(session, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
+  hook(session, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptToolName: QUESTION_TOOL_NAME });
   hook(session, 'compaction-start', { event: 'PreCompact', payload: { trigger: 'auto' } });
   hook(session, 'compaction-end', { event: 'PostCompact', payload: { trigger: 'auto' } });
   assert.equal(session.state, STATES.WAITING);
   assert.equal(session.toSnapshot().pendingPromptKind, 'permission');
-  assert.deepEqual(session.toSnapshot().pendingPromptDetail, BASH_DETAIL);
+  session.noteOperatorInput(OPTION_DIGIT);
+  assert.equal(session.state, STATES.WAITING);
 });
 
 test('clearing a session during compaction removes the compacting detail', () => {

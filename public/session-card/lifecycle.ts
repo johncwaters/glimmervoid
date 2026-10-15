@@ -2,7 +2,6 @@ import { isCompactionRestoreEvent } from '#shared/compaction-restore-events.ts';
 import { localHourMinuteText } from '#shared/display-text.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { PlanDraftPush } from '#shared/contracts/plan-review.ts';
-import type { PendingPromptDetail } from '#shared/contracts/session.ts';
 import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATE_GLYPHS, STATES } from '#shared/states.ts';
 import { playAlertSound } from '../alert-sound.ts';
@@ -358,7 +357,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     isBorrowed: false,
     hasPlan: false,
     pendingPromptKind: null,
-    pendingPromptDetail: null,
     planReviewState: { reviews: [] },
     planFace,
   };
@@ -533,11 +531,10 @@ export function setSessionUsage(sessionId: unknown, usage: UsageSessionUsage | n
   });
 }
 
-export function setSessionPrompt(sessionId: unknown, kind: unknown, detail: PendingPromptDetail | null = null, isCompacting = false) {
+export function setSessionPrompt(sessionId: unknown, kind: unknown, isCompacting = false) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.pendingPromptKind = typeof kind === 'string' ? kind : null;
-  ui.pendingPromptDetail = detail;
   paintCardBadge(ui, '.prompt-badge', 'prompt', {
     on: !!kind || isCompacting,
     value: isCompacting ? 'compacting' : asText(kind),

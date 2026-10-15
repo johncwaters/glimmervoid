@@ -20,7 +20,6 @@ function snapshotSource() {
     awaitingBackgroundTasks: false,
     pendingWakeup: null,
     pendingPromptKind: null,
-    pendingPromptDetail: null,
     hasPlan: false,
     mergeStatus: "pending-review",
     mergeReason: null,

@@ -26,7 +26,7 @@ import { unrefTimer } from "../shared/timer-deps.ts";
 import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
 import { commitSigningEnv } from "./core/commit-signing-env.ts";
 import { permitsHelpCommand } from "./core/session-routes.ts";
-import { ASK_USER_QUESTION_TOOL_NAME, isSamePromptQuestion, type AgentAttentionReply, type PendingPromptDetail } from "../shared/contracts/session.ts";
+import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply } from "../shared/contracts/session.ts";
 import { generateToken } from "../detection/settings-injector.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
@@ -94,37 +94,17 @@ function signalablePid(pid: unknown): number | null {
   return parsed;
 }
 
-function nextPendingPromptDetail(
+function nextPendingPromptToolName(
   currentKind: string | null,
-  currentDetail: PendingPromptDetail | null,
+  currentToolName: string | null,
   nextKind: string | null,
-  incomingDetail: PendingPromptDetail | null,
-  mayInheritCurrentDetail: boolean,
-): PendingPromptDetail | null {
+  incomingToolName: string | null,
+  mayInheritCurrentToolName: boolean,
+): string | null {
   if (nextKind !== "permission") return null;
-  if (incomingDetail) return incomingDetail;
-  if (mayInheritCurrentDetail && currentKind === "permission") return currentDetail;
+  if (incomingToolName) return incomingToolName;
+  if (mayInheritCurrentToolName && currentKind === "permission") return currentToolName;
   return null;
-}
-
-function isSamePromptDetail(left: PendingPromptDetail | null, right: PendingPromptDetail | null): boolean {
-  if (left === right) return true;
-  if (!left || !right) return false;
-  return left.toolName === right.toolName
-    && left.summary === right.summary
-    && left.isComplete === right.isComplete
-    && isSamePromptQuestion(left.question, right.question);
-}
-
-function isDifferentPermissionDialog(
-  currentKind: string | null,
-  currentDetail: PendingPromptDetail | null,
-  incomingDetail: PendingPromptDetail | null,
-): boolean {
-  if (currentKind !== "permission" || !currentDetail || !incomingDetail) return false;
-  return currentDetail.toolName !== incomingDetail.toolName
-    || currentDetail.summary !== incomingDetail.summary
-    || !isSamePromptQuestion(currentDetail.question, incomingDetail.question);
 }
 
 const DISMISSIBLE_STATES: Set<SessionState> = new Set([STATES.WAITING, STATES.COMPLETE]);
@@ -310,8 +290,7 @@ class Session extends EventEmitter {
   _lastSignal: Record<string, unknown> | null;
   _compaction: CompactionTracking;
   _pendingPromptKind: string | null;
-  _pendingPromptDetail: PendingPromptDetail | null;
-  _hasQueuedPermissionDialogsThisEpisode: boolean;
+  _pendingPromptToolName: string | null;
   _pendingAttentionNotes: string[];
   _titleQuiet: boolean;
   _spawnCommand: ResolvedCommand | null;
@@ -513,8 +492,7 @@ class Session extends EventEmitter {
 
     this._compaction = createCompactionTracking();
     this._pendingPromptKind = null;
-    this._pendingPromptDetail = null;
-    this._hasQueuedPermissionDialogsThisEpisode = false;
+    this._pendingPromptToolName = null;
     this._pendingAttentionNotes = [];
 
     this._titleQuiet = false;
@@ -829,14 +807,7 @@ class Session extends EventEmitter {
 
     if (raw && raw.signal === "awaiting-input") {
       const isNotificationInSameWaitingEpisode = String(raw.event || "").toLowerCase() === "notification" && this.state === STATES.WAITING;
-      const incomingDetail = raw.promptDetail ?? null;
-      if (this.state === STATES.WAITING && isDifferentPermissionDialog(this._pendingPromptKind, this._pendingPromptDetail, incomingDetail)) {
-        this._hasQueuedPermissionDialogsThisEpisode = true;
-      }
-      const detailForDisplay = incomingDetail && this._hasQueuedPermissionDialogsThisEpisode
-        ? { ...incomingDetail, isComplete: false }
-        : incomingDetail;
-      this._setPendingPromptKind(raw.promptKind || null, detailForDisplay, isNotificationInSameWaitingEpisode);
+      this._setPendingPromptKind(raw.promptKind || null, raw.promptToolName ?? null, isNotificationInSameWaitingEpisode);
     }
     if (raw && raw.signal === "session-start") this._onSessionStartHook(raw);
     if (raw && raw.signal === "resume") {
@@ -916,12 +887,11 @@ class Session extends EventEmitter {
     this.emit("claude-session-id", event);
   }
 
-  _setPendingPromptKind(kind: string | null, detail: PendingPromptDetail | null = null, mayInheritCurrentDetail = false): void {
+  _setPendingPromptKind(kind: string | null, toolName: string | null = null, mayInheritCurrentToolName = false): void {
     const next = kind || null;
-    const nextDetail = nextPendingPromptDetail(this._pendingPromptKind, this._pendingPromptDetail, next, detail, mayInheritCurrentDetail);
-    if (next === this._pendingPromptKind && isSamePromptDetail(nextDetail, this._pendingPromptDetail)) return;
+    this._pendingPromptToolName = nextPendingPromptToolName(this._pendingPromptKind, this._pendingPromptToolName, next, toolName, mayInheritCurrentToolName);
+    if (next === this._pendingPromptKind) return;
     this._pendingPromptKind = next;
-    this._pendingPromptDetail = nextDetail;
     this._emitSessionDetail();
   }
 
@@ -931,7 +901,7 @@ class Session extends EventEmitter {
     this._compaction = observeCompaction(this._compaction, {
       signal, source, state: this.state,
       pendingPromptKind: this._pendingPromptKind,
-      pendingPromptDetail: this._pendingPromptDetail,
+      pendingPromptToolName: this._pendingPromptToolName,
     });
     if (this._compaction.isCompacting !== wasCompacting) this._emitSessionDetail();
   }
@@ -939,7 +909,6 @@ class Session extends EventEmitter {
   _emitSessionDetail(): void {
     this.emit("prompt-kind-change", {
       pendingPromptKind: this._pendingPromptKind,
-      pendingPromptDetail: this._pendingPromptDetail,
       isCompacting: this._compaction.isCompacting,
     });
   }
@@ -953,7 +922,7 @@ class Session extends EventEmitter {
     }
     if (finished.event) {
       this.transition(finished.event, { source: "hook", signal: "compaction-end" });
-      this._setPendingPromptKind(finished.returnState?.pendingPromptKind ?? null, finished.returnState?.pendingPromptDetail ?? null);
+      this._setPendingPromptKind(finished.returnState?.pendingPromptKind ?? null, finished.returnState?.pendingPromptToolName ?? null);
     }
     this._emitSessionDetail();
   }
@@ -1307,7 +1276,6 @@ class Session extends EventEmitter {
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
       pendingWakeup: this.backgroundTracking.pendingWakeup(),
       pendingPromptKind: this._pendingPromptKind,
-      pendingPromptDetail: this._pendingPromptDetail,
       isCompacting: this._compaction.isCompacting,
       hasPlan: this._planReviewPort?.hasPlan(this.id) === true,
       mergeStatus: this.mergeStatus,
@@ -1362,7 +1330,6 @@ class Session extends EventEmitter {
     }
 
     if (from === STATES.WAITING) {
-      this._hasQueuedPermissionDialogsThisEpisode = false;
       this._setPendingPromptKind(null);
     }
 
@@ -1771,7 +1738,7 @@ class Session extends EventEmitter {
       state: this.state,
       hasHookAwaitingInput: this._can("hooks") && this._can("awaitingInput"),
       pendingPromptKind: this._pendingPromptKind,
-      isQuestionPrompt: this._pendingPromptDetail?.toolName === ASK_USER_QUESTION_TOOL_NAME,
+      isQuestionPrompt: this._pendingPromptToolName === ASK_USER_QUESTION_TOOL_NAME,
       input,
     });
     if (decision === "end-waiting") {

@@ -2,7 +2,6 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { WebglAddon } from '@xterm/addon-webgl';
 import type { Terminal } from '@xterm/xterm';
 import type { PlanReviewState } from '#shared/contracts/plan-review.ts';
-import type { PendingPromptDetail } from '#shared/contracts/session.ts';
 import type { createPlanFace } from '../plan/plan-face.ts';
 import type { SessionCardFace } from './face-core.ts';
 import type { TerminalGrid } from './grid-core.ts';
@@ -48,7 +47,6 @@ export interface SessionUi {
   isBorrowed: boolean;
   hasPlan: boolean;
   pendingPromptKind: string | null;
-  pendingPromptDetail: PendingPromptDetail | null;
   planReviewState: PlanReviewState;
   planFace: PlanFaceController;
   effectiveBase?: string;
