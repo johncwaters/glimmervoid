@@ -23,6 +23,7 @@ import { resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
 import { resolveWorkLane } from '../lanes/work-lane.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
 import type { FactoryCloseOutWorker } from './factory-closeout.ts';
+import { resolveFactoryProfile } from './core/factory-profile-core.ts';
 
 const FACTORY_WORKER_DENY = Object.freeze(['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', ...LANE_CONFIG_EDIT_DENY_RULES]);
 
@@ -154,9 +155,10 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         });
         if (!admission.admit) return refuse(admission.reason, admission.exception);
         pendingRefusals.delete(projectId);
-        const checks = config.factory?.checks ?? DEFAULT_FACTORY_CHECKS;
+        const profile = resolveFactoryProfile(config.factory, project);
+        const checks = profile.checks ?? DEFAULT_FACTORY_CHECKS;
         const posture = await resolveWorkLane({
-          cwd: project.path, deferWorktree: true, allowCommands: ['coherence context', 'rm', ...checks], extraDeny: FACTORY_WORKER_DENY,
+          cwd: project.path, deferWorktree: true, allowCommands: ['coherence context', 'rm', ...checks, ...(profile.focusedTestCommand ? [profile.focusedTestCommand] : [])], extraDeny: FACTORY_WORKER_DENY,
         }, { ...workLane, resolveSaneYoloHookTools: () => resolveSaneYoloHookTools(config) });
         if (!posture.ok) return refuse(posture.reason === 'Sane YOLO is unavailable' ? FACTORY_SANE_YOLO_UNAVAILABLE : posture.reason, true);
         if (!order || !intent || !isAuthorized()) return refuse('factory orchestrator is no longer live');
@@ -181,7 +183,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
             ...coherence, ...posture.sessionOverrides,
             agent: 'claude-code', ephemeral: true, factoryRole: 'worker', requireWorktree: true, dangerouslySkipPermissions: false,
             gitIsolation: { disableRepoCommands: true },
-            initialPrompt: buildWorkerPrompt({ projectName: project.name, intent, order, claudeSessionId, checks }),
+            initialPrompt: buildWorkerPrompt({ projectName: project.name, intent, order, claudeSessionId, checks, focusedTestCommand: profile.focusedTestCommand }),
             extraClaudeArgs: [...coherence.extraClaudeArgs, ...posture.sessionOverrides.extraClaudeArgs],
             spawnEnv: { ...coherence.spawnEnv, ...posture.sessionOverrides.spawnEnv, ...FACTORY_WORKER_SHELL_ENV },
           });

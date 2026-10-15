@@ -298,6 +298,7 @@ test('a turn end matches the lowercase stop event the hook relay delivers and no
 test('worker prompt leaves committing to Glimmervoid and states that shell commands cannot write git data', async () => {
   const [order] = CoherenceWorkInspect.parse(await readFixture('work-dispatch')).work;
   const prompt = buildWorkerPrompt({ projectName: 'Factory', intent: order, order, claudeSessionId: 'conversation' });
+  assert.ok(prompt.includes('Run these checks before finishing:'));
   assert.ok(prompt.includes('Edits can write only inside this worktree.'));
   assert.ok(prompt.includes('cannot write any git data'));
   assert.ok(prompt.includes('never run git add or git commit'));

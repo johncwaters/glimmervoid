@@ -188,6 +188,24 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.equal(reopened?.last?.session, 'glimmervoid-factory');
 });
 
+test('dispatch gives workers the project profile checks and focused test command under dontAsk', async (context) => {
+  const fixture = await createFixture(context);
+  fixture.config.factory = { enabled: true, checks: ['global-check'] };
+  fixture.config.projects[0].factoryProfile = { checks: ['npm run lint'], focusedTestCommand: 'npm run test:files' };
+  const reply = await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId });
+  if (!reply.ok) throw new Error(reply.reason);
+  const overrides = fixture.spawned[0].overrides;
+  assert.equal(overrides.settingsPermissions?.defaultMode, 'dontAsk');
+  const allowedCommands = overrides.settingsPermissions?.allow;
+  assert.ok(Array.isArray(allowedCommands));
+  assert.deepEqual(allowedCommands.slice(1), [
+    'Bash(coherence context:*)', 'Bash(rm:*)', 'Bash(npm run lint:*)', 'Bash(npm run test:files:*)',
+  ]);
+  assert.ok(overrides.initialPrompt?.includes('run the test files you touched with npm run test:files <file>'));
+  assert.ok(overrides.initialPrompt?.includes('Run the full checks once at the end before finishing: ["npm run lint"]'));
+  assert.equal(overrides.initialPrompt?.includes('global-check'), false);
+});
+
 test('the session factory wraps an ordinary Claude session unless it is marked unconfined, and leaves a caller\'s own sandbox choice alone', () => {
   const wrappedSessionIds: string[] = [];
   const makeSession = createSessionFactory({ configStore: { configPath: path.join(os.tmpdir(), 'config.json') },
