@@ -631,22 +631,31 @@ function toCheckoutRelativePath(location: string, checkoutPaths: readonly string
   return normalizeScope(location.slice(checkoutPath.length + 1));
 }
 
+export function listFailingTestFiles({ output, checkoutPaths }: {
+  output: string; checkoutPaths: readonly string[];
+}): string[] {
+  const lines = stripVTControlCharacters(output).split(/\r?\n/);
+  const failingFiles = new Set<string>();
+  const normalizedCheckoutPaths = checkoutPaths.map((checkoutPath) => checkoutPath.replace(/\\/g, '/'));
+  for (const location of listTapFailureLocations(lines)) {
+    const normalizedLocation = location.replace(/\\/g, '/');
+    const repoPath = toCheckoutRelativePath(normalizedLocation, normalizedCheckoutPaths) ?? normalizeScope(normalizedLocation);
+    if (!repoPath || repoPath.split('/').includes('node_modules')) continue;
+    failingFiles.add(repoPath);
+  }
+  return [...failingFiles].sort();
+}
+
 export function listFailingTestFilesOutsideScopes({ output, checkoutPaths, writeScopes }: {
   output: string; checkoutPaths: readonly string[]; writeScopes: readonly string[];
 }): string[] {
   const scopes = writeScopes.map(normalizeScope).filter((scope) => scope !== null);
-  const lines = output.split(/\r?\n/);
-  const outsideFiles = new Set<string>();
-  for (const location of listTapFailureLocations(lines)) {
-    const repoPath = toCheckoutRelativePath(location, checkoutPaths);
-    if (!repoPath || repoPath.split('/').includes('node_modules')) continue;
-    if (!scopes.some((scope) => containsScope(scope, repoPath))) outsideFiles.add(repoPath);
-  }
-  return [...outsideFiles].sort();
+  return listFailingTestFiles({ output, checkoutPaths }).filter((repoPath) => !scopes.some((scope) => containsScope(scope, repoPath)));
 }
 
 const DIAGNOSTIC_PATH_SOURCE = String.raw`[\w@+-][\w@.+-]*(?:\/[\w@.+-]+)*\.\w+`;
-const LOCATED_DIAGNOSTIC_PATTERN = new RegExp(String.raw`(${DIAGNOSTIC_PATH_SOURCE})(?::\d+(?::\d+)?|\(\d+,\d+\)):?\s+(\S.*)$`);
+const MAX_DIAGNOSTIC_LINE_CHARS = 2000;
+const LOCATED_DIAGNOSTIC_PATTERN = new RegExp(String.raw`(?<![\w@.+/-])(${DIAGNOSTIC_PATH_SOURCE})(?::\d+(?::\d+)?|\(\d+,\d+\)):?\s+(\S.*)$`);
 const UNLOCATED_BIOME_HEADER_PATTERN = new RegExp(String.raw`^(${DIAGNOSTIC_PATH_SOURCE}) +([^\s\u2500-\u257f][^\u2500-\u257f]*)[\u2500-\u257f]+\s*$`);
 const BOX_DRAWING_CHARACTERS_PATTERN = /[\u2500-\u257f]/g;
 
@@ -672,6 +681,7 @@ function toDiagnosticKey(path: string, message: string): string {
 function listDiagnostics(lines: readonly string[]): { path: string; message: string; output: string; isBehindPrefix: boolean }[] {
   return lines.flatMap((line) => {
     const diagnosticLine = line.trimStart().replace(/^\.\//, '');
+    if (diagnosticLine.length > MAX_DIAGNOSTIC_LINE_CHARS) return [];
     const diagnostic = LOCATED_DIAGNOSTIC_PATTERN.exec(diagnosticLine) ?? UNLOCATED_BIOME_HEADER_PATTERN.exec(diagnosticLine);
     if (!diagnostic) return [];
     return [{ path: diagnostic[1], message: diagnostic[2], output: diagnosticLine.replace(BOX_DRAWING_CHARACTERS_PATTERN, ' ').trimEnd(), isBehindPrefix: diagnostic.index > 0 }];
