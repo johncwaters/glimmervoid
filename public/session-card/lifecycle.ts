@@ -54,8 +54,8 @@ import { applyTerminalFontFamily } from '../mono-font-core.ts';
 const AGGREGATE_GLYPHS: Record<string, string> = {
   critical: STATE_GLYPHS[STATES.FAILED],
   warning:  STATE_GLYPHS[STATES.WAITING],
-  done:     '✓',
-  '':       '▸',
+  done:     STATE_GLYPHS[STATES.DONE],
+  '':       STATE_GLYPHS[STATES.DORMANT],
 };
 
 let _lastAggregateText: string | null = null;

@@ -1,5 +1,6 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { PendingPromptDetail } from '#shared/contracts/session.ts';
+import { STATE_GLYPHS, STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
@@ -19,7 +20,8 @@ import { canReplyToFinishedSession, countByTier, decideArmedAdvance, formatWaitT
 import type { TimedKeystroke } from './permission-keys-core.ts';
 import { answerWithOptionKeystrokes, answerWithTextKeystrokes, approveKeystrokes, decideInstructionDelivery, INSTRUCTION_POLL_INTERVAL_MS, isAnyPromptShowing, rejectAndInstructKeystrokes, replyKeystrokes } from './permission-keys-core.ts';
 
-const glyphByTier = { now: '\u25b2', next: '\u25a0', later: '\u2713', ready: '\u25cb', working: '\u00b7', resting: '\u00b7' };
+const glyphByTier = { now: STATE_GLYPHS[STATES.WAITING], next: STATE_GLYPHS[STATES.FAILED], later: STATE_GLYPHS[STATES.COMPLETE], ready: STATE_GLYPHS[STATES.IDLE], working: '\u00b7', resting: '\u00b7' };
+const glyphByState: ReadonlyMap<string, string> = new Map(Object.entries(STATE_GLYPHS));
 interface CalmNavigation { openTerminal: (id: string) => void; openPlan: (id: string) => void; onSheetOpenChange?: (isOpen: boolean) => void }
 interface CalmSurface { kind: 'desktop' | 'phone'; root: HTMLElement; navigation: CalmNavigation }
 let desktopSurface: CalmSurface | null = null;
@@ -303,12 +305,13 @@ function openPanel(row: CalmRow) {
   selectedFingerprint = JSON.stringify([row, ui.planReviewState]);
   panel = el('article', 'calm-panel');
   panel.dataset.tier = tierOf(row);
+  panel.dataset.state = row.state;
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-label', `${row.name}, ${choice.component}`);
   trapFocus(panel);
   const header = el('header', 'calm-panel-header');
-  const panelTitle = el('span', 'calm-panel-title', `${glyphByTier[tierOf(row)]} ${row.name} ${panelContextFor(row, choice.component)}`);
+  const panelTitle = el('span', 'calm-panel-title', `${glyphByState.get(row.state) ?? glyphByTier[tierOf(row)]} ${row.name} ${panelContextFor(row, choice.component)}`);
   panelTitle.tabIndex = -1;
   header.append(panelTitle, createButton('Terminal', 'calm-link', () => openTerminalFromQueue(row.id)));
   header.append(createButton('Close', 'calm-link', dismissPanel));
