@@ -80,6 +80,7 @@ export const CoherenceWorkInspect = z.looseObject({
       event: z.string(),
       at: z.string(),
       session: z.string(),
+      reason: z.string().optional(),
     }).nullable(),
     opened: z.looseObject({
       at: z.iso.datetime(),

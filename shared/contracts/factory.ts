@@ -6,6 +6,9 @@ export const FactoryConsequences = z.looseObject({
   records: z.array(z.looseObject({ from: z.object({ kind: z.string(), id: z.string() }), relation: z.string(), to: z.object({ kind: z.string(), id: z.string() }), session: z.string().optional(), evidence: z.string().optional() })),
 });
 
+export const FACTORY_INTENT_CONFIRMED_FLAKE_LIMIT = 256;
+const confirmedFlakes = z.array(z.string().min(1)).max(FACTORY_INTENT_CONFIRMED_FLAKE_LIMIT);
+
 export const FactoryProjectState = z.object({
   projectId: z.string(),
   projectName: z.string(),
@@ -18,6 +21,8 @@ export const FactoryProjectState = z.object({
   spentTodayUsd: z.number().finite().nonnegative().optional(),
   dailyBudgetUsd: z.number().finite().nonnegative().nullable().optional(),
   verifierIntentIds: z.array(z.string()).optional(),
+  confirmedFlakesByIntent: z.record(z.string().min(1), confirmedFlakes).optional(),
+  partialIntentIds: z.array(z.string()).optional(),
   error: z.string().nullable(),
   heading: z.object({ action: CoherenceOrient.shape.action, reasons: z.array(z.string()) }),
   orders: z.array(z.object({
@@ -33,6 +38,7 @@ export const FactoryProjectState = z.object({
     dependsOn: z.array(z.string()),
     writeScopes: z.array(z.string()),
     owner: z.string().nullable(),
+    blockReason: z.string().nullable().optional(),
     lastEvent: z.object({ event: z.string(), at: z.string(), session: z.string() }).nullable(),
   })),
   conflicts: z.array(z.object({ left: z.string(), right: z.string(), scope: z.string() })),
@@ -138,6 +144,7 @@ export const FactoryLaneState = z.object({
   trustedIntentIds: z.array(z.string().min(1)).optional(),
   intentWriteScopes: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
   intentFloorAllowances: z.record(z.string().min(1), floorAllowances).optional(),
+  intentConfirmedFlakes: z.record(z.string().min(1), confirmedFlakes).optional(),
   ticketedIntentIds: z.array(z.string().min(1)).optional(),
   pendingIntentTickets: z.record(z.string().min(1), z.object({
     risk: CoherenceRisk, boundary: intentText, tickets: z.array(FactoryIntentTicket).min(1).max(FACTORY_INTENT_TICKET_LIMIT),
