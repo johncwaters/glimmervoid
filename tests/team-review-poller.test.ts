@@ -551,6 +551,47 @@ test('not mine cancels a running review, drops a waiting one before it spawns, a
   await poller.stop();
 });
 
+test('not mine on a pull request still waiting behind an earlier dispatch drops it instead of failing', async () => {
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate'), searchItem(2, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  github.heads.set(2, HEAD_ONE);
+  let releaseFirstView = () => {};
+  const firstViewGate = new Promise<void>((resolve) => { releaseFirstView = resolve; });
+  const viewPr = github.viewPr;
+  github.viewPr = async (repo, number) => {
+    if (number === 1) await firstViewGate;
+    return viewPr(repo, number);
+  };
+  void poller.start();
+  await settle();
+  assert.deepEqual(await poller.markNotMine(`${REPO}#2`), { ok: true });
+  releaseFirstView();
+  await settle();
+  assert.deepEqual(spawned.map((args) => args.candidate.key), [`${REPO}#1`]);
+  assert.equal(poller.getDraft(`${REPO}#2`)?.status, 'discarded');
+  await poller.stop();
+});
+
+test('a fork marked not mine and requeued returns to hand review without an empty draft', async () => {
+  const key = `${REPO}#5`;
+  const { poller, github, spawned, statuses } = setup();
+  github.requested = [searchItem(5, 'teammate')];
+  github.heads.set(5, HEAD_ONE);
+  github.viewPr = async (_repo, number) => prDetail(number, HEAD_ONE, { isCrossRepository: true });
+  await poller.start();
+  await settle();
+  assert.deepEqual(await poller.markNotMine(key), { ok: true });
+  assert.deepEqual(statuses.at(-1)?.handReview, []);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 0);
+  assert.deepEqual(statuses.at(-1)?.drafts.filter((draft) => draft.key === key), []);
+  assert.deepEqual(statuses.at(-1)?.handReview.map((queued) => queued.key), [key]);
+  await poller.stop();
+});
+
 test('saved drafts are published at start before the first GitHub search finishes', async () => {
   const key = `${REPO}#1`;
   const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate', requestSource: 'team' as const };

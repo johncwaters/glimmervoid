@@ -422,19 +422,26 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return isDirty;
   }
 
+  function leaveSlotQueue(key: string): void {
+    waitingForSlot = waitingForSlot.filter((queued) => queued.key !== key);
+  }
+
   async function startReviews(queue: TeamReviewCandidate[]): Promise<boolean> {
     hasSlotFreedSinceSlotCount = false;
     let freeSlots = maxConcurrentReviews - inFlightKeys().length;
     let isDirty = false;
-    waitingForSlot = [];
-    for (const [index, candidate] of queue.entries()) {
-      if (loop.isStopped()) break;
-      if (freeSlots <= 0) {
-        waitingForSlot = queue.slice(index);
+    waitingForSlot = queue.filter((queued) => state[queued.key]?.draft?.status !== 'discarded');
+    for (const candidate of queue) {
+      if (loop.isStopped()) {
+        waitingForSlot = [];
         break;
       }
+      if (freeSlots <= 0) break;
       const detail = await github.viewPr(candidate.repo, candidate.number);
-      if (!detail) continue;
+      if (!detail) {
+        leaveSlotQueue(candidate.key);
+        continue;
+      }
       const triage = core.triagePr(detail);
       const entry = entryFor(candidate.key);
       const resumeAction = core.resumeDecision(entry, detail.headRefOid, now());
@@ -444,6 +451,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         entry.resumable = null;
         await persist();
       }
+      leaveSlotQueue(candidate.key);
       if (entry.draft?.status === 'discarded') {
         if (resume) await discardResumable(resume);
         continue;
@@ -580,6 +588,13 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     entry.reviewAttempts = 0;
     entry.reviewedHead = null;
     entry.requeuedHead = entry.liveHead ?? head;
+    if (core.isUnreviewedDraft(entry.draft)) {
+      entry.draft = null;
+      entry.updatedAt = now();
+      await persist();
+      emitStatus();
+      return true;
+    }
     if (entry.draft.status === 'discarded') {
       entry.discardedReviewHead = entry.draft.reviewedHead;
       entry.draft = { ...entry.draft, status: 'stale' };
@@ -591,13 +606,15 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return true;
   }
 
+  function cancelReviewAsNotMine(key: string): NotMineOutcome {
+    notMineWhileReviewingKeys.add(key);
+    reviewCancellersByKey.get(key)?.abort();
+    return { ok: true };
+  }
+
   async function markNotMine(key: string): Promise<NotMineOutcome> {
     const entry = state[key];
-    if (entry?.inFlight) {
-      notMineWhileReviewingKeys.add(key);
-      reviewCancellersByKey.get(key)?.abort();
-      return { ok: true };
-    }
+    if (entry?.inFlight) return cancelReviewAsNotMine(key);
     if (entry?.draft?.status === 'posted') return { ok: false, error: 'That review was already posted' };
     if (entry?.draft && !isThreadPlaceholderDraft(entry.draft)) {
       entry.draft = { ...entry.draft, status: 'discarded' };
@@ -607,6 +624,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     if (!candidate) return { ok: false, error: 'That pull request is no longer in the review queue' };
     const head = entry?.liveHead ?? await github.prHead(candidate.repo, candidate.number);
     if (!head) return { ok: false, error: 'Could not read the pull request head from GitHub' };
+    if (state[key]?.inFlight) return cancelReviewAsNotMine(key);
     const notMineEntry = entryFor(key);
     notMineEntry.draft = core.notMineDraft(candidate, head);
     notMineEntry.reviewedHead = head;
