@@ -35,6 +35,17 @@ export const PendingPromptDetail = z.object({
   question: PendingPromptQuestion.nullable().optional(),
 });
 
+export const CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS = 300;
+
+export const ConversationApproval = z.object({
+  requestId: z.union([z.string().min(1).max(128), z.number().int()]),
+  kind: z.enum(['command', 'fileChange', 'permissions']),
+  summary: z.string().max(CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS),
+  isSummaryTruncated: z.boolean(),
+});
+
+export const ConversationApprovalDecision = z.enum(['accept', 'acceptForSession', 'decline']);
+
 export const SessionSnapshot = z.object({
   id: z.string(),
   name: z.string(),
@@ -58,6 +69,9 @@ export const SessionSnapshot = z.object({
   pendingWakeup: PendingWakeup.nullable(),
   pendingPromptKind: z.string().nullable(),
   pendingPromptDetail: PendingPromptDetail.nullable().default(null),
+  conversationApproval: ConversationApproval.nullable().default(null),
+  hasConversationBridge: z.boolean().default(false),
+  isConversationViewOn: z.boolean().default(false),
   hasPlan: z.boolean().default(false),
   mergeStatus: z.string().nullable(),
   mergeReason: z.string().nullable(),
@@ -72,6 +86,8 @@ export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type PendingWakeup = z.infer<typeof PendingWakeup>;
 export type PendingPromptDetail = z.infer<typeof PendingPromptDetail>;
 export type PendingPromptQuestion = z.infer<typeof PendingPromptQuestion>;
+export type ConversationApproval = z.infer<typeof ConversationApproval>;
+export type ConversationApprovalDecision = z.infer<typeof ConversationApprovalDecision>;
 
 export function isSamePromptQuestion(left: PendingPromptQuestion | null | undefined, right: PendingPromptQuestion | null | undefined): boolean {
   if (!left || !right) return !left && !right;

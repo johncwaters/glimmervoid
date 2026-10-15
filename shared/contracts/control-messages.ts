@@ -13,7 +13,7 @@ import {
   PlanResponseFrame,
 } from './plan-review.ts';
 import { ChangeMap } from './change-map.ts';
-import { PendingPromptDetail, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
+import { ConversationApproval, ConversationApprovalDecision, PendingPromptDetail, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus, hasRequiredActionHead } from './team-review.ts';
@@ -215,6 +215,7 @@ const clientVariants = [
   }),
   loose('session-trace', {
     id: sessionId,
+    requestId,
     after: z.number().int().nonnegative().default(0),
     endingAt: z.union([z.number().int().nonnegative(), z.literal('tail')]).optional(),
   }),
@@ -225,6 +226,8 @@ const clientVariants = [
     draft: z.boolean().optional(),
   }),
   loose('plan-decision', PlanDecision.shape),
+  loose('set-session-conversation-view', { id: sessionId, isOn: z.boolean() }),
+  loose('conversation-approval', { id: sessionId, requestId: ConversationApproval.shape.requestId, decision: ConversationApprovalDecision }),
   loose('session-doc-read', { id: sessionId, path: sessionDocPath, requestId }),
   loose('session-doc-save', { id: sessionId, path: sessionDocPath, text: z.string(), baseHash: z.string().min(1), requestId }),
   loose('client-error', ClientErrorReport.shape),
@@ -253,6 +256,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'session-agents',
   'session-wakeup',
   'session-prompt',
+  'session-conversation',
   'session-sleep',
   'session-wake',
   'session-merge-status',
@@ -373,6 +377,7 @@ const serverVariants = [
   loose('session-agents', { id: sessionId, activeAgents: z.number().int().nonnegative(), awaitingBackgroundTasks: z.boolean(), timestamp }),
   loose('session-wakeup', { id: sessionId, pendingWakeup: PendingWakeup.nullable(), timestamp }),
   loose('session-prompt', { isCompacting: z.boolean().optional(), id: sessionId, pendingPromptKind: nullableString, pendingPromptDetail: PendingPromptDetail.nullable().optional(), timestamp }),
+  loose('session-conversation', { id: sessionId, hasConversationBridge: z.boolean(), isConversationViewOn: z.boolean(), conversationApproval: ConversationApproval.nullable() }),
 
   loose('session-sleep'),
   loose('session-wake'),
@@ -445,6 +450,7 @@ const serverVariants = [
   loose('debug-state-response', { id: sessionId, payload: opaqueObject }),
   loose('session-trace-response', {
     id: sessionId,
+    requestId,
     records: z.array(TraceRecord),
     start: z.number().int().nonnegative(),
     next: z.number().int().nonnegative(),

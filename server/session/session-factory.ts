@@ -35,6 +35,11 @@ interface SessionFactoryDependencies {
   homeDir?: string;
 }
 
+function isConversationViewOnFor(config: GlimmervoidConfig, projectId: string): boolean {
+  if (config.conversationView !== true) return false;
+  return config.projects.some((project) => project.id === projectId && project.conversationView === true);
+}
+
 function createSessionFactory(dependencies: SessionFactoryDependencies) {
   function planLimitsEnabled(config: GlimmervoidConfig): boolean {
     const usageConfig = resolveUsageConfig(config.usage);
@@ -71,6 +76,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       dangerouslySkipPermissions: skipPermissions,
       agent: project.agent,
       bypassHookTrust: project.codexBypassHookTrust === true,
+      isConversationViewEnabled: () => isConversationViewOnFor(dependencies.getConfig?.() ?? config, project.id),
       replayBufferKB: config.replayBufferKB,
       hookRouter: dependencies.hookRouter,
       getHookPort: dependencies.getHookPort,

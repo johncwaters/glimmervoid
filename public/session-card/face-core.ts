@@ -1,4 +1,4 @@
-export type SessionCardFace = 'terminal' | 'plan';
+export type SessionCardFace = 'terminal' | 'plan' | 'conversation';
 
 export function preferredBorrowedFace({
   hasPlan,

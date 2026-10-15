@@ -28,6 +28,7 @@ How sessions start, where projects are found, and what the dashboard shows for t
 |-----|---------|---------|-------|
 | `autoResume` | Auto-resume sessions on startup | `true` | Resume conversations that were live when Glimmervoid last shut down or crashed. Scope: this machine. Takes effect at once. |
 | `calmLayout` | Calm layout (experimental) | `false` | Replace the Focus rail with a view that prioritizes sessions needing attention and also shows ready and working indicators. Scope: this machine. Takes effect at once. |
+| `conversationView` | Conversation view (experimental) | `false` | Let each Claude Code and Codex session turn on a Conversation face from its card menu, which renders the transcript as messages, approvals and a composer. Sessions stay on the terminal until you turn it on for them. A Codex session connects on its next start, through a local app-server so approvals can be answered from the dashboard; sandboxed Codex sessions and those that bypass Codex hook trust keep the terminal only. Scope: this machine. Takes effect at once. |
 | `streamerMode` | Streamer mode | `false` | Hide sensitive details in the dashboard while screen sharing or streaming. Scope: this machine. Takes effect at once. |
 | `repoRoots` | Repository roots | `[]` | Directories scanned for projects when adding sessions. Scope: this machine. Takes effect at once. |
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. Scope: this machine. Takes effect at once. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
@@ -273,7 +274,7 @@ Edit these in `config.json` unless the note names another dashboard surface.
 | `planReview` | `{"enabled":true}` | Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`). |
 | `hooks` |  | Operator-defined hooks per project, managed from the dashboard Hooks panel. |
 | `remote` | `{"enabled":false,"port":null,"publicHost":"","allowedOrigins":[]}` | Opt-in remote listener: `enabled`, `port` (required when enabled, must differ from the local port), `publicHost`, `allowedOrigins` and `ownerLogin` (when set, only that Tailscale login is answered; trustworthy only when the remote port is reached solely through HTTP-mode `tailscale serve`, since any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, lets a client send its own `Tailscale-User-Login`). See [Remote access](../README.md#remote-access). |
-| `projects` | `[]` | Projects shown in the dashboard, added from the Add Session dialog. Each entry has `path` (required), optional `name`, `repos` (two or more member repositories for a workspace session), `baseBranch` (the branch sessions of this project start from and merge back into, set by Open in session on a team review pull request), `agent` (an agent id, see `customAgents`) and `codexBypassHookTrust` (file-only, default off). |
+| `projects` | `[]` | Projects shown in the dashboard, added from the Add Session dialog. Each entry has `path` (required), optional `name`, `repos` (two or more member repositories for a workspace session), `baseBranch` (the branch sessions of this project start from and merge back into, set by Open in session on a team review pull request), `agent` (an agent id, see `customAgents`), `codexBypassHookTrust` (file-only, default off) and `conversationView` (set from the card menu while the Conversation view setting is on, default off). |
 
 ## Environment variables
 
@@ -296,6 +297,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_RTK_PATH` | internal | Set by Glimmervoid in the rtk hook relay environment to name the rtk binary. Not an operator setting. |
 | `GLIMMERVOID_HOOK_URL` | internal | Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting. |
 | `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `board` read it. Not an operator setting. |
+| `GLIMMERVOID_CODEX_REMOTE_TOKEN` | internal | Set by Glimmervoid in the environment of a Codex session that runs through its local app-server (Conversation view); the Codex TUI sends it as the bearer token to that app-server. Not an operator setting. |
 | `GLIMMERVOID_SIGN_URL` | internal | Set by Glimmervoid in each operator session environment; `glimmervoid ssh-sign`, which git runs to sign a commit, posts there so the server signs with the operator's forwarded ssh agent. Not an operator setting. |
 | `GLIMMERVOID_HOOK_VIA_SANDBOX_PROXY` | internal | Set by Glimmervoid inside a sandbox whose network is a domain list, so the hook relays post through the sandbox proxy and nowhere else. Not an operator setting. |
 

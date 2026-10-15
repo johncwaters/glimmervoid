@@ -967,6 +967,21 @@ body {
   white-space: nowrap;
 }
 
+.overflow-conversation-view .restart-menu-label::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border: 1px solid var(--text-muted);
+  vertical-align: middle;
+}
+
+.overflow-conversation-view[aria-checked="true"] .restart-menu-label::before {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
 .restart-menu-hint {
   color: var(--text-muted);
   font-size: 11px;
@@ -5674,6 +5689,128 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+
+.face-switch { display: none; align-items: center; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; margin-right: 4px; }
+.face-switch.visible { display: inline-flex; }
+.face-switch-option {
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.face-switch-option + .face-switch-option { border-left: 1px solid var(--border); }
+.face-switch-option[aria-pressed="true"] { background: color-mix(in oklab, var(--accent) 18%, transparent); color: var(--text-head); }
+.face-switch-option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.conversation-face {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-card);
+  color: var(--text);
+}
+.conversation-face[hidden], .conversation-face [hidden] { display: none; }
+.conversation-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.conversation-empty { color: var(--text-muted); margin: auto; font-size: 12px; }
+.conversation-message { max-width: 76ch; min-width: 0; overflow-wrap: anywhere; }
+.conversation-message .plan-document { margin-inline: 0; }
+.conversation-user {
+  align-self: flex-end;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-head);
+}
+.conversation-user .conversation-text { margin: 0; white-space: pre-wrap; }
+.conversation-assistant { align-self: flex-start; }
+.conversation-notice { align-self: center; color: var(--text-muted); font-size: 12px; }
+.conversation-notice .conversation-text { margin: 0; }
+.conversation-work { align-self: stretch; max-width: 76ch; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
+.conversation-work-summary { cursor: pointer; padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conversation-work-summary.is-running { color: var(--state-running); }
+.conversation-work-summary.has-error { color: var(--state-failed); }
+.conversation-steps { margin: 4px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.conversation-step-line { display: flex; gap: 8px; min-width: 0; }
+.conversation-step-tool { color: var(--accent); flex: 0 0 auto; }
+.conversation-step-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-step.has-error .conversation-step-tool { color: var(--state-failed); }
+.conversation-step-output {
+  margin: 4px 0 0;
+  max-height: 200px;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.conversation-approval {
+  flex: 0 0 auto;
+  margin: 0 16px 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--state-waiting) 55%, transparent);
+  border-radius: 6px;
+  background: var(--state-waiting-bg);
+}
+.conversation-approval-title { margin: 0 0 6px; color: var(--state-waiting); font-weight: 700; font-size: 12px; }
+.conversation-approval-summary { margin: 0 0 8px; max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; }
+.conversation-approval-note { margin: 0; font-size: 12px; color: var(--text-dim); }
+.conversation-bridge-note { flex: 0 0 auto; margin: 0; padding: 8px 16px; font-size: 12px; color: var(--text-dim); border-top: 1px solid var(--border-dim); }
+.conversation-approval-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.conversation-composer { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 16px 12px; border-top: 1px solid var(--border-dim); background: var(--bg-surface); }
+.conversation-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 44px;
+  max-height: 40vh;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-head);
+  font: inherit;
+  font-size: 14px;
+}
+.conversation-composer-actions { display: flex; align-items: center; gap: 6px; }
+.conversation-status { flex: 1 1 auto; min-width: 0; color: var(--text-muted); font-size: 12px; }
+.conversation-face button:not(.face-switch-option) {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.conversation-face .conversation-send { border-color: var(--accent-dim); color: var(--text-head); background: color-mix(in oklab, var(--accent) 16%, transparent); }
+.conversation-face button:disabled { opacity: 0.45; cursor: default; }
+.conversation-face button:not(:disabled):hover { color: var(--text-head); border-color: var(--border-hover); }
+.conversation-face :is(button, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+html[data-layout="phone"] .phone-terminal:has(.session-card[data-face="conversation"]) .phone-key-strip { display: none; }
 
 .session-card[data-prompt="plan"] .prompt-badge {
   color: var(--state-waiting);

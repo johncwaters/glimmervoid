@@ -265,6 +265,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'toggle', keywords: ['experimental', 'attention', 'priority'], defaultValue: false, ...MACHINE_NOW,
       },
       {
+        id: 'conversation-view', path: 'conversationView', title: 'Conversation view (experimental)',
+        description: 'Let each Claude Code and Codex session turn on a Conversation face from its card menu, which renders the transcript as messages, approvals and a composer. Sessions stay on the terminal until you turn it on for them. A Codex session connects on its next start, through a local app-server so approvals can be answered from the dashboard; sandboxed Codex sessions and those that bypass Codex hook trust keep the terminal only.',
+        control: 'toggle', keywords: ['experimental', 'transcript', 'chat', 'codex', 'claude'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
         id: 'streamer-mode', path: 'streamerMode', title: 'Streamer mode',
         description: 'Hide sensitive details in the dashboard while screen sharing or streaming.',
         control: 'toggle', keywords: ['streaming', 'screen share', 'privacy'], defaultValue: false, ...MACHINE_NOW,

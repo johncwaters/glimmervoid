@@ -1432,7 +1432,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       const endingAt = message.endingAt === 'tail' || typeof message.endingAt === 'number' ? message.endingAt : undefined;
       try {
         const page = await readTracePage(session.id, { after: message.after ?? 0, ...(endingAt !== undefined ? { endingAt } : {}) });
-        ws.send(JSON.stringify({ type: 'session-trace-response', id: session.id, ...page }));
+        ws.send(JSON.stringify({ type: 'session-trace-response', id: session.id, ...(message.requestId ? { requestId: message.requestId } : {}), ...page }));
       } catch (error) {
         sendError(ws, `Session trace read failed: ${errorMessage(error)}`, { id: session.id });
       }
@@ -1450,6 +1450,28 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       } catch (error) {
         sendError(ws, `Plan read failed: ${errorMessage(error)}`, { id: requestedSessionId, scope: 'plan' });
       }
+    },
+    'conversation-approval': (message: ClientMessageOf<'conversation-approval'>, ws: ControlSocket) => {
+      const session = findSession(message);
+      if (!session) return sendError(ws, 'Session not found', { id: message.id, scope: 'conversation-approval' });
+      if (session.answerConversationApproval(message.requestId, message.decision)) return;
+      sendError(ws, 'That approval is no longer pending', { id: session.id, scope: 'conversation-approval' });
+    },
+    'set-session-conversation-view': (message: ClientMessageOf<'set-session-conversation-view'>, ws: ControlSocket) => {
+      const session = findSession(message);
+      if (!session) return sendError(ws, 'Session not found', { id: message.id, scope: 'conversation-view' });
+      if (session.ephemeral) return sendError(ws, 'This session cannot use the conversation view', { id: session.id, scope: 'conversation-view' });
+      const freshConfig = configStore.save((config) => {
+        const project = config.projects.find((candidate) => candidate.id === session.id);
+        if (!project) return;
+        if (!message.isOn) {
+          delete project.conversationView;
+          return;
+        }
+        project.conversationView = true;
+      });
+      if (freshConfig) applyConfigReload(freshConfig);
+      session.announceConversationView();
     },
     'plan-decision':    (message: ClientMessageOf<'plan-decision'>, ws: ControlSocket) => {
       const requestedSessionId = String(message.id || '');
