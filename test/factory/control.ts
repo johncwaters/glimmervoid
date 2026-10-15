@@ -1,10 +1,10 @@
 import WebSocket from 'ws';
 import { ClientMessage } from '../../shared/contracts/control-messages.ts';
-import { FactoryQueueIntentResult, FactoryState } from '../../shared/contracts/factory.ts';
+import { FactoryControlResult, FactoryQueueIntentResult, FactoryState } from '../../shared/contracts/factory.ts';
 import { dashboardClient } from '../../tests/helpers/dashboard-ws.ts';
 import type { Broadcast } from './verdict.ts';
 
-export async function openControl(port: number, signal: AbortSignal, onState: (broadcast: Broadcast) => void, onReply: (reply: FactoryQueueIntentResult, arrivedAt: string) => void, onSession: (sessionId: string) => void, onFailure: (error: Error) => void) {
+export async function openControl(port: number, signal: AbortSignal, onState: (broadcast: Broadcast) => void, onReply: (reply: FactoryQueueIntentResult, arrivedAt: string) => void, onSession: (sessionId: string) => void, onFailure: (error: Error) => void, onRetryReply?: (reply: FactoryControlResult, arrivedAt: string) => void) {
   const client = await dashboardClient(port, signal);
   signal.throwIfAborted();
   const socket = new WebSocket(client.url('/control'), client.options);
@@ -16,6 +16,7 @@ export async function openControl(port: number, signal: AbortSignal, onState: (b
       const arrivedAt = new Date().toISOString();
       if (frame.type === 'factory-state') { onState({ arrivedAt, state: FactoryState.parse(frame) }); return; }
       if (frame.type === 'factory-queue-intent-result' && frame.requestId === 'factory-harness') { onReply(FactoryQueueIntentResult.parse(frame), arrivedAt); return; }
+      if (frame.type === 'factory-control-result' && frame.requestId === 'factory-harness-retry' && frame.action === 'retry-parked') { onRetryReply?.(FactoryControlResult.parse(frame), arrivedAt); return; }
       if (frame.type === 'snapshot' && Array.isArray(frame.sessions)) {
         for (const session of frame.sessions) if (typeof session.id === 'string') onSession(session.id);
       }
