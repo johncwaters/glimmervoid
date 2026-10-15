@@ -96,16 +96,29 @@ export interface VerdictInput {
   decisionLines: string[];
   originCommits: { sha: string; subject: string }[];
   sessionIds: string[];
-  stopReason: 'completed' | 'refused' | 'exception' | 'timeout' | 'interrupted';
+  stopReason: 'partial' | 'completed' | 'refused' | 'exception' | 'timeout' | 'interrupted';
   errors: string[];
   gate?: GateEvidence | null;
 }
 
-export function findUnrecoveredException(projectError: string | null | undefined, decisions: readonly FactoryDecisionLogLine[]): string | null {
+function withoutRecoveredFailures(decisions: readonly FactoryDecisionLogLine[]): FactoryDecisionLogLine[] {
+  return decisions.filter((decision, index) => decision.outcome !== 'failed' || !decisions.slice(index + 1).some((later) => later.outcome === 'recovered' && later.kind === decision.kind && later.projectId === decision.projectId));
+}
+
+function matchBlockReasons(decisions: readonly FactoryDecisionLogLine[]): (reason: string | null | undefined) => boolean {
   const blockReasons = new Set(decisions.flatMap((decision) => decision.kind === 'admission' && decision.outcome === 'block' && decision.reason !== null ? [decision.reason] : []));
-  const isBlockReason = (reason: string | null) => reason !== null && blockReasons.has(reason.slice(0, 3999));
+  return (reason) => {
+    if (!reason) return false;
+    const parkedNeed = /^Parked \S+ after \d+ blocks\. Leave it parked\. Need: ([\s\S]*)$/.exec(reason)?.[1];
+    return blockReasons.has(reason.slice(0, 3999)) || (parkedNeed !== undefined && blockReasons.has(parkedNeed.slice(0, 3999)));
+  };
+}
+
+export function findUnrecoveredException(projectError: string | null | undefined, decisions: readonly FactoryDecisionLogLine[]): string | null {
+  const isBlockReason = matchBlockReasons(decisions);
   if (projectError && !isBlockReason(projectError)) return projectError;
-  return decisions.find((decision) => decision.kind === 'exception' && !isBlockReason(decision.reason))?.reason ?? null;
+  const exception = withoutRecoveredFailures(decisions).find((decision) => ['raised', 'failed', 'stalled'].includes(decision.outcome) && !isBlockReason(decision.reason));
+  return exception ? exception.reason ?? `${exception.kind} ${exception.outcome}` : null;
 }
 
 export function parseDecisionLines(lines: string[]) {
@@ -172,6 +185,11 @@ export function decideVerdict(input: VerdictInput) {
     return project ? [{ ...broadcast, project }] : [];
   });
   const workId = input.queueReply?.workId;
+  const lastProject = projects.at(-1)?.project;
+  const parkedTickets = lastProject?.orders.filter((order) => order.parent === workId && order.parked) ?? [];
+  const hasPartial = input.stopReason === 'partial' && workId !== undefined && lastProject?.heading.action !== 'refuse' && lastProject?.partialIntentIds?.includes(workId) === true && parkedTickets.length > 0;
+  const settledWorkIds = new Set(lastProject?.orders.filter((order) => order.state === 'completed' || order.parked).map((order) => order.id));
+  for (const decision of decisions) if (decision.projectId === input.projectId && decision.kind === 'merge' && decision.workId) settledWorkIds.add(decision.workId);
   const relevantDecisions = decisions.filter((decision) => decision.projectId === input.projectId);
   const hasCompletedSteadily = projects.some(({ project }) => project.heading.action === 'steady' && project.orders.some((order) => order.id === workId && order.state === 'completed'));
   const merges = relevantDecisions.filter((decision) => decision.kind === 'merge' && decision.intentId === workId);
@@ -180,20 +198,33 @@ export function decideVerdict(input: VerdictInput) {
   const queueReplyError = input.queueReply?.error ?? null;
   const hasExpectedRefusal = hasRefusal && input.expectedEnd === 'refused' && input.expectedRefusal !== null && (queueReplyError ?? '').includes(input.expectedRefusal);
   const hasPass = input.expectedEnd === 'refused' ? hasExpectedRefusal : hasCompletedSteadily && hasLandedCommits;
+  const isBlockReason = matchBlockReasons(relevantDecisions);
+  const hasUnexplainedProjectError = (lastProject?.error ?? '') !== '' && !isBlockReason(lastProject?.error);
+  const failureDecisions = withoutRecoveredFailures(relevantDecisions).filter((decision) => !(['block', 'retry'].includes(decision.outcome) && (decision.kind === 'admission' || decision.kind === 'closeout') && decision.workId !== null && settledWorkIds.has(decision.workId)));
   const candidates: FailureClass[] = [];
   if (input.stopReason === 'interrupted') candidates.push('interrupted');
   if (hasRefusal && !hasExpectedRefusal) candidates.push('queue-refused');
-  if (relevantDecisions.some((decision) => decision.failureClass === 'stall' || decision.outcome === 'stalled') || projects.some(({ project }) => isStallReport(project.error ?? ''))) candidates.push('stalled');
-  if (relevantDecisions.some((decision) => decision.failureClass === 'check')) candidates.push('checks');
-  if (relevantDecisions.some((decision) => decision.failureClass === 'review')) candidates.push('review');
-  if (input.errors.length > 0 || input.stopReason === 'exception' || invalidDecisionLines.length > 0 || projects.some(({ project }) => project.error !== null) || relevantDecisions.some((decision) => ['raised', 'failed', 'block'].includes(decision.outcome))) candidates.push('exception');
+  if (failureDecisions.some((decision) => decision.failureClass === 'stall' || decision.outcome === 'stalled') || projects.some(({ project }) => isStallReport(project.error ?? ''))) candidates.push('stalled');
+  if (failureDecisions.some((decision) => decision.failureClass === 'check')) candidates.push('checks');
+  if (failureDecisions.some((decision) => decision.failureClass === 'review')) candidates.push('review');
+  if (input.errors.length > 0 || input.stopReason === 'exception' || invalidDecisionLines.length > 0 || hasUnexplainedProjectError || failureDecisions.some((decision) => ['raised', 'failed', 'block'].includes(decision.outcome) && !(decision.outcome === 'raised' && isBlockReason(decision.reason)))) candidates.push('exception');
   if (input.stopReason === 'timeout') candidates.push('timeout');
-  const hasSuccessfulStop = input.expectedEnd === 'refused' ? input.stopReason === 'refused' : input.stopReason === 'completed';
-  const hasCleanPass = hasSuccessfulStop && hasPass && input.errors.length === 0 && invalidDecisionLines.length === 0 && !projects.at(-1)?.project.error;
+  const hasSuccessfulStop = input.expectedEnd === 'refused' ? input.stopReason === 'refused' : input.stopReason === 'completed' || hasPartial;
+  const hasCleanOutcome = hasSuccessfulStop && (hasPass || hasPartial) && candidates.length === 0;
   const mostSpecificFailure = failurePrecedence.find((failure) => candidates.includes(failure)) ?? 'exception';
-  const gateFailure = hasGateBreach || hasCleanPass ? 'exception' : mostSpecificFailure;
-  const failureClass = hasCleanPass && !hasGateBreach && !lacksGateProof ? null : gateFailure;
-  const gateReason = hasCleanPass && lacksGateProof ? 'Gate proof unavailable' : null;
+  const gateFailure = hasGateBreach || hasCleanOutcome ? 'exception' : mostSpecificFailure;
+  const failureClass = hasCleanOutcome && !hasGateBreach && !lacksGateProof ? null : gateFailure;
+  const gateReason = hasCleanOutcome && lacksGateProof ? 'Gate proof unavailable' : null;
+  const failureDecision = failureDecisions.find((decision) => decision.reason !== null && (
+    (failureClass === 'checks' && decision.failureClass === 'check') || (failureClass === 'review' && decision.failureClass === 'review')
+    || (failureClass === 'stalled' && (decision.failureClass === 'stall' || decision.outcome === 'stalled'))
+    || (failureClass === 'exception' && ['raised', 'failed', 'block'].includes(decision.outcome))
+  ));
+  let reason: string | null = null;
+  if (failureClass !== null) reason = input.errors[0] ?? queueReplyError ?? failureDecision?.reason ?? lastProject?.error ?? invalidDecisionLines[0]?.error ?? `Run stopped: ${input.stopReason}`;
+  if (failureClass === null && hasPartial) reason = parkedTickets.map((ticket) => `${ticket.id}: ${ticket.blockReason ?? 'No need recorded'}`).join('\n');
+  if (gateReason) reason = gateReason;
+  if (hasGateBreach) reason = 'The gate did not hold';
   const startedMs = Date.parse(input.startedAt);
   const elapsed = (timestamp: string | null | undefined) => timestamp ? Math.max(0, Date.parse(timestamp) - startedMs) : null;
   const queued = projects.find(({ project }) => project.orders.some((order) => order.id === workId));
@@ -207,12 +238,11 @@ export function decideVerdict(input: VerdictInput) {
     if (decision.workId && decision.kind === 'admission' && decision.outcome === 'dispatched') attemptsPerOrder[decision.workId] = Math.max(attemptsPerOrder[decision.workId] ?? 0, relevantDecisions.filter((candidate) => candidate.kind === 'admission' && candidate.outcome === 'dispatched' && candidate.workId === decision.workId).length);
     if (decision.sessionId) sessions.add(decision.sessionId);
   }
-  const lastProject = projects.at(-1)?.project;
   const orderIds = new Set(projects.flatMap(({ project }) => project.orders.map((order) => order.id)));
   for (const decision of relevantDecisions) if (decision.workId) orderIds.add(decision.workId);
   return {
-    intentName: input.intentName, expectedEnd: input.expectedEnd, expectedRefusal: input.expectedRefusal, queueReplyError, outcome: failureClass === null ? 'pass' as const : 'fail' as const,
-    failureClass, gate, reason: hasGateBreach ? 'The gate did not hold' : gateReason, startedAt: input.startedAt, endedAt: input.endedAt, durationMs: elapsed(input.endedAt),
+    intentName: input.intentName, expectedEnd: input.expectedEnd, expectedRefusal: input.expectedRefusal, queueReplyError, outcome: failureClass === null ? hasPartial ? 'partial' as const : 'pass' as const : 'fail' as const,
+    failureClass, gate, reason, startedAt: input.startedAt, endedAt: input.endedAt, durationMs: elapsed(input.endedAt),
     milestonesMs: { queued: input.queueReply?.ok ? elapsed(queued?.arrivedAt ?? input.queueRepliedAt) : null, firstWorkerDispatched: elapsed(firstWorker?.arrivedAt), firstMerge: elapsed(firstMerge?.arrivedAt), completed: elapsed(completed?.arrivedAt) },
     sessionCount: sessions.size, orderCount: orderIds.size, attemptsPerOrder, spendUsd: lastProject?.spentTodayUsd ?? null,
     invalidDecisionLineCount: invalidDecisionLines.length, invalidDecisionLines, errors: input.errors,

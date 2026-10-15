@@ -16,7 +16,7 @@ export function parseHarnessInstallState(document: unknown) {
 export const FactoryHarnessRunProperties = z.object({
   intent: z.enum(['custom', ...intents.map((intent) => intent.name)]),
   expected_end: z.enum(['completed', 'refused']),
-  outcome: z.enum(['pass', 'fail']),
+  outcome: z.enum(['pass', 'partial', 'fail']),
   failure_class: z.enum(failurePrecedence).nullable(),
   duration_ms: z.number().int().nonnegative(),
   session_count: z.number().int().nonnegative(),

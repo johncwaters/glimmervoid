@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 
 import os from 'node:os';
 import { decideTelemetryConsent, resolveProjectToken } from '../server/core/telemetry-core.ts';
 import { TELEMETRY_BASE_PROPERTY_KEYS, TelemetryState } from '../shared/contracts/telemetry.ts';
-import { FactoryState } from '../shared/contracts/factory.ts';
+import { FactoryHarnessVerdict, FactoryState } from '../shared/contracts/factory.ts';
 import { factoryHarnessRunsDirectory } from '../server/factory/core/factory-harness-mirror-core.ts';
 import { builtServerEntryPath, prepareInstance } from '../test/factory/instance.ts';
 import {
@@ -41,6 +41,11 @@ function decision(overrides: Record<string, unknown>) {
   return JSON.stringify({ timestamp: endedAt, projectId: 'seed', outcome: 'raised', workId: 'worker', intentId: 'intent', sessionId: 'session', attempt: 1, durationMs: 0, failureClass: 'exception', reason: 'Failure', kind: 'exception', ...overrides });
 }
 
+const recoveredLandingLines = [
+  decision({ kind: 'landing', outcome: 'failed', failureClass: 'landing', reason: 'push rejected' }),
+  decision({ kind: 'landing', outcome: 'recovered', failureClass: null, reason: null }),
+];
+
 function input(overrides: Partial<VerdictInput> = {}): VerdictInput {
   return { intentName: 'one-file-change', expectedEnd: 'completed', expectedRefusal: null, projectId: 'seed', startedAt, endedAt,
     queueReply: { projectId: 'seed', ok: true, workId: 'intent' }, queueRepliedAt: startedAt,
@@ -54,16 +59,24 @@ function completingInput(): VerdictInput {
   });
 }
 
-test('a run keeps going past a block the orchestrator can re-plan and stops on any other exception', () => {
+test('a run keeps going past a block the orchestrator can re-plan or a parked block and stops on any other exception', () => {
   const blockReason = 'Needs write scope: tests/pending-wakeup.test.ts';
   const blocked = parseDecisionLines([
     decision({ kind: 'exception', outcome: 'raised', failureClass: 'exception', reason: blockReason }),
     decision({ kind: 'admission', outcome: 'block', failureClass: 'check', reason: blockReason }),
   ]).decisions;
   assert.equal(findUnrecoveredException(blockReason, blocked), null);
+  const parkedDetail = `Parked wrk-1 after 3 blocks. Leave it parked. Need: ${blockReason}`;
+  const parked = [...blocked, ...parseDecisionLines([decision({ kind: 'exception', outcome: 'raised', failureClass: 'exception', reason: parkedDetail })]).decisions];
+  assert.equal(findUnrecoveredException(parkedDetail, parked), null);
   const stalled = [...blocked, ...parseDecisionLines([decision({ kind: 'exception', outcome: 'stalled', failureClass: 'stall', reason: 'factory orchestrator idle' })]).decisions];
   assert.equal(findUnrecoveredException(blockReason, stalled), 'factory orchestrator idle');
   assert.equal(findUnrecoveredException('Ledger is unreadable', blocked), 'Ledger is unreadable');
+  const failed = parseDecisionLines([decision({ kind: 'verification', outcome: 'failed', failureClass: 'verification', reason: 'Verifier could not read HEAD' })]).decisions;
+  assert.equal(findUnrecoveredException(null, failed), 'Verifier could not read HEAD');
+  const recoveredLanding = parseDecisionLines(recoveredLandingLines).decisions;
+  assert.equal(findUnrecoveredException(null, recoveredLanding), null);
+  assert.equal(findUnrecoveredException(null, recoveredLanding.slice(0, 1)), 'push rejected');
 });
 
 test('completion requires steady completion and both worker and verify-close commits on origin', () => {
@@ -76,6 +89,44 @@ test('completion requires steady completion and both worker and verify-close com
   const missingWorker = decideVerdict({ ...completingInput(), originCommits: [{ sha: 'b'.repeat(40), subject: verifyCloseSubject }] });
   assert.equal(missingWorker.outcome, 'fail');
   assert.equal(missingWorker.failureClass, 'exception');
+});
+
+test('settled ticket blocks allow partial or completed outcomes while raised and failed decisions remain failures', () => {
+  const intent = completedBroadcast.state.projects[0]?.orders[0];
+  assert.ok(intent);
+  const parked = { ...intent, id: 'parked-ticket', parent: 'intent', state: 'blocked' as const, parked: true, blockReason: 'Needs write scope: server/config.ts' };
+  const secondParked = { ...parked, id: 'another-parked-ticket', blockReason: 'Needs a project credential' };
+  const blocked = decision({ kind: 'admission', outcome: 'block', workId: parked.id, failureClass: 'admission', reason: parked.blockReason });
+  const closeout = decision({ kind: 'closeout', outcome: 'block', workId: parked.id, failureClass: 'check', reason: parked.blockReason, fence: null, checks: [], review: null });
+  const retry = decision({ kind: 'closeout', outcome: 'retry', workId: parked.id, failureClass: 'check', reason: parked.blockReason, fence: null, checks: [], review: null });
+  const partialInput = input({ stopReason: 'partial', broadcasts: [{ ...completedBroadcast, state: FactoryState.parse({ ...completedBroadcast.state, projects: [{
+    ...completedBroadcast.state.projects[0], partialIntentIds: ['intent'], orders: [{ ...intent, state: 'open' }, parked, secondParked],
+  }] }) }], decisionLines: [retry, blocked, closeout] });
+  const parkedDetail = `Parked ${parked.id} after 3 blocks. Leave it parked. Need: ${parked.blockReason}`;
+  const parkedRaised = decision({ workId: null, reason: parkedDetail });
+  const parkedWarningInput = { ...partialInput, decisionLines: [retry, blocked, parkedRaised, closeout], broadcasts: [{ ...partialInput.broadcasts[0], state: FactoryState.parse({ ...partialInput.broadcasts[0].state, projects: [{
+    ...partialInput.broadcasts[0].state.projects[0], error: parkedDetail,
+  }] }) }] };
+  const mergedInput = { ...completingInput(), decisionLines: [decision({ kind: 'admission', outcome: 'block', failureClass: 'admission' }), ...completingInput().decisionLines] };
+  const cases = [
+    { name: 'parked child', candidate: partialInput, outcome: 'partial', failureClass: null, reason: `${parked.id}: ${parked.blockReason}\n${secondParked.id}: ${secondParked.blockReason}` },
+    { name: 'parked child with its block warning', candidate: parkedWarningInput, outcome: 'partial', failureClass: null },
+    { name: 'merged child', candidate: mergedInput, outcome: 'pass', failureClass: null, reason: null },
+    { name: 'merged after closeout block', candidate: { ...mergedInput, decisionLines: [decision({ kind: 'closeout', outcome: 'block', failureClass: 'review', fence: null, checks: [], review: null }), ...mergedInput.decisionLines] }, outcome: 'pass', failureClass: null, reason: null },
+    { name: 'merged after check retry', candidate: { ...mergedInput, decisionLines: [decision({ kind: 'closeout', outcome: 'retry', failureClass: 'check', fence: null, checks: [], review: null }), ...mergedInput.decisionLines] }, outcome: 'pass', failureClass: null, reason: null },
+    { name: 'merged after recovered landing', candidate: { ...mergedInput, decisionLines: [...mergedInput.decisionLines, ...recoveredLandingLines] }, outcome: 'pass', failureClass: null, reason: null },
+    { name: 'raised after completion', candidate: { ...mergedInput, decisionLines: [...mergedInput.decisionLines, decision({ reason: 'Ledger write failed' })] }, outcome: 'fail', failureClass: 'exception' },
+    { name: 'raised exception', candidate: { ...partialInput, decisionLines: [blocked, decision({})] }, outcome: 'fail', failureClass: 'exception' },
+    { name: 'failed verification', candidate: { ...partialInput, decisionLines: [blocked, decision({ kind: 'verification', outcome: 'failed', failureClass: 'verification' })] }, outcome: 'fail', failureClass: 'exception' },
+  ];
+  for (const scenario of cases) {
+    const verdict = decideVerdict(scenario.candidate);
+    assert.equal(verdict.outcome, scenario.outcome, scenario.name);
+    assert.equal(verdict.failureClass, scenario.failureClass, scenario.name);
+    if ('reason' in scenario) assert.equal(verdict.reason, scenario.reason, scenario.name);
+    assert.equal(FactoryHarnessVerdict.parse(verdict).outcome, scenario.outcome);
+    assert.equal(buildRunTelemetryProperties(verdict, { isCustomIntent: false, runIndex: 1, batchSize: 1 }).outcome, scenario.outcome);
+  }
 });
 
 test('a gated completion holds on a clean proof whatever real main did, a leaked commit or foreign remote is a breach over every other failure, and a missing proof fails closed without claiming one', () => {
@@ -101,7 +152,7 @@ test('a gated completion holds on a clean proof whatever real main did, a leaked
   const recoveredCheckRetry = decision({ kind: 'closeout', outcome: 'block', failureClass: 'check', fence: null, checks: [], review: null });
   assert.equal(decideVerdict({ ...completingInput(), decisionLines: [recoveredCheckRetry, ...completingInput().decisionLines], gate: withoutProof }).failureClass, 'exception');
   const interrupted = decideVerdict({ ...completingInput(), stopReason: 'interrupted', gate: withoutProof });
-  assert.deepEqual([interrupted.failureClass, interrupted.gate?.held, interrupted.reason], ['interrupted', null, null]);
+  assert.deepEqual([interrupted.failureClass, interrupted.gate?.held, interrupted.reason], ['interrupted', null, 'Run stopped: interrupted']);
   assert.equal(decideVerdict(completingInput()).gate, null);
 });
 

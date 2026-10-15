@@ -3,6 +3,8 @@ import { appendFile, mkdir, mkdtemp, readFile, realpath, rmdir, writeFile } from
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { formatFactoryStatus } from '../../server/core/agent-api-core.ts';
+import { buildFactoryIntentDigest } from '../../server/factory/core/factory-core.ts';
 import { ClientMessage } from '../../shared/contracts/control-messages.ts';
 import { intents, parseIntentFile } from './intents.ts';
 import type { Intent } from './intents.ts';
@@ -10,7 +12,7 @@ import type { Arguments } from './arguments.ts';
 import { openControl, saveScreen } from './control.ts';
 import { builtServerEntryPath, repoRoot, prepareInstance, startInstance } from './instance.ts';
 import { acquireBatchLock, buildBatch, checkEnvironment } from './preflight.ts';
-import { collectRecords, readDecisionLines, writeJson } from './records.ts';
+import { collectRecords, countDecisionLinesByFile, readDecisionLines, readKeptRun, writeJson } from './records.ts';
 import { seedBatchSnapshot, seedTarget } from './seed.ts';
 import type { BatchSnapshot } from './seed.ts';
 import { checkGate, readGateProof, readRealCommits } from './gate.ts';
@@ -28,7 +30,7 @@ function errorText(error: unknown) { return error instanceof Error ? error.messa
 
 async function runOnce(
   intent: Intent, options: Arguments, recordDirectory: string, interrupt: AbortSignal,
-  telemetryInputs: HarnessTelemetryInputs, stateDirectory: string, runIndex: number, snapshot: BatchSnapshot | null, runtimeParent: string,
+  telemetryInputs: HarnessTelemetryInputs, stateDirectory: string, runIndex: number, snapshot: BatchSnapshot | null, runtimeParent: string, resumedRun: Awaited<ReturnType<typeof readKeptRun>> | null,
 ): Promise<{ recordedVerdict: RecordedVerdict; telemetryInputsAfterRun: HarnessTelemetryInputs; hasKeptRun: boolean; wasGateRefused: boolean }> {
   const input: VerdictInput = {
     intentName: intent.name, expectedEnd: intent.expectedEnd, expectedRefusal: intent.expectedRefusal, projectId: intent.request.projectId,
@@ -53,6 +55,8 @@ async function runOnce(
   let stateWrites: Promise<void> = Promise.resolve();
   let wasGateRefused = false;
   let hasTerminalStopReason = false;
+  let hasRetryReply = resumedRun === null;
+  let priorDecisionLineCountByFile: ReadonlyMap<string, number> = new Map();
   let telemetryInputsAfterRun = telemetryInputs;
   const instanceTelemetry = decideHarnessTelemetry(telemetryInputs);
   const statePath = path.join(recordDirectory, HARNESS_STATE_FILE_NAME);
@@ -67,15 +71,16 @@ async function runOnce(
   await mkdir(path.join(recordDirectory, 'recordings'));
   try {
     if (input.gate) input.gate.before = await readRealCommits(repoRoot);
-    tempDirectory = path.join(runtimeParent, path.basename(recordDirectory));
-    await mkdir(tempDirectory);
+    tempDirectory = resumedRun?.prepared.tempDirectory ?? path.join(runtimeParent, path.basename(recordDirectory));
+    if (!resumedRun) await mkdir(tempDirectory);
     signal.throwIfAborted();
-    target = await seedTarget(tempDirectory, options.target, snapshot, signal);
+    target = resumedRun ? { projectPath: resumedRun.prepared.projectPath, originPath: resumedRun.prepared.originPath, runDirectory: tempDirectory, snapshot } : await seedTarget(tempDirectory, options.target, snapshot, signal);
     signal.throwIfAborted();
-    prepared = await prepareInstance(tempDirectory, { projectPath: target.projectPath, projectId: intent.seedProjectId }, options.factory, instanceTelemetry);
+    prepared = resumedRun?.prepared ?? await prepareInstance(tempDirectory, { projectPath: target.projectPath, projectId: intent.seedProjectId }, options.factory, instanceTelemetry);
     await writeJson(path.join(recordDirectory, 'instance.json'), { tempDirectory, ...prepared, target: options.target, snapshot, projectPath: target.projectPath, originPath: target.originPath });
     signal.throwIfAborted();
     if (snapshot) await checkGate(target, snapshot);
+    if (resumedRun) priorDecisionLineCountByFile = await countDecisionLinesByFile(prepared.isolatedHome, input.projectId);
     instance = await startInstance(prepared, path.join(recordDirectory, 'server.log'), instanceTelemetry);
     await instance.waitUntilReady(signal);
     control = await openControl(prepared.port, signal, (broadcast) => {
@@ -91,21 +96,37 @@ async function runOnce(
       if (!acceptanceError) return;
       input.errors.push(acceptanceError);
       controller.abort();
-    }, (sessionId) => listedSessionIds.add(sessionId), (error) => { input.errors.push(error.message); controller.abort(); });
-    control.queue(queuedIntent);
+    }, (sessionId) => listedSessionIds.add(sessionId), (error) => { input.errors.push(error.message); controller.abort(); }, (reply, arrivedAt) => {
+      if (reply.projectId !== input.projectId) return;
+      hasRetryReply = true;
+      stateWrites = stateWrites.then(() => writeJson(path.join(recordDirectory, 'retry-reply.json'), { arrivedAt, reply })).catch((error: unknown) => { input.errors.push(errorText(error)); controller.abort(); });
+      if (reply.ok) return;
+      input.errors.push(`Retry parked refused: ${reply.error ?? 'Unknown reason'}`);
+      controller.abort();
+    });
+    if (resumedRun) {
+      input.queueReply = resumedRun.queueReply;
+      input.queueRepliedAt = input.startedAt;
+      input.broadcasts = [];
+      const retryRequest = ClientMessage.parse({ type: 'factory-control', requestId: 'factory-harness-retry', projectId: input.projectId, action: 'retry-parked', intentId: input.queueReply.workId });
+      await writeJson(path.join(recordDirectory, 'retry-request.json'), retryRequest);
+      control.queue(retryRequest);
+    }
+    if (!resumedRun) control.queue(queuedIntent);
     let previousUnrecoveredException: string | null = null;
     while (!signal.aborted) {
       if (instance.child.exitCode !== null || instance.child.signalCode !== null) throw new Error('Built instance exited during the run');
       if (input.queueReply?.ok === false) { input.stopReason = 'refused'; hasTerminalStopReason = true; break; }
       const project = input.broadcasts.at(-1)?.state.projects.find((candidate) => candidate.projectId === input.projectId);
-      if (input.queueReply?.workId && project?.heading.action === 'steady' && project.orders.some((order) => order.id === input.queueReply?.workId && order.state === 'completed')) { input.stopReason = 'completed'; hasTerminalStopReason = true; break; }
-      const decisions = parseDecisionLines(await readDecisionLines(prepared.isolatedHome, input.projectId, false));
+      if (hasRetryReply && input.queueReply?.workId && project?.heading.action === 'steady' && project.orders.some((order) => order.id === input.queueReply?.workId && order.state === 'completed')) { input.stopReason = 'completed'; hasTerminalStopReason = true; break; }
+      if (hasRetryReply && input.queueReply?.workId && project?.heading.action !== 'refuse' && project?.partialIntentIds?.includes(input.queueReply.workId)) { input.stopReason = 'partial'; hasTerminalStopReason = true; break; }
+      const decisions = parseDecisionLines(await readDecisionLines(prepared.isolatedHome, input.projectId, false, priorDecisionLineCountByFile));
       const unrecoveredException = findUnrecoveredException(project?.error, decisions.decisions);
       if ((unrecoveredException !== null && unrecoveredException === previousUnrecoveredException) || decisions.invalidDecisionLines.length > 0) { input.stopReason = 'exception'; hasTerminalStopReason = true; break; }
       previousUnrecoveredException = unrecoveredException;
       await sleep(500, undefined, { signal });
     }
-    input.decisionLines = await readDecisionLines(prepared.isolatedHome, input.projectId, false);
+    input.decisionLines = await readDecisionLines(prepared.isolatedHome, input.projectId, false, priorDecisionLineCountByFile);
     const interim = decideVerdict({ ...input, endedAt: new Date().toISOString() });
     if (interim.failureClass === 'stalled') {
       const screenDirectory = path.join(recordDirectory, 'screens');
@@ -132,7 +153,7 @@ async function runOnce(
     await stateWrites;
     try {
       if (prepared) {
-        const records = await collectRecords(prepared.isolatedHome, prepared.configPath, intent.seedProjectId, target?.originPath ?? null, recordDirectory);
+        const records = await collectRecords(prepared.isolatedHome, prepared.configPath, intent.seedProjectId, target?.originPath ?? null, recordDirectory, priorDecisionLineCountByFile);
         input.decisionLines = records.decisionLines;
         input.originCommits = records.originCommits;
         input.sessionIds.push(...records.spawnedSessionIds);
@@ -149,38 +170,44 @@ async function runOnce(
     await writeJson(path.join(recordDirectory, 'queue-reply.json'), { arrivedAt: input.queueRepliedAt, reply: input.queueReply });
   }
   if (interrupt.aborted) input.stopReason = 'interrupted';
+  const finalProject = input.broadcasts.at(-1)?.state.projects.find((project) => project.projectId === input.projectId);
+  const intentId = input.queueReply?.workId;
+  console.log(formatFactoryStatus(finalProject ? [{ ...finalProject, orders: finalProject.orders.filter((order) => order.id === intentId || order.parent === intentId) }] : [], buildFactoryIntentDigest));
   let verdict = decideVerdict(input);
-  if (verdict.outcome === 'pass' && !options.keep && tempDirectory) {
+  if (verdict.outcome === 'pass' && !options.keep && !resumedRun && tempDirectory) {
     try { await removeInside(runtimeParent, tempDirectory); }
     catch (error) { input.errors.push(errorText(error)); verdict = decideVerdict(input); }
   }
   await writeJson(path.join(recordDirectory, HARNESS_VERDICT_FILE_NAME), verdict);
   const telemetrySendResult = await sendRunTelemetry({
     verdict, decision: decideHarnessTelemetry(telemetryInputsAfterRun), builtServerEntryPath,
-    context: { isCustomIntent: Boolean(options.intentFile), runIndex, batchSize: options.runs },
+    context: { isCustomIntent: Boolean(options.intentFile) || !intents.some((candidate) => candidate.name === intent.name), runIndex, batchSize: options.runs },
   });
   const recordedVerdict = { ...verdict, telemetrySendResult };
   await writeJson(path.join(recordDirectory, HARNESS_VERDICT_FILE_NAME), recordedVerdict);
-  return { recordedVerdict, telemetryInputsAfterRun, hasKeptRun: tempDirectory !== null && (options.keep || verdict.outcome !== 'pass'), wasGateRefused };
+  return { recordedVerdict, telemetryInputsAfterRun, hasKeptRun: tempDirectory !== null && (options.keep || resumedRun !== null || verdict.outcome !== 'pass'), wasGateRefused };
 }
 
 export async function runBatch(options: Arguments): Promise<number> {
+  const resumedRun = options.resume ? await readKeptRun(options.resume) : null;
+  if (resumedRun) options = { ...options, target: resumedRun.prepared.target, keep: true };
   let intent = intents.find((candidate) => candidate.name === options.intentName);
   if (options.intentFile) {
     intent = parseIntentFile(JSON.parse(await readFile(options.intentFile, 'utf8')));
     ClientMessage.parse({ type: 'factory-queue-intent', requestId: 'factory-harness', ...intent.request });
   }
+  if (resumedRun) intent = parseIntentFile({ ...resumedRun.intentRecord.queuedIntent, name: resumedRun.intentRecord.name, expectedEnd: resumedRun.intentRecord.expectedEnd, expectedRefusal: resumedRun.intentRecord.expectedRefusal ?? undefined });
   if (!intent) throw new Error(`Unknown intent: ${options.intentName}`);
-  if (!options.intentFile && intent.target !== options.target) throw new Error(`Intent ${intent.name} belongs to target ${intent.target}, not ${options.target}`);
+  if (!resumedRun && !options.intentFile && intent.target !== options.target) throw new Error(`Intent ${intent.name} belongs to target ${intent.target}, not ${options.target}`);
   await checkEnvironment();
   const runtimeParent = await realpath(await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-factory-run-')));
-  const socketRefusal = bridgeSocketPathRefusal(path.join(runtimeParent, harnessRunName(options.runs), 'tmp'), process.platform);
+  const socketRefusal = bridgeSocketPathRefusal(resumedRun?.prepared.isolatedTemp ?? path.join(runtimeParent, harnessRunName(options.runs), 'tmp'), process.platform);
   if (socketRefusal) {
     await rmdir(runtimeParent);
     throw new Error(socketRefusal);
   }
   const stateDirectory = factoryHarnessRunsDirectory(process.env, os.homedir());
-  const parent = options.artifacts ?? stateDirectory;
+  const parent = resumedRun ? path.dirname(path.dirname(resumedRun.recordDirectory)) : options.artifacts ?? stateDirectory;
   const requestedBatchDirectory = path.resolve(parent, harnessBatchName(new Date(), randomUUID()));
   await mkdir(requestedBatchDirectory, { recursive: true });
   const batchDirectory = await realpath(requestedBatchDirectory);
@@ -191,7 +218,7 @@ export async function runBatch(options: Arguments): Promise<number> {
   for (const signal of signals) process.on(signal, onSignal);
   const verdicts: RecordedVerdict[] = [];
   let environmentFailure: unknown = null;
-  let snapshot: BatchSnapshot | null = null;
+  let snapshot: BatchSnapshot | null = resumedRun?.prepared.snapshot ?? null;
   let hasKeptRun = options.keep;
   let hasPendingRun = false;
   let wasGateRefused = false;
@@ -199,14 +226,14 @@ export async function runBatch(options: Arguments): Promise<number> {
   try {
     releaseBatchLock = await acquireBatchLock();
     let telemetryInputs = await resolveHarnessTelemetryInputs(options.noTelemetry, stateDirectory);
-    if (options.target === 'gated-clone') snapshot = await seedBatchSnapshot(batchDirectory, repoRoot, interrupt.signal);
+    if (!resumedRun && options.target === 'gated-clone') snapshot = await seedBatchSnapshot(batchDirectory, repoRoot, interrupt.signal);
     await buildBatch(interrupt.signal);
     for (let run = 1; run <= options.runs; run++) {
       if (interrupt.signal.aborted) break;
       const recordDirectory = path.join(batchDirectory, harnessRunName(run));
       await mkdir(recordDirectory);
       hasPendingRun = true;
-      const completedRun = await runOnce(intent, options, recordDirectory, interrupt.signal, telemetryInputs, stateDirectory, run, snapshot, runtimeParent);
+      const completedRun = await runOnce(intent, options, recordDirectory, interrupt.signal, telemetryInputs, stateDirectory, run, snapshot, runtimeParent, resumedRun);
       hasPendingRun = false;
       telemetryInputs = completedRun.telemetryInputsAfterRun;
       verdicts.push(completedRun.recordedVerdict);

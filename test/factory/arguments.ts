@@ -6,6 +6,7 @@ export const usage = `Usage: node test/factory/run.ts [options]
 Runs real Claude intents sequentially; bills Claude usage.
   --help                     Print usage
   --list-intents             Print the fixed catalog
+  --resume <record dir>     Restart a kept run and retry its parked tickets
   --runs <n>                 Positive run count (default 1)
   --target <name>            throwaway (default) or gated-clone
   --intent <name>            Catalog intent (default one-file-change or gated-one-file-change for its target)
@@ -30,6 +31,7 @@ export interface Arguments {
   target: TargetName;
   intentName: string;
   intentFile?: string;
+  resume?: string;
   artifacts?: string;
   keep: boolean;
   noTelemetry: boolean;
@@ -45,7 +47,7 @@ export function parseArguments(argumentsPassed: string[]): Arguments {
     if (flag === '--list-intents') { options.listIntents = true; continue; }
     if (flag === '--keep') { options.keep = true; continue; }
     if (flag === '--no-telemetry') { options.noTelemetry = true; continue; }
-    if (!['--runs', '--target', '--intent', '--intent-file', '--artifacts', '--reviewer-model', '--verifier-model', '--live-workers'].includes(flag ?? '')) throw new Error(`Unknown option: ${flag}`);
+    if (!['--resume', '--runs', '--target', '--intent', '--intent-file', '--artifacts', '--reviewer-model', '--verifier-model', '--live-workers'].includes(flag ?? '')) throw new Error(`Unknown option: ${flag}`);
     const value = argumentsPassed[++index];
     if (!value || value.startsWith('--')) throw new Error(`Missing value for ${flag}`);
     switch (flag) {
@@ -58,6 +60,7 @@ export function parseArguments(argumentsPassed: string[]): Arguments {
         if (!/^\d+$/.test(value) || !Number.isSafeInteger(options.runs) || options.runs < 1) throw new Error('--runs must be a positive integer');
         break;
       case '--intent': options.intentName = value; hasIntentName = true; break;
+      case '--resume': options.resume = value; break;
       case '--intent-file': options.intentFile = value; break;
       case '--artifacts': options.artifacts = value; break;
       case '--reviewer-model': options.factory.reviewerModel = value; break;
@@ -65,6 +68,7 @@ export function parseArguments(argumentsPassed: string[]): Arguments {
       case '--live-workers': options.factory.maxLiveWorkers = Number(value); break;
     }
   }
+  if (options.resume && (hasIntentName || options.intentFile || options.runs !== 1)) throw new Error('--resume excludes --intent, --intent-file and --runs other than 1');
   if (hasIntentName && options.intentFile) throw new Error('Choose --intent or --intent-file');
   if (!hasIntentName) options.intentName = targets[options.target].defaultIntent;
   options.factory = FactorySettings.unwrap().unwrap().parse(options.factory);

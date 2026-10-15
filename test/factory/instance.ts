@@ -24,13 +24,17 @@ async function canonicalPath(directory: string): Promise<string> {
   }
 }
 
+export async function refuseRealGlimmervoidInstance({ port, isolatedHome }: { port: number; isolatedHome: string }): Promise<void> {
+  if (port === 3000) throw new Error('Factory harness refuses port 3000');
+  const realHomes = [glimmervoidHomeDir(os.homedir(), {}), glimmervoidHomeDir(os.homedir(), process.env)];
+  for (const realHome of realHomes) {
+    if (await canonicalPath(isolatedHome) === await canonicalPath(realHome)) throw new Error('Factory harness refuses the real Glimmervoid home');
+  }
+}
+
 export async function prepareInstance(tempDirectory: string, project: { projectPath: string; projectId: string } | null, factory: FactoryOverrides, telemetry: HarnessTelemetryDecision) {
   const isolated = await prepareIsolatedEnvironment({ tempDirectory, repoRoots: project ? [project.projectPath] : [], recordSessions: true, mutateEnvironment: false });
-  const realHomes = [glimmervoidHomeDir(os.homedir(), {}), glimmervoidHomeDir(os.homedir(), process.env)];
-  if (isolated.port === 3000) throw new Error('Factory harness refuses port 3000');
-  for (const realHome of realHomes) {
-    if (await canonicalPath(isolated.isolatedHome) === await canonicalPath(realHome)) throw new Error('Factory harness refuses the real Glimmervoid home');
-  }
+  await refuseRealGlimmervoidInstance(isolated);
   const document = withoutTelemetryConfig(JSON.parse(await readFile(isolated.configPath, 'utf8')));
   await writeFile(isolated.configPath, JSON.stringify({
     ...document, projects: project ? [{ id: project.projectId, name: 'Factory seed', path: project.projectPath }] : [],
