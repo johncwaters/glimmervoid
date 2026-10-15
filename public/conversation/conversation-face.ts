@@ -40,12 +40,19 @@ interface PendingTraceRequest {
 
 let nextRequestNumber = 1;
 
-function sendKeystrokePlan(sessionId: string, ui: SessionUi, steps: readonly TimedKeystroke[], onDone: (isSent: boolean) => void, stepIndex = 0) {
+type KeystrokePlanOutcome = 'sent' | 'unreachable' | 'stopped-by-prompt';
+
+function isPromptBlockingInput(ui: SessionUi): boolean {
+  return ui.conversationApproval !== null || isAnyPromptShowing(ui.currentState, ui.pendingPromptKind);
+}
+
+function sendKeystrokePlan(sessionId: string, ui: SessionUi, steps: readonly TimedKeystroke[], onDone: (outcome: KeystrokePlanOutcome) => void, stepIndex = 0) {
   const step = steps[stepIndex];
-  if (!step) { onDone(true); return; }
+  if (!step) { onDone('sent'); return; }
   setTimeout(() => {
-    if (findSessionUi(sessionId) !== ui) { onDone(false); return; }
-    if (!sendTerminalInput(ui, step.data)) { onDone(false); return; }
+    if (findSessionUi(sessionId) !== ui) { onDone('unreachable'); return; }
+    if (stepIndex > 0 && isPromptBlockingInput(ui)) { onDone('stopped-by-prompt'); return; }
+    if (!sendTerminalInput(ui, step.data)) { onDone('unreachable'); return; }
     sendKeystrokePlan(sessionId, ui, steps, onDone, stepIndex + 1);
   }, step.delayBeforeMs);
 }
@@ -170,7 +177,12 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   function sendPlan(steps: readonly TimedKeystroke[] | null, sentText: string) {
     const ui = currentUi();
     if (!ui || !sessionId || !steps) { setStatus('Unable to reach this session.'); return; }
-    sendKeystrokePlan(sessionId, ui, steps, (isSent) => setStatus(isSent ? sentText : 'Unable to reach this session.'));
+    const statusByOutcome: Record<KeystrokePlanOutcome, string> = {
+      sent: sentText,
+      unreachable: 'Unable to reach this session.',
+      'stopped-by-prompt': 'Not sent: a prompt appeared, so the message was typed but not submitted. Check the terminal.',
+    };
+    sendKeystrokePlan(sessionId, ui, steps, (outcome) => setStatus(statusByOutcome[outcome]));
   }
 
   function answerCodexApproval(approval: ConversationApproval, decision: ConversationApprovalDecision) {
