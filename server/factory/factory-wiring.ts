@@ -48,7 +48,7 @@ const COHERENCE_CONFIG_PROBE_TIMEOUT_MS = 5_000;
 const ORCHESTRATOR_EXCEPTION_PREFIX = 'factory-exception';
 
 interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession = Session> extends Partial<Omit<FactoryPollerDeps, 'broadcast' | 'beforeTick'>> {
-  config: Pick<Config, 'factory' | 'projects' | 'integrationBranch' | 'posthog' | 'worktreeShare'>;
+  config: Pick<Config, 'factory' | 'projects' | 'integrationBranch' | 'posthog' | 'worktreeShare' | 'worktreeRoot'>;
   broadcast: FactoryPollerDeps['broadcast'];
   gitWorkspace?: GitWorkspaceInstance;
   homeDir?: string;
@@ -730,6 +730,11 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         ...orchestratorOptions, nodePath: process.execPath, hookCliPath: coherenceHookCliPath, shimDir: binDir,
         now: pollerDeps.now ?? orchestratorOptions.now,
         onWorkerTurnEnd: activeCloseOut?.turnEnded,
+        discardLeftoverWorkerBranch: async (projectPath, workerSessionId) => {
+          const workerWorktreeRoot = config.worktreeRoot || path.join(path.dirname(path.resolve(projectPath)), '.glimmervoid-worktrees');
+          const discarded = await gitWorkspace.discardSessionBranch({ projectPath, teamId: 'session', label: workerSessionId, worktreeBase: workerWorktreeRoot });
+          return discarded.ok ? null : `Could not discard the leftover worktree of ${workerSessionId}: ${discarded.err ?? 'git failed'}`;
+        },
         getOrchestrator: (sessionId) => activeOrchestrator?.getLiveOrchestrator(sessionId) ?? null,
         serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, readTodaySpend: () => todaySpend, readTrustedIntentIds, readIntentWriteScopes, readIntentScopeNeeds, readPaused,
         onReadyIntent: (projectId, intentId) => activeVerifier?.ready(projectId, intentId),

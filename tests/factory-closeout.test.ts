@@ -475,7 +475,7 @@ test('close-out stages the changes a worker left uncommitted through the check s
   assert.deepEqual(sandboxedGitRuns[0].readablePaths, [fixture.workspace.cwd]);
 });
 
-test('a worker that changed nothing fails each attempt and blocks on the third', async (context) => {
+test('a worker that changed nothing fails each attempt and parks on the third', async (context) => {
   const fixture = await createFixture(context);
   for (const attempt of [1, 2, 3]) {
     await fixture.closeOut.turnEnded(fixture.worker);
@@ -483,6 +483,7 @@ test('a worker that changed nothing fails each attempt and blocks on the third',
   }
   assert.match(fixture.feedback[0], /No change was found in the worktree/);
   assert.equal(await fixture.orderState(fixture.worker.workId), 'blocked');
+  assert.match(fixture.exceptions.at(-1) ?? '', /^Parked .* Leave it parked\. Need: No change was found/);
   assert.equal(fixture.isDestroyed(), true);
   assert.equal(fixture.reviewRequests.length, 0);
 });

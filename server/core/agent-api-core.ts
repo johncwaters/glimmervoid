@@ -284,7 +284,7 @@ function formatFactoryStatus(projects: readonly FactoryProjectState[], buildDige
     lines.push(`Project ${project.projectId}: ${project.projectName}`);
     lines.push(`Project spend today: ${describeSpentToday(project.spentTodayUsd)} of ${describeDailyBudget(project.dailyBudgetUsd)} budget`);
     const unavailability = describeFactoryProjectUnavailability(project);
-    if (unavailability !== null) lines.push(`Factory state unavailable: ${unavailability}`);
+    if (unavailability !== null) lines.push(`Factory exception: ${unavailability}`);
     const ticketsByIntentId = new Map<string, FactoryOrder[]>();
     const partialIntentIds = new Set(project.partialIntentIds ?? []);
     for (const order of project.orders) {

@@ -341,7 +341,7 @@ export function createFactoryCloseOut({
   }
 
   async function applyFailure(worker: FactoryCloseOutWorker, decision: ReturnType<typeof decideCloseOut>, failureClass: FactoryDecisionInput['failureClass'] = 'closeout',
-    trackedScopeNeeds: readonly string[] = []): Promise<boolean> {
+    trackedScopeNeeds: readonly string[] = [], isUnretryable = false): Promise<boolean> {
     if (decision.action === 'merge' || !isLive(worker)) return false;
     if (decision.action === 'retry') {
       const pasted = worker.session.pasteTextWhenReady(decision.feedback);
@@ -363,7 +363,7 @@ export function createFactoryCloseOut({
       const { widenedNeeds, isRecoverable } = planScopeNeedRecovery({ scopeNeeds, trackedFiles: trackedScopeNeeds, intentWriteScopes: worker.intentWriteScopes,
         widenableScopes: profile.widenableScopes, protectedPaths: profile.protectedPaths });
       const rememberedNeeds = widenedNeeds.length > 0 ? await recordScopeNeeds(worker, widenedNeeds) : [];
-      const shouldPark = !isRecoverable || widenedNeeds.some((file) => !rememberedNeeds.includes(file));
+      const shouldPark = isUnretryable || !isRecoverable || widenedNeeds.some((file) => !rememberedNeeds.includes(file));
       const blockCount = await countTicketBlock(worker.projectId, worker.workId, shouldPark);
       const blockedAttempt = attemptOf(worker);
       attempts.delete(worker.workId);
@@ -384,7 +384,10 @@ export function createFactoryCloseOut({
     if (!isLive(worker)) return;
     const cwd = worker.session.worktreeDir;
     const baseSha = worker.session.baseSha ?? worker.baseSha;
-    if (!cwd || !baseSha) return;
+    if (!cwd || !baseSha) {
+      setException(worker.projectId, `Factory worker for ${worker.workId} has no worktree base, so close-out cannot judge its change`);
+      return;
+    }
     if (await readPaused(worker.projectId)) {
       held.set(worker.workId, worker);
       return;
@@ -407,14 +410,14 @@ export function createFactoryCloseOut({
     let hasMerged = false;
     const loggedText = (text: string) => redactSecretLines(text, [...secretValues(), ...checkoutSecretValues]);
     const loggedVerdict = () => verdict ? { ...verdict, findings: verdict.findings.map(loggedText) } : null;
-    const failedAttempt = async (command: string, output: string): Promise<void> => {
+    const failedAttempt = async (command: string, output: string, isUnretryable = false): Promise<void> => {
       const failure = decideCloseOut({ fence: { ok: true }, checks: [{ command, pass: false, output }], review: null, attempt: attemptOf(worker) });
       const loggedCheck = { command, pass: false, output: capFactoryDecisionOutput(loggedText(output)) };
       loggedChecks = [...loggedChecks, loggedCheck];
       loggedReason = closeOutFailureText(decideCloseOut({ fence: { ok: true }, checks: [loggedCheck], review: null, attempt }));
       attemptFailureClass = 'closeout';
       decision = null;
-      if (await applyFailure(worker, failure, attemptFailureClass)) decision = failure;
+      if (await applyFailure(worker, failure, attemptFailureClass, [], isUnretryable)) decision = failure;
     };
     try {
       await discardWorkerLedgerChanges(worker, cwd, baseSha);
@@ -426,7 +429,7 @@ export function createFactoryCloseOut({
       const headSha = (await runGit(cwd, ['rev-parse', 'HEAD'])).trim();
       const changedPaths = nulSeparatedPaths(await runGit(cwd, ['diff', '--name-only', '--no-renames', '--ignore-submodules=none', '-z', `${baseSha}...${headSha}`]));
       if (changedPaths.length === 0) {
-        await failedAttempt('Worker change', 'No change was found in the worktree. Make the change, then finish the turn.');
+        await failedAttempt('Worker change', 'No change was found in the worktree. Make the change, then finish the turn.', true);
         return;
       }
       const profile = resolveFactoryProfile(config.factory, config.projects?.find((project) => project.id === worker.projectId));
