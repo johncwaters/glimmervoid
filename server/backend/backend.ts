@@ -278,6 +278,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   gitWorkspace = assembledGitWorkspace;
   agentApi = createAgentApiWiring({
     config,
+    factory,
     agentSessions,
     listAllSessions: () => allLiveSessions(),
     listBoardSessions: () => [...sessions.values(), ...agentSessions.values()],

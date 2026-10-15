@@ -5,14 +5,17 @@ import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { describeSessionLimits } from '../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../session/core/session-routes.ts';
 import type { Session } from '../session/sessions.ts';
+import type { FactoryState } from '../shared/contracts/factory.ts';
 import type {
   AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentLimitsReply, AgentSpawnRequest,
 } from '../shared/contracts/session.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
-  decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding, describePushRouteRefusal, parseAgentVerb,
+  decideAttentionAllowance, decideEditAllowance, decideFactoryControlAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding, describePushRouteRefusal,
+  describeUnavailableFactoryState, formatFactoryStatus, parseAgentVerb,
 } from './core/agent-api-core.ts';
+import { buildFactoryIntentDigest } from './factory/core/factory-core.ts';
 import { isConfinedSessionVendor } from './sandbox/core/sandbox-roles-core.ts';
 import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
@@ -41,6 +44,10 @@ interface AgentApiWiringOptions {
   spawnGate: SpawnGate;
   recordLane?: RecordLane | null;
   sessionDocs: SessionDocsPort;
+  factory?: {
+    getState: () => FactoryState | null;
+    retryParked: (projectId: string, intentId: string) => Promise<{ ok: true; reopenedWorkIds: string[] } | { ok: false; error: string }>;
+  };
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -59,7 +66,7 @@ interface AgentApiPort {
 
 function createAgentApiWiring({
   config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-  broadcastControl, spawnGate, sessionDocs,
+  broadcastControl, spawnGate, sessionDocs, factory,
   recordLane = null,
   logger = console,
 }: AgentApiWiringOptions): AgentApiPort {
@@ -171,6 +178,29 @@ function createAgentApiWiring({
   async function handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply> {
     const parsed = parseAgentVerb(verb, payload);
     if (!parsed.ok) return { status: parsed.status, body: { ok: false, error: parsed.error } };
+    if (parsed.verb === 'factory-status' || parsed.verb === 'factory-retry') {
+      const allowance = decideFactoryControlAllowance(roleFactsOf(session));
+      if (!allowance.ok) return { status: allowance.status, body: { ok: false, error: allowance.reason } };
+      const projects = factory?.getState()?.projects;
+      if (!projects || !factory) return { status: 409, body: { ok: false, error: 'Factory is not running' } };
+      if (parsed.verb === 'factory-status') {
+        const selectedProjects = parsed.request.projectId === undefined ? projects : projects.filter((project) => project.projectId === parsed.request.projectId);
+        if (parsed.request.projectId !== undefined && selectedProjects.length === 0) {
+          return { status: 404, body: { ok: false, error: `Unknown factory project: ${parsed.request.projectId}` } };
+        }
+        return { status: 200, body: { ok: true, text: formatFactoryStatus(selectedProjects, buildFactoryIntentDigest) } };
+      }
+      const intentId = parsed.request.intentId;
+      const project = projects.find((project) => project.orders.some((order) => order.parent === null && order.id === intentId));
+      if (!project) {
+        const unavailableState = describeUnavailableFactoryState(projects);
+        if (unavailableState !== null) return { status: 503, body: { ok: false, error: unavailableState } };
+        return { status: 404, body: { ok: false, error: `Unknown factory intent: ${intentId}` } };
+      }
+      const reply = await factory.retryParked(project.projectId, intentId);
+      if (!reply.ok) return { status: 409, body: reply };
+      return { status: 200, body: { ...reply, text: `Reopened parked tickets: ${reply.reopenedWorkIds.join(', ') || 'none'}` } };
+    }
     if (parsed.verb === 'dispatch') return { status: 403, body: { ok: false, reason: 'dispatch requires a live factory orchestrator' } };
     if (parsed.verb === 'board') return { status: 200, body: { ok: true, sessions: board() } };
     if (parsed.verb === 'push') return push(session);

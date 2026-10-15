@@ -46,6 +46,7 @@ export const FactoryProjectState = z.object({
     owner: z.string().nullable(),
     blockReason: z.string().nullable().optional(),
     parked: z.boolean().optional(),
+    blockCount: z.number().int().nonnegative().optional(),
     lastEvent: z.object({ event: z.string(), at: z.string(), session: z.string() }).nullable(),
   })),
   conflicts: z.array(z.object({ left: z.string(), right: z.string(), scope: z.string() })),

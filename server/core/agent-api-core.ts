@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 
-import { AGENT_API_VERBS, AgentDispatchRequest, AgentAttentionRequest, AgentEditRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
+import { AGENT_API_VERBS, AgentDispatchRequest, AgentAttentionRequest, AgentEditRequest, AgentFactoryRetryRequest, AgentFactoryStatusRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, OrchestratorAgentVerb, TicketAgentVerb } from '../../shared/contracts/session.ts';
+import type { FactoryProjectState } from '../../shared/contracts/factory.ts';
 import { attentionRoute, editRoute, NO_OWN_WORKTREE_REASON, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
 import type { RouteVerdict, SessionRoleFacts } from '../../session/core/session-routes.ts';
 
@@ -35,6 +36,8 @@ type AgentVerbRequest =
   | { ok: true; verb: 'board' }
   | { ok: true; verb: 'push' }
   | { ok: true; verb: 'limits' }
+  | { ok: true; verb: 'factory-status'; request: AgentFactoryStatusRequest }
+  | { ok: true; verb: 'factory-retry'; request: AgentFactoryRetryRequest }
   | { ok: true; verb: 'dispatch'; request: AgentDispatchRequest }
   | { ok: true; verb: 'attention'; request: AgentAttentionRequest }
   | { ok: true; verb: 'edit'; request: AgentEditRequest }
@@ -120,6 +123,16 @@ function decideEditAllowance(caller: SessionRoleFacts): AgentVerdict {
   return refuseByRole(editRoute(caller));
 }
 
+function factoryControlRoute({ factoryRole, isEphemeral, isSpawnedChild }: Pick<SessionRoleFacts, 'factoryRole' | 'isEphemeral' | 'isSpawnedChild'>): RouteVerdict {
+  const isFactoryOrLaneSession = factoryRole !== null || (isEphemeral && !isSpawnedChild);
+  if (!isFactoryOrLaneSession) return { answers: true };
+  return { answers: false, reason: 'only an operator session or a session it spawned may read factory status or retry parked work, so factory and lane sessions stay on their own task' };
+}
+
+function decideFactoryControlAllowance(caller: SessionRoleFacts): AgentVerdict {
+  return refuseByRole(factoryControlRoute(caller));
+}
+
 function describePushRouteRefusal(caller: SessionRoleFacts): AgentPushReply | null {
   const route = pushRoute(caller);
   if (route.answers) return null;
@@ -167,6 +180,16 @@ function refuseInvalidBody(issues: readonly { message?: string }[]): AgentVerbRe
 
 function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVerbRequest {
   if (!isAgentApiVerb(verb)) return { ok: false, status: REFUSAL_STATUS, error: REFUSAL_REASON };
+  if (verb === 'factory-status') {
+    const parsed = AgentFactoryStatusRequest.safeParse(payload);
+    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
+    return { ok: true, verb, request: parsed.data };
+  }
+  if (verb === 'factory-retry') {
+    const parsed = AgentFactoryRetryRequest.safeParse(payload);
+    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
+    return { ok: true, verb, request: parsed.data };
+  }
   if (verb === 'dispatch') {
     const parsed = AgentDispatchRequest.safeParse(payload);
     if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
@@ -214,8 +237,84 @@ function deriveChildSessionName(parentName: string, existingNames: readonly stri
   return candidate;
 }
 
+type FactoryOrder = FactoryProjectState['orders'][number];
+
+type FactoryDigestBuilder = (project: FactoryProjectState, intentId: string) => {
+  merged: readonly { id: string }[];
+  parked: readonly { id: string }[];
+  confirmedFlakes: readonly string[];
+  isPartial: boolean;
+};
+
+function factoryTicketNextAction(ticket: Pick<FactoryOrder, 'state' | 'parked'>, intentId: string): string {
+  if (ticket.state === 'completed' || ticket.state === 'cancelled') return 'none';
+  if (ticket.parked) return `glimmervoid factory retry ${intentId}`;
+  if (ticket.state === 'blocked') return 'orchestrator reopens';
+  return 'in progress';
+}
+
+function describeFactoryProjectUnavailability(project: Pick<FactoryProjectState, 'error' | 'heading'>): string | null {
+  if (project.error !== null) return project.error;
+  if (project.heading.action === 'refuse') return `orientation refused: ${project.heading.reasons.join('; ') || 'no reason given'}`;
+  return null;
+}
+
+function describeUnavailableFactoryState(projects: readonly FactoryProjectState[]): string | null {
+  for (const project of projects) {
+    const unavailability = describeFactoryProjectUnavailability(project);
+    if (unavailability !== null) return `Factory state for ${project.projectId} is unavailable: ${unavailability}`;
+  }
+  return null;
+}
+
+function describeSpentToday(spentTodayUsd: number | undefined): string {
+  if (spentTodayUsd === undefined) return 'unknown';
+  return `$${spentTodayUsd.toFixed(2)}`;
+}
+
+function describeDailyBudget(dailyBudgetUsd: number | null | undefined): string {
+  if (dailyBudgetUsd === null) return 'unlimited';
+  if (dailyBudgetUsd === undefined) return 'unknown';
+  return `$${dailyBudgetUsd.toFixed(2)}`;
+}
+
+function formatFactoryStatus(projects: readonly FactoryProjectState[], buildDigest: FactoryDigestBuilder): string {
+  const lines: string[] = [];
+  for (const project of projects) {
+    lines.push(`Project ${project.projectId}: ${project.projectName}`);
+    lines.push(`Project spend today: ${describeSpentToday(project.spentTodayUsd)} of ${describeDailyBudget(project.dailyBudgetUsd)} budget`);
+    const unavailability = describeFactoryProjectUnavailability(project);
+    if (unavailability !== null) lines.push(`Factory state unavailable: ${unavailability}`);
+    const ticketsByIntentId = new Map<string, FactoryOrder[]>();
+    const partialIntentIds = new Set(project.partialIntentIds ?? []);
+    for (const order of project.orders) {
+      if (order.parent === null) continue;
+      const tickets = ticketsByIntentId.get(order.parent) ?? [];
+      tickets.push(order);
+      ticketsByIntentId.set(order.parent, tickets);
+    }
+    let intentCount = 0;
+    for (const intent of project.orders) {
+      if (intent.parent !== null || intent.state === 'cancelled') continue;
+      intentCount += 1;
+      const tickets = ticketsByIntentId.get(intent.id) ?? [];
+      const digest = buildDigest({ ...project, orders: [intent, ...tickets], partialIntentIds: partialIntentIds.has(intent.id) ? [intent.id] : [] }, intent.id);
+      const outcome = intent.state === 'completed' ? 'completed' : digest.isPartial ? 'partial' : 'in progress';
+      lines.push(`Intent ${intent.id}: ${intent.objective}`, `Outcome: ${outcome}; merged: ${digest.merged.length}; parked: ${digest.parked.length}`);
+      for (const ticket of tickets) {
+        lines.push(`  ${ticket.id} | state: ${ticket.parked ? 'parked' : ticket.state} | blocks: ${ticket.blockCount ?? 0} | last reason: ${ticket.blockReason ?? 'none'} | next action: ${factoryTicketNextAction(ticket, intent.id)}`);
+      }
+      lines.push('Confirmed flakes:');
+      for (const flake of digest.confirmedFlakes) lines.push(`  ${flake}`);
+      if (digest.confirmedFlakes.length === 0) lines.push('  none');
+    }
+    if (intentCount === 0 && unavailability === null) lines.push('No intents.');
+  }
+  return lines.join('\n') || 'No factory projects.';
+}
+
 export {
   decideAgentRequest, decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, decideTicketAction, deriveChildSessionName, describePushLanding,
   describePushRouteRefusal, isAgentApiVerb, isOrchestratorAgentVerb, parseAgentVerb, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
-  REFUSAL_REASON, REFUSAL_STATUS,
+  decideFactoryControlAllowance, describeUnavailableFactoryState, formatFactoryStatus, REFUSAL_REASON, REFUSAL_STATUS,
 };

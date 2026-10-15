@@ -154,6 +154,7 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
       owner: order.owner.session || null,
       blockReason: order.state === 'blocked' && order.last?.event === 'transitioned' ? order.last.reason ?? null : null,
       parked: order.state === 'blocked' && isTicketParkedAtCap(ticketBlockCounts, order.work),
+      blockCount: ticketBlockCounts?.[order.work] ?? 0,
       lastEvent: order.last === null ? null : { event: order.last.event, at: order.last.at, session: order.last.session },
     };
   });

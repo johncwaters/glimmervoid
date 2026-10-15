@@ -50,6 +50,8 @@ Inside a Glimmervoid session:
   push                Land this session's commits on the integration branch and push it
   edit <path>         Open a text file for the operator to edit in the dashboard
   limits              List which of these commands answer here and what the guardrails block
+  factory status      Print each factory intent's tickets, state, last reason and next action
+  factory retry <id>  Reopen the parked tickets of a factory intent
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
 
 Experimental:
@@ -115,6 +117,10 @@ const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
   ['ssh-sign', async (subcommandArgs) => {
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');
     return runSshSignCli(subcommandArgs);
+  }],
+  ['factory', async (subcommandArgs) => {
+    const { runAgentApiCli } = await import('../server/agent-api-cli.ts');
+    return runAgentApiCli(['factory', ...subcommandArgs]);
   }],
   ...AGENT_API_VERBS.map((verb): [string, SubcommandRunner] => [verb, async (subcommandArgs, subcommandName) => {
     const { runAgentApiCli } = await import('../server/agent-api-cli.ts');
