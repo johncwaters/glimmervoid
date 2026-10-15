@@ -1214,6 +1214,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       detectScheduledWakeups: config.detectScheduledWakeups !== false,
       hookTools,
       planReview: config.planReview?.enabled !== false,
+      conversationApprovals: config.conversationView === true,
     });
   }
 
@@ -1454,7 +1455,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'conversation-approval': (message: ClientMessageOf<'conversation-approval'>, ws: ControlSocket) => {
       const session = findSession(message);
       if (!session) return sendError(ws, 'Session not found', { id: message.id, scope: 'conversation-approval' });
-      if (session.answerConversationApproval(message.requestId, message.decision)) return;
+      if (session.answerConversationApproval(message.requestId, message.decision, message.answers)) return;
       sendError(ws, 'That approval is no longer pending', { id: session.id, scope: 'conversation-approval' });
     },
     'set-session-conversation-view': (message: ClientMessageOf<'set-session-conversation-view'>, ws: ControlSocket) => {

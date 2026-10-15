@@ -69,6 +69,7 @@ test('describeBuiltinHooks rows are exactly the entries buildHookSettings writes
     { planReview: true },
     { hookTools: [{ id: 'rtk', binPath: '/usr/bin/rtk' }, { id: 'saneYolo', binPath: '/g/guard.js' }] },
     { planReview: true, hookTools: [{ id: 'rtk', binPath: '/usr/bin/rtk' }] },
+    { planReview: true, conversationApprovals: true },
   ] satisfies Parameters<typeof describeBuiltinHooks>[0][]) {
     const settings = buildHookSettings({ ...base, ...options });
     const written: { event: string; matcher: string | null }[] = [];

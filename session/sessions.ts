@@ -38,7 +38,9 @@ import { DEFAULT_AGENT_ID, resolveAdapter, commandFor } from "./adapters/index.t
 import { startCodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import type { CodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import { CODEX_REMOTE_TOKEN_ENV, needsAppServerRefusedFlag, remoteTuiArgs, splitCodexRemoteLaunch } from "./core/codex-remote-launch-core.ts";
-import type { ConversationApproval, ConversationApprovalDecision } from "../shared/contracts/session.ts";
+import type { ConversationAnswers, ConversationApproval, ConversationApprovalDecision } from "../shared/contracts/session.ts";
+import { claudeApprovalFor, claudeDecisionReply, isHoldReleasedByHookEvent, parseClaudePermissionRequest } from "./core/claude-approval-core.ts";
+import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities } from "./adapters/index.ts";
 
 import {
@@ -113,6 +115,12 @@ function nextPendingPromptToolName(
 
 const DISMISSIBLE_STATES: Set<SessionState> = new Set([STATES.WAITING, STATES.COMPLETE]);
 
+
+interface ClaudeApprovalHold {
+  request: ClaudePermissionRequest;
+  approval: ConversationApproval;
+  resolve: (reply: ClaudeHookReply | null) => void;
+}
 
 interface SessionPlanReviewPort {
   hasPlan: (sessionId: string) => boolean;
@@ -201,6 +209,7 @@ interface SessionOptions {
   adapter?: AgentAdapter | null;
   bypassHookTrust?: boolean;
   isConversationViewEnabled?: (() => boolean) | null;
+  isConversationViewSettingOn?: (() => boolean) | null;
   startCodexBridge?: typeof startCodexAppServerBridge;
   titleQuietFallbackMs?: number;
   spawnCommand?: ResolvedCommand | null;
@@ -274,6 +283,8 @@ class Session extends EventEmitter {
   _startCodexBridge: typeof startCodexAppServerBridge;
   _codexBridge: CodexAppServerBridge | null;
   _conversationApproval: ConversationApproval | null;
+  _claudeApprovalHolds: ClaudeApprovalHold[];
+  _nextClaudeApprovalNumber: number;
   backgroundTracking: ReturnType<typeof createSessionBackgroundTracking>;
   worktreeLifecycle: ReturnType<typeof createSessionWorktreeLifecycle>;
 
@@ -374,6 +385,7 @@ class Session extends EventEmitter {
 
     bypassHookTrust = false,
     isConversationViewEnabled = null,
+    isConversationViewSettingOn = null,
     startCodexBridge = startCodexAppServerBridge,
 
     titleQuietFallbackMs = 30000,
@@ -501,6 +513,8 @@ class Session extends EventEmitter {
     this._startCodexBridge = startCodexBridge;
     this._codexBridge = null;
     this._conversationApproval = null;
+    this._claudeApprovalHolds = [];
+    this._nextClaudeApprovalNumber = 1;
     this._titleQuietFallbackMs = titleQuietFallbackMs;
     this._titleQuietFallbackTimer = null;
 
@@ -562,12 +576,14 @@ class Session extends EventEmitter {
       hookTools: this._hookTools,
       planLimits: this._planLimits,
       planReview: planReviewPort !== null,
+      conversationApprovals: () => this.agentId === "claude-code" && (isConversationViewSettingOn ?? isConversationViewConfigured)(),
       getUserHooks,
       extraUserHooks,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
       ingestSignal: (raw) => this.ingestHookSignal(raw),
       observeHook: (event, payload) => {
+        this._releaseClaudeHoldsAfterHookEvent(event, payload);
         this.emit("hook-event", { event, payload });
       },
       recordDecision: (entry) => this._recordDecision(entry),
@@ -1629,7 +1645,51 @@ class Session extends EventEmitter {
     this._emitConversationChange();
   }
 
-  answerConversationApproval(requestId: number | string, decision: ConversationApprovalDecision): boolean {
+  holdClaudePermission(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null {
+    if (this.agentId !== "claude-code" || !this._isConversationViewEnabled()) return null;
+    const request = parseClaudePermissionRequest(payload);
+    if (!request) return null;
+    this._releaseClaudeHolds((hold) => hold.request.agentKey === request.agentKey);
+    const requestId = `claude-${this._nextClaudeApprovalNumber}`;
+    this._nextClaudeApprovalNumber += 1;
+    return new Promise((resolve) => {
+      const hold: ClaudeApprovalHold = { request, approval: claudeApprovalFor(request, requestId), resolve };
+      this._claudeApprovalHolds.push(hold);
+      abandoned.addEventListener("abort", () => this._releaseClaudeHolds((candidate) => candidate === hold), { once: true });
+      this._showFirstClaudeApproval();
+    });
+  }
+
+  _releaseClaudeHoldsAfterHookEvent(event: string, payload: Record<string, unknown>): void {
+    if (this._claudeApprovalHolds.length === 0) return;
+    this._releaseClaudeHolds((hold) => isHoldReleasedByHookEvent(hold.request, event, payload));
+  }
+
+  _releaseClaudeHolds(isReleased: (hold: ClaudeApprovalHold) => boolean): void {
+    const released = this._claudeApprovalHolds.filter(isReleased);
+    if (released.length === 0) return;
+    this._claudeApprovalHolds = this._claudeApprovalHolds.filter((hold) => !released.includes(hold));
+    for (const hold of released) hold.resolve(null);
+    this._showFirstClaudeApproval();
+  }
+
+  _showFirstClaudeApproval(): void {
+    this._setConversationApproval(this._claudeApprovalHolds[0]?.approval ?? null);
+  }
+
+  _answerClaudeApproval(requestId: number | string, decision: ConversationApprovalDecision, answers: ConversationAnswers | undefined): boolean {
+    const hold = this._claudeApprovalHolds.find((candidate) => candidate.approval.requestId === requestId);
+    if (!hold) return false;
+    const reply = claudeDecisionReply(hold.request, hold.approval, decision, answers);
+    if (!reply) return false;
+    this._claudeApprovalHolds = this._claudeApprovalHolds.filter((candidate) => candidate !== hold);
+    hold.resolve(reply);
+    this._showFirstClaudeApproval();
+    return true;
+  }
+
+  answerConversationApproval(requestId: number | string, decision: ConversationApprovalDecision, answers?: ConversationAnswers): boolean {
+    if (this.agentId === "claude-code") return this._answerClaudeApproval(requestId, decision, answers);
     const bridge = this._codexBridge;
     if (!bridge || this._conversationApproval?.requestId !== requestId) return false;
     if (this._conversationApproval.isSummaryTruncated && decision !== "decline") return false;
@@ -1641,6 +1701,7 @@ class Session extends EventEmitter {
     this._hooks.cleanup();
     this._disposeSandboxLaunch(this._sandboxLaunch);
     void this._stopConversationBridge();
+    this._releaseClaudeHolds(() => true);
     this.transition("spawn_fail", { error: errorMessage(cause) });
     this.emit("error", cause);
   }
@@ -1776,6 +1837,7 @@ class Session extends EventEmitter {
   _handleSpawnedPtyExit(sandboxLaunch: SandboxLaunch | null, exitCode: number, signal: ExitSignal): Promise<void> {
     this._disposeSandboxLaunch(sandboxLaunch);
     void this._stopConversationBridge();
+    this._releaseClaudeHolds(() => true);
     return this._handlePtyExit(exitCode, signal);
   }
 
@@ -2136,6 +2198,7 @@ class Session extends EventEmitter {
     this._hooks.cleanup();
     this._disposeSandboxLaunch(this._sandboxLaunch);
     void this._stopConversationBridge();
+    this._releaseClaudeHolds(() => true);
 
     this.kill();
 

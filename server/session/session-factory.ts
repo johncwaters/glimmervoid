@@ -77,6 +77,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       agent: project.agent,
       bypassHookTrust: project.codexBypassHookTrust === true,
       isConversationViewEnabled: () => isConversationViewOnFor(dependencies.getConfig?.() ?? config, project.id),
+      isConversationViewSettingOn: () => (dependencies.getConfig?.() ?? config).conversationView === true,
       replayBufferKB: config.replayBufferKB,
       hookRouter: dependencies.hookRouter,
       getHookPort: dependencies.getHookPort,

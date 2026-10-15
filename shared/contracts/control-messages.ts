@@ -13,7 +13,7 @@ import {
   PlanResponseFrame,
 } from './plan-review.ts';
 import { ChangeMap } from './change-map.ts';
-import { ConversationApproval, ConversationApprovalDecision, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
+import { ConversationAnswers, ConversationApproval, ConversationApprovalDecision, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus, hasRequiredActionHead } from './team-review.ts';
@@ -227,7 +227,7 @@ const clientVariants = [
   }),
   loose('plan-decision', PlanDecision.shape),
   loose('set-session-conversation-view', { id: sessionId, isOn: z.boolean() }),
-  loose('conversation-approval', { id: sessionId, requestId: ConversationApproval.shape.requestId, decision: ConversationApprovalDecision }),
+  loose('conversation-approval', { id: sessionId, requestId: ConversationApproval.shape.requestId, decision: ConversationApprovalDecision, answers: ConversationAnswers.optional() }),
   loose('session-doc-read', { id: sessionId, path: sessionDocPath, requestId }),
   loose('session-doc-save', { id: sessionId, path: sessionDocPath, text: z.string(), baseHash: z.string().min(1), requestId }),
   loose('client-error', ClientErrorReport.shape),

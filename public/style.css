@@ -5746,26 +5746,9 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 .conversation-assistant { align-self: flex-start; }
 .conversation-notice { align-self: center; color: var(--text-muted); font-size: 12px; }
 .conversation-notice .conversation-text { margin: 0; }
-.conversation-work { align-self: stretch; max-width: 76ch; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
-.conversation-work-summary { cursor: pointer; padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conversation-work-summary.is-running { color: var(--state-running); }
-.conversation-work-summary.has-error { color: var(--state-failed); }
-.conversation-steps { margin: 4px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
-.conversation-step-line { display: flex; gap: 8px; min-width: 0; }
-.conversation-step-tool { color: var(--accent); flex: 0 0 auto; }
-.conversation-step-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-step.has-error .conversation-step-tool { color: var(--state-failed); }
-.conversation-step-output {
-  margin: 4px 0 0;
-  max-height: 200px;
-  overflow: auto;
-  padding: 6px 8px;
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
+.conversation-work { flex: 0 0 auto; align-self: stretch; max-width: 76ch; margin: 0; padding: 2px 0; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conversation-work.is-running { color: var(--state-running); }
+.conversation-work.has-error { color: var(--state-failed); }
 .conversation-approval {
   flex: 0 0 auto;
   margin: 0 16px 8px;
@@ -5776,7 +5759,13 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 }
 .conversation-approval-title { margin: 0 0 6px; color: var(--state-waiting); font-weight: 700; font-size: 12px; }
 .conversation-approval-summary { margin: 0 0 8px; max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; }
-.conversation-approval-note { margin: 0; font-size: 12px; color: var(--text-dim); }
+.conversation-approval-note { margin: 0 0 8px; font-size: 12px; color: var(--text-dim); }
+.conversation-question-header { margin-right: 8px; padding: 1px 6px; border-radius: 4px; background: var(--bg); color: var(--text-dim); font-weight: 400; }
+.conversation-question-options { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.conversation-question-form { display: flex; flex-direction: column; gap: 8px; }
+.conversation-question { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 4px; }
+.conversation-question-text { margin: 0 0 2px; padding: 0; font-weight: 700; font-size: 12px; color: var(--state-waiting); }
+.conversation-question-option { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
 .conversation-bridge-note { flex: 0 0 auto; margin: 0; padding: 8px 16px; font-size: 12px; color: var(--text-dim); border-top: 1px solid var(--border-dim); }
 .conversation-approval-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .conversation-composer { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 16px 12px; border-top: 1px solid var(--border-dim); background: var(--bg-surface); }

@@ -8,6 +8,7 @@ import {
   traceRecordsForItemEvent,
 } from '../session/core/codex-app-server-core.ts';
 import { TraceRecord } from '../shared/contracts/trace.ts';
+import { CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS } from '../shared/contracts/session.ts';
 
 const eventContext = { threadId: 'thread-1', turnId: 'turn-1', nowMs: 1234, alreadyStartedItemIds: new Set<string>() };
 const commandItem = {
@@ -100,8 +101,8 @@ test('MCP and dynamic tools preserve arguments and normalize their text results'
 });
 
 test('approval parsing accepts only approval methods and bounds display summaries', () => {
-  const params = { threadId: 'thread-1', turnId: 'turn-1', itemId: 'command-1', command: `  ${'x'.repeat(400)}  `, cwd: '/project', reason: null };
-  assert.deepEqual(pendingApprovalFromServerRequest('item/commandExecution/requestApproval', params, 7), { requestId: 7, kind: 'command', threadId: 'thread-1', summary: 'x'.repeat(300), isSummaryTruncated: true });
+  const params = { threadId: 'thread-1', turnId: 'turn-1', itemId: 'command-1', command: `  ${'x'.repeat(CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS + 100)}  `, cwd: '/project', reason: null };
+  assert.deepEqual(pendingApprovalFromServerRequest('item/commandExecution/requestApproval', params, 7), { requestId: 7, kind: 'command', threadId: 'thread-1', summary: 'x'.repeat(CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS), isSummaryTruncated: true });
   assert.deepEqual(pendingApprovalFromServerRequest('item/fileChange/requestApproval', { threadId: 'thread-1', changes: [{ path: 'app.ts' }] }, 'edit'), { requestId: 'edit', kind: 'fileChange', threadId: 'thread-1', summary: 'app.ts', isSummaryTruncated: false });
   assert.equal(pendingApprovalFromServerRequest('item/fileChange/requestApproval', { threadId: 'thread-1', reason: 'Write app.ts', grantRoot: '/project' }, 8)?.summary, 'Write access to /project. Write app.ts');
   assert.deepEqual(pendingApprovalFromServerRequest('item/permissions/requestApproval', { threadId: 'thread-1', reason: 'Fetch deps', permissions: { network: { enabled: true }, fileSystem: { write: ['/cache'] } } }, 9), { requestId: 9, kind: 'permissions', threadId: 'thread-1', summary: 'Network access. File system write: /cache. Fetch deps', isSummaryTruncated: false });

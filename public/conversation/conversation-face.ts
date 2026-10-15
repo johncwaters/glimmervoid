@@ -1,5 +1,5 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import type { ConversationApproval, ConversationApprovalDecision } from '#shared/contracts/session.ts';
+import type { ConversationAnswers, ConversationApproval, ConversationApprovalDecision, ConversationQuestion } from '#shared/contracts/session.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { STATES } from '#shared/states.ts';
 import { el } from '../dom-helpers.ts';
@@ -24,7 +24,8 @@ type TraceReply = ServerMessageOf<'session-trace-response'>;
 const REQUEST_ID_PREFIX = 'conversation:';
 const REQUEST_TIMEOUT_MS = 10_000;
 const STICK_TO_BOTTOM_PX = 48;
-const MAX_TOOL_OUTPUT_CHARS = 4000;
+const MULTI_SELECT_ANSWER_SEPARATOR = ', ';
+const CODEX_APPROVAL_TITLES: Readonly<Record<string, string>> = { command: 'Run command?', fileChange: 'Apply file changes?', permissions: 'Grant permissions?' };
 
 interface ConversationFaceDeps {
   signal?: AbortSignal;
@@ -95,7 +96,6 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   let hasLoadedOnce = false;
   let pendingRequest: PendingTraceRequest | null = null;
   let isRefreshOwed = false;
-  const expandedGroupKeys = new Set<string>();
 
   function currentUi(): SessionUi | null {
     return sessionId ? findSessionUi(sessionId) ?? null : null;
@@ -142,28 +142,10 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   }
 
   function renderWorkGroup(group: ConversationWorkGroup) {
-    const details = el('details', 'conversation-work');
-    details.open = expandedGroupKeys.has(group.key);
-    details.addEventListener('toggle', () => {
-      if (details.open) { expandedGroupKeys.add(group.key); return; }
-      expandedGroupKeys.delete(group.key);
-    });
-    const summary = el('summary', 'conversation-work-summary', workGroupHeadline(group) || 'Working');
-    if (isWorkGroupRunning(group)) summary.classList.add('is-running');
-    if (group.errorCount > 0) summary.classList.add('has-error');
-    details.append(summary);
-    const steps = el('ol', 'conversation-steps');
-    for (const step of group.steps) {
-      const item = el('li', 'conversation-step');
-      if (step.isError) item.classList.add('has-error');
-      const line = el('div', 'conversation-step-line');
-      line.append(el('span', 'conversation-step-tool', step.name), el('span', 'conversation-step-summary', step.summary));
-      item.append(line);
-      if (step.output) item.append(el('pre', 'conversation-step-output', step.output.slice(0, MAX_TOOL_OUTPUT_CHARS)));
-      steps.append(item);
-    }
-    details.append(steps);
-    return details;
+    const line = el('p', 'conversation-work', workGroupHeadline(group));
+    if (isWorkGroupRunning(group)) line.classList.add('is-running');
+    if (group.errorCount > 0) line.classList.add('has-error');
+    return line;
   }
 
   function renderLog() {
@@ -185,9 +167,9 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
     sendKeystrokePlan(sessionId, ui, steps, (outcome) => setStatus(statusByOutcome[outcome]));
   }
 
-  function answerCodexApproval(approval: ConversationApproval, decision: ConversationApprovalDecision) {
+  function answerApproval(approval: ConversationApproval, decision: ConversationApprovalDecision, answers?: ConversationAnswers) {
     if (!sessionId) return;
-    const isSent = sendControl({ type: 'conversation-approval', id: sessionId, requestId: approval.requestId, decision });
+    const isSent = sendControl({ type: 'conversation-approval', id: sessionId, requestId: approval.requestId, decision, ...(answers ? { answers } : {}) });
     setStatus(isSent ? 'Answer sent.' : 'Unable to send the answer while disconnected.');
   }
 
@@ -198,29 +180,107 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
     return button;
   }
 
-  function renderCodexApproval(approval: ConversationApproval) {
-    const kindLabel = { command: 'Run command?', fileChange: 'Apply file changes?', permissions: 'Grant permissions?' }[approval.kind];
-    approvalSlot.append(
-      el('p', 'conversation-approval-title', kindLabel),
-      el('pre', 'conversation-approval-summary', approval.summary),
-    );
+  function approvalTitle(approval: ConversationApproval): string {
+    if (approval.kind === 'tool') return `Allow ${approval.toolName ?? 'this tool'}?`;
+    return CODEX_APPROVAL_TITLES[approval.kind] ?? 'Approve this request?';
+  }
+
+  function renderUnshownApproval(approval: ConversationApproval) {
+    approvalSlot.append(el('p', 'conversation-approval-note', 'This request cannot be shown in full here. Read and answer it in the terminal.'));
     const actions = el('div', 'conversation-approval-actions');
-    if (approval.isSummaryTruncated) {
-      approvalSlot.append(el('p', 'conversation-approval-note', 'This request cannot be shown in full here. Read it in the terminal before approving it there.'));
-      actions.append(approvalButton('Decline', () => answerCodexApproval(approval, 'decline')));
-      approvalSlot.append(actions);
-      return;
-    }
-    actions.append(
-      approvalButton('Approve', () => answerCodexApproval(approval, 'accept')),
-      approvalButton('Approve for session', () => answerCodexApproval(approval, 'acceptForSession')),
-      approvalButton('Decline', () => answerCodexApproval(approval, 'decline')),
-    );
+    actions.append(approvalButton('Open terminal', () => showTerminal()), approvalButton('Decline', () => answerApproval(approval, 'decline')));
     approvalSlot.append(actions);
   }
 
-  function renderClaudePrompt() {
-    approvalSlot.append(el('p', 'conversation-approval-title', 'Claude Code is waiting on a prompt'));
+  function renderToolApproval(approval: ConversationApproval) {
+    approvalSlot.append(el('p', 'conversation-approval-title', approvalTitle(approval)), el('pre', 'conversation-approval-summary', approval.summary));
+    if (approval.isSummaryTruncated) { renderUnshownApproval(approval); return; }
+    const actions = el('div', 'conversation-approval-actions');
+    actions.append(approvalButton('Approve', () => answerApproval(approval, 'accept')));
+    if (approval.kind !== 'tool') actions.append(approvalButton('Approve for session', () => answerApproval(approval, 'acceptForSession')));
+    if (approval.alwaysAllowSummary) {
+      approvalSlot.append(el('p', 'conversation-approval-note', `Always allow adds, for this session only: ${approval.alwaysAllowSummary}`));
+      actions.append(approvalButton('Always allow', () => answerApproval(approval, 'acceptForSession')));
+    }
+    actions.append(approvalButton('Decline', () => answerApproval(approval, 'decline')));
+    approvalSlot.append(actions);
+  }
+
+  function renderQuestionText(question: ConversationQuestion) {
+    const heading = el('p', 'conversation-approval-title', question.question);
+    if (question.header) heading.prepend(el('span', 'conversation-question-header', question.header));
+    return heading;
+  }
+
+  function renderSingleQuestion(approval: ConversationApproval, question: ConversationQuestion) {
+    approvalSlot.append(renderQuestionText(question));
+    const options = el('div', 'conversation-question-options');
+    for (const option of question.options) {
+      const button = approvalButton(option.label, () => answerApproval(approval, 'accept', { [question.question]: option.label }));
+      if (option.description) button.title = option.description;
+      options.append(button);
+    }
+    const actions = el('div', 'conversation-approval-actions');
+    actions.append(approvalButton('Decline', () => answerApproval(approval, 'decline')));
+    approvalSlot.append(options, actions);
+  }
+
+  function renderQuestionForm(approval: ConversationApproval, questions: readonly ConversationQuestion[]) {
+    const form = el('form', 'conversation-question-form');
+    questions.forEach((question, questionIndex) => {
+      const fieldset = el('fieldset', 'conversation-question');
+      const legend = el('legend', 'conversation-question-text', question.question);
+      if (question.header) legend.prepend(el('span', 'conversation-question-header', question.header));
+      fieldset.append(legend);
+      for (const option of question.options) {
+        const label = el('label', 'conversation-question-option');
+        const choice = el('input');
+        choice.type = question.multiSelect ? 'checkbox' : 'radio';
+        choice.name = `question-${questionIndex}`;
+        choice.value = option.label;
+        label.append(choice, el('span', '', option.label));
+        if (option.description) label.title = option.description;
+        fieldset.append(label);
+      }
+      form.append(fieldset);
+    });
+    const actions = el('div', 'conversation-approval-actions');
+    const submitButton = el('button', 'conversation-approval-action', 'Send answers');
+    submitButton.type = 'submit';
+    actions.append(submitButton, approvalButton('Decline', () => answerApproval(approval, 'decline')));
+    form.append(actions);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const answers: ConversationAnswers = {};
+      questions.forEach((question, questionIndex) => {
+        const chosen = [...form.querySelectorAll<HTMLInputElement>(`input[name="question-${questionIndex}"]:checked`)].map((choice) => choice.value);
+        if (chosen.length > 0) answers[question.question] = chosen.join(MULTI_SELECT_ANSWER_SEPARATOR);
+      });
+      if (Object.keys(answers).length !== questions.length) { setStatus('Answer every question first.'); return; }
+      answerApproval(approval, 'accept', answers);
+    });
+    approvalSlot.append(form);
+  }
+
+  function renderQuestionApproval(approval: ConversationApproval) {
+    const questions = approval.questions ?? [];
+    if (approval.isSummaryTruncated || questions.length === 0) {
+      approvalSlot.append(el('p', 'conversation-approval-title', 'Claude Code has a question'), el('pre', 'conversation-approval-summary', approval.summary));
+      renderUnshownApproval(approval);
+      return;
+    }
+    const [firstQuestion] = questions;
+    if (questions.length === 1 && !firstQuestion.multiSelect) { renderSingleQuestion(approval, firstQuestion); return; }
+    renderQuestionForm(approval, questions);
+  }
+
+  function renderPendingApproval(approval: ConversationApproval) {
+    if (approval.kind === 'question') { renderQuestionApproval(approval); return; }
+    renderToolApproval(approval);
+  }
+
+  function renderTerminalOnlyPrompt() {
+    approvalSlot.append(el('p', 'conversation-approval-title', 'The agent is waiting on a prompt'));
     approvalSlot.append(el('p', 'conversation-approval-note', 'Read and answer it in the terminal.'));
     const actions = el('div', 'conversation-approval-actions');
     actions.append(approvalButton('Open terminal', () => showTerminal()));
@@ -230,17 +290,16 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   function renderApproval() {
     const ui = currentUi();
     approvalSlot.replaceChildren();
-    const codexApproval = ui?.conversationApproval ?? null;
+    const pendingApproval = ui?.conversationApproval ?? null;
     const isPromptShowing = ui ? isAnyPromptShowing(ui.currentState, ui.pendingPromptKind) : false;
     const isAwaitingBridge = ui?.agent === 'codex' && !ui.hasConversationBridge;
     bridgeNote.hidden = !isAwaitingBridge;
-    approvalSlot.hidden = !codexApproval && !isPromptShowing;
+    approvalSlot.hidden = !pendingApproval && !isPromptShowing;
     sendButton.disabled = !approvalSlot.hidden || isAwaitingBridge;
     if (!ui) return;
-    if (codexApproval) { renderCodexApproval(codexApproval); return; }
+    if (pendingApproval) { renderPendingApproval(pendingApproval); return; }
     if (!isPromptShowing) return;
-    if (ui.agent === 'claude-code') { renderClaudePrompt(); return; }
-    approvalSlot.append(el('p', 'conversation-approval-note', 'The agent is waiting on a prompt. Answer it in the terminal.'));
+    renderTerminalOnlyPrompt();
   }
 
   function renderControls() {
@@ -271,7 +330,6 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
       records = [];
       nextOffset = 0;
       hasLoadedOnce = false;
-      expandedGroupKeys.clear();
       clearPendingRequest();
       setStatus('');
     }

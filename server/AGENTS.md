@@ -74,6 +74,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - An allow echoes the plan bytes AS RECEIVED, never a re-read of `planFilePath`, or whatever the file holds then becomes the approved plan; only an operator EDIT on the open revision replaces them.
 - The in-memory index holds offsets, chars and titles and never a body, so a summary push carries no plan and a body crosses an authenticated socket only on request; a DRAFT body comes from the hook's own path, never a client's (`tests/backend-plan-draft.test.ts`).
 - Only a plan segment raises the body cap, the RESULT one twice, as it repeats the plan it approves.
+- Conversation approvals follow the same hold rules on their own URLs (`permissionrequest-conversation`, released by a matching `posttooluse-conversation`); ExitPlanMode passes through so plan review keeps it (`session/core/claude-approval-core.ts`).
 
 ### Security: Trust Boundary
 

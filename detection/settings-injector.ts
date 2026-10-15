@@ -12,6 +12,7 @@ import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { appendUserHooks } from '../session/core/user-hooks-core.ts';
 import type { UserHook } from '../session/core/user-hooks-core.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT, PLAN_TOOL_NAME } from '../shared/contracts/plan-review.ts';
+import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../shared/contracts/session.ts';
 import { safePathSegment } from '../shared/paths.ts';
 import { isRecord, textOr } from '../shared/coerce.ts';
 
@@ -63,6 +64,7 @@ interface BuildHookSettingsOptions {
   hookTools?: ResolvedHookTool[];
   planLimits?: boolean;
   planReview?: boolean;
+  conversationApprovals?: boolean;
   userSettingsPath?: string | null;
   relayPath?: string;
   commandHookRelayPath?: string;
@@ -133,7 +135,7 @@ function buildCommandHookCommand(
   return `node ${shellQuote(toForwardSlashes(relayPath))} ${shellQuote(postUrl)}`;
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, sandbox = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [] }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, sandbox = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, conversationApprovals = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [] }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -157,6 +159,9 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
       hooks: [{ type: 'http', url: hookUrl(PLAN_HOOK_EVENT), timeout: PLAN_HOOK_TIMEOUT_SEC }],
     });
   }
+  if (conversationApprovals && permissionRequestEntries) {
+    permissionRequestEntries.push({ hooks: [{ type: 'http', url: hookUrl(CONVERSATION_PERMISSION_HOOK_EVENT), timeout: PLAN_HOOK_TIMEOUT_SEC }] });
+  }
   const sharedPostToolUseMatchers: string[] = [];
   if (detectScheduledWakeups) sharedPostToolUseMatchers.push(WAKEUP_TOOL_MATCHER);
   sharedPostToolUseMatchers.push(PR_LINK_TOOL_MATCHER);
@@ -168,6 +173,9 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
       matcher: PLAN_TOOL_MATCHER,
       hooks: [{ type: 'http', url: hookUrl(PLAN_RESULT_HOOK_EVENT), timeout: timeoutSec }],
     });
+  }
+  if (conversationApprovals) {
+    postToolUse.push({ hooks: [{ type: 'http', url: hookUrl(CONVERSATION_TOOL_RESULT_HOOK_EVENT), timeout: timeoutSec }] });
   }
   if (postToolUse.length > 0) {
     hooks.PostToolUse = postToolUse;
@@ -212,14 +220,18 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
 }
 
 function describeBuiltinHooks(
-  { detectScheduledWakeups = true, observeToolCalls = false, hookTools = [], planReview = false }:
-    { detectScheduledWakeups?: boolean; observeToolCalls?: boolean; hookTools?: ResolvedHookTool[]; planReview?: boolean } = {},
+  { detectScheduledWakeups = true, observeToolCalls = false, hookTools = [], planReview = false, conversationApprovals = false }:
+    { detectScheduledWakeups?: boolean; observeToolCalls?: boolean; hookTools?: ResolvedHookTool[]; planReview?: boolean; conversationApprovals?: boolean } = {},
 ): { event: string; matcher: string | null; purpose: string }[] {
   const rows = HOOK_EVENTS.map((event) => ({ event, matcher: null as string | null, purpose: 'Status detection: POST to the Glimmervoid hook router' }));
   if (planReview) rows.push({ event: 'PermissionRequest', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: POST the plan to the Glimmervoid plan endpoint' });
   if (detectScheduledWakeups) rows.push({ event: 'PostToolUse', matcher: WAKEUP_TOOL_MATCHER, purpose: 'Scheduled wakeup tracking' });
   rows.push({ event: 'PostToolUse', matcher: PR_LINK_TOOL_MATCHER, purpose: 'Pull request linking: read the git operation a shell command reports' });
   if (planReview) rows.push({ event: 'PostToolUse', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: record the approved plan' });
+  if (conversationApprovals) {
+    rows.push({ event: 'PermissionRequest', matcher: null, purpose: 'Conversation view: hold a permission prompt so the dashboard can answer it' });
+    rows.push({ event: 'PostToolUse', matcher: null, purpose: 'Conversation view: release a held prompt the terminal answered' });
+  }
   if (observeToolCalls) rows.push({ event: 'PreToolUse', matcher: null, purpose: 'Investigation trail: POST every tool call to the Glimmervoid hook router' });
   for (const tool of hookTools) {
     const descriptor = HOOK_TOOLS[tool.id];

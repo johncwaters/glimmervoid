@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Answer Claude Code prompts from the Conversation view**: a Claude Code permission prompt now shows on the Conversation face as a card with the full request, such as the whole command or the file and its edit, and offers Approve, Always allow and Decline. Always allow appears only when Claude Code suggests a rule, names the rule it adds, and keeps it for this session only. A Claude Code question shows its options as buttons, or as a short form when it asks several questions or allows more than one answer. The terminal prompt stays live, so answering in either place works and the card clears itself. A Claude Code session started before you turned on the Conversation view setting picks this up after a restart. Codex approvals now show commands up to 4000 characters instead of 300 before falling back to the terminal.
+
 ### Changed
 
+- **Conversation view shows tool work as one quiet line**: each stretch of tool work is now a single line such as "Worked 1m 20s, 14 steps" instead of a list you could expand. The full tool detail stays in the Trace tab.
 - **Clearer `glimmervoid --help`**: commands are grouped into everyday commands, editor integration, commands for use inside a session, and experimental ones, and `visions uninstall` is now listed.
 
 ### Fixed

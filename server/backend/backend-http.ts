@@ -7,6 +7,7 @@ import express from 'express';
 import type { Express, Request, RequestHandler, Response } from 'express';
 import { HOOK_EVENTS } from '../../detection/settings-injector.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../../shared/contracts/plan-review.ts';
+import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../../shared/contracts/session.ts';
 import { parseJsonRecord } from '../core/json-core.ts';
 import type { Session } from '../../session/sessions.ts';
 import { refocusReplyFor } from '../../session/core/refocus-core.ts';
@@ -41,7 +42,7 @@ import {
 
 const HOOK_BODY_CAP_BYTES = 64 * 1024;
 const UNNAMED_HOOK_EVENT = 'an unknown event';
-const SILENT_OVERSIZE_HOOK_EVENT = 'posttooluse';
+const SILENT_OVERSIZE_HOOK_EVENTS: ReadonlySet<string> = new Set(['posttooluse', CONVERSATION_TOOL_RESULT_HOOK_EVENT]);
 const KNOWN_HOOK_EVENTS: ReadonlySet<string> = new Set([
   ...HOOK_EVENTS.map((event) => event.toLowerCase()),
   'pretooluse',
@@ -49,6 +50,8 @@ const KNOWN_HOOK_EVENTS: ReadonlySet<string> = new Set([
   'statusline',
   PLAN_HOOK_EVENT,
   PLAN_RESULT_HOOK_EVENT,
+  CONVERSATION_PERMISSION_HOOK_EVENT,
+  CONVERSATION_TOOL_RESULT_HOOK_EVENT,
 ]);
 
 function knownHookEventName(event: string): string {
@@ -364,7 +367,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     const bodyCapBytes = hookBodyCapBytes(req.params.event, getPlanReview());
     const hookEventName = knownHookEventName(req.params.event);
     const overCap = (declaredBytes: string) => {
-      if (hookEventName === SILENT_OVERSIZE_HOOK_EVENT) return;
+      if (SILENT_OVERSIZE_HOOK_EVENTS.has(hookEventName)) return;
       logger.warn(`[hook] ${hookEventName} body of ${declaredBytes} bytes is over the ${bodyCapBytes} byte cap and was refused`);
     };
     void readCappedBody(req, bodyCapBytes, overCap).then((body) => {
@@ -399,7 +402,10 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         accepted: output.status === 200,
         signal: abandonedByClaudeCode.signal,
       }) || null;
-      if (!planDecision) {
+      const isConversationPermission = output.status === 200 && req.params.event.toLowerCase() === CONVERSATION_PERMISSION_HOOK_EVENT;
+      const heldDecision = planDecision
+        || (isConversationPermission ? getSession(req.params.glimmervoidId)?.holdClaudePermission(payload, abandonedByClaudeCode.signal) ?? null : null);
+      if (!heldDecision) {
         answer(null);
         return;
       }
@@ -407,7 +413,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         if (res.writableFinished) return;
         abandonedByClaudeCode.abort();
       });
-      planDecision.then(answer, () => { answer(null); });
+      heldDecision.then(answer, () => { answer(null); });
     });
   });
 

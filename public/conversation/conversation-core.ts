@@ -1,9 +1,7 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { STATES } from '#shared/states.ts';
-import { firstDetailLine, toolDetailLine } from '#shared/tool-detail.ts';
 
-type ToolCallRecord = Extract<TraceRecord, { kind: 'tool_call' }>;
 type ToolResultRecord = Extract<TraceRecord, { kind: 'tool_result' }>;
 
 const CONVERSATION_AGENTS: ReadonlySet<string> = new Set(['claude-code', 'codex']);
@@ -20,11 +18,6 @@ export interface TimedKeystroke {
 }
 
 interface ConversationToolStep {
-  toolUseId: string;
-  name: string;
-  summary: string;
-  output: string | null;
-  isError: boolean;
   isRunning: boolean;
 }
 
@@ -86,10 +79,6 @@ function isSubagentRecord(record: TraceRecord): boolean {
   return typeof record.agentId === 'string';
 }
 
-function toolSummary(record: ToolCallRecord): string {
-  return toolDetailLine(record.name, record.input) || record.name;
-}
-
 function openWorkGroup(entries: ConversationEntry[], key: string, at: number): ConversationWorkGroup {
   const last = entries[entries.length - 1];
   if (last?.kind === 'work') return last;
@@ -101,8 +90,6 @@ function openWorkGroup(entries: ConversationEntry[], key: string, at: number): C
 function attachToolResult(stepsByToolUseId: Map<string, ConversationToolStep>, record: ToolResultRecord): boolean {
   const step = stepsByToolUseId.get(record.toolUseId);
   if (!step) return false;
-  step.output = record.content;
-  step.isError = record.isError;
   step.isRunning = false;
   return true;
 }
@@ -134,7 +121,7 @@ export function conversationEntries(records: readonly TraceRecord[]): Conversati
     }
     if (record.kind === 'tool_call') {
       const group = openWorkGroup(entries, key, record.ts);
-      const step: ConversationToolStep = { toolUseId: record.toolUseId, name: record.name, summary: toolSummary(record), output: null, isError: false, isRunning: true };
+      const step: ConversationToolStep = { isRunning: true };
       group.steps.push(step);
       group.endedAt = record.ts;
       stepsByToolUseId.set(record.toolUseId, step);
@@ -152,15 +139,22 @@ export function conversationEntries(records: readonly TraceRecord[]): Conversati
   return entries;
 }
 
+function formatWorkDuration(durationMs: number): string {
+  const totalSeconds = Math.max(1, Math.round(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+}
+
 export function workGroupHeadline(group: ConversationWorkGroup): string {
   const toolCount = group.steps.length;
-  const parts: string[] = [];
-  if (toolCount > 0) parts.push(`${toolCount} ${toolCount === 1 ? 'step' : 'steps'}`);
-  if (group.thinkingCount > 0 && toolCount === 0) parts.push('Thought');
-  if (group.errorCount > 0) parts.push(`${group.errorCount} failed`);
-  const lastStep = group.steps[group.steps.length - 1];
-  if (lastStep) parts.push(firstDetailLine(lastStep.summary));
-  return parts.join(' | ');
+  const stepText = `${toolCount} ${toolCount === 1 ? 'step' : 'steps'}`;
+  if (isWorkGroupRunning(group)) return toolCount > 0 ? `Working, ${stepText}` : 'Working';
+  const duration = formatWorkDuration(group.endedAt - group.startedAt);
+  if (toolCount === 0) return `Thought for ${duration}`;
+  const failedText = group.errorCount > 0 ? `, ${group.errorCount} failed` : '';
+  return `Worked ${duration}, ${stepText}${failedText}`;
 }
 
 export function isWorkGroupRunning(group: ConversationWorkGroup): boolean {
