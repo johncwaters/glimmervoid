@@ -7,6 +7,8 @@
 
 **Mission control for your coding agents. Run dozens of Claude Code, Codex and Grok sessions at once. See every one. Miss nothing.**
 
+Website: [glimmervoid.dev](https://glimmervoid.dev)
+
 Running more than a couple of coding agents at once turns into alt-tabbing between terminal windows, missing the exact moment one finishes or silently blocks on a prompt, and merging work you never watched happen. Glimmervoid is one browser dashboard with live terminal output for every session, exact status instead of a guess, a notification the moment an agent needs you, and per-agent git worktrees you can review and merge without leaving the page.
 
 Glimmervoid is an agent orchestrator, sometimes called an agent manager or an agentic development environment. It is not an agent harness: Claude Code, Codex and Grok are the harnesses, the loop that turns a model into an agent. Glimmervoid runs those harnesses unmodified, as real processes in real terminals on your own machine, and supervises all of them from one screen. No cloud service, no account.
