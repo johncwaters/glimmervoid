@@ -18,6 +18,12 @@ function isTerminalReportOnly(input: string): boolean {
   return input.replace(TERMINAL_REPORT_PATTERN, "") === "";
 }
 
+const TERMINAL_QUERY_REPLY_PATTERN = /\x1b\[[?>]?[\d;]*(?:\$y|[cRnt])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1bP[^\x1b]*\x1b\\/g;
+
+function isOperatorKeystroke(input: string): boolean {
+  return input.replace(TERMINAL_REPORT_PATTERN, "").replace(TERMINAL_QUERY_REPLY_PATTERN, "") !== "";
+}
+
 const LONE_ESCAPE = "\x1b";
 
 const OPTION_DIGIT_SHORTCUT_PATTERN = /^[1-9]$/;
@@ -37,5 +43,5 @@ function decideWaitingInput({ state, hasHookAwaitingInput, pendingPromptKind, is
   return "acknowledge";
 }
 
-export { decideWaitingInput, isTerminalReportOnly };
+export { decideWaitingInput, isOperatorKeystroke, isTerminalReportOnly };
 export type { WaitingInputContext };

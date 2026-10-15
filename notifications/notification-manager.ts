@@ -2,6 +2,7 @@ import { errorMessage } from "../shared/text.ts";
 import { EventEmitter } from 'node:events';
 
 import { NOTIFICATION_STATES as NS, NOTIFICATION_TRANSITIONS } from '../shared/notification-states.ts';
+import { decidePhoneEscalation } from './core/phone-escalation-core.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import type { NotificationState } from '../shared/notification-states.ts';
 
@@ -41,6 +42,7 @@ interface NotificationEntry {
   escalationCount: number;
   phoneTimer: NodeJS.Timeout | null;
   hasReachedPhone: boolean;
+  pendingSinceMs: number;
 }
 
 export interface NotificationManagerOptions {
@@ -51,6 +53,7 @@ export interface NotificationManagerOptions {
 
 interface NotificationManagerDependencies extends NotificationManagerOptions {
   recordOutcome?: OutcomeRecorder;
+  now?: () => number;
 }
 
 class NotificationManager extends EventEmitter {
@@ -62,12 +65,15 @@ class NotificationManager extends EventEmitter {
   _phoneEscalationMs: number;
   _recentCategories: Map<string, number>;
   _recordOutcome: OutcomeRecorder;
+  _now: () => number;
+  _lastOperatorActivityMs: number | null;
 
   constructor({
     escalationIntervalMs = 300000,
     debounceMs = 3000,
     phoneEscalationMs = 300000,
     recordOutcome = () => {},
+    now = () => Date.now(),
   }: NotificationManagerDependencies = {}) {
     super();
     this._entries = new Map();
@@ -78,6 +84,8 @@ class NotificationManager extends EventEmitter {
     this._phoneEscalationMs = phoneEscalationMs;
     this._recentCategories = new Map();
     this._recordOutcome = recordOutcome;
+    this._now = now;
+    this._lastOperatorActivityMs = null;
   }
 
 
@@ -124,6 +132,10 @@ class NotificationManager extends EventEmitter {
     this._transition(sessionName, 'acknowledge');
   }
 
+  noteOperatorActivity(): void {
+    this._lastOperatorActivityMs = this._now();
+  }
+
   markPhoneReached(sessionName: string): void {
     const entry = this._entries.get(sessionName);
     if (!entry) return;
@@ -159,6 +171,7 @@ class NotificationManager extends EventEmitter {
         escalationCount: 0,
         phoneTimer: null,
         hasReachedPhone: false,
+        pendingSinceMs: 0,
       });
     }
   }
@@ -198,6 +211,7 @@ class NotificationManager extends EventEmitter {
       case NS.PENDING:
         this._clearPhoneTimer(entry);
         entry.hasReachedPhone = false;
+        entry.pendingSinceMs = this._now();
         if (this._focusSuppressed) {
           this._transition(sessionName, 'suppressed');
           return;
@@ -264,11 +278,33 @@ class NotificationManager extends EventEmitter {
     if (entry.phoneTimer !== null) return;
     if (!(this._phoneEscalationMs > 0)) return;
     if (!this._channels.some((channel) => channel.offDashboard && channel.canEscalate())) return;
+    this._schedulePhoneCheck(sessionName, entry, this._phoneEscalationMs);
+  }
+
+  _schedulePhoneCheck(sessionName: string, entry: NotificationEntry, delayMs: number): void {
     entry.phoneTimer = setTimeout(() => {
       entry.phoneTimer = null;
-      this._transition(sessionName, 'phone_escalation');
-    }, this._phoneEscalationMs);
+      this._resolvePhoneEscalation(sessionName, entry);
+    }, delayMs);
     entry.phoneTimer.unref();
+  }
+
+  _resolvePhoneEscalation(sessionName: string, entry: NotificationEntry): void {
+    const decision = decidePhoneEscalation({
+      pendingSinceMs: entry.pendingSinceMs,
+      lastOperatorActivityMs: this._lastOperatorActivityMs,
+      nowMs: this._now(),
+      phoneEscalationMs: this._phoneEscalationMs,
+    });
+    if (decision.action === 'wait') {
+      this._schedulePhoneCheck(sessionName, entry, decision.delayMs);
+      return;
+    }
+    if (decision.action === 'seen') {
+      this._markPhoneReached(entry);
+      return;
+    }
+    this._transition(sessionName, 'phone_escalation');
   }
 
   _exitHook(_sessionName: string, entry: NotificationEntry, state: NotificationState): void {

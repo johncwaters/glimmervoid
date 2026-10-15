@@ -42,6 +42,7 @@ interface SessionEventDependencies {
   notificationManager: {
     acknowledge: (id: string) => void;
     trigger: (id: string, category: string, message: string, kind?: 'plan' | null) => void;
+    noteOperatorActivity: () => void;
   };
   getIngestLane: () => WiringIngestLane | null;
   tapIngestForSession: (session: Session) => void;
@@ -292,6 +293,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       releaseDeferredAcknowledge();
     });
     session.on('waiting-input-acknowledged', () => dependencies.notificationManager.acknowledge(session.id));
+    session.on('operator-input', () => dependencies.notificationManager.noteOperatorActivity());
     session.on('prompt-kind-change', ({ pendingPromptKind: nextKind, isCompacting: isNowCompacting }: { pendingPromptKind: string | null; isCompacting: boolean }) => {
       pendingPromptKind = nextKind;
       isCompacting = isNowCompacting;

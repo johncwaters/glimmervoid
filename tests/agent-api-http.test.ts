@@ -794,6 +794,7 @@ function notificationWiring(triggered: { category: string; message: string }[]) 
     notificationManager: {
       acknowledge: () => {},
       trigger: (_id, category, message) => { triggered.push({ category, message }); },
+      noteOperatorActivity: () => {},
     },
     getIngestLane: () => null,
     tapIngestForSession: () => {},

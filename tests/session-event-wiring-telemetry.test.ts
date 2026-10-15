@@ -16,7 +16,7 @@ function wiredSession() {
     usage: { refreshSessions: () => {}, nudgeSession: () => {} },
     broadcastControl: () => {},
     telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
-    notificationManager: { acknowledge: () => {}, trigger: () => {} },
+    notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
     getIngestLane: () => null,
     tapIngestForSession: () => {},
     closeSessionDataClients: () => {},

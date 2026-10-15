@@ -340,7 +340,7 @@ for (const state of [STATES.IDLE, STATES.COMPLETE]) {
         config, configStore: { save: () => config }, taskTitleRefiner: refiner,
         recordLane: () => {}, usage: { refreshSessions: () => {}, nudgeSession: () => {} },
         broadcastControl: () => {}, telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
-        notificationManager: { acknowledge: () => {}, trigger: () => {} },
+        notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
         getIngestLane: () => null, tapIngestForSession: () => {}, closeSessionDataClients: () => {},
         logger: { error: () => {}, log: () => {}, warn: () => {} },
       })(session);

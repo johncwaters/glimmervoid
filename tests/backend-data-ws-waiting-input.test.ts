@@ -24,6 +24,7 @@ interface WaitingInputHarness {
   session: Session;
   ptyWrites: string[];
   acknowledgedIds: string[];
+  operatorActivity: { count: number };
   sendInput: (data: string) => Promise<void>;
   close: () => Promise<void>;
 }
@@ -45,6 +46,7 @@ async function bootHarness(session: Session): Promise<WaitingInputHarness> {
   session.ptyProcess = capturingPty(ptyWrites);
   session._ptyAlive = true;
   const acknowledgedIds: string[] = [];
+  const operatorActivity = { count: 0 };
   const wireSessionEvents = createSessionEventWiring({
     configStore: { save: () => null },
     config: { projects: [] },
@@ -52,7 +54,11 @@ async function bootHarness(session: Session): Promise<WaitingInputHarness> {
     usage: { refreshSessions: () => {}, nudgeSession: () => {} },
     broadcastControl: () => {},
     telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
-    notificationManager: { acknowledge: (id) => { acknowledgedIds.push(id); }, trigger: () => {} },
+    notificationManager: {
+      acknowledge: (id) => { acknowledgedIds.push(id); },
+      trigger: () => {},
+      noteOperatorActivity: () => { operatorActivity.count += 1; },
+    },
     getIngestLane: () => null,
     tapIngestForSession: () => {},
     closeSessionDataClients: () => {},
@@ -99,7 +105,7 @@ async function bootHarness(session: Session): Promise<WaitingInputHarness> {
     server.closeAllConnections();
     await closeServer(server);
   };
-  return { session, ptyWrites, acknowledgedIds, sendInput, close };
+  return { session, ptyWrites, acknowledgedIds, operatorActivity, sendInput, close };
 }
 
 function claudeCodeAtPermissionPrompt(promptToolName: string | undefined = undefined, titleBeforePrompt: string | null = null): Session {
@@ -122,6 +128,7 @@ test('a Claude Code card stays WAITING while the operator moves through the ques
     assert.equal(harness.session.state, STATES.WAITING);
     assert.equal(harness.session._pendingPromptKind, 'permission');
     assert.deepEqual(harness.acknowledgedIds, [SESSION_ID]);
+    assert.equal(harness.operatorActivity.count, 1, 'a keystroke tells the phone rung the operator is at the dashboard');
   } finally {
     await harness.close();
   }
@@ -135,6 +142,7 @@ test('a touch scroll or focus report on a Claude Code question neither ends WAIT
     assert.equal(harness.session.state, STATES.WAITING);
     assert.deepEqual(harness.acknowledgedIds, []);
     assert.deepEqual(harness.ptyWrites, [SGR_WHEEL_DOWN, FOCUS_IN]);
+    assert.equal(harness.operatorActivity.count, 0, 'a scroll or focus report is not the operator at the keyboard');
   } finally {
     await harness.close();
   }

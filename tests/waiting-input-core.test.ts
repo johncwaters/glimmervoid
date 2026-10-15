@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { decideWaitingInput, isTerminalReportOnly } from '../session/core/waiting-input-core.ts';
+import { decideWaitingInput, isOperatorKeystroke, isTerminalReportOnly } from '../session/core/waiting-input-core.ts';
 import type { WaitingInputContext } from '../session/core/waiting-input-core.ts';
 import { STATES } from '../shared/states.ts';
 
@@ -32,6 +32,18 @@ test('mouse and focus reports are terminal reports, keystrokes are not', () => {
   }
   for (const keystroke of [ARROW_DOWN, ' ', '\r', 'y', `${SGR_WHEEL_UP}\r`]) {
     assert.equal(isTerminalReportOnly(keystroke), false, JSON.stringify(keystroke));
+  }
+});
+
+test('terminal query replies and reports are not operator keystrokes, so they never fake presence', () => {
+  const cursorPositionReply = '\x1b[12;1R';
+  const deviceAttributesReply = '\x1b[?1;2c';
+  const backgroundColorReply = '\x1b]11;rgb:1e1e/1e1e/1e1e\x1b\\';
+  for (const terminalBytes of [cursorPositionReply, deviceAttributesReply, backgroundColorReply, SGR_WHEEL_UP, FOCUS_OUT]) {
+    assert.equal(isOperatorKeystroke(terminalBytes), false, JSON.stringify(terminalBytes));
+  }
+  for (const keystroke of [ARROW_DOWN, ESCAPE, 'y', '\r', `${cursorPositionReply}y`]) {
+    assert.equal(isOperatorKeystroke(keystroke), true, JSON.stringify(keystroke));
   }
 });
 

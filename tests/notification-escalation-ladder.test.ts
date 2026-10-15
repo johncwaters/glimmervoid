@@ -11,6 +11,7 @@ import { NotificationManager } from '../notifications/notification-manager.ts';
 import { NOTIFICATION_STATES as NS, NOTIFICATION_TRANSITIONS } from '../shared/notification-states.ts';
 import { createTelegramChannel, decideTelegramNotification } from '../notifications/channels/telegram.ts';
 import { createTelegramCompletionDefer } from '../notifications/telegram-completion-defer.ts';
+import { createTelegramDigest } from '../notifications/telegram-digest.ts';
 import type { NotificationContext } from '../notifications/notification-manager.ts';
 import { createBackendNotifications } from '../server/backend/backend-notifications.ts';
 import type { NotificationConfig } from '../server/backend/backend-notifications.ts';
@@ -215,6 +216,49 @@ test('no timer is armed when the off-dashboard channel would not deliver', (t) =
   assert.equal(manager.getNotificationState('sess-2'), NS.ESCALATED_PHONE);
 });
 
+test('a phone rung armed late escalates once the operator is idle, even after typing long past the entry', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const escalationIntervalMs = PHONE_MS * 4;
+  const manager = new NotificationManager({ escalationIntervalMs, debounceMs: 0, phoneEscalationMs: PHONE_MS });
+  t.after(() => manager.destroy());
+  const phone: RecordedDelivery[] = [];
+  let telegramEnabled = false;
+  manager.registerChannel('web', () => {});
+  manager.registerChannel('telegram', (session, category, message, context) => {
+    phone.push({ session, category, message, context });
+  }, { offDashboard: true, canEscalate: () => telegramEnabled });
+
+  manager.trigger('sess-1', 'waiting', 'needs your input');
+  t.mock.timers.tick(PHONE_MS + 10);
+  manager.noteOperatorActivity();
+  telegramEnabled = true;
+  t.mock.timers.tick(escalationIntervalMs - PHONE_MS - 10);
+  t.mock.timers.tick(escalationIntervalMs);
+  assert.equal(manager.getNotificationState('sess-1'), NS.DELIVERED, 're-entering delivered arms the rung late');
+
+  t.mock.timers.tick(PHONE_MS);
+  assert.equal(manager.getNotificationState('sess-1'), NS.ESCALATED_PHONE);
+  assert.equal(phone.filter((d) => d.context.phoneEscalation === true).length, 1);
+});
+
+test('a digest too long for one telegram message splits across messages and loses no ping', async () => {
+  const telegramMessageMaxChars = 4096;
+  const deliveredTexts: string[] = [];
+  const digest = createTelegramDigest({ deliver: async (text) => { deliveredTexts.push(text); } });
+  const bufferedTexts = ['a'.repeat(2000), 'b'.repeat(2000), 'c'.repeat(2000), 'd'.repeat(5000), 'e'.repeat(10)];
+  for (const text of bufferedTexts) await digest.deliver(text);
+  await digest.flush();
+
+  assert.deepEqual(deliveredTexts, [
+    `${'a'.repeat(2000)}\n${'b'.repeat(2000)}`,
+    'c'.repeat(2000),
+    'd'.repeat(5000),
+    'e'.repeat(10),
+  ]);
+  const oversizedMessages = deliveredTexts.filter((text) => text.length > telegramMessageMaxChars);
+  assert.deepEqual(oversizedMessages, ['d'.repeat(5000)], 'only a single ping that is itself too long goes over, alone');
+});
+
 test('the escalation timer is unref\'d', (t) => {
   const { manager } = makeManager({ phoneEscalationMs: 60_000 });
   t.after(() => manager.destroy());
@@ -354,6 +398,40 @@ test('a completion deferred behind active agents and sent by the recheck timer i
   assert.deepEqual(deliveredTexts, ['build finished']);
 });
 
+test('typing in another session holds the phone rung: worked past means seen, the rest arrive as one digest once idle', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const manager = new NotificationManager({ escalationIntervalMs: QUIET_MS * 100, debounceMs: 0, phoneEscalationMs: PHONE_MS });
+  const deliveredTexts: string[] = [];
+  const telegramChannel = createTelegramCompletionDefer({
+    deliver: createTelegramChannel({
+      getConfig: () => ({ telegramNotifications: true, telegram: { botToken: 'b', chatId: 'c' } }),
+      getConnectionCount: () => 1,
+      outbox: createTelegramDigest({ deliver: async (text) => { deliveredTexts.push(text); } }),
+    }),
+  });
+  manager.registerChannel('web', () => {});
+  manager.registerChannel('telegram', telegramChannel, { offDashboard: true });
+  t.after(() => { telegramChannel.destroy(); manager.destroy(); });
+
+  manager.trigger('api', 'complete', 'api finished');
+  t.mock.timers.tick(10);
+  manager.trigger('web', 'complete', 'web finished');
+  t.mock.timers.tick(2);
+  manager.trigger('docs', 'waiting', 'docs needs your input');
+  t.mock.timers.tick(8);
+  manager.noteOperatorActivity();
+  t.mock.timers.tick(35);
+  manager.noteOperatorActivity();
+
+  t.mock.timers.tick(PHONE_MS - 1);
+  assert.deepEqual(deliveredTexts, [], 'nothing reaches the phone while the operator is still at the dashboard');
+
+  t.mock.timers.tick(1);
+  t.mock.timers.tick(QUIET_MS);
+  assert.deepEqual(deliveredTexts, ['web finished\ndocs needs your input']);
+  assert.equal(manager.getNotificationState('api'), NS.DELIVERED, 'worked past for a full delay, api counts as seen');
+});
+
 const MAX_EVENT_LOOP_TURNS = 1000;
 
 async function waitUntil(isSettled: () => boolean): Promise<void> {
@@ -409,7 +487,7 @@ test('the backend wiring queues one telegram text for a completion sent on reche
 
   activeAgents.count = 0;
   telegramChannel.recheck('sess-1');
-  t.mock.timers.tick(PHONE_MS);
+  t.mock.timers.tick(QUIET_MS);
   const queuedTexts = telegramOutbox.pending().map((entry) => entry.text);
 
   config.telegram = null;

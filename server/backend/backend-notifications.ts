@@ -3,6 +3,7 @@ import { NotificationManager } from '../../notifications/notification-manager.ts
 import { createTelegramChannel, decideTelegramNotification } from '../../notifications/channels/telegram.ts';
 import { createWebNotificationChannel } from '../../notifications/channels/web-notification.ts';
 import { createTelegramCompletionDefer } from '../../notifications/telegram-completion-defer.ts';
+import { createTelegramDigest } from '../../notifications/telegram-digest.ts';
 import { createTelegramOutbox } from '../../notifications/telegram-outbox.ts';
 import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
@@ -67,11 +68,12 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
       });
     },
   });
+  const telegramDigest = createTelegramDigest({ deliver: telegramOutbox.deliver });
   const sendTelegramNotification = createTelegramChannel({
     getConfig: () => config,
     getConnectionCount: () => clientPresence.connectionCount(),
     getActiveAgentCount: (sessionId: string) => sessions.get(sessionId)?.toSnapshot().activeAgents || 0,
-    outbox: telegramOutbox,
+    outbox: telegramDigest,
   });
   const telegramChannel = createTelegramCompletionDefer({
     deliver: sendTelegramNotification,
@@ -134,7 +136,13 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     notificationManager,
     reviewSessions,
     telegramChannel,
-    telegramOutbox,
+    telegramOutbox: {
+      ...telegramOutbox,
+      idle: () => {
+        void telegramDigest.flush();
+        return telegramOutbox.idle();
+      },
+    },
   };
 }
 

@@ -29,6 +29,7 @@ function wiredSession(name: string, storedPlanTitle: string | null = null) {
     notificationManager: {
       acknowledge: () => {},
       trigger: (id, category, message, kind) => { triggered.push({ id, category, message, kind: kind ?? null }); },
+      noteOperatorActivity: () => {},
     },
     getIngestLane: () => null,
     planReview: {
