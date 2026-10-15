@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import { absolutePathEditRule, buildWorkerPrompt, factoryConfigKey, isWorktreeAdminDirOf, parseGitdirPointer, decideFactoryStalls, isTurnEndHookEvent, FACTORY_STALL_MS, buildFactoryProjectState, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent, verifierDefectEvidence, verifierRejectionNote, factoryStateSignature, nextIntent } from '../server/factory/core/factory-core.ts';
+import { absolutePathEditRule, buildWorkerPrompt, factoryConfigKey, isWorktreeAdminDirOf, parseGitdirPointer, decideFactoryStalls, isTurnEndHookEvent, FACTORY_STALL_MS, buildFactoryIntentDigest, buildFactoryProjectState, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent, verifierDefectEvidence, verifierRejectionNote, factoryStateSignature, nextIntent, withIntentConfirmedFlakes } from '../server/factory/core/factory-core.ts';
 import { CoherenceOrient, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import type { FactoryStallSession } from '../server/factory/core/factory-core.ts';
 import { STATES } from '../shared/states.ts';
-import { FactoryProjectState } from '../shared/contracts/factory.ts';
+import { FactoryLaneState, FactoryProjectState } from '../shared/contracts/factory.ts';
 import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
 
 const identity = { projectId: 'project-1', projectName: 'Factory', headSha: 'a'.repeat(40) };
@@ -95,6 +95,61 @@ test('factory maps a missing last record to null and tracks latest ledger events
   const withoutLast = buildFactoryProjectState({ ...identity, orient, work, error: null });
   assert.equal(withoutLast.orders[0].lastEvent, null);
   assert.notEqual(factoryStateSignature([project]), factoryStateSignature([withoutLast]));
+});
+
+test('factory derives a partial intent digest with merged tickets, exact parked needs and confirmed flakes', async () => {
+  const orient = CoherenceOrient.parse(await readFixture('orient-dispatch'));
+  const inspection = CoherenceWorkInspect.parse(await readFixture('work-dispatch'));
+  const intent = inspection.work[0];
+  const need = 'Needs write scope: tests/factory-core.test.ts\nPreserve the exact need.';
+  const completed = { ...intent, work: 'merged-ticket', state: 'completed', readiness: 'done',
+    opened: { ...intent.opened, parent: intent.work, objective: 'Merged work' } };
+  const blocked = { ...intent, work: 'parked-ticket', state: 'blocked', readiness: 'blocked',
+    opened: { ...intent.opened, parent: intent.work, objective: 'Parked work' },
+    last: { event: 'transitioned', at: intent.opened.at, session: 'worker', reason: need } };
+  const work = CoherenceWorkInspect.parse({ ...inspection, work: [completed, blocked, intent,
+    { ...completed, work: 'unrelated-ticket', opened: { ...completed.opened, parent: 'other-intent' } },
+    { ...completed, work: 'cancelled-ticket', state: 'cancelled' },
+  ] });
+  const confirmedFlakesByIntent = { [intent.work]: ['tests/confirmed-flake.test.ts'] };
+  const project = buildFactoryProjectState({ ...identity, orient, work, error: null, confirmedFlakesByIntent });
+  assert.deepEqual(FactoryProjectState.parse(project), project);
+  assert.deepEqual(project.orders.map((order) => order.blockReason), [null, need, null, null, null]);
+  assert.deepEqual(project.partialIntentIds, [intent.work]);
+  assert.equal(project.orders[1].state, 'blocked');
+  assert.deepEqual(buildFactoryIntentDigest(project, intent.work), {
+    intentId: intent.work, objective: intent.opened.objective,
+    merged: [{ id: 'merged-ticket', objective: 'Merged work' }],
+    parked: [{ id: 'parked-ticket', objective: 'Parked work', need }],
+    confirmedFlakes: ['tests/confirmed-flake.test.ts'], isPartial: true,
+  });
+  for (const state of ['open', 'active'] as const) {
+    const unfinishedWork = CoherenceWorkInspect.parse({ ...work, work: [...work.work,
+      { ...completed, work: 'unfinished-ticket', state, readiness: 'waiting' },
+    ] });
+    const unfinishedProject = buildFactoryProjectState({ ...identity, orient, work: unfinishedWork, error: null });
+    assert.deepEqual(unfinishedProject.partialIntentIds, []);
+    assert.equal(buildFactoryIntentDigest(unfinishedProject, intent.work).isPartial, false);
+  }
+  for (const state of ['completed', 'cancelled'] as const) {
+    const settledWork = CoherenceWorkInspect.parse({ ...work, work: work.work.map((order) => order.work === intent.work ? { ...order, state } : order) });
+    assert.deepEqual(buildFactoryProjectState({ ...identity, orient, work: settledWork, error: null }).partialIntentIds, []);
+  }
+});
+
+test('confirmed flakes accumulate per intent without mutating prior lane state and remain bounded', () => {
+  const current = { intent: ['tests/z.test.ts'], other: ['tests/other.test.ts'] };
+  const intentConfirmedFlakes = withIntentConfirmedFlakes(current, 'intent', ['tests/a.test.ts', 'tests/z.test.ts']);
+  assert.deepEqual(intentConfirmedFlakes, { intent: ['tests/a.test.ts', 'tests/z.test.ts'], other: ['tests/other.test.ts'] });
+  assert.deepEqual(current, { intent: ['tests/z.test.ts'], other: ['tests/other.test.ts'] });
+  const state = FactoryLaneState.parse({ ledgerPath: null, ledgerBranch: null, paused: false, intentConfirmedFlakes });
+  assert.deepEqual(state.intentConfirmedFlakes, intentConfirmedFlakes);
+  const manyFlakes = Array.from({ length: 1000 }, (_, index) => `tests/flake-${index}.test.ts`);
+  const bounded = withIntentConfirmedFlakes(undefined, 'intent', manyFlakes);
+  assert.ok(bounded);
+  assert.ok(bounded.intent.length > 0 && bounded.intent.length < manyFlakes.length);
+  assert.equal(FactoryLaneState.safeParse({ ...state, intentConfirmedFlakes: bounded }).success, true);
+  assert.deepEqual(withIntentConfirmedFlakes(bounded, 'intent', manyFlakes), bounded);
 });
 
 test('next intent selects the oldest ready open root without mutating tickets', async () => {

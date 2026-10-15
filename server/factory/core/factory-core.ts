@@ -9,7 +9,7 @@ import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../.
 import type { Config } from '../../../shared/contracts/config.ts';
 import type { CoherenceOrient, CoherenceWorkInspect } from '../../../shared/contracts/coherence.ts';
 import type { FactoryWorkerEvent, FactoryIntentTicket, FactoryQueueIntentRequest } from '../../../shared/contracts/factory.ts';
-import { FACTORY_PROTECTED_PATH_FLOOR, FactoryProjectState, FactoryReviewerOutput, FactoryReviewVerdict } from '../../../shared/contracts/factory.ts';
+import { FACTORY_INTENT_CONFIRMED_FLAKE_LIMIT, FACTORY_PROTECTED_PATH_FLOOR, FactoryProjectState, FactoryReviewerOutput, FactoryReviewVerdict } from '../../../shared/contracts/factory.ts';
 import { STATES } from '../../../shared/states.ts';
 import type { LaneSpend } from '../../usage/core/usage-scan-core.ts';
 import type { SessionState } from '../../../shared/states.ts';
@@ -103,7 +103,7 @@ export function factoryConfigKey(config: Pick<Config, 'factory'>): string {
   });
 }
 
-export function buildFactoryProjectState({ projectId, projectName, headSha, orient, work, error, paused = false, intentWriteScopes }: {
+export function buildFactoryProjectState({ projectId, projectName, headSha, orient, work, error, paused = false, intentWriteScopes, confirmedFlakesByIntent }: {
   projectId: string;
   projectName: string;
   headSha: string | null;
@@ -112,12 +112,14 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
   error: string | null;
   paused?: boolean;
   intentWriteScopes?: ReadonlyMap<string, readonly string[]>;
+  confirmedFlakesByIntent?: Record<string, string[]>;
 }): FactoryProjectState {
   if (error === null && orient?.action === 'refuse') {
     return {
       projectId, projectName, headSha, paused, orchestrator: null, error: null,
       heading: { action: 'refuse', reasons: orient.reasons },
       orders: [], conflicts: [], unverifiedCompletedWork: orient.consequences?.unverifiedCompletedWork ?? [],
+      confirmedFlakesByIntent, partialIntentIds: [],
     };
   }
   if (error !== null || orient === null || work === null) {
@@ -126,12 +128,18 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
       projectId, projectName, headSha, paused, orchestrator: null, error: failure,
       heading: { action: 'refuse', reasons: [failure] },
       orders: [], conflicts: [], unverifiedCompletedWork: [],
+      confirmedFlakesByIntent, partialIntentIds: [],
     };
   }
-  return {
-    projectId, projectName, headSha, paused, orchestrator: null, error: null,
-    heading: { action: orient.action, reasons: orient.reasons },
-    orders: work.work.map((order) => ({
+  const childrenByParent = new Map<string, { hasBlockedChild: boolean; hasUnsettledChild: boolean }>();
+  const orders = work.work.map((order) => {
+    if (order.opened.parent !== null) {
+      const children = childrenByParent.get(order.opened.parent) ?? { hasBlockedChild: false, hasUnsettledChild: false };
+      children.hasBlockedChild ||= order.state === 'blocked';
+      children.hasUnsettledChild ||= order.state === 'open' || order.state === 'active';
+      childrenByParent.set(order.opened.parent, children);
+    }
+    return {
       id: order.work,
       objective: order.opened.objective,
       openedAt: order.opened.at,
@@ -144,10 +152,38 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
       dependsOn: order.opened.dependsOn,
       writeScopes: [...(intentWriteScopes?.get(order.work) ?? order.opened.writeScopes)],
       owner: order.owner.session || null,
+      blockReason: order.state === 'blocked' && order.last?.event === 'transitioned' ? order.last.reason ?? null : null,
       lastEvent: order.last === null ? null : { event: order.last.event, at: order.last.at, session: order.last.session },
-    })),
+    };
+  });
+  const partialIntentIds = orders.filter((order) => {
+    if (order.parent !== null || order.state === 'completed' || order.state === 'cancelled') return false;
+    const children = childrenByParent.get(order.id);
+    return children?.hasBlockedChild === true && !children.hasUnsettledChild;
+  }).map((order) => order.id);
+  return {
+    projectId, projectName, headSha, paused, orchestrator: null, error: null,
+    heading: { action: orient.action, reasons: orient.reasons },
+    orders, confirmedFlakesByIntent, partialIntentIds,
     conflicts: (orient.work?.conflicts ?? []).map(({ left, right, scope }) => ({ left, right, scope })),
     unverifiedCompletedWork: orient.consequences?.unverifiedCompletedWork ?? [],
+  };
+}
+
+export function buildFactoryIntentDigest(project: FactoryProjectState, intentId: string) {
+  let objective = '';
+  const merged: { id: string; objective: string }[] = [];
+  const parked: { id: string; objective: string; need: string | null }[] = [];
+  for (const order of project.orders) {
+    if (order.id === intentId) objective = order.objective;
+    if (order.parent !== intentId) continue;
+    if (order.state === 'completed') merged.push({ id: order.id, objective: order.objective });
+    if (order.state === 'blocked') parked.push({ id: order.id, objective: order.objective, need: order.blockReason ?? null });
+  }
+  return {
+    intentId, objective, merged, parked,
+    confirmedFlakes: project.confirmedFlakesByIntent?.[intentId] ?? [],
+    isPartial: project.partialIntentIds?.includes(intentId) ?? false,
   };
 }
 
@@ -499,6 +535,14 @@ export function withIntentFloorAllowances<Allowance extends string>(current: Rea
   const others = Object.fromEntries(Object.entries(current ?? {}).filter(([id]) => id !== intentId));
   const next = allowances && allowances.length > 0 ? { ...others, [intentId]: [...new Set(allowances)] } : others;
   return Object.keys(next).length > 0 ? next : undefined;
+}
+
+export function withIntentConfirmedFlakes(current: Readonly<Record<string, string[]>> | undefined, intentId: string,
+  flakes: readonly string[]): Record<string, string[]> | undefined {
+  const mergedFlakes = [...new Set([...(current?.[intentId] ?? []), ...flakes])].filter((flake) => flake.length > 0)
+    .sort().slice(0, FACTORY_INTENT_CONFIRMED_FLAKE_LIMIT);
+  if (mergedFlakes.length === 0) return current ? { ...current } : undefined;
+  return { ...current, [intentId]: mergedFlakes };
 }
 
 export function checkFence({ changedPaths, writeScopes, protectedPaths, floorAllowances = [] }: {
