@@ -430,8 +430,8 @@ export function appendFactoryLandedSha(landedShas: readonly string[], landedSha:
 export { absolutePathEditRule } from '../../lanes/core/lane-permissions-core.ts';
 export { isWorktreeAdminDirOf, parseGitdirPointer } from '../../sandbox/core/sandbox-roles-core.ts';
 
-export function buildWorkerPrompt({ projectName, intent, order, claudeSessionId, checks = DEFAULT_FACTORY_CHECKS }: {
-  projectName: string; intent: FactoryWorkOrder; order: FactoryWorkOrder; claudeSessionId: string; checks?: string[];
+export function buildWorkerPrompt({ projectName, intent, order, claudeSessionId, checks = DEFAULT_FACTORY_CHECKS, focusedTestCommand }: {
+  projectName: string; intent: FactoryWorkOrder; order: FactoryWorkOrder; claudeSessionId: string; checks?: string[]; focusedTestCommand?: string;
 }): string {
   const orderSections = [
     ['Objective', JSON.stringify(order.opened.objective)],
@@ -450,7 +450,9 @@ export function buildWorkerPrompt({ projectName, intent, order, claudeSessionId,
     'Edit only inside these write scopes. Do not expand the ticket or the intent.',
     `Start by running coherence context ${scopes} --max-bytes 12000`,
     'Leave your finished changes in the working tree and never run git add or git commit. Glimmervoid commits every change in this worktree when you stop, so remove any file you do not want landed.',
-    `Run these checks before finishing: ${JSON.stringify(checks)}`,
+    focusedTestCommand
+      ? `While iterating, run the test files you touched with ${focusedTestCommand} <file> ... . Run the full checks once at the end before finishing: ${JSON.stringify(checks)}`
+      : `Run these checks before finishing: ${JSON.stringify(checks)}`,
     'Never push, never open PRs, never change coherence work state. Glimmervoid closes the ticket.',
     'Run each shell command on its own with no pipes, &&, ; or subshells, because chained commands are denied.',
     'A denied command means "not allowed here". Do not retry it another way.',

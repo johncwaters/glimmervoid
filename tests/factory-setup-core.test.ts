@@ -6,7 +6,7 @@ import { classifyFactorySetupCheck, decideFactorySetupProof, detectFactorySetup 
 test('setup detects the repository scripts and package-manager runner commands while preserving global checks', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   const repository = detectFactorySetup({
-    scripts: { ...manifest.scripts, 'test:files': 'node --import ./tests/helpers/isolate-home.ts --test' },
+    scripts: manifest.scripts,
     lockfiles: ['package-lock.json'], dependencies: Object.keys(manifest.devDependencies),
   });
   assert.deepEqual(repository.checks, ['npm run typecheck', 'npm run lint', 'npm test']);
