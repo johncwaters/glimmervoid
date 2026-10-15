@@ -14,7 +14,7 @@ export function computeAggregate(counts: AggregateCounts) {
   const exited = done + complete;
   const alertCount = waiting + failed;
 
-  if (waiting > 0) return { text: `${waiting} session${pl(waiting)} need input`, severity: 'warning', alertCount };
+  if (waiting > 0) return { text: `${waiting} session${pl(waiting)} ${waiting > 1 ? 'need' : 'needs'} input`, severity: 'warning', alertCount };
   if (failed > 0) return { text: `${failed} session${pl(failed)} failed`, severity: 'critical', alertCount };
   if (total > 0 && exited === total) return { text: 'All sessions exited', severity: 'done', alertCount };
   if (total > 0 && dormant === total) return { text: `${dormant} session${pl(dormant)} dormant`, severity: '', alertCount };

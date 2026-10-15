@@ -48,7 +48,7 @@ test('computeAggregate: a partial active mix (some done/dormant) stays blank', (
 });
 
 test('computeAggregate: singular has no plural s', () => {
-  assert.equal(computeAggregate(C({ waiting: 1, total: 1 })).text, '1 session need input');
+  assert.equal(computeAggregate(C({ waiting: 1, total: 1 })).text, '1 session needs input');
 });
 
 test('computeAggregate: empty -> blank text, zero alerts', () => {

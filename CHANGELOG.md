@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Header attention line reads and looks right**: one waiting session now reads `1 session needs input`, and the line shows the same diamond a waiting session shows on its card instead of the warning triangle, which marks a failed session. A failed-sessions line now shows that triangle too.
 - **rtk rewrites no longer hide from Claude Code**: with the rtk setting on, a Claude Code session is now told when its Bash command ran through rtk, for example `git diff` as `rtk git diff`, so it knows the output is condensed and can rerun the command as `rtk proxy <command>` for the raw output. Before, the condensed output looked like the real command's, which led an agent to blame the wrong cause. Claude Code still asks for permission as before.
 - **Factory checks leave room for unix sockets**: a factory check's temp folder path is 21 characters shorter, so a test that opens a unix socket under it stays within the operating system's socket path limit on a standard install instead of failing to bind.
 - **A `config.json` edit applies in full while Glimmervoid runs**: removing a setting from `config.json` now takes it back to its default at once; before, the running server kept the old value until a restart. Open dashboards also show an edited setting without a page reload.

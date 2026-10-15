@@ -4,7 +4,7 @@ import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-m
 import type { PlanDraftPush } from '#shared/contracts/plan-review.ts';
 import type { PendingPromptDetail } from '#shared/contracts/session.ts';
 import type { SessionState } from '#shared/states.ts';
-import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
+import { KILLABLE_STATES, RESTARTABLE_STATES, STATE_GLYPHS, STATES } from '#shared/states.ts';
 import { playAlertSound } from '../alert-sound.ts';
 import { hasSessionDocs, openDocEditor } from '../doc-editor.ts';
 import { sendControlMsg } from '../control-ws.ts';
@@ -52,8 +52,8 @@ import { currentTerminalFontFamily } from '../mono-font.ts';
 import { applyTerminalFontFamily } from '../mono-font-core.ts';
 
 const AGGREGATE_GLYPHS: Record<string, string> = {
-  critical: '✕',
-  warning:  '▲',
+  critical: STATE_GLYPHS[STATES.FAILED],
+  warning:  STATE_GLYPHS[STATES.WAITING],
   done:     '✓',
   '':       '▸',
 };
