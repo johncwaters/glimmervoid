@@ -39,6 +39,7 @@ export const FactoryProjectState = z.object({
     writeScopes: z.array(z.string()),
     owner: z.string().nullable(),
     blockReason: z.string().nullable().optional(),
+    parked: z.boolean().optional(),
     lastEvent: z.object({ event: z.string(), at: z.string(), session: z.string() }).nullable(),
   })),
   conflicts: z.array(z.object({ left: z.string(), right: z.string(), scope: z.string() })),
@@ -153,7 +154,7 @@ export const FactoryLaneState = z.object({
   factoryLandedShas: z.array(z.string().regex(/^[a-f0-9]{40,64}$/)).optional(),
   unlandedFactoryRecords: z.array(FactoryUnlandedRecord).optional(),
   ticketBlockCounts: z.record(z.string().min(1), z.number().int().nonnegative()).optional(),
-  intentCapCancelCounts: z.record(z.string().min(1), z.number().int().nonnegative()).optional(),
+  notifiedIntentOutcomes: z.array(z.string().min(1)).optional(),
 });
 export type FactoryLaneState = z.infer<typeof FactoryLaneState>;
 

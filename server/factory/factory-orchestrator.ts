@@ -251,8 +251,10 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
   async function tick(project: FactoryProjectState): Promise<FactoryProjectState> {
     let record = records.get(project.projectId);
     const trustedIntentIds = await readTrustedIntentIds(project.projectId);
-    const activeIntent = project.orders.find((order) => order.id === record?.intentId && trustedIntentIds.has(order.id) && order.state !== 'completed' && order.state !== 'cancelled');
-    const upcoming = nextIntent(project.orders, trustedIntentIds);
+    const partialIntentIds = new Set(project.partialIntentIds ?? []);
+    const activeIntent = project.orders.find((order) => order.id === record?.intentId && trustedIntentIds.has(order.id) && !partialIntentIds.has(order.id)
+      && order.state !== 'completed' && order.state !== 'cancelled');
+    const upcoming = nextIntent(project.orders, trustedIntentIds, partialIntentIds);
     const decision = decideOrchestrator({
       paused: project.paused, laneRunning: !stopped, hasLedger: project.error === null && project.heading.action !== 'refuse',
       activeIntentId: activeIntent?.id ?? null, nextIntentId: upcoming?.id ?? null,

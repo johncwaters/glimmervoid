@@ -19,7 +19,7 @@ import { cliPath as glimmervoidCliPath, resolvePackageBin } from '../server/runt
 import type { FactoryState } from '../shared/contracts/factory.ts';
 import type { ProjectConfig } from '../shared/contracts/config.ts';
 import { createRepositoryWithOrigin, gitRunnerIn, initGitRepository, stubEnvironmentVariable } from './helpers/factory-fixture.ts';
-import { FACTORY_STALL_MS, buildOrchestratorPrompt, decideIntentClose } from '../server/factory/core/factory-core.ts';
+import { FACTORY_STALL_MS, buildFactoryIntentDigest, buildOrchestratorPrompt, decideIntentClose } from '../server/factory/core/factory-core.ts';
 import { FACTORY_ORCHESTRATOR_ALLOW, FACTORY_ORCHESTRATOR_DENY } from '../server/factory/factory-orchestrator.ts';
 import type { LaneSpend } from '../server/usage/core/usage-scan-core.ts';
 import type { Session } from '../session/sessions.ts';
@@ -850,8 +850,11 @@ function fakeOrchestratorOptions({ config, now, spawned, pastedLines = [] }: {
   };
 }
 
-async function createStallFixture(context: test.TestContext, { trustClaudeFolder, expectedOrchestratorCount = 1, hasSeparateGitDirectory = false }: {
+type LedgerWorkOrder = CoherenceWorkInspect['work'][number];
+
+async function createStallFixture(context: test.TestContext, { trustClaudeFolder, expectedOrchestratorCount = 1, hasSeparateGitDirectory = false, laneState = {}, extraWorkOf = () => [] }: {
   trustClaudeFolder?: (repositoryRoot: string, sessionsSpawnedSoFar: number) => Promise<'already-trusted' | 'granted'>; expectedOrchestratorCount?: number; hasSeparateGitDirectory?: boolean;
+  laneState?: Partial<FactoryLaneState>; extraWorkOf?: (intent: LedgerWorkOrder) => LedgerWorkOrder[];
 } = {}) {
   const fixture = await createIntentFixture(context);
   await mkdir(path.join(fixture.projectPath, '.coherence'));
@@ -865,9 +868,10 @@ async function createStallFixture(context: test.TestContext, { trustClaudeFolder
   const intent = inspection.work[0];
   intent.opened.risk = 'low';
   const child = { ...intent, work: 'wrk-0123456789abcdef', opened: { ...intent.opened, work: 'wrk-0123456789abcdef', parent: intent.work } };
-  inspection.work.push(child);
+  inspection.work.push(child, ...extraWorkOf(intent));
   await mkdir(path.dirname(fixture.statePath), { recursive: true });
-  await writeFile(fixture.statePath, JSON.stringify({ ledgerPath: null, ledgerBranch: null, paused: false, trustedIntentIds: [intent.work] }));
+  await writeFile(fixture.statePath, JSON.stringify({ ledgerPath: null, ledgerBranch: null, paused: false, ...laneState,
+    trustedIntentIds: [intent.work, ...laneState.trustedIntentIds ?? []] }));
   const notifications: { category: string; message: string }[] = [];
   const spawned: { session: Session; overrides: SessionSpawnOverrides }[] = [];
   const pollers: FactoryPoller[] = [];
@@ -876,7 +880,7 @@ async function createStallFixture(context: test.TestContext, { trustClaudeFolder
   let spendDay = new Date(nowMs).toDateString();
   const commands: string[][] = [];
   const pastedLines: string[] = [];
-  const wiring = await fixture.start(undefined, async ({ args }) => {
+  const startWiring = () => fixture.start(undefined, async ({ args }) => {
     commands.push(args);
     if (args[0] === 'orient') return orient;
     if (args[0] === 'work' && args[1] === 'inspect') return JSON.stringify(inspection);
@@ -893,10 +897,16 @@ async function createStallFixture(context: test.TestContext, { trustClaudeFolder
     },
     orchestratorOptions: fakeOrchestratorOptions({ config: fixture.config, now: () => nowMs, spawned, pastedLines }),
   });
+  const wiring = await startWiring();
   assert.equal(spawned.length, expectedOrchestratorCount);
-  return { wiring, notifications, spawned, child, inspection, commands, pastedLines, config: fixture.config, projectPath: fixture.projectPath, homeDir: fixture.homeDir,
+  return { wiring, notifications, spawned, child, inspection, commands, pastedLines, git: fixture.git, config: fixture.config, projectPath: fixture.projectPath, homeDir: fixture.homeDir,
     setSpend: (spend: LaneSpend) => { todaySpend = spend; spendDay = new Date(nowMs).toDateString(); },
     tick: () => pollers[0].refreshNow(), advanceClock: (elapsedMs: number) => { nowMs += elapsedMs; },
+    restart: async () => {
+      await wiring.stop();
+      const restarted = await startWiring();
+      return { wiring: restarted, tick: () => pollers[pollers.length - 1].refreshNow() };
+    },
     now: () => nowMs,
     emitHook: (spawnIndex: number, event = 'PostToolUse') => {
       const spawn = spawned[spawnIndex];
@@ -904,6 +914,87 @@ async function createStallFixture(context: test.TestContext, { trustClaudeFolder
     },
   };
 }
+
+test('an intent with parked tickets and waiting dependents notifies partial once, retains its need and releases the orchestrator to the next queued intent', async (context) => {
+  const queuedIntentId = 'wrk-queuedintent0001';
+  const fixture = await createStallFixture(context, {
+    laneState: { trustedIntentIds: [queuedIntentId], ticketBlockCounts: { 'wrk-0123456789abcdef': 3 } },
+    extraWorkOf: (intent) => [{ ...intent, work: queuedIntentId, opened: { ...intent.opened, objective: 'Queued intent', at: new Date(Date.parse(intent.opened.at) + 60_000).toISOString() } }],
+  });
+  fixture.emitHook(0);
+  const intent = fixture.inspection.work[0];
+  const need = 'Needs write scope: protected/secret.ts\nLeave this exact need for the operator.';
+  fixture.child.state = 'blocked';
+  fixture.child.readiness = 'blocked';
+  fixture.child.last = { event: 'transitioned', at: intent.opened.at, session: 'worker', reason: need };
+  const dependent = { ...fixture.child, work: 'waiting-dependent', state: 'open' as const, readiness: 'blocked' as const,
+    opened: { ...fixture.child.opened, dependsOn: [fixture.child.work] } };
+  const transitiveDependent = { ...dependent, work: 'transitive-dependent', opened: { ...dependent.opened, dependsOn: [dependent.work] } };
+  const independent: CoherenceWorkInspect['work'][number] = { ...fixture.child, work: 'independent-ticket', state: 'open', readiness: 'ready',
+    opened: { ...fixture.child.opened, dependsOn: [] } };
+  fixture.inspection.work.push(transitiveDependent, dependent, independent);
+  const session = fixture.spawned[0].session;
+  session.state = STATES.IDLE;
+  session.stateSince = fixture.now();
+  await fixture.git(['commit', '--allow-empty', '-m', 'test: park one ticket']);
+  await fixture.git(['push']);
+  await fixture.tick();
+  assert.deepEqual(fixture.notifications, []);
+  assert.deepEqual(fixture.wiring.getState()?.projects[0]?.partialIntentIds, []);
+  independent.state = 'completed';
+  independent.readiness = 'done';
+  await fixture.git(['commit', '--allow-empty', '-m', 'test: finish independent ticket']);
+  await fixture.git(['push']);
+  await fixture.tick();
+  assert.deepEqual(fixture.wiring.getState()?.projects[0]?.partialIntentIds, [intent.work]);
+  fixture.advanceClock(FACTORY_STALL_MS + 1);
+  await fixture.tick();
+  await fixture.tick();
+  const project = fixture.wiring.getState()?.projects[0];
+  assert.ok(project);
+  assert.equal(project.error, null);
+  assert.equal(project.orchestrator?.intentId, queuedIntentId);
+  assert.equal(fixture.spawned.length, 2);
+  assert.equal(project.orders.find((order) => order.id === intent.work)?.state, 'open');
+  assert.deepEqual(buildFactoryIntentDigest(project, intent.work), {
+    intentId: intent.work, objective: intent.opened.objective,
+    merged: [{ id: independent.work, objective: independent.opened.objective }],
+    parked: [{ id: fixture.child.work, objective: fixture.child.opened.objective, need }],
+    confirmedFlakes: [], isPartial: true,
+  });
+  assert.deepEqual(fixture.notifications, [{ category: 'factory', message: `Factory intent partial: ${intent.opened.objective}. 1 merged, 1 parked.` }]);
+});
+
+test('intent outcomes notify only trusted intents, ignore history at first start and a block below the cap, and never repeat after a restart', async (context) => {
+  const fixture = await createStallFixture(context, {
+    laneState: { trustedIntentIds: ['wrk-shippedlastweek1'] },
+    extraWorkOf: (intent) => [
+      { ...intent, work: 'wrk-shippedlastweek1', state: 'completed', readiness: 'done', opened: { ...intent.opened, objective: 'Shipped last week' } },
+      { ...intent, work: 'wrk-closedbyhand0001', state: 'completed', readiness: 'done', opened: { ...intent.opened, objective: 'Closed by hand' } },
+    ],
+  });
+  fixture.emitHook(0);
+  const intent = fixture.inspection.work[0];
+  const publishLedger = async (message: string) => {
+    await fixture.git(['commit', '--allow-empty', '-m', message]);
+    await fixture.git(['push']);
+  };
+  fixture.child.state = 'blocked';
+  fixture.child.readiness = 'blocked';
+  await publishLedger('test: block once');
+  await fixture.tick();
+  assert.deepEqual(fixture.notifications, []);
+  fixture.child.state = 'completed';
+  fixture.child.readiness = 'done';
+  intent.state = 'completed';
+  await publishLedger('test: complete intent');
+  await fixture.tick();
+  const completedNotice = { category: 'factory', message: `Factory intent completed: ${intent.opened.objective}. 1 merged, 0 parked.` };
+  assert.deepEqual(fixture.notifications, [completedNotice]);
+  const restarted = await fixture.restart();
+  await restarted.tick();
+  assert.deepEqual(fixture.notifications, [completedNotice]);
+});
 
 test('a WAITING orchestrator past 120 seconds raises once, clears on recovery and alerts for a new episode', async (context) => {
   const fixture = await createStallFixture(context);
