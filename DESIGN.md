@@ -243,10 +243,10 @@ The header overflow menu. An Ink Violet panel with a 1px lifted border, 4px radi
 - **Divider:** a 1px Violet Border rule inset 8px from each edge.
 
 ### Settings View
-A primary view with a 220px grouped sidebar and one scrolling section page.
-- **Navigation:** levels use 10px uppercase Faint Lavender labels; search replaces the section tree with exact-token results, and anchored rows accept stable deep links. The selected section takes orchid text, a faint orchid wash and a full 1px border. On phone, the shared search input and current-section button stay in a sticky header; the button opens a themed in-page section sheet, and search results replace the content column.
-- **Content:** all settings in the selected section stack under anchored headings. The level tag stays beside the section title, and a sticky Save and Revert footer appears only for a dirty machine or lane section.
-- **Controls:** checkboxes use an orchid accent-color; file-only values use a mono key plus a quiet config caption. Unattended controls use an amber full-border warning and inline typed confirmation. Field and footer errors use 10px Signal Red.
+A primary view with a 220px sidebar of nine theme-first sections and one scrolling section page.
+- **Navigation:** search replaces the content column with one flat result list; each hit carries a section breadcrumb and its matched text highlighted, anchored rows accept stable deep links, and `#settings?q=` links to a search. The selected section takes orchid text, a faint orchid wash and a full 1px border. On phone, Settings opens as a section list under the search box, a section opens as a nested screen with a Back control, and search results use the same flat list.
+- **Content:** all settings in the selected section stack under anchored headings. Each row carries a browser or machine chip and a chip saying when it takes effect; a change saves at once and the row shows saved or the server's error beside the control. The flying-animal controls sit behind one Advanced disclosure.
+- **Controls:** checkboxes use an orchid accent-color; a config.json-only result shows a mono key plus a quiet config caption. Danger settings use an amber full-border warning and a confirm dialog before the save. Field errors use Signal Red. On phone, fields fill the width with 44px targets and 16px inputs.
 
 ## 6. Do's and Don'ts
 

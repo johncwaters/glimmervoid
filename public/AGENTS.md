@@ -50,7 +50,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `sidebar/` | Review sidebar: diff rendering, selection, merge actions (see `sidebar/AGENTS.md`) |
 | `usage/` | Usage tab: the DOM shell and its pure formatting core |
 | `github/` | GitHub views: issues, my PRs, team review, the PR queue and status icons, and the shared polling retry text |
-| `settings/` | Settings view: the declarative settings source, pure search, hash, project and dirty rules, the DOM shell, and `createSettingsLink`, the one builder for `#settings/` deep links |
+| `settings/` | Settings view: the DOM shell over the shared registry, pure search, hash, draft and phone-screen rules, and `settings-link.ts`, the one builder for `#settings/` and `#settings?q=` links |
 | `radar/` | Radar panel: the DOM shell, its pure view core and the hold rules |
 | `components/` | Static HTML fragments imported `?raw` (see `components/AGENTS.md`) |
 
