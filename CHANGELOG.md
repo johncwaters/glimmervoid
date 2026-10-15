@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-10-15
+
 ### Added
 
 - **Conversation view (experimental)**: turn on Conversation view in Settings > Sessions, then pick Conversation view in the restart menu of any Claude Code or Codex card to try it on that session alone; every other session keeps its terminal, and the choice is remembered per session. A card with it on opens on the Conversation face in Focus, with a Terminal | Conversation switch in its header. Conversation shows the session as messages: your prompts, the agent's replies rendered as Markdown, and each stretch of tool work collapsed into one line you can open for commands and output. A composer sends a message or Stop (Esc) to the agent. When a Codex session asks for approval, a card above the composer offers Approve and Decline; a Claude Code permission prompt or question points you to the terminal to read and answer it. A Codex session connects the next time it starts, so restart it after turning the view on: it then runs through a local Codex app-server on 127.0.0.1 behind a per-session token, its command and file-change approvals can be answered from the card, and its turns appear in the Trace tab too. A sandboxed Codex session, one set to bypass Codex hook trust, or one where the app-server fails to start, keeps the plain terminal. An approval the card cannot show in full (a long command, or a permission scope it cannot render) offers only Decline there, so you read and approve it in the terminal. Prompts and menus the view cannot answer, such as folder trust, point you to the terminal, which stays one click away.
