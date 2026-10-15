@@ -197,7 +197,7 @@ test('wiring logs identical exceptions and landing failures once, then records r
   await utimes(agedFilePath, new Date('2000-01-01'), new Date('2000-01-01'));
   let shouldFailLanding = true;
   const wiring = createFactoryWiring({
-    config: { factory: { enabled: true }, integrationBranch: 'integration', projects: [{ id: 'repo', name: 'Factory', path: fixture.projectPath }] },
+    config: { factory: { enabled: true }, integrationBranch: 'integration', projects: [{ id: 'repo', name: 'Factory', path: fixture.projectPath, factoryProfile: {} }] },
     homeDir, broadcast: () => {}, firstTickDelayMs: () => 0, now: () => Date.parse('2026-10-11T12:00:00Z'),
     gitWorkspace: { ...fixture.gitWorkspace, mergeKeep: async (args) => {
       if (shouldFailLanding) return { merged: false, committed: true, branch: args.workspace?.branch ?? null, reason: 'landing refused' };
