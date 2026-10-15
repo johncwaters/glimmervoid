@@ -14,10 +14,6 @@ const HOOK_RAISED_PROMPT_KINDS: ReadonlySet<string> = new Set(["permission", "pl
 
 const TERMINAL_REPORT_PATTERN = /\x1b\[<\d+;\d+;\d+[Mm]|\x1b\[\d+;\d+;\d+M|\x1b\[M[\s\S]{3}|\x1b\[[IO]/g;
 
-function isTerminalReportOnly(input: string): boolean {
-  return input.replace(TERMINAL_REPORT_PATTERN, "") === "";
-}
-
 const TERMINAL_QUERY_REPLY_PATTERN = /\x1b\[[?>]?[\d;]*(?:\$y|[cRnt])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1bP[^\x1b]*\x1b\\/g;
 
 function isOperatorKeystroke(input: string): boolean {
@@ -36,12 +32,12 @@ function isPromptClosingKeystroke(input: string, isQuestionPrompt: boolean): boo
 
 function decideWaitingInput({ state, hasHookAwaitingInput, pendingPromptKind, isQuestionPrompt, input }: WaitingInputContext): WaitingInputDecision {
   if (state !== STATES.WAITING) return "ignore";
-  if (isTerminalReportOnly(input)) return "ignore";
+  if (!isOperatorKeystroke(input)) return "ignore";
   const isHookRaisedPrompt = pendingPromptKind !== null && HOOK_RAISED_PROMPT_KINDS.has(pendingPromptKind);
   if (!hasHookAwaitingInput || !isHookRaisedPrompt) return "end-waiting";
   if (isPromptClosingKeystroke(input, isQuestionPrompt)) return "end-waiting";
   return "acknowledge";
 }
 
-export { decideWaitingInput, isOperatorKeystroke, isTerminalReportOnly };
+export { decideWaitingInput, isOperatorKeystroke };
 export type { WaitingInputContext };
