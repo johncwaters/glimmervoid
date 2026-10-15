@@ -154,7 +154,7 @@ test('PR reads use exact argv and parse contract shapes', async () => {
   assert.equal(await gh.prDiff('Acme/repo', 7), outputs[1]);
   assert.equal(await gh.prHead('Acme/repo', 7), HEAD_SHA);
   assert.deepEqual(calls, [
-    ['pr', 'view', '7', '-R', 'Acme/repo', '--json', 'number,title,body,url,author,isDraft,isCrossRepository,baseRefName,baseRefOid,headRefOid,additions,deletions,files'],
+    ['pr', 'view', '7', '-R', 'Acme/repo', '--json', 'number,title,body,url,author,isDraft,isCrossRepository,baseRefName,baseRefOid,headRefName,headRefOid,additions,deletions,files'],
     ['pr', 'diff', '7', '-R', 'Acme/repo'],
     ['pr', 'view', '7', '-R', 'Acme/repo', '--json', 'headRefOid', '--jq', '.headRefOid'],
   ]);
