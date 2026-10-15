@@ -13,7 +13,7 @@ The job it serves is triage, per `PRODUCT.md`: scan the board, find the session 
 | File | Description |
 |------|-------------|
 | `phone-shell.ts` | Owns the screen container, the bottom nav, screen switching, nested More screens, history integration, visual-viewport sizing, and the activate/deactivate handoff with the desktop layout |
-| `phone-panels-core.ts` | Pure derivation of the More screens from the desktop tabs; Focus and Calm are left out because Board and Terminal serve them |
+| `phone-panels-core.ts` | Pure derivation of the More screens from the desktop tabs; Focus is left out because Board and Terminal serve it |
 | `board-screen.ts` | The default screen: attention-first session rows + the phone top bar (which adopts the desktop header's connection chip, "+ Session", help, and hamburger) |
 | `terminal-screen.ts` | One session's full-bleed terminal: back control, name, state badge, the card's adopted action cluster, and the touch key strip |
 | `board-groups-core.ts` | Pure composition of desktop project grouping with phone attention ordering |

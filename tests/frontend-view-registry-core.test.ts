@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { FEATURE_SURFACE_RULES } from '../public/feature-surfaces-core.ts';
-import { isPrimaryViewVisible, refreshViewOnReason, refreshVisibleViews, viewAttentionState, viewAvailabilityFromSettings, viewsInTabOrder } from '../public/view-registry-core.ts';
+import { isPrimaryViewVisible, refreshViewOnReason, refreshVisibleViews, viewAttentionState, viewAvailabilityFromSettings } from '../public/view-registry-core.ts';
 import type { ViewGate, ViewRefreshReason, VisibleViewState } from '../public/view-registry-core.ts';
 
 const readSource = (relativePath: string) => fs.readFileSync(new URL(relativePath, import.meta.url), 'utf8');
@@ -79,19 +79,11 @@ test('attention keeps boolean dots and the Visions level distinct', () => {
   assert.deepEqual(viewAttentionState(''), { isActive: true, level: '' });
 });
 
-test('tab presentation preserves Focus before Calm without changing the registry navigation order', () => {
-  const views = [{ view: 'calm', tabOrder: 1 }, { view: 'focus', tabOrder: 0 }, { view: 'prs' }, { view: 'future-view' }];
-  assert.deepEqual(viewsInTabOrder(views).map((view) => view.view), ['focus', 'calm', 'prs', 'future-view']);
-  assert.deepEqual(views.map((view) => view.view), ['calm', 'focus', 'prs', 'future-view']);
-  assert.equal(viewsInTabOrder(views)[0], views[1]);
-});
-
-test('settings connect and broadcast share the fan-out and only the broadcast marks a live change', () => {
+test('settings connect and broadcast share one fan-out', () => {
   const appSource = readSource('../public/app.ts');
   assert.equal([...appSource.matchAll(/applyDashboardSettings\(msg\.settings/g)].length, 2);
-  assert.match(appSource, /applyDashboardSettings\(msg\.settings\);/);
-  assert.match(appSource, /'settings-updated':[\s\S]*?applyDashboardSettings\(msg\.settings, \{ isLiveSettingsChange: true \}\)/);
-  assert.match(appSource, /function applyDashboardSettings[^\n]+\{\s*applyTerminalSettings\(settings\);\s*applySettingsBroadcast\(settings\);\s*applyVisionsSettings\(settings\);\s*applySurfaceSettings\(settings, \{ isLiveSettingsChange \}\);\s*syncTelemetryBanner\(settings\);/);
+  assert.equal([...appSource.matchAll(/applyDashboardSettings\(msg\.settings\);/g)].length, 2);
+  assert.match(appSource, /function applyDashboardSettings[^\n]+\{\s*applyTerminalSettings\(settings\);\s*applySettingsBroadcast\(settings\);\s*applyVisionsSettings\(settings\);\s*applySurfaceSettings\(settings\);\s*syncTelemetryBanner\(settings\);/);
   for (const consumer of ['applyTerminalSettings', 'applySettingsBroadcast', 'applyVisionsSettings', 'syncTelemetryBanner']) {
     const references = [...appSource.matchAll(new RegExp(`\\b${consumer}\\(`, 'g'))].length;
     const declarations = [...appSource.matchAll(new RegExp(`\\bfunction ${consumer}\\(`, 'g'))].length;

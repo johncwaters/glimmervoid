@@ -3,31 +3,30 @@ import { STATES } from '#shared/states.ts';
 import type { SessionStateSource } from '../session-actions-core.ts';
 
 export type SessionAttentionTier = 'now' | 'next' | 'later' | 'ready' | 'working' | 'resting';
-export type SessionAttentionOption = 'needs-you' | 'phone-triage' | 'calm' | 'favicon';
+export type SessionAttentionOption = 'needs-you' | 'phone-triage' | 'favicon';
 
 interface SessionAttentionRow {
   state?: unknown;
   unseen?: unknown;
-  hasEndedTurn?: unknown;
 }
 
-type AttentionCondition = 'always' | 'unseen' | 'later-when-turn-ended' | 'never';
+type AttentionCondition = 'always' | 'unseen' | 'never';
 type StateAttentionRule = { tier: SessionAttentionTier } & Record<SessionAttentionOption, AttentionCondition>;
 
-export const SESSION_ATTENTION_RANK_BY_TIER: Readonly<Record<SessionAttentionTier, number>> = Object.freeze({
+const SESSION_ATTENTION_RANK_BY_TIER: Readonly<Record<SessionAttentionTier, number>> = Object.freeze({
   now: 0, next: 1, later: 2, ready: 3, working: 4, resting: 5,
 });
 
 const SESSION_ATTENTION_RULES: Readonly<Record<SessionState, StateAttentionRule>> = {
-  WAITING: { tier: 'now', 'needs-you': 'always', 'phone-triage': 'always', calm: 'always', favicon: 'always' },
-  FAILED: { tier: 'next', 'needs-you': 'never', 'phone-triage': 'always', calm: 'always', favicon: 'never' },
-  COMPLETE: { tier: 'later', 'needs-you': 'unseen', 'phone-triage': 'always', calm: 'always', favicon: 'always' },
-  IDLE: { tier: 'ready', 'needs-you': 'never', 'phone-triage': 'never', calm: 'later-when-turn-ended', favicon: 'never' },
-  RUNNING: { tier: 'working', 'needs-you': 'never', 'phone-triage': 'always', calm: 'always', favicon: 'never' },
-  STARTING: { tier: 'working', 'needs-you': 'never', 'phone-triage': 'never', calm: 'always', favicon: 'never' },
-  INITIALIZING: { tier: 'working', 'needs-you': 'never', 'phone-triage': 'never', calm: 'always', favicon: 'never' },
-  DORMANT: { tier: 'resting', 'needs-you': 'never', 'phone-triage': 'never', calm: 'never', favicon: 'never' },
-  DONE: { tier: 'resting', 'needs-you': 'never', 'phone-triage': 'never', calm: 'never', favicon: 'never' },
+  WAITING: { tier: 'now', 'needs-you': 'always', 'phone-triage': 'always', favicon: 'always' },
+  FAILED: { tier: 'next', 'needs-you': 'never', 'phone-triage': 'always', favicon: 'never' },
+  COMPLETE: { tier: 'later', 'needs-you': 'unseen', 'phone-triage': 'always', favicon: 'always' },
+  IDLE: { tier: 'ready', 'needs-you': 'never', 'phone-triage': 'never', favicon: 'never' },
+  RUNNING: { tier: 'working', 'needs-you': 'never', 'phone-triage': 'always', favicon: 'never' },
+  STARTING: { tier: 'working', 'needs-you': 'never', 'phone-triage': 'never', favicon: 'never' },
+  INITIALIZING: { tier: 'working', 'needs-you': 'never', 'phone-triage': 'never', favicon: 'never' },
+  DORMANT: { tier: 'resting', 'needs-you': 'never', 'phone-triage': 'never', favicon: 'never' },
+  DONE: { tier: 'resting', 'needs-you': 'never', 'phone-triage': 'never', favicon: 'never' },
 };
 const attentionRuleByState: ReadonlyMap<string, StateAttentionRule> = new Map(Object.entries(SESSION_ATTENTION_RULES));
 
@@ -37,7 +36,6 @@ export function sessionAttentionTier(row: SessionAttentionRow, option: SessionAt
   const condition = rule[option];
   if (condition === 'never') return 'resting';
   if (condition === 'unseen' && row.unseen !== true) return 'resting';
-  if (condition === 'later-when-turn-ended' && row.hasEndedTurn === true) return 'later';
   return rule.tier;
 }
 

@@ -312,7 +312,6 @@ class Session extends EventEmitter {
   _pendingPromptKind: string | null;
   _pendingPromptDetail: PendingPromptDetail | null;
   _hasQueuedPermissionDialogsThisEpisode: boolean;
-  _hasEndedTurn: boolean;
   _pendingAttentionNotes: string[];
   _titleQuiet: boolean;
   _spawnCommand: ResolvedCommand | null;
@@ -516,7 +515,6 @@ class Session extends EventEmitter {
     this._pendingPromptKind = null;
     this._pendingPromptDetail = null;
     this._hasQueuedPermissionDialogsThisEpisode = false;
-    this._hasEndedTurn = false;
     this._pendingAttentionNotes = [];
 
     this._titleQuiet = false;
@@ -1159,10 +1157,6 @@ class Session extends EventEmitter {
     return this._isSaneYoloActive;
   }
 
-  get hasEndedTurn(): boolean {
-    return this._hasEndedTurn;
-  }
-
   _prepareRestart(options: { fresh?: boolean } = {}): void {
     if (options.fresh !== true) return;
 
@@ -1311,7 +1305,6 @@ class Session extends EventEmitter {
       resumeSessionId: this._resumeSessionId,
       activeAgents: active,
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
-      hasEndedTurn: this._hasEndedTurn,
       pendingWakeup: this.backgroundTracking.pendingWakeup(),
       pendingPromptKind: this._pendingPromptKind,
       pendingPromptDetail: this._pendingPromptDetail,
@@ -1375,8 +1368,6 @@ class Session extends EventEmitter {
 
     this.state = to;
     if (to === STATES.IDLE || to === STATES.COMPLETE) this._observeCompaction("settled");
-    if (to === STATES.COMPLETE) this._hasEndedTurn = true;
-    if (to === STATES.INITIALIZING) this._hasEndedTurn = this._resumeSessionId !== null;
 
     const entryHook = ENTRY_HOOKS[to];
     if (entryHook && !isCompactionRestoreEvent(event)) {
@@ -1499,7 +1490,6 @@ class Session extends EventEmitter {
       }
     }
 
-    this._hasEndedTurn = spawnResumeSessionId !== null;
     this._suppressResumeCapture = false;
     const launchSession = this._prepareSandbox
       ? this._adapter.launchSessionId?.({ resumeSessionId: spawnResumeSessionId, extraArgs: this._extraClaudeArgs, generatedId: randomUUID() }) ?? null

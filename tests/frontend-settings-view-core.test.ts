@@ -247,7 +247,7 @@ test('search scores key paths and option labels, keeps editable settings ahead o
   assert.equal(spikeSwitch.setting.path, 'posthog.trafficSpikeEnabled');
   assert.notEqual(spikeSwitch.section, null);
   const sessionsHitIds = scoreSettingsSearch(SECTIONS, 'sessions', SETTINGS_REGISTRY.fileOnly).map((hit) => hit.setting.id);
-  for (const id of ['streamer-mode', 'calm-layout', 'repository-roots', 'custom-agents']) assert.ok(sessionsHitIds.includes(id), id);
+  for (const id of ['streamer-mode', 'repository-roots', 'custom-agents']) assert.ok(sessionsHitIds.includes(id), id);
   const quiet = scoreSettingsSearch(SECTIONS, 'visions.dispatch.quietMs', SETTINGS_REGISTRY.fileOnly)[0];
   assert.equal(quiet.setting.path, 'visions.dispatch.quietMs');
   assert.equal(settingsSearchBreadcrumb(SECTIONS, quiet.section, quiet.setting), 'Lanes / Visions');

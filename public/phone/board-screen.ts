@@ -41,15 +41,12 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
   attentionEl.setAttribute('role', 'status');
   attentionEl.setAttribute('aria-live', 'polite');
 
-  const calmEl = el('div', 'phone-calm calm-view');
-  calmEl.hidden = true;
-
   const groupsEl = el('div', 'phone-board-list');
 
   const emptyEl = el('div', 'phone-empty');
   emptyEl.append(el('p', 'phone-empty-title', 'No sessions'), el('p', 'phone-empty-desc', 'Spawn a session to start watching.'));
 
-  screen.append(topBar, attentionEl, calmEl, groupsEl, emptyEl);
+  screen.append(topBar, attentionEl, groupsEl, emptyEl);
 
   const rowById = new Map<string, HTMLButtonElement>();
   const groupSectionByKey = new Map<string, HTMLElement>();
@@ -245,16 +242,9 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     }
   });
 
-  function setCalmShown(isCalmShown: boolean) {
-    calmEl.hidden = !isCalmShown;
-    screen.toggleAttribute('data-calm', isCalmShown);
-  }
-
   return {
     el: screen,
     topBarEl: topBar,
-    calmEl,
-    setCalmShown,
     refresh,
     acknowledge,
     getAttentionCount: () => attentionCount,

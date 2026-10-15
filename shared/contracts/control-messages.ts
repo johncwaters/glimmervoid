@@ -361,7 +361,6 @@ const serverVariants = [
     timestamp,
     skipPerms: z.boolean().optional(),
     saneYolo: z.boolean().optional(),
-    hasEndedTurn: z.boolean().optional(),
   }),
   loose('session-added', SessionCardFields.shape),
   loose('session-modified', SessionCardFields.shape),

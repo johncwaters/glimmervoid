@@ -333,7 +333,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     taskTitleEl: dom.taskTitleEl,
     taskTitle: options.taskTitle ?? null,
     taskTitleIsCustom: options.taskTitleIsCustom ?? false,
-    hasEndedTurn: false,
     elapsedEl: dom.elapsedEl,
 
     path: asText(options.path),
@@ -511,12 +510,6 @@ export function setSessionPrAttention(sessionId: unknown, isShown: boolean) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   paintCardBadge(ui, '.session-card-prs', 'prAttention', { on: isShown });
-}
-
-export function setSessionEndedTurn(sessionId: unknown, hasEndedTurn: boolean) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-  ui.hasEndedTurn = hasEndedTurn;
 }
 
 export function setSessionAgents(sessionId: unknown, activeAgents: unknown, awaitingBackgroundTasks: unknown = false) {

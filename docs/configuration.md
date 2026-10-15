@@ -27,7 +27,6 @@ How sessions start, where projects are found, and what the dashboard shows for t
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `autoResume` | Auto-resume sessions on startup | `true` | Resume conversations that were live when Glimmervoid last shut down or crashed. Scope: this machine. Takes effect at once. |
-| `calmLayout` | Calm layout (experimental) | `false` | Replace the Focus rail with a view that prioritizes sessions needing attention and also shows ready and working indicators. Scope: this machine. Takes effect at once. |
 | `streamerMode` | Streamer mode | `false` | Hide sensitive details in the dashboard while screen sharing or streaming. Scope: this machine. Takes effect at once. |
 | `repoRoots` | Repository roots | `[]` | Directories scanned for projects when adding sessions. Scope: this machine. Takes effect at once. |
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. Scope: this machine. Takes effect at once. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |

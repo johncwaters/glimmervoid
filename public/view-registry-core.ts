@@ -16,7 +16,6 @@ export interface PrimaryViewDefinition<PanelElement> {
   label: string;
   glyph?: string | null;
   panelClass: string;
-  tabOrder?: number;
   gate?: ViewGate;
   attention?: ViewAttentionSource;
   refreshOn?: readonly ViewRefreshReason[];
@@ -55,12 +54,6 @@ export function viewAvailabilityFromSettings<View extends { gate?: ViewGate }>(v
 
 export function viewAttentionState(attention: ViewAttention) {
   return { isActive: attention === true || typeof attention === 'string', level: typeof attention === 'string' ? attention : null };
-}
-
-export function viewsInTabOrder<View extends { tabOrder?: number }>(views: readonly View[]): View[] {
-  return views.map((view, index) => ({ view, order: view.tabOrder ?? index }))
-    .sort((left, right) => left.order - right.order)
-    .map(({ view }) => view);
 }
 
 export function refreshViewOnReason(view: Pick<PrimaryViewDefinition<never>, 'refreshOn' | 'refresh'> | undefined, reason: ViewRefreshReason): void {

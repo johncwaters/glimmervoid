@@ -14,22 +14,7 @@ type DashboardShortcutAction =
   | 'new-session'
   | 'merge'
   | 'resolve-or-resync'
-  | 'calm-home'
-  | 'calm-terminal'
   | 'streamer-mode';
-
-export interface ShortcutContext {
-  isCalmAvailable: boolean;
-  isCalmViewActive: boolean;
-}
-
-type ShortcutAvailability = 'always' | 'calm-surface' | 'calm-view';
-
-const isActiveByAvailability: Record<ShortcutAvailability, (context: ShortcutContext) => boolean> = {
-  always: () => true,
-  'calm-surface': (context) => context.isCalmAvailable,
-  'calm-view': (context) => context.isCalmAvailable && context.isCalmViewActive,
-};
 
 export interface ShortcutKeyEvent {
   key: string;
@@ -50,24 +35,21 @@ interface DashboardShortcut {
   keyCaptions: readonly string[];
   label: string;
   stepByCode: ReadonlyMap<string, number>;
-  availability: ShortcutAvailability;
   unavailablePlatform?: ShortcutPlatform;
 }
 
 const SESSION_DIGIT_STEPS = Array.from({ length: 9 }, (_, index) => [`Digit${index + 1}`, index + 1] as const);
 
 const DASHBOARD_SHORTCUTS: readonly DashboardShortcut[] = [
-  { action: 'next-attention', keyCaptions: ['J'], label: 'Jump to the next session needing you', stepByCode: new Map([['KeyJ', 0]]), availability: 'always' },
-  { action: 'rail-step', keyCaptions: [UP, DOWN], label: 'Previous / next session in the rail', stepByCode: new Map([['ArrowUp', -1], ['ArrowDown', 1]]), availability: 'always' },
-  { action: 'view-step', keyCaptions: [LEFT, RIGHT], label: 'Previous / next view tab', stepByCode: new Map([['ArrowLeft', -1], ['ArrowRight', 1]]), availability: 'always', unavailablePlatform: 'other' },
-  { action: 'view-step', keyCaptions: ['PgUp', 'PgDn'], label: 'Previous / next view tab', stepByCode: new Map([['PageUp', -1], ['PageDown', 1]]), availability: 'always', unavailablePlatform: 'mac' },
-  { action: 'session-nth', keyCaptions: ['1..9'], label: 'Jump to session 1 to 9', stepByCode: new Map(SESSION_DIGIT_STEPS), availability: 'always' },
-  { action: 'new-session', keyCaptions: ['0'], label: 'Add a session', stepByCode: new Map([['Digit0', 0]]), availability: 'always' },
-  { action: 'merge', keyCaptions: ['I'], label: 'Merge the selected session', stepByCode: new Map([['KeyI', 0]]), availability: 'always' },
-  { action: 'resolve-or-resync', keyCaptions: ['U'], label: 'Resolve a parked merge, or resync the base branch', stepByCode: new Map([['KeyU', 0]]), availability: 'always' },
-  { action: 'calm-home', keyCaptions: ['H'], label: 'Go to the Calm view (Calm layout)', stepByCode: new Map([['KeyH', 0]]), availability: 'calm-surface', unavailablePlatform: 'mac' },
-  { action: 'calm-terminal', keyCaptions: ['T'], label: 'Open the terminal of the open Calm panel (Calm layout)', stepByCode: new Map([['KeyT', 0]]), availability: 'calm-view', unavailablePlatform: 'mac' },
-  { action: 'streamer-mode', keyCaptions: ['\\'], label: 'Turn streamer mode on or off', stepByCode: new Map([['Backslash', 0]]), availability: 'always' },
+  { action: 'next-attention', keyCaptions: ['J'], label: 'Jump to the next session needing you', stepByCode: new Map([['KeyJ', 0]]) },
+  { action: 'rail-step', keyCaptions: [UP, DOWN], label: 'Previous / next session in the rail', stepByCode: new Map([['ArrowUp', -1], ['ArrowDown', 1]]) },
+  { action: 'view-step', keyCaptions: [LEFT, RIGHT], label: 'Previous / next view tab', stepByCode: new Map([['ArrowLeft', -1], ['ArrowRight', 1]]), unavailablePlatform: 'other' },
+  { action: 'view-step', keyCaptions: ['PgUp', 'PgDn'], label: 'Previous / next view tab', stepByCode: new Map([['PageUp', -1], ['PageDown', 1]]), unavailablePlatform: 'mac' },
+  { action: 'session-nth', keyCaptions: ['1..9'], label: 'Jump to session 1 to 9', stepByCode: new Map(SESSION_DIGIT_STEPS) },
+  { action: 'new-session', keyCaptions: ['0'], label: 'Add a session', stepByCode: new Map([['Digit0', 0]]) },
+  { action: 'merge', keyCaptions: ['I'], label: 'Merge the selected session', stepByCode: new Map([['KeyI', 0]]) },
+  { action: 'resolve-or-resync', keyCaptions: ['U'], label: 'Resolve a parked merge, or resync the base branch', stepByCode: new Map([['KeyU', 0]]) },
+  { action: 'streamer-mode', keyCaptions: ['\\'], label: 'Turn streamer mode on or off', stepByCode: new Map([['Backslash', 0]]) },
 ];
 
 function shortcutsOn(platform: ShortcutPlatform) {
@@ -90,11 +72,10 @@ function catalogCodeOf(event: ShortcutKeyEvent) {
   return NAVIGATION_KEYS.has(event.key) ? event.key : event.code;
 }
 
-export function resolveDashboardShortcut(event: ShortcutKeyEvent, platform: ShortcutPlatform, context: ShortcutContext): ResolvedDashboardShortcut | null {
+export function resolveDashboardShortcut(event: ShortcutKeyEvent, platform: ShortcutPlatform): ResolvedDashboardShortcut | null {
   if (!holdsOnlyShortcutModifier(event, platform)) return null;
   const catalogCode = catalogCodeOf(event);
   for (const shortcut of shortcutsOn(platform)) {
-    if (!isActiveByAvailability[shortcut.availability](context)) continue;
     const step = shortcut.stepByCode.get(catalogCode);
     if (step !== undefined) return { action: shortcut.action, step };
   }

@@ -21,7 +21,7 @@ export function restartConfirmation(action: RestartChoice, state: string) {
   };
 }
 
-export function restartMessage(action: RestartChoice, state: string, sessionId: string) {
+function restartMessage(action: RestartChoice, state: string, sessionId: string) {
   const type = KILLABLE_STATES.includes(state as SessionState) ? 'force-restart' : 'restart';
   if (action === 'restart-fresh') return { type, id: sessionId, fresh: true };
   return { type, id: sessionId };

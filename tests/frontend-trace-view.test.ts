@@ -614,7 +614,7 @@ test('settings gate every trace entry point and exit hidden trace views', () => 
   assert.doesNotMatch(cardDomSource, /overflowMenu|btnOverflow/);
   assert.match(lifecycleSource, /ui\.btnTrace\.classList\.toggle\('visible', isDebugModeEnabled\(\)\)/);
   assert.match(appSource, /applyDashboardSettings\(msg\.settings\)/);
-  assert.match(appSource, /applySurfaceSettings\(settings, \{ isLiveSettingsChange \}\)/);
+  assert.match(appSource, /applySurfaceSettings\(settings\)/);
   assert.match(registrySource, /view: 'trace',[^\n]*gate: \{ subscribe: onDebugModeChanged \}/);
   assert.match(appSource, /if \('subscribe' in viewTab\.gate\) viewTab\.gate\.subscribe\(\(isAvailable\) => setSurfaceAvailable\(viewTab, isAvailable\)\)/);
   assert.match(appSource, /viewTab\.tab\.hidden = !isAvailable/);

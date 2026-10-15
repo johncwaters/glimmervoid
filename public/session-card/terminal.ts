@@ -5,7 +5,7 @@ import { currentTerminalFontFamily } from '../mono-font.ts';
 import type { SessionUi } from './card-registry.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
-import { currentShortcutContext, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { resolveDashboardShortcut } from '../shortcuts-core.ts';
 import { nextReconnectDelayMs } from '../reconnect-backoff.ts';
 import { renderScheduler } from '../render-scheduler.ts';
@@ -24,7 +24,6 @@ import {
 } from './ime-core.ts';
 import { osc8LinkHandler, registerUrlLinkProvider } from './terminal-links.ts';
 import { installTerminalSecretMask, resetTerminalSecretMask } from './terminal-secret-mask.ts';
-import { isTerminalSubmitKeystroke } from './terminal-submit-core.ts';
 import { decideTerminalLinkState } from './terminal-link-core.ts';
 import { showErrorToast } from './toast.ts';
 import { uploadFilesToSession } from '../session-upload.ts';
@@ -439,7 +438,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
 
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== 'keydown') return true;
-    if (document.body.dataset.activeView === 'focus' && resolveDashboardShortcut(ev, SHORTCUT_PLATFORM, currentShortcutContext())) return false;
+    if (document.body.dataset.activeView === 'focus' && resolveDashboardShortcut(ev, SHORTCUT_PLATFORM)) return false;
     const ctrl = ev.ctrlKey || ev.metaKey;
     if (ctrl && ev.key === 'c' && term.hasSelection()) {
       const selection = term.getSelection();
@@ -539,24 +538,12 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
   });
 }
 
-const inputSubscribers = new Set<(sessionId: string, isSubmit: boolean) => void>();
-
-export function onTerminalInput(notify: (sessionId: string, isSubmit: boolean) => void) {
-  inputSubscribers.add(notify);
-  return () => inputSubscribers.delete(notify);
-}
-
 export function wireTerminalIO(ui: SessionUi, sessionId: string) {
   ui._inputQueue = [];
 
   const term = ui.term;
   if (!term) return;
-  term.onData((data) => {
-    const isInputAccepted = sendTerminalInput(ui, data);
-    if (!isInputAccepted) return;
-    const isSubmit = isTerminalSubmitKeystroke(data);
-    for (const notify of inputSubscribers) notify(sessionId, isSubmit);
-  });
+  term.onData((data) => { sendTerminalInput(ui, data); });
 
   wireFileTransfer(ui.termWrap, sessionId, ui.abortController.signal);
   connectDataWs(sessionId, ui, term);

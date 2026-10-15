@@ -37,7 +37,6 @@ let railEl: HTMLElement | null = null;
 let railHeadEl: HTMLButtonElement | null = null;
 let centerEl: HTMLElement | null = null;
 let cardSlotEl: HTMLElement | null = null;
-let headerAccessorySlotEl: HTMLElement | null = null;
 let emptyEl: HTMLElement | null = null;
 let emptyTitleEl: HTMLElement | null = null;
 let emptyDescEl: HTMLElement | null = null;
@@ -126,8 +125,6 @@ function ensureGroup(group: RosterGroup<RosterRow>) {
 
 export function isFocusActive() { return active; }
 
-export function getFocusHeaderAccessorySlot() { return headerAccessorySlotEl; }
-
 export function getFocusedSessionId() { return uiState.snapshot().focusedSessionId; }
 
 export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | null; center: HTMLElement | null; resizer: HTMLElement | null }) {
@@ -158,9 +155,7 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   emptyDescEl = emptyEl.querySelector<HTMLElement>('.focus-empty-desc');
 
   cardSlotEl = el('div', 'focus-card-slot');
-  headerAccessorySlotEl = el('div', 'focus-header-accessory-slot');
-
-  mountedCenter.append(headerAccessorySlotEl, emptyEl, cardSlotEl);
+  mountedCenter.append(emptyEl, cardSlotEl);
 
   mountedRail.addEventListener('keydown', onRailKeydown);
 }
@@ -452,24 +447,8 @@ function updateCenter() {
   const hasSessions = sessionUIs.size > 0;
   emptyTitleEl.textContent = hasSessions ? 'No session selected' : 'Nothing to focus';
   emptyDescEl.textContent = hasSessions
-    ? selectSessionHint()
+    ? 'Select a session from the rail on the left to focus it here.'
     : 'Spawn a session to start watching.';
-}
-
-function isRailHidden() {
-  return railEl?.closest<HTMLElement>('.focus-view')?.dataset.rail === 'off';
-}
-
-function selectSessionHint() {
-  return isRailHidden() ? 'Pick a session in Calm to focus it here.' : 'Select a session from the rail on the left to focus it here.';
-}
-
-export function setFocusRailShown(isShown: boolean) {
-  const focusViewEl = railEl?.closest<HTMLElement>('.focus-view');
-  if (!focusViewEl) return;
-  if (isShown) focusViewEl.removeAttribute('data-rail');
-  if (!isShown) focusViewEl.dataset.rail = 'off';
-  updateCenter();
 }
 
 export function setFocusMergeStatus(id: unknown, mergeStatus: unknown) {

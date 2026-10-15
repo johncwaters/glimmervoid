@@ -18,7 +18,7 @@ export const PendingWakeup = z.object({
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
 const PROMPT_QUESTION_MAX_CHARS = 300;
 const PROMPT_QUESTION_OPTION_MAX_CHARS = 80;
-export const PROMPT_QUESTION_MAX_OPTIONS = 8;
+const PROMPT_QUESTION_MAX_OPTIONS = 8;
 
 const hasNoHiddenCharacters = (text: string) => !PROMPT_DETAIL_HIDDEN_CHARACTERS.test(text);
 
@@ -54,7 +54,6 @@ export const SessionSnapshot = z.object({
   activeAgents: z.number().int().nonnegative(),
   awaitingBackgroundTasks: z.boolean(),
   isCompacting: z.boolean().default(false),
-  hasEndedTurn: z.boolean().default(false),
   pendingWakeup: PendingWakeup.nullable(),
   pendingPromptKind: z.string().nullable(),
   pendingPromptDetail: PendingPromptDetail.nullable().default(null),

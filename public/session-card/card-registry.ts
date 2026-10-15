@@ -54,7 +54,6 @@ export interface SessionUi {
   effectiveBase?: string;
   activeAgents?: number;
   awaitingBackgroundTasks?: boolean;
-  hasEndedTurn: boolean;
   resizeObserver?: ResizeObserver;
   ptySize?: TerminalGrid | null;
 

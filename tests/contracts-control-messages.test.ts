@@ -113,7 +113,6 @@ const SESSION = {
   activeAgents: 0,
   awaitingBackgroundTasks: false,
   isCompacting: false,
-  hasEndedTurn: false,
   pendingWakeup: null,
   pendingPromptKind: null,
   pendingPromptDetail: null,
@@ -128,7 +127,7 @@ const SESSION = {
 
 const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'snapshot', sessions: [SESSION], serverBuild: 'build-1' },
-  { type: 'state-change', id: 'session-1', session: 'glimmervoid', from: STATES.IDLE, to: STATES.RUNNING, event: 'user_input', timestamp: NOW, hasEndedTurn: true },
+  { type: 'state-change', id: 'session-1', session: 'glimmervoid', from: STATES.IDLE, to: STATES.RUNNING, event: 'user_input', timestamp: NOW },
   { type: 'session-added', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, resumeSessionId: null },
   { type: 'session-removed', id: 'session-1', session: 'glimmervoid' },
   { type: 'session-renamed', id: 'session-1', oldName: 'old', newName: 'glimmervoid' },

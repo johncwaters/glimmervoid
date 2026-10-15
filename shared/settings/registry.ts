@@ -260,11 +260,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'toggle', keywords: ['startup', 'conversation'], defaultValue: true, ...MACHINE_NOW,
       },
       {
-        id: 'calm-layout', path: 'calmLayout', title: 'Calm layout (experimental)',
-        description: 'Replace the Focus rail with a view that prioritizes sessions needing attention and also shows ready and working indicators.',
-        control: 'toggle', keywords: ['experimental', 'attention', 'priority'], defaultValue: false, ...MACHINE_NOW,
-      },
-      {
         id: 'streamer-mode', path: 'streamerMode', title: 'Streamer mode',
         description: 'Hide sensitive details in the dashboard while screen sharing or streaming.',
         control: 'toggle', keywords: ['streaming', 'screen share', 'privacy'], defaultValue: false, ...MACHINE_NOW,

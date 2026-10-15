@@ -1,6 +1,6 @@
 const TERMINAL_DELETE = '\x7f';
 const TERMINAL_WORD_DELETE = '\x1b\x7f';
-export const TERMINAL_ENTER = '\r';
+const TERMINAL_ENTER = '\r';
 
 const BACKWARD_DELETION_BYTES = new Map([
   ['deleteContentBackward', TERMINAL_DELETE],

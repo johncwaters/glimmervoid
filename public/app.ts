@@ -1,6 +1,5 @@
 import '@xterm/xterm/css/xterm.css';
 import './tailwind.css';
-import { clearQueueOrigin, mountNowPeek, openNextQueuePanel, openSelectedPanelTerminal, refreshCalmView, refreshNowPeek, applyCalmSessionDiff, applyCalmSessionDiffError, applyCalmTraceResponse, applyCalmError } from './calm/calm-view.ts';
 
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { shouldShowServerAction } from '#shared/client-trust.ts';
@@ -16,7 +15,7 @@ import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
 import type { FeatureSurfaceSettings } from './feature-surfaces-core.ts';
 import { refreshFavicon } from './favicon.ts';
-import { centerSessionQuietly, focusAdjacentInRail, focusNextAttention, focusNthInRail, getFocusedSessionId, getFocusHeaderAccessorySlot, isFocusActive, openPlanInFocus, refreshFocusRoster, restoreFocusedSession, setFocusMergeStatus, setFocusRailShown } from './focus-view/focus-view.ts';
+import { centerSessionQuietly, focusAdjacentInRail, focusNextAttention, focusNthInRail, getFocusedSessionId, isFocusActive, openPlanInFocus, refreshFocusRoster, restoreFocusedSession, setFocusMergeStatus } from './focus-view/focus-view.ts';
 import { initFormFactor, isPhoneLayout, onLayoutChange } from './form-factor.ts';
 import type { HealthSnapshot } from './health-monitor.ts';
 import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
@@ -24,7 +23,7 @@ import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVi
 import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, setHooksRequestSender } from './hooks-panel.ts';
 import { initNotifications, showDesktopNotification } from './notifications.ts';
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
-import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneCalmAvailable, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession } from './phone/phone-shell.ts';
+import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus } from './github/my-prs-panel.ts';
@@ -42,7 +41,7 @@ import { handleDebugStateRefresh, handleDebugStateResponse, setCardPrChipsPainte
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
-import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionEndedTurn, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
+import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -52,7 +51,7 @@ import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects,
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
-import { currentShortcutContext, SHORTCUT_PLATFORM, setShortcutContextProvider } from './shortcuts.ts';
+import { SHORTCUT_PLATFORM } from './shortcuts.ts';
 import { resolveDashboardShortcut } from './shortcuts-core.ts';
 import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
@@ -69,7 +68,7 @@ import { whenBundledMonoFontLoads } from './mono-font.ts';
 import { applyPlanLimits, applyUsageReport, applyUsageSessions, setUsageRequestSender } from './usage/usage-panel.ts';
 import { createDashboardViews } from './view-registry.ts';
 import type { DashboardView } from './view-registry.ts';
-import { refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings, viewsInTabOrder } from './view-registry-core.ts';
+import { refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings } from './view-registry-core.ts';
 import type { ViewRefreshReason } from './view-registry-core.ts';
 
 applyTheme(getThemeId());
@@ -197,18 +196,11 @@ setConnectionStateCallback((state, label) => {
 function refreshAttentionSurfaces() {
   refreshIssuesSessionState();
   refreshPhoneBoard();
-  refreshCalmView();
-  refreshFocusNowPeek();
 }
 
 function refreshRosterAndAttentionSurfaces() {
   refreshFocusRoster();
   refreshAttentionSurfaces();
-}
-
-let isCalmSurfaceAvailable = false;
-function refreshFocusNowPeek() {
-  refreshNowPeek(isCalmSurfaceAvailable && isFocusActive() && !isPhoneLayout(), getFocusedSessionId());
 }
 
 let knownServerBuild: string | null | undefined = null;
@@ -242,8 +234,6 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     setSessionEffectiveBase(s.id, s.effectiveBase);
 
     setSessionAgents(s.id, s.activeAgents, s.awaitingBackgroundTasks);
-    setSessionEndedTurn(s.id, s.hasEndedTurn);
-
     setSessionWakeup(s.id, s.pendingWakeup);
 
     setSessionPrompt(s.id, s.pendingPromptKind, s.pendingPromptDetail, s.isCompacting);
@@ -303,7 +293,6 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
   }
 
   applyState(msg.id, msg.to, msg.timestamp, msg.event);
-  if (msg.hasEndedTurn !== undefined) setSessionEndedTurn(msg.id, msg.hasEndedTurn);
   if (msg.saneYolo !== undefined) setSessionSaneYolo(msg.id, msg.saneYolo);
   refreshFavicon(sessionUIs);
 
@@ -392,14 +381,14 @@ const messageHandlers = {
   'session-worktree-blocked': (msg) => { showErrorToast(`${msg.session}: ${msg.notice || 'integration branch not found'}`, { persist: true }); },
   'session-worktree-warning': (msg) => { showErrorToast(`${msg.session}: ${msg.notice || 'base branch warning'}`); },
   'session-worktree-ready': (msg) => { setSessionEffectiveBase(msg.id, msg.base); },
-  'session-diff':       (msg) => { applyCalmSessionDiff(msg); setSessionDiff(msg.id, { committed: msg.committed, uncommitted: msg.uncommitted, hasCommits: msg.hasCommits }); },
-  'session-diff-error': (msg) => { applyCalmSessionDiffError(msg); setReviewDiffError(msg.id, msg.message); },
+  'session-diff':       (msg) => { setSessionDiff(msg.id, { committed: msg.committed, uncommitted: msg.uncommitted, hasCommits: msg.hasCommits }); },
+  'session-diff-error': (msg) => { setReviewDiffError(msg.id, msg.message); },
   'change-map':         (msg) => setSessionChangeMap(msg.id, msg.map),
   'branch-sync-status': (msg) => setReviewBranchSync(msg.id, msg),
   'session-changed':    (msg) => notifyWorktreeChanged(msg.id),
   'post-turn-result':   (msg) => setSessionPostTurn(msg.id, msg),
   'debug-state-response': (msg) => handleDebugStateResponse(msg),
-  'session-trace-response': (msg) => { applyCalmTraceResponse(msg); applyTraceResponse(msg); },
+  'session-trace-response': (msg) => applyTraceResponse(msg),
   'session-trace-changed': (msg) => applyTraceChanged(msg),
   'session-plan-changed': (msg) => { applySessionPlanChanged(msg); refreshAttentionSurfaces(); },
   'session-plan-draft': (msg) => { applySessionPlanDraft(msg); },
@@ -410,9 +399,9 @@ const messageHandlers = {
   'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },
   'update-status':      (msg) => { showUpdateBanner(msg); applySettingsUpdateStatus(msg); },
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
-  'error':              (msg) => { applyCalmError(msg); clearSettingsUpdateRequest(); applyTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
+  'error':              (msg) => { clearSettingsUpdateRequest(); applyTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
   'session-error':      (msg) => { applySessionPlanError(msg); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
-  'settings-updated':   (msg) => { if (msg.settings) applyDashboardSettings(msg.settings, { isLiveSettingsChange: true }); },
+  'settings-updated':   (msg) => { if (msg.settings) applyDashboardSettings(msg.settings); },
   'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot & ServerMessageOf<'health-snapshot'>['stats']); },
   'radar-status':     (msg) => applyRadarStatus(msg),
   'radar-investigation-activity': (msg) => applyInvestigationActivity(msg),
@@ -648,18 +637,12 @@ const VIEW_TABS = createDashboardViews({
     centerSessionQuietly(id);
   },
   openPlan: (id) => { activateView('focus'); openPlanInFocus(id); },
-  openCalm: () => activateView('calm'),
   setPhoneAttention: setPhoneScreenAttention,
 });
 
 mountReviewSidebar({ panel: document.getElementById('review-sidebar') });
 for (const viewTab of VIEW_TABS) viewTab.mount(viewTab.el);
 
-const focusHeaderAccessorySlot = getFocusHeaderAccessorySlot();
-if (focusHeaderAccessorySlot) mountNowPeek(focusHeaderAccessorySlot);
-uiState.subscribe((_state, changedKeys) => {
-  if (changedKeys.includes('focusedSessionId')) refreshFocusNowPeek();
-});
 
 function findViewTab(view: string) {
   return VIEW_TABS.find((viewTab) => viewTab.view === view);
@@ -710,7 +693,6 @@ function activateView(view: string, { section, setting, persist = true }: Activa
   if (prev === 'settings' && view !== 'settings') clearSettingsHash();
   if (view === 'settings' && section) activateSettingsSection(section, setting ?? null);
   acknowledgeViewAttention(view);
-  refreshFocusNowPeek();
 }
 
 function setSurfaceAvailable(viewTab: DashboardView, isAvailable: boolean) {
@@ -725,26 +707,15 @@ function setSurfaceAvailable(viewTab: DashboardView, isAvailable: boolean) {
   activateView(view);
 }
 
-let lastAppliedCalmSurface: boolean | null = null;
-function applySurfaceSettings(settings: FeatureSurfaceSettings, { isLiveSettingsChange = false } = {}) {
-  const surfaces = viewAvailabilityFromSettings(VIEW_TABS, settings);
-  const isCalmAvailable = surfaces.find((surface) => surface.view.view === 'calm')?.isAvailable === true;
-  const hasOperatorTurnedCalmOn = isLiveSettingsChange && lastAppliedCalmSurface === false && isCalmAvailable;
-  lastAppliedCalmSurface = isCalmAvailable;
-  isCalmSurfaceAvailable = isCalmAvailable;
-  setPhoneCalmAvailable(isCalmAvailable);
-  setFocusRailShown(!isCalmAvailable);
-  refreshFocusNowPeek();
-  for (const { view, isAvailable } of surfaces) setSurfaceAvailable(view, isAvailable);
-  if (!hasOperatorTurnedCalmOn || getActiveView() !== 'focus' || isPhoneLayout() || resolvePlanTarget(location.hash)) return;
-  activateView('calm');
+function applySurfaceSettings(settings: FeatureSurfaceSettings) {
+  for (const { view, isAvailable } of viewAvailabilityFromSettings(VIEW_TABS, settings)) setSurfaceAvailable(view, isAvailable);
 }
 
-function applyDashboardSettings(settings: FeatureSurfaceSettings & { streamerMode?: boolean }, { isLiveSettingsChange = false } = {}) {
+function applyDashboardSettings(settings: FeatureSurfaceSettings & { streamerMode?: boolean }) {
   applyTerminalSettings(settings);
   applySettingsBroadcast(settings);
   applyVisionsSettings(settings);
-  applySurfaceSettings(settings, { isLiveSettingsChange });
+  applySurfaceSettings(settings);
   syncTelemetryBanner(settings);
   setStreamerMode(settings.streamerMode === true);
 }
@@ -834,9 +805,7 @@ mountPhoneShell({
 function applyFormFactorLayout(layout: string) {
   if (layout === 'phone') {
     const carriedSessionId = getFocusedSessionId();
-    for (const viewTab of viewsInTabOrder(VIEW_TABS)) viewTab.deactivate?.();
-    clearQueueOrigin();
-    refreshFocusNowPeek();
+    for (const viewTab of VIEW_TABS) viewTab.deactivate?.();
     const settingsTarget = resolveSettingsTarget(location.hash);
     activatePhoneShell({
       sessionId: carriedSessionId ?? undefined,
@@ -928,7 +897,6 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
       document.getElementById('btn-add-session-header')?.click();
       return true;
     case 'next-attention':
-      if (getActiveView() === 'calm') return openNextQueuePanel();
       if (!isFocusActive()) return false;
       focusNextAttention();
       return true;
@@ -944,24 +912,16 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
       if (!isFocusActive()) return false;
       focusNthInRail(step);
       return true;
-    case 'calm-home':
-      if (isPhoneLayout()) return false;
-      activateView('calm');
-      return true;
-    case 'calm-terminal':
-      return openSelectedPanelTerminal();
     case 'streamer-mode':
       toggleStreamerMode();
       return true;
   }
 }
 
-setShortcutContextProvider(() => ({ isCalmAvailable: isCalmSurfaceAvailable, isCalmViewActive: getActiveView() === 'calm' }));
-
 document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   if (isRealInputFocused()) return;
-  const shortcut = resolveDashboardShortcut(e, SHORTCUT_PLATFORM, currentShortcutContext());
+  const shortcut = resolveDashboardShortcut(e, SHORTCUT_PLATFORM);
   if (!shortcut) return;
   if (runDashboardShortcut(shortcut)) e.preventDefault();
 });

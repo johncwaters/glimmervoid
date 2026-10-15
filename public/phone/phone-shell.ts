@@ -1,4 +1,3 @@
-import { activatePhoneCalmView, deactivatePhoneCalmView, dismissPhoneCalmSheet } from '../calm/calm-view.ts';
 import type { AdoptableElement } from '../dom-helpers.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import { pickStrongestAttention } from '../focus-view/attention-core.ts';
@@ -8,9 +7,7 @@ import { showSessionPlanFace } from '../session-card/lifecycle.ts';
 import { reparentReviewPanel } from '../sidebar/review-sidebar.ts';
 import { uiState } from '../ui-state-core.ts';
 import { createBoardScreen } from './board-screen.ts';
-import type { PushedPhoneHistoryEntry } from './phone-history-core.ts';
 import type { PhonePanel } from './phone-panels-core.ts';
-import { CALM_SHEET_HISTORY_STATE, decideCalmSheetOpened, decidePhonePopState, isCalmSheetHistoryState, shouldConsumeCalmSheetEntry } from './phone-history-core.ts';
 import { createTerminalScreen } from './terminal-screen.ts';
 
 const BOARD = 'board';
@@ -52,15 +49,7 @@ let active = false;
 const SOFT_KEYBOARD_OPEN_DELTA_PX = 120;
 let keyboardClosedBaselineHeightPx = 0;
 let baselineViewportWidthPx = 0;
-let pushedHistoryEntry: PushedPhoneHistoryEntry = 'none';
-let isCalmSheetOpen = false;
-let isOwnSheetPopPending = false;
-let isCalmAvailable = false;
-const phoneCalmNavigation = {
-  openTerminal: openSession,
-  openPlan: (sessionId: string) => { showPhonePlan(sessionId); },
-  onSheetOpenChange: onCalmSheetOpenChange,
-};
+let pushedHistoryEntry: 'none' | 'screen' = 'none';
 
 function resetSoftKeyboardBaseline() {
   keyboardClosedBaselineHeightPx = 0;
@@ -183,7 +172,6 @@ function build() {
   if (shellEl) return;
 
   boardScreen = createBoardScreen({ onSelectSession: openSession });
-  boardScreen.setCalmShown(isCalmAvailable);
   terminalScreen = createTerminalScreen({ onBack: () => showScreen(BOARD) });
   reviewMountEl = el('div', 'phone-review');
 
@@ -248,11 +236,6 @@ function pushHistoryFor(screenId: string) {
 }
 
 function adoptInheritedHistory() {
-  if (isCalmSheetHistoryState(history.state)) {
-    pushedHistoryEntry = 'calm-sheet';
-    consumeCalmSheetHistoryEntry();
-    return BOARD;
-  }
   const inherited = screenIdFromHistoryState(history.state);
   if (inherited && canShowScreen(inherited)) {
     pushedHistoryEntry = 'screen';
@@ -269,56 +252,13 @@ function surrenderHistoryEntry() {
   history.back();
 }
 
-function pushCalmSheetHistoryEntry() {
-  if (decideCalmSheetOpened({ pushedEntry: pushedHistoryEntry, isOwnSheetPopPending }) !== 'push-sheet-entry') return;
-  history.pushState(CALM_SHEET_HISTORY_STATE, '');
-  pushedHistoryEntry = 'calm-sheet';
-}
-
-function consumeCalmSheetHistoryEntry() {
-  if (!shouldConsumeCalmSheetEntry({ pushedEntry: pushedHistoryEntry, topState: history.state, isOwnSheetPopPending })) return;
-  pushedHistoryEntry = 'none';
-  isOwnSheetPopPending = true;
-  history.back();
-}
-
-function onCalmSheetOpenChange(isOpen: boolean) {
-  isCalmSheetOpen = isOpen;
-  if (isOpen) {
-    pushCalmSheetHistoryEntry();
-    return;
-  }
-  consumeCalmSheetHistoryEntry();
-}
-
 function screenIdFromHistoryState(state: unknown): string | null {
   const named = (state as { glimmervoidScreen?: unknown } | null)?.glimmervoidScreen;
   return typeof named === 'string' ? named : null;
 }
 
 function onPopState(event: PopStateEvent) {
-  const wasOwnSheetPop = isOwnSheetPopPending;
-  isOwnSheetPopPending = false;
   if (!active) return;
-  const decision = decidePhonePopState({ poppedState: event.state, isCalmSheetOpen, isOwnSheetPopPending: wasOwnSheetPop });
-  if (decision === 'own-sheet-pop') {
-    if (isCalmSheetOpen) pushCalmSheetHistoryEntry();
-    return;
-  }
-  if (decision === 'adopt-sheet-entry') {
-    pushedHistoryEntry = 'calm-sheet';
-    return;
-  }
-  if (decision === 'consume-stray-sheet-entry') {
-    pushedHistoryEntry = 'calm-sheet';
-    consumeCalmSheetHistoryEntry();
-    return;
-  }
-  if (decision === 'close-sheet') {
-    pushedHistoryEntry = 'none';
-    dismissPhoneCalmSheet();
-    return;
-  }
   const currentScreenId = uiState.snapshot().phoneScreen;
   if (currentScreenId && hooks.canGoBack?.(currentScreenId)) {
     pushedHistoryEntry = 'none';
@@ -350,7 +290,6 @@ function applyScreen(screenId: string) {
     section.hidden = id !== screenId;
   }
   hooks.onScreenShown?.(screenId);
-  syncPhoneCalm();
   syncCurrent(navButtonById, screenId);
   const isNestedActive = menuButtonById.has(screenId);
   if (isNestedActive) moreButtonEl.setAttribute('aria-current', 'page');
@@ -410,7 +349,6 @@ export function deactivatePhoneShell() {
   if (!active) return;
   if (!shellEl || !terminalScreen) throw new Error('Phone shell is not built');
   active = false;
-  syncPhoneCalm();
   terminalScreen.clear();
   reparentReviewPanel(null);
   for (const panel of panels) releaseElement(panel.el);
@@ -420,22 +358,6 @@ export function deactivatePhoneShell() {
   shellEl.removeAttribute('data-keyboard');
   resetSoftKeyboardBaseline();
   surrenderHistoryEntry();
-}
-
-function syncPhoneCalm() {
-  if (!boardScreen) return;
-  const isCalmShown = active && isCalmAvailable && uiState.snapshot().phoneScreen === BOARD;
-  if (!isCalmShown) {
-    deactivatePhoneCalmView();
-    return;
-  }
-  activatePhoneCalmView(boardScreen.calmEl, phoneCalmNavigation);
-}
-
-export function setPhoneCalmAvailable(isAvailable: boolean) {
-  isCalmAvailable = isAvailable;
-  boardScreen?.setCalmShown(isAvailable);
-  syncPhoneCalm();
 }
 
 export function showPhonePlan(sessionId: string) {

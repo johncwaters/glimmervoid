@@ -1,4 +1,3 @@
-import { activateCalmView, deactivateCalmView, mountCalmView } from './calm/calm-view.ts';
 import { el, queryTag } from './dom-helpers.ts';
 import { FEATURE_SURFACE_RULES } from './feature-surfaces-core.ts';
 import { activateFocusView, deactivateFocusView, mountFocusView } from './focus-view/focus-view.ts';
@@ -14,7 +13,7 @@ import { setTeamReviewActivityCallback } from './github/team-review-panel.ts';
 import { applyTraceConnectionState, mountTraceView, openTraceForSession, refreshTraceView } from './trace-panel.ts';
 import { acknowledgeUsageAttention, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback } from './usage/usage-panel.ts';
 import { acknowledgeVisionsAttention, mountVisionsView, refreshVisionsView, setVisionsActivityCallback } from './visions/visions-panel.ts';
-import { viewAttentionState, viewsInTabOrder } from './view-registry-core.ts';
+import { viewAttentionState } from './view-registry-core.ts';
 import type { PrimaryView, PrimaryViewDefinition, ViewAttention } from './view-registry-core.ts';
 
 interface ViewRegistryActions {
@@ -22,7 +21,6 @@ interface ViewRegistryActions {
   onConfirmUpdateAndRestart: (proceed: (confirmedSessionIds: string[]) => void) => void;
   openTerminal: (id: string) => void;
   openPlan: (id: string) => void;
-  openCalm: () => void;
   setPhoneAttention: (view: string, attention: ViewAttention) => void;
 }
 
@@ -32,8 +30,7 @@ export interface DashboardView extends PrimaryView<HTMLElement> {
 
 export function createDashboardViews(actions: ViewRegistryActions): DashboardView[] {
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
-    { view: 'calm', label: 'Calm', panelClass: 'calm-view', tabOrder: 1, gate: { fromSettings: FEATURE_SURFACE_RULES.calmLayout }, hasOwnPhoneScreen: true, hasPanelChrome: false, mount: (panel) => mountCalmView(panel, { openTerminal: actions.openTerminal, openPlan: actions.openPlan, openCalm: actions.openCalm }), activate: activateCalmView, deactivate: deactivateCalmView },
-    { view: 'focus', label: 'Focus', panelClass: 'focus-view', tabOrder: 0, hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView },
+    { view: 'focus', label: 'Focus', panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView },
     { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, mount: (panel) => mountPrsView(panel, { openTerminal: actions.openTerminal }), attention: { subscribe: setTeamReviewActivityCallback, acknowledge: acknowledgePrsViewAttention } },
     { view: 'issues', label: 'Issues', glyph: '#', panelClass: 'issues-view', mount: mountIssuesView, refreshOn: ['shown'], refresh: refreshIssuesViewOnShow, onConnectionChange: applyIssuesConnectionState },
     { view: 'usage', label: 'Usage', glyph: '\u25d4', panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, mount: mountUsageView, attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, refreshOn: ['shown', 'connected', 'usage-sessions'], refresh: (reason) => {
@@ -88,6 +85,6 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     }
     return { ...definition, tab, el: panel };
   });
-  queryTag(document, '#header-tabs', 'div').replaceChildren(...viewsInTabOrder(views).map((view) => view.tab));
+  queryTag(document, '#header-tabs', 'div').replaceChildren(...views.map((view) => view.tab));
   return views;
 }
