@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, GithubReviewDecision, decisionAsIfApprovalRequired, PrDetail, ReviewChecksState, ReviewComment, SearchedPr } from '../../shared/contracts/team-review.ts';
 import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../../shared/contracts/benchmark.ts';
 import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../../shared/contracts/benchmark.ts';
-import { MyPrMergeMethod, MyPrMergeStateResponse, MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
+import { MyPrCheckContext, MyPrCheckContextsResponse, MyPrMergeMethod, MyPrMergeStateResponse, MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../../shared/contracts/my-prs.ts';
 import { WorkflowCommentBody, WorkflowLabelName, WorkflowSearchNode } from '../../shared/contracts/workflows.ts';
 import type { WorkflowSearchNode as WorkflowSearchNodeType } from '../../shared/contracts/workflows.ts';
@@ -154,12 +154,13 @@ function mergeKindFromPrState(prStateJson: string): MyPrMergeKind {
 
 const HEX_LABEL_COLOR = /^[0-9a-f]{6}$/i;
 const MERGED_SINCE_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const CHECK_CONTEXT_FIELDS = '__typename ... on CheckRun { name conclusion status startedAt checkSuite { app { databaseId } workflowRun { workflow { databaseId } } } } ... on StatusContext { context state }';
+const MY_PR_CHECK_CONTEXTS_QUERY = `query($id: ID!, $cursor: String!) { node(id: $id) { ... on StatusCheckRollup { contexts(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { ${CHECK_CONTEXT_FIELDS} } } } } }`;
+const MAX_CHECK_CONTEXT_PAGES = 10;
 const MY_PR_FIELDS_FRAGMENT = `fragment myPrFields on PullRequest {
   __typename id number title url isDraft state createdAt mergedAt updatedAt baseRefName baseRefOid headRefName isCrossRepository headRefOid isInMergeQueue mergeable mergeStateStatus reviewDecision
   repository { nameWithOwner viewerDefaultMergeMethod }
-  commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 50) { nodes {
-    __typename ... on CheckRun { name conclusion status } ... on StatusContext { context state }
-  } } } } } }
+  commits(last: 1) { nodes { commit { statusCheckRollup { id state contexts(first: 100) { pageInfo { hasNextPage endCursor } nodes { ${CHECK_CONTEXT_FIELDS} } } } } } }
   reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved } }
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug avatarUrl organization { login } } } } }
   latestOpinionatedReviews(first: 20) { nodes { state } }
@@ -450,6 +451,25 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     return thread;
   }
 
+  async function completeCheckContexts(node: MyPrSearchNodeType): Promise<void> {
+    const rollup = node.commits.nodes.at(-1)?.commit.statusCheckRollup;
+    if (node.state !== 'OPEN' || !rollup?.id || rollup.state === 'SUCCESS') return;
+    const contexts = rollup.contexts;
+    for (let page = 1; page <= MAX_CHECK_CONTEXT_PAGES; page += 1) {
+      const cursor = contexts.pageInfo?.hasNextPage ? contexts.pageInfo.endCursor : null;
+      if (!cursor) return;
+      const response = await runGh(['api', 'graphql', '-f', `query=${MY_PR_CHECK_CONTEXTS_QUERY}`, '-f', `id=${rollup.id}`, '-f', `cursor=${cursor}`]);
+      const parsed = MyPrCheckContextsResponse.safeParse(parseJsonOrNull(response.out));
+      const nextPage = parsed.success && !parsed.data.errors?.length ? parsed.data.data?.node?.contexts : null;
+      if (!response.ok || !nextPage) return;
+      for (const check of nextPage.nodes) {
+        const valid = MyPrCheckContext.safeParse(check);
+        if (valid.success) contexts.nodes.push(valid.data);
+      }
+      contexts.pageInfo = nextPage.pageInfo;
+    }
+  }
+
   async function searchPage(query: string, page: number): Promise<SearchedPrType[] | null> {
     const response = await runGh(['api', '-X', 'GET', 'search/issues', '-f', `q=${query}`, '-f', `per_page=${SEARCH_PAGE_SIZE}`, '-f', `page=${page}`]);
     if (!response.ok) return null;
@@ -506,6 +526,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         const valid = MyPrSearchNode.safeParse(node);
         return valid.success ? [valid.data] : [];
       });
+      for (const item of items) await completeCheckContexts(item);
       const { open, merged } = parsed.data.data;
       return { ok: true, items, totalCount: open.issueCount + merged.issueCount, error: '' };
     },

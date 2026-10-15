@@ -112,8 +112,13 @@ export type MyPrMergeKind = z.infer<typeof MyPrMergeKind>;
 export const MyPrMergeResult = z.object({ key: z.string(), ok: z.boolean(), kind: MyPrMergeKind.optional(), error: z.string().optional() });
 export type MyPrMergeResult = z.infer<typeof MyPrMergeResult>;
 
-const CheckRun = z.object({ __typename: z.literal('CheckRun'), name: z.string(), conclusion: z.string().nullable(), status: z.string() });
+const CheckRun = z.object({ __typename: z.literal('CheckRun'), name: z.string(), conclusion: z.string().nullable(), status: z.string(), startedAt: z.string().nullish(),
+  checkSuite: z.object({ app: z.object({ databaseId: z.number().int().nullish() }).nullish(), workflowRun: z.object({ workflow: z.object({ databaseId: z.number().int().nullish() }) }).nullish() }).nullish(),
+});
 const StatusContext = z.object({ __typename: z.literal('StatusContext'), context: z.string(), state: z.string() });
+export const MyPrCheckContext = z.union([CheckRun, StatusContext]);
+export type MyPrCheckContext = z.infer<typeof MyPrCheckContext>;
+const CheckContextsPageInfo = z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() });
 export const MyPrSearchNode = z.object({
   __typename: z.literal('PullRequest'), id: z.string().regex(NODE_ID_RE), number: z.number().int().positive(), title: z.string(), url: z.url(), isDraft: z.boolean(),
   state: z.enum(['OPEN', 'MERGED', 'CLOSED']), createdAt: z.string(), mergedAt: z.string().nullable(), updatedAt: z.string(), baseRefName: z.string(), baseRefOid: CommitSha, headRefName: z.string().min(1), isCrossRepository: z.boolean(),
@@ -121,8 +126,8 @@ export const MyPrSearchNode = z.object({
   mergeStateStatus: z.string(), reviewDecision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),
   repository: z.object({ nameWithOwner: repositoryName, viewerDefaultMergeMethod: MyPrMergeMethod }),
   commits: z.object({ nodes: z.array(z.object({ commit: z.object({ statusCheckRollup: z.object({
-    state: z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable(),
-    contexts: z.object({ nodes: z.array(z.union([CheckRun, StatusContext])) }),
+    id: z.string().regex(NODE_ID_RE).optional(), state: z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable(),
+    contexts: z.object({ pageInfo: CheckContextsPageInfo.optional(), nodes: z.array(MyPrCheckContext) }),
   }).nullable() }) })) }),
   reviewThreads: z.object({ pageInfo: z.object({ hasNextPage: z.boolean() }), nodes: z.array(z.object({ isResolved: z.boolean() })) }),
   reviewRequests: z.object({ nodes: z.array(z.object({ requestedReviewer: z.discriminatedUnion('__typename', [
@@ -146,6 +151,10 @@ export type MyPrThreadNode = z.infer<typeof MyPrThreadNode>;
 export const MyPrThreadsResponse = z.object({ data: z.object({ repository: z.object({ pullRequest: z.object({
   reviewThreads: z.object({ pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }), nodes: z.array(z.unknown()) }),
 }).nullable() }).nullable() }), errors: z.array(z.unknown()).optional() });
+
+export const MyPrCheckContextsResponse = z.object({ data: z.object({ node: z.object({
+  contexts: z.object({ pageInfo: CheckContextsPageInfo, nodes: z.array(z.unknown()) }).nullable(),
+}).nullable() }).nullable(), errors: z.array(z.unknown()).optional() });
 
 export const MyPrMergeStateResponse = z.object({ data: z.object({ repository: z.object({ pullRequest: z.object({
   state: z.string(), isInMergeQueue: z.boolean(), autoMergeRequest: z.object({ enabledAt: z.string().nullable() }).nullable(),

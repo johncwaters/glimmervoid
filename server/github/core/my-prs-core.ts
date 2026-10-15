@@ -1,4 +1,4 @@
-import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrAutoRebase, MyPrCheckContext, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
 import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../../lanes/core/lane-permissions-core.ts';
 import { SANDBOX_PLACEHOLDER_NAMES } from '../../sandbox/core/sandbox-policy-core.ts';
 import { prKey } from './team-review-core.ts';
@@ -329,17 +329,56 @@ export function toMyPrThreads(threadNodes: readonly MyPrThreadNode[], pullReques
   });
 }
 
+function checkContextName(check: MyPrCheckContext): string {
+  return check.__typename === 'CheckRun' ? check.name : check.context;
+}
+
+function isCheckContextFailing(check: MyPrCheckContext): boolean {
+  if (check.__typename === 'CheckRun') return check.conclusion !== null && FAILING_CONCLUSIONS.has(check.conclusion);
+  return check.state === 'FAILURE' || check.state === 'ERROR';
+}
+
+function isCheckContextPending(check: MyPrCheckContext): boolean {
+  if (check.__typename === 'CheckRun') return check.status !== 'COMPLETED';
+  return check.state === 'PENDING' || check.state === 'EXPECTED';
+}
+
+function checkContextIdentity(check: MyPrCheckContext): string {
+  if (check.__typename === 'StatusContext') return `status:${check.context}`;
+  const workflowOrAppId = check.checkSuite?.workflowRun?.workflow.databaseId ?? check.checkSuite?.app?.databaseId ?? '';
+  return `run:${workflowOrAppId}:${check.name}`;
+}
+
+function isLaterRun(candidate: MyPrCheckContext, current: MyPrCheckContext): boolean {
+  if (candidate.__typename !== 'CheckRun' || current.__typename !== 'CheckRun') return true;
+  if (!candidate.startedAt || !current.startedAt) return true;
+  return Date.parse(candidate.startedAt) >= Date.parse(current.startedAt);
+}
+
+function latestCheckRunsByIdentity(contexts: readonly MyPrCheckContext[]): MyPrCheckContext[] {
+  const latestByIdentity = new Map<string, MyPrCheckContext>();
+  for (const check of contexts) {
+    const identity = checkContextIdentity(check);
+    const current = latestByIdentity.get(identity);
+    if (!current || isLaterRun(check, current)) latestByIdentity.set(identity, check);
+  }
+  return [...latestByIdentity.values()];
+}
+
+function latestRunsChecksState(failingCount: number, pendingCount: number): 'FAILURE' | 'PENDING' | 'SUCCESS' {
+  if (failingCount > 0) return 'FAILURE';
+  if (pendingCount > 0) return 'PENDING';
+  return 'SUCCESS';
+}
+
 export function toMyPr(node: MyPrSearchNode, behindBy: number | null, threadNodes: readonly MyPrThreadNode[] = []): MyPr {
-  const contexts = node.commits.nodes.at(-1)?.commit.statusCheckRollup?.contexts.nodes ?? [];
-  const failing = contexts.flatMap((check) => {
-    if (check.__typename === 'CheckRun' && check.conclusion && FAILING_CONCLUSIONS.has(check.conclusion)) return [check.name];
-    if (check.__typename === 'StatusContext' && ['FAILURE', 'ERROR'].includes(check.state)) return [check.context];
-    return [];
-  });
-  const pendingCount = contexts.filter((check) => {
-    if (check.__typename === 'CheckRun') return check.status !== 'COMPLETED';
-    return check.state === 'PENDING' || check.state === 'EXPECTED';
-  }).length;
+  const rollup = node.commits.nodes.at(-1)?.commit.statusCheckRollup ?? null;
+  const contexts = rollup?.contexts.nodes ?? [];
+  const latestRuns = latestCheckRunsByIdentity(contexts);
+  const failing = latestRuns.filter(isCheckContextFailing).map(checkContextName);
+  const pendingCount = latestRuns.filter(isCheckContextPending).length;
+  const hasEveryContext = contexts.length > 0 && rollup?.contexts.pageInfo?.hasNextPage !== true;
+  const checksState = hasEveryContext ? latestRunsChecksState(failing.length, pendingCount) : rollup?.state ?? null;
   const reviewRequests = node.reviewRequests.nodes.flatMap(({ requestedReviewer }) => {
     if (!requestedReviewer) return [];
     if (requestedReviewer.__typename === 'User') return [{ name: requestedReviewer.login, isTeam: false, avatarUrl: null }];
@@ -353,7 +392,7 @@ export function toMyPr(node: MyPrSearchNode, behindBy: number | null, threadNode
     updatedAt: node.updatedAt, baseRefName: node.baseRefName, baseRefOid: node.baseRefOid, headRefName: node.headRefName, isCrossRepository: node.isCrossRepository, headRefOid: node.headRefOid, isInMergeQueue: node.isInMergeQueue,
     mergeMethod: node.repository.viewerDefaultMergeMethod, mergeable: node.mergeable,
     mergeStateStatus: node.mergeStateStatus, reviewDecision: node.reviewDecision,
-    checks: { state: node.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null, failing, pendingCount },
+    checks: { state: checksState, failing, pendingCount },
     unresolvedThreads: Math.max(node.reviewThreads.nodes.filter((thread) => !thread.isResolved).length, threads.length),
     threads,
     behindBy, reviewRequests, approvals: node.latestOpinionatedReviews.nodes.filter((review) => review.state === 'APPROVED').length,

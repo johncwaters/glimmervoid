@@ -391,6 +391,31 @@ test('keep mergeable cancels in-flight fixes whose flag is gone or whose PR is l
   assert.deepEqual(keepMergeableFixesToCancel(['Acme/app#1', 'Acme/app#2', 'Acme/app#3', 'Acme/app#4'], flaggedKeys, prs), ['Acme/app#2', 'Acme/app#4']);
 });
 
+test('a run superseded by a later passing run of the same check does not mark the pull request failing', () => {
+  const node = searchNode();
+  node.commits.nodes[0].commit.statusCheckRollup = { state: 'FAILURE', contexts: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [
+    { __typename: 'CheckRun', name: 'MCP Tests Pass', conclusion: 'CANCELLED', status: 'COMPLETED', startedAt: '2026-10-15T10:00:00Z' },
+    { __typename: 'CheckRun', name: 'MCP Tests Pass', conclusion: 'SUCCESS', status: 'COMPLETED', startedAt: '2026-10-15T10:05:00Z' },
+  ] } };
+  const pr = toMyPr(node, 0);
+  assert.deepEqual(pr.checks, { state: 'SUCCESS', failing: [], pendingCount: 0 });
+  assert.equal(pr.stage, 'ready');
+});
+
+test('a passing check in another workflow or a status context with the same name does not hide a failing one', () => {
+  const node = searchNode();
+  const inWorkflow = (workflowId: number) => ({ app: { databaseId: 15368 }, workflowRun: { workflow: { databaseId: workflowId } } });
+  node.commits.nodes[0].commit.statusCheckRollup = { state: 'FAILURE', contexts: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [
+    { __typename: 'CheckRun', name: 'Build and push container image', conclusion: 'FAILURE', status: 'COMPLETED', startedAt: '2026-10-15T10:00:00Z', checkSuite: inWorkflow(1) },
+    { __typename: 'CheckRun', name: 'Build and push container image', conclusion: 'SUCCESS', status: 'COMPLETED', startedAt: '2026-10-15T10:05:00Z', checkSuite: inWorkflow(2) },
+    { __typename: 'StatusContext', context: 'ci', state: 'FAILURE' },
+    { __typename: 'CheckRun', name: 'ci', conclusion: 'SUCCESS', status: 'COMPLETED', startedAt: '2026-10-15T10:05:00Z', checkSuite: inWorkflow(3) },
+  ] } };
+  const pr = toMyPr(node, 0);
+  assert.deepEqual(pr.checks, { state: 'FAILURE', failing: ['Build and push container image', 'ci'], pendingCount: 0 });
+  assert.equal(pr.stage, 'checks-failing');
+});
+
 test('normalizes failing checks, pending checks, requests, approvals, and unresolved threads', () => {
   const node = searchNode();
   node.commits.nodes[0].commit.statusCheckRollup = { state: 'FAILURE', contexts: { nodes: [
