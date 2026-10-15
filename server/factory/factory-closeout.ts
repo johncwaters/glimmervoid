@@ -53,7 +53,8 @@ function createMemoryCapCounter(): FactoryCapCounter {
 }
 
 type FactoryWorkerSession = Pick<Session, 'destroy' | 'pasteTextWhenReady' | 'write' | '_destroyed'>
-  & Partial<Pick<Session, 'id' | 'worktreeDir' | 'baseSha' | 'mergeWorktree'>>;
+  & Partial<Pick<Session, 'id' | 'worktreeDir' | 'baseSha' | 'mergeWorktree'>>
+  & { _sandboxLaunch?: Pick<NonNullable<Session['_sandboxLaunch']>, 'env'> | null };
 
 export interface FactoryCloseOutWorker {
   workId: string;
@@ -98,10 +99,10 @@ export function factorySecretValues(baseEnv: NodeJS.ProcessEnv): (string | undef
 
 type FactoryCheckoutRun = {
   checks: FactoryCheck[]; loggedChecks: FactoryCheck[]; decisionReasonChecks: FactoryCheck[]; checkoutSecretValues: string[];
-  failingFilesOutsideScopesByCommand: Map<string, string[]>; failureTextByCommand: Map<string, string>; checkoutPaths: string[];
+  failingFilesOutsideScopesByCommand: Map<string, string[]>; failureTextByCommand: Map<string, string>; outputPathsByCommand: Map<string, string>; checkoutPaths: string[];
 };
 
-const EMPTY_CHECKOUT_RUN: FactoryCheckoutRun = { checks: [], loggedChecks: [], decisionReasonChecks: [], checkoutSecretValues: [], failingFilesOutsideScopesByCommand: new Map(), failureTextByCommand: new Map(), checkoutPaths: [] };
+const EMPTY_CHECKOUT_RUN: FactoryCheckoutRun = { checks: [], loggedChecks: [], decisionReasonChecks: [], checkoutSecretValues: [], failingFilesOutsideScopesByCommand: new Map(), failureTextByCommand: new Map(), outputPathsByCommand: new Map(), checkoutPaths: [] };
 
 function chargeableChecks(checks: readonly FactoryCheck[], inheritedCommands: readonly string[]): FactoryCheck[] {
   return checks.map((check) => !check.pass && inheritedCommands.includes(check.command) ? { ...check, pass: true } : check);
@@ -126,8 +127,9 @@ function closeOutFailureText(decision: ReturnType<typeof decideCloseOut>): strin
 function failureText(error: unknown, maxChars = 4000): string {
   if (!(error instanceof Error)) return String(error).slice(-maxChars);
   const output = ['stdout', 'stderr'].flatMap((key) => {
-    if (!(key in error)) return [];
     const value = Reflect.get(error, key);
+    const causeValue: unknown = error.cause instanceof Error ? Reflect.get(error.cause, key) : undefined;
+    if (typeof causeValue === 'string' && (typeof value !== 'string' || causeValue.length > value.length)) return [causeValue];
     return typeof value === 'string' ? [value] : [];
   }).join('\n');
   return `${error.message}\n${output}`.slice(-maxChars);
@@ -205,7 +207,6 @@ export function createFactoryCloseOut({
   const sharedEntries = () => config.worktreeShare ?? DEFAULT_CONFIG.worktreeShare;
   const secretValues = () => factorySecretValues(baseEnv);
   const checkOutput = (text: string) => redactSecretLines(text, secretValues()).slice(-4000);
-  const failedCheckOutput = (error: unknown) => summarizeFailedCheckOutput(redactSecretLines(failureText(error, 16 * 1024 * 1024), secretValues()), FAILED_CHECK_FEEDBACK_MAX_CHARS);
   const checkEnv = () => buildFactoryCheckEnv(baseEnv, process.platform);
   const untrustedCheckoutIsolation = () => ({ disableHooks: true, disableRepoCommands: true, replaceEnv: checkEnv() });
   const attemptOf = (worker: FactoryCloseOutWorker) => attempts.get(worker.workId) ?? 1;
@@ -301,6 +302,14 @@ export function createFactoryCloseOut({
     return envFileTexts.flatMap(envFileSecretValues);
   }
 
+  async function writeFailedCheckOutputFile(worker: FactoryCloseOutWorker, outputText: string): Promise<string | null> {
+    const workerTempDirectory = worker.session._sandboxLaunch?.env.CLAUDE_CODE_TMPDIR;
+    if (!workerTempDirectory) return null;
+    const outputPath = path.join(workerTempDirectory, `failed-check-${crypto.randomUUID()}.log`);
+    await writeTextAtomic(outputPath, outputText, { mode: 0o600 });
+    return outputPath;
+  }
+
   async function runChecksInCleanCheckout(worker: FactoryCloseOutWorker, sha: string, commands: readonly string[] = config.factory?.checks ?? DEFAULT_FACTORY_CHECKS): Promise<FactoryCheckoutRun | null> {
     const checkoutParent = await makeHostScratchDirectory('check-');
     const checkoutPath = path.join(checkoutParent, 'checkout');
@@ -318,6 +327,7 @@ export function createFactoryCloseOut({
       const decisionReasonChecks: FactoryCheck[] = [];
       const failingFilesOutsideScopesByCommand = new Map<string, string[]>();
       const failureTextByCommand = new Map<string, string>();
+      const outputPathsByCommand = new Map<string, string>();
       const checkoutPaths = [...new Set([checkoutPath, await realpath(checkoutPath)])];
       const loggedText = (capturedText: string) => redactSecretLines(capturedText, [...secretValues(), ...checkoutSecretValues]);
       for (const command of commands) {
@@ -337,16 +347,19 @@ export function createFactoryCloseOut({
           loggedChecks.push(loggedCheck);
           decisionReasonChecks.push(loggedCheck);
         } catch (error) {
-          checks.push({ command, pass: false, output: failedCheckOutput(error) });
-          const fullFailureText = failureText(error, 16 * 1024 * 1024);
+          const fullFailureText = failureText(error, Infinity);
           failureTextByCommand.set(command, fullFailureText);
           failingFilesOutsideScopesByCommand.set(command, listFailingTestFilesOutsideScopes({ output: fullFailureText, checkoutPaths, writeScopes: worker.writeScopes }));
           const loggedFailureText = loggedText(fullFailureText);
+          const outputPath = await writeFailedCheckOutputFile(worker, loggedFailureText).catch(() => null);
+          if (outputPath !== null) outputPathsByCommand.set(command, outputPath);
+          const feedbackOutput = summarizeFailedCheckOutput(loggedFailureText, FAILED_CHECK_FEEDBACK_MAX_CHARS, { checkoutPaths, writeScopes: worker.writeScopes });
+          checks.push({ command, pass: false, output: feedbackOutput });
           loggedChecks.push({ command, pass: false, output: capFactoryDecisionOutput(loggedFailureText) });
-          decisionReasonChecks.push({ command, pass: false, output: summarizeFailedCheckOutput(loggedFailureText, FAILED_CHECK_FEEDBACK_MAX_CHARS) });
+          decisionReasonChecks.push({ command, pass: false, output: feedbackOutput });
         }
       }
-      return { checks, loggedChecks, decisionReasonChecks, checkoutSecretValues, failingFilesOutsideScopesByCommand, failureTextByCommand, checkoutPaths };
+      return { checks, loggedChecks, decisionReasonChecks, checkoutSecretValues, failingFilesOutsideScopesByCommand, failureTextByCommand, outputPathsByCommand, checkoutPaths };
     } finally {
       try {
         await removeCheckCheckout(worker.projectPath, checkoutPath);
@@ -405,7 +418,7 @@ export function createFactoryCloseOut({
     return serializeProject(worker.projectId, async () => {
       if (!isLive(worker)) return false;
       const ledger = await ensureLedger(worker.projectId, worker.projectPath);
-      const ledgerReason = decision.reason.replace(/\s+/g, ' ').trim().slice(0, 1000).trimEnd();
+      const ledgerReason = decision.reason.replace(/\s+/g, ' ').trim().slice(0, 3999).trimEnd();
       if (await readWorkState(ledger.cwd, worker.workId) !== 'blocked') {
         await runCoherence({ cwd: ledger.cwd, args: [
           'work', 'transition', worker.workId, 'blocked', '--because', ledgerReason,
@@ -533,7 +546,8 @@ export function createFactoryCloseOut({
         name: `Factory review ${worker.workId}`, buildPrompt: (resultPath) => buildFactoryReviewerPrompt({ ...worker, baseSha }, headSha, resultPath, reviewDiff) }) : null;
       if (!isLive(worker)) return;
       attemptFailureClass = factoryCloseOutFailureClass(fence, checks, verdict);
-      const outsideScopes = { failingFilesOutsideScopes, previousFailingFilesOutsideScopes: failingFilesOutsideScopesByWork.get(worker.workId) ?? [] };
+      const outsideScopes = { failingFilesOutsideScopes, previousFailingFilesOutsideScopes: failingFilesOutsideScopesByWork.get(worker.workId) ?? [],
+        checkOutputPaths: [...captured.outputPathsByCommand].filter(([command]) => !inheritedCommands.includes(command)).map(([, outputPath]) => outputPath) };
       failingFilesOutsideScopesByWork.set(worker.workId, failingFilesOutsideScopes);
       const closeOutDecision = decideCloseOut({ fence, checks, review: verdict, attempt: attemptOf(worker), ...outsideScopes });
       loggedReason = closeOutFailureText(decideCloseOut({ fence, checks: chargeableChecks(captured.decisionReasonChecks, inheritedCommands), review: loggedVerdict(), attempt, ...outsideScopes }));

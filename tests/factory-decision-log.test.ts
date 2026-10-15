@@ -9,6 +9,8 @@ import { createFactoryCloseOut } from '../server/factory/factory-closeout.ts';
 import type { FactoryCloseOutWorker } from '../server/factory/factory-closeout.ts';
 import { createFactoryDecisionLog } from '../server/factory/factory-decision-log.ts';
 import { createFactoryWiring } from '../server/factory/factory-wiring.ts';
+import { buildFactoryDecisionLine, factoryDecisionContext } from '../server/factory/core/factory-decision-log-core.ts';
+import { findUnrecoveredException } from '../test/factory/verdict.ts';
 import { FACTORY_DECISION_OUTPUT_MAX_BYTES, FactoryDecisionLogLine } from '../shared/contracts/factory-decision-log.ts';
 import { FactoryLaneState } from '../shared/contracts/factory.ts';
 import { createCoherenceLedger, stubEnvironmentVariable } from './helpers/factory-fixture.ts';
@@ -32,7 +34,7 @@ test('close-out logs one decision per attempt with redacted byte-capped output a
   await writeFile(path.join(fixture.projectPath, '.git/info/exclude'), '.env\n');
   await writeFile(path.join(fixture.projectPath, '.env'), `export DEPLOY_TOKEN="quoted-${sharedEnvFileSecret}" # rotate monthly\nAPI_TOKEN=unquoted-${sharedEnvFileSecret}#nospace comment\n`);
   const sourcePath = path.join(workspace.cwd, 'src/retry.ts');
-  await writeFile(sourcePath, `process.stdout.write('PREFIX' + '\u03bb'.repeat(12000) + '\\nsecret line ${secret}\\ndotenv line quoted-${sharedEnvFileSecret}\\ndotenv line unquoted-${sharedEnvFileSecret}\\nTAIL\\n'); process.exitCode = 1;\n`);
+  await writeFile(sourcePath, `process.stdout.write('PREFIX' + '\u03bb'.repeat(12000) + '\\nsecret line ${secret}\\ndotenv line quoted-${sharedEnvFileSecret}\\ndotenv line unquoted-${sharedEnvFileSecret}\\nsrc/retry.ts(1,2): error TS2322: scoped failure\\nsrc/other.ts(1,2): error TS2322: outside failure\\nTAIL\\n'); process.exitCode = 1;\n`);
   await fixture.git(['add', '.'], workspace.cwd);
   await fixture.git(['commit', '-m', 'test: failing check'], workspace.cwd);
   const warnings: string[] = [];
@@ -44,10 +46,13 @@ test('close-out logs one decision per attempt with redacted byte-capped output a
   const feedback: string[] = [];
   let isDestroyed = false;
   let mergedSha: string | null = null;
+  const workerTempDirectory = path.join(directory, 'worker-temp');
+  await mkdir(workerTempDirectory);
   const worker: FactoryCloseOutWorker = {
     projectId: 'repo', projectPath: fixture.projectPath, workId, intentId, baseSha: workspace.baseSha,
     objective: 'Implement retries', criteria: ['Retries pass'], writeScopes: ['src/retry.ts'],
     session: { id: 'worker-session', worktreeDir: workspace.cwd, baseSha: workspace.baseSha,
+      _sandboxLaunch: { env: { CLAUDE_CODE_TMPDIR: workerTempDirectory } },
       get _destroyed() { return isDestroyed; }, destroy: () => { isDestroyed = true; }, write: () => {},
       pasteTextWhenReady: (text) => { feedback.push(text); return { ok: true }; },
       mergeWorktree: () => fixture.gitWorkspace.mergeBack({ projectPath: fixture.projectPath, workspace, targetBranch: 'integration' }) },
@@ -95,6 +100,18 @@ test('close-out logs one decision per attempt with redacted byte-capped output a
   assert.ok(!JSON.stringify(firstAttempt).includes(sharedEnvFileSecret));
   assert.ok(!output.includes('\ufffd'));
   assert.ok(feedback[0].length <= 4000);
+  assert.ok(feedback[0].startsWith('src/retry.ts(1,2): error TS2322: scoped failure'));
+  assert.doesNotMatch(feedback[0], /outside failure|PREFIX|TAIL/);
+  const outputPath = /Full check output: (.+)/.exec(feedback[0])?.[1];
+  assert.ok(outputPath);
+  assert.equal(path.dirname(outputPath), workerTempDirectory);
+  assert.ok(!outputPath.startsWith(workspace.cwd));
+  const fullOutput = await readFile(outputPath, 'utf8');
+  assert.ok(fullOutput.includes(`PREFIX${'\u03bb'.repeat(12000)}`));
+  assert.match(fullOutput, /outside failure\nTAIL/);
+  assert.ok(!fullOutput.includes(secret));
+  assert.ok(!fullOutput.includes(sharedEnvFileSecret));
+  if (process.platform !== 'win32') assert.equal((await stat(outputPath)).mode & 0o777, 0o600);
   await writeFile(sourcePath, 'process.stdout.write("checks passed");\n');
   await fixture.git(['add', '.'], workspace.cwd);
   await fixture.git(['commit', '-m', 'fix: passing check'], workspace.cwd);
@@ -113,6 +130,57 @@ test('close-out logs one decision per attempt with redacted byte-capped output a
   await fixture.git(['merge-base', '--is-ancestor', mergedSha, 'integration']);
   assert.deepEqual(warnings, []);
   if (process.platform !== 'win32') assert.equal((await stat(filePath)).mode & 0o777, 0o600);
+});
+
+test('a repeated check failure retains the diagnostic in the blocked ledger reason and never names the output file the block deletes', async (context) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'factory-block-reason-'));
+  let stopLane = async () => {};
+  context.after(async () => { await stopLane(); await rm(directory, { recursive: true, force: true }); });
+  const fixture = await createCoherenceLedger(directory);
+  const intentId = await fixture.createOrder({ parent: null, objective: 'Ship retries' });
+  const workId = await fixture.createOrder({ parent: intentId, objective: 'Implement retries' });
+  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', workId, 'active', '--because', 'Factory dispatch', '--session', 'glimmervoid-factory'] });
+  await fixture.land('repo', fixture.projectPath, 'factory: prepare tickets');
+  const workspace = await fixture.gitWorkspace.create({ projectPath: fixture.projectPath, teamId: 'repo', label: 'worker', baseBranch: 'integration', configuredIntegrationBranch: 'integration', worktreeBase: directory, shareList: [] });
+  assert.ok(workspace.isGit);
+  assert.ok(workspace.baseSha);
+  const diagnostic = `src/retry.ts(1,2): error TS2322: ${'concrete evidence '.repeat(300)}`;
+  await writeFile(path.join(workspace.cwd, 'src/retry.ts'), `process.stderr.write(${JSON.stringify(diagnostic)}); process.exitCode = 1;\n`);
+  const workerTempDirectory = path.join(directory, 'worker-temp');
+  await mkdir(workerTempDirectory);
+  const decisions: FactoryDecisionLogLine[] = [];
+  let isDestroyed = false;
+  const worker: FactoryCloseOutWorker = {
+    projectId: 'repo', projectPath: fixture.projectPath, workId, intentId, baseSha: workspace.baseSha,
+    objective: 'Implement retries', criteria: ['Retries pass'], writeScopes: ['src/retry.ts'],
+    session: { id: 'worker-session', worktreeDir: workspace.cwd, baseSha: workspace.baseSha,
+      _sandboxLaunch: { env: { CLAUDE_CODE_TMPDIR: workerTempDirectory } },
+      get _destroyed() { return isDestroyed; }, destroy: () => { isDestroyed = true; }, write: () => {},
+      pasteTextWhenReady: () => ({ ok: true }) },
+  };
+  const closeOut = createFactoryCloseOut({
+    config: { factory: { enabled: true, checks: [`${process.execPath} src/retry.ts`] }, worktreeShare: [] },
+    gitWorkspace: fixture.gitWorkspace, serializeProject: fixture.serializeProject,
+    ensureLedger: async () => fixture.ledger, runCoherence: fixture.runCoherence, commitAndLand: fixture.land,
+    readIntegrationSha: () => fixture.git(['rev-parse', 'integration']), recordFactoryLandedSha: async () => {},
+    readPaused: async () => false, trustVerification: async () => {},
+    recordDecision: async (decision) => { decisions.push(buildFactoryDecisionLine(decision, '2026-10-11T12:00:00Z')); },
+    prepareCheckRunner: async () => ({ runCheck: (argv, options) => execFileAsync(argv[0], argv.slice(1), options), dispose: async () => {} }),
+    spawnReviewer: async () => { assert.fail('Failed checks cannot reach review'); },
+    notifyOrchestrator: () => {}, setException: () => {},
+  });
+  stopLane = closeOut.stop;
+  for (const _attempt of [1, 2, 3]) await closeOut.turnEnded(worker);
+  assert.equal(isDestroyed, true);
+  assert.equal(await fixture.orderState(workId), 'blocked');
+  const blockCommand = fixture.commands.find((command) => command[0] === 'work' && command[1] === 'transition' && command[3] === 'blocked');
+  assert.ok(blockCommand);
+  const ledgerReason = blockCommand[blockCommand.indexOf('--because') + 1];
+  const decisionReason = decisions.findLast((decision) => decision.kind === 'closeout')?.reason;
+  assert.ok(decisionReason);
+  assert.ok(ledgerReason.length > 1000 && ledgerReason.length <= 3999);
+  assert.equal(ledgerReason, decisionReason.replace(/\s+/g, ' ').trim());
+  assert.doesNotMatch(ledgerReason, /Full check output:/);
 });
 
 test('wiring logs identical exceptions and landing failures once, then records recovery', async (context) => {
@@ -173,6 +241,11 @@ test('decision contract rejects unknown fields and values outside its enums', ()
   const line = { timestamp: '2026-10-11T12:00:00Z', projectId: 'repo', kind: 'landing', outcome: 'failed',
     workId: null, intentId: null, sessionId: null, attempt: null, durationMs: null, failureClass: 'landing', reason: 'landing refused' };
   assert.ok(FactoryDecisionLogLine.safeParse(line).success);
+  const longReason = `Concrete check failure: ${'scope diagnostics '.repeat(300)}`;
+  const blocked = buildFactoryDecisionLine({ ...factoryDecisionContext('repo', { reason: longReason }), kind: 'admission', outcome: 'block', failureClass: 'check' }, line.timestamp);
+  assert.equal(blocked.reason, longReason.slice(0, 3999));
+  assert.equal(findUnrecoveredException(longReason, [blocked]), null);
+  assert.equal(FactoryDecisionLogLine.safeParse({ ...line, reason: longReason }).success, false);
   for (const invalidFields of [{ unknown: true }, { kind: 'unknown' }, { outcome: 'unknown' }, { failureClass: 'unknown' }]) {
     assert.equal(FactoryDecisionLogLine.safeParse({ ...line, ...invalidFields }).success, false);
   }

@@ -226,7 +226,7 @@ export function formatWorkerEvent(event: FactoryWorkerEvent): string {
   return `[factory] ${eventName} ${workId}. Details: ${detailCommand}`.slice(0, 299);
 }
 
-const FACTORY_VERIFIER_DEFECT_EVIDENCE_MAX_CHARS = 1000;
+const FACTORY_VERIFIER_DEFECT_EVIDENCE_MAX_CHARS = 3999;
 const FACTORY_VERIFIER_NOTE_MAX_CHARS = 4000;
 
 export function verifierDefectEvidence(findings: string[]): string {
@@ -590,7 +590,21 @@ function listTapFailureBlocks(lines: readonly string[]): { realFailureBlocks: st
   return { realFailureBlocks, knockOnFailureBlocks };
 }
 
-export function summarizeFailedCheckOutput(output: string, maxChars: number): string {
+export function summarizeFailedCheckOutput(output: string, maxChars: number, scopeContext?: { checkoutPaths: readonly string[]; writeScopes: readonly string[] }): string {
+  if (scopeContext) {
+    const lines = relativeOutputLines(stripVTControlCharacters(output), scopeContext.checkoutPaths);
+    const diagnostics = listDiagnostics(lines);
+    const scopes = scopeContext.writeScopes.map(normalizeScope).filter((scope) => scope !== null);
+    const scopedDiagnostics = diagnostics.filter((diagnostic) => diagnostic.isBehindPrefix || isInsideWriteScopes(diagnostic.path, scopes));
+    const failures = listTapFailures(lines);
+    const failureTitles = [...failures.filter((failure) => !failure.isKnockOnFailure), ...failures.filter((failure) => failure.isKnockOnFailure)].map((failure) => lines[failure.headerIndex].trim());
+    if (diagnostics.length > 0 || failureTitles.length > 0) {
+      const { realFailureBlocks, knockOnFailureBlocks } = listTapFailureBlocks(lines);
+      const summaryLines = lines.filter((line) => TAP_SUMMARY_LINE_PATTERN.test(line));
+      return [...failureTitles, ...scopedDiagnostics.map((diagnostic) => diagnostic.output), ...summaryLines, ...realFailureBlocks, ...knockOnFailureBlocks].join('\n').slice(0, maxChars)
+        || 'No lint or type errors inside this ticket\'s write scopes.';
+    }
+  }
   if (output.length <= maxChars) return output;
   const lines = output.split('\n');
   const { realFailureBlocks, knockOnFailureBlocks } = listTapFailureBlocks(lines);
@@ -633,7 +647,7 @@ export function listFailingTestFilesOutsideScopes({ output, checkoutPaths, write
 
 const DIAGNOSTIC_PATH_SOURCE = String.raw`[\w@+-][\w@.+-]*(?:\/[\w@.+-]+)*\.\w+`;
 const LOCATED_DIAGNOSTIC_PATTERN = new RegExp(String.raw`(${DIAGNOSTIC_PATH_SOURCE})(?::\d+(?::\d+)?|\(\d+,\d+\)):?\s+(\S.*)$`);
-const UNLOCATED_BIOME_HEADER_PATTERN = new RegExp(String.raw`^(${DIAGNOSTIC_PATH_SOURCE}) +([^\s\u2500-\u257f].*?)\s*[\u2500-\u257f]+\s*$`);
+const UNLOCATED_BIOME_HEADER_PATTERN = new RegExp(String.raw`^(${DIAGNOSTIC_PATH_SOURCE}) +([^\s\u2500-\u257f][^\u2500-\u257f]*)[\u2500-\u257f]+\s*$`);
 const BOX_DRAWING_CHARACTERS_PATTERN = /[\u2500-\u257f]/g;
 
 function relativeOutputLines(output: string, checkoutPaths: readonly string[]): string[] {
@@ -655,11 +669,23 @@ function toDiagnosticKey(path: string, message: string): string {
   return `${path} ${message.replace(BOX_DRAWING_CHARACTERS_PATTERN, ' ').replace(/\s+/g, ' ').trim()}`;
 }
 
-function listDiagnosticKeys(lines: readonly string[]): string[] {
+function listDiagnostics(lines: readonly string[]): { path: string; message: string; output: string; isBehindPrefix: boolean }[] {
   return lines.flatMap((line) => {
-    const diagnostic = LOCATED_DIAGNOSTIC_PATTERN.exec(line) ?? UNLOCATED_BIOME_HEADER_PATTERN.exec(line);
-    return diagnostic ? [toDiagnosticKey(diagnostic[1], diagnostic[2])] : [];
+    const diagnosticLine = line.trimStart().replace(/^\.\//, '');
+    const diagnostic = LOCATED_DIAGNOSTIC_PATTERN.exec(diagnosticLine) ?? UNLOCATED_BIOME_HEADER_PATTERN.exec(diagnosticLine);
+    if (!diagnostic) return [];
+    return [{ path: diagnostic[1], message: diagnostic[2], output: diagnosticLine.replace(BOX_DRAWING_CHARACTERS_PATTERN, ' ').trimEnd(), isBehindPrefix: diagnostic.index > 0 }];
   });
+}
+
+function isInsideWriteScopes(diagnosticPath: string, scopes: readonly string[]): boolean {
+  const normalizedDiagnosticPath = normalizeScope(diagnosticPath);
+  if (normalizedDiagnosticPath === null) return false;
+  return scopes.some((scope) => scope.split('/').some((_segment, segmentIndex, scopeSegments) => containsScope(scopeSegments.slice(segmentIndex).join('/'), normalizedDiagnosticPath)));
+}
+
+function listDiagnosticKeys(lines: readonly string[]): string[] {
+  return listDiagnostics(lines).map((diagnostic) => toDiagnosticKey(diagnostic.path, diagnostic.message));
 }
 
 function hasEveryOccurrenceIn(entries: readonly string[], knownEntries: readonly string[]): boolean {
@@ -690,9 +716,10 @@ function isSameFileSet(left: readonly string[], right: readonly string[]): boole
   return left.length === right.length && left.every((file) => right.includes(file));
 }
 
-export function decideCloseOut({ fence, checks, review, attempt, failingFilesOutsideScopes = [], previousFailingFilesOutsideScopes = [] }: {
+export function decideCloseOut({ fence, checks, review, attempt, failingFilesOutsideScopes = [], previousFailingFilesOutsideScopes = [], checkOutputPaths = [] }: {
   fence: FactoryFence; checks: FactoryCheck[]; review: FactoryReviewVerdict | null; attempt: number;
   failingFilesOutsideScopes?: readonly string[]; previousFailingFilesOutsideScopes?: readonly string[];
+  checkOutputPaths?: readonly string[];
 }): { action: 'merge' } | { action: 'retry'; feedback: string } | { action: 'block'; reason: string } {
   const failures: string[] = [];
   const checkOutputs: string[] = [];
@@ -713,10 +740,17 @@ export function decideCloseOut({ fence, checks, review, attempt, failingFilesOut
   const outsideScopeHint = outsideScopeFiles.length > 0
     ? [`Failing tests outside this ticket's write scopes: ${outsideScopeFiles.join(', ')}. Fix the failure inside your write scopes if you can. If the fix needs these files, finish the turn with no further change, and Glimmervoid hands the ticket back for a wider write scope.`]
     : [];
-  const feedback = [...failures, ...outsideScopeHint, ...checkOutputs].join('\n').slice(0, 3999);
-  if (outsideScopeFiles.length > 0 && isSameFileSet(outsideScopeFiles, previousFailingFilesOutsideScopes)) {
-    return { action: 'block', reason: `Needs write scope: ${outsideScopeFiles.join(', ')}. Checks failed in these files, outside this ticket's write scopes, on consecutive attempts.\n${feedback}`.slice(0, 3999) };
-  }
+  const scopeBlockReason = outsideScopeFiles.length > 0 && isSameFileSet(outsideScopeFiles, previousFailingFilesOutsideScopes)
+    ? `Needs write scope: ${outsideScopeFiles.join(', ')}. Checks failed in these files, outside this ticket's write scopes, on consecutive attempts.\n` : '';
+  const failureDetails = [...failures, ...outsideScopeHint].join('\n');
+  const isBlocking = scopeBlockReason !== '' || attempt >= 3;
+  const outputNotice = isBlocking ? '' : checkOutputPaths.map((outputPath) => `Full check output: ${outputPath}`).join('\n');
+  const availableFailureChars = Math.max(0, 3999 - scopeBlockReason.length - outputNotice.length - 1);
+  const feedbackSuffix = [failureDetails.slice(0, availableFailureChars), outputNotice].filter(Boolean).join('\n');
+  const availableOutputChars = Math.max(0, 3999 - scopeBlockReason.length - feedbackSuffix.length - checkOutputs.length);
+  const maxCheckOutputChars = Math.floor(availableOutputChars / Math.max(1, checkOutputs.length));
+  const feedback = [...checkOutputs.map((output) => output.slice(0, maxCheckOutputChars)).filter(Boolean), feedbackSuffix].join('\n').slice(0, 3999 - scopeBlockReason.length);
+  if (scopeBlockReason) return { action: 'block', reason: `${scopeBlockReason}${feedback}`.slice(0, 3999) };
   if (attempt >= 3) return { action: 'block', reason: feedback };
   return { action: 'retry', feedback };
 }

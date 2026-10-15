@@ -205,7 +205,7 @@ test('verifier defect evidence is one bounded line and the floor note keeps the 
   assert.equal(evidence.includes('\n'), false);
   assert.equal(evidence.includes(String.fromCharCode(0)), false);
   assert.ok(evidence.startsWith('Criterion one is unmet; Criterion two fails;'));
-  assert.equal(evidence.length, 1000);
+  assert.equal(evidence.length, 3999);
   assert.equal(verifierDefectEvidence([]), 'No findings returned');
   const note = verifierRejectionNote('intent', findings);
   assert.ok(note.startsWith('Verifier rejected intent: Criterion one\nis unmet\n'));

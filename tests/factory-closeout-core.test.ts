@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildFactoryCheckEnv, checkFence, decideCloseOut, inheritedSecretValues, listDirtyPaths, listUncommittedWorkPaths, findForbiddenLedgerWrites, parseCheckCommand, parseFactoryReviewerOutput, buildFactoryReviewerPrompt, redactSecretLines, withIntentFloorAllowances, FACTORY_REVIEW_DIFF_MAX_CHARS } from '../server/factory/core/factory-core.ts';
+import { buildFactoryCheckEnv, checkFence, decideCloseOut, inheritedSecretValues, isInheritedCheckFailure, listDirtyPaths, listUncommittedWorkPaths, findForbiddenLedgerWrites, parseCheckCommand, parseFactoryReviewerOutput, buildFactoryReviewerPrompt, redactSecretLines, summarizeFailedCheckOutput, withIntentFloorAllowances, FACTORY_REVIEW_DIFF_MAX_CHARS } from '../server/factory/core/factory-core.ts';
 import { DEFAULT_FACTORY_PROTECTED_PATHS } from '../shared/contracts/browser-config.ts';
 
 const fenceInput = { writeScopes: ['src'], protectedPaths: DEFAULT_FACTORY_PROTECTED_PATHS };
@@ -119,15 +119,47 @@ test('reviewer output parses only a successful structured result and rejects mal
 });
 
 test('bounded retry feedback names every failed check before including long output', () => {
+  const checkOutputPaths = ['/worker/tmp/typecheck.log', '/worker/tmp/lint.log'];
   const decision = decideCloseOut({ fence: { ok: true }, review: null, attempt: 1, checks: [
     { command: 'npm run typecheck', pass: false, output: 'x'.repeat(8000) },
     { command: 'npm run lint', pass: false, output: 'lint failed' },
-  ] });
+  ], checkOutputPaths });
   assert.equal(decision.action, 'retry');
   if (decision.action !== 'retry') throw new Error('Expected retry');
   assert.match(decision.feedback, /Check failed: npm run typecheck/);
   assert.match(decision.feedback, /Check failed: npm run lint/);
+  for (const outputPath of checkOutputPaths) assert.ok(decision.feedback.includes(`Full check output: ${outputPath}`));
   assert.ok(decision.feedback.length < 4000);
+});
+
+test('check feedback leads with failing titles and only diagnostics contained by the ticket scopes', () => {
+  const output = [
+    'src/other.ts(1,2): error TS2322: outside type error',
+    '/checkout/src/retry.ts(3,4): error TS2322: scoped type error',
+    `src/retry.ts:5:6 lint/style/useConst ${String.fromCharCode(9473).repeat(10)}`,
+    `src/retry-other.ts:5:6 lint/style/noVar ${String.fromCharCode(9473).repeat(10)}`,
+    `src/retry.ts format ${String.fromCharCode(9473).repeat(10)}`,
+    `src/other.ts format ${String.fromCharCode(9473).repeat(10)}`,
+    'not ok 1 - retries stop at the budget', '  ---', "  error: 'budget exceeded'", '  ...',
+    'ok 2 - unrelated success\n'.repeat(4000),
+  ].join('\n');
+  const summary = summarizeFailedCheckOutput(output, 3500, { checkoutPaths: ['/checkout'], writeScopes: ['src/retry.ts'] });
+  assert.ok(summary.startsWith('not ok 1 - retries stop at the budget'));
+  assert.match(summary, /scoped type error/);
+  assert.match(summary, /src\/retry.ts:5:6 lint\/style\/useConst/);
+  assert.match(summary, /src\/retry.ts format/);
+  assert.doesNotMatch(summary, /outside type error|retry-other|unrelated success/);
+  assert.doesNotMatch(summarizeFailedCheckOutput(output, 3500, { checkoutPaths: ['/checkout'], writeScopes: ['tests'] }), /type error|lint\/style/);
+  assert.doesNotMatch(summarizeFailedCheckOutput('src/other.ts(1,2): error TS2322: outside type error', 3500, { checkoutPaths: [], writeScopes: ['src/retry.ts'] }), /outside type error/);
+});
+
+test('a diagnostic behind a workspace tool prefix still matches the same failure at the ticket base', () => {
+  const prefixedOutput = (checkoutPath: string) => [
+    `@acme/web:lint: ${checkoutPath}/public/style.css:9193:149 lint/suspicious/noShorthandPropertyOverrides`,
+    `@acme/web:typecheck: ${checkoutPath}/src/app.ts(1,2): error TS2322: Type 'string' is not assignable to type 'number'.`,
+  ].join('\n');
+  assert.equal(isInheritedCheckFailure({ headOutput: prefixedOutput('/head'), headCheckoutPaths: ['/head'], baseOutput: prefixedOutput('/base'), baseCheckoutPaths: ['/base'] }), true);
+  assert.equal(isInheritedCheckFailure({ headOutput: prefixedOutput('/head'), headCheckoutPaths: ['/head'], baseOutput: '@acme/web:lint: /base/public/style.css:9193:149 lint/suspicious/noShorthandPropertyOverrides', baseCheckoutPaths: ['/base'] }), false);
 });
 
 test('reviewer prompt caps an oversized diff and says it was truncated', () => {
