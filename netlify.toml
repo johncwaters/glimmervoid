@@ -1,0 +1,8 @@
+[build]
+  base = "site"
+  command = "npm run build"
+  publish = "dist"
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ../public ../shared ../netlify.toml"
+
+[build.environment]
+  NODE_VERSION = "24"
