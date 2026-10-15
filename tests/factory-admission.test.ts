@@ -71,6 +71,32 @@ test('admission with a daily budget and unknown spend refuses and raises the fac
   assert.deepEqual(decideAdmission({ ...baseline, todaySpend: { status: 'tracking-off' }, dailyBudgetUsd: null }), { admit: true });
 });
 
+test('replacement admission widens only to exact remembered files allowed by the project and protection fence', () => {
+  const cases: { scope: string; scopeNeeds?: string[]; widenableScopes?: string[]; protectedPaths?: string[]; admit: boolean }[] = [
+    { scope: 'tests/retry.test.ts', admit: true },
+    { scope: 'nested/retry.spec.ts', admit: true },
+    { scope: 'test/retry.ts', admit: true },
+    { scope: '__tests__/retry.ts', admit: true },
+    { scope: 'docs/configuration.md', widenableScopes: ['docs/configuration.md'], admit: true },
+    { scope: 'docs/configuration.md', admit: false },
+    { scope: 'tests/retry.test.ts', widenableScopes: [], admit: false },
+    { scope: 'tests/retry.test.ts', protectedPaths: ['tests/'], admit: false },
+    { scope: 'tests/retry.test.ts', protectedPaths: ['**/*.test.ts'], admit: false },
+    { scope: 'tests/package.json', protectedPaths: [], admit: false },
+    { scope: 'tests/unremembered.test.ts', scopeNeeds: ['tests/retry.test.ts'], admit: false },
+    { scope: 'tests/', scopeNeeds: ['tests/retry.test.ts'], admit: false },
+    { scope: 'tests/retry.test.ts/nested', scopeNeeds: ['tests/retry.test.ts'], admit: false },
+    { scope: 'tests/unremembered.test.ts', scopeNeeds: ['tests/'], admit: false },
+    { scope: 'tests/unremembered.test.ts', scopeNeeds: ['tests/*.test.ts'], admit: false },
+  ];
+  for (const { scope, scopeNeeds = [scope], widenableScopes, protectedPaths, admit } of cases) {
+    const decision = decideAdmission({ ...baseline, intentWriteScopes: ['src/retry.ts'],
+      order: makeOrder(order.work, intent.work, ['src/retry.ts', scope]), scopeNeeds, widenableScopes, protectedPaths });
+    assert.equal(decision.admit, admit, JSON.stringify({ scope, scopeNeeds, widenableScopes, protectedPaths }));
+    if (!decision.admit) assert.equal(decision.reason, 'ticket write scopes exceed the intent write scopes');
+  }
+});
+
 test('admission refuses a repository with git filter drivers as a factory exception before any other rule', () => {
   assert.deepEqual(decideAdmission({ ...baseline, order: null, filterDriverNames: ['git-crypt', 'lfs'] }), { admit: false,
     reason: 'repository uses git filter drivers (git-crypt, lfs), which factory workers cannot run safely', exception: true });

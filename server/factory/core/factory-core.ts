@@ -9,7 +9,8 @@ import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../.
 import type { Config } from '../../../shared/contracts/config.ts';
 import type { CoherenceOrient, CoherenceWorkInspect } from '../../../shared/contracts/coherence.ts';
 import type { FactoryWorkerEvent, FactoryIntentTicket, FactoryQueueIntentRequest } from '../../../shared/contracts/factory.ts';
-import { FACTORY_INTENT_CONFIRMED_FLAKE_LIMIT, FACTORY_PROTECTED_PATH_FLOOR, FactoryProjectState, FactoryReviewerOutput, FactoryReviewVerdict } from '../../../shared/contracts/factory.ts';
+import { FACTORY_INTENT_CONFIRMED_FLAKE_LIMIT, FACTORY_INTENT_SCOPE_NEED_LIMIT, FACTORY_PROTECTED_PATH_FLOOR, FactoryProjectState, FactoryReviewerOutput, FactoryReviewVerdict } from '../../../shared/contracts/factory.ts';
+import { DEFAULT_WIDENABLE_SCOPES } from './factory-profile-core.ts';
 import { STATES } from '../../../shared/states.ts';
 import type { LaneSpend } from '../../usage/core/usage-scan-core.ts';
 import type { SessionState } from '../../../shared/states.ts';
@@ -256,7 +257,7 @@ export function buildOrchestratorPrompt({ projectName, intent, claudeSessionId, 
   projectName: string; intent: FactoryProjectState['orders'][number]; claudeSessionId: string; hasTickets?: boolean;
 }): string {
   const ticketSourceLine = hasTickets
-    ? 'The operator already cut this intent into its child tickets, and they are in the ledger with their dependencies. Work exactly those tickets and replace none. Create a further child ticket only to repair a defect the verifier reports for this intent.'
+    ? 'The operator already cut this intent into its child tickets, and they are in the ledger with their dependencies. Work exactly those tickets; replace a blocked child only as directed below. Create a further child ticket only to repair a defect the verifier reports for this intent.'
     : 'Decompose this intent into small child tickets with narrow write scopes inside the intent scopes. Do not expand its boundary.';
   return [
     `You are the master orchestrator for ${projectName}, holding only intent ${intent.id}.`,
@@ -275,12 +276,12 @@ export function buildOrchestratorPrompt({ projectName, intent, claudeSessionId, 
     'Dispatch a ready child by running glimmervoid dispatch <workId>. Glimmervoid enforces admission and starts its worker.',
     'To unblock a blocked child of this intent, run glimmervoid reopen <wrk-id>. To drop a blocked child instead, run glimmervoid cancel <wrk-id>. Never use coherence work transition or coherence work close for this.',
     'A child that depends on a cancelled child never becomes ready. Cancel it with glimmervoid cancel <wrk-id>, or create a replacement that does not depend on the cancelled one.',
-    'A child blocked with "Needs write scope" fails again if reopened. Cancel it with glimmervoid cancel <wrk-id> and create a replacement whose write scopes also cover the named files.',
+    'For a child blocked with "Needs write scope", cancel it with glimmervoid cancel <wrk-id> and create a replacement whose write scopes also cover the named files; admission allows named failing files matching the project widenable scopes. Leave parked children alone, including children blocked at the cap or needing scopes Glimmervoid cannot widen.',
     'Run each shell command on its own with no pipes, &&, ; or subshells, because chained commands are denied.',
     'A denied command means "not allowed here". Do not retry it another way.',
-    'When glimmervoid dispatch is refused, report the refusal reason in one line and stop the turn. Glimmervoid surfaces the refusal to the operator; do not record it in the ledger.',
+    'When glimmervoid dispatch is refused, report the refusal reason in one line and dispatch any other ready child; stop the turn only when none is left. Do not record the refusal in the ledger. Never ask the operator a question or wait for an answer.',
     'Worker events will arrive as single lines starting [factory]. Use them to reassess the children and their dependencies.',
-    `When every child is completed and verified, run glimmervoid dispatch --ready ${intent.id} and stop.`,
+    `When every child is completed and verified, run glimmervoid dispatch --ready ${intent.id} and stop. When only parked children and their waiting dependents remain, stop the turn; Glimmervoid marks the intent partial.`,
     "Glimmervoid's verifier closes the intent, never you. Do not complete, cancel or verify the root intent yourself.",
   ].join('\n');
 }
@@ -343,6 +344,9 @@ export type FactoryAdmissionInput = {
   intent: FactoryWorkOrder | null;
   trustedIntentIds: ReadonlySet<string>;
   intentWriteScopes?: readonly string[];
+  scopeNeeds?: readonly string[];
+  widenableScopes?: readonly string[];
+  protectedPaths?: readonly string[];
   liveWorkers: Pick<FactoryLiveWorker, 'writeScopes'>[];
   maxRisk?: FactoryWorkOrder['opened']['risk'];
   maxLiveWorkers?: number;
@@ -477,7 +481,7 @@ export function exceedsRiskCeiling(risk: FactoryRisk, maxRisk: FactoryRisk = 'me
   return FACTORY_RISK_RANKS[risk] > FACTORY_RISK_RANKS[maxRisk];
 }
 
-export function decideAdmission({ order, intent, trustedIntentIds, intentWriteScopes, liveWorkers, maxRisk = 'medium', maxLiveWorkers = 2,
+export function decideAdmission({ order, intent, trustedIntentIds, intentWriteScopes, scopeNeeds = [], widenableScopes, protectedPaths, liveWorkers, maxRisk = 'medium', maxLiveWorkers = 2,
   todaySpend, dailyBudgetUsd, paused = false, filterDriverNames }: FactoryAdmissionInput): { admit: true } | { admit: false; reason: string; exception: boolean } {
   const refuse = (reason: string) => ({ admit: false as const, reason, exception: false });
   if (paused) return refuse(FACTORY_REFUSAL_PAUSED);
@@ -494,8 +498,10 @@ export function decideAdmission({ order, intent, trustedIntentIds, intentWriteSc
     return refuse('ticket and intent require valid non-empty write scopes');
   }
   const intentScopes = intentScopeBound.map(normalizeScope);
+  const extraFileScopes = new Set(filterWidenableScopeNeeds({ scopeNeeds, widenableScopes, protectedPaths }));
   const orderScopes = order.opened.writeScopes.map(normalizeScope);
-  if (!orderScopes.every((scope) => scope !== null && intentScopes.some((intentScope) => intentScope !== null && containsScope(intentScope, scope)))) {
+  if (!orderScopes.every((scope) => scope !== null && (extraFileScopes.has(scope)
+    || intentScopes.some((intentScope) => intentScope !== null && containsScope(intentScope, scope))))) {
     return refuse('ticket write scopes exceed the intent write scopes');
   }
   if (exceedsRiskCeiling(order.opened.risk, maxRisk)) return refuse('ticket exceeds the risk ceiling');
@@ -600,12 +606,62 @@ export function withIntentConfirmedFlakes(current: Readonly<Record<string, strin
   return { ...current, [intentId]: mergedFlakes };
 }
 
-export function checkFence({ changedPaths, writeScopes, protectedPaths, floorAllowances = [] }: {
-  changedPaths: string[]; writeScopes: string[]; protectedPaths: string[]; floorAllowances?: readonly string[];
+export function withIntentScopeNeeds(current: Readonly<Record<string, string[]>> | undefined, intentId: string,
+  files: readonly string[]): Record<string, string[]> | undefined {
+  const priorFiles = (current?.[intentId] ?? []).filter((file) => !files.includes(file));
+  const mergedFiles = [...new Set([...priorFiles, ...files])].filter((file) => file.length > 0)
+    .slice(-FACTORY_INTENT_SCOPE_NEED_LIMIT);
+  if (mergedFiles.length === 0) return current ? { ...current } : undefined;
+  return { ...current, [intentId]: mergedFiles };
+}
+
+export function withTicketBlockCount(current: Readonly<Record<string, number>> | undefined, workId: string, shouldPark = false): Record<string, number> {
+  return { ...current, [workId]: Math.max((current?.[workId] ?? 0) + 1, shouldPark ? FACTORY_TICKET_BLOCK_CAP : 0) };
+}
+
+function filterWidenableScopeNeeds({ scopeNeeds, widenableScopes = DEFAULT_WIDENABLE_SCOPES, protectedPaths = DEFAULT_FACTORY_PROTECTED_PATHS }: {
+  scopeNeeds: readonly string[]; widenableScopes?: readonly string[]; protectedPaths?: readonly string[];
+}): string[] {
+  const enforcedPaths = [...FACTORY_PROTECTED_PATH_FLOOR, ...protectedPaths];
+  return scopeNeeds.flatMap((file) => {
+    const normalizedFile = normalizeScope(file);
+    if (!normalizedFile || file.endsWith('/') || /[*?[\]]/.test(normalizedFile) || isCoherenceLedgerPath(normalizedFile)) return [];
+    if (!widenableScopes.some((scope) => scope.endsWith('/') ? normalizedFile.startsWith(scope) : path.matchesGlob(normalizedFile, scope))) return [];
+    if (enforcedPaths.some((protectedPath) => matchesProtectedPath(protectedPath.toLowerCase(), normalizedFile.toLowerCase()))) return [];
+    return [normalizedFile];
+  });
+}
+
+export function planScopeNeedRecovery({ scopeNeeds, trackedFiles, intentWriteScopes = [], widenableScopes, protectedPaths = DEFAULT_FACTORY_PROTECTED_PATHS }: {
+  scopeNeeds: readonly string[]; trackedFiles: readonly string[]; intentWriteScopes?: readonly string[];
+  widenableScopes?: readonly string[]; protectedPaths?: readonly string[];
+}): { widenedNeeds: string[]; isRecoverable: boolean } {
+  const trackedNeeds = new Set(trackedFiles.map(normalizeScope));
+  const widenableNeeds = new Set(filterWidenableScopeNeeds({ scopeNeeds, widenableScopes, protectedPaths }));
+  const intentScopes = intentWriteScopes.map(normalizeScope).filter((scope) => scope !== null);
+  const enforcedPaths = [...FACTORY_PROTECTED_PATH_FLOOR, ...protectedPaths];
+  const isInsideIntentScopes = (file: string) => intentScopes.some((intentScope) => containsScope(intentScope, file));
+  const isProtectedNeed = (file: string) => isCoherenceLedgerPath(file)
+    || enforcedPaths.some((protectedPath) => matchesProtectedPath(protectedPath.toLowerCase(), file.toLowerCase()));
+  const isRecoverable = scopeNeeds.every((file) => {
+    const normalizedFile = normalizeScope(file);
+    if (!normalizedFile || !trackedNeeds.has(normalizedFile) || isProtectedNeed(normalizedFile)) return false;
+    return isInsideIntentScopes(normalizedFile) || widenableNeeds.has(normalizedFile);
+  });
+  const widenedNeeds = [...widenableNeeds].filter((file) => trackedNeeds.has(file) && !isInsideIntentScopes(file));
+  return { widenedNeeds, isRecoverable };
+}
+
+export function checkFence({ changedPaths, writeScopes, intentWriteScopes, protectedPaths, floorAllowances = [] }: {
+  changedPaths: string[]; writeScopes: string[]; intentWriteScopes?: readonly string[]; protectedPaths: string[]; floorAllowances?: readonly string[];
 }): FactoryFence {
   const outside: string[] = [];
   const protectedChanges: string[] = [];
   const scopes = writeScopes.map(normalizeScope);
+  const intentScopes = intentWriteScopes?.map(normalizeScope).filter((scope) => scope !== null);
+  const isExactFileScope = (scope: string) => intentScopes !== undefined && !intentScopes.some((intentScope) => containsScope(intentScope, scope));
+  const isInsideWriteScopes = (changedPath: string) => scopes.some((scope) => scope !== null
+    && (isExactFileScope(scope) ? scope === changedPath : containsScope(scope, changedPath)));
   const allowedFloor = FACTORY_PROTECTED_PATH_FLOOR.filter((floorPath) => floorAllowances.includes(floorPath));
   const enforcedFloor = FACTORY_PROTECTED_PATH_FLOOR.filter((floorPath) => !floorAllowances.includes(floorPath));
   const isFloorRestatement = (protectedPath: string) => {
@@ -622,7 +678,7 @@ export function checkFence({ changedPaths, writeScopes, protectedPaths, floorAll
       outside.push(changedPath);
       continue;
     }
-    if (!scopes.some((scope) => scope !== null && containsScope(scope, normalized))) outside.push(changedPath);
+    if (!isInsideWriteScopes(normalized)) outside.push(changedPath);
     const folded = normalized.toLowerCase();
     if (isCoherenceLedgerPath(normalized) || isProtectedPath(folded)) protectedChanges.push(changedPath);
   }
@@ -660,7 +716,7 @@ function readDiagnosticLinesAbove(lines: readonly string[], headerIndex: number)
   return lines.slice(firstDiagnosticIndex, headerIndex);
 }
 
-type TapFailure = { headerIndex: number; blockLines: string[]; isKnockOnFailure: boolean };
+type TapFailure = { headerIndex: number; blockIndent: string; blockLines: string[]; isKnockOnFailure: boolean };
 
 function listTapFailures(lines: readonly string[]): TapFailure[] {
   const failures: TapFailure[] = [];
@@ -677,7 +733,7 @@ function listTapFailures(lines: readonly string[]): TapFailure[] {
     const blockLines = lines.slice(headerIndex, blockEndIndex + 1);
     const failureType = readTapFailureType(blockLines, blockIndent);
     if (failureType === TAP_PARENT_FAILURE_TYPE) continue;
-    failures.push({ headerIndex, blockLines, isKnockOnFailure: failureType !== null && TAP_KNOCK_ON_FAILURE_TYPES.has(failureType) });
+    failures.push({ headerIndex, blockIndent, blockLines, isKnockOnFailure: failureType !== null && TAP_KNOCK_ON_FAILURE_TYPES.has(failureType) });
   }
   return failures;
 }
@@ -720,12 +776,19 @@ export function summarizeFailedCheckOutput(output: string, maxChars: number, sco
   return `${summarizedFailures}\n${output.slice(-remainingChars)}`;
 }
 
-const TAP_LOCATION_LINE_PATTERN = /^ *location: '(.+):\d+:\d+'$/;
+const TAP_LOCATION_LINE_PATTERN = /^( *)location: '(.+):\d+:\d+'$/;
+
+function readTopLevelTapLocations({ blockIndent, blockLines }: TapFailure): string[] {
+  return blockLines.flatMap((line) => {
+    const locationLine = TAP_LOCATION_LINE_PATTERN.exec(line);
+    return locationLine && locationLine[1].length === blockIndent.length + 2 ? [locationLine[2]] : [];
+  });
+}
 
 function listTapFailureLocations(lines: readonly string[]): string[] {
   return listTapFailures(lines)
     .filter((failure) => !failure.isKnockOnFailure)
-    .flatMap((failure) => failure.blockLines.flatMap((line) => TAP_LOCATION_LINE_PATTERN.exec(line)?.[1] ?? []));
+    .flatMap(readTopLevelTapLocations);
 }
 
 function toCheckoutRelativePath(location: string, checkoutPaths: readonly string[]): string | null {
@@ -772,7 +835,7 @@ function listRealTapFailureKeys(lines: readonly string[]): string[] {
     .filter((failure) => !failure.isKnockOnFailure)
     .map((failure) => {
       const title = lines[failure.headerIndex].replace(TAP_FAILURE_LINE_PATTERN, '$1');
-      const testFile = failure.blockLines.flatMap((line) => TAP_LOCATION_LINE_PATTERN.exec(line)?.[1] ?? [])[0] ?? '';
+      const testFile = failure.blockLines.flatMap((line) => TAP_LOCATION_LINE_PATTERN.exec(line)?.[2] ?? [])[0] ?? '';
       return `${title}\n${testFile}`;
     });
 }

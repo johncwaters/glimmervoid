@@ -58,6 +58,7 @@ interface FactoryDispatchDeps<ManagedSession extends FactoryOrchestratorSession 
   readTodaySpend: () => LaneSpend;
   readPaused: (projectId: string) => Promise<boolean>;
   readIntentWriteScopes?: (projectId: string) => Promise<ReadonlyMap<string, readonly string[]>>;
+  readIntentScopeNeeds?: (projectId: string) => Promise<ReadonlyMap<string, readonly string[]>>;
   notifyOrchestrator: (projectId: string, event: FactoryDecisionWorkerEvent) => void;
   setException: (projectId: string, reason: string | null, expectedReason?: string) => void;
   now?: () => number;
@@ -66,7 +67,7 @@ interface FactoryDispatchDeps<ManagedSession extends FactoryOrchestratorSession 
 export function createFactoryDispatch<ManagedSession extends FactoryOrchestratorSession>({
   config, sessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcast, spawnGate, recordLane,
   nodePath, hookCliPath, shimDir, getOrchestrator, serializeProject, ensureLedger, commitAndLand, runCoherence,
-  readTodaySpend, readPaused, readTrustedIntentIds, readIntentWriteScopes = async () => new Map(), notifyOrchestrator, setException, onWorkerTurnEnd, onReadyIntent,
+  readTodaySpend, readPaused, readTrustedIntentIds, readIntentWriteScopes = async () => new Map(), readIntentScopeNeeds = async () => new Map(), notifyOrchestrator, setException, onWorkerTurnEnd, onReadyIntent,
   now = Date.now, workLane = {}, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools,
 }: FactoryDispatchDeps<ManagedSession>) {
   const liveWorkers = new Map<string, FactoryWorkerRecord<ManagedSession>>();
@@ -147,15 +148,17 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         }
         const order = inspectedWork.find((candidate) => candidate.work === workId) ?? null;
         const intent = inspectedWork.find((candidate) => candidate.work === intentId) ?? null;
+        const profile = resolveFactoryProfile(config.factory, project);
+        const intentWriteScopes = (await readIntentWriteScopes(projectId)).get(intentId);
         const admission = decideAdmission({
-          order, intent, trustedIntentIds, intentWriteScopes: (await readIntentWriteScopes(projectId)).get(intentId), liveWorkers: liveWorkersOf(projectId),
+          order, intent, trustedIntentIds, intentWriteScopes, liveWorkers: liveWorkersOf(projectId),
+          scopeNeeds: (await readIntentScopeNeeds(projectId)).get(intentId), widenableScopes: profile.widenableScopes, protectedPaths: profile.protectedPaths,
           maxRisk: config.factory?.maxRisk, maxLiveWorkers: config.factory?.maxLiveWorkers,
           todaySpend: readTodaySpend(), dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
           filterDriverNames: await readFilterDriverNames(ledger.cwd),
         });
         if (!admission.admit) return refuse(admission.reason, admission.exception);
         pendingRefusals.delete(projectId);
-        const profile = resolveFactoryProfile(config.factory, project);
         const checks = profile.checks ?? DEFAULT_FACTORY_CHECKS;
         const posture = await resolveWorkLane({
           cwd: project.path, deferWorktree: true, allowCommands: ['coherence context', 'rm', ...checks, ...(profile.focusedTestCommand ? [profile.focusedTestCommand] : [])], extraDeny: FACTORY_WORKER_DENY,
@@ -189,7 +192,8 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
           });
           const closeOutWorker: FactoryCloseOutWorker = {
             workId, intentId, projectId, projectPath: project.path, baseSha: null,
-            objective: order.opened.objective, criteria: order.opened.criteria, writeScopes: order.opened.writeScopes, session: worker,
+            objective: order.opened.objective, criteria: order.opened.criteria, writeScopes: order.opened.writeScopes,
+            intentWriteScopes: intentWriteScopes ?? intent.opened.writeScopes, session: worker,
           };
           const liveWorker: FactoryWorkerRecord<ManagedSession> = { workId, sessionId: identity.id, writeScopes: order.opened.writeScopes, projectId, session: worker,
             repoPath: project.path, spawnedAtMs: null, hasFirstHook: false };
@@ -287,11 +291,13 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
       const context = getOrchestrator(orchestrator.sessionId);
       if (stopped || config.factory?.enabled !== true || !context || pendingRefusals.get(project.projectId) !== refusal) return;
       const inspectedWork = await inspectWork(ledgerPath);
+      const profile = resolveFactoryProfile(config.factory, config.projects.find((candidate) => candidate.id === project.projectId));
       const admission = decideAdmission({
         order: inspectedWork.find((order) => order.work === refusal.workId) ?? null,
         intent: inspectedWork.find((order) => order.work === context.intentId) ?? null,
         trustedIntentIds: await readTrustedIntentIds(project.projectId),
         intentWriteScopes: (await readIntentWriteScopes(project.projectId)).get(context.intentId),
+        scopeNeeds: (await readIntentScopeNeeds(project.projectId)).get(context.intentId), widenableScopes: profile.widenableScopes, protectedPaths: profile.protectedPaths,
         liveWorkers: liveWorkersOf(project.projectId),
         maxRisk: config.factory?.maxRisk, maxLiveWorkers: config.factory?.maxLiveWorkers,
         paused: await readPaused(project.projectId),

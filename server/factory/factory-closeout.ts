@@ -12,7 +12,7 @@ import { FactoryReviewVerdict } from '../../shared/contracts/factory.ts';
 import { factoryFailureText as failureText, prepareSandboxedCheckRunner, runChecksInCleanCheckout } from './factory-check-sandbox.ts';
 import type { FactoryCheckoutRun, PrepareFactoryCheckRunner } from './factory-check-sandbox.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
-import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, FACTORY_TICKET_BLOCK_CAP, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, isInheritedCheckFailure, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseFactoryStructuredOutput, redactSecretLines, reviewerOutputTail } from './core/factory-core.ts';
+import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, FACTORY_TICKET_BLOCK_CAP, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, isInheritedCheckFailure, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseFactoryStructuredOutput, planScopeNeedRecovery, redactSecretLines, reviewerOutputTail, withIntentScopeNeeds, withTicketBlockCount } from './core/factory-core.ts';
 import { resolveFactoryProfile } from './core/factory-profile-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
@@ -37,15 +37,25 @@ const CASE_INSENSITIVE_LEDGER_PATHSPEC = ':(icase).coherence';
 const WORK_OUTSIDE_LEDGER_PATHSPECS = ['.', ':(exclude,icase).coherence'];
 const FACTORY_REVIEW_TOO_LARGE_FEEDBACK ='change too large for review; split it into smaller tickets';
 
-type FactoryCapCounter = (projectId: string, id: string) => Promise<number>;
+type FactoryCapCounter = (projectId: string, id: string, shouldPark?: boolean) => Promise<number>;
 
 function createMemoryCapCounter(): FactoryCapCounter {
-  const counts = new Map<string, number>();
-  return async (projectId, id) => {
+  let counts: Record<string, number> = {};
+  return async (projectId, id, shouldPark) => {
     const key = JSON.stringify([projectId, id]);
-    const count = (counts.get(key) ?? 0) + 1;
-    counts.set(key, count);
-    return count;
+    counts = withTicketBlockCount(counts, key, shouldPark);
+    return counts[key];
+  };
+}
+
+type FactoryScopeNeedRecorder = (worker: FactoryCloseOutWorker, files: string[]) => Promise<readonly string[]> | readonly string[];
+
+function createMemoryScopeNeedRecorder(): FactoryScopeNeedRecorder {
+  let needsByIntent: Record<string, string[]> | undefined;
+  return (worker, files) => {
+    const key = JSON.stringify([worker.projectId, worker.intentId]);
+    needsByIntent = withIntentScopeNeeds(needsByIntent, key, files);
+    return needsByIntent?.[key] ?? [];
   };
 }
 
@@ -62,6 +72,7 @@ export interface FactoryCloseOutWorker {
   objective: string;
   criteria: string[];
   writeScopes: string[];
+  intentWriteScopes?: readonly string[];
   session: FactoryWorkerSession;
 }
 
@@ -84,6 +95,7 @@ export interface FactoryCloseOutDeps {
   clearException?: (projectId: string, expectedReason: string) => void;
   recordDecision?: (decision: Extract<FactoryDecisionInput, { kind: 'closeout' | 'merge' }>) => Promise<void>;
   recordConfirmedFlakes?: (worker: FactoryCloseOutWorker, flakes: string[]) => Promise<void> | void;
+  recordScopeNeeds?: FactoryScopeNeedRecorder;
   onReviewingChanged?: () => void;
   baseEnv?: NodeJS.ProcessEnv;
   prepareCheckRunner?: PrepareFactoryCheckRunner;
@@ -172,7 +184,7 @@ export async function runFactoryReview(options: Omit<FactoryStructuredAgentOptio
 
 export function createFactoryCloseOut({
   config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger, runCoherence, commitAndLand, readIntegrationSha, recordFactoryLandedSha, readPaused, readIntentFloorAllowances = async () => [],
-  countTicketBlock = createMemoryCapCounter(), trustVerification, notifyOrchestrator, setException, clearException = () => {}, recordDecision = async () => {}, recordConfirmedFlakes = () => {}, onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareSandboxedCheckRunner,
+  countTicketBlock = createMemoryCapCounter(), trustVerification, notifyOrchestrator, setException, clearException = () => {}, recordDecision = async () => {}, recordConfirmedFlakes = () => {}, recordScopeNeeds = createMemoryScopeNeedRecorder(), onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareSandboxedCheckRunner,
 }: FactoryCloseOutDeps) {
   const reviewing = new Set<string>();
   const attempts = new Map<string, number>();
@@ -314,12 +326,22 @@ export function createFactoryCloseOut({
     await runGit(cwd, ['commit', '-m', `factory: drop worker ledger changes ${worker.workId}`, '--', ...committedLedgerPaths]);
   }
 
+  async function listTrackedRegularFiles(cwd: string, sha: string, files: readonly string[]): Promise<string[]> {
+    if (files.length === 0) return [];
+    const treeEntries = (await runGit(cwd, ['ls-tree', '-z', '--full-tree', sha, '--', ...files])).split('\0');
+    return treeEntries.flatMap((treeEntry) => {
+      const regularFileEntry = /^10(?:0644|0755) blob [0-9a-f]+\t(.+)$/s.exec(treeEntry);
+      return regularFileEntry && files.includes(regularFileEntry[1]) ? [regularFileEntry[1]] : [];
+    });
+  }
+
   async function readWorkState(cwd: string, workId: string): Promise<string | undefined> {
     const inspected = CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd, args: ['work', 'inspect', '--json'] })));
     return inspected.work.find((order) => order.work === workId)?.state;
   }
 
-  async function applyFailure(worker: FactoryCloseOutWorker, decision: ReturnType<typeof decideCloseOut>, failureClass: FactoryDecisionInput['failureClass'] = 'closeout'): Promise<boolean> {
+  async function applyFailure(worker: FactoryCloseOutWorker, decision: ReturnType<typeof decideCloseOut>, failureClass: FactoryDecisionInput['failureClass'] = 'closeout',
+    trackedScopeNeeds: readonly string[] = []): Promise<boolean> {
     if (decision.action === 'merge' || !isLive(worker)) return false;
     if (decision.action === 'retry') {
       const pasted = worker.session.pasteTextWhenReady(decision.feedback);
@@ -336,13 +358,19 @@ export function createFactoryCloseOut({
           '--session', FACTORY_LEDGER_SESSION, '--evidence', ledgerReason,
         ] });
       }
-      const blockCount = await countTicketBlock(worker.projectId, worker.workId);
+      const scopeNeeds = decision.reason.startsWith('Needs write scope:') ? failingFilesOutsideScopesByWork.get(worker.workId) ?? [] : [];
+      const profile = resolveFactoryProfile(config.factory, config.projects?.find((project) => project.id === worker.projectId));
+      const { widenedNeeds, isRecoverable } = planScopeNeedRecovery({ scopeNeeds, trackedFiles: trackedScopeNeeds, intentWriteScopes: worker.intentWriteScopes,
+        widenableScopes: profile.widenableScopes, protectedPaths: profile.protectedPaths });
+      const rememberedNeeds = widenedNeeds.length > 0 ? await recordScopeNeeds(worker, widenedNeeds) : [];
+      const shouldPark = !isRecoverable || widenedNeeds.some((file) => !rememberedNeeds.includes(file));
+      const blockCount = await countTicketBlock(worker.projectId, worker.workId, shouldPark);
       const blockedAttempt = attemptOf(worker);
       attempts.delete(worker.workId);
       failingFilesOutsideScopesByWork.delete(worker.workId);
       worker.session.destroy();
       const detail = blockCount >= FACTORY_TICKET_BLOCK_CAP
-        ? `Parked ${worker.workId} after ${blockCount} blocks. Replace it with an in-scope ticket or leave it parked. Need: ${decision.reason}`
+        ? `Parked ${worker.workId} after ${blockCount} blocks. Leave it parked. Need: ${decision.reason}`
         : decision.reason;
       blockExceptionByProject.set(worker.projectId, detail);
       notifyOrchestrator(worker.projectId, { workId: worker.workId, intentId: worker.intentId, sessionId: worker.session.id, attempt: blockedAttempt, event: 'blocked', failureClass, detail });
@@ -401,8 +429,9 @@ export function createFactoryCloseOut({
         await failedAttempt('Worker change', 'No change was found in the worktree. Make the change, then finish the turn.');
         return;
       }
-      fence = checkFence({ changedPaths, writeScopes: worker.writeScopes,
-        protectedPaths: config.factory?.protectedPaths ?? DEFAULT_FACTORY_PROTECTED_PATHS,
+      const profile = resolveFactoryProfile(config.factory, config.projects?.find((project) => project.id === worker.projectId));
+      fence = checkFence({ changedPaths, writeScopes: worker.writeScopes, intentWriteScopes: worker.intentWriteScopes,
+        protectedPaths: profile.protectedPaths ?? DEFAULT_FACTORY_PROTECTED_PATHS,
         floorAllowances: await readIntentFloorAllowances(worker.projectId, worker.intentId) });
       const reviewDiff = fence.ok ? await runGit(cwd, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--text', '--ignore-submodules=none', `${baseSha}...${headSha}`]) : '';
       if (reviewDiff.length > FACTORY_REVIEW_DIFF_MAX_CHARS) {
@@ -433,7 +462,8 @@ export function createFactoryCloseOut({
       const closeOutDecision = decideCloseOut({ fence, checks, review: verdict, attempt: attemptOf(worker), ...outsideScopes });
       loggedReason = closeOutFailureText(decideCloseOut({ fence, checks: chargeableChecks(captured.decisionReasonChecks, inheritedCommands), review: loggedVerdict(), attempt, ...outsideScopes }));
       if (closeOutDecision.action !== 'merge') {
-        if (await applyFailure(worker, closeOutDecision, attemptFailureClass)) decision = closeOutDecision;
+        const trackedScopeNeeds = await listTrackedRegularFiles(cwd, headSha, failingFilesOutsideScopes);
+        if (await applyFailure(worker, closeOutDecision, attemptFailureClass, trackedScopeNeeds)) decision = closeOutDecision;
         return;
       }
       decision = closeOutDecision;
