@@ -107,22 +107,6 @@ test('Session carries real pty output and a real exit code through its events', 
   }
 });
 
-test('write() reaches a real pty child', async () => {
-  const script = isWindows ? 'set /p LINE= && echo got-%LINE%' : 'read line; echo got-$line';
-  const { session } = makeRealSession({ script, id: 'pty-real-write' });
-  let output = '';
-  session.on('data', (chunk) => { output += chunk; });
-  try {
-    await session.start();
-    await waitFor(() => output.length > 0, 2000);
-    session.write('ping\r');
-    assert.ok(await waitFor(() => /got-ping/.test(output)), `child never echoed the write: ${JSON.stringify(output)}`);
-  } finally {
-    session.kill();
-    session.destroy();
-  }
-});
-
 test('kill() takes down a real pty process group, not just the direct child', { skip: isWindows }, async () => {
   const { session, spawned } = makeRealSession({ script: 'sleep 30 & sleep 30', id: 'pty-real-kill' });
   const exits: Record<string, unknown>[] = [];

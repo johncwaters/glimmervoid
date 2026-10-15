@@ -100,7 +100,7 @@ test.after(async () => {
   }
   if (previousConfigEnv == null) delete process.env.GLIMMERVOID_CONFIG;
   if (previousConfigEnv != null) process.env.GLIMMERVOID_CONFIG = previousConfigEnv;
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 test('a request with no Tailscale login is refused as not the owner', async () => {
