@@ -2,6 +2,9 @@ import { isCompactionRestoreEvent } from '#shared/compaction-restore-events.ts';
 import { localHourMinuteText } from '#shared/display-text.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { PlanDraftPush } from '#shared/contracts/plan-review.ts';
+import type { ConversationApproval } from '#shared/contracts/session.ts';
+import { isConversationAgent } from '../conversation/conversation-core.ts';
+import { createConversationFace } from '../conversation/conversation-face.ts';
 import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATE_GLYPHS, STATES } from '#shared/states.ts';
 import { playAlertSound } from '../alert-sound.ts';
@@ -67,7 +70,79 @@ const isRestartable = (state: string) => RESTARTABLE_STATES.includes(state as Se
 
 type PostTurnReport = ServerMessageOf<'post-turn-result'>;
 
+let isConversationViewEnabled = false;
+
+function canUseConversationView(ui: SessionUi) {
+  return isConversationViewEnabled && isConversationAgent(ui.agent);
+}
+
+function isConversationFaceAvailable(ui: SessionUi) {
+  return canUseConversationView(ui) && ui.isConversationViewOn && ui.isBorrowed;
+}
+
+function paintFaceSwitch(ui: SessionUi) {
+  ui.faceSwitch.classList.toggle('visible', isConversationFaceAvailable(ui));
+  ui.btnConversationView.classList.toggle('visible', canUseConversationView(ui));
+  ui.btnConversationView.setAttribute('aria-checked', String(ui.isConversationViewOn));
+  ui.btnFaceTerminal.setAttribute('aria-pressed', String(ui.face === 'terminal'));
+  ui.btnFaceConversation.setAttribute('aria-pressed', String(ui.face === 'conversation'));
+}
+
+export function setConversationViewEnabled(isEnabled: boolean) {
+  isConversationViewEnabled = isEnabled;
+  for (const ui of sessionUIs.values()) {
+    if (!isEnabled && ui.face === 'conversation') ui._showTerminalFace?.();
+    updateButtonVisibility(ui);
+  }
+}
+
+function showSessionConversationFace(sessionId: unknown) {
+  const ui = findSessionUi(sessionId);
+  if (!ui || !isConversationFaceAvailable(ui)) return false;
+  ui.face = 'conversation';
+  ui.card.dataset.face = 'conversation';
+  ui.termWrap.hidden = true;
+  ui.planFace.hide();
+  ui.conversationFace.show(sessionIdOf(sessionId));
+  updateButtonVisibility(ui);
+  return true;
+}
+
+interface SessionConversationUpdate {
+  hasConversationBridge: boolean;
+  isConversationViewOn: boolean;
+  conversationApproval: ConversationApproval | null;
+}
+
+export function setSessionConversation(sessionId: unknown, update: SessionConversationUpdate) {
+  const ui = findSessionUi(sessionId);
+  if (!ui) return;
+  const wasConversationViewOn = ui.isConversationViewOn;
+  ui.hasConversationBridge = update.hasConversationBridge;
+  ui.conversationApproval = update.conversationApproval;
+  ui.isConversationViewOn = update.isConversationViewOn;
+  updateButtonVisibility(ui);
+  ui.conversationFace.refresh();
+  if (wasConversationViewOn === update.isConversationViewOn) return;
+  ui.prefersConversation = update.isConversationViewOn;
+  if (update.isConversationViewOn) {
+    showSessionConversationFace(sessionId);
+    return;
+  }
+  if (ui.face === 'conversation') ui._showTerminalFace?.();
+}
+
+export function applyConversationTraceResponse(reply: ServerMessageOf<'session-trace-response'>) {
+  const ui = findSessionUi(reply.id);
+  return ui?.conversationFace.applyTraceResponse(reply) === true;
+}
+
+export function applyConversationTraceChanged(sessionId: unknown) {
+  findSessionUi(sessionId)?.conversationFace.applyTraceChanged(sessionIdOf(sessionId));
+}
+
 function updateButtonVisibility(ui: SessionUi) {
+  paintFaceSwitch(ui);
   const state = ui.currentState;
   const canRestart = isKillable(state) || isRestartable(state);
   ui.btnRestart.classList.toggle('visible', canRestart);
@@ -137,6 +212,21 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     openDocEditor(sessionId);
   });
 
+  ui.btnConversationView.addEventListener('click', () => {
+    closeRestartMenu(ui);
+    sendControlMsg({ type: 'set-session-conversation-view', id: sessionId, isOn: !ui.isConversationViewOn });
+  });
+
+  ui.btnFaceTerminal.addEventListener('click', () => {
+    ui.prefersConversation = false;
+    ui._showTerminalFace?.();
+  });
+
+  ui.btnFaceConversation.addEventListener('click', () => {
+    ui.prefersConversation = true;
+    showSessionConversationFace(sessionId);
+  });
+
   ui.btnPlan.addEventListener('click', () => {
     const action = decidePlanHeaderAction(ui);
     if (action === 'hidden') return;
@@ -169,7 +259,7 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     ui.btnRestartMenu.setAttribute('aria-expanded', String(isOpen));
   });
 
-  const menuItems = [ui.btnRestart, ui.btnRestartFresh, ui.btnResume, ui.btnWorkspaceRepos];
+  const menuItems = [ui.btnRestart, ui.btnRestartFresh, ui.btnResume, ui.btnWorkspaceRepos, ui.btnConversationView];
   function moveMenuFocus(event: KeyboardEvent) {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     event.preventDefault();
@@ -308,6 +398,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     sessionUi.card.dataset.face = 'terminal';
     sessionUi.termWrap.hidden = false;
     sessionUi.planFace.hide();
+    sessionUi.conversationFace.hide();
     updateButtonVisibility(sessionUi);
     ensureTerminalReady(sessionUi, id);
   }
@@ -319,6 +410,14 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     showTerminal: showTerminalFace,
     sendDecision: (requestedId, request) => sendControlMsg({ type: 'plan-decision', id: requestedId, ...request }),
     reportProblem: (message: string) => showErrorToast(`${dom.nameEl.textContent || id}: ${message}`),
+  });
+  const conversationFace = createConversationFace({
+    signal: abortController.signal,
+    sendControl: (message) => sendControlMsg(message),
+    showTerminal: () => {
+      sessionUi.prefersConversation = false;
+      showTerminalFace();
+    },
   });
   sessionUi = {
     term: null,
@@ -345,8 +444,12 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnRestartMenu: dom.btnRestartMenu,
     btnResume: dom.btnResume,
     btnWorkspaceRepos: dom.btnWorkspaceRepos,
+    btnConversationView: dom.btnConversationView,
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
+    faceSwitch: dom.faceSwitch,
+    btnFaceTerminal: dom.btnFaceTerminal,
+    btnFaceConversation: dom.btnFaceConversation,
     btnDocs: dom.btnDocs,
     btnRemove: dom.btnRemove,
     debugOverlay: null,
@@ -359,6 +462,11 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     pendingPromptKind: null,
     planReviewState: { reviews: [] },
     planFace,
+    conversationFace,
+    prefersConversation: false,
+    conversationApproval: null,
+    hasConversationBridge: false,
+    isConversationViewOn: false,
   };
   sessionUi._ensureTerminalReady = () => ensureTerminalReady(sessionUi, id);
   sessionUi._showTerminalFace = showTerminalFace;
@@ -367,13 +475,14 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
       showSessionPlanFace(id);
       return;
     }
+    if (sessionUi.prefersConversation && showSessionConversationFace(id)) return;
     showTerminalFace();
   };
   sessionUi._setBorrowed = (isBorrowed) => {
     sessionUi.isBorrowed = isBorrowed;
     updateButtonVisibility(sessionUi);
   };
-  dom.card.append(planFace.el);
+  dom.card.append(planFace.el, conversationFace.el);
   sessionUIs.set(id, sessionUi);
 
   wireCardEvents(sessionUi, id);
@@ -413,6 +522,7 @@ export function showSessionPlanFace(sessionId: unknown) {
   ui.face = 'plan';
   ui.card.dataset.face = 'plan';
   ui.termWrap.hidden = true;
+  ui.conversationFace.hide();
   ui.planFace.show(sessionIdOf(sessionId));
   updateButtonVisibility(ui);
   return true;
@@ -477,6 +587,7 @@ export function setSessionAgent(sessionId: unknown, agent: unknown) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.agent = typeof agent === 'string' ? agent : null;
+  updateButtonVisibility(ui);
   const text = agentBadgeText(agent);
   paintCardBadge(ui, '.agent-badge', 'agent', { on: text !== '', value: text, text });
 }
@@ -541,6 +652,7 @@ export function setSessionPrompt(sessionId: unknown, kind: unknown, isCompacting
     title: isCompacting ? 'Context compaction in progress' : 'Waiting on a permission or input prompt',
     text: isCompacting ? 'compacting' : kind === 'plan' ? 'Plan ready' : kind === 'permission' ? 'permission' : 'input',
   });
+  ui.conversationFace.refresh();
   showPlanFaceWhenPreferred(sessionId);
 }
 
@@ -680,6 +792,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
   const prevState = ui.currentState;
   ui.currentState = state;
   if (state !== STATES.RUNNING) ui.awaitingBackgroundTasks = false;
+  ui.conversationFace.refresh();
 
   if (state !== prevState) {
     ui.stateSince = typeof stateSince === 'number' && Number.isFinite(stateSince) ? stateSince : Date.now();

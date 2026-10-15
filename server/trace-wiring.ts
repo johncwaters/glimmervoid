@@ -180,6 +180,7 @@ function createTraceWiring({
   const traceDirectory = configSiblingPath(configPath, 'traces');
   const emitter = new EventEmitter();
   const bindingByGlimmervoidSessionId = new Map<string, TraceBinding>();
+  const awaitingTranscriptByGlimmervoidSessionId = new Map<string, Record<string, unknown>>();
   const pendingRecordsBySessionId = new Map<string, TraceRecord[]>();
   const closedSessionIds = new Set<string>();
   const attachedSessions = new WeakSet<object>();
@@ -230,7 +231,7 @@ function createTraceWiring({
     }
   }
 
-  function queueRecord(glimmervoidSessionId: string, record: TraceRecord): void {
+  function queueRecord(glimmervoidSessionId: string, record: unknown): void {
     if (!traceFilePath(glimmervoidSessionId)) return;
     const parsed = TraceRecordSchema.safeParse(record);
     if (!parsed.success) {
@@ -566,6 +567,9 @@ function createTraceWiring({
     const checkpointPath = checkpointFilePath(glimmervoidSessionId);
     if (!checkpointPath) return;
     const containedTranscript = await openContainedFile(requestedTranscriptPath, projectsRoot(), true);
+    if (!containedTranscript.ok && containedTranscript.reason === 'missing') {
+      awaitingTranscriptByGlimmervoidSessionId.set(glimmervoidSessionId, { id: vendorSessionId, vendor, transcriptPath: requestedTranscriptPath });
+    }
     if (!containedTranscript.ok) {
       laneLog.warnOnce(`bind:${glimmervoidSessionId}:${containedTranscript.reason}`, 'transcript refused', {
         session: glimmervoidSessionId,
@@ -575,6 +579,7 @@ function createTraceWiring({
       });
       return;
     }
+    awaitingTranscriptByGlimmervoidSessionId.delete(glimmervoidSessionId);
     const transcriptPath = containedTranscript.file.realPath;
     const transcriptStat = 'handle' in containedTranscript.file ? containedTranscript.file.stat : null;
     if ('handle' in containedTranscript.file) await containedTranscript.file.handle.close().catch(() => {});
@@ -748,6 +753,11 @@ function createTraceWiring({
 
   function noteHookEvent(glimmervoidSessionId: string, eventRecord: Record<string, unknown>): void {
     if (hasStopped || closedSessionIds.has(glimmervoidSessionId)) return;
+    const awaitedTranscript = awaitingTranscriptByGlimmervoidSessionId.get(glimmervoidSessionId);
+    if (awaitedTranscript) {
+      awaitingTranscriptByGlimmervoidSessionId.delete(glimmervoidSessionId);
+      noteVendorSession(glimmervoidSessionId, awaitedTranscript);
+    }
     const hookEvent = typeof eventRecord.event === 'string' ? eventRecord.event.toLowerCase() : '';
     if (hookEvent !== 'subagentstop') return;
     const payload = eventRecord.payload;
@@ -769,6 +779,7 @@ function createTraceWiring({
 
   function closeSession(glimmervoidSessionId: string): void {
     closedSessionIds.add(glimmervoidSessionId);
+    awaitingTranscriptByGlimmervoidSessionId.delete(glimmervoidSessionId);
     trimOldest(closedSessionIds, MAX_REMEMBERED_CLOSED_SESSIONS);
     chain(async () => {
       const binding = bindingByGlimmervoidSessionId.get(glimmervoidSessionId);
@@ -778,11 +789,18 @@ function createTraceWiring({
     }, 'final drain failed');
   }
 
+  function appendConversationRecords(glimmervoidSessionId: string, records: unknown): void {
+    if (hasStopped || !Array.isArray(records) || records.length === 0) return;
+    for (const record of records) queueRecord(glimmervoidSessionId, record);
+    chain(async () => { await flushSession(glimmervoidSessionId); }, 'conversation append failed');
+  }
+
   function attachSession(session: TraceSession): void {
     if (attachedSessions.has(session)) return;
     attachedSessions.add(session);
     session.on('claude-session-id', (payload) => { noteVendorSession(session.id, payload); });
     session.on('hook-event', (record) => { noteHookEvent(session.id, record); });
+    session.on('conversation-records', ({ records }) => { appendConversationRecords(session.id, records); });
     session.on('exit', () => { detachSession(session.id); });
     session.on('teardown', () => { closeSession(session.id); });
   }

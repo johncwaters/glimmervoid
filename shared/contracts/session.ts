@@ -15,6 +15,17 @@ export const PendingWakeup = z.object({
 
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
 
+export const CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS = 300;
+
+export const ConversationApproval = z.object({
+  requestId: z.union([z.string().min(1).max(128), z.number().int()]),
+  kind: z.enum(['command', 'fileChange', 'permissions']),
+  summary: z.string().max(CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS),
+  isSummaryTruncated: z.boolean(),
+});
+
+export const ConversationApprovalDecision = z.enum(['accept', 'acceptForSession', 'decline']);
+
 export const SessionSnapshot = z.object({
   id: z.string(),
   name: z.string(),
@@ -36,6 +47,9 @@ export const SessionSnapshot = z.object({
   isCompacting: z.boolean().default(false),
   pendingWakeup: PendingWakeup.nullable(),
   pendingPromptKind: z.string().nullable(),
+  conversationApproval: ConversationApproval.nullable().default(null),
+  hasConversationBridge: z.boolean().default(false),
+  isConversationViewOn: z.boolean().default(false),
   hasPlan: z.boolean().default(false),
   mergeStatus: z.string().nullable(),
   mergeReason: z.string().nullable(),
@@ -48,6 +62,8 @@ export const SessionSnapshot = z.object({
 export type SessionState = z.infer<typeof SessionState>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type PendingWakeup = z.infer<typeof PendingWakeup>;
+export type ConversationApproval = z.infer<typeof ConversationApproval>;
+export type ConversationApprovalDecision = z.infer<typeof ConversationApprovalDecision>;
 
 export const AGENT_URL_ENV = 'GLIMMERVOID_AGENT_URL';
 export const SIGN_URL_ENV = 'GLIMMERVOID_SIGN_URL';

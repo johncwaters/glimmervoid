@@ -192,6 +192,30 @@ test('main and subagent transcript records append under the Glimmervoid session 
   fs.rmSync(configDirectory, { recursive: true, force: true });
 });
 
+test('a transcript whose project folder appears after SessionStart binds on the next hook event', async () => {
+  const { configDirectory } = makeWorkspace('late-folder');
+  const projectDirectory = path.join(projectsRoot, `late-folder-${process.pid}`);
+  const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
+  const harness = createHarness(configDirectory);
+  await harness.wiring.start();
+  const session = new TestTraceSession('glimmervoid-session-id');
+  harness.wiring.attachSession(session);
+
+  session.emit('claude-session-id', { id: 'vendor-session', vendor: 'claude', transcriptPath });
+  await harness.wiring.whenIdle();
+  fs.mkdirSync(projectDirectory);
+  fs.writeFileSync(transcriptPath, mainPrompt('first prompt', 'prompt-id'), 'utf8');
+  session.emit('hook-event', { event: 'userpromptsubmit', payload: {} });
+  await harness.wiring.whenIdle();
+
+  const records = readTrace(harness.tracePath('glimmervoid-session-id'));
+  assert.deepEqual(records.map((record) => record.kind), ['session', 'prompt']);
+
+  await harness.wiring.stop();
+  fs.rmSync(configDirectory, { recursive: true, force: true });
+  fs.rmSync(projectDirectory, { recursive: true, force: true });
+});
+
 test('a draining poll logs debug details only when it appends transcript records', async () => {
   const { configDirectory, projectDirectory } = makeWorkspace('debug-drain');
   const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');

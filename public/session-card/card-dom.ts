@@ -131,12 +131,15 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const btnResume = buildRestartMenuItem('Resume conversation...', 'Pick an earlier conversation', 'overflow-resume');
   const btnWorkspaceRepos = buildRestartMenuItem('Edit repositories...', 'Add or remove repositories in this workspace', 'overflow-workspace-repos');
   const btnLinkPr = buildRestartMenuItem('Link pull request...', 'Show a pull request on this card', 'overflow-link-pr visible');
+  const btnConversationView = buildRestartMenuItem('Conversation view', 'Show this session as messages (experimental)', 'overflow-conversation-view');
+  btnConversationView.setAttribute('role', 'menuitemcheckbox');
+  btnConversationView.setAttribute('aria-checked', 'false');
   btnLinkPr.onclick = () => {
     restartMenu.classList.remove('open');
     btnRestartMenu.setAttribute('aria-expanded', 'false');
     openLinkPullRequestDialog(sessionId);
   };
-  restartMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnLinkPr);
+  restartMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnConversationView, btnLinkPr);
   restartMenuWrap.append(btnRestartMenu, restartMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug', '\u2699');
@@ -161,7 +164,18 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnDocs.type = 'button';
   btnDocs.title = 'Open docs the agent surfaced';
 
-  actions.append(btnDocs, btnPlan, btnDebug, btnTrace, restartMenuWrap, btnRemove);
+  const faceSwitch = el('div', 'face-switch');
+  faceSwitch.setAttribute('role', 'group');
+  faceSwitch.setAttribute('aria-label', 'Card view');
+  const btnFaceTerminal = el('button', 'face-switch-option', 'Terminal');
+  btnFaceTerminal.type = 'button';
+  btnFaceTerminal.setAttribute('aria-pressed', 'true');
+  const btnFaceConversation = el('button', 'face-switch-option', 'Conversation');
+  btnFaceConversation.type = 'button';
+  btnFaceConversation.setAttribute('aria-pressed', 'false');
+  faceSwitch.append(btnFaceTerminal, btnFaceConversation);
+
+  actions.append(faceSwitch, btnDocs, btnPlan, btnDebug, btnTrace, restartMenuWrap, btnRemove);
   const tags = el('div', 'session-card-tags');
   const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec));
   if (permsBadge) tagChildren.push(permsBadge);
@@ -172,7 +186,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnRestartMenu, btnResume, btnWorkspaceRepos, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, restartMenu, termWrap };
+  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnRestartMenu, btnResume, btnWorkspaceRepos, btnConversationView, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, faceSwitch, btnFaceTerminal, btnFaceConversation, restartMenu, termWrap };
 }
 
 function buildRestartMenuItem(label: string, hint: string, className: string) {

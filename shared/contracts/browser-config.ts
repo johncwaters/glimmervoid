@@ -258,6 +258,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   replayBufferKB: optionalWholeNumber('replayBufferKB', ranges.REPLAY_BUFFER_KB_RANGE),
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
+  conversationView: optionalBoolean('conversationView'),
   streamerMode: optionalBoolean('streamerMode'),
   detectBackgroundAgents: optionalBoolean('detectBackgroundAgents'),
   recordSignals: optionalBoolean('recordSignals'),

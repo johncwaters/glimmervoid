@@ -41,7 +41,7 @@ import { handleDebugStateRefresh, handleDebugStateResponse, setCardPrChipsPainte
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
-import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
+import { applyConversationTraceChanged, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -237,6 +237,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     setSessionWakeup(s.id, s.pendingWakeup);
 
     setSessionPrompt(s.id, s.pendingPromptKind, s.isCompacting);
+    setSessionConversation(s.id, s);
 
     setSessionHasPlan(s.id, s.hasPlan);
 
@@ -388,8 +389,9 @@ const messageHandlers = {
   'session-changed':    (msg) => notifyWorktreeChanged(msg.id),
   'post-turn-result':   (msg) => setSessionPostTurn(msg.id, msg),
   'debug-state-response': (msg) => handleDebugStateResponse(msg),
-  'session-trace-response': (msg) => applyTraceResponse(msg),
-  'session-trace-changed': (msg) => applyTraceChanged(msg),
+  'session-trace-response': (msg) => { if (applyConversationTraceResponse(msg)) return; applyTraceResponse(msg); },
+  'session-trace-changed': (msg) => { applyConversationTraceChanged(msg.id); applyTraceChanged(msg); },
+  'session-conversation': (msg) => { setSessionConversation(msg.id, msg); refreshAttentionSurfaces(); },
   'session-plan-changed': (msg) => { applySessionPlanChanged(msg); refreshAttentionSurfaces(); },
   'session-plan-draft': (msg) => { applySessionPlanDraft(msg); },
   'session-plan-response': (msg) => { applySessionPlanResponse(msg); },
@@ -711,13 +713,14 @@ function applySurfaceSettings(settings: FeatureSurfaceSettings) {
   for (const { view, isAvailable } of viewAvailabilityFromSettings(VIEW_TABS, settings)) setSurfaceAvailable(view, isAvailable);
 }
 
-function applyDashboardSettings(settings: FeatureSurfaceSettings & { streamerMode?: boolean }) {
+function applyDashboardSettings(settings: FeatureSurfaceSettings & { streamerMode?: boolean; conversationView?: boolean }) {
   applyTerminalSettings(settings);
   applySettingsBroadcast(settings);
   applyVisionsSettings(settings);
   applySurfaceSettings(settings);
   syncTelemetryBanner(settings);
   setStreamerMode(settings.streamerMode === true);
+  setConversationViewEnabled(settings.conversationView === true);
 }
 
 for (const viewTab of VIEW_TABS) {

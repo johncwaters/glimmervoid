@@ -1,4 +1,5 @@
 import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
+import type { ConversationApproval } from "../../shared/contracts/session.ts";
 import type { LinkedPr } from "../../shared/contracts/my-prs.ts";
 
 interface SessionCardSource {
@@ -67,6 +68,9 @@ interface SnapshotSource {
   isCompacting?: boolean;
   pendingWakeup: Record<string, unknown> | null;
   pendingPromptKind: string | null;
+  conversationApproval?: ConversationApproval | null;
+  hasConversationBridge?: boolean;
+  isConversationViewOn?: boolean;
   hasPlan: boolean;
   mergeStatus: string;
   mergeReason: string | null;
@@ -100,6 +104,9 @@ function projectSessionSnapshots(source: SnapshotSource) {
     isCompacting: source.isCompacting ?? false,
     pendingWakeup: source.pendingWakeup,
     pendingPromptKind: source.pendingPromptKind,
+    conversationApproval: source.conversationApproval ?? null,
+    hasConversationBridge: source.hasConversationBridge === true,
+    isConversationViewOn: source.isConversationViewOn === true,
     hasPlan: source.hasPlan,
     mergeStatus: source.mergeStatus,
     mergeReason: source.mergeReason,

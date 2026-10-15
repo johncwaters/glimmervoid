@@ -108,8 +108,12 @@ test('the borrowed card swaps to plan and release restores the terminal face thr
     btnRestartMenu: button,
     btnResume: button,
     btnWorkspaceRepos: button,
+    btnConversationView: button,
     btnTrace: button,
     btnPlan: button,
+    faceSwitch: document.createElement('div'),
+    btnFaceTerminal: button,
+    btnFaceConversation: button,
     btnDocs: button,
     btnRemove: button,
     debugOverlay: null,
@@ -127,6 +131,18 @@ test('the borrowed card swaps to plan and release restores the terminal face thr
       hide: () => {},
       update: () => {},
     },
+    conversationFace: {
+      el: document.createElement('div'),
+      show: () => {},
+      hide: () => {},
+      refresh: () => {},
+      applyTraceResponse: () => false,
+      applyTraceChanged: () => {},
+    },
+    prefersConversation: false,
+    conversationApproval: null,
+    hasConversationBridge: false,
+    isConversationViewOn: false,
   };
   sessionUi._setActiveViewer = (isActive) => { activeViewerCalls.push(isActive); };
   sessionUi._ensureTerminalReady = () => { terminalWiringCount++; };

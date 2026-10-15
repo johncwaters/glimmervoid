@@ -35,6 +35,10 @@ import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
 import type { SpawnEnv } from "./core/spawn-env.ts";
 import { DEFAULT_AGENT_ID, resolveAdapter, commandFor } from "./adapters/index.ts";
+import { startCodexAppServerBridge } from "./codex-app-server-bridge.ts";
+import type { CodexAppServerBridge } from "./codex-app-server-bridge.ts";
+import { CODEX_REMOTE_TOKEN_ENV, needsAppServerRefusedFlag, remoteTuiArgs, splitCodexRemoteLaunch } from "./core/codex-remote-launch-core.ts";
+import type { ConversationApproval, ConversationApprovalDecision } from "../shared/contracts/session.ts";
 import type { AgentAdapter, AgentCapabilities } from "./adapters/index.ts";
 
 import {
@@ -196,6 +200,8 @@ interface SessionOptions {
   agent?: string;
   adapter?: AgentAdapter | null;
   bypassHookTrust?: boolean;
+  isConversationViewEnabled?: (() => boolean) | null;
+  startCodexBridge?: typeof startCodexAppServerBridge;
   titleQuietFallbackMs?: number;
   spawnCommand?: ResolvedCommand | null;
   initialPrompt?: string | null;
@@ -264,6 +270,10 @@ class Session extends EventEmitter {
   agentId: string;
   usageVendor: string;
   bypassHookTrust: boolean;
+  _isConversationViewEnabled: () => boolean;
+  _startCodexBridge: typeof startCodexAppServerBridge;
+  _codexBridge: CodexAppServerBridge | null;
+  _conversationApproval: ConversationApproval | null;
   backgroundTracking: ReturnType<typeof createSessionBackgroundTracking>;
   worktreeLifecycle: ReturnType<typeof createSessionWorktreeLifecycle>;
 
@@ -363,6 +373,8 @@ class Session extends EventEmitter {
     adapter = null,
 
     bypassHookTrust = false,
+    isConversationViewEnabled = null,
+    startCodexBridge = startCodexAppServerBridge,
 
     titleQuietFallbackMs = 30000,
 
@@ -484,6 +496,10 @@ class Session extends EventEmitter {
 
     this.usageVendor = this._adapter.usageVendor || "claude";
     this.bypassHookTrust = bypassHookTrust === true;
+    this._isConversationViewEnabled = isConversationViewEnabled ?? (() => false);
+    this._startCodexBridge = startCodexBridge;
+    this._codexBridge = null;
+    this._conversationApproval = null;
     this._titleQuietFallbackMs = titleQuietFallbackMs;
     this._titleQuietFallbackTimer = null;
 
@@ -1276,6 +1292,9 @@ class Session extends EventEmitter {
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
       pendingWakeup: this.backgroundTracking.pendingWakeup(),
       pendingPromptKind: this._pendingPromptKind,
+      conversationApproval: this._conversationApproval,
+      hasConversationBridge: this._codexBridge !== null,
+      isConversationViewOn: this._isConversationViewEnabled(),
       isCompacting: this._compaction.isCompacting,
       hasPlan: this._planReviewPort?.hasPlan(this.id) === true,
       mergeStatus: this.mergeStatus,
@@ -1471,13 +1490,22 @@ class Session extends EventEmitter {
       canRunHelpCommand: this._canRunHelpCommand,
     });
 
+    const bridgedLaunch = await this._startConversationBridge(settingsArgs, agentArgs, env);
+    if (this._destroyed) {
+      await this._stopConversationBridge();
+      return;
+    }
     const spawnCommand = await this._sandboxedSpawnCommand(this._adapter.buildSpawnCommand({
       platform: this._platform,
       resolved: this._spawnCommand || commandFor(this._adapter),
-      settingsArgs,
-      agentArgs,
+      settingsArgs: bridgedLaunch ? [] : settingsArgs,
+      agentArgs: bridgedLaunch?.tuiArgs ?? agentArgs,
     }), launchSession?.agentSessionId ?? null);
-    if (!spawnCommand) return;
+    if (!spawnCommand) {
+      await this._stopConversationBridge();
+      return;
+    }
+    if (bridgedLaunch) env[CODEX_REMOTE_TOKEN_ENV] = bridgedLaunch.token;
     const { file, args } = spawnCommand;
 
     const ptySize = this._output.ptySize();
@@ -1537,10 +1565,75 @@ class Session extends EventEmitter {
     return this._prepareSandbox !== null;
   }
 
+  async _startConversationBridge(settingsArgs: string[], agentArgs: string[], env: SpawnEnv): Promise<{ tuiArgs: string[]; token: string } | null> {
+    await this._stopConversationBridge();
+    if (this.agentId !== "codex" || this._prepareSandbox !== null || !this._isConversationViewEnabled()) return null;
+    if (this.bypassHookTrust || needsAppServerRefusedFlag(settingsArgs, agentArgs)) return null;
+    const launch = splitCodexRemoteLaunch(settingsArgs, agentArgs);
+    const prefix = this._adapter.buildSpawnCommand({ platform: this._platform, resolved: this._spawnCommand || commandFor(this._adapter), settingsArgs: [], agentArgs: [] });
+    try {
+      const bridge = await this._startCodexBridge({
+        command: { file: prefix.file, argsBeforeAppServer: prefix.args },
+        configArgs: launch.appServerConfigArgs,
+        cwd: this.effectiveCwd(),
+        env: { ...env },
+        tokenDirectory: path.join(os.tmpdir(), "glimmervoid-codex-app-server"),
+      });
+      this._codexBridge = bridge;
+      bridge.on("records", (records: unknown) => this.emit("conversation-records", { records }));
+      bridge.on("approval", (approval: { requestId: number | string; kind: ConversationApproval["kind"]; summary: string; isSummaryTruncated: boolean } | null) => {
+        this._setConversationApproval(approval ? { requestId: approval.requestId, kind: approval.kind, summary: approval.summary, isSummaryTruncated: approval.isSummaryTruncated } : null);
+      });
+      bridge.on("error", (error: unknown) => console.warn(`[session:${this.name}] codex app-server bridge: ${errorMessage(error)}`));
+      bridge.on("exit", () => {
+        if (this._codexBridge !== bridge) return;
+        this._codexBridge = null;
+        this._setConversationApproval(null);
+      });
+      this._emitConversationChange();
+      return { tuiArgs: remoteTuiArgs(bridge.url, launch.tuiArgs), token: bridge.token };
+    } catch (error) {
+      console.warn(`[session:${this.name}] codex app-server bridge unavailable, using the plain terminal: ${errorMessage(error)}`);
+      return null;
+    }
+  }
+
+  async _stopConversationBridge(): Promise<void> {
+    const bridge = this._codexBridge;
+    if (!bridge) return;
+    this._codexBridge = null;
+    this._setConversationApproval(null);
+    await bridge.stop().catch((error: unknown) => console.warn(`[session:${this.name}] codex app-server stop failed: ${errorMessage(error)}`));
+  }
+
+  _setConversationApproval(approval: ConversationApproval | null): void {
+    this._conversationApproval = approval;
+    this._emitConversationChange();
+  }
+
+  _emitConversationChange(): void {
+    this.emit("conversation-change", {
+      hasConversationBridge: this._codexBridge !== null,
+      isConversationViewOn: this._isConversationViewEnabled(),
+      conversationApproval: this._conversationApproval,
+    });
+  }
+
+  announceConversationView(): void {
+    this._emitConversationChange();
+  }
+
+  answerConversationApproval(requestId: number | string, decision: ConversationApprovalDecision): boolean {
+    const bridge = this._codexBridge;
+    if (!bridge || this._conversationApproval?.requestId !== requestId) return false;
+    return bridge.answerApproval(requestId, decision);
+  }
+
   _abandonSpawn(cause: unknown): void {
     this._isSaneYoloActive = false;
     this._hooks.cleanup();
     this._disposeSandboxLaunch(this._sandboxLaunch);
+    void this._stopConversationBridge();
     this.transition("spawn_fail", { error: errorMessage(cause) });
     this.emit("error", cause);
   }
@@ -1675,6 +1768,7 @@ class Session extends EventEmitter {
 
   _handleSpawnedPtyExit(sandboxLaunch: SandboxLaunch | null, exitCode: number, signal: ExitSignal): Promise<void> {
     this._disposeSandboxLaunch(sandboxLaunch);
+    void this._stopConversationBridge();
     return this._handlePtyExit(exitCode, signal);
   }
 
@@ -2033,6 +2127,7 @@ class Session extends EventEmitter {
 
     this._hooks.cleanup();
     this._disposeSandboxLaunch(this._sandboxLaunch);
+    void this._stopConversationBridge();
 
     this.kill();
 
