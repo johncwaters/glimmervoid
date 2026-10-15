@@ -112,7 +112,8 @@ test('factory derives a partial intent digest with merged tickets, exact parked 
     { ...completed, work: 'cancelled-ticket', state: 'cancelled' },
   ] });
   const confirmedFlakesByIntent = { [intent.work]: ['tests/confirmed-flake.test.ts'] };
-  const project = buildFactoryProjectState({ ...identity, orient, work, error: null, confirmedFlakesByIntent });
+  const ticketBlockCounts = { 'parked-ticket': 3 };
+  const project = buildFactoryProjectState({ ...identity, orient, work, error: null, confirmedFlakesByIntent, ticketBlockCounts });
   assert.deepEqual(FactoryProjectState.parse(project), project);
   assert.deepEqual(project.orders.map((order) => order.blockReason), [null, need, null, null, null]);
   assert.deepEqual(project.partialIntentIds, [intent.work]);
@@ -127,13 +128,13 @@ test('factory derives a partial intent digest with merged tickets, exact parked 
     const unfinishedWork = CoherenceWorkInspect.parse({ ...work, work: [...work.work,
       { ...completed, work: 'unfinished-ticket', state, readiness: 'waiting' },
     ] });
-    const unfinishedProject = buildFactoryProjectState({ ...identity, orient, work: unfinishedWork, error: null });
+    const unfinishedProject = buildFactoryProjectState({ ...identity, orient, work: unfinishedWork, error: null, ticketBlockCounts });
     assert.deepEqual(unfinishedProject.partialIntentIds, []);
     assert.equal(buildFactoryIntentDigest(unfinishedProject, intent.work).isPartial, false);
   }
   for (const state of ['completed', 'cancelled'] as const) {
     const settledWork = CoherenceWorkInspect.parse({ ...work, work: work.work.map((order) => order.work === intent.work ? { ...order, state } : order) });
-    assert.deepEqual(buildFactoryProjectState({ ...identity, orient, work: settledWork, error: null }).partialIntentIds, []);
+    assert.deepEqual(buildFactoryProjectState({ ...identity, orient, work: settledWork, error: null, ticketBlockCounts }).partialIntentIds, []);
   }
 });
 

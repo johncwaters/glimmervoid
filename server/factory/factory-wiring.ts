@@ -2,14 +2,14 @@ import { access, chmod, mkdir, readFile, realpath, rename, rm } from 'node:fs/pr
 import path from 'node:path';
 import { CoherenceTicketCreated, CoherenceWorkCreated } from '../../shared/contracts/coherence.ts';
 import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest, FactoryLaneState, FactoryQueueIntentRequest, isSingleFactoryPathSegment } from '../../shared/contracts/factory.ts';
-import type { FactoryControlResult, FactoryQueueIntentResult, FactoryUnlandedRecord } from '../../shared/contracts/factory.ts';
+import type { FactoryControlResult, FactoryProjectState, FactoryQueueIntentResult, FactoryUnlandedRecord } from '../../shared/contracts/factory.ts';
 import { comparableDirectoryPath } from '../../shared/canonical-paths.ts';
 import type { Config, ProjectConfig } from '../../shared/contracts/config.ts';
 import type { AgentTicketReply, AgentTicketRequest, TicketAgentVerb } from '../../shared/contracts/session.ts';
 import { execFileAsync } from '../child-process-safe.ts';
 import { DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
 import { buildCoherenceShims } from '../core/coherence-session-core.ts';
-import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, exceedsRiskCeiling, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines, withIntentFloorAllowances } from './core/factory-core.ts';
+import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, decideIntentOutcomeNotices, exceedsRiskCeiling, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines, withIntentFloorAllowances, withIntentConfirmedFlakes } from './core/factory-core.ts';
 import type { FactoryWorkRefusal } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import type { LaneSpend } from '../usage/core/usage-scan-core.ts';
@@ -300,15 +300,6 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     return blockCount;
   }
 
-  async function countIntentCapCancel(projectId: string, intentId: string): Promise<number> {
-    let capCancelCount = 0;
-    await updateLaneState(projectId, (state) => {
-      capCancelCount = (state.intentCapCancelCounts?.[intentId] ?? 0) + 1;
-      return { intentCapCancelCounts: { ...state.intentCapCancelCounts, [intentId]: capCancelCount } };
-    });
-    return capCancelCount;
-  }
-
   function serializeProject<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
     const previous = projectChains.get(projectId) ?? Promise.resolve();
     const next = previous.then(operation, operation);
@@ -365,6 +356,15 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
 
   async function readTrustedIntentIds(projectId: string): Promise<ReadonlySet<string>> {
     return new Set((await readLaneState(projectId)).trustedIntentIds ?? []);
+  }
+
+  async function notifyIntentOutcomes(project: FactoryProjectState): Promise<void> {
+    const { notifiedIntentOutcomes } = await readLaneState(project.projectId);
+    const outcomeNotices = decideIntentOutcomeNotices({ project, trustedIntentIds: await readTrustedIntentIds(project.projectId), notifiedIntentOutcomes });
+    const isNotifiedListUnchanged = JSON.stringify(outcomeNotices.notifiedIntentOutcomes) === JSON.stringify(notifiedIntentOutcomes);
+    if (isNotifiedListUnchanged && outcomeNotices.messages.length === 0) return;
+    await serializeProject(project.projectId, () => updateLaneState(project.projectId, () => ({ notifiedIntentOutcomes: outcomeNotices.notifiedIntentOutcomes })));
+    for (const message of outcomeNotices.messages) notifyProject(project.projectId, message);
   }
 
   async function writePendingTickets(projectId: string, intentId: string): Promise<void> {
@@ -643,8 +643,11 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       }) : null;
       const activeCloseOut = spawnReviewer ? createFactoryCloseOut({
         config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand, readIntegrationSha,
-        recordFactoryLandedSha, readPaused, readIntentFloorAllowances, countTicketBlock, countIntentCapCancel, prepareCheckRunner,
-        releaseWorkers: (projectId, workIds) => dispatcher?.releaseWorkers(projectId, workIds), recordDecision: decisionLog.record,
+        recordFactoryLandedSha, readPaused, readIntentFloorAllowances, countTicketBlock, prepareCheckRunner,
+        recordDecision: decisionLog.record,
+        recordConfirmedFlakes: (worker, flakes) => serializeProject(worker.projectId, () => updateLaneState(worker.projectId, (state) => ({
+          intentConfirmedFlakes: withIntentConfirmedFlakes(state.intentConfirmedFlakes, worker.intentId, flakes),
+        }))),
         trustVerification: (projectId, verification) => updateLaneState(projectId, (state) => ({
           trustedVerifications: [...(state.trustedVerifications ?? []).filter(({ id }) => id !== verification.id), verification] })),
         notifyOrchestrator,
@@ -712,6 +715,8 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         resolveIntegrationBranch,
         readPaused,
         readIntentWriteScopes,
+        readIntentConfirmedFlakes: async (projectId) => (await readLaneState(projectId)).intentConfirmedFlakes,
+        readTicketBlockCounts: async (projectId) => (await readLaneState(projectId)).ticketBlockCounts,
         readBranchSha: async (projectPath, branch) => {
           const listed = await gitWorkspace.listIntegrationTips({ projectPath, integrationBranch: branch });
           if (!('integrationTips' in listed)) throw new Error(listed.err || `Could not list the ${branch} refs`);
@@ -737,6 +742,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           if (!project.paused) activeCloseOut?.resumeHeld(project.projectId);
           const verified = activeVerifier ? await activeVerifier.tick(project) : project;
           const updated = activeOrchestrator ? await activeOrchestrator.tick(verified) : verified;
+          if (updated.error === null && updated.heading.action !== 'refuse') await notifyIntentOutcomes(updated);
           recordCrashLoopEpisode(project.projectId, activeOrchestrator && verified.error === null ? updated.error : null);
           if (updated.error === null) loggedSpawnExceptions.delete(project.projectId);
           if (activeDispatcher) await activeDispatcher.renudgeRefusedDispatch(updated, (await readLaneState(project.projectId)).ledgerPath);

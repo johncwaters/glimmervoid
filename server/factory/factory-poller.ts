@@ -23,6 +23,8 @@ type FactoryPollerDeps = Pick<TickLoopOptions, 'now' | 'setIntervalFn' | 'clearI
   runCoherence: (args: { cwd: string; args: string[] }) => Promise<string>;
   readPaused?: (projectId: string) => Promise<boolean>;
   readIntentWriteScopes?: (projectId: string) => Promise<ReadonlyMap<string, readonly string[]>>;
+  readIntentConfirmedFlakes?: (projectId: string) => Promise<Record<string, string[]> | undefined>;
+  readTicketBlockCounts?: (projectId: string) => Promise<Record<string, number> | undefined>;
   processProjectState?: (project: FactoryProjectState) => Promise<FactoryProjectState>;
   releaseOrchestrator?: (projectId: string) => void;
   listObservedProjects?: () => Promise<FactoryProjectState[]>;
@@ -31,7 +33,7 @@ type FactoryPollerDeps = Pick<TickLoopOptions, 'now' | 'setIntervalFn' | 'clearI
 
 export function createFactoryPoller({
   shouldHoldCheckout = () => false, beforeTick = () => {}, listFactoryProjects, resolveIntegrationBranch, readBranchSha, hasCoherenceConfigAt,
-  ensureControlCheckout, releaseControlCheckout, runCoherence, readPaused = async () => false, readIntentWriteScopes = async () => new Map(), processProjectState = async (project) => project, releaseOrchestrator = () => {}, listObservedProjects = async () => [], broadcast, now = Date.now, ...loopOptions
+  ensureControlCheckout, releaseControlCheckout, runCoherence, readPaused = async () => false, readIntentWriteScopes = async () => new Map(), readIntentConfirmedFlakes = async () => undefined, readTicketBlockCounts = async () => undefined, processProjectState = async (project) => project, releaseOrchestrator = () => {}, listObservedProjects = async () => [], broadcast, now = Date.now, ...loopOptions
 }: FactoryPollerDeps) {
   const log = loopOptions.log ?? console;
   let state: FactoryState | null = null;
@@ -82,16 +84,17 @@ export function createFactoryPoller({
     try {
       paused = await readPaused(project.id);
       if (!(await hasCoherenceConfigAt(project.path, headSha))) return null;
+      const confirmedFlakesByIntent = await readIntentConfirmedFlakes(project.id);
       const previous = processedProjects.get(project.id);
       if (previous?.path === project.path && (previous.state.headSha === headSha || shouldHoldCheckout(project.id))) {
-        return { ...previous.state, paused, projectName: project.name };
+        return { ...previous.state, paused, projectName: project.name, confirmedFlakesByIntent };
       }
       const cwd = await ensureControlCheckout({ projectId: project.id, projectPath: project.path, sha: headSha });
       const orient = CoherenceOrient.parse(JSON.parse(await readCoherenceReport({ cwd, args: ['orient', '--json'] })));
       const work = orient.action === 'refuse'
         ? null
         : CoherenceWorkInspect.parse(JSON.parse(await readCoherenceReport({ cwd, args: ['work', 'inspect', '--json'] })));
-      const projectState = buildFactoryProjectState({ ...identity, headSha, paused, orient, work, error: null, intentWriteScopes: await readIntentWriteScopes(project.id) });
+      const projectState = buildFactoryProjectState({ ...identity, headSha, paused, orient, work, error: null, intentWriteScopes: await readIntentWriteScopes(project.id), confirmedFlakesByIntent, ticketBlockCounts: await readTicketBlockCounts(project.id) });
       processedProjects.set(project.id, { path: project.path, state: projectState });
       return projectState;
     } catch (error) {

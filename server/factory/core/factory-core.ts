@@ -20,6 +20,7 @@ export const FACTORY_LEDGER_SESSION = 'glimmervoid-factory';
 export const FACTORY_TICK_INTERVAL_MS = 10_000;
 export const FACTORY_FIRST_TICK_DELAY_MS = 2_000;
 export const FACTORY_ORCHESTRATOR_EXIT_WINDOW_MS = 600_000;
+export const FACTORY_TICKET_BLOCK_CAP = 3;
 
 const NO_FINDINGS_TEXT = 'No findings returned';
 
@@ -103,7 +104,11 @@ export function factoryConfigKey(config: Pick<Config, 'factory'>): string {
   });
 }
 
-export function buildFactoryProjectState({ projectId, projectName, headSha, orient, work, error, paused = false, intentWriteScopes, confirmedFlakesByIntent }: {
+function isTicketParkedAtCap(ticketBlockCounts: Readonly<Record<string, number>> | undefined, workId: string): boolean {
+  return (ticketBlockCounts?.[workId] ?? 0) >= FACTORY_TICKET_BLOCK_CAP;
+}
+
+export function buildFactoryProjectState({ projectId, projectName, headSha, orient, work, error, paused = false, intentWriteScopes, confirmedFlakesByIntent, ticketBlockCounts }: {
   projectId: string;
   projectName: string;
   headSha: string | null;
@@ -113,6 +118,7 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
   paused?: boolean;
   intentWriteScopes?: ReadonlyMap<string, readonly string[]>;
   confirmedFlakesByIntent?: Record<string, string[]>;
+  ticketBlockCounts?: Readonly<Record<string, number>>;
 }): FactoryProjectState {
   if (error === null && orient?.action === 'refuse') {
     return {
@@ -131,14 +137,7 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
       confirmedFlakesByIntent, partialIntentIds: [],
     };
   }
-  const childrenByParent = new Map<string, { hasBlockedChild: boolean; hasUnsettledChild: boolean }>();
   const orders = work.work.map((order) => {
-    if (order.opened.parent !== null) {
-      const children = childrenByParent.get(order.opened.parent) ?? { hasBlockedChild: false, hasUnsettledChild: false };
-      children.hasBlockedChild ||= order.state === 'blocked';
-      children.hasUnsettledChild ||= order.state === 'open' || order.state === 'active';
-      childrenByParent.set(order.opened.parent, children);
-    }
     return {
       id: order.work,
       objective: order.opened.objective,
@@ -153,13 +152,47 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
       writeScopes: [...(intentWriteScopes?.get(order.work) ?? order.opened.writeScopes)],
       owner: order.owner.session || null,
       blockReason: order.state === 'blocked' && order.last?.event === 'transitioned' ? order.last.reason ?? null : null,
+      parked: order.state === 'blocked' && isTicketParkedAtCap(ticketBlockCounts, order.work),
       lastEvent: order.last === null ? null : { event: order.last.event, at: order.last.at, session: order.last.session },
     };
   });
+  const ordersById = new Map(orders.map((order) => [order.id, order]));
+  const dependentsByWorkId = new Map<string, typeof orders>();
+  const parkedDependencyIds = new Set<string>();
+  const pendingParkedIds: string[] = [];
+  for (const order of orders) {
+    if (order.parked) {
+      parkedDependencyIds.add(order.id);
+      pendingParkedIds.push(order.id);
+    }
+    if (order.state !== 'open') continue;
+    for (const dependencyId of order.dependsOn) {
+      const dependents = dependentsByWorkId.get(dependencyId) ?? [];
+      dependents.push(order);
+      dependentsByWorkId.set(dependencyId, dependents);
+    }
+  }
+  for (let index = 0; index < pendingParkedIds.length; index += 1) {
+    const parkedId = pendingParkedIds[index];
+    for (const dependent of dependentsByWorkId.get(parkedId) ?? []) {
+      if (parkedDependencyIds.has(dependent.id) || dependent.parent !== ordersById.get(parkedId)?.parent) continue;
+      parkedDependencyIds.add(dependent.id);
+      pendingParkedIds.push(dependent.id);
+    }
+  }
+  const childrenByParent = new Map<string, { hasParkedChild: boolean; hasUnsettledChild: boolean }>();
+  for (const order of orders) {
+    if (order.parent === null) continue;
+    const children = childrenByParent.get(order.parent) ?? { hasParkedChild: false, hasUnsettledChild: false };
+    children.hasParkedChild ||= order.parked;
+    children.hasUnsettledChild ||= order.state === 'active' || (order.state === 'blocked' && !order.parked)
+      || (order.state === 'open' && !parkedDependencyIds.has(order.id));
+    childrenByParent.set(order.parent, children);
+  }
   const partialIntentIds = orders.filter((order) => {
     if (order.parent !== null || order.state === 'completed' || order.state === 'cancelled') return false;
     const children = childrenByParent.get(order.id);
-    return children?.hasBlockedChild === true && !children.hasUnsettledChild;
+    return children?.hasParkedChild === true && !children.hasUnsettledChild;
   }).map((order) => order.id);
   return {
     projectId, projectName, headSha, paused, orchestrator: null, error: null,
@@ -178,7 +211,7 @@ export function buildFactoryIntentDigest(project: FactoryProjectState, intentId:
     if (order.id === intentId) objective = order.objective;
     if (order.parent !== intentId) continue;
     if (order.state === 'completed') merged.push({ id: order.id, objective: order.objective });
-    if (order.state === 'blocked') parked.push({ id: order.id, objective: order.objective, need: order.blockReason ?? null });
+    if (order.parked) parked.push({ id: order.id, objective: order.objective, need: order.blockReason ?? null });
   }
   return {
     intentId, objective, merged, parked,
@@ -187,13 +220,35 @@ export function buildFactoryIntentDigest(project: FactoryProjectState, intentId:
   };
 }
 
+export function decideIntentOutcomeNotices({ project, trustedIntentIds, notifiedIntentOutcomes }: {
+  project: FactoryProjectState; trustedIntentIds: ReadonlySet<string>; notifiedIntentOutcomes: readonly string[] | undefined;
+}): { notifiedIntentOutcomes: string[]; messages: string[] } {
+  const partialIntentIds = new Set(project.partialIntentIds ?? []);
+  const reachedOutcomes = project.orders.flatMap((order) => {
+    if (order.parent !== null || !trustedIntentIds.has(order.id)) return [];
+    const outcome = order.state === 'completed' ? 'completed' : partialIntentIds.has(order.id) ? 'partial' : null;
+    return outcome === null ? [] : [{ intentId: order.id, outcome, outcomeKey: JSON.stringify([order.id, outcome]) }];
+  });
+  const alreadyNotified = new Set(notifiedIntentOutcomes ?? reachedOutcomes.map(({ outcomeKey }) => outcomeKey));
+  const newOutcomes = reachedOutcomes.filter(({ outcomeKey }) => !alreadyNotified.has(outcomeKey));
+  return {
+    notifiedIntentOutcomes: reachedOutcomes.map(({ outcomeKey }) => outcomeKey),
+    messages: newOutcomes.map(({ intentId, outcome }) => {
+      const digest = buildFactoryIntentDigest(project, intentId);
+      return `Factory intent ${outcome}: ${digest.objective}. ${digest.merged.length} merged, ${digest.parked.length} parked.`;
+    }),
+  };
+}
+
 export function factoryStateSignature(projects: FactoryProjectState[]): string {
   return JSON.stringify(projects.map((project) => FactoryProjectState.parse(project))
     .sort((left, right) => left.projectId.localeCompare(right.projectId)));
 }
 
-export function nextIntent(orders: FactoryProjectState['orders'], trustedIntentIds: ReadonlySet<string>): FactoryProjectState['orders'][number] | null {
-  return orders.filter((order) => order.parent === null && trustedIntentIds.has(order.id) && order.state === 'open' && order.readiness === 'ready')
+export function nextIntent(orders: FactoryProjectState['orders'], trustedIntentIds: ReadonlySet<string>,
+  partialIntentIds: ReadonlySet<string> = new Set()): FactoryProjectState['orders'][number] | null {
+  return orders.filter((order) => order.parent === null && trustedIntentIds.has(order.id) && !partialIntentIds.has(order.id)
+    && order.state === 'open' && order.readiness === 'ready')
     .sort((left, right) => left.openedAt.localeCompare(right.openedAt) || left.id.localeCompare(right.id))[0] ?? null;
 }
 
@@ -1147,33 +1202,6 @@ export function inheritedSecretValues(baseEnv: Readonly<Record<string, string | 
 }
 
 type FactoryIntent = FactoryProjectState['orders'][number];
-
-export function listIntentCapClosings(work: readonly FactoryWorkOrder[], intentId: string): { closings: { workId: string; synthesizedIds: string[] }[] } | null {
-  const isSettled = (item: FactoryWorkOrder) => item.state === 'completed' || item.state === 'cancelled';
-  const intent = work.find((item) => item.work === intentId);
-  if (!intent || isSettled(intent)) return null;
-  const childrenByParent = new Map<string, FactoryWorkOrder[]>();
-  for (const item of work) {
-    if (!item.opened.parent) continue;
-    const siblings = childrenByParent.get(item.opened.parent) ?? [];
-    siblings.push(item);
-    childrenByParent.set(item.opened.parent, siblings);
-  }
-  const visitedWorkIds = new Set<string>();
-  const parentsFirst: FactoryWorkOrder[] = [];
-  const pending: FactoryWorkOrder[] = [intent];
-  while (pending.length > 0) {
-    const item = pending.pop();
-    if (!item || visitedWorkIds.has(item.work)) continue;
-    visitedWorkIds.add(item.work);
-    parentsFirst.push(item);
-    pending.push(...(childrenByParent.get(item.work) ?? []).filter((child) => !isSettled(child)));
-  }
-  return { closings: parentsFirst.toReversed().map((item) => ({
-    workId: item.work,
-    synthesizedIds: (childrenByParent.get(item.work) ?? []).filter((child) => child.state === 'completed').map((child) => child.work),
-  })) };
-}
 
 export function decideIntentClose({ intent, children, verifiedWorkIds, orchestratorSaidReady }: {
   intent: FactoryIntent; children: FactoryIntent[]; verifiedWorkIds: ReadonlySet<string>; orchestratorSaidReady: boolean;

@@ -32,7 +32,7 @@ const prepareUnsandboxedCheckRunner: PrepareFactoryCheckRunner = async () => ({
   dispose: async () => {},
 });
 
-async function createFixture(context: TestContext, activateOrder = true, capCounters: Pick<FactoryCloseOutDeps, 'countTicketBlock' | 'countIntentCapCancel' | 'releaseWorkers'> = {}) {
+async function createFixture(context: TestContext, activateOrder = true, capCounters: Pick<FactoryCloseOutDeps, 'countTicketBlock'> = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'factory-closeout-'));
   const cleanupTasks: (() => Promise<void>)[] = [];
   context.after(async () => {
@@ -344,7 +344,7 @@ test('a block clears the attempt count so a reopened ticket starts over at its f
   assert.equal(fixture.exceptions.length, 1);
 });
 
-test('a ticket blocked a third time is cancelled through the cancel path and the orchestrator is told to re-plan, without cancelling its intent', async (context) => {
+test('a ticket blocked a third time stays parked with its need and the orchestrator is told to replace it within scope or leave it parked', async (context) => {
   const fixture = await createFixture(context);
   await fixture.commitChange('outside.ts');
   const reopenedWorker: FactoryCloseOutWorker = { ...fixture.worker, session: { ...fixture.worker.session, _destroyed: false, destroy: () => {} } };
@@ -354,29 +354,32 @@ test('a ticket blocked a third time is cancelled through the cancel path and the
     await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', fixture.worker.workId, 'active', '--because', 'Factory reopen', '--session', 'glimmervoid-factory'] });
     for (const _attempt of [1, 2, 3]) await fixture.closeOut.turnEnded(reopenedWorker);
   }
-  assert.equal(await fixture.orderState(fixture.worker.workId), 'cancelled');
-  assert.equal(fixture.commands.filter((command) => command[1] === 'close' && command[2] === fixture.worker.workId && command[3] === 'cancelled').length, 1);
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'blocked');
+  assert.equal(fixture.commands.some((command) => command[1] === 'close' && command[3] === 'cancelled'), false);
   assert.notEqual(await fixture.orderState(fixture.worker.intentId), 'cancelled');
   assert.equal(fixture.events.at(-1)?.event, 'blocked');
-  assert.match(fixture.events.at(-1)?.detail ?? '', /after 3 blocks\. Re-plan the intent without it\.\n.*outside\.ts/s);
+  const parkedOrder = (await fixture.inspect()).work.find((order) => order.work === fixture.worker.workId);
+  assert.equal(parkedOrder?.last?.reason, fixture.events[0].detail);
+  assert.match(fixture.events.at(-1)?.detail ?? '', /Parked .* after 3 blocks\. Replace it with an in-scope ticket or leave it parked\. Need: .*outside\.ts/s);
   assert.equal(fixture.exceptions.length, 3);
   assert.doesNotMatch(fixture.exceptions[1], /cancelled/);
-  assert.match(fixture.exceptions[2], /cancelled .* after 3 blocks\. Last block: .*outside\.ts/s);
+  assert.match(fixture.exceptions[2], /Parked .* after 3 blocks\..*Need: .*outside\.ts/s);
 });
 
-test('the third cap-cancelled ticket of an intent cancels the intent itself and raises a notice', async (context) => {
-  const fixture = await createFixture(context, true, { countTicketBlock: async () => 3, countIntentCapCancel: async () => 3 });
+test('parking at the block cap leaves the intent partial instead of cancelling it', async (context) => {
+  const fixture = await createFixture(context, true, { countTicketBlock: async () => 3 });
   await fixture.commitChange('outside.ts');
   for (const _attempt of [1, 2, 3]) await fixture.closeOut.turnEnded(fixture.worker);
-  assert.equal(await fixture.orderState(fixture.worker.workId), 'cancelled');
-  assert.equal(await fixture.orderState(fixture.worker.intentId), 'cancelled');
-  assert.match(fixture.exceptions.at(-1) ?? '', /cancelled intent .* after 3 of its tickets were cancelled at the block cap/);
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'blocked');
+  assert.notEqual(await fixture.orderState(fixture.worker.intentId), 'cancelled');
+  const project = buildFactoryProjectState({ projectId: 'repo', projectName: 'Factory', headSha: null,
+    orient: await fixture.readOrient(), work: await fixture.inspect(), error: null, ticketBlockCounts: { [fixture.worker.workId]: 3 } });
+  assert.deepEqual(project.partialIntentIds, [fixture.worker.intentId]);
+  assert.match(fixture.exceptions.at(-1) ?? '', /Parked .* after 3 blocks/);
 });
 
-test('an intent at its cap-cancel limit releases and cancels its live descendants deepest first and synthesizes its completed children, so coherence lets the intent close', async (context) => {
-  const releasedWorkIds: string[] = [];
-  const fixture = await createFixture(context, true, { countTicketBlock: async () => 3, countIntentCapCancel: async () => 4,
-    releaseWorkers: (_projectId, workIds) => releasedWorkIds.push(...workIds) });
+test('parking at the block cap preserves independent live descendants, merged tickets and waiting dependents', async (context) => {
+  const fixture = await createFixture(context, true, { countTicketBlock: async () => 4 });
   const activate = (workId: string) => fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', workId, 'active', '--because', 'Factory dispatch', '--session', 'glimmervoid-factory'] });
   const siblingId = await fixture.createOrder(fixture.worker.intentId, 'Ship backoff');
   await activate(siblingId);
@@ -391,17 +394,12 @@ test('an intent at its cap-cancel limit releases and cancels its live descendant
   ] }));
   await fixture.commitChange('outside.ts');
   for (const _attempt of [1, 2, 3]) await fixture.closeOut.turnEnded(fixture.worker);
-  assert.deepEqual(releasedWorkIds.sort(), [siblingId, grandchildId, dependent.work].sort());
-  for (const workId of [fixture.worker.workId, siblingId, grandchildId, dependent.work, fixture.worker.intentId]) assert.equal(await fixture.orderState(workId), 'cancelled', workId);
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'blocked');
+  for (const workId of [siblingId, grandchildId]) assert.equal(await fixture.orderState(workId), 'active', workId);
+  for (const workId of [dependent.work, fixture.worker.intentId]) assert.equal(await fixture.orderState(workId), 'open', workId);
+  assert.equal((await fixture.inspect()).work.find((order) => order.work === dependent.work)?.readiness, 'blocked');
   assert.equal(await fixture.orderState(mergedSiblingId), 'completed');
-  assert.match(fixture.exceptions.at(-1) ?? '', /cancelled intent .* after 4 of its tickets were cancelled at the block cap/);
-});
-
-test('lane state carries per-ticket block counts and per-intent cap-cancel counts', () => {
-  const state = FactoryLaneState.parse({ ledgerPath: null, ledgerBranch: null, paused: false, ticketBlockCounts: { 'wrk-a': 2 }, intentCapCancelCounts: { 'wrk-i': 1 } });
-  assert.deepEqual(state.ticketBlockCounts, { 'wrk-a': 2 });
-  assert.deepEqual(state.intentCapCancelCounts, { 'wrk-i': 1 });
-  assert.equal(FactoryLaneState.safeParse({ ledgerPath: null, ledgerBranch: null, paused: false, ticketBlockCounts: { 'wrk-a': -1 } }).success, false);
+  assert.match(fixture.exceptions.at(-1) ?? '', /Parked .* after 4 blocks/);
 });
 
 test('independent reviewer failure retries with findings', async (context) => {
@@ -761,7 +759,7 @@ async function startFactoryWiring(fixture: Awaited<ReturnType<typeof createFixtu
   return { wiring, config, sessions, statePath, notifications };
 }
 
-test('factory wiring observes worker Stop, exposes Review, and trusts the merge verification so the verifier closes the intent', async (context) => {
+test('factory wiring observes worker Stop, records confirmed flakes, exposes Review and notifies once after verified completion', async (context) => {
   const fixture = await createFixture(context, false);
   const workId = fixture.worker.workId;
   let finishReview: (() => void) | undefined;
@@ -771,11 +769,18 @@ test('factory wiring observes worker Stop, exposes Review, and trusts the merge 
     await reviewBarrier;
     request.onOutput?.(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, structured_output: { pass: true, findings: [] } }));
   });
+  const flakeCommand = `${process.execPath} src/retry.ts`;
+  if (!config.factory) throw new Error('Factory config is missing');
+  config.factory.checks = [flakeCommand];
   const reply = await wiring.dispatch('factory-orch-repo', { workId });
   if (!reply.ok) throw new Error(reply.reason);
   const worker = sessions.get(reply.sessionId);
   assert.ok(worker?.worktreeDir);
-  await writeFile(path.join(worker.worktreeDir, 'src/retry.ts'), 'export const retries = 2;\n');
+  await writeFile(path.join(worker.worktreeDir, 'src/retry.ts'), [
+    "import { access, writeFile } from 'node:fs/promises';",
+    'export const retries = 2;',
+    "try { await access('.flake-seen'); } catch { await writeFile('.flake-seen', 'seen'); throw new Error('first run failed'); }",
+  ].join('\n'));
   await fixture.git(['add', 'src/retry.ts'], worker.worktreeDir);
   await fixture.git(['commit', '-m', 'fix: wired retries'], worker.worktreeDir);
   worker.emit('hook-event', { event: 'stop', payload: {} });
@@ -784,6 +789,8 @@ test('factory wiring observes worker Stop, exposes Review, and trusts the merge 
   await waitFor(() => worker._destroyed && wiring.getState()?.projects[0]?.reviewing?.includes(workId) === false, 'factory completes close-out and destroys the worker', 30_000);
   const state = FactoryLaneState.parse(JSON.parse(await readFile(statePath, 'utf8')));
   assert.deepEqual(state.trustedVerifications?.map(({ id }) => id), [`merged-${workId}`]);
+  assert.deepEqual(state.intentConfirmedFlakes, { [fixture.worker.intentId]: [flakeCommand] });
+  assert.deepEqual(wiring.getState()?.projects[0]?.confirmedFlakesByIntent, state.intentConfirmedFlakes);
   assert.equal(await fixture.orderState(workId), 'completed');
   assert.equal(await fixture.git(['rev-parse', 'integration']), await fixture.git(['rev-parse', 'origin/integration']));
   const queuedNext = await wiring.queueIntent({ projectId: 'repo', objective: 'Next intent', criteria: ['Retries pass'], risk: 'medium', boundary: 'This repo', writeScopes: ['src'] });
@@ -802,6 +809,8 @@ test('factory wiring observes worker Stop, exposes Review, and trusts the merge 
   assert.deepEqual(notifications.at(-1), { category: 'factory', message: 'daily spend is over budget' });
   assert.equal(wiring.getState()?.projects[0]?.spentTodayUsd, 1);
   assert.equal(wiring.getState()?.projects[0]?.dailyBudgetUsd, 0);
+  assert.deepEqual(notifications.filter(({ message }) => message.startsWith('Factory intent completed:')),
+    [{ category: 'factory', message: 'Factory intent completed: Ship retries. 1 merged, 0 parked.' }]);
 });
 
 test('a dispatch discards an orchestrator pending forged factory-session record before its trusted landing and raises the exception', async (context) => {
