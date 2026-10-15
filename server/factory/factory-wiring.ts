@@ -4,10 +4,10 @@ import { CoherenceTicketCreated, CoherenceWorkCreated } from '../../shared/contr
 import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest, FactoryLaneState, FactoryQueueIntentRequest, isSingleFactoryPathSegment } from '../../shared/contracts/factory.ts';
 import type { FactoryControlResult, FactoryQueueIntentResult, FactoryUnlandedRecord } from '../../shared/contracts/factory.ts';
 import { comparableDirectoryPath } from '../../shared/canonical-paths.ts';
-import type { Config } from '../../shared/contracts/config.ts';
+import type { Config, ProjectConfig } from '../../shared/contracts/config.ts';
 import type { AgentTicketReply, AgentTicketRequest, TicketAgentVerb } from '../../shared/contracts/session.ts';
 import { execFileAsync } from '../child-process-safe.ts';
-import { glimmervoidHomeDir } from '../config-store.ts';
+import { DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
 import { buildCoherenceShims } from '../core/coherence-session-core.ts';
 import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, exceedsRiskCeiling, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines, withIntentFloorAllowances } from './core/factory-core.ts';
 import type { FactoryWorkRefusal } from './core/factory-core.ts';
@@ -38,6 +38,8 @@ import { createLaneRunner } from '../lanes/lane-runner.ts';
 import { cliPath as glimmervoidCliPath, resolvePackageBin } from '../runtime-paths.ts';
 import { errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { createFactoryVerifier } from './factory-verifier.ts';
+import { createFactorySetup } from './factory-setup.ts';
+import type { FactorySetupResult } from './core/factory-setup-core.ts';
 
 const COHERENCE_CONFIG_PROBE_TIMEOUT_MS = 5_000;
 const ORCHESTRATOR_EXCEPTION_PREFIX = 'factory-exception';
@@ -54,13 +56,14 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
   spawnVerifier?: FactoryCloseOutDeps['spawnReviewer'];
   spawnReviewer?: FactoryCloseOutDeps['spawnReviewer'];
   prepareCheckRunner?: FactoryCloseOutDeps['prepareCheckRunner'];
+  saveProjectFactoryProfile?: (projectPath: string, profile: NonNullable<ProjectConfig['factoryProfile']>) => Promise<void>;
   trustClaudeFolder?: (repositoryRoot: string) => Promise<FolderTrustOutcome>;
   orchestratorOptions?: Omit<FactoryOrchestratorDeps<ManagedSession>, 'nodePath' | 'hookCliPath' | 'shimDir' | 'ensureLedger' | 'commitAndLand' | 'readTrustedIntentIds' | 'beginIntent'>;
 }
 
 export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSession = Session>({
   config, broadcast, gitWorkspace = createGitWorkspace(), homeDir = glimmervoidHomeDir(),
-  createPoller = createFactoryPoller, log = console, telemetry, orchestratorOptions, trustClaudeFolder, spawnReviewer, prepareCheckRunner, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
+  createPoller = createFactoryPoller, log = console, telemetry, orchestratorOptions, trustClaudeFolder, spawnReviewer, prepareCheckRunner, saveProjectFactoryProfile, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
 }: FactoryWiringOptions<ManagedSession>) {
   gitWorkspace = isolateGitWorkspace(gitWorkspace, { disableRepoCommands: true });
   const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
@@ -123,6 +126,40 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     return updateLaneState(projectId, (state) => ({ unlandedFactoryRecords: (state.unlandedFactoryRecords ?? []).filter(({ id }) => !recordIds.has(id)) }));
   }
   const checkouts = new Map<string, { projectPath: string; sha: string }>();
+  const setup = createFactorySetup({
+    readIntegrationSha: async (projectPath) => {
+      const branch = await resolveIntegrationBranch(projectPath);
+      const listed = await gitWorkspace.listIntegrationTips({ projectPath, integrationBranch: branch });
+      if (!('integrationTips' in listed)) throw new Error(listed.err || `Could not list the ${branch} refs`);
+      const tip = listed.integrationTips.find((candidate) => candidate.branch === branch);
+      if (!tip?.sha) throw new Error(`Could not resolve origin/${branch} or ${branch}`);
+      return tip.sha;
+    },
+    globalChecks: () => config.factory?.checks,
+    sharedEntries: () => config.worktreeShare ?? DEFAULT_CONFIG.worktreeShare,
+    gitWorkspace, prepareCheckRunner, spawnSetupAgent: spawnReviewer,
+    model: () => config.factory?.reviewerModel ?? null,
+    secretValues: factorySecretValues(process.env),
+    saveProjectFactoryProfile: async (projectPath, profile) => {
+      if (!saveProjectFactoryProfile) throw new Error('Factory setup profile persistence is unavailable');
+      await saveProjectFactoryProfile(projectPath, profile);
+      const project = config.projects?.find((entry) => entry.path === projectPath);
+      if (!project) throw new Error('Factory setup project is no longer configured');
+      project.factoryProfile = profile;
+    },
+    recordBaseline: async (projectId, baseline) => {
+      await mkdir(projectHomePath(projectId), { recursive: true });
+      await writeJsonAtomic(path.join(projectHomePath(projectId), 'setup-baseline.json'), baseline);
+    },
+  });
+
+  async function rerunSetup(projectId: string): Promise<FactorySetupResult> {
+    try {
+      return await setup.runSetup(projectId, requireProject(projectId));
+    } catch (error) {
+      return { ok: false, reason: errorMessage(error) };
+    }
+  }
 
   async function ensureCoherenceShims(): Promise<void> {
     if (!coherenceCliPath) throw new Error('Could not resolve the coherence CLI');
@@ -445,6 +482,11 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       if (exceedsRiskCeiling(intent.risk, maxRisk)) throw new Error(`Intent risk ${intent.risk} exceeds the factory risk ceiling ${maxRisk}`);
       const ticketProblem = findIntentTicketProblem(intent);
       if (ticketProblem) throw new Error(`Invalid tickets: ${ticketProblem}`);
+      requireProject(intent.projectId);
+      if (!config.projects?.find((project) => project.id === intent.projectId)?.factoryProfile) {
+        const setupResult = await rerunSetup(intent.projectId);
+        if (!setupResult.ok) throw new Error(setupResult.reason);
+      }
       const outcome = await serializeProject(intent.projectId, async () => {
         const projectPath = requireProject(intent.projectId);
         const ledger = await ensureTrustedLedgerCheckout(intent.projectId, projectPath);
@@ -758,6 +800,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     start: runner.startPoller,
     stop: async () => {
       const stopped = runner.stopPoller();
+      await setup.stop();
       await Promise.allSettled([...projectChains.values()]);
       await stopped;
       await decisionLog.idle();
@@ -771,6 +814,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     reopen: (sessionId: string, request: AgentTicketRequest) => changeTicket('reopen', sessionId, request),
     cancel: (sessionId: string, request: AgentTicketRequest) => changeTicket('cancel', sessionId, request),
     queueIntent,
+    rerunSetup,
     control,
     restartIfConfigChanged: () => {
       runner.restartIfConfigChanged();

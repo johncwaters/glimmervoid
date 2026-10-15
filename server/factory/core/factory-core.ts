@@ -1,13 +1,15 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
+import type { z } from 'zod';
 import { contentMarker } from '../../visions/core/visions-dispatch-core.ts';
 import { stableConfigKey } from '../../core/config-secrets-core.ts';
+import { parseJsonOrNull } from '../../core/json-core.ts';
 import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../../shared/contracts/browser-config.ts';
 import type { Config } from '../../../shared/contracts/config.ts';
 import type { CoherenceOrient, CoherenceWorkInspect } from '../../../shared/contracts/coherence.ts';
-import type { FactoryWorkerEvent, FactoryReviewVerdict, FactoryIntentTicket, FactoryQueueIntentRequest } from '../../../shared/contracts/factory.ts';
-import { FACTORY_PROTECTED_PATH_FLOOR, FactoryProjectState, FactoryReviewerOutput } from '../../../shared/contracts/factory.ts';
+import type { FactoryWorkerEvent, FactoryIntentTicket, FactoryQueueIntentRequest } from '../../../shared/contracts/factory.ts';
+import { FACTORY_PROTECTED_PATH_FLOOR, FactoryProjectState, FactoryReviewerOutput, FactoryReviewVerdict } from '../../../shared/contracts/factory.ts';
 import { STATES } from '../../../shared/states.ts';
 import type { LaneSpend } from '../../usage/core/usage-scan-core.ts';
 import type { SessionState } from '../../../shared/states.ts';
@@ -765,22 +767,18 @@ export function decideCloseOut({ fence, checks, review, attempt, failingFilesOut
   return { action: 'retry', feedback };
 }
 
-function parseReviewerResultLine(line: string): FactoryReviewVerdict | null {
-  try {
-    const parsed = FactoryReviewerOutput.safeParse(JSON.parse(line));
-    return parsed.success ? parsed.data.structured_output : null;
-  } catch {
-    return null;
+export function parseFactoryStructuredOutput<Value>(output: string, schema: z.ZodType<Value>): Value | null {
+  const envelopeSchema = FactoryReviewerOutput.extend({ structured_output: schema });
+  const candidateLines = stripVTControlCharacters(output).split(/\r?\n/).map((line) => line.trim()).filter((line) => line.startsWith('{')).reverse();
+  for (const line of candidateLines) {
+    const parsedEnvelope = envelopeSchema.safeParse(parseJsonOrNull(line));
+    if (parsedEnvelope.success) return parsedEnvelope.data.structured_output;
   }
+  return null;
 }
 
 export function parseFactoryReviewerOutput(output: string): FactoryReviewVerdict | null {
-  const candidateLines = stripVTControlCharacters(output).split(/\r?\n/).map((line) => line.trim()).filter((line) => line.startsWith('{')).reverse();
-  for (const line of candidateLines) {
-    const verdict = parseReviewerResultLine(line);
-    if (verdict) return verdict;
-  }
-  return null;
+  return parseFactoryStructuredOutput(output, FactoryReviewVerdict);
 }
 
 export function reviewerOutputTail(output: string): string {

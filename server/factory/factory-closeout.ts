@@ -12,7 +12,7 @@ import { FactoryReviewVerdict } from '../../shared/contracts/factory.ts';
 import { factoryFailureText as failureText, prepareSandboxedCheckRunner, runChecksInCleanCheckout } from './factory-check-sandbox.ts';
 import type { FactoryCheckoutRun, PrepareFactoryCheckRunner } from './factory-check-sandbox.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
-import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, isInheritedCheckFailure, listIntentCapClosings, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail } from './core/factory-core.ts';
+import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, isInheritedCheckFailure, listIntentCapClosings, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseFactoryStructuredOutput, redactSecretLines, reviewerOutputTail } from './core/factory-core.ts';
 import { resolveFactoryProfile } from './core/factory-profile-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
@@ -120,10 +120,17 @@ function closeOutFailureText(decision: ReturnType<typeof decideCloseOut>): strin
   return null;
 }
 
-export async function runFactoryReview({ spawnReviewer, model, signal, buildPrompt, name, extraArgs = [], readablePaths = [] }: {
+type FactoryStructuredAgentOptions<Value> = {
   spawnReviewer: LaneSpawn; model: string | null; signal: AbortSignal;
   buildPrompt: (resultPath: string) => string; name: string; extraArgs?: string[]; readablePaths?: string[];
-}): Promise<FactoryReviewVerdict> {
+  schema: z.ZodType<Value>; prompt?: string;
+  failureMessages?: { missingOutput: (output: string) => string; invalidFile: string };
+};
+
+export async function runFactoryStructuredAgent<Value>({ spawnReviewer, model, signal, buildPrompt, name, extraArgs = [], readablePaths = [], schema,
+  prompt = 'Read the assigned factory task and return its structured output.',
+  failureMessages = { missingOutput: (output) => `Agent returned no structured output. Output tail: ${reviewerOutputTail(output) || '(empty)'}`, invalidFile: 'Agent result file is missing or invalid' },
+}: FactoryStructuredAgentOptions<Value>): Promise<{ ok: true; value: Value } | { ok: false; reason: string }> {
   const reviewDirectory = await makeHostScratchDirectory('glimmervoid-factory-review-');
   try {
     const resultPath = path.join(reviewDirectory, 'verdict.json');
@@ -135,25 +142,37 @@ export async function runFactoryReview({ spawnReviewer, model, signal, buildProm
     let hasOutputOverflow = false;
     await spawnReviewer({
       id: `factory-review-${crypto.randomUUID()}`, name, cwd: reviewerCwd,
-      prompt: 'Review the assigned factory ticket and return its structured verdict.', agent: 'claude-code',
+      prompt, agent: 'claude-code',
       model, signal, readablePaths: [promptPath, ...readablePaths],
-      extraArgs: [...extraArgs, '--append-system-prompt-file', promptPath, '--output-format', 'json', '--json-schema', JSON.stringify(z.toJSONSchema(FactoryReviewVerdict, { target: 'draft-7' })), '--permission-mode', 'dontAsk'],
+      extraArgs: [...extraArgs, '--append-system-prompt-file', promptPath, '--output-format', 'json', '--json-schema', JSON.stringify(z.toJSONSchema(schema, { target: 'draft-7' })), '--permission-mode', 'dontAsk'],
       onOutput: (chunk) => {
         if (reviewerOutput.length + chunk.length > 16 * 1024 * 1024) { hasOutputOverflow = true; return; }
         reviewerOutput += chunk;
       },
     });
-    const capturedVerdict = hasOutputOverflow ? null : parseFactoryReviewerOutput(reviewerOutput);
-    if (!capturedVerdict) return { pass: false, findings: [`Reviewer returned no structured verdict. Output tail: ${reviewerOutputTail(reviewerOutput) || '(empty)'}`] };
-    await writeJsonAtomic(resultPath, capturedVerdict);
-    const parsed = FactoryReviewVerdict.safeParse(await readLaneResultFile(resultPath));
-    if (!parsed.success || JSON.stringify(parsed.data) !== JSON.stringify(capturedVerdict)) return { pass: false, findings: ['Reviewer verdict file is missing or invalid'] };
-    return parsed.data;
+    const capturedValue = hasOutputOverflow ? null : parseFactoryStructuredOutput(reviewerOutput, schema);
+    if (capturedValue === null) return { ok: false, reason: failureMessages.missingOutput(reviewerOutput) };
+    await writeJsonAtomic(resultPath, capturedValue);
+    const parsedValue = schema.safeParse(await readLaneResultFile(resultPath));
+    if (!parsedValue.success || JSON.stringify(parsedValue.data) !== JSON.stringify(capturedValue)) return { ok: false, reason: failureMessages.invalidFile };
+    return { ok: true, value: parsedValue.data };
   } catch (error) {
-    return { pass: false, findings: [failureText(error)] };
+    return { ok: false, reason: failureText(error) };
   } finally {
     await rm(reviewDirectory, { recursive: true, force: true });
   }
+}
+
+export async function runFactoryReview(options: Omit<FactoryStructuredAgentOptions<FactoryReviewVerdict>, 'schema' | 'prompt' | 'failureMessages'>): Promise<FactoryReviewVerdict> {
+  const review = await runFactoryStructuredAgent({ ...options, schema: FactoryReviewVerdict,
+    prompt: 'Review the assigned factory ticket and return its structured verdict.',
+    failureMessages: {
+      missingOutput: (output) => `Reviewer returned no structured verdict. Output tail: ${reviewerOutputTail(output) || '(empty)'}`,
+      invalidFile: 'Reviewer verdict file is missing or invalid',
+    },
+  });
+  if (!review.ok) return { pass: false, findings: [review.reason] };
+  return review.value;
 }
 
 export function createFactoryCloseOut({

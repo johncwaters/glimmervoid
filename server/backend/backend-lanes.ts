@@ -148,6 +148,14 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const factoryHarnessMirror = createFactoryHarnessMirror({ runsDirectory: factoryHarnessRunsDirectory(process.env, os.homedir()) });
   const factory = createFactoryWiring({
     config, gitWorkspace, broadcast: broadcastControl, log: logger, telemetry,
+    saveProjectFactoryProfile: async (projectPath, profile) => {
+      const savedConfig = await configStore.saveAsync((freshConfig) => {
+        const project = freshConfig.projects?.find((entry) => entry.path === projectPath);
+        if (!project) throw new Error('Factory setup project is no longer configured');
+        project.factoryProfile = profile;
+      });
+      if (!savedConfig) throw new Error('Could not save the factory setup profile');
+    },
     readSpentTodayUsd: () => {
       const localDay = new Date();
       localDay.setHours(0, 0, 0, 0);

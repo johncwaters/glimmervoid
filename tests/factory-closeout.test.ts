@@ -722,7 +722,7 @@ test('disabled factory runs no close-out', async (context) => {
 async function startFactoryWiring(fixture: Awaited<ReturnType<typeof createFixture>>, spawnReviewer: LaneSpawn) {
   const notifications: { category: string; message: string }[] = [];
   const config: GlimmervoidConfig = {
-    projects: [{ id: 'repo', name: 'Factory', path: fixture.projectPath }], integrationBranch: 'integration',
+    projects: [{ id: 'repo', name: 'Factory', path: fixture.projectPath, factoryProfile: {} }], integrationBranch: 'integration',
     factory: { enabled: true, checks: [`${process.execPath} --version`], reviewerModel: null },
     worktreeRoot: path.join(fixture.directory, 'workers'), worktreeShare: [], recordSignals: false, liveWorktreeReview: false,
     agentApi: { enabled: false },

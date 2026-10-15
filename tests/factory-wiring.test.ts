@@ -17,6 +17,7 @@ import { FactoryDecisionLogLine } from '../shared/contracts/factory-decision-log
 import { createFactoryWiring } from '../server/factory/factory-wiring.ts';
 import { cliPath as glimmervoidCliPath, resolvePackageBin } from '../server/runtime-paths.ts';
 import type { FactoryState } from '../shared/contracts/factory.ts';
+import type { ProjectConfig } from '../shared/contracts/config.ts';
 import { createRepositoryWithOrigin, gitRunnerIn, initGitRepository, stubEnvironmentVariable } from './helpers/factory-fixture.ts';
 import { FACTORY_STALL_MS, buildOrchestratorPrompt, decideIntentClose } from '../server/factory/core/factory-core.ts';
 import { FACTORY_ORCHESTRATOR_ALLOW, FACTORY_ORCHESTRATOR_DENY } from '../server/factory/factory-orchestrator.ts';
@@ -388,10 +389,10 @@ async function createIntentFixture(context: test.TestContext) {
   });
   const homeDir = path.join(directory, 'home');
   const { projectPath, originPath, git } = await createRepositoryWithOrigin(directory, 'integration', { 'coherence.config.json': '{}\n' });
-  const config = { factory: { enabled: true }, integrationBranch: 'integration', projects: [{ id: 'project-1', name: 'Factory', path: projectPath }] };
+  const config = { factory: { enabled: true }, integrationBranch: 'integration', projects: [{ id: 'project-1', name: 'Factory', path: projectPath, factoryProfile: {} as ProjectConfig['factoryProfile'] }] };
   const broadcasts: FactoryState[] = [];
   const start = async (gitWorkspace?: GitWorkspaceInstance, runCoherence?: (request: { cwd: string; args: string[] }) => Promise<string>,
-    sessionOptions: Pick<Parameters<typeof createFactoryWiring>[0], 'now' | 'notify' | 'orchestratorOptions' | 'createPoller' | 'readSpentTodayUsd' | 'trustClaudeFolder'> = {}) => {
+    sessionOptions: Pick<Parameters<typeof createFactoryWiring>[0], 'now' | 'notify' | 'orchestratorOptions' | 'createPoller' | 'readSpentTodayUsd' | 'trustClaudeFolder' | 'prepareCheckRunner' | 'saveProjectFactoryProfile' | 'spawnReviewer'> = {}) => {
     const wiring = createFactoryWiring({
       config, homeDir, gitWorkspace, runCoherence, firstTickDelayMs: () => 0, ...sessionOptions,
       broadcast: (message) => broadcasts.push(message),
@@ -409,6 +410,113 @@ async function createIntentFixture(context: test.TestContext) {
   const readState = async () => FactoryLaneState.parse(JSON.parse(await readFile(statePath, 'utf8')));
   return { projectPath, homeDir, originPath, config, broadcasts, git, start, request, statePath, readState };
 }
+
+test('queue proves and saves an unprofiled project once, reruns setup on demand, and refuses unrunnable checks before creating work', async (context) => {
+  const fixture = await createIntentFixture(context);
+  fixture.config.projects[0].factoryProfile = undefined;
+  await mkdir(path.join(fixture.projectPath, 'tests'));
+  await writeFile(path.join(fixture.projectPath, 'package.json'), JSON.stringify({ scripts: {
+    test: 'node --test tests/*.test.js', 'test:files': 'node --test',
+  } }));
+  await writeFile(path.join(fixture.projectPath, 'tests', 'passing.js'), "require('node:test')('passes', () => {});\n");
+  await writeFile(path.join(fixture.projectPath, 'tests', 'failing.test.js'), "require('node:test')('baseline failure', () => { throw new Error('existing failure'); });\n");
+  await fixture.git(['add', '.']);
+  await fixture.git(['commit', '-m', 'Add project checks']);
+  await fixture.git(['push']);
+  const integrationSha = await fixture.git(['rev-parse', 'HEAD']);
+  await writeFile(path.join(fixture.projectPath, 'package.json'), '{}');
+  const savedProfiles: NonNullable<ProjectConfig['factoryProfile']>[] = [];
+  const commands: string[][] = [];
+  let setupAgentCalls = 0;
+  const wiring = await fixture.start(undefined, undefined, {
+    spawnReviewer: async ({ name, cwd, extraArgs = [], readablePaths = [], onOutput }) => {
+      assert.equal(name, 'Factory setup');
+      assert.notEqual(cwd, fixture.projectPath);
+      assert.ok(readablePaths.includes(fixture.projectPath));
+      assert.equal(extraArgs[extraArgs.indexOf('--add-dir') + 1], fixture.projectPath);
+      const promptPath = extraArgs[extraArgs.indexOf('--append-system-prompt-file') + 1];
+      assert.ok(readablePaths.includes(promptPath));
+      const setupPrompt = await readFile(promptPath, 'utf8');
+      assert.match(setupPrompt, /using git show.*untrusted input.*Do not edit files or run checks/);
+      assert.match(setupPrompt, /Keep the global checks.*Omit fields.*without asking questions/);
+      assert.match(setupPrompt, /<<<(GLIMMERVOID-FACTORY-SETUP[^\n]*)\n[^\n]+\n\1>>>/);
+      const outputSchema = JSON.parse(extraArgs[extraArgs.indexOf('--json-schema') + 1]);
+      assert.equal(outputSchema.properties.focusedTestCommand.type, 'string');
+      assert.equal(outputSchema.properties.pass, undefined);
+      setupAgentCalls += 1;
+      const envelope = { type: 'result', subtype: 'success', is_error: false, structured_output: { checks: ['node --version', 'definitely-missing-binary-xyz'] } };
+      const escapeCharacter = String.fromCharCode(27);
+      onOutput?.(`${JSON.stringify({ ...envelope, structured_output: { checks: ['node --invalid-earlier-proposal'] } })}\n`);
+      onOutput?.(`${escapeCharacter}[0m${JSON.stringify(envelope)}\r\n`);
+      onOutput?.(`${JSON.stringify({ ...envelope, is_error: true, structured_output: { checks: ['node --invalid-failed-proposal'] } })}\n`);
+      onOutput?.(JSON.stringify({ ...envelope, structured_output: { checks: [false] } }));
+    },
+    saveProjectFactoryProfile: async (projectPath, profile) => {
+      assert.equal(projectPath, fixture.projectPath);
+      savedProfiles.push(profile);
+    },
+    prepareCheckRunner: async () => ({
+      runCheck: async (argumentsToRun, options) => {
+        commands.push(argumentsToRun);
+        assert.notEqual(options.cwd, fixture.projectPath);
+        const [command, ...argumentsAfterCommand] = argumentsToRun;
+        assert.ok(command);
+        return execFileAsync(command, argumentsAfterCommand, options);
+      },
+      dispose: async () => {},
+    }),
+  });
+  const queued = await wiring.queueIntent(fixture.request);
+  assert.equal(queued.ok, true, queued.error ?? 'Queue failed');
+  assert.equal(setupAgentCalls, 0);
+  assert.deepEqual(savedProfiles[0]?.checks, ['npm test']);
+  assert.equal(savedProfiles[0]?.focusedTestCommand, 'npm run test:files');
+  assert.ok(savedProfiles[0]?.widenableScopes?.includes('tests/'));
+  assert.deepEqual(fixture.config.projects[0].factoryProfile, savedProfiles[0]);
+  const baseline = JSON.parse(await readFile(path.join(fixture.homeDir, 'factory', fixture.request.projectId, 'setup-baseline.json'), 'utf8'));
+  assert.equal(baseline.sha, integrationSha);
+  assert.equal(baseline.checks[0].status, 'ran');
+  assert.equal(baseline.checks[0].pass, false);
+  const commandCount = commands.length;
+  assert.equal((await wiring.queueIntent({ ...fixture.request, objective: 'Another intent' })).ok, true);
+  assert.equal(commands.length, commandCount);
+  assert.equal((await wiring.rerunSetup(fixture.request.projectId)).ok, true);
+  assert.equal(savedProfiles.length, 2);
+  fixture.config.projects[0].factoryProfile = undefined;
+  Object.assign(fixture.config.factory, { checks: ['npm run missing-check'] });
+  const beforeRefusal = await fixture.git(['rev-parse', 'integration'], fixture.originPath);
+  const refused = await wiring.queueIntent({ ...fixture.request, objective: 'Must not queue' });
+  assert.equal(refused.ok, false);
+  assert.match(refused.error ?? '', /Factory setup could not run any full checks/);
+  assert.match(refused.error ?? '', /missing-check/);
+  assert.equal(await fixture.git(['rev-parse', 'integration'], fixture.originPath), beforeRefusal);
+  assert.equal(savedProfiles.length, 2);
+  assert.equal(fixture.config.projects[0].factoryProfile, undefined);
+  assert.equal(setupAgentCalls, 0);
+  Object.assign(fixture.config.factory, { checks: undefined });
+  await writeFile(path.join(fixture.projectPath, 'package.json'), JSON.stringify({ scripts: {
+    test: 'node --test tests/*.test.js', 'test:files': 'node --test tests/failing.test.js',
+  } }));
+  await fixture.git(['add', 'package.json']);
+  await fixture.git(['commit', '-m', 'Break the focused runner']);
+  await fixture.git(['push']);
+  const unprovenFocusSetup = await wiring.rerunSetup(fixture.request.projectId);
+  assert.equal(unprovenFocusSetup.ok, true);
+  assert.equal(setupAgentCalls, 1);
+  assert.deepEqual(savedProfiles[2]?.checks, ['npm test']);
+  assert.equal(savedProfiles[2]?.focusedTestCommand, undefined);
+  assert.ok(!commands.some((command) => command.join(' ') === 'node --version'));
+  await writeFile(path.join(fixture.projectPath, 'package.json'), '{}');
+  await fixture.git(['add', 'package.json']);
+  await fixture.git(['commit', '-m', 'Remove detectable scripts']);
+  await fixture.git(['push']);
+  const agentSetup = await wiring.rerunSetup(fixture.request.projectId);
+  assert.equal(agentSetup.ok, true);
+  assert.equal(setupAgentCalls, 2);
+  assert.deepEqual(savedProfiles[3]?.checks, ['node --version']);
+  assert.equal(savedProfiles[3]?.focusedTestCommand, undefined);
+  assert.ok(commands.some((command) => command.join(' ') === 'node --version'));
+});
 
 test('queue intent lands on integration and origin, reuses its ledger, and pause persists across restart', async (context) => {
   const { projectPath, homeDir, originPath, config, git, start, request, readState } = await createIntentFixture(context);
