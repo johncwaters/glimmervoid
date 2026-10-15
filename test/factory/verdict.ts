@@ -103,7 +103,7 @@ export interface VerdictInput {
 
 export function findUnrecoveredException(projectError: string | null | undefined, decisions: readonly FactoryDecisionLogLine[]): string | null {
   const blockReasons = new Set(decisions.flatMap((decision) => decision.kind === 'admission' && decision.outcome === 'block' && decision.reason !== null ? [decision.reason] : []));
-  const isBlockReason = (reason: string | null) => reason !== null && blockReasons.has(reason.slice(0, 1000));
+  const isBlockReason = (reason: string | null) => reason !== null && blockReasons.has(reason.slice(0, 3999));
   if (projectError && !isBlockReason(projectError)) return projectError;
   return decisions.find((decision) => decision.kind === 'exception' && !isBlockReason(decision.reason))?.reason ?? null;
 }

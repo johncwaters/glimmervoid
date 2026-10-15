@@ -24,7 +24,7 @@ const decisionFields = {
   attempt: z.number().int().positive().nullable(),
   durationMs: z.number().int().nonnegative().nullable(),
   failureClass: FactoryDecisionFailureClass.nullable(),
-  reason: z.string().max(1000).nullable(),
+  reason: z.string().max(3999).nullable(),
 };
 
 export const FactoryDecisionLogLine = z.discriminatedUnion('kind', [

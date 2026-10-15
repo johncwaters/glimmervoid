@@ -1055,7 +1055,7 @@ test('independent verifier failure records a bounded ledger defect, shows the fi
   assert.ok(defect);
   assert.ok(defect.evidence.startsWith('Retries do not meet intent criteria; Second finding'));
   assert.equal(defect.evidence.includes('\n'), false);
-  assert.ok(defect.evidence.length <= 1000);
+  assert.ok(defect.evidence.length <= 3999);
   const project = await fixture.verifier.tick(await fixture.readProject());
   assert.match(project.note ?? '', new RegExp(`Verifier rejected ${intentId}: Retries do not meet intent criteria\nSecond\nfinding`));
   assert.equal(project.error, null);

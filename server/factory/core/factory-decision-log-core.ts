@@ -64,7 +64,7 @@ function redactFence(fence: FactoryFence | null, redact: (text: string) => strin
 }
 
 export function buildFactoryDecisionLine(decision: FactoryDecisionInput, timestamp: string, redact: (text: string) => string = (text) => text): FactoryDecisionLogLine {
-  const reason = decision.reason === null ? null : redact(decision.reason).slice(0, 1000);
+  const reason = decision.reason === null ? null : redact(decision.reason).slice(0, 3999);
   if (decision.kind !== 'closeout') return FactoryDecisionLogLine.parse({ ...decision, timestamp, reason });
   return FactoryDecisionLogLine.parse({
     ...decision, timestamp, reason, fence: redactFence(decision.fence, redact),
