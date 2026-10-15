@@ -187,7 +187,7 @@ test('an oversize verdict is refused rather than forwarded', () => {
 });
 
 test('Sane YOLO runs node from PATH with the quoted bin path and preserves the tool matcher', () => {
-  assert.deepEqual(HOOK_TOOLS.saneYolo.claudeEntry({ id: 'saneYolo', binPath: 'C:\\Program Files\\guard.js' }), {
+  assert.deepEqual(HOOK_TOOLS.saneYolo.claudeEntry({ id: 'saneYolo', binPath: 'C:\\Program Files\\guard.js' }, '/unused/hook-tool-relay.js'), {
     matcher: 'Bash|PowerShell|Monitor',
     hooks: [{ type: 'command', command: 'node "C:/Program Files/guard.js" hook --coding-cli' }],
   });

@@ -302,7 +302,7 @@ export function createFactoryCloseOut({
   }
 
   async function runChecksInCleanCheckout(worker: FactoryCloseOutWorker, sha: string, commands: readonly string[] = config.factory?.checks ?? DEFAULT_FACTORY_CHECKS): Promise<FactoryCheckoutRun | null> {
-    const checkoutParent = await makeHostScratchDirectory('glimmervoid-factory-checks-');
+    const checkoutParent = await makeHostScratchDirectory('check-');
     const checkoutPath = path.join(checkoutParent, 'checkout');
     let checkSandbox: FactoryCheckSandbox | null = null;
     try {

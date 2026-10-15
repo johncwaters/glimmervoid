@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 
 import { hostScratchRoot } from '../server/host-scratch.ts';
 import { relayPath } from '../server/runtime-paths.ts';
+import { shellQuote } from '../session/core/hook-command-core.ts';
 import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { appendUserHooks } from '../session/core/user-hooks-core.ts';
@@ -65,6 +66,7 @@ interface BuildHookSettingsOptions {
   userSettingsPath?: string | null;
   relayPath?: string;
   commandHookRelayPath?: string;
+  hookToolRelayPath?: string;
   userHooks?: UserHook[];
 }
 
@@ -94,6 +96,7 @@ const PR_LINK_TOOL_MATCHER = 'Bash';
 
 const RELAY_PATH = relayPath('statusline-relay');
 const COMMAND_HOOK_RELAY_PATH = relayPath('command-hook-relay');
+const HOOK_TOOL_RELAY_PATH = relayPath('hook-tool-relay');
 const NO_CHAIN = '-';
 
 function generateToken(): string {
@@ -102,10 +105,6 @@ function generateToken(): string {
 
 function toForwardSlashes(value: string): string {
   return String(value).replace(/\\/g, '/');
-}
-
-function shellQuote(value: string): string {
-  return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
 function readUserStatuslineCommand(settingsPath: string): string | null {
@@ -134,7 +133,7 @@ function buildCommandHookCommand(
   return `node ${shellQuote(toForwardSlashes(relayPath))} ${shellQuote(postUrl)}`;
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, sandbox = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, userHooks = [] }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, sandbox = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [] }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -177,7 +176,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   if (observeToolCalls) {
     preToolUse.push({ hooks: [{ type: 'http', url: hookUrl('PreToolUse'), timeout: timeoutSec }] });
   }
-  for (const tool of hookTools) preToolUse.push(HOOK_TOOLS[tool.id].claudeEntry(tool));
+  for (const tool of hookTools) preToolUse.push(HOOK_TOOLS[tool.id].claudeEntry(tool, hookToolRelayPath));
   if (preToolUse.length > 0) {
     hooks.PreToolUse = preToolUse;
   }
@@ -224,7 +223,7 @@ function describeBuiltinHooks(
   if (observeToolCalls) rows.push({ event: 'PreToolUse', matcher: null, purpose: 'Investigation trail: POST every tool call to the Glimmervoid hook router' });
   for (const tool of hookTools) {
     const descriptor = HOOK_TOOLS[tool.id];
-    rows.push({ event: 'PreToolUse', matcher: descriptor.claudeEntry(tool).matcher, purpose: descriptor.purpose });
+    rows.push({ event: 'PreToolUse', matcher: descriptor.claudeEntry(tool, HOOK_TOOL_RELAY_PATH).matcher, purpose: descriptor.purpose });
   }
   return rows;
 }

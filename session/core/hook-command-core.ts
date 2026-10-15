@@ -12,4 +12,8 @@ function buildHookCommand(relayPath: string, event: string, argvTail: readonly s
   return `node ${quotedPath} ${rawEvent}${argvTail.length ? ` ${argvTail.join(" ")}` : ""}`;
 }
 
-export { buildHookCommand };
+function shellQuote(value: string): string {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+export { buildHookCommand, shellQuote };

@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { buildHookCommand } from './hook-command-core.ts';
-import { RTK_PATH_ENV } from './rtk-hook-core.ts';
+import { buildHookCommand, shellQuote } from './hook-command-core.ts';
+import { CLAUDE_RELAY_FLAVOR, RTK_PATH_ENV } from './rtk-hook-core.ts';
 import { SANE_YOLO_PATH_ENV, saneYoloEnv } from './sane-yolo.ts';
 
 import { resolvePathCommandMatches } from './spawn-command.ts';
@@ -77,7 +77,7 @@ interface HookToolDescriptor {
   capability: HookToolId;
   purpose: string;
   env(tool: ResolvedHookTool, homeDir: string): Record<string, string>;
-  claudeEntry(tool: ResolvedHookTool): RtkHookEntry;
+  claudeEntry(tool: ResolvedHookTool, relayPath: string): RtkHookEntry;
   codexGroup(tool: ResolvedHookTool, relayPath: string): string | null;
 }
 
@@ -91,7 +91,10 @@ const HOOK_TOOLS: Record<HookToolId, HookToolDescriptor> = {
     capability: 'rtk',
     purpose: 'rtk command rewriting',
     env: (tool) => ({ [RTK_PATH_ENV]: tool.binPath }),
-    claudeEntry: (tool) => buildRtkHookEntry(tool.binPath),
+    claudeEntry: (_tool, relayPath) => ({
+      matcher: 'Bash',
+      hooks: [{ type: 'command', command: `node ${shellQuote(toForwardSlashes(relayPath))} rtk ${CLAUDE_RELAY_FLAVOR}` }],
+    }),
     codexGroup: (_tool, relayPath) => codexGroup(buildHookCommand(relayPath, 'rtk')),
   },
   saneYolo: {

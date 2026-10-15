@@ -6,7 +6,7 @@ import type { StdinLike } from "./relay-stdin.ts";
 
 import { spawn } from "../server/child-process-safe.ts";
 
-import { MAX_RTK_STDOUT_BYTES, RTK_PATH_ENV, normalizeRtkHookResponse } from "./core/rtk-hook-core.ts";
+import { CLAUDE_RELAY_FLAVOR, MAX_RTK_STDOUT_BYTES, RTK_PATH_ENV, normalizeRtkHookResponse } from "./core/rtk-hook-core.ts";
 
 const RTK_TIMEOUT_MS = 3000;
 
@@ -74,6 +74,7 @@ async function main(
   stdin: StdinLike = process.stdin,
   stdout: StdoutLike = process.stdout,
   runner: (binPath: string, body: Buffer) => Promise<string> = (binPath, body) => runHookTool(toolId === "rtk" ? "rtk" : "saneYolo", binPath, body),
+  agentFlavor: string = process.argv[3] ?? "",
 ): Promise<{ code: number; reason: string }> {
   if (toolId !== "rtk" && toolId !== "saneYolo") return { code: 0, reason: "unknown-tool" };
   const configuredPath = env[toolId === "rtk" ? RTK_PATH_ENV : SANE_YOLO_PATH_ENV];
@@ -82,7 +83,7 @@ async function main(
   const body = await readStdin(stdin);
   if (body.length === 0) return { code: 0, reason: "empty-payload" };
   const toolOutput = await runner(binPath, body);
-  const response = toolId === "rtk" ? normalizeRtkHookResponse(toolOutput) : toolOutput;
+  const response = toolId === "rtk" ? normalizeRtkHookResponse(toolOutput, { isForClaude: agentFlavor === CLAUDE_RELAY_FLAVOR }) : toolOutput;
   if (!response) return { code: 0, reason: "no-response" };
   try { stdout.write(toolId === "rtk" ? `${response}\n` : response); } catch {}
   return { code: 0, reason: "forwarded" };

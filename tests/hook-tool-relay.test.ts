@@ -52,6 +52,15 @@ test('a rewrite is completed with permissionDecision and written as one line', a
   assert.equal(stdout.written[0].endsWith('\n'), true);
   const rewritten = JSON.parse(stdout.written[0]) as { hookSpecificOutput: Record<string, unknown> };
   assert.equal(rewritten.hookSpecificOutput.permissionDecision, 'allow');
+  assert.equal('additionalContext' in rewritten.hookSpecificOutput, false);
+});
+
+test('a rewrite relayed for Claude discloses the rtk condensing and leaves the permission decision to Claude', async () => {
+  const stdout = fakeStdout();
+  await main('rtk', { [RTK_PATH_ENV]: '/bin/rtk' }, fakeStdin(ENVELOPE), stdout, fakeRtk(REWRITE), 'claude');
+  const rewritten = JSON.parse(stdout.written[0]) as { hookSpecificOutput: Record<string, unknown> };
+  assert.match(String(rewritten.hookSpecificOutput.additionalContext), /`rtk git log`.*condensed.*`rtk proxy <command>`/);
+  assert.equal('permissionDecision' in rewritten.hookSpecificOutput, false);
 });
 
 test('without the env target nothing is written and rtk is never run', async () => {

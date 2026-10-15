@@ -85,7 +85,7 @@ for (const agent of ['claude-code', 'codex']) {
       }
       const settingsArgument = lastSpawn.args.indexOf('--settings');
       assert.ok(settingsArgument >= 0);
-      assert.equal(fs.readFileSync(lastSpawn.args[settingsArgument + 1], 'utf8').includes('/fixture/rtk hook claude'), isEnabled);
+      assert.equal(fs.readFileSync(lastSpawn.args[settingsArgument + 1], 'utf8').includes(' rtk claude"'), isEnabled);
     };
     try {
       await session.start();

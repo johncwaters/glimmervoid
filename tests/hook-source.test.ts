@@ -257,10 +257,10 @@ test('buildHookSettings adds the rtk PreToolUse hook only when an rtk path is su
   const off = buildHookSettings(base);
   assert.equal('PreToolUse' in off.hooks, false, 'no empty PreToolUse key when rtk is off');
 
-  const on = buildHookSettings({ ...base, hookTools: [{ id: 'rtk', binPath: 'C:\\Users\\johnw\\.glimmervoid\\bin\\rtk.exe' }] });
+  const on = buildHookSettings({ ...base, hookToolRelayPath: 'C:\\glimmervoid\\hook-tool-relay.js', hookTools: [{ id: 'rtk', binPath: 'C:\\Users\\johnw\\.glimmervoid\\bin\\rtk.exe' }] });
   assert.deepEqual(on.hooks.PreToolUse, [{
     matcher: 'Bash',
-    hooks: [{ type: 'command', command: 'C:/Users/johnw/.glimmervoid/bin/rtk.exe hook claude' }],
+    hooks: [{ type: 'command', command: "node 'C:/glimmervoid/hook-tool-relay.js' rtk claude" }],
   }]);
 });
 
@@ -290,10 +290,9 @@ test('writeSessionSettings writes the rtk PreToolUse block when opted in', () =>
     hookTools: [{ id: 'rtk', binPath: 'C:\\Program Files\\rtk\\rtk.exe' }],
   });
   const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-  assert.deepEqual(parsed.hooks.PreToolUse, [{
-    matcher: 'Bash',
-    hooks: [{ type: 'command', command: '"C:/Program Files/rtk/rtk.exe" hook claude' }],
-  }]);
+  assert.equal(parsed.hooks.PreToolUse.length, 1);
+  assert.equal(parsed.hooks.PreToolUse[0].matcher, 'Bash');
+  assert.match(parsed.hooks.PreToolUse[0].hooks[0].command, /^node '[^']*hook-tool-relay\.(?:js|ts)' rtk claude$/);
   cleanup();
   try { fs.rmSync(baseDir, { recursive: true, force: true }); } catch {}
 });
