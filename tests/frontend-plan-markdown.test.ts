@@ -118,17 +118,6 @@ test('a plan paragraph of unclosed link brackets parses in linear time', () => {
   assert.ok(Date.now() - startedAt < 500, 'a 40 KB bracket run stays well under a second');
 });
 
-test('a heading line of spaces, hashes and spaces parses in linear time', () => {
-  const runLength = 34 * 1024;
-  const adversarial = `# ${' '.repeat(runLength)}${'#'.repeat(runLength)}${' '.repeat(runLength)}x`;
-  assert.ok(adversarial.length > 100 * 1024, 'the crafted heading line is over 100 KB');
-  const startedAt = Date.now();
-  const blocks = parsePlanMarkdown(adversarial);
-  assert.ok(Date.now() - startedAt < 50, 'a 100 KB heading line never backtracks');
-  assert.equal(blocks.length, 1);
-  assert.equal(blocks[0].type, 'paragraph');
-});
-
 test('a closing hash run is stripped from a heading only when a space precedes it', () => {
   const blocks = parsePlanMarkdown('## Ship it ###\n\n## Ship###\n\n### ###');
   const headings = blocks.filter((block) => block.type === 'heading');

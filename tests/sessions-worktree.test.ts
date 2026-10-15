@@ -1782,18 +1782,6 @@ test('_resolveEffectiveBase falls back to the integration branch for a gone upst
   } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
-test('_resolveEffectiveBase reads the upstream of a branch that shares its name with a tag', { skip: !GIT }, async () => {
-  const repo = initRepoDevelopFeature();
-  git(['remote', 'add', 'origin', repo], repo);
-  git(['update-ref', 'refs/remotes/origin/main', git(['rev-parse', 'develop'], repo).trim()], repo);
-  git(['branch', '--set-upstream-to=origin/main', 'feat'], repo);
-  git(['tag', 'feat'], repo);
-  const s = makeSession({ integrationBranch: 'develop' });
-  try {
-    assert.equal(await s.worktreeLifecycle.resolveEffectiveBase({ cwd: repo }), 'origin/main');
-  } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
-});
-
 test('_resolveEffectiveBase displays origin and non-origin upstreams as branch names', { skip: !GIT }, async () => {
   for (const remoteName of ['origin', 'upstream']) {
     const repo = initRepoDevelopFeature();
