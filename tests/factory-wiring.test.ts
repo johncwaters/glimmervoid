@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { access, appendFile, chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { access, appendFile, chmod, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -473,6 +473,7 @@ test('queue proves and saves an unprofiled project once, reruns setup on demand,
   assert.equal(savedProfiles[0]?.focusedTestCommand, 'npm run test:files');
   assert.ok(savedProfiles[0]?.widenableScopes?.includes('tests/'));
   assert.deepEqual(fixture.config.projects[0].factoryProfile, savedProfiles[0]);
+  assert.deepEqual(wiring.getState()?.projects[0]?.factoryProfile, savedProfiles[0]);
   const baseline = JSON.parse(await readFile(path.join(fixture.homeDir, 'factory', fixture.request.projectId, 'setup-baseline.json'), 'utf8'));
   assert.equal(baseline.sha, integrationSha);
   assert.equal(baseline.checks[0].status, 'ran');
@@ -480,7 +481,7 @@ test('queue proves and saves an unprofiled project once, reruns setup on demand,
   const commandCount = commands.length;
   assert.equal((await wiring.queueIntent({ ...fixture.request, objective: 'Another intent' })).ok, true);
   assert.equal(commands.length, commandCount);
-  assert.equal((await wiring.rerunSetup(fixture.request.projectId)).ok, true);
+  assert.deepEqual(await wiring.control({ projectId: fixture.request.projectId, action: 'rerun-setup' }), { projectId: fixture.request.projectId, action: 'rerun-setup', ok: true });
   assert.equal(savedProfiles.length, 2);
   fixture.config.projects[0].factoryProfile = undefined;
   Object.assign(fixture.config.factory, { checks: ['npm run missing-check'] });
@@ -502,6 +503,7 @@ test('queue proves and saves an unprofiled project once, reruns setup on demand,
   await fixture.git(['push']);
   const unprovenFocusSetup = await wiring.rerunSetup(fixture.request.projectId);
   assert.equal(unprovenFocusSetup.ok, true);
+  assert.equal(wiring.getState()?.projects[0]?.factoryProfile?.focusedTestCommand, undefined);
   assert.equal(setupAgentCalls, 1);
   assert.deepEqual(savedProfiles[2]?.checks, ['npm test']);
   assert.equal(savedProfiles[2]?.focusedTestCommand, undefined);
@@ -571,6 +573,101 @@ test('queue intent lands on integration and origin, reuses its ledger, and pause
   assert.equal((await readState()).paused, false);
   assert.equal(config.factory.enabled, true);
   assert.equal((await readFile(path.join(homeDir, 'factory', request.projectId, 'state.json'), 'utf8')).includes('ledgerPath'), true);
+});
+
+test('retry parked reopens only parked children in one landed commit and resets only their block counts', async (context) => {
+  const fixture = await createIntentFixture(context);
+  const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
+  assert.ok(coherenceCliPath);
+  const runLedgerCommand = async (args: string[]) => (await execFileAsync(process.execPath, [coherenceCliPath, ...args], {
+    cwd: fixture.projectPath, timeout: REAL_PROCESS_DEADLINE_MS,
+  })).stdout;
+  const createOrder = async (objective: string, parent: string | null = null, dependsOn: string[] = []) => {
+    const created: { work: string } = JSON.parse(await runLedgerCommand([
+      'work', 'create', objective, '--success', 'Retry passes', '--risk', 'low', '--authority', 'user-directed', '--granted-by', 'operator',
+      '--boundary', 'This repository', '--session', 'fixture', '--write-scope', `src/${objective}.ts`,
+      ...(parent ? ['--parent', parent] : []), ...dependsOn.flatMap((workId) => ['--depends-on', workId]), '--json',
+    ]));
+    return created.work;
+  };
+  const intentId = await createOrder('intent');
+  const otherIntentId = await createOrder('other-intent');
+  const parkedWorkIds = [await createOrder('parked-first', intentId), await createOrder('parked-second', intentId)];
+  const blockedWorkId = await createOrder('blocked', intentId);
+  const mergedWorkId = await createOrder('merged', intentId);
+  const waitingWorkId = await createOrder('waiting', intentId, [parkedWorkIds[0]]);
+  const unrelatedWorkId = await createOrder('unrelated', otherIntentId);
+  const need = 'Needs write scope: protected/config.ts. Exact remaining need';
+  for (const workId of [...parkedWorkIds, blockedWorkId, unrelatedWorkId, mergedWorkId]) {
+    await runLedgerCommand(['work', 'transition', workId, 'active', '--because', 'Start fixture', '--session', 'fixture']);
+    const change = workId === mergedWorkId ? ['close', workId, 'completed'] : ['transition', workId, 'blocked'];
+    await runLedgerCommand(['work', ...change, '--because', need, '--session', 'fixture', '--evidence', 'fixture']);
+  }
+  await fixture.git(['add', '.coherence']);
+  await fixture.git(['commit', '-m', 'test: prepare parked intent']);
+  await fixture.git(['push']);
+  const originalBlockCounts = { [parkedWorkIds[0]]: 3, [parkedWorkIds[1]]: 4, [blockedWorkId]: 1, [mergedWorkId]: 3, [unrelatedWorkId]: 3 };
+  await mkdir(path.dirname(fixture.statePath), { recursive: true });
+  await writeFile(fixture.statePath, JSON.stringify({ ledgerPath: null, ledgerBranch: null, paused: false,
+    trustedIntentIds: [intentId], ticketBlockCounts: originalBlockCounts,
+  }));
+  const wiring = await fixture.start();
+  assert.equal(wiring.getState()?.projects[0]?.orders.find((order) => order.id === parkedWorkIds[0])?.blockReason, need);
+  const beforeRetrySha = await fixture.git(['rev-parse', 'HEAD']);
+  const retry = await wiring.control({ projectId: fixture.request.projectId, action: 'retry-parked', intentId });
+  assert.equal(retry.ok, true, retry.error ?? 'Retry failed');
+  assert.deepEqual(new Set(retry.reopenedWorkIds), new Set(parkedWorkIds));
+  const inspected = CoherenceWorkInspect.parse(JSON.parse(await runLedgerCommand(['work', 'inspect', '--json']))).work;
+  for (const workId of parkedWorkIds) assert.equal(inspected.find((order) => order.work === workId)?.state, 'open');
+  assert.equal(inspected.find((order) => order.work === mergedWorkId)?.state, 'completed');
+  assert.equal(inspected.find((order) => order.work === blockedWorkId)?.state, 'blocked');
+  assert.equal(inspected.find((order) => order.work === unrelatedWorkId)?.state, 'blocked');
+  assert.equal(inspected.find((order) => order.work === waitingWorkId)?.state, 'open');
+  assert.deepEqual((await fixture.readState()).ticketBlockCounts, { ...originalBlockCounts, ...Object.fromEntries(parkedWorkIds.map((workId) => [workId, 0])) });
+  assert.equal(await fixture.git(['rev-list', '--count', `${beforeRetrySha}..HEAD`]), '1');
+  const afterRetrySha = await fixture.git(['rev-parse', 'HEAD']);
+  assert.equal(await fixture.git(['rev-parse', 'integration'], fixture.originPath), afterRetrySha);
+  assert.deepEqual(await wiring.retryParked(fixture.request.projectId, intentId), { ok: true, reopenedWorkIds: [] });
+  assert.equal(await fixture.git(['rev-parse', 'HEAD']), afterRetrySha);
+  assert.equal((await wiring.retryParked(fixture.request.projectId, otherIntentId)).ok, false);
+});
+
+test('retry parked after a failed landing resets the reopened ticket count on the next retry', async (context) => {
+  const fixture = await createIntentFixture(context);
+  const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
+  assert.ok(coherenceCliPath);
+  const runLedgerCommand = async (args: string[]) => (await execFileAsync(process.execPath, [coherenceCliPath, ...args], {
+    cwd: fixture.projectPath, timeout: REAL_PROCESS_DEADLINE_MS,
+  })).stdout;
+  const createOrder = async (objective: string, parent: string | null = null) => {
+    const created: { work: string } = JSON.parse(await runLedgerCommand([
+      'work', 'create', objective, '--success', 'Retry passes', '--risk', 'low', '--authority', 'user-directed', '--granted-by', 'operator',
+      '--boundary', 'This repository', '--session', 'fixture', '--write-scope', `src/${objective}.ts`, ...(parent ? ['--parent', parent] : []), '--json',
+    ]));
+    return created.work;
+  };
+  const intentId = await createOrder('intent');
+  const parkedWorkId = await createOrder('parked', intentId);
+  await runLedgerCommand(['work', 'transition', parkedWorkId, 'active', '--because', 'Start fixture', '--session', 'fixture']);
+  await runLedgerCommand(['work', 'transition', parkedWorkId, 'blocked', '--because', 'Needs a parked retry', '--session', 'fixture', '--evidence', 'fixture']);
+  await fixture.git(['add', '.coherence']);
+  await fixture.git(['commit', '-m', 'test: prepare parked ticket']);
+  await fixture.git(['push']);
+  await mkdir(path.dirname(fixture.statePath), { recursive: true });
+  await writeFile(fixture.statePath, JSON.stringify({ ledgerPath: null, ledgerBranch: null, paused: false,
+    trustedIntentIds: [intentId], ticketBlockCounts: { [parkedWorkId]: 3 },
+  }));
+  const wiring = await fixture.start();
+  const movedOriginPath = `${fixture.originPath}.moved`;
+  await rename(fixture.originPath, movedOriginPath);
+  const failedRetry = await wiring.retryParked(fixture.request.projectId, intentId);
+  await rename(movedOriginPath, fixture.originPath);
+  assert.equal(failedRetry.ok, false);
+  assert.deepEqual(await wiring.retryParked(fixture.request.projectId, intentId), { ok: true, reopenedWorkIds: [parkedWorkId] });
+  assert.deepEqual((await fixture.readState()).ticketBlockCounts, { [parkedWorkId]: 0 });
+  const inspected = CoherenceWorkInspect.parse(JSON.parse(await runLedgerCommand(['work', 'inspect', '--json']))).work;
+  assert.equal(inspected.find((order) => order.work === parkedWorkId)?.state, 'open');
+  assert.equal(await fixture.git(['rev-parse', 'integration'], fixture.originPath), await fixture.git(['rev-parse', 'HEAD']));
 });
 
 test('concurrent queue requests serialize and a failed landing remains on the reused ledger for the next attempt after a restart', async (context) => {

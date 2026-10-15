@@ -9405,6 +9405,15 @@ html[data-layout="phone"] .factory-floor { font-size: inherit; }
 .factory-request-status { height: 36px; margin: 0; overflow: auto; overflow-wrap: anywhere; font-size: 11px; color: var(--text-muted); }
 .factory-controls .factory-request-status { flex-basis: 100%; }
 .factory-request-status[data-error="true"] { color: var(--state-failed); }
+.factory-profile-fields { margin: 0; display: grid; grid-template-columns: minmax(120px, 180px) minmax(0, 1fr); gap: 8px 12px; font-size: 12px; }
+.factory-profile-fields dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.factory-digests { display: grid; gap: 16px; max-height: 440px; overflow: auto; margin-top: 12px; }
+.factory-digest { min-width: 0; padding-bottom: 12px; border-bottom: 1px solid var(--border-dim); }
+.factory-digest-title { margin: 0; color: var(--text-head); font-size: 14px; overflow-wrap: anywhere; }
+.factory-digest .factory-label { margin: 12px 0 4px; }
+.factory-digest-list { margin: 0; padding-left: 20px; color: var(--text-dim); font-size: 12px; overflow-wrap: anywhere; }
+.factory-digest-merged li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.factory-parked-need { margin: 4px 0 8px; white-space: pre-wrap; color: var(--state-waiting); }
 .factory-paused-marker { display: block; color: var(--state-waiting); margin-top: 6px; height: 18px; }
 .factory-paused-marker[hidden] { display: block; visibility: hidden; }
 .factory-sprite { --nyan-width: 88px; --nyan-height: 55px; position: relative; width: var(--nyan-width); height: var(--nyan-height); flex: none; }

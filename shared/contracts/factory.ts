@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SessionState } from './session.ts';
+import { FactorySettings } from './browser-config.ts';
 import { CoherenceOrient, CoherenceReadiness, CoherenceRisk, CoherenceWorkState } from './coherence.ts';
 
 export const FactoryConsequences = z.looseObject({
@@ -24,6 +25,10 @@ export const FactoryProjectState = z.object({
   verifierIntentIds: z.array(z.string()).optional(),
   confirmedFlakesByIntent: z.record(z.string().min(1), confirmedFlakes).optional(),
   partialIntentIds: z.array(z.string()).optional(),
+  factoryProfile: FactorySettings.unwrap().unwrap().pick({ checks: true }).extend({
+    focusedTestCommand: z.string().trim().min(1).optional(),
+    widenableScopes: z.array(z.string().trim().min(1)).optional(),
+  }).optional(),
   error: z.string().nullable(),
   heading: z.object({ action: CoherenceOrient.shape.action, reasons: z.array(z.string()) }),
   orders: z.array(z.object({
@@ -111,13 +116,18 @@ export const FactoryQueueIntentResult = z.object({
 });
 export type FactoryQueueIntentResult = z.infer<typeof FactoryQueueIntentResult>;
 
-export const FactoryControlRequest = z.object({ projectId, action: z.enum(['pause', 'resume']) });
+export const FactoryControlRequest = z.object({
+  projectId,
+  action: z.enum(['pause', 'resume', 'retry-parked', 'rerun-setup']),
+  intentId: z.string().trim().min(1).max(128).optional(),
+}).refine((request) => request.action !== 'retry-parked' || request.intentId !== undefined, { message: 'Retry parked requires an intentId', path: ['intentId'] });
 export type FactoryControlRequest = z.infer<typeof FactoryControlRequest>;
 
 export const FactoryControlResult = z.object({
   projectId: z.string().max(128),
   action: FactoryControlRequest.shape.action,
   ok: z.boolean(),
+  reopenedWorkIds: z.array(z.string().min(1)).optional(),
   error: z.string().max(FACTORY_ERROR_MAX_CHARS).optional(),
 });
 export type FactoryControlResult = z.infer<typeof FactoryControlResult>;
