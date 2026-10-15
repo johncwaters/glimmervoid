@@ -1,6 +1,6 @@
 import { access, chmod, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { CoherenceTicketCreated, CoherenceWorkCreated } from '../../shared/contracts/coherence.ts';
+import { CoherenceTicketCreated, CoherenceWorkCreated, CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
 import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest, FactoryLaneState, FactoryQueueIntentRequest, isSingleFactoryPathSegment } from '../../shared/contracts/factory.ts';
 import type { FactoryControlResult, FactoryProjectState, FactoryQueueIntentResult, FactoryUnlandedRecord } from '../../shared/contracts/factory.ts';
 import { comparableDirectoryPath } from '../../shared/canonical-paths.ts';
@@ -40,6 +40,9 @@ import { errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { createFactoryVerifier } from './factory-verifier.ts';
 import { createFactorySetup } from './factory-setup.ts';
 import type { FactorySetupResult } from './core/factory-setup-core.ts';
+import { decideTicketAction } from '../core/agent-api-core.ts';
+import { FACTORY_TICKET_BLOCK_CAP } from './core/factory-core.ts';
+import { resolveFactoryProfile } from './core/factory-profile-core.ts';
 
 const COHERENCE_CONFIG_PROBE_TIMEOUT_MS = 5_000;
 const ORCHESTRATOR_EXCEPTION_PREFIX = 'factory-exception';
@@ -155,7 +158,9 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
 
   async function rerunSetup(projectId: string): Promise<FactorySetupResult> {
     try {
-      return await setup.runSetup(projectId, requireProject(projectId));
+      const outcome = await setup.runSetup(projectId, requireProject(projectId));
+      await runner.getPoller()?.refreshNow();
+      return outcome;
     } catch (error) {
       return { ok: false, reason: errorMessage(error) };
     }
@@ -515,9 +520,59 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     }
   }
 
+  async function retryParked(projectId: string, intentId: string): Promise<{ ok: true; reopenedWorkIds: string[] } | { ok: false; error: string }> {
+    try {
+      const command = FactoryControlRequest.parse({ projectId, intentId, action: 'retry-parked' });
+      const outcome = await serializeProject(command.projectId, async () => {
+        const projectPath = requireProject(command.projectId);
+        const ledger = await ensureTrustedLedgerCheckout(command.projectId, projectPath);
+        const laneState = await readLaneState(command.projectId);
+        const inspected = CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd: ledger.cwd, args: ['work', 'inspect', '--json'] }))).work;
+        const intent = inspected.find((order) => order.work === intentId && order.opened.parent === null);
+        if (!intent || !(laneState.trustedIntentIds ?? []).includes(intentId)) throw new Error('Unknown factory intent');
+        if (intent.state === 'completed' || intent.state === 'cancelled') throw new Error('Factory intent has already closed');
+        const retriedTickets = inspected.filter((order) => order.opened.parent === intentId && (order.state === 'blocked' || order.state === 'open')
+          && (laneState.ticketBlockCounts?.[order.work] ?? 0) >= FACTORY_TICKET_BLOCK_CAP);
+        const parkedTickets = retriedTickets.filter((ticket) => ticket.state === 'blocked');
+        const liveWorkIds = new Set(dispatcher?.getLiveWorkers(command.projectId).map((worker) => worker.workId) ?? []);
+        if (parkedTickets.some((ticket) => liveWorkIds.has(ticket.work))) throw new Error('A parked ticket still has a live worker');
+        for (const ticket of parkedTickets) {
+          const action = decideTicketAction({ verb: 'reopen', intentId, ticket: { parent: ticket.opened.parent, state: ticket.state } });
+          if (!action.ok) throw new Error(action.reason);
+          if (action.kind !== 'transition') throw new Error('Retry parked requires a reopen transition');
+          const reason = 'Factory retry reopened this parked ticket';
+          await runCoherence({ cwd: ledger.cwd, args: ['work', 'transition', ticket.work, action.to, '--because', reason, '--session', FACTORY_LEDGER_SESSION, '--evidence', reason] });
+        }
+        const reopenedWorkIds = retriedTickets.map((ticket) => ticket.work);
+        if (reopenedWorkIds.length > 0 || (await readUnlandedFactoryRecords(command.projectId)).length > 0) {
+          await landLedger(command.projectId, projectPath, ledger, `factory: retry parked ${intentId}`, { intentId,
+            onCommitted: () => updateLaneState(command.projectId, (state) => ({
+              ticketBlockCounts: { ...state.ticketBlockCounts, ...Object.fromEntries(reopenedWorkIds.map((workId) => [workId, 0])) },
+            })),
+          });
+        }
+        return { ok: true as const, reopenedWorkIds };
+      });
+      await runner.getPoller()?.refreshNow();
+      return outcome;
+    } catch (error) {
+      return { ok: false, error: errorMessage(error).slice(0, FACTORY_ERROR_MAX_CHARS) };
+    }
+  }
+
   async function control(request: FactoryControlRequest): Promise<FactoryControlResult> {
     try {
       const command = FactoryControlRequest.parse(request);
+      if (command.action === 'retry-parked') {
+        if (!command.intentId) throw new Error('Retry parked requires an intentId');
+        return { projectId: command.projectId, action: command.action, ...await retryParked(command.projectId, command.intentId) };
+      }
+      if (command.action === 'rerun-setup') {
+        const outcome = await rerunSetup(command.projectId);
+        return { projectId: command.projectId, action: command.action, ok: outcome.ok,
+          ...(!outcome.ok ? { error: outcome.reason.slice(0, FACTORY_ERROR_MAX_CHARS) } : {}),
+        };
+      }
       const outcome = await serializeProject(command.projectId, async () => {
         requireProject(command.projectId);
         await updateLaneState(command.projectId, () => ({ paused: command.action === 'pause' }));
@@ -765,7 +820,9 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           const isInFlight = isFactoryProjectInFlight({ ...updated, liveWorkers }) || (activeDispatcher?.hasPendingRefusal(project.projectId) ?? false);
           if (isInFlight) projectIdleSinceMs.delete(project.projectId);
           if (!isInFlight && !projectIdleSinceMs.has(project.projectId)) projectIdleSinceMs.set(project.projectId, stallClock());
-          return { ...updated, reviewing, liveWorkers, spentTodayUsd: todaySpend.status === 'known' ? todaySpend.amountUsd : undefined, dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
+          const factoryProfile = resolveFactoryProfile(config.factory, config.projects?.find((entry) => entry.id === project.projectId));
+          return { ...updated, reviewing, liveWorkers, factoryProfile: { checks: factoryProfile.checks, focusedTestCommand: factoryProfile.focusedTestCommand, widenableScopes: factoryProfile.widenableScopes },
+            spentTodayUsd: todaySpend.status === 'known' ? todaySpend.amountUsd : undefined, dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
             error: updated.error ?? projectException(project.projectId) ?? landingErrors.get(project.projectId) ?? null };
         },
         releaseOrchestrator: (projectId) => {
@@ -835,6 +892,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     cancel: (sessionId: string, request: AgentTicketRequest) => changeTicket('cancel', sessionId, request),
     queueIntent,
     rerunSetup,
+    retryParked,
     control,
     restartIfConfigChanged: () => {
       runner.restartIfConfigChanged();

@@ -23,12 +23,44 @@ export interface FactoryFloor {
   paused: boolean;
   spend: string;
   note: string | null;
+  digests: FactoryIntentDigest[];
   intent: { id: string; objective: string; criteria: { text: string; isMet: boolean }[]; shippedCount: number; childCount: number } | null;
   upNext: { id: string; objective: string }[];
   orchestrator: { action: string; reason: string; isException: boolean; sessionId: string | null; stateLabel: string | null };
   stations: Record<FactoryStation, FactoryCrate[]>;
   ledger: { orderId: string; event: string; at: string; session: string }[];
   selectedOrder: { id: string; intent: string | null; writeScopes: string[]; dependsOn: string[]; station: string; owner: string | null } | null;
+}
+
+interface FactoryIntentDigest {
+  intentId: string;
+  objective: string;
+  merged: { id: string; objective: string }[];
+  parked: { id: string; objective: string; need: string | null }[];
+  confirmedFlakes: string[];
+  isPartial: boolean;
+}
+
+export function buildFactoryIntentDigests(state: FactoryProjectState): FactoryIntentDigest[] {
+  const partialIntentIds = new Set(state.partialIntentIds ?? []);
+  const digestsByIntentId = new Map<string, FactoryIntentDigest>();
+  for (const order of state.orders) {
+    if (order.parent !== null) continue;
+    const isPartial = partialIntentIds.has(order.id);
+    if (!isPartial && order.state !== 'completed') continue;
+    digestsByIntentId.set(order.id, {
+      intentId: order.id, objective: order.objective, merged: [], parked: [],
+      confirmedFlakes: state.confirmedFlakesByIntent?.[order.id] ?? [], isPartial,
+    });
+  }
+  for (const order of state.orders) {
+    if (order.parent === null) continue;
+    const digest = digestsByIntentId.get(order.parent);
+    if (!digest) continue;
+    if (order.state === 'completed') digest.merged.push({ id: order.id, objective: order.objective });
+    if (order.parked) digest.parked.push({ id: order.id, objective: order.objective, need: order.blockReason ?? null });
+  }
+  return [...digestsByIntentId.values()];
 }
 
 function pickStation(order: FactoryOrder, unverifiedIds: Set<string>, reviewingIds: Set<string>): FactoryStation | null {
@@ -46,6 +78,7 @@ function pickAnimal(order: FactoryOrder): (typeof ANIMALS)[number] {
 }
 
 function orderStatus(order: FactoryOrder, hasConflict: boolean, station: FactoryStation): string {
+  if (order.parked) return 'Parked';
   if (hasConflict) return 'Scope conflict';
   if (order.state === 'blocked') return 'Blocked';
   if (order.state === 'open' && order.readiness === 'waiting') return 'Waiting on dependency';
@@ -83,6 +116,7 @@ export function buildFactoryFloor(state: FactoryProjectState, selectedOrderId: s
   const reviewingIds = new Set(state.reviewing ?? []);
   const unverifiedIds = new Set(state.unverifiedCompletedWork);
   const conflictIds = new Set(state.conflicts.flatMap((conflict) => [conflict.left, conflict.right]));
+  const workerSessionIds = new Map(state.liveWorkers?.map((worker) => [worker.workId, worker.sessionId]));
   const stations: FactoryFloor['stations'] = { queue: [], workers: [], review: [], shipped: [] };
   const floorOrders = state.orders.filter((order) => order.parent === activeIntent?.id);
   for (const order of floorOrders) {
@@ -91,7 +125,7 @@ export function buildFactoryFloor(state: FactoryProjectState, selectedOrderId: s
     const hasConflict = conflictIds.has(order.id);
     const isHeld = hasConflict || order.state === 'blocked' || (order.state === 'open' && order.readiness === 'waiting');
     stations[station].push({
-      id: order.id, objective: order.objective, sessionId: state.liveWorkers?.find((worker) => worker.workId === order.id)?.sessionId ?? null, risk: order.risk, station,
+      id: order.id, objective: order.objective, sessionId: workerSessionIds.get(order.id) ?? null, risk: order.risk, station,
       status: reviewingIds.has(order.id) ? 'Reviewing' : orderStatus(order, hasConflict, station), hasConflict, isHeld,
       isSelected: order.id === selectedOrderId, animal: pickAnimal(order),
     });
@@ -104,6 +138,7 @@ export function buildFactoryFloor(state: FactoryProjectState, selectedOrderId: s
     paused: state.paused,
     spend: `Factory today: $${(state.spentTodayUsd ?? 0).toFixed(2)} / ${state.dailyBudgetUsd == null ? 'unlimited' : `$${state.dailyBudgetUsd.toFixed(2)}`}`,
     note: state.note ?? null,
+    digests: buildFactoryIntentDigests(state),
     intent: activeIntent ? {
       id: activeIntent.id, objective: activeIntent.objective,
       criteria: activeIntent.criteria.map((text) => ({ text, isMet: activeIntent.state === 'completed' })),

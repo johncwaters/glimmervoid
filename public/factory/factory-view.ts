@@ -15,7 +15,7 @@ let selectedOrderId: string | null = null;
 let requestSender: ((message: Record<string, unknown>) => boolean) | null = null;
 let requestSequence = 0;
 type IntentDraft = Omit<FactoryQueueIntentRequest, 'projectId' | 'criteria' | 'writeScopes'> & { criteria: string; writeScopes: string };
-type RequestStatus = { requestId: string | null; text: string; hasError: boolean };
+type RequestStatus = { requestId: string | null; text: string; hasError: boolean; target?: string };
 const draftsByProject = new Map<string, IntentDraft>();
 const queueStatusByProject = new Map<string, RequestStatus>();
 const controlStatusByProject = new Map<string, RequestStatus>();
@@ -29,7 +29,7 @@ function intentDraft(projectId: string): IntentDraft {
   return draft;
 }
 
-const SCROLLABLE_REGIONS_SELECTOR = '.factory-stack, .factory-pads, .factory-ledger, .factory-detail, .factory-intent-queue, .factory-criteria';
+const SCROLLABLE_REGIONS_SELECTOR = '.factory-stack, .factory-pads, .factory-ledger, .factory-detail, .factory-intent-queue, .factory-criteria, .factory-digests';
 const FOCUS_RESTORE_TARGETS = [['[data-order-id]', 'orderId'], ['[data-factory-field]', 'factoryField'], ['[data-project-id]', 'projectId']] as const;
 
 function buildButton(className: string, label: string | null, onClick: () => void): HTMLButtonElement {
@@ -52,7 +52,9 @@ function sendFactoryRequest(projectId: string, type: 'factory-queue-intent' | 'f
   requestSequence += 1;
   const requestId = `factory-${requestSequence}`;
   const sent = requestSender?.({ ...fields, projectId, type, requestId }) === true;
-  statuses.set(projectId, { requestId: sent ? requestId : null, text: sent ? statusText : 'Not connected.', hasError: !sent });
+  statuses.set(projectId, { requestId: sent ? requestId : null, text: sent ? statusText : 'Not connected.', hasError: !sent,
+    target: typeof fields.intentId === 'string' ? fields.intentId : typeof fields.action === 'string' ? fields.action : undefined,
+  });
   render();
 }
 
@@ -154,8 +156,72 @@ function buildFactoryControls(projectId: string, paused: boolean): HTMLElement {
     button.disabled = !isConnected || status?.requestId != null || (action === 'pause' ? paused : !paused);
     controls.append(button);
   }
-  controls.append(buildRequestStatus(status));
+  controls.append(buildRequestStatus(status?.target === 'pause' || status?.target === 'resume' ? status : undefined));
   return controls;
+}
+
+function buildProjectProfile(project: FactoryProjectState): HTMLElement {
+  const section = buildRegion('Project profile', 'factory-band factory-profile');
+  const fields = el('dl', 'factory-profile-fields');
+  const profile = project.factoryProfile;
+  for (const [label, value] of [
+    ['Checks', profile?.checks?.join('\n') ?? 'not set'],
+    ['Focused test command', profile?.focusedTestCommand ?? 'not set'],
+    ['Widenable scopes', profile?.widenableScopes?.join('\n') ?? 'not set'],
+  ]) fields.append(el('dt', 'factory-label', label), el('dd', null, value || 'None'));
+  section.append(fields);
+  if (project.observedRun) return section;
+  const status = controlStatusByProject.get(project.projectId);
+  const controls = el('div', 'factory-controls');
+  const button = buildButton('factory-action', 'Re-run setup', () => sendFactoryRequest(project.projectId, 'factory-control', { action: 'rerun-setup' }, 'Running project setup.'));
+  button.dataset.factoryField = 'rerun-setup';
+  button.disabled = !isConnected || status?.requestId != null;
+  controls.append(button, buildRequestStatus(status?.target === 'rerun-setup' ? status : undefined));
+  section.append(controls);
+  return section;
+}
+
+function buildIntentDigests(floor: FactoryFloor, project: FactoryProjectState): HTMLElement {
+  const section = buildRegion('Intent digests', 'factory-band factory-digest-region');
+  const digests = el('div', 'factory-digests');
+  const status = controlStatusByProject.get(project.projectId);
+  for (const digest of floor.digests) {
+    const intent = el('article', 'factory-digest');
+    intent.append(el('h3', 'factory-digest-title', digest.objective), el('p', 'factory-count', `${digest.intentId}: ${digest.isPartial ? 'Partial' : 'Completed'}. ${digest.merged.length} merged, ${digest.parked.length} parked.`));
+    const merged = el('ul', 'factory-digest-list factory-digest-merged');
+    for (const ticket of digest.merged) {
+      const row = el('li', null, `${ticket.id}: ${ticket.objective}`);
+      row.title = ticket.objective;
+      merged.append(row);
+    }
+    intent.append(el('h4', 'factory-label', 'Merged tickets'), merged);
+    const parked = el('ul', 'factory-digest-list');
+    for (const ticket of digest.parked) {
+      const line = el('li');
+      line.append(el('span', null, `${ticket.id}: ${ticket.objective}`), el('p', 'factory-parked-need', ticket.need ?? 'Need not recorded.'));
+      parked.append(line);
+    }
+    intent.append(el('h4', 'factory-label', 'Parked tickets'), parked);
+    const flakes = el('ul', 'factory-digest-list');
+    for (const flake of digest.confirmedFlakes) flakes.append(el('li', null, flake));
+    if (digest.confirmedFlakes.length === 0) flakes.append(el('li', 'factory-empty', 'None'));
+    intent.append(el('h4', 'factory-label', 'Confirmed flakes'), flakes);
+    if (digest.isPartial && !project.observedRun) {
+      const controls = el('div', 'factory-controls');
+      const button = buildButton('factory-action', 'Retry parked', () => sendFactoryRequest(project.projectId, 'factory-control', { action: 'retry-parked', intentId: digest.intentId }, 'Reopening parked tickets.'));
+      button.dataset.factoryField = `retry-parked:${digest.intentId}`;
+      button.disabled = !isConnected || status?.requestId != null;
+      controls.append(button, buildRequestStatus(status?.target === digest.intentId ? status : undefined));
+      intent.append(controls);
+    }
+    digests.append(intent);
+  }
+  if (floor.digests.length === 0) digests.append(el('p', 'factory-empty', 'No finished intents.'));
+  section.append(el('p', 'factory-count', floor.spend), digests);
+  if (status?.target && !['pause', 'resume', 'rerun-setup'].includes(status.target) && !floor.digests.some((digest) => digest.isPartial && digest.intentId === status.target)) {
+    section.append(buildRequestStatus(status));
+  }
+  return section;
 }
 
 const STATIONS: { id: FactoryStation; label: string; slots: number }[] = [
@@ -366,7 +432,7 @@ function render(): void {
   const pipe = el('div', 'factory-pipe');
   for (const station of STATIONS) pipe.append(buildStation(station, floor.stations[station.id], project.observedRun !== undefined));
   floorBand.append(pipe);
-  bands.append(buildTop(floor, project), floorBand, buildBottom(floor));
+  bands.append(buildTop(floor, project), buildProjectProfile(project), buildIntentDigests(floor, project), floorBand, buildBottom(floor));
   content.append(bands);
   root.replaceChildren(content);
   [...root.querySelectorAll<HTMLElement>(SCROLLABLE_REGIONS_SELECTOR)].forEach((element, index) => { element.scrollTop = scrollPositions[index] ?? 0; });
@@ -399,7 +465,7 @@ export function applyFactoryConnectionState(connected: boolean): void {
     for (const statuses of [queueStatusByProject, controlStatusByProject]) {
       for (const [projectId, status] of statuses) {
         if (!status.requestId) continue;
-        statuses.set(projectId, { requestId: null, text: 'Disconnected. Check the floor before submitting again.', hasError: true });
+        statuses.set(projectId, { ...status, requestId: null, text: 'Disconnected. Check the floor before submitting again.', hasError: true });
       }
     }
   }
@@ -421,8 +487,13 @@ export function applyFactoryQueueIntentResult(message: ServerMessageOf<'factory-
 
 export function applyFactoryControlResult(message: ServerMessageOf<'factory-control-result'>): void {
   if (controlStatusByProject.get(message.projectId)?.requestId !== message.requestId) return;
+  const successText = {
+    pause: 'Factory paused.', resume: 'Factory resumed.', 'rerun-setup': 'Project setup finished.',
+    'retry-parked': `Reopened ${message.reopenedWorkIds?.length ?? 0} parked tickets.`,
+  };
   controlStatusByProject.set(message.projectId, {
-    requestId: null, text: message.ok ? message.action === 'pause' ? 'Factory paused.' : 'Factory resumed.' : message.error ?? 'Could not update factory.', hasError: !message.ok,
+    ...controlStatusByProject.get(message.projectId),
+    requestId: null, text: message.ok ? successText[message.action] : message.error ?? 'Could not update factory.', hasError: !message.ok,
   });
   render();
 }

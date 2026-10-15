@@ -1,7 +1,7 @@
 import type { IssuesStatus } from '../shared/contracts/issues.ts';
 import { createKeyedSerialQueue } from './spawn-gate.ts';
-import { FACTORY_ERROR_MAX_CHARS } from '../shared/contracts/factory.ts';
-import type { FactoryControlRequest, FactoryControlResult, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from '../shared/contracts/factory.ts';
+import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest } from '../shared/contracts/factory.ts';
+import type { FactoryControlResult, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from '../shared/contracts/factory.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 import type { GithubPollingRefreshResult } from '../shared/contracts/github-polling.ts';
@@ -259,7 +259,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'my-pr-keep-mergeable': () => ({ type: 'my-pr-keep-mergeable-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'my-pr-merge-when-ready': () => ({ type: 'my-pr-merge-when-ready-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'factory-queue-intent': () => ({ type: 'factory-queue-intent-result', requestId, projectId: typeof msg?.projectId === 'string' ? msg.projectId.slice(0, 128) : '', ok: false, error: message.slice(0, FACTORY_ERROR_MAX_CHARS) }),
-    'factory-control': () => ({ type: 'factory-control-result', requestId, projectId: typeof msg?.projectId === 'string' ? msg.projectId.slice(0, 128) : '', action: msg?.action === 'resume' ? 'resume' : 'pause', ok: false, error: message.slice(0, FACTORY_ERROR_MAX_CHARS) }),
+    'factory-control': () => ({ type: 'factory-control-result', requestId, projectId: typeof msg?.projectId === 'string' ? msg.projectId.slice(0, 128) : '', action: FactoryControlRequest.shape.action.safeParse(msg?.action).data ?? 'pause', ok: false, error: message.slice(0, FACTORY_ERROR_MAX_CHARS) }),
     'benchmark-action': () => ({ type: 'benchmark-action-result', requestId, suiteId: typeof msg?.suiteId === 'string' ? msg.suiteId : '', action: typeof msg?.action === 'string' ? msg.action : 'run', ok: false, error: message }),
     'request-usage-report': () => ({ type: 'usage-report', requestId, error: message }),
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
@@ -1154,12 +1154,17 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
   async function handleFactoryControl(msg: ClientMessageOf<'factory-control'>, ws: ControlSocket): Promise<void> {
+    const parsed = FactoryControlRequest.safeParse(msg);
+    if (!parsed.success) {
+      replyTo(ws, msg, 'factory-control-result', { projectId: msg.projectId, action: msg.action, ok: false, error: configIssueMessage(parsed.error).slice(0, FACTORY_ERROR_MAX_CHARS) });
+      return;
+    }
     const error = factoryRequestError(msg.projectId);
     if (error || !factory) {
       replyTo(ws, msg, 'factory-control-result', { projectId: msg.projectId, action: msg.action, ok: false, error });
       return;
     }
-    replyTo(ws, msg, 'factory-control-result', await factory.control(msg));
+    replyTo(ws, msg, 'factory-control-result', await factory.control(parsed.data));
   }
 
   async function handleBenchmarkAction(msg: ClientMessageOf<'benchmark-action'>, ws: ControlSocket): Promise<void> {

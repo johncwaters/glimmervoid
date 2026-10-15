@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildFactoryFloor, pickFactoryProject } from '../public/factory/factory-floor-core.ts';
+import { buildFactoryFloor, buildFactoryIntentDigests, pickFactoryProject } from '../public/factory/factory-floor-core.ts';
 import { ANIMALS } from '../public/nyan-animals-core.ts';
 import { buildFactoryProjectState } from '../server/factory/core/factory-core.ts';
 import { CoherenceOrient, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
@@ -234,4 +234,30 @@ test('merged but unverified tickets sit in Review and the floor shows factory sp
   assert.equal(floor.note, 'Verifier waiting on a slot');
   assert.equal(floor.orchestrator.isException, false);
   assert.equal(buildFactoryFloor(makeProject([]), null).spend, 'Factory today: $0.00 / unlimited');
+});
+
+test('intent digests preserve partial needs and flakes, include completed work and leave unrelated tickets out', () => {
+  const need = 'Needs write scope: protected/config.ts\nExact remaining need <script>.';
+  for (const isPartial of [true, false]) {
+    const project = makeProject([
+      makeOrder('intent', { parent: null, state: isPartial ? 'open' : 'completed' }),
+      makeOrder('merged', { state: 'completed' }),
+      makeOrder('parked', { state: 'blocked', parked: isPartial, blockReason: need }),
+      makeOrder('waiting', { dependsOn: ['parked'], readiness: 'waiting' }),
+      makeOrder('other', { parent: null }),
+      makeOrder('unrelated', { parent: 'other', state: 'completed' }),
+    ], { partialIntentIds: isPartial ? ['intent'] : [], confirmedFlakesByIntent: { intent: ['tests/retry.test.ts: timing'] } });
+    const expected = [{
+      intentId: 'intent', objective: 'Objective intent', merged: [{ id: 'merged', objective: 'Objective merged' }],
+      parked: isPartial ? [{ id: 'parked', objective: 'Objective parked', need }] : [],
+      confirmedFlakes: ['tests/retry.test.ts: timing'], isPartial,
+    }];
+    assert.deepEqual(buildFactoryIntentDigests(project), expected);
+    const floor = buildFactoryFloor(project, null);
+    assert.deepEqual(floor.digests, expected);
+    if (isPartial) {
+      assert.equal(floor.intent?.id, 'intent');
+      assert.equal(floor.stations.queue.find((crate) => crate.id === 'parked')?.status, 'Parked');
+    }
+  }
 });
