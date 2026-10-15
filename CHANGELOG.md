@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Phone Settings opens with a section list**: search stays at the top; tap a section to open it, then use Back or browser Back to return to the list. Fields and actions fill the available width, with larger touch targets and input text that avoids zooming on focus.
+
 - **Settings search shows one result list**: desktop and phone share a flat list with section breadcrumbs and highlighted matches. Search also matches config keys and option labels, ranks an editable setting ahead of a config.json-only key that matches as well, and `glimmervoid settings search` returns the same results in the same order as the dashboard. A config.json-only result shows its default and when changes apply, and adds its current value and Copy as JSON (for editing config.json or using glimmervoid settings set) when the dashboard receives that value. A key the dashboard does not receive, or receives only as a summary such as `customAgents`, shows no current value rather than a wrong one.
 - **Link to a settings search**: open a hash such as `#settings?q=replay` to open Settings with the search filled and run. Typing updates the link, and clearing the search removes its query; existing setting links keep working.
 

@@ -48,7 +48,7 @@ import { openConfirmDialog } from './session-card/modal.ts';
 import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
 import { showErrorToast } from './session-card/toast.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
-import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, clearSettingsUpdateRequest, refreshSettingsStatus, resolveSettingsTarget } from './settings/settings-panel.ts';
+import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, clearSettingsUpdateRequest, refreshSettingsStatus, resolveSettingsTarget, returnToSettingsList } from './settings/settings-panel.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
@@ -616,8 +616,9 @@ function activateHash(hash: string) {
   return activateSettingsHash(hash);
 }
 
-function activateLocationHash() {
-  return activateHash(location.hash);
+function activateLocationHash(event: HashChangeEvent) {
+  if (event.newURL !== location.href) return;
+  activateHash(location.hash);
 }
 
 document.addEventListener('click', (event) => {
@@ -811,6 +812,12 @@ mountPhoneShell({
     acknowledgeViewAttention(screenId);
   },
 
+  canGoBack: (screenId) => screenId === 'settings' && canReturnToSettingsList(),
+
+  onBack: (screenId) => {
+    if (screenId === 'settings') returnToSettingsList();
+  },
+
   headerControls: [
     queryTag(document, '.header-title', 'h1'),
     queryTag(document, '#status-indicator', 'div'),
@@ -830,10 +837,12 @@ function applyFormFactorLayout(layout: string) {
     for (const viewTab of viewsInTabOrder(VIEW_TABS)) viewTab.deactivate?.();
     clearQueueOrigin();
     refreshFocusNowPeek();
+    const settingsTarget = resolveSettingsTarget(location.hash);
     activatePhoneShell({
       sessionId: carriedSessionId ?? undefined,
-      linkedScreenId: resolveSettingsTarget(location.hash) ? 'settings' : undefined,
+      linkedScreenId: settingsTarget ? 'settings' : undefined,
     });
+    if (settingsTarget) activateSettingsSection(settingsTarget.sectionId, settingsTarget.settingId);
     return;
   }
   const carriedSessionId = getPhoneSessionId();

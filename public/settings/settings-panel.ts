@@ -1,6 +1,6 @@
 import { renderCompactStatusPreview } from '../compact-status-preview.ts';
 import { renderFlyingAnimalsGallery } from '../flying-animals-gallery.ts';
-import { onLayoutChange } from '../form-factor.ts';
+import { isPhoneLayout, onLayoutChange } from '../form-factor.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';
 import type { CustomAgentSummaryRow } from '#shared/contracts/control-messages.ts';
 import type { UpdateJournal } from '#shared/contracts/update-journal.ts';
@@ -31,6 +31,7 @@ import {
   needsDangerConfirmation,
   numberDraftOf,
   pageSectionOf,
+  phoneSettingsScreenOf,
   parseSettingsSearchHash,
   resetConfirmationOf,
   resetValueOf,
@@ -137,9 +138,8 @@ let settingsViewVisibilityObserver: IntersectionObserver | null = null;
 let shellEl: HTMLDivElement | null = null;
 let navigationEl: HTMLElement | null = null;
 let searchEl: HTMLInputElement | null = null;
-let sectionButtonEl: HTMLButtonElement | null = null;
-let sectionButtonTitleEl: HTMLSpanElement | null = null;
-let sectionPickerEl: HTMLDivElement | null = null;
+let phoneSectionId: string | null = null;
+let backButtonEl: HTMLButtonElement | null = null;
 let contentEl: HTMLDivElement | null = null;
 let selectedPage: SettingsSection = SETTINGS_VIEW_MAP[0];
 let settingsPayload: SettingsPayload = {};
@@ -151,8 +151,6 @@ const draftByControl = new WeakMap<Element, ControlDraft>();
 let saveQueue = Promise.resolve();
 const fieldErrorById = new Map<string, string>();
 let searchQuery = '';
-let sectionPickerDocumentClickHandler: ((event: MouseEvent) => void) | null = null;
-let sectionPickerDocumentKeydownHandler: ((event: KeyboardEvent) => void) | null = null;
 let updateStatus: UpdateStatusView | null = null;
 let updateJournal: UpdateJournal | null = null;
 let updateRequest: UpdateRequestState = IDLE_UPDATE_REQUEST;
@@ -1193,6 +1191,7 @@ function renderPart(stack: HTMLElement, part: SettingsSection) {
 }
 
 function renderContent() {
+  syncPhoneSettingsScreen();
   if (searchQuery) {
     renderSearchContent();
     return;
@@ -1230,7 +1229,7 @@ function renderContent() {
 
 function selectSection(
   sectionId: string,
-  { focusContent = false, settingId = null, updateHash = true }: { focusContent?: boolean; settingId?: string | null; updateHash?: boolean } = {}
+  { focusContent = false, settingId = null, updateHash = true, openPhoneSection = true }: { focusContent?: boolean; settingId?: string | null; updateHash?: boolean; openPhoneSection?: boolean } = {}
 ) {
   if (updateHash && searchQuery) {
     searchQuery = '';
@@ -1241,11 +1240,7 @@ function selectSection(
   selectedPage = page;
   const targetSection = SETTINGS_VIEW_MAP.find((section) => section.id === sectionId) ?? page;
   markCurrentSection(navigationEl);
-  markCurrentSection(sectionPickerEl);
-  if (sectionButtonTitleEl) {
-    sectionButtonTitleEl.textContent = selectedPage.title;
-    if (sectionButtonEl) sectionButtonEl.title = selectedPage.title;
-  }
+  if (openPhoneSection && isPhoneLayout()) phoneSectionId = targetSection.id;
   renderContent();
   if (isAlertSoundPage(selectedPage)) reloadCustomSounds();
   if (selectedPage.id === UPDATES_SECTION_ID) checkUpdatesIfStale();
@@ -1266,7 +1261,6 @@ function hasSection(result: SettingsSearchResult): result is SectionSearchResult
 }
 
 function chooseSearchResult(searchResult: SectionSearchResult) {
-  setSectionPickerOpen(false);
   if (!searchEl) return;
   searchEl.value = '';
   searchQuery = '';
@@ -1360,82 +1354,53 @@ function renderSearchContent() {
   contentEl.appendChild(list);
 }
 
-function appendSectionButtons(
-  container: HTMLElement,
-  sections: readonly SettingsSection[],
-  { groupClassName, createButton }: { groupClassName: string; createButton: (section: SettingsSection) => HTMLElement }
-) {
-  const group = el('div', groupClassName);
-  for (const section of sections) group.appendChild(createButton(section));
-  container.appendChild(group);
+function currentPhoneSettingsScreen() {
+  return phoneSettingsScreenOf(SETTINGS_VIEW_MAP, phoneSectionId, searchQuery, isStreamerMode());
 }
 
-function renderSectionPicker(sections: readonly SettingsSection[]) {
-  if (!sectionPickerEl) return;
-  sectionPickerEl.textContent = '';
-  appendSectionButtons(sectionPickerEl, sections, {
-    groupClassName: 'settings-view-section-picker-group',
-    createButton(section: SettingsSection) {
-      const button = el('button', 'settings-view-section-option', section.title);
-      button.type = 'button';
-      button.dataset.settingsSection = section.id;
-      button.addEventListener('click', () => {
-        setSectionPickerOpen(false);
-        selectSection(section.id);
-      });
-      return button;
-    },
-  });
-  markCurrentSection(sectionPickerEl);
+function syncPhoneSettingsScreen() {
+  if (!shellEl) return;
+  const screen = currentPhoneSettingsScreen();
+  shellEl.dataset.settingsScreen = screen;
+  if (backButtonEl) backButtonEl.hidden = screen !== 'section';
 }
 
-function isSectionPickerOpen() {
-  return !!sectionPickerEl && !sectionPickerEl.hidden;
+export function canReturnToSettingsList() {
+  return isPhoneLayout() && currentPhoneSettingsScreen() === 'section';
 }
 
-function setSectionPickerOpen(isOpen: boolean, { returnFocus = true }: { returnFocus?: boolean } = {}) {
-  if (!sectionPickerEl || !sectionButtonEl) return;
-  const wasOpen = isSectionPickerOpen();
-  sectionPickerEl.hidden = !isOpen;
-  sectionButtonEl.setAttribute('aria-expanded', String(isOpen));
-  if (isOpen) {
-    renderSectionPicker(topLevelSectionsOf(SETTINGS_VIEW_MAP));
-    requestAnimationFrame(() => {
-      const currentSectionButton = sectionPickerEl?.querySelector('[aria-current="page"]');
-      if (!(currentSectionButton instanceof HTMLElement)) return;
-      currentSectionButton.focus();
-    });
-    return;
-  }
-  if (returnFocus && wasOpen) sectionButtonEl.focus();
+export function returnToSettingsList() {
+  if (!canReturnToSettingsList()) return;
+  const previousPageId = selectedPage.id;
+  setSearchQuery('');
+  navigationEl?.querySelector<HTMLElement>(`[data-settings-section="${previousPageId}"]`)?.focus();
 }
 
 function renderNavigation() {
   if (!navigationEl || !shellEl) return;
   const sections = topLevelSectionsOf(SETTINGS_VIEW_MAP);
   navigationEl.textContent = '';
-  appendSectionButtons(navigationEl, sections, {
-    groupClassName: 'settings-view-nav-group',
-    createButton(section: SettingsSection) {
-      const button = el('button', 'settings-view-nav-item', section.title);
-      button.type = 'button';
-      button.dataset.settingsSection = section.id;
-      button.addEventListener('click', () => selectSection(section.id));
-      return button;
-    },
-  });
-  renderSectionPicker(sections);
+  const group = el('div', 'settings-view-nav-group');
+  for (const section of sections) {
+    const button = el('button', 'settings-view-nav-item', section.title);
+    button.type = 'button';
+    button.dataset.settingsSection = section.id;
+    button.addEventListener('click', () => selectSection(section.id, { focusContent: isPhoneLayout() }));
+    group.appendChild(button);
+  }
+  navigationEl.appendChild(group);
   if (searchQuery) {
+    syncPhoneSettingsScreen();
     renderSearchContent();
     return;
   }
-  selectSection(selectedPage.id, { updateHash: false });
+  selectSection(selectedPage.id, { updateHash: false, openPhoneSection: false });
 }
 
 function setSearchQuery(query: string, { updateHash = true } = {}) {
   searchQuery = query.trim();
   if (searchEl) searchEl.value = query;
-  setSectionPickerOpen(false, { returnFocus: false });
+  phoneSectionId = null;
   if (updateHash) history.replaceState(history.state, '', settingsSearchHash(searchQuery));
   renderNavigation();
 }
@@ -1489,19 +1454,11 @@ export function mountSettingsView(
   navigationEl = el('nav', 'settings-view-nav');
   navigationEl.setAttribute('role', 'navigation');
   navigationEl.setAttribute('aria-label', 'Settings sections');
-  sectionButtonEl = el('button', 'settings-view-section-button');
-  sectionButtonEl.type = 'button';
-  sectionButtonEl.setAttribute('aria-expanded', 'false');
-  sectionButtonEl.setAttribute('aria-controls', 'settings-section-picker');
-  sectionButtonTitleEl = el('span', 'settings-view-section-button-title');
-  const sectionButtonChevron = el('span', 'settings-view-section-button-chevron', String.fromCharCode(0x2304));
-  sectionButtonChevron.setAttribute('aria-hidden', 'true');
-  sectionButtonEl.append(sectionButtonTitleEl, sectionButtonChevron);
-  sectionPickerEl = el('div', 'settings-view-section-picker');
-  sectionPickerEl.id = 'settings-section-picker';
-  sectionPickerEl.hidden = true;
-  sectionPickerEl.setAttribute('role', 'dialog');
-  sectionPickerEl.setAttribute('aria-label', 'Settings sections');
+  backButtonEl = el('button', 'settings-view-back', 'Back');
+  backButtonEl.type = 'button';
+  backButtonEl.hidden = true;
+  backButtonEl.setAttribute('aria-label', 'Back to settings sections');
+  backButtonEl.addEventListener('click', returnToSettingsList);
   contentEl = el('div', 'settings-view-content');
   contentEl.setAttribute('aria-live', 'polite');
   searchEl.addEventListener('input', () => {
@@ -1511,23 +1468,7 @@ export function mountSettingsView(
   });
   searchEl.addEventListener('keydown', handleNavigationKeydown);
   navigationEl.addEventListener('keydown', handleNavigationKeydown);
-  sectionButtonEl.addEventListener('click', () => setSectionPickerOpen(!isSectionPickerOpen()));
-  if (sectionPickerDocumentClickHandler) document.removeEventListener('click', sectionPickerDocumentClickHandler);
-  if (sectionPickerDocumentKeydownHandler) document.removeEventListener('keydown', sectionPickerDocumentKeydownHandler);
-  sectionPickerDocumentClickHandler = (event) => {
-    if (!isSectionPickerOpen()) return;
-    if (!(event.target instanceof Node)) return;
-    if (sectionPickerEl?.contains(event.target) || sectionButtonEl?.contains(event.target)) return;
-    setSectionPickerOpen(false);
-  };
-  sectionPickerDocumentKeydownHandler = (event) => {
-    if (event.key !== 'Escape' || !isSectionPickerOpen()) return;
-    event.preventDefault();
-    setSectionPickerOpen(false);
-  };
-  document.addEventListener('click', sectionPickerDocumentClickHandler);
-  document.addEventListener('keydown', sectionPickerDocumentKeydownHandler);
-  sidebar.append(searchEl, sectionButtonEl, navigationEl, sectionPickerEl);
+  sidebar.append(searchEl, backButtonEl, navigationEl);
   shellEl.append(sidebar, contentEl);
   rootEl.appendChild(shellEl);
   hydrate(settingsPayload);
@@ -1560,10 +1501,6 @@ function refreshSoundOptions() {
   if (setting && isAlertSoundPage(selectedPage)) refreshRow(setting);
 }
 
-export function closeSettingsSectionPicker({ returnFocus = true }: { returnFocus?: boolean } = {}) {
-  setSectionPickerOpen(false, { returnFocus });
-}
-
 export function activateSettingsSection(sectionId: string | null = null, settingId: string | null = null) {
   const search = parseSettingsSearchHash(sectionId ?? location.hash);
   if (search) {
@@ -1571,6 +1508,10 @@ export function activateSettingsSection(sectionId: string | null = null, setting
     return;
   }
   setSearchQuery('', { updateHash: false });
+  if (isPhoneLayout() && !sectionId) {
+    history.replaceState(history.state, '', settingsSearchHash(''));
+    return;
+  }
   selectSection(sectionId || selectedPage.id, { settingId });
 }
 
@@ -1653,4 +1594,8 @@ function refreshFlyingAnimalsAvailability() {
 }
 
 window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', refreshFlyingAnimalsAvailability);
-onLayoutChange(refreshFlyingAnimalsAvailability);
+onLayoutChange(() => {
+  phoneSectionId = null;
+  syncPhoneSettingsScreen();
+  refreshFlyingAnimalsAvailability();
+});

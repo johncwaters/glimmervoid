@@ -892,8 +892,7 @@ body {
 .settings-view-search-open:focus-visible,
 .settings-view-reset:focus-visible,
 .settings-view-copy-json:focus-visible,
-.settings-view-section-button:focus-visible,
-.settings-view-section-option:focus-visible,
+.settings-view-back:focus-visible,
 .settings-view-input:focus-visible,
 .settings-view-checkbox:focus-visible,
 .dialog-advanced-toggle:focus-visible,
@@ -6859,8 +6858,7 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   background: color-mix(in oklab, var(--accent) 8%, transparent);
 }
 
-.settings-view-section-button,
-.settings-view-section-picker {
+.settings-view-back {
   display: none;
 }
 
@@ -7459,118 +7457,92 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 }
 
 [data-layout="phone"] .settings-view-sidebar {
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
-  gap: 8px;
   flex-shrink: 0;
-  min-height: auto;
+  min-height: 0;
   padding: 12px 14px;
+  gap: 12px;
   border-right: none;
   border-bottom: 1px solid var(--border-dim);
 }
 
-[data-layout="phone"] .settings-view-nav {
+[data-layout="phone"] .settings-view-shell[data-settings-screen="list"] .settings-view-sidebar {
+  flex: 1;
+}
+
+[data-layout="phone"] .settings-view-shell:not([data-settings-screen="list"]) .settings-view-nav,
+[data-layout="phone"] .settings-view-shell[data-settings-screen="list"] .settings-view-content {
   display: none;
 }
 
+[data-layout="phone"] .settings-view-nav {
+  padding: 0;
+  overscroll-behavior: contain;
+}
+
+[data-layout="phone"] .settings-view-nav-group {
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+[data-layout="phone"] .settings-view-nav-item {
+  padding: 12px;
+  border-color: var(--border-dim);
+  color: var(--text-head);
+  font-size: 14px;
+}
+
 [data-layout="phone"] .settings-view-search {
-  min-width: 0;
-  min-height: 44px;
-  font-size: 16px;
   margin: 0;
 }
 
-[data-layout="phone"] .settings-view-section-button {
-  display: flex;
-  min-width: 0;
-  max-width: 48vw;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 9px;
+[data-layout="phone"] .settings-view-back:not([hidden]) {
+  display: block;
+  padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-surface);
-  color: var(--text-head);
-  font-family: var(--font-mono);
-  cursor: pointer;
-}
-
-[data-layout="phone"] .settings-view-section-button-title {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 11px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-[data-layout="phone"] .settings-view-section-button-chevron {
-  flex-shrink: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-[data-layout="phone"] .settings-view-section-picker:not([hidden]) {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 14px;
-  left: 14px;
-  z-index: 5;
-  display: flex;
-  max-height: min(68vh, 520px);
-  flex-direction: column;
-  padding: 8px;
-  overflow-y: auto;
-  border: 1px solid var(--border-dim);
-  border-radius: 6px;
-  background: var(--bg-header);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 82%, transparent);
-}
-
-[data-layout="phone"] .settings-view-section-picker-group {
-  display: flex;
-  flex-direction: column;
-  padding: 4px 0 8px;
-}
-
-[data-layout="phone"] .settings-view-section-picker-group:last-child {
-  padding-bottom: 4px;
-}
-
-[data-layout="phone"] .settings-view-section-option {
-  min-height: 44px;
-  padding: 8px 10px;
-  border: 1px solid transparent;
   border-radius: var(--radius);
   background: transparent;
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
 
-[data-layout="phone"] .settings-view-section-option:active {
-  background: color-mix(in srgb, var(--text) 5%, transparent);
+[data-layout="phone"] .settings-view-back:hover {
+  color: var(--text-head);
+  border-color: var(--border-hover);
 }
 
-[data-layout="phone"] .settings-view-section-option[aria-current="page"] {
-  border-color: color-mix(in oklab, var(--accent) 42%, var(--border));
-  color: var(--accent);
-  background: color-mix(in oklab, var(--accent) 8%, transparent);
+[data-layout="phone"] .settings-view :is(button, input, select, textarea, a) {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+[data-layout="phone"] .settings-view :is(button, input, select, textarea) {
+  width: 100%;
+}
+
+[data-layout="phone"] .settings-view :is(input, select, textarea) {
+  font-size: 16px;
+}
+
+[data-layout="phone"] .settings-view :is(button, input, select, textarea, a):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+[data-layout="phone"] .settings-view :is(button, a):active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+[data-layout="phone"] .settings-view button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 [data-layout="phone"] .settings-view-content {
   flex: 1;
-  padding: 18px 14px 52px;
-}
-
-[data-layout="phone"] .settings-view-search-open,
-[data-layout="phone"] .settings-view-copy-json {
-  min-height: 44px;
+  padding: 18px 14px 28px;
+  overflow-wrap: anywhere;
 }
 
 [data-layout="phone"] .settings-view-setting {
@@ -7581,6 +7553,39 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 
 [data-layout="phone"] .settings-view-setting-control {
   align-self: stretch;
+}
+
+[data-layout="phone"] .settings-view :is(.settings-view-control-foot, .settings-view-toggle-wrap, .settings-update-buttons, .settings-about-links) {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+[data-layout="phone"] .settings-view label {
+  width: 100%;
+  min-height: 44px;
+}
+
+[data-layout="phone"] .settings-view .settings-view-checkbox {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  flex-shrink: 0;
+}
+
+[data-layout="phone"] .settings-view .settings-view-copy-link {
+  width: 44px;
+  flex-shrink: 0;
+}
+
+[data-layout="phone"] .settings-view a {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+}
+
+[data-layout="phone"] .settings-view .settings-view-projects {
+  max-height: none;
 }
 
 .dialog-advanced-toggle {

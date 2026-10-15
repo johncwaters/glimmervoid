@@ -7,7 +7,6 @@ import { sessionUIs } from '../session-card/card-registry.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
 import { reparentReviewPanel } from '../sidebar/review-sidebar.ts';
 import { uiState } from '../ui-state-core.ts';
-import { closeSettingsSectionPicker } from '../settings/settings-panel.ts';
 import { createBoardScreen } from './board-screen.ts';
 import type { PushedPhoneHistoryEntry } from './phone-history-core.ts';
 import type { PhonePanel } from './phone-panels-core.ts';
@@ -26,6 +25,8 @@ interface PhoneShellHooks {
   headerControls?: AdoptableElement[];
   panels?: PhonePanel<HTMLElement>[];
   onScreenShown?: (screenId: string) => void;
+  canGoBack?: (screenId: string) => boolean;
+  onBack?: (screenId: string) => void;
 }
 
 const NAV_SCREENS: readonly PhoneScreenSpec[] = Object.freeze([
@@ -318,6 +319,14 @@ function onPopState(event: PopStateEvent) {
     dismissPhoneCalmSheet();
     return;
   }
+  const currentScreenId = uiState.snapshot().phoneScreen;
+  if (currentScreenId && hooks.canGoBack?.(currentScreenId)) {
+    pushedHistoryEntry = 'none';
+    pushHistoryFor(currentScreenId);
+    hooks.onBack?.(currentScreenId);
+    applyScreen(currentScreenId);
+    return;
+  }
   const target = screenIdFromHistoryState(event.state);
   pushedHistoryEntry = target ? 'screen' : 'none';
   applyScreen(target && canShowScreen(target) ? target : BOARD);
@@ -402,7 +411,6 @@ export function deactivatePhoneShell() {
   if (!shellEl || !terminalScreen) throw new Error('Phone shell is not built');
   active = false;
   syncPhoneCalm();
-  closeSettingsSectionPicker({ returnFocus: false });
   terminalScreen.clear();
   reparentReviewPanel(null);
   for (const panel of panels) releaseElement(panel.el);

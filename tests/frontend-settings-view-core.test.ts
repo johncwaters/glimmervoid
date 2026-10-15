@@ -9,7 +9,7 @@ import { SETTINGS_INDEX, displayValue, parseSettingsHash, scoreSettingsSearch, s
 import {
   STORED_SECRET_MASK, childSectionsOf, collectDirtyBlocks, displayRange, draftCommitOf,
   fileOnlyDefaultText, hydrateFromSettings, isAtDefault, listFromDraft, needsDangerConfirmation, numberDraftError, numberDraftOf, numberFromDraft,
-  pageSectionOf, pairedSettingOf, parseSettingsSearchHash, resetConfirmationOf, resetValueOf, settingError, settingSavePayload, settingsSearchBreadcrumb, shouldShowDangerWarning, topLevelSectionsOf, validateLocally,
+  pageSectionOf, phoneSettingsScreenOf, pairedSettingOf, parseSettingsSearchHash, resetConfirmationOf, resetValueOf, settingError, settingSavePayload, settingsSearchBreadcrumb, shouldShowDangerWarning, topLevelSectionsOf, validateLocally,
   withoutWorkflowRuleDefinitions, workflowRuleSummaryLines, workflowRuleToggleRows,
 } from '../public/settings/settings-view-core.ts';
 import { settableFromDashboard } from './helpers/settings-allow-list.ts';
@@ -450,4 +450,14 @@ test('workflow rule toggle rows carry each rule id and state, and none for an ab
     { id: 'ci', name: 'CI watch', isEnabled: true, summary: 'Acme/app  checks-failed  notify' },
     { id: 'thanks', name: 'Thanks', isEnabled: false, summary: 'Acme/app  merged  comment' },
   ]);
+});
+
+test('phone settings starts with sections, opens canonical and child links, searches above either screen, and hides an open section in streamer mode', () => {
+  assert.equal(phoneSettingsScreenOf(SECTIONS, null, '', false), 'list');
+  assert.equal(phoneSettingsScreenOf(SECTIONS, 'browser-appearance', '', false), 'section');
+  assert.equal(phoneSettingsScreenOf(SECTIONS, 'lanes-posthog', '', false), 'section');
+  assert.equal(phoneSettingsScreenOf(SECTIONS, 'missing', '', false), 'list');
+  assert.equal(phoneSettingsScreenOf(SECTIONS, null, 'replay', false), 'search');
+  assert.equal(phoneSettingsScreenOf(SECTIONS, 'lanes-posthog', 'replay', false), 'search');
+  assert.equal(phoneSettingsScreenOf(SECTIONS, 'lanes-posthog', '', true), 'hidden');
 });
