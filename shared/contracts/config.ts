@@ -123,6 +123,10 @@ export const ProjectConfig = z.object({
   conversationView: z.boolean({ error: 'projects[].conversationView must be a boolean' }).optional(),
   dangerouslySkipPermissions: z.boolean({ error: 'projects[].dangerouslySkipPermissions must be a boolean' }).optional(),
   unguarded: z.boolean({ error: 'projects[].unguarded must be a boolean' }).optional(),
+  factoryProfile: FactorySettings.unwrap().unwrap().extend({
+    focusedTestCommand: z.string().trim().min(1).optional(),
+    widenableScopes: z.array(z.string().trim().min(1)).optional(),
+  }).optional(),
 }).passthrough();
 const FILE_CONFIG_SHAPE = {
   ...BROWSER_CONFIG_SHAPE,
