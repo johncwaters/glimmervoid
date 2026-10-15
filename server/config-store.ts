@@ -26,6 +26,8 @@ interface GlimmervoidConfig extends Config {
   projects: ProjectEntry[];
 }
 type ConfigValidation = { ok: true; config: GlimmervoidConfig } | { ok: false; errors: string[] };
+type ConfigFileSave = { ok: true; config: GlimmervoidConfig } | { ok: false; message: string };
+type EnvSecrets = ReturnType<typeof readEnvSecrets>;
 
 const DEFAULT_CONFIG = {
   port: 3000,
@@ -243,13 +245,16 @@ interface FailedConfigLoad {
   invalidBackupPath: string;
 }
 
-function loadConfigFile(configPath: string, options?: { exitOnError?: true }): LoadedConfig;
-function loadConfigFile(configPath: string, options: { exitOnError: false }): LoadedConfig | FailedConfigLoad;
-function loadConfigFile(configPath: string, { exitOnError = true }: { exitOnError?: boolean } = {}): LoadedConfig | FailedConfigLoad {
+function loadConfigFile(configPath: string, options?: { exitOnError?: true; envSecrets?: EnvSecrets }): LoadedConfig;
+function loadConfigFile(configPath: string, options: { exitOnError: false; envSecrets?: EnvSecrets }): LoadedConfig | FailedConfigLoad;
+function loadConfigFile(
+  configPath: string,
+  { exitOnError = true, envSecrets = readEnvSecrets(process.env) }: { exitOnError?: boolean; envSecrets?: EnvSecrets } = {},
+): LoadedConfig | FailedConfigLoad {
   const loadedContent = fs.readFileSync(configPath, 'utf8');
   try {
     const parsed = normalizeConfigFile(JSON.parse(loadedContent));
-    return { config: withEnvSecrets(parsed, readEnvSecrets(process.env)), loadedContent };
+    return { config: withEnvSecrets(parsed, envSecrets), loadedContent };
   } catch (err) {
     const invalidBackupPath = `${configPath}.invalid.bak`;
     try {
@@ -261,6 +266,26 @@ function loadConfigFile(configPath: string, { exitOnError = true }: { exitOnErro
     if (!exitOnError) return { error: err, message, invalidBackupPath };
     console.error(message);
     process.exit(1);
+  }
+}
+
+function writeMutatedConfigFile(configPath: string, mutatorFn: (config: GlimmervoidConfig) => void): ConfigFileSave {
+  const loaded = loadConfigFile(configPath, { exitOnError: false, envSecrets: [] });
+  if ('error' in loaded) return { ok: false, message: loaded.message };
+  mutatorFn(loaded.config);
+  const validation = validateConfig(loaded.config);
+  if (!validation.ok) return { ok: false, message: `config.json at ${configPath} was not written; validation failed: ${validation.errors.join('; ')}` };
+  const nextContent = JSON.stringify(validation.config, null, 2);
+  if (nextContent !== loaded.loadedContent) writeBackupContent(`${configPath}.bak`, loaded.loadedContent);
+  writeTextAtomicSync(configPath, nextContent, { mode: CONFIG_FILE_MODE });
+  return { ok: true, config: validation.config };
+}
+
+function saveConfigFileOnce(configPath: string, mutatorFn: (config: GlimmervoidConfig) => void): ConfigFileSave {
+  try {
+    return writeMutatedConfigFile(configPath, mutatorFn);
+  } catch (error) {
+    return { ok: false, message: `config.json at ${configPath} was not written: ${errorMessage(error)}` };
   }
 }
 
@@ -549,12 +574,14 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
 
   function applySettings(newConfig: Partial<GlimmervoidConfig>): void {
     for (const key of RUNTIME_CONFIG_SCALAR_KEYS) {
-      if (key === 'integrationBranch') {
-        if (newConfig[key] === undefined) continue;
+      if (key === 'integrationBranch' && newConfig[key] !== undefined) {
         config[key] = newConfig[key] === null || String(newConfig[key]) === '' ? null : String(newConfig[key]);
         continue;
       }
-      if (newConfig[key] == null) continue;
+      if (newConfig[key] == null) {
+        delete config[key];
+        continue;
+      }
       let nextValue = newConfig[key];
       if (typeof DEFAULT_CONFIG_BY_KEY[key] === 'boolean') nextValue = !!nextValue;
       if (typeof DEFAULT_CONFIG_BY_KEY[key] === 'string') nextValue = String(nextValue);
@@ -563,7 +590,9 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     }
     config.repoRoots = newConfig.repoRoots || [];
 
+    if (newConfig.postTurnChecks == null) delete config.postTurnChecks;
     if (newConfig.postTurnChecks != null) config.postTurnChecks = newConfig.postTurnChecks;
+    if (newConfig.worktreeShare == null) delete config.worktreeShare;
     if (newConfig.worktreeShare != null) config.worktreeShare = newConfig.worktreeShare;
     if (newConfig.taskTitle != null) config.taskTitle = newConfig.taskTitle;
     if (newConfig.changeMap != null) config.changeMap = newConfig.changeMap;
@@ -664,5 +693,5 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
 
 type ConfigStore = ReturnType<typeof createConfigStore>;
 
-export { createConfigStore, resolveConfigPath, glimmervoidHomeDir, generateProjectId, ensureProjectIds, validateConfig, loadConfigFile, ABORT_CONFIG_SAVE, DEFAULT_CONFIG, CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX };
+export { createConfigStore, resolveConfigPath, glimmervoidHomeDir, generateProjectId, ensureProjectIds, validateConfig, loadConfigFile, saveConfigFileOnce, ABORT_CONFIG_SAVE, DEFAULT_CONFIG, CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX };
 export type { ConfigStore, DefaultConfig, GlimmervoidConfig, ProjectEntry };

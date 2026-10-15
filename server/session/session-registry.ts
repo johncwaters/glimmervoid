@@ -270,7 +270,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
 
   function addSessions(added: RegistryProject[], newConfig: RegistryConfig): void {
     for (const project of added) {
-      const session = dependencies.makeSession(project, { ...config, ...newConfig });
+      const session = dependencies.makeSession(project, newConfig);
       sessions.set(project.id, session);
       captureAgentFingerprint(project);
       dependencies.wireSessionEvents(session);
@@ -293,7 +293,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       dependencies.notificationManager.acknowledge(project.id);
 
       oldSession.destroy();
-      const newSession = dependencies.makeSession(project, { ...config, ...newConfig });
+      const newSession = dependencies.makeSession(project, newConfig);
       sessions.set(project.id, newSession);
       captureAgentFingerprint(project);
       dependencies.wireSessionEvents(newSession);
@@ -325,7 +325,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       resolveAgentId: dependencies.resolveAgentId,
       agentFingerprintOf,
       capturedAgentFingerprintOf: (sessionId: string) => capturedAgentFingerprints.get(sessionId) ?? null,
-      skipPermissionsByDefault: machineSkipsPermissionsByDefault({ ...config, ...newConfig }),
+      skipPermissionsByDefault: machineSkipsPermissionsByDefault(newConfig),
     });
     for (const id of diff.removed) teardownSession(id, '[config] Removed session');
     addSessions(diff.added, newConfig);

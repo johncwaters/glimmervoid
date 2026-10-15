@@ -59,6 +59,7 @@ Commands:
   limits            From inside a Glimmervoid session, list which of these commands answer and what its guardrails block
   ssh-sign          What git runs inside a Glimmervoid session to sign a commit with the operator's forwarded ssh agent
   kg [command]      Experimental typed knowledge and task graph (Settings > Lanes > Knowledge graph)
+  settings <cmd>    Read and change config.json: list, get, set, unset, search, schema (each takes --json)
 
 Options:
   --name <label>    Label for the device being paired (with: pair)
@@ -170,7 +171,27 @@ node bin/glimmervoid.ts pair --list
 
 ---
 
-## Test 8: tarball contents
+## Test 8: `glimmervoid settings`
+
+With the scratch config from Test 7 still in place and no server running:
+
+```bash
+node bin/glimmervoid.ts settings schema --json
+node bin/glimmervoid.ts settings search spike --json
+node bin/glimmervoid.ts settings get posthog.trafficSpikeEnabled
+node bin/glimmervoid.ts settings set posthog.trafficSpikeEnabled false
+node bin/glimmervoid.ts settings set posthog.trafficSpikeEnabled maybe
+node bin/glimmervoid.ts settings set remote.enabled false
+node bin/glimmervoid.ts settings set telegram.botToken 123456:EXAMPLE
+node bin/glimmervoid.ts settings unset posthog.trafficSpikeEnabled
+node bin/glimmervoid.ts settings list
+```
+
+**Expected:** `schema` prints a JSON array with one entry per setting carrying `id`, `path`, `type`, `default`, `unit`, `effect` and `section`, and creates nothing under `GLIMMERVOID_HOME` when run without a `config.json`. `search spike` lists the settings with spike in their title first, `posthog-traffic-enabled` among them. `get` prints `posthog.trafficSpikeEnabled = true (default)`. The first `set` prints the new value and `A running Glimmervoid applies it without a restart.`, and `config.json` now carries `"trafficSpikeEnabled": false` next to a `config.json.bak` of the previous content. `set ... maybe` exits 1 with `posthog.trafficSpikeEnabled must be a boolean` and leaves the file untouched. `set remote.enabled` exits 1 with a message that names `config.json`, because the remote listener is not a registry setting. `set telegram.botToken` exits 1 with a message naming Settings > Telegram and `GLIMMERVOID_TELEGRAM_BOT_TOKEN`, and `config.json` stays without the token, because the command never takes or removes a secret. `unset` removes the key and names the default. `list` prints one table per settings section; a Telegram bot token or PostHog API key shows as `configured` or `not configured`, never as its value. Start the server, run the first `set` again, and the server log prints `[config] Reloaded config.json` without a restart.
+
+---
+
+## Test 9: tarball contents
 
 ```bash
 npm pack --dry-run
@@ -180,7 +201,7 @@ npm pack --dry-run
 
 ---
 
-## Test 9: global install from the tarball
+## Test 10: global install from the tarball
 
 ```bash
 npm pack
@@ -211,5 +232,6 @@ npm uninstall -g glimmervoid
 | 5 | `--config <missing>` errors with exit 1 | |
 | 6 | `doctor` prints a read-only report, exits 0 | |
 | 7 | `pair` mints, lists and revokes a device | |
-| 8 | `npm pack --dry-run` ships only built files | |
-| 9 | Global install from the tarball runs and loads node-pty | |
+| 8 | `settings` reads, validates and writes `config.json`, masks secrets and refuses to write them, refuses non-registry keys | |
+| 9 | `npm pack --dry-run` ships only built files | |
+| 10 | Global install from the tarball runs and loads node-pty | |

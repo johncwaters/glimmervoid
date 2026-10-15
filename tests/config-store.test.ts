@@ -446,12 +446,24 @@ test('workflow rules default to none, reach the dashboard whole and read-only ev
   });
 });
 
-test('a config.json reload without the workflows block clears the live rules', () => {
+test('a config.json reload without a key drops its live value, so a removed scalar, integration branch, worktreeShare, postTurnChecks or workflows block takes its default', () => {
   withStore({ projects: [] }, (store) => {
-    store.applySettings({ projects: [], workflows: { rules: [{ id: 'greet', name: 'Greet', enabled: true, repos: ['acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] } });
+    const removedKeys = {
+      saneYolo: false,
+      autoResume: false,
+      integrationBranch: 'staging',
+      worktreeShare: ['custom'],
+      postTurnChecks: { mode: 'off' },
+      workflows: { rules: [{ id: 'greet', name: 'Greet', enabled: true, repos: ['acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] },
+    };
+    store.applySettings({ projects: [], ...removedKeys });
     store.applySettings({ projects: [], cursorBlink: true });
-    assert.equal('workflows' in store.config, false);
-    assert.equal(store.getSettings().workflows, null);
+    for (const key of Object.keys(removedKeys)) assert.equal(key in store.config, false, key);
+    const settings = store.getSettings();
+    assert.deepEqual(
+      { saneYolo: settings.saneYolo, autoResume: settings.autoResume, integrationBranch: settings.integrationBranch, worktreeShare: settings.worktreeShare, workflows: settings.workflows },
+      { saneYolo: DEFAULT_CONFIG.saneYolo, autoResume: DEFAULT_CONFIG.autoResume, integrationBranch: DEFAULT_CONFIG.integrationBranch, worktreeShare: DEFAULT_CONFIG.worktreeShare, workflows: null },
+    );
   });
 });
 

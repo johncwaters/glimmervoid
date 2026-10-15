@@ -44,6 +44,7 @@ Commands:
   limits            From inside a Glimmervoid session, list which of these commands answer and what its guardrails block
   ssh-sign          What git runs inside a Glimmervoid session to sign a commit with the operator's forwarded ssh agent
   kg [command]      Experimental typed knowledge and task graph (Settings > Lanes > Knowledge graph)
+  settings <cmd>    Read and change config.json: list, get, set, unset, search, schema (each takes --json)
 
 Options:
   --name <label>    Label for the device being paired (with: pair)
@@ -92,6 +93,10 @@ const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
   ['kg', async (subcommandArgs) => {
     const { runKnowledgeGraphCommand } = await import('../server/knowledge-graph-cli.ts');
     return runKnowledgeGraphCommand(subcommandArgs);
+  }],
+  ['settings', async (subcommandArgs) => {
+    const { runSettingsCommand } = await import('../server/settings-cli.ts');
+    return runSettingsCommand(subcommandArgs);
   }],
   ['visions', async (subcommandArgs) => {
     const { runVisionsCli } = await import('../server/visions/visions-cli.ts');

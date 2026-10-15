@@ -43,6 +43,7 @@ import { createUpdateApplyLane } from '../update-apply.ts';
 import { bundled, packageRoot } from '../runtime-paths.ts';
 import { createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
+import { buildSettingsPayload } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir } from '../core/config-path-core.ts';
 import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
 
@@ -493,6 +494,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   stopConfigWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
+    broadcastControl({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, rtkInstallStatus: rtkInstall.getStatus() }) });
   });
   updateCheck.start();
 
