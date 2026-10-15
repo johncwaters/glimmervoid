@@ -61,6 +61,7 @@ interface FactoryDispatchDeps<ManagedSession extends FactoryOrchestratorSession 
   readIntentScopeNeeds?: (projectId: string) => Promise<ReadonlyMap<string, readonly string[]>>;
   notifyOrchestrator: (projectId: string, event: FactoryDecisionWorkerEvent) => void;
   setException: (projectId: string, reason: string | null, expectedReason?: string) => void;
+  discardLeftoverWorkerBranch?: (projectPath: string, workerSessionId: string) => Promise<string | null>;
   now?: () => number;
 }
 
@@ -68,7 +69,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
   config, sessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcast, spawnGate, recordLane,
   nodePath, hookCliPath, shimDir, getOrchestrator, serializeProject, ensureLedger, commitAndLand, runCoherence,
   readTodaySpend, readPaused, readTrustedIntentIds, readIntentWriteScopes = async () => new Map(), readIntentScopeNeeds = async () => new Map(), notifyOrchestrator, setException, onWorkerTurnEnd, onReadyIntent,
-  now = Date.now, workLane = {}, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools,
+  discardLeftoverWorkerBranch = async () => null, now = Date.now, workLane = {}, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools,
 }: FactoryDispatchDeps<ManagedSession>) {
   const liveWorkers = new Map<string, FactoryWorkerRecord<ManagedSession>>();
   const reconciledProjects = new Set<string>();
@@ -167,6 +168,8 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         if (!order || !intent || !isAuthorized()) return refuse('factory orchestrator is no longer live');
         const workerSessionId = `factory-work-${workId.slice(-8)}`;
         if (sessions.has(workerSessionId)) return refuse('worker session id is already in use');
+        const leftoverDiscardFailure = await discardLeftoverWorkerBranch(project.path, workerSessionId);
+        if (leftoverDiscardFailure !== null) return refuse(leftoverDiscardFailure, true);
         const claudeSessionId = crypto.randomUUID();
         await runCoherence({ cwd: ledger.cwd, args: [
           'work', 'handoff', workId, '--owner-session', claudeSessionId, '--owner-agent', 'claude-code',

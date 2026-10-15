@@ -297,6 +297,61 @@ test('stageIsolatedCheckout refuses an existing destination without changing its
   assert.equal(fs.existsSync(path.join(repo, '.git', 'objects', 'info', 'alternates')), false);
 });
 
+test('discardSessionBranch removes a dead session worktree and branch so the same session id starts again from the current base', { skip: !GIT }, async (context) => {
+  const repo = initRepoOnMain('glimmervoid-discard-session-');
+  const worktreeBase = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-discard-session-wt-'));
+  context.after(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(worktreeBase, { recursive: true, force: true });
+  });
+  const gitWorkspace = createGitWorkspace({});
+  const sessionArgs = { projectPath: repo, teamId: 'session', label: 'factory-work-0000beef', baseBranch: 'main', worktreeBase };
+  const first = await gitWorkspace.create(sessionArgs);
+  assert.equal(first.isGit, true);
+  fs.writeFileSync(path.join(repo, 'merged.txt'), 'merged\n', 'utf8');
+  git(['add', 'merged.txt'], repo);
+  git(['commit', '-m', 'merged ticket'], repo);
+  const currentBase = git(['rev-parse', 'HEAD'], repo).trim();
+  assert.equal((await gitWorkspace.create(sessionArgs)).reason, 'branch-in-use');
+  const discarded = await gitWorkspace.discardSessionBranch({ projectPath: repo, teamId: 'session', label: 'factory-work-0000beef', worktreeBase });
+  assert.equal(discarded.ok, true, discarded.err ?? 'discard failed');
+  const second = await gitWorkspace.create(sessionArgs);
+  assert.equal(second.isGit, true);
+  assert.equal(second.baseSha, currentBase);
+  assert.equal((await gitWorkspace.discardSessionBranch({ projectPath: repo, teamId: 'session', label: 'factory-work-missing', worktreeBase })).ok, true);
+});
+
+test('discardSessionBranch refuses an operator worktree or the main checkout holding the session branch and leaves both untouched', { skip: !GIT }, async (context) => {
+  const repo = initRepoOnMain('glimmervoid-discard-foreign-');
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-discard-foreign-scratch-'));
+  context.after(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(scratch, { recursive: true, force: true });
+  });
+  const gitWorkspace = createGitWorkspace({});
+  const worktreeBase = path.join(scratch, 'worktrees');
+  const sessionArgs = { projectPath: repo, teamId: 'session', label: 'factory-work-0000beef', worktreeBase };
+  const created = await gitWorkspace.create({ ...sessionArgs, baseBranch: 'main' });
+  const sessionBranch = branchOf(created);
+  git(['worktree', 'remove', '--force', created.cwd], repo);
+  const operatorWorktree = path.join(scratch, 'operator-salvage');
+  git(['worktree', 'add', operatorWorktree, sessionBranch], repo);
+  fs.writeFileSync(path.join(operatorWorktree, 'salvaged-fix.ts'), 'export const salvaged = true;\n', 'utf8');
+  const operatorRefusal = await gitWorkspace.discardSessionBranch(sessionArgs);
+  assert.equal(operatorRefusal.ok, false);
+  assert.match(operatorRefusal.err ?? '', /operator-salvage/);
+  assert.equal(fs.existsSync(path.join(operatorWorktree, 'salvaged-fix.ts')), true);
+  git(['worktree', 'remove', '--force', operatorWorktree], repo);
+  git(['checkout', sessionBranch], repo);
+  fs.mkdirSync(path.join(scratch, 'shared-node-modules'));
+  fs.symlinkSync(path.join(scratch, 'shared-node-modules'), path.join(repo, 'node_modules'), 'junction');
+  const mainCheckoutRefusal = await gitWorkspace.discardSessionBranch(sessionArgs);
+  assert.equal(mainCheckoutRefusal.ok, false);
+  assert.match(mainCheckoutRefusal.err ?? '', /main checkout/);
+  assert.equal(fs.lstatSync(path.join(repo, 'node_modules')).isSymbolicLink(), true);
+  assert.equal(git(['rev-parse', '--abbrev-ref', 'HEAD'], repo).trim(), sessionBranch);
+});
+
 test('mergeFastForwardTo refuses when the sampled head differs from expectedHead', async () => {
   const calls: string[][] = [];
   const gitWorkspace = createGitWorkspace({

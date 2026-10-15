@@ -252,6 +252,21 @@ function mainWorktreePath(porcelain: string): string | null {
   return firstEntry.slice('worktree '.length).trim() || null;
 }
 
+function sessionWorktreeLocation(projectPath: string, teamId: string | undefined, worktreeBase: string | null | undefined): { parent: string; prefix: string } {
+  if (worktreeBase) return { parent: worktreeBase, prefix: `${sanitizeWorktreeName(path.basename(projectPath)) || 'repo'}-` };
+  return { parent: os.tmpdir(), prefix: `glimmervoid-wt-${sanitizeWorktreeName(teamId)}-` };
+}
+
+async function foreignSessionWorktreeReason(worktreePath: string, porcelain: string, location: { parent: string; prefix: string }): Promise<string | null> {
+  const mainWorktree = mainWorktreePath(porcelain);
+  if (mainWorktree !== null && await comparableDirectoryPath(worktreePath) === await comparableDirectoryPath(mainWorktree)) {
+    return `refusing to discard ${worktreePath}: it is the main checkout`;
+  }
+  const isUnderWorktreeParent = await comparableDirectoryPath(path.dirname(worktreePath)) === await comparableDirectoryPath(location.parent);
+  if (isUnderWorktreeParent && path.basename(worktreePath).startsWith(location.prefix)) return null;
+  return `refusing to discard ${worktreePath}: glimmervoid did not create this worktree under ${path.join(location.parent, location.prefix)}*`;
+}
+
 function findWorktreeForBranch(porcelain: string, branch: string): string | null {
   const hit = parseWorktreeBranches(porcelain).find((w) => w.branch === branch);
   return hit ? hit.cwd : null;
@@ -505,14 +520,11 @@ function createGitWorkspace(opts: {
     if (!baseSha) return { cwd: projectPath, isGit: false, reason: 'no-base-branch' };
     await run(['branch', '-D', branch], projectPath);
 
-    let wtParent = os.tmpdir();
-    let prefix = `glimmervoid-wt-${sanitizeWorktreeName(teamId)}-`;
     if (worktreeBase) {
       try { fs.mkdirSync(worktreeBase, { recursive: true }); } catch {}
-      wtParent = worktreeBase;
-      prefix = `${sanitizeWorktreeName(path.basename(projectPath)) || 'repo'}-`;
     }
-    const wtDir = mkdtemp(path.join(wtParent, prefix));
+    const location = sessionWorktreeLocation(projectPath, teamId, worktreeBase);
+    const wtDir = mkdtemp(path.join(location.parent, location.prefix));
     const add = await run(['worktree', 'add', '-b', branch, wtDir, baseSha], projectPath);
     if (!add.ok) {
       try { fs.rmSync(wtDir, { recursive: true, force: true }); } catch {}
@@ -967,6 +979,29 @@ function createGitWorkspace(opts: {
     return failure ?? okResult('');
   }
 
+  async function readLocalBranchSha(projectPath: string, branch: string): Promise<GitResult> {
+    try {
+      return okResult(await git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], projectPath));
+    } catch (err) {
+      if (errorExitCode(err) === 1) return okResult('');
+      return errResult(err);
+    }
+  }
+
+  async function discardSessionBranchBody({ projectPath, teamId = '', label = '', worktreeBase, disableHooks, replaceEnv }: WorktreeArgs): Promise<GitResult> {
+    const branch = `glimmervoid/${sanitizeWorktreeName(teamId)}/${sanitizeWorktreeName(label)}`;
+    const existingBranch = await readLocalBranchSha(projectPath, branch);
+    if (!existingBranch.ok) return existingBranch;
+    if (existingBranch.out === '') return okResult('');
+    const listed = await run(['worktree', 'list', '--porcelain'], projectPath);
+    if (!listed.ok) return listed;
+    const worktreePath = findWorktreeForBranch(listed.out, branch);
+    if (worktreePath === null) return removeWorktreeByPathBody({ projectPath, branch, disableHooks, replaceEnv });
+    const refusal = await foreignSessionWorktreeReason(worktreePath, listed.out, sessionWorktreeLocation(projectPath, teamId, worktreeBase));
+    if (refusal !== null) return { ok: false, out: '', err: refusal };
+    return removeWorktreeByPathBody({ projectPath, cwd: worktreePath, branch, disableHooks, replaceEnv });
+  }
+
   async function pruneWorktreesBody({ projectPath, disableHooks, replaceEnv }: WorktreeArgs): Promise<GitResult> {
     return runUntrusted(['worktree', 'prune'], projectPath, { disableHooks, replaceEnv });
   }
@@ -1419,6 +1454,7 @@ function createGitWorkspace(opts: {
     fetchOrigin: serialized(fetchOriginBody),
     seedBranchFromOrigin: serialized(seedBranchFromOriginBody),
     pruneWorktrees: serialized(pruneWorktreesBody),
+    discardSessionBranch: serialized(discardSessionBranchBody),
     stageDetachedWorktree: serialized(stageDetachedWorktreeBody),
     checkoutDetached: serialized(checkoutDetachedBody),
     stageIsolatedCheckout,

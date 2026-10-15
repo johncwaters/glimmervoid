@@ -86,7 +86,7 @@ test('a child name is derived from the parent and never collides', () => {
   assert.equal(deriveChildSessionName('  ', ['session agent']), 'session agent 2');
 });
 
-test('factory status formats the digest, ticket blocks and next actions, project spend and an unavailable ledger', () => {
+test('factory status formats the digest, ticket blocks and next actions, project spend, an unavailable ledger and a block warning', () => {
   const intent: FactoryProjectState['orders'][number] = {
     id: 'intent', objective: 'Ship overnight', openedAt: '2026-10-15T00:00:00Z', criteria: [], boundary: 'src/',
     risk: 'low', state: 'open', readiness: 'ready', parent: null, dependsOn: [], writeScopes: ['src/'], owner: null, lastEvent: null,
@@ -124,6 +124,8 @@ test('factory status formats the digest, ticket blocks and next actions, project
   assert.equal(formatFactoryStatus([], buildFactoryIntentDigest), 'No factory projects.');
   const unreadableLedger = buildFactoryProjectState({ projectId: 'repo', projectName: 'Repository', headSha: null, orient: null, work: null, error: 'ledger read failed' });
   assert.equal(formatFactoryStatus([{ ...unreadableLedger, dailyBudgetUsd: null }], buildFactoryIntentDigest), [
-    'Project repo: Repository', 'Project spend today: unknown of unlimited budget', 'Factory state unavailable: ledger read failed',
+    'Project repo: Repository', 'Project spend today: unknown of unlimited budget', 'Factory exception: ledger read failed',
   ].join('\n'));
+  const blockedProject = { ...unreadableLedger, dailyBudgetUsd: null, error: 'Parked ticket. Leave it parked.', orders: [intent] };
+  assert.match(formatFactoryStatus([blockedProject], buildFactoryIntentDigest), /^Factory exception: Parked ticket\. Leave it parked\.$/m);
 });
