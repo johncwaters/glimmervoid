@@ -7,6 +7,7 @@ export const FactoryConsequences = z.looseObject({
 });
 
 export const FACTORY_INTENT_CONFIRMED_FLAKE_LIMIT = 256;
+export const FACTORY_INTENT_SCOPE_NEED_LIMIT = 256;
 const confirmedFlakes = z.array(z.string().min(1)).max(FACTORY_INTENT_CONFIRMED_FLAKE_LIMIT);
 
 export const FactoryProjectState = z.object({
@@ -146,6 +147,7 @@ export const FactoryLaneState = z.object({
   intentWriteScopes: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
   intentFloorAllowances: z.record(z.string().min(1), floorAllowances).optional(),
   intentConfirmedFlakes: z.record(z.string().min(1), confirmedFlakes).optional(),
+  intentScopeNeeds: z.record(z.string().min(1), z.array(z.string().min(1)).max(FACTORY_INTENT_SCOPE_NEED_LIMIT)).optional(),
   ticketedIntentIds: z.array(z.string().min(1)).optional(),
   pendingIntentTickets: z.record(z.string().min(1), z.object({
     risk: CoherenceRisk, boundary: intentText, tickets: z.array(FactoryIntentTicket).min(1).max(FACTORY_INTENT_TICKET_LIMIT),

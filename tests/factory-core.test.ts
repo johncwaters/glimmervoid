@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import { absolutePathEditRule, buildWorkerPrompt, factoryConfigKey, isWorktreeAdminDirOf, parseGitdirPointer, decideFactoryStalls, isTurnEndHookEvent, FACTORY_STALL_MS, buildFactoryIntentDigest, buildFactoryProjectState, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent, verifierDefectEvidence, verifierRejectionNote, factoryStateSignature, nextIntent, withIntentConfirmedFlakes } from '../server/factory/core/factory-core.ts';
+import { absolutePathEditRule, buildWorkerPrompt, factoryConfigKey, isWorktreeAdminDirOf, parseGitdirPointer, decideFactoryStalls, isTurnEndHookEvent, FACTORY_STALL_MS, buildFactoryIntentDigest, buildFactoryProjectState, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent, verifierDefectEvidence, verifierRejectionNote, factoryStateSignature, nextIntent, withIntentConfirmedFlakes, withIntentScopeNeeds } from '../server/factory/core/factory-core.ts';
 import { CoherenceOrient, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import type { FactoryStallSession } from '../server/factory/core/factory-core.ts';
 import { STATES } from '../shared/states.ts';
@@ -138,19 +138,22 @@ test('factory derives a partial intent digest with merged tickets, exact parked 
   }
 });
 
-test('confirmed flakes accumulate per intent without mutating prior lane state and remain bounded', () => {
-  const current = { intent: ['tests/z.test.ts'], other: ['tests/other.test.ts'] };
-  const intentConfirmedFlakes = withIntentConfirmedFlakes(current, 'intent', ['tests/a.test.ts', 'tests/z.test.ts']);
-  assert.deepEqual(intentConfirmedFlakes, { intent: ['tests/a.test.ts', 'tests/z.test.ts'], other: ['tests/other.test.ts'] });
-  assert.deepEqual(current, { intent: ['tests/z.test.ts'], other: ['tests/other.test.ts'] });
-  const state = FactoryLaneState.parse({ ledgerPath: null, ledgerBranch: null, paused: false, intentConfirmedFlakes });
-  assert.deepEqual(state.intentConfirmedFlakes, intentConfirmedFlakes);
-  const manyFlakes = Array.from({ length: 1000 }, (_, index) => `tests/flake-${index}.test.ts`);
-  const bounded = withIntentConfirmedFlakes(undefined, 'intent', manyFlakes);
-  assert.ok(bounded);
-  assert.ok(bounded.intent.length > 0 && bounded.intent.length < manyFlakes.length);
-  assert.equal(FactoryLaneState.safeParse({ ...state, intentConfirmedFlakes: bounded }).success, true);
-  assert.deepEqual(withIntentConfirmedFlakes(bounded, 'intent', manyFlakes), bounded);
+test('remembered factory files accumulate per intent without mutating prior lane state and remain bounded', () => {
+  for (const [field, updateFiles] of [['intentConfirmedFlakes', withIntentConfirmedFlakes], ['intentScopeNeeds', withIntentScopeNeeds]] as const) {
+    const current = { intent: ['tests/z.test.ts'], other: ['tests/other.test.ts'] };
+    const rememberedFiles = updateFiles(current, 'intent', ['tests/a.test.ts', 'tests/z.test.ts']);
+    assert.deepEqual(rememberedFiles, { intent: ['tests/a.test.ts', 'tests/z.test.ts'], other: ['tests/other.test.ts'] });
+    assert.deepEqual(current, { intent: ['tests/z.test.ts'], other: ['tests/other.test.ts'] });
+    const state = FactoryLaneState.parse({ ledgerPath: null, ledgerBranch: null, paused: false, [field]: rememberedFiles });
+    assert.deepEqual(state[field], rememberedFiles);
+    const manyFiles = Array.from({ length: 1000 }, (_, index) => `tests/failure-${index}.test.ts`);
+    const bounded = updateFiles(undefined, 'intent', manyFiles);
+    assert.ok(bounded);
+    assert.ok(bounded.intent.length > 0 && bounded.intent.length < manyFiles.length);
+    assert.equal(FactoryLaneState.safeParse({ ...state, [field]: bounded }).success, true);
+    assert.deepEqual(updateFiles(bounded, 'intent', manyFiles), bounded);
+  }
+  assert.ok(withIntentScopeNeeds(withIntentScopeNeeds(undefined, 'intent', Array.from({ length: 1000 }, (_, index) => `tests/a${index}.test.ts`)), 'intent', ['tests/z.test.ts'])?.intent.includes('tests/z.test.ts'));
 });
 
 test('next intent selects the oldest ready open root without mutating tickets', async () => {
@@ -199,7 +202,10 @@ test('orchestrator prompt stops on denied commands and reports dispatch refusals
   const prompt = buildOrchestratorPrompt({ projectName: 'Factory', intent, claudeSessionId: 'claude-session' });
   for (const text of [
     'A denied command means "not allowed here". Do not retry it another way.',
-    'report the refusal reason in one line and stop the turn', 'do not record it in the ledger',
+    'report the refusal reason in one line and dispatch any other ready child', 'Do not record the refusal in the ledger',
+    'stop the turn only when none is left', 'Never ask the operator a question or wait for an answer',
+    'create a replacement whose write scopes also cover the named files', 'Leave parked children alone',
+    'Glimmervoid marks the intent partial',
   ]) assert.ok(prompt.includes(text), text);
   assert.ok(prompt.includes('Decompose this intent'));
   const ticketedPrompt = buildOrchestratorPrompt({ projectName: 'Factory', intent, claudeSessionId: 'claude-session', hasTickets: true });

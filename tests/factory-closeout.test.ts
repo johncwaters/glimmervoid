@@ -25,7 +25,6 @@ import { createCoherenceLedger, initGitRepository, stubEnvironmentVariable } fro
 import { waitFor } from './helpers/wait-for.ts';
 import { FactoryLaneState, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
-import type { Config } from '../shared/contracts/config.ts';
 
 const prepareUnsandboxedCheckRunner: PrepareFactoryCheckRunner = async () => ({
   runCheck: (argv, options) => execFileAsync(argv[0], argv.slice(1), options),
@@ -50,6 +49,7 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
   assert.ok(workspace.isGit);
   assert.ok(workspace.baseSha);
   const feedback: string[] = [];
+  const recordedScopeNeeds: { intentId: string; files: string[] }[] = [];
   const events: FactoryWorkerEvent[] = [];
   const trustedVerifications: { projectId: string; id: string; sha: string }[] = [];
   const exceptions: string[] = [];
@@ -66,14 +66,16 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
   let reviewBarrier: (() => Promise<void>) | null = null;
   let mergeReason: string | null = null;
   let mergedSha: string | null = null;
+  let workerBaseSha = workspace.baseSha;
   let prepareCheckRunner = prepareUnsandboxedCheckRunner;
-  const config: Pick<Config, 'factory' | 'worktreeShare'> = { factory: { enabled: true, checks: [`${process.execPath} --version`], reviewerModel: 'sonnet' }, worktreeShare: ['node_modules'] };
+  const config: FactoryCloseOutDeps['config'] = { factory: { enabled: true, checks: [`${process.execPath} --version`], reviewerModel: 'sonnet' }, worktreeShare: ['node_modules'] };
   const baseEnv: NodeJS.ProcessEnv = { ...process.env };
   const worker: FactoryCloseOutWorker = {
     workId, intentId, projectId: 'repo', projectPath, baseSha: workspace.baseSha,
     objective: 'Ship retries', criteria: ['Retries pass'], writeScopes: ['src/retry.ts'],
     session: {
-      worktreeDir: workspace.cwd, baseSha: workspace.baseSha,
+      worktreeDir: workspace.cwd,
+      get baseSha() { return workerBaseSha; },
       get _destroyed() { return isDestroyed; },
       destroy: () => { isDestroyed = true; },
       pasteTextWhenReady: (text) => { feedback.push(text); return { ok: true, deferred: false, bracketed: true }; },
@@ -88,6 +90,7 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
   };
   const closeOut = createFactoryCloseOut({
     ...capCounters, config, runCoherence, gitWorkspace, ensureLedger: async () => ledger,
+    recordScopeNeeds: (worker, files) => { recordedScopeNeeds.push({ intentId: worker.intentId, files }); return files; },
     commitAndLand: async (...landing) => {
       if (shouldFailLanding) throw new Error('Ledger push is unavailable');
       return land(...landing);
@@ -127,8 +130,9 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
     await git(['add', '--', relativePath], workspace.cwd);
     await git(['commit', '-m', 'fix: retries'], workspace.cwd);
   };
-  return { ...coherenceLedger, config, worker, closeOut, createOrder, workspace, directory, cleanupTasks, feedback, events, trustedVerifications, exceptions, clearedExceptions, decisionReasons, reviewRequests, reviewerCwdEntries, commitChange, baseEnv,
+  return { ...coherenceLedger, config, worker, closeOut, createOrder, workspace, directory, cleanupTasks, feedback, recordedScopeNeeds, events, trustedVerifications, exceptions, clearedExceptions, decisionReasons, reviewRequests, reviewerCwdEntries, commitChange, baseEnv,
     isDestroyed: () => isDestroyed, mergedSha: () => mergedSha, setPaused: (paused: boolean) => { isPaused = paused; },
+    setWorkerBaseSha: (baseSha: string) => { workerBaseSha = baseSha; },
     failTrustWrite: () => { shouldFailTrustWrite = true; },
     setLandingFails: (isFailing: boolean) => { shouldFailLanding = isFailing; },
     setVerdictFileOnly: (nextVerdict: unknown) => { verdict = nextVerdict; shouldWriteVerdictFileOnly = true; },
@@ -274,31 +278,53 @@ test('third factory failure blocks the ledger ticket and raises an exception', a
   assert.equal(fixture.events.at(-1)?.event, 'blocked');
 });
 
+async function commitPassingPinnedTest(git: (args: string[], cwd?: string) => Promise<string>, cwd: string): Promise<string> {
+  await mkdir(path.join(cwd, 'tests'), { recursive: true });
+  await writeFile(path.join(cwd, 'tests/pinned.test.ts'), "import test from 'node:test';\ntest('pinned passes', () => {});\n");
+  await git(['add', '--', 'tests/pinned.test.ts'], cwd);
+  await git(['commit', '-m', 'test: track the pinned test'], cwd);
+  return git(['rev-parse', 'HEAD'], cwd);
+}
+
 test('a test failing outside the write scopes on two attempts in a row blocks the ticket as needing write scope, without using its third attempt', async (context) => {
-  const fixture = await createFixture(context);
-  await fixture.commitChange();
-  const pinnedTestTitle = 'pinned retry budget '.repeat(100);
-  const writePinnedTest = [
-    "import { mkdirSync, writeFileSync } from 'node:fs';",
-    "mkdirSync('tests', { recursive: true });",
-    `writeFileSync('tests/pinned.test.ts', ${JSON.stringify(`import test from 'node:test';\ntest(${JSON.stringify(pinnedTestTitle)}, () => { throw new Error('pinned'); });\n`)});`,
-    `writeFileSync('tests/own-reporter.test.ts', ${JSON.stringify("import test from 'node:test';\ntest('own reporter passes', () => {});\n")});`,
-    `writeFileSync('tests/old-node.ts', ${JSON.stringify("if ((process.env.NODE_OPTIONS ?? '').includes('--test-reporter')) { process.stderr.write('node: --test-reporter= is not allowed in NODE_OPTIONS\\n'); process.exit(9); }\n")});`,
-  ].join('\n');
-  await writeFile(path.join(fixture.workspace.cwd, 'src/retry.ts'), `${writePinnedTest}\n`);
-  await fixture.git(['add', '.'], fixture.workspace.cwd);
-  await fixture.git(['commit', '-m', 'test: fail outside scope'], fixture.workspace.cwd);
-  fixture.config.factory = { enabled: true, checks: [`${process.execPath} src/retry.ts`, `${process.execPath} --test tests/pinned.test.ts`, `${process.execPath} --test --test-reporter=spec tests/own-reporter.test.ts`, `${process.execPath} tests/old-node.ts`] };
-  await fixture.closeOut.turnEnded(fixture.worker);
-  assert.match(fixture.feedback[0], /outside this ticket's write scopes: tests\/pinned\.test\.ts\./);
-  assert.match(fixture.feedback[0], /not ok 1 - pinned retry budget/);
-  assert.doesNotMatch(fixture.feedback[0], /ERR_INVALID_ARG_VALUE|own-reporter|not allowed in NODE_OPTIONS/);
-  assert.equal(await fixture.orderState(fixture.worker.workId), 'active');
-  await fixture.closeOut.turnEnded(fixture.worker);
-  assert.equal(fixture.feedback.length, 1);
-  assert.equal(await fixture.orderState(fixture.worker.workId), 'blocked');
-  assert.match(fixture.exceptions[0], /^Needs write scope: tests\/pinned\.test\.ts\./);
-  assert.equal(fixture.events.at(-1)?.event, 'blocked');
+  for (const scenario of ['widenable', 'intent', 'unmatched', 'protected']) {
+    await context.test(scenario, async (context) => {
+      const fixture = await createFixture(context);
+      fixture.config.projects = [{ id: 'repo', name: 'Factory', path: fixture.projectPath, factoryProfile: {
+        widenableScopes: scenario === 'unmatched' || scenario === 'intent' ? ['test/'] : ['tests/'],
+        protectedPaths: scenario === 'protected' ? ['tests/'] : [],
+      } }];
+      if (scenario === 'intent') fixture.worker.intentWriteScopes = ['src', 'tests'];
+      const trackedBaseSha = await commitPassingPinnedTest(fixture.git, fixture.workspace.cwd);
+      fixture.worker.baseSha = trackedBaseSha;
+      fixture.setWorkerBaseSha(trackedBaseSha);
+      await fixture.commitChange();
+      const pinnedTestTitle = 'pinned retry budget '.repeat(100);
+      const writePinnedTest = [
+        "import { mkdirSync, writeFileSync } from 'node:fs';",
+        "mkdirSync('tests', { recursive: true });",
+        `writeFileSync('tests/pinned.test.ts', ${JSON.stringify(`import test from 'node:test';\ntest(${JSON.stringify(pinnedTestTitle)}, () => { throw new Error(${JSON.stringify("pinned\nlocation: 'server/payload.test.d:1:1'")}); });\n`)});`,
+        `writeFileSync('tests/own-reporter.test.ts', ${JSON.stringify("import test from 'node:test';\ntest('own reporter passes', () => {});\n")});`,
+        `writeFileSync('tests/old-node.ts', ${JSON.stringify("if ((process.env.NODE_OPTIONS ?? '').includes('--test-reporter')) { process.stderr.write('node: --test-reporter= is not allowed in NODE_OPTIONS\\n'); process.exit(9); }\n")});`,
+      ].join('\n');
+      await writeFile(path.join(fixture.workspace.cwd, 'src/retry.ts'), `${writePinnedTest}\n`);
+      await fixture.git(['add', '.'], fixture.workspace.cwd);
+      await fixture.git(['commit', '-m', 'test: fail outside scope'], fixture.workspace.cwd);
+      fixture.config.factory = { enabled: true, checks: [`${process.execPath} src/retry.ts`, `${process.execPath} --test tests/pinned.test.ts`, `${process.execPath} --test --test-reporter=spec tests/own-reporter.test.ts`, `${process.execPath} tests/old-node.ts`] };
+      await fixture.closeOut.turnEnded(fixture.worker);
+      assert.match(fixture.feedback[0], /outside this ticket's write scopes: tests\/pinned\.test\.ts\./);
+      assert.match(fixture.feedback[0], /not ok 1 - pinned retry budget/);
+      assert.doesNotMatch(fixture.feedback[0], /ERR_INVALID_ARG_VALUE|own-reporter|not allowed in NODE_OPTIONS/);
+      assert.equal(await fixture.orderState(fixture.worker.workId), 'active');
+      await fixture.closeOut.turnEnded(fixture.worker);
+      assert.equal(fixture.feedback.length, 1);
+      assert.equal(await fixture.orderState(fixture.worker.workId), 'blocked');
+      assert.deepEqual(fixture.recordedScopeNeeds, scenario === 'widenable' ? [{ intentId: fixture.worker.intentId, files: ['tests/pinned.test.ts'] }] : []);
+      if (scenario === 'widenable' || scenario === 'intent') assert.match(fixture.exceptions[0], /^Needs write scope: tests\/pinned\.test\.ts\./);
+      if (scenario === 'unmatched' || scenario === 'protected') assert.match(fixture.exceptions[0], /^Parked .* after 3 blocks\. Leave it parked\. Need: Needs write scope: tests\/pinned\.test\.ts\./);
+      assert.equal(fixture.events.at(-1)?.event, 'blocked');
+    });
+  }
 });
 
 test('a block whose landing fails still releases the worker and raises the exception, and the next landing carries the block', async (context) => {
@@ -344,7 +370,7 @@ test('a block clears the attempt count so a reopened ticket starts over at its f
   assert.equal(fixture.exceptions.length, 1);
 });
 
-test('a ticket blocked a third time stays parked with its need and the orchestrator is told to replace it within scope or leave it parked', async (context) => {
+test('a ticket blocked a third time stays parked with its need and the orchestrator is told to leave it parked', async (context) => {
   const fixture = await createFixture(context);
   await fixture.commitChange('outside.ts');
   const reopenedWorker: FactoryCloseOutWorker = { ...fixture.worker, session: { ...fixture.worker.session, _destroyed: false, destroy: () => {} } };
@@ -360,7 +386,7 @@ test('a ticket blocked a third time stays parked with its need and the orchestra
   assert.equal(fixture.events.at(-1)?.event, 'blocked');
   const parkedOrder = (await fixture.inspect()).work.find((order) => order.work === fixture.worker.workId);
   assert.equal(parkedOrder?.last?.reason, fixture.events[0].detail);
-  assert.match(fixture.events.at(-1)?.detail ?? '', /Parked .* after 3 blocks\. Replace it with an in-scope ticket or leave it parked\. Need: .*outside\.ts/s);
+  assert.match(fixture.events.at(-1)?.detail ?? '', /Parked .* after 3 blocks\. Leave it parked\. Need: .*outside\.ts/s);
   assert.equal(fixture.exceptions.length, 3);
   assert.doesNotMatch(fixture.exceptions[1], /cancelled/);
   assert.match(fixture.exceptions[2], /Parked .* after 3 blocks\..*Need: .*outside\.ts/s);
@@ -758,6 +784,45 @@ async function startFactoryWiring(fixture: Awaited<ReturnType<typeof createFixtu
   await waitFor(() => wiring.getState()?.projects[0]?.orchestrator != null, `factory starts the orchestrator: ${JSON.stringify(wiring.getState())}`, 30_000);
   return { wiring, config, sessions, statePath, notifications };
 }
+
+test('wired close-out remembers scope needs after cancellation and admits a replacement outside the intent bound', async (context) => {
+  const fixture = await createFixture(context, false);
+  await commitPassingPinnedTest(fixture.git, fixture.projectPath);
+  await fixture.git(['push', 'origin', 'integration'], fixture.projectPath);
+  const { wiring, config, sessions, statePath } = await startFactoryWiring(fixture, async () => {});
+  config.factory = { ...config.factory, protectedPaths: ['tests/'],
+    checks: [`${process.execPath} src/retry.ts`, `${process.execPath} --test tests/pinned.test.ts`] };
+  config.projects[0].factoryProfile = { widenableScopes: ['tests/'], protectedPaths: [] };
+  const reply = await wiring.dispatch('factory-orch-repo', { workId: fixture.worker.workId });
+  if (!reply.ok) throw new Error(reply.reason);
+  const worker = sessions.get(reply.sessionId);
+  assert.ok(worker?.worktreeDir);
+  await writeFile(path.join(worker.worktreeDir, 'src/retry.ts'), [
+    "import { mkdirSync, writeFileSync } from 'node:fs';",
+    "mkdirSync('tests', { recursive: true });",
+    `writeFileSync('tests/pinned.test.ts', ${JSON.stringify("import test from 'node:test';\ntest('pinned failure', () => { throw new Error('pinned'); });\n")});`,
+  ].join('\n'));
+  for (const attempt of [1, 2]) {
+    worker.emit('hook-event', { event: 'stop', payload: {} });
+    await waitFor(() => wiring.getState()?.projects[0]?.reviewing?.includes(fixture.worker.workId) === true, `close-out starts attempt ${attempt}`, 30_000);
+    await waitFor(() => wiring.getState()?.projects[0]?.reviewing?.includes(fixture.worker.workId) === false, `close-out finishes attempt ${attempt}`, 30_000);
+  }
+  assert.equal(worker._destroyed, true);
+  const blockedState = FactoryLaneState.parse(JSON.parse(await readFile(statePath, 'utf8')));
+  assert.deepEqual(blockedState.intentScopeNeeds, { [fixture.worker.intentId]: ['tests/pinned.test.ts'] });
+  assert.equal(blockedState.ticketBlockCounts?.[fixture.worker.workId], 1);
+  assert.deepEqual(await wiring.cancel('factory-orch-repo', { workId: fixture.worker.workId }), { ok: true, workId: fixture.worker.workId, state: 'cancelled' });
+  const cancelledState = FactoryLaneState.parse(JSON.parse(await readFile(statePath, 'utf8')));
+  assert.deepEqual(cancelledState.intentScopeNeeds, blockedState.intentScopeNeeds);
+  const replacement: { work: string } = JSON.parse(await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: [
+    'work', 'create', 'Repair the pinned test', '--success', 'Retries pass', '--risk', 'medium', '--authority', 'orchestrator-delegated',
+    '--granted-by', 'glimmervoid-factory', '--boundary', 'This repo', '--session', 'repair-orchestrator', '--parent', fixture.worker.intentId,
+    '--write-scope', 'src/retry.ts', '--write-scope', 'tests/pinned.test.ts', '--json',
+  ] }));
+  const replacementReply = await wiring.dispatch('factory-orch-repo', { workId: replacement.work });
+  assert.equal(replacementReply.ok, true, replacementReply.ok ? '' : replacementReply.reason);
+  assert.equal(await fixture.orderState(replacement.work), 'active');
+});
 
 test('factory wiring observes worker Stop, records confirmed flakes, exposes Review and notifies once after verified completion', async (context) => {
   const fixture = await createFixture(context, false);

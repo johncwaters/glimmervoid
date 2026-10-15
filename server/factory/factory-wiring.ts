@@ -9,7 +9,7 @@ import type { AgentTicketReply, AgentTicketRequest, TicketAgentVerb } from '../.
 import { execFileAsync } from '../child-process-safe.ts';
 import { DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
 import { buildCoherenceShims } from '../core/coherence-session-core.ts';
-import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, decideIntentOutcomeNotices, exceedsRiskCeiling, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines, withIntentFloorAllowances, withIntentConfirmedFlakes } from './core/factory-core.ts';
+import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, decideIntentOutcomeNotices, exceedsRiskCeiling, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines, withIntentFloorAllowances, withIntentConfirmedFlakes, withIntentScopeNeeds, withTicketBlockCount } from './core/factory-core.ts';
 import type { FactoryWorkRefusal } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import type { LaneSpend } from '../usage/core/usage-scan-core.ts';
@@ -291,11 +291,12 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
 
   const readPaused = async (projectId: string) => (await readLaneState(projectId)).paused;
 
-  async function countTicketBlock(projectId: string, workId: string): Promise<number> {
+  async function countTicketBlock(projectId: string, workId: string, shouldPark = false): Promise<number> {
     let blockCount = 0;
     await updateLaneState(projectId, (state) => {
-      blockCount = (state.ticketBlockCounts?.[workId] ?? 0) + 1;
-      return { ticketBlockCounts: { ...state.ticketBlockCounts, [workId]: blockCount } };
+      const ticketBlockCounts = withTicketBlockCount(state.ticketBlockCounts, workId, shouldPark);
+      blockCount = ticketBlockCounts[workId];
+      return { ticketBlockCounts };
     });
     return blockCount;
   }
@@ -411,6 +412,10 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
 
   async function readIntentWriteScopes(projectId: string): Promise<ReadonlyMap<string, readonly string[]>> {
     return new Map(Object.entries((await readLaneState(projectId)).intentWriteScopes ?? {}));
+  }
+
+  async function readIntentScopeNeeds(projectId: string): Promise<ReadonlyMap<string, readonly string[]>> {
+    return new Map(Object.entries((await readLaneState(projectId)).intentScopeNeeds ?? {}));
   }
 
   async function readIntentFloorAllowances(projectId: string, intentId: string): Promise<readonly string[]> {
@@ -645,6 +650,15 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand, readIntegrationSha,
         recordFactoryLandedSha, readPaused, readIntentFloorAllowances, countTicketBlock, prepareCheckRunner,
         recordDecision: decisionLog.record,
+        recordScopeNeeds: async (worker, files) => {
+          let rememberedNeeds: readonly string[] = [];
+          await updateLaneState(worker.projectId, (state) => {
+            const intentScopeNeeds = withIntentScopeNeeds(state.intentScopeNeeds, worker.intentId, files);
+            rememberedNeeds = intentScopeNeeds?.[worker.intentId] ?? [];
+            return { intentScopeNeeds };
+          });
+          return rememberedNeeds;
+        },
         recordConfirmedFlakes: (worker, flakes) => serializeProject(worker.projectId, () => updateLaneState(worker.projectId, (state) => ({
           intentConfirmedFlakes: withIntentConfirmedFlakes(state.intentConfirmedFlakes, worker.intentId, flakes),
         }))),
@@ -662,7 +676,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         now: pollerDeps.now ?? orchestratorOptions.now,
         onWorkerTurnEnd: activeCloseOut?.turnEnded,
         getOrchestrator: (sessionId) => activeOrchestrator?.getLiveOrchestrator(sessionId) ?? null,
-        serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, readTodaySpend: () => todaySpend, readTrustedIntentIds, readIntentWriteScopes, readPaused,
+        serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, readTodaySpend: () => todaySpend, readTrustedIntentIds, readIntentWriteScopes, readIntentScopeNeeds, readPaused,
         onReadyIntent: (projectId, intentId) => activeVerifier?.ready(projectId, intentId),
         commitAndLand,
         notifyOrchestrator,
