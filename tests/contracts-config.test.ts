@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createConfigStore, DEFAULT_CONFIG } from '../server/config-store.ts';
+import { DEFAULT_WIDENABLE_SCOPES, resolveFactoryProfile } from '../server/factory/core/factory-profile-core.ts';
 import {
   BRANCH_GC_CONTROL_BOOLEAN_KEYS, BRANCH_GC_CONTROL_NUMERIC_KEYS, BranchGcFileSettings,
   BrowserConfig, Config, CONFIG_BLOCK_KEYS, configIssueMessage, ConfigUpdate, HIDDEN_CONFIG_KEYS, ProjectConfig,
@@ -74,6 +75,52 @@ test('factory settings cross persisted, browser, and update contracts', () => {
   assert.equal(CONFIG_BLOCK_KEYS.includes('factory'), true);
   assert.equal(ConfigUpdate.safeParse({ factory: { enabled: 'yes' } }).success, false);
   assert.equal(ConfigUpdate.safeParse({ factory: [] }).success, false);
+});
+
+test('project factory profiles validate optional overrides without filling unproven fields', () => {
+  const factoryProfile = {
+    enabled: false, maxRisk: 'high', maxLiveWorkers: 3,
+    checks: ['node verify.ts'], protectedPaths: ['secrets/'], reviewerModel: null,
+    dailyBudgetUsd: 0, verifierModel: 'sonnet', mirrorHarnessRuns: false,
+    focusedTestCommand: 'npm run test:files --', widenableScopes: ['tests/', 'docs/configuration.md'],
+  };
+  const project = { path: '/repo', factoryProfile };
+  assert.deepEqual(Config.parse({ projects: [project] }).projects[0], project);
+  assert.equal(ProjectConfig.parse({ path: '/repo' }).factoryProfile, undefined);
+  assert.deepEqual(ProjectConfig.parse({ path: '/repo', factoryProfile: {} }).factoryProfile, {});
+  assert.deepEqual(ProjectConfig.parse({ path: '/repo', factoryProfile: { checks: ['node verify.ts'] } }).factoryProfile, { checks: ['node verify.ts'] });
+  for (const invalid of [
+    { focusedTestCommand: ' ' }, { widenableScopes: 'tests/' }, { widenableScopes: [' '] },
+  ]) {
+    assert.equal(Config.safeParse({ projects: [{ path: '/repo', factoryProfile: invalid }] }).success, false, JSON.stringify(invalid));
+  }
+});
+
+test('factory profiles inherit global fields and replace only explicitly set project fields', () => {
+  const globalSettings = Config.parse({ projects: [], factory: {
+    enabled: true, maxRisk: 'medium', maxLiveWorkers: 4,
+    checks: ['npm run verify'], protectedPaths: ['credentials/'], reviewerModel: 'opus',
+    dailyBudgetUsd: 10, verifierModel: 'sonnet', mirrorHarnessRuns: true,
+  } }).factory;
+  for (const project of [undefined, { path: '/repo' }, { path: '/repo', factoryProfile: {} }]) {
+    assert.deepEqual(resolveFactoryProfile(globalSettings, project), { ...globalSettings, widenableScopes: DEFAULT_WIDENABLE_SCOPES });
+  }
+  const project = ProjectConfig.parse({ path: '/repo', factoryProfile: {
+    enabled: false, checks: ['npm run project:verify'], reviewerModel: null, dailyBudgetUsd: 0,
+    focusedTestCommand: 'npm run test:files --', widenableScopes: ['spec/'],
+    maxLiveWorkers: undefined,
+  } });
+  assert.deepEqual(resolveFactoryProfile(globalSettings, project), {
+    ...globalSettings, enabled: false, checks: ['npm run project:verify'], reviewerModel: null, dailyBudgetUsd: 0,
+    focusedTestCommand: 'npm run test:files --', widenableScopes: ['spec/'],
+  });
+  const disabledProfile = ProjectConfig.parse({ path: '/repo', factoryProfile: {
+    checks: [], protectedPaths: [], widenableScopes: [], verifierModel: null, dailyBudgetUsd: null, mirrorHarnessRuns: false,
+  } });
+  assert.deepEqual(resolveFactoryProfile(globalSettings, disabledProfile), {
+    ...globalSettings, checks: [], protectedPaths: [], widenableScopes: [], verifierModel: null, dailyBudgetUsd: null, mirrorHarnessRuns: false,
+  });
+  assert.deepEqual(globalSettings?.checks, ['npm run verify']);
 });
 
 test('team review settings cross persisted, browser, and update contracts', () => {
