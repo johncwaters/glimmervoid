@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
-import { AgentDispatchRequest, AgentLimitsReply, AgentTicketRequest, AGENT_URL_ENV } from '../shared/contracts/session.ts';
+import { AgentDispatchRequest, AgentFactoryRetryRequest, AgentFactoryStatusRequest, AgentLimitsReply, AgentTicketRequest, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { errorCode } from '../shared/text.ts';
 import { decideSandboxProxy } from '../session/core/sandbox-proxy-core.ts';
@@ -44,6 +44,17 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   },
   reopen: (rest) => ticketBody(rest),
   cancel: (rest) => ticketBody(rest),
+  'factory-status': (rest) => {
+    if (rest.length === 0) return {};
+    if (rest.length !== 2 || rest[0] !== '--project') return null;
+    const parsed = AgentFactoryStatusRequest.safeParse({ projectId: rest[1] });
+    return parsed.success ? parsed.data : null;
+  },
+  'factory-retry': (rest) => {
+    if (rest.length !== 1) return null;
+    const parsed = AgentFactoryRetryRequest.safeParse({ intentId: rest[0] });
+    return parsed.success ? parsed.data : null;
+  },
 };
 
 function bodySaysOk(text: string): boolean {
@@ -62,6 +73,13 @@ function limitsLines(replyText: string): string[] | null {
 }
 
 function printableReply(verb: AgentApiVerb, replyText: string): string {
+  if (verb === 'factory-status' || verb === 'factory-retry') {
+    const reply = parseJsonOrNull(replyText);
+    if (typeof reply !== 'object' || reply === null) return replyText;
+    if ('text' in reply && typeof reply.text === 'string') return reply.text;
+    if ('error' in reply && typeof reply.error === 'string') return reply.error;
+    return replyText;
+  }
   if (verb !== 'limits') return replyText;
   return limitsLines(replyText)?.join('\n') ?? replyText;
 }
@@ -160,6 +178,13 @@ async function sessionLimitsHelpLines({ timeoutMs = HELP_LIMITS_TIMEOUT_MS }: { 
 }
 
 async function runAgentApiCli(args: string[]): Promise<number> {
+  if (args[0] === 'factory') {
+    if (args[1] !== 'status' && args[1] !== 'retry') {
+      console.error('glimmervoid factory: expected status [--project <projectId>] or retry <intentId>');
+      return 1;
+    }
+    return runAgentApiCli([`factory-${args[1]}`, ...args.slice(2)]);
+  }
   const verb = args[0];
   if (!verb || !isAgentApiVerb(verb)) {
     console.error(`glimmervoid: ${verb || 'that'} is not an agent command`);
@@ -167,6 +192,10 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   }
   const body = BODY_BUILDERS[verb](args.slice(1));
   if (!body) {
+    if (verb === 'factory-status' || verb === 'factory-retry') {
+      console.error(`glimmervoid factory: expected ${verb === 'factory-status' ? 'status [--project <projectId>]' : 'retry <intentId>'}`);
+      return 1;
+    }
     if (isOrchestratorAgentVerb(verb)) {
       console.error(`glimmervoid ${verb}: expected a work id matching wrk-[0-9a-f]{16}`);
       return 1;

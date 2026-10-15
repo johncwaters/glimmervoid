@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { setTimeout as setTimeoutPromise } from 'node:timers/promises';
 import type { Server } from 'node:http';
 
@@ -15,6 +17,8 @@ import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { decideTicketAction, describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { AgentLimitsReply } from '../shared/contracts/session.ts';
+import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
+import type { FactoryProjectState } from '../shared/contracts/factory.ts';
 import type { AgentTicketRequest } from '../shared/contracts/session.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
@@ -186,6 +190,7 @@ test('attention raises the normal waiting notification path with an agent prompt
 });
 
 interface WiringFixtureOptions {
+  factory?: Parameters<typeof createAgentApiWiring>[0]['factory'];
   parentSkipsPermissions?: boolean;
   spawnFails?: boolean;
   makeSessionThrowsFirst?: boolean;
@@ -196,7 +201,7 @@ interface WiringFixtureOptions {
 
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
-  holdSpawnGate = false, parentIsSandboxed = false,
+  holdSpawnGate = false, parentIsSandboxed = false, factory,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -235,6 +240,7 @@ function wiringFixture({
   };
   const wiring = createAgentApiWiring({
     config,
+    factory,
     agentSessions,
     listAllSessions: () => [parent, ...laneSessions, ...agentSessions.values()],
     listBoardSessions: () => [parent, ...agentSessions.values()],
@@ -262,6 +268,106 @@ function wiringFixture({
     wiring, spawn, parent, agentSessions, created, childProjects, wired, broadcasts, releaseSpawnGate, destroyAll,
   };
 }
+
+test('factory CLI and HTTP verbs reach the injected digest and retry deps only from sessions without a factory role', async (context) => {
+  const intent: FactoryProjectState['orders'][number] = {
+    id: 'intent', objective: 'Finish overnight', openedAt: '2026-10-15T00:00:00Z', criteria: [], boundary: 'src/', risk: 'low',
+    state: 'open', readiness: 'ready', parent: null, dependsOn: [], writeScopes: ['src/'], owner: null, lastEvent: null,
+  };
+  const project: FactoryProjectState = {
+    projectId: 'repo', projectName: 'Repository', headSha: null, paused: false, orchestrator: null, error: null,
+    heading: { action: 'steady', reasons: [] }, conflicts: [], unverifiedCompletedWork: [], partialIntentIds: ['intent'],
+    confirmedFlakesByIntent: { intent: ['tests/check.test.ts: timeout'] },
+    orders: [intent, { ...intent, id: 'merged', parent: 'intent', state: 'completed' },
+      { ...intent, id: 'parked', parent: 'intent', state: 'blocked', parked: true, blockReason: 'Needs write scope: src/entry.ts' }],
+  };
+  let projects: FactoryProjectState[] | null = [project, { ...project, projectId: 'other', projectName: 'Other repository', orders: [{ ...intent, id: 'other-intent' }] }];
+  let retryError: string | null = null;
+  const retryCalls: { projectId: string; intentId: string }[] = [];
+  const factory = {
+    getState: () => projects === null ? null : { type: 'factory-state' as const, ts: 0, projects },
+    retryParked: async (projectId: string, intentId: string) => {
+      retryCalls.push({ projectId, intentId });
+      if (retryError) return { ok: false as const, error: retryError };
+      return { ok: true as const, reopenedWorkIds: ['parked'] };
+    },
+  };
+  const fixture = wiringFixture({ factory });
+  fixture.parent._hooks.inject();
+  const token = fixture.parent.agentToken;
+  assert.ok(token);
+  const orchestrator = new Session({ id: 'orchestrator', name: 'Orchestrator', path: process.cwd(), factoryRole: 'orchestrator', ptySpawn: () => fakePty() });
+  orchestrator._hooks.inject();
+  const worker = new Session({ id: 'worker', name: 'Worker', path: process.cwd(), factoryRole: 'worker', ephemeral: true, ptySpawn: () => fakePty() });
+  worker._hooks.inject();
+  const reviewerLane = new Session({ id: 'reviewer-lane', name: 'Reviewer lane', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty() });
+  reviewerLane._hooks.inject();
+  let isLiveOrchestrator = true;
+  const app = createBackendHttpApp({
+    staticDir: null, configStore: { configPath: path.join(os.tmpdir(), 'factory-agent-config.json') },
+    remote: { allowedOrigins: [] }, remoteAuth: null, allowedHosts: [], listenerPortsFor: () => [], pageToken: 'page',
+    hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) },
+    getSession: (id) => [fixture.parent, orchestrator, worker, reviewerLane].find((session) => session.id === id) ?? null,
+    getUsage: () => ({ ingestStatusline: () => {} }), getAgentApi: () => fixture.wiring,
+    getFactory: () => ({
+      getLiveOrchestrator: (id) => id === 'orchestrator' && isLiveOrchestrator ? { projectId: 'repo', intentId: 'intent' } : null,
+      dispatch: async () => ({ ok: true, sessionId: 'worker' }),
+    }),
+  });
+  const server = http.createServer(app);
+  await listenOnLoopback(server);
+  context.after(async () => {
+    fixture.destroyAll(); orchestrator.destroy(); worker.destroy(); reviewerLane.destroy();
+    server.closeAllConnections(); await closeServer(server);
+  });
+  const base = `http://127.0.0.1:${boundPort(server)}`;
+  const send = (verb: string, body: unknown, session = fixture.parent) => fetch(`${base}/agent/${session.id}/${verb}`, {
+    method: 'POST', headers: { authorization: `Bearer ${session.agentToken}` }, body: JSON.stringify(body),
+  });
+  const runCli = async (args: string[]) => promisify(execFile)(process.execPath, ['bin/glimmervoid.ts', 'factory', ...args], {
+    cwd: path.join(import.meta.dirname, '..'), env: { ...process.env, [AGENT_URL_ENV]: `${base}/agent/parent?t=${token}` },
+  });
+  const status = await send('factory-status', {});
+  assert.equal(status.status, 200);
+  const digest = await status.json();
+  assert.equal(digest.ok, true);
+  assert.match(digest.text, /Intent intent: Finish overnight\nOutcome: partial; merged: 1; parked: 1/);
+  assert.match(digest.text, /parked \| state: parked \| blocks: 0 \| last reason: Needs write scope: src\/entry.ts/);
+  assert.match(digest.text, /tests\/check.test.ts: timeout/);
+  assert.match(digest.text, /Intent other-intent/);
+  const filtered = await runCli(['status', '--project', 'repo']);
+  assert.match(filtered.stdout, /glimmervoid factory retry intent/);
+  assert.doesNotMatch(filtered.stdout, /Other repository/);
+  assert.equal(filtered.stderr, '');
+  assert.equal((await send('factory-status', {}, worker)).status, 403);
+  const retried = await runCli(['retry', 'intent']);
+  assert.equal(retried.stdout.trim(), 'Reopened parked tickets: parked');
+  assert.equal((await send('factory-retry', { intentId: 'intent' }, worker)).status, 403);
+  assert.equal((await send('factory-retry', { intentId: 'intent' }, reviewerLane)).status, 403);
+  for (const sessionIsLive of [true, false]) {
+    isLiveOrchestrator = sessionIsLive;
+    assert.equal((await send('factory-status', {}, orchestrator)).status, 403);
+    assert.equal((await send('factory-retry', { intentId: 'intent' }, orchestrator)).status, 403);
+  }
+  assert.equal((await send('factory-status', { projectId: 'missing' })).status, 404);
+  assert.equal((await send('factory-retry', { intentId: 'missing' })).status, 404);
+  assert.equal((await send('factory-retry', { intentId: 'parked' })).status, 404);
+  assert.equal((await send('factory-retry', {})).status, 400);
+  assert.equal((await send('factory-status', { projectId: '' })).status, 400);
+  assert.deepEqual(retryCalls, [{ projectId: 'repo', intentId: 'intent' }]);
+  retryError = 'Intent is not partial';
+  const refusedRetry = await send('factory-retry', { intentId: 'intent' });
+  assert.equal(refusedRetry.status, 409);
+  assert.deepEqual(await refusedRetry.json(), { ok: false, error: 'Intent is not partial' });
+  projects = [{ ...project, orders: [], error: 'ledger read failed', heading: { action: 'refuse', reasons: ['ledger read failed'] } }];
+  assert.deepEqual(await (await send('factory-retry', { intentId: 'intent' })).json(), { ok: false, error: 'Factory state for repo is unavailable: ledger read failed' });
+  projects = null;
+  for (const verb of ['factory-status', 'factory-retry']) {
+    const unavailable = await send(verb, verb === 'factory-status' ? {} : { intentId: 'intent' });
+    assert.equal(unavailable.status, 409);
+    assert.deepEqual(await unavailable.json(), { ok: false, error: 'Factory is not running' });
+  }
+});
 
 test('a valid spawn creates exactly one sibling that may not spawn again', async () => {
   const fixture = wiringFixture({ parentIsSandboxed: true });
