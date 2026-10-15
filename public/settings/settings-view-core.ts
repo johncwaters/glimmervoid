@@ -1,9 +1,10 @@
 import { WorkflowsSettings } from '#shared/contracts/workflows.ts';
 import type { WorkflowRule } from '#shared/contracts/workflows.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';
-import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
+import type { SettingsChoicePresentation, SettingsEffect, SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
 import {
-  cloneValue, deleteValueAtPath, displayValue, isReadOnlySetting, parsePosthogProjectSelection, setValueAtPath, settingsOf, valueAtPath, wireValue,
+  cloneValue, deleteValueAtPath, displayText, displayValue, formatDisplayNumber, hasScaledUnit, isReadOnlySetting, setValueAtPath, settingsOf, valueAtPath,
+  wireValue,
 } from '#shared/settings/registry-core.ts';
 import { projectSelectionChoices, unionProjectSelection } from './settings-projects-core.ts';
 
@@ -15,15 +16,6 @@ export interface SettingsPayload {
   [key: string]: unknown;
 }
 
-export interface SettingsProject {
-  id: string;
-  path?: string;
-  name?: string;
-  agent?: string;
-  permissionMode?: string;
-  recordNames?: string[];
-}
-
 export interface WorkflowRuleToggleRow {
   id: string;
   name: string;
@@ -31,10 +23,34 @@ export interface WorkflowRuleToggleRow {
   summary: string;
 }
 
+export interface ControlDraft {
+  base: unknown;
+  isDirty: boolean;
+}
+
+type DraftCommit =
+  | { kind: 'unchanged' }
+  | { kind: 'invalid'; error: string }
+  | { kind: 'changed'; value: unknown };
+
 const payloadByHydratedValues = new WeakMap<object, unknown>();
 
 export const SECRET_PRESENCE_SUFFIX = 'Configured';
-export const STORED_SECRET_MASK = '\u2022'.repeat(12);
+export const STORED_SECRET_MASK = String.fromCharCode(0x2022).repeat(12);
+const POSTHOG_PROJECTS_ERROR = 'Each line must be a positive whole-number PostHog project id, or the one word none.';
+const SEGMENTED_CHOICE_LIMIT = 3;
+const INTEGER_TOLERANCE = 1e-9;
+
+export const EFFECT_LABELS: Readonly<Record<SettingsEffect, string>> = Object.freeze({
+  now: 'Applies now',
+  'new-sessions': 'New sessions',
+  restart: 'After restart',
+});
+
+export const SCOPE_LABELS: Readonly<Record<SettingsSetting['scope'], string>> = Object.freeze({
+  browser: 'This browser',
+  machine: 'This machine',
+});
 
 export function secretEnvironmentSource(setting: SettingsSetting, payload: SettingsPayload): string | null {
   const sources = payload.secretSources;
@@ -77,6 +93,45 @@ function hydratedPayload(values: SettingsValues): SettingsPayload | null {
   return (payloadByHydratedValues.get(values) || null) as SettingsPayload | null;
 }
 
+export function listValue(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return (value as unknown[]).map((entry) => String(entry));
+}
+
+export function listFromDraft(draft: string): string[] {
+  return draft.split('\n').map((entry) => entry.trim()).filter((entry) => entry !== '');
+}
+
+export function displayRange(setting: SettingsSetting): SettingsRange | null {
+  const range = setting.range;
+  if (!range) return null;
+  const scaled: SettingsRange = { min: Number(displayValue(setting, range.min)) };
+  if (range.max != null) scaled.max = Number(displayValue(setting, range.max));
+  if (range.exclusiveMin) scaled.exclusiveMin = true;
+  return scaled;
+}
+
+export function fileOnlyDefaultText(setting: SettingsSetting): string {
+  const shown = `Default ${displayText(setting, setting.defaultValue)}`;
+  if (!hasScaledUnit(setting)) return shown;
+  return `${shown}, stored as ${JSON.stringify(setting.defaultValue)} ${setting.unit?.storedLabel ?? ''}`.trimEnd();
+}
+
+export function childSectionsOf(sections: readonly SettingsSection[], sectionId: string): SettingsSection[] {
+  return sections.filter((section) => section.parent === sectionId);
+}
+
+export function pageSectionOf(sections: readonly SettingsSection[], sectionId: string): SettingsSection | null {
+  const section = sections.find((entry) => entry.id === sectionId);
+  if (!section) return null;
+  if (!section.parent) return section;
+  return sections.find((entry) => entry.id === section.parent) ?? section;
+}
+
+export function topLevelSectionsOf(sections: readonly SettingsSection[]): SettingsSection[] {
+  return sections.filter((section) => !section.parent);
+}
+
 export function hydrateFromSettings(sections: readonly SettingsSection[], settingsPayload: SettingsPayload = {}): SettingsValues {
   const values: SettingsValues = {};
   for (const setting of settingsOf(sections)) {
@@ -97,33 +152,6 @@ export function hydrateFromSettings(sections: readonly SettingsSection[], settin
   }
   payloadByHydratedValues.set(values, cloneValue(settingsPayload));
   return values;
-}
-
-export function rehydratePreservingDirtySections(
-  sections: readonly SettingsSection[],
-  settingsPayload: SettingsPayload,
-  currentOriginal: SettingsValues | null | undefined,
-  currentEdited: SettingsValues | null | undefined,
-  options: { rehydrateSectionIds?: string[] } = {},
-) {
-  const { rehydrateSectionIds = [] } = options;
-  const original = hydrateFromSettings(sections, settingsPayload);
-  const edited = hydrateFromSettings(sections, settingsPayload);
-  if (!currentOriginal || !currentEdited) return { original, edited };
-  const forcedSections = new Set(rehydrateSectionIds);
-  for (const section of sections) {
-    if (forcedSections.has(section.id)) continue;
-    const isDirty = section.settings.some((setting) => {
-      if (setting.path.startsWith('pref:')) return false;
-      return !valuesEqual(currentOriginal[setting.path], currentEdited[setting.path]);
-    });
-    if (!isDirty) continue;
-    for (const setting of section.settings) {
-      original[setting.path] = cloneValue(currentOriginal[setting.path]);
-      edited[setting.path] = cloneValue(currentEdited[setting.path]);
-    }
-  }
-  return { original, edited };
 }
 
 export function collectDirtyBlocks(sections: readonly SettingsSection[], original: SettingsValues, edited: SettingsValues): SettingsPayload {
@@ -175,59 +203,107 @@ export function collectDirtyBlocks(sections: readonly SettingsSection[], origina
   return payload;
 }
 
-function rangeMessage(range: SettingsRange, setting: SettingsSetting) {
-  const noun = setting.integer === false ? 'number' : 'whole number';
-  if (range.exclusiveMin) return `Must be a positive ${noun}.`;
-  if (range.max == null) return `Must be a ${noun} of at least ${range.min}.`;
-  return `Must be a ${noun} between ${range.min} and ${range.max}.`;
+export function settingSavePayload(sections: readonly SettingsSection[], stored: SettingsValues, setting: SettingsSetting, value: unknown): SettingsPayload {
+  return withoutWorkflowRuleDefinitions(collectDirtyBlocks(sections, stored, { ...stored, [setting.path]: value }));
+}
+
+function unitPhrase(setting: SettingsSetting): string {
+  const label = setting.unit?.label;
+  return label ? ` of ${label}` : '';
+}
+
+function rangeMessage(setting: SettingsSetting) {
+  const range = displayRange(setting);
+  if (!range) return 'Allowed range is unavailable.';
+  const isWhole = setting.integer !== false && !hasScaledUnit(setting);
+  const noun = `${isWhole ? 'whole number' : 'number'}${unitPhrase(setting)}`;
+  if (range.exclusiveMin && range.min === 0) return `Must be a positive ${noun}.`;
+  if (range.max == null) return `Must be a ${noun} ${range.exclusiveMin ? 'above' : 'of at least'} ${formatDisplayNumber(range.min)}.`;
+  return `Must be a ${noun} between ${formatDisplayNumber(range.min)} and ${formatDisplayNumber(range.max)}.`;
+}
+
+function storedGranularityMessage(setting: SettingsSetting) {
+  return `Must be a multiple of ${displayText(setting, 1)}.`;
+}
+
+function isNearInteger(value: number) {
+  return Math.abs(value - Math.round(value)) < INTEGER_TOLERANCE && Number.isSafeInteger(Math.round(value));
+}
+
+function unroundedStoredNumber(setting: SettingsSetting, value: number): number {
+  return Number(wireValue({ ...setting, integer: false, nullable: false, zeroIsNull: false }, value));
 }
 
 function numberError(setting: SettingsSetting, rawValue: unknown) {
   if (setting.nullable && (rawValue == null || String(rawValue).trim() === '')) return null;
-  const value = Number(rawValue);
   const range = setting.range;
   if (!range) return 'Allowed range is unavailable.';
-  if (!Number.isFinite(value)) return rangeMessage(range, setting);
-  if (setting.integer !== false && !Number.isSafeInteger(value)) return rangeMessage(range, setting);
-  if (range.exclusiveMin && value <= range.min) {
-    if (setting.zeroIsNull && value <= 0) return null;
-    return rangeMessage(range, setting);
+  if (rawValue == null || String(rawValue).trim() === '') return rangeMessage(setting);
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) return rangeMessage(setting);
+  if (setting.zeroIsNull && value <= 0) return null;
+  const stored = unroundedStoredNumber(setting, value);
+  if (setting.integer !== false && !isNearInteger(stored)) {
+    return hasScaledUnit(setting) ? storedGranularityMessage(setting) : rangeMessage(setting);
   }
-  if (!range.exclusiveMin && value < range.min) return rangeMessage(range, setting);
-  if (range.max != null && value > range.max) return rangeMessage(range, setting);
+  const wired = Number(wireValue(setting, value));
+  if (range.exclusiveMin && wired <= range.min) return rangeMessage(setting);
+  if (!range.exclusiveMin && wired < range.min) return rangeMessage(setting);
+  if (range.max != null && wired > range.max) return rangeMessage(setting);
   return null;
 }
 
-function posthogProjectsError(value: unknown) {
-  if (parsePosthogProjectSelection(value) !== null) return null;
-  return 'Must be "all", "none", or a comma-separated list of positive safe integer ids without empty entries.';
+export function numberDraftError(setting: SettingsSetting, draft: string, isUnparsable = false): string | null {
+  if (isUnparsable) return rangeMessage(setting);
+  return numberError(setting, draft.trim());
 }
 
-export function validateLocally(sections: readonly SettingsSection[], edited: SettingsValues) {
+export function numberFromDraft(setting: SettingsSetting, draft: string): number | null {
+  const text = draft.trim();
+  if (setting.nullable && text === '') return null;
+  const value = Number(text);
+  if (setting.zeroIsNull && value <= 0) return null;
+  return value;
+}
+
+export function numberDraftOf(value: unknown): string {
+  if (value == null || value === '') return '';
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value);
+  return formatDisplayNumber(number);
+}
+
+function listError(setting: SettingsSetting, value: unknown) {
+  if (!Array.isArray(value)) return 'Must be a list.';
+  if (setting.valueKind === 'posthog-projects' && wireValue(setting, value) === null) return POSTHOG_PROJECTS_ERROR;
+  return null;
+}
+
+export function validateLocally(sections: readonly SettingsSection[], values: SettingsValues) {
   const errors: Record<string, string> = {};
   for (const setting of settingsOf(sections)) {
     if (isReadOnlySetting(setting)) continue;
     let error: string | null = null;
-    if (setting.control === 'number') error = numberError(setting, edited[setting.path]);
-    if (setting.valueKind === 'posthog-projects') error = posthogProjectsError(edited[setting.path]);
-    if (setting.control === 'select' && !(setting.options ?? []).some((option) => option.value === edited[setting.path])) {
+    if (setting.control === 'number') error = numberError(setting, values[setting.path]);
+    if (setting.control === 'list') error = listError(setting, values[setting.path]);
+    if (setting.control === 'select' && setting.options && !setting.options.some((option) => option.value === values[setting.path])) {
       error = 'Choose one of the available options.';
     }
     if (error) errors[setting.id] = error;
   }
-  addReversedPairErrors(settingsOf(sections), edited, errors);
+  addReversedPairErrors(settingsOf(sections), values, errors);
   return errors;
 }
 
-function addReversedPairErrors(settings: readonly SettingsSetting[], edited: SettingsValues, errors: Record<string, string>) {
+function addReversedPairErrors(settings: readonly SettingsSetting[], values: SettingsValues, errors: Record<string, string>) {
   for (const minimumSetting of settings) {
     const maximumSetting = settings.find((candidate) => candidate.id === minimumSetting.maximumSettingId);
     if (!maximumSetting || errors[minimumSetting.id] || errors[maximumSetting.id]) continue;
-    const minimum = Number(edited[minimumSetting.path]);
-    const maximum = Number(edited[maximumSetting.path]);
-    if (!(minimum > maximum)) continue;
-    errors[minimumSetting.id] = `Minimum must not exceed the maximum (${maximum}).`;
-    errors[maximumSetting.id] = `Maximum must not be below the minimum (${minimum}).`;
+    const minimum = values[minimumSetting.path];
+    const maximum = values[maximumSetting.path];
+    if (!(Number(wireValue(minimumSetting, minimum)) > Number(wireValue(maximumSetting, maximum)))) continue;
+    errors[minimumSetting.id] = `Minimum must not exceed the maximum (${numberDraftOf(maximum)}).`;
+    errors[maximumSetting.id] = `Maximum must not be below the minimum (${numberDraftOf(minimum)}).`;
   }
 }
 
@@ -235,110 +311,75 @@ export function pairedSettingOf(sections: readonly SettingsSection[], setting: S
   return settingsOf(sections).find((candidate) => candidate.id === setting.maximumSettingId || candidate.maximumSettingId === setting.id);
 }
 
-function projectSetting(projectId: string, suffix: string, fields: Omit<SettingsSetting, 'id' | 'projectId' | 'scope' | 'takesEffect'>): SettingsSetting {
-  return {
-    id: `project-${projectId}-${suffix}`,
-    projectId,
-    scope: 'machine',
-    takesEffect: 'new-sessions',
-    ...fields,
-  };
+export function settingError(sections: readonly SettingsSection[], setting: SettingsSetting, values: SettingsValues): string | null {
+  const pair = pairedSettingOf(sections, setting);
+  const scoped: SettingsSection = { id: 'scoped', level: 'machine', title: '', description: '', settings: pair ? [setting, pair] : [setting] };
+  return validateLocally([scoped], values)[setting.id] ?? null;
 }
 
-function canonicalProjectRecordName(name: unknown) {
-  return String(name || '').replace(/\s+\(\d+\)$/, '');
+function draftValueOf(setting: SettingsSetting, draftText: string): unknown {
+  if (setting.control === 'number') return numberFromDraft(setting, draftText);
+  if (setting.control === 'list') return listFromDraft(draftText);
+  return draftText;
 }
 
-function projectPathBasename(projectPath: unknown) {
-  const normalizedPath = String(projectPath || '').replace(/[\\/]+$/, '');
-  return normalizedPath.split(/[\\/]/).at(-1) || '';
+function wiredDraftBase(setting: SettingsSetting, base: unknown): unknown {
+  return wireValue(setting, setting.control === 'list' ? listValue(base) : base);
 }
 
-function projectSectionTitle(project: SettingsProject): string {
-  return projectPathBasename(project?.path)
-    || canonicalProjectRecordName(project?.name)
-    || project?.id;
+export function hasUnsavedEdit(draft: ControlDraft | undefined): boolean {
+  return draft?.isDirty === true;
 }
 
-export function buildProjectSections(projects: SettingsProject[] = []): SettingsSection[] {
-  return projects
-    .filter((project) => typeof project?.id === 'string' && project.id)
-    .map((project) => ({
-      id: `project-${project.id}`,
-      level: 'projects',
-      title: projectSectionTitle(project),
-      description: 'Settings scoped to this configured project.',
-      caption: (project.recordNames?.length ?? 0) > 1 ? `Cards: ${project.recordNames?.join(', ')}` : '',
-      project,
-      settings: [
-        projectSetting(project.id, 'agent', {
-          path: `project:${project.id}:agent`,
-          title: 'Agent',
-          description: 'Agent configured for this project.',
-          control: 'readonly',
-          access: 'readout',
-          keywords: ['cli', 'runtime'],
-          value: project.agent || 'Not available in the current dashboard payload',
-        }),
-        projectSetting(project.id, 'permission-mode', {
-          path: `project:${project.id}:permission-mode`,
-          title: 'Default permission mode',
-          description: 'Permission mode used for newly spawned sessions.',
-          control: 'readonly',
-          access: 'readout',
-          keywords: ['approval', 'sandbox'],
-          value: project.permissionMode || 'Not available in the current dashboard payload',
-        }),
-        projectSetting(project.id, 'codex-hook-trust', {
-          path: `projects.${project.id}.codexBypassHookTrust`,
-          title: 'Codex hook trust bypass',
-          description: 'Configured only on this project record.',
-          control: 'toggle',
-          access: 'file-only',
-          fileOnlyReason: 'A per-project record field with no dashboard control.',
-          keywords: ['hooks', 'codex'],
-        }),
-      ],
-    }));
+export function draftCommitOf(
+  sections: readonly SettingsSection[], setting: SettingsSetting, draft: ControlDraft, draftText: string, values: SettingsValues, isUnparsable = false,
+): DraftCommit {
+  if (!hasUnsavedEdit(draft)) return { kind: 'unchanged' };
+  const draftError = setting.control === 'number' ? numberDraftError(setting, draftText, isUnparsable) : null;
+  if (draftError) return { kind: 'invalid', error: draftError };
+  const value = draftValueOf(setting, draftText);
+  if (valuesEqual(wireValue(setting, value), wiredDraftBase(setting, draft.base))) return { kind: 'unchanged' };
+  const error = settingError(sections, setting, { ...values, [setting.path]: value });
+  if (error) return { kind: 'invalid', error };
+  return { kind: 'changed', value };
 }
 
-export function firstProjectPerPath(projects: SettingsProject[] = []): SettingsProject[] {
-  const seenPaths = new Set<string>();
-  return projects.filter((project) => {
-    if (typeof project?.id !== 'string' || !project.id) return false;
-    if (!project.path) return true;
-    if (seenPaths.has(project.path)) return false;
-    seenPaths.add(project.path);
-    return true;
-  });
+export function resetValueOf(setting: SettingsSetting): unknown {
+  if (isSecretSetting(setting)) return '';
+  return displayValue(setting, setting.defaultValue);
 }
 
-export function enrichProjectsById(projects: SettingsProject[] = [], details: SettingsProject[] = []): SettingsProject[] {
-  const detailsById = new Map(details
-    .filter((detail) => typeof detail?.id === 'string' && detail.id)
-    .map((detail): [string, SettingsProject] => [detail.id, detail]));
-  return projects.map((project) => {
-    const matchingDetail = detailsById.get(project?.id);
-    const projectPath = project?.path || matchingDetail?.path;
-    const recordNames = details
-      .filter((detail) => projectPath && detail?.path === projectPath)
-      .map((detail) => detail?.name)
-      .filter((name): name is string => typeof name === 'string' && name !== '');
-    return {
-      ...matchingDetail,
-      ...project,
-      path: projectPath,
-      recordNames: [...new Set(recordNames)],
-    };
-  });
+export function isAtDefault(setting: SettingsSetting, value: unknown): boolean {
+  return valuesEqual(value, resetValueOf(setting));
+}
+
+export function choicePresentation(setting: SettingsSetting): SettingsChoicePresentation {
+  if (setting.presentation) return setting.presentation;
+  return (setting.options?.length ?? 0) <= SEGMENTED_CHOICE_LIMIT ? 'segmented' : 'select';
+}
+
+function isNonEmptyValue(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'string') return value.trim() !== '';
+  return value === true;
 }
 
 export function shouldShowDangerWarning(setting: Pick<SettingsSetting, 'danger' | 'warning'>, value: unknown): boolean {
-  return setting.danger === true && Boolean(setting.warning) && value === true;
+  return setting.danger === true && Boolean(setting.warning) && isNonEmptyValue(value);
 }
 
-export function resolveEntry(sections: readonly SettingsSection[], sectionId: string): SettingsSection | null {
-  return sections.find((section) => section.id === sectionId) || sections[0] || null;
+export function needsDangerConfirmation(setting: SettingsSetting, value: unknown): boolean {
+  return shouldShowDangerWarning(setting, value);
+}
+
+function titleInSentence(setting: SettingsSetting): string {
+  return setting.title.charAt(0).toLowerCase() + setting.title.slice(1);
+}
+
+export function resetConfirmationOf(setting: SettingsSetting): string | null {
+  if (isSecretSetting(setting)) return `Reset removes the stored ${titleInSentence(setting)}. Anything that relies on it stops until a new one is saved.`;
+  if (needsDangerConfirmation(setting, resetValueOf(setting))) return setting.warning ?? '';
+  return null;
 }
 
 function workflowRuleSummary(rule: WorkflowRule): string {

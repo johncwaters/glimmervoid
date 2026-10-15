@@ -57,6 +57,12 @@ test('schema --json prints every registry setting with id, path, type, default, 
   assert.deepEqual(spike && { path: spike.path, type: spike.type, default: spike.default, effect: spike.effect }, { path: 'posthog.trafficSpikeEnabled', type: 'toggle', default: true, effect: 'now' });
   const fileOnly = entries.find((entry) => entry.id === 'file-replay-buffer');
   assert.equal(fileOnly?.unit, 'KB');
+  const quiet = entries.find((entry) => entry.id === 'file-visions-quiet-delay');
+  assert.deepEqual(
+    quiet && { path: quiet.path, default: quiet.default, unit: quiet.unit, displayUnit: quiet.displayUnit, storedPerDisplay: quiet.storedPerDisplay },
+    { path: 'visions.dispatch.quietMs', default: 30000, unit: 'ms', displayUnit: 'seconds', storedPerDisplay: 1000 },
+  );
+  assert.match(run(['schema']).stdout, /visions\.dispatch\.quietMs +\| number +\| 30000 +\| ms +\| seconds +\|/);
   assert.equal(fs.existsSync(path.join(homeDirectory, 'config.json')), false);
   assert.equal(run(['schema']).exitCode, 0);
 });
@@ -185,7 +191,7 @@ test('a path outside the registry, the listener port, a browser preference and a
   const browserPreference = run(['set', 'theme', 'dark']);
   assert.equal(browserPreference.exitCode, 1);
   assert.match(browserPreference.stderr, /browser preference/);
-  const statusRow = run(['get', 'update-summary']);
+  const statusRow = run(['get', 'update-actions']);
   assert.equal(statusRow.exitCode, 1);
   assert.match(statusRow.stderr, /read-only status row/);
   assert.equal(fs.readFileSync(path.join(homeDirectory, 'config.json'), 'utf8'), before);
@@ -225,6 +231,9 @@ test('set parses numbers, lists, nullable text and structured JSON per the regis
   assert.equal(readConfig(homeDirectory).integrationBranch, null);
   assert.equal(run(['get', 'posthog.projects']).stdout, 'posthog.projects = 12, 34 (config.json)\n');
   assert.equal(run(['set', 'usage.retainDays', '1.5']).exitCode, 1);
+  assert.equal(run(['get', 'visions.dispatch.quietMs']).stdout, 'visions.dispatch.quietMs = 30000 (30 seconds) (default)\n');
+  assert.match(run(['set', 'visions.dispatch.quietMs', '45000']).stdout, /^visions\.dispatch\.quietMs = 45000 \(45 seconds\)\n/);
+  assert.deepEqual((readConfig(homeDirectory).visions as Record<string, unknown>).dispatch, { quietMs: 45000 });
 });
 
 test('search ranks through the shared scorer and reaches file-only entries', () => {

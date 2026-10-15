@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { FILE_ONLY_GROUPS, SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
-import type { SettingsRegistry, SettingsSection, SettingsSetting } from '../shared/settings/registry.ts';
+import type { SettingsEffect, SettingsRegistry, SettingsSection, SettingsSetting } from '../shared/settings/registry.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { Config } from '../shared/contracts/config.ts';
 import {
@@ -47,6 +47,21 @@ export const UNLISTED_KEY_NOTES: Readonly<Record<string, string>> = Object.freez
 });
 
 const BROWSER_LEVEL = 'browser';
+
+const SCOPE_NOTES: Readonly<Record<SettingsSetting['scope'], string>> = Object.freeze({
+  browser: 'Scope: this browser.',
+  machine: 'Scope: this machine.',
+});
+
+const EFFECT_NOTES: Readonly<Record<SettingsEffect, string>> = Object.freeze({
+  now: 'Takes effect at once.',
+  'new-sessions': 'Applies to sessions created after the change.',
+  restart: 'Requires a server restart.',
+});
+
+function scopeAndEffectNote(setting: SettingsSetting): string {
+  return `${SCOPE_NOTES[setting.scope]} ${EFFECT_NOTES[setting.takesEffect]}`;
+}
 
 function escapeCell(text: string): string {
   return text.replaceAll('|', '\\|').replaceAll('\n', ' ');
@@ -92,7 +107,7 @@ function fileOnlyRowsOf(registry: SettingsRegistry, groupId: string): SettingsSe
 
 function settingRow(setting: SettingsSetting): string {
   const fileOnlyNote = setting.access === 'file-only' ? `**File-only.** ${setting.fileOnlyReason ?? ''}` : '';
-  const notes = [setting.description, fileOnlyNote].filter(Boolean).join(' ');
+  const notes = [setting.description, scopeAndEffectNote(setting), fileOnlyNote].filter(Boolean).join(' ');
   return `| \`${setting.path}\` | ${escapeCell(setting.title)} | ${formatDefault(resolvedDefault(setting))} | ${escapeCell(notes)} |`;
 }
 
@@ -127,7 +142,7 @@ function browserPreferencesMarkdown(sections: readonly SettingsSection[]): strin
     '',
     '| Setting | Default | Notes |',
     '|---------|---------|-------|',
-    ...rows.map((setting) => `| ${escapeCell(setting.title)} | ${formatDefault(setting.defaultValue)} | ${escapeCell(setting.description)} |`),
+    ...rows.map((setting) => `| ${escapeCell(setting.title)} | ${formatDefault(setting.defaultValue)} | ${escapeCell(`${setting.description} ${scopeAndEffectNote(setting)}`)} |`),
     '',
   ];
 }

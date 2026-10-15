@@ -11,7 +11,7 @@ import { FLYING_ANIMALS_DEFAULTS } from '../shared/settings-ranges.ts';
 import { FILE_ONLY_GROUPS, SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '../shared/settings/registry.ts';
 import type { SettingsSetting } from '../shared/settings/registry.ts';
 import {
-  SETTINGS_INDEX, displayNumber, indexSettings, parseSettingsHash, settingsBlockSpec, settingsGroupOf, settingsOf, storedNumber,
+  SETTINGS_INDEX, displayValue, indexSettings, parseSettingsHash, settingsBlockSpec, settingsGroupOf, settingsOf, wireValue,
 } from '../shared/settings/registry-core.ts';
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../public/radar/radar-core.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } from '../public/github/team-review-view-core.ts';
@@ -24,6 +24,8 @@ const SCOPES = new Set(['browser', 'machine']);
 const ACCESS_VALUES = new Set(['editable', 'advanced', 'readout', 'file-only']);
 const EFFECTS = new Set(['now', 'new-sessions', 'restart']);
 const INGEST_SOURCE_TOGGLE = /^ingest\.sources\.[A-Za-z]+\.enabled$/;
+const FILE_ONLY_BY_RULE_PATHS = ['port', 'worktreeShare', 'customAgents', 'hooks', 'remote', 'projects'];
+const EFFECT_OR_SCOPE_PROSE = /applies to every browser|applies (?:now|immediately)|takes effect|(?:after|needs|requires|on) (?:a |the next )?restart|newly (?:started|spawned|created) sessions|only new sessions|new sessions only/i;
 
 interface SchemaDef {
   type: string;
@@ -90,7 +92,7 @@ function expectedControls(def: SchemaDef): readonly string[] {
   if (def.type === 'enum') return ['select'];
   if (def.type === 'array') return leafDef(def.element).type === 'string' ? ['list', 'projects'] : ['json'];
   if (def.type === 'record' || def.type === 'object') return ['json'];
-  if (def.type === 'union') return ['text'];
+  if (def.type === 'union') return ['list'];
   assert.fail(`no control is defined for a ${def.type} leaf`);
 }
 
@@ -140,7 +142,11 @@ test('each number has a unit and a range the schema agrees with at its edges', (
   for (const setting of numbers) {
     const { range, unit } = setting;
     assert.ok(range, `${setting.path} has no range`);
-    assert.ok(unit?.label && unit.storedPerDisplay > 0, `${setting.path} has no display unit`);
+    assert.ok(unit?.label && unit.storedPerDisplay >= 1, `${setting.path} has no display unit`);
+    if (unit.storedPerDisplay > 1) {
+      assert.ok(unit.storedLabel, `${setting.path} must name its stored unit`);
+      assert.equal(Number.isInteger(displayValue(setting, setting.defaultValue)), true, `${setting.path} default is not a whole number of ${unit.label}`);
+    }
     const isWhole = setting.integer !== false;
     const step = isWhole ? 1 : 0.5;
     const lowestValid = range.exclusiveMin ? range.min + step : range.min;
@@ -163,6 +169,7 @@ test('each entry has a title, a description, two keywords, a scope, an access an
   for (const setting of ALL_ENTRIES) {
     assert.ok(setting.title.trim(), `${setting.id} needs a title`);
     assert.ok(setting.description.trim(), `${setting.id} needs a description`);
+    assert.doesNotMatch(setting.description, EFFECT_OR_SCOPE_PROSE, `${setting.id} restates what its effect and scope chips say`);
     assert.ok(setting.keywords.length >= 2, `${setting.id} needs two keywords`);
     assert.ok(SCOPES.has(setting.scope), `${setting.id} scope ${setting.scope}`);
     assert.ok(ACCESS_VALUES.has(setting.access), `${setting.id} access ${setting.access}`);
@@ -191,37 +198,61 @@ test('every default equals DEFAULT_CONFIG wherever that names the path', () => {
   assert.ok(compared > 40, `expected DEFAULT_CONFIG to name most registry paths, compared ${compared}`);
 });
 
-test('the alias and moved-setting tables come from the legacy ids and resolve to live sections', () => {
+test('the alias and moved-setting tables come from the legacy ids and resolve to live sections and settings', () => {
   assert.deepEqual(SETTINGS_SECTION_ALIASES, {
-    animals: 'browser-flying-animals',
-    'flying-animals': 'browser-flying-animals',
-    shortcuts: 'browser-shortcuts',
-    general: 'machine-general',
-    updates: 'machine-updates',
-    repos: 'machine-repositories',
-    repositories: 'machine-repositories',
+    'browser-flying-animals': 'browser-appearance',
+    animals: 'browser-appearance',
+    'flying-animals': 'browser-appearance',
     telegram: 'machine-telegram',
     notifications: 'machine-telegram',
+    'machine-general': 'machine-sessions',
+    general: 'machine-sessions',
+    'machine-repositories': 'machine-sessions',
+    repos: 'machine-sessions',
+    repositories: 'machine-sessions',
+    'lanes-unattended': 'machine-guardrails',
+    unattended: 'machine-guardrails',
+    updates: 'machine-updates',
     usage: 'machine-usage',
-    privacy: 'machine-privacy',
-    telemetry: 'machine-privacy',
-    'change-map': 'lanes-change-map',
     visions: 'lanes-visions',
-    ingest: 'lanes-ingest',
+    'lanes-ingest': 'lanes-visions',
+    ingest: 'lanes-visions',
     posthog: 'lanes-posthog',
     'team-review': 'lanes-team-review',
     reviews: 'lanes-team-review',
-    benchmarks: 'lanes-benchmarks',
-    factory: 'lanes-factory',
-    'knowledge-graph': 'lanes-knowledge-graph',
     workflows: 'lanes-workflows',
-    unattended: 'lanes-unattended',
+    factory: 'lanes-factory',
+    benchmarks: 'lanes-benchmarks',
+    'knowledge-graph': 'lanes-knowledge-graph',
+    'change-map': 'lanes-change-map',
+    privacy: 'machine-privacy',
+    telemetry: 'machine-privacy',
+    shortcuts: 'browser-shortcuts',
   });
-  assert.deepEqual(SETTINGS_MOVED_SETTINGS, { 'browser-appearance': { 'flying-animals': 'browser-flying-animals' } });
+  assert.deepEqual(SETTINGS_MOVED_SETTINGS, {
+    'browser-appearance': { 'alert-sounds-enabled': 'browser-notifications', 'alert-sound': 'browser-notifications', 'desktop-notifications': 'browser-notifications' },
+    'machine-updates': { 'update-summary': 'machine-updates', 'update-installed': 'machine-updates', 'update-latest': 'machine-updates', 'update-last-checked': 'machine-updates' },
+  });
   const sectionIds = new Set(SETTINGS_REGISTRY.sections.map((section) => section.id));
+  for (const setting of settingsOf(SETTINGS_REGISTRY.sections)) {
+    for (const legacy of setting.legacyIds ?? []) {
+      assert.equal(sectionIds.has(legacy.sectionId), true, `${setting.id} keeps a legacy id under ${legacy.sectionId}, which is not a live section`);
+    }
+  }
   for (const [alias, sectionId] of Object.entries(SETTINGS_SECTION_ALIASES)) {
     assert.equal(sectionIds.has(alias), false, `${alias} shadows a section id`);
     assert.equal(sectionIds.has(sectionId), true, `${alias} resolves to missing ${sectionId}`);
+  }
+  for (const [legacySectionId, targets] of Object.entries(SETTINGS_MOVED_SETTINGS)) {
+    for (const [settingId, sectionId] of Object.entries(targets)) {
+      assert.equal(resolvesToLiveIds(legacySectionId, settingId), true, `${legacySectionId}/${settingId} is not live`);
+      assert.equal(sectionIds.has(sectionId), true, `${settingId} moved to missing ${sectionId}`);
+    }
+  }
+  for (const section of SETTINGS_REGISTRY.sections) {
+    if (!section.parent) continue;
+    assert.equal(sectionIds.has(section.parent), true, `${section.id} nests under missing ${section.parent}`);
+    assert.equal(SETTINGS_REGISTRY.sections.find((candidate) => candidate.id === section.parent)?.parent, undefined, `${section.id} nests two deep`);
   }
 });
 
@@ -237,13 +268,12 @@ test('the byId and byPath maps cover every entry from one pass', () => {
 test('unit conversion scales both ways and rounds whole-number settings', () => {
   const quiet = SETTINGS_INDEX.byPath.get('visions.dispatch.quietMs');
   assert.ok(quiet);
-  const inSeconds: SettingsSetting = { ...quiet, unit: { label: 'seconds', storedPerDisplay: 1000 } };
-  assert.equal(displayNumber(inSeconds, 30000), 30);
-  assert.equal(storedNumber(inSeconds, 30), 30000);
-  assert.equal(storedNumber(inSeconds, 0.0004), 0);
-  assert.equal(storedNumber({ ...inSeconds, integer: false }, 0.0004), 0.4);
+  assert.equal(displayValue(quiet, 30000), 30);
+  assert.equal(wireValue(quiet, 30), 30000);
+  assert.equal(wireValue(quiet, 0.0004), 0);
+  assert.equal(wireValue({ ...quiet, integer: false }, 0.0004), 0.4);
   for (const setting of CONFIG_ENTRIES.filter((entry) => entry.control === 'number' && typeof entry.defaultValue === 'number')) {
-    assert.equal(storedNumber(setting, displayNumber(setting, setting.defaultValue as number)), setting.defaultValue, setting.path);
+    assert.equal(wireValue(setting, displayValue(setting, setting.defaultValue)), setting.defaultValue, setting.path);
   }
 });
 
@@ -306,21 +336,23 @@ test('every createSettingsLink call and #settings/ literal in public/ names a li
     }
   }
   assert.ok(linkCount >= 6, `expected the banner, notice and panel links, found ${linkCount}`);
-  for (const section of SETTINGS_REGISTRY.sections) {
-    for (const link of section.unattendedLinks ?? []) assert.ok(resolvesToLiveIds('lanes-unattended', link.settingId), `${section.id} links to missing ${link.settingId}`);
-  }
 });
 
 test('the pre-existing deep links from the banner, the notice and the panels still open their settings', () => {
-  for (const [sectionId, settingId] of [
-    [UPDATES_SECTION_ID, UPDATES_ACTIONS_SETTING_ID],
-    ['privacy', 'telemetry-enabled'],
-    ['lanes-visions', 'visions-enabled'],
-    ['machine-usage', 'usage-daily-budget'],
-    ['lanes-posthog', 'posthog-enabled'],
-    [TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID],
+  for (const [sectionId, settingId, canonical] of [
+    [UPDATES_SECTION_ID, UPDATES_ACTIONS_SETTING_ID, '#settings/machine-updates/update-actions'],
+    ['privacy', 'telemetry-enabled', '#settings/machine-privacy/telemetry-enabled'],
+    ['lanes-visions', 'visions-enabled', '#settings/lanes-visions/visions-enabled'],
+    ['machine-usage', 'usage-daily-budget', '#settings/machine-usage/usage-daily-budget'],
+    ['lanes-posthog', 'posthog-enabled', '#settings/lanes-posthog/posthog-enabled'],
+    [TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, '#settings/lanes-team-review/team-review-enabled'],
+    ['machine-general', 'auto-resume', '#settings/machine-sessions/auto-resume'],
+    ['lanes-unattended', 'sane-yolo', '#settings/machine-guardrails/sane-yolo'],
+    ['browser-flying-animals', 'animals-on-phone', '#settings/browser-appearance/animals-on-phone'],
+    ['notifications', 'telegram-session-notifications', '#settings/machine-telegram/telegram-session-notifications'],
   ]) {
-    assert.ok(resolvesToLiveIds(sectionId, settingId), `#settings/${sectionId}/${settingId}`);
+    const resolved = parseSettingsHash(`#settings/${sectionId}/${settingId}`, SETTINGS_REGISTRY.sections, SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS);
+    assert.equal(resolved?.hash, canonical, `#settings/${sectionId}/${settingId}`);
   }
 });
 
@@ -388,11 +420,7 @@ test('the machine Updates section owns its alias, channel, status rows, actions 
   assert.equal(updates.level, 'machine');
   assert.equal(SETTINGS_SECTION_ALIASES.updates, 'machine-updates');
   assert.deepEqual(updates.settings.map((setting) => setting.id), [
-    'update-summary',
     'update-actions',
-    'update-installed',
-    'update-latest',
-    'update-last-checked',
     'update-channel',
     'check-updates',
   ]);
@@ -429,18 +457,22 @@ test('the tuning knobs, diagnostics and legacy team keys are the file-only listi
   assert.match(settingById('file-team-review-team').fileOnlyReason ?? '', /legacy/);
 });
 
-test('the agent API row is gone and the custom agents readout sits beside its file-only key', () => {
+test('the agent API row is gone, the custom agents readout sits beside its file-only key, and no section edits a by-rule path', () => {
   assert.equal(ALL_ENTRIES.some((setting) => setting.path.startsWith('agentApi')), false);
   assert.equal(settableFromDashboard('agentApi.enabled'), false);
 
   const readout = settingById('custom-agents');
   assert.equal(readout.control, 'readonly');
   assert.equal(readout.status, 'custom-agents');
-  assert.ok(sectionById('machine-general').settings.includes(readout));
+  assert.ok(sectionById('machine-sessions').settings.includes(readout));
   const key = settingById('file-custom-agents');
   assert.equal(key.path, 'customAgents');
   assert.equal(key.access, 'file-only');
-  assert.equal(settableFromDashboard('customAgents'), false);
+  for (const rulePath of FILE_ONLY_BY_RULE_PATHS) {
+    assert.equal(settableFromDashboard(rulePath), false, rulePath);
+    assert.equal(settingsOf(SECTIONS).some((setting) => setting.path === rulePath || setting.path.startsWith(`${rulePath}.`)), false, rulePath);
+    for (const entry of SETTINGS_REGISTRY.fileOnly.filter((setting) => setting.path === rulePath)) assert.equal(entry.access, 'file-only', rulePath);
+  }
 });
 
 test('the Team review lane section owns its settings and deep link, with org and team left to config.json', () => {
@@ -464,17 +496,13 @@ test('the Team review lane section owns its settings and deep link, with org and
 });
 
 test('Flying animals follows Appearance and owns its stable toggle and searchable advanced controls', () => {
-  const appearanceIndex = SECTIONS.findIndex((section) => section.id === 'browser-appearance');
-  const animals = SECTIONS[appearanceIndex + 1];
-  assert.equal(animals.id, 'browser-flying-animals');
+  const animals = sectionById('browser-appearance');
   assert.equal(animals.level, 'browser');
   assert.equal(SETTINGS_SECTION_ALIASES.animals, animals.id);
   assert.equal(SETTINGS_SECTION_ALIASES['flying-animals'], animals.id);
   const settings = animals.settings;
   assert.equal(settings.find((setting) => setting.id === 'flying-animals')?.path, 'pref:flyingAnimalsEnabled');
-  assert.equal(SECTIONS[appearanceIndex].settings.some((setting) => setting.id === 'flying-animals'), false);
   assert.equal(settings.filter((setting) => setting.access === 'advanced').length, 6);
-  assert.equal(settings.filter((setting) => setting.control === 'number').every((setting) => setting.commitOnChange === true), true);
   assert.equal(settings.every((setting) => setting.path.startsWith('pref:') && setting.scope === 'browser'), true);
   for (const [key, value] of Object.entries(FLYING_ANIMALS_DEFAULTS)) {
     assert.equal(settings.find((setting) => setting.path === `pref:${key}`)?.defaultValue, value, key);

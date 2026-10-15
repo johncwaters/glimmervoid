@@ -50,6 +50,13 @@ test('docs/configuration.md matches what npm run docs:config generates', () => {
   assert.equal(committed, renderConfigurationDoc(), 'docs/configuration.md is stale: run npm run docs:config');
 });
 
+test('each settings row in the reference states its scope and when a change takes effect', () => {
+  const rowsByFirstCell = new Map(renderConfigurationDoc().split('\n').map((line) => [line.split(' | ')[0], line]));
+  assert.match(rowsByFirstCell.get('| `port`') ?? '', /Scope: this machine\. Requires a server restart\./);
+  assert.match(rowsByFirstCell.get('| `guardrails.unguardedRepos`') ?? '', /Scope: this machine\. Applies to sessions created after the change\./);
+  assert.match(rowsByFirstCell.get('| Theme') ?? '', /Scope: this browser\. Takes effect at once\./);
+});
+
 test('every GLIMMERVOID_* variable the code reads has a row in the environment table', () => {
   const documented = new Set(ENVIRONMENT_VARIABLES.map((variable) => variable.name));
   const undocumented = [...environmentVariablesReadByCode()].filter((name) => !documented.has(name)).sort();

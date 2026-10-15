@@ -4,10 +4,10 @@ import { BrowserConfig, Config, ConfigUpdate } from '../shared/contracts/config.
 import { normalizeLegacyConfigNumbers } from '../shared/contracts/config-numbers-core.ts';
 import { SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
 import type { SettingsSection, SettingsSetting } from '../shared/settings/registry.ts';
-import { SETTINGS_INDEX, parsePosthogProjectSelection } from '../shared/settings/registry-core.ts';
+import { SETTINGS_INDEX, parsePosthogProjectSelection, wireValue } from '../shared/settings/registry-core.ts';
 import { includesRepositoryRoot, projectSelectionChoices } from '../public/settings/settings-projects-core.ts';
 import {
-  collectDirtyBlocks, hydrateFromSettings, rtkInstallStatusText, secretEnvironmentSource, validateLocally,
+  collectDirtyBlocks, hydrateFromSettings, numberDraftError, numberFromDraft, rtkInstallStatusText, secretEnvironmentSource, validateLocally,
 } from '../public/settings/settings-view-core.ts';
 
 const WHOLE_NUMBER_FIELDS = [
@@ -85,6 +85,25 @@ test('posthog-interval accepts and serializes a fractional value unchanged', () 
   assert.equal(ConfigUpdate.safeParse(serialized).success, true);
 });
 
+test('a duration typed in its display unit stores the schema unit as a whole number the file accepts', () => {
+  for (const [id, draft, stored] of [
+    ['file-visions-quiet-delay', '45', 45000],
+    ['file-visions-cooldown', '2', 120000],
+    ['file-visions-intent-thread-ttl', '7', 604800000],
+    ['file-posthog-fix-timeout', '20', 1200],
+  ] as const) {
+    const setting = registrySetting(id);
+    assert.equal(numberDraftError(setting, draft), null, id);
+    const value = wireValue(setting, numberFromDraft(setting, draft));
+    assert.equal(value, stored, id);
+    assert.equal(ConfigUpdate.safeParse(payloadAtPath(setting.path, value)).success, true, id);
+    assert.equal(Config.safeParse({ projects: [], ...payloadAtPath(setting.path, value) }).success, true, id);
+  }
+  const quiet = registrySetting('file-visions-quiet-delay');
+  assert.ok(numberDraftError(quiet, '0.0001'));
+  assert.equal(ConfigUpdate.safeParse(payloadAtPath(quiet.path, 0.1)).success, false);
+});
+
 for (const id of ['file-posthog-investigation-timeout', 'file-posthog-fix-timeout', 'file-posthog-traffic-multiplier', 'file-posthog-traffic-cooldown']) {
   test(`${id} stays fractional in config.json`, () => {
     const setting = registrySetting(id);
@@ -112,20 +131,27 @@ test('legacy numeric migration preserves count comparisons, floors truncated qua
   assert.deepEqual(normalizeLegacyConfigNumbers({ visions: null, posthog: null }), { visions: null, posthog: null });
 });
 
-test('PostHog projects share one parser for validation and serialization, including none and unsafe ids', () => {
+test('PostHog projects share one parser for the CLI text form and the dashboard list form, including none and unsafe ids', () => {
   const { section, setting } = editableSection('posthog-projects');
   for (const invalid of ['1,', '1,,2', ',1', '0', '-1', '1.5', '9007199254740992']) {
     assert.equal(parsePosthogProjectSelection(invalid), null);
-    assert.ok(validateLocally([section], { [setting.path]: invalid })[setting.id]);
   }
   for (const [text, expected] of [['1, 2', [1, 2]], ['none', []], ['ALL', 'all'], ['', 'all'], ['9007199254740991', [Number.MAX_SAFE_INTEGER]]] as const) {
-    const original = hydrateFromSettings([section], { posthog: { projects: [9] } });
-    const edited = { ...original, [setting.path]: text };
     assert.deepEqual(parsePosthogProjectSelection(text), expected);
+  }
+  for (const invalid of [['0'], ['-1'], ['1.5'], ['9007199254740992'], ['abc'], ['1', 'none']]) {
+    assert.equal(wireValue(setting, invalid), null);
+    assert.ok(validateLocally([section], { [setting.path]: invalid })[setting.id]);
+  }
+  for (const [list, expected] of [[['1', '2'], [1, 2]], [[], 'all'], [['none'], []], [['9007199254740991'], [Number.MAX_SAFE_INTEGER]]] as const) {
+    const original = hydrateFromSettings([section], { posthog: { projects: [9] } });
+    const edited = { ...original, [setting.path]: [...list] };
+    assert.deepEqual(wireValue(setting, [...list]), expected);
     assert.deepEqual(validateLocally([section], edited), {});
     assert.deepEqual(collectDirtyBlocks([section], original, edited), { posthog: { projects: expected } });
   }
-  assert.equal(hydrateFromSettings([section], { posthog: { projects: [] } })[setting.path], 'none');
+  assert.deepEqual(hydrateFromSettings([section], { posthog: { projects: [] } })[setting.path], ['none']);
+  assert.deepEqual(hydrateFromSettings([section], { posthog: { projects: 'all' } })[setting.path], []);
 });
 
 test('environment secret ownership excludes replacement edits and sibling saves carry no secret metadata', () => {

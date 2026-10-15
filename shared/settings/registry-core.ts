@@ -1,5 +1,5 @@
 import { FILE_ONLY_GROUPS, SETTINGS_REGISTRY } from './registry.ts';
-import type { SettingsGroup, SettingsLevel, SettingsRegistry, SettingsSection, SettingsSetting } from './registry.ts';
+import type { SettingsGroup, SettingsRegistry, SettingsSection, SettingsSetting } from './registry.ts';
 
 export interface SettingsBlockSpec {
   name: string;
@@ -84,10 +84,29 @@ export function parsePosthogProjectSelection(value: unknown): 'all' | number[] |
   return tokens.map(Number);
 }
 
+const DISPLAY_DECIMALS = 6;
+
 export function displayValue(setting: SettingsSetting, value: unknown): unknown {
+  if (setting.control === 'number' && typeof value === 'number') return value / (setting.unit?.storedPerDisplay ?? 1);
   if (setting.valueKind !== 'posthog-projects') return cloneValue(value);
-  if (Array.isArray(value)) return value.length === 0 ? 'none' : value.join(', ');
-  return value ?? 'all';
+  if (!Array.isArray(value)) return [];
+  if (value.length === 0) return ['none'];
+  return value.map(String);
+}
+
+export function hasScaledUnit(setting: SettingsSetting): boolean {
+  return setting.control === 'number' && (setting.unit?.storedPerDisplay ?? 1) !== 1;
+}
+
+export function formatDisplayNumber(value: number): string {
+  return String(Number(value.toFixed(DISPLAY_DECIMALS)));
+}
+
+export function displayText(setting: SettingsSetting, value: unknown): string {
+  const shown = displayValue(setting, value);
+  if (setting.valueKind === 'posthog-projects' && Array.isArray(shown)) return shown.join(', ') || 'all';
+  if (typeof shown === 'number' && setting.unit) return `${formatDisplayNumber(shown)} ${setting.unit.label}`;
+  return JSON.stringify(shown ?? null);
 }
 
 export function wireValue(setting: SettingsSetting, value: unknown): unknown {
@@ -95,10 +114,11 @@ export function wireValue(setting: SettingsSetting, value: unknown): unknown {
     if (setting.nullable && (value == null || String(value).trim() === '')) return null;
     const number = Number(value);
     if (setting.zeroIsNull && number <= 0) return null;
-    return number;
+    const stored = number * (setting.unit?.storedPerDisplay ?? 1);
+    return setting.integer === false ? stored : Math.round(stored);
   }
   if (setting.valueKind === 'posthog-projects') {
-    return parsePosthogProjectSelection(value);
+    return parsePosthogProjectSelection(Array.isArray(value) ? value.join(',') : value);
   }
   if (setting.control === 'text' || setting.control === 'password') {
     const text = String(value ?? '').trim();
@@ -106,15 +126,6 @@ export function wireValue(setting: SettingsSetting, value: unknown): unknown {
     return text;
   }
   return cloneValue(value);
-}
-
-export function displayNumber(setting: SettingsSetting, stored: number): number {
-  return stored / (setting.unit?.storedPerDisplay ?? 1);
-}
-
-export function storedNumber(setting: SettingsSetting, display: number): number {
-  const stored = display * (setting.unit?.storedPerDisplay ?? 1);
-  return setting.integer === false ? stored : Math.round(stored);
 }
 
 function searchTokens(value: unknown) {
@@ -200,12 +211,14 @@ export function parseSettingsHash(
   } catch {
     return null;
   }
-  const movedSectionId = requestedSettingId ? movedSettings[requestedSectionId]?.[requestedSettingId] : undefined;
-  const sectionId = movedSectionId || aliases[requestedSectionId] || requestedSectionId;
+  const canonicalSectionId = aliases[requestedSectionId] || requestedSectionId;
+  const movedSectionId = requestedSettingId ? movedSettings[canonicalSectionId]?.[requestedSettingId] : undefined;
+  const sectionId = movedSectionId || canonicalSectionId;
   const section = sections.find((entry) => entry.id === sectionId);
   if (!section) return null;
   const setting = requestedSettingId
-    ? section.settings.find((entry) => entry.id === requestedSettingId)
+    ? section.settings.find((entry) => entry.id === requestedSettingId
+      || entry.legacyIds?.some((legacy) => legacy.settingId === requestedSettingId && legacy.sectionId === canonicalSectionId))
     : null;
   if (requestedSettingId && !setting) return null;
   return {
@@ -213,22 +226,6 @@ export function parseSettingsHash(
     settingId: setting?.id || null,
     hash: `#settings/${sectionId}${setting ? `/${setting.id}` : ''}`,
   };
-}
-
-export function sectionsByLevel(sections: readonly SettingsSection[]): Record<SettingsLevel, SettingsSection[]> {
-  const grouped: Record<SettingsLevel, SettingsSection[]> = { browser: [], machine: [], lanes: [], projects: [] };
-  for (const section of sections) grouped[section.level].push(section);
-  return grouped;
-}
-
-export function orderSections(sections: readonly SettingsSection[]): SettingsSection[] {
-  const unattendedId = 'lanes-unattended';
-  const unattended = sections.find((section) => section.id === unattendedId);
-  if (!unattended) return [...sections];
-  const ordered = sections.filter((section) => section.id !== unattendedId);
-  const lastLaneIndex = ordered.findLastIndex((section) => section.level === 'lanes');
-  ordered.splice(lastLaneIndex + 1, 0, unattended);
-  return ordered;
 }
 
 export function indexSettings(registry: SettingsRegistry): SettingsIndex {

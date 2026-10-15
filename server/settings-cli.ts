@@ -6,7 +6,7 @@ import { isRecord } from '../shared/coerce.ts';
 import { BrowserConfig } from '../shared/contracts/config.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import {
-  SETTINGS_INDEX, cloneValue, deleteValueAtPath, displayValue, parsePosthogProjectSelection, scoreSettingsSearch,
+  SETTINGS_INDEX, cloneValue, deleteValueAtPath, displayText, hasScaledUnit, parsePosthogProjectSelection, scoreSettingsSearch,
   setValueAtPath, settingsGroupOf, settingsOf, valueAtPath,
 } from '../shared/settings/registry-core.ts';
 import { FILE_ONLY_GROUPS, SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
@@ -29,6 +29,8 @@ const usage = `glimmervoid settings: read and change config.json from the comman
 
   <path> is a config.json key path such as posthog.trafficSpikeEnabled, or a setting id such as posthog-traffic-enabled.
   <value> is true or false for a toggle, a number, text, a comma-separated or JSON list, or JSON for a structured value.
+  A number is in the unit config.json stores, as schema's Stored unit column names: set visions.dispatch.quietMs 45000 means 45000 ms.
+  Where the dashboard shows another unit, get, list and set add it in parentheses, such as 30000 (30 seconds).
   A secret (a bot token or API key) is never set or unset here, since a value on the command line lands in shell history;
   change it in the dashboard settings or through its environment variable.
   --json           machine-readable output`;
@@ -66,6 +68,8 @@ interface SettingDescriptor {
   effect: SettingsSetting['takesEffect'];
   default: unknown;
   unit: string | null;
+  displayUnit: string | null;
+  storedPerDisplay: number;
   section: SectionRef;
   options?: string[];
   range?: SettingsSetting['range'];
@@ -139,7 +143,9 @@ function describeSetting(setting: SettingsSetting): SettingDescriptor {
     access: setting.access,
     effect: setting.takesEffect,
     default: cloneValue(setting.defaultValue) ?? null,
-    unit: setting.unit?.label ?? null,
+    unit: setting.unit?.storedLabel ?? setting.unit?.label ?? null,
+    displayUnit: setting.unit?.label ?? null,
+    storedPerDisplay: setting.unit?.storedPerDisplay ?? 1,
     section: sectionOf(setting),
   };
   if (setting.options) descriptor.options = setting.options.map((option) => option.value);
@@ -170,14 +176,20 @@ function fitColumn(text: string): string {
   return `${text.slice(0, VALUE_COLUMN_WIDTH - 3)}...`;
 }
 
+function storedValueText(setting: SettingsSetting, value: unknown): string {
+  if (setting.valueKind) return displayText(setting, value);
+  const stored = JSON.stringify(value ?? null);
+  if (typeof value !== 'number' || !hasScaledUnit(setting)) return stored;
+  return `${stored} (${displayText(setting, value)})`;
+}
+
 function valueText(readout: SettingReadout, setting: SettingsSetting): string {
   if (readout.secret) return readout.configured ? 'configured' : 'not configured';
-  if (setting.valueKind) return String(displayValue(setting, readout.value));
-  return JSON.stringify(readout.value ?? null);
+  return storedValueText(setting, readout.value);
 }
 
 function defaultText(setting: SettingsSetting): string {
-  return JSON.stringify(setting.defaultValue ?? null);
+  return storedValueText(setting, setting.defaultValue);
 }
 
 function settingsBySection(settings: readonly SettingsSetting[]): { section: SectionRef; settings: SettingsSetting[] }[] {
@@ -424,7 +436,7 @@ const commands: Record<string, (context: CommandContext) => number> = {
     return print(
       context,
       { ...readout, previous, configPath: view.configPath },
-      `${setting.path} = ${JSON.stringify(parsed.value)}\n${EFFECT_NOTES[setting.takesEffect]}`,
+      `${setting.path} = ${valueText(readout, setting)}\n${EFFECT_NOTES[setting.takesEffect]}`,
     );
   },
   unset: (context) => {
@@ -460,11 +472,12 @@ const commands: Record<string, (context: CommandContext) => number> = {
       setting.id,
       setting.scope === 'browser' ? `${setting.path} (browser)` : setting.path,
       setting.control,
-      fitColumn(defaultText(setting)),
+      fitColumn(JSON.stringify(setting.defaultValue ?? null)),
+      setting.unit?.storedLabel ?? setting.unit?.label ?? '',
       setting.unit?.label ?? '',
       setting.takesEffect,
     ];
-    return print(context, ALL_SETTINGS.map(describeSetting), renderSectionTables(ALL_SETTINGS, ['Id', 'Path', 'Type', 'Default', 'Unit', 'Effect'], rowOf));
+    return print(context, ALL_SETTINGS.map(describeSetting), renderSectionTables(ALL_SETTINGS, ['Id', 'Path', 'Type', 'Default', 'Stored unit', 'Display unit', 'Effect'], rowOf));
   },
 };
 

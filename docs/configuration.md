@@ -10,16 +10,42 @@ Most settings are edited from the dashboard Settings view. Rows marked **File-on
 
 ## Settings
 
-### General
+### Telegram
 
-Machine-wide session startup and diagnostics.
+One bot shared by session, PR review and PostHog notifications.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `autoResume` | Auto-resume sessions on startup | `true` | Resume conversations that were live when Glimmervoid last shut down or crashed. |
-| `calmLayout` | Calm layout (experimental) | `false` | Replace the Focus rail with a view that prioritizes sessions needing attention and also shows ready and working indicators. Applies to every browser on this machine. |
-| `streamerMode` | Streamer mode | `false` | Hide sensitive details in the dashboard while screen sharing or streaming. Applies to every browser on this machine. |
-| `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
+| `telegram.botToken` | Bot token | `""` | Credential used by the shared Telegram bot. When GLIMMERVOID_TELEGRAM_BOT_TOKEN supplies it, this field is read-only. Scope: this machine. Takes effect at once. |
+| `telegram.chatId` | Chat id | `""` | Destination chat for enabled Telegram lanes. Scope: this machine. Takes effect at once. |
+| `telegramNotifications` | Send session notifications | `false` | Send session completion, input and failure alerts when no dashboard is open. Unacknowledged alerts also escalate after the phone escalation delay while a dashboard remains open. Scope: this machine. Takes effect at once. |
+
+### Sessions
+
+How sessions start, where projects are found, and what the dashboard shows for them.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `autoResume` | Auto-resume sessions on startup | `true` | Resume conversations that were live when Glimmervoid last shut down or crashed. Scope: this machine. Takes effect at once. |
+| `calmLayout` | Calm layout (experimental) | `false` | Replace the Focus rail with a view that prioritizes sessions needing attention and also shows ready and working indicators. Scope: this machine. Takes effect at once. |
+| `streamerMode` | Streamer mode | `false` | Hide sensitive details in the dashboard while screen sharing or streaming. Scope: this machine. Takes effect at once. |
+| `repoRoots` | Repository roots | `[]` | Directories scanned for projects when adding sessions. Scope: this machine. Takes effect at once. |
+| `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. Scope: this machine. Takes effect at once. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
+
+### Guardrails and unattended
+
+What a guarded session may touch, and which unattended actions automated work may take. Claude Code sessions on Linux and macOS write anywhere this account can, except credentials, Glimmervoid's own state and the blocked folders here.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `skipPermissionsByDefault` | Skip permission prompts by default | `false` | Start sessions whose project sets no permission choice with the agent CLI permission bypass flag. Scope: this machine. Takes effect at once. |
+| `saneYolo` | Sane YOLO | `true` | Block catastrophic commands in sessions that skip permission prompts when the cc-safety-net executable is available and trusted hooks are installed. Missing or untrusted hooks leave a session unprotected. Scope: this machine. Applies to sessions created after the change. |
+| `rtk` | rtk output compression | `false` | Compress Bash output with the rtk executable. Scope: this machine. Applies to sessions created after the change. |
+| `postTurnChecks.mode` | Post-turn checks mode | `"report"` | Default mode for post-turn checks. Project and individual rule modes override it, so Report can still allow file fixes. Scope: this machine. Takes effect at once. |
+| `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no merge proof. Off keeps every unmerged branch. Scope: this machine. Takes effect at once. |
+| `guardrails.unguardedRepos` | Unguarded repositories | `[]` | Folders whose sessions run without guardrails. A session started in one of these folders, or below it, is not guarded. Scope: this machine. Applies to sessions created after the change. |
+| `guardrails.blockedPaths` | Blocked folders | `[]` | Extra folders and files a guarded session cannot write, on top of credentials and Glimmervoid's own state. A leading ~ means the home folder. Scope: this machine. Applies to sessions created after the change. |
+| `guardrails.unreadablePaths` | Unreadable folders | `[]` | Extra folders and files a guarded session cannot read, on top of the built-in credential list. A leading ~ means the home folder. Scope: this machine. Applies to sessions created after the change. |
 
 ### Updates
 
@@ -27,26 +53,8 @@ See which Glimmervoid version is running, which one is newest, and update in one
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `updateChannel` | Channel | `"release"` | Track tagged releases or the upstream of the checked-out branch. |
-| `checkForUpdates` | Check for updates automatically | `true` | Check for a newer Glimmervoid at launch, while a dashboard is connected, and when this page opens. |
-
-### Repositories
-
-Project discovery roots for new sessions.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `repoRoots` | Repository roots | `[]` | Directories scanned for projects when adding sessions. |
-
-### Telegram
-
-One bot shared by session, PR review and PostHog notifications.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `telegram.botToken` | Bot token | `""` | Credential used by the shared Telegram bot. When GLIMMERVOID_TELEGRAM_BOT_TOKEN supplies it, this field is read-only. |
-| `telegram.chatId` | Chat id | `""` | Destination chat for enabled Telegram lanes. |
-| `telegramNotifications` | Send session notifications | `false` | Send session completion, input and failure alerts when no dashboard is open. Unacknowledged alerts also escalate after the phone escalation delay while a dashboard remains open. |
+| `updateChannel` | Channel | `"release"` | Track tagged releases or the upstream of the checked-out branch. Scope: this machine. Takes effect at once. |
+| `checkForUpdates` | Check for updates automatically | `true` | Check for a newer Glimmervoid at launch, while a dashboard is connected, and when this page opens. Scope: this machine. Takes effect at once. |
 
 ### Usage
 
@@ -54,71 +62,39 @@ Local transcript accounting and estimated-cost budgets.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `usage.enabled` | Track token usage | `true` | Read local CLI transcripts and roll them into the Usage view and session chips. |
-| `usage.retainDays` | Retain transcript detail (days) | `90` | How long live transcript detail stays available. A monthly budget keeps detail from the start of the current month when that is longer. |
-| `usage.budget.dailyUsd` | Daily budget (USD) | `null` | Estimated daily spend alert threshold. Alerts at 50%, 75% and 100% do not stop spending. Zero or below disables the threshold. |
-| `usage.budget.monthlyUsd` | Monthly budget (USD) | `null` | Estimated monthly spend alert threshold. Alerts at 50%, 75% and 100% do not stop spending. Zero or below disables the threshold. |
-| `usage.vendors.codex` | Track Codex usage | `true` | Include local Codex CLI transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `usage.vendors.grok` | Track Grok usage | `true` | Include local Grok CLI transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `usage.fetchPricing` | Fetch current model prices | `true` | Load public model prices when usage tracking starts, using a cached table for up to one day. Falls back to cached or bundled prices if the fetch fails; no daily refresh runs while tracking continues. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `usage.planLimits` | Show plan limits | `true` | Read the Claude plan limit the CLI reports and show it beside usage. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `usage.rtkSavings` | Estimate rtk savings | `true` | Estimate the tokens rtk output compression saved and show it in the Usage view. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `usage.scanIntervalMinutes` | Scan interval (minutes) | `5` | Periodic transcript polling interval. Session activity can also trigger scans between timer ticks. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `usage.warehouseRetainDays` | Retain usage history (days) | `365` | How long the daily usage warehouse keeps rolled-up totals after transcript detail expires. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `usage.sessionBlockHours` | Session block length (hours) | `5` | Length of the rolling block the Usage view groups activity into. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `usage.costMode` | Cost mode | `"auto"` | Choose whether recorded costs, calculated costs or both can appear. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `usage.extraProjectsDirs` | Extra transcript folders | `[]` | Absolute paths of additional Claude projects folders the usage scan reads. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-
-### Privacy
-
-What Glimmervoid sends about itself.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `telemetry.enabled` | Send anonymous usage and error data | `true` | Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated costs from the usage scan, and factory outcomes as the kind of decision, how it came out, its duration and attempt number, under a random install id. Never error messages, paths, repository or branch names, prompts, objectives or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless. |
-
-### Change map
-
-Optional model narration for deterministic change facts.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `changeMap.narrator.enabled` | Enable narration | `false` | Add cited model claims to the change map. |
-| `changeMap.narrator.engine` | Narrator engine | `"claude"` | CLI used to generate change map claims. |
-| `changeMap.narrator.model` | Narrator model | `""` | Blank uses the engine default: haiku for Claude, the configured Codex model for Codex. |
-| `changeMap.narrator.timeoutSeconds` | Narrator timeout (seconds) | `90` | Maximum time allowed for one narration. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `usage.enabled` | Track token usage | `true` | Read local CLI transcripts and roll them into the Usage view and session chips. Scope: this machine. Takes effect at once. |
+| `usage.retainDays` | Retain transcript detail | `90` | How long live transcript detail stays available. A monthly budget keeps detail from the start of the current month when that is longer. Scope: this machine. Takes effect at once. |
+| `usage.budget.dailyUsd` | Daily budget | `null` | Estimated daily spend alert threshold. Alerts at 50%, 75% and 100% do not stop spending. Zero or below disables the threshold. Scope: this machine. Takes effect at once. |
+| `usage.budget.monthlyUsd` | Monthly budget | `null` | Estimated monthly spend alert threshold. Alerts at 50%, 75% and 100% do not stop spending. Zero or below disables the threshold. Scope: this machine. Takes effect at once. |
+| `usage.vendors.codex` | Track Codex usage | `true` | Include local Codex CLI transcripts in usage reports. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `usage.vendors.grok` | Track Grok usage | `true` | Include local Grok CLI transcripts in usage reports. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `usage.fetchPricing` | Fetch current model prices | `true` | Load public model prices when usage tracking starts, using a cached table for up to one day. Falls back to cached or bundled prices if the fetch fails; no daily refresh runs while tracking continues. Scope: this machine. Requires a server restart. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `usage.planLimits` | Show plan limits | `true` | Read the Claude plan limit the CLI reports and show it beside usage. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `usage.rtkSavings` | Estimate rtk savings | `true` | Estimate the tokens rtk output compression saved and show it in the Usage view. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `usage.scanIntervalMinutes` | Scan interval | `5` | Periodic transcript polling interval. Session activity can also trigger scans between timer ticks. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `usage.warehouseRetainDays` | Retain usage history | `365` | How long the daily usage warehouse keeps rolled-up totals after transcript detail expires. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `usage.sessionBlockHours` | Session block length | `5` | Length of the rolling block the Usage view groups activity into. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `usage.costMode` | Cost mode | `"auto"` | Choose whether recorded costs, calculated costs or both can appear. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `usage.extraProjectsDirs` | Extra transcript folders | `[]` | Absolute paths of additional Claude projects folders the usage scan reads. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ### Visions
 
-Editor-buffer findings and bounded model comments.
+Editor-buffer findings, bounded model comments, and the machine-context ingest behind them.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `visions.enabled` | Enable Visions | `false` | Set up supported editors detected on this machine, then show their buffer findings in the Visions view. |
-| `visions.dispatch.enabled` | Enable model comments | `false` | Start bounded review sessions for local editor buffers. |
-| `visions.dispatch.maxPerHour` | Max per hour | `6` | Maximum review sessions dispatched per hour. One slot is reserved for edit reviews; activity-driven reviews take the rest, up to the activity cap set by visions.dispatch.activityMaxPerHour. |
-| `visions.dispatch.model` | Model override | `""` | Leave blank to use the opus model alias. |
-| `visions.projects` | Projects | `[]` | Clear every selection, including unavailable projects, to accept buffers from every configured project. |
-| `visions.autoFix` | Apply tier 1 fixes | `false` | Allow Visions to edit eligible open Markdown buffers, including inactive buffers, without asking. |
-| `visions.dispatch.quietMs` | Quiet delay (ms) | `30000` | Editor quiet time before a scheduled review. Saves and blank-line boundaries can dispatch immediately, subject to the other review limits. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `visions.dispatch.cooldownMs` | Cooldown (ms) | `300000` | Minimum delay between reviews of the same document. Initial orientation reviews bypass this delay. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `visions.dispatch.activityMaxPerHour` | Activity max per hour | `2` | Maximum activity-driven reviews dispatched per hour, capped at the overall hourly limit minus one to reserve an edit-review slot. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `visions.dispatch.dispatchTimeoutSeconds` | Dispatch timeout (seconds) | `180` | Maximum time allowed for one review session. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `visions.intent.threadTtlMs` | Intent thread lifetime (ms) | `259200000` | How long an intent thread nobody advanced stays live before it retires. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-
-### Ingest
-
-Machine-context ingest behind Visions.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `ingest.enabled` | Enable machine context ingest | `false` | Enable the local activity feed behind Visions. Turning Visions on enables ingest unless ingest.enabled is explicitly false. |
-| `ingest.sources.terminal.enabled` | Terminal output source | `false` | Include terminal output in the ingest feed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `ingest.sources.agentLogs.enabled` | Agent logs source | `false` | Include local agent logs in the ingest feed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `ingest.sources.git.enabled` | Git activity source | `false` | Include local Git activity in the ingest feed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `ingest.sources.fs.enabled` | File changes source | `false` | Include watched file changes in the ingest feed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `ingest.sources.shellHistory.enabled` | Shell history source | `false` | Include local shell history in the ingest feed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `ingest.sources.editor.enabled` | Editor events source | `false` | Include local editor events in the ingest feed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `visions.enabled` | Enable Visions | `false` | Set up supported editors detected on this machine, then show their buffer findings in the Visions view. Scope: this machine. Takes effect at once. |
+| `visions.dispatch.enabled` | Enable model comments | `false` | Start bounded review sessions for local editor buffers. Scope: this machine. Takes effect at once. |
+| `visions.dispatch.maxPerHour` | Max per hour | `6` | Maximum review sessions dispatched per hour. One slot is reserved for edit reviews; activity-driven reviews take the rest, up to the activity cap set by visions.dispatch.activityMaxPerHour. Scope: this machine. Takes effect at once. |
+| `visions.dispatch.model` | Model override | `""` | Leave blank to use the opus model alias. Scope: this machine. Takes effect at once. |
+| `visions.projects` | Projects | `[]` | Clear every selection, including unavailable projects, to accept buffers from every configured project. Scope: this machine. Takes effect at once. |
+| `visions.autoFix` | Apply tier 1 fixes | `false` | Allow Visions to edit eligible open Markdown buffers, including inactive buffers, without asking. Scope: this machine. Takes effect at once. |
+| `ingest.enabled` | Enable machine context ingest | `false` | Enable the local activity feed behind Visions. Turning Visions on enables ingest unless ingest.enabled is explicitly false. Scope: this machine. Takes effect at once. |
+| `visions.dispatch.quietMs` | Quiet delay | `30000` | Editor quiet time before a scheduled review. Saves and blank-line boundaries can dispatch immediately, subject to the other review limits. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `visions.dispatch.cooldownMs` | Cooldown | `300000` | Minimum delay between reviews of the same document. Initial orientation reviews bypass this delay. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `visions.dispatch.activityMaxPerHour` | Activity max per hour | `2` | Maximum activity-driven reviews dispatched per hour, capped at the overall hourly limit minus one to reserve an edit-review slot. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `visions.dispatch.dispatchTimeoutSeconds` | Dispatch timeout | `180` | Maximum time allowed for one review session. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `visions.intent.threadTtlMs` | Intent thread lifetime | `259200000` | How long an intent thread nobody advanced stays live before it retires. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ### PostHog
 
@@ -128,27 +104,27 @@ The PostHog lane only starts when `posthog.host`, `posthog.apiKey`, `telegram.bo
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `posthog.enabled` | Enable PostHog monitoring | `false` | Poll PostHog error tracking and investigate issues that move. |
-| `posthog.host` | Host | `"https://us.posthog.com"` | PostHog cloud or self-hosted HTTP URL. |
-| `posthog.apiKey` | Personal API key | `""` | Credential with read access to PostHog projects. When GLIMMERVOID_POSTHOG_API_KEY supplies it, this field is read-only. |
-| `posthog.projects` | Projects | `"all"` | Use all, none for an empty selection, or a comma-separated list of positive integer PostHog project ids. Blank means all. |
-| `posthog.intervalMinutes` | Poll interval (minutes) | `15` | Delay between PostHog polling passes. |
-| `posthog.maxConcurrentInvestigations` | Max concurrent investigations | `2` | Maximum investigation sessions running together. |
-| `posthog.minUsersToInvestigate` | Min users to investigate | `1` | Minimum affected users for a new issue investigation. Regressions, worsening issues and eligible error spikes bypass this minimum. |
-| `posthog.trafficSpikeEnabled` | Traffic spike alerts | `true` | Ping when recent unique users exceed a project baseline. |
-| `posthog.autoFix` | Attempt fixes for major issues | `false` | Allow an isolated agent to fix an issue, push a branch and open a pull request. |
-| `posthog.investigationTimeoutSeconds` | Investigation timeout (seconds) | `900` | Maximum time allowed for one investigation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.userEscalationThreshold` | Escalation threshold (users) | `25` | Affected-user count that escalates an issue. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.fixTimeoutSeconds` | Fix timeout (seconds) | `1800` | Maximum time allowed for one fix session. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.trafficSpikeMultiplier` | Spike multiplier | `3` | Baseline multiplier required to classify a traffic spike. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.trafficSpikeMinUsers` | Min users to alert | `10` | Minimum recent unique users for an initial traffic-spike alert. Escalation and recovery alerts bypass this minimum. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.trafficSpikeCooldownMinutes` | Spike cooldown (minutes) | `360` | Cooldown for new traffic spikes. Escalation and recovery alerts bypass it. Zero removes the time delay; repeated active-spike alerts are still suppressed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.trafficSpikeBaselineDays` | Baseline window (days) | `7` | Historical window used to calculate normal hourly traffic. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.recurrenceDedupe` | Deduplicate recurring issues | `true` | Treat an issue seen again inside the recurrence window as the same investigation instead of opening a new one. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.recurrenceWindowDays` | Recurrence window (days) | `7` | How far back an issue counts as a recurrence of an investigated one. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.transientRecurrenceLimit` | Transient recurrence limit | `3` | How many times a transient issue may recur before it is investigated again. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.repoPath` | Repository path | `""` | Absolute path of the local checkout investigations read and fixes branch from, for every project the project map does not name. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.projectMap` | Project map | `{}` | PostHog project id to a label: the name shown for that project, and, when it is an absolute path to a checkout, the repository its issues are investigated in. **File-only.** A structured value with no dashboard control; edit it in config.json. |
+| `posthog.enabled` | Enable PostHog monitoring | `false` | Poll PostHog error tracking and investigate issues that move. Scope: this machine. Takes effect at once. |
+| `posthog.host` | Host | `"https://us.posthog.com"` | PostHog cloud or self-hosted HTTP URL. Scope: this machine. Takes effect at once. |
+| `posthog.apiKey` | Personal API key | `""` | Credential with read access to PostHog projects. When GLIMMERVOID_POSTHOG_API_KEY supplies it, this field is read-only. Scope: this machine. Takes effect at once. |
+| `posthog.projects` | Projects | `"all"` | PostHog project ids to monitor. config.json holds "all" or an array of ids, and an empty array monitors no project. In Settings that empty array shows as none, and an empty list saves "all". Scope: this machine. Takes effect at once. |
+| `posthog.intervalMinutes` | Poll interval | `15` | Delay between PostHog polling passes. Scope: this machine. Takes effect at once. |
+| `posthog.maxConcurrentInvestigations` | Max concurrent investigations | `2` | Maximum investigation sessions running together. Scope: this machine. Takes effect at once. |
+| `posthog.minUsersToInvestigate` | Min users to investigate | `1` | Minimum affected users for a new issue investigation. Regressions, worsening issues and eligible error spikes bypass this minimum. Scope: this machine. Takes effect at once. |
+| `posthog.trafficSpikeEnabled` | Traffic spike alerts | `true` | Ping when recent unique users exceed a project baseline. Scope: this machine. Takes effect at once. |
+| `posthog.autoFix` | Attempt fixes for major issues | `false` | Allow an isolated agent to fix an issue, push a branch and open a pull request. Scope: this machine. Takes effect at once. |
+| `posthog.investigationTimeoutSeconds` | Investigation timeout | `900` | Maximum time allowed for one investigation. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `posthog.userEscalationThreshold` | Escalation threshold | `25` | Affected-user count that escalates an issue. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `posthog.fixTimeoutSeconds` | Fix timeout | `1800` | Maximum time allowed for one fix session. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `posthog.trafficSpikeMultiplier` | Spike multiplier | `3` | Baseline multiplier required to classify a traffic spike. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `posthog.trafficSpikeMinUsers` | Min users to alert | `10` | Minimum recent unique users for an initial traffic-spike alert. Escalation and recovery alerts bypass this minimum. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `posthog.trafficSpikeCooldownMinutes` | Spike cooldown | `360` | Cooldown for new traffic spikes. Escalation and recovery alerts bypass it. Zero removes the time delay; repeated active-spike alerts are still suppressed. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `posthog.trafficSpikeBaselineDays` | Baseline window | `7` | Historical window used to calculate normal hourly traffic. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `posthog.recurrenceDedupe` | Deduplicate recurring issues | `true` | Treat an issue seen again inside the recurrence window as the same investigation instead of opening a new one. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `posthog.recurrenceWindowDays` | Recurrence window | `7` | How far back an issue counts as a recurrence of an investigated one. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `posthog.transientRecurrenceLimit` | Transient recurrence limit | `3` | How many times a transient issue may recur before it is investigated again. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `posthog.repoPath` | Repository path | `""` | Absolute path of the local checkout investigations read and fixes branch from, for every project the project map does not name. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `posthog.projectMap` | Project map | `{}` | PostHog project id to a label: the name shown for that project, and, when it is an absolute path to a checkout, the repository its issues are investigated in. Scope: this machine. Takes effect at once. **File-only.** A structured value with no dashboard control; edit it in config.json. |
 
 ### Team review
 
@@ -156,49 +132,17 @@ Draft reviews of teammates' pull requests for you to post from the Reviews tab.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `teamReview.enabled` | Enable team review | `false` | Poll open pull requests from the team and draft a review of each one. Nothing is posted until you choose Approve or Comment. |
-| `github.teams` | GitHub teams | `[]` | Teams to search for review requests and members, one org/slug per entry. Leave empty to fall back to the legacy teamReview.org and teamReview.team keys in config.json. |
-| `teamReview.reReviewAfterHours` | Re-review after (hours) | `24` | When a reviewed PR has a new head, review it again after this many hours since its last review. Queue review runs it at any time. |
-| `teamReview.skipIdleAfterDays` | Skip PRs idle for (days) | `14` | Leave pull requests without GitHub activity for this long out of automatic review. |
-| `teamReview.skill` | Review skill | `""` | Name of a Claude Code skill installed for the review agent, for example your own PR review skill. Leave empty to let the agent review with whatever skills it has. |
-| `teamReview.autoRebaseMyPrs` | Keep my pull requests rebased | `false` | On each poll, rebase your open, non-draft pull requests that are behind their base branch. A pull request with conflicts or checks still running is left alone, and a failed rebase is not retried until you push again. |
-| `teamReview.keepMergeableEnabled` | Keep mergeable | `true` | Offer Keep mergeable on your pull requests: a sandboxed agent repairs conflicts and failing checks and pushes the repair. Off hides the control and starts no repair; the pull requests you chose stay chosen for when you turn it back on. |
-| `teamReview.keepMergeableTimeoutMinutes` | Keep mergeable deadline (minutes) | `30` | Longest a Keep mergeable repair session may run before it is stopped and nothing is pushed. |
-| `teamReview.mergeQueueEnabled` | Merge when ready | `true` | Offer Merge when ready on your pull requests: queued pull requests are rebased when behind and merged once ready, one per repository per poll. Off hides the control and merges nothing; the queue is kept for when you turn it back on. |
-| `teamReview.org` | GitHub organization (legacy) | `""` | Organization login that owns the team, for example PostHog. Read only when github.teams is empty. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
-| `teamReview.team` | GitHub team (legacy) | `""` | Team slug whose members and review requests are polled. Read only when github.teams is empty. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
-
-### Benchmarks
-
-Compare agent setups on frozen cases from the suites in the benchmarks folder of the Glimmervoid home.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `benchmarks.enabled` | Enable benchmarks | `false` | Show the Bench tab. Nothing runs until you choose Mine or Run there. |
-
-### Factory
-
-Read Coherence reports from repositories whose integration branch holds a coherence.config.json and show their status in the Factory tab.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `factory.enabled` | Enable the factory | `false` | Enable Coherence status polling and show the Factory tab. Off by default. |
-| `factory.maxRisk` | Worker risk ceiling | `"medium"` | Highest risk admitted for a ticket. |
-| `factory.maxLiveWorkers` | Live worker cap | `2` | Most live workers per factory project. |
-| `factory.checks` | Worker checks | `["npm run typecheck","npm run lint","npm test"]` | Commands glimmervoid runs before merging worker commits. |
-| `factory.protectedPaths` | Protected paths | `["coherence.config.json",".coherence/","package.json","package-lock.json","**/AGENTS.md","**/CLAUDE.md","**/CLAUDE.local.md",".claude/",".github/"]` | Repo-relative files, directory prefixes ending in /, or **/NAME basenames workers cannot change. |
-| `factory.reviewerModel` | Reviewer model | `null` | Claude model for independent worker review. Blank uses the CLI default. |
-| `factory.dailyBudgetUsd` | Factory daily budget (USD) | `null` | Factory lane spend ceiling. Blank means no ceiling. Needs usage tracking: with it off, dispatch refuses. |
-| `factory.verifierModel` | Verifier model | `null` | Claude model for independent intent verification. Blank uses the CLI default. |
-| `factory.mirrorHarnessRuns` | Mirror harness runs | `true` | Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after. Needs factory.enabled on. The harness turns it off on the instance it boots. |
-
-### Knowledge graph (experimental)
-
-A typed local graph of projects, tasks, notes, references and questions, driven from the glimmervoid kg command. Its SQLite database defaults to the Glimmervoid home; --db selects another path.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `knowledgeGraph.enabled` | Enable the knowledge graph | `false` | Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents' tickets disagree, without modifying those ledgers. Graph writes go to the selected SQLite database, which can be inside a repository when --db names that path. Off by default. |
+| `teamReview.enabled` | Enable team review | `false` | Poll open pull requests from the team and draft a review of each one. Nothing is posted until you choose Approve or Comment. Scope: this machine. Takes effect at once. |
+| `github.teams` | GitHub teams | `[]` | Teams to search for review requests and members, one org/slug per entry. Leave empty to fall back to the legacy teamReview.org and teamReview.team keys in config.json. Scope: this machine. Takes effect at once. |
+| `teamReview.reReviewAfterHours` | Re-review after | `24` | When a reviewed PR has a new head, review it again after this long since its last review. Queue review runs it at any time. Scope: this machine. Takes effect at once. |
+| `teamReview.skipIdleAfterDays` | Skip PRs idle for | `14` | Leave pull requests without GitHub activity for this long out of automatic review. Scope: this machine. Takes effect at once. |
+| `teamReview.skill` | Review skill | `""` | Name of a Claude Code skill installed for the review agent, for example your own PR review skill. Leave empty to let the agent review with whatever skills it has. Scope: this machine. Takes effect at once. |
+| `teamReview.autoRebaseMyPrs` | Keep my pull requests rebased | `false` | On each poll, rebase your open, non-draft pull requests that are behind their base branch. A pull request with conflicts or checks still running is left alone, and a failed rebase is not retried until you push again. Scope: this machine. Takes effect at once. |
+| `teamReview.keepMergeableEnabled` | Keep mergeable | `true` | Offer Keep mergeable on your pull requests: a sandboxed agent repairs conflicts and failing checks and pushes the repair. Off hides the control and starts no repair; the pull requests you chose stay chosen for when you turn it back on. Scope: this machine. Takes effect at once. |
+| `teamReview.keepMergeableTimeoutMinutes` | Keep mergeable deadline | `30` | Longest a Keep mergeable repair session may run before it is stopped and nothing is pushed. Scope: this machine. Takes effect at once. |
+| `teamReview.mergeQueueEnabled` | Merge when ready | `true` | Offer Merge when ready on your pull requests: queued pull requests are rebased when behind and merged once ready, one per repository per poll. Off hides the control and merges nothing; the queue is kept for when you turn it back on. Scope: this machine. Takes effect at once. |
+| `teamReview.org` | GitHub organization (legacy) | `""` | Organization login that owns the team, for example PostHog. Read only when github.teams is empty. Scope: this machine. Takes effect at once. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
+| `teamReview.team` | GitHub team (legacy) | `""` | Team slug whose members and review requests are polled. Read only when github.teams is empty. Scope: this machine. Takes effect at once. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
 
 ### Workflows
 
@@ -206,32 +150,61 @@ Rules that act on pull request events in the repositories you choose.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `workflows.enabled` | Run workflows | `true` | Poll the repositories your enabled rules watch and run their actions. Off stops polling and every action, whatever each rule says. |
-| `workflows.maxConcurrentSessions` | Concurrent agent sessions | `2` | Most workflow agent sessions running at once. Up to twenty later spawns wait for a free slot; additional spawns are dropped and logged. |
-| `workflows.maxActionsPerPoll` | Actions per poll | `20` | Most actions run in one poll. The rest are dropped and logged. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `workflows.rules` | Workflow rule definitions | `[]` | The rules the Workflows section switches on and off: each names its repositories, one pull request event, its filters and its actions. **File-only.** Rule definitions are written in config.json; the Workflows section only switches each rule on or off. |
+| `workflows.enabled` | Run workflows | `true` | Poll the repositories your enabled rules watch and run their actions. Off stops polling and every action, whatever each rule says. Scope: this machine. Takes effect at once. |
+| `workflows.maxConcurrentSessions` | Concurrent agent sessions | `2` | Most workflow agent sessions running at once. Up to twenty later spawns wait for a free slot; additional spawns are dropped and logged. Scope: this machine. Takes effect at once. |
+| `workflows.maxActionsPerPoll` | Actions per poll | `20` | Most actions run in one poll. The rest are dropped and logged. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `workflows.rules` | Workflow rule definitions | `[]` | The rules the Workflows section switches on and off: each names its repositories, one pull request event, its filters and its actions. Scope: this machine. Takes effect at once. **File-only.** Rule definitions are written in config.json; the Workflows section only switches each rule on or off. |
 
-### Session guardrails
+### Factory
 
-Claude Code sessions on Linux and macOS write anywhere this account can, except credentials, Glimmervoid's own state and the blocked folders below. Changes apply to sessions started after the change.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `guardrails.unguardedRepos` | Unguarded repositories | `[]` | Folders whose sessions run without guardrails. A session started in one of these folders, or below it, is not guarded. Applies to sessions created after the change. |
-| `guardrails.blockedPaths` | Blocked folders | `[]` | Extra folders and files a guarded session cannot write, on top of credentials and Glimmervoid's own state. A leading ~ means the home folder. |
-| `guardrails.unreadablePaths` | Unreadable folders | `[]` | Extra folders and files a guarded session cannot read, on top of the built-in credential list. A leading ~ means the home folder. |
-
-### Unattended actions
-
-Controls that let automated work change repositories or install executable tooling.
+Read Coherence reports from repositories whose integration branch holds a coherence.config.json and show their status in the Factory tab.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `skipPermissionsByDefault` | Skip permission prompts by default | `false` | Start sessions whose project sets no permission choice with the agent CLI permission bypass flag. |
-| `saneYolo` | Sane YOLO | `true` | Block catastrophic commands in sessions that skip permission prompts when the cc-safety-net executable is available and trusted hooks are installed. Missing or untrusted hooks leave a session unprotected. Applies to sessions created after the change. |
-| `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no merge proof. Off keeps every unmerged branch. |
-| `postTurnChecks.mode` | Post-turn checks mode | `"report"` | Default mode for post-turn checks. Project and individual rule modes override it, so Report can still allow file fixes. |
-| `rtk` | rtk output compression | `false` | Compress Bash output for newly spawned or restarted sessions. |
+| `factory.enabled` | Enable the factory | `false` | Enable Coherence status polling and show the Factory tab. Off by default. Scope: this machine. Takes effect at once. |
+| `factory.maxRisk` | Worker risk ceiling | `"medium"` | Highest risk admitted for a ticket. Scope: this machine. Takes effect at once. |
+| `factory.maxLiveWorkers` | Live worker cap | `2` | Most live workers per factory project. Scope: this machine. Takes effect at once. |
+| `factory.checks` | Worker checks | `["npm run typecheck","npm run lint","npm test"]` | Commands glimmervoid runs before merging worker commits. Scope: this machine. Takes effect at once. |
+| `factory.protectedPaths` | Protected paths | `["coherence.config.json",".coherence/","package.json","package-lock.json","**/AGENTS.md","**/CLAUDE.md","**/CLAUDE.local.md",".claude/",".github/"]` | Repo-relative files, directory prefixes ending in /, or **/NAME basenames workers cannot change. Scope: this machine. Takes effect at once. |
+| `factory.reviewerModel` | Reviewer model | `null` | Claude model for independent worker review. Blank uses the CLI default. Scope: this machine. Takes effect at once. |
+| `factory.dailyBudgetUsd` | Factory daily budget | `null` | Factory lane spend ceiling. Blank means no ceiling. Needs usage tracking: with it off, dispatch refuses. Scope: this machine. Takes effect at once. |
+| `factory.verifierModel` | Verifier model | `null` | Claude model for independent intent verification. Blank uses the CLI default. Scope: this machine. Takes effect at once. |
+| `factory.mirrorHarnessRuns` | Mirror harness runs | `true` | Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after. Needs factory.enabled on. The harness turns it off on the instance it boots. Scope: this machine. Takes effect at once. |
+
+### Benchmarks
+
+Compare agent setups on frozen cases from the suites in the benchmarks folder of the Glimmervoid home.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `benchmarks.enabled` | Enable benchmarks | `false` | Show the Bench tab. Nothing runs until you choose Mine or Run there. Scope: this machine. Takes effect at once. |
+
+### Knowledge graph (experimental)
+
+A typed local graph of projects, tasks, notes, references and questions, driven from the glimmervoid kg command. Its SQLite database defaults to the Glimmervoid home; --db selects another path.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `knowledgeGraph.enabled` | Enable the knowledge graph | `false` | Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents' tickets disagree, without modifying those ledgers. Graph writes go to the selected SQLite database, which can be inside a repository when --db names that path. Off by default. Scope: this machine. Takes effect at once. |
+
+### Change map
+
+Optional model narration for deterministic change facts.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `changeMap.narrator.enabled` | Enable narration | `false` | Add cited model claims to the change map. Scope: this machine. Takes effect at once. |
+| `changeMap.narrator.engine` | Narrator engine | `"claude"` | CLI used to generate change map claims. Scope: this machine. Takes effect at once. |
+| `changeMap.narrator.model` | Narrator model | `""` | Blank uses the engine default: haiku for Claude, the configured Codex model for Codex. Scope: this machine. Takes effect at once. |
+| `changeMap.narrator.timeoutSeconds` | Narrator timeout | `90` | Maximum time allowed for one narration. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+
+### Privacy
+
+What Glimmervoid sends about itself.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `telemetry.enabled` | Send anonymous usage and error data | `true` | Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated costs from the usage scan, and factory outcomes as the kind of decision, how it came out, its duration and attempt number, under a random install id. Never error messages, paths, repository or branch names, prompts, objectives or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless. Scope: this machine. Takes effect at once. |
 
 ### Terminal
 
@@ -239,8 +212,8 @@ Terminal behavior shared by dashboard clients.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `replayBufferKB` | Replay buffer (KB) | `512` | PTY output retained for clients that reconnect or join late. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `cursorBlink` | Cursor blink | `false` | Blink the cursor in every terminal. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `replayBufferKB` | Replay buffer | `512` | PTY output retained for clients that reconnect or join late. Scope: this machine. Applies to sessions created after the change. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `cursorBlink` | Cursor blink | `false` | Blink the cursor in every terminal. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ### Detection and sessions
 
@@ -248,34 +221,47 @@ Config-file-only detection, timing, worktree and process settings.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `detectBackgroundAgents` | Detect background agents | `true` | Hold completion while tracked background work is active. Changes apply to newly created sessions; recreate existing sessions to apply them. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
-| `recordSignals` | Record structural signals | `true` | Keep forensic status and hook recordings for newly created sessions. Full capture (capture.enabled) records these signals even when this is off. Recreate existing sessions to change recording. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
-| `trace.enabled` | Capture session traces | `true` | Keep normalized Claude transcript traces for session debugging. Requires a server restart. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
-| `detectScheduledWakeups` | Detect scheduled wakeups | `true` | Surface advisory wakeup timing for scheduled sessions. Requires a server restart to update the configuration, and newly created sessions use the change. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
-| `worktreeAutoRebase` | Worktree auto-rebase | `true` | Rebase eligible session worktrees when the integration branch moves. Changes apply to newly created sessions; recreate existing sessions to apply them. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `worktreeSyncOnStart` | Worktree sync on start | `true` | Fetch origin and fast-forward the local integration branch before a session starts its worktree. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `worktreeRerere` | Worktree rerere | `true` | Reuse recorded Git conflict resolutions. Requires a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `integrationBranch` | Integration branch | `null` | Base branch for session worktrees. Empty = each repo's default branch. Reload affects newly created sessions and does not retarget existing sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `worktreeRoot` | Worktree root | `""` | Directory that contains session worktrees. Changes apply to newly created sessions and do not relocate existing worktrees; recreate existing sessions to change where they create worktrees. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `worktreeShare` | Shared worktree paths | `["node_modules",".env",".env.local",".claude"]` | Local paths copied or linked during worktree preparation. Changes apply to newly created sessions; recreate existing sessions to use a new share list. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `port` | Local port | `3000` | Port used by the local dashboard listener. Requires a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `autoRecoverSeconds` | Auto-recovery delay | `3` | Delay before an interrupted state can recover. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `inputGraceSeconds` | Input grace period | `5` | Grace window around operator input. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `promptDetectionMs` | Prompt detection delay | `1500` | Timing threshold used by prompt detection. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `notifyDebounceMs` | Notification debounce | `3000` | Delay used to coalesce notification state changes. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `phoneEscalationMs` | Phone escalation delay | `300000` | Delay before off-dashboard escalation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `postTurnChecks` | Post-turn checks | `{"enabled":true,"mode":"report","rules":{"trailingWs":true,"finalNewline":true,"bom":true,"slop":false}}` | Deterministic checks run after eligible turns. The global mode is a default; project and individual rule modes can select fixes even when the global mode is report. **File-only.** A structured value with no dashboard control; edit it in config.json. |
-| `branchGc.enabled` | Branch cleanup | `true` | Enable cleanup of eligible session branches. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `branchGc.worktrees` | Local worktree cleanup | `true` | Enable cleanup of eligible local worktrees. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `branchGc.prefixes` | Branch cleanup prefixes | `["glimmervoid/session/","worktree-agent-"]` | Branch prefixes that filter both remote branch cleanup and local worktree cleanup. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `branchGc.dryRun` | Branch cleanup dry run | `false` | Report planned cleanup without deleting remote branches. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `branchGc.staleDays` | Branch stale days | `14` | Age threshold for orphan branch cleanup when unmerged deletion is on. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `branchGc.intervalMs` | Branch cleanup interval | `21600000` | Delay between branch cleanup passes. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `customAgents` | Custom agents | `[]` | Extra agent CLIs a session can be spawned with. The General section lists the declared agents and whether each command resolves. **File-only.** A structured value with no dashboard control; edit it in config.json. |
-| `taskTitle.refiner.enabled` | Refine task titles | `true` | Keep session card titles useful when prompts change topic by asking a model for a short title. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `taskTitle.refiner.model` | Task title model | `"haiku"` | Claude model alias the title refiner asks. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `taskTitle.refiner.minIntervalSeconds` | Task title refresh interval (seconds) | `60` | Shortest pause between two title refinements of one session. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `taskTitle.refiner.timeoutSeconds` | Task title timeout (seconds) | `60` | Maximum time allowed for one title refinement. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `detectBackgroundAgents` | Detect background agents | `true` | Hold completion while tracked background work is active. Scope: this machine. Applies to sessions created after the change. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
+| `recordSignals` | Record structural signals | `true` | Keep forensic status and hook recordings for each session. Full capture (capture.enabled) records these signals even when this is off. Scope: this machine. Applies to sessions created after the change. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
+| `trace.enabled` | Capture session traces | `true` | Keep normalized Claude transcript traces for session debugging. Scope: this machine. Requires a server restart. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
+| `detectScheduledWakeups` | Detect scheduled wakeups | `true` | Surface advisory wakeup timing for scheduled sessions. Scope: this machine. Requires a server restart. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
+| `worktreeAutoRebase` | Worktree auto-rebase | `true` | Rebase eligible session worktrees when the integration branch moves. Scope: this machine. Applies to sessions created after the change. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `worktreeSyncOnStart` | Worktree sync on start | `true` | Fetch origin and fast-forward the local integration branch before a session starts its worktree. Scope: this machine. Applies to sessions created after the change. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `worktreeRerere` | Worktree rerere | `true` | Reuse recorded Git conflict resolutions. Scope: this machine. Requires a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `integrationBranch` | Integration branch | `null` | Base branch for session worktrees. Empty = each repo's default branch. Existing sessions are never retargeted. Scope: this machine. Applies to sessions created after the change. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `worktreeRoot` | Worktree root | `""` | Directory that contains session worktrees. Existing worktrees are never relocated. Scope: this machine. Applies to sessions created after the change. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `worktreeShare` | Shared worktree paths | `["node_modules",".env",".env.local",".claude"]` | Local paths copied or linked during worktree preparation. Scope: this machine. Applies to sessions created after the change. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
+| `port` | Local port | `3000` | Port used by the local dashboard listener. Scope: this machine. Requires a server restart. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
+| `autoRecoverSeconds` | Auto-recovery delay | `3` | Delay before an interrupted state can recover. Scope: this machine. Applies to sessions created after the change. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `inputGraceSeconds` | Input grace period | `5` | Grace window around operator input. Scope: this machine. Applies to sessions created after the change. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `promptDetectionMs` | Prompt detection delay | `1500` | Timing threshold used by prompt detection. Scope: this machine. Applies to sessions created after the change. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `notifyDebounceMs` | Notification debounce | `3000` | Delay used to coalesce notification state changes. Scope: this machine. Applies to sessions created after the change. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `phoneEscalationMs` | Phone escalation delay | `300000` | Delay before off-dashboard escalation. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `postTurnChecks` | Post-turn checks | `{"enabled":true,"mode":"report","rules":{"trailingWs":true,"finalNewline":true,"bom":true,"slop":false}}` | Deterministic checks run after eligible turns. The global mode is a default; project and individual rule modes can select fixes even when the global mode is report. Scope: this machine. Takes effect at once. **File-only.** A structured value with no dashboard control; edit it in config.json. |
+| `branchGc.enabled` | Branch cleanup | `true` | Enable cleanup of eligible session branches. Scope: this machine. Takes effect at once. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `branchGc.worktrees` | Local worktree cleanup | `true` | Enable cleanup of eligible local worktrees. Scope: this machine. Takes effect at once. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `branchGc.prefixes` | Branch cleanup prefixes | `["glimmervoid/session/","worktree-agent-"]` | Branch prefixes that filter both remote branch cleanup and local worktree cleanup. Scope: this machine. Takes effect at once. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `branchGc.dryRun` | Branch cleanup dry run | `false` | Report planned cleanup without deleting remote branches. Scope: this machine. Takes effect at once. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `branchGc.staleDays` | Branch stale days | `14` | Age threshold for orphan branch cleanup when unmerged deletion is on. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `branchGc.intervalMs` | Branch cleanup interval | `21600000` | Delay between branch cleanup passes. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `customAgents` | Custom agents | `[]` | Extra agent CLIs a session can be spawned with. The Sessions section lists the declared agents and whether each command resolves. Scope: this machine. Applies to sessions created after the change. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
+| `taskTitle.refiner.enabled` | Refine task titles | `true` | Keep session card titles useful when prompts change topic by asking a model for a short title. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `taskTitle.refiner.model` | Task title model | `"haiku"` | Claude model alias the title refiner asks. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `taskTitle.refiner.minIntervalSeconds` | Task title refresh interval | `60` | Shortest pause between two title refinements of one session. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `taskTitle.refiner.timeoutSeconds` | Task title timeout | `60` | Maximum time allowed for one title refinement. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+
+### Ingest
+
+The machine-context sources behind Visions.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `ingest.sources.terminal.enabled` | Terminal output source | `false` | Include terminal output in the ingest feed. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `ingest.sources.agentLogs.enabled` | Agent logs source | `false` | Include local agent logs in the ingest feed. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `ingest.sources.git.enabled` | Git activity source | `false` | Include local Git activity in the ingest feed. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `ingest.sources.fs.enabled` | File changes source | `false` | Include watched file changes in the ingest feed. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `ingest.sources.shellHistory.enabled` | Shell history source | `false` | Include local shell history in the ingest feed. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `ingest.sources.editor.enabled` | Editor events source | `false` | Include local editor events in the ingest feed. Scope: this machine. Takes effect at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ## Keys outside the Settings view
 
@@ -337,16 +323,16 @@ Stored in each browser, not in `config.json`, so every device keeps its own.
 
 | Setting | Default | Notes |
 |---------|---------|-------|
-| Theme | `"phyrexian"` | Color scheme for the dashboard. |
-| Hide status words in sidebar | `false` | Hide status words in the sidebar and on the phone Board while keeping the colored status mark and the phone Plan ready badge. Saved per browser, so turn it on in each one. |
-| Show usage on session cards | `false` | Shows each card's transcript token count and CLI-reported cost when available, otherwise a calculated API list-price estimate. |
-| Alert sounds | `true` | Play sounds when a session needs attention and when a merge celebration plays. The same switch as the note button in the desktop header. |
-| Alert sound | `"chime"` | Sound played when a session needs attention. Your own .ogg, .mp3, .wav, .m4a or .webm files dropped into the sounds folder of the Glimmervoid home (~/.glimmervoid/sounds/, or $GLIMMERVOID_HOME/sounds/) are listed after the built-in sounds. Glimmervoid never creates that folder, so make it yourself; new files show up the next time Settings opens. |
-| Desktop notifications | `true` | Raise a browser notification when a session needs attention while this dashboard is in the background. |
-| Flying animals | `false` | Show animated animals flying across the dashboard. |
-| Time between flights: minimum (seconds) | `20` | Shortest pause between flights. |
-| Time between flights: maximum (seconds) | `40` | Longest pause between flights. |
-| Flight duration: minimum (seconds) | `6.9` | Shortest flight, for faster animals. |
-| Flight duration: maximum (seconds) | `11.5` | Longest flight, for slower animals. |
-| Size multiplier | `1` | Scale applied on top of the viewport size. |
-| Show on phone layout | `true` | Allow flights on the phone layout. |
+| Theme | `"phyrexian"` | Color scheme for the dashboard. Scope: this browser. Takes effect at once. |
+| Hide status words in sidebar | `false` | Hide status words in the sidebar and on the phone Board while keeping the colored status mark and the phone Plan ready badge. Scope: this browser. Takes effect at once. |
+| Show usage on session cards | `false` | Shows each card's transcript token count and CLI-reported cost when available, otherwise a calculated API list-price estimate. Scope: this browser. Takes effect at once. |
+| Flying animals | `false` | Show animated animals flying across the dashboard. Scope: this browser. Takes effect at once. |
+| Time between flights: minimum | `20` | Shortest pause between flights. Scope: this browser. Takes effect at once. |
+| Time between flights: maximum | `40` | Longest pause between flights. Scope: this browser. Takes effect at once. |
+| Flight duration: minimum | `6.9` | Shortest flight, for faster animals. Scope: this browser. Takes effect at once. |
+| Flight duration: maximum | `11.5` | Longest flight, for slower animals. Scope: this browser. Takes effect at once. |
+| Size multiplier | `1` | Scale applied on top of the viewport size. Scope: this browser. Takes effect at once. |
+| Show on phone layout | `true` | Allow flights on the phone layout. Scope: this browser. Takes effect at once. |
+| Alert sounds | `true` | Play sounds when a session needs attention and when a merge celebration plays. The same switch as the note button in the desktop header. Scope: this browser. Takes effect at once. |
+| Alert sound | `"chime"` | Sound played when a session needs attention. Your own .ogg, .mp3, .wav, .m4a or .webm files dropped into the sounds folder of the Glimmervoid home (~/.glimmervoid/sounds/, or $GLIMMERVOID_HOME/sounds/) are listed after the built-in sounds. Glimmervoid never creates that folder, so make it yourself; new files show up the next time Settings opens. Scope: this browser. Takes effect at once. |
+| Desktop notifications | `true` | Raise a browser notification when a session needs attention while this dashboard is in the background. Scope: this browser. Takes effect at once. |

@@ -93,7 +93,7 @@ test('the registry build widens a block to every leaf kind its entries name', ()
   assert.deepEqual(POSTHOG_SPEC.values?.apiKey, { control: 'password', nullable: false });
   assert.deepEqual(POSTHOG_SPEC.values?.host, { control: 'text', nullable: false });
   assert.deepEqual(POSTHOG_SPEC.values?.intervalMinutes, { control: 'number', nullable: false });
-  assert.deepEqual(POSTHOG_SPEC.values?.projects, { control: 'text', nullable: false, valueKind: 'posthog-projects' });
+  assert.deepEqual(POSTHOG_SPEC.values?.projects, { control: 'list', nullable: false, valueKind: 'posthog-projects' });
   assert.deepEqual(POSTHOG_SPEC.values?.projectMap, { control: 'json', nullable: false });
   assert.deepEqual(FACTORY_SPEC.values?.reviewerModel, { control: 'text', nullable: true });
   assert.deepEqual(FACTORY_SPEC.values?.dailyBudgetUsd, { control: 'number', nullable: true });

@@ -5,11 +5,12 @@ import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { POST_TURN_CHECK_MODES } from '../shared/contracts/browser-config.ts';
 import type { SettingsLevel, SettingsSection, SettingsSetting } from '../shared/settings/registry.ts';
 import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '../shared/settings/registry.ts';
-import { SETTINGS_INDEX, orderSections, parseSettingsHash, scoreSettingsSearch, settingsOf } from '../shared/settings/registry-core.ts';
+import { SETTINGS_INDEX, displayValue, parseSettingsHash, scoreSettingsSearch, settingsOf, wireValue } from '../shared/settings/registry-core.ts';
 import {
-  STORED_SECRET_MASK, buildProjectSections, collectDirtyBlocks, enrichProjectsById, firstProjectPerPath, hydrateFromSettings,
-  pairedSettingOf, rehydratePreservingDirtySections, shouldShowDangerWarning, validateLocally, withoutWorkflowRuleDefinitions,
-  workflowRuleSummaryLines, workflowRuleToggleRows,
+  STORED_SECRET_MASK, childSectionsOf, collectDirtyBlocks, displayRange, draftCommitOf,
+  fileOnlyDefaultText, hydrateFromSettings, isAtDefault, listFromDraft, needsDangerConfirmation, numberDraftError, numberDraftOf, numberFromDraft,
+  pageSectionOf, pairedSettingOf, resetConfirmationOf, resetValueOf, settingError, settingSavePayload, shouldShowDangerWarning, topLevelSectionsOf, validateLocally,
+  withoutWorkflowRuleDefinitions, workflowRuleSummaryLines, workflowRuleToggleRows,
 } from '../public/settings/settings-view-core.ts';
 import { settableFromDashboard } from './helpers/settings-allow-list.ts';
 
@@ -19,6 +20,12 @@ function sectionById(id: string): SettingsSection {
   const section = SECTIONS.find((candidate) => candidate.id === id);
   assert.ok(section, `no section ${id}`);
   return section;
+}
+
+function settingById(id: string): SettingsSetting {
+  const setting = SETTINGS_INDEX.byId.get(id);
+  assert.ok(setting, `no setting ${id}`);
+  return setting;
 }
 
 function searchSetting(id: string, path: string, title: string, description: string, keywords: string[]): SettingsSetting {
@@ -46,6 +53,16 @@ test('one dirty lane preserves unknown stored keys in its block', () => {
   });
 });
 
+test('a single-setting save payload carries only that setting over the stored block', () => {
+  const payload = { visions: { enabled: false, futureKey: 7 }, posthog: { enabled: false }, workflows: { enabled: true, rules: [{ id: 'x' }] } };
+  const stored = hydrateFromSettings(SECTIONS, payload);
+  assert.deepEqual(settingSavePayload(SECTIONS, stored, settingById('visions-enabled'), true), { visions: { enabled: true, futureKey: 7 } });
+  assert.deepEqual(settingSavePayload(SECTIONS, stored, settingById('visions-enabled'), false), {});
+  assert.deepEqual(settingSavePayload(SECTIONS, stored, settingById('workflows-enabled'), false), { workflows: { enabled: false } });
+  assert.deepEqual(settingSavePayload(SECTIONS, stored, settingById('auto-resume'), false), { autoResume: false });
+  assert.deepEqual(settingSavePayload(SECTIONS, stored, settingById('theme'), 'midnight'), {}, 'a browser preference never reaches the server');
+});
+
 test('a Team review save carries the toggle and keeps the legacy org and team as the file has them', () => {
   const payload = { teamReview: { enabled: false, org: 'PostHog', team: 'product-engineering' } };
   const original = hydrateFromSettings(SECTIONS, payload);
@@ -71,20 +88,6 @@ test('an unavailable stored project id can be cleared from a projects-control sa
   });
 });
 
-test('a settings refresh preserves a dirty lane and updates a clean lane', () => {
-  const currentPayload = { visions: { enabled: false }, posthog: { enabled: false } };
-  const currentOriginal = hydrateFromSettings(SECTIONS, currentPayload);
-  const currentEdited = hydrateFromSettings(SECTIONS, currentPayload);
-  currentEdited['visions.enabled'] = true;
-  const freshPayload = { visions: { enabled: false }, posthog: { enabled: true } };
-  const { original, edited } = rehydratePreservingDirtySections(
-    SECTIONS, freshPayload, currentOriginal, currentEdited,
-  );
-  assert.equal(edited['visions.enabled'], true);
-  assert.equal(edited['posthog.enabled'], true);
-  assert.deepEqual(collectDirtyBlocks(SECTIONS, original, edited), { visions: { enabled: true } });
-});
-
 test('zero and negative budgets validate and serialize as no ceiling', () => {
   const usageSection = sectionById('machine-usage');
   const payload = { usage: { budget: { dailyUsd: 20, monthlyUsd: 100 } } };
@@ -98,18 +101,97 @@ test('zero and negative budgets validate and serialize as no ceiling', () => {
   });
 });
 
-test('a successful save rehydrates its lane and preserves another dirty lane', () => {
-  const currentPayload = { visions: { projects: [] }, posthog: { enabled: false } };
-  const currentOriginal = hydrateFromSettings(SECTIONS, currentPayload);
-  const currentEdited = hydrateFromSettings(SECTIONS, currentPayload);
-  currentEdited['visions.projects'] = ['project-1'];
-  currentEdited['posthog.enabled'] = true;
-  const freshPayload = { visions: { projects: ['project-1'] }, posthog: { enabled: false } };
-  const { original, edited } = rehydratePreservingDirtySections(
-    SECTIONS, freshPayload, currentOriginal, currentEdited,
-    { rehydrateSectionIds: ['lanes-visions'] },
-  );
-  assert.deepEqual(collectDirtyBlocks(SECTIONS, original, edited), { posthog: { enabled: true } });
+test('number drafts are typed in display units, validated against the stored schema bounds and stored as integers', () => {
+  const quiet = settingById('file-visions-quiet-delay');
+  assert.deepEqual(displayRange(quiet), { min: 0, exclusiveMin: true });
+  assert.equal(numberDraftOf(displayValue(quiet, 30000)), '30');
+  assert.equal(numberDraftError(quiet, '30'), null);
+  assert.equal(wireValue(quiet, numberFromDraft(quiet, '30')), 30000);
+  assert.equal(wireValue(quiet, numberFromDraft(quiet, '0.5')), 500);
+  assert.equal(numberDraftError(quiet, '0'), 'Must be a positive number of seconds.');
+  assert.equal(numberDraftError(quiet, '0.0001'), 'Must be a multiple of 0.001 seconds.');
+  assert.equal(numberDraftError(quiet, 'abc'), 'Must be a positive number of seconds.');
+  assert.equal(fileOnlyDefaultText(quiet), 'Default 30 seconds, stored as 30000 ms');
+
+  const ttl = settingById('file-visions-intent-thread-ttl');
+  assert.equal(numberDraftOf(displayValue(ttl, 259200000)), '3');
+  assert.equal(wireValue(ttl, numberFromDraft(ttl, '3')), 259200000);
+
+  const retain = settingById('usage-retain-days');
+  assert.deepEqual(displayRange(retain), { min: 1, max: 3650 });
+  assert.equal(numberDraftError(retain, '1.5'), 'Must be a whole number of days between 1 and 3650.');
+  assert.equal(numberDraftError(retain, '4000'), 'Must be a whole number of days between 1 and 3650.');
+  assert.equal(numberDraftError(retain, '90'), null);
+
+  const budget = settingById('usage-daily-budget');
+  assert.equal(numberDraftError(budget, ''), null);
+  assert.equal(numberFromDraft(budget, ''), null);
+  assert.equal(numberFromDraft(budget, '-3'), null);
+  assert.equal(numberDraftError(budget, '12.5'), null);
+  assert.equal(numberFromDraft(budget, '12.5'), 12.5);
+  assert.equal(numberDraftOf(null), '');
+  assert.equal(numberDraftError(budget, '', true), 'Must be a positive number of USD.');
+
+  const workers = settingById('workflows-max-concurrent-sessions');
+  assert.equal(numberDraftError(workers, '6'), 'Must be a whole number of sessions between 1 and 5.');
+});
+
+test('a reversed flying animals minimum and maximum pair reports an error on both fields and on the edited one alone', () => {
+  const appearance = sectionById('browser-appearance');
+  const original = hydrateFromSettings([appearance], {});
+  const reversedGap = { ...original, 'pref:flyingAnimalsMinGapSeconds': 50, 'pref:flyingAnimalsMaxGapSeconds': 40 };
+  assert.deepEqual(validateLocally([appearance], reversedGap), {
+    'animals-min-gap': 'Minimum must not exceed the maximum (40).',
+    'animals-max-gap': 'Maximum must not be below the minimum (50).',
+  });
+  const reversedDuration = { ...original, 'pref:flyingAnimalsMinDurationSeconds': 12, 'pref:flyingAnimalsMaxDurationSeconds': 8 };
+  assert.deepEqual(Object.keys(validateLocally([appearance], reversedDuration)).sort(), ['animals-max-duration', 'animals-min-duration']);
+  const equalGap = { ...original, 'pref:flyingAnimalsMinGapSeconds': 30, 'pref:flyingAnimalsMaxGapSeconds': 30 };
+  assert.deepEqual(validateLocally([appearance], equalGap), {});
+  const outOfRangeAndReversed = { ...original, 'pref:flyingAnimalsMinGapSeconds': 9999, 'pref:flyingAnimalsMaxGapSeconds': 40 };
+  assert.deepEqual(Object.keys(validateLocally([appearance], outOfRangeAndReversed)), ['animals-min-gap']);
+  const minimumGap = settingById('animals-min-gap');
+  const maximumGap = settingById('animals-max-gap');
+  const scale = settingById('animals-scale');
+  assert.equal(pairedSettingOf([appearance], minimumGap)?.id, 'animals-max-gap');
+  assert.equal(pairedSettingOf([appearance], maximumGap)?.id, 'animals-min-gap');
+  assert.equal(pairedSettingOf([appearance], scale), undefined);
+  assert.equal(settingError(SECTIONS, minimumGap, reversedGap), 'Minimum must not exceed the maximum (40).');
+  assert.equal(settingError(SECTIONS, minimumGap, equalGap), null);
+  assert.equal(settingError(SECTIONS, scale, { ...original, 'pref:flyingAnimalsScale': 3 }), 'Must be a number of times between 0.5 and 2.');
+});
+
+test('every setting resets to its registry default, and a stored secret resets to not configured only after a confirmation', () => {
+  assert.equal(resetConfirmationOf(settingById('telegram-bot-token')), 'Reset removes the stored bot token. Anything that relies on it stops until a new one is saved.');
+  assert.equal(resetConfirmationOf(settingById('auto-resume')), null);
+  assert.equal(isAtDefault(settingById('auto-resume'), true), true);
+  assert.equal(isAtDefault(settingById('auto-resume'), false), false);
+  assert.deepEqual(resetValueOf(settingById('posthog-projects')), []);
+  assert.equal(isAtDefault(settingById('posthog-projects'), []), true);
+  assert.equal(isAtDefault(settingById('posthog-projects'), ['1']), false);
+  assert.equal(resetValueOf(settingById('telegram-bot-token')), '');
+  assert.equal(isAtDefault(settingById('telegram-bot-token'), STORED_SECRET_MASK), false);
+  assert.equal(isAtDefault(settingById('telegram-bot-token'), ''), true);
+  assert.deepEqual(resetValueOf(settingById('factory-checks')), ['npm run typecheck', 'npm run lint', 'npm test']);
+  assert.equal(isAtDefault(settingById('factory-reviewer-model'), null), true);
+  assert.equal(isAtDefault(settingById('usage-retain-days'), 90), true);
+});
+
+test('a danger setting asks for confirmation whenever its new value is not empty', () => {
+  assert.equal(needsDangerConfirmation(settingById('skip-permissions-by-default'), true), true);
+  assert.equal(needsDangerConfirmation(settingById('skip-permissions-by-default'), false), false);
+  assert.equal(needsDangerConfirmation(settingById('auto-resume'), true), false);
+  assert.equal(needsDangerConfirmation(settingById('guardrails-unguarded-repos'), ['/repo']), true);
+  assert.equal(needsDangerConfirmation(settingById('guardrails-unguarded-repos'), []), false);
+});
+
+test('a draft saves only an edit that differs from the value it was rendered from', () => {
+  const values = hydrateFromSettings(SECTIONS, { usage: { retainDays: 90, budget: { dailyUsd: null } }, guardrails: { unguardedRepos: [] } });
+  const untouchedStaleList = { base: ['/repo'], isDirty: false };
+  assert.deepEqual(draftCommitOf(SECTIONS, settingById('guardrails-unguarded-repos'), untouchedStaleList, '/repo', values), { kind: 'unchanged' });
+  assert.deepEqual(draftCommitOf(SECTIONS, settingById('usage-retain-days'), { base: 90, isDirty: true }, '90.0', values), { kind: 'unchanged' });
+  assert.deepEqual(draftCommitOf(SECTIONS, settingById('usage-daily-budget'), { base: null, isDirty: true }, '0', values), { kind: 'unchanged' });
+  assert.deepEqual(draftCommitOf(SECTIONS, settingById('usage-retain-days'), { base: 90, isDirty: true }, '120', values), { kind: 'changed', value: 120 });
 });
 
 test('search matches partial tokens, ranks fuller matches first and weights fields', () => {
@@ -150,62 +232,41 @@ test('search finds file-only keys and returns them without a section', () => {
 });
 
 test('settings hashes resolve aliases and canonical anchors', () => {
-  const aliases = { general: 'machine-general' };
+  const aliases = { general: 'machine-sessions' };
   assert.deepEqual(parseSettingsHash('#settings/general/auto-resume', SECTIONS, aliases), {
-    sectionId: 'machine-general', settingId: 'auto-resume', hash: '#settings/machine-general/auto-resume',
+    sectionId: 'machine-sessions', settingId: 'auto-resume', hash: '#settings/machine-sessions/auto-resume',
   });
   assert.equal(parseSettingsHash('#settings/missing', SECTIONS, aliases), null);
-  assert.equal(parseSettingsHash('#settings/machine-general/missing', SECTIONS, aliases), null);
+  assert.equal(parseSettingsHash('#settings/machine-sessions/missing', SECTIONS, aliases), null);
+  assert.deepEqual(parseSettingsHash('#settings/machine-sessions', SECTIONS), { sectionId: 'machine-sessions', settingId: null, hash: '#settings/machine-sessions' });
 });
 
-test('unattended actions sort last within the map', () => {
-  const section = (id: string, level: SettingsLevel): SettingsSection => ({ id, level, title: id, description: id, settings: [] });
-  const ordered = orderSections([
-    section('lanes-unattended', 'lanes'),
-    section('lanes-ingest', 'lanes'),
-    section('project-one', 'projects'),
-  ]);
-  assert.deepEqual(ordered.map((entry) => entry.id), [
-    'lanes-ingest', 'lanes-unattended', 'project-one',
+test('a child section resolves to its parent page, and the navigation lists only parentless sections', () => {
+  const section = (id: string, level: SettingsLevel, parent?: string): SettingsSection => ({ id, level, parent, title: id, description: '', settings: [] });
+  const sections = [section('a', 'browser'), section('a-child', 'machine', 'a'), section('lane-1', 'lanes'), section('lane-2', 'lanes'), section('z', 'machine')];
+  assert.deepEqual(topLevelSectionsOf(sections).map((entry) => entry.id), ['a', 'lane-1', 'lane-2', 'z']);
+  assert.deepEqual(childSectionsOf(sections, 'a').map((entry) => entry.id), ['a-child']);
+  assert.equal(pageSectionOf(sections, 'a-child')?.id, 'a');
+  assert.equal(pageSectionOf(sections, 'z')?.id, 'z');
+  assert.equal(pageSectionOf(sections, 'missing'), null);
+  assert.deepEqual(pageSectionOf(SECTIONS, 'lanes-posthog')?.id, 'lanes');
+  assert.deepEqual(childSectionsOf(SECTIONS, 'lanes').map((entry) => entry.id), [
+    'lanes-visions', 'lanes-posthog', 'lanes-team-review', 'lanes-workflows', 'lanes-factory', 'lanes-benchmarks', 'lanes-knowledge-graph', 'lanes-change-map',
   ]);
 });
 
-test('a danger warning shows only while its toggle is on', () => {
+test('a list draft keeps each trimmed non-blank line as one entry', () => {
+  assert.deepEqual(listFromDraft(' 12 \n\n34\n'), ['12', '34']);
+});
+
+test('a danger warning shows only while its value is not empty', () => {
   const dangerSetting = { danger: true, warning: 'Lets agents run unattended.' };
   assert.equal(shouldShowDangerWarning(dangerSetting, true), true);
   assert.equal(shouldShowDangerWarning(dangerSetting, false), false);
   assert.equal(shouldShowDangerWarning(dangerSetting, undefined), false);
+  assert.equal(shouldShowDangerWarning(dangerSetting, ['/repo']), true);
+  assert.equal(shouldShowDangerWarning(dangerSetting, []), false);
   assert.equal(shouldShowDangerWarning({ warning: 'Plain note.' }, true), false);
-});
-
-test('project sections derive read-only records', () => {
-  const sections = buildProjectSections(
-    [{ id: 'p1', name: 'Glimmervoid', agent: 'codex', permissionMode: 'default' }],
-  );
-  assert.equal(sections[0].id, 'project-p1');
-  assert.equal(sections[0].settings[0].value, 'codex');
-  assert.equal(sections[0].settings[2].access, 'file-only');
-});
-
-test('two configured records on one checkout share a section named for it that lists both cards', () => {
-  const configuredProjects = [
-    { id: 'p1', name: 'glimmervoid', path: '/repos/glimmervoid' },
-    { id: 'p2', name: 'glimmervoid (2)', path: '/repos/glimmervoid' },
-    { id: 'p3', name: 'no path yet' },
-  ];
-  const cardRecords = [
-    { id: 'p1', name: 'glimmervoid', path: '/repos/glimmervoid', agent: 'codex' },
-    { id: 'p2', name: 'glimmervoid (2)', path: '/repos/glimmervoid', agent: 'claude-code' },
-  ];
-  assert.deepEqual(firstProjectPerPath(configuredProjects).map((project) => project.id), ['p1', 'p3']);
-  const projects = enrichProjectsById(firstProjectPerPath(configuredProjects).slice(0, 1), cardRecords);
-  const sections = buildProjectSections(projects);
-
-  assert.equal(sections.length, 1);
-  assert.equal(sections[0].id, 'project-p1');
-  assert.equal(sections[0].title, 'glimmervoid');
-  assert.equal(sections[0].caption, 'Cards: glimmervoid, glimmervoid (2)');
-  assert.equal(sections[0].settings[0].value, 'codex');
 });
 
 test('a stored secret hydrates as a mask and an untouched section sends nothing', () => {
@@ -239,57 +300,33 @@ test('a typed secret is sent and an emptied one is sent as a clear', () => {
   assert.deepEqual(collectDirtyBlocks(SECTIONS, original, emptied), { telegram: { chatId: '123', botToken: '' } });
 });
 
-test('animal aliases and existing Appearance toggle links resolve to the new section', () => {
+test('animal aliases and the old Appearance toggle link resolve to the Appearance section', () => {
   for (const sectionId of ['animals', 'flying-animals', 'browser-flying-animals', 'browser-appearance']) {
     assert.deepEqual(parseSettingsHash(`#settings/${sectionId}/flying-animals`, SECTIONS, SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS), {
-      sectionId: 'browser-flying-animals', settingId: 'flying-animals', hash: '#settings/browser-flying-animals/flying-animals',
+      sectionId: 'browser-appearance', settingId: 'flying-animals', hash: '#settings/browser-appearance/flying-animals',
     });
   }
 });
 
 test('a moved setting redirects only through the moved-settings data it is given', () => {
-  assert.equal(parseSettingsHash('#settings/browser-appearance/flying-animals', SECTIONS), null);
-  const movedSettings = { 'machine-updates': { 'auto-resume': 'machine-general' } };
+  assert.equal(parseSettingsHash('#settings/machine-updates/auto-resume', SECTIONS), null);
+  const movedSettings = { 'machine-updates': { 'auto-resume': 'machine-sessions' } };
   assert.deepEqual(parseSettingsHash('#settings/machine-updates/auto-resume', SECTIONS, {}, movedSettings), {
-    sectionId: 'machine-general', settingId: 'auto-resume', hash: '#settings/machine-general/auto-resume',
+    sectionId: 'machine-sessions', settingId: 'auto-resume', hash: '#settings/machine-sessions/auto-resume',
   });
   assert.deepEqual(parseSettingsHash('#settings/machine-updates', SECTIONS, {}, movedSettings)?.sectionId, 'machine-updates');
 });
 
 test('animal controls are searchable, range validated and excluded from machine save payloads', () => {
-  const animals = sectionById('browser-flying-animals');
+  const appearance = sectionById('browser-appearance');
   for (const query of ['frequency', 'speed', 'size', 'mobile']) {
-    assert.ok(scoreSettingsSearch(SECTIONS, query).some((entry) => entry.section?.id === animals.id));
+    assert.ok(scoreSettingsSearch(SECTIONS, query).some((entry) => entry.section?.id === appearance.id));
   }
-  const original = hydrateFromSettings([animals], {});
+  const original = hydrateFromSettings([appearance], {});
   const edited = { ...original, 'pref:flyingAnimalsScale': 3, 'pref:flyingAnimalsOnPhone': false };
-  assert.deepEqual(collectDirtyBlocks([animals], original, edited), {});
-  assert.deepEqual(Object.keys(validateLocally([animals], edited)), ['animals-scale']);
-  assert.deepEqual(validateLocally([animals], original), {});
-});
-
-test('a reversed flying animals minimum and maximum pair reports an error on both fields', () => {
-  const animals = sectionById('browser-flying-animals');
-  const original = hydrateFromSettings([animals], {});
-  const reversedGap = { ...original, 'pref:flyingAnimalsMinGapSeconds': 50, 'pref:flyingAnimalsMaxGapSeconds': 40 };
-  assert.deepEqual(validateLocally([animals], reversedGap), {
-    'animals-min-gap': 'Minimum must not exceed the maximum (40).',
-    'animals-max-gap': 'Maximum must not be below the minimum (50).',
-  });
-  const reversedDuration = { ...original, 'pref:flyingAnimalsMinDurationSeconds': 12, 'pref:flyingAnimalsMaxDurationSeconds': 8 };
-  assert.deepEqual(Object.keys(validateLocally([animals], reversedDuration)).sort(), ['animals-max-duration', 'animals-min-duration']);
-  const equalGap = { ...original, 'pref:flyingAnimalsMinGapSeconds': 30, 'pref:flyingAnimalsMaxGapSeconds': 30 };
-  assert.deepEqual(validateLocally([animals], equalGap), {});
-  const outOfRangeAndReversed = { ...original, 'pref:flyingAnimalsMinGapSeconds': 9999, 'pref:flyingAnimalsMaxGapSeconds': 40 };
-  assert.deepEqual(Object.keys(validateLocally([animals], outOfRangeAndReversed)), ['animals-min-gap']);
-  const settingById = (id: string) => animals.settings.find((setting) => setting.id === id);
-  const minimumGap = settingById('animals-min-gap');
-  const maximumGap = settingById('animals-max-gap');
-  const scale = settingById('animals-scale');
-  assert.ok(minimumGap && maximumGap && scale);
-  assert.equal(pairedSettingOf([animals], minimumGap)?.id, 'animals-max-gap');
-  assert.equal(pairedSettingOf([animals], maximumGap)?.id, 'animals-min-gap');
-  assert.equal(pairedSettingOf([animals], scale), undefined);
+  assert.deepEqual(collectDirtyBlocks([appearance], original, edited), {});
+  assert.deepEqual(Object.keys(validateLocally([appearance], edited)), ['animals-scale']);
+  assert.deepEqual(validateLocally([appearance], original), {});
 });
 
 test('file-only keys live outside every section, never hydrate and never enter a dirty payload', () => {
@@ -302,8 +339,8 @@ test('file-only keys live outside every section, never hydrate and never enter a
   assert.deepEqual(collectDirtyBlocks(SECTIONS, original, edited), {});
 });
 
-test('unattended actions expose branch deletion and post-turn mode as editable controls', () => {
-  const unattended = sectionById('lanes-unattended');
+test('guardrails expose branch deletion and post-turn mode as editable controls', () => {
+  const unattended = sectionById('machine-guardrails');
   const branchDeletion = unattended.settings.find((setting) => setting.path === 'branchGc.deleteUnmerged');
   assert.ok(branchDeletion);
   assert.equal(branchDeletion.control, 'toggle');
