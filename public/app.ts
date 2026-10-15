@@ -41,7 +41,7 @@ import { handleDebugStateRefresh, handleDebugStateResponse, setCardPrChipsPainte
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
-import { applyConversationTraceChanged, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
+import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -401,7 +401,7 @@ const messageHandlers = {
   'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },
   'update-status':      (msg) => { showUpdateBanner(msg); applySettingsUpdateStatus(msg); },
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
-  'error':              (msg) => { clearSettingsUpdateRequest(); applyTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
+  'error':              (msg) => { clearSettingsUpdateRequest(); applyTraceError(msg); applyConversationTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
   'session-error':      (msg) => { applySessionPlanError(msg); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
   'settings-updated':   (msg) => { if (msg.settings) applyDashboardSettings(msg.settings); },
   'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot & ServerMessageOf<'health-snapshot'>['stats']); },

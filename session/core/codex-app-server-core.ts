@@ -173,42 +173,72 @@ export function traceRecordsForItemEvent(event: CodexItemEvent): { records: Trac
   return { records, startedItemIds };
 }
 
+const requestedPermissionScope = z.object({
+  network: z.object({ enabled: z.boolean().nullable() }).strict().nullable(),
+  fileSystem: z.record(z.string(), z.union([z.string(), z.array(z.string())]).nullable()).nullable(),
+}).passthrough();
+
 const approvalParams = z.object({
   threadId: z.string().min(1),
   command: z.string().nullish(),
   reason: z.string().nullish(),
   grantRoot: z.string().nullish(),
   changes: z.array(z.object({ path: z.string() }).passthrough()).optional(),
+  permissions: z.unknown().optional(),
 }).passthrough();
+
+interface ApprovalDescription {
+  summary: string;
+  isScopeUnrenderable: boolean;
+}
+
+function describeFileChangeApproval(approval: z.infer<typeof approvalParams>): ApprovalDescription {
+  const changedPaths = approval.changes?.map((change) => change.path).join(', ');
+  const grantedScope = approval.grantRoot ? `Write access to ${approval.grantRoot}` : '';
+  const summaryParts = [grantedScope, changedPaths || approval.reason || ''].filter((part) => part.length > 0);
+  return { summary: summaryParts.join('. ') || 'File change approval', isScopeUnrenderable: false };
+}
+
+function describePermissionsApproval(approval: z.infer<typeof approvalParams>): ApprovalDescription {
+  const reason = approval.reason ?? 'Permissions approval';
+  const parsedScope = requestedPermissionScope.safeParse(approval.permissions);
+  if (!parsedScope.success) return { summary: reason, isScopeUnrenderable: true };
+  const { network, fileSystem } = parsedScope.data;
+  const scopeParts: string[] = [];
+  if (network?.enabled === true) scopeParts.push('Network access');
+  for (const [accessKind, paths] of Object.entries(fileSystem ?? {})) {
+    if (paths === null) continue;
+    const pathList = typeof paths === 'string' ? paths : paths.join(', ');
+    if (pathList.length > 0) scopeParts.push(`File system ${accessKind}: ${pathList}`);
+  }
+  return { summary: [...scopeParts, reason].join('. '), isScopeUnrenderable: false };
+}
+
+function describeApproval(method: string, approval: z.infer<typeof approvalParams>): (ApprovalDescription & { kind: CodexPendingApproval['kind'] }) | null {
+  switch (method) {
+    case 'item/commandExecution/requestApproval':
+      return { kind: 'command', summary: approval.command ?? approval.reason ?? 'Command approval', isScopeUnrenderable: false };
+    case 'item/fileChange/requestApproval':
+      return { kind: 'fileChange', ...describeFileChangeApproval(approval) };
+    case 'item/permissions/requestApproval':
+      return { kind: 'permissions', ...describePermissionsApproval(approval) };
+    default:
+      return null;
+  }
+}
 
 export function pendingApprovalFromServerRequest(method: string, params: unknown, requestId: number | string): CodexPendingApproval | null {
   const parsedParams = approvalParams.safeParse(params);
   if (!parsedParams.success) return null;
   const approval = parsedParams.data;
-  let kind: CodexPendingApproval['kind'];
-  let summary: string;
-  switch (method) {
-    case 'item/commandExecution/requestApproval':
-      kind = 'command';
-      summary = approval.command ?? approval.reason ?? 'Command approval';
-      break;
-    case 'item/fileChange/requestApproval':
-      kind = 'fileChange';
-      summary = approval.changes?.map((change) => change.path).join(', ') || approval.reason || approval.grantRoot || 'File change approval';
-      break;
-    case 'item/permissions/requestApproval':
-      kind = 'permissions';
-      summary = approval.reason ?? 'Permissions approval';
-      break;
-    default:
-      return null;
-  }
-  const fullSummary = summary.trim();
+  const description = describeApproval(method, approval);
+  if (!description) return null;
+  const fullSummary = description.summary.trim();
   return {
     requestId,
-    kind,
+    kind: description.kind,
     summary: fullSummary.slice(0, CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS),
-    isSummaryTruncated: fullSummary.length > CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS,
+    isSummaryTruncated: description.isScopeUnrenderable || fullSummary.length > CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS,
     threadId: approval.threadId,
   };
 }

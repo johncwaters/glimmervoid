@@ -137,6 +137,7 @@ test('the borrowed card swaps to plan and release restores the terminal face thr
       hide: () => {},
       refresh: () => {},
       applyTraceResponse: () => false,
+      applyTraceError: () => false,
       applyTraceChanged: () => {},
     },
     prefersConversation: false,

@@ -137,6 +137,10 @@ export function applyConversationTraceResponse(reply: ServerMessageOf<'session-t
   return ui?.conversationFace.applyTraceResponse(reply) === true;
 }
 
+export function applyConversationTraceError(error: ServerMessageOf<'error'>) {
+  findSessionUi(error.id)?.conversationFace.applyTraceError(error);
+}
+
 export function applyConversationTraceChanged(sessionId: unknown) {
   findSessionUi(sessionId)?.conversationFace.applyTraceChanged(sessionIdOf(sessionId));
 }

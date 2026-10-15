@@ -61,6 +61,8 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   approvalSlot.hidden = true;
   const bridgeNote = el('p', 'conversation-bridge-note', 'Restart this Codex session to connect it to the conversation view. Until then, use the terminal.');
   bridgeNote.hidden = true;
+  const traceUnavailableNote = el('p', 'conversation-bridge-note', 'The session trace is unavailable, so there is nothing to show here. Use the terminal.');
+  traceUnavailableNote.hidden = true;
   const composer = el('form', 'conversation-composer');
   const input = el('textarea', 'conversation-input');
   input.rows = 2;
@@ -78,7 +80,7 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   sendButton.type = 'submit';
   composerActions.append(status, terminalButton, stopButton, sendButton);
   composer.append(input, composerActions);
-  root.append(log, bridgeNote, approvalSlot, composer);
+  root.append(log, traceUnavailableNote, bridgeNote, approvalSlot, composer);
 
   let sessionId: string | null = null;
   let records: TraceRecord[] = [];
@@ -102,7 +104,7 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   }
 
   function requestRecords() {
-    if (!sessionId || root.hidden) return;
+    if (!sessionId || root.hidden || !traceUnavailableNote.hidden) return;
     if (pendingRequest) { isRefreshOwed = true; return; }
     const requestId = `${REQUEST_ID_PREFIX}${nextRequestNumber++}`;
     const after = hasLoadedOnce ? nextOffset : null;
@@ -192,7 +194,7 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
     );
     const actions = el('div', 'conversation-approval-actions');
     if (approval.isSummaryTruncated) {
-      approvalSlot.append(el('p', 'conversation-approval-note', 'This request is too long to show here. Read the full request in the terminal before approving it there.'));
+      approvalSlot.append(el('p', 'conversation-approval-note', 'This request cannot be shown in full here. Read it in the terminal before approving it there.'));
       actions.append(approvalButton('Decline', () => answerCodexApproval(approval, 'decline')));
       approvalSlot.append(actions);
       return;
@@ -262,6 +264,7 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
       setStatus('');
     }
     root.hidden = false;
+    traceUnavailableNote.hidden = true;
     renderLog();
     refresh();
     requestRecords();
@@ -298,10 +301,19 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
     return true;
   }
 
+  function applyTraceError(error: ServerMessageOf<'error'>): boolean {
+    if (!pendingRequest || error.requestId !== pendingRequest.requestId) return false;
+    clearPendingRequest();
+    isRefreshOwed = false;
+    traceUnavailableNote.hidden = false;
+    return true;
+  }
+
   function applyTraceChanged(id: string) {
     if (id !== sessionId || root.hidden) return;
+    traceUnavailableNote.hidden = true;
     requestRecords();
   }
 
-  return { el: root, show, hide, refresh, applyTraceResponse, applyTraceChanged };
+  return { el: root, show, hide, refresh, applyTraceResponse, applyTraceError, applyTraceChanged };
 }

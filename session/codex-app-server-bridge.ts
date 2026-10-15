@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import WebSocket from 'ws';
 import { z } from 'zod';
@@ -20,7 +20,7 @@ interface CodexAppServerBridgeOptions {
   configArgs: string[];
   cwd: string;
   env: Record<string, string | undefined>;
-  tokenDirectory: string;
+  tokenParentDirectory: string;
   startupTimeoutMs?: number;
   spawnProcess?: typeof spawn;
   createSocket?: (url: string, headers: Record<string, string>) => WebSocket;
@@ -67,8 +67,7 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
   const now = options.now ?? Date.now;
   const logger = options.logger ?? console;
   const token = randomBytes(32).toString('hex');
-  await mkdir(options.tokenDirectory, { recursive: true, mode: 0o700 });
-  const privateDirectory = await mkdtemp(join(resolve(options.tokenDirectory), 'codex-app-server-'));
+  const privateDirectory = await mkdtemp(join(resolve(options.tokenParentDirectory), 'glimmervoid-codex-app-server-'));
   let child: ReturnType<typeof spawn>;
   try {
     await chmod(privateDirectory, 0o700);

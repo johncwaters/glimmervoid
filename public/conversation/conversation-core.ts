@@ -53,6 +53,7 @@ export interface ConversationFaceController {
   hide: () => void;
   refresh: () => void;
   applyTraceResponse: (reply: ServerMessageOf<'session-trace-response'>) => boolean;
+  applyTraceError: (error: ServerMessageOf<'error'>) => boolean;
   applyTraceChanged: (sessionId: string) => void;
 }
 

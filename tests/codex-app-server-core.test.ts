@@ -103,8 +103,9 @@ test('approval parsing accepts only approval methods and bounds display summarie
   const params = { threadId: 'thread-1', turnId: 'turn-1', itemId: 'command-1', command: `  ${'x'.repeat(400)}  `, cwd: '/project', reason: null };
   assert.deepEqual(pendingApprovalFromServerRequest('item/commandExecution/requestApproval', params, 7), { requestId: 7, kind: 'command', threadId: 'thread-1', summary: 'x'.repeat(300), isSummaryTruncated: true });
   assert.deepEqual(pendingApprovalFromServerRequest('item/fileChange/requestApproval', { threadId: 'thread-1', changes: [{ path: 'app.ts' }] }, 'edit'), { requestId: 'edit', kind: 'fileChange', threadId: 'thread-1', summary: 'app.ts', isSummaryTruncated: false });
-  assert.equal(pendingApprovalFromServerRequest('item/fileChange/requestApproval', { threadId: 'thread-1', reason: 'Write app.ts', grantRoot: '/project' }, 8)?.summary, 'Write app.ts');
-  assert.equal(pendingApprovalFromServerRequest('item/permissions/requestApproval', { threadId: 'thread-1', reason: 'Network access' }, 9)?.kind, 'permissions');
+  assert.equal(pendingApprovalFromServerRequest('item/fileChange/requestApproval', { threadId: 'thread-1', reason: 'Write app.ts', grantRoot: '/project' }, 8)?.summary, 'Write access to /project. Write app.ts');
+  assert.deepEqual(pendingApprovalFromServerRequest('item/permissions/requestApproval', { threadId: 'thread-1', reason: 'Fetch deps', permissions: { network: { enabled: true }, fileSystem: { write: ['/cache'] } } }, 9), { requestId: 9, kind: 'permissions', threadId: 'thread-1', summary: 'Network access. File system write: /cache. Fetch deps', isSummaryTruncated: false });
+  assert.equal(pendingApprovalFromServerRequest('item/permissions/requestApproval', { threadId: 'thread-1', reason: 'Fetch deps', permissions: { network: null, fileSystem: { write: { root: '/' } } } }, 9)?.isSummaryTruncated, true);
   assert.equal(pendingApprovalFromServerRequest('item/tool/requestUserInput', params, 7), null);
   assert.equal(pendingApprovalFromServerRequest('item/commandExecution/requestApproval', { threadId: 1 }, 7), null);
 });

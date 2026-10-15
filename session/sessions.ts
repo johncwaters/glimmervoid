@@ -496,7 +496,8 @@ class Session extends EventEmitter {
 
     this.usageVendor = this._adapter.usageVendor || "claude";
     this.bypassHookTrust = bypassHookTrust === true;
-    this._isConversationViewEnabled = isConversationViewEnabled ?? (() => false);
+    const isConversationViewConfigured = isConversationViewEnabled ?? (() => false);
+    this._isConversationViewEnabled = () => isConversationViewConfigured() && !this.isConversationBridgeRefused();
     this._startCodexBridge = startCodexBridge;
     this._codexBridge = null;
     this._conversationApproval = null;
@@ -1565,10 +1566,15 @@ class Session extends EventEmitter {
     return this._prepareSandbox !== null;
   }
 
+  isConversationBridgeRefused(settingsArgs: readonly string[] = [], agentArgs: readonly string[] = this._extraClaudeArgs): boolean {
+    if (this.agentId !== "codex") return false;
+    return this._prepareSandbox !== null || this.bypassHookTrust || needsAppServerRefusedFlag(settingsArgs, agentArgs);
+  }
+
   async _startConversationBridge(settingsArgs: string[], agentArgs: string[], env: SpawnEnv): Promise<{ tuiArgs: string[]; token: string } | null> {
     await this._stopConversationBridge();
-    if (this.agentId !== "codex" || this._prepareSandbox !== null || !this._isConversationViewEnabled()) return null;
-    if (this.bypassHookTrust || needsAppServerRefusedFlag(settingsArgs, agentArgs)) return null;
+    if (this.agentId !== "codex" || !this._isConversationViewEnabled()) return null;
+    if (this.isConversationBridgeRefused(settingsArgs, agentArgs)) return null;
     const launch = splitCodexRemoteLaunch(settingsArgs, agentArgs);
     const prefix = this._adapter.buildSpawnCommand({ platform: this._platform, resolved: this._spawnCommand || commandFor(this._adapter), settingsArgs: [], agentArgs: [] });
     try {
@@ -1577,7 +1583,7 @@ class Session extends EventEmitter {
         configArgs: launch.appServerConfigArgs,
         cwd: this.effectiveCwd(),
         env: { ...env },
-        tokenDirectory: path.join(os.tmpdir(), "glimmervoid-codex-app-server"),
+        tokenParentDirectory: os.tmpdir(),
       });
       this._codexBridge = bridge;
       bridge.on("records", (records: unknown) => this.emit("conversation-records", { records }));
@@ -1626,6 +1632,7 @@ class Session extends EventEmitter {
   answerConversationApproval(requestId: number | string, decision: ConversationApprovalDecision): boolean {
     const bridge = this._codexBridge;
     if (!bridge || this._conversationApproval?.requestId !== requestId) return false;
+    if (this._conversationApproval.isSummaryTruncated && decision !== "decline") return false;
     return bridge.answerApproval(requestId, decision);
   }
 

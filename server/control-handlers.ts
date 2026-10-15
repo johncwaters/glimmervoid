@@ -1427,14 +1427,14 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'session-trace':    async (message: ClientMessageOf<'session-trace'>, ws: ControlSocket) => {
       const requestedSessionId = message.id;
       const session = findSession(message);
-      if (!session) return sendError(ws, 'Session not found', { id: requestedSessionId });
-      if (!readTracePage) return sendError(ws, 'Session trace is not enabled', { id: session.id });
+      if (!session) return sendError(ws, 'Session not found', { id: requestedSessionId, requestId: message.requestId });
+      if (!readTracePage) return sendError(ws, 'Session trace is not enabled', { id: session.id, requestId: message.requestId });
       const endingAt = message.endingAt === 'tail' || typeof message.endingAt === 'number' ? message.endingAt : undefined;
       try {
         const page = await readTracePage(session.id, { after: message.after ?? 0, ...(endingAt !== undefined ? { endingAt } : {}) });
         ws.send(JSON.stringify({ type: 'session-trace-response', id: session.id, ...(message.requestId ? { requestId: message.requestId } : {}), ...page }));
       } catch (error) {
-        sendError(ws, `Session trace read failed: ${errorMessage(error)}`, { id: session.id });
+        sendError(ws, `Session trace read failed: ${errorMessage(error)}`, { id: session.id, requestId: message.requestId });
       }
     },
     'session-plan':     async (message: ClientMessageOf<'session-plan'>, ws: ControlSocket) => {
@@ -1461,6 +1461,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       const session = findSession(message);
       if (!session) return sendError(ws, 'Session not found', { id: message.id, scope: 'conversation-view' });
       if (session.ephemeral) return sendError(ws, 'This session cannot use the conversation view', { id: session.id, scope: 'conversation-view' });
+      if (message.isOn && session.isConversationBridgeRefused()) return sendError(ws, 'This Codex session is sandboxed or bypasses hook trust, so it can only use the terminal.', { id: session.id, scope: 'conversation-view' });
       const freshConfig = configStore.save((config) => {
         const project = config.projects.find((candidate) => candidate.id === session.id);
         if (!project) return;
