@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileAsync } from '../server/child-process-safe.ts';
+import { createFactoryCloseOut } from '../server/factory/factory-closeout.ts';
+import type { FactoryCloseOutWorker } from '../server/factory/factory-closeout.ts';
+import type { FactoryDecisionInput } from '../server/factory/core/factory-decision-log-core.ts';
+import { createCoherenceLedger } from './helpers/factory-fixture.ts';
 import { buildFactoryCheckEnv, checkFence, decideCloseOut, inheritedSecretValues, isInheritedCheckFailure, listDirtyPaths, listUncommittedWorkPaths, findForbiddenLedgerWrites, parseCheckCommand, parseFactoryReviewerOutput, buildFactoryReviewerPrompt, redactSecretLines, summarizeFailedCheckOutput, withIntentFloorAllowances, FACTORY_REVIEW_DIFF_MAX_CHARS } from '../server/factory/core/factory-core.ts';
 import { DEFAULT_FACTORY_PROTECTED_PATHS } from '../shared/contracts/browser-config.ts';
 
@@ -87,6 +95,101 @@ test('factory checks split whitespace and refuse shell operators and quoting', (
 
 test('factory close-out merges only all-pass results including the third attempt', () => {
   for (const attempt of [1, 3]) assert.deepEqual(decideCloseOut({ fence: { ok: true }, checks: [{ command: 'npm test', pass: true, output: 'pass' }], review: { pass: true, findings: [] }, attempt }), { action: 'merge' });
+});
+
+test('factory close-out reruns the whole failing command once at head in the same checkout and reports uncharged flakes', async (context) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'factory-flakes-'));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const fixture = await createCoherenceLedger(directory);
+  const intentId = await fixture.createOrder({ parent: null, objective: 'Ship retries' });
+  const workId = await fixture.createOrder({ parent: intentId, objective: 'Implement retries' });
+  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', workId, 'active', '--because', 'Factory dispatch', '--session', 'glimmervoid-factory'] });
+  await fixture.land('repo', fixture.projectPath, 'factory: prepare tickets');
+  const workspace = await fixture.gitWorkspace.create({ projectPath: fixture.projectPath, teamId: 'repo', label: 'worker', baseBranch: 'integration', configuredIntegrationBranch: 'integration', worktreeBase: directory, shareList: [] });
+  assert.ok(workspace.baseSha);
+  await mkdir(path.join(workspace.cwd, 'tests'));
+  await writeFile(path.join(workspace.cwd, 'tests/flaky.test.ts'), [
+    "import test from 'node:test';",
+    "import { access, writeFile } from 'node:fs/promises';",
+    "test('fails only on the initial run', async () => {",
+    "  try { await access('.flake-seen'); return; } catch { await writeFile('.flake-seen', 'seen'); }",
+    "  throw new Error('first run failed');",
+    '});',
+  ].join('\n'));
+  await writeFile(path.join(workspace.cwd, 'tests/steady.test.ts'), "import test from 'node:test';\ntest('always passes', () => {});\n");
+  await writeFile(path.join(workspace.cwd, 'src/retry.ts'), 'export const retries = 1;\n');
+  await fixture.git(['add', 'src/retry.ts', 'tests'], workspace.cwd);
+  await fixture.git(['commit', '-m', 'fix: retries'], workspace.cwd);
+  const headSha = await fixture.git(['rev-parse', 'HEAD'], workspace.cwd);
+  const fallbackScript = path.join(directory, 'fallback.mjs');
+  await writeFile(fallbackScript, [
+    "import { access, writeFile } from 'node:fs/promises';",
+    "try { await access('.fallback-seen'); process.exit(0); } catch { await writeFile('.fallback-seen', 'seen'); }",
+    "throw new Error('non-test check failed once');",
+  ].join('\n'));
+  const fullCommand = `${process.execPath} --test tests/flaky.test.ts tests/steady.test.ts`;
+  const fallbackCommand = `${process.execPath} ${fallbackScript}`;
+  const stagedShas: string[] = [];
+  const checkRuns: { argv: string[]; cwd: string }[] = [];
+  const flakeReports: { worker: FactoryCloseOutWorker; flakes: string[] }[] = [];
+  const decisions: FactoryDecisionInput[] = [];
+  const feedback: string[] = [];
+  const exceptions: string[] = [];
+  let isDestroyed = false;
+  const worker: FactoryCloseOutWorker = {
+    projectId: 'repo', projectPath: fixture.projectPath, workId, intentId, baseSha: workspace.baseSha,
+    objective: 'Implement retries', criteria: ['Retries pass'], writeScopes: ['src/retry.ts', 'tests'],
+    session: { worktreeDir: workspace.cwd, baseSha: workspace.baseSha,
+      get _destroyed() { return isDestroyed; }, destroy: () => { isDestroyed = true; }, write: () => {},
+      pasteTextWhenReady: (text) => { feedback.push(text); return { ok: true }; },
+      mergeWorktree: () => fixture.gitWorkspace.mergeBack({ projectPath: fixture.projectPath, workspace, targetBranch: 'integration' }),
+    },
+  };
+  const closeOut = createFactoryCloseOut({
+    config: { factory: { enabled: true, checks: ['invalid-global-check'] }, worktreeShare: [], projects: [
+      { path: directory, factoryProfile: { checks: ['invalid-other-project-check'] } },
+      { path: fixture.projectPath, factoryProfile: { checks: [fullCommand, fallbackCommand] } },
+    ] },
+    gitWorkspace: { ...fixture.gitWorkspace, stageDetachedWorktree: async (request) => {
+      assert.ok(request.sha);
+      stagedShas.push(request.sha);
+      return fixture.gitWorkspace.stageDetachedWorktree(request);
+    } },
+    prepareCheckRunner: async () => ({ runCheck: (argv, options) => {
+      checkRuns.push({ argv, cwd: options.cwd });
+      return execFileAsync(argv[0], argv.slice(1), options);
+    }, dispose: async () => {} }),
+    runCoherence: fixture.runCoherence, ensureLedger: async () => fixture.ledger,
+    commitAndLand: fixture.land, serializeProject: fixture.serializeProject,
+    readIntegrationSha: () => fixture.git(['rev-parse', 'integration']), recordFactoryLandedSha: async () => {},
+    readPaused: async () => false, trustVerification: async () => {}, notifyOrchestrator: () => {},
+    setException: (_projectId, reason) => { exceptions.push(reason); },
+    recordDecision: async (decision) => { decisions.push(decision); },
+    recordConfirmedFlakes: (reportedWorker, flakes) => { flakeReports.push({ worker: reportedWorker, flakes }); },
+    spawnReviewer: async (request) => { request.onOutput?.(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, structured_output: { pass: true, findings: [] } })); },
+  });
+  context.after(() => closeOut.stop());
+  await closeOut.turnEnded(worker);
+  assert.deepEqual(feedback, []);
+  assert.deepEqual(exceptions, []);
+  assert.equal(await fixture.orderState(workId), 'completed');
+  assert.equal(isDestroyed, true);
+  assert.deepEqual(stagedShas, [headSha]);
+  assert.deepEqual(checkRuns.map((checkRun) => checkRun.argv), [
+    [process.execPath, '--test', 'tests/flaky.test.ts', 'tests/steady.test.ts'],
+    [process.execPath, '--test', 'tests/flaky.test.ts', 'tests/steady.test.ts'],
+    [process.execPath, fallbackScript], [process.execPath, fallbackScript],
+  ]);
+  assert.equal(new Set(checkRuns.map((checkRun) => checkRun.cwd)).size, 1);
+  assert.notEqual(checkRuns[0].cwd, workspace.cwd);
+  assert.deepEqual(flakeReports, [{ worker, flakes: ['tests/flaky.test.ts', fallbackCommand] }]);
+  const closeOutDecision = decisions.find((decision) => decision.kind === 'closeout');
+  assert.equal(closeOutDecision?.outcome, 'merge');
+  assert.match(closeOutDecision?.reason ?? '', /Confirmed flakes, not charged: tests\/flaky.test.ts/);
+  assert.ok(closeOutDecision?.reason?.includes(fallbackCommand));
+  assert.equal(closeOutDecision?.kind === 'closeout' && closeOutDecision.checks.every((check) => check.pass), true);
+  assert.match(await readFile(path.join(fixture.projectPath, 'tests/flaky.test.ts'), 'utf8'), /first run failed/);
+  await assert.rejects(readFile(path.join(checkRuns[0].cwd, 'tests/flaky.test.ts')), { code: 'ENOENT' });
 });
 
 test('factory close-out retries every failure with bounded concrete feedback', () => {
