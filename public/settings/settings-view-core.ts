@@ -4,7 +4,7 @@ import type { SettingsRange } from '#shared/settings-ranges.ts';
 import type { SettingsChoicePresentation, SettingsEffect, SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
 import {
   cloneValue, deleteValueAtPath, displayText, displayValue, formatDisplayNumber, hasScaledUnit, isReadOnlySetting, setValueAtPath, settingsOf, valueAtPath,
-  wireValue,
+  settingsGroupOf, wireValue,
 } from '#shared/settings/registry-core.ts';
 import { projectSelectionChoices, unionProjectSelection } from './settings-projects-core.ts';
 
@@ -39,6 +39,8 @@ export const SECRET_PRESENCE_SUFFIX = 'Configured';
 export const STORED_SECRET_MASK = String.fromCharCode(0x2022).repeat(12);
 const POSTHOG_PROJECTS_ERROR = 'Each line must be a positive whole-number PostHog project id, or the one word none.';
 const SEGMENTED_CHOICE_LIMIT = 3;
+const MAX_SEARCH_QUERY_LENGTH = 200;
+const PATHS_SUMMARIZED_IN_PAYLOAD: ReadonlySet<string> = new Set(['customAgents']);
 const INTEGER_TOLERANCE = 1e-9;
 
 export const EFFECT_LABELS: Readonly<Record<SettingsEffect, string>> = Object.freeze({
@@ -115,6 +117,33 @@ export function fileOnlyDefaultText(setting: SettingsSetting): string {
   const shown = `Default ${displayText(setting, setting.defaultValue)}`;
   if (!hasScaledUnit(setting)) return shown;
   return `${shown}, stored as ${JSON.stringify(setting.defaultValue)} ${setting.unit?.storedLabel ?? ''}`.trimEnd();
+}
+
+export function fileOnlySearchCard(setting: SettingsSetting, payload: SettingsPayload) {
+  const defaultText = fileOnlyDefaultText(setting);
+  const currentValue = PATHS_SUMMARIZED_IN_PAYLOAD.has(setting.path) ? undefined : valueAtPath(payload, setting.path);
+  if (currentValue === undefined) return { currentText: null, defaultText, jsonFragment: null };
+  const fragment: Record<string, unknown> = {};
+  setValueAtPath(fragment, setting.path, currentValue);
+  return {
+    currentText: `Current ${displayText(setting, currentValue)}`,
+    defaultText,
+    jsonFragment: JSON.stringify(fragment, null, 2),
+  };
+}
+
+export function settingsSearchBreadcrumb(sections: readonly SettingsSection[], section: SettingsSection | null, setting: SettingsSetting): string {
+  const group = section ?? sections.find((entry) => entry.id === setting.group);
+  if (!group) return settingsGroupOf(setting.group ?? '')?.title ?? 'config.json';
+  const parent = sections.find((entry) => entry.id === group.parent);
+  return parent ? `${parent.title} / ${group.title}` : group.title;
+}
+
+export function parseSettingsSearchHash(hash: unknown): { query: string } | null {
+  const match = /^#settings(?:\?(.*))?$/.exec(String(hash ?? ''));
+  if (!match) return null;
+  const query = new URLSearchParams(match[1] ?? '').get('q') ?? '';
+  return { query: Array.from(query.trim()).slice(0, MAX_SEARCH_QUERY_LENGTH).join('').trim() };
 }
 
 export function childSectionsOf(sections: readonly SettingsSection[], sectionId: string): SettingsSection[] {

@@ -7,14 +7,14 @@ import type { UpdateJournal } from '#shared/contracts/update-journal.ts';
 import { REPO_SLUG } from '#shared/repo.ts';
 import { loadCustomSounds, playAlertSound, resolveSoundId, soundOptions } from '../alert-sound.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { el } from '../dom-helpers.ts';
+import { el, writeClipboardText } from '../dom-helpers.ts';
 import { ensureNotificationPermission, notificationPermission, notificationsSupported } from '../notifications.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
 import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '#shared/settings/registry.ts';
-import type { SettingsSearchResult } from '#shared/settings/registry-core.ts';
+import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
 import { parseSettingsHash, scoreSettingsSearch } from '#shared/settings/registry-core.ts';
 import {
   EFFECT_LABELS,
@@ -23,7 +23,7 @@ import {
   choicePresentation,
   displayRange,
   draftCommitOf,
-  fileOnlyDefaultText,
+  fileOnlySearchCard,
   hasUnsavedEdit,
   hydrateFromSettings,
   isAtDefault,
@@ -31,18 +31,20 @@ import {
   needsDangerConfirmation,
   numberDraftOf,
   pageSectionOf,
+  parseSettingsSearchHash,
   resetConfirmationOf,
   resetValueOf,
   rtkInstallStatusText,
   secretEnvironmentSource,
   settingSavePayload,
+  settingsSearchBreadcrumb,
   shouldShowDangerWarning,
   topLevelSectionsOf,
   workflowRuleSummaryLines,
   workflowRuleToggleRows,
 } from './settings-view-core.ts';
 import type { ControlDraft, SettingsPayload, SettingsValues, WorkflowRuleToggleRow } from './settings-view-core.ts';
-import { settingsHash } from './settings-link.ts';
+import { settingsHash, settingsSearchHash } from './settings-link.ts';
 import { projectSelectionChoices } from './settings-projects-core.ts';
 import { appendShortcutChord, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { isStreamerMode, onStreamerModeChanged, saveStreamerMode } from '../streamer-mode.ts';
@@ -104,10 +106,10 @@ const OPTION_CATALOGS: Readonly<Record<string, () => { id: string; label: string
 });
 
 const SAVED_STATUS_MS = 2200;
+const COPY_STATUS_MS = 1600;
 const APPEARANCE_PAGE_ID = 'browser-appearance';
 const SHORTCUTS_PAGE_ID = 'browser-shortcuts';
 const FLYING_ANIMALS_SETTING_ID = 'flying-animals';
-const FILE_ONLY_RESULT_GROUP = 'config.json';
 const SEGMENT_STEP_BY_KEY: Readonly<Record<string, number>> = Object.freeze({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 });
 
 function resolveSettingOptions(setting: SettingsSetting): SettingsSetting {
@@ -138,7 +140,6 @@ let searchEl: HTMLInputElement | null = null;
 let sectionButtonEl: HTMLButtonElement | null = null;
 let sectionButtonTitleEl: HTMLSpanElement | null = null;
 let sectionPickerEl: HTMLDivElement | null = null;
-let phoneSearchResultsEl: HTMLElement | null = null;
 let contentEl: HTMLDivElement | null = null;
 let selectedPage: SettingsSection = SETTINGS_VIEW_MAP[0];
 let settingsPayload: SettingsPayload = {};
@@ -942,6 +943,25 @@ function buildChip(kind: string, text: string) {
   return chip;
 }
 
+function clipboardCopyStatus(text: string, copiedText: string): Promise<string> {
+  const write = writeClipboardText(text);
+  if (!write) return Promise.resolve('Copy failed');
+  return write.then(() => copiedText, () => 'Copy failed');
+}
+
+function appendCopyControl(
+  container: HTMLElement, button: HTMLButtonElement, { copiedText, textToCopy }: { copiedText: string; textToCopy: () => string },
+) {
+  const status = el('span', 'settings-view-copy-status');
+  status.setAttribute('role', 'status');
+  button.type = 'button';
+  button.addEventListener('click', async () => {
+    status.textContent = await clipboardCopyStatus(textToCopy(), copiedText);
+    setTimeout(() => { status.textContent = ''; }, COPY_STATUS_MS);
+  });
+  container.append(button, status);
+}
+
 function renderSettingHeading(setting: SettingsSetting) {
   const row = el('div', 'settings-view-setting-heading');
   const section = sectionOfSetting(setting);
@@ -949,21 +969,12 @@ function renderSettingHeading(setting: SettingsSetting) {
   heading.id = setting.id;
   heading.addEventListener('click', () => replaceSettingsHash(section.id, setting.id));
   const copy = el('button', 'settings-view-copy-link', '#');
-  copy.type = 'button';
   copy.setAttribute('aria-label', 'Copy link');
-  const copyStatus = el('span', 'settings-view-copy-status');
-  copyStatus.setAttribute('role', 'status');
-  copy.addEventListener('click', async () => {
-    const url = new URL(settingsHash(section.id, setting.id), location.href).href;
-    try {
-      await navigator.clipboard.writeText(url);
-      copyStatus.textContent = 'Link copied';
-    } catch {
-      copyStatus.textContent = 'Copy failed';
-    }
-    setTimeout(() => { copyStatus.textContent = ''; }, 1600);
+  row.appendChild(heading);
+  appendCopyControl(row, copy, {
+    copiedText: 'Link copied',
+    textToCopy: () => new URL(settingsHash(section.id, setting.id), location.href).href,
   });
-  row.append(heading, copy, copyStatus);
   return row;
 }
 
@@ -1182,6 +1193,10 @@ function renderPart(stack: HTMLElement, part: SettingsSection) {
 }
 
 function renderContent() {
+  if (searchQuery) {
+    renderSearchContent();
+    return;
+  }
   if (!contentEl) return;
   contentEl.textContent = '';
   if (isStreamerMode()) {
@@ -1217,6 +1232,10 @@ function selectSection(
   sectionId: string,
   { focusContent = false, settingId = null, updateHash = true }: { focusContent?: boolean; settingId?: string | null; updateHash?: boolean } = {}
 ) {
+  if (updateHash && searchQuery) {
+    searchQuery = '';
+    if (searchEl) searchEl.value = '';
+  }
   const page = pageSectionOf(SETTINGS_VIEW_MAP, sectionId) ?? selectedPage;
   if (selectedPage.id !== page.id) isAdvancedSettingsExpanded = false;
   selectedPage = page;
@@ -1256,46 +1275,89 @@ function chooseSearchResult(searchResult: SectionSearchResult) {
 }
 
 function searchSettings(query: string) {
-  return scoreSettingsSearch(SETTINGS_VIEW_MAP, query, SETTINGS_REGISTRY.fileOnly);
+  return scoreSettingsSearch(SETTINGS_REGISTRY.sections, query, SETTINGS_REGISTRY.fileOnly);
 }
 
-function appendFileOnlyResult(group: HTMLElement, result: SettingsSearchResult) {
-  const row = el('div', 'settings-view-nav-item settings-view-search-result settings-view-search-file-only', result.setting.title);
+function highlightedSearchText(
+  tag: 'span' | 'p' | 'code', className: string, text: string, result: SettingsSearchResult, field: SettingsSearchMatch['field'],
+) {
+  const element = el(tag, className);
+  const match = result.matches.find((entry) => entry.field === field);
+  const offset = match ? text.indexOf(match.text) : -1;
+  if (!match || offset < 0) {
+    element.textContent = text;
+    return element;
+  }
+  let cursor = 0;
+  for (const span of match.spans) {
+    element.append(text.slice(cursor, offset + span.start), el('mark', 'settings-view-search-highlight', text.slice(offset + span.start, offset + span.end)));
+    cursor = offset + span.end;
+  }
+  element.append(text.slice(cursor));
+  return element;
+}
+
+function appendFileOnlyDetails(row: HTMLElement, result: SettingsSearchResult) {
+  const { currentText, defaultText, jsonFragment } = fileOnlySearchCard(result.setting, settingsPayload);
+  if (currentText !== null) row.appendChild(el('span', 'settings-view-search-current', currentText));
   row.append(
-    el('code', 'settings-view-key-path', result.setting.path),
-    el('span', 'settings-view-search-default', fileOnlyDefaultText(result.setting)),
+    el('span', 'settings-view-search-default', defaultText),
+    renderChips(result.setting),
+    el('p', 'settings-view-list-hint', 'Edit in config.json or with glimmervoid settings set.'),
   );
-  row.title = result.setting.fileOnlyReason ?? '';
-  group.appendChild(row);
+  if (jsonFragment === null) return;
+  const actions = el('div', 'settings-view-control-foot');
+  appendCopyControl(actions, el('button', 'settings-view-copy-json', 'Copy as JSON'), { copiedText: 'JSON copied', textToCopy: () => jsonFragment });
+  row.appendChild(actions);
 }
 
-function appendSearchResults(target: HTMLElement, results: SettingsSearchResult[]) {
-  if (results.length === 0) {
-    target.appendChild(el('div', 'settings-empty settings-view-search-empty', 'No settings found.'));
+function renderSearchContent() {
+  if (!contentEl) return;
+  contentEl.textContent = '';
+  if (isStreamerMode()) {
+    renderStreamerPlaceholder(contentEl);
     return;
   }
-  const resultsByGroup = new Map<string, SettingsSearchResult[]>();
+  const results = searchSettings(searchQuery);
+  const header = el('div', 'settings-view-section-header');
+  header.append(el('h1', 'settings-view-section-title', 'Settings search'), el('p', 'settings-view-section-description', `${results.length} ${results.length === 1 ? 'result' : 'results'} for "${searchQuery}"`));
+  contentEl.appendChild(header);
+  if (results.length === 0) {
+    contentEl.appendChild(el('p', 'settings-empty settings-view-search-empty', 'No settings found.'));
+    return;
+  }
+  const list = el('ol', 'settings-view-search-results');
+  list.setAttribute('aria-label', 'Settings search results');
   for (const result of results) {
-    const groupId = result.section?.id ?? FILE_ONLY_RESULT_GROUP;
-    if (!resultsByGroup.has(groupId)) resultsByGroup.set(groupId, []);
-    resultsByGroup.get(groupId)?.push(result);
-  }
-  for (const groupResults of resultsByGroup.values()) {
-    const section = groupResults[0].section;
-    const group = el('div', 'settings-view-nav-group');
-    group.appendChild(el('div', 'settings-view-nav-label', section ? section.title : FILE_ONLY_RESULT_GROUP));
-    for (const result of groupResults) {
-      if (!hasSection(result)) {
-        appendFileOnlyResult(group, result);
-        continue;
-      }
-      const button = el('button', 'settings-view-nav-item settings-view-search-result', result.setting.title);
-      button.type = 'button';
-      button.addEventListener('click', () => chooseSearchResult(result));
-      group.appendChild(button);
+    const row = el('li', 'settings-view-search-result');
+    row.tabIndex = -1;
+    const breadcrumb = settingsSearchBreadcrumb(SETTINGS_VIEW_MAP, result.section, result.setting);
+    row.appendChild(highlightedSearchText('p', 'settings-view-search-breadcrumb', breadcrumb, result, 'section'));
+    const title = highlightedSearchText('span', 'settings-view-setting-title', result.setting.title, result, 'title');
+    if (hasSection(result)) {
+      const open = el('button', 'settings-view-search-open');
+      open.type = 'button';
+      open.appendChild(title);
+      open.addEventListener('click', () => chooseSearchResult(result));
+      row.appendChild(open);
     }
-    target.appendChild(group);
+    if (!hasSection(result)) {
+      row.classList.add('settings-view-search-file-only');
+      row.appendChild(title);
+    }
+    row.append(
+      highlightedSearchText('p', 'settings-view-setting-description', result.setting.description, result, 'description'),
+      highlightedSearchText('code', 'settings-view-key-path', result.setting.path, result, 'path'),
+    );
+    const visibleFields = new Set(['title', 'description', 'path', 'section']);
+    if (!result.matches.some((match) => visibleFields.has(match.field))) {
+      const match = result.matches.find((entry) => entry.field === 'options') ?? result.matches.find((entry) => entry.field === 'keywords');
+      if (match) row.appendChild(highlightedSearchText('p', 'settings-view-list-hint', match.text, result, match.field));
+    }
+    if (!hasSection(result)) appendFileOnlyDetails(row, result);
+    list.appendChild(row);
   }
+  contentEl.appendChild(list);
 }
 
 function appendSectionButtons(
@@ -1349,18 +1411,9 @@ function setSectionPickerOpen(isOpen: boolean, { returnFocus = true }: { returnF
 }
 
 function renderNavigation() {
-  if (!navigationEl || !phoneSearchResultsEl || !shellEl) return;
+  if (!navigationEl || !shellEl) return;
   const sections = topLevelSectionsOf(SETTINGS_VIEW_MAP);
   navigationEl.textContent = '';
-  phoneSearchResultsEl.textContent = '';
-  shellEl.dataset.searching = String(Boolean(searchQuery));
-  phoneSearchResultsEl.hidden = !searchQuery;
-  if (searchQuery) {
-    const results = searchSettings(searchQuery);
-    appendSearchResults(navigationEl, results);
-    appendSearchResults(phoneSearchResultsEl, results);
-    return;
-  }
   appendSectionButtons(navigationEl, sections, {
     groupClassName: 'settings-view-nav-group',
     createButton(section: SettingsSection) {
@@ -1372,11 +1425,23 @@ function renderNavigation() {
     },
   });
   renderSectionPicker(sections);
+  if (searchQuery) {
+    renderSearchContent();
+    return;
+  }
   selectSection(selectedPage.id, { updateHash: false });
 }
 
+function setSearchQuery(query: string, { updateHash = true } = {}) {
+  searchQuery = query.trim();
+  if (searchEl) searchEl.value = query;
+  setSectionPickerOpen(false, { returnFocus: false });
+  if (updateHash) history.replaceState(history.state, '', settingsSearchHash(searchQuery));
+  renderNavigation();
+}
+
 function handleNavigationKeydown(event: KeyboardEvent) {
-  if (searchQuery && event.key === 'Enter') {
+  if (searchQuery && event.key === 'Enter' && event.target === searchEl) {
     const first = searchSettings(searchQuery).find(hasSection);
     if (!first) return;
     event.preventDefault();
@@ -1386,9 +1451,7 @@ function handleNavigationKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && searchQuery) {
     if (!searchEl) return;
     event.preventDefault();
-    searchEl.value = '';
-    searchQuery = '';
-    renderNavigation();
+    setSearchQuery('');
     searchEl.focus();
     return;
   }
@@ -1439,20 +1502,15 @@ export function mountSettingsView(
   sectionPickerEl.hidden = true;
   sectionPickerEl.setAttribute('role', 'dialog');
   sectionPickerEl.setAttribute('aria-label', 'Settings sections');
-  phoneSearchResultsEl = el('nav', 'settings-view-phone-results');
-  phoneSearchResultsEl.hidden = true;
-  phoneSearchResultsEl.setAttribute('aria-label', 'Settings search results');
   contentEl = el('div', 'settings-view-content');
   contentEl.setAttribute('aria-live', 'polite');
   searchEl.addEventListener('input', () => {
     const currentSearchEl = searchEl;
     if (!currentSearchEl) return;
-    searchQuery = currentSearchEl.value.trim();
-    renderNavigation();
+    setSearchQuery(currentSearchEl.value);
   });
   searchEl.addEventListener('keydown', handleNavigationKeydown);
   navigationEl.addEventListener('keydown', handleNavigationKeydown);
-  phoneSearchResultsEl.addEventListener('keydown', handleNavigationKeydown);
   sectionButtonEl.addEventListener('click', () => setSectionPickerOpen(!isSectionPickerOpen()));
   if (sectionPickerDocumentClickHandler) document.removeEventListener('click', sectionPickerDocumentClickHandler);
   if (sectionPickerDocumentKeydownHandler) document.removeEventListener('keydown', sectionPickerDocumentKeydownHandler);
@@ -1470,7 +1528,7 @@ export function mountSettingsView(
   document.addEventListener('click', sectionPickerDocumentClickHandler);
   document.addEventListener('keydown', sectionPickerDocumentKeydownHandler);
   sidebar.append(searchEl, sectionButtonEl, navigationEl, sectionPickerEl);
-  shellEl.append(sidebar, phoneSearchResultsEl, contentEl);
+  shellEl.append(sidebar, contentEl);
   rootEl.appendChild(shellEl);
   hydrate(settingsPayload);
   renderNavigation();
@@ -1494,6 +1552,10 @@ function refreshSoundOptions() {
   SETTINGS_VIEW_MAP = buildSettingsViewMap();
   selectedPage = pageSectionOf(SETTINGS_VIEW_MAP, selectedPage.id) ?? SETTINGS_VIEW_MAP[0];
   storedValues['pref:soundId'] = resolveSoundId(getSoundId());
+  if (searchQuery) {
+    renderSearchContent();
+    return;
+  }
   const setting = settingById('alert-sound');
   if (setting && isAlertSoundPage(selectedPage)) refreshRow(setting);
 }
@@ -1503,10 +1565,21 @@ export function closeSettingsSectionPicker({ returnFocus = true }: { returnFocus
 }
 
 export function activateSettingsSection(sectionId: string | null = null, settingId: string | null = null) {
+  const search = parseSettingsSearchHash(sectionId ?? location.hash);
+  if (search) {
+    setSearchQuery(search.query);
+    return;
+  }
+  setSearchQuery('', { updateHash: false });
   selectSection(sectionId || selectedPage.id, { settingId });
 }
 
 export function resolveSettingsTarget(hash: unknown) {
+  const search = parseSettingsSearchHash(hash);
+  if (search) {
+    const searchHash = settingsSearchHash(search.query);
+    return { sectionId: searchHash, settingId: null, hash: searchHash };
+  }
   return parseSettingsHash(hash, SETTINGS_VIEW_MAP, SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS);
 }
 
@@ -1514,6 +1587,10 @@ export function applySettingsBroadcast(freshSettings: unknown) {
   if (!freshSettings) return;
   settingsPayload = freshSettings as SettingsPayload;
   hydrate(settingsPayload);
+  if (searchQuery) {
+    renderSearchContent();
+    return;
+  }
   refreshVisibleRows();
 }
 

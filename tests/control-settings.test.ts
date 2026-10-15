@@ -868,6 +868,40 @@ test('the browser round trip never sees a credential and never blanks one', asyn
   });
 });
 
+test('a config.json-only search card shows and copies a value only when the settings payload carries it as stored', async () => {
+  const [{ SETTINGS_REGISTRY }, view] = await Promise.all([
+    import('../shared/settings/registry.ts'),
+    import('../public/settings/settings-view-core.ts'),
+  ]);
+  const stored = {
+    projects: [],
+    recordSignals: false,
+    worktreeAutoRebase: false,
+    detectScheduledWakeups: false,
+    customAgents: [{ id: 'aider', label: 'Aider', command: 'aider', idleTitle: 'aider idle', busyTitle: 'aider busy' }],
+    visions: { dispatch: { quietMs: 45000 } },
+  };
+
+  withRealStore(stored, undefined, (_h, store) => {
+    const payload = buildSettingsPayload({ configStore: store, resolveRtk: () => null });
+    const cardFor = (settingPath: string) => {
+      const setting = SETTINGS_REGISTRY.fileOnly.find((entry) => entry.path === settingPath);
+      assert.ok(setting, `no config.json-only setting ${settingPath}`);
+      return view.fileOnlySearchCard(setting, payload);
+    };
+    const quiet = cardFor('visions.dispatch.quietMs');
+    assert.equal(quiet.currentText, 'Current 45 seconds');
+    assert.equal(quiet.defaultText, 'Default 30 seconds, stored as 30000 ms');
+    assert.deepEqual(JSON.parse(quiet.jsonFragment ?? 'null'), { visions: { dispatch: { quietMs: 45000 } } });
+    assert.deepEqual(JSON.parse(cardFor('recordSignals').jsonFragment ?? 'null'), { recordSignals: false });
+    for (const settingPath of ['worktreeAutoRebase', 'detectScheduledWakeups', 'customAgents', 'visions.dispatch.cooldownMs']) {
+      const withheldCard = cardFor(settingPath);
+      assert.equal(withheldCard.currentText, null, settingPath);
+      assert.equal(withheldCard.jsonFragment, null, settingPath);
+    }
+  });
+});
+
 test('a telemetry save persists, echoes, and flips the live config telemetry reads', () => {
   const h = harness({ projects: [], telemetry: { enabled: true } });
   h.send({ type: 'update-settings', settings: { telemetry: { enabled: false } } });

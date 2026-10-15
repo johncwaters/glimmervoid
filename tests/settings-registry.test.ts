@@ -11,7 +11,7 @@ import { FLYING_ANIMALS_DEFAULTS } from '../shared/settings-ranges.ts';
 import { FILE_ONLY_GROUPS, SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '../shared/settings/registry.ts';
 import type { SettingsSetting } from '../shared/settings/registry.ts';
 import {
-  SETTINGS_INDEX, displayValue, indexSettings, parseSettingsHash, settingsBlockSpec, settingsGroupOf, settingsOf, wireValue,
+  SETTINGS_INDEX, displayValue, indexSettings, parseSettingsHash, scoreSettingsSearch, settingsBlockSpec, settingsGroupOf, settingsOf, wireValue,
 } from '../shared/settings/registry-core.ts';
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../public/radar/radar-core.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } from '../public/github/team-review-view-core.ts';
@@ -20,6 +20,25 @@ import { settableFromDashboard, specAllows } from './helpers/settings-allow-list
 const ROOT = path.join(import.meta.dirname, '..');
 const ALL_ENTRIES: readonly SettingsSetting[] = [...settingsOf(SETTINGS_REGISTRY.sections), ...SETTINGS_REGISTRY.fileOnly];
 const CONFIG_ENTRIES = ALL_ENTRIES.filter((setting) => !setting.path.startsWith('pref:') && !setting.path.startsWith('status:'));
+
+test('search match spans expose original text without changing partial-word ranking', () => {
+  for (const query of ['spike', 'replay', 'notif', 'tree', 'quiet delay', 'quiet qu']) {
+    for (const hit of scoreSettingsSearch(SETTINGS_REGISTRY.sections, query, SETTINGS_REGISTRY.fileOnly)) {
+      assert.ok(hit.matches.length > 0, hit.setting.id);
+      for (const match of hit.matches) {
+        let previousEnd = -1;
+        for (const span of match.spans) {
+          assert.ok(span.start > previousEnd && span.end > span.start && span.end <= match.text.length, match.text);
+          assert.ok(query.toLowerCase().split(' ').includes(match.text.slice(span.start, span.end).toLowerCase()), match.text);
+          previousEnd = span.end;
+        }
+      }
+    }
+  }
+  const hit = scoreSettingsSearch(SETTINGS_REGISTRY.sections, 'replay', SETTINGS_REGISTRY.fileOnly)[0];
+  const title = hit.matches.find((match) => match.field === 'title');
+  assert.equal(title?.text.slice(title.spans[0].start, title.spans[0].end), 'Replay');
+});
 const SCOPES = new Set(['browser', 'machine']);
 const ACCESS_VALUES = new Set(['editable', 'advanced', 'readout', 'file-only']);
 const EFFECTS = new Set(['now', 'new-sessions', 'restart']);

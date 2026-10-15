@@ -369,7 +369,7 @@ export function mountPhoneShell(options?: PhoneShellHooks) {
   panels = hooks.panels || [];
 }
 
-export function activatePhoneShell({ sessionId }: { sessionId?: string } = {}) {
+export function activatePhoneShell({ sessionId, linkedScreenId }: { sessionId?: string; linkedScreenId?: string } = {}) {
   if (active) return;
   build();
   if (!shellEl || !boardScreen || !terminalScreen) throw new Error('Phone shell is not built');
@@ -385,6 +385,10 @@ export function activatePhoneShell({ sessionId }: { sessionId?: string } = {}) {
   if (sessionId) terminalScreen.show(sessionId);
   const startScreen = adoptInheritedHistory();
   refreshPhoneBoard();
+  if (linkedScreenId && canShowScreen(linkedScreenId)) {
+    showScreen(linkedScreenId);
+    return;
+  }
   if (sessionId && startScreen === BOARD) {
     uiState.dispatch('setPhoneScreen', BOARD);
     showScreen('terminal');

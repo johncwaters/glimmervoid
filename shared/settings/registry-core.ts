@@ -11,6 +11,13 @@ export interface SettingsSearchResult {
   section: SettingsSection | null;
   setting: SettingsSetting;
   score: number;
+  matches: SettingsSearchMatch[];
+}
+
+export interface SettingsSearchMatch {
+  field: 'title' | 'keywords' | 'section' | 'description' | 'path' | 'options';
+  text: string;
+  spans: { start: number; end: number }[];
 }
 
 interface SettingsIndex {
@@ -137,6 +144,7 @@ const PREFIX_MATCH_QUALITY = 2;
 const INFIX_MATCH_QUALITY = 1;
 const MIN_INFIX_QUERY_LENGTH = 3;
 const SEARCH_RESULT_LIMIT = 30;
+const MAX_SEARCH_QUERY_TOKENS = 16;
 
 function tokenMatchQuality(fieldToken: string, queryToken: string) {
   if (fieldToken === queryToken) return EXACT_MATCH_QUALITY;
@@ -155,16 +163,62 @@ function fieldScore(tokens: string[], queryTokens: string[], weight: number) {
   return totalMatchQuality * weight;
 }
 
+function optionLabelsText(setting: SettingsSetting) {
+  return setting.options?.map((option) => option.label).join(', ') ?? '';
+}
+
+function fileOnlyGroupTitle(setting: SettingsSetting) {
+  return settingsGroupOf(setting.group ?? '')?.title ?? '';
+}
+
 function settingScore(setting: SettingsSetting, sectionTokens: string[], queryTokens: string[]) {
   const titleScore = fieldScore(searchTokens(setting.title), queryTokens, 1000);
   const keywordScore = fieldScore(searchTokens(setting.keywords.join(' ')), queryTokens, 100);
   const sectionScore = fieldScore(sectionTokens, queryTokens, 10);
+  const pathScore = fieldScore(searchTokens(setting.path), queryTokens, 10);
+  const optionScore = fieldScore(searchTokens(optionLabelsText(setting)), queryTokens, 10);
   const descriptionScore = fieldScore(searchTokens(setting.description), queryTokens, 1);
-  return titleScore + keywordScore + sectionScore + descriptionScore;
+  return titleScore + keywordScore + sectionScore + pathScore + optionScore + descriptionScore;
 }
 
 function resultGroupTitle(result: SettingsSearchResult) {
   return result.section?.title ?? '';
+}
+
+function compareEditableFirst(left: SettingsSearchResult, right: SettingsSearchResult) {
+  return Number(left.section === null) - Number(right.section === null);
+}
+
+function searchMatches(setting: SettingsSetting, section: SettingsSection | null, queryTokens: string[]): SettingsSearchMatch[] {
+  const fields: [SettingsSearchMatch['field'], string][] = [
+    ['title', setting.title],
+    ['keywords', setting.keywords.join(' ')],
+    ['section', section?.title ?? fileOnlyGroupTitle(setting)],
+    ['description', setting.description],
+    ['path', setting.path],
+    ['options', optionLabelsText(setting)],
+  ];
+  return fields.flatMap(([field, text]) => {
+    const spans: SettingsSearchMatch['spans'] = [];
+    for (const token of text.matchAll(/[a-z0-9]+/gi)) {
+      const fieldToken = token[0].toLowerCase();
+      for (const queryToken of queryTokens) {
+        if (tokenMatchQuality(fieldToken, queryToken) === 0) continue;
+        const start = token.index + fieldToken.indexOf(queryToken);
+        spans.push({ start, end: start + queryToken.length });
+      }
+    }
+    const mergedSpans: SettingsSearchMatch['spans'] = [];
+    for (const span of spans.sort((left, right) => left.start - right.start || left.end - right.end)) {
+      const previous = mergedSpans.at(-1);
+      if (previous && span.start <= previous.end) {
+        previous.end = Math.max(previous.end, span.end);
+        continue;
+      }
+      mergedSpans.push({ ...span });
+    }
+    return mergedSpans.length ? [{ field, text, spans: mergedSpans }] : [];
+  });
 }
 
 export function scoreSettingsSearch(
@@ -172,7 +226,7 @@ export function scoreSettingsSearch(
   query: unknown,
   fileOnly: readonly SettingsSetting[] = [],
 ): SettingsSearchResult[] {
-  const queryTokens = searchTokens(query);
+  const queryTokens = searchTokens(query).slice(0, MAX_SEARCH_QUERY_TOKENS);
   if (queryTokens.length === 0) return [];
   const results: SettingsSearchResult[] = [];
   for (const section of sections) {
@@ -180,16 +234,17 @@ export function scoreSettingsSearch(
     for (const setting of section.settings) {
       const score = settingScore(setting, sectionTokens, queryTokens);
       if (score === 0) continue;
-      results.push({ section, setting, score });
+      results.push({ section, setting, score, matches: searchMatches(setting, section, queryTokens) });
     }
   }
   for (const setting of fileOnly) {
-    const score = settingScore(setting, searchTokens(setting.path), queryTokens);
+    const score = settingScore(setting, searchTokens(fileOnlyGroupTitle(setting)), queryTokens);
     if (score === 0) continue;
-    results.push({ section: null, setting, score });
+    results.push({ section: null, setting, score, matches: searchMatches(setting, null, queryTokens) });
   }
   return results
     .sort((left, right) => right.score - left.score
+      || compareEditableFirst(left, right)
       || resultGroupTitle(left).localeCompare(resultGroupTitle(right))
       || left.setting.title.localeCompare(right.setting.title))
     .slice(0, SEARCH_RESULT_LIMIT);

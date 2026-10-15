@@ -9,10 +9,11 @@ import { SETTINGS_INDEX, displayValue, parseSettingsHash, scoreSettingsSearch, s
 import {
   STORED_SECRET_MASK, childSectionsOf, collectDirtyBlocks, displayRange, draftCommitOf,
   fileOnlyDefaultText, hydrateFromSettings, isAtDefault, listFromDraft, needsDangerConfirmation, numberDraftError, numberDraftOf, numberFromDraft,
-  pageSectionOf, pairedSettingOf, resetConfirmationOf, resetValueOf, settingError, settingSavePayload, shouldShowDangerWarning, topLevelSectionsOf, validateLocally,
+  pageSectionOf, pairedSettingOf, parseSettingsSearchHash, resetConfirmationOf, resetValueOf, settingError, settingSavePayload, settingsSearchBreadcrumb, shouldShowDangerWarning, topLevelSectionsOf, validateLocally,
   withoutWorkflowRuleDefinitions, workflowRuleSummaryLines, workflowRuleToggleRows,
 } from '../public/settings/settings-view-core.ts';
 import { settableFromDashboard } from './helpers/settings-allow-list.ts';
+import { settingsSearchHash } from '../public/settings/settings-link.ts';
 
 const SECTIONS = SETTINGS_REGISTRY.sections;
 
@@ -229,6 +230,47 @@ test('search finds file-only keys and returns them without a section', () => {
   const quietDelay = scoreSettingsSearch(SECTIONS, 'quiet delay', SETTINGS_REGISTRY.fileOnly).find((entry) => entry.setting.path === 'visions.dispatch.quietMs');
   assert.ok(quietDelay);
   assert.equal(scoreSettingsSearch(SECTIONS, 'cursor blink').some((entry) => entry.setting.path === 'cursorBlink'), false);
+});
+
+test('search scores key paths and option labels, keeps editable settings ahead of equal config.json-only hits and returns highlighted matches', () => {
+  for (const query of ['spike', 'replay', 'sessions', 'visions.dispatch.quietMs']) {
+    const hits = scoreSettingsSearch(SECTIONS, query, SETTINGS_REGISTRY.fileOnly);
+    assert.ok(hits.length > 0, query);
+    for (const [index, hit] of hits.entries()) {
+      const previous = hits[index - 1];
+      if (!previous) continue;
+      assert.ok(previous.score >= hit.score, query);
+      assert.ok(previous.score > hit.score || previous.section !== null || hit.section === null, `${query}: ${hit.setting.id} trails an equal config.json-only hit`);
+    }
+  }
+  const spikeSwitch = scoreSettingsSearch(SECTIONS, 'posthog.trafficSpikeEnabled', SETTINGS_REGISTRY.fileOnly)[0];
+  assert.equal(spikeSwitch.setting.path, 'posthog.trafficSpikeEnabled');
+  assert.notEqual(spikeSwitch.section, null);
+  const sessionsHitIds = scoreSettingsSearch(SECTIONS, 'sessions', SETTINGS_REGISTRY.fileOnly).map((hit) => hit.setting.id);
+  for (const id of ['streamer-mode', 'calm-layout', 'repository-roots', 'custom-agents']) assert.ok(sessionsHitIds.includes(id), id);
+  const quiet = scoreSettingsSearch(SECTIONS, 'visions.dispatch.quietMs', SETTINGS_REGISTRY.fileOnly)[0];
+  assert.equal(quiet.setting.path, 'visions.dispatch.quietMs');
+  assert.equal(settingsSearchBreadcrumb(SECTIONS, quiet.section, quiet.setting), 'Lanes / Visions');
+  const keyMatch = quiet.matches.find((match) => match.field === 'path');
+  assert.deepEqual(keyMatch?.spans.map((span) => keyMatch.text.slice(span.start, span.end)), ['visions', 'dispatch', 'quietMs']);
+  const custom = searchSetting('custom', 'custom.mode', 'Mode', 'Choose a mode.', ['behavior', 'choice']);
+  custom.options = [{ value: 'quiet', label: 'Silent operation' }];
+  const optionHit = scoreSettingsSearch([searchSection('custom', 'Custom', [custom])], 'silent')[0];
+  assert.equal(optionHit.setting.id, custom.id);
+  assert.equal(optionHit.matches.find((match) => match.field === 'options')?.text, 'Silent operation');
+});
+
+test('settings search hashes round trip query text and clear without taking over setting anchors', () => {
+  for (const query of ['replay', 'visions.dispatch.quietMs', 'space + & # / caf\u00e9']) {
+    assert.deepEqual(parseSettingsSearchHash(settingsSearchHash(query)), { query });
+  }
+  assert.equal(settingsSearchHash('  '), '#settings');
+  assert.deepEqual(parseSettingsSearchHash('#settings'), { query: '' });
+  assert.deepEqual(parseSettingsSearchHash('#settings?q='), { query: '' });
+  assert.deepEqual(parseSettingsSearchHash('#settings?q=quiet+delay'), { query: 'quiet delay' });
+  assert.equal(parseSettingsSearchHash('#settings/machine-sessions/auto-resume'), null);
+  assert.equal(parseSettingsSearchHash('#sessions?q=replay'), null);
+  assert.equal(parseSettingsSearchHash(settingsSearchHash('a'.repeat(10_000)))?.query.length, 200);
 });
 
 test('settings hashes resolve aliases and canonical anchors', () => {

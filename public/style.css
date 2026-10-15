@@ -889,6 +889,9 @@ body {
 .btn-streamer:focus-visible,
 .settings-about-link:focus-visible,
 .settings-view-nav-item:focus-visible,
+.settings-view-search-open:focus-visible,
+.settings-view-reset:focus-visible,
+.settings-view-copy-json:focus-visible,
 .settings-view-section-button:focus-visible,
 .settings-view-section-option:focus-visible,
 .settings-view-input:focus-visible,
@@ -6832,16 +6835,6 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   margin-bottom: 18px;
 }
 
-.settings-view-nav-label {
-  padding: 0 10px 6px;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .settings-view-nav-item {
   width: 100%;
   padding: 8px 10px;
@@ -6867,8 +6860,7 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 }
 
 .settings-view-section-button,
-.settings-view-section-picker,
-.settings-view-phone-results {
+.settings-view-section-picker {
   display: none;
 }
 
@@ -7002,7 +6994,8 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   color: var(--state-failed);
 }
 
-.settings-view-reset {
+.settings-view-reset,
+.settings-view-copy-json {
   flex-shrink: 0;
   margin-left: auto;
   padding: 1px 6px;
@@ -7016,7 +7009,8 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   cursor: pointer;
 }
 
-.settings-view-reset:hover:not(:disabled) {
+.settings-view-reset:hover:not(:disabled),
+.settings-view-copy-json:hover {
   border-color: var(--border);
   color: var(--accent);
 }
@@ -7168,16 +7162,59 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   flex-shrink: 0;
 }
 
-.settings-view-search-file-only {
+.settings-view-search-results {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  cursor: default;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
 }
 
-.settings-view-search-file-only:hover {
-  color: var(--text-dim);
+.settings-view-search-result {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  overflow-wrap: anywhere;
+}
+
+.settings-view-search-result:hover {
+  border-color: var(--border-hover);
+}
+
+.settings-view-search-breadcrumb {
+  margin: 0;
+  color: var(--text-muted);
+  font: 11px var(--font-mono);
+}
+
+.settings-view-search-open {
+  padding: 0;
+  border: 0;
   background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-view-search-open:hover .settings-view-setting-title {
+  color: var(--accent);
+}
+
+.settings-view-search-highlight {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text-head);
+  font-weight: 700;
+}
+
+.settings-view-search-current {
+  color: var(--text);
+  font: 12px var(--font-mono);
 }
 
 .settings-view-projects {
@@ -7441,6 +7478,8 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 
 [data-layout="phone"] .settings-view-search {
   min-width: 0;
+  min-height: 44px;
+  font-size: 16px;
   margin: 0;
 }
 
@@ -7524,26 +7563,14 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   background: color-mix(in oklab, var(--accent) 8%, transparent);
 }
 
-[data-layout="phone"] .settings-view-phone-results:not([hidden]) {
-  display: block;
-  flex: 1;
-  min-height: 0;
-  padding: 18px 14px 52px;
-  overflow-y: auto;
-}
-
-[data-layout="phone"] .settings-view-phone-results .settings-view-nav-group {
-  width: min(100%, 820px);
-  margin-inline: auto;
-}
-
-[data-layout="phone"] .settings-view-shell[data-searching="true"] .settings-view-content {
-  display: none;
-}
-
 [data-layout="phone"] .settings-view-content {
   flex: 1;
   padding: 18px 14px 52px;
+}
+
+[data-layout="phone"] .settings-view-search-open,
+[data-layout="phone"] .settings-view-copy-json {
+  min-height: 44px;
 }
 
 [data-layout="phone"] .settings-view-setting {

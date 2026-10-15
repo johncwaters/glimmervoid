@@ -51,7 +51,7 @@ import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, clearSettingsUpdateRequest, refreshSettingsStatus, resolveSettingsTarget } from './settings/settings-panel.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
-import { createSettingsLink } from './settings/settings-link.ts';
+import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
 import { currentShortcutContext, SHORTCUT_PLATFORM, setShortcutContextProvider } from './shortcuts.ts';
 import { resolveDashboardShortcut } from './shortcuts-core.ts';
 import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
@@ -581,7 +581,7 @@ function openSettings(section?: string) {
 }
 
 function clearSettingsHash() {
-  if (!location.hash.startsWith('#settings/')) return;
+  if (!isSettingsHash(location.hash)) return;
   history.replaceState(history.state, '', `${location.pathname}${location.search}`);
 }
 
@@ -807,7 +807,7 @@ mountPhoneShell({
   onScreenShown: (screenId: string) => {
     refreshViewOnShow(screenId);
     if (screenId !== 'settings') clearSettingsHash();
-    if (screenId === 'settings' && !location.hash.startsWith('#settings/')) activateSettingsSection();
+    if (screenId === 'settings' && !isSettingsHash(location.hash)) activateSettingsSection();
     acknowledgeViewAttention(screenId);
   },
 
@@ -830,7 +830,10 @@ function applyFormFactorLayout(layout: string) {
     for (const viewTab of viewsInTabOrder(VIEW_TABS)) viewTab.deactivate?.();
     clearQueueOrigin();
     refreshFocusNowPeek();
-    activatePhoneShell({ sessionId: carriedSessionId ?? undefined });
+    activatePhoneShell({
+      sessionId: carriedSessionId ?? undefined,
+      linkedScreenId: resolveSettingsTarget(location.hash) ? 'settings' : undefined,
+    });
     return;
   }
   const carriedSessionId = getPhoneSessionId();
