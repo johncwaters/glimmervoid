@@ -1,6 +1,7 @@
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { el, MERGE_TAGS, query } from '../dom-helpers.ts';
+import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { getRestorableSessionId, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession } from '../session-actions.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
@@ -441,14 +442,15 @@ function updateCenter() {
   if (!emptyEl || !emptyTitleEl || !emptyDescEl) return;
   const centeredId = getFocusedSessionId();
   const has = !!(centeredId && sessionUIs.has(centeredId));
-  emptyEl.hidden = has;
-  if (has) return;
-
   const hasSessions = sessionUIs.size > 0;
-  emptyTitleEl.textContent = hasSessions ? 'No session selected' : 'Nothing to focus';
-  emptyDescEl.textContent = hasSessions
-    ? 'Select a session from the rail on the left to focus it here.'
-    : 'Spawn a session to start watching.';
+  emptyEl.hidden = has;
+  showFirstRunChecklist(emptyEl, !hasSessions);
+  emptyTitleEl.hidden = !hasSessions;
+  emptyDescEl.hidden = !hasSessions;
+  if (has || !hasSessions) return;
+
+  emptyTitleEl.textContent = 'No session selected';
+  emptyDescEl.textContent = 'Select a session from the rail on the left to focus it here.';
 }
 
 export function setFocusMergeStatus(id: unknown, mergeStatus: unknown) {

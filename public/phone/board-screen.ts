@@ -4,6 +4,7 @@ import type { SessionRow } from '../focus-view/attention-core.ts';
 import { attentionSummaryText, countSessionsNeedingAttention, orderRoster } from '../focus-view/attention-core.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { NO_PATH_KEY } from '../focus-view/roster-groups-core.ts';
+import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { quickAddSession, readSessionRows, requestSessionRemoval } from '../session-actions.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
@@ -44,7 +45,9 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
   const groupsEl = el('div', 'phone-board-list');
 
   const emptyEl = el('div', 'phone-empty');
-  emptyEl.append(el('p', 'phone-empty-title', 'No sessions'), el('p', 'phone-empty-desc', 'Spawn a session to start watching.'));
+  const emptyTitleEl = el('p', 'phone-empty-title', 'No sessions');
+  const emptyDescEl = el('p', 'phone-empty-desc', 'Spawn a session to start watching.');
+  emptyEl.append(emptyTitleEl, emptyDescEl);
 
   screen.append(topBar, attentionEl, groupsEl, emptyEl);
 
@@ -230,8 +233,12 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     }
 
     const hasGroups = boardGroups.groups.length > 0;
+    const isFirstRun = sessionUIs.size === 0;
     groupsEl.hidden = !hasGroups;
     emptyEl.hidden = hasGroups;
+    showFirstRunChecklist(emptyEl, isFirstRun);
+    emptyTitleEl.hidden = isFirstRun;
+    emptyDescEl.hidden = isFirstRun;
   }
 
   onSessionTick(() => {

@@ -10,6 +10,7 @@ import { createClientErrorReporter } from './client-error-core.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
 import { checkControlLiveness, connectControl, onControlMessage, sendControlMsg, sendControlRequest, setConnectionStateCallback } from './control-ws.ts';
 import { createAddSessionDialog } from './dialogs.ts';
+import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
@@ -166,6 +167,7 @@ setConnectionStateCallback((state, label) => {
       location.reload();
       return;
     }
+    refreshFirstRunChecklist();
     document.body.classList.add('app-ready');
     if (!appRevealed && controlConnectedAt === null) {
       controlConnectedAt = performance.now();
@@ -403,7 +405,10 @@ const messageHandlers = {
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
   'error':              (msg) => { clearSettingsUpdateRequest(); applyTraceError(msg); applyConversationTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
   'session-error':      (msg) => { applySessionPlanError(msg); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
-  'settings-updated':   (msg) => { if (msg.settings) applyDashboardSettings(msg.settings); },
+  'settings-updated':   (msg) => {
+    if (msg.settings) applyDashboardSettings(msg.settings);
+    refreshFirstRunChecklist();
+  },
   'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot & ServerMessageOf<'health-snapshot'>['stats']); },
   'radar-status':     (msg) => applyRadarStatus(msg),
   'radar-investigation-activity': (msg) => applyInvestigationActivity(msg),

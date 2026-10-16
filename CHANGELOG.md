@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **First-run checklist**: until your first session exists, the Focus view (and the Board on a phone) walks you through three steps: an agent CLI Glimmervoid can find, with the install command and a Rescan button; the folder that holds your git checkouts, with one-click suggestions for home folders such as `~/Projects` that already hold git repos, or a typed path such as `~/src`; and your first session. Only the current step is open, and the list goes away once a session exists.
 - **Answer Claude Code prompts from the Conversation view**: a Claude Code permission prompt now shows on the Conversation face as a card with the full request, such as the whole command or the file and its edit, and offers Approve, Always allow and Decline. Always allow appears only when Claude Code suggests a rule, names the rule it adds, and keeps it for this session only. A Claude Code question shows its options as buttons, or as a short form when it asks several questions or allows more than one answer. The terminal prompt stays live, so answering in either place works and the card clears itself. A Claude Code session started before you turned on the Conversation view setting picks this up after a restart. Codex approvals now show commands up to 4000 characters instead of 300 before falling back to the terminal.
 
 ### Changed
