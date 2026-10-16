@@ -2,8 +2,10 @@ import { hasGithubPollingCountdown, githubPollingErrorNotice, githubPollingRefre
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import type { GithubPollingRefreshRequest } from '#shared/contracts/github-polling.ts';
 import type { LinkedPr, MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
+import { STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
-import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from '../dom-helpers.ts';
+import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden, query } from '../dom-helpers.ts';
+import { buildPillSkeleton, paintPillStatus } from '../focus-view/pill-dom.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
@@ -58,7 +60,7 @@ const MERGE_NO_REPLY_TEXT = 'No reply from the server. Check GitHub before tryin
 
 export function createGithubPollingControls(lane: GithubPollingRefreshRequest['lane'], panel: HTMLElement) {
   const control = el('div', 'reviews-refresh-control');
-  const button = el('button', 'pr-action reviews-refresh-button', 'Refresh');
+  const button = el('button', 'pr-action pr-action-ghost reviews-refresh-button', 'Refresh');
   button.type = 'button';
   const progress = el('span', 'reviews-refresh-status');
   progress.setAttribute('role', 'status');
@@ -315,18 +317,37 @@ function liveSessionLinks(): LiveSessionLinks[] {
   });
 }
 
+function paintSessionPill(pill: HTMLElement): void {
+  const sessionId = pill.dataset.sessionId ?? '';
+  const ui = sessionUIs.get(sessionId);
+  const nameElement = query(pill, '.focus-pill-name');
+  if (ui) nameElement.textContent = sessionName(ui) || sessionId;
+  const refs = { glyph: query(pill, '.focus-pill-glyph'), label: query(pill, '.focus-pill-label') };
+  const stateLabel = paintPillStatus(pill, refs, ui?.currentState || STATES.DORMANT, ui?.awaitingBackgroundTasks);
+  const accessibleLabel = `Focus session ${nameElement.textContent}, ${stateLabel}`;
+  pill.title = accessibleLabel;
+  pill.setAttribute('aria-label', accessibleLabel);
+}
+
+function createSessionPill(session: LinkedLiveSession): HTMLElement {
+  const { pill, refs } = buildPillSkeleton('button', 'focus-pill my-pr-session-pill');
+  pill.type = 'button';
+  pill.dataset.sessionId = session.id;
+  refs.name.textContent = session.title;
+  paintSessionPill(pill);
+  pill.addEventListener('click', () => openTerminal?.(session.id));
+  return pill;
+}
+
 function createSessionFocusControls(linkedSessions: readonly LinkedLiveSession[] | undefined): HTMLElement | null {
   if (!linkedSessions || linkedSessions.length === 0) return null;
   const controls = el('div', 'my-pr-session-focus');
-  for (const session of linkedSessions) {
-    const button = el('button', 'pr-action my-pr-session-focus-button', session.title);
-    button.type = 'button';
-    button.title = `Focus session ${session.title}`;
-    button.setAttribute('aria-label', `Focus session ${session.title}`);
-    button.addEventListener('click', () => openTerminal?.(session.id));
-    controls.append(button);
-  }
+  controls.append(...linkedSessions.map(createSessionPill));
   return controls;
+}
+
+export function refreshMyPrsSessionState(): void {
+  for (const pill of queue?.querySelectorAll<HTMLElement>('.my-pr-session-pill') ?? []) paintSessionPill(pill);
 }
 
 function queueRender(): void {

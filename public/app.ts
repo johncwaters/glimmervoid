@@ -27,7 +27,7 @@ import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-panel.ts';
-import { applyMyPrMergeResult, applyMyPrsStatus } from './github/my-prs-panel.ts';
+import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-panel.ts';
 import { forgetSessionLinkedPrs, paintSessionPrChips, refreshSessionPrChipStages, setSessionLinkedPrs } from './github/session-pr-chips.ts';
 import { setPillPrChipsPainter } from './focus-view/pill-dom.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
@@ -197,6 +197,7 @@ setConnectionStateCallback((state, label) => {
 
 function refreshAttentionSurfaces() {
   refreshIssuesSessionState();
+  refreshMyPrsSessionState();
   refreshPhoneBoard();
 }
 

@@ -185,7 +185,7 @@ function buildDetailFooter(issue: IssueRow): HTMLElement {
     button.addEventListener('click', () => openIssueSession(issue));
     footer.append(button);
   }
-  footer.append(externalLink('pr-action', 'View on GitHub', issue.url));
+  footer.append(externalLink('pr-action pr-action-ghost', 'View on GitHub', issue.url));
   const outcome = openOutcomeByIssue.get(issue.key);
   const fallback = issue.projectId ? '' : `Add a project for ${issue.repo} in Settings to open sessions from here.`;
   const status = el('span', 'pr-action-status issue-open-status', outcome ?? fallback);
@@ -224,7 +224,7 @@ function renderDetail(): void {
     return;
   }
   const article = el('article', 'pr-detail issues-detail');
-  const back = el('button', 'pr-action issues-back', 'Back to issues');
+  const back = el('button', 'pr-action pr-action-ghost issues-back', 'Back to issues');
   back.type = 'button';
   back.addEventListener('click', () => {
     if (root) root.dataset.detailOpen = 'false';
@@ -325,7 +325,7 @@ function createFilters(): HTMLElement {
   search.autocomplete = 'off';
   search.setAttribute('aria-label', 'Search issues');
   search.addEventListener('input', () => { filters.query = search.value; render(); });
-  const toggle = el('button', 'pr-action', 'Filters');
+  const toggle = el('button', 'pr-action pr-action-ghost', 'Filters');
   toggle.type = 'button';
   toggle.setAttribute('aria-expanded', 'false');
   toggle.setAttribute('aria-controls', 'issues-filters-panel');
