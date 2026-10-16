@@ -525,6 +525,7 @@ test('a spawned child reaches the dashboard as one session-added card', async ()
       skipPerms: true,
       saneYolo: false,
       worktree: fixture.parent.isWorktree,
+      sandboxed: false,
       resumeSessionId: null,
       ephemeral: true,
     });
@@ -605,6 +606,7 @@ test('the shared session card projection carries exactly the session-added paylo
     skipPerms: true,
     saneYolo: false,
     worktree: false,
+    sandboxed: false,
     resumeSessionId: null,
     ephemeral: true,
   });

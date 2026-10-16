@@ -603,6 +603,13 @@ export function setSessionWorktree(sessionId: unknown, worktree: unknown) {
   delete ui.card.dataset.worktree;
 }
 
+export function setSessionSandboxed(sessionId: unknown, isSandboxed: boolean) {
+  const ui = findSessionUi(sessionId);
+  if (!ui) return;
+  if (isSandboxed) { ui.card.dataset.sandboxed = ''; return; }
+  delete ui.card.dataset.sandboxed;
+}
+
 function paintCardBadge(ui: SessionUi, selector: string, datasetKey: string, badgeState: { on: boolean; value?: string; text?: string; title?: string }) {
   const { on, value = '', text, title } = badgeState;
   const badge = ui.card.querySelector<HTMLElement>(selector);

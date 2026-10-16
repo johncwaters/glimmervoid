@@ -1304,6 +1304,7 @@ class Session extends EventEmitter {
       ephemeral: this.ephemeral,
       isWorktree: this.isWorktree,
       isWorkspace: this.isWorkspace,
+      isConfined: this.isConfined,
       resumeSessionId: this._resumeSessionId,
       activeAgents: active,
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),

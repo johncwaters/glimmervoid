@@ -1,7 +1,7 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 
-type SnapshotCardFields = Pick<ServerMessageOf<'snapshot'>['sessions'][number], 'dangerouslySkipPermissions' | 'isWorktree' | 'isWorkspace' | 'saneYolo' | 'path' | 'stateSince' | 'taskTitle' | 'taskTitleIsCustom'>;
-type MessageCardFields = Pick<ServerMessageOf<'session-added'>, 'skipPerms' | 'worktree' | 'workspace'>;
+type SnapshotCardFields = Pick<ServerMessageOf<'snapshot'>['sessions'][number], 'dangerouslySkipPermissions' | 'isWorktree' | 'isWorkspace' | 'isSandboxed' | 'saneYolo' | 'path' | 'stateSince' | 'taskTitle' | 'taskTitleIsCustom'>;
+type MessageCardFields = Pick<ServerMessageOf<'session-added'>, 'skipPerms' | 'worktree' | 'workspace' | 'sandboxed'>;
 type SessionCardFields = Partial<SnapshotCardFields & MessageCardFields>;
 
 export interface CardOptions {
@@ -11,6 +11,7 @@ export interface CardOptions {
   saneYolo?: boolean;
   worktree?: boolean;
   workspace?: boolean;
+  sandboxed?: boolean;
   path?: unknown;
   stateSince?: unknown;
 }
@@ -21,6 +22,7 @@ export function buildSessionCardOptions(session: SessionCardFields): CardOptions
     saneYolo: session.saneYolo === true,
     worktree: session.worktree ?? session.isWorktree ?? false,
     workspace: session.workspace ?? session.isWorkspace ?? false,
+    sandboxed: session.sandboxed ?? session.isSandboxed ?? false,
     path: session.path,
     stateSince: session.stateSince,
     taskTitle: typeof session.taskTitle === 'string' ? session.taskTitle : null,

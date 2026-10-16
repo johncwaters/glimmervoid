@@ -60,6 +60,7 @@ export const SessionSnapshot = z.object({
   ephemeral: z.boolean(),
   isWorktree: z.boolean(),
   isWorkspace: z.boolean().default(false),
+  isSandboxed: z.boolean().default(false),
   resumeSessionId: z.string().nullable(),
   activeAgents: z.number().int().nonnegative(),
   awaitingBackgroundTasks: z.boolean(),

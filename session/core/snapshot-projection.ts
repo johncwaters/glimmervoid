@@ -13,6 +13,7 @@ interface SessionCardSource {
   saneYolo?: boolean;
   isWorktree?: boolean;
   isWorkspace?: boolean;
+  isConfined?: boolean;
   resumeSessionId?: string | null;
   ephemeral?: boolean;
   linkedPrs?: LinkedPr[];
@@ -39,6 +40,7 @@ function projectSessionCard(
     skipPerms: !!source.dangerouslySkipPermissions,
     saneYolo: !!source.saneYolo,
     worktree: !!source.isWorktree,
+    sandboxed: source.isConfined === true,
     resumeSessionId: source.resumeSessionId || null,
     ...(source.isWorkspace ? { workspace: true } : {}),
     ...(source.linkedPrs?.length ? { linkedPrs: source.linkedPrs } : {}),
@@ -62,6 +64,7 @@ interface SnapshotSource {
   ephemeral: boolean;
   isWorktree: boolean;
   isWorkspace: boolean;
+  isConfined?: boolean;
   resumeSessionId: string | null;
   activeAgents: number;
   awaitingBackgroundTasks: boolean;
@@ -98,6 +101,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     ephemeral: source.ephemeral,
     isWorktree: source.isWorktree,
     isWorkspace: source.isWorkspace,
+    isSandboxed: source.isConfined === true,
     resumeSessionId: source.resumeSessionId,
     activeAgents: source.activeAgents,
     awaitingBackgroundTasks: source.awaitingBackgroundTasks,
