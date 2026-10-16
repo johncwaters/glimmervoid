@@ -48,7 +48,7 @@ interface TagBadgeSpec {
 const TAG_BADGES: TagBadgeSpec[] = [
   { cls: 'agent-badge', title: 'Agent CLI this session supervises' },
   { cls: 'worktree-badge', text: 'worktree', title: 'Running in a linked git worktree', ariaLabel: 'Linked git worktree' },
-  { cls: 'sandbox-badge', text: 'guardrails', title: 'Guardrails on: credentials, Glimmervoid state and blocked folders are off-limits to this session', ariaLabel: 'Guardrails on' },
+  { cls: 'guardrails-badge', text: 'guardrails', title: 'Guardrails on: credentials, Glimmervoid state and blocked folders are off-limits to this session', ariaLabel: 'Guardrails on' },
   { cls: 'post-turn-badge', ariaHidden: true },
   { cls: 'usage-badge', title: 'Tokens and estimated API list-price cost for this conversation' },
   { cls: 'wakeup-badge' },
@@ -95,7 +95,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   if (options.saneYolo) card.dataset.saneYolo = '';
   if (options.worktree) card.dataset.worktree = '';
   if (options.workspace) card.dataset.workspace = '';
-  if (options.sandboxed) card.dataset.sandboxed = '';
+  if (options.guarded) card.dataset.guarded = '';
   if (options.path) card.dataset.path = String(options.path);
 
   const header = el('div', 'session-card-header');

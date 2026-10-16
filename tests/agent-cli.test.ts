@@ -24,13 +24,13 @@ interface ReceivedRequest {
   body: string;
 }
 
-const SANDBOX_ENVIRONMENT_NAMES = ['SANDBOX_RUNTIME', 'HTTP_PROXY', 'http_proxy'];
+const GUARDRAILS_ENVIRONMENT_NAMES = ['SANDBOX_RUNTIME', 'HTTP_PROXY', 'http_proxy'];
 const CLI_ENTRY = path.join(import.meta.dirname, '..', 'bin', 'glimmervoid.ts');
 const LIMITS_UNKNOWN_LINE = 'This session: Glimmervoid did not report its limits, so run glimmervoid limits to see why';
 const LIMITS_REPLY = JSON.stringify({
   ok: true,
   commands: [{ name: 'push', answers: true }, { name: 'spawn', answers: false, reason: 'a spawned session may not spawn another' }],
-  sandboxed: true,
+  guarded: true,
   deadEnds: [{ blocked: 'credential folders are off limits', route: 'flag the operator with glimmervoid attention' }],
 });
 const LIMITS_LINES = [
@@ -53,11 +53,11 @@ function setEnvironmentValue(name: string, value: string | null | undefined): vo
   if (value != null) process.env[name] = value;
 }
 
-async function inSessionEnvironment<Outcome>(agentUrl: string | null, sandboxEnvironment: Record<string, string>, run: () => Promise<Outcome>): Promise<Outcome> {
-  const controlledNames = [AGENT_URL_ENV, ...SANDBOX_ENVIRONMENT_NAMES];
+async function inSessionEnvironment<Outcome>(agentUrl: string | null, guardrailsEnvironment: Record<string, string>, run: () => Promise<Outcome>): Promise<Outcome> {
+  const controlledNames = [AGENT_URL_ENV, ...GUARDRAILS_ENVIRONMENT_NAMES];
   const previousValues = controlledNames.map((name) => [name, process.env[name]] as const);
   setEnvironmentValue(AGENT_URL_ENV, agentUrl);
-  for (const name of SANDBOX_ENVIRONMENT_NAMES) setEnvironmentValue(name, sandboxEnvironment[name]);
+  for (const name of GUARDRAILS_ENVIRONMENT_NAMES) setEnvironmentValue(name, guardrailsEnvironment[name]);
   try {
     return await run();
   } finally {
@@ -65,7 +65,7 @@ async function inSessionEnvironment<Outcome>(agentUrl: string | null, sandboxEnv
   }
 }
 
-async function runCli(args: string[], agentUrl: string | null, sandboxEnvironment: Record<string, string> = {}): Promise<CliRun> {
+async function runCli(args: string[], agentUrl: string | null, guardrailsEnvironment: Record<string, string> = {}): Promise<CliRun> {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const previousLog = console.log;
@@ -73,7 +73,7 @@ async function runCli(args: string[], agentUrl: string | null, sandboxEnvironmen
   console.log = (line: unknown) => { stdout.push(String(line)); };
   console.error = (line: unknown) => { stderr.push(String(line)); };
   try {
-    const code = await inSessionEnvironment(agentUrl, sandboxEnvironment, () => runAgentApiCli(args));
+    const code = await inSessionEnvironment(agentUrl, guardrailsEnvironment, () => runAgentApiCli(args));
     return { code, stdout, stderr };
   } finally {
     console.log = previousLog;
@@ -179,14 +179,14 @@ test('--help in a session ends with its limits, or with one line when the server
   assert.deepEqual(await helpOutput(deadAgentUrl), [...staticHelp, '', LIMITS_UNKNOWN_LINE]);
 });
 
-test('one deadline covers the direct post and the sandbox proxy retry behind --help', async () => {
+test('one deadline covers the direct post and the guardrails proxy retry behind --help', async () => {
   const agentUrl = `http://127.0.0.1:${await reserveFreePort()}/agent/${SESSION_ID}?t=${TOKEN}`;
   let proxiedRequests = 0;
   const silentProxy = http.createServer(() => { proxiedRequests += 1; });
   await listenOnLoopback(silentProxy);
-  const sandboxEnvironment = { SANDBOX_RUNTIME: '1', HTTP_PROXY: `http://127.0.0.1:${boundPort(silentProxy)}` };
+  const guardrailsEnvironment = { SANDBOX_RUNTIME: '1', HTTP_PROXY: `http://127.0.0.1:${boundPort(silentProxy)}` };
   try {
-    const helpLines = await inSessionEnvironment(agentUrl, sandboxEnvironment, () => sessionLimitsHelpLines({ timeoutMs: 150 }));
+    const helpLines = await inSessionEnvironment(agentUrl, guardrailsEnvironment, () => sessionLimitsHelpLines({ timeoutMs: 150 }));
     assert.deepEqual(helpLines, [LIMITS_UNKNOWN_LINE]);
     assert.equal(proxiedRequests, 1, 'the retry reached the proxy and was cut off there');
   } finally {
@@ -276,7 +276,7 @@ test('dispatch ready posts the validated intent to the authenticated dispatch ve
   });
 });
 
-test('inside the session sandbox a refused loopback post goes through the sandbox proxy, and through no other proxy', async () => {
+test('inside the session guardrails a refused loopback post goes through the guardrails proxy, and through no other proxy', async () => {
   const agentUrl = `http://127.0.0.1:${await reserveFreePort()}/agent/${SESSION_ID}?t=${TOKEN}`;
   const proxied: { url: string; authorization: string; proxyAuthorization: string; body: string }[] = [];
   const proxy = http.createServer((request, response) => {
@@ -289,19 +289,19 @@ test('inside the session sandbox a refused loopback post goes through the sandbo
     });
   });
   await listenOnLoopback(proxy);
-  const sandboxProxyUrl = `http://sandbox%3Dname:secret@127.0.0.1:${boundPort(proxy)}`;
+  const guardrailsProxyUrl = `http://guardrails%3Dname:secret@127.0.0.1:${boundPort(proxy)}`;
   try {
-    const sandboxed = await runCli(['dispatch', 'wrk-0123456789abcdef'], agentUrl, { SANDBOX_RUNTIME: '1', HTTP_PROXY: sandboxProxyUrl });
-    assert.equal(sandboxed.code, 0, sandboxed.stderr.join('\n'));
+    const guarded = await runCli(['dispatch', 'wrk-0123456789abcdef'], agentUrl, { SANDBOX_RUNTIME: '1', HTTP_PROXY: guardrailsProxyUrl });
+    assert.equal(guarded.code, 0, guarded.stderr.join('\n'));
     assert.deepEqual(proxied, [{
       url: `${new URL(agentUrl).origin}/agent/${SESSION_ID}/dispatch`,
       authorization: `Bearer ${TOKEN}`,
-      proxyAuthorization: `Basic ${Buffer.from('sandbox=name:secret').toString('base64')}`,
+      proxyAuthorization: `Basic ${Buffer.from('guardrails=name:secret').toString('base64')}`,
       body: '{"workId":"wrk-0123456789abcdef"}',
     }]);
 
     const proxiesThatMustStayUnused: Record<string, string>[] = [
-      { HTTP_PROXY: sandboxProxyUrl },
+      { HTTP_PROXY: guardrailsProxyUrl },
       { SANDBOX_RUNTIME: '1', HTTP_PROXY: `http://proxy.example.com:${boundPort(proxy)}` },
       { SANDBOX_RUNTIME: '1', HTTP_PROXY: `https://127.0.0.1:${boundPort(proxy)}` },
       { SANDBOX_RUNTIME: '1', HTTP_PROXY: `http://u%:p@127.0.0.1:${boundPort(proxy)}` },
@@ -309,7 +309,7 @@ test('inside the session sandbox a refused loopback post goes through the sandbo
     for (const environment of proxiesThatMustStayUnused) {
       await assert.rejects(runCli(['board'], agentUrl, environment), /fetch failed/, JSON.stringify(environment));
     }
-    assert.equal(proxied.length, 1, 'the token travelled only through the loopback sandbox proxy');
+    assert.equal(proxied.length, 1, 'the token travelled only through the loopback guardrails proxy');
   } finally {
     proxy.closeAllConnections();
     await closeServer(proxy);

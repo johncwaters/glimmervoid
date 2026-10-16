@@ -10,7 +10,7 @@ import { waitFor } from './helpers/wait-for.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import { supervisionLine } from '../session/core/session-routes.ts';
 
-const SUPERVISION_ARGS = ['--append-system-prompt', supervisionLine({ isSandboxed: false })];
+const SUPERVISION_ARGS = ['--append-system-prompt', supervisionLine({ isGuarded: false })];
 
 interface ArgvCall {
   file: string;

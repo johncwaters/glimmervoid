@@ -14,7 +14,7 @@ This file records the state of the Factory lane as of 2026-10-12, so that anothe
   - a separate verifier session that closes the intent.
 - The aim is near-zero intervention. There are no approval clicks; risk is managed by tiered guardrails instead.
 - Everything sits behind the Factory setting, which is off by default. The Focus tab is untouched.
-- Every agent lane gets one shared lockdown: a sandbox role (`server/sandbox/core/sandbox-roles-core.ts`) launched through the one policy builder (`server/sandbox/core/sandbox-policy-core.ts`, with `server/sandbox/sandbox-launch.ts` as its IO shell), which wraps the whole agent process in the sandbox runtime. `server/lanes/work-lane.ts` pairs the work role with dontAsk permissions and a required Sane YOLO hook. Do not add per-lane sandbox patches; extend a role instead. The roles name no factory concepts, so that team review, benchmarks and issues can adopt them.
+- Every agent lane gets one shared lockdown: a guardrails role (`server/guardrails/core/guardrails-roles-core.ts`) launched through the one policy builder (`server/guardrails/core/guardrails-policy-core.ts`, with `server/guardrails/guardrails-launch.ts` as its IO shell), which wraps the whole agent process in the sandbox runtime. `server/lanes/work-lane.ts` pairs the work role with dontAsk permissions and a required Sane YOLO hook. Do not add per-lane guardrails patches; extend a role instead. The roles name no factory concepts, so that team review, benchmarks and issues can adopt them.
 - Security hardening is a separate, later pass. Getting the factory working came first.
 - Self-hosting is gated while the factory is being proven. The factory runs on a clone of glimmervoid whose only `origin` is a local bare staging remote, so every factory merge and ledger landing stops there. The operator promotes accepted work to the real `main` by hand, and the real `main` holds no `coherence.config.json` until the operator lifts the gate.
 - An intent is the factory's guiding star, and it is settled before the factory starts. The operator sharpens a feature into a design spec outside glimmervoid, and the finalized spec is queued as one intent: objective, criteria, risk, boundary and write scopes. A spec goes wholly to the factory or wholly to one dedicated agent session, never split between them.
@@ -65,16 +65,16 @@ The gate is setup, not code. Build it once:
 1. Make the staging remote: `git clone --no-hardlinks --bare --single-branch --branch main <glimmervoid checkout> <staging>.git`, then `git -C <staging>.git remote remove origin`, so that it has no path to GitHub.
 2. Make the clone: `git clone --no-hardlinks <staging>.git <clone>`, then run `npm ci` in the clone so that it has its own install. Nothing in the clone may link into the real checkout, and that goes for every `worktreeShare` entry, not only `node_modules`. The `--no-hardlinks` flag is there because a local clone otherwise shares object files by hard link.
 3. Commit `coherence.config.json` holding `{}` in the clone and push it to the staging remote.
-4. Register the clone as the factory project: in the operator's own instance, its normal home, or in a sandbox instance's `projects` only for a harness gate. The first is the operator's choice alone, made knowing what the gate does not hold.
+4. Register the clone as the factory project: in the operator's own instance, its normal home, or in a guarded instance's `projects` only for a harness gate. The first is the operator's choice alone, made knowing what the gate does not hold.
 
 What the gate holds:
 
 - Everything the factory pushes from the clone, merges and ledger landings alike, reaches the staging remote only.
 - That holds only while the clone shares no files with the real checkout. A link from the clone into the real checkout gives worker-written code a way to write there.
 
-What the gate does not hold. It guards the factory's normal flow, its merges and pushes, and it is not containment of a misbehaving worker. Two holes that used to sit here are closed: sessions now reach a hook listener of their own instead of the dashboard port, and close-out checks run inside a sandbox. What remains is the security pass below, still pending, so a gated intent on the live instance runs beside the operator's live sessions and state, and the operator accepts that until the pass lands.
+What the gate does not hold. It guards the factory's normal flow, its merges and pushes, and it is not containment of a misbehaving worker. Two holes that used to sit here are closed: sessions now reach a hook listener of their own instead of the dashboard port, and close-out checks run inside a guardrails. What remains is the security pass below, still pending, so a gated intent on the live instance runs beside the operator's live sessions and state, and the operator accepts that until the pass lands.
 
-Sandboxed checks need `bwrap`, `socat` and `rg` on PATH on Linux, and a close-out fails when the sandbox cannot start. A check cannot open a unix socket, write outside its checkout and temp folder, or write into the shared `node_modules`, so a suite must pass under those limits before its project can merge through the factory.
+Guarded checks need `bwrap`, `socat` and `rg` on PATH on Linux, and a close-out fails when the guardrails cannot start. A check cannot open a unix socket, write outside its checkout and temp folder, or write into the shared `node_modules`, so a suite must pass under those limits before its project can merge through the factory.
 
 Promotion is the operator's step. In the real checkout, fetch `main` from the staging remote, read the worker commits, and land the accepted ones through the normal commit path. Leave `.coherence/` and `coherence.config.json` behind until the gate is lifted.
 
@@ -82,17 +82,17 @@ Refreshing the clone from the real `main` is unproven. The expected route is to 
 
 ## Remaining work, in order
 
-1. **Gated self-host.** The operator runs real intents against the gated clone and promotes what they accept. On the instance that runs the factory, set `factory.protectedPaths` to cover the factory's own guardrails: `server/factory/factory-closeout.ts`, `server/factory/factory-dispatch.ts`, `server/factory/factory-ledger.ts`, `server/factory/factory-orchestrator.ts`, `server/factory/factory-poller.ts`, `server/factory/factory-verifier.ts`, `server/factory/factory-wiring.ts`, `server/git/git-workspace.ts`, `server/factory/core/factory-core.ts`, `server/git/core/git-invocation-core.ts`, `server/lanes/core/lane-permissions-core.ts`, `server/sandbox/core/sandbox-roles-core.ts`, `server/sandbox/core/sandbox-policy-core.ts`, `server/sandbox/sandbox-launch.ts`, `server/lanes/work-lane.ts`, `shared/contracts/browser-config.ts`, `shared/contracts/factory.ts`, `shared/contracts/coherence.ts`, and the defaults. Each entry is an exact path, a directory ending in `/`, or `**/` plus a file name, and `*` in any of those stands for any run of characters inside one path segment; these are the only shapes that `checkFence` in `server/factory/core/factory-core.ts` matches, and any other glob syntax blocks every change. That way workers cannot loosen their own gates. Factory merges fast-forward source only. The live instance picks them up only when the operator rebuilds and restarts it.
+1. **Gated self-host.** The operator runs real intents against the gated clone and promotes what they accept. On the instance that runs the factory, set `factory.protectedPaths` to cover the factory's own guardrails: `server/factory/factory-closeout.ts`, `server/factory/factory-dispatch.ts`, `server/factory/factory-ledger.ts`, `server/factory/factory-orchestrator.ts`, `server/factory/factory-poller.ts`, `server/factory/factory-verifier.ts`, `server/factory/factory-wiring.ts`, `server/git/git-workspace.ts`, `server/factory/core/factory-core.ts`, `server/git/core/git-invocation-core.ts`, `server/lanes/core/lane-permissions-core.ts`, `server/guardrails/core/guardrails-roles-core.ts`, `server/guardrails/core/guardrails-policy-core.ts`, `server/guardrails/guardrails-launch.ts`, `server/lanes/work-lane.ts`, `shared/contracts/browser-config.ts`, `shared/contracts/factory.ts`, `shared/contracts/coherence.ts`, and the defaults. Each entry is an exact path, a directory ending in `/`, or `**/` plus a file name, and `*` in any of those stands for any run of characters inside one path segment; these are the only shapes that `checkFence` in `server/factory/core/factory-core.ts` matches, and any other glob syntax blocks every change. That way workers cannot loosen their own gates. Factory merges fast-forward source only. The live instance picks them up only when the operator rebuilds and restarts it.
 2. **Spec-fed intents.** The operator's spec tool renders a finalized design spec as one `factory-queue-intent` request, so nothing in glimmervoid has to change for the first run, and the harness queues that request with `--intent-file`. The request carries the spec's units of work as `tickets`, which the factory writes to the ledger when the intent becomes active so no model re-cuts them; a spec-fed run of two dependent tickets passed on the gated clone on 2026-10-12.
 3. **Lifting the gate.** This is the operator's call, made after gated intents have been promoted cleanly. Only then commit `coherence.config.json` (`{}`) to glimmervoid main and point the factory at the real checkout.
-4. **Team review onto a sandbox role**, in its own commit. Benchmarks and issues follow later.
+4. **Team review onto a guardrails role**, in its own commit. Benchmarks and issues follow later.
 5. **Security pass** (all deferred by the operator):
    - `mergeBack` pushes without the integration check.
-   - A repo-level `.claude/settings.json` can widen the sandbox.
+   - A repo-level `.claude/settings.json` can widen the guardrails.
    - A repo-local `core.askPass` can run when `GIT_ASKPASS` is unset.
    - A byte-limited usage pass after catch-up reports spend as `known`, so the budget fails open (`server/usage/core/usage-scan-core.ts`).
    - A config file kept outside the Glimmervoid folder, and the files beside it, stay readable from a lane shell.
-   - The sandbox changes were checked on Linux only; macOS is unverified.
+   - The guardrails changes were checked on Linux only; macOS is unverified.
    - The Windows isolation paths are untested.
 6. **Bugs:**
    - Watch verification writes and breach notifications repeat every tick until a landing succeeds.
@@ -111,12 +111,12 @@ Refreshing the clone from the real `main` is unproven. The expected route is to 
 
 These were checked against Claude Code 2.1.296.
 
-- **Permissions and sandbox:**
+- **Permissions and guardrails:**
   - `dontAsk` denies anything that is not pre-approved and never prompts.
-  - Under `bypassPermissions`, Write and Edit escape the sandbox, which governs Bash only.
+  - Under `bypassPermissions`, Write and Edit escape the guardrails, which governs Bash only.
   - `Edit(//<abs>/**)` bounds edits, and the same rule covers Write, MultiEdit and NotebookEdit.
-  - Run `scripts/probe-sandbox-roles.ts` to re-check the sandbox roles live.
-- **Linked worktrees:** a lane cannot write the shared git dir at all and Glimmervoid commits for workers, because on Linux write denies naming single files inside that folder, or paths in it that do not exist yet, were not a reliable fence and could break git for every other process, while a folder entry holds. Two per-checkout entries remain, the checkout's `.git` pointer file and its `.claude` folder, and both hold even when `.claude` is missing: `scripts/probe-sandbox-roles.ts` attempts a write to each in the worker role, alongside its writes into the shared git dir. Glob `denyWrite` entries are dropped on Linux, so use literal paths.
+  - Run `scripts/probe-guardrails-roles.ts` to re-check the guardrails roles live.
+- **Linked worktrees:** a lane cannot write the shared git dir at all and Glimmervoid commits for workers, because on Linux write denies naming single files inside that folder, or paths in it that do not exist yet, were not a reliable fence and could break git for every other process, while a folder entry holds. Two per-checkout entries remain, the checkout's `.git` pointer file and its `.claude` folder, and both hold even when `.claude` is missing: `scripts/probe-guardrails-roles.ts` attempts a write to each in the worker role, alongside its writes into the shared git dir. Glob `denyWrite` entries are dropped on Linux, so use literal paths.
 - **Network and hooks:**
   - HTTP hooks are blocked by the strict network allowlist unless `allowedDomains` includes `127.0.0.1:<port>`.
   - SessionStart HTTP hooks are skipped regardless.

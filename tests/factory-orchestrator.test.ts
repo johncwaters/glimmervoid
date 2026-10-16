@@ -15,8 +15,8 @@ import { FACTORY_ORCHESTRATOR_ALLOW, FACTORY_ORCHESTRATOR_DENY, createFactoryOrc
 import type { FactoryOrchestratorSession } from '../server/factory/factory-orchestrator.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/lanes/core/lane-permissions-core.ts';
-import type { SandboxRole } from '../server/sandbox/core/sandbox-policy-core.ts';
-import { LANE_CREDENTIAL_ENV } from '../server/sandbox/core/sandbox-roles-core.ts';
+import type { GuardrailsRole } from '../server/guardrails/core/guardrails-policy-core.ts';
+import { LANE_CREDENTIAL_ENV } from '../server/guardrails/core/guardrails-roles-core.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import type { SessionSpawnOverrides } from '../server/session/session-factory.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
@@ -87,7 +87,7 @@ async function createFixture(context: TestContext, commitAndLand: (projectId: st
   const recordedLanes: string[] = [];
   const sessions = new Map<string, StubSession>();
   const exceptionNotices: string[] = [];
-  const preparedRoles: SandboxRole[] = [];
+  const preparedRoles: GuardrailsRole[] = [];
   let saneYoloHookTools: ResolvedHookTool[] | null = [{ id: 'saneYolo', binPath: '/cc-safety-net' }];
   let nowMs = 1_000_000;
   const orchestrator = createFactoryOrchestrator({
@@ -146,8 +146,8 @@ test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a work r
   });
   assert.deepEqual(overrides.hookTools, [{ id: 'saneYolo', binPath: '/cc-safety-net' }]);
   assert.equal(overrides.getHookTools, null);
-  assert.equal(overrides.settingsSandbox, undefined);
-  const preparation = await overrides.prepareSandbox?.({ launchId: 'launch-one', cwd: fixture.ledgerPath, hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: claudeSessionId ?? null });
+  assert.equal(overrides.settingsGuardrails, undefined);
+  const preparation = await overrides.prepareGuardrails?.({ launchId: 'launch-one', cwd: fixture.ledgerPath, hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: claudeSessionId ?? null });
   assert.equal(preparation?.ok, true);
   assert.deepEqual(fixture.preparedRoles, [{
     vendors: ['claude'], vendorHome: { scope: 'launch', cwd: fixture.ledgerPath, agentSessionId: claudeSessionId }, network: { access: 'open' },

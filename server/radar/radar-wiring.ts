@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
 import { Session } from '../../session/sessions.ts';
-import type { SessionOptions, SessionSandboxFacts } from '../../session/sessions.ts';
+import type { SessionOptions, SessionGuardrailsFacts } from '../../session/sessions.ts';
 import { runGh, runGit } from '../git/git-exec.ts';
 import type { ExecFileFn, RunCommandOptions } from '../git/git-exec.ts';
 import { resolveHookTools as resolveSharedHookTools } from '../hook-tools.ts';
@@ -15,8 +15,8 @@ import { appendTrailStep, createInvestigationTrail, trailStepFromHook } from '..
 import type { InvestigationTrail } from '../core/investigation-trail-core.ts';
 import { nulSeparatedPaths } from '../git/core/git-changed-paths-core.ts';
 import * as core from './core/radar-lane-core.ts';
-import type { SandboxRole } from '../sandbox/core/sandbox-policy-core.ts';
-import { LANE_CREDENTIAL_ENV, workRole } from '../sandbox/core/sandbox-roles-core.ts';
+import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
+import { LANE_CREDENTIAL_ENV, workRole } from '../guardrails/core/guardrails-roles-core.ts';
 import type { PosthogIssue } from './core/radar-lane-core.ts';
 import {
   awaitSessionExit, createJobResultFile, readResultFile, registerEphemeralSession,
@@ -35,8 +35,8 @@ import { DEFAULT_POSTHOG_REPORT_DIR } from './radar-report.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { prepareRoleSandbox, readLaneCommonGitDir } from '../lanes/work-lane.ts';
-import type { RoleSandboxDependencies } from '../lanes/work-lane.ts';
+import { prepareRoleGuardrails, readLaneCommonGitDir } from '../lanes/work-lane.ts';
+import type { RoleGuardrailsDependencies } from '../lanes/work-lane.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { createCoalescedTimer } from '../../shared/coalesce-timer.ts';
 
@@ -151,7 +151,7 @@ interface RadarWiringOptions {
   recordLane?: RecordLane | null;
   makeSession?: (options: SessionOptions) => Session;
   resolveHookTools?: typeof resolveSharedHookTools;
-  sandbox?: RoleSandboxDependencies;
+  guardrails?: RoleGuardrailsDependencies;
 }
 
 interface RadarLaneAccess {
@@ -159,7 +159,7 @@ interface RadarLaneAccess {
   commitCheckout: string | null;
 }
 
-async function radarLaneRole(facts: SessionSandboxFacts, { writableRoots, commitCheckout }: RadarLaneAccess): Promise<SandboxRole> {
+async function radarLaneRole(facts: SessionGuardrailsFacts, { writableRoots, commitCheckout }: RadarLaneAccess): Promise<GuardrailsRole> {
   const commitCheckouts = commitCheckout === null ? [] : [{ checkout: commitCheckout, gitDir: await readLaneCommonGitDir(commitCheckout) }];
   return {
     ...workRole({ vendor: 'claude', cwd: facts.cwd, checkout: facts.cwd, readablePaths: facts.readablePaths, agentSessionId: facts.agentSessionId }),
@@ -246,7 +246,7 @@ function buildInvestigationPrompt(
     lines.push(`4. Cross-reference the stack frames against the source at ${repoPath} (read only) to name the failing code.`);
   }
   lines.push(
-    `${repoPath ? 5 : 4}. Write a single self-contained HTML report to ${reportPath}. Use inline CSS only, support a dark dashboard theme, load no external resources, include no <script> tags, no emoji, and no em or en dashes. The report is rendered inside a sandboxed iframe in a dashboard dialog roughly 700px wide. Use clear sections: what breaks, evidence, root cause, suggested fix, and next steps. Write every section in the report style above.`,
+    `${repoPath ? 5 : 4}. Write a single self-contained HTML report to ${reportPath}. Use inline CSS only, support a dark dashboard theme, load no external resources, include no <script> tags, no emoji, and no em or en dashes. The report is rendered inside a guarded iframe in a dashboard dialog roughly 700px wide. Use clear sections: what breaks, evidence, root cause, suggested fix, and next steps. Write every section in the report style above.`,
     `${repoPath ? 6 : 5}. Write the result as JSON to ${resultPath}: {"verdict":"ROOT_CAUSE|NEEDS_HUMAN|TRANSIENT","summary":"<one line>"}.`,
     '   - ROOT_CAUSE: you identified the failing code path with evidence.',
     '   - NEEDS_HUMAN: real and reproducible, but diagnosis needs judgment or access you do not have.',
@@ -494,7 +494,7 @@ function createRadarWiring({
   recordLane = null,
   makeSession = (options: SessionOptions) => new Session(options),
   resolveHookTools = resolveSharedHookTools,
-  sandbox = {},
+  guardrails = {},
 }: RadarWiringOptions) {
   function activePosthogConfig(): RadarLaneConfig & { host: string; apiKey: string } {
     const posthogConfig = config.posthog;
@@ -516,7 +516,7 @@ function createRadarWiring({
       onActivity?: ((trail: InvestigationTrail) => void) | null;
     },
   ): Session {
-    const prepareSandbox = prepareRoleSandbox((facts) => radarLaneRole(facts, access), sandbox);
+    const prepareGuardrails = prepareRoleGuardrails((facts) => radarLaneRole(facts, access), guardrails);
     const sess = makeSession({
       id,
       name,
@@ -528,11 +528,11 @@ function createRadarWiring({
       ephemeral: true,
       observeToolCalls: true,
       settingsPermissions: permissions,
-      spawnEnv: prepareSandbox === null ? spawnEnv : { ...LANE_CREDENTIAL_ENV, ...spawnEnv },
+      spawnEnv: prepareGuardrails === null ? spawnEnv : { ...LANE_CREDENTIAL_ENV, ...spawnEnv },
       replayBufferKB: config.replayBufferKB,
       hookRouter,
       getHookPort,
-      prepareSandbox,
+      prepareGuardrails,
     });
     registerEphemeralSession({
       map: investigationSessions, id, sess, closeSessionDataClients, logPrefix: 'posthog', name, recordLane,

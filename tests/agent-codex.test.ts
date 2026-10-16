@@ -88,26 +88,26 @@ test('buildArgs neutralizes the update prompt, leads with the resume subcommand,
   ]);
 });
 
-test('skip-permissions stops the asking without removing the SANDBOX', () => {
+test('skip-permissions stops the asking without removing the GUARDRAILS', () => {
   const args = codex.buildArgs({ dangerouslySkipPermissions: true });
   assert.equal(args.includes('--dangerously-bypass-approvals-and-sandbox'), false);
   assert.deepEqual(args.slice(-4), ['-a', 'never', '-s', 'workspace-write']);
 });
 
-test('under an outer sandbox the Codex sandbox is off, with or without skip-permissions, because it cannot start inside one', () => {
-  assert.deepEqual(codex.buildArgs({ hasOuterSandbox: true }).slice(-2), ['-s', 'danger-full-access']);
-  assert.deepEqual(codex.buildArgs({ hasOuterSandbox: true, dangerouslySkipPermissions: true }).slice(-4), ['-a', 'never', '-s', 'danger-full-access']);
+test('under outer guardrails the Codex sandbox is off, with or without skip-permissions, because it cannot start inside one', () => {
+  assert.deepEqual(codex.buildArgs({ hasOuterGuardrails: true }).slice(-2), ['-s', 'danger-full-access']);
+  assert.deepEqual(codex.buildArgs({ hasOuterGuardrails: true, dangerouslySkipPermissions: true }).slice(-4), ['-a', 'never', '-s', 'danger-full-access']);
 });
 
 test('buildArgs on a plain session adds the update-check flag, the supervision line and nothing else', () => {
   assert.deepEqual(codex.buildArgs(), ['-c', 'check_for_update_on_startup=false', ...SUPERVISION_ARGS]);
 });
 
-test('a sandboxed Codex launch also reads that a refused write or connection will not succeed on retry', () => {
-  const sandboxedLine = `${SUPERVISION_LINE} Its guardrails are OS-enforced, so a read, write or connection they refuse will not succeed on retry.`;
-  const sandboxedArgs = codex.buildArgs({ hasOuterSandbox: true }).slice(2, 4);
-  assert.deepEqual(sandboxedArgs, ['-c', `developer_instructions='''${sandboxedLine}'''`]);
-  assert.equal(sandboxedArgs[1].includes('"'), false, 'no double quotes reach a cmd.exe re-parse');
+test('a guarded Codex launch also reads that a refused write or connection will not succeed on retry', () => {
+  const guardedLine = `${SUPERVISION_LINE} Its guardrails are OS-enforced, so a read, write or connection they refuse will not succeed on retry.`;
+  const guardedArgs = codex.buildArgs({ hasOuterGuardrails: true }).slice(2, 4);
+  assert.deepEqual(guardedArgs, ['-c', `developer_instructions='''${guardedLine}'''`]);
+  assert.equal(guardedArgs[1].includes('"'), false, 'no double quotes reach a cmd.exe re-parse');
 });
 
 test('a Codex launch whose arguments set developer_instructions gets no supervision line', () => {

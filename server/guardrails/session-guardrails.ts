@@ -1,34 +1,34 @@
 import { mkdir, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { PrepareSessionSandbox, SessionSandboxFacts } from '../../session/sessions.ts';
+import type { PrepareSessionGuardrails, SessionGuardrailsFacts } from '../../session/sessions.ts';
 import { rawTextOr } from '../../shared/coerce.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { execFileAsync } from '../child-process-safe.ts';
 import { repositoryRootOfCommonGitDir } from '../core/claude-trust-core.ts';
-import type { SandboxRole } from './core/sandbox-policy-core.ts';
-import { sessionRole } from './core/sandbox-roles-core.ts';
+import type { GuardrailsRole } from './core/guardrails-policy-core.ts';
+import { sessionRole } from './core/guardrails-roles-core.ts';
 import { expandTilde } from '../usage/core/usage-scan-core.ts';
-import { allowSandboxedSpawn } from './sandbox-deps.ts';
-import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
-import { prepareSandboxLaunch } from './sandbox-launch.ts';
+import { allowGuardedSpawn } from './guardrails-deps.ts';
+import type { GuardrailsSpawnRefusal } from './guardrails-deps.ts';
+import { prepareGuardrailsLaunch } from './guardrails-launch.ts';
 import { existingRealPaths, readGitDirsOfOwnCheckout } from '../lanes/work-lane.ts';
 
-interface SessionSandboxSettings {
+interface SessionGuardrailsSettings {
   blockedPaths: readonly string[];
   unreadablePaths: readonly string[];
 }
 
-interface SessionSandboxRequest {
+interface SessionGuardrailsRequest {
   sessionId: string;
   isWorkspace: boolean;
 }
 
-interface SessionSandboxDependencies {
-  getSettings: () => SessionSandboxSettings;
+interface SessionGuardrailsDependencies {
+  getSettings: () => SessionGuardrailsSettings;
   uploadsRoot: string;
-  sandboxRefusal?: SandboxSpawnRefusal;
-  prepareSandbox?: typeof prepareSandboxLaunch;
+  guardrailsRefusal?: GuardrailsSpawnRefusal;
+  prepareGuardrails?: typeof prepareGuardrailsLaunch;
   trustClaudeFolder?: (folder: string) => Promise<unknown>;
   readGithubToken?: () => Promise<string | null>;
   platform?: NodeJS.Platform;
@@ -37,7 +37,7 @@ interface SessionSandboxDependencies {
   log?: Pick<Console, 'warn'>;
 }
 
-type SessionSandbox = ReturnType<typeof createSessionSandbox>;
+type SessionGuardrails = ReturnType<typeof createSessionGuardrails>;
 
 const UNWRAPPED_PLATFORM = 'win32';
 const GITHUB_TOKEN_TIMEOUT_MS = 5000;
@@ -54,14 +54,14 @@ async function repositoryRootOf(cwd: string): Promise<string | null> {
   return gitDirs === null ? null : repositoryRootOfCommonGitDir(gitDirs.commonGitDir);
 }
 
-function createSessionSandbox({
-  getSettings, uploadsRoot, sandboxRefusal = allowSandboxedSpawn, prepareSandbox = prepareSandboxLaunch, trustClaudeFolder, platform = process.platform,
+function createSessionGuardrails({
+  getSettings, uploadsRoot, guardrailsRefusal = allowGuardedSpawn, prepareGuardrails = prepareGuardrailsLaunch, trustClaudeFolder, platform = process.platform,
   homeDir = os.homedir(), env = process.env, readGithubToken = () => readGithubCliToken(env), log = console,
-}: SessionSandboxDependencies) {
+}: SessionGuardrailsDependencies) {
   const expandHome = (candidates: readonly string[]) => candidates.map((candidate) => expandTilde(candidate.trim(), env, homeDir)).filter(Boolean);
   const githubCliConfigDir = () => rawTextOr(env.GH_CONFIG_DIR, null) ?? path.join(rawTextOr(env.XDG_CONFIG_HOME, null) ?? path.join(homeDir, '.config'), 'gh');
 
-  async function describeSessionAccess(facts: SessionSandboxFacts, { sessionId, isWorkspace }: SessionSandboxRequest): Promise<{ role: SandboxRole; cwd: string; trustFolder: string }> {
+  async function describeSessionAccess(facts: SessionGuardrailsFacts, { sessionId, isWorkspace }: SessionGuardrailsRequest): Promise<{ role: GuardrailsRole; cwd: string; trustFolder: string }> {
     const settings = getSettings();
     const sessionUploads = path.join(uploadsRoot, sessionId);
     await mkdir(sessionUploads, { recursive: true });
@@ -87,14 +87,14 @@ function createSessionSandbox({
     await trustClaudeFolder(folder).catch((error: unknown) => log.warn(`[guardrails] ${errorMessage(error)}`));
   }
 
-  function prepareFor(request: SessionSandboxRequest): PrepareSessionSandbox | null {
+  function prepareFor(request: SessionGuardrailsRequest): PrepareSessionGuardrails | null {
     if (platform === UNWRAPPED_PLATFORM) return null;
     return async (facts) => {
-      const sandboxRefusalReason = sandboxRefusal();
-      if (sandboxRefusalReason !== null) return { ok: false, reason: `${sandboxRefusalReason} ${OPT_OUT_HINT}` };
+      const guardrailsRefusalReason = guardrailsRefusal();
+      if (guardrailsRefusalReason !== null) return { ok: false, reason: `${guardrailsRefusalReason} ${OPT_OUT_HINT}` };
       try {
         const { role, cwd, trustFolder } = await describeSessionAccess(facts, request);
-        const prepared = await prepareSandbox({ role, launchId: facts.launchId, enterDir: cwd });
+        const prepared = await prepareGuardrails({ role, launchId: facts.launchId, enterDir: cwd });
         if (!prepared.ok) return { ok: false, reason: `${prepared.reason}. ${OPT_OUT_HINT}` };
         await recordClaudeFolderTrust(trustFolder);
         const githubToken = await readGithubToken();
@@ -109,5 +109,5 @@ function createSessionSandbox({
   return { prepareFor };
 }
 
-export { createSessionSandbox };
-export type { SessionSandbox };
+export { createSessionGuardrails };
+export type { SessionGuardrails };

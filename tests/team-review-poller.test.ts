@@ -1849,18 +1849,18 @@ test('existing draft priority refreshes when direct requests and CI change', asy
   await poller.stop();
 });
 
-const SANDBOX_REFUSAL = 'not started: the Claude Code sandbox needs bwrap and socat, and socat is not on PATH. Install bubblewrap and socat';
+const GUARDRAILS_REFUSAL = 'not started: the Claude Code sandbox needs bwrap and socat, and socat is not on PATH. Install bubblewrap and socat';
 
 function savedResumableState(): TeamReviewState {
   return { [`${REPO}#1`]: { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000, resumable: RESUMABLE } };
 }
 
-test('a refused sandbox probe starts no review, counts no attempt, writes no draft, keeps the saved resume record and reports the reason', async () => {
+test('a refused guardrails probe starts no review, counts no attempt, writes no draft, keeps the saved resume record and reports the reason', async () => {
   const discarded: string[] = [];
   const { poller, github, spawned, statuses } = setup({
     readState: async () => savedResumableState(),
     discardResumable: async (record) => { discarded.push(record.sessionId); },
-    sandboxRefusal: () => SANDBOX_REFUSAL,
+    guardrailsRefusal: () => GUARDRAILS_REFUSAL,
   });
   github.requested = [searchItem(1, 'teammate'), searchItem(2, 'teammate')];
   github.heads.set(1, HEAD_ONE);
@@ -1876,14 +1876,14 @@ test('a refused sandbox probe starts no review, counts no attempt, writes no dra
   assert.equal(poller.getDraft(`${REPO}#1`), null);
   assert.equal(poller._state()[`${REPO}#2`], undefined);
   const latest = TeamReviewStatus.parse(statuses.at(-1));
-  assert.equal(latest.reason, SANDBOX_REFUSAL);
+  assert.equal(latest.reason, GUARDRAILS_REFUSAL);
   assert.equal(latest.error, null);
   assert.deepEqual(latest.queued, []);
   assert.deepEqual(latest.drafts, []);
   await poller.stop();
 });
 
-test('after a boot whose sandbox probe passes, held reviews start and the saved one resumes', async () => {
+test('after a boot whose guardrails probe passes, held reviews start and the saved one resumes', async () => {
   const { poller, github, spawned, statuses } = setup({ readState: async () => savedResumableState() });
   github.requested = [searchItem(1, 'teammate'), searchItem(2, 'teammate')];
   github.heads.set(1, HEAD_ONE);

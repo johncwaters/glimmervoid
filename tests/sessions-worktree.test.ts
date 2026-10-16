@@ -1939,7 +1939,7 @@ test('checkWorktreeChange demotes a byte-identical park (lost-FF reproduction, e
 
 test('behind is measured against the integration branch, not a stale upstream', { skip: !GIT }, async (t) => {
   let repo: string;
-  try { repo = initStaleUpstream({ diverge: true }); } catch { t.skip('cannot configure an upstream in this sandbox'); return; }
+  try { repo = initStaleUpstream({ diverge: true }); } catch { t.skip('cannot configure an upstream under these guardrails'); return; }
   const s = makeSession({ integrationBranch: 'develop' });
   const statuses: CallArgs[] = [];
   s.on('merge-status', (e) => statuses.push(e.mergeStatus));
@@ -1958,7 +1958,7 @@ test('behind is measured against the integration branch, not a stale upstream', 
 
 test('marker authority ignores a stale feature upstream after integration contains the commits', { skip: !GIT }, async (t) => {
   let repo: string;
-  try { repo = initStaleUpstream({ landFeat: true }); } catch { t.skip('cannot configure an upstream in this sandbox'); return; }
+  try { repo = initStaleUpstream({ landFeat: true }); } catch { t.skip('cannot configure an upstream under these guardrails'); return; }
 
   const gw = fakeGitWorkspace({ mergeKeepResult: { merged: false, reason: 'nothing-to-commit' } });
   const s = makeSession({ integrationBranch: 'develop', gitWorkspace: gw });

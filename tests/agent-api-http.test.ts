@@ -196,12 +196,12 @@ interface WiringFixtureOptions {
   makeSessionThrowsFirst?: boolean;
   laneSessions?: Session[];
   holdSpawnGate?: boolean;
-  parentIsSandboxed?: boolean;
+  parentIsGuarded?: boolean;
 }
 
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
-  holdSpawnGate = false, parentIsSandboxed = false, factory,
+  holdSpawnGate = false, parentIsGuarded = false, factory,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -211,7 +211,7 @@ function wiringFixture({
     path: process.cwd(),
     dangerouslySkipPermissions: parentSkipsPermissions,
     ptySpawn: () => fakePty(),
-    prepareSandbox: parentIsSandboxed ? async () => ({ ok: false, reason: 'never launched' }) : null,
+    prepareGuardrails: parentIsGuarded ? async () => ({ ok: false, reason: 'never launched' }) : null,
   });
   const created: Session[] = [];
   const childProjects: ProjectEntry[] = [];
@@ -370,10 +370,10 @@ test('factory CLI and HTTP verbs reach the injected digest and retry deps only f
 });
 
 test('a valid spawn creates exactly one sibling that may not spawn again', async () => {
-  const fixture = wiringFixture({ parentIsSandboxed: true });
+  const fixture = wiringFixture({ parentIsGuarded: true });
   try {
-    const unsandboxed = await fixture.spawn(fixture.parent, { prompt: 'review the diff', agent: 'codex' });
-    assert.deepEqual([unsandboxed.status, fixture.created.length], [403, 0], 'a sandboxed parent cannot name an agent that runs outside the sandbox');
+    const unguarded = await fixture.spawn(fixture.parent, { prompt: 'review the diff', agent: 'codex' });
+    assert.deepEqual([unguarded.status, fixture.created.length], [403, 0], 'a guarded parent cannot name an agent that runs outside the guardrails');
     const reply = await fixture.spawn(fixture.parent, { prompt: 'review the diff' });
     assert.equal(reply.status, 200);
     assert.equal(reply.body.ok, true);
@@ -525,7 +525,7 @@ test('a spawned child reaches the dashboard as one session-added card', async ()
       skipPerms: true,
       saneYolo: false,
       worktree: fixture.parent.isWorktree,
-      sandboxed: false,
+      guarded: false,
       resumeSessionId: null,
       ephemeral: true,
     });
@@ -606,7 +606,7 @@ test('the shared session card projection carries exactly the session-added paylo
     skipPerms: true,
     saneYolo: false,
     worktree: false,
-    sandboxed: false,
+    guarded: false,
     resumeSessionId: null,
     ephemeral: true,
   });
@@ -676,12 +676,12 @@ test('a lane session is refused a spawn and an attention note with the reason, a
 });
 
 test('limits tells a session which commands answer, and a guarded operator session what its guardrails block with the route that still works', async () => {
-  const fixture = wiringFixture({ parentIsSandboxed: true });
-  const sandboxedLane = new Session({
+  const fixture = wiringFixture({ parentIsGuarded: true });
+  const guardedLane = new Session({
     id: 'review-lane', name: 'review', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty(),
-    prepareSandbox: async () => ({ ok: false, reason: 'never launched' }),
+    prepareGuardrails: async () => ({ ok: false, reason: 'never launched' }),
   });
-  const unconfined = new Session({ id: 'unconfined', name: 'unconfined', path: process.cwd(), ptySpawn: () => fakePty() });
+  const unguarded = new Session({ id: 'unguarded', name: 'unguarded', path: process.cwd(), ptySpawn: () => fakePty() });
   const limitsOf = async (session: Session) => {
     const reply = await fixture.wiring.handle(session, 'limits', {});
     assert.equal(reply.status, 200);
@@ -693,27 +693,27 @@ test('limits tells a session which commands answer, and a guarded operator sessi
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
       ...['spawn', 'attention', 'board', 'edit'].map((name) => ({ name, answers: true })),
     ]);
-    assert.equal(operatorLimits.sandboxed, true);
+    assert.equal(operatorLimits.guarded, true);
     assert.deepEqual(operatorLimits.deadEnds.map(({ route }) => route), ['flag the operator with glimmervoid attention']);
-    const laneLimits = await limitsOf(sandboxedLane);
+    const laneLimits = await limitsOf(guardedLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [['push', false], ['spawn', false], ['attention', false], ['board', true], ['edit', false]]);
-    assert.deepEqual([laneLimits.sandboxed, laneLimits.deadEnds], [true, []]);
+    assert.deepEqual([laneLimits.guarded, laneLimits.deadEnds], [true, []]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],
-      [sandboxedLane, laneLimits, 'push', {}],
-      [sandboxedLane, laneLimits, 'spawn', { prompt: 'help me' }],
-      [sandboxedLane, laneLimits, 'attention', { note: 'look' }],
-      [sandboxedLane, laneLimits, 'edit', { path: 'notes.md' }],
+      [guardedLane, laneLimits, 'push', {}],
+      [guardedLane, laneLimits, 'spawn', { prompt: 'help me' }],
+      [guardedLane, laneLimits, 'attention', { note: 'look' }],
+      [guardedLane, laneLimits, 'edit', { path: 'notes.md' }],
     ];
     for (const [session, limits, command, payload] of refusedCalls) {
       const refusal = await fixture.wiring.handle(session, command, payload);
       assert.equal(refusal.body.error, limits.commands.find(({ name }) => name === command)?.reason, `${command} is refused for the reason limits gave`);
     }
-    const unconfinedLimits = await limitsOf(unconfined);
-    assert.deepEqual([unconfinedLimits.sandboxed, unconfinedLimits.deadEnds], [false, []]);
+    const unguardedLimits = await limitsOf(unguarded);
+    assert.deepEqual([unguardedLimits.guarded, unguardedLimits.deadEnds], [false, []]);
   } finally {
-    sandboxedLane.destroy();
-    unconfined.destroy();
+    guardedLane.destroy();
+    unguarded.destroy();
     fixture.destroyAll();
   }
 });

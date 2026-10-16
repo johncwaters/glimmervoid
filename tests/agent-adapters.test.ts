@@ -72,8 +72,8 @@ test('buildArgs keeps the order: perms, resume, supervision line, lane flags, pr
   assert.deepEqual(claudeCode.buildArgs(), SUPERVISION_ARGS, 'a plain user session adds the supervision line and nothing else');
 });
 
-test('a sandboxed Claude launch also reads that a refused write or connection will not succeed on retry', () => {
-  assert.deepEqual(claudeCode.buildArgs({ hasOuterSandbox: true }), [
+test('a guarded Claude launch also reads that a refused write or connection will not succeed on retry', () => {
+  assert.deepEqual(claudeCode.buildArgs({ hasOuterGuardrails: true }), [
     '--append-system-prompt',
     `${SUPERVISION_LINE} Its guardrails are OS-enforced, so a read, write or connection they refuse will not succeed on retry.`,
   ]);
@@ -86,7 +86,7 @@ test('a Claude launch that already appends its own system prompt gets no supervi
     ['--append-system-prompt-file', '/tmp/prompt.md'],
     ['--append-system-prompt-file=/tmp/prompt.md'],
   ]) {
-    assert.deepEqual(claudeCode.buildArgs({ extraArgs, hasOuterSandbox: true }), extraArgs, extraArgs[0]);
+    assert.deepEqual(claudeCode.buildArgs({ extraArgs, hasOuterGuardrails: true }), extraArgs, extraArgs[0]);
   }
 });
 

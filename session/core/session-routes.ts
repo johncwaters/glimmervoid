@@ -19,7 +19,7 @@ interface SessionRoleFacts {
 type SessionKindFacts = Omit<SessionRoleFacts, 'hasOwnWorktree'>;
 
 interface SessionLimitFacts extends SessionRoleFacts {
-  isSandboxed: boolean;
+  isGuarded: boolean;
 }
 
 type RouteVerdict = { answers: true } | { answers: false; reason: string };
@@ -31,8 +31,8 @@ type SessionDeadEnd = SessionLimits['deadEnds'][number];
 
 const ANSWERS: { answers: true } = Object.freeze({ answers: true });
 
-function supervisionLine({ isSandboxed }: { isSandboxed: boolean }): string {
-  if (!isSandboxed) return SUPERVISION_LINE;
+function supervisionLine({ isGuarded }: { isGuarded: boolean }): string {
+  if (!isGuarded) return SUPERVISION_LINE;
   return `${SUPERVISION_LINE} ${GUARDRAILS_LINE}`;
 }
 
@@ -102,8 +102,8 @@ function commandLimit(name: SessionCommand, facts: SessionRoleFacts): SessionCom
   return { name, answers: false, reason: verdict.reason };
 }
 
-function runsUnderOperatorSessionSandbox({ isSandboxed, isEphemeral, isSpawnedChild }: SessionLimitFacts): boolean {
-  if (!isSandboxed) return false;
+function runsUnderOperatorSessionGuardrails({ isGuarded, isEphemeral, isSpawnedChild }: SessionLimitFacts): boolean {
+  if (!isGuarded) return false;
   return !isEphemeral || isSpawnedChild;
 }
 
@@ -117,14 +117,14 @@ const OPERATOR_SESSION_GUARDRAIL_DEAD_ENDS: readonly SessionDeadEnd[] = Object.f
 function describeSessionLimits(facts: SessionLimitFacts): SessionLimits {
   return {
     commands: SESSION_COMMANDS.map((name) => commandLimit(name, facts)),
-    sandboxed: facts.isSandboxed,
-    deadEnds: runsUnderOperatorSessionSandbox(facts) ? [...OPERATOR_SESSION_GUARDRAIL_DEAD_ENDS] : [],
+    guarded: facts.isGuarded,
+    deadEnds: runsUnderOperatorSessionGuardrails(facts) ? [...OPERATOR_SESSION_GUARDRAIL_DEAD_ENDS] : [],
   };
 }
 
-function formatSessionLimits({ commands, sandboxed, deadEnds }: SessionLimits): string[] {
+function formatSessionLimits({ commands, guarded, deadEnds }: SessionLimits): string[] {
   const commandLines = commands.map(({ name, answers, reason }) => (answers ? `  ${name}: available` : `  ${name}: not available, ${reason}`));
-  if (!sandboxed) return ['This session:', ...commandLines, '  guardrails: none'];
+  if (!guarded) return ['This session:', ...commandLines, '  guardrails: none'];
   return [
     'This session:',
     ...commandLines,

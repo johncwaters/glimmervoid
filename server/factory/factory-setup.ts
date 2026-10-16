@@ -10,8 +10,8 @@ import { contentMarker } from '../visions/core/visions-dispatch-core.ts';
 import { parseCheckCommand, redactSecretLines } from './core/factory-core.ts';
 import { classifyFactorySetupCheck, decideFactorySetupProof, detectFactorySetup } from './core/factory-setup-core.ts';
 import type { FactorySetupCheckProof, FactorySetupProposal, FactorySetupResult } from './core/factory-setup-core.ts';
-import { runChecksInCleanCheckout } from './factory-check-sandbox.ts';
-import type { PrepareFactoryCheckRunner } from './factory-check-sandbox.ts';
+import { runChecksInCleanCheckout } from './factory-check-guardrails.ts';
+import type { PrepareFactoryCheckRunner } from './factory-check-guardrails.ts';
 import { runFactoryStructuredAgent } from './factory-closeout.ts';
 
 interface FactorySetupDeps {

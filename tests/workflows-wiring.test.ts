@@ -19,7 +19,7 @@ function spawnAction(): PlannedWorkflowAction & { action: { type: 'spawn'; promp
   return { rule: { id: 'triage', name: 'Triage' }, action: { type: 'spawn', promptTemplate: 'Triage {{url}}' }, event: { trigger: 'opened', pr: OPENED_PR, addedReviewRequests: [] } };
 }
 
-test('a spawn action stages the pull request, writes the filled prompt, runs one sandboxed session and cleans up', async () => {
+test('a spawn action stages the pull request, writes the filled prompt, runs one guarded session and cleans up', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workflows-spawn-'));
   const calls: string[] = [];
   let promptText = '';
@@ -295,13 +295,13 @@ test('queued workflow spawns launch only while workflows and their rule stay on,
   }
 });
 
-test('a spawn action refuses with the sandbox reason in the workflows log before staging when the cached sandbox probe found binaries missing', async () => {
+test('a spawn action refuses with the guardrails reason in the workflows log before staging when the cached guardrails probe found binaries missing', async () => {
   const warnings: string[] = [];
   const calls: string[] = [];
   const spawn = createWorkflowSpawn({
     workRoot: '/unused',
     log: { warn: (message) => { warnings.push(message); } },
-    sandboxRefusal: () => 'not started: the Claude Code sandbox needs bwrap and socat, and bwrap is not on PATH. Install bubblewrap and socat',
+    guardrailsRefusal: () => 'not started: the Claude Code sandbox needs bwrap and socat, and bwrap is not on PATH. Install bubblewrap and socat',
     makeWorkDir: async () => { calls.push('workdir'); return { dir: '/unused/work', cleanup: async () => {} }; },
     staging: {
       stageCheckout: async () => { calls.push('stage'); return { projectPath: '/cache/acme-app', baseSha: 'b'.repeat(40) }; },

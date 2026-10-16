@@ -9,14 +9,14 @@ import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../s
 import type { Config } from '../../shared/contracts/config.ts';
 import { CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
 import { FactoryReviewVerdict } from '../../shared/contracts/factory.ts';
-import { factoryFailureText as failureText, prepareSandboxedCheckRunner, runChecksInCleanCheckout } from './factory-check-sandbox.ts';
-import type { FactoryCheckoutRun, PrepareFactoryCheckRunner } from './factory-check-sandbox.ts';
+import { factoryFailureText as failureText, prepareGuardedCheckRunner, runChecksInCleanCheckout } from './factory-check-guardrails.ts';
+import type { FactoryCheckoutRun, PrepareFactoryCheckRunner } from './factory-check-guardrails.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
-import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, FACTORY_TICKET_BLOCK_CAP, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, isInheritedCheckFailure, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseFactoryStructuredOutput, planScopeNeedRecovery, redactSecretLines, reviewerOutputTail, withIntentScopeNeeds, withTicketBlockCount } from './core/factory-core.ts';
+import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, FACTORY_TICKET_BLOCK_CAP, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, isInheritedCheckFailure, findWorkerCommitRefusal, listStagedGuardrailsPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseFactoryStructuredOutput, planScopeNeedRecovery, redactSecretLines, reviewerOutputTail, withIntentScopeNeeds, withTicketBlockCount } from './core/factory-core.ts';
 import { resolveFactoryProfile } from './core/factory-profile-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
-import { SANDBOX_PLACEHOLDER_NAMES } from '../sandbox/core/sandbox-policy-core.ts';
+import { GUARDRAILS_PLACEHOLDER_NAMES } from '../guardrails/core/guardrails-policy-core.ts';
 import { nulSeparatedPaths } from '../git/core/git-changed-paths-core.ts';
 import { prepareHardenedGitCommand, runHardenedGit } from '../git/git-workspace.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
@@ -61,7 +61,7 @@ function createMemoryScopeNeedRecorder(): FactoryScopeNeedRecorder {
 
 type FactoryWorkerSession = Pick<Session, 'destroy' | 'pasteTextWhenReady' | 'write' | '_destroyed'>
   & Partial<Pick<Session, 'id' | 'worktreeDir' | 'baseSha' | 'mergeWorktree'>>
-  & { _sandboxLaunch?: Pick<NonNullable<Session['_sandboxLaunch']>, 'env'> | null };
+  & { _guardrailsLaunch?: Pick<NonNullable<Session['_guardrailsLaunch']>, 'env'> | null };
 
 export interface FactoryCloseOutWorker {
   workId: string;
@@ -184,7 +184,7 @@ export async function runFactoryReview(options: Omit<FactoryStructuredAgentOptio
 
 export function createFactoryCloseOut({
   config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger, runCoherence, commitAndLand, readIntegrationSha, recordFactoryLandedSha, readPaused, readIntentFloorAllowances = async () => [],
-  countTicketBlock = createMemoryCapCounter(), trustVerification, notifyOrchestrator, setException, clearException = () => {}, recordDecision = async () => {}, recordConfirmedFlakes = () => {}, recordScopeNeeds = createMemoryScopeNeedRecorder(), onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareSandboxedCheckRunner,
+  countTicketBlock = createMemoryCapCounter(), trustVerification, notifyOrchestrator, setException, clearException = () => {}, recordDecision = async () => {}, recordConfirmedFlakes = () => {}, recordScopeNeeds = createMemoryScopeNeedRecorder(), onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareGuardedCheckRunner,
 }: FactoryCloseOutDeps) {
   const reviewing = new Set<string>();
   const attempts = new Map<string, number>();
@@ -207,7 +207,7 @@ export function createFactoryCloseOut({
   }
 
   async function probeUncommittedWorkPaths(cwd: string): Promise<string[]> {
-    return listUncommittedWorkPaths(await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=all']), SANDBOX_PLACEHOLDER_NAMES);
+    return listUncommittedWorkPaths(await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=all']), GUARDRAILS_PLACEHOLDER_NAMES);
   }
 
   async function isIgnoredInProject(projectPath: string, sharedEntry: string): Promise<boolean> {
@@ -229,15 +229,15 @@ export function createFactoryCloseOut({
     return ignoredSharedEntries;
   }
 
-  async function stageWorkerTreeInSandbox(cwd: string, indexDirectory: string, stagingIndexFile: string): Promise<void> {
+  async function stageWorkerTreeInGuardrails(cwd: string, indexDirectory: string, stagingIndexFile: string): Promise<void> {
     const objectsDirectory = (await runGit(cwd, ['rev-parse', '--path-format=absolute', '--git-path', 'objects'])).replace(/\r?\n$/, '');
     const gitOptions = { cwd, env: checkEnv(), timeout: 30_000, maxBuffer: 16 * 1024 * 1024 };
     const stagingCommand = await prepareHardenedGitCommand(['-C', cwd, 'add', '--all', '--', ...WORK_OUTSIDE_LEDGER_PATHSPECS], { ...gitOptions, indexFile: stagingIndexFile });
-    const stagingSandbox = await prepareCheckRunner({ scratchParent: indexDirectory, writablePaths: [indexDirectory, objectsDirectory], readablePaths: [cwd] });
+    const stagingGuardrails = await prepareCheckRunner({ scratchParent: indexDirectory, writablePaths: [indexDirectory, objectsDirectory], readablePaths: [cwd] });
     try {
-      await stagingSandbox.runCheck(['git', ...stagingCommand.args], { ...gitOptions, cwd: indexDirectory, env: stagingCommand.env, signal: reviewController.signal });
+      await stagingGuardrails.runCheck(['git', ...stagingCommand.args], { ...gitOptions, cwd: indexDirectory, env: stagingCommand.env, signal: reviewController.signal });
     } finally {
-      await stagingSandbox.dispose();
+      await stagingGuardrails.dispose();
     }
   }
 
@@ -249,13 +249,13 @@ export function createFactoryCloseOut({
       const stagingIndexFile = path.join(indexDirectory, 'index');
       const headSha = (await runGit(cwd, ['rev-parse', 'HEAD'])).trim();
       await runGit(cwd, ['read-tree', headSha], stagingIndexFile);
-      await stageWorkerTreeInSandbox(cwd, indexDirectory, stagingIndexFile);
+      await stageWorkerTreeInGuardrails(cwd, indexDirectory, stagingIndexFile);
       const readStagedChanges = async () => {
         const tree = (await runGit(cwd, ['write-tree'], stagingIndexFile)).trim();
         return { tree, rawDiff: await runGit(cwd, ['diff', '--raw', '--no-renames', '--no-abbrev', '--ignore-submodules=none', '-z', headSha, tree]) };
       };
       const stagedWithPlaceholders = await readStagedChanges();
-      const placeholderPaths = listStagedSandboxPlaceholders(stagedWithPlaceholders.rawDiff, SANDBOX_PLACEHOLDER_NAMES);
+      const placeholderPaths = listStagedGuardrailsPlaceholders(stagedWithPlaceholders.rawDiff, GUARDRAILS_PLACEHOLDER_NAMES);
       if (placeholderPaths.length > 0) await runGit(cwd, ['update-index', '--force-remove', '--', ...placeholderPaths], stagingIndexFile);
       const { tree: stagedTree, rawDiff: stagedChanges } = placeholderPaths.length > 0 ? await readStagedChanges() : stagedWithPlaceholders;
       if (!stagedChanges) {
@@ -274,7 +274,7 @@ export function createFactoryCloseOut({
   }
 
   async function writeFailedCheckOutputFile(worker: FactoryCloseOutWorker, outputText: string): Promise<string | null> {
-    const workerTempDirectory = worker.session._sandboxLaunch?.env.CLAUDE_CODE_TMPDIR;
+    const workerTempDirectory = worker.session._guardrailsLaunch?.env.CLAUDE_CODE_TMPDIR;
     if (!workerTempDirectory) return null;
     const outputPath = path.join(workerTempDirectory, `failed-check-${crypto.randomUUID()}.log`);
     await writeTextAtomic(outputPath, outputText, { mode: 0o600 });

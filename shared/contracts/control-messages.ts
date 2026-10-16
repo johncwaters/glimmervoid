@@ -76,7 +76,7 @@ export const SessionCardFields = z.object({
   saneYolo: z.boolean(),
   worktree: z.boolean(),
   workspace: z.boolean().optional(),
-  sandboxed: z.boolean().optional(),
+  guarded: z.boolean().optional(),
   resumeSessionId: nullableString,
   ephemeral: z.boolean().optional(),
   linkedPrs: z.array(LinkedPr).optional(),

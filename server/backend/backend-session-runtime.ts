@@ -12,9 +12,9 @@ import { createRtkInstallWiring } from '../rtk-install-wiring.ts';
 import { resolveHookTools } from '../hook-tools.ts';
 import { createClaudeFolderTrust } from '../claude-trust.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
-import type { SandboxSpawnRefusal } from '../sandbox/sandbox-deps.ts';
+import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 import { createSessionFactory } from '../session/session-factory.ts';
-import { createSessionSandbox } from '../sandbox/session-sandbox.ts';
+import { createSessionGuardrails } from '../guardrails/session-guardrails.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { cliPath } from '../runtime-paths.ts';
 import { createSshSigner, installCommitSigningShim } from '../ssh-signing.ts';
@@ -27,7 +27,7 @@ interface BackendSessionRuntimeDependencies {
   getBroadcastControl: () => ControlBroadcast | null;
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
-  sandboxRefusal: SandboxSpawnRefusal;
+  guardrailsRefusal: GuardrailsSpawnRefusal;
 }
 
 function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependencies) {
@@ -70,7 +70,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     getPlanReviewPort: dependencies.getPlanReviewPort || (() => null),
     resolveHookTools: (config, options) => resolveHookTools(config, { ...options, warn: dependencies.logger.warn.bind(dependencies.logger) }),
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
-    sessionSandbox: createSessionSandbox({
+    sessionGuardrails: createSessionGuardrails({
       getSettings: () => {
         const { guardrails } = dependencies.configStore.config;
         return {
@@ -79,7 +79,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
         };
       },
       uploadsRoot: configSiblingPath(dependencies.configStore.configPath, 'uploads'),
-      sandboxRefusal: dependencies.sandboxRefusal,
+      guardrailsRefusal: dependencies.guardrailsRefusal,
       trustClaudeFolder: createClaudeFolderTrust().ensureTrusted,
       log: dependencies.logger,
     }),

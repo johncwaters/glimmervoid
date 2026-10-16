@@ -60,7 +60,7 @@ export const SessionSnapshot = z.object({
   ephemeral: z.boolean(),
   isWorktree: z.boolean(),
   isWorkspace: z.boolean().default(false),
-  isSandboxed: z.boolean().default(false),
+  isGuarded: z.boolean().default(false),
   resumeSessionId: z.string().nullable(),
   activeAgents: z.number().int().nonnegative(),
   awaitingBackgroundTasks: z.boolean(),
@@ -175,7 +175,7 @@ export const SessionLimits = z.object({
     answers: z.boolean(),
     reason: z.string().optional(),
   }).strict()),
-  sandboxed: z.boolean(),
+  guarded: z.boolean(),
   deadEnds: z.array(z.object({ blocked: z.string(), route: z.string() }).strict()),
 }).strict();
 

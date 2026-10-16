@@ -1,11 +1,11 @@
 import path from 'node:path';
 import { isPathInside } from '../../../shared/paths.ts';
-import type { SandboxRole } from './sandbox-policy-core.ts';
+import type { GuardrailsRole } from './guardrails-policy-core.ts';
 
-type SandboxRoleVendor = SandboxRole['vendors'][number];
+type GuardrailsRoleVendor = GuardrailsRole['vendors'][number];
 
 interface JudgeRoleFacts {
-  vendor: SandboxRoleVendor;
+  vendor: GuardrailsRoleVendor;
   cwd: string;
   hookPort: number | null;
   readablePaths: readonly string[];
@@ -13,7 +13,7 @@ interface JudgeRoleFacts {
 }
 
 interface WorkRoleFacts {
-  vendor: SandboxRoleVendor;
+  vendor: GuardrailsRoleVendor;
   cwd: string;
   checkout: string;
   readablePaths: readonly string[];
@@ -28,15 +28,15 @@ interface SessionRoleFacts {
   blockedPaths: readonly string[];
 }
 
-interface SessionConfinementFacts {
+interface SessionGuardrailsFacts {
   usageVendor: string | null;
-  isMarkedUnconfined: boolean;
+  isMarkedUnguarded: boolean;
   sessionFolders: readonly string[];
-  unconfinedRepos: readonly string[];
+  unguardedRepos: readonly string[];
 }
 
-const SESSION_VENDORS: readonly SandboxRoleVendor[] = Object.freeze(['claude', 'codex']);
-const CONFINED_SESSION_VENDORS: readonly string[] = Object.freeze(['claude']);
+const SESSION_VENDORS: readonly GuardrailsRoleVendor[] = Object.freeze(['claude', 'codex']);
+const GUARDED_SESSION_VENDORS: readonly string[] = Object.freeze(['claude']);
 
 const LANE_CREDENTIAL_ENV: Readonly<Record<string, string>> = Object.freeze({
   SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0',
@@ -45,7 +45,7 @@ const LANE_CREDENTIAL_ENV: Readonly<Record<string, string>> = Object.freeze({
 
 const LANE_READABLE_HOME_FOLDERS: readonly string[] = Object.freeze(['bin', path.join('factory', 'bin')]);
 
-function judgeRole({ vendor, cwd, hookPort, readablePaths, agentSessionId }: JudgeRoleFacts): SandboxRole {
+function judgeRole({ vendor, cwd, hookPort, readablePaths, agentSessionId }: JudgeRoleFacts): GuardrailsRole {
   return {
     vendors: [vendor],
     vendorHome: { scope: 'launch', cwd, agentSessionId },
@@ -58,7 +58,7 @@ function judgeRole({ vendor, cwd, hookPort, readablePaths, agentSessionId }: Jud
   };
 }
 
-function workRole({ vendor, cwd, checkout, readablePaths, writablePaths = [], agentSessionId }: WorkRoleFacts): SandboxRole {
+function workRole({ vendor, cwd, checkout, readablePaths, writablePaths = [], agentSessionId }: WorkRoleFacts): GuardrailsRole {
   return {
     vendors: [vendor],
     vendorHome: { scope: 'launch', cwd, agentSessionId },
@@ -71,7 +71,7 @@ function workRole({ vendor, cwd, checkout, readablePaths, writablePaths = [], ag
   };
 }
 
-function sessionRole({ writableRoots, readDenied, readablePaths, blockedPaths }: SessionRoleFacts): SandboxRole {
+function sessionRole({ writableRoots, readDenied, readablePaths, blockedPaths }: SessionRoleFacts): GuardrailsRole {
   return {
     guardrailLevel: 'standard',
     blockedPaths: [...blockedPaths],
@@ -86,14 +86,14 @@ function sessionRole({ writableRoots, readDenied, readablePaths, blockedPaths }:
   };
 }
 
-function isConfinedSessionVendor(usageVendor: string | null): boolean {
-  return usageVendor !== null && CONFINED_SESSION_VENDORS.includes(usageVendor);
+function isGuardedSessionVendor(usageVendor: string | null): boolean {
+  return usageVendor !== null && GUARDED_SESSION_VENDORS.includes(usageVendor);
 }
 
-function isSessionConfined({ usageVendor, isMarkedUnconfined, sessionFolders, unconfinedRepos }: SessionConfinementFacts): boolean {
-  if (isMarkedUnconfined) return false;
-  if (!isConfinedSessionVendor(usageVendor)) return false;
-  return !sessionFolders.some((folder) => unconfinedRepos.some((repo) => isPathInside(repo, folder)));
+function isSessionGuarded({ usageVendor, isMarkedUnguarded, sessionFolders, unguardedRepos }: SessionGuardrailsFacts): boolean {
+  if (isMarkedUnguarded) return false;
+  if (!isGuardedSessionVendor(usageVendor)) return false;
+  return !sessionFolders.some((folder) => unguardedRepos.some((repo) => isPathInside(repo, folder)));
 }
 
 function parseGitdirPointer(gitFileText: string): string | null {
@@ -106,7 +106,7 @@ function isWorktreeAdminDirOf({ adminDir, commonGitDir }: { adminDir: string; co
 }
 
 export {
-  isConfinedSessionVendor, isSessionConfined, isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, sessionRole,
+  isGuardedSessionVendor, isSessionGuarded, isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, sessionRole,
   workRole,
 };
 export type { SessionRoleFacts };

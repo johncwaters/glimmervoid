@@ -33,7 +33,7 @@ How sessions start, where projects are found, and what the dashboard shows for t
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `autoResume` | Auto-resume sessions on startup | `true` | Resume conversations that were live when Glimmervoid last shut down or crashed, and tell sessions that were mid-turn to continue. |
-| `conversationView` | Conversation view (experimental) | `false` | Let each Claude Code and Codex session turn on a Conversation face from its card menu, which renders the transcript as messages, approvals and a composer. Sessions stay on the terminal until you turn it on for them. A Claude Code session started while this is on can answer its permission prompts and questions there. A Codex session connects on its next start, through a local app-server so approvals can be answered from the dashboard; sandboxed Codex sessions and those that bypass Codex hook trust keep the terminal only. |
+| `conversationView` | Conversation view (experimental) | `false` | Let each Claude Code and Codex session turn on a Conversation face from its card menu, which renders the transcript as messages, approvals and a composer. Sessions stay on the terminal until you turn it on for them. A Claude Code session started while this is on can answer its permission prompts and questions there. A Codex session connects on its next start, through a local app-server so approvals can be answered from the dashboard; guarded Codex sessions and those that bypass Codex hook trust keep the terminal only. |
 | `streamerMode` | Streamer mode | `false` | Hide sensitive details in the dashboard while screen sharing or streaming. |
 | `repoRoots` | Repository roots | `[]` | Directories scanned for projects when adding sessions. |
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
@@ -144,7 +144,7 @@ Draft reviews of teammates' pull requests for you to post from the Reviews tab.
 | `teamReview.skipIdleAfterDays` | Skip PRs idle for | `14` | Leave pull requests without GitHub activity for this long out of automatic review. |
 | `teamReview.skill` | Review skill | `""` | Name of a Claude Code skill installed for the review agent, for example your own PR review skill. Leave empty to let the agent review with whatever skills it has. |
 | `teamReview.autoRebaseMyPrs` | Keep my pull requests rebased | `false` | On each poll, rebase your open, non-draft pull requests that are behind their base branch. A pull request with conflicts or checks still running is left alone, and a failed rebase is not retried until you push again. |
-| `teamReview.keepMergeableEnabled` | Keep mergeable | `true` | Offer Keep mergeable on your pull requests: a sandboxed agent repairs conflicts and failing checks and pushes the repair. Off hides the control and starts no repair; the pull requests you chose stay chosen for when you turn it back on. |
+| `teamReview.keepMergeableEnabled` | Keep mergeable | `true` | Offer Keep mergeable on your pull requests: a guarded agent repairs conflicts and failing checks and pushes the repair. Off hides the control and starts no repair; the pull requests you chose stay chosen for when you turn it back on. |
 | `teamReview.keepMergeableTimeoutMinutes` | Keep mergeable deadline | `30` | Longest a Keep mergeable repair session may run before it is stopped and nothing is pushed. |
 | `teamReview.mergeQueueEnabled` | Merge when ready | `true` | Offer Merge when ready on your pull requests: queued pull requests are rebased when behind and merged once ready, one per repository per poll. Off hides the control and merges nothing; the queue is kept for when you turn it back on. |
 | `teamReview.org` | GitHub organization (legacy) | `""` | Organization login that owns the team, for example PostHog. Read only when github.teams is empty. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
@@ -315,7 +315,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `board` read it. Not an operator setting. |
 | `GLIMMERVOID_CODEX_REMOTE_TOKEN` | internal | Set by Glimmervoid in the environment of a Codex session that runs through its local app-server (Conversation view); the Codex TUI sends it as the bearer token to that app-server. Not an operator setting. |
 | `GLIMMERVOID_SIGN_URL` | internal | Set by Glimmervoid in each operator session environment; `glimmervoid ssh-sign`, which git runs to sign a commit, posts there so the server signs with the operator's forwarded ssh agent. Not an operator setting. |
-| `GLIMMERVOID_HOOK_VIA_SANDBOX_PROXY` | internal | Set by Glimmervoid inside a sandbox whose network is a domain list, so the hook relays post through the sandbox proxy and nowhere else. Not an operator setting. |
+| `GLIMMERVOID_HOOK_VIA_GUARDRAILS_PROXY` | internal | Set by Glimmervoid inside guardrails whose network is a domain list, so the hook relays post through the guardrails proxy and nowhere else. Not an operator setting. |
 
 ## Telemetry
 

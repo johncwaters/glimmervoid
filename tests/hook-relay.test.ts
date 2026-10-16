@@ -13,7 +13,7 @@ import {
   resolveHookTarget,
   decideRelayPost,
 } from '../session/core/hook-relay-core.ts';
-import { HOOK_VIA_SANDBOX_PROXY_ENV } from '../session/core/sandbox-proxy-core.ts';
+import { HOOK_VIA_GUARDRAILS_PROXY_ENV } from '../session/core/guardrails-proxy-core.ts';
 const BASE = 'http://127.0.0.1:41234/hook/sess-1?t=deadbeef';
 
 interface IngressRequest {
@@ -178,25 +178,25 @@ test('nothing listening still exits 0', async () => {
   assert.equal(result.code, 0);
 });
 
-test('a hook post goes through the sandbox proxy exactly when the launch marked it, and is refused when that proxy is missing', async () => {
+test('a hook post goes through the guardrails proxy exactly when the launch marked it, and is refused when that proxy is missing', async () => {
   const ingress = await startIngress();
-  const sandboxProxy = await startIngress();
+  const guardrailsProxy = await startIngress();
   const hookUrl = `http://127.0.0.1:${ingress.port}/hook/sess-9?t=tok9`;
-  const sandboxProxyUrl = `http://sandbox%3Dname:secret@127.0.0.1:${sandboxProxy.port}`;
-  const markedHookEnv = { [HOOK_URL_ENV]: hookUrl, [HOOK_VIA_SANDBOX_PROXY_ENV]: '1' };
+  const guardrailsProxyUrl = `http://guardrails%3Dname:secret@127.0.0.1:${guardrailsProxy.port}`;
+  const markedHookEnv = { [HOOK_URL_ENV]: hookUrl, [HOOK_VIA_GUARDRAILS_PROXY_ENV]: '1' };
   try {
-    const proxied = await main(['Stop'], fakeStdin('{"a":1}'), { ...markedHookEnv, SANDBOX_RUNTIME: '1', HTTP_PROXY: sandboxProxyUrl });
+    const proxied = await main(['Stop'], fakeStdin('{"a":1}'), { ...markedHookEnv, SANDBOX_RUNTIME: '1', HTTP_PROXY: guardrailsProxyUrl });
     assert.equal(proxied.reason, 'status-200');
-    assert.deepEqual(sandboxProxy.received, [{
+    assert.deepEqual(guardrailsProxy.received, [{
       method: 'POST',
       url: `http://127.0.0.1:${ingress.port}/hook/sess-9/stop?t=tok9`,
       body: '{"a":1}',
       contentType: 'application/json',
-      proxyAuthorization: `Basic ${Buffer.from('sandbox=name:secret').toString('base64')}`,
+      proxyAuthorization: `Basic ${Buffer.from('guardrails=name:secret').toString('base64')}`,
     }]);
-    assert.equal(ingress.received.length, 0, 'a listener on the hook port inside the sandbox received the marked post');
+    assert.equal(ingress.received.length, 0, 'a listener on the hook port inside the guardrails received the marked post');
 
-    const direct = await main(['Stop'], fakeStdin('{"b":2}'), { [HOOK_URL_ENV]: hookUrl, SANDBOX_RUNTIME: '1', HTTP_PROXY: sandboxProxyUrl });
+    const direct = await main(['Stop'], fakeStdin('{"b":2}'), { [HOOK_URL_ENV]: hookUrl, SANDBOX_RUNTIME: '1', HTTP_PROXY: guardrailsProxyUrl });
     assert.equal(direct.reason, 'status-200');
     assert.deepEqual(ingress.received, [{
       method: 'POST',
@@ -205,20 +205,20 @@ test('a hook post goes through the sandbox proxy exactly when the launch marked 
       contentType: 'application/json',
       proxyAuthorization: undefined,
     }]);
-    assert.equal(sandboxProxy.received.length, 1, 'an unmarked post went through an ambient loopback proxy');
+    assert.equal(guardrailsProxy.received.length, 1, 'an unmarked post went through an ambient loopback proxy');
 
-    const environmentsWithoutSandboxProxy: Record<string, string>[] = [
+    const environmentsWithoutGuardrailsProxy: Record<string, string>[] = [
       { SANDBOX_RUNTIME: '1', HTTP_PROXY: 'http://proxy.example.com:8080' },
-      { HTTP_PROXY: sandboxProxyUrl },
+      { HTTP_PROXY: guardrailsProxyUrl },
     ];
-    for (const environment of environmentsWithoutSandboxProxy) {
+    for (const environment of environmentsWithoutGuardrailsProxy) {
       const refused = await main(['Stop'], fakeStdin('{}'), { ...markedHookEnv, ...environment });
-      assert.equal(refused.reason, 'sandbox-proxy-missing', JSON.stringify(environment));
+      assert.equal(refused.reason, 'guardrails-proxy-missing', JSON.stringify(environment));
     }
-    assert.equal(sandboxProxy.received.length, 1);
+    assert.equal(guardrailsProxy.received.length, 1);
     assert.equal(ingress.received.length, 1);
   } finally {
     ingress.server.close();
-    sandboxProxy.server.close();
+    guardrailsProxy.server.close();
   }
 });

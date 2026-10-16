@@ -100,15 +100,15 @@ test('the Bash PR link matcher stays on with wakeup detection off and shares the
   }]);
 });
 
-test('a sandbox block is written verbatim as the top-level sandbox key and is absent when none is given', () => {
-  const base = { port: 3000, glimmervoidId: 'sandboxed', token: 'tok' };
-  const sandbox = { enabled: true, network: { strictAllowlist: true, allowedDomains: ['api.openai.com'] } };
-  const settings = buildHookSettings({ ...base, sandbox, permissions: { deny: ['WebFetch'] } });
-  assert.deepEqual(settings.sandbox, sandbox);
+test('a guardrails block is written verbatim as the top-level Claude Code sandbox key and is absent when none is given', () => {
+  const base = { port: 3000, glimmervoidId: 'guarded', token: 'tok' };
+  const guardrails = { enabled: true, network: { strictAllowlist: true, allowedDomains: ['api.openai.com'] } };
+  const settings = buildHookSettings({ ...base, guardrails, permissions: { deny: ['WebFetch'] } });
+  assert.deepEqual(settings.sandbox, guardrails);
   assert.deepEqual(settings.permissions, { deny: ['WebFetch'] });
   assert.ok(settings.hooks.Stop, 'the hooks stay in the same file');
   assert.equal('sandbox' in buildHookSettings(base), false);
-  assert.equal('sandbox' in buildHookSettings({ ...base, sandbox: null }), false);
+  assert.equal('sandbox' in buildHookSettings({ ...base, guardrails: null }), false);
 });
 
 test('allow rules are written beside deny rules and the mode, and no permissions key appears without any', () => {

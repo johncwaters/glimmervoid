@@ -205,7 +205,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
             try {
               posture.scopeWorktree({ worktreeDir, branch, base });
             } catch (error) {
-              setException(projectId, `Factory worker sandbox could not be scoped to its worktree: ${errorMessage(error)}`);
+              setException(projectId, `Factory worker guardrails could not be scoped to its worktree: ${errorMessage(error)}`);
               worker.destroy();
             }
           });

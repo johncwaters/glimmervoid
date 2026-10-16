@@ -14,8 +14,8 @@ import { nodePtyRebuildHint } from '../server/core/node-pty-preflight-core.ts';
 import { firstLine } from '../server/core/text-core.ts';
 import { errorText } from '../shared/text.ts';
 import { probeNodePty } from '../server/node-pty-preflight.ts';
-import { sandboxDoctorRows } from '../server/sandbox/core/sandbox-deps-core.ts';
-import { probeSandboxDependencies } from '../server/sandbox/sandbox-deps.ts';
+import { guardrailsDoctorRows } from '../server/guardrails/core/guardrails-deps-core.ts';
+import { probeGuardrailsDependencies } from '../server/guardrails/guardrails-deps.ts';
 import { gitDoctorRows } from '../server/git/core/git-version-core.ts';
 import { probeGitVersion } from '../server/git/git-version.ts';
 import { packageRoot } from '../server/runtime-paths.ts';
@@ -292,8 +292,8 @@ async function runDoctor(): Promise<void> {
     line('hint', nodePtyRebuildHint(platform));
   }
 
-  switchSection('Sandbox');
-  for (const [label, value] of sandboxDoctorRows(probeSandboxDependencies({ platform, exec: execSync }))) line(label, value);
+  switchSection('Guardrails');
+  for (const [label, value] of guardrailsDoctorRows(probeGuardrailsDependencies({ platform, exec: execSync }))) line(label, value);
 
   switchSection('Git');
   for (const [label, value] of gitDoctorRows(probeGitVersion())) line(label, value);

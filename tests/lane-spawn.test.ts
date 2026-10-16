@@ -4,13 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../server/lanes/core/lane-permissions-core.ts';
-import { LANE_CREDENTIAL_ENV } from '../server/sandbox/core/sandbox-roles-core.ts';
+import { LANE_CREDENTIAL_ENV } from '../server/guardrails/core/guardrails-roles-core.ts';
 import { createLaneSpawn } from '../server/lanes/lane-spawn.ts';
 import { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS } from '../server/factory/factory-closeout.ts';
 import { THREAD_JUDGE_TOOLS } from '../server/github/team-review-thread-judge.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
-import type { SandboxRole } from '../server/sandbox/core/sandbox-policy-core.ts';
+import type { GuardrailsRole } from '../server/guardrails/core/guardrails-policy-core.ts';
 
 async function spawnedOptions(allowTools: readonly string[] | undefined, hasHookRouter: boolean): Promise<SessionOptions> {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-lane-spawn-test-'));
@@ -42,19 +42,19 @@ function toolsArgument(options: SessionOptions): string | undefined {
   return index === -1 ? undefined : args[index + 1];
 }
 
-test('the thread judge allow list reaches the sandboxed session as --tools Read,Write with and without a hook router', async () => {
+test('the thread judge allow list reaches the guarded session as --tools Read,Write with and without a hook router', async () => {
   for (const hasHookRouter of [true, false]) {
     const options = await spawnedOptions(THREAD_JUDGE_TOOLS, hasHookRouter);
     assert.equal(toolsArgument(options), 'Read,Write', `hookRouter: ${hasHookRouter}`);
-    assert.equal(typeof options.prepareSandbox, 'function');
+    assert.equal(typeof options.prepareGuardrails, 'function');
     assert.equal((options.extraClaudeArgs ?? []).includes('--settings'), !hasHookRouter);
   }
 });
 
-test('a sandboxed lane refuses to spawn with the reason when the sandbox cannot start', async () => {
+test('a guarded lane refuses to spawn with the reason when the guardrails cannot start', async () => {
   const spawnLane = createLaneSpawn({
-    laneName: 'lane-spawn-test', platform: 'linux', sandboxRefusal: () => 'bwrap is missing',
-    createSession: () => assert.fail('a lane that cannot be sandboxed must not spawn'),
+    laneName: 'lane-spawn-test', platform: 'linux', guardrailsRefusal: () => 'bwrap is missing',
+    createSession: () => assert.fail('a lane that cannot be guarded must not spawn'),
   });
   await assert.rejects(spawnLane({ id: 'lane-spawn-refused', name: 'Lane spawn test', prompt: 'Synthetic prompt', cwd: os.tmpdir() }), /bwrap is missing/);
 });
@@ -126,17 +126,17 @@ test('a failed standalone settings write removes its directory without construct
 });
 
 
-test('factory reviewer spawns wrapped in the judge sandbox role with its prompt file readable, structured output and a selectable model', async () => {
+test('factory reviewer spawns wrapped in the judge guardrails role with its prompt file readable, structured output and a selectable model', async () => {
   for (const hasHookRouter of [true, false]) {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'factory-review-spawn-'));
     const captured: SessionOptions[] = [];
     const createdSessions: Session[] = [];
     const chunks: string[] = [];
-    const preparedRoles: SandboxRole[] = [];
+    const preparedRoles: GuardrailsRole[] = [];
     const promptFile = path.join(path.dirname(cwd), 'prompt.txt');
     try {
       const spawnReviewer = createLaneSpawn({
-        prepareSandbox: async ({ role }) => { preparedRoles.push(role); return { ok: false, reason: 'synthetic' }; },
+        prepareGuardrails: async ({ role }) => { preparedRoles.push(role); return { ok: false, reason: 'synthetic' }; },
         laneName: 'factory', platform: 'linux', getHookPort: () => 3911, allowTools: FACTORY_REVIEWER_TOOLS, settingsPermissions: FACTORY_REVIEWER_PERMISSIONS, spawnEnv: FACTORY_REVIEWER_SPAWN_ENV,
         hookRouter: hasHookRouter ? { register: () => {}, unregister: () => {} } : null,
         createSession: (options) => {
@@ -173,8 +173,8 @@ test('factory reviewer spawns wrapped in the judge sandbox role with its prompt 
       assert.equal(args[args.indexOf('--setting-sources') + 1], 'project,local');
       assert.deepEqual(chunks, ['{"type":"result"}']);
       assert.deepEqual(options.spawnEnv, { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '0', ...LANE_CREDENTIAL_ENV });
-      assert.equal(options.settingsSandbox ?? null, null);
-      await options.prepareSandbox?.({ launchId: 'launch-one', cwd, hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: 'agent-session-one' });
+      assert.equal(options.settingsGuardrails ?? null, null);
+      await options.prepareGuardrails?.({ launchId: 'launch-one', cwd, hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: 'agent-session-one' });
       assert.deepEqual(preparedRoles, [{
         vendors: ['claude'], vendorHome: { scope: 'launch', cwd, agentSessionId: 'agent-session-one' }, network: { access: 'allowlist', domains: [], hookPort: 3911 },
         writableRoots: [cwd], lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: ['/hook/settings', promptFile],

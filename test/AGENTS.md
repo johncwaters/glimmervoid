@@ -25,8 +25,8 @@ Manual smoke tests and harnesses run directly with `node`, separate from the aut
 | `factory/supervisor.ts` | Watches the harness pid and ends the server process group once the harness is gone |
 | `factory/control.ts` | Control records and read-only terminal capture |
 | `factory/records.ts` | Durable decision, recording and git evidence |
-| `factory/preflight.ts` | Sandbox prerequisites, the per-checkout batch lock and one build per batch |
-| `factory/check-sandbox.ts` | Runs a command in the factory close-out sandbox against HEAD or a working-tree overlay |
+| `factory/preflight.ts` | Guardrails prerequisites, the per-checkout batch lock and one build per batch |
+| `factory/check-guardrails.ts` | Runs a command in the factory close-out guardrails against HEAD or a working-tree overlay |
 | `smoke-dormant-boot.ts` | Boots the backend in-process, verifies dormant-by-default boot and the start-session control flow |
 | `probe-codex-session.ts` | Live verification of the Codex adapter against a real `codex` binary: boots the backend on a throwaway config and drives one supervised session through spawn, working, awaiting-input, approval, complete and resume. Costs one real codex turn; leaves a recording the replay fixtures are cut from |
 | `browser/harness.ts` | Headless-Chromium dashboard matrix: boots Vite plus the backend on a throwaway config, substitutes a fake agent via a PATH shim, drives every viewport through scripted steps, and writes screenshots, diffs and a report an agent can read. Linux and macOS only, since the shim is a POSIX `sh` script: it exits 2 on Windows |

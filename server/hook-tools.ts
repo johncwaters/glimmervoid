@@ -55,7 +55,7 @@ function rtkHookTool(binPath: string, warn: (message: string) => void): Resolved
     const dataDir = ensureDataDir(rtkDataDir());
     return dataDir === null ? { id: 'rtk', binPath } : { id: 'rtk', binPath, dataDir };
   } catch (error) {
-    warnOnce('rtkDataDir', `[rtk] The rtk data folder could not be created: ${String(error)}. Sandboxed sessions will run rtk without savings tracking.`, warn);
+    warnOnce('rtkDataDir', `[rtk] The rtk data folder could not be created: ${String(error)}. Guarded sessions will run rtk without savings tracking.`, warn);
     return { id: 'rtk', binPath };
   }
 }

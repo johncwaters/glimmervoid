@@ -6,8 +6,8 @@ Lane spawning: the ephemeral judge lanes and the interactive work lane, with the
 
 | File | Rule |
 |------|------|
-| `lane-spawn.ts` | Ephemeral lane spawn on the lane-permissions seam; every lane is wrapped in the judge sandbox role (`server/sandbox/core/sandbox-roles-core.ts`), bar Windows |
-| `work-lane.ts` | Interactive work lane (factory worker and orchestrator): the work sandbox role plus dontAsk permissions and a required Sane YOLO hook; refuses on Windows |
+| `lane-spawn.ts` | Ephemeral lane spawn on the lane-permissions seam; every lane is wrapped in the judge guardrails role (`server/guardrails/core/guardrails-roles-core.ts`), bar Windows |
+| `work-lane.ts` | Interactive work lane (factory worker and orchestrator): the work guardrails role plus dontAsk permissions and a required Sane YOLO hook; refuses on Windows |
 
 ## Invariants
 

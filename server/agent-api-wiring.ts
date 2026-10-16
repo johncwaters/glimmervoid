@@ -16,7 +16,7 @@ import {
   describeUnavailableFactoryState, formatFactoryStatus, parseAgentVerb,
 } from './core/agent-api-core.ts';
 import { buildFactoryIntentDigest } from './factory/core/factory-core.ts';
-import { isConfinedSessionVendor } from './sandbox/core/sandbox-roles-core.ts';
+import { isGuardedSessionVendor } from './guardrails/core/guardrails-roles-core.ts';
 import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session/session-factory.ts';
@@ -78,8 +78,8 @@ function createAgentApiWiring({
       return { ok: false, status: 400, error: `unknown agent ${request.agent}` };
     }
     const agentId = request.agent || parent.agentId;
-    if (parent.isConfined && !isConfinedSessionVendor(getAdapter(agentId)?.usageVendor ?? null)) {
-      return { ok: false, status: 403, error: `a sandboxed session can only spawn a sandboxed agent, and ${agentId} does not run inside the sandbox` };
+    if (parent.isGuarded && !isGuardedSessionVendor(getAdapter(agentId)?.usageVendor ?? null)) {
+      return { ok: false, status: 403, error: `a guarded session can only spawn a guarded agent, and ${agentId} does not run inside the guardrails` };
     }
 
     const name = deriveChildSessionName(request.name || parent.name, listAllSessions().map((session) => session.name));
@@ -89,7 +89,7 @@ function createAgentApiWiring({
       name,
       path: parent.path,
       dangerouslySkipPermissions: parent.dangerouslySkipPermissions,
-      unguarded: !parent.isConfined,
+      unguarded: !parent.isGuarded,
     };
 
     let child: Session | null = null;
@@ -166,7 +166,7 @@ function createAgentApiWiring({
   }
 
   function limits(session: Session): AgentLimitsReply {
-    return { ok: true, ...describeSessionLimits({ ...roleFactsOf(session), isSandboxed: session.isConfined }) };
+    return { ok: true, ...describeSessionLimits({ ...roleFactsOf(session), isGuarded: session.isGuarded }) };
   }
 
   async function push(session: Session): Promise<AgentApiReply> {

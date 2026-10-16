@@ -13,7 +13,7 @@ import { buildCoherenceShims, buildCoherenceUserHooks } from '../server/core/coh
 import type { FactoryCloseOutWorker } from '../server/factory/factory-closeout.ts';
 import { createFactoryDispatch } from '../server/factory/factory-dispatch.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/lanes/core/lane-permissions-core.ts';
-import type { SandboxRole } from '../server/sandbox/core/sandbox-policy-core.ts';
+import type { GuardrailsRole } from '../server/guardrails/core/guardrails-policy-core.ts';
 import type { LaneSpend } from '../server/usage/core/usage-scan-core.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { cliPath, resolvePackageBin } from '../server/runtime-paths.ts';
@@ -57,7 +57,7 @@ async function createFixture(context: TestContext) {
   const exceptions = new Map<string, string>();
   const spawnEnvs: Record<string, string | undefined>[] = [];
   const spawnArguments: string[][] = [];
-  const preparedRoles: SandboxRole[] = [];
+  const preparedRoles: GuardrailsRole[] = [];
   const factory = createSessionFactory({ configStore: { configPath: path.join(directory, 'config.json') },
     hookRouter: new HookRouter(), getHookPort: () => 12345, getGitWorkspace: () => gitWorkspace, getPlanReviewPort: () => null,
     resolveHookTools: () => [], getUserHooks: () => [] });
@@ -138,7 +138,7 @@ test('dispatch hands off and activates at the integration tip, then provisions a
     deny: ['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', 'Edit(**/.git/**)', 'Edit(**/.claude/**)'] });
   const privateHome = await lanePrivateHome();
   const sessionHookFolder = path.join(privateHome, 'scratch', 'glimmervoid-hooks', reply.sessionId);
-  assert.equal(overrides.settingsSandbox, undefined);
+  assert.equal(overrides.settingsGuardrails, undefined);
   assert.equal(fixture.preparedRoles.length, 1);
   const workerRole = fixture.preparedRoles[0];
   assert.ok(workerRole.readableWithinDenied.includes(sessionHookFolder));
@@ -206,12 +206,12 @@ test('dispatch gives workers the project profile checks and focused test command
   assert.equal(overrides.initialPrompt?.includes('global-check'), false);
 });
 
-test('the session factory wraps an ordinary Claude session unless it is marked unconfined, and leaves a caller\'s own sandbox choice alone', () => {
+test('the session factory wraps an ordinary Claude session unless it is marked unguarded, and leaves a caller\'s own guardrails choice alone', () => {
   const wrappedSessionIds: string[] = [];
   const makeSession = createSessionFactory({ configStore: { configPath: path.join(os.tmpdir(), 'config.json') },
     hookRouter: new HookRouter(), getHookPort: () => 12345, getGitWorkspace: () => null, getPlanReviewPort: () => null,
     resolveHookTools: () => [], getUserHooks: () => [],
-    sessionSandbox: { prepareFor: ({ sessionId }) => { wrappedSessionIds.push(sessionId); return async () => ({ ok: false, reason: 'never launched' }); } } });
+    sessionGuardrails: { prepareFor: ({ sessionId }) => { wrappedSessionIds.push(sessionId); return async () => ({ ok: false, reason: 'never launched' }); } } });
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, projects: [], guardrails: { unguardedRepos: [path.resolve('/work/dotfiles')] } };
   const project = (id: string, extra: Partial<ProjectEntry> = {}): ProjectEntry => ({ id, name: id, path: path.resolve('/work/app'), ...extra });
   const sessions = [
@@ -219,10 +219,10 @@ test('the session factory wraps an ordinary Claude session unless it is marked u
     makeSession(project('marked', { unguarded: true }), config),
     makeSession(project('listed', { path: path.resolve('/work/dotfiles/nvim') }), config),
     makeSession(project('codex', { agent: 'codex' }), config),
-    makeSession(project('lane'), config, { prepareSandbox: null }),
+    makeSession(project('lane'), config, { prepareGuardrails: null }),
   ];
   try {
-    assert.deepEqual(sessions.map((session) => session.isConfined), [true, false, false, false, false]);
+    assert.deepEqual(sessions.map((session) => session.isGuarded), [true, false, false, false, false]);
     assert.deepEqual(wrappedSessionIds, ['ordinary']);
   } finally {
     for (const session of sessions) session.destroy();

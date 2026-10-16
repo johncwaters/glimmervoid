@@ -20,13 +20,13 @@ import { createJsonStateStore } from '../json-file.ts';
 import { drainPending, firstLine, raceWithAbort } from '../lanes/ephemeral-session.ts';
 import type { CommandResult } from '../git/git-exec.ts';
 import { emptyGhConfigDir, hooksPathPinnedSpawnEnv, makeTeamReviewWorkDir, sweepLeftoverCheckouts } from './team-review-wiring.ts';
-import { judgeRole } from '../sandbox/core/sandbox-roles-core.ts';
-import type { SandboxRole } from '../sandbox/core/sandbox-policy-core.ts';
-import type { SessionSandboxFacts } from '../../session/sessions.ts';
+import { judgeRole } from '../guardrails/core/guardrails-roles-core.ts';
+import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
+import type { SessionGuardrailsFacts } from '../../session/sessions.ts';
 import type { TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSpawn } from './team-review-wiring.ts';
 import type { TeamReviewReapOptions } from './team-review-reaper.ts';
-import { allowSandboxedSpawn } from '../sandbox/sandbox-deps.ts';
-import type { SandboxSpawnRefusal } from '../sandbox/sandbox-deps.ts';
+import { allowGuardedSpawn } from '../guardrails/guardrails-deps.ts';
+import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 import { CommitSha } from '../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
@@ -100,9 +100,9 @@ export async function sweepKeepMergeableLeftovers({ workRoot, repoCache, gitWork
   for (const projectPath of cachedClones) await deleteHandoffRefs(projectPath, runGit, log);
 }
 
-type SandboxedPr = Pick<MyPr, 'key' | 'repo' | 'number' | 'baseRefName' | 'headRefOid'>;
+type GuardedPr = Pick<MyPr, 'key' | 'repo' | 'number' | 'baseRefName' | 'headRefOid'>;
 
-interface SandboxedPrStagingOptions {
+interface GuardedPrStagingOptions {
   spawnSession: TeamReviewSpawn;
   repoCache: Pick<TeamReviewRepoCache, 'ensureRepo' | 'fetchPr' | 'hydrateRange'>;
   describeRole?: DescribePrRole;
@@ -116,24 +116,24 @@ function keepMergeableSpawnEnv(workDir: string): Record<string, string> {
   return { ...hooksPathPinnedSpawnEnv(workDir), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' };
 }
 
-type DescribePrRole = (facts: SessionSandboxFacts, cachedClone: string) => SandboxRole;
+type DescribePrRole = (facts: SessionGuardrailsFacts, cachedClone: string) => GuardrailsRole;
 
-export function confinedPrRole(facts: SessionSandboxFacts, cachedClone: string): SandboxRole {
+export function guardedPrRole(facts: SessionGuardrailsFacts, cachedClone: string): GuardrailsRole {
   return judgeRole({ vendor: 'claude', cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId, readablePaths: [...facts.readablePaths, cachedClone] });
 }
 
-export function keepMergeableRole(facts: SessionSandboxFacts, cachedClone: string): SandboxRole {
-  return { ...confinedPrRole(facts, cachedClone), network: { access: 'open' } };
+export function keepMergeableRole(facts: SessionGuardrailsFacts, cachedClone: string): GuardrailsRole {
+  return { ...guardedPrRole(facts, cachedClone), network: { access: 'open' } };
 }
 
 function defaultSessionTimeoutSeconds(): number {
   return core.DEFAULT_KEEP_MERGEABLE_TIMEOUT_MINUTES * 60;
 }
 
-export function createSandboxedPrStaging({
-  spawnSession, repoCache, describeRole = confinedPrRole, runGit = runTrustedGit, timeoutSeconds = defaultSessionTimeoutSeconds, setTimeoutFn, clearTimeoutFn,
-}: SandboxedPrStagingOptions) {
-  async function stageCheckout(pr: SandboxedPr, workDir: string, signal: AbortSignal): Promise<{ projectPath: string; baseSha: string } | { error: string }> {
+export function createGuardedPrStaging({
+  spawnSession, repoCache, describeRole = guardedPrRole, runGit = runTrustedGit, timeoutSeconds = defaultSessionTimeoutSeconds, setTimeoutFn, clearTimeoutFn,
+}: GuardedPrStagingOptions) {
+  async function stageCheckout(pr: GuardedPr, workDir: string, signal: AbortSignal): Promise<{ projectPath: string; baseSha: string } | { error: string }> {
     const stopped = { error: 'stopped' };
     const projectPath = await repoCache.ensureRepo(pr.repo);
     if (signal.aborted) return stopped;
@@ -185,7 +185,7 @@ export function createSandboxedPrStaging({
           spawnEnv: keepMergeableSpawnEnv(workDir),
           extraClaudeArgs: core.keepMergeableClaudeArgs(),
           settingsPermissions: core.keepMergeablePermissions(),
-          sandboxRole: (facts) => describeRole(facts, cachedClone),
+          guardrailsRole: (facts) => describeRole(facts, cachedClone),
           signal: sessionSignal, initialPrompt,
         }).then((): KeepMergeableSessionOutcome => (sessionSignal.aborted ? 'stopped' : 'finished'));
       },
@@ -223,11 +223,11 @@ async function forwardedSigningAgentEnv(projectPath: string, runGit: KeepMergeab
 
 export function createMyPrMergeabilityFix({
   spawnSession, repoCache, workRoot, makeWorkDir = makeTeamReviewWorkDir, runGit = runTrustedGit, log = console,
-  timeoutSeconds = defaultSessionTimeoutSeconds, setTimeoutFn, clearTimeoutFn, sandboxRefusal = allowSandboxedSpawn,
+  timeoutSeconds = defaultSessionTimeoutSeconds, setTimeoutFn, clearTimeoutFn, guardrailsRefusal = allowGuardedSpawn,
   signingAgentEnv = (projectPath: string, signal: AbortSignal) => forwardedSigningAgentEnv(projectPath, runGit, signal),
-}: SandboxedPrStagingOptions & {
+}: GuardedPrStagingOptions & {
   workRoot: string;
-  sandboxRefusal?: SandboxSpawnRefusal;
+  guardrailsRefusal?: GuardrailsSpawnRefusal;
   signingAgentEnv?: (projectPath: string, signal: AbortSignal) => Promise<Record<string, string>>;
   makeWorkDir?: typeof makeTeamReviewWorkDir;
   log?: Pick<Console, 'log' | 'warn'>;
@@ -238,7 +238,7 @@ export function createMyPrMergeabilityFix({
     warn(pr, message);
     return { outcome, reason: firstLine(message) };
   }
-  const { stageCheckout, runSession } = createSandboxedPrStaging({ spawnSession, repoCache, describeRole: keepMergeableRole, runGit, timeoutSeconds, setTimeoutFn, clearTimeoutFn });
+  const { stageCheckout, runSession } = createGuardedPrStaging({ spawnSession, repoCache, describeRole: keepMergeableRole, runGit, timeoutSeconds, setTimeoutFn, clearTimeoutFn });
 
   async function changedPaths(projectPath: string, fromSha: string, toSha: string, diffFilterArgs: string[] = []): Promise<string[] | null> {
     const changed = await runGit(['diff', '--name-only', '-z', '--no-renames', ...diffFilterArgs, fromSha, toSha], projectPath);
@@ -328,8 +328,8 @@ export function createMyPrMergeabilityFix({
     if (signal.aborted) return stopped;
     const target = core.keepMergeablePushTarget(pr, latestListedPr());
     if (!target.push) return reportRepairFailure(pr, `not started: ${target.reason}`);
-    const sandboxRefusalReason = sandboxRefusal();
-    if (sandboxRefusalReason !== null) return reportRepairFailure(pr, sandboxRefusalReason);
+    const guardrailsRefusalReason = guardrailsRefusal();
+    if (guardrailsRefusalReason !== null) return reportRepairFailure(pr, guardrailsRefusalReason);
     const workDir = await makeWorkDir(workRoot, pr.key);
     const handoffRef = `${KEEP_MERGEABLE_HANDOFF_REF_PREFIX}${pr.number}-${randomUUID()}`;
     let projectPath: string | null = null;

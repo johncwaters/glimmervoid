@@ -12,14 +12,14 @@ import { getAdapter } from '../../session/adapters/index.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
-import { isSessionConfined } from '../sandbox/core/sandbox-roles-core.ts';
+import { isSessionGuarded } from '../guardrails/core/guardrails-roles-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
 import { expandTilde } from '../usage/core/usage-scan-core.ts';
-import type { SessionSandbox } from '../sandbox/session-sandbox.ts';
+import type { SessionGuardrails } from '../guardrails/session-guardrails.ts';
 import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
-  'requireWorktree' | 'gitWorkspace' | 'gitIsolation' | 'settingsPermissions' | 'settingsSandbox' | 'prepareSandbox' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'factoryRole' | 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
+  'requireWorktree' | 'gitWorkspace' | 'gitIsolation' | 'settingsPermissions' | 'settingsGuardrails' | 'prepareGuardrails' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'factoryRole' | 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };
@@ -30,7 +30,7 @@ interface SessionFactoryDependencies {
   getPlanReviewPort: () => SessionPlanReviewPort | null;
   resolveHookTools: (config: GlimmervoidConfig, options: { skipPermissions: boolean }) => ResolvedHookTool[];
   getUserHooks: (projectId: string) => UserHook[];
-  sessionSandbox?: SessionSandbox;
+  sessionGuardrails?: SessionGuardrails;
   commitSigningProgram?: string | null;
   homeDir?: string;
 }
@@ -46,16 +46,16 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     return usageConfig.enabled && usageConfig.planLimits;
   }
 
-  function defaultSandboxFor(project: ProjectEntry, config: GlimmervoidConfig, overrides: SessionSpawnOverrides): SessionOptions['prepareSandbox'] {
-    if (!dependencies.sessionSandbox) return null;
-    const unconfinedRepos = (config.guardrails?.unguardedRepos ?? []).map((repo) => expandTilde(repo, process.env, dependencies.homeDir ?? null));
-    const isConfined = isSessionConfined({
+  function defaultGuardrailsFor(project: ProjectEntry, config: GlimmervoidConfig, overrides: SessionSpawnOverrides): SessionOptions['prepareGuardrails'] {
+    if (!dependencies.sessionGuardrails) return null;
+    const unguardedRepos = (config.guardrails?.unguardedRepos ?? []).map((repo) => expandTilde(repo, process.env, dependencies.homeDir ?? null));
+    const isGuarded = isSessionGuarded({
       usageVendor: getAdapter(overrides.agent ?? project.agent)?.usageVendor ?? null,
-      isMarkedUnconfined: project.unguarded === true,
+      isMarkedUnguarded: project.unguarded === true,
       sessionFolders: [project.path, ...(project.repos ?? [])],
-      unconfinedRepos,
+      unguardedRepos,
     });
-    return isConfined ? dependencies.sessionSandbox.prepareFor({ sessionId: project.id, isWorkspace: Boolean(project.repos?.length) }) : null;
+    return isGuarded ? dependencies.sessionGuardrails.prepareFor({ sessionId: project.id, isWorkspace: Boolean(project.repos?.length) }) : null;
   }
 
   return function makeSession(
@@ -98,7 +98,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       getUserHooks: () => dependencies.getUserHooks(project.id),
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       ...overrides,
-      prepareSandbox: 'prepareSandbox' in overrides ? overrides.prepareSandbox : defaultSandboxFor(project, config, overrides),
+      prepareGuardrails: 'prepareGuardrails' in overrides ? overrides.prepareGuardrails : defaultGuardrailsFor(project, config, overrides),
     });
     const captureConfig = {
       ...(config.capture || {}),

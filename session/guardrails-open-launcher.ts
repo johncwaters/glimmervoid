@@ -5,7 +5,7 @@ import { FilesystemConfigSchema, SandboxManager } from '@anthropic-ai/sandbox-ru
 import type { NetworkConfig, SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 import { spawn } from '../server/child-process-safe.ts';
 import { errorMessage } from '../shared/text.ts';
-import { confineToOwnTerminal } from './core/sandbox-terminal-core.ts';
+import { confineToOwnTerminal } from './core/guardrails-terminal-core.ts';
 
 const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
 const ANY_TERMINAL_SCOPE = 'any';
@@ -55,7 +55,7 @@ function ownTerminalPath(): string {
   return path.join(DEVICE_FOLDER, ownName);
 }
 
-function sandboxArgv(argv: string[], { runtimeConfig, isAnyTerminalAllowed }: OpenPolicy): string[] {
+function guardrailsArgv(argv: string[], { runtimeConfig, isAnyTerminalAllowed }: OpenPolicy): string[] {
   if (runtimeConfig.allowPty !== true || isAnyTerminalAllowed || process.platform !== 'darwin') return argv;
   const confinement = confineToOwnTerminal(argv, ownTerminalPath());
   if (!confinement.ok) throw new Error(confinement.reason);
@@ -67,9 +67,9 @@ function exitCodeFor(code: number | null, signal: NodeJS.Signals | null): number
   return FORWARDED_SIGNALS.some((forwarded) => forwarded === signal) ? 0 : 1;
 }
 
-async function launchInOpenNetworkSandbox(): Promise<void> {
+async function launchInOpenNetworkGuardrails(): Promise<void> {
   const [policyPath, ...command] = process.argv.slice(2);
-  if (!policyPath || command.length === 0) throw new Error('usage: sandbox-open-launcher <policy file> <command> [arguments]');
+  if (!policyPath || command.length === 0) throw new Error('usage: guardrails-open-launcher <policy file> <command> [arguments]');
   const openPolicy = readOpenPolicy(policyPath);
   const dependencies = SandboxManager.checkDependencies();
   const dependencyProblems = [...dependencies.errors, ...dependencies.warnings];
@@ -96,12 +96,12 @@ async function launchInOpenNetworkSandbox(): Promise<void> {
     exitWhenInterrupted();
     throw wrapFailure;
   });
-  const [shell, ...shellArgs] = sandboxArgv(wrapped.argv, openPolicy);
+  const [shell, ...shellArgs] = guardrailsArgv(wrapped.argv, openPolicy);
   if (!shell || shellArgs.at(-1) === commandLine) throw new Error('the sandbox runtime returned the command unwrapped');
   exitWhenInterrupted();
   child = spawn(shell, shellArgs, { stdio: 'inherit', env: wrapped.env });
   child.on('error', (error) => {
-    console.error(`sandbox launcher: ${error.message}`);
+    console.error(`guardrails launcher: ${error.message}`);
     process.exit(1);
   });
   child.on('exit', (code, signal) => {
@@ -110,7 +110,7 @@ async function launchInOpenNetworkSandbox(): Promise<void> {
   });
 }
 
-launchInOpenNetworkSandbox().catch((error: unknown) => {
-  console.error(`sandbox launcher: ${errorMessage(error)}`);
+launchInOpenNetworkGuardrails().catch((error: unknown) => {
+  console.error(`guardrails launcher: ${errorMessage(error)}`);
   process.exit(1);
 });

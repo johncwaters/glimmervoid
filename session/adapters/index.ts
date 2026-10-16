@@ -75,7 +75,7 @@ interface AgentArgsOptions {
   resumeSessionId?: string | null;
   extraArgs?: string[];
   initialPrompt?: string | null;
-  hasOuterSandbox?: boolean;
+  hasOuterGuardrails?: boolean;
   hasOperatorInstructions?: boolean;
   canRunHelpCommand?: boolean;
 }

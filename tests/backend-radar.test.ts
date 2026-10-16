@@ -25,7 +25,7 @@ import { createSpawnGate } from '../server/spawn-gate.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
-import type { SandboxRole } from '../server/sandbox/core/sandbox-policy-core.ts';
+import type { GuardrailsRole } from '../server/guardrails/core/guardrails-policy-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import type { ExecFileFn, ExecFileOptions } from '../server/git/git-exec.ts';
 import type { resolveHookTools as resolveSharedHookTools } from '../server/hook-tools.ts';
@@ -224,16 +224,16 @@ test('an investigation session reports its tool trail from routed hooks, pretool
     return session;
   };
   const trails: InvestigationTrail[] = [];
-  const wrappedRoles: SandboxRole[] = [];
+  const wrappedRoles: GuardrailsRole[] = [];
   const wiring = createRadarWiring({
     config: { posthog: { ...ENABLED }, replayBufferKB: 256 },
     ...inertWiringDeps(),
     hookRouter,
     getHookPort: () => 4321,
     makeSession,
-    sandbox: {
-      platform: 'linux', sandboxRefusal: () => null,
-      prepareSandbox: async ({ role }) => {
+    guardrails: {
+      platform: 'linux', guardrailsRefusal: () => null,
+      prepareGuardrails: async ({ role }) => {
         wrappedRoles.push(role);
         return { ok: true, launch: { wrap: async (file: string, args: readonly string[]) => ({ file, args: [...args] }), env: {}, dispose: async () => {} } };
       },

@@ -526,7 +526,7 @@ export function appendFactoryLandedSha(landedShas: readonly string[], landedSha:
 }
 
 export { absolutePathEditRule } from '../../lanes/core/lane-permissions-core.ts';
-export { isWorktreeAdminDirOf, parseGitdirPointer } from '../../sandbox/core/sandbox-roles-core.ts';
+export { isWorktreeAdminDirOf, parseGitdirPointer } from '../../guardrails/core/guardrails-roles-core.ts';
 
 export function buildWorkerPrompt({ projectName, intent, order, claudeSessionId, checks = DEFAULT_FACTORY_CHECKS, focusedTestCommand }: {
   projectName: string; intent: FactoryWorkOrder; order: FactoryWorkOrder; claudeSessionId: string; checks?: string[]; focusedTestCommand?: string;
@@ -1207,7 +1207,7 @@ const ABSENT_FROM_HEAD_MODE = '000000';
 const RAW_DIFF_ENTRY_PATTERN = /^:(\d{6}) (\d{6}) [0-9a-f]+ ([0-9a-f]+) [A-Z]\d*$/;
 const WORKER_COMMIT_UNREADABLE_REFUSAL = 'Glimmervoid could not read the staged changes, so nothing was committed. Finish the turn again.';
 
-export function listStagedSandboxPlaceholders(rawDiff: string, placeholderNames: readonly string[]): string[] {
+export function listStagedGuardrailsPlaceholders(rawDiff: string, placeholderNames: readonly string[]): string[] {
   const diffFields = rawDiff.split('\0');
   const placeholderPaths: string[] = [];
   for (let index = 0; index + 1 < diffFields.length; index += 2) {

@@ -6,8 +6,8 @@ import { formatSessionLimits } from '../session/core/session-routes.ts';
 import { AgentDispatchRequest, AgentFactoryRetryRequest, AgentFactoryStatusRequest, AgentLimitsReply, AgentTicketRequest, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { errorCode } from '../shared/text.ts';
-import { decideSandboxProxy } from '../session/core/sandbox-proxy-core.ts';
-import type { SandboxProxy } from '../session/core/sandbox-proxy-core.ts';
+import { decideGuardrailsProxy } from '../session/core/guardrails-proxy-core.ts';
+import type { GuardrailsProxy } from '../session/core/guardrails-proxy-core.ts';
 import { isAgentApiVerb, isOrchestratorAgentVerb } from './core/agent-api-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
 
@@ -112,12 +112,12 @@ async function postDirectly({ endpoint, headers, bodyText, deadline }: AgentPost
   return { hasSuccessStatus: response.ok, text: await response.text() };
 }
 
-function postThroughSandboxProxy(sandboxProxy: SandboxProxy, { endpoint, headers, bodyText, deadline }: AgentPost): Promise<AgentReply> {
-  const proxyHeaders = sandboxProxy.authorization ? { 'proxy-authorization': sandboxProxy.authorization } : {};
+function postThroughGuardrailsProxy(guardrailsProxy: GuardrailsProxy, { endpoint, headers, bodyText, deadline }: AgentPost): Promise<AgentReply> {
+  const proxyHeaders = guardrailsProxy.authorization ? { 'proxy-authorization': guardrailsProxy.authorization } : {};
   return new Promise((resolve, reject) => {
     const request = http.request({
-      host: sandboxProxy.hostname,
-      port: sandboxProxy.port,
+      host: guardrailsProxy.hostname,
+      port: guardrailsProxy.port,
       method: 'POST',
       path: endpoint.href,
       headers: { ...headers, ...proxyHeaders, host: endpoint.host, 'content-length': String(Buffer.byteLength(bodyText)) },
@@ -158,9 +158,9 @@ async function postToAgentIngress({ endpoint, token, body, deadline = null }: Ag
     return await postDirectly(post);
   } catch (error) {
     if (!wasConnectionRefused(error)) throw error;
-    const sandboxProxy = decideSandboxProxy(process.env);
-    if (!sandboxProxy) throw error;
-    return postThroughSandboxProxy(sandboxProxy, post);
+    const guardrailsProxy = decideGuardrailsProxy(process.env);
+    if (!guardrailsProxy) throw error;
+    return postThroughGuardrailsProxy(guardrailsProxy, post);
   }
 }
 

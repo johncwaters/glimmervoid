@@ -227,14 +227,14 @@ export const PlanReviewSettings = z.object({
 }, { error: 'planReview must be an object' }).optional();
 
 const optionalPathList = (field: string) => z.array(z.string({ error: `${field} must be an array of paths` }).trim().min(1, { error: `${field} must be an array of paths` }), { error: `${field} must be an array of paths` }).optional();
-const sandboxShape = {
+const guardrailsShape = {
   unguardedRepos: optionalPathList('guardrails.unguardedRepos'),
   blockedPaths: optionalPathList('guardrails.blockedPaths'),
   unreadablePaths: optionalPathList('guardrails.unreadablePaths'),
 };
 const isHomeRelativePath = (entry: string) => entry === '~' || entry.startsWith('~/') || entry.startsWith('~\\');
-const createSandboxSettings = (isAbsolutePath: (directory: string) => boolean) => z.object({
-  ...sandboxShape,
+const createGuardrailsSettings = (isAbsolutePath: (directory: string) => boolean) => z.object({
+  ...guardrailsShape,
   blockedPaths: z.array(
     z.string({ error: 'guardrails.blockedPaths must be an array of paths' }).trim()
       .min(1, { error: 'guardrails.blockedPaths must be an array of paths' })
@@ -242,7 +242,7 @@ const createSandboxSettings = (isAbsolutePath: (directory: string) => boolean) =
     { error: 'guardrails.blockedPaths must be an array of paths' },
   ).optional(),
 }, { error: 'guardrails must be an object' }).strict().optional();
-export const SandboxFileSettings = z.object(sandboxShape, { error: 'guardrails must be an object' }).passthrough().optional();
+export const GuardrailsFileSettings = z.object(guardrailsShape, { error: 'guardrails must be an object' }).passthrough().optional();
 
 const telemetryShape = { enabled: optionalBoolean('telemetry.enabled') };
 const TelemetrySettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).strict().optional();
@@ -287,7 +287,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,
   ingest: IngestSettings,
-  guardrails: createSandboxSettings(isAbsolutePath),
+  guardrails: createGuardrailsSettings(isAbsolutePath),
   telemetry: TelemetrySettings,
   workflows: WorkflowsSettings.nullable().optional(),
 });

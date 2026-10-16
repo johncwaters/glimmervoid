@@ -87,7 +87,7 @@ Declare another agent under `customAgents` in `config.json` with an `id`, `label
 - **Auto-resume.** Sessions live when Glimmervoid stopped come back with their conversation resumed.
 - **Remote access** (opt-in). Reach the dashboard from another device through single-use pairing links.
 - **Radar** (opt-in). Watches PostHog error tracking, pings Telegram on a spike, regression or new issue, and sends an agent to investigate. Optional auto-fix opens a pull request the agent can never push or merge itself.
-- **Team PR review** (opt-in). Drafts a review of each open pull request from a GitHub team in a sandboxed agent, optionally with your own review skill. Nothing posts until you choose Approve or Comment.
+- **Team PR review** (opt-in). Drafts a review of each open pull request from a GitHub team in a guarded agent, optionally with your own review skill. Nothing posts until you choose Approve or Comment.
 
 ### Keyboard
 

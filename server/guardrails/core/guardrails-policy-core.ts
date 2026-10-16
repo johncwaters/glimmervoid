@@ -1,51 +1,51 @@
 import path from 'node:path';
 import type { FilesystemConfig, FilesystemPathEntry, NetworkConfig } from '@anthropic-ai/sandbox-runtime';
 import { encodeProjectDir } from '../../../session/core/conversation-history.ts';
-import { HOOK_VIA_SANDBOX_PROXY_ENV } from '../../../session/core/sandbox-proxy-core.ts';
+import { HOOK_VIA_GUARDRAILS_PROXY_ENV } from '../../../session/core/guardrails-proxy-core.ts';
 import { isPathInside } from '../../../shared/paths.ts';
 
-type SandboxVendor = 'claude' | 'codex';
+type GuardrailsVendor = 'claude' | 'codex';
 
-type SandboxNetworkAccess =
+type GuardrailsNetworkAccess =
   | { access: 'none' }
   | { access: 'allowlist'; domains: readonly string[]; hookPort: number | null }
   | { access: 'open' };
 
-interface SandboxCommitCheckout {
+interface GuardrailsCommitCheckout {
   checkout: string;
   gitDir: string;
 }
 
-interface SandboxLaunchState {
+interface GuardrailsLaunchState {
   scope: 'launch';
   cwd: string;
   agentSessionId: string | null;
 }
 
-type SandboxVendorHome = { scope: 'state' } | SandboxLaunchState;
+type GuardrailsVendorHome = { scope: 'state' } | GuardrailsLaunchState;
 
 type GuardrailLevel = 'standard' | 'strict';
 
-interface SandboxRole {
+interface GuardrailsRole {
   guardrailLevel?: GuardrailLevel;
   blockedPaths?: readonly string[];
-  vendors: readonly SandboxVendor[];
-  vendorHome: SandboxVendorHome;
-  network: SandboxNetworkAccess;
+  vendors: readonly GuardrailsVendor[];
+  vendorHome: GuardrailsVendorHome;
+  network: GuardrailsNetworkAccess;
   writableRoots: readonly string[];
   lockedCheckouts: readonly string[];
-  commitCheckouts: readonly SandboxCommitCheckout[];
+  commitCheckouts: readonly GuardrailsCommitCheckout[];
   readDenied: readonly string[];
   readableWithinDenied: readonly string[];
 }
 
-interface SandboxVendorLocation {
+interface GuardrailsVendorLocation {
   stateFolder: string;
   configFiles: readonly string[];
   otherHomes: readonly string[];
 }
 
-interface SandboxHostPaths {
+interface GuardrailsHostPaths {
   homeDir: string;
   glimmervoidHome: string;
   glimmervoidConfigFile: string;
@@ -53,47 +53,47 @@ interface SandboxHostPaths {
   launchHomeDir: string;
   homeEntryNames: readonly string[];
   glimmervoidHomeEntryNames: readonly string[];
-  vendorLocations: Readonly<Record<SandboxVendor, SandboxVendorLocation>>;
+  vendorLocations: Readonly<Record<GuardrailsVendor, GuardrailsVendorLocation>>;
   unwrappedVendorHomes: readonly string[];
   relocatedXdgConfigHome: string | null;
 }
 
-interface SandboxHost extends SandboxHostPaths {
+interface GuardrailsHost extends GuardrailsHostPaths {
   existingPaths: ReadonlySet<string>;
   writeBlockedPaths: readonly string[];
 }
 
 type OpenNetworkPolicy = Pick<NetworkConfig, 'allowAllUnixSockets' | 'allowMachLookup'>;
 
-type SandboxTerminalScope = 'own' | 'any';
+type GuardrailsTerminalScope = 'own' | 'any';
 
-interface SandboxPolicy {
+interface GuardrailsPolicy {
   network: NetworkConfig | OpenNetworkPolicy;
   filesystem: FilesystemConfig;
-  terminalScope: SandboxTerminalScope;
+  terminalScope: GuardrailsTerminalScope;
   allowAppleEvents: boolean;
 }
 
-interface SandboxLaunchHomeLink {
+interface GuardrailsLaunchHomeLink {
   linkPath: string;
   targetPath: string;
   isLogin: boolean;
 }
 
-interface SandboxLaunchPlan {
+interface GuardrailsLaunchPlan {
   launcher: 'runtime-cli' | 'open-network';
-  policy: SandboxPolicy;
+  policy: GuardrailsPolicy;
   launchEnv: Record<string, string>;
-  sandboxedEnv: Record<string, string>;
+  guardedEnv: Record<string, string>;
   requiredDirectories: string[];
-  launchHomeLinks: SandboxLaunchHomeLink[];
+  launchHomeLinks: GuardrailsLaunchHomeLink[];
 }
 
-type SandboxLaunchPlanResult = { ok: true; plan: SandboxLaunchPlan } | { ok: false; reason: string };
+type GuardrailsLaunchPlanResult = { ok: true; plan: GuardrailsLaunchPlan } | { ok: false; reason: string };
 
 interface VendorProfile {
   homeEntries: readonly string[];
-  launchWritableFolders: (launch: SandboxLaunchState) => readonly string[];
+  launchWritableFolders: (launch: GuardrailsLaunchState) => readonly string[];
   launchPrivateFolders: readonly string[];
   launchHomeEnvName: string | null;
   loginFiles: readonly string[];
@@ -102,7 +102,7 @@ interface VendorProfile {
   launchEnv: Readonly<Record<string, string>>;
 }
 
-const VENDOR_PROFILES: Readonly<Record<SandboxVendor, VendorProfile>> = Object.freeze({
+const VENDOR_PROFILES: Readonly<Record<GuardrailsVendor, VendorProfile>> = Object.freeze({
   claude: {
     homeEntries: ['.claude', '.claude.json'],
     launchWritableFolders: ({ cwd, agentSessionId }) => [
@@ -128,7 +128,7 @@ const VENDOR_PROFILES: Readonly<Record<SandboxVendor, VendorProfile>> = Object.f
   },
 });
 
-const SANDBOX_VENDORS: readonly SandboxVendor[] = Object.freeze(['claude', 'codex']);
+const GUARDRAILS_VENDORS: readonly GuardrailsVendor[] = Object.freeze(['claude', 'codex']);
 const UNWRAPPED_VENDOR_HOME_ENTRIES: readonly string[] = Object.freeze(['.grok']);
 const CREDENTIAL_HOME_ENTRIES: readonly string[] = Object.freeze(['.ssh', '.config/gh', 'Library/Keychains', '.git-credentials']);
 const CLOUD_CREDENTIAL_HOME_ENTRIES: readonly string[] = Object.freeze(['.aws', '.azure', '.config/gcloud', '.kube', '.docker', '.gnupg', '.netrc', '.npmrc']);
@@ -136,7 +136,7 @@ const STANDARD_LEVEL_USABLE_CREDENTIAL_ENTRIES: readonly string[] = Object.freez
 const XDG_CONFIG_DEFAULT_HOME_PREFIX = '.config/';
 const SHARED_TEMP_DIRS: readonly string[] = Object.freeze(['/tmp/claude', '/private/tmp/claude']);
 const SHARED_HOME_WRITE_ENTRIES: readonly string[] = Object.freeze(['.npm/_logs']);
-const SANDBOX_PLACEHOLDER_NAMES: readonly string[] = Object.freeze([
+const GUARDRAILS_PLACEHOLDER_NAMES: readonly string[] = Object.freeze([
   '.bash_profile', '.bashrc', '.claude', '.gitconfig', '.gitmodules', '.idea', '.mcp.json', '.profile', '.ripgreprc', '.vscode', '.zprofile', '.zshrc',
 ]);
 const WHOLE_FILESYSTEM = '/';
@@ -146,12 +146,12 @@ const GLIMMERVOID_CONFIG_SIBLING_ENTRIES: readonly string[] = Object.freeze([
 ]);
 const GLIMMERVOID_HOME_STATE_ENTRIES: readonly string[] = Object.freeze([
   'benchmark-runs', 'benchmarks', 'config.json', 'factory', 'issues-cache.json', 'knowledge-graph', 'litellm-pricing.json', 'my-prs-state.json', 'my-prs-work', 'posthog-reports',
-  'posthog-state.json', 'posthog-work', 'recordings', 'sandbox-homes', 'sandbox-policies', 'sane-yolo', 'scratch', 'sounds', 'team-review-repos', 'team-review-state.json',
+  'posthog-state.json', 'posthog-work', 'recordings', 'guardrails-homes', 'guardrails-policies', 'sane-yolo', 'scratch', 'sounds', 'team-review-repos', 'team-review-state.json',
   'team-review-work', 'team-review-worktrees', 'telemetry-pending-crash.json', 'telemetry.json', 'tmp', 'update-check.json', 'update-journal.json', 'workflows-state.json',
   'workflows-work',
 ]);
 const RUNTIME_MANDATORY_CLAUDE_DENY_FOLDERS: readonly string[] = Object.freeze(['commands', 'agents']);
-const SANDBOXED_PROXY_BYPASS = 'localhost,::1,169.254.0.0/16,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
+const GUARDED_PROXY_BYPASS = 'localhost,::1,169.254.0.0/16,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
 const HOOK_LOOPBACK_HOST = '127.0.0.1';
 const AGENT_SESSION_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
 const STANDARD_OPEN_NETWORK: OpenNetworkPolicy = Object.freeze({ allowAllUnixSockets: true, allowMachLookup: ['*'] });
@@ -165,7 +165,7 @@ function literalEntries(entryPaths: readonly string[]): FilesystemPathEntry[] {
   return unique(entryPaths).map((entryPath) => ({ path: entryPath, literal: true }));
 }
 
-function homePaths(host: SandboxHostPaths, homeEntries: readonly string[]): string[] {
+function homePaths(host: GuardrailsHostPaths, homeEntries: readonly string[]): string[] {
   return homeEntries.map((entry) => path.join(host.homeDir, entry));
 }
 
@@ -173,25 +173,25 @@ function isInsideAny(parents: readonly string[], child: string): boolean {
   return parents.some((parent) => isPathInside(parent, child));
 }
 
-function vendorStatePaths(host: SandboxHostPaths, vendor: SandboxVendor, stateFolderEntries: readonly string[]): string[] {
+function vendorStatePaths(host: GuardrailsHostPaths, vendor: GuardrailsVendor, stateFolderEntries: readonly string[]): string[] {
   return stateFolderEntries.map((entry) => path.join(host.vendorLocations[vendor].stateFolder, entry));
 }
 
-function vendorHeldPaths(host: SandboxHostPaths, vendor: SandboxVendor): string[] {
+function vendorHeldPaths(host: GuardrailsHostPaths, vendor: GuardrailsVendor): string[] {
   const { stateFolder, configFiles, otherHomes } = host.vendorLocations[vendor];
   return [stateFolder, ...configFiles, ...otherHomes];
 }
 
-function launchHomeOf(host: SandboxHostPaths, vendor: SandboxVendor): string {
+function launchHomeOf(host: GuardrailsHostPaths, vendor: GuardrailsVendor): string {
   return path.join(host.launchHomeDir, vendor);
 }
 
-function vendorsWithLaunchHome(role: SandboxRole): SandboxVendor[] {
+function vendorsWithLaunchHome(role: GuardrailsRole): GuardrailsVendor[] {
   if (role.vendorHome.scope === 'state') return [];
   return role.vendors.filter((vendor) => VENDOR_PROFILES[vendor].launchHomeEnvName !== null);
 }
 
-function vendorWritableFolders(role: SandboxRole, host: SandboxHostPaths): string[] {
+function vendorWritableFolders(role: GuardrailsRole, host: GuardrailsHostPaths): string[] {
   const { vendorHome } = role;
   if (vendorHome.scope === 'state') return role.vendors.map((vendor) => host.vendorLocations[vendor].stateFolder);
   return role.vendors.flatMap((vendor) => {
@@ -201,12 +201,12 @@ function vendorWritableFolders(role: SandboxRole, host: SandboxHostPaths): strin
   });
 }
 
-function launchPrivateFolders(role: SandboxRole, host: SandboxHostPaths): string[] {
+function launchPrivateFolders(role: GuardrailsRole, host: GuardrailsHostPaths): string[] {
   if (role.vendorHome.scope === 'state') return [];
   return role.vendors.flatMap((vendor) => vendorStatePaths(host, vendor, VENDOR_PROFILES[vendor].launchPrivateFolders));
 }
 
-function launchHomeLinkCandidates(role: SandboxRole, host: SandboxHostPaths): SandboxLaunchHomeLink[] {
+function launchHomeLinkCandidates(role: GuardrailsRole, host: GuardrailsHostPaths): GuardrailsLaunchHomeLink[] {
   return vendorsWithLaunchHome(role).flatMap((vendor) => {
     const { configEntries, loginFiles } = VENDOR_PROFILES[vendor];
     const linkFor = (entry: string, isLogin: boolean) => ({
@@ -216,33 +216,33 @@ function launchHomeLinkCandidates(role: SandboxRole, host: SandboxHostPaths): Sa
   });
 }
 
-function launchHomeEnv(role: SandboxRole, host: SandboxHostPaths): Record<string, string> {
+function launchHomeEnv(role: GuardrailsRole, host: GuardrailsHostPaths): Record<string, string> {
   return Object.fromEntries(vendorsWithLaunchHome(role).flatMap((vendor) => {
     const envName = VENDOR_PROFILES[vendor].launchHomeEnvName;
     return envName === null ? [] : [[envName, launchHomeOf(host, vendor)]];
   }));
 }
 
-function vendorLoginFiles(role: SandboxRole, host: SandboxHostPaths): string[] {
+function vendorLoginFiles(role: GuardrailsRole, host: GuardrailsHostPaths): string[] {
   return role.vendors.flatMap((vendor) => vendorStatePaths(host, vendor, VENDOR_PROFILES[vendor].loginFiles));
 }
 
-function roleWritableRoots(role: SandboxRole): string[] {
+function roleWritableRoots(role: GuardrailsRole): string[] {
   return [...role.writableRoots, ...role.lockedCheckouts, ...role.commitCheckouts.flatMap(({ checkout, gitDir }) => [checkout, gitDir])];
 }
 
-function alwaysWritablePaths(role: SandboxRole, host: SandboxHostPaths): string[] {
+function alwaysWritablePaths(role: GuardrailsRole, host: GuardrailsHostPaths): string[] {
   return [host.tempDir, ...roleWritableRoots(role), ...vendorWritableFolders(role, host)];
 }
 
-function commitCheckoutWriteDenies({ checkout, gitDir }: SandboxCommitCheckout): string[] {
+function commitCheckoutWriteDenies({ checkout, gitDir }: GuardrailsCommitCheckout): string[] {
   const gitPointer = path.join(checkout, '.git');
   const gitDirDenies = [path.join(gitDir, 'hooks'), path.join(gitDir, 'config')];
   if (path.resolve(gitPointer) === path.resolve(gitDir)) return gitDirDenies;
   return [gitPointer, ...gitDirDenies];
 }
 
-function writeDeniesWhenPresent(role: SandboxRole, host: SandboxHostPaths): string[] {
+function writeDeniesWhenPresent(role: GuardrailsRole, host: GuardrailsHostPaths): string[] {
   const writablePaths = alwaysWritablePaths(role, host);
   const sharedHomeWrites = homePaths(host, SHARED_HOME_WRITE_ENTRIES).filter((sharedPath) => !isInsideAny(roleWritableRoots(role), sharedPath));
   const vendorConfig = role.vendors
@@ -251,25 +251,25 @@ function writeDeniesWhenPresent(role: SandboxRole, host: SandboxHostPaths): stri
   return [...SHARED_TEMP_DIRS, ...sharedHomeWrites, ...vendorConfig, ...role.commitCheckouts.flatMap(commitCheckoutWriteDenies)];
 }
 
-function lockedCheckoutWriteDenies(role: SandboxRole): string[] {
+function lockedCheckoutWriteDenies(role: GuardrailsRole): string[] {
   return role.lockedCheckouts.flatMap((checkout) => [path.join(checkout, '.git'), path.join(checkout, '.claude')]);
 }
 
-function lockedClaudeMountPoints(role: SandboxRole): string[] {
+function lockedClaudeMountPoints(role: GuardrailsRole): string[] {
   return role.lockedCheckouts.flatMap((checkout) => RUNTIME_MANDATORY_CLAUDE_DENY_FOLDERS.map((folder) => path.join(checkout, '.claude', folder)));
 }
 
-function sandboxPlaceholderPaths(role: SandboxRole): string[] {
+function guardrailsPlaceholderPaths(role: GuardrailsRole): string[] {
   const workingFolders = role.vendorHome.scope === 'launch' ? [role.vendorHome.cwd] : [];
-  const workingFolderPlaceholders = workingFolders.flatMap((workingFolder) => SANDBOX_PLACEHOLDER_NAMES.map((placeholderName) => path.join(workingFolder, placeholderName)));
+  const workingFolderPlaceholders = workingFolders.flatMap((workingFolder) => GUARDRAILS_PLACEHOLDER_NAMES.map((placeholderName) => path.join(workingFolder, placeholderName)));
   return unique([...workingFolderPlaceholders, ...lockedCheckoutWriteDenies(role)]);
 }
 
-function homeEntriesNamedLike(host: SandboxHostPaths, homeEntries: readonly string[]): string[] {
+function homeEntriesNamedLike(host: GuardrailsHostPaths, homeEntries: readonly string[]): string[] {
   return host.homeEntryNames.filter((entryName) => homeEntries.some((homeEntry) => entryName.startsWith(homeEntry)));
 }
 
-function relocatedXdgConfigPaths(host: SandboxHostPaths, homeEntries: readonly string[]): string[] {
+function relocatedXdgConfigPaths(host: GuardrailsHostPaths, homeEntries: readonly string[]): string[] {
   const xdgConfigHome = host.relocatedXdgConfigHome;
   if (xdgConfigHome === null) return [];
   return homeEntries
@@ -277,22 +277,22 @@ function relocatedXdgConfigPaths(host: SandboxHostPaths, homeEntries: readonly s
     .map((entry) => path.join(xdgConfigHome, entry.slice(XDG_CONFIG_DEFAULT_HOME_PREFIX.length)));
 }
 
-function isStandardLevel(role: SandboxRole): boolean {
+function isStandardLevel(role: GuardrailsRole): boolean {
   return role.guardrailLevel === 'standard';
 }
 
-function blockedCredentialHomeEntries(role: SandboxRole): string[] {
+function blockedCredentialHomeEntries(role: GuardrailsRole): string[] {
   const credentialHomeEntries = [...CREDENTIAL_HOME_ENTRIES, ...CLOUD_CREDENTIAL_HOME_ENTRIES];
   if (!isStandardLevel(role)) return credentialHomeEntries;
   return credentialHomeEntries.filter((entry) => !STANDARD_LEVEL_USABLE_CREDENTIAL_ENTRIES.includes(entry));
 }
 
-function credentialWriteBlocks(role: SandboxRole, host: SandboxHostPaths): string[] {
+function credentialWriteBlocks(role: GuardrailsRole, host: GuardrailsHostPaths): string[] {
   const credentialHomeEntries = blockedCredentialHomeEntries(role);
   return [...homePaths(host, credentialHomeEntries), ...relocatedXdgConfigPaths(host, credentialHomeEntries)];
 }
 
-function glimmervoidStateWriteBlocks(role: SandboxRole, host: SandboxHostPaths): string[] {
+function glimmervoidStateWriteBlocks(role: GuardrailsRole, host: GuardrailsHostPaths): string[] {
   const keptWritable = alwaysWritablePaths(role, host);
   const configFolder = path.dirname(host.glimmervoidConfigFile);
   const homeEntryNames = [...GLIMMERVOID_HOME_STATE_ENTRIES, ...GLIMMERVOID_CONFIG_SIBLING_ENTRIES, ...host.glimmervoidHomeEntryNames];
@@ -302,13 +302,13 @@ function glimmervoidStateWriteBlocks(role: SandboxRole, host: SandboxHostPaths):
     .filter((entryPath) => !keptWritable.some((writable) => isPathInside(entryPath, writable)));
 }
 
-function standardWriteBlockCandidates(role: SandboxRole, host: SandboxHostPaths): string[] {
+function standardWriteBlockCandidates(role: GuardrailsRole, host: GuardrailsHostPaths): string[] {
   if (!isStandardLevel(role)) return [];
   return unique([...credentialWriteBlocks(role, host), ...glimmervoidStateWriteBlocks(role, host), ...(role.blockedPaths ?? [])]);
 }
 
-function readDeniedPaths(role: SandboxRole, host: SandboxHostPaths): string[] {
-  const otherVendors = SANDBOX_VENDORS.filter((vendor) => !role.vendors.includes(vendor));
+function readDeniedPaths(role: GuardrailsRole, host: GuardrailsHostPaths): string[] {
+  const otherVendors = GUARDRAILS_VENDORS.filter((vendor) => !role.vendors.includes(vendor));
   const otherVendorHomeEntries = [...otherVendors.flatMap((vendor) => VENDOR_PROFILES[vendor].homeEntries), ...UNWRAPPED_VENDOR_HOME_ENTRIES];
   const credentialHomeEntries = blockedCredentialHomeEntries(role);
   return [
@@ -322,7 +322,7 @@ function readDeniedPaths(role: SandboxRole, host: SandboxHostPaths): string[] {
   ];
 }
 
-function sandboxPolicyProbePaths(role: SandboxRole, host: SandboxHostPaths): string[] {
+function guardrailsPolicyProbePaths(role: GuardrailsRole, host: GuardrailsHostPaths): string[] {
   return unique([...writeDeniesWhenPresent(role, host), ...vendorLoginFiles(role, host), ...launchHomeLinkCandidates(role, host).map((link) => link.targetPath)]);
 }
 
@@ -330,16 +330,16 @@ function isValidPort(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65535;
 }
 
-function hostNamedPaths(host: SandboxHostPaths): string[] {
+function hostNamedPaths(host: GuardrailsHostPaths): string[] {
   const relocatedXdgConfigHomes = host.relocatedXdgConfigHome === null ? [] : [host.relocatedXdgConfigHome];
-  return [host.homeDir, host.glimmervoidHome, host.glimmervoidConfigFile, host.tempDir, host.launchHomeDir, ...relocatedXdgConfigHomes, ...host.unwrappedVendorHomes, ...SANDBOX_VENDORS.flatMap((vendor) => vendorHeldPaths(host, vendor))];
+  return [host.homeDir, host.glimmervoidHome, host.glimmervoidConfigFile, host.tempDir, host.launchHomeDir, ...relocatedXdgConfigHomes, ...host.unwrappedVendorHomes, ...GUARDRAILS_VENDORS.flatMap((vendor) => vendorHeldPaths(host, vendor))];
 }
 
-function sandboxRoleRefusal(role: SandboxRole, host: SandboxHostPaths): string | null {
+function guardrailsRoleRefusal(role: GuardrailsRole, host: GuardrailsHostPaths): string | null {
   const launchCwds = role.vendorHome.scope === 'launch' ? [role.vendorHome.cwd] : [];
   const namedPaths = [...hostNamedPaths(host), ...roleWritableRoots(role), ...role.readDenied, ...role.readableWithinDenied, ...launchCwds];
   const relativePath = namedPaths.find((namedPath) => !path.isAbsolute(namedPath));
-  if (relativePath !== undefined) return `sandbox policy path is not absolute: ${relativePath}`;
+  if (relativePath !== undefined) return `guardrails policy path is not absolute: ${relativePath}`;
   const rootOverProtectedHome = [...roleWritableRoots(role), ...vendorWritableFolders(role, host)].find((root) => isPathInside(root, host.homeDir) || isPathInside(root, host.glimmervoidHome));
   if (rootOverProtectedHome !== undefined) return `writable root ${rootOverProtectedHome} contains the home folder or the Glimmervoid home`;
   const writablePaths = alwaysWritablePaths(role, host);
@@ -351,7 +351,7 @@ function sandboxRoleRefusal(role: SandboxRole, host: SandboxHostPaths): string |
   return null;
 }
 
-function networkPolicy(role: SandboxRole): SandboxPolicy['network'] {
+function networkPolicy(role: GuardrailsRole): GuardrailsPolicy['network'] {
   if (role.network.access === 'open') return isStandardLevel(role) ? { ...STANDARD_OPEN_NETWORK } : { ...STRICT_OPEN_NETWORK };
   if (role.network.access === 'none') return { allowedDomains: [], deniedDomains: [], allowLocalBinding: false, allowAllUnixSockets: false };
   const hookEndpoint = role.network.hookPort === null ? [] : [`${HOOK_LOOPBACK_HOST}:${role.network.hookPort}`];
@@ -365,13 +365,13 @@ function networkPolicy(role: SandboxRole): SandboxPolicy['network'] {
   };
 }
 
-function sandboxedEnvFor(role: SandboxRole, host: SandboxHostPaths): Record<string, string> {
-  if (role.network.access === 'allowlist') return { NO_PROXY: SANDBOXED_PROXY_BYPASS, no_proxy: SANDBOXED_PROXY_BYPASS, [HOOK_VIA_SANDBOX_PROXY_ENV]: '1' };
+function guardedEnvFor(role: GuardrailsRole, host: GuardrailsHostPaths): Record<string, string> {
+  if (role.network.access === 'allowlist') return { NO_PROXY: GUARDED_PROXY_BYPASS, no_proxy: GUARDED_PROXY_BYPASS, [HOOK_VIA_GUARDRAILS_PROXY_ENV]: '1' };
   if (role.network.access === 'open') return { TMPDIR: host.tempDir };
   return {};
 }
 
-function filesystemWrites(role: SandboxRole, host: SandboxHost, writablePaths: readonly string[]): Pick<FilesystemConfig, 'allowWrite' | 'denyWrite'> {
+function filesystemWrites(role: GuardrailsRole, host: GuardrailsHost, writablePaths: readonly string[]): Pick<FilesystemConfig, 'allowWrite' | 'denyWrite'> {
   if (isStandardLevel(role)) return { allowWrite: literalEntries([WHOLE_FILESYSTEM, ...writablePaths]), denyWrite: literalEntries(host.writeBlockedPaths) };
   const isPresent = (candidate: string) => host.existingPaths.has(candidate);
   return {
@@ -380,8 +380,8 @@ function filesystemWrites(role: SandboxRole, host: SandboxHost, writablePaths: r
   };
 }
 
-function buildSandboxLaunchPlan(role: SandboxRole, host: SandboxHost): SandboxLaunchPlanResult {
-  const refusal = sandboxRoleRefusal(role, host);
+function buildGuardrailsLaunchPlan(role: GuardrailsRole, host: GuardrailsHost): GuardrailsLaunchPlanResult {
+  const refusal = guardrailsRoleRefusal(role, host);
   if (refusal !== null) return { ok: false, reason: refusal };
   const isPresent = (candidate: string) => host.existingPaths.has(candidate);
   const writablePaths = [...alwaysWritablePaths(role, host), ...vendorLoginFiles(role, host).filter(isPresent)];
@@ -402,12 +402,12 @@ function buildSandboxLaunchPlan(role: SandboxRole, host: SandboxHost): SandboxLa
         allowAppleEvents: isStandardLevel(role),
       },
       launchEnv: Object.assign({ CLAUDE_CODE_TMPDIR: host.tempDir }, ...role.vendors.map((vendor) => VENDOR_PROFILES[vendor].launchEnv), launchHomeEnv(role, host)),
-      sandboxedEnv: sandboxedEnvFor(role, host),
+      guardedEnv: guardedEnvFor(role, host),
       requiredDirectories: unique([host.tempDir, ...vendorWritableFolders(role, host), ...launchPrivateFolders(role, host)]),
       launchHomeLinks: launchHomeLinkCandidates(role, host).filter((link) => isPresent(link.targetPath)),
     },
   };
 }
 
-export { buildSandboxLaunchPlan, lockedClaudeMountPoints, SANDBOX_PLACEHOLDER_NAMES, sandboxPlaceholderPaths, sandboxPolicyProbePaths, standardWriteBlockCandidates };
-export type { SandboxHost, SandboxHostPaths, SandboxLaunchPlan, SandboxNetworkAccess, SandboxRole };
+export { buildGuardrailsLaunchPlan, lockedClaudeMountPoints, GUARDRAILS_PLACEHOLDER_NAMES, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates };
+export type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, GuardrailsNetworkAccess, GuardrailsRole };

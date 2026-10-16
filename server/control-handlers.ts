@@ -1477,7 +1477,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       const session = findSession(message);
       if (!session) return sendError(ws, 'Session not found', { id: message.id, scope: 'conversation-view' });
       if (session.ephemeral) return sendError(ws, 'This session cannot use the conversation view', { id: session.id, scope: 'conversation-view' });
-      if (message.isOn && session.isConversationBridgeRefused()) return sendError(ws, 'This Codex session is sandboxed or bypasses hook trust, so it can only use the terminal.', { id: session.id, scope: 'conversation-view' });
+      if (message.isOn && session.isConversationBridgeRefused()) return sendError(ws, 'This Codex session is guarded or bypasses hook trust, so it can only use the terminal.', { id: session.id, scope: 'conversation-view' });
       const freshConfig = configStore.save((config) => {
         const project = config.projects.find((candidate) => candidate.id === session.id);
         if (!project) return;

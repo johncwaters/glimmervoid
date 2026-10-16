@@ -222,12 +222,12 @@ test('the empty state says whether the lane is off or simply has nothing yet', (
 });
 
 test('a running lane surfaces its reason as a notice and an unconfigured lane keeps the empty state', () => {
-  assert.equal(laneNotice({ ...status([]), reason: 'sandbox dependencies missing' }), 'sandbox dependencies missing');
+  assert.equal(laneNotice({ ...status([]), reason: 'guardrails dependencies missing' }), 'guardrails dependencies missing');
   assert.equal(laneNotice(status([])), null);
   assert.equal(laneNotice({ ...status([]), reason: '' }), null);
   assert.equal(laneNotice({ ...status([], [], false), reason: 'teamReview needs both org and team' }), null);
   assert.equal(laneNotice(null), null);
-  assert.equal(emptyStateText({ ...status([]), reason: 'sandbox dependencies missing' }), 'No review drafts yet. New teammate pull requests show up here after the next poll.');
+  assert.equal(emptyStateText({ ...status([]), reason: 'guardrails dependencies missing' }), 'No review drafts yet. New teammate pull requests show up here after the next poll.');
 });
 
 test('the badge signature tracks ready drafts by key and head only', () => {

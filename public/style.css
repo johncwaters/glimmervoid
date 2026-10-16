@@ -493,7 +493,7 @@ body {
 .perms-badge,
 .agent-badge,
 .worktree-badge,
-.sandbox-badge,
+.guardrails-badge,
 .post-turn-badge,
 .usage-badge,
 .wakeup-badge,
@@ -529,13 +529,13 @@ body {
   display: inline-flex;
 }
 
-.sandbox-badge {
+.guardrails-badge {
   display: none;
   color: var(--text-dim);
   border: 1px solid var(--border-hover);
 }
 
-.session-card[data-sandboxed] .sandbox-badge {
+.session-card[data-guarded] .guardrails-badge {
   display: inline-flex;
 }
 
@@ -6345,7 +6345,7 @@ html[data-compact-status] .focus-pill-label { display: none; }
 .focus-center .session-card.focus-centered .perms-badge,
 .focus-center .session-card.focus-centered .agent-badge,
 .focus-center .session-card.focus-centered .worktree-badge,
-.focus-center .session-card.focus-centered .sandbox-badge,
+.focus-center .session-card.focus-centered .guardrails-badge,
 .focus-center .session-card.focus-centered .usage-badge,
 .focus-center .session-card.focus-centered .wakeup-badge,
 .focus-center .session-card.focus-centered .prompt-badge,

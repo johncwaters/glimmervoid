@@ -23,7 +23,7 @@ import {
 import type { TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/github/team-review-wiring.ts';
 import { PrDetail, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type { ResumableReview, ReviewComment, ReviewDraft as ReviewDraftType, TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
-import { SANDBOX_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
+import { GUARDRAILS_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import type { resolveHookTools as resolveSharedHookTools } from '../server/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
@@ -49,8 +49,8 @@ const CACHED_CLONE = '/cache/Acme/app';
 const ROLE_FACTS = { launchId: 'launch-one', cwd: '/review/work', hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: null };
 const describeProbeRole = () => teamReviewRole(ROLE_FACTS, { checkoutPath: '/tmp/checkout', cachedClone: CACHED_CLONE, unreadablePaths: [] });
 
-function roleOf(spawn: Pick<SpawnCall, 'sandboxRole'> | undefined) {
-  return spawn?.sandboxRole?.(ROLE_FACTS);
+function roleOf(spawn: Pick<SpawnCall, 'guardrailsRole'> | undefined) {
+  return spawn?.guardrailsRole?.(ROLE_FACTS);
 }
 
 function reportText(head = HEAD) {
@@ -752,7 +752,7 @@ test('every tier runs the review from a throwaway work dir, and no argv entry na
       assert.deepEqual(spawns[0].spawnEnv, hooksPathPinnedSpawnEnv(spawns[0].workDir));
       assert.deepEqual(spawns[0].settingsPermissions, teamReviewAcceptEditsPermissions());
       assert.deepEqual(roleOf(spawns[0])?.writableRoots, [ROLE_FACTS.cwd]);
-      assert.equal(spawns[0].settingsSandbox, undefined);
+      assert.equal(spawns[0].settingsGuardrails, undefined);
       assert.match(spawns[0].prompt, /whatever review skills or tools you have available/);
       assert.ok(spawns[0].prompt.includes(`git -C ${expectedWorktree}`));
       assert.ok(spawns[0].prompt.includes(path.join(spawns[0].workDir, REVIEW_REPORT_FILENAME)));
@@ -1176,7 +1176,7 @@ test('the spawned session runs the constant bootstrap prompt with the given env,
   const posture = teamReviewAcceptEditsPermissions();
   const request: Parameters<TeamReviewSpawn>[0] = {
     id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x', spawnEnv: teamReviewSpawnEnv('/tmp/x'),
-    extraClaudeArgs: teamReviewClaudeArgs('stamp', { checkoutPath: '/tmp/checkout', linkedCheckout: null }), settingsPermissions: posture, sandboxRole: describeProbeRole,
+    extraClaudeArgs: teamReviewClaudeArgs('stamp', { checkoutPath: '/tmp/checkout', linkedCheckout: null }), settingsPermissions: posture, guardrailsRole: describeProbeRole,
     signal: new AbortController().signal,
     onSessionId: (id) => { capturedIds.push(id); },
   };
@@ -1187,8 +1187,8 @@ test('the spawned session runs the constant bootstrap prompt with the given env,
   assert.deepEqual(created[0].spawnEnv, teamReviewSpawnEnv('/tmp/x'));
   assert.equal(created[0].dangerouslySkipPermissions, false);
   assert.deepEqual(created[0].settingsPermissions, posture);
-  assert.equal(created[0].settingsSandbox, null);
-  assert.equal(typeof created[0].prepareSandbox, 'function', 'the review starts inside the sandbox runtime');
+  assert.equal(created[0].settingsGuardrails, null);
+  assert.equal(typeof created[0].prepareGuardrails, 'function', 'the review starts inside the sandbox runtime');
   assert.equal(created[0].ephemeral, true);
   assert.equal(created[0].observeToolCalls, false, 'no tool hook is installed when nobody listens');
   assert.deepEqual(recorded, ['team-review']);
@@ -1230,7 +1230,7 @@ test('the spawned session resolves Sane YOLO hook tools from the held config wit
     });
     await spawn({
       id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x', spawnEnv: teamReviewSpawnEnv('/tmp/x'),
-      extraClaudeArgs: [], settingsPermissions: { deny: [], defaultMode }, sandboxRole: describeProbeRole,
+      extraClaudeArgs: [], settingsPermissions: { deny: [], defaultMode }, guardrailsRole: describeProbeRole,
       signal: new AbortController().signal,
     });
     assert.deepEqual(resolverCalls, expectedCalls);
@@ -1238,7 +1238,7 @@ test('the spawned session resolves Sane YOLO hook tools from the held config wit
   }
 });
 
-test('a review whose sandbox cannot be applied ends as an error draft without spawning an agent', async () => {
+test('a review whose guardrails cannot be applied ends as an error draft without spawning an agent', async () => {
   const created: SessionOptions[] = [];
   const { review, cleanup } = setup({
     spawnSession: createTeamReviewSpawn({
@@ -1249,15 +1249,15 @@ test('a review whose sandbox cannot be applied ends as an error draft without sp
       spawnGate: { run: async (task) => task() },
       makeSession: (options) => {
         created.push(options);
-        return new Session({ ...options, ptySpawn: () => { throw new Error('an unsandboxed review must never spawn'); } });
+        return new Session({ ...options, ptySpawn: () => { throw new Error('an unguarded review must never spawn'); } });
       },
     }),
   });
   try {
     const draft = await review(reviewArgs('stamp'));
     assert.equal(draft.status, 'error');
-    assert.equal(draft.error, SANDBOX_UNAPPLIED_ERROR);
-    assert.equal(typeof created[0].prepareSandbox, 'function', 'the review asked for a sandbox');
+    assert.equal(draft.error, GUARDRAILS_UNAPPLIED_ERROR);
+    assert.equal(typeof created[0].prepareGuardrails, 'function', 'the review asked for a guardrails');
   } finally {
     cleanup();
   }
@@ -1285,7 +1285,7 @@ test('the spawned session forwards PreToolUse hook events as tool steps and igno
   });
   await spawn({
     id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x', spawnEnv: teamReviewSpawnEnv('/tmp/x'),
-    extraClaudeArgs: teamReviewClaudeArgs('stamp', { checkoutPath: '/tmp/checkout', linkedCheckout: null }), settingsPermissions: teamReviewAcceptEditsPermissions(), sandboxRole: describeProbeRole,
+    extraClaudeArgs: teamReviewClaudeArgs('stamp', { checkoutPath: '/tmp/checkout', linkedCheckout: null }), settingsPermissions: teamReviewAcceptEditsPermissions(), guardrailsRole: describeProbeRole,
     signal: new AbortController().signal, onToolStep: (step) => { steps.push(step); },
   });
   assert.equal(created[0].observeToolCalls, true);
@@ -2163,8 +2163,8 @@ test('a first review never fetches an earlier range', async () => {
   }
 });
 
-test('the wiring hands its cached sandbox refusal to the poller, whose status then carries the reason', async () => {
-  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-sandbox-test-'));
+test('the wiring hands its cached guardrails refusal to the poller, whose status then carries the reason', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-guardrails-test-'));
   const refusal = 'not started: the Claude Code sandbox needs bwrap and socat, and socat is not on PATH. Install bubblewrap and socat';
   const pollerStarted = deferredSignal();
   let pollerRefusal: string | null | undefined;
@@ -2173,7 +2173,7 @@ test('the wiring hands its cached sandbox refusal to the poller, whose status th
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
     spawnGate: { run: async (task) => task() }, homeDir, log: { warn: () => {} },
     reapProcesses: async () => {},
-    sandboxRefusal: () => refusal,
+    guardrailsRefusal: () => refusal,
     github: {
       viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [], searchDirectRequested: async () => ({ items: [], complete: true }), searchTeamRequested: async () => ({ items: [], complete: true }),
       searchAuthoredBy: async () => ({ items: [], complete: true }), viewPr: async () => null, prHead: async () => null, prReviewSnapshots: async () => new Map(), rateLimitWaitMs: async () => null, prDiff: async () => null,
@@ -2187,7 +2187,7 @@ test('the wiring hands its cached sandbox refusal to the poller, whose status th
       pruneWorktrees: async () => ({ ok: true }), originUrl: async () => null, populate: async () => {},
     },
     createPoller: (dependencies) => {
-      pollerRefusal = dependencies.sandboxRefusal?.();
+      pollerRefusal = dependencies.guardrailsRefusal?.();
       const poller = createTeamReviewPoller({ ...dependencies, beforeStart: async () => {} });
       return { ...poller, start: async () => { await poller.start(); pollerStarted.resolve(); } };
     },

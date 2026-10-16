@@ -5,7 +5,7 @@ import { SessionPrLinks } from './my-prs.ts';
 import {
   FactorySettings, BranchGcControlSettings, ChangeMapSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject,
-  PlanReviewSettings, SandboxFileSettings, TelemetryFileSettings, TraceSettings,
+  PlanReviewSettings, GuardrailsFileSettings, TelemetryFileSettings, TraceSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema } from './browser-config.ts';
@@ -144,7 +144,7 @@ const FILE_CONFIG_SHAPE = {
   telegram: optionalLooseObject('telegram'),
   ingest: optionalLooseObject('ingest'),
   workflows: optionalLooseObject('workflows'),
-  guardrails: SandboxFileSettings,
+  guardrails: GuardrailsFileSettings,
   telemetry: TelemetryFileSettings,
   trace: TraceSettings,
   planReview: PlanReviewSettings,

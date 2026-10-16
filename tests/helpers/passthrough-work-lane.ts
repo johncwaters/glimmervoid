@@ -1,11 +1,11 @@
-import type { SandboxRole } from '../../server/sandbox/core/sandbox-policy-core.ts';
+import type { GuardrailsRole } from '../../server/guardrails/core/guardrails-policy-core.ts';
 import type { WorkLaneDependencies } from '../../server/lanes/work-lane.ts';
 
-function passthroughWorkLane(preparedRoles: SandboxRole[] = []): Pick<WorkLaneDependencies, 'prepareSandbox' | 'sandboxRefusal' | 'platform'> {
+function passthroughWorkLane(preparedRoles: GuardrailsRole[] = []): Pick<WorkLaneDependencies, 'prepareGuardrails' | 'guardrailsRefusal' | 'platform'> {
   return {
     platform: 'linux',
-    sandboxRefusal: () => null,
-    prepareSandbox: async ({ role }) => {
+    guardrailsRefusal: () => null,
+    prepareGuardrails: async ({ role }) => {
       preparedRoles.push(role);
       return { ok: true, launch: { wrap: async (file, args) => ({ file, args: [...args] }), env: {}, dispose: async () => {} } };
     },

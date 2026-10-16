@@ -6,8 +6,8 @@ import path from 'node:path';
 
 import { HookRouter } from '../detection/hook-source.ts';
 import { listAgentIds, getAdapter } from '../session/adapters/index.ts';
-import { SANDBOX_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
-import type { SessionSandboxFacts } from '../session/sessions.ts';
+import { GUARDRAILS_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
+import type { SessionGuardrailsFacts } from '../session/sessions.ts';
 import { buildAgentEnv } from '../session/core/spawn-env.ts';
 import { HOOK_URL_ENV } from '../session/core/hook-relay-core.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
@@ -22,10 +22,10 @@ import type { SpawnCall } from './helpers/fake-pty.ts';
 
 const PORT = 41234;
 
-function sessionFor(agentId: string, baseDir: string, settingsSandbox: Record<string, unknown> | null = null) {
+function sessionFor(agentId: string, baseDir: string, settingsGuardrails: Record<string, unknown> | null = null) {
   const calls: SpawnCall[] = [];
   const session = new Session({
-    settingsSandbox,
+    settingsGuardrails,
     id: `session-${agentId}`,
     name: agentId,
     path: baseDir,
@@ -165,20 +165,20 @@ test('the agent token is a second token, never the hook token', async () => {
   });
 });
 
-test('a settings sandbox reaches the hook settings file verbatim, and no sandbox key is written without one', async () => {
+test('settings guardrails reach the hook settings file verbatim as the Claude Code sandbox key, and no sandbox key is written without them', async () => {
   await withTempDir(async (dir) => {
-    const sandbox = { enabled: true, failIfUnavailable: true, filesystem: { denyRead: ['~/.ssh'] } };
-    const sandboxed = sessionFor('claude-code', dir, sandbox);
+    const guardrails = { enabled: true, failIfUnavailable: true, filesystem: { denyRead: ['~/.ssh'] } };
+    const guarded = sessionFor('claude-code', dir, guardrails);
     const plain = sessionFor('claude-code', path.join(dir, 'plain'));
     try {
-      await sandboxed.session.start();
+      await guarded.session.start();
       await plain.session.start();
       const readSettings = (base: string) => JSON.parse(fs.readFileSync(path.join(base, 'session-claude-code', 'settings.json'), 'utf8'));
-      assert.deepEqual(readSettings(dir).sandbox, sandbox);
+      assert.deepEqual(readSettings(dir).sandbox, guardrails);
       assert.equal('sandbox' in readSettings(path.join(dir, 'plain')), false);
-      assert.equal(sandboxed.calls[0].args.filter((arg) => arg === '--settings').length, 1, 'the sandbox rides the one hooks settings file');
+      assert.equal(guarded.calls[0].args.filter((arg) => arg === '--settings').length, 1, 'the Claude Code sandbox block rides the one hooks settings file');
     } finally {
-      sandboxed.session.destroy();
+      guarded.session.destroy();
       plain.session.destroy();
     }
   });
@@ -188,12 +188,12 @@ async function startRefused(overrides: Partial<ConstructorParameters<typeof Sess
   let spawned = 0;
   const errors: string[] = [];
   const session = new Session({
-    id: 'session-sandboxed',
-    name: 'sandboxed',
+    id: 'session-guarded',
+    name: 'guarded',
     path: os.tmpdir(),
     agent: 'claude-code',
     spawnCommand: { path: process.execPath, kind: 'exe' },
-    settingsSandbox: { enabled: true, failIfUnavailable: true },
+    settingsGuardrails: { enabled: true, failIfUnavailable: true },
     hookRouter: new HookRouter(),
     getHookPort: () => PORT,
     ptySpawn: () => {
@@ -211,24 +211,24 @@ async function startRefused(overrides: Partial<ConstructorParameters<typeof Sess
   return { spawned, errors };
 }
 
-test('a session that requests a sandbox refuses to spawn when no hook router can carry the settings file', async () => {
-  assert.deepEqual(await startRefused({ hookRouter: null }), { spawned: 0, errors: [SANDBOX_UNAPPLIED_ERROR] });
+test('a session that requests guardrails refuses to spawn when no hook router can carry the settings file', async () => {
+  assert.deepEqual(await startRefused({ hookRouter: null }), { spawned: 0, errors: [GUARDRAILS_UNAPPLIED_ERROR] });
 });
 
-test('a session that requests a sandbox refuses to spawn when the hook listener port is unavailable', async () => {
-  assert.deepEqual(await startRefused({ getHookPort: () => null }), { spawned: 0, errors: [SANDBOX_UNAPPLIED_ERROR] });
-  assert.deepEqual(await startRefused({ getHookPort: () => { throw new Error('no listener'); } }), { spawned: 0, errors: [SANDBOX_UNAPPLIED_ERROR] });
+test('a session that requests guardrails refuses to spawn when the hook listener port is unavailable', async () => {
+  assert.deepEqual(await startRefused({ getHookPort: () => null }), { spawned: 0, errors: [GUARDRAILS_UNAPPLIED_ERROR] });
+  assert.deepEqual(await startRefused({ getHookPort: () => { throw new Error('no listener'); } }), { spawned: 0, errors: [GUARDRAILS_UNAPPLIED_ERROR] });
 });
 
-test('a session that requests a sandbox refuses to spawn when the settings file cannot be written', async () => {
+test('a session that requests guardrails refuses to spawn when the settings file cannot be written', async () => {
   await withTempDir(async (dir) => {
     const occupiedBaseDir = path.join(dir, 'occupied');
     fs.writeFileSync(occupiedBaseDir, 'not a directory');
-    assert.deepEqual(await startRefused({ hooksBaseDir: occupiedBaseDir }), { spawned: 0, errors: [SANDBOX_UNAPPLIED_ERROR] });
+    assert.deepEqual(await startRefused({ hooksBaseDir: occupiedBaseDir }), { spawned: 0, errors: [GUARDRAILS_UNAPPLIED_ERROR] });
   });
 });
 
-test('a session with an outer sandbox spawns only the wrapped command with the agent sandbox off, and never spawns when the sandbox refuses or its settings file is missing', async () => {
+test('a session with outer guardrails spawns only the wrapped command with the agent sandbox off, and never spawns when the guardrails refuse or its settings file is missing', async () => {
   await withTempDir(async (dir) => {
     const calls: SpawnCall[] = [];
     let disposals = 0;
@@ -240,12 +240,12 @@ test('a session with an outer sandbox spawns only the wrapped command with the a
       path: dir,
       agent: 'claude-code',
       spawnCommand: { path: process.execPath, kind: 'exe' },
-      settingsSandbox: { enabled: true, failIfUnavailable: true },
+      settingsGuardrails: { enabled: true, failIfUnavailable: true },
       hookRouter: new HookRouter(),
       getHookPort: () => PORT,
       hooksBaseDir: dir,
       hookTools: [{ id: 'rtk', binPath: rtkBinPath, dataDir: rtkDataDir }],
-      prepareSandbox: async (facts) => ({
+      prepareGuardrails: async (facts) => ({
         ok: true,
         launch: {
           wrap: async (file, args) => ({ file: 'sandbox-runtime', args: ['--', file, ...args] }),
@@ -265,36 +265,36 @@ test('a session with an outer sandbox spawns only the wrapped command with the a
       assert.equal(calls[0].file, 'sandbox-runtime');
       assert.equal(calls[0].args[0], '--');
       assert.ok(calls[0].args.includes('--settings'), 'the agent command rides behind the wrap');
-      const { launchId, agentSessionId, ...factsBesideIds } = JSON.parse(String(calls[0].opts.env.PROBED_FACTS)) as SessionSandboxFacts;
+      const { launchId, agentSessionId, ...factsBesideIds } = JSON.parse(String(calls[0].opts.env.PROBED_FACTS)) as SessionGuardrailsFacts;
       assert.match(launchId, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
-      assert.equal(calls[0].args[calls[0].args.indexOf('--session-id') + 1], agentSessionId, 'the sandbox is told the session id the agent is started with');
+      assert.equal(calls[0].args[calls[0].args.indexOf('--session-id') + 1], agentSessionId, 'the guardrails are told the session id the agent is started with');
       assert.deepEqual(factsBesideIds, { cwd: dir, hookPort: PORT, readablePaths: [settingsDir, rtkBinPath], writablePaths: [rtkDataDir] });
       assert.deepEqual(JSON.parse(fs.readFileSync(path.join(settingsDir, 'settings.json'), 'utf8')).sandbox, { enabled: false });
     } finally {
       session.destroy();
     }
     assert.equal(disposals, 1, 'the launch is disposed with the session');
-    const wrappedWithoutSettingsSandbox = {
-      settingsSandbox: null,
-      prepareSandbox: async () => ({
+    const wrappedWithoutSettingsGuardrails = {
+      settingsGuardrails: null,
+      prepareGuardrails: async () => ({
         ok: true as const,
         launch: { wrap: async (file: string, args: readonly string[]) => ({ file, args: [...args] }), env: {}, dispose: async () => {} },
       }),
     };
-    const refusedUnapplied = { spawned: 0, errors: [SANDBOX_UNAPPLIED_ERROR] };
+    const refusedUnapplied = { spawned: 0, errors: [GUARDRAILS_UNAPPLIED_ERROR] };
     const occupiedBaseDir = path.join(dir, 'occupied');
     fs.writeFileSync(occupiedBaseDir, 'not a directory');
-    assert.deepEqual(await startRefused({ ...wrappedWithoutSettingsSandbox, hookRouter: null }), refusedUnapplied);
-    assert.deepEqual(await startRefused({ ...wrappedWithoutSettingsSandbox, getHookPort: () => null }), refusedUnapplied);
-    assert.deepEqual(await startRefused({ ...wrappedWithoutSettingsSandbox, hooksBaseDir: occupiedBaseDir }), refusedUnapplied);
+    assert.deepEqual(await startRefused({ ...wrappedWithoutSettingsGuardrails, hookRouter: null }), refusedUnapplied);
+    assert.deepEqual(await startRefused({ ...wrappedWithoutSettingsGuardrails, getHookPort: () => null }), refusedUnapplied);
+    assert.deepEqual(await startRefused({ ...wrappedWithoutSettingsGuardrails, hooksBaseDir: occupiedBaseDir }), refusedUnapplied);
   });
   const refusedMessage = 'session not started, the guardrails refused: bwrap is not on PATH';
-  assert.deepEqual(await startRefused({ prepareSandbox: async () => ({ ok: false, reason: 'bwrap is not on PATH' }) }), { spawned: 0, errors: [refusedMessage] });
-  assert.deepEqual(await startRefused({ prepareSandbox: async () => { throw new Error('bwrap is not on PATH'); } }), { spawned: 0, errors: [refusedMessage] });
+  assert.deepEqual(await startRefused({ prepareGuardrails: async () => ({ ok: false, reason: 'bwrap is not on PATH' }) }), { spawned: 0, errors: [refusedMessage] });
+  assert.deepEqual(await startRefused({ prepareGuardrails: async () => { throw new Error('bwrap is not on PATH'); } }), { spawned: 0, errors: [refusedMessage] });
 });
 
-test('a session without a sandbox still spawns on the OSC title fallback when hooks cannot be injected', async () => {
-  assert.deepEqual(await startRefused({ settingsSandbox: null, hookRouter: null }), { spawned: 1, errors: [] });
+test('a session without guardrails still spawns on the OSC title fallback when hooks cannot be injected', async () => {
+  assert.deepEqual(await startRefused({ settingsGuardrails: null, hookRouter: null }), { spawned: 1, errors: [] });
 });
 
 test('a restart keeps the one agent token the session was minted with', async () => {

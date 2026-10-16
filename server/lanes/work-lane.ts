@@ -2,17 +2,17 @@ import fs from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
-import type { PrepareSessionSandbox, SessionSandboxFacts } from '../../session/sessions.ts';
+import type { PrepareSessionGuardrails, SessionGuardrailsFacts } from '../../session/sessions.ts';
 import { errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { LANE_ENVIRONMENT_ARGS, buildShellLanePermissions } from './core/lane-permissions-core.ts';
-import type { SandboxRole } from '../sandbox/core/sandbox-policy-core.ts';
-import { isWorktreeAdminDirOf, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, workRole } from '../sandbox/core/sandbox-roles-core.ts';
+import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
+import { isWorktreeAdminDirOf, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, workRole } from '../guardrails/core/guardrails-roles-core.ts';
 import { runHardenedGit } from '../git/git-workspace.ts';
 import { resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
-import { allowSandboxedSpawn } from '../sandbox/sandbox-deps.ts';
-import type { SandboxSpawnRefusal } from '../sandbox/sandbox-deps.ts';
-import { prepareSandboxLaunch } from '../sandbox/sandbox-launch.ts';
+import { allowGuardedSpawn } from '../guardrails/guardrails-deps.ts';
+import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
+import { prepareGuardrailsLaunch } from '../guardrails/guardrails-launch.ts';
 
 const UNWRAPPED_PLATFORM = 'win32';
 const GUARD_HOOK_UNAVAILABLE_ERROR = 'Sane YOLO is unavailable';
@@ -28,24 +28,24 @@ export type WorkLaneDependencies = {
   hookToolConfig?: { rtk?: boolean };
   resolveSaneYoloHookTools?: (config: { rtk?: boolean }) => ResolvedHookTool[] | null;
   homeDir?: string;
-  prepareSandbox?: typeof prepareSandboxLaunch;
-  sandboxRefusal?: SandboxSpawnRefusal;
+  prepareGuardrails?: typeof prepareGuardrailsLaunch;
+  guardrailsRefusal?: GuardrailsSpawnRefusal;
   platform?: NodeJS.Platform;
 };
 
-export type RoleSandboxDependencies = Pick<WorkLaneDependencies, 'prepareSandbox' | 'sandboxRefusal' | 'platform'>;
+export type RoleGuardrailsDependencies = Pick<WorkLaneDependencies, 'prepareGuardrails' | 'guardrailsRefusal' | 'platform'>;
 
 type ScopedWorktree = { worktreeDir: string; branch: string | null; base: string | null };
 
-export function prepareRoleSandbox(describeRole: (facts: SessionSandboxFacts) => SandboxRole | Promise<SandboxRole>, {
-  prepareSandbox = prepareSandboxLaunch, sandboxRefusal = allowSandboxedSpawn, platform = process.platform,
-}: RoleSandboxDependencies = {}): PrepareSessionSandbox | null {
+export function prepareRoleGuardrails(describeRole: (facts: SessionGuardrailsFacts) => GuardrailsRole | Promise<GuardrailsRole>, {
+  prepareGuardrails = prepareGuardrailsLaunch, guardrailsRefusal = allowGuardedSpawn, platform = process.platform,
+}: RoleGuardrailsDependencies = {}): PrepareSessionGuardrails | null {
   if (platform === UNWRAPPED_PLATFORM) return null;
   return async (facts) => {
-    const sandboxRefusalReason = sandboxRefusal();
-    if (sandboxRefusalReason !== null) return { ok: false, reason: sandboxRefusalReason };
+    const guardrailsRefusalReason = guardrailsRefusal();
+    if (guardrailsRefusalReason !== null) return { ok: false, reason: guardrailsRefusalReason };
     try {
-      return await prepareSandbox({ role: await describeRole(facts), launchId: facts.launchId });
+      return await prepareGuardrails({ role: await describeRole(facts), launchId: facts.launchId });
     } catch (error) {
       return { ok: false, reason: errorMessage(error) };
     }
@@ -86,11 +86,11 @@ export async function readGitDirsOfOwnCheckout(cwd: string): Promise<{ commonGit
 
 export async function resolveWorkLane(input: WorkLaneInput, {
   hookToolConfig = {}, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools, homeDir = glimmervoidHomeDir(),
-  prepareSandbox = prepareSandboxLaunch, sandboxRefusal = allowSandboxedSpawn, platform = process.platform,
+  prepareGuardrails = prepareGuardrailsLaunch, guardrailsRefusal = allowGuardedSpawn, platform = process.platform,
 }: WorkLaneDependencies = {}) {
   if (platform === UNWRAPPED_PLATFORM) return { ok: false as const, reason: `the sandbox runtime does not run on ${platform}` };
-  const sandboxRefusalReason = sandboxRefusal();
-  if (sandboxRefusalReason !== null) return { ok: false as const, reason: sandboxRefusalReason };
+  const guardrailsRefusalReason = guardrailsRefusal();
+  if (guardrailsRefusalReason !== null) return { ok: false as const, reason: guardrailsRefusalReason };
   const hookTools = resolveSaneYoloHookTools(hookToolConfig);
   if (!hookTools?.some((tool) => tool.id === 'saneYolo')) return { ok: false as const, reason: GUARD_HOOK_UNAVAILABLE_ERROR };
   try {
@@ -109,9 +109,9 @@ export async function resolveWorkLane(input: WorkLaneInput, {
       checkout = fs.realpathSync(worktreeDir);
       Object.assign(settingsPermissions, permissionsFor([checkout]));
     };
-    const prepareSessionSandbox: PrepareSessionSandbox = async (facts) => {
+    const prepareSessionGuardrails: PrepareSessionGuardrails = async (facts) => {
       if (checkout === null) return { ok: false, reason: 'the lane worktree was never scoped' };
-      return prepareSandbox({
+      return prepareGuardrails({
         role: workRole({ vendor: 'claude', cwd: facts.cwd, checkout, agentSessionId: facts.agentSessionId, readablePaths: [...facts.readablePaths, ...toolFolders], writablePaths: await existingRealPaths(facts.writablePaths) }),
         launchId: facts.launchId,
       });
@@ -120,7 +120,7 @@ export async function resolveWorkLane(input: WorkLaneInput, {
       ok: true as const,
       sessionOverrides: {
         settingsPermissions, extraClaudeArgs: [...LANE_ENVIRONMENT_ARGS], spawnEnv: { ...LANE_CREDENTIAL_ENV },
-        hookTools, getHookTools: null, prepareSandbox: prepareSessionSandbox,
+        hookTools, getHookTools: null, prepareGuardrails: prepareSessionGuardrails,
       },
       scopeWorktree,
     };

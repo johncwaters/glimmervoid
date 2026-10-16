@@ -28,14 +28,14 @@ import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-ref
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import { createPlanReviewWiring } from '../plan-review-wiring.ts';
 import { createRadarWiring } from '../radar/radar-wiring.ts';
-import type { SandboxSpawnRefusal } from '../sandbox/sandbox-deps.ts';
+import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 import { createSpawnGate } from '../spawn-gate.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { createTeamReviewSpawn, createTeamReviewWiring, sweepLeftoverCheckouts } from '../github/team-review-wiring.ts';
 import { createPrGh } from '../github/pr-gh.ts';
 import { createRepoCache } from '../git/repo-cache.ts';
 import { commandFor } from '../../session/adapters/index.ts';
-import { createMyPrMergeabilityFix, createMyPrsWiring, createSandboxedPrStaging, sweepKeepMergeableLeftovers } from '../github/my-prs-wiring.ts';
+import { createMyPrMergeabilityFix, createMyPrsWiring, createGuardedPrStaging, sweepKeepMergeableLeftovers } from '../github/my-prs-wiring.ts';
 import { keepMergeableTimeoutSeconds } from '../github/core/my-prs-core.ts';
 import { createSessionPrLinkWiring } from '../github/session-pr-link-wiring.ts';
 import { createWorkflowSpawn, createWorkflowsWiring } from '../workflows-wiring.ts';
@@ -68,7 +68,7 @@ interface BackendLaneDependencies {
   configStore: ConfigStore;
   sessions: Map<string, Session>;
   agentSessions: Map<string, Session>;
-  sandboxRefusal: SandboxSpawnRefusal;
+  guardrailsRefusal: GuardrailsSpawnRefusal;
   reviewSessions: Map<string, Session>;
   investigationSessions: Map<string, Session>;
   closeSessionDataClients: (id: string) => void;
@@ -94,7 +94,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     configStore,
     sessions,
     agentSessions,
-    sandboxRefusal,
+    guardrailsRefusal,
     reviewSessions,
     investigationSessions,
     closeSessionDataClients,
@@ -166,12 +166,12 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     spawnReviewer: createLaneSpawn({
       sessions: agentSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
       replayBufferKB: config.replayBufferKB, laneName: 'factory', allowTools: FACTORY_REVIEWER_TOOLS,
-      settingsPermissions: FACTORY_REVIEWER_PERMISSIONS, spawnEnv: FACTORY_REVIEWER_SPAWN_ENV, sandboxRefusal,
+      settingsPermissions: FACTORY_REVIEWER_PERMISSIONS, spawnEnv: FACTORY_REVIEWER_SPAWN_ENV, guardrailsRefusal,
     }),
     trustClaudeFolder: createClaudeFolderTrust().ensureTrusted,
     orchestratorOptions: {
       config, sessions: agentSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-      broadcast: broadcastControl, spawnGate, recordLane, workLane: { sandboxRefusal },
+      broadcast: broadcastControl, spawnGate, recordLane, workLane: { guardrailsRefusal },
     },
   });
   const posthog = createRadarWiring({
@@ -203,7 +203,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     clock: githubClock,
     repoCacheRoot: sharedRepoCacheRoot,
     repoCache: sharedRepoCache,
-    sandboxRefusal,
+    guardrailsRefusal,
   });
   const sessionPrLink = createSessionPrLinkWiring({ git: gitWorkspace, log: logger });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
@@ -219,7 +219,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       timeoutSeconds: () => keepMergeableTimeoutSeconds(config),
       repoCache: sharedRepoCache,
       log: logger,
-      sandboxRefusal,
+      guardrailsRefusal,
       spawnSession: createTeamReviewSpawn({
         reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
         replayBufferKB: config.replayBufferKB, laneName: 'my-prs',
@@ -234,8 +234,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     spawnSession: createWorkflowSpawn({
       workRoot: workflowsWorkRoot,
       log: logger,
-      sandboxRefusal,
-      staging: createSandboxedPrStaging({
+      guardrailsRefusal,
+      staging: createGuardedPrStaging({
         repoCache: sharedRepoCache,
         spawnSession: createTeamReviewSpawn({
           reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
@@ -261,11 +261,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
     spawnJudge: createLaneSpawn({
       sessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'benchmark', sandboxRefusal,
+      replayBufferKB: config.replayBufferKB, laneName: 'benchmark', guardrailsRefusal,
     }),
     credentials: createClaudeCredentials({ claudeCommand }),
     claudeCommand,
-    sandboxRefusal,
+    guardrailsRefusal,
     log: logger,
   });
 
@@ -323,7 +323,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       recordLane,
       replayBufferKB: config.replayBufferKB,
       laneName: 'change-map',
-      sandboxRefusal,
+      guardrailsRefusal,
     }),
   });
 
@@ -333,7 +333,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     logger,
     spawnLane: createLaneSpawn({
       sessions: taskTitleSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, sandboxRefusal,
+      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, guardrailsRefusal,
     }),
   });
 

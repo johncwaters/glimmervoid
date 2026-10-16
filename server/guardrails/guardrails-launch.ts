@@ -7,8 +7,8 @@ import { errorCode, errorMessage, isMissingFileError } from '../../shared/text.t
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { listClaudeGlobalConfigPathCandidates } from '../core/claude-trust-core.ts';
 import { decideConfigPath } from '../core/config-path-core.ts';
-import { buildSandboxLaunchPlan, lockedClaudeMountPoints, sandboxPlaceholderPaths, sandboxPolicyProbePaths, standardWriteBlockCandidates } from './core/sandbox-policy-core.ts';
-import type { SandboxHost, SandboxHostPaths, SandboxLaunchPlan, SandboxRole } from './core/sandbox-policy-core.ts';
+import { buildGuardrailsLaunchPlan, lockedClaudeMountPoints, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates } from './core/guardrails-policy-core.ts';
+import type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, GuardrailsRole } from './core/guardrails-policy-core.ts';
 import { codexHomes, grokHomes, projectDirCandidates } from '../usage/core/usage-scan-core.ts';
 import { writeJsonAtomic } from '../json-file.ts';
 import { relayPath, resolvePackageBin } from '../runtime-paths.ts';
@@ -18,27 +18,27 @@ interface WrappedCommand {
   args: string[];
 }
 
-interface SandboxLaunch {
+interface GuardrailsLaunch {
   wrap: (file: string, args: readonly string[], options: { hasTerminal: boolean }) => Promise<WrappedCommand>;
   env: Record<string, string>;
   cwd?: string;
   dispose: () => Promise<void>;
 }
 
-interface SandboxLaunchRequest {
-  role: SandboxRole;
+interface GuardrailsLaunchRequest {
+  role: GuardrailsRole;
   launchId: string;
   tempDir?: string;
   enterDir?: string;
 }
 
-type SandboxLaunchResult = { ok: true; launch: SandboxLaunch } | { ok: false; reason: string };
+type GuardrailsLaunchResult = { ok: true; launch: GuardrailsLaunch } | { ok: false; reason: string };
 
 const LAUNCH_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const SANDBOXED_ENV_COMMAND = '/usr/bin/env';
-const POLICY_FOLDER = 'sandbox-policies';
-const TEMP_FOLDER = 'sandbox-temp';
-const LAUNCH_HOME_FOLDER = 'sandbox-homes';
+const GUARDED_ENV_COMMAND = '/usr/bin/env';
+const POLICY_FOLDER = 'guardrails-policies';
+const TEMP_FOLDER = 'guardrails-temp';
+const LAUNCH_HOME_FOLDER = 'guardrails-homes';
 const START_FOLDER = 'start';
 const ENTER_FOLDER_SCRIPT = 'cd "$1" && shift && exec "$@"';
 const LOGIN_FILE_MODE = 0o600;
@@ -104,7 +104,7 @@ function scannedClaudeHomes(env: NodeJS.ProcessEnv, homeDir: string): string[] {
     .map((projectsDir) => path.dirname(projectsDir));
 }
 
-async function resolveVendorLocations(env: NodeJS.ProcessEnv, homeDir: string): Promise<SandboxHost['vendorLocations'] | null> {
+async function resolveVendorLocations(env: NodeJS.ProcessEnv, homeDir: string): Promise<GuardrailsHost['vendorLocations'] | null> {
   const [legacyClaudeConfigPath, claudeConfigPath] = listClaudeGlobalConfigPathCandidates(env, homeDir);
   const [codexStateFolder, ...otherCodexHomes] = codexHomes(env, homeDir);
   if (codexStateFolder === undefined) return null;
@@ -118,7 +118,7 @@ async function resolveVendorLocations(env: NodeJS.ProcessEnv, homeDir: string): 
   };
 }
 
-async function withRealRoots(role: SandboxRole): Promise<SandboxRole> {
+async function withRealRoots(role: GuardrailsRole): Promise<GuardrailsRole> {
   const [writableRoots, lockedCheckouts, commitCheckouts] = await Promise.all([
     Promise.all(role.writableRoots.map((root) => realpath(root))),
     Promise.all(role.lockedCheckouts.map((checkout) => realpath(checkout))),
@@ -166,7 +166,7 @@ async function createMissingMountPoints(mountPoints: readonly string[]): Promise
   }
 }
 
-async function keepRefreshedLogins(links: SandboxLaunchPlan['launchHomeLinks'], launchId: string): Promise<void> {
+async function keepRefreshedLogins(links: GuardrailsLaunchPlan['launchHomeLinks'], launchId: string): Promise<void> {
   for (const { linkPath, targetPath } of links.filter((link) => link.isLogin)) {
     if (!await isRegularFile(linkPath)) continue;
     const stagedPath = `${targetPath}.${launchId}`;
@@ -176,16 +176,16 @@ async function keepRefreshedLogins(links: SandboxLaunchPlan['launchHomeLinks'], 
   }
 }
 
-function launcherCommand(plan: SandboxLaunchPlan, policyPath: string): WrappedCommand | null {
-  if (plan.launcher === 'open-network') return { file: process.execPath, args: [relayPath('sandbox-open-launcher'), policyPath] };
+function launcherCommand(plan: GuardrailsLaunchPlan, policyPath: string): WrappedCommand | null {
+  if (plan.launcher === 'open-network') return { file: process.execPath, args: [relayPath('guardrails-open-launcher'), policyPath] };
   const runtimeCliPath = resolvePackageBin('@anthropic-ai/sandbox-runtime', 'srt');
   if (!runtimeCliPath) return null;
   return { file: process.execPath, args: [runtimeCliPath, '--settings', policyPath, '--'] };
 }
 
-function sandboxedEnvPrefix(plan: SandboxLaunchPlan): string[] {
-  const assignments = Object.entries(plan.sandboxedEnv).map(([name, value]) => `${name}=${value}`);
-  return assignments.length === 0 ? [] : [SANDBOXED_ENV_COMMAND, ...assignments];
+function guardedEnvPrefix(plan: GuardrailsLaunchPlan): string[] {
+  const assignments = Object.entries(plan.guardedEnv).map(([name, value]) => `${name}=${value}`);
+  return assignments.length === 0 ? [] : [GUARDED_ENV_COMMAND, ...assignments];
 }
 
 function enteringFolder(enterDir: string | undefined, file: string, args: readonly string[]): string[] {
@@ -193,8 +193,8 @@ function enteringFolder(enterDir: string | undefined, file: string, args: readon
   return ['/bin/sh', '-c', ENTER_FOLDER_SCRIPT, 'sh', enterDir, file, ...args];
 }
 
-async function prepareSandboxLaunch({ role, launchId, tempDir, enterDir }: SandboxLaunchRequest): Promise<SandboxLaunchResult> {
-  if (!LAUNCH_ID_SHAPE.test(launchId)) return { ok: false, reason: 'sandbox launch id is invalid' };
+async function prepareGuardrailsLaunch({ role, launchId, tempDir, enterDir }: GuardrailsLaunchRequest): Promise<GuardrailsLaunchResult> {
+  if (!LAUNCH_ID_SHAPE.test(launchId)) return { ok: false, reason: 'guardrails launch id is invalid' };
   try {
     const policyDir = path.join(glimmervoidHomeDir(), POLICY_FOLDER);
     await mkdir(policyDir, { recursive: true, mode: 0o700 });
@@ -217,12 +217,12 @@ async function prepareSandboxLaunch({ role, launchId, tempDir, enterDir }: Sandb
     };
     const buildPlanFromCurrentDisk = async () => {
       const [homeEntryNames, glimmervoidHomeEntryNames] = await Promise.all([readdir(homeDir), readdir(glimmervoidHome)]);
-      const hostPaths: SandboxHostPaths = { ...stableHostPaths, homeEntryNames, glimmervoidHomeEntryNames };
+      const hostPaths: GuardrailsHostPaths = { ...stableHostPaths, homeEntryNames, glimmervoidHomeEntryNames };
       const [existingPaths, writeBlockedPaths] = await Promise.all([
-        presentPaths(sandboxPolicyProbePaths(realRole, hostPaths)),
+        presentPaths(guardrailsPolicyProbePaths(realRole, hostPaths)),
         blockedPathsWithRealTargets(standardWriteBlockCandidates(realRole, hostPaths), realRole.blockedPaths ?? []),
       ]);
-      return buildSandboxLaunchPlan(realRole, { ...hostPaths, existingPaths, writeBlockedPaths });
+      return buildGuardrailsLaunchPlan(realRole, { ...hostPaths, existingPaths, writeBlockedPaths });
     };
     const built = await buildPlanFromCurrentDisk();
     if (!built.ok) return built;
@@ -235,7 +235,7 @@ async function prepareSandboxLaunch({ role, launchId, tempDir, enterDir }: Sandb
     if (startDir !== undefined) await mkdir(startDir, { recursive: true });
     await Promise.all(plan.launchHomeLinks.map((link) => symlink(link.targetPath, link.linkPath)));
     await writeJsonAtomic(policyPath, plan.policy);
-    const envPrefix = sandboxedEnvPrefix(plan);
+    const envPrefix = guardedEnvPrefix(plan);
     let placeholderPathsAbsentAtWrap: string[] = [];
     return {
       ok: true,
@@ -244,7 +244,7 @@ async function prepareSandboxLaunch({ role, launchId, tempDir, enterDir }: Sandb
           const rebuilt = await buildPlanFromCurrentDisk();
           if (!rebuilt.ok) throw new Error(rebuilt.reason);
           await writeJsonAtomic(policyPath, { ...rebuilt.plan.policy, allowPty: hasTerminal && rebuilt.plan.launcher === 'open-network' });
-          placeholderPathsAbsentAtWrap = await absentPaths(sandboxPlaceholderPaths(realRole));
+          placeholderPathsAbsentAtWrap = await absentPaths(guardrailsPlaceholderPaths(realRole));
           await createMissingMountPoints(lockedClaudeMountPoints(realRole));
           return { file: launcher.file, args: [...launcher.args, ...envPrefix, ...enteringFolder(enterDir, file, args)] };
         },
@@ -264,5 +264,5 @@ async function prepareSandboxLaunch({ role, launchId, tempDir, enterDir }: Sandb
   }
 }
 
-export { prepareSandboxLaunch };
-export type { SandboxLaunch, SandboxLaunchResult };
+export { prepareGuardrailsLaunch };
+export type { GuardrailsLaunch, GuardrailsLaunchResult };

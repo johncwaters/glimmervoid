@@ -138,7 +138,7 @@ test('each arm env and the injected token reach only that arm subject spawn, and
   assert.equal(candidateSpawn?.spawnEnv.CODEX_HOME, undefined);
   assert.equal(candidateSpawn?.extraClaudeArgs.slice(1, 3).join(' '), '--model opus');
   assert.equal(baselineSpawn?.spawnEnv.GH_TOKEN, '');
-  assert.equal(baselineSpawn?.settingsSandbox?.enabled, true);
+  assert.equal(baselineSpawn?.settingsGuardrails?.enabled, true);
   assert.ok(baselineSpawn?.extraClaudeArgs.includes('--strict-mcp-config'));
   assert.equal(judgeRequests.length, 2);
   assert.ok(judgeRequests.every((request) => request.model === 'opus' && !('spawnEnv' in request)));
@@ -203,11 +203,11 @@ test('actions are refused while benchmarks are off, and mining a manual suite or
   assert.deepEqual(await on.wiring.submitAction({ suiteId: 'ladder', action: 'cancel' }), { suiteId: 'ladder', action: 'cancel', ok: false, error: 'No run of this suite is in flight' });
 });
 
-test('a refused sandbox probe refuses the run with its reason before any arm command, subject or run record', async () => {
+test('a refused guardrails probe refuses the run with its reason before any arm command, subject or run record', async () => {
   const root = tempRoot();
   const refusal = 'not started: the Claude Code sandbox needs bwrap and socat, and bwrap is not on PATH. Install bubblewrap and socat';
   const { wiring, subjectRequests, judgeRequests, armCommands } = harness({
-    root, suite: manualSuite(), cases: [manualCase('case-1')], overrides: { sandboxRefusal: () => refusal },
+    root, suite: manualSuite(), cases: [manualCase('case-1')], overrides: { guardrailsRefusal: () => refusal },
   });
   assert.deepEqual(await wiring.submitAction({ suiteId: 'ladder', action: 'run' }), { suiteId: 'ladder', action: 'run', ok: false, error: refusal });
   assert.deepEqual(armCommands, []);
@@ -270,8 +270,8 @@ test('a blobless cached checkout exposes only reviewed refs, keeps the base diff
         const prompt = fs.readFileSync(path.join(request.cwd, 'subject-prompt.md'), 'utf8');
         const checkoutPath = /Review (\S+) from/.exec(prompt)?.[1] ?? '';
         checkoutPaths.push(checkoutPath);
-        assert.deepEqual(request.settingsSandbox?.filesystem.allowRead, [path.join(cachedRepo, '.git', 'objects')]);
-        assert.ok(request.settingsSandbox?.filesystem.denyRead.includes(repoCacheRootFor(root)));
+        assert.deepEqual(request.settingsGuardrails?.filesystem.allowRead, [path.join(cachedRepo, '.git', 'objects')]);
+        assert.ok(request.settingsGuardrails?.filesystem.denyRead.includes(repoCacheRootFor(root)));
         assert.equal(request.cwd, path.join(path.dirname(checkoutPath), 'work'));
         assert.deepEqual(git(['for-each-ref', '--format=%(refname)'], checkoutPath).trim().split('\n'), ['refs/benchmark/base', 'refs/heads/review']);
         assert.equal(git(['remote'], checkoutPath).trim(), '');
@@ -429,24 +429,24 @@ test('a checkout subject is allowed to Read exactly its staged checkout', { skip
   });
 });
 
-test('the subject sandbox cannot read the suite answer key or reach GitHub', async () => {
+test('the subject guardrails cannot read the suite answer key or reach GitHub', async () => {
   const root = tempRoot();
   const { wiring, subjectRequests, statuses } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
   await runToCompletion(wiring, statuses);
-  const sandbox = subjectRequests[0]?.settingsSandbox;
-  for (const folder of ['cases', 'candidates', 'runs']) assert.ok(sandbox?.filesystem.denyRead.includes(path.join(root, 'ladder', folder)), folder);
-  assert.deepEqual(sandbox?.excludedCommands, ['codex exec *']);
-  assert.ok(sandbox?.filesystem.denyRead.includes('~/.ssh'));
-  assert.equal(sandbox?.network.allowedDomains.some((domain) => /github/i.test(domain)), false);
+  const guardrails = subjectRequests[0]?.settingsGuardrails;
+  for (const folder of ['cases', 'candidates', 'runs']) assert.ok(guardrails?.filesystem.denyRead.includes(path.join(root, 'ladder', folder)), folder);
+  assert.deepEqual(guardrails?.excludedCommands, ['codex exec *']);
+  assert.ok(guardrails?.filesystem.denyRead.includes('~/.ssh'));
+  assert.equal(guardrails?.network.allowedDomains.some((domain) => /github/i.test(domain)), false);
 });
 
 test('a subject without a checkout hides the shared repo cache and re-allows no object store', async () => {
   const root = tempRoot();
   const { wiring, subjectRequests, statuses } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
   await runToCompletion(wiring, statuses);
-  const sandbox = subjectRequests[0]?.settingsSandbox;
-  assert.ok(sandbox?.filesystem.denyRead.includes(repoCacheRootFor(root)));
-  assert.deepEqual(sandbox?.filesystem.allowRead, []);
+  const guardrails = subjectRequests[0]?.settingsGuardrails;
+  assert.ok(guardrails?.filesystem.denyRead.includes(repoCacheRootFor(root)));
+  assert.deepEqual(guardrails?.filesystem.allowRead, []);
 });
 
 test('the subject may run codex exec, write its dispatch prompt and read its answer while team review permissions allow nothing', async () => {

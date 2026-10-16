@@ -9,7 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { execFileAsync } from '../server/child-process-safe.ts';
-import type { PrepareFactoryCheckRunner } from '../server/factory/factory-check-sandbox.ts';
+import type { PrepareFactoryCheckRunner } from '../server/factory/factory-check-guardrails.ts';
 import { createFactoryCloseOut } from '../server/factory/factory-closeout.ts';
 import type { FactoryCloseOutDeps, FactoryCloseOutWorker } from '../server/factory/factory-closeout.ts';
 import { commitAndLandFactoryLedger, hasCodeChangedBetween, readCodeDiffBetween, screenPendingLedgerWrites } from '../server/factory/factory-ledger.ts';
@@ -26,7 +26,7 @@ import { waitFor } from './helpers/wait-for.ts';
 import { FactoryLaneState, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
 
-const prepareUnsandboxedCheckRunner: PrepareFactoryCheckRunner = async () => ({
+const prepareUnguardedCheckRunner: PrepareFactoryCheckRunner = async () => ({
   runCheck: (argv, options) => execFileAsync(argv[0], argv.slice(1), options),
   dispose: async () => {},
 });
@@ -67,7 +67,7 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
   let mergeReason: string | null = null;
   let mergedSha: string | null = null;
   let workerBaseSha = workspace.baseSha;
-  let prepareCheckRunner = prepareUnsandboxedCheckRunner;
+  let prepareCheckRunner = prepareUnguardedCheckRunner;
   const config: FactoryCloseOutDeps['config'] = { factory: { enabled: true, checks: [`${process.execPath} --version`], reviewerModel: 'sonnet' }, worktreeShare: ['node_modules'] };
   const baseEnv: NodeJS.ProcessEnv = { ...process.env };
   const worker: FactoryCloseOutWorker = {
@@ -255,12 +255,12 @@ test('a merge after a block clears that block exception, so a factory that recov
   assert.deepEqual(fixture.clearedExceptions, fixture.exceptions);
 });
 
-test('a check sandbox that cannot be prepared fails the attempt and never merges or runs a reviewer', async (context) => {
+test('a check guardrails that cannot be prepared fails the attempt and never merges or runs a reviewer', async (context) => {
   const fixture = await createFixture(context);
   await fixture.commitChange();
-  fixture.setCheckRunner(async () => { throw new Error('check sandbox is unavailable'); });
+  fixture.setCheckRunner(async () => { throw new Error('check guardrails are unavailable'); });
   await fixture.closeOut.turnEnded(fixture.worker);
-  assert.match(fixture.feedback[0], /check sandbox is unavailable/);
+  assert.match(fixture.feedback[0], /check guardrails are unavailable/);
   assert.equal(fixture.reviewRequests.length, 0);
   assert.equal(fixture.mergedSha(), null);
 });
@@ -449,12 +449,12 @@ for (const verdict of [{ pass: 'yes', findings: [] }, null]) {
   });
 }
 
-test('close-out stages the changes a worker left uncommitted through the check sandbox, then commits and lands them', async (context) => {
+test('close-out stages the changes a worker left uncommitted through the check guardrails, then commits and lands them', async (context) => {
   const fixture = await createFixture(context);
-  const sandboxedGitRuns: { argv: string[]; writablePaths: string[]; readablePaths: string[]; cwd: string }[] = [];
+  const guardedGitRuns: { argv: string[]; writablePaths: string[]; readablePaths: string[]; cwd: string }[] = [];
   fixture.setCheckRunner(async ({ writablePaths, readablePaths = [] }) => ({
     runCheck: (argv, options) => {
-      if (argv[0] === 'git') sandboxedGitRuns.push({ argv, writablePaths, readablePaths, cwd: options.cwd });
+      if (argv[0] === 'git') guardedGitRuns.push({ argv, writablePaths, readablePaths, cwd: options.cwd });
       return execFileAsync(argv[0], argv.slice(1), options);
     },
     dispose: async () => {},
@@ -469,10 +469,10 @@ test('close-out stages the changes a worker left uncommitted through the check s
   assert.ok(mergedSha);
   assert.equal(await fixture.git(['show', `${mergedSha}:src/retry.ts`]), 'export const retries = 5;');
   assert.equal(await fixture.git(['log', '-1', '--format=%s', mergedSha, '--', 'src/retry.ts']), 'factory: Ship retries');
-  assert.deepEqual(sandboxedGitRuns.map(({ argv }) => argv.includes('add')), [true]);
-  assert.deepEqual(sandboxedGitRuns[0].writablePaths.map((writablePath) => path.basename(writablePath).replace(/-.*$/, '')), ['glimmervoid', 'objects']);
-  assert.notEqual(sandboxedGitRuns[0].cwd, fixture.workspace.cwd);
-  assert.deepEqual(sandboxedGitRuns[0].readablePaths, [fixture.workspace.cwd]);
+  assert.deepEqual(guardedGitRuns.map(({ argv }) => argv.includes('add')), [true]);
+  assert.deepEqual(guardedGitRuns[0].writablePaths.map((writablePath) => path.basename(writablePath).replace(/-.*$/, '')), ['glimmervoid', 'objects']);
+  assert.notEqual(guardedGitRuns[0].cwd, fixture.workspace.cwd);
+  assert.deepEqual(guardedGitRuns[0].readablePaths, [fixture.workspace.cwd]);
 });
 
 test('a worker that changed nothing fails each attempt and parks on the third', async (context) => {
@@ -488,7 +488,7 @@ test('a worker that changed nothing fails each attempt and parks on the third', 
   assert.equal(fixture.reviewRequests.length, 0);
 });
 
-test('close-out refuses to commit a nested repository or a shared host file and leaves the worker branch where it was, and commits an edit to a shared entry the repository tracks and a new file under one the project does not ignore, leaving an empty sandbox placeholder out', async (context) => {
+test('close-out refuses to commit a nested repository or a shared host file and leaves the worker branch where it was, and commits an edit to a shared entry the repository tracks and a new file under one the project does not ignore, leaving an empty guardrails placeholder out', async (context) => {
   const leaveNestedRepository = async (fixture: Awaited<ReturnType<typeof createFixture>>) => {
     const nestedRepositoryPath = path.join(fixture.workspace.cwd, 'vendored');
     await mkdir(nestedRepositoryPath);
@@ -761,7 +761,7 @@ async function startFactoryWiring(fixture: Awaited<ReturnType<typeof createFixtu
   await mkdir(path.dirname(statePath), { recursive: true });
   await writeFile(statePath, JSON.stringify({ ledgerPath: fixture.ledger.cwd, ledgerBranch: fixture.ledger.branch, paused: false, trustedIntentIds: [fixture.worker.intentId] }));
   const wiring = createFactoryWiring({
-    config, homeDir, readSpentTodayUsd: () => ({ status: 'known', amountUsd: 1 }), prepareCheckRunner: prepareUnsandboxedCheckRunner,
+    config, homeDir, readSpentTodayUsd: () => ({ status: 'known', amountUsd: 1 }), prepareCheckRunner: prepareUnguardedCheckRunner,
     notify: (_projectName, category, message) => { notifications.push({ category, message }); }, gitWorkspace: fixture.gitWorkspace, firstTickDelayMs: () => 0, broadcast: () => {},
     orchestratorOptions: {
       workLane: passthroughWorkLane(),

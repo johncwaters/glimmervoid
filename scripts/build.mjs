@@ -15,7 +15,7 @@ const REQUIRED_OUTPUTS = [
   'session/statusline-relay.js',
   'session/hook-tool-relay.js',
   'session/visions-relay.js',
-  'session/sandbox-open-launcher.js',
+  'session/guardrails-open-launcher.js',
   'scripts/postinstall-path-check.js',
   'tools/vscode-visions/extension.js',
   'tools/vscode-visions/lsp-convert.js',

@@ -11,10 +11,10 @@ import { absolutePathReadRule } from './github/core/team-review-core.ts';
 import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from './json-file.ts';
 import type { LaneSpawn } from './lanes/lane-spawn.ts';
 import type { PrGh } from './github/pr-gh.ts';
-import { allowSandboxedSpawn } from './sandbox/sandbox-deps.ts';
-import type { SandboxSpawnRefusal } from './sandbox/sandbox-deps.ts';
+import { allowGuardedSpawn } from './guardrails/guardrails-deps.ts';
+import type { GuardrailsSpawnRefusal } from './guardrails/guardrails-deps.ts';
 import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions } from './github/team-review-wiring.ts';
-import type { LaneSettingsSandbox, TeamReviewRepoCache, TeamReviewSpawn } from './github/team-review-wiring.ts';
+import type { LaneSettingsGuardrails, TeamReviewRepoCache, TeamReviewSpawn } from './github/team-review-wiring.ts';
 import {
   BenchmarkCase, BenchmarkId, BenchmarkRun, BenchmarkStatus, BenchmarkSuite, PrCheckoutCaseInput,
 } from '../shared/contracts/benchmark.ts';
@@ -37,7 +37,7 @@ const RESULT_MAX_BYTES = 1024 * 1024;
 const PERSISTED_LINE_MAX_CHARS = 400;
 const REDACTED_SECRET = '[redacted]';
 const SUBJECT_UNREADABLE_SUITE_FOLDERS = Object.freeze(['cases', 'candidates', 'runs']);
-const SUBJECT_UNSANDBOXED_COMMANDS = Object.freeze(['codex exec *']);
+const SUBJECT_UNGUARDED_COMMANDS = Object.freeze(['codex exec *']);
 const SUBJECT_ALLOWED_DOMAINS = Object.freeze(['chatgpt.com', '*.chatgpt.com', 'auth.openai.com', 'api.openai.com', '*.openai.com']);
 const SUBJECT_DENY_READ_PATHS = Object.freeze(['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
 const CODEX_HOME_PATH = '~/.codex';
@@ -66,7 +66,7 @@ interface BenchmarkWiringOptions {
   credentials: { resolveArmToken(cellTimeoutSeconds: number, signal?: AbortSignal): Promise<{ ok: true; token: string } | { ok: false; reason: string }> };
   claudeCommand: () => string | null;
   runArmCommand?: ArmCommandRunner;
-  sandboxRefusal?: SandboxSpawnRefusal;
+  guardrailsRefusal?: GuardrailsSpawnRefusal;
   baseEnv?: NodeJS.ProcessEnv;
   now?: () => number;
   randomSuffix?: () => string;
@@ -143,7 +143,7 @@ function benchmarkSubjectPermissions(suiteDirectory: string): { deny: string[]; 
   const permissions = teamReviewAcceptEditsPermissions();
   return {
     ...permissions,
-    allow: [...SUBJECT_UNSANDBOXED_COMMANDS.map((command) => `Bash(${command})`), ...CODEX_DISPATCH_FILE_ALLOW_RULES],
+    allow: [...SUBJECT_UNGUARDED_COMMANDS.map((command) => `Bash(${command})`), ...CODEX_DISPATCH_FILE_ALLOW_RULES],
     deny: [...permissions.deny, ...subjectUnreadableFolders(suiteDirectory).map(absolutePathReadRule)],
   };
 }
@@ -153,13 +153,13 @@ function benchmarkSubjectClaudeArgs(armExtraArgs: readonly string[], checkoutPat
   return ['-p', ...armExtraArgs, '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, ...readAllowArgs, '--strict-mcp-config'];
 }
 
-function benchmarkSubjectSandbox(workDir: string, suiteDirectory: string, repoCacheRoot: string, sharedObjectsPath: string | null): LaneSettingsSandbox {
+function benchmarkSubjectGuardrails(workDir: string, suiteDirectory: string, repoCacheRoot: string, sharedObjectsPath: string | null): LaneSettingsGuardrails {
   return {
     enabled: true,
     failIfUnavailable: true,
     allowUnsandboxedCommands: false,
     enableWeakerNetworkIsolation: true,
-    excludedCommands: [...SUBJECT_UNSANDBOXED_COMMANDS],
+    excludedCommands: [...SUBJECT_UNGUARDED_COMMANDS],
     network: { strictAllowlist: true, allowLocalBinding: true, allowAllUnixSockets: true, allowedDomains: [...SUBJECT_ALLOWED_DOMAINS] },
     filesystem: {
       allowWrite: [CODEX_HOME_PATH, workDir],
@@ -197,7 +197,7 @@ async function readBoundedText(filePath: string): Promise<string | null> {
 function createBenchmarkWiring({
   benchmarksRoot, runsRoot, isEnabled, broadcast, github, repoCache, repoCacheRoot, gitWorkspace, spawnSubject, spawnJudge, credentials, claudeCommand,
   runArmCommand = runArmCommandSafely,
-  sandboxRefusal = allowSandboxedSpawn,
+  guardrailsRefusal = allowGuardedSpawn,
   baseEnv = process.env,
   now = () => Date.now(),
   randomSuffix = () => randomBytes(4).toString('hex'),
@@ -486,7 +486,7 @@ function createBenchmarkWiring({
         spawnEnv: { ...baseSpawnEnv, ...(arm.env ?? {}), [OVERRIDE_TOKEN_ENV]: '', CLAUDE_CODE_OAUTH_TOKEN: token.token },
         extraClaudeArgs: benchmarkSubjectClaudeArgs(arm.extraArgs ?? [], staged.checkoutPath),
         settingsPermissions: benchmarkSubjectPermissions(suiteDirectory),
-        settingsSandbox: benchmarkSubjectSandbox(staged.workDir, suiteDirectory, repoCacheRoot, staged.sharedObjectsPath),
+        settingsGuardrails: benchmarkSubjectGuardrails(staged.workDir, suiteDirectory, repoCacheRoot, staged.sharedObjectsPath),
         signal: subjectController.signal,
         initialPrompt: SUBJECT_BOOTSTRAP_PROMPT,
       });
@@ -530,8 +530,8 @@ function createBenchmarkWiring({
   async function startRun(suiteId: string): Promise<Omit<BenchmarkActionResult, 'suiteId' | 'action'>> {
     await leftoverSweep;
     if (activeRun) return { ok: false, error: `A run of ${activeRun.suiteId} is already in flight` };
-    const sandboxRefusalReason = sandboxRefusal();
-    if (sandboxRefusalReason !== null) return { ok: false, error: sandboxRefusalReason };
+    const guardrailsRefusalReason = guardrailsRefusal();
+    if (guardrailsRefusalReason !== null) return { ok: false, error: guardrailsRefusalReason };
     const loaded = await loadSuite(suiteId);
     if (!loaded.ok) return { ok: false, error: loaded.reason };
     const cases = await loadCases(suiteId, 'cases');

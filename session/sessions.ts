@@ -65,7 +65,7 @@ import type { ScreenSnapshot } from "./session-output.ts";
 import type { ScreenKeeperFactory } from "./screen-keeper.ts";
 import { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
 import type { HookRouterPort } from "./session-hook-lifecycle.ts";
-import type { SandboxLaunch, SandboxLaunchResult } from "../server/sandbox/sandbox-launch.ts";
+import type { GuardrailsLaunch, GuardrailsLaunchResult } from "../server/guardrails/guardrails-launch.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
 import { signalWindowChangeBelow } from "./window-change-signal.ts";
 import type { GitIsolationOptions } from "../server/git/core/git-invocation-core.ts";
@@ -79,18 +79,18 @@ const KILL_MAX_WAIT_MS = 3000;
 const KILL_REAP_MAX_WAIT_MS = 2400;
 const SLEEP_KILL_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_PENDING_ATTENTION_NOTES = 5;
-const SANDBOX_UNAPPLIED_ERROR = "guardrail settings could not be applied, session not started";
-const SANDBOX_REFUSED_PREFIX = "session not started, the guardrails refused: ";
-const INNER_SANDBOX_OFF = Object.freeze({ enabled: false });
+const GUARDRAILS_UNAPPLIED_ERROR = "guardrail settings could not be applied, session not started";
+const GUARDRAILS_REFUSED_PREFIX = "session not started, the guardrails refused: ";
+const INNER_GUARDRAILS_OFF = Object.freeze({ enabled: false });
 
-function settingsSandboxForHooks(
+function settingsGuardrailsForHooks(
   adapter: AgentAdapter,
-  hasOuterSandbox: boolean,
-  requestedSettingsSandbox: Record<string, unknown> | null,
+  hasOuterGuardrails: boolean,
+  requestedSettingsGuardrails: Record<string, unknown> | null,
 ): Record<string, unknown> | null {
-  if (!hasOuterSandbox) return requestedSettingsSandbox;
+  if (!hasOuterGuardrails) return requestedSettingsGuardrails;
   if (typeof adapter.settingsArgs !== "function") return null;
-  return INNER_SANDBOX_OFF;
+  return INNER_GUARDRAILS_OFF;
 }
 
 function signalablePid(pid: unknown): number | null {
@@ -165,7 +165,7 @@ type KillProc = (
 
 type SignalProc = (pid: number, signal: NodeJS.Signals | 0) => void;
 
-interface SessionSandboxFacts {
+interface SessionGuardrailsFacts {
   launchId: string;
   cwd: string;
   hookPort: number | null;
@@ -174,7 +174,7 @@ interface SessionSandboxFacts {
   agentSessionId: string | null;
 }
 
-type PrepareSessionSandbox = (facts: SessionSandboxFacts) => Promise<SandboxLaunchResult>;
+type PrepareSessionGuardrails = (facts: SessionGuardrailsFacts) => Promise<GuardrailsLaunchResult>;
 
 interface SpawnCommand {
   file: string;
@@ -218,8 +218,8 @@ interface SessionOptions {
   ephemeral?: boolean;
   resumeSessionId?: string | null;
   settingsPermissions?: Record<string, unknown> | null;
-  settingsSandbox?: Record<string, unknown> | null;
-  prepareSandbox?: PrepareSessionSandbox | null;
+  settingsGuardrails?: Record<string, unknown> | null;
+  prepareGuardrails?: PrepareSessionGuardrails | null;
   spawnEnv?: Record<string, string> | null;
   prependPathDirs?: string[];
   enableProjectMcp?: boolean;
@@ -340,8 +340,8 @@ class Session extends EventEmitter {
   _agentLifetimeSpawns: number;
   _agentSpawnsInFlight: number;
   _ptySpawn: PtySpawn;
-  _prepareSandbox: PrepareSessionSandbox | null;
-  _sandboxLaunch: SandboxLaunch | null;
+  _prepareGuardrails: PrepareSessionGuardrails | null;
+  _guardrailsLaunch: GuardrailsLaunch | null;
   _requiresWorktree: boolean;
   _killProc: KillProc;
   _signalProc: SignalProc;
@@ -401,8 +401,8 @@ class Session extends EventEmitter {
     prLinks = undefined,
 
     settingsPermissions = null,
-    settingsSandbox = null,
-    prepareSandbox = null,
+    settingsGuardrails = null,
+    prepareGuardrails = null,
 
     spawnEnv = null,
     prependPathDirs = [],
@@ -569,7 +569,7 @@ class Session extends EventEmitter {
       getHookPort,
       hooksBaseDir,
       settingsPermissions,
-      settingsSandbox: settingsSandboxForHooks(this._adapter, prepareSandbox !== null, settingsSandbox),
+      settingsGuardrails: settingsGuardrailsForHooks(this._adapter, prepareGuardrails !== null, settingsGuardrails),
       detectScheduledWakeups,
       observeToolCalls: observeToolCalls === true,
       enableProjectMcp: !!enableProjectMcp,
@@ -602,8 +602,8 @@ class Session extends EventEmitter {
       requireExecutableSpawnHelper();
       return pty.spawn(file, args, opts);
     });
-    this._prepareSandbox = prepareSandbox;
-    this._sandboxLaunch = null;
+    this._prepareGuardrails = prepareGuardrails;
+    this._guardrailsLaunch = null;
 
     this._killProc = killProc || ((args, opts, cb) => execFile("taskkill", args, opts, cb));
     this._signalProc = signalProc || ((pid, signal) => process.kill(pid, signal));
@@ -1305,7 +1305,7 @@ class Session extends EventEmitter {
       ephemeral: this.ephemeral,
       isWorktree: this.isWorktree,
       isWorkspace: this.isWorkspace,
-      isConfined: this.isConfined,
+      isGuarded: this.isGuarded,
       resumeSessionId: this._resumeSessionId,
       activeAgents: active,
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
@@ -1458,8 +1458,8 @@ class Session extends EventEmitter {
     }
     const hookInjection = this._hooks.inject();
     this._isSaneYoloActive = hookInjection.isSaneYoloActive;
-    if (this._hooks.isRequiredSandboxMissing()) {
-      this._abandonSpawn(new Error(SANDBOX_UNAPPLIED_ERROR));
+    if (this._hooks.isRequiredGuardrailsMissing()) {
+      this._abandonSpawn(new Error(GUARDRAILS_UNAPPLIED_ERROR));
       return;
     }
     const settingsArgs = [...hookInjection.args];
@@ -1496,7 +1496,7 @@ class Session extends EventEmitter {
     }
 
     this._suppressResumeCapture = false;
-    const launchSession = this._prepareSandbox
+    const launchSession = this._prepareGuardrails
       ? this._adapter.launchSessionId?.({ resumeSessionId: spawnResumeSessionId, extraArgs: this._extraClaudeArgs, generatedId: randomUUID() }) ?? null
       : null;
     const agentArgs = this._adapter.buildArgs({
@@ -1504,7 +1504,7 @@ class Session extends EventEmitter {
       resumeSessionId: spawnResumeSessionId,
       extraArgs: launchSession?.extraArgs ?? this._extraClaudeArgs,
       initialPrompt: spawnResumeSessionId && resumePrompt ? resumePrompt : this._initialPrompt,
-      hasOuterSandbox: this._prepareSandbox !== null,
+      hasOuterGuardrails: this._prepareGuardrails !== null,
       hasOperatorInstructions: this._hasOperatorInstructions(env),
       canRunHelpCommand: this._canRunHelpCommand,
     });
@@ -1514,7 +1514,7 @@ class Session extends EventEmitter {
       await this._stopConversationBridge();
       return;
     }
-    const spawnCommand = await this._sandboxedSpawnCommand(this._adapter.buildSpawnCommand({
+    const spawnCommand = await this._guardedSpawnCommand(this._adapter.buildSpawnCommand({
       platform: this._platform,
       resolved: this._spawnCommand || commandFor(this._adapter),
       settingsArgs: bridgedLaunch ? [] : settingsArgs,
@@ -1528,7 +1528,7 @@ class Session extends EventEmitter {
     const { file, args } = spawnCommand;
 
     const ptySize = this._output.ptySize();
-    const sandboxLaunch = this._sandboxLaunch;
+    const guardrailsLaunch = this._guardrailsLaunch;
     try {
       this.ptyProcess = this._ptySpawn(file, args, {
         name: "xterm-256color",
@@ -1548,7 +1548,7 @@ class Session extends EventEmitter {
     const spawnCwdExists = fs.existsSync(this.effectiveCwd());
     if (!this.transition("spawn_success", { spawnCwdExists })) {
       this.ptyProcess.onExit(({ exitCode, signal }) =>
-        this._handleSpawnedPtyExit(sandboxLaunch, exitCode, signal),
+        this._handleSpawnedPtyExit(guardrailsLaunch, exitCode, signal),
       );
       this._isSaneYoloActive = false;
       this._hooks.cleanup();
@@ -1576,17 +1576,17 @@ class Session extends EventEmitter {
 
     this.ptyProcess.onData((data) => this._handlePtyData(data));
     this.ptyProcess.onExit(({ exitCode, signal }) =>
-      this._handleSpawnedPtyExit(sandboxLaunch, exitCode, signal),
+      this._handleSpawnedPtyExit(guardrailsLaunch, exitCode, signal),
     );
   }
 
-  get isConfined(): boolean {
-    return this._prepareSandbox !== null;
+  get isGuarded(): boolean {
+    return this._prepareGuardrails !== null;
   }
 
   isConversationBridgeRefused(settingsArgs: readonly string[] = [], agentArgs: readonly string[] = this._extraClaudeArgs): boolean {
     if (this.agentId !== "codex") return false;
-    return this._prepareSandbox !== null || this.bypassHookTrust || needsAppServerRefusedFlag(settingsArgs, agentArgs);
+    return this._prepareGuardrails !== null || this.bypassHookTrust || needsAppServerRefusedFlag(settingsArgs, agentArgs);
   }
 
   async _startConversationBridge(settingsArgs: string[], agentArgs: string[], env: SpawnEnv): Promise<{ tuiArgs: string[]; token: string } | null> {
@@ -1701,7 +1701,7 @@ class Session extends EventEmitter {
   _abandonSpawn(cause: unknown): void {
     this._isSaneYoloActive = false;
     this._hooks.cleanup();
-    this._disposeSandboxLaunch(this._sandboxLaunch);
+    this._disposeGuardrailsLaunch(this._guardrailsLaunch);
     void this._stopConversationBridge();
     this._releaseClaudeHolds(() => true);
     this.transition("spawn_fail", { error: errorMessage(cause) });
@@ -1718,13 +1718,13 @@ class Session extends EventEmitter {
     }
   }
 
-  async _sandboxedSpawnCommand(command: { file: string; args: string[] }, agentSessionId: string | null): Promise<SpawnCommand | null> {
-    if (!this._prepareSandbox) return { ...command, env: {} };
-    const wrapped = await this._wrapInSandbox(this._prepareSandbox, command, agentSessionId)
-      .catch((error: unknown) => new Error(`${SANDBOX_REFUSED_PREFIX}${errorMessage(error)}`));
+  async _guardedSpawnCommand(command: { file: string; args: string[] }, agentSessionId: string | null): Promise<SpawnCommand | null> {
+    if (!this._prepareGuardrails) return { ...command, env: {} };
+    const wrapped = await this._wrapInGuardrails(this._prepareGuardrails, command, agentSessionId)
+      .catch((error: unknown) => new Error(`${GUARDRAILS_REFUSED_PREFIX}${errorMessage(error)}`));
     if (this._destroyed) {
       this._hooks.cleanup();
-      this._disposeSandboxLaunch(this._sandboxLaunch);
+      this._disposeGuardrailsLaunch(this._guardrailsLaunch);
       return null;
     }
     if (wrapped instanceof Error) {
@@ -1734,8 +1734,8 @@ class Session extends EventEmitter {
     return wrapped;
   }
 
-  async _wrapInSandbox(prepareSandbox: PrepareSessionSandbox, command: { file: string; args: string[] }, agentSessionId: string | null): Promise<SpawnCommand> {
-    const prepared = await prepareSandbox({
+  async _wrapInGuardrails(prepareGuardrails: PrepareSessionGuardrails, command: { file: string; args: string[] }, agentSessionId: string | null): Promise<SpawnCommand> {
+    const prepared = await prepareGuardrails({
       launchId: randomUUID(),
       cwd: this.effectiveCwd(),
       hookPort: this._hooks.hasInjection() ? this._hooks.listenerPort() : null,
@@ -1747,15 +1747,15 @@ class Session extends EventEmitter {
       agentSessionId,
     });
     if (!prepared.ok) throw new Error(prepared.reason);
-    this._disposeSandboxLaunch(this._sandboxLaunch);
-    this._sandboxLaunch = prepared.launch;
+    this._disposeGuardrailsLaunch(this._guardrailsLaunch);
+    this._guardrailsLaunch = prepared.launch;
     const wrapped = await prepared.launch.wrap(command.file, command.args, { hasTerminal: true });
     return { ...wrapped, env: prepared.launch.env, cwd: prepared.launch.cwd };
   }
 
-  _disposeSandboxLaunch(launch: SandboxLaunch | null): void {
-    if (!launch || launch !== this._sandboxLaunch) return;
-    this._sandboxLaunch = null;
+  _disposeGuardrailsLaunch(launch: GuardrailsLaunch | null): void {
+    if (!launch || launch !== this._guardrailsLaunch) return;
+    this._guardrailsLaunch = null;
     launch.dispose().catch((error) => {
       console.warn(`[session ${this.id}] guardrails cleanup failed: ${errorMessage(error)}`);
     });
@@ -1836,8 +1836,8 @@ class Session extends EventEmitter {
     }
   }
 
-  _handleSpawnedPtyExit(sandboxLaunch: SandboxLaunch | null, exitCode: number, signal: ExitSignal): Promise<void> {
-    this._disposeSandboxLaunch(sandboxLaunch);
+  _handleSpawnedPtyExit(guardrailsLaunch: GuardrailsLaunch | null, exitCode: number, signal: ExitSignal): Promise<void> {
+    this._disposeGuardrailsLaunch(guardrailsLaunch);
     void this._stopConversationBridge();
     this._releaseClaudeHolds(() => true);
     return this._handlePtyExit(exitCode, signal);
@@ -1925,7 +1925,7 @@ class Session extends EventEmitter {
       try {
         this.ptyProcess.resize(cols, rows);
       } catch {}
-      if (this._sandboxLaunch && this._platform === "linux") void signalWindowChangeBelow(this.ptyProcess.pid);
+      if (this._guardrailsLaunch && this._platform === "linux") void signalWindowChangeBelow(this.ptyProcess.pid);
     }
     this._resizeSeq += 1;
     this.emit("resize", { cols, rows, seq: this._resizeSeq });
@@ -2198,7 +2198,7 @@ class Session extends EventEmitter {
     this._clearPendingPaste();
 
     this._hooks.cleanup();
-    this._disposeSandboxLaunch(this._sandboxLaunch);
+    this._disposeGuardrailsLaunch(this._guardrailsLaunch);
     void this._stopConversationBridge();
     this._releaseClaudeHolds(() => true);
 
@@ -2226,5 +2226,5 @@ function claudeCommand(): ResolvedCommand {
   return commandFor(DEFAULT_AGENT_ID);
 }
 
-export { SANDBOX_UNAPPLIED_ERROR, Session, claudeCommand };
-export type { ClaudeSessionIdEvent, PrepareSessionSandbox, SessionOptions, SessionPlanReviewPort, SessionSandboxFacts };
+export { GUARDRAILS_UNAPPLIED_ERROR, Session, claudeCommand };
+export type { ClaudeSessionIdEvent, PrepareSessionGuardrails, SessionOptions, SessionPlanReviewPort, SessionGuardrailsFacts };

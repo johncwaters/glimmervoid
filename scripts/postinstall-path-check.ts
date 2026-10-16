@@ -1,8 +1,8 @@
 import os from 'node:os';
 
 import { formatPathNotice, npmGlobalBinDir, onPath } from '../bin/path-doctor.ts';
-import { sandboxInstallNotice } from '../server/sandbox/core/sandbox-deps-core.ts';
-import { probeSandboxDependencies } from '../server/sandbox/sandbox-deps.ts';
+import { guardrailsInstallNotice } from '../server/guardrails/core/guardrails-deps-core.ts';
+import { probeGuardrailsDependencies } from '../server/guardrails/guardrails-deps.ts';
 
 function printPathNotice(): void {
   if (process.env.npm_config_global !== 'true') return;
@@ -16,8 +16,8 @@ function printPathNotice(): void {
   process.stdout.write(`\n${formatPathNotice({ installedBinDir: binDir, onPathFlag, platform })}\n\n`);
 }
 
-function printSandboxNotice(): void {
-  const notice = sandboxInstallNotice(probeSandboxDependencies());
+function printGuardrailsNotice(): void {
+  const notice = guardrailsInstallNotice(probeGuardrailsDependencies());
   if (notice !== null) process.stdout.write(`${notice}\n`);
 }
 
@@ -26,6 +26,6 @@ try {
 } catch {
 }
 try {
-  printSandboxNotice();
+  printGuardrailsNotice();
 } catch {
 }

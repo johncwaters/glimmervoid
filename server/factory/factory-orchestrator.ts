@@ -106,7 +106,7 @@ export interface FactoryOrchestratorDeps<ManagedSession extends FactoryOrchestra
   commitAndLand: (projectId: string, intentId: string) => Promise<void>;
   readTrustedIntentIds: (projectId: string) => Promise<ReadonlySet<string>>;
   beginIntent?: (request: { projectId: string; intentId: string; headSha: string | null }) => Promise<{ hasTickets: boolean }>;
-  workLane?: Pick<WorkLaneDependencies, 'prepareSandbox' | 'sandboxRefusal' | 'platform' | 'homeDir'>;
+  workLane?: Pick<WorkLaneDependencies, 'prepareGuardrails' | 'guardrailsRefusal' | 'platform' | 'homeDir'>;
   resolveSaneYoloHookTools?: (config: GlimmervoidConfig) => ResolvedHookTool[] | null;
   notifyException?: (projectId: string, reason: string) => void;
   now?: () => number;

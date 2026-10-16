@@ -25,7 +25,7 @@ import type { MarkerProbes } from '../core/integration-branch-core.ts';
 import { MERGE_DRIVER_KEY_PATTERN, driverEnumerationEnv, mergeProbeEnv, neutralGitConfigEnv } from '../core/merge-proof-core.ts';
 import type { MergeProbeEnvResult, MergeTreeOutcome } from '../core/merge-proof-core.ts';
 import type { CheckoutTreeState, IntegrationSyncOutcome } from '../core/integration-sync-core.ts';
-import { SANDBOX_PLACEHOLDER_NAMES } from '../sandbox/core/sandbox-policy-core.ts';
+import { GUARDRAILS_PLACEHOLDER_NAMES } from '../guardrails/core/guardrails-policy-core.ts';
 import { normalizeSha } from '../core/update-core.ts';
 import { isMissingFileError } from '../../shared/text.ts';
 import { runGit } from './git-exec.ts';
@@ -742,10 +742,10 @@ function createGitWorkspace(opts: {
     return { wt: workspace.cwd, branch, target };
   }
 
-  async function isLeftoverSandboxPlaceholder(worktreePath: string, statusEntry: string): Promise<boolean> {
+  async function isLeftoverGuardrailsPlaceholder(worktreePath: string, statusEntry: string): Promise<boolean> {
     if (!statusEntry.startsWith(UNTRACKED_STATUS_PREFIX)) return false;
     const entryName = statusEntry.slice(UNTRACKED_STATUS_PREFIX.length);
-    if (!SANDBOX_PLACEHOLDER_NAMES.includes(entryName)) return false;
+    if (!GUARDRAILS_PLACEHOLDER_NAMES.includes(entryName)) return false;
     const entryStats = await fs.promises.lstat(path.join(worktreePath, entryName)).catch(() => null);
     return entryStats?.isFile() === true && entryStats.size === 0;
   }
@@ -753,7 +753,7 @@ function createGitWorkspace(opts: {
   async function readUncommittedWork(worktreePath: string): Promise<{ ok: boolean; hasWork: boolean }> {
     const status = await run(['--no-optional-locks', 'status', '--porcelain'], worktreePath);
     const statusEntries = status.out.split('\n').filter((statusEntry) => statusEntry !== '');
-    const placeholderFlags = await Promise.all(statusEntries.map((statusEntry) => isLeftoverSandboxPlaceholder(worktreePath, statusEntry)));
+    const placeholderFlags = await Promise.all(statusEntries.map((statusEntry) => isLeftoverGuardrailsPlaceholder(worktreePath, statusEntry)));
     return { ok: status.ok, hasWork: placeholderFlags.includes(false) };
   }
 

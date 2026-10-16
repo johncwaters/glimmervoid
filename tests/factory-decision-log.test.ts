@@ -52,7 +52,7 @@ test('close-out logs one decision per attempt with redacted byte-capped output a
     projectId: 'repo', projectPath: fixture.projectPath, workId, intentId, baseSha: workspace.baseSha,
     objective: 'Implement retries', criteria: ['Retries pass'], writeScopes: ['src/retry.ts'],
     session: { id: 'worker-session', worktreeDir: workspace.cwd, baseSha: workspace.baseSha,
-      _sandboxLaunch: { env: { CLAUDE_CODE_TMPDIR: workerTempDirectory } },
+      _guardrailsLaunch: { env: { CLAUDE_CODE_TMPDIR: workerTempDirectory } },
       get _destroyed() { return isDestroyed; }, destroy: () => { isDestroyed = true; }, write: () => {},
       pasteTextWhenReady: (text) => { feedback.push(text); return { ok: true }; },
       mergeWorktree: () => fixture.gitWorkspace.mergeBack({ projectPath: fixture.projectPath, workspace, targetBranch: 'integration' }) },
@@ -154,7 +154,7 @@ test('a repeated check failure retains the diagnostic in the blocked ledger reas
     projectId: 'repo', projectPath: fixture.projectPath, workId, intentId, baseSha: workspace.baseSha,
     objective: 'Implement retries', criteria: ['Retries pass'], writeScopes: ['src/retry.ts'],
     session: { id: 'worker-session', worktreeDir: workspace.cwd, baseSha: workspace.baseSha,
-      _sandboxLaunch: { env: { CLAUDE_CODE_TMPDIR: workerTempDirectory } },
+      _guardrailsLaunch: { env: { CLAUDE_CODE_TMPDIR: workerTempDirectory } },
       get _destroyed() { return isDestroyed; }, destroy: () => { isDestroyed = true; }, write: () => {},
       pasteTextWhenReady: () => ({ ok: true }) },
   };

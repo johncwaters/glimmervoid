@@ -1,7 +1,7 @@
 import { lstat, mkdir, readFile, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { execFileAsync } from '../child-process-safe.ts';
-import { prepareSandboxLaunch } from '../sandbox/sandbox-launch.ts';
+import { prepareGuardrailsLaunch } from '../guardrails/guardrails-launch.ts';
 import type { GitWorkspaceInstance } from '../git/git-workspace.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { buildFactoryCheckEnv, listFailingTestFiles, listFailingTestFilesOutsideScopes, parseCheckCommand, redactSecretLines, summarizeFailedCheckOutput } from './core/factory-core.ts';
@@ -18,12 +18,12 @@ interface FactoryCheckExecOptions {
 
 type FactoryCheckRunner = (argv: string[], options: FactoryCheckExecOptions) => Promise<{ stdout: string; stderr: string }>;
 
-interface FactoryCheckSandbox {
+interface FactoryCheckGuardrails {
   runCheck: FactoryCheckRunner;
   dispose: () => Promise<void>;
 }
 
-type PrepareFactoryCheckRunner = (paths: { scratchParent: string; writablePaths: string[]; readablePaths?: string[] }) => Promise<FactoryCheckSandbox>;
+type PrepareFactoryCheckRunner = (paths: { scratchParent: string; writablePaths: string[]; readablePaths?: string[] }) => Promise<FactoryCheckGuardrails>;
 
 const TIMED_OUT_CHECK_STREAM_TAIL_CHARS = 1500;
 
@@ -42,10 +42,10 @@ function timedOutCheckFailure(timeoutMs: number, abortFailure: unknown): Error {
   });
 }
 
-const prepareSandboxedCheckRunner: PrepareFactoryCheckRunner = async ({ scratchParent, writablePaths, readablePaths = [] }) => {
+const prepareGuardedCheckRunner: PrepareFactoryCheckRunner = async ({ scratchParent, writablePaths, readablePaths = [] }) => {
   const tempDir = path.join(scratchParent, 'tmp');
   await mkdir(tempDir);
-  const prepared = await prepareSandboxLaunch({
+  const prepared = await prepareGuardrailsLaunch({
     role: {
       vendors: [], vendorHome: { scope: 'state' }, network: { access: 'none' }, writableRoots: writablePaths,
       lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: readablePaths,
@@ -72,7 +72,7 @@ const prepareSandboxedCheckRunner: PrepareFactoryCheckRunner = async ({ scratchP
   return { runCheck, dispose: launch.dispose };
 };
 
-export { prepareSandboxedCheckRunner };
+export { prepareGuardedCheckRunner };
 export type { PrepareFactoryCheckRunner };
 
 export type FactoryCheckoutRun = {
@@ -142,20 +142,20 @@ async function readCheckoutSecretValues(checkoutPath: string, sharedEntries: rea
 
 export async function runChecksInCleanCheckout({
   projectPath, sha, commands, writeScopes, sharedEntries, gitWorkspace, baseEnv, secretValues, signal,
-  isLive = () => true, prepareCheckRunner = prepareSandboxedCheckRunner, rerunFailedChecks = false,
+  isLive = () => true, prepareCheckRunner = prepareGuardedCheckRunner, rerunFailedChecks = false,
   writeFailedCheckOutputFile = async () => null,
 }: FactoryCheckoutRunOptions): Promise<FactoryCheckoutRun | null> {
   const checkoutParent = await makeHostScratchDirectory('check-');
   const checkoutPath = path.join(checkoutParent, 'checkout');
   const env = buildFactoryCheckEnv(baseEnv, process.platform);
   const isolation = { disableHooks: true, disableRepoCommands: true, replaceEnv: env };
-  let checkSandbox: FactoryCheckSandbox | null = null;
+  let checkGuardrails: FactoryCheckGuardrails | null = null;
   try {
     const staged = await gitWorkspace.stageDetachedWorktree({ projectPath, worktreePath: checkoutPath, sha, ...isolation });
     if (!staged.ok) throw new Error(`Could not stage the factory check checkout: ${staged.err}`);
     await gitWorkspace.populate({ projectPath, wtDir: checkoutPath, shareList: sharedEntries, ...isolation });
-    checkSandbox = await prepareCheckRunner({ scratchParent: checkoutParent, writablePaths: [checkoutPath] });
-    const runCheck = withForcedTapReporter(checkSandbox.runCheck);
+    checkGuardrails = await prepareCheckRunner({ scratchParent: checkoutParent, writablePaths: [checkoutPath] });
+    const runCheck = withForcedTapReporter(checkGuardrails.runCheck);
     const checkoutSecretValues = await readCheckoutSecretValues(checkoutPath, sharedEntries);
     const checks: FactoryCheck[] = [];
     const loggedChecks: FactoryCheck[] = [];
@@ -222,7 +222,7 @@ export async function runChecksInCleanCheckout({
       }
       await rm(checkoutParent, { recursive: true, force: true });
     } finally {
-      await checkSandbox?.dispose();
+      await checkGuardrails?.dispose();
     }
   }
 }

@@ -1,6 +1,6 @@
 import type { MyPr, MyPrAutoRebase, MyPrCheckContext, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
 import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../../lanes/core/lane-permissions-core.ts';
-import { SANDBOX_PLACEHOLDER_NAMES } from '../../sandbox/core/sandbox-policy-core.ts';
+import { GUARDRAILS_PLACEHOLDER_NAMES } from '../../guardrails/core/guardrails-policy-core.ts';
 import { prKey } from './team-review-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
 import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../../shared/settings-ranges.ts';
@@ -214,7 +214,7 @@ export function keepMergeableClaudeArgs(): string[] {
 }
 
 export function keepMergeableExcludeLines(): string {
-  return `\n${SANDBOX_PLACEHOLDER_NAMES.map((placeholderName) => `/${placeholderName}`).join('\n')}\n`;
+  return `\n${GUARDRAILS_PLACEHOLDER_NAMES.map((placeholderName) => `/${placeholderName}`).join('\n')}\n`;
 }
 
 export function keepMergeablePushUrl(repo: string): string | null {

@@ -261,7 +261,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'conversation-view', path: 'conversationView', title: 'Conversation view (experimental)',
-        description: 'Let each Claude Code and Codex session turn on a Conversation face from its card menu, which renders the transcript as messages, approvals and a composer. Sessions stay on the terminal until you turn it on for them. A Claude Code session started while this is on can answer its permission prompts and questions there. A Codex session connects on its next start, through a local app-server so approvals can be answered from the dashboard; sandboxed Codex sessions and those that bypass Codex hook trust keep the terminal only.',
+        description: 'Let each Claude Code and Codex session turn on a Conversation face from its card menu, which renders the transcript as messages, approvals and a composer. Sessions stay on the terminal until you turn it on for them. A Claude Code session started while this is on can answer its permission prompts and questions there. A Codex session connects on its next start, through a local app-server so approvals can be answered from the dashboard; guarded Codex sessions and those that bypass Codex hook trust keep the terminal only.',
         control: 'toggle', keywords: ['experimental', 'transcript', 'chat', 'codex', 'claude'], defaultValue: false, ...MACHINE_NOW,
       },
       {
@@ -551,7 +551,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'team-review-keep-mergeable-enabled', path: 'teamReview.keepMergeableEnabled', title: 'Keep mergeable',
-        description: 'Offer Keep mergeable on your pull requests: a sandboxed agent repairs conflicts and failing checks and pushes the repair. Off hides the control and starts no repair; the pull requests you chose stay chosen for when you turn it back on.',
+        description: 'Offer Keep mergeable on your pull requests: a guarded agent repairs conflicts and failing checks and pushes the repair. Off hides the control and starts no repair; the pull requests you chose stay chosen for when you turn it back on.',
         control: 'toggle', keywords: ['repair', 'conflicts', 'my prs'], defaultValue: true, ...MACHINE_NOW,
       },
       {
@@ -586,7 +586,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'workflows-rules', path: 'status:workflow-rules', title: 'Workflow rules',
-        description: 'Each rule watches repositories for one pull request event (opened, checks-failed, review-requested, approved, commented or merged), narrows it by author, labels, base branch, your own pull requests or a review request to your team, and then notifies you, labels or comments on the pull request, or starts a sandboxed agent session that pushes nothing. Rules start disabled. Turn each rule on or off here; everything else about a rule is set in config.json under workflows.rules.',
+        description: 'Each rule watches repositories for one pull request event (opened, checks-failed, review-requested, approved, commented or merged), narrows it by author, labels, base branch, your own pull requests or a review request to your team, and then notifies you, labels or comments on the pull request, or starts a guarded agent session that pushes nothing. Rules start disabled. Turn each rule on or off here; everything else about a rule is set in config.json under workflows.rules.',
         control: 'readonly', keywords: ['pull requests', 'automation', 'github', 'rules'], status: 'workflows', ...READOUT,
       },
     ],

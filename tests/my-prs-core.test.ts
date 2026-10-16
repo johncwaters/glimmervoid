@@ -607,7 +607,7 @@ test('keep mergeable is bounded by acceptEdits and lets every shell command run,
   assert.notEqual(permissions.defaultMode, 'bypassPermissions');
   assert.deepEqual(permissions.deny, [...MY_PRS_FIX_DENY_RULES]);
   assert.equal(Object.hasOwn(permissions, 'allow'), false);
-  assert.deepEqual([...MY_PRS_FIX_ALLOW_RULES], ['Bash'], 'probed: with no inner sandbox to auto-allow them, shell commands outside the allow rules were refused and no check could run');
+  assert.deepEqual([...MY_PRS_FIX_ALLOW_RULES], ['Bash'], 'probed: with no inner Claude Code sandbox to auto-allow them, shell commands outside the allow rules were refused and no check could run');
 });
 
 test('keep mergeable ends its variadic tool lists with an option, or the bootstrap prompt is eaten as a rule', () => {

@@ -4,11 +4,11 @@ import path from 'node:path';
 import test from 'node:test';
 import pty from 'node-pty';
 import { glimmervoidHomeDir } from '../server/config-store.ts';
-import { workRole } from '../server/sandbox/core/sandbox-roles-core.ts';
-import { prepareSandboxLaunch } from '../server/sandbox/sandbox-launch.ts';
+import { workRole } from '../server/guardrails/core/guardrails-roles-core.ts';
+import { prepareGuardrailsLaunch } from '../server/guardrails/guardrails-launch.ts';
 
 async function launchLockedCheckout(checkout: string, launchId: string) {
-  const prepared = await prepareSandboxLaunch({ role: workRole({ vendor: 'claude', cwd: checkout, checkout, agentSessionId: null, readablePaths: [] }), launchId });
+  const prepared = await prepareGuardrailsLaunch({ role: workRole({ vendor: 'claude', cwd: checkout, checkout, agentSessionId: null, readablePaths: [] }), launchId });
   assert.ok(prepared.ok, prepared.ok ? '' : prepared.reason);
   return prepared.launch;
 }
@@ -34,7 +34,7 @@ test('a locked checkout with a project .claude folder gets the runtime deny moun
   await bareLaunch.dispose();
 });
 
-test('a sandboxed terminal launch can switch its own terminal to raw mode but cannot reach another terminal', { skip: process.platform !== 'darwin' }, async (context) => {
+test('a guarded terminal launch can switch its own terminal to raw mode but cannot reach another terminal', { skip: process.platform !== 'darwin' }, async (context) => {
   const launchFolder = await mkdtemp(path.join(glimmervoidHomeDir(), 'terminal-'));
   context.after(() => rm(launchFolder, { recursive: true, force: true }));
   const checkout = path.join(launchFolder, 'repo');

@@ -17,7 +17,7 @@ async function checkBubblewrapStarts() {
   try { await execFileAsync('bwrap', ['--ro-bind', '/', '/', '--dev', '/dev', '--unshare-net', '--unshare-user', '--unshare-pid', '--proc', '/proc', 'true'], { timeout: 5000 }); }
   catch (error) {
     const bubblewrapError = error instanceof Error && 'stderr' in error && typeof error.stderr === 'string' ? error.stderr.trim() : '';
-    throw new Error(`Factory lane sandbox cannot start: bwrap with the lane namespaces failed (${bubblewrapError || 'no output'}). On Ubuntu with kernel.apparmor_restrict_unprivileged_userns=1, bwrap needs an AppArmor profile granting userns.`, { cause: error });
+    throw new Error(`Factory lane guardrails cannot start: bwrap with the lane namespaces failed (${bubblewrapError || 'no output'}). On Ubuntu with kernel.apparmor_restrict_unprivileged_userns=1, bwrap needs an AppArmor profile granting userns.`, { cause: error });
   }
 }
 

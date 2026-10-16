@@ -7,18 +7,18 @@ import { Session } from '../../session/sessions.ts';
 import type { SessionOptions } from '../../session/sessions.ts';
 import { buildLanePermissions } from './core/lane-permissions-core.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
-import { judgeRole, LANE_CREDENTIAL_ENV } from '../sandbox/core/sandbox-roles-core.ts';
+import { judgeRole, LANE_CREDENTIAL_ENV } from '../guardrails/core/guardrails-roles-core.ts';
 import { resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { writeJsonAtomic } from '../json-file.ts';
-import { allowSandboxedSpawn } from '../sandbox/sandbox-deps.ts';
-import { prepareSandboxLaunch } from '../sandbox/sandbox-launch.ts';
+import { allowGuardedSpawn } from '../guardrails/guardrails-deps.ts';
+import { prepareGuardrailsLaunch } from '../guardrails/guardrails-launch.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
-import type { SandboxSpawnRefusal } from '../sandbox/sandbox-deps.ts';
+import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 
 const SETTINGS_DIR_PREFIX = 'glimmervoid-lane-settings-';
 const UNWRAPPED_PLATFORM = 'win32';
-const UNWRAPPED_CODEX_SANDBOX_ARGS = Object.freeze(['-s', 'read-only']);
+const UNWRAPPED_CODEX_GUARDRAILS_ARGS = Object.freeze(['-s', 'read-only']);
 const GUARD_HOOK_UNAVAILABLE_ERROR = 'Sane YOLO is unavailable';
 
 const LANE_SPAWN_DENY_TOOLS = Object.freeze([
@@ -51,8 +51,8 @@ interface LaneSpawnOptions {
   settingsPermissions?: Record<string, unknown>;
   spawnEnv?: Readonly<Record<string, string>> | null;
   createSession?: (options: SessionOptions) => Session;
-  prepareSandbox?: typeof prepareSandboxLaunch;
-  sandboxRefusal?: SandboxSpawnRefusal;
+  prepareGuardrails?: typeof prepareGuardrailsLaunch;
+  guardrailsRefusal?: GuardrailsSpawnRefusal;
   platform?: NodeJS.Platform;
 }
 
@@ -73,21 +73,21 @@ function createLaneSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
   spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName, allowTools = [],
   createSession = (options) => new Session(options), settingsPermissions, spawnEnv = null,
-  prepareSandbox = prepareSandboxLaunch, sandboxRefusal = allowSandboxedSpawn, platform = process.platform,
+  prepareGuardrails = prepareGuardrailsLaunch, guardrailsRefusal = allowGuardedSpawn, platform = process.platform,
 }: LaneSpawnOptions): LaneSpawn {
   return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput, readablePaths = [] }) {
     const isCodex = agent === 'codex';
     const hasClaudeShell = !isCodex && settingsPermissions !== undefined;
     const isWrapped = platform !== UNWRAPPED_PLATFORM;
     if (!isWrapped && hasClaudeShell) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
-    const sandboxRefusalReason = isWrapped ? sandboxRefusal() : null;
-    if (sandboxRefusalReason !== null) throw new Error(sandboxRefusalReason);
+    const guardrailsRefusalReason = isWrapped ? guardrailsRefusal() : null;
+    if (guardrailsRefusalReason !== null) throw new Error(guardrailsRefusalReason);
     const guardHookTools = hasClaudeShell && hookRouter ? resolveRequiredSaneYoloHookTools({}) ?? [] : null;
     if (guardHookTools && !guardHookTools.some((tool) => tool.id === 'saneYolo')) throw new Error(GUARD_HOOK_UNAVAILABLE_ERROR);
     const posture = isCodex ? null : buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS, allowTools });
     const permissions = settingsPermissions ?? posture?.permissions ?? null;
     const standalone = !hookRouter && permissions ? await writeStandaloneDenySettings(permissions) : null;
-    const codexArgs = isWrapped ? extraArgs : [...UNWRAPPED_CODEX_SANDBOX_ARGS, ...extraArgs];
+    const codexArgs = isWrapped ? extraArgs : [...UNWRAPPED_CODEX_GUARDRAILS_ARGS, ...extraArgs];
     const extraClaudeArgs = isCodex ? codexArgs : ['-p', ...(posture?.args ?? []), ...extraArgs, ...(standalone ? standalone.args : [])];
     if (!isCodex && model) extraClaudeArgs.push('--model', model);
     const options: SessionOptions = {
@@ -105,7 +105,7 @@ function createLaneSpawn({
       replayBufferKB,
       hookRouter,
       getHookPort,
-      prepareSandbox: isWrapped ? (facts) => prepareSandbox({
+      prepareGuardrails: isWrapped ? (facts) => prepareGuardrails({
         role: judgeRole({
           vendor: isCodex ? 'codex' : 'claude', cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId,
           readablePaths: [...facts.readablePaths, ...readablePaths],

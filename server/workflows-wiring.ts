@@ -13,10 +13,10 @@ import { drainPending, firstLine } from './lanes/ephemeral-session.ts';
 import { createJsonStateStore } from './json-file.ts';
 import { createLaneRunner } from './lanes/lane-runner.ts';
 import type { SharedClock } from './lanes/lane-runner.ts';
-import type { createSandboxedPrStaging } from './github/my-prs-wiring.ts';
+import type { createGuardedPrStaging } from './github/my-prs-wiring.ts';
 import { createPrGh } from './github/pr-gh.ts';
-import { allowSandboxedSpawn } from './sandbox/sandbox-deps.ts';
-import type { SandboxSpawnRefusal } from './sandbox/sandbox-deps.ts';
+import { allowGuardedSpawn } from './guardrails/guardrails-deps.ts';
+import type { GuardrailsSpawnRefusal } from './guardrails/guardrails-deps.ts';
 import { emptyGhConfigDir, makeTeamReviewWorkDir } from './github/team-review-wiring.ts';
 import { createWorkflowSessionQueue, createWorkflowsPoller } from './workflows-poller.ts';
 import type { SpawnSession, WorkflowsPoller, WorkflowsPollerDependencies } from './workflows-poller.ts';
@@ -47,10 +47,10 @@ export function createWorkflowsStateIo(statePath: string, log: Pick<Console, 'wa
   };
 }
 
-export function createWorkflowSpawn({ staging, workRoot, makeWorkDir = makeTeamReviewWorkDir, log = console, sandboxRefusal = allowSandboxedSpawn }: {
-  staging: ReturnType<typeof createSandboxedPrStaging>;
+export function createWorkflowSpawn({ staging, workRoot, makeWorkDir = makeTeamReviewWorkDir, log = console, guardrailsRefusal = allowGuardedSpawn }: {
+  staging: ReturnType<typeof createGuardedPrStaging>;
   workRoot: string;
-  sandboxRefusal?: SandboxSpawnRefusal;
+  guardrailsRefusal?: GuardrailsSpawnRefusal;
   makeWorkDir?: typeof makeTeamReviewWorkDir;
   log?: Pick<Console, 'warn'>;
 }) {
@@ -58,8 +58,8 @@ export function createWorkflowSpawn({ staging, workRoot, makeWorkDir = makeTeamR
     if (signal.aborted) return;
     const pr = { key: prKey(event.pr.repo, event.pr.number), repo: event.pr.repo, number: event.pr.number, baseRefName: event.pr.baseRefName, headRefOid: event.pr.headRefOid };
     const warn = (message: string) => log.warn(`[${core.WORKFLOWS_LANE_ID}] ${rule.id} session for ${pr.key}: ${firstLine(message)}`);
-    const sandboxRefusalReason = sandboxRefusal();
-    if (sandboxRefusalReason !== null) return warn(sandboxRefusalReason);
+    const guardrailsRefusalReason = guardrailsRefusal();
+    if (guardrailsRefusalReason !== null) return warn(guardrailsRefusalReason);
     const workDir = await makeWorkDir(workRoot, pr.key);
     let pendingSession: Promise<unknown> | null = null;
     try {

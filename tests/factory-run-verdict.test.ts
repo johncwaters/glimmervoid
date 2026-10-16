@@ -180,7 +180,7 @@ test('the product source still contains every literal the verdict matches', () =
   }
 });
 
-test('a process running from the dist of this checkout, or one whose relative argument names a dist file or a dist folder path from an unreadable working directory, blocks the batch build, while a bare word naming a dist folder does not, and so does a check sandbox socket path past the unix limit', async () => {
+test('a process running from the dist of this checkout, or one whose relative argument names a dist file or a dist folder path from an unreadable working directory, blocks the batch build, while a bare word naming a dist folder does not, and so does a check guardrails socket path past the unix limit', async () => {
   const checkout = await mkdtemp(path.join(os.tmpdir(), 'factory-build-output-test-'));
   try {
     const distDirectory = path.join(checkout, 'dist');

@@ -4,11 +4,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync, execFileSync } from '../server/child-process-safe.ts';
-import { confinedPrRole, createMyPrMergeabilityFix, createMyPrsStateIo, keepMergeableRole, sweepKeepMergeableLeftovers } from '../server/github/my-prs-wiring.ts';
+import { guardedPrRole, createMyPrMergeabilityFix, createMyPrsStateIo, keepMergeableRole, sweepKeepMergeableLeftovers } from '../server/github/my-prs-wiring.ts';
 import { createRepoCache } from '../server/git/repo-cache.ts';
 import type { CommandResult } from '../server/git/repo-cache.ts';
 import { createTeamReviewSpawn, hooksPathPinnedSpawnEnv, teamReviewSpawnEnv } from '../server/github/team-review-wiring.ts';
-import { SANDBOX_PLACEHOLDER_NAMES } from '../server/sandbox/core/sandbox-policy-core.ts';
+import { GUARDRAILS_PLACEHOLDER_NAMES } from '../server/guardrails/core/guardrails-policy-core.ts';
 import type { TeamReviewSpawn } from '../server/github/team-review-wiring.ts';
 import {
   MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_BOOTSTRAP_PROMPT, MY_PRS_FIX_CHECKOUT_DIRNAME, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, MY_PRS_FIX_PROMPT_FILENAME, keepMergeableTimeoutSeconds,
@@ -177,7 +177,7 @@ test('My PRs state quarantines malformed saved flags and adopts no flags', async
   }
 });
 
-test('keep mergeable runs sandboxed with the review posture and the server fast-forwards the PR branch to the session commit and nothing else', async () => {
+test('keep mergeable runs guarded with the review posture and the server fast-forwards the PR branch to the session commit and nothing else', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-'));
   const createdSessions: SessionOptions[] = [];
   const recordedLanes: string[] = [];
@@ -212,15 +212,15 @@ test('keep mergeable runs sandboxed with the review posture and the server fast-
     assert.match(createdSessions[0].id, /^my-prs:/);
     assert.ok(workDir.startsWith(harness.workRoot));
     assert.equal(createdSessions[0].initialPrompt, MY_PRS_FIX_BOOTSTRAP_PROMPT);
-    assert.equal(createdSessions[0].settingsSandbox, null);
-    assert.equal(typeof createdSessions[0].prepareSandbox, 'function', 'the repair starts inside the sandbox runtime');
+    assert.equal(createdSessions[0].settingsGuardrails, null);
+    assert.equal(typeof createdSessions[0].prepareGuardrails, 'function', 'the repair starts inside the sandbox runtime');
     assert.deepEqual(createdSessions[0].spawnEnv, { ...teamReviewSpawnEnv(workDir), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_2: 'core.hooksPath', GIT_CONFIG_VALUE_2: '', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' });
     assert.deepEqual(createdSessions[0].spawnEnv, { ...hooksPathPinnedSpawnEnv(workDir), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' });
     assert.deepEqual(createdSessions[0].settingsPermissions, { deny: [...MY_PRS_FIX_DENY_RULES], defaultMode: 'acceptEdits' });
     assert.equal(createdSessions[0].dangerouslySkipPermissions, false, 'the skip flag would override the acceptEdits boundary');
     for (const rule of ['Bash(git push:*)', 'Bash(gh:*)', 'Edit(**/.git/hooks/**)', 'Edit(**/.git/config)', 'Edit(**/.claude/**)']) assert.ok(MY_PRS_FIX_DENY_RULES.includes(rule), rule);
-    assert.ok(!MY_PRS_FIX_DENY_RULES.some((rule) => rule.includes('.github/workflows')), 'an Edit deny becomes a sandbox write block, so a merge could not check out a workflow the base changed; the handoff refuses any .github change instead');
-    assert.ok(!MY_PRS_FIX_DENY_RULES.includes('Edit(**/.git/**)'), 'Claude Code folds Edit deny rules into the sandbox denyWrite, so a whole-.git deny leaves the repair unable to commit');
+    assert.ok(!MY_PRS_FIX_DENY_RULES.some((rule) => rule.includes('.github/workflows')), 'an Edit deny becomes a guardrails write block, so a merge could not check out a workflow the base changed; the handoff refuses any .github change instead');
+    assert.ok(!MY_PRS_FIX_DENY_RULES.includes('Edit(**/.git/**)'), 'Claude Code folds Edit deny rules into the guardrails denyWrite, so a whole-.git deny leaves the repair unable to commit');
     assert.deepEqual(createdSessions[0].extraClaudeArgs, ['-p', '--allowedTools', ...MY_PRS_FIX_ALLOW_RULES, '--disallowedTools', ...MY_PRS_FIX_DENY_RULES, ...LANE_ENVIRONMENT_ARGS]);
     assert.equal(createdSessions[0].ephemeral, true);
     assert.match(promptBodies[0], /Do not push and do not merge/);
@@ -414,7 +414,7 @@ test('keep mergeable refuses to re-sign and push a session commit whose author n
   }
 });
 
-test('keep mergeable excludes sandbox stub files from the checkout so a git add -A never pushes them', async () => {
+test('keep mergeable excludes guardrails stub files from the checkout so a git add -A never pushes them', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-stubs-'));
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
@@ -423,7 +423,7 @@ test('keep mergeable excludes sandbox stub files from the checkout so a git add 
       const session = new Session(options);
       session.start = async () => {
         const checkoutPath = path.join(options.path, MY_PRS_FIX_CHECKOUT_DIRNAME);
-        for (const placeholderName of SANDBOX_PLACEHOLDER_NAMES) await fs.writeFile(path.join(checkoutPath, placeholderName), '');
+        for (const placeholderName of GUARDRAILS_PLACEHOLDER_NAMES) await fs.writeFile(path.join(checkoutPath, placeholderName), '');
         await resolveConflictAndCommit(checkoutPath);
         session.emit('exit');
       };
@@ -713,12 +713,12 @@ test('a staged pull request session writes only its work folder and reads its ca
   const workDir = '/home/op/.glimmervoid/my-prs-work/wt';
   const cachedClone = '/home/op/.glimmervoid/team-review-repos/Acme/app';
   const facts = { launchId: 'launch-one', cwd: workDir, hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: 'agent-session-one' };
-  const confinedRole = confinedPrRole(facts, cachedClone);
-  assert.deepEqual(confinedRole, {
+  const guardedRole = guardedPrRole(facts, cachedClone);
+  assert.deepEqual(guardedRole, {
     vendors: ['claude'], vendorHome: { scope: 'launch', cwd: workDir, agentSessionId: 'agent-session-one' }, network: { access: 'allowlist', domains: [], hookPort: 3911 },
     writableRoots: [workDir], lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: ['/hook/settings', cachedClone],
   });
-  assert.deepEqual(keepMergeableRole(facts, cachedClone), { ...confinedRole, network: { access: 'open' } });
+  assert.deepEqual(keepMergeableRole(facts, cachedClone), { ...guardedRole, network: { access: 'open' } });
 });
 
 test('keep mergeable aborts a session past the deadline read from teamReview.keepMergeableTimeoutMinutes and pushes nothing', async () => {
@@ -827,13 +827,13 @@ test('keep mergeable cleanup runs after a failed spawn and an aborted dispatch c
   }
 });
 
-test('keep mergeable refuses with the sandbox reason in its log line before staging when the cached sandbox probe found binaries missing', async () => {
+test('keep mergeable refuses with the guardrails reason in its log line before staging when the cached guardrails probe found binaries missing', async () => {
   const warnings: string[] = [];
   const calls: string[] = [];
   const fix = createMyPrMergeabilityFix({
     workRoot: '/unused',
     log: { log: () => {}, warn: (message: string) => { warnings.push(message); } },
-    sandboxRefusal: () => 'not started: the Claude Code sandbox needs bwrap and socat, and bwrap and socat are not on PATH. Install bubblewrap and socat',
+    guardrailsRefusal: () => 'not started: the Claude Code sandbox needs bwrap and socat, and bwrap and socat are not on PATH. Install bubblewrap and socat',
     makeWorkDir: async () => { calls.push('workdir'); return { dir: '/unused/work', cleanup: async () => {} }; },
     repoCache: {
       ensureRepo: async () => { calls.push('ensure'); return null; },

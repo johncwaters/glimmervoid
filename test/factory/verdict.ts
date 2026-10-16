@@ -80,7 +80,7 @@ export function bridgeSocketPathRefusal(instanceTempDirectory: string, platform:
   if (platform !== 'linux') return null;
   const socketPathBytes = Buffer.byteLength(path.join(instanceTempDirectory, LONGEST_BRIDGE_SOCKET_NAME));
   if (socketPathBytes <= UNIX_SOCKET_PATH_BYTE_LIMIT) return null;
-  return `Factory harness refuses to start: the check sandbox socket under ${instanceTempDirectory} needs ${socketPathBytes} bytes and a unix socket path holds ${UNIX_SOCKET_PATH_BYTE_LIMIT}; point TMPDIR at a shorter folder`;
+  return `Factory harness refuses to start: the check guardrails socket under ${instanceTempDirectory} needs ${socketPathBytes} bytes and a unix socket path holds ${UNIX_SOCKET_PATH_BYTE_LIMIT}; point TMPDIR at a shorter folder`;
 }
 
 export interface VerdictInput {

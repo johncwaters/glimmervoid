@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 if (process.platform !== 'linux' && process.platform !== 'darwin') {
-  console.error('Factory check sandbox requires Linux or macOS');
+  console.error('Factory check guardrails requires Linux or macOS');
   process.exit(2);
 }
 
@@ -12,7 +12,7 @@ const argumentsPassed = process.argv.slice(2);
 const shouldOverlayWorkingTree = argumentsPassed[0] === '--working-tree';
 if (shouldOverlayWorkingTree) argumentsPassed.shift();
 if (argumentsPassed.shift() !== '--' || argumentsPassed.length === 0) {
-  console.error('Usage: node test/factory/check-sandbox.ts [--working-tree] -- <command> [args...]');
+  console.error('Usage: node test/factory/check-guardrails.ts [--working-tree] -- <command> [args...]');
   process.exit(2);
 }
 
@@ -29,7 +29,7 @@ const checkoutPath = path.join(checkoutParent, 'checkout');
 
 try {
   const { isMissingFileError } = await import('../../shared/text.ts');
-  const { prepareSandboxedCheckRunner } = await import('../../server/factory/factory-check-sandbox.ts');
+  const { prepareGuardedCheckRunner } = await import('../../server/factory/factory-check-guardrails.ts');
   const { createGitWorkspace, runHardenedGit } = await import('../../server/git/git-workspace.ts');
   const { DEFAULT_CONFIG } = await import('../../server/config-store.ts');
   const { buildFactoryCheckEnv } = await import('../../server/factory/core/factory-core.ts');
@@ -64,15 +64,15 @@ try {
       }
     }
     commandController.signal.throwIfAborted();
-    const sandbox = await prepareSandboxedCheckRunner({ scratchParent: checkoutParent, writablePaths: [checkoutPath] });
+    const guardrails = await prepareGuardedCheckRunner({ scratchParent: checkoutParent, writablePaths: [checkoutPath] });
     try {
-      const output = await sandbox.runCheck(argumentsPassed, {
+      const output = await guardrails.runCheck(argumentsPassed, {
         cwd: checkoutPath, env: checkEnv, timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, signal: commandController.signal,
       });
       process.stdout.write(output.stdout);
       process.stderr.write(output.stderr);
     } finally {
-      await sandbox.dispose();
+      await guardrails.dispose();
     }
   } finally {
     const removed = await gitWorkspace.removeWorktreeByPath({ projectPath, cwd: checkoutPath, ...isolation });
