@@ -8,10 +8,10 @@ type GlobalOptions = {
 type ParsedCommandLine =
   | { kind: 'help' }
   | { kind: 'version' }
-  | { kind: 'server'; globalOptions: GlobalOptions }
+  | { kind: 'server'; globalOptions: GlobalOptions; isBrowserOpenSkipped: boolean }
   | { kind: 'subcommand'; name: string; subcommandArgs: string[]; globalOptions: GlobalOptions };
 
-type ScanState = GlobalOptions & { wantsHelp: boolean; wantsVersion: boolean; wantsDoctor: boolean };
+type ScanState = GlobalOptions & { wantsHelp: boolean; wantsVersion: boolean; wantsDoctor: boolean; wantsNoOpen: boolean };
 
 const SUBCOMMANDS_HONORING_TRAILING_GLOBAL_OPTIONS: ReadonlySet<string> = new Set(['doctor', 'pair', 'visions']);
 
@@ -30,6 +30,7 @@ function scanGlobalOption(argv: readonly string[], index: number, state: ScanSta
   if (token === '--help' || token === '-h') state.wantsHelp = true;
   if (token === '--version') state.wantsVersion = true;
   if (token === '--doctor') state.wantsDoctor = true;
+  if (token === '--no-open') state.wantsNoOpen = true;
   return index + 1;
 }
 
@@ -51,7 +52,7 @@ function scanLeadingHelpOrVersion(subcommandArgs: readonly string[], state: Scan
 }
 
 function parseCommandLine(argv: readonly string[]): ParsedCommandLine {
-  const state: ScanState = { configPath: null, port: null, wantsHelp: false, wantsVersion: false, wantsDoctor: false };
+  const state: ScanState = { configPath: null, port: null, wantsHelp: false, wantsVersion: false, wantsDoctor: false, wantsNoOpen: false };
   let index = 0;
   while (index < argv.length && argv[index].startsWith('-')) index = scanGlobalOption(argv, index, state);
   const name = argv[index];
@@ -62,7 +63,7 @@ function parseCommandLine(argv: readonly string[]): ParsedCommandLine {
   if (state.wantsVersion) return { kind: 'version' };
   const globalOptions = { configPath: state.configPath, port: state.port };
   if (state.wantsDoctor) return { kind: 'subcommand', name: 'doctor', subcommandArgs: [], globalOptions };
-  if (name === undefined) return { kind: 'server', globalOptions };
+  if (name === undefined) return { kind: 'server', globalOptions, isBrowserOpenSkipped: state.wantsNoOpen };
   return { kind: 'subcommand', name, subcommandArgs, globalOptions };
 }
 

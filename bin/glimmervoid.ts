@@ -59,6 +59,7 @@ Options:
   --port <number>     Server port (default: 3000)
   --config <path>     Config file (default: ~/.glimmervoid/config.json)
   --name <label>      Name for the device being paired (with pair)
+  --no-open           Do not open the dashboard in a browser on first start
   --version           Print the version
   --help, -h          Print this help`;
 

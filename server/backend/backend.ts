@@ -503,6 +503,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     port,
     app,
     telemetry,
+    version: packageJson.version,
     getSession: getSessionAny,
     getLane: laneAssembly.current,
     bindHost: bindDecision.host,

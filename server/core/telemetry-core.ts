@@ -19,8 +19,8 @@ const TELEMETRY_FLAGS_URL = `${POSTHOG_INGEST_HOST}/flags?v=2`;
 const MAX_STACK_LENGTH = 16384;
 
 const FIRST_RUN_NOTICE = [
-  'Glimmervoid sends anonymous usage and error data to help improve it: app starts, daily activity, session starts and ends with the agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated cost, and factory outcomes as the kind of decision, how it came out, its duration and attempt number. No error messages, paths, repository names, prompts, objectives, model output or terminal output.',
-  'Turn it off in Settings > Privacy, or set GLIMMERVOID_TELEMETRY=0 or DO_NOT_TRACK=1.',
+  'Anonymous usage data is on. Never paths, prompts or output. Details: https://github.com/johncwaters/glimmervoid/blob/main/docs/configuration.md#telemetry',
+  'Turn it off in Settings > Privacy, or GLIMMERVOID_TELEMETRY=0.',
 ].join('\n');
 
 type TelemetryConsentSource = 'do-not-track' | 'environment' | 'ci' | 'test-runner' | 'config' | 'default';

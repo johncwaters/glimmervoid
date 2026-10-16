@@ -144,7 +144,8 @@ echo "== remote mode disabled =="
 stop_server
 write_config false
 start_server
-grep -q 'remote mode is disabled' "$WORK/server.log" || { echo "  FAIL boot log does not report remote disabled"; failures=$((failures + 1)); }
+grep -q 'Open http://' "$WORK/server.log" || { echo "  FAIL boot log does not print the Open line"; failures=$((failures + 1)); }
+! grep -q 'remote listener' "$WORK/server.log" || { echo "  FAIL boot log reports a remote listener with remote disabled"; failures=$((failures + 1)); }
 assert 11 200 "$(status "$LOCAL/")" "the local listener still serves the dashboard"
 REMOTE_CURL_EXIT=0
 curl -s -o /dev/null --max-time 5 "$REMOTE/" || REMOTE_CURL_EXIT=$?

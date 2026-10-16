@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Conversation view shows tool work as one quiet line**: each stretch of tool work is now a single line such as "Worked 1m 20s, 14 steps" instead of a list you could expand. The full tool detail stays in the Trace tab.
 - **Clearer `glimmervoid --help`**: commands are grouped into everyday commands, editor integration, commands for use inside a session, and experimental ones, and `visions uninstall` is now listed.
+- **Clearer startup output**: the server now prints a short banner with the version, the dashboard address to open and how to stop it, and on the very first start from a terminal it opens the dashboard in your browser once. Pass `--no-open` to skip that. The first-run telemetry notice is down to two lines, and the line saying remote mode is off is gone.
 
 ### Fixed
 

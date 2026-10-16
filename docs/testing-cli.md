@@ -74,6 +74,7 @@ Options:
   --port <number>     Server port (default: 3000)
   --config <path>     Config file (default: ~/.glimmervoid/config.json)
   --name <label>      Name for the device being paired (with pair)
+  --no-open           Do not open the dashboard in a browser on first start
   --version           Print the version
   --help, -h          Print this help
 ```
@@ -100,10 +101,18 @@ node bin/glimmervoid.ts --port 4567
 
 ```
 Created default config at <GLIMMERVOID_HOME>/config.json
-Glimmervoid server listening on http://127.0.0.1:4567
+
+  GLIMMERVOID <version>
+
+  Open http://localhost:4567  opened in your browser
+
+  Anonymous usage data is on. Never paths, prompts or output. Details: https://github.com/johncwaters/glimmervoid/blob/main/docs/configuration.md#telemetry
+  Turn it off in Settings > Privacy, or GLIMMERVOID_TELEMETRY=0.
+
+  Ctrl+C stops the server.
 ```
 
-Open http://localhost:4567 and check the dashboard loads, then stop the server with `Ctrl+C`. The seeded `config.json` is valid JSON with `port`, `projects`, `repoRoots` and the timing fields.
+The two telemetry lines print only on the first start. On a first start from a terminal the dashboard opens in a browser and the Open line says so; `--no-open`, piped output and later starts print the same lines without opening anything. Check the dashboard loads, then stop the server with `Ctrl+C`. The seeded `config.json` is valid JSON with `port`, `projects`, `repoRoots` and the timing fields.
 
 ---
 

@@ -65,8 +65,11 @@ test('help, version and doctor flags before any subcommand keep their global mea
 });
 
 test('no subcommand with only global options boots the server', () => {
-  assert.deepEqual(parseCommandLine([]), { kind: 'server', globalOptions: NO_GLOBAL_OPTIONS });
-  assert.deepEqual(parseCommandLine(['--port', '4567', '--config', '/x']), { kind: 'server', globalOptions: { configPath: '/x', port: '4567' } });
+  assert.deepEqual(parseCommandLine([]), { kind: 'server', globalOptions: NO_GLOBAL_OPTIONS, isBrowserOpenSkipped: false });
+  assert.deepEqual(parseCommandLine(['--port', '4567', '--config', '/x']), {
+    kind: 'server', globalOptions: { configPath: '/x', port: '4567' }, isBrowserOpenSkipped: false,
+  });
+  assert.deepEqual(parseCommandLine(['--no-open']), { kind: 'server', globalOptions: NO_GLOBAL_OPTIONS, isBrowserOpenSkipped: true });
 });
 
 function enabledKnowledgeGraphScratch(): { scratch: string; configPath: string; databaseDirectory: string } {
