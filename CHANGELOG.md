@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-10-16
+
 ### Added
 
 - **First-run checklist**: until your first session exists, the Focus view (and the Board on a phone) walks you through three steps: an agent CLI Glimmervoid can find, with the install command and a Rescan button; the folder that holds your git checkouts, with one-click suggestions for home folders such as `~/Projects` that already hold git repos, or a typed path such as `~/src`; and your first session. Only the current step is open, and the list goes away once a session exists.
