@@ -31,11 +31,9 @@ sudo apt install build-essential python3 git
 npx --allow-scripts=node-pty glimmervoid@latest
 ```
 
-**2. Open http://localhost:3000.**
+**2. Open http://localhost:3000.** The first start from a terminal opens it in your browser for you; pass `--no-open` to skip that.
 
-**3. Add your repositories.** Open **Settings**, then **Sessions**, and add the folder that holds your git checkouts under **Repository roots**. Each subfolder becomes a project.
-
-**4. Start a session.** Click **+ Session**, pick a project and an agent. For a folder outside your roots, use **Advanced options** in the same dialog.
+**3. Follow the checklist.** The empty dashboard walks you through three steps: an agent CLI it can find, the folder that holds your git checkouts, and your first session. It suggests folders such as `~/Projects` that already hold git repos, or you can type a path. Each subfolder becomes a project. For a folder outside your repository roots, open **Run in a folder outside your repository roots** in the **+ Session** dialog.
 
 That is the whole setup. Allow notifications when the dashboard asks, and keep a dashboard tab open: a notification appears whenever that tab is in the background, unless Streamer mode is on.
 

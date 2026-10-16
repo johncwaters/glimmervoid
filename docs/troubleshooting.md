@@ -2,9 +2,13 @@
 
 Start with `glimmervoid doctor`. It changes nothing and starts no server. It reports versions, where the CLI runs from, whether npm's global bin directory is on PATH, which agent CLIs it finds, whether node-pty loads, and which config file it would use.
 
-## + Session shows "No projects found"
+## + Session shows no projects
 
-A fresh install knows no projects. Open **Settings**, then **Sessions**, and add the folder that holds your git checkouts under **Repository roots**; each subfolder becomes a project. For a single folder anywhere else, use **Advanced options** in the **+ Session** dialog.
+A fresh install knows no projects. The **+ Session** dialog then offers to add the folder that holds your git checkouts, suggesting folders that already hold git repos, and fills the project list as soon as you add one; each subfolder becomes a project. Repository roots are also managed under **Settings**, then **Sessions**. For a single folder anywhere else, open **Run in a folder outside your repository roots** in the same dialog.
+
+## The checklist says no agent CLI was found
+
+Install one (for Claude Code, `npm install -g @anthropic-ai/claude-code`), then click **Rescan** in the checklist; no restart is needed. If it is still not found, the CLI is not on the PATH the server started with: run `glimmervoid doctor`, then restart Glimmervoid from a terminal where the command works.
 
 ## No browser notifications
 
