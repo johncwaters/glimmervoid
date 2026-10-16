@@ -91,6 +91,10 @@ function mayContributeHooks(configText: unknown): boolean {
   return Object.hasOwn(settings, "hooks");
 }
 
+function userConfigFolders(): string[] {
+  return [path.join(os.homedir(), ".claude")];
+}
+
 function mapHookToSignal(event: string, payload?: HookPayload): string | null {
   const normalizedEvent = String(event || "").toLowerCase();
   if (normalizedEvent === "subagentstart") return "subagent-start";
@@ -248,6 +252,7 @@ const hooks: AgentHookProfile = {
       hookToolRelayPath: HOOK_TOOL_RELAY_PATH,
     }),
     projectConfigCandidates: PROJECT_CONFIG_CANDIDATES,
+    userConfigFolders,
     mayContributeHooks,
   },
 };

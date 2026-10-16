@@ -96,6 +96,10 @@ function mayContributeHooks(configText: unknown): boolean {
   return HOOKS_DECLARATION_RE.test(configText);
 }
 
+function userConfigFolders(env: Record<string, string | undefined>): string[] {
+  return codexHomes(env, null);
+}
+
 function buildHookArgs({
   relayPath = RELAY_PATH,
   events = HOOK_EVENTS,
@@ -138,6 +142,7 @@ const hooks: AgentHookProfile = {
     events: HOOK_EVENTS,
     buildHookArgs,
     projectConfigCandidates: PROJECT_CONFIG_CANDIDATES,
+    userConfigFolders,
     mayContributeHooks,
   },
 };

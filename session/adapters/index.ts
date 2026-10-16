@@ -45,6 +45,7 @@ interface ArgvConfigInjection {
     hookToolRelayPath?: string;
   }): string[] | null;
   projectConfigCandidates: readonly ProjectConfigCandidate[];
+  userConfigFolders(env: Record<string, string | undefined>): string[];
   mayContributeHooks(configText: unknown): boolean;
 }
 
@@ -54,6 +55,7 @@ interface HomeHooksFileInjection {
   expectedContents(): string | null;
   classifyContents(contents: string): string;
   projectConfigCandidates: readonly ProjectConfigCandidate[];
+  userConfigFolders(env: Record<string, string | undefined>): string[];
   mayContributeHooks(configText: unknown): boolean;
 }
 

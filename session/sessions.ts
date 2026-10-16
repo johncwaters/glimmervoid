@@ -581,6 +581,7 @@ class Session extends EventEmitter {
       extraUserHooks,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
+      agentEnv: () => this._buildSpawnEnv(),
       ingestSignal: (raw) => this.ingestHookSignal(raw),
       observeHook: (event, payload) => {
         this._releaseClaudeHoldsAfterHookEvent(event, payload);

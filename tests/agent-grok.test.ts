@@ -444,7 +444,7 @@ test("a validated home hook file mints a token and camelCase payloads capture th
   });
 });
 
-test("Claude home settings refuse relay hooks only when they could contribute hooks", async () => {
+test("Claude settings in the project ancestry refuse relay hooks only when they could contribute hooks", async () => {
   await withGrokHome(async (grokHome, homeDirectory) => {
     writeHooks(grokHome);
     const projectDirectory = path.join(homeDirectory, "projects", "app");

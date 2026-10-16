@@ -13,6 +13,7 @@ import codex from '../session/adapters/codex.ts';
 import claudeCode from '../session/adapters/claude-code.ts';
 import * as adapters from '../session/adapters/index.ts';
 import { buildHookCommand } from '../session/core/hook-command-core.ts';
+import { MAX_PROJECT_CONFIG_DEPTH } from '../session/session-hook-lifecycle.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 
@@ -437,6 +438,33 @@ test('a benign project-tree codex config does not cost an opted-in session its h
   assert.equal(calls[0].args[0], '--dangerously-bypass-hook-trust');
   session.destroy();
   fs.rmSync(projectDir, { recursive: true, force: true });
+});
+
+test('the operator Codex home is not mistaken for project config when the project sits under it', async () => {
+  const operatorRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-codex-home-ancestor-'));
+  const operatorCodexHome = path.join(operatorRoot, '.codex');
+  const pathSegmentsBelowRoot = Array.from({ length: MAX_PROJECT_CONFIG_DEPTH - 1 }, (_, index) => `level${index}`);
+  const projectDir = path.join(operatorRoot, ...pathSegmentsBelowRoot);
+  fs.mkdirSync(operatorCodexHome, { recursive: true });
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.writeFileSync(path.join(operatorCodexHome, 'config.toml'), '[hooks.state]\n', 'utf8');
+  fs.writeFileSync(path.join(operatorCodexHome, 'hooks.json'), '{}\n', 'utf8');
+  const { hookRouter, getHookPort } = hookRouterFor();
+  const { session, calls } = makeCodexSession({
+    id: 'codex-home-ancestor',
+    path: projectDir,
+    spawnEnv: { CODEX_HOME: operatorCodexHome },
+    hookRouter,
+    getHookPort,
+    bypassHookTrust: true,
+  });
+  try {
+    await session.start();
+    assert.equal(calls[0].args[0], '--dangerously-bypass-hook-trust');
+  } finally {
+    session.destroy();
+    fs.rmSync(operatorRoot, { recursive: true, force: true });
+  }
 });
 
 test('the title-quiet latch has a deadline, so a session whose hooks never fire is not silent for life', async () => {

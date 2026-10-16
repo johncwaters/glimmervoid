@@ -56,6 +56,7 @@ interface SessionHookOptions {
   extraUserHooks?: UserHook[];
   bypassHookTrust: boolean;
   effectiveCwd: () => string;
+  agentEnv: () => Record<string, string | undefined>;
   ingestSignal: (signal: HookSignal) => void;
   observeHook: ((event: string, payload: Record<string, unknown>) => void) | null;
   recordDecision: (entry: DecisionEntry) => void;
@@ -118,12 +119,15 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function findProjectAgentConfig(
     candidates: readonly ProjectConfigCandidate[],
+    userConfigFolders: readonly string[],
     mayContributeHooks: ((contents: string) => boolean) | undefined,
   ): string | null {
+    const resolvedUserConfigFolders = new Set(userConfigFolders.map((folder) => path.resolve(folder)));
     let directory = options.effectiveCwd();
     for (let depth = 0; depth < MAX_PROJECT_CONFIG_DEPTH; depth += 1) {
       for (const { relPath, presenceIsHit } of candidates) {
         const candidate = path.join(directory, relPath);
+        if (resolvedUserConfigFolders.has(path.resolve(path.dirname(candidate)))) continue;
         if (presenceIsHit) {
           if (fs.existsSync(candidate)) return candidate;
           continue;
@@ -148,7 +152,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     if (!options.bypassHookTrust) return false;
     const candidates = injection.projectConfigCandidates;
     if (!Array.isArray(candidates) || candidates.length === 0) return true;
-    const found = findProjectAgentConfig(candidates, injection.mayContributeHooks);
+    const found = findProjectAgentConfig(candidates, injection.userConfigFolders(options.agentEnv()), injection.mayContributeHooks);
     if (!found) return true;
     console.warn(`[session:${options.name}] hook-trust bypass refused: ${found} could contribute hooks Glimmervoid did not write - falling back to OSC title only`);
     options.recordDecision({ kind: "hook-trust", ts: Date.now(), decision: "bypass-refused", reason: "project agent config could contribute hooks" });
@@ -211,6 +215,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   function injectHomeRelayHooks(port: number, injection: HomeHooksFileInjection): HookInjectionResult {
     const contributingConfig = findProjectAgentConfig(
       injection.projectConfigCandidates,
+      injection.userConfigFolders(options.agentEnv()),
       injection.mayContributeHooks,
     );
     if (contributingConfig) {
@@ -317,5 +322,5 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   };
 }
 
-export { createSessionHookLifecycle };
+export { createSessionHookLifecycle, MAX_PROJECT_CONFIG_DEPTH };
 export type { HookRouterPort };
