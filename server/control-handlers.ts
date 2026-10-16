@@ -206,6 +206,10 @@ async function runGitForConversationHistory(args: string[], cwd: string): Promis
   return result.out;
 }
 
+function missingFolderError(folderPath: string): string {
+  return `No folder at ${folderPath}. It may have been moved or renamed; pick it again or enter its current path.`;
+}
+
 function sendError(ws: ControlSocket, message: string, { type = 'error', requestId, id, scope }: { type?: string; requestId?: string | null; id?: string; scope?: string } = {}): void {
   const payload = {
     type,
@@ -437,7 +441,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (repos) {
       for (const repoPath of repos) {
         if (isExistingDirectory(repoPath)) continue;
-        sendError(ws, `Repository path does not exist: ${repoPath}`);
+        sendError(ws, missingFolderError(repoPath));
         return;
       }
     }
@@ -552,7 +556,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }
     const missingRepo = msg.repos.find((repoPath) => !isExistingDirectory(repoPath));
     if (missingRepo) {
-      reply(`Repository path does not exist: ${missingRepo}`);
+      reply(missingFolderError(missingRepo));
       return;
     }
     const planned = planWorkspaceMembers({ folder: project.path, sessionId: project.id, repoPaths: msg.repos });
@@ -905,7 +909,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       resolvedPath = planned.plan.folder;
       workspaceRepos = planned.plan.members.map((member) => member.repoPath);
     }
-    if (requireExistingPath && !fs.existsSync(resolvedPath)) return { ok: false, error: `Path does not exist: ${projectPath}` };
+    if (requireExistingPath && !fs.existsSync(resolvedPath)) return { ok: false, error: missingFolderError(projectPath) };
     const project: ProjectEntry = { id, name, path: resolvedPath };
     if (workspaceRepos) project.repos = workspaceRepos;
     if (baseBranch) project.baseBranch = baseBranch;
