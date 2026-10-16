@@ -238,9 +238,23 @@ test('the host opener spawns xdg-open on linux with the url as its own argument'
   assert.equal(calls[0].options.shell, undefined);
 });
 
+test('the host opener spawns System32 rundll32 by absolute path on windows with the url as its own argument', async () => {
+  const calls: SpawnCall[] = [];
+  const openUrlOnHost = createHostUrlOpener({
+    platform: 'win32',
+    spawnProcess: recordingSpawn(calls),
+    windowsSystemRoot: 'D:\\Win',
+  });
+  assert.equal(await openUrlOnHost('https://example.com/a?b=1&c=2'), 'opened');
+  assert.deepEqual(calls.map(({ command, args }) => ({ command, args })), [
+    { command: 'D:\\Win\\System32\\rundll32.exe', args: ['url.dll,FileProtocolHandler', 'https://example.com/a?b=1&c=2'] },
+  ]);
+  assert.equal(calls[0].options.shell, undefined);
+});
+
 test('the host opener spawns nothing on an unsupported platform', async () => {
   const calls: SpawnCall[] = [];
-  const openUrlOnHost = createHostUrlOpener({ platform: 'win32', spawnProcess: recordingSpawn(calls) });
+  const openUrlOnHost = createHostUrlOpener({ platform: 'aix', spawnProcess: recordingSpawn(calls) });
   assert.equal(await openUrlOnHost('https://example.com/'), 'unsupported-platform');
   assert.deepEqual(calls, []);
 });

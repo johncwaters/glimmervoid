@@ -1,6 +1,6 @@
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { spawn } from './child-process-safe.ts';
-import { hostOpenerCommandFor } from './core/open-external-core.ts';
+import { hostOpenerFor } from './core/open-external-core.ts';
 
 type HostOpenOutcome = 'opened' | 'unsupported-platform' | 'spawn-failed';
 type SpawnProcess = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
@@ -12,14 +12,20 @@ function createHostUrlOpener({
   platform = process.platform,
   spawnProcess = spawn,
   exitWindowMs = OPENER_EXIT_WINDOW_MS,
-}: { platform?: string; spawnProcess?: SpawnProcess; exitWindowMs?: number } = {}): HostUrlOpener {
+  windowsSystemRoot = process.env.SystemRoot,
+}: {
+  platform?: string;
+  spawnProcess?: SpawnProcess;
+  exitWindowMs?: number;
+  windowsSystemRoot?: string;
+} = {}): HostUrlOpener {
   return (url) => {
-    const command = hostOpenerCommandFor(platform);
-    if (!command) return Promise.resolve('unsupported-platform');
+    const opener = hostOpenerFor(platform, windowsSystemRoot);
+    if (!opener) return Promise.resolve('unsupported-platform');
     return new Promise((resolve) => {
       let child: ChildProcess;
       try {
-        child = spawnProcess(command, [url], { detached: true, stdio: 'ignore' });
+        child = spawnProcess(opener.command, [...opener.leadingArgs, url], { detached: true, stdio: 'ignore' });
       } catch {
         resolve('spawn-failed');
         return;

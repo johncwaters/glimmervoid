@@ -1,17 +1,35 @@
+import path from 'node:path';
 import { normalizedHttpUrl } from '../../shared/http-url.ts';
 import { decideOriginAllowed } from './origin-policy.ts';
 import type { RequestTrust } from './request-trust.ts';
 
 const MAX_EXTERNAL_URL_LENGTH = 2048;
 const OPEN_EXTERNAL_BODY_CAP_BYTES = 4096;
-const HOST_OPENER_BY_PLATFORM: Readonly<Record<string, string>> = { darwin: 'open', linux: 'xdg-open' };
+type HostOpener = { command: string; leadingArgs: readonly string[] };
+
+const DEFAULT_WINDOWS_SYSTEM_ROOT = 'C:\\Windows';
+
+const POSIX_HOST_OPENER_BY_PLATFORM: Readonly<Record<string, HostOpener>> = {
+  darwin: { command: 'open', leadingArgs: [] },
+  linux: { command: 'xdg-open', leadingArgs: [] },
+};
 
 type OpenExternalVerdict =
   | { ok: true; url: string }
   | { ok: false; status: number; error: string };
 
-function hostOpenerCommandFor(platform: string): string | null {
-  return HOST_OPENER_BY_PLATFORM[platform] ?? null;
+function windowsRundll32Path(windowsSystemRoot: string | undefined): string {
+  const systemRoot = windowsSystemRoot && path.win32.isAbsolute(windowsSystemRoot)
+    ? windowsSystemRoot
+    : DEFAULT_WINDOWS_SYSTEM_ROOT;
+  return path.win32.join(systemRoot, 'System32', 'rundll32.exe');
+}
+
+function hostOpenerFor(platform: string, windowsSystemRoot: string | undefined): HostOpener | null {
+  if (platform === 'win32') {
+    return { command: windowsRundll32Path(windowsSystemRoot), leadingArgs: ['url.dll,FileProtocolHandler'] };
+  }
+  return POSIX_HOST_OPENER_BY_PLATFORM[platform] ?? null;
 }
 
 function parseOpenableUrl(candidate: unknown): string | null {
@@ -46,6 +64,6 @@ export {
   MAX_EXTERNAL_URL_LENGTH,
   OPEN_EXTERNAL_BODY_CAP_BYTES,
   decideOpenExternalRequest,
-  hostOpenerCommandFor,
+  hostOpenerFor,
   parseOpenableUrl,
 };
