@@ -1403,13 +1403,13 @@ class Session extends EventEmitter {
     return true;
   }
 
-  start(options: { fresh?: boolean } = {}): Promise<void> {
+  start(options: { fresh?: boolean; resumePrompt?: string | null } = {}): Promise<void> {
     if (this._startPending) return this._startPending;
     this._startPending = this._startBody(options).finally(() => { this._startPending = null; });
     return this._startPending;
   }
 
-  async _startBody({ fresh = false }: { fresh?: boolean } = {}): Promise<void> {
+  async _startBody({ fresh = false, resumePrompt = null }: { fresh?: boolean; resumePrompt?: string | null } = {}): Promise<void> {
     if (this._destroyed) return;
 
     if (this.ptyProcess) {
@@ -1501,7 +1501,7 @@ class Session extends EventEmitter {
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
       extraArgs: launchSession?.extraArgs ?? this._extraClaudeArgs,
-      initialPrompt: this._initialPrompt,
+      initialPrompt: spawnResumeSessionId && resumePrompt ? resumePrompt : this._initialPrompt,
       hasOuterSandbox: this._prepareSandbox !== null,
       hasOperatorInstructions: this._hasOperatorInstructions(env),
       canRunHelpCommand: this._canRunHelpCommand,

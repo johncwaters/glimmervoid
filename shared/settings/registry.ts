@@ -256,7 +256,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     settings: [
       {
         id: 'auto-resume', path: 'autoResume', title: 'Auto-resume sessions on startup',
-        description: 'Resume conversations that were live when Glimmervoid last shut down or crashed.',
+        description: 'Resume conversations that were live when Glimmervoid last shut down or crashed, and tell sessions that were mid-turn to continue.',
         control: 'toggle', keywords: ['startup', 'conversation'], defaultValue: true, ...MACHINE_NOW,
       },
       {

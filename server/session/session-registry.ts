@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import type { Server } from 'node:http';
 
-import { pickAutoResume } from '../../session/core/auto-resume.ts';
+import { pickAutoResume, resumePromptFor } from '../../session/core/auto-resume.ts';
 import { projectSessionCard } from '../../session/core/snapshot-projection.ts';
 import type { Session } from '../../session/sessions.ts';
 import { isSameDirectoryPath } from '../../shared/canonical-paths.ts';
@@ -86,10 +86,11 @@ function runAutoResume(
   for (const id of ids) {
     const session = sessions.get(id);
     if (!session) continue;
+    const resumePrompt = resumePromptFor(config.projects.find((project) => project.id === id));
     runs.push(
       spawnGate.run(() => {
         if (session.state !== STATES.DORMANT) return null;
-        return session.start();
+        return session.start({ resumePrompt });
       }).catch((error: unknown) => {
         logger.warn(`[boot] auto-resume failed for ${session.name}: ${errorMessage(error)}`);
       }),

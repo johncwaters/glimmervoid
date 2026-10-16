@@ -49,6 +49,16 @@ function decideWasActiveFlip(to: SessionState, event: string, pendingRestart: bo
   return null;
 }
 
+const OPERATOR_PROMPT_EXIT_EVENTS: ReadonlySet<string> = new Set(['user_input', 'user_dismiss']);
+
+function decideWasWorkingFlip(to: SessionState, event: string, isIdleCompactionActivity: boolean): boolean | null {
+  if (isIdleCompactionActivity) return null;
+  if (to === STATES.RUNNING && OPERATOR_PROMPT_EXIT_EVENTS.has(event)) return null;
+  if (to === STATES.RUNNING) return true;
+  if (to === STATES.STARTING || to === STATES.INITIALIZING) return null;
+  return false;
+}
+
 function haveSameWorkspaceRepos(projectRepos: string[] | undefined, sessionRepos: string[] | null | undefined): boolean {
   const configured = projectRepos ?? [];
   const running = sessionRepos ?? [];
@@ -106,4 +116,4 @@ function diffProjects(
   return { added, removed, modified, renamed, unchanged };
 }
 
-export { decideWasActiveFlip, diffProjects, machineSkipsPermissionsByDefault, projectSkipsPermissions, shouldStartAfterModify };
+export { decideWasActiveFlip, decideWasWorkingFlip, diffProjects, machineSkipsPermissionsByDefault, projectSkipsPermissions, shouldStartAfterModify };

@@ -32,7 +32,7 @@ How sessions start, where projects are found, and what the dashboard shows for t
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `autoResume` | Auto-resume sessions on startup | `true` | Resume conversations that were live when Glimmervoid last shut down or crashed. |
+| `autoResume` | Auto-resume sessions on startup | `true` | Resume conversations that were live when Glimmervoid last shut down or crashed, and tell sessions that were mid-turn to continue. |
 | `conversationView` | Conversation view (experimental) | `false` | Let each Claude Code and Codex session turn on a Conversation face from its card menu, which renders the transcript as messages, approvals and a composer. Sessions stay on the terminal until you turn it on for them. A Claude Code session started while this is on can answer its permission prompts and questions there. A Codex session connects on its next start, through a local app-server so approvals can be answered from the dashboard; sandboxed Codex sessions and those that bypass Codex hook trust keep the terminal only. |
 | `streamerMode` | Streamer mode | `false` | Hide sensitive details in the dashboard while screen sharing or streaming. |
 | `repoRoots` | Repository roots | `[]` | Directories scanned for projects when adding sessions. |

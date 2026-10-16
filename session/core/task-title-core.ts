@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { RefinedTaskTitle, TASK_TITLE_CONTROL_CHARACTERS, TASK_TITLE_MAX_LENGTH } from '../../shared/contracts/session.ts';
 import { PersistedTaskTitle, TASK_TITLE_SOURCE_PRIORITY } from '../../shared/contracts/config.ts';
 import type { TaskTitleSources } from '../../shared/contracts/config.ts';
+import { AUTO_CONTINUE_PROMPT } from './auto-resume.ts';
 
 export type { TaskTitleSources } from '../../shared/contracts/config.ts';
 
@@ -101,7 +102,11 @@ const MIN_SUBSTANTIVE_WORDS = 3;
 const CONTINUATION_PROMPTS = new Set([
   'yes please continue', 'please go ahead', 'go ahead please', 'keep going please',
   'continue with that', 'please do it', 'yes do it', 'that sounds good',
-]);
+].map(continuationKey).concat(continuationKey(AUTO_CONTINUE_PROMPT)));
+
+function continuationKey(prompt: string): string {
+  return prompt.toLowerCase().replace(/[.!?]+$/, '').trim();
+}
 
 export function cleanTaskPrompt(prompt: string): string {
   let cleanedPrompt = prompt;
@@ -114,7 +119,7 @@ export function isSubstantivePrompt(prompt: unknown): boolean {
   const cleanedPrompt = cleanTaskPrompt(prompt);
   if (!cleanedPrompt || cleanedPrompt.startsWith('/')) return false;
   if (cleanedPrompt.split(' ').length < MIN_SUBSTANTIVE_WORDS) return false;
-  return !CONTINUATION_PROMPTS.has(cleanedPrompt.toLowerCase().replace(/[.!?]+$/, '').trim());
+  return !CONTINUATION_PROMPTS.has(continuationKey(cleanedPrompt));
 }
 
 interface TaskTitleRefinementGate {

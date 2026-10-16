@@ -6,7 +6,7 @@ import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../../shared/contracts/session.t
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
-import { decideWasActiveFlip } from './core/session-registry-core.ts';
+import { decideWasActiveFlip, decideWasWorkingFlip } from './core/session-registry-core.ts';
 import { adapterBucket, classifySessionExit } from '../core/telemetry-core.ts';
 import { INTERACTIVE_LANE } from '../usage/core/usage-lane-core.ts';
 import { resolveCheckConfig, runPostTurnChecks } from '../post-turn-checker.ts';
@@ -134,6 +134,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       compactionConfirmTimer.unref();
     };
     let lastPersistedWasActive: boolean | null = null;
+    let lastPersistedWasWorking: boolean | null = null;
     let spawnedAtMs: number | null = null;
     const persistProjectField = (field: string, value: unknown) => {
       void Promise.resolve(persistSessionField(dependencies.configStore, dependencies.config, session.id, field, value))
@@ -238,6 +239,11 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       if (nextWasActive !== null && nextWasActive !== lastPersistedWasActive) {
         lastPersistedWasActive = nextWasActive;
         persistProjectField('wasActive', nextWasActive);
+      }
+      const nextWasWorking = decideWasWorkingFlip(to, event, detail?.isIdleCompactionActivity === true);
+      if (nextWasWorking !== null && nextWasWorking !== lastPersistedWasWorking) {
+        lastPersistedWasWorking = nextWasWorking;
+        persistProjectField('wasWorking', nextWasWorking);
       }
       const acknowledgeDecision = decideAcknowledge(isAcknowledgeDeferredForCompaction, from, event, detail?.isIdleCompactionActivity === true);
       isAcknowledgeDeferredForCompaction = acknowledgeDecision.isAcknowledgeDeferred;
