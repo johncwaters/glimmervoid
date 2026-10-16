@@ -1083,8 +1083,10 @@ async function prepareVerifierFixture(context: TestContext) {
     setVerifierVerdict: (next: typeof verdict) => { verdict = next; } };
 }
 
-test('independent verifier pass files its link, closes the intent with tip evidence, and advances the queue', async (context) => {
+test('independent verifier pass files its link, closes the intent with tip evidence over a replaced ticket, and advances the queue', async (context) => {
   const fixture = await prepareVerifierFixture(context);
+  const replacedTicketId = await fixture.createOrder(fixture.worker.intentId, 'Ticket the orchestrator replaced');
+  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'close', replacedTicketId, 'cancelled', '--because', 'Replaced by an in-scope ticket', '--session', 'glimmervoid-factory'] });
   const nextIntentId = await fixture.createOrder(null, 'Next intent');
   await fixture.land('repo', fixture.projectPath, 'factory: next intent');
   const project = await fixture.readProject();
@@ -1112,6 +1114,7 @@ test('independent verifier pass files its link, closes the intent with tip evide
   assert.doesNotMatch(fixture.reviewRequests[0].prompt, /^diff --git a\/\.coherence\//m);
   const closeCommand = fixture.commands.findLast((command) => command[1] === 'close');
   assert.equal(closeCommand?.[closeCommand.indexOf('--evidence') + 1], project.headSha);
+  assert.equal(closeCommand?.includes(replacedTicketId), false);
   await fixture.verifier.tick(completed);
   assert.equal(fixture.reviewRequests.length, 1);
 });

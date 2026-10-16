@@ -142,7 +142,7 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
         '--evidence', `Independent verifier passed every intent criterion at ${tipSha}`, '--session', FACTORY_LEDGER_SESSION, '--json'];
       const linkOutput = await runCoherence({ cwd: ledger.cwd, args: linkArgs });
       const closeArgs = ['work', 'close', intent.id, 'completed', '--because', 'Independent factory verifier passed',
-        '--session', FACTORY_LEDGER_SESSION, '--evidence', tipSha, ...children.flatMap((child) => ['--synthesized', child.id]), '--json'];
+        '--session', FACTORY_LEDGER_SESSION, '--evidence', tipSha, ...children.filter((child) => child.state === 'completed').flatMap((child) => ['--synthesized', child.id]), '--json'];
       const closeOutput = await runCoherence({ cwd: ledger.cwd, args: closeArgs });
       const verifierRecords = await captureVerifierRecords(ledger.cwd, [{ args: linkArgs, output: linkOutput }, { args: closeArgs, output: closeOutput }]);
       const pendingState = await readLaneState(project.projectId);
