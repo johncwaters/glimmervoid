@@ -40,6 +40,23 @@ function isConversationViewOnFor(config: GlimmervoidConfig, projectId: string): 
   return config.projects.some((project) => project.id === projectId && project.conversationView === true);
 }
 
+interface GuardedSessionProject {
+  path: string;
+  repos?: string[];
+  agent?: string | null;
+  unguarded?: boolean;
+}
+
+function willSessionRunGuarded(project: GuardedSessionProject, config: GlimmervoidConfig, homeDir: string | null): boolean {
+  const unguardedRepos = (config.guardrails?.unguardedRepos ?? []).map((repo) => expandTilde(repo, process.env, homeDir));
+  return isSessionGuarded({
+    usageVendor: getAdapter(project.agent)?.usageVendor ?? null,
+    isMarkedUnguarded: project.unguarded === true,
+    sessionFolders: [project.path, ...(project.repos ?? [])],
+    unguardedRepos,
+  });
+}
+
 function createSessionFactory(dependencies: SessionFactoryDependencies) {
   function planLimitsEnabled(config: GlimmervoidConfig): boolean {
     const usageConfig = resolveUsageConfig(config.usage);
@@ -48,13 +65,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
 
   function defaultGuardrailsFor(project: ProjectEntry, config: GlimmervoidConfig, overrides: SessionSpawnOverrides): SessionOptions['prepareGuardrails'] {
     if (!dependencies.sessionGuardrails) return null;
-    const unguardedRepos = (config.guardrails?.unguardedRepos ?? []).map((repo) => expandTilde(repo, process.env, dependencies.homeDir ?? null));
-    const isGuarded = isSessionGuarded({
-      usageVendor: getAdapter(overrides.agent ?? project.agent)?.usageVendor ?? null,
-      isMarkedUnguarded: project.unguarded === true,
-      sessionFolders: [project.path, ...(project.repos ?? [])],
-      unguardedRepos,
-    });
+    const isGuarded = willSessionRunGuarded({ ...project, agent: overrides.agent ?? project.agent }, config, dependencies.homeDir ?? null);
     return isGuarded ? dependencies.sessionGuardrails.prepareFor({ sessionId: project.id, isWorkspace: Boolean(project.repos?.length) }) : null;
   }
 
@@ -110,5 +121,5 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
   };
 }
 
-export { createSessionFactory };
+export { createSessionFactory, willSessionRunGuarded };
 export type { SessionSpawnOverrides };

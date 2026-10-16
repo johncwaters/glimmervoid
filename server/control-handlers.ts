@@ -25,6 +25,7 @@ import type { ControlMessageRecord, ReplayLog } from './core/control-replay-core
 import { normalizeClientTrust } from './core/request-trust.ts';
 import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from './core/settings-block-core.ts';
 import { readPosthogReport } from './radar/radar-report.ts';
+import { willSessionRunGuarded } from './session/session-factory.ts';
 import * as radarLaneCore from './radar/core/radar-lane-core.ts';
 import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './github/core/github-issues-core.ts';
@@ -1034,12 +1035,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       const checkout = await teamReview.preparePrSession(msg.key, singleRepoProjects.map((project) => project.path));
       if (!checkout.ok) { reply({ error: checkout.error }); return; }
       const sourceProject = checkout.isConfiguredProject ? singleRepoProjects.find((project) => project.path === checkout.checkoutPath) : undefined;
+      const isPrSessionGuarded = willSessionRunGuarded({ path: checkout.checkoutPath, agent: sourceProject?.agent }, config, null);
       const created = createProjectSession({
         name: prSessionName(checkout.repo, checkout.detail.number, checkout.detail.title),
         path: checkout.checkoutPath,
         baseBranch: checkout.baseBranch,
         agent: sourceProject?.agent,
-        dangerouslySkipPermissions: false,
+        dangerouslySkipPermissions: isPrSessionGuarded ? sourceProject?.dangerouslySkipPermissions : false,
       });
       if (!created.ok) { reply({ error: created.error }); return; }
       const session = sessions.get(created.project.id);
