@@ -59,7 +59,7 @@ function completingInput(): VerdictInput {
   });
 }
 
-test('a run keeps going past a block the orchestrator can re-plan or a parked block and stops on any other exception', () => {
+test('a run keeps going past a block or a verifier rejection the orchestrator can re-plan or a parked block and stops on any other exception', () => {
   const blockReason = 'Needs write scope: tests/pending-wakeup.test.ts';
   const blocked = parseDecisionLines([
     decision({ kind: 'exception', outcome: 'raised', failureClass: 'exception', reason: blockReason }),
@@ -72,8 +72,8 @@ test('a run keeps going past a block the orchestrator can re-plan or a parked bl
   const stalled = [...blocked, ...parseDecisionLines([decision({ kind: 'exception', outcome: 'stalled', failureClass: 'stall', reason: 'factory orchestrator idle' })]).decisions];
   assert.equal(findUnrecoveredException(blockReason, stalled), 'factory orchestrator idle');
   assert.equal(findUnrecoveredException('Ledger is unreadable', blocked), 'Ledger is unreadable');
-  const failed = parseDecisionLines([decision({ kind: 'verification', outcome: 'failed', failureClass: 'verification', reason: 'Verifier could not read HEAD' })]).decisions;
-  assert.equal(findUnrecoveredException(null, failed), 'Verifier could not read HEAD');
+  const rejected = parseDecisionLines([decision({ kind: 'verification', outcome: 'failed', failureClass: 'verification', reason: null })]).decisions;
+  assert.equal(findUnrecoveredException(null, rejected), null);
   const recoveredLanding = parseDecisionLines(recoveredLandingLines).decisions;
   assert.equal(findUnrecoveredException(null, recoveredLanding), null);
   assert.equal(findUnrecoveredException(null, recoveredLanding.slice(0, 1)), 'push rejected');
@@ -117,7 +117,10 @@ test('settled ticket blocks allow partial or completed outcomes while raised and
     { name: 'merged after recovered landing', candidate: { ...mergedInput, decisionLines: [...mergedInput.decisionLines, ...recoveredLandingLines] }, outcome: 'pass', failureClass: null, reason: null },
     { name: 'raised after completion', candidate: { ...mergedInput, decisionLines: [...mergedInput.decisionLines, decision({ reason: 'Ledger write failed' })] }, outcome: 'fail', failureClass: 'exception' },
     { name: 'raised exception', candidate: { ...partialInput, decisionLines: [blocked, decision({})] }, outcome: 'fail', failureClass: 'exception' },
-    { name: 'failed verification', candidate: { ...partialInput, decisionLines: [blocked, decision({ kind: 'verification', outcome: 'failed', failureClass: 'verification' })] }, outcome: 'fail', failureClass: 'exception' },
+    { name: 'parked after a verifier rejection', candidate: { ...partialInput, decisionLines: [blocked, decision({ kind: 'verification', outcome: 'failed', failureClass: 'verification' })] }, outcome: 'partial', failureClass: null },
+    { name: 'merged after a verifier rejection', candidate: { ...mergedInput, decisionLines: [decision({ kind: 'verification', outcome: 'failed', failureClass: 'verification', workId: null }), ...mergedInput.decisionLines, decision({ kind: 'verification', outcome: 'passed', failureClass: null, workId: null, reason: null })] }, outcome: 'pass', failureClass: null, reason: null },
+    { name: 'merged with an unanswered verifier rejection', candidate: { ...mergedInput, decisionLines: [...mergedInput.decisionLines, decision({ kind: 'verification', outcome: 'failed', failureClass: 'verification', workId: null })] }, outcome: 'fail', failureClass: 'exception' },
+    { name: 'merged after its blocked ticket was replaced', candidate: { ...mergedInput, decisionLines: [decision({ kind: 'admission', outcome: 'block', workId: 'replaced-ticket', failureClass: 'check' }), ...mergedInput.decisionLines], broadcasts: mergedInput.broadcasts.map((broadcast) => ({ ...broadcast, state: FactoryState.parse({ ...broadcast.state, projects: broadcast.state.projects.map((project) => ({ ...project, orders: [...project.orders, { ...intent, id: 'replaced-ticket', parent: 'intent', state: 'cancelled' as const }] })) }) })) }, outcome: 'pass', failureClass: null, reason: null },
   ];
   for (const scenario of cases) {
     const verdict = decideVerdict(scenario.candidate);

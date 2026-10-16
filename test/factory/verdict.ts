@@ -101,8 +101,13 @@ export interface VerdictInput {
   gate?: GateEvidence | null;
 }
 
+function isVerifierRejection(decision: FactoryDecisionLogLine): boolean {
+  return decision.kind === 'verification' && decision.outcome === 'failed';
+}
+
 function withoutRecoveredFailures(decisions: readonly FactoryDecisionLogLine[]): FactoryDecisionLogLine[] {
-  return decisions.filter((decision, index) => decision.outcome !== 'failed' || !decisions.slice(index + 1).some((later) => later.outcome === 'recovered' && later.kind === decision.kind && later.projectId === decision.projectId));
+  return decisions.filter((decision, index) => decision.outcome !== 'failed' || !decisions.slice(index + 1).some((later) => later.projectId === decision.projectId && later.kind === decision.kind
+    && (later.outcome === 'recovered' || (isVerifierRejection(decision) && later.outcome === 'passed' && later.intentId === decision.intentId))));
 }
 
 function matchBlockReasons(decisions: readonly FactoryDecisionLogLine[]): (reason: string | null | undefined) => boolean {
@@ -117,7 +122,7 @@ function matchBlockReasons(decisions: readonly FactoryDecisionLogLine[]): (reaso
 export function findUnrecoveredException(projectError: string | null | undefined, decisions: readonly FactoryDecisionLogLine[]): string | null {
   const isBlockReason = matchBlockReasons(decisions);
   if (projectError && !isBlockReason(projectError)) return projectError;
-  const exception = withoutRecoveredFailures(decisions).find((decision) => ['raised', 'failed', 'stalled'].includes(decision.outcome) && !isBlockReason(decision.reason));
+  const exception = withoutRecoveredFailures(decisions).find((decision) => ['raised', 'failed', 'stalled'].includes(decision.outcome) && !isVerifierRejection(decision) && !isBlockReason(decision.reason));
   return exception ? exception.reason ?? `${exception.kind} ${exception.outcome}` : null;
 }
 
@@ -188,7 +193,7 @@ export function decideVerdict(input: VerdictInput) {
   const lastProject = projects.at(-1)?.project;
   const parkedTickets = lastProject?.orders.filter((order) => order.parent === workId && order.parked) ?? [];
   const hasPartial = input.stopReason === 'partial' && workId !== undefined && lastProject?.heading.action !== 'refuse' && lastProject?.partialIntentIds?.includes(workId) === true && parkedTickets.length > 0;
-  const settledWorkIds = new Set(lastProject?.orders.filter((order) => order.state === 'completed' || order.parked).map((order) => order.id));
+  const settledWorkIds = new Set(lastProject?.orders.filter((order) => order.state === 'completed' || order.state === 'cancelled' || order.parked).map((order) => order.id));
   for (const decision of decisions) if (decision.projectId === input.projectId && decision.kind === 'merge' && decision.workId) settledWorkIds.add(decision.workId);
   const relevantDecisions = decisions.filter((decision) => decision.projectId === input.projectId);
   const hasCompletedSteadily = projects.some(({ project }) => project.heading.action === 'steady' && project.orders.some((order) => order.id === workId && order.state === 'completed'));
@@ -200,7 +205,8 @@ export function decideVerdict(input: VerdictInput) {
   const hasPass = input.expectedEnd === 'refused' ? hasExpectedRefusal : hasCompletedSteadily && hasLandedCommits;
   const isBlockReason = matchBlockReasons(relevantDecisions);
   const hasUnexplainedProjectError = (lastProject?.error ?? '') !== '' && !isBlockReason(lastProject?.error);
-  const failureDecisions = withoutRecoveredFailures(relevantDecisions).filter((decision) => !(['block', 'retry'].includes(decision.outcome) && (decision.kind === 'admission' || decision.kind === 'closeout') && decision.workId !== null && settledWorkIds.has(decision.workId)));
+  const failureDecisions = withoutRecoveredFailures(relevantDecisions).filter((decision) => !(['block', 'retry'].includes(decision.outcome) && (decision.kind === 'admission' || decision.kind === 'closeout') && decision.workId !== null && settledWorkIds.has(decision.workId))
+    && !(hasPartial && isVerifierRejection(decision)));
   const candidates: FailureClass[] = [];
   if (input.stopReason === 'interrupted') candidates.push('interrupted');
   if (hasRefusal && !hasExpectedRefusal) candidates.push('queue-refused');
