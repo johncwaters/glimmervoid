@@ -177,8 +177,8 @@ const clientVariants = [
   loose('ping', { requestId }),
   loose('get-settings', { requestId }),
   loose('update-settings', { settings: z.record(z.string(), z.unknown()), requestId }),
-  loose('scan-repo-roots', { requestId }),
-  loose('list-agents', { requestId }),
+  loose('scan-repo-roots', { requestId, includeSuggestions: z.boolean().optional() }),
+  loose('list-agents', { requestId, rescan: z.boolean().optional() }),
   loose('get-radar-report', { issueId: z.union([z.string(), z.number()]), requestId }),
   loose('radar-open-session', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), requestId }),
   loose('issue-detail', { requestId: z.string().min(1), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
@@ -489,6 +489,7 @@ const serverVariants = [
       root: z.string(),
       projects: z.array(openObject({ name: z.string(), path: z.string() })),
     })),
+    suggestions: z.array(openObject({ path: z.string(), label: z.string(), gitRepoCount: z.number().int().nonnegative() })).optional(),
     error: z.string().optional(),
   }),
   loose('conversations', {

@@ -39,7 +39,9 @@ import { RESUME_ID_RE } from '../session/core/auto-resume.ts';
 import { listDroppedRepoPaths, planWorkspace, planWorkspaceMembers } from '../session/core/workspace-core.ts';
 import { runGit } from './git/git-exec.ts';
 import { firstGitErrorLine } from './core/branch-sync-core.ts';
-import { DEFAULT_AGENT_ID, describeAgentResolvability, isKnownAgentId, listAgentIds } from '../session/adapters/index.ts';
+import { DEFAULT_AGENT_ID, describeAgentResolvability, isKnownAgentId, listAgentIds, resetCommandCache } from '../session/adapters/index.ts';
+import { suggestRepoRoots } from './repo-root-suggestions.ts';
+import { expandTilde } from './usage/core/usage-scan-core.ts';
 import { HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TIMEOUT_SEC, normalizeHook, rawStoredHooks, readStoredHooks, removeHook, upsertHook } from '../session/core/user-hooks-core.ts';
 import { describeBuiltinHooks } from '../detection/settings-injector.ts';
 import { PlanDecision } from '../shared/contracts/plan-review.ts';
@@ -748,6 +750,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
     const incoming: Record<string, unknown> = s;
 
+    if (s.repoRoots) s.repoRoots = s.repoRoots.map((root) => expandTilde(root, process.env, os.homedir()));
     const invalidPaths = (s.repoRoots || []).filter(root => !isExistingDirectory(root));
     if (invalidPaths.length > 0) {
       sendError(ws, `Repository roots must be existing directories: ${invalidPaths.join(', ')}`, { type: 'settings-error', requestId: msg.requestId || null });
@@ -812,6 +815,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
   function handleListAgents(msg: ClientMessageOf<'list-agents'>, ws: ControlSocket): void {
+    if (msg.rescan) resetCommandCache();
     const agents = listAgentIds().map((id) => {
       const { label, resolvable } = describeAgentResolvability(id);
       return { id, label, resolvable };
@@ -823,12 +827,14 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }));
   }
 
-  function handleScanRepoRoots(msg: ClientMessageOf<'scan-repo-roots'>, ws: ControlSocket): void {
+  async function handleScanRepoRoots(msg: ClientMessageOf<'scan-repo-roots'>, ws: ControlSocket): Promise<void> {
     const directories = scanRepoRoots(config.repoRoots);
+    const suggestions = msg.includeSuggestions ? await suggestRepoRoots({ homeDir: os.homedir(), configuredRoots: config.repoRoots || [] }) : undefined;
     ws.send(JSON.stringify({
       type: 'repo-roots-scanned',
       requestId: msg.requestId || null,
-      directories
+      directories,
+      suggestions,
     }));
   }
 
