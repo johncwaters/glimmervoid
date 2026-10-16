@@ -19,7 +19,7 @@ test('doctor reports every builtin agent and a loading node-pty', () => {
     assert.match(stdout, /codex \(Codex CLI\)/);
     assert.match(stdout, /grok \(Grok Build\)/);
     assert.match(stdout, /Sane YOLO/);
-    assert.match(stdout, /cc-safety-net version\s+2\.6\.10/);
+    assert.match(stdout, /cc-safety-net version\s+2\.6\.12/);
     assert.match(stdout, /inactive unless Codex trusts/);
     assert.match(stdout, /inactive; run glimmervoid agent setup grok/);
     assert.match(stdout, /node-pty\s+loads OK/);
