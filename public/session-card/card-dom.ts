@@ -48,7 +48,7 @@ interface TagBadgeSpec {
 const TAG_BADGES: TagBadgeSpec[] = [
   { cls: 'agent-badge', title: 'Agent CLI this session supervises' },
   { cls: 'worktree-badge', text: 'worktree', title: 'Running in a linked git worktree', ariaLabel: 'Linked git worktree' },
-  { cls: 'sandbox-badge', text: 'sandbox', title: 'Running inside the session guardrails sandbox', ariaLabel: 'Sandboxed session' },
+  { cls: 'sandbox-badge', text: 'guardrails', title: 'Guardrails on: credentials, Glimmervoid state and blocked folders are off-limits to this session', ariaLabel: 'Guardrails on' },
   { cls: 'post-turn-badge', ariaHidden: true },
   { cls: 'usage-badge', title: 'Tokens and estimated API list-price cost for this conversation' },
   { cls: 'wakeup-badge' },
