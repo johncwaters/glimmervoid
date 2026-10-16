@@ -1,6 +1,8 @@
 import addSessionHTML from './components/add-session-dialog.html?raw';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
+import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { el, query, queryTag } from './dom-helpers.ts';
+import { createRepoRootsAdder } from './onboarding/repo-roots-adder.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
 import { buildRepoCheckbox } from './session-card/workspace-repos-dialog.ts';
 import { DEFAULT_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './session-card/agent-core.ts';
@@ -41,6 +43,8 @@ export function createAddSessionDialog() {
   const workspaceModeButton = queryTag(dialog, '#add-session-workspace-mode', 'button');
   const agentLabelEl = query(dialog, '#add-session-agent-label');
   const agentSelectEl = queryTag(dialog, '#add-session-agent', 'select');
+  const repoRootsEl = query(dialog, '#add-session-repo-roots');
+  const repoRootsTitleEl = query(dialog, '#add-session-repo-roots-title');
   const advancedToggle = queryTag(dialog, '#add-session-advanced-toggle', 'button');
   const advancedPanel = query(dialog, '#add-session-advanced');
   const nameInput = queryTag(dialog, '#add-session-name', 'input');
@@ -76,35 +80,51 @@ export function createAddSessionDialog() {
     if (expanded) requestAnimationFrame(() => nameInput.focus());
   });
 
-  sendControlRequest('scan-repo-roots', {})
-    .then((message) => {
-      pickerEl.textContent = '';
-      pickerEl.appendChild(option('-- Select a project --', { value: '', disabled: true, selected: true }));
-      let hasProjects = false;
-      const directories = message.type === 'repo-roots-scanned' ? message.directories : [];
-      for (const directory of directories) {
-        if (directory.projects.length === 0) continue;
-        const group = el('optgroup');
-        group.label = directory.root;
-        for (const project of directory.projects) {
-          const existingCount = countSessionsByName(project.name);
-          const label = existingCount > 0 ? `${project.name} (${existingCount} open)` : project.name;
-          group.appendChild(option(label, { value: JSON.stringify({ name: project.name, path: project.path }) }));
-          workspaceListEl.appendChild(buildRepoCheckbox(project.name, project.path));
-          hasProjects = true;
+  const repoRootsAdder = createRepoRootsAdder({ onAdded: fillProjectPicker });
+  repoRootsEl.append(repoRootsAdder.element);
+
+  function showRepoRootsAdder(message: ServerMessage) {
+    const isScan = message.type === 'repo-roots-scanned';
+    repoRootsTitleEl.textContent = isScan && message.directories.length > 0 ? 'No projects in your repository roots yet' : 'No repository roots yet';
+    repoRootsAdder.setSuggestions(isScan ? message.suggestions ?? [] : []);
+    repoRootsEl.hidden = false;
+  }
+
+  function fillProjectPicker() {
+    return sendControlRequest('scan-repo-roots', { includeSuggestions: true })
+      .then((message) => {
+        pickerEl.textContent = '';
+        workspaceListEl.textContent = '';
+        repoRootsEl.hidden = true;
+        pickerEl.appendChild(option('-- Select a project --', { value: '', disabled: true, selected: true }));
+        let hasProjects = false;
+        const directories = message.type === 'repo-roots-scanned' ? message.directories : [];
+        for (const directory of directories) {
+          if (directory.projects.length === 0) continue;
+          const group = el('optgroup');
+          group.label = directory.root;
+          for (const project of directory.projects) {
+            const existingCount = countSessionsByName(project.name);
+            const label = existingCount > 0 ? `${project.name} (${existingCount} open)` : project.name;
+            group.appendChild(option(label, { value: JSON.stringify({ name: project.name, path: project.path }) }));
+            workspaceListEl.appendChild(buildRepoCheckbox(project.name, project.path));
+            hasProjects = true;
+          }
+          pickerEl.appendChild(group);
         }
-        pickerEl.appendChild(group);
-      }
-      if (hasProjects) return;
-      pickerEl.textContent = '';
-      pickerEl.appendChild(option('No projects found (configure repo roots in Settings)', { disabled: true, selected: true }));
-      workspaceListEl.textContent = 'No projects found (configure repo roots in Settings).';
-    })
-    .catch(() => {
-      pickerEl.textContent = '';
-      pickerEl.appendChild(option('Scan failed', { disabled: true, selected: true }));
-      workspaceListEl.textContent = 'Repository scan failed.';
-    });
+        if (hasProjects) return;
+        pickerEl.textContent = '';
+        pickerEl.appendChild(option('No projects yet', { disabled: true, selected: true }));
+        workspaceListEl.textContent = 'No projects yet.';
+        showRepoRootsAdder(message);
+      })
+      .catch(() => {
+        pickerEl.textContent = '';
+        pickerEl.appendChild(option('Scan failed', { disabled: true, selected: true }));
+        workspaceListEl.textContent = 'Repository scan failed.';
+      });
+  }
+  void fillProjectPicker();
 
   pickerEl.addEventListener('change', () => {
     try {

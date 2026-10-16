@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Clearer `glimmervoid --help`**: commands are grouped into everyday commands, editor integration, commands for use inside a session, and experimental ones, and `visions uninstall` is now listed.
 - **Clearer startup output**: the server now prints a short banner with the version, the dashboard address to open and how to stop it, and on the very first start from a terminal it opens the dashboard in your browser once. Pass `--no-open` to skip that. The first-run telemetry notice is down to two lines, and the line saying remote mode is off is gone.
 - **Repository roots accept `~`**: a repository root typed as `~/src` in Settings now saves as the full path under your home folder instead of being refused as a missing directory.
+- **+ Session works before you add any repository roots**: instead of a dead-end "No projects found", the dialog offers the same add-folder block as the checklist and fills the project list in place once you add one. Advanced options is now labelled "Run in a folder outside your repository roots".
 
 ### Fixed
 
