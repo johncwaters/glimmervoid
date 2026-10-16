@@ -11,14 +11,20 @@ function hasLayoutBox(el: HTMLElement) {
   return el.clientWidth > 0 && el.clientHeight > 0;
 }
 
+function disposeWebglAddon(ui: SessionUi) {
+  const addon = ui.webglAddon;
+  if (!addon) return;
+  const canvases = [...(ui.term?.element?.querySelectorAll('canvas') ?? [])];
+  ui.webglAddon = null;
+  try { addon.dispose(); } catch {  }
+  for (const canvas of canvases) canvas.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext();
+}
+
 export function releaseWebgl(ui: SessionUi) {
   _webglLru.delete(ui);
   ui.needsWebGLReload = false;
   ui.webglAttachedWithoutLayout = false;
-  if (ui.webglAddon) {
-    try { ui.webglAddon.dispose(); } catch {  }
-    ui.webglAddon = null;
-  }
+  disposeWebglAddon(ui);
 }
 
 function evictWebglIfNeeded(exceptUi: SessionUi) {
@@ -65,8 +71,7 @@ export function tryLoadWebGL(ui: SessionUi, options: { isForced?: boolean } = {}
       return;
     }
     if (ui.webglAddon) {
-      ui.webglAddon.dispose();
-      ui.webglAddon = null;
+      disposeWebglAddon(ui);
       _webglLru.delete(ui);
     }
 

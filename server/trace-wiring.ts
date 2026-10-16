@@ -11,7 +11,7 @@ import {
 } from '../shared/contracts/trace.ts';
 import { claudeProjectsDir } from '../session/core/conversation-history.ts';
 import { openContainedFile } from './contained-file.ts';
-import { applyRead, createTailState } from './ingest/core/ingest-tail-core.ts';
+import { applyRead, createTailState, isTailCurrent } from './ingest/core/ingest-tail-core.ts';
 import type { TailState } from './ingest/core/ingest-tail-core.ts';
 import { traceRecordsFromTranscriptLine } from './core/trace-core.ts';
 import {
@@ -495,7 +495,18 @@ function createTraceWiring({
     return { didAppend, appendedRecordCount: recordCount };
   }
 
+  async function isTranscriptUnchanged(binding: TraceBinding): Promise<boolean> {
+    if (!binding.hasOpenedTranscript || binding.bindingBeforeFirstOpen) return false;
+    if (pendingRecordsBySessionId.has(binding.glimmervoidSessionId)) return false;
+    try {
+      return isTailCurrent(binding.tailState, await fs.promises.stat(binding.transcriptPath));
+    } catch {
+      return false;
+    }
+  }
+
   async function drainBinding(binding: TraceBinding): Promise<void> {
+    if (await isTranscriptUnchanged(binding)) return;
     const opened = await openContainedFile(binding.transcriptPath, projectsRoot());
     if (!opened.ok) {
       if (binding.bindingBeforeFirstOpen) await drainBinding(binding.bindingBeforeFirstOpen);

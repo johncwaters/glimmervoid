@@ -233,3 +233,14 @@ test('source NEVER emits awaiting-input (honest fallback contract)', (t) => {
   assert.equal(signals.filter((s) => s.signal === 'awaiting-input').length, 0);
   src.destroy();
 });
+
+test('an idle title inside a redraw frame larger than 8 KB is still detected', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const src = createOscTitleSource({ stabilizationMs: 50 });
+  const signals = collect(src);
+  src.feed(bulletTitle('⠂'));
+  src.feed(`${bulletTitle('✳')}\x1b[H${'\x1b[2K\x1b[38;5;120mredrawn row\x1b[0m\r\n'.repeat(400)}`);
+  t.mock.timers.tick(120);
+  assert.equal(signals.filter((s) => s.signal === 'ready').length, 1);
+  src.destroy();
+});

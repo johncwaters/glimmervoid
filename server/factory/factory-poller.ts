@@ -83,10 +83,11 @@ export function createFactoryPoller({
     const identity = { projectId: project.id, projectName: project.name };
     try {
       paused = await readPaused(project.id);
-      if (!(await hasCoherenceConfigAt(project.path, headSha))) return null;
-      const confirmedFlakesByIntent = await readIntentConfirmedFlakes(project.id);
       const previous = processedProjects.get(project.id);
-      if (previous?.path === project.path && (previous.state.headSha === headSha || shouldHoldCheckout(project.id))) {
+      const isUnchangedTip = previous?.path === project.path && previous.state.headSha === headSha;
+      if (!isUnchangedTip && !(await hasCoherenceConfigAt(project.path, headSha))) return null;
+      const confirmedFlakesByIntent = await readIntentConfirmedFlakes(project.id);
+      if (previous?.path === project.path && (isUnchangedTip || shouldHoldCheckout(project.id))) {
         return { ...previous.state, paused, projectName: project.name, confirmedFlakesByIntent };
       }
       const cwd = await ensureControlCheckout({ projectId: project.id, projectPath: project.path, sha: headSha });

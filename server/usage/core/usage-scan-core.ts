@@ -33,6 +33,21 @@ export interface VendorRoot {
   home: string;
 }
 
+function scopedClaudeRoots(
+  scopeDirs: readonly string[] | null | undefined,
+  claudeDirs: readonly string[],
+): { vendor: 'claude'; dir: string; kind: 'active' }[] | null {
+  if (!scopeDirs || scopeDirs.length === 0) return null;
+  const isInside = (candidate: string, parent: string) => candidate.startsWith(`${parent}${path.sep}`);
+  const roots: string[] = [];
+  for (const scopeDir of [...new Set(scopeDirs.map((dir) => path.resolve(dir)))].sort((left, right) => left.length - right.length)) {
+    if (!claudeDirs.some((claudeDir) => isInside(scopeDir, claudeDir))) return null;
+    if (roots.some((root) => isInside(scopeDir, root))) continue;
+    roots.push(scopeDir);
+  }
+  return roots.map((dir) => ({ vendor: 'claude', dir, kind: 'active' }));
+}
+
 function decideFileRead(
   prior: FileReadCursor | null | undefined,
   stat: { size?: unknown; mtimeMs?: unknown } | null | undefined,
@@ -229,4 +244,4 @@ function codexSessionIdFromPath(filePath: unknown): string | null {
   return base || null;
 }
 
-export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, splitLines, passOutcome, shouldPersistWarehouse, continuationDelayMs, shouldEvaluateDespiteIoFailures, codexHomes, grokHomes, codexRootCandidates, codexFallbackRoots, grokRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };
+export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, scopedClaudeRoots, splitLines, passOutcome, shouldPersistWarehouse, continuationDelayMs, shouldEvaluateDespiteIoFailures, codexHomes, grokHomes, codexRootCandidates, codexFallbackRoots, grokRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };

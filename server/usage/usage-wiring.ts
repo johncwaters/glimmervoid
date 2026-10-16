@@ -333,12 +333,12 @@ function createUsageWiring({
     return startPromise;
   }
 
-  async function runPassAndPush({ force }: { force: boolean }) {
+  async function runPassAndPush({ force, scopeDirs = null }: { force: boolean; scopeDirs?: string[] | null }) {
     if (stopped || !scanner) return null;
     passInFlight = true;
     let result: PassResult | null = null;
     try {
-      result = await scanner.runPass({ force });
+      result = await scanner.runPass({ force, scopeDirs });
     } catch (error) {
       laneLog.warn('scan pass failed', { error: errorMessage(error) });
     } finally {
@@ -404,23 +404,41 @@ function createUsageWiring({
     unrefTimer(continueTimer);
   }
 
+  let nudgedTranscriptDirs: Set<string> | null = new Set();
+
+  function takeNudgedTranscriptDirs(): string[] | null {
+    const scopeDirs = nudgedTranscriptDirs === null ? null : [...nudgedTranscriptDirs];
+    nudgedTranscriptDirs = new Set();
+    return scopeDirs;
+  }
+
+  function noteNudgedTranscript(transcriptPath: string | null): void {
+    if (nudgedTranscriptDirs === null) return;
+    if (!transcriptPath) {
+      nudgedTranscriptDirs = null;
+      return;
+    }
+    nudgedTranscriptDirs.add(path.dirname(transcriptPath));
+  }
+
   const nudge = createCoalescedTimer({
     mode: 'trailing',
     delayMs: NUDGE_DEBOUNCE_MS,
     run: () => {
       if (stopped || !scanner) return;
       if (passInFlight) {
-        nudgeSession();
+        nudge.schedule();
         return;
       }
-      void runPassAndPush({ force: false });
+      void runPassAndPush({ force: false, scopeDirs: takeNudgedTranscriptDirs() });
     },
     setTimeoutFn,
     clearTimeoutFn,
   });
 
-  function nudgeSession(): void {
+  function nudgeSession(transcriptPath: string | null = null): void {
     if (stopped || !scanner) return;
+    noteNudgedTranscript(transcriptPath);
     nudge.schedule();
   }
 

@@ -43,6 +43,7 @@ import {
   passOutcome,
   projectDirCandidates,
   resolveProjectsDirs,
+  scopedClaudeRoots,
   shouldPersistWarehouse,
   splitLines,
 } from './core/usage-scan-core.ts';
@@ -441,6 +442,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   let lastIoFailures = 0;
   let activePass: Promise<PassResult> | null = null;
   let pendingForce = false;
+  let pendingScopeDirs: string[] | null = null;
   let isReportDirty = true;
   let resolutionError: string | null = null;
   const cachedRollupsByDays = new Map<number | undefined, ReturnType<typeof buildRollups>>();
@@ -933,7 +935,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     return { dirs: dirs.slice(), files: lastFileCount, entries: entries.length, lastScanMs, lastOutcome, isHistoryCaughtUp, resolutionError };
   }
 
-  async function runPassInternal({ force }: { force: boolean }): Promise<PassResult> {
+  async function runPassInternal({ force, scopeDirs = null }: { force: boolean; scopeDirs?: readonly string[] | null }): Promise<PassResult> {
     const startedAt = nowFn();
     let parsedLineCount = 0;
     let newEntryCount = 0;
@@ -952,17 +954,18 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     claudeDirs = resolved.dirs;
     resolutionError = resolved.error;
     ioFailures += resolved.ioFailures;
-    const vendorRoots = await resolveVendorRootsAsync({ fsPromises, env, homeDir, vendors, laneLog });
+    const scopedRoots = force || !isHistoryCaughtUp ? null : scopedClaudeRoots(scopeDirs, claudeDirs);
+    const vendorRoots = scopedRoots ? { roots: [], ioFailures: 0 } : await resolveVendorRootsAsync({ fsPromises, env, homeDir, vendors, laneLog });
     ioFailures += vendorRoots.ioFailures;
-    const roots: ScanRoot[] = [
+    const roots: ScanRoot[] = scopedRoots ?? [
       ...claudeDirs.map((dir) => ({ vendor: 'claude', dir, kind: 'active' })),
       ...vendorRoots.roots,
     ];
-    dirs = roots.map((root) => root.dir);
+    if (!scopedRoots) dirs = roots.map((root) => root.dir);
     const walked = await walkSourceFiles(roots, fsPromises, laneLog);
     const files = walked.files;
     ioFailures += walked.ioFailures;
-    lastFileCount = files.length;
+    if (!scopedRoots) lastFileCount = files.length;
 
     for (const file of files) {
       const remainingBudget = byteBudget - bytesReadThisPass;
@@ -1026,12 +1029,14 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     };
   }
 
-  async function runPassChain({ force }: { force: boolean }): Promise<PassResult> {
+  async function runPassChain({ force, scopeDirs }: { force: boolean; scopeDirs: readonly string[] | null }): Promise<PassResult> {
     try {
-      let result = await runPassInternal({ force });
-      while (pendingForce) {
+      let result = await runPassInternal({ force, scopeDirs });
+      while (pendingForce || pendingScopeDirs) {
+        const queued = { force: pendingForce, scopeDirs: pendingForce ? null : pendingScopeDirs };
         pendingForce = false;
-        result = await runPassInternal({ force: true });
+        pendingScopeDirs = null;
+        result = await runPassInternal(queued);
       }
       return result;
     } finally {
@@ -1039,13 +1044,13 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     }
   }
 
-  function runPass({ force = false }: { force?: boolean } = {}): Promise<PassResult> {
+  function runPass({ force = false, scopeDirs = null }: { force?: boolean; scopeDirs?: readonly string[] | null } = {}): Promise<PassResult> {
     if (activePass) {
-      if (!force) return activePass;
-      pendingForce = true;
+      if (force) pendingForce = true;
+      if (!force && scopeDirs) pendingScopeDirs = [...(pendingScopeDirs ?? []), ...scopeDirs];
       return activePass;
     }
-    activePass = runPassChain({ force });
+    activePass = runPassChain({ force, scopeDirs });
     return activePass;
   }
 

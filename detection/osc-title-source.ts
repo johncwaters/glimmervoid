@@ -8,6 +8,7 @@ const DEFAULT_STABILIZATION_MS = 1500;
 const OSC_START = '\x1b]0;';
 const BEL = '\x07';
 const ST = '\x1b\\';
+const MAX_PENDING_TITLE = 4096;
 
 export interface TitleContext {
   cwdBasename?: string | null;
@@ -34,17 +35,36 @@ interface OscTitleSourceOptions {
   titleProfile?: TitleProfile;
 }
 
-function findOscTitle(buffer: string, fromIndex: number) {
+interface TerminatorPositions {
+  bel: number;
+  st: number;
+}
+
+function nextTerminatorIndex(buffer: string, terminator: string, previousIndex: number, fromIndex: number): number {
+  if (previousIndex >= fromIndex) return previousIndex;
+  const index = buffer.indexOf(terminator, fromIndex);
+  return index === -1 ? Number.POSITIVE_INFINITY : index;
+}
+
+function findOscTitle(buffer: string, fromIndex: number, terminators: TerminatorPositions) {
   const start = buffer.indexOf(OSC_START, fromIndex);
   if (start === -1) return null;
   const contentStart = start + OSC_START.length;
-  const belEnd = buffer.indexOf(BEL, contentStart);
-  const stEnd = buffer.indexOf(ST, contentStart);
-  if (belEnd === -1 && stEnd === -1) return null;
-  const useBel = belEnd !== -1 && (stEnd === -1 || belEnd < stEnd);
-  const end = useBel ? belEnd : stEnd;
-  const termLen = useBel ? 1 : 2;
+  terminators.bel = nextTerminatorIndex(buffer, BEL, terminators.bel, contentStart);
+  terminators.st = nextTerminatorIndex(buffer, ST, terminators.st, contentStart);
+  const end = Math.min(terminators.bel, terminators.st);
+  if (end === Number.POSITIVE_INFINITY) return null;
+  const termLen = end === terminators.bel ? BEL.length : ST.length;
   return { start, end, next: end + termLen, title: buffer.slice(contentStart, end) };
+}
+
+function unterminatedTail(buffer: string, fromIndex: number): string {
+  const openStart = buffer.indexOf(OSC_START, fromIndex);
+  if (openStart !== -1) return buffer.length - openStart > MAX_PENDING_TITLE ? '' : buffer.slice(openStart);
+  for (let prefixLength = OSC_START.length - 1; prefixLength > 0; prefixLength -= 1) {
+    if (buffer.endsWith(OSC_START.slice(0, prefixLength))) return buffer.slice(buffer.length - prefixLength);
+  }
+  return '';
 }
 
 class OscTitleSource extends EventEmitter {
@@ -75,17 +95,17 @@ class OscTitleSource extends EventEmitter {
 
   feed(chunk: string): void {
     if (this._destroyed || !chunk) return;
-    this._pending += chunk;
-    if (this._pending.length > 8192) this._pending = this._pending.slice(-4096);
+    const buffer = this._pending ? this._pending + chunk : chunk;
 
+    const terminators: TerminatorPositions = { bel: -1, st: -1 };
     let cursor = 0;
     while (true) {
-      const osc = findOscTitle(this._pending, cursor);
+      const osc = findOscTitle(buffer, cursor, terminators);
       if (!osc) break;
       this._processTitle(osc.title);
       cursor = osc.next;
     }
-    if (cursor > 0) this._pending = this._pending.slice(cursor);
+    this._pending = unterminatedTail(buffer, cursor);
   }
 
   _classifyTitle(trimmed: string, char: string): string {

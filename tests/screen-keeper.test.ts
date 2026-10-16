@@ -5,6 +5,9 @@ import type { Terminal as HeadlessTerminal } from '@xterm/headless';
 
 import { SCREEN_RESET, SCREEN_KEEPER_SCROLLBACK } from '../session/core/screen-keeper-core.ts';
 import { createScreenKeeper } from '../session/screen-keeper.ts';
+import type { ScreenKeeper } from '../session/screen-keeper.ts';
+import { createSessionOutput } from '../session/session-output.ts';
+import { STATES } from '../shared/states.ts';
 
 const { Terminal } = headless;
 
@@ -294,4 +297,52 @@ test('a full terminal reset clears mouse encoding and subsequent DECSET is still
   keeper.push(enableEncoding);
   await keeperParsedAll(keeper, sequence.length + enableEncoding.length);
   assert.ok(keeper.serialize().endsWith('\x1b[?1000h\x1b[?1006h'));
+});
+
+test('a keeper that falls further behind than its pending cap is replaced instead of throwing', async () => {
+  const keepers: ScreenKeeper[] = [];
+  const noop = () => {};
+  const output = createSessionOutput({
+    maxBytes: 64 * 1024,
+    getState: () => STATES.RUNNING,
+    isDestroyed: () => false,
+    hasLivePty: () => true,
+    write: noop,
+    start: noop,
+    restart: noop,
+    on: noop,
+    once: noop,
+    off: noop,
+    screenKeeperFactory: (size) => {
+      const keeper = createScreenKeeper(size, { pendingCap: 1024 });
+      keepers.push(keeper);
+      return keeper;
+    },
+  });
+  output.rememberSize(START_COLS, START_ROWS);
+  const flood = `${'f'.repeat(600)}\r\n`;
+  output.push(flood);
+  output.push(flood);
+  output.push(flood);
+  assert.equal(keepers.length, 1);
+  assert.ok(keepers[0].isOverrun(), 'the third flood found 1.2 KB unparsed behind a 1 KB cap');
+  assert.equal(output.snapshot().data, SCREEN_RESET + flood + flood + flood, 'a saturated keeper yields to the ring');
+  await keeperParsedAll(keepers[0], flood.length * 2);
+
+  const afterFlood = 'after the flood\r\n';
+  output.push(afterFlood);
+  assert.equal(keepers.length, 2, 'the drained keeper was replaced');
+  assert.ok(!keepers[1].isOverrun());
+  await keeperParsedAll(keepers[1], flood.length * 3 + afterFlood.length);
+
+  const snapshot = output.snapshot();
+  assert.equal(snapshot.offset, output.stats().total);
+  const reference = newTerminal(START_COLS, START_ROWS);
+  await write(reference, flood + flood + flood + afterFlood);
+  const replay = newTerminal(START_COLS, START_ROWS);
+  await write(replay, snapshot.data);
+  assert.deepEqual(dump(replay), dump(reference), 'the replacement keeper was seeded from the ring');
+  output.disposeScreenKeeper();
+  reference.dispose();
+  replay.dispose();
 });

@@ -36,7 +36,7 @@ interface SessionEventDependencies {
   configStore: SessionPersistenceStore;
   config: WiringConfig;
   recordLane: (sessionId: string, lane: string, vendor?: string) => void;
-  usage: { refreshSessions: () => void; nudgeSession: () => void };
+  usage: { refreshSessions: () => void; nudgeSession: (transcriptPath?: string | null) => void };
   broadcastControl: (message: ControlMessageRecord) => void;
   telegramChannel: { noteStateChange: (id: string) => void; recheck: (id: string) => void };
   notificationManager: {
@@ -151,7 +151,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       });
     };
 
-    session.on('claude-session-id', ({ id, vendor, isResumeTarget }: ClaudeSessionIdEvent) => {
+    let liveTranscriptPath: string | null = null;
+    session.on('claude-session-id', ({ id, vendor, isResumeTarget, transcriptPath }: ClaudeSessionIdEvent) => {
+      liveTranscriptPath = transcriptPath;
       if (isResumeTarget) persistProjectField('resumeSessionId', id);
       dependencies.recordLane(id, INTERACTIVE_LANE, vendor);
       dependencies.usage.refreshSessions();
@@ -209,7 +211,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
           .catch((error: unknown) => dependencies.logger.warn(`[${session.name}] post-turn checks failed: ${errorMessage(error)}`));
       }, config.debounceMs);
     });
-    session.on('post-turn-check', () => dependencies.usage.nudgeSession());
+    session.on('post-turn-check', () => dependencies.usage.nudgeSession(liveTranscriptPath));
 
     session.on('state-change', ({ from, to, event, detail }: {
       from: SessionState;

@@ -38,14 +38,19 @@ export function currentFlightBlockReason(isEnabled = isFlyingAnimalsEnabled()) {
   });
 }
 
+function parkFlight(flight: HTMLDivElement) {
+  flight.onanimationend = null;
+  flight.style.animation = 'none';
+  flight.hidden = true;
+}
+
 function launchFlight(isFirst: boolean, requestedSprite?: string) {
   if (!flightElement || !spriteElement || !trailElement) return;
   if (currentFlightBlockReason()) return;
   const options = getFlyingAnimalsOptions();
   clearScheduledFlight();
   const launch = deriveFlyingAnimalLaunch(options, lastAnimalIndex, Math.random, requestedSprite);
-  flightElement.onanimationend = null;
-  flightElement.style.animation = 'none';
+  parkFlight(flightElement);
   if (!launch) {
     timeoutId = setTimeout(() => launchFlight(false), 1000);
     return;
@@ -57,13 +62,13 @@ function launchFlight(isFirst: boolean, requestedSprite?: string) {
   spriteElement.className = `nyan-sprite ${animal.sprite}`;
   trailElement.className = `nyan-trail ${animal.trail}`;
   lastAnimalIndex = launch.animalIndex;
+  flightElement.hidden = false;
   void flightElement.offsetWidth;
   flightElement.style.animation = `nyan-fly ${launch.durationSeconds}s linear`;
   if (isFirst) flightElement.style.animationDelay = `-${launch.firstDelaySeconds}s`;
   flightElement.onanimationend = (event) => {
     if (!flightElement || event.target !== flightElement) return;
-    flightElement.onanimationend = null;
-    flightElement.style.animation = 'none';
+    parkFlight(flightElement);
     timeoutId = setTimeout(() => launchFlight(false), launch.gapMs);
   };
 }

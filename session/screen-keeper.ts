@@ -3,7 +3,7 @@ import headless from "@xterm/headless";
 import type { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { serializeMouseEncoding, updateMouseEncoding } from "./core/mouse-encoding-core.ts";
 import type { MouseEncoding } from "./core/mouse-encoding-core.ts";
-import { SCREEN_KEEPER_SCROLLBACK, pendingResizes } from "./core/screen-keeper-core.ts";
+import { SCREEN_KEEPER_PENDING_CAP, SCREEN_KEEPER_SCROLLBACK, isKeeperOverrun, pendingResizes } from "./core/screen-keeper-core.ts";
 import type { ResizeMarker } from "./core/screen-keeper-core.ts";
 
 const { Terminal } = headless;
@@ -21,16 +21,25 @@ interface SerializeAddonModule {
 const { SerializeAddon } = createRequire(import.meta.url)("@xterm/addon-serialize") as SerializeAddonModule;
 
 interface ScreenKeeper {
-  push(chunk: string): void;
+  push(chunk: string): boolean;
   resize(cols: number, rows: number): void;
   parsedOffset(): number;
+  isOverrun(): boolean;
+  isDrained(): boolean;
   serialize(): string;
   dispose(): void;
 }
 
+interface ScreenKeeperOptions {
+  pendingCap?: number;
+}
+
 type ScreenKeeperFactory = (size: { cols: number; rows: number }) => ScreenKeeper;
 
-function createScreenKeeper({ cols, rows }: { cols: number; rows: number }): ScreenKeeper {
+function createScreenKeeper(
+  { cols, rows }: { cols: number; rows: number },
+  { pendingCap = SCREEN_KEEPER_PENDING_CAP }: ScreenKeeperOptions = {},
+): ScreenKeeper {
   const terminal: HeadlessTerminal = new Terminal({
     cols,
     rows,
@@ -57,6 +66,7 @@ function createScreenKeeper({ cols, rows }: { cols: number; rows: number }): Scr
   let parsedOffset = 0;
   let queue: ResizeMarker[] = [];
   let disposed = false;
+  let overrun = false;
 
   function drainResizes(): void {
     if (disposed) return;
@@ -67,7 +77,12 @@ function createScreenKeeper({ cols, rows }: { cols: number; rows: number }): Scr
 
   return {
     push(chunk) {
-      if (disposed || chunk.length === 0) return;
+      if (disposed || overrun) return false;
+      if (chunk.length === 0) return true;
+      if (isKeeperOverrun(pushedOffset, parsedOffset, pendingCap)) {
+        overrun = true;
+        return false;
+      }
       pushedOffset += chunk.length;
       const reachedOffset = pushedOffset;
       terminal.write(chunk, () => {
@@ -75,6 +90,7 @@ function createScreenKeeper({ cols, rows }: { cols: number; rows: number }): Scr
         parsedOffset = reachedOffset;
         drainResizes();
       });
+      return true;
     },
     resize(nextCols, nextRows) {
       if (disposed) return;
@@ -82,6 +98,8 @@ function createScreenKeeper({ cols, rows }: { cols: number; rows: number }): Scr
       drainResizes();
     },
     parsedOffset: () => parsedOffset,
+    isOverrun: () => overrun,
+    isDrained: () => parsedOffset === pushedOffset,
     serialize: () => serializer.serialize({ scrollback: SCREEN_KEEPER_SCROLLBACK })
       + serializeMouseEncoding(mouseEncoding),
     dispose() {
@@ -96,4 +114,4 @@ function createScreenKeeper({ cols, rows }: { cols: number; rows: number }): Scr
 }
 
 export { createScreenKeeper };
-export type { ScreenKeeperFactory };
+export type { ScreenKeeper, ScreenKeeperFactory };

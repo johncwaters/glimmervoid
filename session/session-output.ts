@@ -1,6 +1,6 @@
 import { createOutputRing } from "./core/output-ring.ts";
 import type { OutputRingSlice, OutputRingStats } from "./core/output-ring.ts";
-import { SCREEN_RESET } from "./core/screen-keeper-core.ts";
+import { SCREEN_KEEPER_SEED_LIMIT, SCREEN_RESET } from "./core/screen-keeper-core.ts";
 import { createScreenKeeper } from "./screen-keeper.ts";
 import type { ScreenKeeperFactory } from "./screen-keeper.ts";
 import { STATES, RESTARTABLE_STATES } from "../shared/states.ts";
@@ -130,12 +130,14 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   }
 
   function push(chunk: string): void {
-    if (!keeper) {
-      keeperBaseOffset = ring.stats().total;
-      keeper = keeperFactory(ptySize());
-    }
-    keeper.push(chunk);
     ring.push(chunk);
+    if (keeper?.push(chunk)) return;
+    if (keeper && !keeper.isDrained()) return;
+    disposeScreenKeeper();
+    const { total, bytes } = ring.stats();
+    keeperBaseOffset = Math.max(total - bytes, total - SCREEN_KEEPER_SEED_LIMIT);
+    keeper = keeperFactory(ptySize());
+    keeper.push(ring.since(keeperBaseOffset).data);
   }
 
   function reset(): void {
@@ -145,7 +147,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
 
   function snapshot(): ScreenSnapshot {
     const offset = ring.stats().total;
-    if (!keeper) return { data: SCREEN_RESET + ring.replay(), offset };
+    if (!keeper || keeper.isOverrun()) return { data: SCREEN_RESET + ring.replay(), offset };
     const tail = ring.since(keeperBaseOffset + keeper.parsedOffset());
     if (tail.evicted) return { data: SCREEN_RESET + ring.replay(), offset };
     return { data: SCREEN_RESET + keeper.serialize() + tail.data, offset };

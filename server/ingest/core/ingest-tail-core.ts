@@ -150,6 +150,12 @@ function applyRead(state: TailState, {
   return split.lines;
 }
 
+function isTailCurrent(state: TailState, stat: TailStat | null | undefined): boolean {
+  if (!stat || fileIdentity(stat) !== state.identity) return false;
+  if (coercedNumberOr(stat.size, -1) !== state.size || state.offset < state.size) return false;
+  return coercedNumberOr(stat.mtimeMs, -1) === state.mtimeMs;
+}
+
 function isActiveMtime(mtimeMs: unknown, { now, withinMs }: { now?: unknown; withinMs?: unknown }): boolean {
   return coercedNumberOr(mtimeMs, 0) >= coercedNumberOr(now, 0) - Math.max(0, coercedNumberOr(withinMs, 0));
 }
@@ -181,6 +187,7 @@ export {
   headChanged,
   headSample,
   isActiveMtime,
+  isTailCurrent,
   pickStaleByMtime,
   planRead,
 };

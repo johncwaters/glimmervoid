@@ -1,10 +1,11 @@
 import { isLoopbackHostname } from "../shared/loopback-hosts.ts";
-import http from 'node:http';
+import type { RequestOptions } from 'node:http';
 import { MAX_RESPONSE_BYTES } from './core/hook-relay-core.ts';
 import { decideGuardrailsProxy, HOOK_VIA_GUARDRAILS_PROXY_ENV } from './core/guardrails-proxy-core.ts';
 import type { GuardrailsProxy } from './core/guardrails-proxy-core.ts';
 
 const POST_TIMEOUT_MS = 1500;
+const http = process.getBuiltinModule('node:http');
 
 interface LoopbackPostOutcome {
   reason: string;
@@ -17,16 +18,16 @@ function refusal(reason: string): LoopbackPostOutcome {
   return { reason, responseBody: null };
 }
 
-function directRoute(target: URL): http.RequestOptions {
+function directRoute(target: URL): RequestOptions {
   return { hostname: target.hostname, port: target.port, path: `${target.pathname}${target.search}` };
 }
 
-function guardrailsProxyRoute(guardrailsProxy: GuardrailsProxy, target: URL): http.RequestOptions {
+function guardrailsProxyRoute(guardrailsProxy: GuardrailsProxy, target: URL): RequestOptions {
   const proxyHeaders = guardrailsProxy.authorization ? { 'proxy-authorization': guardrailsProxy.authorization } : {};
   return { hostname: guardrailsProxy.hostname, port: guardrailsProxy.port, path: target.href, headers: { ...proxyHeaders, host: target.host } };
 }
 
-function sendPost(route: http.RequestOptions, body: Buffer): Promise<LoopbackPostOutcome> {
+function sendPost(route: RequestOptions, body: Buffer): Promise<LoopbackPostOutcome> {
   return new Promise((resolve) => {
     let settled = false;
     const done = (reason: string, responseBody: string | null = null): void => {

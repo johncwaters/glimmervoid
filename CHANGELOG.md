@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Lighter usage scan at turn end**: when a session finishes a turn, usage tracking now rescans only that session's own transcript folder instead of every Claude project, removing a burst of about 200 ms of CPU per turn on large histories. The full scan every 5 minutes is unchanged.
+- **Quieter background polling**: session trace polling no longer reopens unchanged transcripts every 2 seconds, and the factory no longer runs git every 10 seconds to look for a coherence config while a project's integration branch has not moved.
+- **Faster hook relays**: the hook relays for Codex and Grok sessions, the statusline refresh and the session start relay each start about 19 ms sooner, so every supervised turn reports back faster.
+
+### Fixed
+
+- **Idle dashboard tab drawing every frame**: the hidden shutdown spinner animated for the whole life of the tab, so an idle dashboard drew a frame on every screen refresh. It now animates only while shown.
+- **Flying animals costing CPU off screen**: a parked animal between flights kept its animations running out of sight. It is now hidden between flights.
+- **Visible terminal losing its WebGL context**: terminal WebGL contexts are now released when a card is evicted or removed, ending the "Too many active WebGL contexts" losses that hit the terminal you were looking at while sessions came and went.
+- **Crash on a flooding session**: a session writing to its terminal faster than the server-side screen can keep up no longer crashes Glimmervoid at about 50 MB of backlog. The screen sheds the backlog and rebuilds the attach view from recent output instead.
+- **Window titles in large redraws**: the window-title status fallback and task titles now work for terminal redraws larger than 8 KB, where every title was silently dropped before.
+
 ## [0.37.0] - 2026-10-16
 
 ### Added

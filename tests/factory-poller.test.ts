@@ -133,6 +133,7 @@ test('projects without a coherence config are skipped and cached removals are br
   assert.deepEqual(commands, []);
   controls.hasConfig = true;
   await poller.tick();
+  controls.sha = 'b'.repeat(40);
   controls.hasConfig = false;
   await poller.tick();
   assert.deepEqual(messages[2].projects, []);
