@@ -196,7 +196,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
           const closeOutWorker: FactoryCloseOutWorker = {
             workId, intentId, projectId, projectPath: project.path, baseSha: null,
             objective: order.opened.objective, criteria: order.opened.criteria, writeScopes: order.opened.writeScopes,
-            intentWriteScopes: intentWriteScopes ?? intent.opened.writeScopes, session: worker,
+            intentWriteScopes: intentWriteScopes ?? intent.opened.writeScopes, claudeSessionId, session: worker,
           };
           const liveWorker: FactoryWorkerRecord<ManagedSession> = { workId, sessionId: identity.id, writeScopes: order.opened.writeScopes, projectId, session: worker,
             repoPath: project.path, spawnedAtMs: null, hasFirstHook: false };

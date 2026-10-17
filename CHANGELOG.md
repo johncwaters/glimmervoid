@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Swipe arrow pad on phone (experimental)**: a Settings toggle under Appearance swaps the four arrow keys for one pad you swipe on, sending one arrow per short drag.
 - **Release a session from its guardrails**: a Guardrails checkbox in each session's restart menu releases or restores that session's guardrails from the dashboard, phone included. After you confirm, the session restarts with the new setting, which is saved to that session only. A GitHub issue session opened from an unguarded session now starts guarded.
 
+### Changed
+
+- **Factory workers keep their Coherence journals**: a Factory worker's own Coherence decision journals (decisions, activity, calibration and read traces) now land with its merged change instead of being discarded. Only new files named for that worker's own session that hold valid journal lines are kept, and they never count toward its write scopes or its review. The Factory's work ledger stays fenced from workers.
+
 ### Fixed
 
 - **Phone terminal has Left and Right keys**: the key strip above the phone keyboard now sends left and right arrows, so you can step back to an earlier question in a Claude Code multi-question prompt and change your answer. To make room, the arrows are compact glyph keys and the Image and File keys are one Attach key, whose picker still offers your photos.

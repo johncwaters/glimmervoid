@@ -12,12 +12,14 @@ import { FactoryReviewVerdict } from '../../shared/contracts/factory.ts';
 import { factoryFailureText as failureText, prepareGuardedCheckRunner, runChecksInCleanCheckout } from './factory-check-guardrails.ts';
 import type { FactoryCheckoutRun, PrepareFactoryCheckRunner } from './factory-check-guardrails.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
-import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, FACTORY_TICKET_BLOCK_CAP, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, isInheritedCheckFailure, findWorkerCommitRefusal, listStagedGuardrailsPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseFactoryStructuredOutput, planScopeNeedRecovery, redactSecretLines, reviewerOutputTail, withIntentScopeNeeds, withTicketBlockCount } from './core/factory-core.ts';
+import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, FACTORY_TICKET_BLOCK_CAP, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, isInheritedCheckFailure, findWorkerCommitRefusal, listStagedGuardrailsPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseFactoryStructuredOutput, planScopeNeedRecovery, redactSecretLines, reviewerOutputTail, withIntentScopeNeeds, withTicketBlockCount, listDirtyPaths } from './core/factory-core.ts';
 import { resolveFactoryProfile } from './core/factory-profile-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
 import { GUARDRAILS_PLACEHOLDER_NAMES } from '../guardrails/core/guardrails-policy-core.ts';
 import { nulSeparatedPaths } from '../git/core/git-changed-paths-core.ts';
+import { FACTORY_WORKER_JOURNAL_MAX_BYTES, isJournalProjectionTrusted, isValidWorkerJournal, listWorkerJournalPaths } from './core/factory-journal-core.ts';
+import { execFile } from '../child-process-safe.ts';
 import { prepareHardenedGitCommand, runHardenedGit } from '../git/git-workspace.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import type { GitWorkspaceInstance } from '../git/git-workspace.ts';
@@ -74,6 +76,7 @@ export interface FactoryCloseOutWorker {
   criteria: string[];
   writeScopes: string[];
   intentWriteScopes?: readonly string[];
+  claudeSessionId?: string;
   session: FactoryWorkerSession;
 }
 
@@ -102,6 +105,7 @@ export interface FactoryCloseOutDeps {
   prepareCheckRunner?: PrepareFactoryCheckRunner;
   checkRunGate?: SerialQueue | null;
   onCheckMemoryWait?: (projectId: string, isWaiting: boolean) => void;
+  log?: Pick<Console, 'warn'>;
 }
 
 export function factorySecretValues(baseEnv: NodeJS.ProcessEnv): (string | undefined)[] {
@@ -188,7 +192,7 @@ export async function runFactoryReview(options: Omit<FactoryStructuredAgentOptio
 export function createFactoryCloseOut({
   config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger, runCoherence, commitAndLand, readIntegrationSha, recordFactoryLandedSha, readPaused, readIntentFloorAllowances = async () => [],
   countTicketBlock = createMemoryCapCounter(), trustVerification, notifyOrchestrator, setException, clearException = () => {}, recordDecision = async () => {}, recordConfirmedFlakes = () => {}, recordScopeNeeds = createMemoryScopeNeedRecorder(), onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareGuardedCheckRunner,
-  checkRunGate = null, onCheckMemoryWait = () => {},
+  checkRunGate = null, onCheckMemoryWait = () => {}, log = console,
 }: FactoryCloseOutDeps) {
   const reviewing = new Set<string>();
   const attempts = new Map<string, number>();
@@ -233,27 +237,41 @@ export function createFactoryCloseOut({
     return ignoredSharedEntries;
   }
 
-  async function stageWorkerTreeInGuardrails(cwd: string, indexDirectory: string, stagingIndexFile: string): Promise<void> {
+  async function stageWorkerTreeInGuardrails(cwd: string, indexDirectory: string, stagingIndexFile: string, changedJournalPaths: readonly string[]): Promise<void> {
     const objectsDirectory = (await runGit(cwd, ['rev-parse', '--path-format=absolute', '--git-path', 'objects'])).replace(/\r?\n$/, '');
     const gitOptions = { cwd, env: checkEnv(), timeout: 30_000, maxBuffer: 16 * 1024 * 1024 };
-    const stagingCommand = await prepareHardenedGitCommand(['-C', cwd, 'add', '--all', '--', ...WORK_OUTSIDE_LEDGER_PATHSPECS], { ...gitOptions, indexFile: stagingIndexFile });
+    const stagingArgsList = [
+      ['-C', cwd, 'add', '--all', '--', ...WORK_OUTSIDE_LEDGER_PATHSPECS],
+      ...(changedJournalPaths.length > 0 ? [['-C', cwd, 'add', '--all', '--', ...changedJournalPaths.map((journalPath) => `:(literal)${journalPath}`)]] : []),
+    ];
+    const stagingCommands = [];
+    for (const stagingArgs of stagingArgsList) stagingCommands.push(await prepareHardenedGitCommand(stagingArgs, { ...gitOptions, indexFile: stagingIndexFile }));
     const stagingGuardrails = await prepareCheckRunner({ scratchParent: indexDirectory, writablePaths: [indexDirectory, objectsDirectory], readablePaths: [cwd] });
     try {
-      await stagingGuardrails.runCheck(['git', ...stagingCommand.args], { ...gitOptions, cwd: indexDirectory, env: stagingCommand.env, signal: reviewController.signal });
+      for (const stagingCommand of stagingCommands) {
+        await stagingGuardrails.runCheck(['git', ...stagingCommand.args], { ...gitOptions, cwd: indexDirectory, env: stagingCommand.env, signal: reviewController.signal });
+      }
     } finally {
       await stagingGuardrails.dispose();
     }
   }
 
-  async function commitWorkerChanges(worker: FactoryCloseOutWorker, cwd: string): Promise<string | null> {
-    if ((await probeUncommittedWorkPaths(cwd)).length === 0) return null;
+  async function listChangedJournalPaths(cwd: string, journalPaths: readonly string[]): Promise<string[]> {
+    if (journalPaths.length === 0) return [];
+    const journalStatus = await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=all', '--', ...journalPaths.map((journalPath) => `:(literal)${journalPath}`)]);
+    return listDirtyPaths(journalStatus).filter((dirtyPath) => journalPaths.includes(dirtyPath));
+  }
+
+  async function commitWorkerChanges(worker: FactoryCloseOutWorker, cwd: string, journalPaths: readonly string[]): Promise<string | null> {
+    const changedJournalPaths = await listChangedJournalPaths(cwd, journalPaths);
+    if ((await probeUncommittedWorkPaths(cwd)).length === 0 && changedJournalPaths.length === 0) return null;
     const worktreeGitDirectory = (await runGit(cwd, ['rev-parse', '--absolute-git-dir'])).replace(/\r?\n$/, '');
     const indexDirectory = await mkdtemp(path.join(worktreeGitDirectory, 'glimmervoid-factory-index-'));
     try {
       const stagingIndexFile = path.join(indexDirectory, 'index');
       const headSha = (await runGit(cwd, ['rev-parse', 'HEAD'])).trim();
       await runGit(cwd, ['read-tree', headSha], stagingIndexFile);
-      await stageWorkerTreeInGuardrails(cwd, indexDirectory, stagingIndexFile);
+      await stageWorkerTreeInGuardrails(cwd, indexDirectory, stagingIndexFile, changedJournalPaths);
       const readStagedChanges = async () => {
         const tree = (await runGit(cwd, ['write-tree'], stagingIndexFile)).trim();
         return { tree, rawDiff: await runGit(cwd, ['diff', '--raw', '--no-renames', '--no-abbrev', '--ignore-submodules=none', '-z', headSha, tree]) };
@@ -316,16 +334,19 @@ export function createFactoryCloseOut({
     await trustVerification(worker.projectId, { id: verificationId, sha: mergedSha });
   }
 
-  async function discardUncommittedLedgerChanges(cwd: string): Promise<void> {
-    await runGit(cwd, ['clean', '-ffdxq', '--', CASE_INSENSITIVE_LEDGER_PATHSPEC]);
-    if ((await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain', '--', CASE_INSENSITIVE_LEDGER_PATHSPEC])).trim()) {
-      await runGit(cwd, ['restore', '--source=HEAD', '--staged', '--worktree', '--', CASE_INSENSITIVE_LEDGER_PATHSPEC]);
+  async function discardUncommittedLedgerChanges(cwd: string, keptJournalPaths: readonly string[] = []): Promise<void> {
+    const keptJournalCleanExclusions = keptJournalPaths.flatMap((journalPath) => ['-e', `/${journalPath}`]);
+    const ledgerPathspecs = [CASE_INSENSITIVE_LEDGER_PATHSPEC, ...keptJournalPaths.map((journalPath) => `:(exclude,literal)${journalPath}`)];
+    await runGit(cwd, ['clean', '-ffdxq', ...keptJournalCleanExclusions, '--', CASE_INSENSITIVE_LEDGER_PATHSPEC]);
+    if ((await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain', '--', ...ledgerPathspecs])).trim()) {
+      await runGit(cwd, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...ledgerPathspecs]);
     }
   }
 
-  async function discardWorkerLedgerChanges(worker: FactoryCloseOutWorker, cwd: string, baseSha: string): Promise<void> {
-    await discardUncommittedLedgerChanges(cwd);
-    const committedLedgerPaths = nulSeparatedPaths(await runGit(cwd, ['diff', '--name-only', '--no-renames', '-z', baseSha, 'HEAD', '--', CASE_INSENSITIVE_LEDGER_PATHSPEC]));
+  async function discardWorkerLedgerChanges(worker: FactoryCloseOutWorker, cwd: string, baseSha: string, keptJournalPaths: readonly string[] = []): Promise<void> {
+    await discardUncommittedLedgerChanges(cwd, keptJournalPaths);
+    const committedLedgerPaths = nulSeparatedPaths(await runGit(cwd, ['diff', '--name-only', '--no-renames', '-z', baseSha, 'HEAD', '--', CASE_INSENSITIVE_LEDGER_PATHSPEC]))
+      .filter((ledgerPath) => !keptJournalPaths.includes(ledgerPath));
     if (committedLedgerPaths.length === 0) return;
     await runGit(cwd, ['restore', `--source=${baseSha}`, '--staged', '--worktree', '--', ...committedLedgerPaths]);
     await runGit(cwd, ['commit', '-m', `factory: drop worker ledger changes ${worker.workId}`, '--', ...committedLedgerPaths]);
@@ -338,6 +359,57 @@ export function createFactoryCloseOut({
       const regularFileEntry = /^10(?:0644|0755) blob [0-9a-f]+\t(.+)$/s.exec(treeEntry);
       return regularFileEntry && files.includes(regularFileEntry[1]) ? [regularFileEntry[1]] : [];
     });
+  }
+
+  async function listJournalPathsAddedSinceBase(worker: FactoryCloseOutWorker, cwd: string, baseSha: string): Promise<string[]> {
+    const journalPaths = listWorkerJournalPaths(worker.claudeSessionId);
+    if (journalPaths.length === 0) return [];
+    const journalPathsAtBase = nulSeparatedPaths(await runGit(cwd, ['ls-tree', '-z', '--name-only', '--full-tree', baseSha, '--', ...journalPaths]));
+    return journalPaths.filter((journalPath) => !journalPathsAtBase.includes(journalPath));
+  }
+
+  async function readCommittedBlob(cwd: string, objectName: string): Promise<Buffer> {
+    const gitOptions = { cwd, env: checkEnv(), timeout: 30_000, maxBuffer: 2 * FACTORY_WORKER_JOURNAL_MAX_BYTES };
+    const blobCommand = await prepareHardenedGitCommand(['cat-file', 'blob', objectName], gitOptions);
+    return new Promise((resolve, reject) => {
+      execFile('git', blobCommand.args, { ...gitOptions, env: blobCommand.env, encoding: 'buffer' }, (error: Error | null, stdout: string | Buffer) => {
+        if (error) return reject(error);
+        if (!Buffer.isBuffer(stdout)) return reject(new Error(`git returned text for ${objectName}`));
+        resolve(stdout);
+      });
+    });
+  }
+
+  async function isValidCommittedJournal(worker: FactoryCloseOutWorker, cwd: string, headSha: string, journalPath: string): Promise<boolean> {
+    const objectName = `${headSha}:${journalPath}`;
+    if (Number((await runGit(cwd, ['cat-file', '-s', objectName])).trim()) > FACTORY_WORKER_JOURNAL_MAX_BYTES) return false;
+    return isValidWorkerJournal({ relativePath: journalPath, bytes: await readCommittedBlob(cwd, objectName), claudeSessionId: worker.claudeSessionId });
+  }
+
+  async function listValidCommittedJournalPaths(worker: FactoryCloseOutWorker, cwd: string, journalPaths: readonly string[]): Promise<string[]> {
+    if (journalPaths.length === 0) return [];
+    const headSha = (await runGit(cwd, ['rev-parse', 'HEAD'])).trim();
+    const committedJournalPaths = nulSeparatedPaths(await runGit(cwd, ['ls-tree', '-z', '--name-only', '--full-tree', headSha, '--', ...journalPaths]))
+      .filter((journalPath) => journalPaths.includes(journalPath));
+    const regularJournalPaths = await listTrackedRegularFiles(cwd, headSha, committedJournalPaths);
+    const validJournalPaths: string[] = [];
+    for (const journalPath of committedJournalPaths) {
+      if (regularJournalPaths.includes(journalPath) && await isValidCommittedJournal(worker, cwd, headSha, journalPath)) {
+        validJournalPaths.push(journalPath);
+        continue;
+      }
+      log.warn(`[factory] discarding worker journal ${journalPath} of ${worker.workId}: it is not a regular JSONL journal of the worker's own session under 1 MiB`);
+    }
+    return validJournalPaths;
+  }
+
+  async function keepTrustedJournalPaths(worker: FactoryCloseOutWorker, cwd: string, baseSha: string, validJournalPaths: readonly string[]): Promise<readonly string[]> {
+    if (validJournalPaths.length === 0) return [];
+    const orientOutput = await runCoherence({ cwd, args: ['orient', '--json'] }).catch(() => null);
+    if (isJournalProjectionTrusted(orientOutput)) return validJournalPaths;
+    log.warn(`[factory] discarding worker journals ${validJournalPaths.join(', ')} of ${worker.workId}: coherence orient did not read them as an undamaged trusted projection`);
+    await discardWorkerLedgerChanges(worker, cwd, baseSha);
+    return [];
   }
 
   async function readWorkState(cwd: string, workId: string): Promise<string | undefined> {
@@ -425,14 +497,20 @@ export function createFactoryCloseOut({
       if (await applyFailure(worker, failure, attemptFailureClass, [], isUnretryable)) decision = failure;
     };
     try {
-      await discardWorkerLedgerChanges(worker, cwd, baseSha);
-      const commitRefusal = await commitWorkerChanges(worker, cwd);
+      const journalPaths = await listJournalPathsAddedSinceBase(worker, cwd, baseSha);
+      await discardWorkerLedgerChanges(worker, cwd, baseSha, journalPaths);
+      const commitRefusal = await commitWorkerChanges(worker, cwd, journalPaths);
       if (commitRefusal) {
         await failedAttempt('Worker change', commitRefusal);
         return;
       }
+      const validJournalPaths = await listValidCommittedJournalPaths(worker, cwd, journalPaths);
+      if (journalPaths.length > 0) await discardWorkerLedgerChanges(worker, cwd, baseSha, validJournalPaths);
+      const keptJournalPaths = await keepTrustedJournalPaths(worker, cwd, baseSha, validJournalPaths);
       const headSha = (await runGit(cwd, ['rev-parse', 'HEAD'])).trim();
-      const changedPaths = nulSeparatedPaths(await runGit(cwd, ['diff', '--name-only', '--no-renames', '--ignore-submodules=none', '-z', `${baseSha}...${headSha}`]));
+      const changedPaths = nulSeparatedPaths(await runGit(cwd, ['diff', '--name-only', '--no-renames', '--ignore-submodules=none', '-z', `${baseSha}...${headSha}`]))
+        .filter((changedPath) => !keptJournalPaths.includes(changedPath));
+      const reviewDiffPathspecs = keptJournalPaths.length > 0 ? ['--', '.', ...keptJournalPaths.map((journalPath) => `:(exclude,literal)${journalPath}`)] : [];
       if (changedPaths.length === 0) {
         await failedAttempt('Worker change', 'No change was found in the worktree. Make the change, then finish the turn.', true);
         return;
@@ -441,7 +519,7 @@ export function createFactoryCloseOut({
       fence = checkFence({ changedPaths, writeScopes: worker.writeScopes, intentWriteScopes: worker.intentWriteScopes,
         protectedPaths: profile.protectedPaths ?? DEFAULT_FACTORY_PROTECTED_PATHS,
         floorAllowances: await readIntentFloorAllowances(worker.projectId, worker.intentId) });
-      const reviewDiff = fence.ok ? await runGit(cwd, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--text', '--ignore-submodules=none', `${baseSha}...${headSha}`]) : '';
+      const reviewDiff = fence.ok ? await runGit(cwd, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--text', '--ignore-submodules=none', `${baseSha}...${headSha}`, ...reviewDiffPathspecs]) : '';
       if (reviewDiff.length > FACTORY_REVIEW_DIFF_MAX_CHARS) {
         await failedAttempt('Review size', FACTORY_REVIEW_TOO_LARGE_FEEDBACK);
         return;

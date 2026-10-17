@@ -2,6 +2,7 @@ import { createFactoryVerifier } from '../server/factory/factory-verifier.ts';
 import { buildFactoryProjectState, FACTORY_REVIEW_DIFF_MAX_CHARS, formatWorkerEvent, nextIntent } from '../server/factory/core/factory-core.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -33,7 +34,7 @@ const prepareUnguardedCheckRunner: PrepareFactoryCheckRunner = async () => ({
   dispose: async () => {},
 });
 
-async function createFixture(context: TestContext, activateOrder = true, capCounters: Pick<FactoryCloseOutDeps, 'countTicketBlock' | 'checkRunGate' | 'onCheckMemoryWait'> = {}) {
+async function createFixture(context: TestContext, activateOrder = true, capCounters: Pick<FactoryCloseOutDeps, 'countTicketBlock' | 'checkRunGate' | 'onCheckMemoryWait' | 'log'> = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'factory-closeout-'));
   const cleanupTasks: (() => Promise<void>)[] = [];
   context.after(async () => {
@@ -609,6 +610,80 @@ test('a coherence trace the hook writes after the worker commit does not block c
   assert.equal(fixture.events.at(-1)?.event, 'merged');
   assert.equal(await fixture.git(['ls-tree', '-r', '--name-only', 'integration', '--', '.coherence/activity']), '');
 });
+
+test('a worker lands only its own valid Coherence journals with its change, kept out of the fence and the review, while foreign, forged and work ledger edits are discarded', async (context) => {
+  const claudeSessionId = crypto.randomUUID();
+  const ownDecisionsPath = `.coherence/decisions/${claudeSessionId}.jsonl`;
+  const ownActivityPath = `.coherence/activity/${claudeSessionId}.jsonl`;
+  const journalLine = (session: string, text: string) => `${JSON.stringify({ session, text })}\n`;
+  type JournalFixture = Awaited<ReturnType<typeof createFixture>>;
+  const recordDecision = (fixture: JournalFixture, session: string, choice: string) =>
+    fixture.runCoherence({ cwd: fixture.workspace.cwd, args: ['decide', choice, '--because', 'measured', '--session', session] });
+  const readOwnDecisions = (fixture: JournalFixture) => readFile(path.join(fixture.workspace.cwd, ownDecisionsPath), 'utf8');
+  const closeOutWithJournals = async (writeJournals: (fixture: JournalFixture) => Promise<void>) => {
+    const warnings: string[] = [];
+    const fixture = await createFixture(context, true, { log: { warn: (message: string) => { warnings.push(message); } } });
+    fixture.worker.claudeSessionId = claudeSessionId;
+    const workLedgerPath = (await fixture.git(['ls-tree', '-r', '--name-only', 'HEAD', '--', '.coherence/work'], fixture.workspace.cwd)).split('\n')[0];
+    assert.ok(workLedgerPath);
+    await writeFile(path.join(fixture.workspace.cwd, workLedgerPath), `${await readFile(path.join(fixture.workspace.cwd, workLedgerPath), 'utf8')}{"forged":"work ledger edit"}\n`);
+    await writeJournals(fixture);
+    await fixture.git(['add', '--', workLedgerPath, ownDecisionsPath], fixture.workspace.cwd);
+    await fixture.commitChange();
+    await recordDecision(fixture, claudeSessionId, 'appended after commit');
+    await fixture.closeOut.turnEnded(fixture.worker);
+    assert.deepEqual(fixture.feedback, []);
+    assert.deepEqual(fixture.exceptions, []);
+    const mergedSha = fixture.mergedSha();
+    assert.ok(mergedSha);
+    assert.equal(await fixture.git(['show', `${mergedSha}:src/retry.ts`]), 'export const retries = 1;');
+    assert.doesNotMatch(await fixture.git(['show', `integration:${workLedgerPath}`]), /work ledger edit/);
+    assert.doesNotMatch(fixture.reviewRequests[0].prompt, /\.coherence\//);
+    return { fixture, mergedSha, warnings, landedJournals: (await fixture.git(['ls-tree', '-r', '--name-only', mergedSha, '--', '.coherence/decisions', '.coherence/activity'])).split('\n').filter(Boolean) };
+  };
+  const writeOwnActivity = (fixture: JournalFixture) => writeJournalFile(fixture, ownActivityPath, journalLine(claudeSessionId, 'PostToolUse'));
+  const foreignSessionId = crypto.randomUUID();
+  const foreignDecisionsPath = `.coherence/decisions/${foreignSessionId}.jsonl`;
+  let ownDecisionsAtCommit = '';
+  const ownJournals = await closeOutWithJournals(async (fixture) => {
+    await recordDecision(fixture, claudeSessionId, 'retry backoff decided');
+    ownDecisionsAtCommit = await readOwnDecisions(fixture);
+    await writeOwnActivity(fixture);
+    await recordDecision(fixture, foreignSessionId, 'foreign session');
+  });
+  assert.deepEqual(ownJournals.landedJournals.toSorted(), [ownActivityPath, ownDecisionsPath].toSorted());
+  const landedOwnDecisions = await ownJournals.fixture.git(['show', `${ownJournals.mergedSha}:${ownDecisionsPath}`]);
+  assert.ok(landedOwnDecisions.startsWith(ownDecisionsAtCommit));
+  assert.match(landedOwnDecisions, /appended after commit/);
+  assert.equal(await ownJournals.fixture.git(['ls-tree', '--name-only', ownJournals.mergedSha, '--', foreignDecisionsPath]), '');
+  assert.deepEqual(ownJournals.warnings, []);
+  const forgedSession = await closeOutWithJournals(async (fixture) => {
+    await writeJournalFile(fixture, ownDecisionsPath, journalLine(crypto.randomUUID(), 'claims another session'));
+    await writeOwnActivity(fixture);
+  });
+  assert.deepEqual(forgedSession.landedJournals, [ownActivityPath]);
+  assert.equal(forgedSession.warnings.length, 1);
+  assert.ok(forgedSession.warnings[0].includes(ownDecisionsPath));
+  const operatorDecisionsPath = '.coherence/decisions/operator-session.jsonl';
+  const retractedBaseDecision = await closeOutWithJournals(async (fixture) => {
+    await recordDecision(fixture, 'operator-session', 'operator keeps the queue');
+    await fixture.git(['add', '--', operatorDecisionsPath], fixture.workspace.cwd);
+    await fixture.git(['commit', '-m', 'test: operator decision at base'], fixture.workspace.cwd);
+    fixture.setWorkerBaseSha(await fixture.git(['rev-parse', 'HEAD'], fixture.workspace.cwd));
+    const operatorDecisionId: unknown = JSON.parse(await readFile(path.join(fixture.workspace.cwd, operatorDecisionsPath), 'utf8')).id;
+    assert.equal(typeof operatorDecisionId, 'string');
+    await fixture.runCoherence({ cwd: fixture.workspace.cwd, args: ['retract', String(operatorDecisionId), '--because', 'worker disagrees', '--session', claudeSessionId] });
+    await writeOwnActivity(fixture);
+  });
+  assert.deepEqual(retractedBaseDecision.landedJournals.toSorted(), [operatorDecisionsPath, ownActivityPath].toSorted());
+  assert.equal(retractedBaseDecision.warnings.length, 1);
+  assert.ok(retractedBaseDecision.warnings[0].includes(ownDecisionsPath));
+});
+
+async function writeJournalFile(fixture: Awaited<ReturnType<typeof createFixture>>, journalPath: string, journalText: string) {
+  await mkdir(path.dirname(path.join(fixture.workspace.cwd, journalPath)), { recursive: true });
+  await writeFile(path.join(fixture.workspace.cwd, journalPath), journalText);
+}
 
 async function ignoreInCommonGitDirectory(fixture: Awaited<ReturnType<typeof createFixture>>, patterns: string[]) {
   const commonDirectory = path.resolve(fixture.projectPath, await fixture.git(['rev-parse', '--git-common-dir']));

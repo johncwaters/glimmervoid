@@ -1034,7 +1034,7 @@ function isStringList(value: unknown): boolean {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
-function isHookSampleOfFile(record: LedgerRecord, fileName: string): boolean {
+export function isHookSampleOfFile(record: LedgerRecord, fileName: string): boolean {
   if (record === null) return false;
   const session: unknown = Reflect.get(record, 'session');
   if (typeof session !== 'string') return false;
