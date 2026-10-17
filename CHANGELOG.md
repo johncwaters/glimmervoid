@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-10-17
+
 ### Added
 
 - **Deeper scrollback after a reload**: a terminal reopened from the server, after a page reload, on the phone, or when you open a card that was hidden, used to start with only its last 500 lines. Scrolling to the top now loads up to 5000 lines once, and the line you were reading stays where it was.
