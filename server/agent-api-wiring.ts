@@ -204,12 +204,14 @@ function createAgentApiWiring({
     return describePushLanding(await session.mergeAndContinue({ force: true }));
   }
 
-  async function setUpFactoryProject(session: Session, factoryPort: NonNullable<AgentApiWiringOptions['factory']>): Promise<AgentApiReply> {
+  async function setUpFactoryProject(
+    session: Session, factoryPort: NonNullable<AgentApiWiringOptions['factory']>, projects: FactoryState['projects'],
+  ): Promise<AgentApiReply> {
     const projectId = findSessionProjectId(config.projects, session.path);
     if (!projectId) return { status: 404, body: { ok: false, error: `no configured project has the path ${session.path}, so the operator has to add this repository as a project first` } };
     const outcome = await factoryPort.rerunSetup(projectId);
     if (!outcome.ok) return { status: 409, body: { ok: false, error: outcome.reason } };
-    return { status: 200, body: { ok: true, projectId, profile: outcome.profile, text: describeFactorySetupProfile(outcome.profile) } };
+    return { status: 200, body: { ok: true, projectId, profile: outcome.profile, text: describeFactorySetupProfile(outcome.profile, projects.some((project) => project.projectId === projectId)) } };
   }
 
   async function queueFactoryIntent(
@@ -233,7 +235,7 @@ function createAgentApiWiring({
       if (!allowance.ok) return { status: allowance.status, body: { ok: false, error: allowance.reason } };
       const projects = factory?.getState()?.projects;
       if (!projects || !factory) return { status: 409, body: { ok: false, error: 'Factory is not running' } };
-      if (parsed.verb === 'factory-setup') return setUpFactoryProject(session, factory);
+      if (parsed.verb === 'factory-setup') return setUpFactoryProject(session, factory, projects);
       if (parsed.verb === 'factory-queue') return queueFactoryIntent(session, factory, projects, parsed.request);
       if (parsed.verb === 'factory-status') {
         const selectedProjects = parsed.request.projectId === undefined ? projects : projects.filter((project) => project.projectId === parsed.request.projectId);

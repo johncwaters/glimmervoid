@@ -326,10 +326,15 @@ function findSessionProjectId(projects: readonly { id: string; path: string }[] 
   return projects?.find((project) => path.resolve(project.path) === resolvedSessionPath)?.id ?? null;
 }
 
-function describeFactorySetupProfile(profile: { checks?: readonly string[]; focusedTestCommand?: string }): string {
+const FACTORY_QUEUE_STEP = 'glimmervoid factory queue <intent.json>, with an intent cut by the spec skill or written in the Factory tab request shape';
+
+function describeFactorySetupProfile(profile: { checks?: readonly string[]; focusedTestCommand?: string }, isFactoryProject: boolean): string {
   return [
     `Factory checks: ${profile.checks?.join(', ') || 'none'}`,
     `Focused test command: ${profile.focusedTestCommand ?? 'none proven, so every ticket runs the full checks'}`,
+    isFactoryProject
+      ? `Next: ${FACTORY_QUEUE_STEP}`
+      : `Next: commit a coherence.config.json holding {} at the repository root, land it with glimmervoid push, then ${FACTORY_QUEUE_STEP}`,
   ].join('\n');
 }
 

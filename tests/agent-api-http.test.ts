@@ -361,12 +361,12 @@ test('factory CLI and HTTP verbs reach the injected digest and retry deps only f
   assert.equal(filtered.stderr, '');
   assert.equal((await send('factory-status', {}, worker)).status, 403);
   const intentFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'factory-intent-')), 'intent.json');
-  fs.writeFileSync(intentFile, JSON.stringify({ objective: 'Build the parser', criteria: ['Parser tests pass'], risk: 'low', boundary: 'src/', writeScopes: ['src/'] }));
+  fs.writeFileSync(intentFile, JSON.stringify({ name: 'parser-spec', projectId: 'seed', objective: 'Build the parser', criteria: ['Parser tests pass'], risk: 'low', boundary: 'src/', writeScopes: ['src/'] }));
   const unregistered = await send('factory-setup', {});
   assert.equal(unregistered.status, 404);
   assert.match((await unregistered.json()).error, /add this repository as a project/);
   fixture.config.projects = [{ id: 'repo', name: 'Repository', path: process.cwd() }];
-  assert.equal((await runCli(['setup'])).stdout.trim(), 'Factory checks: npm test\nFocused test command: node --test');
+  assert.equal((await runCli(['setup'])).stdout.trim(), 'Factory checks: npm test\nFocused test command: node --test\nNext: glimmervoid factory queue <intent.json>, with an intent cut by the spec skill or written in the Factory tab request shape');
   assert.equal((await runCli(['queue', intentFile])).stdout.trim(), 'Queued wrk-queued on repo. Follow it with glimmervoid factory status --project repo');
   assert.deepEqual([setupCalls, queueCalls.map((request) => [request.projectId, request.objective])], [['repo'], [['repo', 'Build the parser']]]);
   const queueRequest = { objective: 'x', criteria: ['y'], risk: 'low', boundary: 'z', writeScopes: ['src/'] };

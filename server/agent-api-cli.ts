@@ -61,7 +61,9 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   'factory-queue': (rest) => {
     if (rest.length !== 1) return null;
     const intent = parseJsonOrNull(readFileSync(rest[0], 'utf8'));
-    return isRecord(intent) ? intent : null;
+    if (!isRecord(intent)) return null;
+    const { name: _name, type: _type, requestId: _requestId, projectId: _projectId, ...request } = intent;
+    return request;
   },
 };
 

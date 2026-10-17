@@ -68,7 +68,7 @@ Inside a Glimmervoid session:
   factory status      Print each factory intent's tickets, state, last reason and next action
   factory retry <id>  Reopen the parked tickets of a factory intent
   factory setup       Prove and save the factory checks of this session's repository
-  factory queue <file> Queue a factory intent written as JSON on this session's repository
+  factory queue <file> Queue a factory intent (a spec cut.ts file or Factory tab request) on this session's repository
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
 
 Experimental:
