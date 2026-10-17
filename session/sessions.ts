@@ -1875,6 +1875,10 @@ class Session extends EventEmitter {
     return this._output.snapshot();
   }
 
+  getDeepScreenSnapshot(): Promise<ScreenSnapshot> {
+    return this._output.deepSnapshot();
+  }
+
   ptySize(): { cols: number; rows: number; seq: number } {
     const size = this._output.ptySize();
     return { cols: size.cols, rows: size.rows, seq: this._resizeSeq };

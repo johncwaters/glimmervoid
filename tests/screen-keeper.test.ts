@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import headless from '@xterm/headless';
 import type { Terminal as HeadlessTerminal } from '@xterm/headless';
 
-import { SCREEN_RESET, SCREEN_KEEPER_SCROLLBACK } from '../session/core/screen-keeper-core.ts';
+import { SCREEN_RESET, SCREEN_KEEPER_SCROLLBACK, SCREEN_KEEPER_ATTACH_SCROLLBACK, SCREEN_KEEPER_SLICE_ROWS } from '../session/core/screen-keeper-core.ts';
 import { createScreenKeeper } from '../session/screen-keeper.ts';
 import type { ScreenKeeper } from '../session/screen-keeper.ts';
 import { createSessionOutput } from '../session/session-output.ts';
@@ -297,6 +297,122 @@ test('a full terminal reset clears mouse encoding and subsequent DECSET is still
   keeper.push(enableEncoding);
   await keeperParsedAll(keeper, sequence.length + enableEncoding.length);
   assert.ok(keeper.serialize().endsWith('\x1b[?1000h\x1b[?1006h'));
+});
+
+function deepHistoryChunks(lineCount: number): string[] {
+  return Array.from({ length: lineCount }, (_unused, index) => {
+    const tint = `\x1b[3${index % 8}m`;
+    if (index % 5 === 0) return `${tint}wrapped history ${index} ${'w'.repeat(170)}\r\n`;
+    if (index % 7 === 0) return `${tint}open colour ${index} carried\r\n`;
+    return `history line ${index} ${tint}tinted\x1b[0m\r\n`;
+  });
+}
+
+async function keeperAfterChunks(chunks: string[], sliceRows?: number): Promise<ScreenKeeper> {
+  const keeper = createScreenKeeper({ cols: START_COLS, rows: START_ROWS }, sliceRows === undefined ? {} : { sliceRows });
+  let pushed = 0;
+  for (const chunk of chunks) {
+    keeper.push(chunk);
+    pushed += chunk.length;
+  }
+  await keeperParsedAll(keeper, pushed);
+  return keeper;
+}
+
+async function referenceAfterChunks(chunks: string[]): Promise<HeadlessTerminal> {
+  const reference = newTerminal(START_COLS, START_ROWS);
+  await write(reference, chunks.join(''));
+  return reference;
+}
+
+test('a deep snapshot serialized in slices replays cell for cell, across wrapped rows and open colours at every boundary', async (context) => {
+  const chunks = [...deepHistoryChunks(400), '\x1b[3;7Hcursor parked mid screen'];
+  const keeper = await keeperAfterChunks(chunks, 7);
+  const reference = await referenceAfterChunks(chunks);
+  const deepScreen = await keeper.serializeDeep();
+  assert.ok(deepScreen);
+  const replay = await replayedTerminal(deepScreen.data);
+  context.after(() => { keeper.dispose(); reference.dispose(); replay.dispose(); });
+
+  assert.deepEqual(dump(replay), dump(reference));
+  assert.equal(replay.buffer.active.cursorX, reference.buffer.active.cursorX);
+  assert.equal(replay.buffer.active.cursorY, reference.buffer.active.cursorY);
+});
+
+test('the keeper holds 5000 lines for a deep snapshot while the attach snapshot carries 500', async (context) => {
+  const chunks = deepHistoryChunks(6000);
+  const keeper = await keeperAfterChunks(chunks);
+  const reference = await referenceAfterChunks(chunks);
+  const deepScreen = await keeper.serializeDeep();
+  assert.ok(deepScreen);
+  const deepReplay = await replayedTerminal(deepScreen.data);
+  const attachReplay = await replayedTerminal(keeper.serialize());
+  context.after(() => { keeper.dispose(); reference.dispose(); deepReplay.dispose(); attachReplay.dispose(); });
+
+  assert.equal(reference.buffer.active.length, SCREEN_KEEPER_SCROLLBACK + START_ROWS);
+  assert.deepEqual(dump(deepReplay), dump(reference));
+  assert.equal(attachReplay.buffer.active.length, SCREEN_KEEPER_ATTACH_SCROLLBACK + START_ROWS);
+});
+
+test('a deep serialize gives the event loop a turn between every slice', async (context) => {
+  const keeper = await keeperAfterChunks(deepHistoryChunks(6000));
+  context.after(() => keeper.dispose());
+  const sliceDurationsMs: number[] = [];
+  let sliceStartedAt = performance.now();
+  let isSerializing = true;
+  const onEachTurn = (): void => {
+    if (!isSerializing) return;
+    const now = performance.now();
+    sliceDurationsMs.push(now - sliceStartedAt);
+    sliceStartedAt = now;
+    setImmediate(onEachTurn);
+  };
+  setImmediate(onEachTurn);
+  await keeper.serializeDeep();
+  isSerializing = false;
+
+  const longestTurnMs = Math.max(...sliceDurationsMs);
+  context.diagnostic(`longest event loop turn during a 5000-line deep serialize: ${longestTurnMs.toFixed(1)} ms`);
+  const sliceCount = Math.ceil(SCREEN_KEEPER_SCROLLBACK / SCREEN_KEEPER_SLICE_ROWS);
+  assert.ok(sliceDurationsMs.length >= sliceCount - 1, `the event loop turned ${sliceDurationsMs.length} times across ${sliceCount} slices`);
+});
+
+test('output pushed during a sliced serialize is held so the deep snapshot matches one offset', async (context) => {
+  const noop = () => {};
+  const output = createSessionOutput({
+    maxBytes: 4 * 1024 * 1024,
+    getState: () => STATES.RUNNING,
+    isDestroyed: () => false,
+    hasLivePty: () => true,
+    write: noop,
+    start: noop,
+    restart: noop,
+    on: noop,
+    once: noop,
+    off: noop,
+    screenKeeperFactory: (size) => createScreenKeeper(size, { sliceRows: 50 }),
+  });
+  context.after(() => output.disposeScreenKeeper());
+  output.rememberSize(START_COLS, START_ROWS);
+  const history = deepHistoryChunks(600);
+  for (const chunk of history) output.push(chunk);
+
+  const pending = output.deepSnapshot();
+  const duringSerialize = ['\x1b[35marrived mid serialize\x1b[0m\r\n', 'and another\r\n'];
+  for (const chunk of duringSerialize) {
+    await new Promise((resolve) => setImmediate(resolve));
+    output.push(chunk);
+  }
+  const deep = await pending;
+  const afterSerialize = 'after the snapshot\r\n';
+  output.push(afterSerialize);
+
+  assert.equal(output.since(deep.offset).data, afterSerialize, 'the snapshot offset covers every byte it carries');
+  const reference = await referenceAfterChunks([...history, ...duringSerialize]);
+  const replay = newTerminal(START_COLS, START_ROWS);
+  context.after(() => { reference.dispose(); replay.dispose(); });
+  await write(replay, deep.data);
+  assert.deepEqual(dump(replay), dump(reference));
 });
 
 test('a keeper that falls further behind than its pending cap is replaced instead of throwing', async () => {
