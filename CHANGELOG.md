@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Sessions can clear out their own scratch**: a guarded session's temporary folder, where Claude Code keeps its scratchpad, lives under the Glimmervoid folder rather than the system temp folder, so Sane YOLO refused `rm -rf` inside it as a delete outside the project. Recursive deletes inside Glimmervoid's guarded session temp folders are now allowed, the same as inside the system temp folder.
+- **Phone board row highlights span the whole row**: the tint on a finished, waiting or failed session now runs under the remove button too, instead of stopping short of it.
 
 ## [0.38.1] - 2026-10-17
 

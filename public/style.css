@@ -8085,14 +8085,14 @@ html[data-compact-status] .phone-row:not([data-prompt="plan"]) .phone-row-meta:h
 .phone-row[data-state="STARTING"] .phone-row-glyph { color: var(--state-starting); }
 .phone-row[data-state="DONE"] .phone-row-glyph { color: var(--state-done); }
 
-.phone-row[data-state="COMPLETE"][data-unseen] { background: color-mix(in oklab, var(--state-complete) 10%, transparent); }
+.phone-row-item:has(> .phone-row[data-state="COMPLETE"][data-unseen]) { background: color-mix(in oklab, var(--state-complete) 10%, transparent); }
 .phone-row[data-state="COMPLETE"][data-unseen] .phone-row-glyph,
 .phone-row[data-state="COMPLETE"][data-unseen] .phone-row-badge { color: var(--state-complete); }
 
-.phone-row[data-state="WAITING"] { background: color-mix(in oklab, var(--state-waiting) 10%, transparent); }
+.phone-row-item:has(> .phone-row[data-state="WAITING"]) { background: color-mix(in oklab, var(--state-waiting) 10%, transparent); }
 .phone-row[data-state="WAITING"] .phone-row-glyph,
 .phone-row[data-state="WAITING"] .phone-row-badge { color: var(--state-waiting); }
-.phone-row[data-state="FAILED"] { background: color-mix(in oklab, var(--state-failed) 10%, transparent); }
+.phone-row-item:has(> .phone-row[data-state="FAILED"]) { background: color-mix(in oklab, var(--state-failed) 10%, transparent); }
 .phone-row[data-state="FAILED"] .phone-row-glyph,
 .phone-row[data-state="FAILED"] .phone-row-badge { color: var(--state-failed); }
 
