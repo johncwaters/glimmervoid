@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Swipe arrow pad on phone (experimental)**: a Settings toggle under Appearance swaps the four arrow keys for one pad you swipe on, sending one arrow per short drag.
+
+### Fixed
+
+- **Phone terminal has Left and Right keys**: the key strip above the phone keyboard now sends left and right arrows, so you can step back to an earlier question in a Claude Code multi-question prompt and change your answer. To make room, the arrows are compact glyph keys and the Image and File keys are one Attach key, whose picker still offers your photos.
+
 ## [0.38.2] - 2026-10-17
 
 ### Fixed

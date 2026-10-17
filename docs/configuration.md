@@ -343,6 +343,7 @@ Stored in each browser, not in `config.json`, so every device keeps its own. Cha
 | Theme | `"phyrexian"` | Color scheme for the dashboard. |
 | Hide status words in sidebar | `false` | Hide status words in the sidebar and on the phone Board while keeping the colored status mark and the phone Plan ready badge. |
 | Show usage on session cards | `false` | Shows each card's transcript token count and CLI-reported cost when available, otherwise a calculated API list-price estimate. |
+| Swipe arrow pad on phone (experimental) | `false` | Replace the four arrow keys above the phone keyboard with one pad: swipe on it to send arrow keys, one per short drag. |
 | Flying animals | `false` | Show animated animals flying across the dashboard. |
 | Time between flights: minimum | `20` | Shortest pause between flights. |
 | Time between flights: maximum | `40` | Longest pause between flights. |

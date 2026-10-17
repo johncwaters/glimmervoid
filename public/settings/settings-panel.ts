@@ -52,7 +52,7 @@ import { isStreamerMode, onStreamerModeChanged, saveStreamerMode } from '../stre
 import { shortcutGroupsFor } from '../shortcuts-core.ts';
 import { renderPrStatusLegend, renderStatusLegend } from '../status-legend.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
-import { applyCompactStatusLabels, applySessionUsageChips, applyTheme, getThemeList } from '../theme.ts';
+import { applyCompactStatusLabels, applyPhoneArrowPad, applySessionUsageChips, applyTheme, getThemeList } from '../theme.ts';
 import {
   isFlyingAnimalsEnabled,
   getFlyingAnimalsEnteredValues,
@@ -68,6 +68,8 @@ import {
   isNotificationsEnabled,
   isCompactStatusLabels,
   isSessionUsageChips,
+  isPhoneArrowPad,
+  setPhoneArrowPad,
   isSoundEnabled,
   setCompactStatusLabels,
   setSessionUsageChips,
@@ -172,6 +174,7 @@ function browserPreferences() {
     notificationsEnabled: isNotificationsEnabled(),
     compactStatusLabels: isCompactStatusLabels(),
     sessionUsageChips: isSessionUsageChips(),
+    phoneArrowPad: isPhoneArrowPad(),
   };
 }
 
@@ -283,6 +286,11 @@ function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
   if (setting.path === 'pref:sessionUsageChips') {
     setSessionUsageChips(value === true);
     applySessionUsageChips(value === true);
+    return;
+  }
+  if (setting.path === 'pref:phoneArrowPad') {
+    setPhoneArrowPad(value === true);
+    applyPhoneArrowPad(value === true);
     return;
   }
   if (setting.path === 'pref:themeId') {

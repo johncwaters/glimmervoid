@@ -1,6 +1,6 @@
 import { el } from '../dom-helpers.ts';
 import type { MobileKey } from '../mobile-keys.ts';
-import { isClipboardKey, isUploadKey, mobileKeyBytes, MOBILE_KEYS } from '../mobile-keys.ts';
+import { arrowStepsForDrag, isClipboardKey, isUploadKey, mobileKeyBytes, MOBILE_KEYS } from '../mobile-keys.ts';
 import { showErrorToast } from '../session-card/toast.ts';
 import { uploadFileToSession } from '../session-upload.ts';
 
@@ -13,10 +13,12 @@ export function createMobileKeyStrip({ send, getSessionId }: { send: (data: stri
   let pickingButton: HTMLButtonElement | null = null;
 
   for (const key of MOBILE_KEYS) {
-    const btn = el('button', 'phone-key', key.label);
+    if (key.id === 'left') strip.appendChild(createArrowPad(send));
+    const btn = el('button', key.isArrow ? 'phone-key phone-key-arrow' : 'phone-key', key.label);
     btn.type = 'button';
     btn.dataset.key = key.id;
     btn.title = key.title;
+    if (key.isArrow) btn.setAttribute('aria-label', key.title);
 
     btn.addEventListener('pointerdown', (event) => event.preventDefault());
     btn.addEventListener('click', () => pressKey(key, btn));
@@ -25,7 +27,7 @@ export function createMobileKeyStrip({ send, getSessionId }: { send: (data: stri
 
   function pressKey(key: Readonly<MobileKey>, btn: HTMLButtonElement) {
     if (isUploadKey(key)) {
-      openUploadPicker(key, btn);
+      openUploadPicker(btn);
       return;
     }
     if (isClipboardKey(key)) {
@@ -36,7 +38,7 @@ export function createMobileKeyStrip({ send, getSessionId }: { send: (data: stri
     send(mobileKeyBytes(key.id));
   }
 
-  function openUploadPicker(key: Readonly<MobileKey>, btn: HTMLButtonElement) {
+  function openUploadPicker(btn: HTMLButtonElement) {
     pickingButton = btn;
     if (!filePicker) {
       filePicker = el('input', 'phone-file-picker');
@@ -45,8 +47,6 @@ export function createMobileKeyStrip({ send, getSessionId }: { send: (data: stri
       filePicker.addEventListener('change', onFilePicked);
       strip.appendChild(filePicker);
     }
-    if (key.accept) filePicker.accept = key.accept;
-    if (!key.accept) filePicker.removeAttribute('accept');
     filePicker.click();
   }
 
@@ -72,6 +72,30 @@ export function createMobileKeyStrip({ send, getSessionId }: { send: (data: stri
   }
 
   return strip;
+}
+
+function createArrowPad(send: (data: string | null | undefined) => void) {
+  const pad = el('button', 'phone-key phone-arrow-pad', 'Arrows');
+  pad.type = 'button';
+  pad.title = 'Swipe to send arrow keys';
+  let dragOrigin: { x: number; y: number } | null = null;
+
+  pad.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    pad.setPointerCapture(event.pointerId);
+    dragOrigin = { x: event.clientX, y: event.clientY };
+  });
+  pad.addEventListener('pointermove', (event) => {
+    if (!dragOrigin) return;
+    const arrowSteps = arrowStepsForDrag(event.clientX - dragOrigin.x, event.clientY - dragOrigin.y);
+    if (!arrowSteps) return;
+    for (let step = 0; step < arrowSteps.stepCount; step++) send(mobileKeyBytes(arrowSteps.arrowKeyId));
+    dragOrigin = { x: dragOrigin.x + arrowSteps.consumedX, y: dragOrigin.y + arrowSteps.consumedY };
+  });
+  const endDrag = () => { dragOrigin = null; };
+  pad.addEventListener('pointerup', endDrag);
+  pad.addEventListener('pointercancel', endDrag);
+  return pad;
 }
 
 function pasteFromClipboard(send: (data: string) => void) {

@@ -420,6 +420,10 @@ export function applySessionUsageChips(isShown: boolean) {
   document.documentElement.toggleAttribute('data-show-usage', isShown);
 }
 
+export function applyPhoneArrowPad(isEnabled: boolean) {
+  document.documentElement.toggleAttribute('data-arrow-pad', isEnabled);
+}
+
 export function getTerminalTheme(): Record<string, string> {
   const theme = THEMES[_currentThemeId || DEFAULT_THEME];
   if (!theme) return {};
