@@ -18,6 +18,7 @@ import { createSessionGuardrails } from '../guardrails/session-guardrails.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { cliPath } from '../runtime-paths.ts';
 import { createSshSigner, installCommitSigningShim } from '../ssh-signing.ts';
+import { createCoherenceRuntime } from '../coherence/coherence-runtime.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -60,7 +61,17 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     log: dependencies.logger,
   });
   const sshSigner = commitSigningProgram ? createSshSigner() : null;
+  const coherenceRuntime = createCoherenceRuntime();
+  const coherenceShimDir = configSiblingPath(dependencies.configStore.configPath, 'coherence-bin');
+  void coherenceRuntime.ensureShims(coherenceShimDir).catch((error: unknown) => {
+    dependencies.logger.warn('Could not install Coherence shims:', error);
+  });
   const makeSession = createSessionFactory({
+    coherence: coherenceRuntime.cliPath && coherenceRuntime.hookCliPath ? {
+      nodePath: process.execPath,
+      hookCliPath: coherenceRuntime.hookCliPath,
+      shimDir: coherenceShimDir,
+    } : null,
     commitSigningProgram,
     configStore: dependencies.configStore,
     getConfig: () => dependencies.configStore.config,

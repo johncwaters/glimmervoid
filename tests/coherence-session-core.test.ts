@@ -42,11 +42,20 @@ test('coherence hooks match its Claude bundle with a matcher only on PostToolUse
   const hooks = buildCoherenceUserHooks({ nodePath, hookCliPath });
   assert.deepEqual(COHERENCE_HOOK_EVENTS, ['SubagentStart', 'SessionStart', 'SubagentStop', 'Stop', 'PostToolUse']);
   assert.equal(COHERENCE_POST_TOOL_USE_MATCHER, 'Read|Grep|Glob|Write|Edit|MultiEdit|NotebookEdit');
-  assert.deepEqual(hooks.map((hook) => hook.event), [...COHERENCE_HOOK_EVENTS]);
+  assert.deepEqual(hooks.map((hook) => hook.event), [...COHERENCE_HOOK_EVENTS, 'SessionStart']);
   assert.deepEqual(hooks.map((hook) => hook.id), [
     'coherence-subagent-start', 'coherence-session-start', 'coherence-subagent-stop', 'coherence-stop', 'coherence-post-tool-use',
+    'coherence-cli-on-path',
   ]);
-  for (const hook of hooks) {
+  assert.deepEqual(hooks.at(-1), {
+    id: 'coherence-cli-on-path',
+    name: 'Coherence CLI on PATH',
+    event: 'SessionStart',
+    type: 'command',
+    enabled: true,
+    command: 'echo In this Glimmervoid session coherence is on PATH, so run coherence followed by the verb wherever the Coherence instructions say npx coherence.',
+  });
+  for (const hook of hooks.slice(0, -1)) {
     assert.equal(hook.type, 'command');
     assert.equal(hook.enabled, true);
     assert.equal(hook.name, `Coherence ${hook.event}`);

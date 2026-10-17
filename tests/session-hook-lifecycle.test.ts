@@ -9,6 +9,7 @@ import { listAgentIds, getAdapter } from '../session/adapters/index.ts';
 import { GUARDRAILS_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
 import type { SessionGuardrailsFacts } from '../session/sessions.ts';
 import { buildAgentEnv } from '../session/core/spawn-env.ts';
+import { encodeProjectDir } from '../session/core/conversation-history.ts';
 import { HOOK_URL_ENV } from '../session/core/hook-relay-core.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import grok from '../session/adapters/grok.ts';
@@ -121,7 +122,7 @@ test('factory overrides reach Claude argv and env with coherence hooks after fre
         { hooks: [{ type: 'command', command: coherenceStop?.command }] },
       ]);
       assert.equal(projectHooks.length, 1);
-      assert.equal(overrides.extraUserHooks.length, 5);
+      assert.equal(overrides.extraUserHooks.length, 6);
     } finally {
       session.destroy();
     }
@@ -142,6 +143,98 @@ test('extra hooks reach settings when no project hook callback is configured', a
       assert.deepEqual(settings.hooks.Stop.at(-1), { hooks: [{ type: 'command', command: 'extra-stop' }] });
     } finally {
       session.destroy();
+    }
+  });
+});
+
+test('ordinary Claude sessions attach Coherence only with the setting, root config and runtime while preserving caller overrides and resume', async () => {
+  await withTempDir(async (directory) => {
+    const coherence = {
+      nodePath: process.execPath,
+      hookCliPath: path.join(directory, 'coherence tools', 'hook.js'),
+      shimDir: path.join(directory, 'coherence-bin'),
+    };
+    const callerShimDir = path.join(directory, 'caller-bin');
+    const callerHook: UserHook = {
+      id: 'caller-stop', name: 'Caller stop', event: 'Stop', type: 'command', command: 'caller-stop', enabled: true,
+    };
+    const cases = [
+      { name: 'on', isSettingOn: true, hasRepoConfig: true, hasRuntime: true, isFactory: false, shouldAttach: true },
+      { name: 'off', isSettingOn: false, hasRepoConfig: true, hasRuntime: true, isFactory: false, shouldAttach: false },
+      { name: 'no-config', isSettingOn: true, hasRepoConfig: false, hasRuntime: true, isFactory: false, shouldAttach: false },
+      { name: 'no-runtime', isSettingOn: true, hasRepoConfig: true, hasRuntime: false, isFactory: false, shouldAttach: false },
+      { name: 'factory', isSettingOn: true, hasRepoConfig: true, hasRuntime: true, isFactory: true, shouldAttach: false },
+      { name: 'caller-env', isSettingOn: true, hasRepoConfig: true, hasRuntime: true, isFactory: false, shouldAttach: true },
+    ];
+    for (const scenario of cases) {
+      const projectPath = path.join(directory, scenario.name);
+      fs.mkdirSync(projectPath);
+      if (scenario.hasRepoConfig) fs.writeFileSync(path.join(projectPath, 'coherence.config.json'), '{}');
+      const liveConfig = { projects: [], recordSignals: false, coherence: { enabled: scenario.isSettingOn } };
+      const makeSession = createSessionFactory({
+        configStore: { configPath: path.join(directory, 'config.json') },
+        getConfig: () => liveConfig,
+        coherence: scenario.hasRuntime ? coherence : null,
+        hookRouter: new HookRouter(), getHookPort: () => PORT,
+        getGitWorkspace: () => null, getPlanReviewPort: () => null,
+        resolveHookTools: () => [], getUserHooks: () => [],
+      });
+      const resumeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
+      const claudeConfigDir = path.join(directory, 'claude-home');
+      const transcriptDirectory = path.join(claudeConfigDir, 'projects', encodeProjectDir(projectPath));
+      fs.mkdirSync(transcriptDirectory, { recursive: true });
+      fs.writeFileSync(path.join(transcriptDirectory, `${resumeSessionId}.jsonl`), '');
+      const session = makeSession({
+        id: scenario.name, name: scenario.name, path: projectPath, agent: 'claude-code', resumeSessionId,
+      }, liveConfig, {
+        factoryRole: scenario.isFactory ? 'worker' : null,
+        extraUserHooks: [callerHook], prependPathDirs: [callerShimDir],
+        spawnEnv: { CALLER_ENV: 'preserved', CLAUDE_CONFIG_DIR: claudeConfigDir,
+          ...(scenario.name === 'caller-env' ? { COHERENCE_HOOK_HOST: 'caller' } : {}) },
+      });
+      session._spawnCommand = { path: process.execPath, kind: 'exe' };
+      const calls: SpawnCall[] = [];
+      const settingsAtSpawn: { hooks: HooksBlock }[] = [];
+      session._ptySpawn = (file, args, opts) => {
+        calls.push({ file, args, opts: opts as SpawnCall['opts'] });
+        settingsAtSpawn.push(JSON.parse(fs.readFileSync(args[args.indexOf('--settings') + 1], 'utf8')) as { hooks: HooksBlock });
+        return fakePty();
+      };
+      try {
+        await session.start();
+        assert.equal(calls.length, 1, scenario.name);
+        const { args, opts } = calls[0];
+        assert.equal(args.includes('--session-id'), false, scenario.name);
+        assert.equal(args[args.indexOf('--resume') + 1], resumeSessionId, scenario.name);
+        const coherenceEntriesOf = (hooks: HooksBlock) => Object.values(hooks).flat().filter((entry) =>
+          entry.hooks.some((hook) => hook.command?.includes('coherence')));
+        const settings = settingsAtSpawn[0];
+        assert.equal(coherenceEntriesOf(settings.hooks).length, scenario.shouldAttach ? 6 : 0, scenario.name);
+        assert.deepEqual(settings.hooks.Stop.at(-1), { hooks: [{ type: 'command', command: 'caller-stop' }] });
+        const expectedPathDirs = [...(scenario.hasRuntime && !scenario.isFactory ? [coherence.shimDir] : []), callerShimDir];
+        assert.deepEqual(session._prependPathDirs, expectedPathDirs, scenario.name);
+        assert.deepEqual(String(opts.env.PATH ?? opts.env.Path).split(path.delimiter).slice(0, expectedPathDirs.length), expectedPathDirs);
+        assert.equal(opts.env.CALLER_ENV, 'preserved');
+        if (!scenario.shouldAttach) continue;
+        assert.equal(opts.env.COHERENCE_HOOK_HOST, scenario.name === 'caller-env' ? 'caller' : 'claude');
+        assert.equal('COHERENCE_PROJECT_ROOT' in opts.env, false);
+        for (const event of ['SubagentStart', 'SessionStart', 'SubagentStop', 'Stop', 'PostToolUse']) {
+          const nativeHook = settings.hooks[event].find((entry) => entry.hooks.some((hook) =>
+            hook.command === `"${coherence.nodePath}" "${coherence.hookCliPath}" ${event}`));
+          assert.ok(nativeHook, `${scenario.name}: ${event}`);
+        }
+        assert.deepEqual(settings.hooks.SessionStart.at(-1),
+          { hooks: [{ type: 'command', command: 'echo In this Glimmervoid session coherence is on PATH, so run coherence followed by the verb wherever the Coherence instructions say npx coherence.' }] });
+        if (scenario.name !== 'on') continue;
+        liveConfig.coherence.enabled = false;
+        await session.start();
+        assert.equal(coherenceEntriesOf(settingsAtSpawn[1].hooks).length, 0, 'a restart after the setting turns off drops the Coherence hooks');
+        liveConfig.coherence.enabled = true;
+        await session.start();
+        assert.equal(coherenceEntriesOf(settingsAtSpawn[2].hooks).length, 6, 'a restart after the setting turns back on restores them');
+      } finally {
+        session.destroy();
+      }
     }
   });
 });

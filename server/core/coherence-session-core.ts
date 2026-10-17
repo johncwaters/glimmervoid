@@ -7,7 +7,7 @@ export const COHERENCE_POST_TOOL_USE_MATCHER = 'Read|Grep|Glob|Write|Edit|MultiE
 
 const claudeSessionIdSchema = z.uuid();
 
-type CoherenceSessionKind = 'factory' | 'writer' | 'review' | 'utility';
+export type CoherenceSessionKind = 'factory' | 'writer' | 'review' | 'utility';
 
 export function decideCoherenceAttachment({ sessionKind, isSettingOn, hasRepoConfig }: {
   sessionKind: CoherenceSessionKind; isSettingOn: boolean; hasRepoConfig: boolean;
@@ -26,7 +26,7 @@ export function buildCoherenceUserHooks({ nodePath, hookCliPath }: {
   nodePath: string; hookCliPath: string;
 }): UserHook[] {
   const commandPrefix = `${quoteCommandPath(nodePath)} ${quoteCommandPath(hookCliPath)}`;
-  return COHERENCE_HOOK_EVENTS.map((event) => ({
+  return [...COHERENCE_HOOK_EVENTS.map<UserHook>((event) => ({
     id: `coherence-${event.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase()}`,
     name: `Coherence ${event}`,
     event,
@@ -34,7 +34,24 @@ export function buildCoherenceUserHooks({ nodePath, hookCliPath }: {
     enabled: true,
     command: `${commandPrefix} ${event}`,
     ...(event === 'PostToolUse' ? { matcher: COHERENCE_POST_TOOL_USE_MATCHER } : {}),
-  }));
+  })), {
+    id: 'coherence-cli-on-path',
+    name: 'Coherence CLI on PATH',
+    event: 'SessionStart',
+    type: 'command',
+    enabled: true,
+    command: 'echo In this Glimmervoid session coherence is on PATH, so run coherence followed by the verb wherever the Coherence instructions say npx coherence.',
+  }];
+}
+
+export function buildCoherenceWriterOverrides({ nodePath, hookCliPath, shimDir }: {
+  nodePath: string; hookCliPath: string; shimDir: string;
+}) {
+  return {
+    extraUserHooks: buildCoherenceUserHooks({ nodePath, hookCliPath }),
+    prependPathDirs: [shimDir],
+    spawnEnv: { COHERENCE_HOOK_HOST: 'claude' },
+  } satisfies SessionSpawnOverrides;
 }
 
 export function buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir }: {

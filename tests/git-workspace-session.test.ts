@@ -938,6 +938,27 @@ test('hasUnmergedWork (real git): uncommitted changes report work; a merged-away
   }
 });
 
+test('hasUnmergedWork (real git): untracked Coherence journals alone are not work, a real file beside them is', { skip: !GIT }, async () => {
+  const repo = initRepoOnDevelop();
+  try {
+    const gw = createGitWorkspace();
+    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'journals', baseBranch: 'develop' });
+    const workArgs = { projectPath: repo, workspace: ws, integrationBranch: 'develop', configuredIntegrationBranch: 'develop' };
+    for (const journal of ['activity', 'decisions']) {
+      fs.mkdirSync(path.join(ws.cwd, '.coherence', journal), { recursive: true });
+      fs.writeFileSync(path.join(ws.cwd, '.coherence', journal, '22222222-2222-4222-8222-222222222222.jsonl'), '{}\n', 'utf8');
+    }
+    assert.equal(await gw.hasUnmergedWork(workArgs), false);
+    assert.deepEqual((await gw.listSessionWorktrees({ projectPath: repo, integrationBranch: 'develop', configuredIntegrationBranch: 'develop' })).map((worktree) => worktree.hasWork), [false]);
+    assert.equal((await gw.probeWorktreeDirty({ projectPath: repo, cwd: ws.cwd, branch: branchOf(ws) })).dirty, false);
+
+    fs.writeFileSync(path.join(ws.cwd, 'feature.js'), 'module.exports = 3;\n', 'utf8');
+    assert.equal(await gw.hasUnmergedWork(workArgs), true);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('hasUnmergedWork (real git): an unresolvable integration branch reports work (fails safe)', { skip: !GIT }, async () => {
   const repo = initRepoOnDevelop();
   try {

@@ -1,5 +1,6 @@
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
 import { refreshRtkHookTools } from '../../session/core/rtk-settings-core.ts';
+import fs from 'node:fs';
 import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
@@ -11,6 +12,8 @@ import type { SessionOptions, SessionPlanReviewPort } from '../../session/sessio
 import { getAdapter } from '../../session/adapters/index.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
+import { buildCoherenceWriterOverrides, decideCoherenceAttachment } from '../core/coherence-session-core.ts';
+import type { CoherenceSessionKind } from '../core/coherence-session-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { isSessionGuarded } from '../guardrails/core/guardrails-roles-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
@@ -32,6 +35,7 @@ interface SessionFactoryDependencies {
   getUserHooks: (projectId: string) => UserHook[];
   sessionGuardrails?: SessionGuardrails;
   commitSigningProgram?: string | null;
+  coherence?: Parameters<typeof buildCoherenceWriterOverrides>[0] | null;
   homeDir?: string;
 }
 
@@ -81,6 +85,20 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
   ): Session {
     const skipPermissions = projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
     const originalHookTools = dependencies.resolveHookTools(config, { skipPermissions });
+    const sessionKind: CoherenceSessionKind = overrides.factoryRole ? 'factory' : 'writer';
+    const coherence = dependencies.coherence;
+    const coherenceOverrides = sessionKind === 'writer' && coherence
+      && getAdapter(overrides.agent ?? project.agent)?.usageVendor === 'claude'
+      ? buildCoherenceWriterOverrides(coherence) : null;
+    const coherenceHooksForThisStart = (): UserHook[] => {
+      if (!coherenceOverrides) return [];
+      const isAttached = decideCoherenceAttachment({
+        sessionKind,
+        isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true,
+        hasRepoConfig: fs.existsSync(path.join(session.effectiveCwd(), 'coherence.config.json')),
+      });
+      return isAttached ? coherenceOverrides.extraUserHooks : [];
+    };
     const session = new Session({
       id: project.id,
       name: project.name,
@@ -113,9 +131,13 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       resumeSessionId: (project.resumeSessionId as string | null | undefined) || null,
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),
-      getUserHooks: () => dependencies.getUserHooks(project.id),
+      getUserHooks: () => [...dependencies.getUserHooks(project.id), ...coherenceHooksForThisStart()],
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       ...overrides,
+      ...(coherenceOverrides ? {
+        prependPathDirs: [...coherenceOverrides.prependPathDirs, ...(overrides.prependPathDirs ?? [])],
+        spawnEnv: { ...coherenceOverrides.spawnEnv, ...overrides.spawnEnv },
+      } : {}),
       prepareGuardrails: 'prepareGuardrails' in overrides ? overrides.prepareGuardrails : defaultGuardrailsFor(project, config, overrides),
     });
     const captureConfig = {

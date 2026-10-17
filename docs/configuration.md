@@ -201,7 +201,7 @@ Coherence decision journals, hooks and repository trends for agent sessions and 
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `coherence.enabled` | Use Coherence in every session | `false` | Saved for an upcoming release that runs Coherence in every session of a repository whose root holds coherence.config.json. Factory sessions always use Coherence. Off by default. |
+| `coherence.enabled` | Use Coherence in every session | `false` | When on, Claude Code sessions in a repository whose root holds coherence.config.json run Coherence hooks and a decision journal in .coherence in their worktree to commit with the work. Factory sessions always use Coherence. Off by default. |
 
 ### Change map
 

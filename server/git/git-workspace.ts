@@ -274,6 +274,8 @@ function findWorktreeForBranch(porcelain: string, branch: string): string | null
 
 const UNTRACKED_STATUS_PREFIX = '?? ';
 const WORKTREE_STATUS_ARGS = ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--ignore-submodules=none'];
+const EXCLUDE_COHERENCE_BOOKKEEPING_PATHSPEC = ['--', '.', ':(exclude).coherence'];
+const WORK_PRESENCE_STATUS_ARGS = [...WORKTREE_STATUS_ARGS, ...EXCLUDE_COHERENCE_BOOKKEEPING_PATHSPEC];
 
 const isDirtyResult = (dirty: GitResult) => dirty.ok && dirty.out !== '';
 function hasWorkFrom(dirty: GitResult, ahead: GitResult | null): boolean {
@@ -871,7 +873,7 @@ function createGitWorkspace(opts: {
     configuredIntegrationBranch?: string | null;
   }): Promise<WorktreeProbe> {
     const { base: resolvedIntegrationBranch, measureRef } = await migrateMarkerBase(projectPath, branch, integrationBranch, configuredIntegrationBranch);
-    const dirty = await run(WORKTREE_STATUS_ARGS, cwd);
+    const dirty = await run(WORK_PRESENCE_STATUS_ARGS, cwd);
     const ahead = !isDirtyResult(dirty) && resolvedIntegrationBranch
       ? await run(['rev-list', '--count', `${measureRef || resolvedIntegrationBranch}..${branch}`], projectPath)
       : null;
@@ -951,7 +953,7 @@ function createGitWorkspace(opts: {
 
   async function probeWorktreeDirtyBody({ cwd }: WorktreeArgs): Promise<WorktreeDirtyProbe> {
     if (!cwd) return { ok: false, dirty: true, headSha: null, err: 'a worktree status probe needs a path' };
-    const status = await run(WORKTREE_STATUS_ARGS, cwd);
+    const status = await run(WORK_PRESENCE_STATUS_ARGS, cwd);
     if (!status.ok) return { ok: false, dirty: true, headSha: null, err: status.err };
     const head = await run(['rev-parse', 'HEAD'], cwd);
     if (!head.ok || !head.out) return { ok: false, dirty: true, headSha: null, err: head.err || 'a worktree head probe returned no sha' };
@@ -1538,7 +1540,7 @@ function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => s
       const id = sessionIdFromBranch(name);
       if (id === null) continue;
       const { base: resolvedIntegrationBranch, measureRef } = migrateMarkerBase(projectPath, name, integrationBranch, configuredIntegrationBranch);
-      const dirty = run(['--no-optional-locks', 'status', '--porcelain'], wt);
+      const dirty = run(['--no-optional-locks', 'status', '--porcelain', ...EXCLUDE_COHERENCE_BOOKKEEPING_PATHSPEC], wt);
       const ahead = !isDirtyResult(dirty) && resolvedIntegrationBranch
         ? run(['rev-list', '--count', `${measureRef || resolvedIntegrationBranch}..${name}`], projectPath)
         : null;

@@ -131,8 +131,11 @@ test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a work r
   const claudeSessionId = overrides.extraClaudeArgs?.[1];
   assert.match(claudeSessionId ?? '', /^[a-f0-9-]{36}$/);
   assert.deepEqual(overrides.extraClaudeArgs, ['--session-id', claudeSessionId, '--strict-mcp-config', '--disable-slash-commands', '--setting-sources', 'project,local']);
-  assert.deepEqual(overrides.extraUserHooks?.map((hook) => hook.event), ['SubagentStart', 'SessionStart', 'SubagentStop', 'Stop', 'PostToolUse']);
-  assert.equal(overrides.extraUserHooks?.every((hook) => hook.command?.startsWith('"/node" "/coherence-hook.js"')), true);
+  assert.deepEqual(overrides.extraUserHooks?.map((hook) => hook.event), ['SubagentStart', 'SessionStart', 'SubagentStop', 'Stop', 'PostToolUse', 'SessionStart']);
+  assert.deepEqual(overrides.extraUserHooks?.map((hook) => hook.command), [
+    ...['SubagentStart', 'SessionStart', 'SubagentStop', 'Stop', 'PostToolUse'].map((event) => `"/node" "/coherence-hook.js" ${event}`),
+    'echo In this Glimmervoid session coherence is on PATH, so run coherence followed by the verb wherever the Coherence instructions say npx coherence.',
+  ]);
   assert.deepEqual(overrides.prependPathDirs, ['/factory/bin']);
   assert.deepEqual(overrides.spawnEnv, { COHERENCE_HOOK_HOST: 'claude', ...LANE_CREDENTIAL_ENV });
   assert.equal(Object.hasOwn(overrides.spawnEnv ?? {}, AGENT_URL_ENV), false);
