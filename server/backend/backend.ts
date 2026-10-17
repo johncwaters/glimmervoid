@@ -293,6 +293,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     closeSessionDataClients,
     broadcastControl,
     spawnGate,
+    memoryAdmission: laneAssembly.memoryAdmission,
     recordLane,
     sessionDocs,
     logger: console,

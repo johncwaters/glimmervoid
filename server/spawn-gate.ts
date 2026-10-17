@@ -103,12 +103,14 @@ interface MemoryAdmission {
   waitForHeadroom(kind: MemoryStartKind, options?: MemoryWaitOptions): Promise<void>;
   noteStartHeld(isHeld: boolean): void;
   gateStatus(): MemoryGateStatus;
+  describeShortfallNow(kind: MemoryStartKind): Promise<HeadroomShortfall | null>;
 }
 
 interface HeadroomShortfall {
   headroomBytes: number;
   heldBytes: number;
   reserveBytes: number;
+  waitingStartCount: number;
 }
 
 interface MemoryAdmissionOptions {
@@ -146,19 +148,20 @@ function createMemoryAdmission({
     warn(`[memory] could not read memory headroom, so starts go ahead unchecked: ${reading.reason}`);
   }
 
-  async function admitOrDescribeShortfall(kind: MemoryStartKind): Promise<HeadroomShortfall | null> {
+  async function admitOrDescribeShortfall(kind: MemoryStartKind, { isDryRun = false }: { isDryRun?: boolean } = {}): Promise<HeadroomShortfall | null> {
     const reserveBytes = reserveBytesFor(kind);
     if (reserveBytes <= 0) return null;
     const reading = await readHeadroom();
     const admittedAtMs = nowMs();
     reservations = liveReservations(reservations, admittedAtMs);
     noteReading(reading, admittedAtMs);
-    if (shouldAdmitStart({ reading, reserveBytes, reservations, nowMs: admittedAtMs })) {
-      reservations.push({ bytes: reserveBytes, admittedAtMs });
+    const isQueuedBehindHeldStart = isDryRun && reading.ok && heldStartCount > 0;
+    if (!isQueuedBehindHeldStart && shouldAdmitStart({ reading, reserveBytes, reservations, nowMs: admittedAtMs })) {
+      if (!isDryRun) reservations.push({ bytes: reserveBytes, admittedAtMs });
       return null;
     }
     const heldBytes = reservations.reduce((total, reservation) => total + reservation.bytes, 0);
-    return { headroomBytes: reading.ok ? reading.headroomBytes : 0, heldBytes, reserveBytes };
+    return { headroomBytes: reading.ok ? reading.headroomBytes : 0, heldBytes, reserveBytes, waitingStartCount: heldStartCount };
   }
 
   async function recheckUntilAdmitted(kind: MemoryStartKind, isStillWanted: () => boolean): Promise<boolean> {
@@ -186,6 +189,7 @@ function createMemoryAdmission({
     waitForHeadroom,
     noteStartHeld: (isHeld) => { heldStartCount += isHeld ? 1 : -1; },
     gateStatus: () => ({ headroomBytes: latestHeadroomBytes, headroomReadAtMs: latestHeadroomReadAtMs, heldStartCount }),
+    describeShortfallNow: (kind) => admitOrDescribeShortfall(kind, { isDryRun: true }),
   };
 }
 

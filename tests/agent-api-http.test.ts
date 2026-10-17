@@ -12,6 +12,8 @@ import type { Server } from 'node:http';
 import { createBackend } from '../server/backend/backend.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
+import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts';
+import { memoryReserveBytes } from '../server/core/memory-admission-core.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
@@ -197,11 +199,12 @@ interface WiringFixtureOptions {
   laneSessions?: Session[];
   holdSpawnGate?: boolean;
   parentIsGuarded?: boolean;
+  headroomBytes?: number;
 }
 
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
-  holdSpawnGate = false, parentIsGuarded = false, factory,
+  holdSpawnGate = false, parentIsGuarded = false, factory, headroomBytes = 64 * 1024 * 1024 * 1024,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -218,6 +221,11 @@ function wiringFixture({
   const wired: Session[] = [];
   const broadcasts: Record<string, unknown>[] = [];
   const heldGateTasks: (() => void)[] = [];
+  const memoryAdmission = createMemoryAdmission({
+    readHeadroom: async () => ({ ok: true, headroomBytes }),
+    reserveBytesFor: (kind) => memoryReserveBytes(config, kind),
+    warn: () => {},
+  });
   let makeSessionCalls = 0;
   const makeSession = (project: ProjectEntry, _config: GlimmervoidConfig, overrides: Partial<SessionOptions> = {}) => {
     makeSessionCalls += 1;
@@ -248,16 +256,18 @@ function wiringFixture({
     wireSessionEvents: (session: Session) => { wired.push(session); },
     closeSessionDataClients: () => {},
     broadcastControl: (message) => { broadcasts.push(message); },
-    spawnGate: {
-      run: (task: () => unknown) => (holdSpawnGate
-        ? new Promise<unknown>((resolve) => { heldGateTasks.push(() => { resolve(task()); }); })
-        : Promise.resolve(task())),
-    },
+    spawnGate: holdSpawnGate
+      ? { run: (task: () => unknown) => new Promise<unknown>((resolve) => { heldGateTasks.push(() => { resolve(task()); }); }) }
+      : createSpawnGate({ memoryAdmission }),
     sessionDocs: createSessionDocsWiring({ broadcastControl: (message) => { broadcasts.push(message); } }),
+    memoryAdmission,
     logger: { warn: () => {} },
   });
   const releaseSpawnGate = () => {
     for (const admit of heldGateTasks.splice(0)) admit();
+  };
+  const untilSpawnGateHolds = async () => {
+    while (heldGateTasks.length === 0) await new Promise((resolve) => setImmediate(resolve));
   };
   const spawn = (session: Session, request: Record<string, unknown>) => wiring.handle(session, 'spawn', request);
   const destroyAll = () => {
@@ -265,7 +275,7 @@ function wiringFixture({
     parent.destroy();
   };
   return {
-    wiring, spawn, parent, agentSessions, created, childProjects, wired, broadcasts, releaseSpawnGate, destroyAll,
+    wiring, spawn, parent, agentSessions, created, childProjects, wired, broadcasts, releaseSpawnGate, untilSpawnGateHolds, destroyAll,
   };
 }
 
@@ -426,6 +436,28 @@ test('a spawn naming an unknown agent is refused rather than silently handed the
   }
 });
 
+test('a spawn while memory headroom, less what recent starts hold, is under the session reserve is refused at once with the low-memory reason', async () => {
+  const lowFixture = wiringFixture({ headroomBytes: 100 * 1024 * 1024 });
+  const roomForOneFixture = wiringFixture({ headroomBytes: 1000 * 1024 * 1024 });
+  try {
+    const reply = await lowFixture.spawn(lowFixture.parent, { prompt: 'review the diff' });
+    assert.equal(reply.status, 503);
+    assert.match(String(reply.body.error), /memory is low: 100 MB free, and a new session needs 600 MB/);
+    assert.equal(lowFixture.created.length, 0, 'no child process was started');
+    assert.deepEqual(lowFixture.parent.agentSpawnBudget(), { liveChildren: 0, lifetimeSpawns: 0, inFlight: 0, depth: 0 });
+
+    const admitted = await roomForOneFixture.spawn(roomForOneFixture.parent, { prompt: 'review the diff' });
+    assert.equal(admitted.status, 200);
+    const refused = await roomForOneFixture.spawn(roomForOneFixture.parent, { prompt: 'review the tests' });
+    assert.equal(refused.status, 503);
+    assert.match(String(refused.body.error), /memory is low: 1000 MB free \(600 MB held for recent starts\), and a new session needs 600 MB/);
+    assert.equal(roomForOneFixture.created.length, 1, 'the refused spawn started no child process');
+  } finally {
+    lowFixture.destroyAll();
+    roomForOneFixture.destroyAll();
+  }
+});
+
 test('a child runs through the same session event wiring the operator sessions get', async () => {
   const fixture = wiringFixture();
   try {
@@ -538,7 +570,7 @@ test('the child card is withheld until the spawn gate admits the start', async (
   const fixture = wiringFixture({ holdSpawnGate: true });
   try {
     const pending = fixture.spawn(fixture.parent, { prompt: 'review the diff' });
-    await Promise.resolve();
+    await fixture.untilSpawnGateHolds();
     assert.equal(
       fixture.broadcasts.filter((message) => message.type === 'session-added').length,
       0,
@@ -559,7 +591,7 @@ test('a child destroyed while the gate holds it is never carded and is still cle
   const fixture = wiringFixture({ holdSpawnGate: true });
   try {
     const pending = fixture.spawn(fixture.parent, { prompt: 'review the diff' });
-    await Promise.resolve();
+    await fixture.untilSpawnGateHolds();
     const queuedChildId = fixture.created[0].id;
     fixture.created[0].destroy();
     fixture.releaseSpawnGate();

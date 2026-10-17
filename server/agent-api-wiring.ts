@@ -21,10 +21,12 @@ import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session/session-factory.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
+import type { MemoryAdmission } from './spawn-gate.ts';
 import { errorMessage } from '../shared/text.ts';
 
 const AGENT_LANE_TAG = 'agent-spawn';
 const SPAWN_FAILED_MESSAGE = 'could not spawn the session';
+const BYTES_PER_MEGABYTE = 1024 * 1024;
 
 type MakeSession = (
   project: ProjectEntry,
@@ -48,6 +50,7 @@ interface AgentApiWiringOptions {
     getState: () => FactoryState | null;
     retryParked: (projectId: string, intentId: string) => Promise<{ ok: true; reopenedWorkIds: string[] } | { ok: false; error: string }>;
   };
+  memoryAdmission?: Pick<MemoryAdmission, 'describeShortfallNow'> | null;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -68,12 +71,30 @@ function createAgentApiWiring({
   config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
   broadcastControl, spawnGate, sessionDocs, factory,
   recordLane = null,
+  memoryAdmission = null,
   logger = console,
 }: AgentApiWiringOptions): AgentApiPort {
+  async function describeMemoryShortfall(): Promise<string | null> {
+    const shortfall = await memoryAdmission?.describeShortfallNow('session') ?? null;
+    if (shortfall === null) return null;
+    const toMegabytes = (bytes: number) => Math.round(bytes / BYTES_PER_MEGABYTE);
+    const heldDetails = [
+      ...(shortfall.heldBytes > 0 ? [`${toMegabytes(shortfall.heldBytes)} MB held for recent starts`] : []),
+      ...(shortfall.waitingStartCount > 0 ? [`${shortfall.waitingStartCount} ${shortfall.waitingStartCount === 1 ? 'start' : 'starts'} already waiting for memory`] : []),
+    ];
+    const heldClause = heldDetails.length > 0 ? ` (${heldDetails.join(', ')})` : '';
+    return `memory is low: ${toMegabytes(shortfall.headroomBytes)} MB free${heldClause}, and a new session needs ${toMegabytes(shortfall.reserveBytes)} MB. Try again once other work finishes`;
+  }
+
+  function refuseByBudget(parent: Session): SpawnOutcome | null {
+    const allowance = decideSpawnAllowance({ ...parent.agentSpawnBudget(), isFactoryWorker: parent.factoryRole === 'worker', isEphemeral: parent.ephemeral });
+    if (allowance.ok) return null;
+    return { ok: false, status: allowance.status, error: allowance.reason };
+  }
+
   async function spawn(parent: Session, request: AgentSpawnRequest): Promise<SpawnOutcome> {
-    const budget = parent.agentSpawnBudget();
-    const allowance = decideSpawnAllowance({ ...budget, isFactoryWorker: parent.factoryRole === 'worker', isEphemeral: parent.ephemeral });
-    if (!allowance.ok) return { ok: false, status: allowance.status, error: allowance.reason };
+    const budgetRefusal = refuseByBudget(parent);
+    if (budgetRefusal) return budgetRefusal;
     if (request.agent && !isKnownAgentId(request.agent)) {
       return { ok: false, status: 400, error: `unknown agent ${request.agent}` };
     }
@@ -81,6 +102,11 @@ function createAgentApiWiring({
     if (parent.isGuarded && !isGuardedSessionVendor(getAdapter(agentId)?.usageVendor ?? null)) {
       return { ok: false, status: 403, error: `a guarded session can only spawn a guarded agent, and ${agentId} does not run inside the guardrails` };
     }
+    const memoryShortfall = await describeMemoryShortfall();
+    if (memoryShortfall) return { ok: false, status: 503, error: memoryShortfall };
+    const budgetRefusalAfterMemoryRead = refuseByBudget(parent);
+    if (budgetRefusalAfterMemoryRead) return budgetRefusalAfterMemoryRead;
+    const budget = parent.agentSpawnBudget();
 
     const name = deriveChildSessionName(request.name || parent.name, listAllSessions().map((session) => session.name));
     const id = `${AGENT_LANE_TAG}-${crypto.randomUUID()}`;
