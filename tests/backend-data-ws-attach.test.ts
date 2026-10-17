@@ -10,13 +10,13 @@ import type { Terminal as HeadlessTerminal } from '@xterm/headless';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { PtySizeFrame } from '../shared/contracts/data-messages.ts';
-import { SCREEN_KEEPER_SCROLLBACK, SCREEN_RESET } from '../session/core/screen-keeper-core.ts';
+import { SCREEN_KEEPER_ATTACH_SCROLLBACK, SCREEN_KEEPER_SCROLLBACK, SCREEN_RESET } from '../session/core/screen-keeper-core.ts';
 import type { Session } from '../session/sessions.ts';
 import {
-  binaryFramesOf, closeSocket, dashboardClient, openDataRecordingSocket, textFramesOf,
+  binaryFramesOf, closeSocket, dashboardClient, openDataRecordingSocket, openRecordingSocket, textFramesOf, waitForMessage,
 } from './helpers/dashboard-ws.ts';
 import type { DashboardClient, DataRecordingSocket } from './helpers/dashboard-ws.ts';
-import { fakePty } from './helpers/fake-pty.ts';
+import { capturingPty, fakePty } from './helpers/fake-pty.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
@@ -28,6 +28,11 @@ const SESSION_ID = 'a0000000-0000-4000-8000-000000000003';
 type Cell = [string, number, number, number, boolean, boolean];
 
 type Viewer = DataRecordingSocket;
+
+interface ControlFrame {
+  type: string;
+  message?: string;
+}
 
 interface AttachContext {
   tmpDir: string;
@@ -209,4 +214,81 @@ test('a second socket attaching to the same session lands on the same screen', a
   await closeSocket(second.ws);
   firstReplay.dispose();
   secondReplay.dispose();
+});
+
+test('a deep attach carries history past the attach depth, loses no live byte and keeps input sent while it serializes', async () => {
+  const session = ctx().session;
+  const ptyWrites: string[] = [];
+  session.ptyProcess = capturingPty(ptyWrites);
+  session._ptyAlive = true;
+  const emitted: string[] = [];
+  const emit = (line: string): void => {
+    emitted.push(line);
+    session._handlePtyData(line);
+  };
+
+  const historyLineCount = SCREEN_KEEPER_ATTACH_SCROLLBACK * 3;
+  for (let index = 0; index < historyLineCount; index += 1) emit(buildLine(index));
+  await settle(60);
+
+  const viewer = await openDataRecordingSocket(ctx().client, `/terminals/${SESSION_ID}?history=deep`);
+  viewer.ws.send(JSON.stringify({ type: 'input', data: 'typed during the deep serialize' }));
+  for (let index = historyLineCount; index < historyLineCount + 80; index += 1) {
+    emit(buildLine(index));
+    if (index % 8 === 0) await settle(4);
+  }
+  await settle(300);
+
+  assert.deepEqual(ptyWrites, ['typed during the deep serialize'], 'input sent before the socket was wired still reaches the PTY');
+
+  const size = PtySizeFrame.parse(JSON.parse(binaryFramesOf(viewer)[0] ?? ''));
+  const snapshotFrame = textFramesOf(viewer)[0];
+  assert.ok(snapshotFrame?.startsWith(SCREEN_RESET), 'the deep snapshot opens with the shared reset prefix');
+  assert.ok(emitted.join('').endsWith(textFramesOf(viewer).slice(1).join('')), 'no live byte arrived twice and none went missing');
+
+  const reference = newTerminal(size.cols, size.rows);
+  await write(reference, emitted.join(''));
+  const replay = newTerminal(size.cols, size.rows);
+  await write(replay, textFramesOf(viewer).join(''));
+
+  const referenceRows = dump(reference);
+  assert.ok(replay.buffer.active.length > SCREEN_KEEPER_ATTACH_SCROLLBACK + size.rows, 'the replay reaches past the attach depth');
+  assert.deepEqual(dump(replay).slice(-referenceRows.length), referenceRows, 'every line of this history arrived, cell for cell');
+
+  await closeSocket(viewer.ws);
+  reference.dispose();
+  replay.dispose();
+});
+
+test('an oversized frame sent while a deep attach serializes closes that socket and reports it without crashing the server', async () => {
+  attachFakePty();
+  const session = ctx().session;
+  const realDeepSnapshot = session.getDeepScreenSnapshot;
+  let releaseDeepSnapshot = (): void => {};
+  const deepSnapshotReleased = new Promise<void>((resolve) => { releaseDeepSnapshot = resolve; });
+  session.getDeepScreenSnapshot = async () => {
+    await deepSnapshotReleased;
+    return realDeepSnapshot.call(session);
+  };
+  const control = await openRecordingSocket<ControlFrame>(ctx().client);
+  const viewer = await openDataRecordingSocket(ctx().client, `/terminals/${SESSION_ID}?history=deep`);
+  const viewerErrors: Error[] = [];
+  viewer.ws.on('error', (error) => viewerErrors.push(error));
+  const viewerCloseCode = new Promise<number>((resolve) => { viewer.ws.once('close', (code) => resolve(code)); });
+
+  viewer.ws.send('x'.repeat(2 * 1024 * 1024 + 1));
+
+  assert.equal(await viewerCloseCode, 1009, 'the server closes the socket as message too big');
+  const report = await waitForMessage(
+    control.received,
+    (frame) => frame.type === 'session-error',
+    'the oversized frame session-error',
+  );
+  assert.equal(report.message, 'Message too large - try pasting smaller chunks');
+
+  releaseDeepSnapshot();
+  session.getDeepScreenSnapshot = realDeepSnapshot;
+  await settle(50);
+  assert.equal(control.received.filter((frame) => frame.type === 'session-error').length, 1, 'the error is reported once');
+  await closeSocket(control.ws);
 });

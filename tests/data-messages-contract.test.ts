@@ -9,6 +9,7 @@ import {
   VIEWER_MIN_COLS,
   VIEWER_MIN_ROWS,
   parseDataClientMessage,
+  parseDataAttachHistory,
   parsePtySizeFrame,
 } from '../shared/contracts/data-messages.ts';
 import { isApplicableViewerSize } from '../server/core/viewer-size-core.ts';
@@ -73,4 +74,12 @@ test('parsePtySizeFrame decodes both directions of the wire contract the same wa
     parsePtySizeFrame('{"type":"pty-size","cols":80,"rows":24,"seq":3}'),
     { type: 'pty-size', cols: 80, rows: 24, seq: 3 },
   );
+});
+
+test('only an explicit deep history flag on the attach URL asks for deep history', () => {
+  assert.equal(parseDataAttachHistory('/terminals/abc?history=deep&token=t'), 'deep');
+  assert.equal(parseDataAttachHistory('/terminals/abc?token=t&history=deep'), 'deep');
+  assert.equal(parseDataAttachHistory('/terminals/abc?token=t'), 'screen');
+  assert.equal(parseDataAttachHistory('/terminals/abc?history=everything'), 'screen');
+  assert.equal(parseDataAttachHistory(undefined), 'screen');
 });

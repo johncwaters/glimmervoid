@@ -1,10 +1,11 @@
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { WebSocketServer } from 'ws';
-import type { WebSocket } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
+import type { WebSocketError } from 'ws';
+import type { ScreenSnapshot } from '../../session/session-output.ts';
 import type { Session } from '../../session/sessions.ts';
 import { CONTROL_FRAME_MAX_BYTES } from '../../shared/contracts/control-messages.ts';
-import { parseDataClientMessage } from '../../shared/contracts/data-messages.ts';
+import { parseDataAttachHistory, parseDataClientMessage } from '../../shared/contracts/data-messages.ts';
 import type { PtySizeFrame } from '../../shared/contracts/data-messages.ts';
 import { createReplayLog } from '../core/control-replay-core.ts';
 import type { ControlMessageRecord, ReplayLog } from '../core/control-replay-core.ts';
@@ -149,98 +150,125 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
         socket.close(1008, 'Session not found');
         return;
       }
-
-      let viewerSizes = sessionDataClients.get(sessionId);
-      if (!viewerSizes) {
-        viewerSizes = new Map();
-        sessionDataClients.set(sessionId, viewerSizes);
+      socket.on('error', (error) => reportDataSocketError(session, error));
+      if (parseDataAttachHistory(request.url) === 'screen') {
+        wireDataSocket(socket, session, sessionId, session.getScreenSnapshot());
+        return;
       }
-      const activeSessionId = sessionId;
-      const viewerSizeMap = viewerSizes;
-      viewerSizeMap.set(socket, null);
-
-      const applyResolvedSize = (departing: boolean): void => {
-        const resolved = resolveSessionSize({
-          viewers: viewerSizeMap,
-          ...(departing ? { departingKey: socket } : {}),
-          current: session.ptySize(),
-        });
-        if (!resolved.changed) return;
-        session.resize(resolved.cols, resolved.rows);
+      const messagesBeforeWiring: unknown[] = [];
+      const holdMessage = (raw: unknown): void => {
+        messagesBeforeWiring.push(raw);
       };
-
-      const releaseViewerSize = (): void => {
-        if (!viewerSizeMap.get(socket)) return;
-        viewerSizeMap.set(socket, null);
-        if (sessionDataClients.get(activeSessionId) !== viewerSizeMap) return;
-        applyResolvedSize(true);
-      };
-
-      const snapshot = session.getScreenSnapshot();
-      const sender = createWsSender(socket, {
-        source: { getBufferSince: (offset: number) => session.getBufferSince(offset) },
-        startOffset: snapshot.offset,
-      });
-      sendPtySizeFrame(sender, session.ptySize());
-      if (snapshot.data) sender.sendImmediate(snapshot.data, 0);
-
-      const dataListener = (data: string) => sender.onData(data);
-      session.on('data', dataListener);
-      const resizeListener = (size: { cols: number; rows: number; seq: number }) => sendPtySizeFrame(sender, size);
-      session.on('resize', resizeListener);
-      socket.on('message', (raw) => {
-        const message = parseDataClientMessage(String(raw));
-        if (!message) return;
-
-        if (message.type === 'input') {
-          if (message.data.length > 16384) {
-            logger.warn(`[data-ws] Rejected oversized input (${message.data.length} chars) for ${session.name}`);
-            broadcastControl({
-              type: 'session-error',
-              id: session.id,
-              session: session.name,
-              message: 'Paste too large - try pasting smaller chunks',
-              timestamp: Date.now(),
-            });
+      socket.on('message', holdMessage);
+      session.getDeepScreenSnapshot().then(
+        (snapshot) => {
+          socket.off('message', holdMessage);
+          if (socket.readyState !== WebSocket.OPEN) return;
+          if (getSession(sessionId) !== session) {
+            socket.close(1008, 'Session not found');
             return;
           }
-          session.write(message.data);
-          sender.markInputFlush();
-          session.noteOperatorInput(message.data);
+          wireDataSocket(socket, session, sessionId, snapshot);
+          for (const raw of messagesBeforeWiring) socket.emit('message', raw, false);
+        },
+        (error: unknown) => {
+          logger.warn(`[data-ws] Deep history failed for ${session.name}: ${String(error)}`);
+          socket.close(1011, 'History unavailable');
+        },
+      );
+    });
+  }
+
+  function reportDataSocketError(session: Session, error: WebSocketError): void {
+    const isPayload = error.code === 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH';
+    const reason = isPayload ? 'Message too large - try pasting smaller chunks' : error.message;
+    logger.warn(`[data-ws] Error for ${session.name}: ${error.message}`);
+    broadcastControl({
+      type: 'session-error',
+      id: session.id,
+      session: session.name,
+      message: reason,
+      timestamp: Date.now(),
+    });
+  }
+
+  function wireDataSocket(socket: WebSocket, session: Session, sessionId: string, snapshot: ScreenSnapshot): void {
+    let viewerSizes = sessionDataClients.get(sessionId);
+    if (!viewerSizes) {
+      viewerSizes = new Map();
+      sessionDataClients.set(sessionId, viewerSizes);
+    }
+    const activeSessionId = sessionId;
+    const viewerSizeMap = viewerSizes;
+    viewerSizeMap.set(socket, null);
+
+    const applyResolvedSize = (departing: boolean): void => {
+      const resolved = resolveSessionSize({
+        viewers: viewerSizeMap,
+        ...(departing ? { departingKey: socket } : {}),
+        current: session.ptySize(),
+      });
+      if (!resolved.changed) return;
+      session.resize(resolved.cols, resolved.rows);
+    };
+
+    const releaseViewerSize = (): void => {
+      if (!viewerSizeMap.get(socket)) return;
+      viewerSizeMap.set(socket, null);
+      if (sessionDataClients.get(activeSessionId) !== viewerSizeMap) return;
+      applyResolvedSize(true);
+    };
+
+    const sender = createWsSender(socket, {
+      source: { getBufferSince: (offset: number) => session.getBufferSince(offset) },
+      startOffset: snapshot.offset,
+    });
+    sendPtySizeFrame(sender, session.ptySize());
+    if (snapshot.data) sender.sendImmediate(snapshot.data, 0);
+
+    const dataListener = (data: string) => sender.onData(data);
+    session.on('data', dataListener);
+    const resizeListener = (size: { cols: number; rows: number; seq: number }) => sendPtySizeFrame(sender, size);
+    session.on('resize', resizeListener);
+    socket.on('message', (raw) => {
+      const message = parseDataClientMessage(String(raw));
+      if (!message) return;
+
+      if (message.type === 'input') {
+        if (message.data.length > 16384) {
+          logger.warn(`[data-ws] Rejected oversized input (${message.data.length} chars) for ${session.name}`);
+          broadcastControl({
+            type: 'session-error',
+            id: session.id,
+            session: session.name,
+            message: 'Paste too large - try pasting smaller chunks',
+            timestamp: Date.now(),
+          });
           return;
         }
-        if (message.type === 'claim') {
-          nextViewerResizeSeq += 1;
-          viewerSizeMap.set(socket, { cols: message.cols, rows: message.rows, resizeSeq: nextViewerResizeSeq });
-          applyResolvedSize(false);
-          return;
-        }
-        if (message.type === 'unview') releaseViewerSize();
-      });
+        session.write(message.data);
+        sender.markInputFlush();
+        session.noteOperatorInput(message.data);
+        return;
+      }
+      if (message.type === 'claim') {
+        nextViewerResizeSeq += 1;
+        viewerSizeMap.set(socket, { cols: message.cols, rows: message.rows, resizeSeq: nextViewerResizeSeq });
+        applyResolvedSize(false);
+        return;
+      }
+      if (message.type === 'unview') releaseViewerSize();
+    });
 
-      socket.on('error', (error) => {
-        const isPayload = error.code === 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH';
-        const reason = isPayload ? 'Message too large - try pasting smaller chunks' : error.message;
-        logger.warn(`[data-ws] Error for ${session.name}: ${error.message}`);
-        broadcastControl({
-          type: 'session-error',
-          id: session.id,
-          session: session.name,
-          message: reason,
-          timestamp: Date.now(),
-        });
-      });
-
-      socket.on('close', () => {
-        session.removeListener('data', dataListener);
-        session.removeListener('resize', resizeListener);
-        sender.destroy();
-        releaseViewerSize();
-        const clients = sessionDataClients.get(activeSessionId);
-        if (!clients) return;
-        clients.delete(socket);
-        if (clients.size === 0) sessionDataClients.delete(activeSessionId);
-      });
+    socket.on('close', () => {
+      session.removeListener('data', dataListener);
+      session.removeListener('resize', resizeListener);
+      sender.destroy();
+      releaseViewerSize();
+      const clients = sessionDataClients.get(activeSessionId);
+      if (!clients) return;
+      clients.delete(socket);
+      if (clients.size === 0) sessionDataClients.delete(activeSessionId);
     });
   }
 

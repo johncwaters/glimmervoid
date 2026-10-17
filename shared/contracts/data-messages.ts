@@ -23,6 +23,11 @@ export const PtySizeFrame = z.object({
 });
 export type PtySizeFrame = z.infer<typeof PtySizeFrame>;
 
+export const DATA_ATTACH_HISTORY_PARAM = 'history';
+
+export const DataAttachHistory = z.enum(['screen', 'deep']);
+export type DataAttachHistory = z.infer<typeof DataAttachHistory>;
+
 function decodeJson(raw: string): unknown {
   try {
     return JSON.parse(raw);
@@ -40,5 +45,15 @@ export function parseDataClientMessage(raw: string): DataClientMessage | null {
 export function parsePtySizeFrame(raw: string): PtySizeFrame | null {
   const parsed = PtySizeFrame.safeParse(decodeJson(raw));
   if (!parsed.success) return null;
+  return parsed.data;
+}
+
+export function parseDataAttachHistory(rawUrl: unknown): DataAttachHistory {
+  if (typeof rawUrl !== 'string') return 'screen';
+  const queryAt = rawUrl.indexOf('?');
+  if (queryAt === -1) return 'screen';
+  const query = new URLSearchParams(rawUrl.slice(queryAt + 1).split('#')[0]);
+  const parsed = DataAttachHistory.safeParse(query.get(DATA_ATTACH_HISTORY_PARAM));
+  if (!parsed.success) return 'screen';
   return parsed.data;
 }
