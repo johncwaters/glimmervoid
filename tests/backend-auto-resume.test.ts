@@ -10,7 +10,7 @@ import { createBackend, runAutoResume, persistSessionField, decideWasActiveFlip 
 import { createConfigStore } from '../server/config-store.ts';
 import type { ConfigStore } from '../server/config-store.ts';
 import type { RegistryConfig } from '../server/session/session-registry.ts';
-import { createSpawnGate } from '../server/spawn-gate.ts';
+import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts';
 import { Session } from '../session/sessions.ts';
 import { encodeProjectDir } from '../session/core/conversation-history.ts';
 import { AUTO_CONTINUE_PROMPT } from '../session/core/auto-resume.ts';
@@ -259,6 +259,40 @@ test('runAutoResume does not double-spawn a session started externally while que
     assert.equal(calls.length, 1, 'the gate-queued auto-resume job re-checked and saw the session was no longer DORMANT');
   } finally {
     sess.destroy();
+  }
+});
+
+test('runAutoResume holds each start until memory headroom covers its reserve plus starts admitted in the last 30 s', async () => {
+  const calls: SpawnCall[] = [];
+  const resumeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
+  writeClaudeTranscript(process.cwd(), resumeSessionId);
+  const first = fakeSession('first', resumeSessionId, calls);
+  const second = fakeSession('second', resumeSessionId, calls);
+  const megabyte = 1024 * 1024;
+  let headroomBytes = 100 * megabyte;
+  let clockMs = 0;
+  const spawnedAtEachRecheck: number[] = [];
+  const memoryAdmission = createMemoryAdmission({
+    readHeadroom: async () => ({ ok: true, headroomBytes }),
+    reserveBytesFor: () => 600 * megabyte,
+    nowMs: () => clockMs,
+    sleep: async (ms) => {
+      clockMs += ms;
+      spawnedAtEachRecheck.push(calls.length);
+      if (spawnedAtEachRecheck.length === 2) headroomBytes = 700 * megabyte;
+    },
+  });
+  const cfg = autoResumeConfig([
+    { id: 'first', wasActive: true, resumeSessionId },
+    { id: 'second', wasActive: true, resumeSessionId },
+  ], true);
+  try {
+    await runAutoResume(new Map([['first', first], ['second', second]]), cfg, createSpawnGate({ memoryAdmission }));
+    assert.deepEqual(spawnedAtEachRecheck, [0, 0, 1, 1, 1, 1, 1, 1], 'first waits for headroom, second waits out the first reservation');
+    assert.deepEqual(calls.map((call) => call.id), ['first', 'second']);
+    assert.equal(memoryAdmission.waitingCount(), 0);
+  } finally {
+    first.destroy(); second.destroy();
   }
 });
 

@@ -1,7 +1,12 @@
+import { MEMORY_RECHECK_MS, shouldAdmitStart, liveReservations } from './core/memory-admission-core.ts';
+import type { MemoryReading, MemoryReservation, MemoryStartKind } from './core/memory-admission-core.ts';
+
+const BYTES_PER_MEGABYTE = 1024 * 1024;
 const QUEUE_ADMISSION_TIMED_OUT = 'serial-queue-admission-timed-out';
 
 interface SerialQueueRunOptions {
   admissionTimeoutMs?: number;
+  isStillWanted?: () => boolean;
 }
 
 interface SerialQueue {
@@ -68,6 +73,100 @@ function createKeyedSerialQueue(): KeyedSerialQueue {
   return { run };
 }
 
-const createSpawnGate = createSerialQueue;
+interface MemoryWaitOptions {
+  isStillWanted?: () => boolean;
+}
 
-export { createKeyedSerialQueue, createSerialQueue, createSpawnGate, isQueueAdmissionTimeout };
+interface MemoryAdmission {
+  waitForHeadroom(kind: MemoryStartKind, options?: MemoryWaitOptions): Promise<void>;
+  waitingCount(): number;
+}
+
+interface HeadroomShortfall {
+  headroomBytes: number;
+  heldBytes: number;
+  reserveBytes: number;
+}
+
+interface MemoryAdmissionOptions {
+  readHeadroom: () => Promise<MemoryReading>;
+  reserveBytesFor: (kind: MemoryStartKind) => number;
+  nowMs?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  warn?: (message: string) => void;
+}
+
+function toMegabytes(bytes: number): number {
+  return Math.round(bytes / BYTES_PER_MEGABYTE);
+}
+
+function createMemoryAdmission({
+  readHeadroom, reserveBytesFor, nowMs = Date.now,
+  sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
+  warn = (message) => console.warn(message),
+}: MemoryAdmissionOptions): MemoryAdmission {
+  let reservations: MemoryReservation[] = [];
+  let isInProbeFailureStreak = false;
+  let waitingStarts = 0;
+
+  function noteReading(reading: MemoryReading): void {
+    if (reading.ok) {
+      isInProbeFailureStreak = false;
+      return;
+    }
+    if (isInProbeFailureStreak) return;
+    isInProbeFailureStreak = true;
+    warn(`[memory] could not read memory headroom, so starts go ahead unchecked: ${reading.reason}`);
+  }
+
+  async function admitOrDescribeShortfall(kind: MemoryStartKind): Promise<HeadroomShortfall | null> {
+    const reserveBytes = reserveBytesFor(kind);
+    if (reserveBytes <= 0) return null;
+    const reading = await readHeadroom();
+    const admittedAtMs = nowMs();
+    reservations = liveReservations(reservations, admittedAtMs);
+    noteReading(reading);
+    if (shouldAdmitStart({ reading, reserveBytes, reservations, nowMs: admittedAtMs })) {
+      reservations.push({ bytes: reserveBytes, admittedAtMs });
+      return null;
+    }
+    const heldBytes = reservations.reduce((total, reservation) => total + reservation.bytes, 0);
+    return { headroomBytes: reading.ok ? reading.headroomBytes : 0, heldBytes, reserveBytes };
+  }
+
+  async function recheckUntilAdmitted(kind: MemoryStartKind, isStillWanted: () => boolean): Promise<boolean> {
+    waitingStarts += 1;
+    try {
+      do {
+        await sleep(MEMORY_RECHECK_MS);
+        if (!isStillWanted()) return false;
+      } while ((await admitOrDescribeShortfall(kind)) !== null);
+      return true;
+    } finally {
+      waitingStarts -= 1;
+    }
+  }
+
+  async function waitForHeadroom(kind: MemoryStartKind, { isStillWanted = () => true }: MemoryWaitOptions = {}): Promise<void> {
+    if (!isStillWanted()) return;
+    const shortfall = await admitOrDescribeShortfall(kind);
+    if (shortfall === null) return;
+    const waitStartedAtMs = nowMs();
+    warn(`[memory] holding a ${kind} start: ${toMegabytes(shortfall.headroomBytes)} MB headroom, ${toMegabytes(shortfall.heldBytes)} MB held for recent starts, ${toMegabytes(shortfall.reserveBytes)} MB reserve needed`);
+    if (!(await recheckUntilAdmitted(kind, isStillWanted))) return;
+    warn(`[memory] admitted a ${kind} start after waiting ${Math.round((nowMs() - waitStartedAtMs) / 1000)} s`);
+  }
+
+  return { waitForHeadroom, waitingCount: () => waitingStarts };
+}
+
+function createSpawnGate({ memoryAdmission = null }: { memoryAdmission?: MemoryAdmission | null } = {}): SerialQueue {
+  const queue = createSerialQueue();
+  if (!memoryAdmission) return queue;
+  return {
+    run: <T>(fn: () => T | Promise<T>, options?: SerialQueueRunOptions) => queue.run(() => memoryAdmission.waitForHeadroom('session', options).then(fn), options),
+    idle: queue.idle,
+  };
+}
+
+export { createKeyedSerialQueue, createMemoryAdmission, createSerialQueue, createSpawnGate, isQueueAdmissionTimeout };

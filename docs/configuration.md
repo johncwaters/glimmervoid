@@ -37,6 +37,8 @@ How sessions start, where projects are found, and what the dashboard shows for t
 | `streamerMode` | Streamer mode | `false` | Hide sensitive details in the dashboard while screen sharing or streaming. |
 | `repoRoots` | Repository roots | `[]` | Directories scanned for projects when adding sessions. |
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
+| `sessionMemoryReserveMB` | Session memory reserve | `600` | Free memory an automatic session start waits for; 0 starts sessions without checking. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `checkMemoryReserveMB` | Check run memory reserve | `1500` | Free memory a factory check run waits for; 0 runs checks without checking. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ### Guardrails and unattended
 

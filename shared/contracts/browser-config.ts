@@ -253,6 +253,8 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   notifyDebounceMs: z.number().finite().nonnegative().optional(),
   phoneEscalationMs: z.number().finite().nonnegative().optional(),
   replayBufferKB: optionalWholeNumber('replayBufferKB', ranges.REPLAY_BUFFER_KB_RANGE),
+  sessionMemoryReserveMB: optionalWholeNumber('sessionMemoryReserveMB', ranges.MEMORY_RESERVE_MB_RANGE),
+  checkMemoryReserveMB: optionalWholeNumber('checkMemoryReserveMB', ranges.MEMORY_RESERVE_MB_RANGE),
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
   conversationView: optionalBoolean('conversationView'),

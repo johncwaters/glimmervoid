@@ -20,6 +20,7 @@ import { errorLabel, errorMessage } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { normalizeLegacyConfigNumbers } from '../shared/contracts/config-numbers-core.ts';
 import { assetForPlatform } from './core/rtk-install-core.ts';
+import { DEFAULT_CHECK_MEMORY_RESERVE_MB, DEFAULT_SESSION_MEMORY_RESERVE_MB } from './core/memory-admission-core.ts';
 
 type ProjectEntry = Config['projects'][number] & { id: string; name: string };
 interface GlimmervoidConfig extends Config {
@@ -44,6 +45,10 @@ const DEFAULT_CONFIG = {
   detectScheduledWakeups: true,
 
   replayBufferKB: 512,
+
+  sessionMemoryReserveMB: DEFAULT_SESSION_MEMORY_RESERVE_MB,
+
+  checkMemoryReserveMB: DEFAULT_CHECK_MEMORY_RESERVE_MB,
 
   recordSignals: true,
 

@@ -3,7 +3,7 @@ import {
   CHANGE_MAP_NARRATOR_TIMEOUT_RANGE, FACTORY_MAX_LIVE_WORKERS_RANGE, FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_GAP_RANGE,
   FLYING_ANIMALS_SCALE_RANGE, KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, NON_NEGATIVE_NUMBER_RANGE, PORT_RANGE, POSITIVE_NUMBER_RANGE,
   POSTHOG_FIX_TIMEOUT_RANGE, POSTHOG_TRAFFIC_BASELINE_RANGE, POSTHOG_TRAFFIC_MIN_USERS_RANGE, POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
-  REPLAY_BUFFER_KB_RANGE, TASK_TITLE_TIMEOUT_RANGE, USAGE_BUDGET_RANGE, USAGE_INTEGER_RANGES, USAGE_RETAIN_DAYS_RANGE, USAGE_SCAN_INTERVAL_RANGE,
+  MEMORY_RESERVE_MB_RANGE, REPLAY_BUFFER_KB_RANGE, TASK_TITLE_TIMEOUT_RANGE, USAGE_BUDGET_RANGE, USAGE_INTEGER_RANGES, USAGE_RETAIN_DAYS_RANGE, USAGE_SCAN_INTERVAL_RANGE,
   WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE, WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE,
 } from '../settings-ranges.ts';
 import type { SettingsRange } from '../settings-ranges.ts';
@@ -737,6 +737,18 @@ const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     description: 'PTY output retained for clients that reconnect or join late.',
     control: 'number', range: REPLAY_BUFFER_KB_RANGE, unit: { label: 'KB', storedPerDisplay: 1 }, keywords: ['history', 'backfill'], defaultValue: 512,
     takesEffect: 'new-sessions', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-session-memory-reserve', path: 'sessionMemoryReserveMB', title: 'Session memory reserve', group: 'machine-sessions',
+    description: 'Free memory an automatic session start waits for; 0 starts sessions without checking.',
+    control: 'number', range: MEMORY_RESERVE_MB_RANGE, unit: { label: 'MB', storedPerDisplay: 1 }, keywords: ['memory', 'headroom'], defaultValue: 600,
+    takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-check-memory-reserve', path: 'checkMemoryReserveMB', title: 'Check run memory reserve', group: 'machine-sessions',
+    description: 'Free memory a factory check run waits for; 0 runs checks without checking.',
+    control: 'number', range: MEMORY_RESERVE_MB_RANGE, unit: { label: 'MB', storedPerDisplay: 1 }, keywords: ['memory', 'factory'], defaultValue: 1500,
+    takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
     id: 'file-cursor-blink', path: 'cursorBlink', title: 'Cursor blink', group: 'machine-terminal',

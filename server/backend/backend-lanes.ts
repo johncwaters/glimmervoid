@@ -29,7 +29,9 @@ import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import { createPlanReviewWiring } from '../plan-review-wiring.ts';
 import { createRadarWiring } from '../radar/radar-wiring.ts';
 import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
-import { createSpawnGate } from '../spawn-gate.ts';
+import { createMemoryAdmission, createSpawnGate } from '../spawn-gate.ts';
+import { readMemoryHeadroom } from '../memory-probe.ts';
+import { memoryReserveBytes } from '../core/memory-admission-core.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { createTeamReviewSpawn, createTeamReviewWiring, sweepLeftoverCheckouts } from '../github/team-review-wiring.ts';
 import { createPrGh } from '../github/pr-gh.ts';
@@ -108,7 +110,12 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     telemetry,
     logger,
   } = dependencies;
-  const spawnGate = createSpawnGate();
+  const memoryAdmission = createMemoryAdmission({
+    readHeadroom: () => readMemoryHeadroom(),
+    reserveBytesFor: (kind) => memoryReserveBytes(configStore.config, kind),
+    warn: (message) => logger.warn(message),
+  });
+  const spawnGate = createSpawnGate({ memoryAdmission });
   const gitWorkspace = createGitWorkspace({ rerere: config.worktreeRerere !== false });
   const gitWorkspaceSync = createGitWorkspaceSync();
   const laneLedger = createLaneLedger({

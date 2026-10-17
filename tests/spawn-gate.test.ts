@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createSpawnGate, isQueueAdmissionTimeout } from '../server/spawn-gate.ts';
+import { createMemoryAdmission, createSpawnGate, isQueueAdmissionTimeout } from '../server/spawn-gate.ts';
 
 function deferredResolve(): { promise: Promise<void>; resolve: () => void } {
   let settle: () => void = () => {};
@@ -70,4 +70,34 @@ test('an admission timeout leaves the queue usable for the next caller', async (
   blocked.resolve();
   await holding;
   assert.equal(await gate.run(() => 'ok'), 'ok');
+});
+
+test('an unreadable memory probe lets every start through and warns once per failure streak', async () => {
+  const readings = [false, false, true, false];
+  const warnings: string[] = [];
+  const memoryAdmission = createMemoryAdmission({
+    readHeadroom: async () => (readings.shift() ? { ok: true, headroomBytes: 1e12 } : { ok: false, reason: 'no cgroup' }),
+    reserveBytesFor: () => 1,
+    warn: (message) => warnings.push(message),
+  });
+  const gate = createSpawnGate({ memoryAdmission });
+  const started = await Promise.all([1, 2, 3, 4].map((startNumber) => gate.run(() => startNumber)));
+  assert.deepEqual(started, [1, 2, 3, 4]);
+  assert.equal(warnings.length, 2, 'one warning for each run of failed reads');
+});
+
+test('a start that is no longer wanted takes no memory reservation, so the next real start is admitted at once', async () => {
+  const megabyte = 1024 * 1024;
+  let sleepCount = 0;
+  const memoryAdmission = createMemoryAdmission({
+    readHeadroom: async () => ({ ok: true, headroomBytes: 1300 * megabyte }),
+    reserveBytesFor: () => 600 * megabyte,
+    sleep: async () => { sleepCount += 1; },
+    warn: () => {},
+  });
+  const gate = createSpawnGate({ memoryAdmission });
+  const abandonedStarts = [1, 2].map(() => gate.run(() => 'skipped', { isStillWanted: () => false }));
+  assert.equal(await gate.run(() => 'started'), 'started');
+  assert.deepEqual(await Promise.all(abandonedStarts), ['skipped', 'skipped']);
+  assert.equal(sleepCount, 0);
 });
