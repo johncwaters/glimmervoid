@@ -191,7 +191,8 @@ test('a check run held for memory waits without failing or charging the ticket, 
       await new Promise<void>((resolve) => { admitCheckRun = resolve; });
       options?.onMemoryWait?.(false);
     },
-    waitingCount: () => 0,
+    noteStartHeld: () => {},
+    gateStatus: () => ({ headroomBytes: null, headroomReadAtMs: null, heldStartCount: 0 }),
   };
   const checkRunGate = createSpawnGate({ memoryAdmission, kind: 'checkRun' });
   const fixture = await createFixture(context, true, { checkRunGate, onCheckMemoryWait: (projectId, isWaiting) => memoryWaits.push([projectId, isWaiting]) });

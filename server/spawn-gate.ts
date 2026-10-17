@@ -93,9 +93,16 @@ interface MemoryWaitOptions {
   onMemoryWait?: (isWaiting: boolean) => void;
 }
 
+interface MemoryGateStatus {
+  headroomBytes: number | null;
+  headroomReadAtMs: number | null;
+  heldStartCount: number;
+}
+
 interface MemoryAdmission {
   waitForHeadroom(kind: MemoryStartKind, options?: MemoryWaitOptions): Promise<void>;
-  waitingCount(): number;
+  noteStartHeld(isHeld: boolean): void;
+  gateStatus(): MemoryGateStatus;
 }
 
 interface HeadroomShortfall {
@@ -123,9 +130,13 @@ function createMemoryAdmission({
 }: MemoryAdmissionOptions): MemoryAdmission {
   let reservations: MemoryReservation[] = [];
   let isInProbeFailureStreak = false;
-  let waitingStarts = 0;
+  let heldStartCount = 0;
+  let latestHeadroomBytes: number | null = null;
+  let latestHeadroomReadAtMs: number | null = null;
 
-  function noteReading(reading: MemoryReading): void {
+  function noteReading(reading: MemoryReading, readAtMs: number): void {
+    latestHeadroomReadAtMs = readAtMs;
+    latestHeadroomBytes = reading.ok ? reading.headroomBytes : null;
     if (reading.ok) {
       isInProbeFailureStreak = false;
       return;
@@ -141,7 +152,7 @@ function createMemoryAdmission({
     const reading = await readHeadroom();
     const admittedAtMs = nowMs();
     reservations = liveReservations(reservations, admittedAtMs);
-    noteReading(reading);
+    noteReading(reading, admittedAtMs);
     if (shouldAdmitStart({ reading, reserveBytes, reservations, nowMs: admittedAtMs })) {
       reservations.push({ bytes: reserveBytes, admittedAtMs });
       return null;
@@ -151,16 +162,11 @@ function createMemoryAdmission({
   }
 
   async function recheckUntilAdmitted(kind: MemoryStartKind, isStillWanted: () => boolean): Promise<boolean> {
-    waitingStarts += 1;
-    try {
-      do {
-        await sleep(MEMORY_RECHECK_MS);
-        if (!isStillWanted()) return false;
-      } while ((await admitOrDescribeShortfall(kind)) !== null);
-      return true;
-    } finally {
-      waitingStarts -= 1;
-    }
+    do {
+      await sleep(MEMORY_RECHECK_MS);
+      if (!isStillWanted()) return false;
+    } while ((await admitOrDescribeShortfall(kind)) !== null);
+    return true;
   }
 
   async function waitForHeadroom(kind: MemoryStartKind, { isStillWanted = () => true, onMemoryWait = () => {} }: MemoryWaitOptions = {}): Promise<void> {
@@ -176,7 +182,11 @@ function createMemoryAdmission({
     warn(`[memory] admitted a ${kind} start after waiting ${Math.round((nowMs() - waitStartedAtMs) / 1000)} s`);
   }
 
-  return { waitForHeadroom, waitingCount: () => waitingStarts };
+  return {
+    waitForHeadroom,
+    noteStartHeld: (isHeld) => { heldStartCount += isHeld ? 1 : -1; },
+    gateStatus: () => ({ headroomBytes: latestHeadroomBytes, headroomReadAtMs: latestHeadroomReadAtMs, heldStartCount }),
+  };
 }
 
 interface QueuedStart {
@@ -195,12 +205,14 @@ function createSpawnGate({ memoryAdmission = null, kind = 'session' }: { memoryA
   function flagWaitingForMemory(queuedStart: QueuedStart): void {
     if (flaggedStarts.has(queuedStart) || !queuedStart.isStillWanted()) return;
     flaggedStarts.add(queuedStart);
+    admission.noteStartHeld(true);
     queuedStart.onMemoryWait(true);
   }
 
   function leaveQueue(queuedStart: QueuedStart): void {
     queuedStarts.delete(queuedStart);
     if (!flaggedStarts.delete(queuedStart)) return;
+    admission.noteStartHeld(false);
     queuedStart.onMemoryWait(false);
   }
 
@@ -225,4 +237,4 @@ function createSpawnGate({ memoryAdmission = null, kind = 'session' }: { memoryA
 }
 
 export { createKeyedSerialQueue, createMemoryAdmission, createSerialQueue, createSpawnGate, isQueueAdmissionAbandoned, isQueueAdmissionTimeout };
-export type { MemoryAdmission, SerialQueue };
+export type { MemoryAdmission, MemoryGateStatus, SerialQueue };

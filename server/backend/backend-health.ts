@@ -1,5 +1,6 @@
 import type { WebSocket } from 'ws';
 import type { Session } from '../../session/sessions.ts';
+import type { MemoryGateStatus } from '../spawn-gate.ts';
 import { STATES } from '../../shared/states.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 
@@ -14,6 +15,7 @@ interface BackendHealthDependencies {
   getAllSessions: () => Session[];
   sessionDataClients: Map<string, Map<WebSocket, unknown>>;
   getIngestLane: () => IngestTapReader | null;
+  getMemoryGateStatus: () => MemoryGateStatus;
   controlWss: { clients: Set<WebSocket> };
   dataWss: { clients: Set<WebSocket> };
   broadcastControl: ControlBroadcast;
@@ -80,6 +82,7 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
         totalOutputBufferBytes,
         list: sessionStats,
       },
+      memoryGate: dependencies.getMemoryGateStatus(),
       websockets: {
         control: dependencies.controlWss.clients.size,
         data: dependencies.dataWss.clients.size,

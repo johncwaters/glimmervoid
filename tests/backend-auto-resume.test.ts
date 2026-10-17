@@ -296,7 +296,7 @@ test('runAutoResume holds each start until memory headroom covers its reserve pl
     await runAutoResume(new Map([['first', first], ['second', second]]), cfg, createSpawnGate({ memoryAdmission }));
     assert.deepEqual(spawnedAtEachRecheck, [0, 0, 1, 1, 1, 1, 1, 1], 'first waits for headroom, second waits out the first reservation');
     assert.deepEqual(calls.map((call) => call.id), ['first', 'second']);
-    assert.equal(memoryAdmission.waitingCount(), 0);
+    assert.deepEqual(memoryAdmission.gateStatus(), { headroomBytes: 700 * megabyte, headroomReadAtMs: clockMs, heldStartCount: 0 }, 'the health snapshot sees the last reading and no start left held');
     const flagChangesOf = (flags: boolean[]) => flags.filter((isWaiting, index) => isWaiting !== (flags[index - 1] ?? false));
     assert.deepEqual(flagChangesOf(firstWaitFlags), [true, false], 'the flag is raised once while held and cleared on admission');
     assert.deepEqual(flagChangesOf(secondWaitFlags), [true, false], 'the queued card keeps its flag across both holds and clears it on its own admission');

@@ -207,6 +207,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getAllSessions: () => allLiveSessions(),
     sessionDataClients,
     getIngestLane: getCurrentIngestLane,
+    getMemoryGateStatus: () => laneAssembly.memoryAdmission.gateStatus(),
     controlWss,
     dataWss,
     broadcastControl,

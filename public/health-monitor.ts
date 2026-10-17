@@ -41,6 +41,7 @@ export interface HealthSnapshot {
     totalOutputBufferBytes: number;
     list: HealthSession[];
   };
+  memoryGate?: { headroomBytes: number | null; headroomReadAtMs: number | null; heldStartCount: number };
   websockets: { control: number; data: number; dataPerSessionTotal: number };
   anomalies: HealthAnomalies;
 }
@@ -62,6 +63,11 @@ function formatBytes(n: number | null | undefined) {
 function formatUptime(s: number | null | undefined) {
   if (s == null) return NO_VALUE;
   return twoUnitDurationText(s, { smallestUnit: 's', dropsZeroRemainder: false });
+}
+
+function formatReadAge(readAtMs: number | null | undefined) {
+  if (readAtMs == null) return NO_VALUE;
+  return `${formatUptime(Math.max(0, Math.round((Date.now() - readAtMs) / 1000)))} ago`;
 }
 
 function buildPanel() {
@@ -107,6 +113,7 @@ function renderSummary() {
     <span class="health-stat" title="Resident set size (process memory)"><span class="health-stat-label">RSS</span> ${formatBytes(s.process.rss)}</span>
     <span class="health-stat" title="External buffers (PTY data lives here)"><span class="health-stat-label">Ext</span> ${formatBytes(s.process.external)}</span>
     <span class="health-stat" title="Active resources (handles + requests)"><span class="health-stat-label">Hdl</span> ${s.process.activeResources}</span>
+    <span class="health-stat" title="Memory headroom at the last start check, and starts held for memory"><span class="health-stat-label">Mem</span> ${formatBytes(s.memoryGate?.headroomBytes)} / ${s.memoryGate?.heldStartCount ?? 0} held</span>
     <span class="health-stat" title="Sessions: alivePty / total"><span class="health-stat-label">Sess</span> ${s.sessions.alivePty}/${s.sessions.total}</span>
     <span class="health-stat" title="WebSockets: control + data"><span class="health-stat-label">WS</span> ${s.websockets.control}+${s.websockets.data}</span>
     <span class="health-stat" title="Server uptime"><span class="health-stat-label">Up</span> ${formatUptime(s.uptimeSeconds)}</span>
@@ -167,6 +174,15 @@ function renderDetail() {
         <div class="health-row"><span class="health-label">Array buffers</span><span class="health-mono">${formatBytes(p.arrayBuffers)}</span></div>
         <div class="health-row"><span class="health-label">Active resources</span><span class="health-mono">${p.activeResources}</span></div>
         <div class="health-row"><span class="health-label">Uptime</span><span class="health-mono">${formatUptime(s.uptimeSeconds)}</span></div>
+      </div>
+    </div>
+
+    <div class="health-section">
+      <div class="health-section-title">Memory gate</div>
+      <div class="health-grid">
+        <div class="health-row"><span class="health-label">Headroom</span><span class="health-mono">${formatBytes(s.memoryGate?.headroomBytes)}</span></div>
+        <div class="health-row"><span class="health-label">Read</span><span class="health-mono">${formatReadAge(s.memoryGate?.headroomReadAtMs)}</span></div>
+        <div class="health-row"><span class="health-label">Starts held</span><span class="health-mono">${s.memoryGate?.heldStartCount ?? 0}</span></div>
       </div>
     </div>
 

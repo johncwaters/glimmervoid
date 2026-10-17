@@ -549,6 +549,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     restartServiceLanes,
     reviewSessions,
     spawnGate,
+    memoryAdmission,
     teamReview,
     myPrs,
     issues,
