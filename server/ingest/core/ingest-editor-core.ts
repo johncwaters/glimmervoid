@@ -73,4 +73,4 @@ function applyEditorNotification(
   };
 }
 
-export { ACTIVITY_METHOD, SOURCE, applyEditorNotification, createEditorState };
+export { ACTIVITY_METHOD, applyEditorNotification, createEditorState };

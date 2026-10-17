@@ -41,4 +41,3 @@ function decideDiffSelfHeal(
 }
 
 export { decideSignatureDemotion, decideBaseSyncDemotion, decideDiffSelfHeal };
-export type { WorktreeSignature };

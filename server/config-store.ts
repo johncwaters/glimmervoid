@@ -31,9 +31,6 @@ type EnvSecrets = ReturnType<typeof readEnvSecrets>;
 
 const DEFAULT_CONFIG = {
   port: 3000,
-  autoRecoverSeconds: 3,
-  inputGraceSeconds: 5,
-  promptDetectionMs: 1500,
   notifyDebounceMs: 3000,
 
   phoneEscalationMs: 300000,
@@ -513,9 +510,6 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
   function getSettings() {
     return {
       port: config.port,
-      autoRecoverSeconds: config.autoRecoverSeconds,
-      inputGraceSeconds: config.inputGraceSeconds,
-      promptDetectionMs: config.promptDetectionMs,
       notifyDebounceMs: config.notifyDebounceMs,
       phoneEscalationMs: config.phoneEscalationMs ?? DEFAULT_CONFIG.phoneEscalationMs,
       replayBufferKB: config.replayBufferKB,

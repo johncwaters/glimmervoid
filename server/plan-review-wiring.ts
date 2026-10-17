@@ -41,7 +41,6 @@ import {
   selectEntry,
 } from './core/plan-review-core.ts';
 import type {
-  PlanChangedPayload,
   PlanReviewEvent,
   PlanReviewProgress,
   PlanRevisionIndexEntry,
@@ -810,4 +809,4 @@ function createPlanReviewWiring({
 }
 
 export { PLAN_RESULT_BODY_CAP_BYTES, carriesPlanBody, createPlanReviewWiring };
-export type { PlanChangedPayload, PlanDraftNotice, PlanFileWatcherFactory, PlanReadRequest, PlanReadResult, PlanReviewWiringOptions };
+export type { PlanDraftNotice, PlanFileWatcherFactory, PlanReadRequest, PlanReadResult, PlanReviewWiringOptions };

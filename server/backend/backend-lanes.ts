@@ -132,7 +132,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const branchGc = createBranchGcWiring({
     config,
     gitWorkspace,
-    broadcast: broadcastControl,
     liveSessionIds: () => new Set(allLiveSessions().map((session) => session.id)),
     liveWorktreePaths: async () => new Set(await Promise.all(allLiveSessions()
       .flatMap((session) => [session.worktreeDir, session.path])

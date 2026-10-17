@@ -543,4 +543,4 @@ if (process.argv[1] === import.meta.filename) {
   main();
 }
 
-export { ACTIVITY_METHOD, APPLY_EDIT_METHOD, readConfiguredPort, CODE_ACTION_METHOD, CODE_ACTION_TIMEOUT_MS, MAX_DAEMON_FRAME_BYTES, SYNC_KIND_INCREMENTAL, createRelay, daemonMessage, decideDaemonFrame, planMirrorReplay, replayDidOpenMessage, resolvePortPlan, sendWsFrame, sendWsJson };
+export { readConfiguredPort, CODE_ACTION_TIMEOUT_MS, SYNC_KIND_INCREMENTAL, createRelay, resolvePortPlan, sendWsFrame, sendWsJson };

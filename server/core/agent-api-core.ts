@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { AGENT_API_VERBS, AgentDispatchRequest, AgentAttentionRequest, AgentEditRequest, AgentFactoryRetryRequest, AgentFactoryStatusRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
+import { AGENT_API_VERBS, AgentAttentionRequest, AgentEditRequest, AgentFactoryRetryRequest, AgentFactoryStatusRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, OrchestratorAgentVerb, TicketAgentVerb } from '../../shared/contracts/session.ts';
 import type { FactoryProjectState } from '../../shared/contracts/factory.ts';
 import { attentionRoute, editRoute, NO_OWN_WORKTREE_REASON, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
@@ -38,7 +38,6 @@ type AgentVerbRequest =
   | { ok: true; verb: 'limits' }
   | { ok: true; verb: 'factory-status'; request: AgentFactoryStatusRequest }
   | { ok: true; verb: 'factory-retry'; request: AgentFactoryRetryRequest }
-  | { ok: true; verb: 'dispatch'; request: AgentDispatchRequest }
   | { ok: true; verb: 'attention'; request: AgentAttentionRequest }
   | { ok: true; verb: 'edit'; request: AgentEditRequest }
   | { ok: true; verb: 'spawn'; request: AgentSpawnRequest }
@@ -190,12 +189,7 @@ function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVe
     if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
     return { ok: true, verb, request: parsed.data };
   }
-  if (verb === 'dispatch') {
-    const parsed = AgentDispatchRequest.safeParse(payload);
-    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
-    return { ok: true, verb, request: parsed.data };
-  }
-  if (verb === 'reopen' || verb === 'cancel') return { ok: false, status: 403, error: `${verb} requires a live factory orchestrator` };
+  if (isOrchestratorAgentVerb(verb)) return { ok: false, status: 403, error: `${verb} requires a live factory orchestrator` };
   if (verb === 'board' || verb === 'push' || verb === 'limits') return { ok: true, verb };
   if (verb === 'attention') {
     const parsed = AgentAttentionRequest.safeParse(payload);

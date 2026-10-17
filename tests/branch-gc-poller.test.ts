@@ -1114,7 +1114,6 @@ test('default config constructs and starts the lane poller', async () => {
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(createCount, 1);
-  assert.equal(wiring.getStatus().configured, true);
   await wiring.stop();
 });
 
@@ -1135,6 +1134,5 @@ test('disabled config never constructs or starts the lane poller', async () => {
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(createCount, 0);
-  assert.equal(wiring.getStatus().configured, false);
   await wiring.stop();
 });

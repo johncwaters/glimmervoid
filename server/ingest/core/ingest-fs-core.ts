@@ -73,7 +73,6 @@ const DAEMON_CONFIG_SIBLINGS: readonly string[] = Object.freeze([
   'usage-lanes.json',
   'usage-warehouse.json',
   'usage-budget-state.json',
-  'pr-review-state.json',
   'team-review-state.json',
   'pairings.json',
   'pairings-seen.json',
@@ -81,7 +80,6 @@ const DAEMON_CONFIG_SIBLINGS: readonly string[] = Object.freeze([
   'update-check.json',
   'recordings',
   'uploads',
-  'memory',
 ]);
 
 const ACTIVE_SESSION_STATES: readonly string[] = Object.freeze(['INITIALIZING', 'STARTING', 'RUNNING', 'WAITING', 'IDLE', 'COMPLETE']);
@@ -344,7 +342,6 @@ export {
   MAX_FILES_PER_BATCH,
   MAX_TRACKED_FILES,
   MAX_UNTRACKED_KEYS,
-  SOURCE,
   TRUNCATED_SUFFIX,
   batchSize,
   buildIgnorePatterns,

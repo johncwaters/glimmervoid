@@ -33,7 +33,7 @@ function isPairPath(pathname: unknown): boolean {
   if (typeof pathname !== 'string') return false;
   const normalized = normalizePathname(pathname);
   if (normalized.suspicious) return false;
-  return normalized.pathname === '/pair' || normalized.pathname.startsWith(PAIR_PATH_PREFIX);
+  return normalized.pathname.startsWith(PAIR_PATH_PREFIX);
 }
 
 const ENCODED_WORD_SHAPE = /=\?[^?]*\?[^?]*\?[^?]*\?=/;

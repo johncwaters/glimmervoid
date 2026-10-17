@@ -182,4 +182,3 @@ async function listRepoConversations({
 }
 
 export { claudeProjectsDir, encodeProjectDir, listRepoConversations, listRepoWorktreePaths, cleanTitle };
-export type { GitRunner };

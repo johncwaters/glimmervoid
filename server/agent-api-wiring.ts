@@ -201,7 +201,6 @@ function createAgentApiWiring({
       if (!reply.ok) return { status: 409, body: reply };
       return { status: 200, body: { ...reply, text: `Reopened parked tickets: ${reply.reopenedWorkIds.join(', ') || 'none'}` } };
     }
-    if (parsed.verb === 'dispatch') return { status: 403, body: { ok: false, reason: 'dispatch requires a live factory orchestrator' } };
     if (parsed.verb === 'board') return { status: 200, body: { ok: true, sessions: board() } };
     if (parsed.verb === 'push') return push(session);
     if (parsed.verb === 'limits') return { status: 200, body: limits(session) };

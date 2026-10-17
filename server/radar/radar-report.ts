@@ -7,14 +7,9 @@ import { isMissingFileError } from '../../shared/text.ts';
 const DEFAULT_POSTHOG_REPORT_DIR = path.join(glimmervoidHomeDir(), 'posthog-reports');
 const POSTHOG_REPORT_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
-interface ReportCandidate {
-  format: string;
-  reportPath: string;
-}
-
 type ResolvedReportPath =
   | { ok: false; reason: string }
-  | { ok: true; issueId: string; reportDir: string; candidates: ReportCandidate[] };
+  | { ok: true; issueId: string; reportPath: string };
 
 interface ReadReportResult {
   ok: boolean;
@@ -43,20 +38,11 @@ function resolvePosthogReportPath(
 
   const resolvedReportDir = path.resolve(reportDir);
   const htmlReportPath = confinePath(resolvedReportDir, `${rawIssueId}.html`);
-  const markdownReportPath = confinePath(resolvedReportDir, `${rawIssueId}.md`);
-  if (!htmlReportPath || !markdownReportPath) {
+  if (!htmlReportPath) {
     return { ok: false, reason: 'Invalid report path' };
   }
 
-  return {
-    ok: true,
-    issueId: rawIssueId,
-    reportDir: resolvedReportDir,
-    candidates: [
-      { format: 'html', reportPath: htmlReportPath },
-      { format: 'markdown', reportPath: markdownReportPath },
-    ],
-  };
+  return { ok: true, issueId: rawIssueId, reportPath: htmlReportPath };
 }
 
 async function readPosthogReport(
@@ -68,18 +54,13 @@ async function readPosthogReport(
     return { ok: false, found: false, issueId: typeof issueId === 'string' ? issueId : null, error: resolved.reason };
   }
 
-  for (const candidate of resolved.candidates) {
-    try {
-      const content = await fs.promises.readFile(candidate.reportPath, 'utf8');
-      return { ok: true, found: true, issueId: resolved.issueId, format: candidate.format, content };
-    } catch (err) {
-      if (isMissingFileError(err, { includeNotDir: false })) continue;
-
-      return { ok: false, found: false, issueId: resolved.issueId, error: 'Could not read report' };
-    }
+  try {
+    const content = await fs.promises.readFile(resolved.reportPath, 'utf8');
+    return { ok: true, found: true, issueId: resolved.issueId, format: 'html', content };
+  } catch (err) {
+    if (isMissingFileError(err, { includeNotDir: false })) return { ok: true, found: false, issueId: resolved.issueId, message: 'Report not found' };
+    return { ok: false, found: false, issueId: resolved.issueId, error: 'Could not read report' };
   }
-
-  return { ok: true, found: false, issueId: resolved.issueId, message: 'Report not found' };
 }
 
 export { DEFAULT_POSTHOG_REPORT_DIR, readPosthogReport };

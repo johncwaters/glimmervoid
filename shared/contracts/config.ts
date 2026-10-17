@@ -19,9 +19,6 @@ export const BrowserConfig = createBrowserConfig(path.isAbsolute);
 const BROWSER_CONFIG_SHAPE = BrowserConfig.shape;
 export const ConfigUpdate = z.object({
   ...BROWSER_CONFIG_SHAPE,
-  autoRecoverSeconds: z.number({ error: 'autoRecoverSeconds must be a positive number' }).finite().positive({ error: 'autoRecoverSeconds must be a positive number' }).optional(),
-  inputGraceSeconds: z.number({ error: 'inputGraceSeconds must be a positive number' }).finite().positive({ error: 'inputGraceSeconds must be a positive number' }).optional(),
-  promptDetectionMs: z.number({ error: 'promptDetectionMs must be a positive number' }).finite().positive({ error: 'promptDetectionMs must be a positive number' }).optional(),
   notifyDebounceMs: z.number({ error: 'notifyDebounceMs must be a positive number' }).finite().positive({ error: 'notifyDebounceMs must be a positive number' }).optional(),
   phoneEscalationMs: z.number({ error: 'phoneEscalationMs must be a positive number' }).finite().positive({ error: 'phoneEscalationMs must be a positive number' }).optional(),
   branchGc: BranchGcControlSettings,

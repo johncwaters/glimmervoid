@@ -805,4 +805,4 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
 }
 
 export { createRadarPoller };
-export type { InvestigationFinishedFrame, RadarPollerDependencies, PosthogState, SpawnInvestigationArgs };
+export type { RadarPollerDependencies, PosthogState, SpawnInvestigationArgs };

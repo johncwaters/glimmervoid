@@ -34,7 +34,6 @@ interface PlanReviewProgress {
   lastDecision: PlanDecisionKind | null;
 }
 
-type PlanChangedPayload = PlanChangedPush;
 
 const REVIEW_TRANSITIONS: Record<PlanReviewStateValue, Partial<Record<PlanReviewEvent, PlanReviewStateValue>>> = {
   open: { release: 'released', decide: 'decided', close: 'closed', revise: 'open' },
@@ -227,7 +226,7 @@ function planChangedPayload(
   entry: PlanRevisionIndexEntry,
   progress: PlanReviewProgress,
   hasPlan: boolean,
-): PlanChangedPayload {
+): PlanChangedPush {
   return {
     id: sessionId,
     agentId: entry.agentId,
@@ -309,4 +308,4 @@ export {
   revisionRecord,
   selectEntry,
 };
-export type { PlanChangedPayload, PlanReviewEvent, PlanReviewProgress, PlanRevisionIndexEntry };
+export type { PlanReviewEvent, PlanReviewProgress, PlanRevisionIndexEntry };

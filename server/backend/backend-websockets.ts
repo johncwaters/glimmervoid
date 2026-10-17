@@ -311,4 +311,4 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
 }
 
 export { createBackendWebSockets };
-export type { ControlBroadcast, ControlSocket, ViewerSizeRecord };
+export type { ControlBroadcast, ControlSocket };

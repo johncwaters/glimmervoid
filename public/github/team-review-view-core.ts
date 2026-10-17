@@ -639,7 +639,7 @@ export function verdictHeading(verdict: ReviewDraft['verdict']): string {
   return `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
 }
 
-export function verdictLabel(verdict: ReviewDraft['verdict']): string {
+function verdictLabel(verdict: ReviewDraft['verdict']): string {
   return VERDICT_LABELS[verdict] ?? String(verdict).toLowerCase();
 }
 

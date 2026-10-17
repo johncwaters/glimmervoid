@@ -1,4 +1,4 @@
-export interface Position {
+interface Position {
   line: number;
   character: number;
 }

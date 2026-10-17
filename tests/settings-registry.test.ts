@@ -466,7 +466,7 @@ test('the tuning knobs, diagnostics and legacy team keys are the file-only listi
     'replayBufferKB', 'cursorBlink',
     'ingest.sources.terminal.enabled', 'ingest.sources.agentLogs.enabled', 'ingest.sources.git.enabled', 'ingest.sources.fs.enabled', 'ingest.sources.shellHistory.enabled', 'ingest.sources.editor.enabled',
     'debugMode', 'recordSignals', 'trace.enabled', 'detectScheduledWakeups',
-    'autoRecoverSeconds', 'inputGraceSeconds', 'promptDetectionMs', 'notifyDebounceMs', 'phoneEscalationMs',
+    'notifyDebounceMs', 'phoneEscalationMs',
   ]) {
     assert.ok(fileOnlyPaths.includes(settingPath), `${settingPath} should be file-only`);
   }

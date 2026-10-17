@@ -339,7 +339,6 @@ export {
   LOG_ARGS,
   LOG_FIELD_SEPARATOR,
   REV_PARSE_ARGS,
-  SOURCE,
   STATUS_ARGS,
   createRepoState,
   decideGitEvents,

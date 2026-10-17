@@ -51,4 +51,4 @@ function runCli(): void {
 const isRunDirectly = process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isRunDirectly) runCli();
 
-export { LATEST_ALIAS_ASSET_NAME, versionedAssetName, releaseAssetNames, packReleaseTarballs };
+export { LATEST_ALIAS_ASSET_NAME, versionedAssetName, packReleaseTarballs };

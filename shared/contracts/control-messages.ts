@@ -319,7 +319,6 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'factory-state',
   'my-prs-status',
   'issues-status',
-  'branch-gc-status',
   'usage-sessions',
   'usage-report',
   'plan-limits',
@@ -598,7 +597,6 @@ const serverVariants = [
   MyPrsStatus,
   IssuesStatus,
 
-  loose('branch-gc-status'),
   loose('usage-sessions', {
     ts: timestamp,
     pricingSource: nullableString,

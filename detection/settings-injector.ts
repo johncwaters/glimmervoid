@@ -43,7 +43,7 @@ interface SessionPermissions {
   defaultMode?: string;
 }
 
-export interface HookSettings {
+interface HookSettings {
   hooks: Record<string, SettingsHookEntry[]>;
   permissions?: SessionPermissions;
   enableAllProjectMcpServers?: boolean;

@@ -740,5 +740,5 @@ function createAgentLogIngest({
   };
 }
 
-export { DEFAULT_DISCOVER_MS, DEFAULT_POLL_MS, createAgentLogIngest };
+export { createAgentLogIngest };
 export type { AgentLogIngestOptions, TranscriptFileSystem };

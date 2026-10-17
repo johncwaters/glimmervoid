@@ -76,4 +76,4 @@ function mountCustomSoundRoutes(app: Express, { soundsDir }: { soundsDir: string
   });
 }
 
-export { CUSTOM_SOUNDS_ROUTE, mountCustomSoundRoutes };
+export { mountCustomSoundRoutes };

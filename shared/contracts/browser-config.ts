@@ -250,9 +250,6 @@ export const TelemetryFileSettings = z.object(telemetryShape, { error: 'telemetr
 
 const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean) => ({
   port: z.number().int().min(ranges.PORT_RANGE.min).max(ranges.PORT_RANGE.max).optional(),
-  autoRecoverSeconds: z.number().finite().nonnegative().optional(),
-  inputGraceSeconds: z.number().finite().nonnegative().optional(),
-  promptDetectionMs: z.number().finite().nonnegative().optional(),
   notifyDebounceMs: z.number().finite().nonnegative().optional(),
   phoneEscalationMs: z.number().finite().nonnegative().optional(),
   replayBufferKB: optionalWholeNumber('replayBufferKB', ranges.REPLAY_BUFFER_KB_RANGE),

@@ -44,4 +44,4 @@ function computeRuntimePaths({ moduleFile, hasPackageJson }: RuntimePathsInput):
   };
 }
 
-export { computeRuntimePaths, findPackageRoot };
+export { computeRuntimePaths };

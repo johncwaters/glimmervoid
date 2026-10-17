@@ -45,7 +45,7 @@ function writeTmpConfig(cfg: ConfigFileContent): { dir: string; p: string } {
 function richConfig(overrides: ConfigFileContent = {}): ConfigFileContent {
   return {
     port: 4123,
-    autoRecoverSeconds: 3,
+    notifyDebounceMs: 3,
     cursorBlink: false,
     repoRoots: ['/repo'],
     worktreeShare: ['node_modules'],
@@ -105,7 +105,7 @@ test('validateConfig accepts lenient partial configs and unknown keys', () => {
   const lenient = {
     projects: [{ path: '/repo' }],
     port: 65535,
-    autoRecoverSeconds: 0,
+    notifyDebounceMs: 0,
     cursorBlink: true,
     integrationBranch: 'develop',
     repoRoots: ['/repo'],
@@ -169,7 +169,7 @@ test('validateConfig rejects malformed known fields', () => {
   const validation = validateConfig({
     projects: [{ id: 7 }],
     port: 70000,
-    autoRecoverSeconds: Number.POSITIVE_INFINITY,
+    notifyDebounceMs: Number.POSITIVE_INFINITY,
     cursorBlink: 'yes',
     integrationBranch: 3,
     repoRoots: ['/repo', 5],
@@ -180,7 +180,7 @@ test('validateConfig rejects malformed known fields', () => {
   const errors = validation.ok ? [] : validation.errors;
   assert.match(errors.join('\n'), /projects\[0\]\.path must be a string/);
   assert.match(errors.join('\n'), /port must be an integer/);
-  assert.match(errors.join('\n'), /autoRecoverSeconds must be a finite number/);
+  assert.match(errors.join('\n'), /notifyDebounceMs must be a finite number/);
   assert.match(errors.join('\n'), /cursorBlink must be a boolean/);
   assert.match(errors.join('\n'), /integrationBranch must be a string/);
   assert.match(errors.join('\n'), /repoRoots must be an array of strings/);
@@ -406,11 +406,11 @@ test('no settingsDefaults option keeps plain DEFAULT_CONFIG behavior', () => {
 test('applySettings applies each runtime scalar it is handed', () => {
   withStore({ projects: [] }, (store) => {
     store.applySettings({
-      projects: [], cursorBlink: true, debugMode: false, autoRecoverSeconds: 7, integrationBranch: '123',
+      projects: [], cursorBlink: true, debugMode: false, notifyDebounceMs: 7, integrationBranch: '123',
     });
     assert.equal(store.config.cursorBlink, true);
     assert.equal(store.config.debugMode, false);
-    assert.equal(store.config.autoRecoverSeconds, 7, 'timeout applied');
+    assert.equal(store.config.notifyDebounceMs, 7, 'timeout applied');
     assert.equal(store.config.integrationBranch, '123');
   });
 });

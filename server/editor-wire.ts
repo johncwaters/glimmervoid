@@ -201,4 +201,4 @@ function unwireEditors({ dryRun = false, targets = null, ...detection }: {
 }
 
 export { editorTargets, unwireEditors, wireEditors };
-export type { EditorDetection, EditorOutcome, EditorTarget };
+export type { EditorDetection, EditorOutcome };

@@ -1127,4 +1127,4 @@ function createVisionsWiring({
 }
 
 export { DIGEST_BUDGET_CHARS, VISIONS_DEBOUNCE_MS, createVisionsWiring };
-export type { DispatchOutcome, VisionsWiringOptions };
+export type { VisionsWiringOptions };

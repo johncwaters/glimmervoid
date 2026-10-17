@@ -35,7 +35,6 @@ interface PostTurnCheckConfig {
   maxFiles: number;
   maxFileBytes: number;
   debounceMs: number;
-  runOnExit: boolean;
 }
 
 interface PostTurnReport {
@@ -56,7 +55,6 @@ interface CheckConfigLayer {
   maxFiles?: unknown;
   maxFileBytes?: unknown;
   debounceMs?: unknown;
-  runOnExit?: unknown;
   include?: unknown;
   exclude?: unknown;
   rules?: unknown;
@@ -93,7 +91,6 @@ const DEFAULTS = Object.freeze({
   maxFiles: 200,
   maxFileBytes: 524288,
   debounceMs: 1500,
-  runOnExit: false,
 });
 
 interface MutableCheckConfig {
@@ -105,7 +102,6 @@ interface MutableCheckConfig {
   maxFiles: number;
   maxFileBytes: number;
   debounceMs: number;
-  runOnExit: unknown;
 }
 
 function explicitMode(mode: unknown): 'fix' | 'report' {
@@ -122,7 +118,7 @@ function normalizeRule(val: unknown, topMode: string): RuleConfig {
   return { enabled: true, mode: topMode };
 }
 
-const SCALAR_KEYS = ['enabled', 'mode', 'maxFiles', 'maxFileBytes', 'debounceMs', 'runOnExit'] as const;
+const SCALAR_KEYS = ['enabled', 'mode', 'maxFiles', 'maxFileBytes', 'debounceMs'] as const;
 
 function resolveCheckConfig(globalCfg?: unknown, projectCfg?: unknown): PostTurnCheckConfig {
   const base = JSON.parse(JSON.stringify(DEFAULTS)) as MutableCheckConfig;
@@ -151,7 +147,6 @@ function resolveCheckConfig(globalCfg?: unknown, projectCfg?: unknown): PostTurn
     maxFiles: base.maxFiles,
     maxFileBytes: base.maxFileBytes,
     debounceMs: base.debounceMs,
-    runOnExit: !!base.runOnExit,
   };
 }
 
@@ -291,5 +286,5 @@ async function runPostTurnChecks({
   return done();
 }
 
-export { gitRoot, listChangedFiles, resolveCheckConfig, runPostTurnChecks };
-export type { PostTurnDependencies, PostTurnReport };
+export { resolveCheckConfig, runPostTurnChecks };
+export type { PostTurnDependencies };

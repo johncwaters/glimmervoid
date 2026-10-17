@@ -107,7 +107,6 @@ const SECONDS: SettingsUnit = { label: 'seconds', storedPerDisplay: 1 };
 const MINUTES: SettingsUnit = { label: 'minutes', storedPerDisplay: 1 };
 const HOURS: SettingsUnit = { label: 'hours', storedPerDisplay: 1 };
 const DAYS: SettingsUnit = { label: 'days', storedPerDisplay: 1 };
-const MILLISECONDS: SettingsUnit = { label: 'ms', storedPerDisplay: 1 };
 const SECONDS_STORED_AS_MS: SettingsUnit = { label: 'seconds', storedPerDisplay: MS_PER_SECOND, storedLabel: 'ms' };
 const MINUTES_STORED_AS_MS: SettingsUnit = { label: 'minutes', storedPerDisplay: MS_PER_MINUTE, storedLabel: 'ms' };
 const MINUTES_STORED_AS_SECONDS: SettingsUnit = { label: 'minutes', storedPerDisplay: SECONDS_PER_MINUTE, storedLabel: 'seconds' };
@@ -798,21 +797,6 @@ const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'file-port', path: 'port', title: 'Local port', group: 'machine-detection-sessions',
     description: 'Port used by the local dashboard listener.',
     control: 'number', range: PORT_RANGE, unit: { label: 'port', storedPerDisplay: 1 }, keywords: ['server', 'listener'], defaultValue: 3000, takesEffect: 'restart', fileOnlyReason: BY_RULE, ...FILE_ONLY,
-  },
-  {
-    id: 'file-auto-recover-seconds', path: 'autoRecoverSeconds', title: 'Auto-recovery delay', group: 'machine-detection-sessions',
-    description: 'Delay before an interrupted state can recover.',
-    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: SECONDS, keywords: ['timer', 'recovery'], defaultValue: 3, takesEffect: 'new-sessions', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-input-grace-seconds', path: 'inputGraceSeconds', title: 'Input grace period', group: 'machine-detection-sessions',
-    description: 'Grace window around operator input.',
-    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: SECONDS, keywords: ['timer', 'prompt'], defaultValue: 5, takesEffect: 'new-sessions', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-prompt-detection-ms', path: 'promptDetectionMs', title: 'Prompt detection delay', group: 'machine-detection-sessions',
-    description: 'Timing threshold used by prompt detection.',
-    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MILLISECONDS, keywords: ['timer', 'detection'], defaultValue: 1500, takesEffect: 'new-sessions', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
     id: 'file-notify-debounce-ms', path: 'notifyDebounceMs', title: 'Notification debounce', group: 'machine-detection-sessions',

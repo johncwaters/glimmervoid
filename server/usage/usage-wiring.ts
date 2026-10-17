@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { decideTelegramNotification } from '../../notifications/channels/telegram.ts';
 import { USAGE_INTEGER_RANGES } from '../../shared/settings-ranges.ts';
-import { USAGE_BUDGET_KEYS, USAGE_COST_MODES, USAGE_VENDOR_KEYS } from '../../shared/usage-config.ts';
+import { USAGE_COST_MODES, USAGE_VENDOR_KEYS } from '../../shared/usage-config.ts';
 import type { UsageVendorKey } from '../../shared/usage-config.ts';
 import { execFileAsync as defaultExecFileAsync } from '../child-process-safe.ts';
 import { evaluateBudget, markFired, mergeFiredState, normalizeBudgetConfig } from './core/usage-budget-core.ts';
@@ -744,5 +744,5 @@ function createUsageWiring({
   };
 }
 
-export { DEFAULT_USAGE_CONFIG, RTK_SAVINGS_TTL_MS, USAGE_BUDGET_KEYS, USAGE_COST_MODES, USAGE_VENDOR_KEYS, budgetAlertText, createUsageWiring, resolveUsageConfig };
+export { DEFAULT_USAGE_CONFIG, RTK_SAVINGS_TTL_MS, budgetAlertText, createUsageWiring, resolveUsageConfig };
 export type { UsageWiringOptions };

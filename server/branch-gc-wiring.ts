@@ -3,7 +3,7 @@ import { bootStaggerDelay } from './boot-stagger.ts';
 import { DEFAULT_BRANCH_GC_PREFIXES } from './core/branch-gc-core.ts';
 import type { BranchGcGitWorkspace, BranchGcPoller } from './branch-gc-poller.ts';
 import { createLaneRunner } from './lanes/lane-runner.ts';
-import type { LaneRunnerGate, LaneStatusRecord } from './lanes/lane-runner.ts';
+import type { LaneRunnerGate } from './lanes/lane-runner.ts';
 import { emptyLaneStatus } from './lanes/lane-status.ts';
 import type { BranchGcFileSettings } from '../shared/contracts/index.ts';
 
@@ -18,7 +18,6 @@ interface BranchGcWiringOptions {
   gitWorkspace: BranchGcGitWorkspace;
   liveSessionIds: () => Set<string>;
   liveWorktreePaths: () => Set<string> | Promise<Set<string>>;
-  broadcast?: (message: LaneStatusRecord) => void;
   log?: Console;
   decisionTrace?: (entry: Record<string, unknown>) => void;
   createPoller?: typeof createBranchGcPoller;
@@ -28,7 +27,6 @@ interface BranchGcWiring {
   start(): void;
   stop(): Promise<void>;
   restartIfConfigChanged(): void;
-  getStatus(): LaneStatusRecord;
 }
 
 function branchGcShouldStart(config: BranchGcWiringConfig): LaneRunnerGate {
@@ -45,7 +43,6 @@ function createBranchGcWiring({
   gitWorkspace,
   liveSessionIds,
   liveWorktreePaths,
-  broadcast = () => {},
   log = console,
   decisionTrace = (entry: Record<string, unknown>) => log.info(`[branch-gc] decision ${JSON.stringify(entry)}`),
   createPoller = createBranchGcPoller,
@@ -55,7 +52,6 @@ function createBranchGcWiring({
     gate: () => branchGcShouldStart(config),
     cfgKey: () => branchGcCfgKey(config),
     emptyStatus: () => emptyLaneStatus('branch-gc-status', branchGcShouldStart(config)),
-    broadcast,
     createPoller: ({ onTickComplete }) => createPoller({
       gitWorkspace,
       getConfig: () => config,
@@ -78,7 +74,6 @@ function createBranchGcWiring({
     start: runner.startPoller,
     stop: runner.stopPoller,
     restartIfConfigChanged: runner.restartIfConfigChanged,
-    getStatus: runner.getStatus,
   };
 }
 

@@ -411,4 +411,3 @@ function createSessionBackgroundTracking({
 }
 
 export { createSessionBackgroundTracking };
-export type { PendingWakeup, SessionPort };

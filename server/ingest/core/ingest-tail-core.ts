@@ -176,7 +176,6 @@ function pickStaleByMtime<TKey>(
 }
 
 export {
-  DEFAULT_MAX_TRACKED,
   HEAD_SAMPLE_BYTES,
   LISTING_SETTLE_MS,
   MAX_CATCH_UP_BYTES,

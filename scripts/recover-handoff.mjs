@@ -79,4 +79,4 @@ if (wasRunAsTheRecoveryScript()) {
   process.exitCode = 0;
 }
 
-export { PREVIOUS_DEPENDENCIES_BACKUP_NAME, PREVIOUS_DIST_BACKUP_NAME, recoverHandoff };
+export { recoverHandoff };

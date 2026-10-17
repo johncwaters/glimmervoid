@@ -33,7 +33,7 @@ interface UsageBurn {
   costPerHour?: unknown;
 }
 
-export interface UsageBlock {
+interface UsageBlock {
   startTs?: unknown;
   endTs?: unknown;
   tokens?: unknown;
@@ -64,7 +64,7 @@ interface UsageAnomaly {
   burn?: { ratio?: unknown; current?: unknown; baseline?: unknown } | null;
 }
 
-export interface RtkSavings {
+interface RtkSavings {
   available?: unknown;
   commands?: unknown;
   savedTokens?: unknown;
@@ -533,7 +533,7 @@ export function laneSessionsText(sessions: unknown) {
   return `${formatCount(count)} ${count === 1 ? 'session' : 'sessions'}`;
 }
 
-export function rtkSavings(savings: UsageSavings | null | undefined): RtkSavings | null {
+function rtkSavings(savings: UsageSavings | null | undefined): RtkSavings | null {
   const rtk = savings?.rtk;
   if (!rtk || typeof rtk !== 'object' || rtk.available !== true) return null;
   return rtk;

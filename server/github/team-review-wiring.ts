@@ -1098,4 +1098,4 @@ function createTeamReviewWiring({
 
 export { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir, emptyGhConfigDir, emptyTeamReviewStatus, hooksPathPinnedSpawnEnv, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewCfgKey, describeTeamReviewRole, teamReviewClaudeArgs, teamReviewRole, teamReviewShouldStart, teamReviewSpawnEnv };
 export { readTeamReviewSettings } from './core/team-review-core.ts';
-export type { PrSessionCheckout, TeamReviewActionGithub, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewGitWorkspace, LaneSettingsGuardrails, TeamReviewRepoCache, TeamReviewSpawn };
+export type { PrSessionCheckout, TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewGitWorkspace, LaneSettingsGuardrails, TeamReviewRepoCache, TeamReviewSpawn };

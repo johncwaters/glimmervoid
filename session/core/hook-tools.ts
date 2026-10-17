@@ -114,5 +114,5 @@ function mergeCodexPreToolUse(groups: readonly string[]): string[] {
   return ['-c', `hooks.PreToolUse=[${groups.join(',')}]`];
 }
 
-export { HOOK_TOOLS, mergeCodexPreToolUse, quoteCommandPath, toForwardSlashes };
+export { HOOK_TOOLS, mergeCodexPreToolUse };
 export type { HookToolId, ResolvedHookTool };

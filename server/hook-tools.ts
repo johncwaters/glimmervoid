@@ -99,4 +99,4 @@ function resolveRequiredSaneYoloHookTools(
   return hookTools.some((tool) => tool.id === 'saneYolo') ? hookTools : null;
 }
 
-export { resolveHookTools, resolveRequiredSaneYoloHookTools, rtkDataDir, saneYoloHomeDir, writeSaneYoloPolicy };
+export { resolveHookTools, resolveRequiredSaneYoloHookTools, saneYoloHomeDir, writeSaneYoloPolicy };

@@ -27,8 +27,8 @@ test('only the remote listener port classifies as remote', () => {
   assert.equal(classifyRequestOrigin({ localPort: undefined, remoteListenerPort: 3001 }), 'local');
 });
 
-test('isPairPath covers /pair and everything under it, and nothing that merely starts with the letters', () => {
-  assert.equal(isPairPath('/pair'), true);
+test('isPairPath covers everything under /pair/, and nothing that merely starts with the letters', () => {
+  assert.equal(isPairPath('/pair'), false);
   assert.equal(isPairPath('/pair/abc'), true);
   assert.equal(isPairPath('/pairing'), false);
   assert.equal(isPairPath('/'), false);
