@@ -233,6 +233,15 @@ test('open-issue-session leaves an inheriting source project inheriting the mach
   assert.equal('dangerouslySkipPermissions' in h.config.projects[1], false);
 });
 
+test('open-issue-session starts guarded from a source session whose guardrails were released', async () => {
+  const h = harness({ projects: [{ id: 'p1', name: 'socket', path: '/repo/socket', unguarded: true }] });
+
+  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', repo: 'acme/socket', issueNumber: 42 });
+
+  assert.equal(h.sent[0].ok, true);
+  assert.equal('unguarded' in h.config.projects[1], false);
+});
+
 test('open-team-review-session keeps the matched project skipping permission prompts', async () => {
   const h = harness({
     projects: [{ id: 'p1', name: 'socket', path: '/repo/socket', dangerouslySkipPermissions: true }],

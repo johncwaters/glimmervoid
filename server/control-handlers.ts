@@ -963,7 +963,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         path: project.path,
         agent: project.agent,
         dangerouslySkipPermissions: project.dangerouslySkipPermissions,
-        unguarded: project.unguarded,
       });
       if (!created.ok) { reply({ error: created.error }); return; }
       const session = sessions.get(created.project.id);
