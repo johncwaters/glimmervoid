@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { attentionRank, attentionSummaryText, countSessionsNeedingAttention, needsAttention, orderRoster, pickAdjacent, pickNextAttention, pickStrongestAttention } from '../public/focus-view/attention-core.ts';
+import { attentionRank, attentionSummaryText, countAttentionByKind, needsAttention, orderRoster, pickAdjacent, pickNextAttention, pickStrongestAttention } from '../public/focus-view/attention-core.ts';
 
 test('orderRoster: non-dormant before dormant, alphabetical within each group', () => {
   const out = orderRoster([
@@ -120,26 +120,33 @@ test('needsAttention: no other state qualifies, and the unseen flag cannot promo
   assert.equal(needsAttention(), false);
 });
 
-test('countSessionsNeedingAttention: counts exactly the rows needsAttention accepts', () => {
-  assert.equal(countSessionsNeedingAttention([
+test('countAttentionByKind: counts exactly the rows needsAttention accepts', () => {
+  assert.deepEqual(countAttentionByKind([
     attentionRow('a', 'WAITING'),
     attentionRow('b', 'FAILED'),
     attentionRow('c', 'COMPLETE', true),
     attentionRow('d', 'COMPLETE', false),
     attentionRow('e', 'RUNNING'),
     attentionRow('f', 'IDLE'),
-  ]), 2);
-  assert.equal(countSessionsNeedingAttention([attentionRow('a', 'RUNNING'), attentionRow('b', 'DORMANT')]), 0);
-  assert.equal(countSessionsNeedingAttention([]), 0);
-  assert.equal(countSessionsNeedingAttention(undefined), 0);
-  assert.equal(countSessionsNeedingAttention([null, undefined]), 0);
+  ]), { waitingCount: 1, finishedCount: 1 });
+  const noAttention = { waitingCount: 0, finishedCount: 0 };
+  assert.deepEqual(countAttentionByKind([attentionRow('a', 'RUNNING'), attentionRow('b', 'DORMANT')]), noAttention);
+  assert.deepEqual(countAttentionByKind([]), noAttention);
+  assert.deepEqual(countAttentionByKind(undefined), noAttention);
+  assert.deepEqual(countAttentionByKind([null, undefined]), noAttention);
 });
 
 test('attentionSummaryText: resting reads as a sentence, never an empty slot', () => {
-  assert.equal(attentionSummaryText(0), 'ALL CLEAR');
-  assert.equal(attentionSummaryText(-1), 'ALL CLEAR');
-  assert.equal(attentionSummaryText(1), '1 NEEDS YOU');
-  assert.equal(attentionSummaryText(4), '4 NEED YOU');
+  assert.equal(attentionSummaryText({ waitingCount: 0, finishedCount: 0 }), 'ALL CLEAR');
+  assert.equal(attentionSummaryText({ waitingCount: 1, finishedCount: 0 }), '1 NEEDS YOU');
+  assert.equal(attentionSummaryText({ waitingCount: 4, finishedCount: 0 }), '4 NEED YOU');
+});
+
+test('attentionSummaryText: an unseen finish never reads as a session waiting on you', () => {
+  const counts = countAttentionByKind([attentionRow('a', 'COMPLETE', true), attentionRow('b', 'WAITING'), attentionRow('c', 'COMPLETE', true)]);
+  assert.deepEqual(counts, { waitingCount: 1, finishedCount: 2 });
+  assert.equal(attentionSummaryText(counts), '1 NEEDS YOU, 2 FINISHED');
+  assert.equal(attentionSummaryText({ waitingCount: 0, finishedCount: 1 }), '1 FINISHED');
 });
 
 test('pickStrongestAttention: a raised hand outranks an arrival dot whatever the order', () => {

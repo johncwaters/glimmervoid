@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { STATES } from '../shared/states.ts';
-import { buildSessionRows, countSessionsNeedingAttention, needsAttention, sessionAttentionRank, sessionAttentionTier } from '../public/focus-view/attention-core.ts';
+import { buildSessionRows, countAttentionByKind, needsAttention, sessionAttentionRank, sessionAttentionTier } from '../public/focus-view/attention-core.ts';
 import type { SessionAttentionOption, SessionAttentionTier } from '../public/focus-view/attention-core.ts';
 import { orderSessionsForTriage } from '../public/phone/triage-core.ts';
 import { decideFaviconVariant } from '../public/favicon-core.ts';
@@ -30,7 +30,7 @@ test('FAILED stays out of the shared readout and favicon while Board ordering pr
   const failed = { id: 'failed', name: 'Failed session', state: STATES.FAILED, unseen: true };
   const running = { id: 'running', name: 'Running session', state: STATES.RUNNING };
   assert.equal(needsAttention(failed), false);
-  assert.equal(countSessionsNeedingAttention([failed]), 0);
+  assert.deepEqual(countAttentionByKind([failed]), { waitingCount: 0, finishedCount: 0 });
   assert.equal(decideFaviconVariant([failed]), 'idle');
   assert.deepEqual(orderSessionsForTriage([running, failed]).map(({ id }) => id), ['failed', 'running']);
 });

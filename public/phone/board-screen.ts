@@ -1,7 +1,7 @@
 import { createUnseenCompleteTracker } from '../focus-view/unseen-complete-core.ts';
 import { el, MERGE_TAGS, observeHeaderHeight, queryTag, stateChip } from '../dom-helpers.ts';
 import type { SessionRow } from '../focus-view/attention-core.ts';
-import { attentionSummaryText, countSessionsNeedingAttention, orderRoster } from '../focus-view/attention-core.ts';
+import { attentionSummaryText, countAttentionByKind, orderRoster } from '../focus-view/attention-core.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { NO_PATH_KEY } from '../focus-view/roster-groups-core.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
@@ -184,8 +184,9 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
       projectPathOf,
       emptyProjectKeys(orderedRows, projectPathOf),
     );
-    attentionCount = countSessionsNeedingAttention(orderedRows);
-    attentionEl.textContent = attentionSummaryText(attentionCount);
+    const attentionCounts = countAttentionByKind(orderedRows);
+    attentionCount = attentionCounts.waitingCount + attentionCounts.finishedCount;
+    attentionEl.textContent = attentionSummaryText(attentionCounts);
     attentionEl.toggleAttribute('data-lit', attentionCount > 0);
 
     const presentGroupKeys = new Set(boardGroups.order);

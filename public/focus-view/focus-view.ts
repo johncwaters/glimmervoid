@@ -15,7 +15,7 @@ import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { getRailWidth, setRailWidth } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
 import type { SessionRow } from './attention-core.ts';
-import { attentionSummaryText, countSessionsNeedingAttention, needsAttention, orderRoster, pickAdjacent, pickNextAttention } from './attention-core.ts';
+import { attentionSummaryText, countAttentionByKind, needsAttention, orderRoster, pickAdjacent, pickNextAttention } from './attention-core.ts';
 import type { RosterGroup } from './roster-groups-core.ts';
 import { groupRoster, NO_PATH_KEY, visibleOrder } from './roster-groups-core.ts';
 import { buildPillSkeleton, paintPillStatus } from './pill-dom.ts';
@@ -145,7 +145,7 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
 
   railHeadEl.append(el('span', 'focus-rail-head-count'), buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)));
   railHeadEl.addEventListener('click', focusNextAttention);
-  setRailHeadActive(false, attentionSummaryText(0));
+  setRailHeadActive(false, attentionSummaryText({ waitingCount: 0, finishedCount: 0 }));
 
   mountedRail.append(railHeadEl);
 
@@ -353,8 +353,8 @@ function attentionIds() {
 }
 
 function updateRailHead() {
-  const count = countSessionsNeedingAttention(orderedSessions());
-  setRailHeadActive(count > 0, attentionSummaryText(count));
+  const attentionCounts = countAttentionByKind(orderedSessions());
+  setRailHeadActive(attentionCounts.waitingCount + attentionCounts.finishedCount > 0, attentionSummaryText(attentionCounts));
 }
 
 function setRailHeadActive(on: boolean, label: string) {

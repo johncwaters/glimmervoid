@@ -91,18 +91,33 @@ export function needsAttention({ state, unseen }: { state?: unknown; unseen?: un
   return sessionAttentionRank({ state, unseen }, 'needs-you') < SESSION_ATTENTION_RANK_BY_TIER.ready;
 }
 
-export function countSessionsNeedingAttention(rows: readonly ({ state?: unknown; unseen?: unknown } | null | undefined)[] | null | undefined) {
-  let count = 0;
-  for (const row of (rows || [])) {
-    if (needsAttention(row || {})) count++;
-  }
-  return count;
+type AttentionCountRow = { state?: unknown; unseen?: unknown } | null | undefined;
+
+interface AttentionCounts {
+  waitingCount: number;
+  finishedCount: number;
 }
 
-export function attentionSummaryText(count: number) {
-  if (count <= 0) return 'ALL CLEAR';
-  if (count === 1) return '1 NEEDS YOU';
-  return `${count} NEED YOU`;
+export function countAttentionByKind(rows: readonly AttentionCountRow[] | null | undefined): AttentionCounts {
+  const counts = { waitingCount: 0, finishedCount: 0 };
+  for (const row of (rows || [])) {
+    if (!needsAttention(row || {})) continue;
+    if (row?.state === STATES.COMPLETE) {
+      counts.finishedCount++;
+      continue;
+    }
+    counts.waitingCount++;
+  }
+  return counts;
+}
+
+export function attentionSummaryText({ waitingCount, finishedCount }: AttentionCounts) {
+  const parts: string[] = [];
+  if (waitingCount === 1) parts.push('1 NEEDS YOU');
+  if (waitingCount > 1) parts.push(`${waitingCount} NEED YOU`);
+  if (finishedCount > 0) parts.push(`${finishedCount} FINISHED`);
+  if (parts.length === 0) return 'ALL CLEAR';
+  return parts.join(', ');
 }
 
 const ATTENTION_RANK_BY_LEVEL = new Map<string, number>([['hand', 2]]);
