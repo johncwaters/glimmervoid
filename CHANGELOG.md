@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.2] - 2026-10-17
+
 ### Fixed
 
 - **Sessions with background work keep working after a restart**: a session that had finished its turn but still had a background agent, a monitor or a scheduled wakeup in flight now counts as working, so after a restart auto-resume tells it to continue instead of leaving it idle at the prompt with its background work silently gone.
