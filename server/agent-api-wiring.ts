@@ -5,15 +5,16 @@ import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { describeSessionLimits } from '../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../session/core/session-routes.ts';
 import type { Session } from '../session/sessions.ts';
-import type { FactoryState } from '../shared/contracts/factory.ts';
+import type { AgentFactoryQueueRequest, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from '../shared/contracts/factory.ts';
+import type { FactorySetupResult } from './factory/core/factory-setup-core.ts';
 import type {
   AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentLimitsReply, AgentSpawnRequest,
 } from '../shared/contracts/session.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
-  decideAttentionAllowance, decideEditAllowance, decideFactoryControlAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding, describePushRouteRefusal,
-  describeUnavailableFactoryState, formatFactoryStatus, parseAgentVerb,
+  decideAttentionAllowance, decideEditAllowance, decideFactoryControlAllowance, decideSpawnAllowance, deriveChildSessionName, describeFactorySetupProfile, describePushLanding,
+  describePushRouteRefusal, describeUnavailableFactoryState, findSessionProjectId, formatFactoryStatus, parseAgentVerb,
 } from './core/agent-api-core.ts';
 import { buildFactoryIntentDigest } from './factory/core/factory-core.ts';
 import { isGuardedSessionVendor } from './guardrails/core/guardrails-roles-core.ts';
@@ -49,6 +50,8 @@ interface AgentApiWiringOptions {
   factory?: {
     getState: () => FactoryState | null;
     retryParked: (projectId: string, intentId: string) => Promise<{ ok: true; reopenedWorkIds: string[] } | { ok: false; error: string }>;
+    rerunSetup: (projectId: string) => Promise<FactorySetupResult>;
+    queueIntent: (request: FactoryQueueIntentRequest) => Promise<FactoryQueueIntentResult>;
   };
   memoryAdmission?: Pick<MemoryAdmission, 'describeShortfallNow'> | null;
   logger?: Pick<Console, 'warn'>;
@@ -201,14 +204,37 @@ function createAgentApiWiring({
     return describePushLanding(await session.mergeAndContinue({ force: true }));
   }
 
+  async function setUpFactoryProject(session: Session, factoryPort: NonNullable<AgentApiWiringOptions['factory']>): Promise<AgentApiReply> {
+    const projectId = findSessionProjectId(config.projects, session.path);
+    if (!projectId) return { status: 404, body: { ok: false, error: `no configured project has the path ${session.path}, so the operator has to add this repository as a project first` } };
+    const outcome = await factoryPort.rerunSetup(projectId);
+    if (!outcome.ok) return { status: 409, body: { ok: false, error: outcome.reason } };
+    return { status: 200, body: { ok: true, projectId, profile: outcome.profile, text: describeFactorySetupProfile(outcome.profile) } };
+  }
+
+  async function queueFactoryIntent(
+    session: Session, factoryPort: NonNullable<AgentApiWiringOptions['factory']>, projects: FactoryState['projects'], request: AgentFactoryQueueRequest,
+  ): Promise<AgentApiReply> {
+    const projectId = findSessionProjectId(config.projects, session.path);
+    if (!projectId) return { status: 404, body: { ok: false, error: `no configured project has the path ${session.path}, so the operator has to add this repository as a project first` } };
+    if (!projects.some((project) => project.projectId === projectId)) {
+      return { status: 409, body: { ok: false, error: `${projectId} is not a factory project yet: commit a coherence.config.json holding {} at the repository root, land it on the integration branch with glimmervoid push, then queue again` } };
+    }
+    const outcome = await factoryPort.queueIntent({ ...request, projectId });
+    if (!outcome.ok) return { status: 409, body: { ok: false, error: outcome.error ?? 'the factory refused the intent' } };
+    return { status: 200, body: { ok: true, projectId, workId: outcome.workId, text: `Queued ${outcome.workId ?? 'the intent'} on ${projectId}. Follow it with glimmervoid factory status --project ${projectId}` } };
+  }
+
   async function handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply> {
     const parsed = parseAgentVerb(verb, payload);
     if (!parsed.ok) return { status: parsed.status, body: { ok: false, error: parsed.error } };
-    if (parsed.verb === 'factory-status' || parsed.verb === 'factory-retry') {
+    if (parsed.verb === 'factory-status' || parsed.verb === 'factory-retry' || parsed.verb === 'factory-setup' || parsed.verb === 'factory-queue') {
       const allowance = decideFactoryControlAllowance(roleFactsOf(session));
       if (!allowance.ok) return { status: allowance.status, body: { ok: false, error: allowance.reason } };
       const projects = factory?.getState()?.projects;
       if (!projects || !factory) return { status: 409, body: { ok: false, error: 'Factory is not running' } };
+      if (parsed.verb === 'factory-setup') return setUpFactoryProject(session, factory);
+      if (parsed.verb === 'factory-queue') return queueFactoryIntent(session, factory, projects, parsed.request);
       if (parsed.verb === 'factory-status') {
         const selectedProjects = parsed.request.projectId === undefined ? projects : projects.filter((project) => project.projectId === parsed.request.projectId);
         if (parsed.request.projectId !== undefined && selectedProjects.length === 0) {

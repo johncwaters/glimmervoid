@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
 
-import { AGENT_API_VERBS, AgentAttentionRequest, AgentEditRequest, AgentFactoryRetryRequest, AgentFactoryStatusRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
+import { AGENT_API_VERBS, AgentAttentionRequest, AgentEditRequest, AgentFactoryRetryRequest, AgentFactorySetupRequest, AgentFactoryStatusRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, OrchestratorAgentVerb, TicketAgentVerb } from '../../shared/contracts/session.ts';
+import { AgentFactoryQueueRequest } from '../../shared/contracts/factory.ts';
 import type { FactoryProjectState } from '../../shared/contracts/factory.ts';
 import { attentionRoute, editRoute, NO_OWN_WORKTREE_REASON, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
 import type { RouteVerdict, SessionRoleFacts } from '../../session/core/session-routes.ts';
@@ -38,6 +40,8 @@ type AgentVerbRequest =
   | { ok: true; verb: 'limits' }
   | { ok: true; verb: 'factory-status'; request: AgentFactoryStatusRequest }
   | { ok: true; verb: 'factory-retry'; request: AgentFactoryRetryRequest }
+  | { ok: true; verb: 'factory-setup'; request: AgentFactorySetupRequest }
+  | { ok: true; verb: 'factory-queue'; request: AgentFactoryQueueRequest }
   | { ok: true; verb: 'attention'; request: AgentAttentionRequest }
   | { ok: true; verb: 'edit'; request: AgentEditRequest }
   | { ok: true; verb: 'spawn'; request: AgentSpawnRequest }
@@ -125,7 +129,7 @@ function decideEditAllowance(caller: SessionRoleFacts): AgentVerdict {
 function factoryControlRoute({ factoryRole, isEphemeral, isSpawnedChild }: Pick<SessionRoleFacts, 'factoryRole' | 'isEphemeral' | 'isSpawnedChild'>): RouteVerdict {
   const isFactoryOrLaneSession = factoryRole !== null || (isEphemeral && !isSpawnedChild);
   if (!isFactoryOrLaneSession) return { answers: true };
-  return { answers: false, reason: 'only an operator session or a session it spawned may read factory status or retry parked work, so factory and lane sessions stay on their own task' };
+  return { answers: false, reason: 'only an operator session or a session it spawned may use the factory commands, so factory and lane sessions stay on their own task' };
 }
 
 function decideFactoryControlAllowance(caller: SessionRoleFacts): AgentVerdict {
@@ -186,6 +190,16 @@ function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVe
   }
   if (verb === 'factory-retry') {
     const parsed = AgentFactoryRetryRequest.safeParse(payload);
+    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
+    return { ok: true, verb, request: parsed.data };
+  }
+  if (verb === 'factory-setup') {
+    const parsed = AgentFactorySetupRequest.safeParse(payload);
+    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
+    return { ok: true, verb, request: parsed.data };
+  }
+  if (verb === 'factory-queue') {
+    const parsed = AgentFactoryQueueRequest.safeParse(payload);
     if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
     return { ok: true, verb, request: parsed.data };
   }
@@ -307,8 +321,20 @@ function formatFactoryStatus(projects: readonly FactoryProjectState[], buildDige
   return lines.join('\n') || 'No factory projects.';
 }
 
+function findSessionProjectId(projects: readonly { id: string; path: string }[] | undefined, sessionPath: string): string | null {
+  const resolvedSessionPath = path.resolve(sessionPath);
+  return projects?.find((project) => path.resolve(project.path) === resolvedSessionPath)?.id ?? null;
+}
+
+function describeFactorySetupProfile(profile: { checks?: readonly string[]; focusedTestCommand?: string }): string {
+  return [
+    `Factory checks: ${profile.checks?.join(', ') || 'none'}`,
+    `Focused test command: ${profile.focusedTestCommand ?? 'none proven, so every ticket runs the full checks'}`,
+  ].join('\n');
+}
+
 export {
   decideAgentRequest, decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, decideTicketAction, deriveChildSessionName, describePushLanding,
   describePushRouteRefusal, isAgentApiVerb, isOrchestratorAgentVerb, parseAgentVerb, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
-  decideFactoryControlAllowance, describeUnavailableFactoryState, formatFactoryStatus, REFUSAL_REASON, REFUSAL_STATUS,
+  decideFactoryControlAllowance, describeFactorySetupProfile, describeUnavailableFactoryState, findSessionProjectId, formatFactoryStatus, REFUSAL_REASON, REFUSAL_STATUS,
 };

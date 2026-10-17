@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Any repository can put itself on the factory**: a session can now set its own repository up for factory builds and hand work over without the Factory tab. `glimmervoid factory setup` proves and saves the repository's factory checks and prints them, and `glimmervoid factory queue <file>` queues an intent written as JSON, in the same shape as a Factory tab request but without a project id or floor allowances. The intent always goes to the session's own repository, and floor allowances stay yours to grant from the Factory tab. A repository joins the factory once its integration branch holds a `coherence.config.json` (holding `{}`), which the session can commit and land with `glimmervoid push`; queueing before that says so. Both commands answer operator sessions and the sessions they spawn, never factory workers, orchestrators or lanes, and the repository must already be a project in your config.
+
 ### Fixed
 
 - **Every session gets a refined title**: a session whose first prompt was short enough to show in full kept that prompt as its card title, because the title model was asked whether the prompt itself still described the session and nearly always said yes. The first refinement now always writes a short title of its own, and later refinements still keep a refined title that remains accurate.

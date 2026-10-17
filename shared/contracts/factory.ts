@@ -109,6 +109,9 @@ export const FactoryQueueIntentRequest = z.object({
 });
 export type FactoryQueueIntentRequest = z.infer<typeof FactoryQueueIntentRequest>;
 
+export const AgentFactoryQueueRequest = FactoryQueueIntentRequest.omit({ projectId: true, floorAllowances: true }).strict();
+export type AgentFactoryQueueRequest = z.infer<typeof AgentFactoryQueueRequest>;
+
 export const FactoryQueueIntentResult = z.object({
   projectId: z.string().max(128),
   ok: z.boolean(),

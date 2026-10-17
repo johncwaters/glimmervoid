@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 
@@ -9,6 +10,7 @@ import { errorCode } from '../shared/text.ts';
 import { decideGuardrailsProxy } from '../session/core/guardrails-proxy-core.ts';
 import type { GuardrailsProxy } from '../session/core/guardrails-proxy-core.ts';
 import { isAgentApiVerb, isOrchestratorAgentVerb } from './core/agent-api-core.ts';
+import { isRecord } from '../shared/coerce.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
@@ -55,7 +57,24 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     const parsed = AgentFactoryRetryRequest.safeParse({ intentId: rest[0] });
     return parsed.success ? parsed.data : null;
   },
+  'factory-setup': (rest) => rest.length === 0 ? {} : null,
+  'factory-queue': (rest) => {
+    if (rest.length !== 1) return null;
+    const intent = parseJsonOrNull(readFileSync(rest[0], 'utf8'));
+    return isRecord(intent) ? intent : null;
+  },
 };
+
+const FACTORY_USAGE: Readonly<Record<string, string>> = Object.freeze({
+  'factory-status': 'status [--project <projectId>]',
+  'factory-retry': 'retry <intentId>',
+  'factory-setup': 'setup',
+  'factory-queue': 'queue <intent.json>',
+});
+
+function isFactoryVerb(verb: AgentApiVerb): boolean {
+  return verb in FACTORY_USAGE;
+}
 
 function bodySaysOk(text: string): boolean {
   try {
@@ -73,7 +92,7 @@ function limitsLines(replyText: string): string[] | null {
 }
 
 function printableReply(verb: AgentApiVerb, replyText: string): string {
-  if (verb === 'factory-status' || verb === 'factory-retry') {
+  if (isFactoryVerb(verb)) {
     const reply = parseJsonOrNull(replyText);
     if (typeof reply !== 'object' || reply === null) return replyText;
     if ('text' in reply && typeof reply.text === 'string') return reply.text;
@@ -179,8 +198,8 @@ async function sessionLimitsHelpLines({ timeoutMs = HELP_LIMITS_TIMEOUT_MS }: { 
 
 async function runAgentApiCli(args: string[]): Promise<number> {
   if (args[0] === 'factory') {
-    if (args[1] !== 'status' && args[1] !== 'retry') {
-      console.error('glimmervoid factory: expected status [--project <projectId>] or retry <intentId>');
+    if (!(`factory-${args[1]}` in FACTORY_USAGE)) {
+      console.error(`glimmervoid factory: expected ${Object.values(FACTORY_USAGE).join(', or ')}`);
       return 1;
     }
     return runAgentApiCli([`factory-${args[1]}`, ...args.slice(2)]);
@@ -192,8 +211,8 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   }
   const body = BODY_BUILDERS[verb](args.slice(1));
   if (!body) {
-    if (verb === 'factory-status' || verb === 'factory-retry') {
-      console.error(`glimmervoid factory: expected ${verb === 'factory-status' ? 'status [--project <projectId>]' : 'retry <intentId>'}`);
+    if (isFactoryVerb(verb)) {
+      console.error(`glimmervoid factory: expected ${FACTORY_USAGE[verb]}`);
       return 1;
     }
     if (isOrchestratorAgentVerb(verb)) {
