@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Coherence toggle (experimental)**: With Settings > Lanes > Coherence on, Claude Code sessions in a repository whose root holds coherence.config.json run Coherence hooks and a decision journal in their worktree's .coherence directory to commit with the work.
+- **Coherence toggle (experimental)**: With Settings > Lanes > Coherence on, Claude Code and Codex sessions in a repository whose root holds coherence.config.json run Coherence hooks and a decision journal in their worktree's .coherence directory to commit with the work. Codex runs them only once it trusts its hooks, the same as Glimmervoid's own Codex hooks.
 - **Swipe arrow pad on phone (experimental)**: a Settings toggle under Appearance swaps the four arrow keys for one pad you swipe on, sending one arrow per short drag.
 - **Release a session from its guardrails**: a Guardrails checkbox in each session's restart menu releases or restores that session's guardrails from the dashboard, phone included. After you confirm, the session restarts with the new setting, which is saved to that session only. A GitHub issue session opened from an unguarded session now starts guarded.
 

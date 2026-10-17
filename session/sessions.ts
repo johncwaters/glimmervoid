@@ -230,6 +230,7 @@ interface SessionOptions {
   planLimits?: boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
+  getExtraUserHooks?: (() => UserHook[]) | null;
   ptySpawn?: PtySpawn | null;
   screenKeeperFactory?: ScreenKeeperFactory | null;
   killProc?: KillProc | null;
@@ -420,6 +421,7 @@ class Session extends EventEmitter {
 
     getUserHooks = null,
     extraUserHooks = [],
+    getExtraUserHooks = null,
 
     ptySpawn = null,
     requireWorktree = false,
@@ -582,6 +584,7 @@ class Session extends EventEmitter {
       conversationApprovals: () => this.agentId === "claude-code" && (isConversationViewSettingOn ?? isConversationViewConfigured)(),
       getUserHooks,
       extraUserHooks,
+      getExtraUserHooks,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
       agentEnv: () => this._buildSpawnEnv(),

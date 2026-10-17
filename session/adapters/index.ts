@@ -1,4 +1,5 @@
 import type { ResolvedHookTool } from '../core/hook-tools.ts';
+import type { UserHook } from '../core/user-hooks-core.ts';
 import claudeCode from "./claude-code.ts";
 import codex from "./codex.ts";
 import grok from "./grok.ts";
@@ -43,6 +44,7 @@ interface ArgvConfigInjection {
     bypassHookTrust?: boolean;
     hookTools?: ResolvedHookTool[];
     hookToolRelayPath?: string;
+    userHooks?: readonly UserHook[];
   }): string[] | null;
   projectConfigCandidates: readonly ProjectConfigCandidate[];
   userConfigFolders(env: Record<string, string | undefined>): string[];

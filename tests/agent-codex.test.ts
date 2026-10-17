@@ -16,6 +16,7 @@ import { buildHookCommand } from '../session/core/hook-command-core.ts';
 import { MAX_PROJECT_CONFIG_DEPTH } from '../session/session-hook-lifecycle.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import type { SessionOptions } from '../session/sessions.ts';
+import type { UserHook } from '../session/core/user-hooks-core.ts';
 
 interface CodexSpawnCall {
   file: string;
@@ -163,6 +164,41 @@ test('hook args subscribe exactly five events as TOML literal strings, and the t
   );
   assert.equal(values.some((v) => v.includes('"')), false, 'no double quotes reach a cmd.exe re-parse');
   assert.equal(args.filter((a) => a === '-c').length, 5);
+});
+
+test('command hooks merge per event with matchers while empty hooks preserve the relay argv', (context) => {
+  const relayPath = '/opt/glimmervoid/session/hook-relay.ts';
+  const plain = codex.buildHookArgs({ relayPath });
+  assert.deepEqual(plain, ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'PermissionRequest'].flatMap((event) =>
+    ['-c', `hooks.${event}=[{hooks=[{type='command',command='node ${relayPath} ${event}'}]}]`]));
+  assert.deepEqual(codex.buildHookArgs({ relayPath, userHooks: [] }), plain);
+  const warnings: string[] = [];
+  context.mock.method(console, 'warn', (warning: string) => warnings.push(warning));
+  const userHooks: UserHook[] = [
+    { id: 'start', name: 'Start', event: 'SessionStart', matcher: 'startup|resume', type: 'command', command: 'echo start', enabled: true },
+    { id: 'stop', name: 'Stop', event: 'Stop', type: 'command', command: 'echo stop', enabled: true },
+    { id: 'post', name: 'Post', event: 'PostToolUse', matcher: 'Bash|apply_patch', type: 'command', command: 'echo post', enabled: true },
+    { id: 'pre', name: 'Pre', event: 'PreToolUse', matcher: 'Bash', type: 'command', command: 'echo pre', enabled: true },
+    { id: 'http', name: 'HTTP', event: 'Stop', type: 'http', url: 'https://example.com', enabled: true },
+    { id: 'disabled', name: 'Disabled', event: 'Stop', type: 'command', command: 'echo disabled', enabled: false },
+    { id: 'quote', name: 'Quote', event: 'Stop', type: 'command', command: "echo 'quote'", enabled: true },
+    { id: 'newline', name: 'Newline', event: 'Stop', type: 'command', command: 'echo first\necho second', enabled: true },
+    { id: 'matcher', name: 'Matcher', event: 'Stop', matcher: "Bash'", type: 'command', command: 'echo matcher', enabled: true },
+    { id: 'bell', name: 'Bell', event: 'Stop', type: 'command', command: `echo ${String.fromCharCode(7)}`, enabled: true },
+    { id: 'delete', name: 'Delete', event: 'Stop', matcher: `Bash${String.fromCharCode(127)}`, type: 'command', command: 'echo delete', enabled: true },
+  ];
+  const args = codex.buildHookArgs({ relayPath, userHooks, events: [...codex.HOOK_EVENTS, 'PreToolUse'], hookTools: [{ id: 'rtk', binPath: '/bin/rtk' }] }) ?? [];
+  const values = args.filter((argument) => argument.startsWith('hooks.'));
+  assert.equal(new Set(values.map((argument) => argument.slice(0, argument.indexOf('=')))).size, values.length);
+  assert.equal(values.find((argument) => argument.startsWith('hooks.SessionStart=')),
+    `hooks.SessionStart=[{hooks=[{type='command',command='node ${relayPath} SessionStart'}]},{matcher='startup|resume',hooks=[{type='command',command='echo start'}]}]`);
+  assert.equal(values.find((argument) => argument.startsWith('hooks.Stop=')),
+    `hooks.Stop=[{hooks=[{type='command',command='node ${relayPath} Stop'}]},{hooks=[{type='command',command='echo stop'}]}]`);
+  assert.ok(values.includes("hooks.PostToolUse=[{matcher='Bash|apply_patch',hooks=[{type='command',command='echo post'}]}]"));
+  assert.equal(values.find((argument) => argument.startsWith('hooks.PreToolUse=')),
+    `hooks.PreToolUse=[{hooks=[{type='command',command='node ${relayPath} PreToolUse'}]},{matcher='Bash',hooks=[{type='command',command='node ${codex.HOOK_TOOL_RELAY_PATH} rtk'}]},{matcher='Bash',hooks=[{type='command',command='echo pre'}]}]`);
+  assert.equal(warnings.length, 5);
+  for (const hookId of ['quote', 'newline', 'matcher', 'bell', 'delete']) assert.ok(warnings.some((warning) => warning.includes(`hook ${hookId} skipped`)));
 });
 
 test('rtk rewrites add one matched PreToolUse group, pointed at the rtk relay, and nothing when off', () => {

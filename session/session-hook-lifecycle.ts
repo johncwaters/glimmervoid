@@ -54,6 +54,7 @@ interface SessionHookOptions {
   conversationApprovals: () => boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
+  getExtraUserHooks?: (() => UserHook[]) | null;
   bypassHookTrust: boolean;
   effectiveCwd: () => string;
   agentEnv: () => Record<string, string | undefined>;
@@ -191,11 +192,19 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     return args.some((arg) => arg.includes(saneYoloGroup));
   }
 
+  function glimmervoidSuppliedHooks(): UserHook[] {
+    return [
+      ...(typeof options.getExtraUserHooks === "function" ? options.getExtraUserHooks() : []),
+      ...(options.extraUserHooks ?? []),
+    ];
+  }
+
   function injectRelayHooks(port: number, injection: ArgvConfigInjection): HookInjectionResult {
     const isTrustBypassed = decideTrustBypass(injection);
     const args = injection.buildHookArgs({
       bypassHookTrust: isTrustBypassed,
       hookTools: options.hookTools,
+      userHooks: glimmervoidSuppliedHooks(),
     });
     if (!args) {
       console.warn(`[session:${options.name}] hook injection skipped: the relay path cannot be expressed for ${options.agentId} - falling back to OSC title only`);
@@ -289,7 +298,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         conversationApprovals: options.conversationApprovals(),
         userHooks: [
           ...(typeof options.getUserHooks === "function" ? options.getUserHooks() : []),
-          ...(options.extraUserHooks ?? []),
+          ...glimmervoidSuppliedHooks(),
         ],
       });
       settingsHandle = nextSettingsHandle;

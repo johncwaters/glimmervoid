@@ -239,6 +239,60 @@ test('ordinary Claude sessions attach Coherence only with the setting, root conf
   });
 });
 
+test('ordinary Codex sessions attach the native Coherence bundle and caller hooks in argv on each eligible start, never operator hooks', async () => {
+  await withTempDir(async (directory) => {
+    const coherence = { nodePath: process.execPath, hookCliPath: path.join(directory, 'coherence tools', 'hook.js'), shimDir: path.join(directory, 'bin') };
+    const liveConfig = { projects: [], recordSignals: false, coherence: { enabled: true } };
+    const operatorHook: UserHook = { id: 'operator-notify', name: 'Operator notify', event: 'Notification', type: 'command', command: 'notify-send operator', enabled: true };
+    const callerHook: UserHook = { id: 'caller-stop', name: 'Caller stop', event: 'Stop', type: 'command', command: 'echo caller', enabled: true };
+    const makeSession = createSessionFactory({
+      configStore: { configPath: path.join(directory, 'config.json') },
+      getConfig: () => liveConfig, coherence,
+      hookRouter: new HookRouter(), getHookPort: () => PORT,
+      getGitWorkspace: () => null, getPlanReviewPort: () => null,
+      resolveHookTools: () => [], getUserHooks: () => [operatorHook],
+    });
+    const configPath = path.join(directory, 'coherence.config.json');
+    fs.writeFileSync(configPath, '{}');
+    const session = makeSession({ id: 'codex-coherence', name: 'Codex Coherence', path: directory, agent: 'codex' }, liveConfig, { extraUserHooks: [callerHook] });
+    const calls: SpawnCall[] = [];
+    session._spawnCommand = { path: process.execPath, kind: 'exe' };
+    session._ptySpawn = (file, args, opts) => {
+      calls.push({ file, args, opts: opts as SpawnCall['opts'] });
+      return fakePty();
+    };
+    try {
+      await session.start();
+      const { args, opts } = calls[0];
+      const hookValues = args.filter((argument) => argument.startsWith('hooks.'));
+      assert.equal(new Set(hookValues.map((argument) => argument.slice(0, argument.indexOf('=')))).size, 8);
+      assert.equal(args.some((argument) => argument.includes('notify-send operator') || argument.startsWith('hooks.Notification=')), false);
+      for (const event of ['SubagentStart', 'SessionStart', 'SubagentStop', 'Stop', 'PostToolUse']) {
+        const hookValue = hookValues.find((argument) => argument.startsWith(`hooks.${event}=`));
+        assert.ok(hookValue?.includes(`command='"${coherence.nodePath}" "${coherence.hookCliPath}" ${event}'`), event);
+      }
+      assert.ok(hookValues.find((argument) => argument.startsWith('hooks.SessionStart='))?.includes("matcher='startup|resume|clear|compact'"));
+      assert.ok(hookValues.find((argument) => argument.startsWith('hooks.PostToolUse='))?.includes("matcher='Bash|apply_patch|update_plan|mcp__.*'"));
+      assert.ok(hookValues.find((argument) => argument.startsWith('hooks.SessionStart='))?.includes('coherence followed by the verb wherever the Coherence instructions say npx coherence, because a login shell drops it from PATH'));
+      assert.ok(hookValues.find((argument) => argument.startsWith('hooks.Stop='))?.includes("command='echo caller'"));
+      assert.equal(opts.env.COHERENCE_HOOK_HOST, 'codex');
+      assert.equal(String(opts.env.PATH ?? opts.env.Path).split(path.delimiter)[0], coherence.shimDir);
+      liveConfig.coherence.enabled = false;
+      await session.start();
+      assert.equal(calls[1].args.some((argument) => argument.includes(coherence.hookCliPath)), false);
+      liveConfig.coherence.enabled = true;
+      fs.unlinkSync(configPath);
+      await session.start();
+      assert.equal(calls[2].args.some((argument) => argument.includes(coherence.hookCliPath)), false);
+      fs.writeFileSync(configPath, '{}');
+      await session.start();
+      assert.ok(calls[3].args.some((argument) => argument.includes(coherence.hookCliPath)));
+    } finally {
+      session.destroy();
+    }
+  });
+});
+
 test('the agent token is a second token, never the hook token', async () => {
   await withTempDir(async (dir) => {
     const { session } = sessionFor('claude-code', dir);

@@ -1,5 +1,6 @@
 import { HOOK_TOOLS, mergeCodexPreToolUse } from '../core/hook-tools.ts';
 import type { ResolvedHookTool } from '../core/hook-tools.ts';
+import type { UserHook } from '../core/user-hooks-core.ts';
 
 import fs from "node:fs";
 import path from "node:path";
@@ -100,21 +101,26 @@ function userConfigFolders(env: Record<string, string | undefined>): string[] {
   return codexHomes(env, null);
 }
 
+const TOML_LITERAL_STRING_FORBIDDEN = /[\x00-\x08\x0a-\x1f\x27\x7f]/;
+
 function buildHookArgs({
   relayPath = RELAY_PATH,
   events = HOOK_EVENTS,
   bypassHookTrust = false,
   hookTools = [],
   hookToolRelayPath = HOOK_TOOL_RELAY_PATH,
+  userHooks = [],
 }: {
   relayPath?: string;
   events?: string[];
   bypassHookTrust?: boolean;
   hookTools?: ResolvedHookTool[];
   hookToolRelayPath?: string;
+  userHooks?: readonly UserHook[];
 } = {}): string[] | null {
   const args = bypassHookTrust ? [TRUST_BYPASS_FLAG] : [];
   const preToolUseGroups: string[] = [];
+  const groupsByEvent = new Map<string, string[]>();
   for (const event of events) {
     const command = buildHookCommand(relayPath, event);
     if (!command) return null;
@@ -122,13 +128,33 @@ function buildHookArgs({
       preToolUseGroups.push(`{hooks=[{type='command',command='${command}'}]}`);
       continue;
     }
-    args.push("-c", `hooks.${event}=[{hooks=[{type='command',command='${command}'}]}]`);
+    groupsByEvent.set(event, [`{hooks=[{type='command',command='${command}'}]}`]);
   }
   const groups = hookTools.flatMap((tool) => {
     const group = HOOK_TOOLS[tool.id].codexGroup(tool, hookToolRelayPath);
     return group ? [group] : [];
   });
-  args.push(...mergeCodexPreToolUse([...preToolUseGroups, ...groups]));
+  preToolUseGroups.push(...groups);
+  for (const hook of userHooks) {
+    if (!hook.enabled || hook.type !== 'command' || !hook.command) continue;
+    if (TOML_LITERAL_STRING_FORBIDDEN.test(hook.command) || (hook.matcher !== undefined && TOML_LITERAL_STRING_FORBIDDEN.test(hook.matcher))) {
+      console.warn(`[codex] hook ${hook.id} skipped: command or matcher cannot be expressed as a TOML literal string`);
+      continue;
+    }
+    const matcherField = hook.matcher === undefined ? '' : `matcher='${hook.matcher}',`;
+    const group = `{${matcherField}hooks=[{type='command',command='${hook.command}'}]}`;
+    if (hook.event === 'PreToolUse') {
+      preToolUseGroups.push(group);
+      continue;
+    }
+    const eventGroups = groupsByEvent.get(hook.event) ?? [];
+    eventGroups.push(group);
+    groupsByEvent.set(hook.event, eventGroups);
+  }
+  for (const [event, eventGroups] of groupsByEvent) {
+    args.push('-c', `hooks.${event}=[${eventGroups.join(',')}]`);
+  }
+  args.push(...mergeCodexPreToolUse(preToolUseGroups));
   return args;
 }
 

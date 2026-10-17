@@ -87,9 +87,10 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     const originalHookTools = dependencies.resolveHookTools(config, { skipPermissions });
     const sessionKind: CoherenceSessionKind = overrides.factoryRole ? 'factory' : 'writer';
     const coherence = dependencies.coherence;
+    const coherenceHost = getAdapter(overrides.agent ?? project.agent)?.usageVendor;
     const coherenceOverrides = sessionKind === 'writer' && coherence
-      && getAdapter(overrides.agent ?? project.agent)?.usageVendor === 'claude'
-      ? buildCoherenceWriterOverrides(coherence) : null;
+      && (coherenceHost === 'claude' || coherenceHost === 'codex')
+      ? buildCoherenceWriterOverrides({ ...coherence, host: coherenceHost }) : null;
     const coherenceHooksForThisStart = (): UserHook[] => {
       if (!coherenceOverrides) return [];
       const isAttached = decideCoherenceAttachment({
@@ -131,7 +132,8 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       resumeSessionId: (project.resumeSessionId as string | null | undefined) || null,
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),
-      getUserHooks: () => [...dependencies.getUserHooks(project.id), ...coherenceHooksForThisStart()],
+      getUserHooks: () => dependencies.getUserHooks(project.id),
+      getExtraUserHooks: coherenceHooksForThisStart,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       ...overrides,
       ...(coherenceOverrides ? {
