@@ -64,6 +64,7 @@ export const SessionSnapshot = z.object({
   activeAgents: z.number().int().nonnegative(),
   awaitingBackgroundTasks: z.boolean(),
   isCompacting: z.boolean().default(false),
+  isWaitingForMemory: z.boolean().default(false),
   pendingWakeup: PendingWakeup.nullable(),
   pendingPromptKind: z.string().nullable(),
   conversationApproval: ConversationApproval.nullable().default(null),

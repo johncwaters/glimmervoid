@@ -7,6 +7,7 @@ const QUEUE_ADMISSION_TIMED_OUT = 'serial-queue-admission-timed-out';
 interface SerialQueueRunOptions {
   admissionTimeoutMs?: number;
   isStillWanted?: () => boolean;
+  onMemoryWait?: (isWaiting: boolean) => void;
 }
 
 interface SerialQueue {
@@ -75,6 +76,7 @@ function createKeyedSerialQueue(): KeyedSerialQueue {
 
 interface MemoryWaitOptions {
   isStillWanted?: () => boolean;
+  onMemoryWait?: (isWaiting: boolean) => void;
 }
 
 interface MemoryAdmission {
@@ -147,26 +149,65 @@ function createMemoryAdmission({
     }
   }
 
-  async function waitForHeadroom(kind: MemoryStartKind, { isStillWanted = () => true }: MemoryWaitOptions = {}): Promise<void> {
+  async function waitForHeadroom(kind: MemoryStartKind, { isStillWanted = () => true, onMemoryWait = () => {} }: MemoryWaitOptions = {}): Promise<void> {
     if (!isStillWanted()) return;
     const shortfall = await admitOrDescribeShortfall(kind);
     if (shortfall === null) return;
+    if (!isStillWanted()) return;
     const waitStartedAtMs = nowMs();
     warn(`[memory] holding a ${kind} start: ${toMegabytes(shortfall.headroomBytes)} MB headroom, ${toMegabytes(shortfall.heldBytes)} MB held for recent starts, ${toMegabytes(shortfall.reserveBytes)} MB reserve needed`);
-    if (!(await recheckUntilAdmitted(kind, isStillWanted))) return;
+    onMemoryWait(true);
+    const isAdmitted = await recheckUntilAdmitted(kind, isStillWanted).finally(() => onMemoryWait(false));
+    if (!isAdmitted) return;
     warn(`[memory] admitted a ${kind} start after waiting ${Math.round((nowMs() - waitStartedAtMs) / 1000)} s`);
   }
 
   return { waitForHeadroom, waitingCount: () => waitingStarts };
 }
 
+interface QueuedStart {
+  isStillWanted: () => boolean;
+  onMemoryWait: (isWaiting: boolean) => void;
+}
+
 function createSpawnGate({ memoryAdmission = null }: { memoryAdmission?: MemoryAdmission | null } = {}): SerialQueue {
   const queue = createSerialQueue();
   if (!memoryAdmission) return queue;
-  return {
-    run: <T>(fn: () => T | Promise<T>, options?: SerialQueueRunOptions) => queue.run(() => memoryAdmission.waitForHeadroom('session', options).then(fn), options),
-    idle: queue.idle,
-  };
+  const admission = memoryAdmission;
+  const queuedStarts = new Set<QueuedStart>();
+  const flaggedStarts = new Set<QueuedStart>();
+  let isHeadStartHeld = false;
+
+  function flagWaitingForMemory(queuedStart: QueuedStart): void {
+    if (flaggedStarts.has(queuedStart) || !queuedStart.isStillWanted()) return;
+    flaggedStarts.add(queuedStart);
+    queuedStart.onMemoryWait(true);
+  }
+
+  function leaveQueue(queuedStart: QueuedStart): void {
+    queuedStarts.delete(queuedStart);
+    if (!flaggedStarts.delete(queuedStart)) return;
+    queuedStart.onMemoryWait(false);
+  }
+
+  function noteHeadStartHeld(isHeld: boolean): void {
+    isHeadStartHeld = isHeld;
+    if (!isHeld) return;
+    for (const queuedStart of queuedStarts) flagWaitingForMemory(queuedStart);
+  }
+
+  function run<T>(fn: () => T | Promise<T>, options: SerialQueueRunOptions = {}): Promise<T> {
+    const { isStillWanted = () => true, onMemoryWait = () => {} } = options;
+    const queuedStart: QueuedStart = { isStillWanted, onMemoryWait };
+    queuedStarts.add(queuedStart);
+    if (isHeadStartHeld) flagWaitingForMemory(queuedStart);
+    const release = () => leaveQueue(queuedStart);
+    const result = queue.run(() => admission.waitForHeadroom('session', { isStillWanted, onMemoryWait: noteHeadStartHeld }).finally(release).then(fn), options);
+    result.then(release, release);
+    return result;
+  }
+
+  return { run, idle: queue.idle };
 }
 
 export { createKeyedSerialQueue, createMemoryAdmission, createSerialQueue, createSpawnGate, isQueueAdmissionTimeout };

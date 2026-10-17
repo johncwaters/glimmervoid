@@ -307,6 +307,7 @@ class Session extends EventEmitter {
   _lastSignal: Record<string, unknown> | null;
   _compaction: CompactionTracking;
   _pendingPromptKind: string | null;
+  _isWaitingForMemory: boolean;
   _pendingPromptToolName: string | null;
   _pendingAttentionNotes: string[];
   _titleQuiet: boolean;
@@ -516,6 +517,7 @@ class Session extends EventEmitter {
 
     this._compaction = createCompactionTracking();
     this._pendingPromptKind = null;
+    this._isWaitingForMemory = false;
     this._pendingPromptToolName = null;
     this._pendingAttentionNotes = [];
 
@@ -933,10 +935,17 @@ class Session extends EventEmitter {
     if (this._compaction.isCompacting !== wasCompacting) this._emitSessionDetail();
   }
 
+  setWaitingForMemory(isWaiting: boolean): void {
+    if (isWaiting === this._isWaitingForMemory) return;
+    this._isWaitingForMemory = isWaiting;
+    this._emitSessionDetail();
+  }
+
   _emitSessionDetail(): void {
     this.emit("prompt-kind-change", {
       pendingPromptKind: this._pendingPromptKind,
       isCompacting: this._compaction.isCompacting,
+      isWaitingForMemory: this._isWaitingForMemory,
     });
   }
 
@@ -1300,6 +1309,7 @@ class Session extends EventEmitter {
       hasConversationBridge: this._codexBridge !== null,
       isConversationViewOn: this._isConversationViewEnabled(),
       isCompacting: this._compaction.isCompacting,
+      isWaitingForMemory: this._isWaitingForMemory,
       hasPlan: this._planReviewPort?.hasPlan(this.id) === true,
       mergeStatus: this.mergeStatus,
       mergeReason: this.mergeReason,
@@ -1398,6 +1408,7 @@ class Session extends EventEmitter {
 
   async _startBody({ fresh = false, resumePrompt = null }: { fresh?: boolean; resumePrompt?: string | null } = {}): Promise<void> {
     if (this._destroyed) return;
+    this.setWaitingForMemory(false);
 
     if (this.ptyProcess) {
       console.warn(`[session:${this.name}] start() called while PTY exists - killing previous PTY first`);

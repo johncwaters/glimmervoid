@@ -1,7 +1,7 @@
 const BYTES_PER_MEGABYTE = 1024 * 1024;
 
 export const MEMORY_RECHECK_MS = 5_000;
-export const MEMORY_RESERVATION_SETTLE_MS = 30_000;
+const MEMORY_RESERVATION_SETTLE_MS = 30_000;
 export const DEFAULT_SESSION_MEMORY_RESERVE_MB = 600;
 export const DEFAULT_CHECK_MEMORY_RESERVE_MB = 1500;
 
@@ -21,7 +21,7 @@ export interface CgroupLevel {
   currentBytes: number | null;
 }
 
-export interface MemoryReserveConfig {
+interface MemoryReserveConfig {
   sessionMemoryReserveMB?: number;
   checkMemoryReserveMB?: number;
 }

@@ -113,6 +113,7 @@ const SESSION = {
   activeAgents: 0,
   awaitingBackgroundTasks: false,
   isCompacting: false,
+  isWaitingForMemory: false,
   pendingWakeup: null,
   pendingPromptKind: null,
   conversationApproval: null,

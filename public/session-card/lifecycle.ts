@@ -653,16 +653,25 @@ export function setSessionUsage(sessionId: unknown, usage: UsageSessionUsage | n
   });
 }
 
-export function setSessionPrompt(sessionId: unknown, kind: unknown, isCompacting = false) {
+function promptBadgeState(kind: unknown, isCompacting: boolean, isWaitingForMemory: boolean) {
+  if (isCompacting) return { on: true, value: 'compacting', title: 'Context compaction in progress', text: 'compacting' };
+  if (kind) {
+    return {
+      on: true,
+      value: asText(kind),
+      title: 'Waiting on a permission or input prompt',
+      text: kind === 'plan' ? 'Plan ready' : kind === 'permission' ? 'permission' : 'input',
+    };
+  }
+  if (isWaitingForMemory) return { on: true, value: 'memory', title: 'Held until Glimmervoid has enough free memory to start it', text: 'Waiting for memory' };
+  return { on: false, title: '', text: '' };
+}
+
+export function setSessionPrompt(sessionId: unknown, kind: unknown, isCompacting = false, isWaitingForMemory = false) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.pendingPromptKind = typeof kind === 'string' ? kind : null;
-  paintCardBadge(ui, '.prompt-badge', 'prompt', {
-    on: !!kind || isCompacting,
-    value: isCompacting ? 'compacting' : asText(kind),
-    title: isCompacting ? 'Context compaction in progress' : 'Waiting on a permission or input prompt',
-    text: isCompacting ? 'compacting' : kind === 'plan' ? 'Plan ready' : kind === 'permission' ? 'permission' : 'input',
-  });
+  paintCardBadge(ui, '.prompt-badge', 'prompt', promptBadgeState(kind, isCompacting, isWaitingForMemory));
   ui.conversationFace.refresh();
   showPlanFaceWhenPreferred(sessionId);
 }

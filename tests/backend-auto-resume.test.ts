@@ -262,7 +262,7 @@ test('runAutoResume does not double-spawn a session started externally while que
   }
 });
 
-test('runAutoResume holds each start until memory headroom covers its reserve plus starts admitted in the last 30 s', async () => {
+test('runAutoResume holds each start until memory headroom covers its reserve plus starts admitted in the last 30 s, flagging the held card', async () => {
   const calls: SpawnCall[] = [];
   const resumeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
   writeClaudeTranscript(process.cwd(), resumeSessionId);
@@ -272,6 +272,8 @@ test('runAutoResume holds each start until memory headroom covers its reserve pl
   let headroomBytes = 100 * megabyte;
   let clockMs = 0;
   const spawnedAtEachRecheck: number[] = [];
+  const firstWaitFlags: boolean[] = [];
+  const secondWaitFlags: boolean[] = [];
   const memoryAdmission = createMemoryAdmission({
     readHeadroom: async () => ({ ok: true, headroomBytes }),
     reserveBytesFor: () => 600 * megabyte,
@@ -279,6 +281,8 @@ test('runAutoResume holds each start until memory headroom covers its reserve pl
     sleep: async (ms) => {
       clockMs += ms;
       spawnedAtEachRecheck.push(calls.length);
+      if (calls.length === 0) assert.equal(first.toSnapshot().isWaitingForMemory, true, 'the held card carries the flag');
+      if (calls.length === 0) assert.equal(second.toSnapshot().isWaitingForMemory, true, 'a card queued behind the held start carries the flag too');
       if (spawnedAtEachRecheck.length === 2) headroomBytes = 700 * megabyte;
     },
   });
@@ -286,11 +290,16 @@ test('runAutoResume holds each start until memory headroom covers its reserve pl
     { id: 'first', wasActive: true, resumeSessionId },
     { id: 'second', wasActive: true, resumeSessionId },
   ], true);
+  first.on('prompt-kind-change', ({ isWaitingForMemory }: { isWaitingForMemory: boolean }) => firstWaitFlags.push(isWaitingForMemory));
+  second.on('prompt-kind-change', ({ isWaitingForMemory }: { isWaitingForMemory: boolean }) => secondWaitFlags.push(isWaitingForMemory));
   try {
     await runAutoResume(new Map([['first', first], ['second', second]]), cfg, createSpawnGate({ memoryAdmission }));
     assert.deepEqual(spawnedAtEachRecheck, [0, 0, 1, 1, 1, 1, 1, 1], 'first waits for headroom, second waits out the first reservation');
     assert.deepEqual(calls.map((call) => call.id), ['first', 'second']);
     assert.equal(memoryAdmission.waitingCount(), 0);
+    const flagChangesOf = (flags: boolean[]) => flags.filter((isWaiting, index) => isWaiting !== (flags[index - 1] ?? false));
+    assert.deepEqual(flagChangesOf(firstWaitFlags), [true, false], 'the flag is raised once while held and cleared on admission');
+    assert.deepEqual(flagChangesOf(secondWaitFlags), [true, false], 'the queued card keeps its flag across both holds and clears it on its own admission');
   } finally {
     first.destroy(); second.destroy();
   }
