@@ -1,6 +1,6 @@
 import { STATES } from '#shared/states.ts';
 import { el } from './dom-helpers.ts';
-import { buildPillSkeleton, paintPillStatus } from './focus-view/pill-dom.ts';
+import { buildSessionRow, paintSessionRowStatus } from './session-row.ts';
 
 const EXAMPLE_SESSIONS = [
   { name: 'glimmervoid', state: STATES.RUNNING, awaitingBackgroundTasks: false },
@@ -14,10 +14,10 @@ export function renderCompactStatusPreview() {
   preview.setAttribute('role', 'img');
   preview.setAttribute('aria-label', 'Example sidebar sessions showing how status appears with this setting');
   for (const session of EXAMPLE_SESSIONS) {
-    const { pill, refs } = buildPillSkeleton('div', 'focus-pill compact-status-preview-pill');
+    const { row, refs } = buildSessionRow('div', 'compact-status-preview-pill');
     refs.name.textContent = session.name;
-    paintPillStatus(pill, refs, session.state, session.awaitingBackgroundTasks);
-    preview.append(pill);
+    paintSessionRowStatus(row, refs, session.state, session.awaitingBackgroundTasks);
+    preview.append(row);
   }
   return preview;
 }

@@ -1,5 +1,5 @@
 import { el } from './dom-helpers.ts';
-import { paintPillStatus } from './focus-view/pill-dom.ts';
+import { paintSessionRowStatus } from './session-row.ts';
 import { PR_STATUS_LEGEND } from './github/pr-status-icon-core.ts';
 import type { PrStatusIcon } from './github/pr-status-icon-core.ts';
 import { createPrStatusIcon } from './github/pr-status-icon.ts';
@@ -27,7 +27,7 @@ export function renderStatusLegend() {
     glyph.setAttribute('aria-hidden', 'true');
     badge.append(glyph, name);
     const row = buildLegendRow(badge, entry.meaning);
-    paintPillStatus(row, { glyph, label: name }, entry.state, entry.awaitingBackgroundTasks);
+    paintSessionRowStatus(row, { glyph, label: name }, entry.state, entry.awaitingBackgroundTasks);
     return row;
   }));
 }

@@ -188,7 +188,7 @@ export function readLayout(): LayoutReading {
 
 export function boardRowIds(): string[] {
   const found: string[] = [];
-  for (const element of document.querySelectorAll('button.phone-row')) {
+  for (const element of document.querySelectorAll('.phone-board-list button.session-row')) {
     const value = element.getAttribute('data-id');
     if (value) found.push(value);
   }
@@ -197,7 +197,7 @@ export function boardRowIds(): string[] {
 
 export function pillIds(): string[] {
   const found: string[] = [];
-  for (const element of document.querySelectorAll('button.focus-pill')) {
+  for (const element of document.querySelectorAll('.focus-rail button.session-row')) {
     const value = element.getAttribute('data-id');
     if (value) found.push(value);
   }

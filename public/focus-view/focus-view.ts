@@ -1,6 +1,6 @@
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
-import { el, MERGE_TAGS, query } from '../dom-helpers.ts';
+import { el, query } from '../dom-helpers.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { getRestorableSessionId, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession } from '../session-actions.ts';
@@ -11,6 +11,7 @@ import { buildShortcutKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { railAriaKeyShortcuts, shortcutChord } from '../shortcuts-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
+import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { getRailWidth, setRailWidth } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
@@ -18,7 +19,7 @@ import type { SessionRow } from './attention-core.ts';
 import { attentionSummaryText, countAttentionByKind, needsAttention, orderRoster, pickAdjacent, pickNextAttention } from './attention-core.ts';
 import type { RosterGroup } from './roster-groups-core.ts';
 import { groupRoster, NO_PATH_KEY, visibleOrder } from './roster-groups-core.ts';
-import { buildPillSkeleton, paintPillStatus } from './pill-dom.ts';
+import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import { createUnseenCompleteTracker } from './unseen-complete-core.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
@@ -31,8 +32,6 @@ type GroupList = HTMLDivElement & { _lastOrderKey?: string };
 type GroupHeader = HTMLDivElement & { _addBtn: HTMLButtonElement; _forgetBtn: HTMLButtonElement };
 
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
-
-const touchRail = window.matchMedia?.('(hover: none) and (min-width: 769px)');
 
 let railEl: HTMLElement | null = null;
 let railHeadEl: HTMLButtonElement | null = null;
@@ -207,27 +206,16 @@ function sessionName(ui: SessionUi): string | null {
 }
 
 function buildPill(id: string) {
-  const { pill: button, refs } = buildPillSkeleton('button', 'focus-pill');
+  const { row: button, refs } = buildSessionRow('button');
   button.type = 'button';
   button.dataset.id = id;
   button.setAttribute('role', 'option');
+  button.addEventListener('click', () => onPillActivate(id));
 
-  const pill: HTMLButtonElement & { _refs: typeof refs; _row: HTMLElement | null } =
-    Object.assign(button, { _refs: refs, _row: null });
-  pill.addEventListener('click', () => onPillActivate(id));
-
-  const row = el('div', 'focus-pill-row');
-  row.setAttribute('role', 'presentation');
-  const removeBtn = el('button', 'focus-pill-remove', '×');
-  removeBtn.type = 'button';
-  removeBtn.tabIndex = -1;
-
-  if (!touchRail?.matches) removeBtn.setAttribute('aria-hidden', 'true');
-  removeBtn.title = 'Remove session';
-  removeBtn.addEventListener('click', (e) => { e.stopPropagation(); requestSessionRemoval(id, mergeStatusById.get(id)); });
-  row.append(pill, removeBtn);
-  pill._row = row;
-  return pill;
+  const { item, removeButton } = wrapSessionRow(button, () => requestSessionRemoval(id, mergeStatusById.get(id)));
+  item.setAttribute('role', 'presentation');
+  removeButton.tabIndex = -1;
+  return Object.assign(button, { _refs: refs, _row: item });
 }
 
 function onPillActivate(id: string) {
@@ -236,18 +224,8 @@ function onPillActivate(id: string) {
 }
 
 function paintPill(pill: FocusPill, { id, ui, state, name, unseen }: RosterRow) {
-  pill.toggleAttribute('data-unseen', unseen);
-  const label = paintPillStatus(pill, pill._refs, state, ui.awaitingBackgroundTasks);
-  const accessibleLabel = [name, ui.taskTitle, label].filter(Boolean).join(', ');
-  pill.setAttribute('aria-label', accessibleLabel);
-  pill.title = accessibleLabel;
-  pill._refs.name.textContent = name;
-  const ms = mergeStatusById.get(id) || 'none';
-  pill.dataset.merge = ms === 'none' ? '' : ms;
-  pill._refs.merge.textContent = MERGE_TAGS[ms] || '';
-
-  pill.dataset.activity = ui._activity || '';
-
+  const mergeStatus = mergeStatusById.get(id) || 'none';
+  paintSessionRow(pill, pill._refs, { ui, state, name: name ?? '', unseen, mergeStatus: mergeStatus === 'none' ? '' : mergeStatus });
   pill.classList.toggle('focused', id === getFocusedSessionId());
   const isTabStop = id === railTabStopId;
   pill.setAttribute('aria-selected', String(isTabStop));
@@ -266,6 +244,14 @@ function renderPillActivity(ui: SessionUi, kind: ActivityRenderKind) {
   pulseActivityGlyph(pill._refs?.glyph);
 }
 addActivityRenderer(renderPillActivity);
+
+onSessionTick(() => {
+  if (!active) return;
+  for (const [id, pill] of pillById) {
+    const ui = sessionUIs.get(id);
+    if (ui) pill._refs.elapsed.textContent = sessionElapsedText(ui);
+  }
+});
 
 export function refreshFocusRoster() {
   if (!active) return;
@@ -286,7 +272,7 @@ export function refreshFocusRoster() {
       let pill = pillById.get(id);
       if (!pill) { pill = buildPill(id); pillById.set(id, pill); }
       paintPill(pill, row);
-      if (!orderUnchanged && pill._row) listEl.appendChild(pill._row);
+      if (!orderUnchanged) listEl.appendChild(pill._row);
     }
     listEl._lastOrderKey = newKey;
   };
@@ -310,7 +296,7 @@ export function refreshFocusRoster() {
 
   for (const [id, pill] of pillById) {
     if (!seen.has(id)) {
-      (pill._row || pill).remove();
+      pill._row.remove();
       pillById.delete(id);
       if (id === railTabStopId) railTabStopId = null;
     }

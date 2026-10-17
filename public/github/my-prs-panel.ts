@@ -5,7 +5,7 @@ import type { LinkedPr, MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden, query } from '../dom-helpers.ts';
-import { buildPillSkeleton, paintPillStatus } from '../focus-view/pill-dom.ts';
+import { buildSessionRow, paintSessionRowStatus } from '../session-row.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
@@ -320,17 +320,17 @@ function liveSessionLinks(): LiveSessionLinks[] {
 function paintSessionPill(pill: HTMLElement): void {
   const sessionId = pill.dataset.sessionId ?? '';
   const ui = sessionUIs.get(sessionId);
-  const nameElement = query(pill, '.focus-pill-name');
+  const nameElement = query(pill, '.session-row-name');
   if (ui) nameElement.textContent = sessionName(ui) || sessionId;
-  const refs = { glyph: query(pill, '.focus-pill-glyph'), label: query(pill, '.focus-pill-label') };
-  const stateLabel = paintPillStatus(pill, refs, ui?.currentState || STATES.DORMANT, ui?.awaitingBackgroundTasks);
+  const refs = { glyph: query(pill, '.session-row-glyph'), label: query(pill, '.session-row-label') };
+  const stateLabel = paintSessionRowStatus(pill, refs, ui?.currentState || STATES.DORMANT, ui?.awaitingBackgroundTasks, ui?.pendingPromptKind);
   const accessibleLabel = `Focus session ${nameElement.textContent}, ${stateLabel}`;
   pill.title = accessibleLabel;
   pill.setAttribute('aria-label', accessibleLabel);
 }
 
 function createSessionPill(session: LinkedLiveSession): HTMLElement {
-  const { pill, refs } = buildPillSkeleton('button', 'focus-pill my-pr-session-pill');
+  const { row: pill, refs } = buildSessionRow('button', 'my-pr-session-pill');
   pill.type = 'button';
   pill.dataset.sessionId = session.id;
   refs.name.textContent = session.title;

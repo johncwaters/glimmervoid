@@ -1,5 +1,7 @@
 import { createUnseenCompleteTracker } from '../focus-view/unseen-complete-core.ts';
-import { el, MERGE_TAGS, observeHeaderHeight, queryTag, stateChip } from '../dom-helpers.ts';
+import { el, observeHeaderHeight } from '../dom-helpers.ts';
+import type { SessionRowRefs } from '../session-row.ts';
+import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import type { SessionRow } from '../focus-view/attention-core.ts';
 import { attentionSummaryText, countAttentionByKind, orderRoster } from '../focus-view/attention-core.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
@@ -17,14 +19,6 @@ import { groupSessionsForBoard } from './board-groups-core.ts';
 type BoardRow = SessionRow<SessionUi>;
 
 const projectPathOf = (row: BoardRow) => row.ui.path;
-
-interface RowRefs {
-  glyph: HTMLSpanElement;
-  name: HTMLSpanElement;
-  badge: HTMLSpanElement;
-  merge: HTMLSpanElement;
-  elapsed: HTMLSpanElement;
-}
 
 interface GroupRefs {
   header: HTMLDivElement;
@@ -55,7 +49,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
 
   const rowById = new Map<string, HTMLButtonElement>();
   const groupSectionByKey = new Map<string, HTMLElement>();
-  const rowState = new WeakMap<HTMLButtonElement, { refs: RowRefs; item: HTMLDivElement }>();
+  const rowState = new WeakMap<HTMLButtonElement, { refs: SessionRowRefs; item: HTMLDivElement }>();
   const groupRefs = new WeakMap<HTMLElement, GroupRefs>();
   const orderKeys = new WeakMap<HTMLElement, string>();
   let attentionCount = 0;
@@ -63,35 +57,12 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
   observeHeaderHeight(topBar);
 
   function buildRow(id: string) {
-    const row = el('button', 'phone-row');
+    const { row, refs } = buildSessionRow('button');
     row.type = 'button';
     row.dataset.id = id;
-    row.innerHTML = '<span class="phone-row-glyph" aria-hidden="true"></span>'
-      + '<span class="phone-row-main">'
-      + '<span class="phone-row-name"></span>'
-      + '<span class="phone-row-meta">'
-      + '<span class="phone-row-badge"></span><span class="phone-row-merge"></span>'
-      + '</span></span>'
-      + '<span class="phone-row-elapsed" aria-hidden="true"></span>';
-    const refs = {
-      glyph: queryTag(row, '.phone-row-glyph', 'span'),
-      name: queryTag(row, '.phone-row-name', 'span'),
-      badge: queryTag(row, '.phone-row-badge', 'span'),
-      merge: queryTag(row, '.phone-row-merge', 'span'),
-      elapsed: queryTag(row, '.phone-row-elapsed', 'span'),
-    };
     row.addEventListener('click', () => onSelectSession?.(id));
-    const item = el('div', 'phone-row-item');
+    const { item } = wrapSessionRow(row, () => requestSessionRemoval(id));
     item.setAttribute('role', 'listitem');
-    const removeButton = el('button', 'phone-row-remove', 'x');
-    removeButton.type = 'button';
-    removeButton.title = 'Remove session';
-    removeButton.setAttribute('aria-label', 'Remove session');
-    removeButton.addEventListener('click', (event) => {
-      event.stopPropagation();
-      requestSessionRemoval(id);
-    });
-    item.append(row, removeButton);
     rowState.set(row, { refs, item });
     return row;
   }
@@ -122,27 +93,8 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
   function paintRow(row: HTMLButtonElement, entry: BoardRow) {
     const rowDetails = rowState.get(row);
     if (!rowDetails) return;
-    const { ui, state, unseen } = entry;
-    const { glyph, label, isMonitoring } = stateChip(state, ui.awaitingBackgroundTasks);
-    const statusLabel = ui.pendingPromptKind === 'plan' ? 'Plan ready' : label;
-    const name = entry.name;
-    row.dataset.state = state;
-    row.toggleAttribute('data-monitoring', isMonitoring);
-    row.dataset.prompt = ui.pendingPromptKind ?? '';
-    row.toggleAttribute('data-unseen', unseen);
-    row.dataset.activity = ui._activity || '';
-    rowDetails.refs.glyph.textContent = glyph;
-    rowDetails.refs.name.textContent = name;
-    const taskTitle = el('span', 'session-list-task-title', ui.taskTitle ?? '');
-    rowDetails.refs.name.append(taskTitle);
-    rowDetails.refs.name.title = [name, ui.taskTitle].filter(Boolean).join(' | ');
-    rowDetails.refs.badge.textContent = statusLabel;
-
-    const merge = ui.card?.dataset.merge || '';
-    row.dataset.merge = merge;
-    rowDetails.refs.merge.textContent = MERGE_TAGS[merge] || '';
-    rowDetails.refs.elapsed.textContent = sessionElapsedText(ui);
-    row.setAttribute('aria-label', `${name}, ${statusLabel}`);
+    const { ui, state, unseen, name } = entry;
+    paintSessionRow(row, rowDetails.refs, { ui, state, name, unseen, mergeStatus: ui.card?.dataset.merge || '' });
   }
 
   function paintGroup(section: HTMLElement, group: RosterGroup<BoardRow>) {

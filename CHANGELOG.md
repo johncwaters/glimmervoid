@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sessions can clear out their own scratch**: a guarded session's temporary folder, where Claude Code keeps its scratchpad, lives under the Glimmervoid folder rather than the system temp folder, so Sane YOLO refused `rm -rf` inside it as a delete outside the project. Recursive deletes inside Glimmervoid's guarded session temp folders are now allowed, the same as inside the system temp folder.
 - **Phone board row highlights span the whole row**: the tint on a finished, waiting or failed session now runs under the remove button too, instead of stopping short of it.
 - **Session status looks the same on phone and desktop**: the phone board and the desktop session list now share one set of state colors and highlights. Desktop now tints failed sessions; phone now tints a parked merge, flashes once when a session finishes, colors every status, and dims the icon of a running session that has gone quiet, pulsing it on new output.
+- **Desktop session list uses the phone row layout**: each session is a full-width row with its status icon pinned on the left, name and task title on top, status, merge state and linked pull requests underneath, elapsed time on the right, and an always-visible remove button. The icon and status no longer jump around as the status word changes or when you hover to remove a session. Phone rows now show linked pull request chips too, and the desktop list shows the task title, elapsed time and "Plan ready".
 
 ## [0.38.1] - 2026-10-17
 

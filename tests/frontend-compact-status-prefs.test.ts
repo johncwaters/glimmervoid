@@ -25,19 +25,19 @@ test('compact sidebar status defaults off, normalizes booleans and persists with
   assert.equal(setting.defaultValue, false);
 });
 
-test('compact status hides the status word on the desktop rail and the phone Board alike', () => {
+test('compact status hides the status word on every session row, desktop rail and phone Board alike', () => {
   const css = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');
-  const rowOutsidePlanPrompt = `html[data-compact-status] .phone-row:not([data-prompt="${PLAN_PROMPT_KIND}"])`;
+  const rowOutsidePlanPrompt = `html[data-compact-status] .session-row:not([data-prompt="${PLAN_PROMPT_KIND}"])`;
 
-  assert.match(css, /html\[data-compact-status\] \.focus-pill-label \{ display: none; \}/);
-  assert.ok(css.includes(`${rowOutsidePlanPrompt} .phone-row-badge { display: none; }`));
-  assert.ok(css.includes(`${rowOutsidePlanPrompt} .phone-row-meta:has(.phone-row-merge:empty) { display: none; }`));
-  assert.doesNotMatch(css, /html\[data-compact-status\] \.phone-row-(badge|meta)/);
+  assert.ok(css.includes(`${rowOutsidePlanPrompt} .session-row-label { display: none; }`));
+  assert.ok(css.includes(`${rowOutsidePlanPrompt} .session-row-meta:has(.session-row-merge:empty):has(.session-row-prs[hidden]) { display: none; }`));
+  assert.doesNotMatch(css, /html\[data-compact-status\] \.session-row-(label|meta)/);
 });
 
-test('the phone Board stamps the prompt kind that the compact status rule exempts, and words a plan row Plan ready', () => {
-  const boardScreenSource = readFileSync(new URL('../public/phone/board-screen.ts', import.meta.url), 'utf8');
+test('the shared session row stamps the prompt kind that the compact status rule exempts, and words a plan row Plan ready', () => {
+  const sessionRowSource = readFileSync(new URL('../public/session-row.ts', import.meta.url), 'utf8');
 
-  assert.ok(boardScreenSource.includes(`ui.pendingPromptKind === '${PLAN_PROMPT_KIND}' ? 'Plan ready' : label`));
-  assert.ok(boardScreenSource.includes("row.dataset.prompt = ui.pendingPromptKind ?? ''"));
+  assert.ok(sessionRowSource.includes(`const PLAN_PROMPT_KIND = '${PLAN_PROMPT_KIND}'`));
+  assert.ok(sessionRowSource.includes("pendingPromptKind === PLAN_PROMPT_KIND ? 'Plan ready' : label"));
+  assert.ok(sessionRowSource.includes("row.dataset.prompt = pendingPromptKind ?? ''"));
 });

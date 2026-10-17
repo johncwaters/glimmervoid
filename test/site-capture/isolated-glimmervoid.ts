@@ -104,10 +104,10 @@ export async function readSessionGrid(page: Page, sessionId: string): Promise<Gr
 }
 
 export async function selectSession(page: Page, sessionId: string): Promise<void> {
-  const phoneRow = page.locator(`button.phone-row[data-id="${sessionId}"]`);
+  const phoneRow = page.locator(`.phone-board-list button.session-row[data-id="${sessionId}"]`);
   const selectDesktop = async () => {
     await page.locator('#tab-focus').click();
-    await page.locator(`button.focus-pill[data-id="${sessionId}"]`).click();
+    await page.locator(`.focus-rail button.session-row[data-id="${sessionId}"]`).click();
   };
   await (await phoneRow.isVisible() ? phoneRow.click() : selectDesktop());
   const deadline = Date.now() + 10_000;

@@ -30,7 +30,7 @@ import { noteKnownProjectPath } from './project-registry.ts';
 import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-panel.ts';
 import { forgetSessionLinkedPrs, paintSessionPrChips, refreshSessionPrChipStages, setSessionLinkedPrs } from './github/session-pr-chips.ts';
-import { setPillPrChipsPainter } from './focus-view/pill-dom.ts';
+import { setSessionRowPrChipsPainter } from './session-row.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
 import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryState, setFactoryRequestSender } from './factory/factory-view.ts';
@@ -344,7 +344,7 @@ setIssuesRequestSender(sendControlMsg);
 setBenchmarkRequestSender(sendControlMsg);
 setFactoryRequestSender(sendControlMsg);
 setCardPrChipsPainter(paintSessionPrChips);
-setPillPrChipsPainter(paintSessionPrChips);
+setSessionRowPrChipsPainter(paintSessionPrChips);
 
 function refreshViewsIfVisible(reason: ViewRefreshReason) {
   refreshVisibleViews(VIEW_TABS, { isPhoneShellActive: isPhoneShellActive(), activeView: getActiveView(), phoneScreen: uiState.snapshot().phoneScreen }, reason);

@@ -219,8 +219,8 @@ function cardSlotSelector(viewer: Viewer): string {
 }
 
 function rosterSelector(viewer: Viewer, sessionId: string): string {
-  if (viewer.layout === 'phone') return `button.phone-row[data-id="${sessionId}"]`;
-  return `button.focus-pill[data-id="${sessionId}"]`;
+  if (viewer.layout === 'phone') return `.phone-board-list button.session-row[data-id="${sessionId}"]`;
+  return `.focus-rail button.session-row[data-id="${sessionId}"]`;
 }
 
 function listedIds(viewer: Viewer): Promise<string[]> {
