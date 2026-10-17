@@ -4,6 +4,8 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { prepareGuardrailsLaunch } from '../guardrails/guardrails-launch.ts';
 import type { GitWorkspaceInstance } from '../git/git-workspace.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
+import { isQueueAdmissionAbandoned } from '../spawn-gate.ts';
+import type { SerialQueue } from '../spawn-gate.ts';
 import { buildFactoryCheckEnv, listFailingTestFiles, listFailingTestFilesOutsideScopes, parseCheckCommand, redactSecretLines, summarizeFailedCheckOutput } from './core/factory-core.ts';
 import type { FactoryCheck } from './core/factory-core.ts';
 import { capFactoryDecisionOutput, envFileSecretValues } from './core/factory-decision-log-core.ts';
@@ -125,7 +127,11 @@ interface FactoryCheckoutRunOptions {
   prepareCheckRunner?: PrepareFactoryCheckRunner;
   rerunFailedChecks?: boolean;
   writeFailedCheckOutputFile?: (outputText: string) => Promise<string | null>;
+  checkRunGate?: SerialQueue | null;
+  onMemoryWait?: (isWaiting: boolean) => void;
 }
+
+const QUEUED_RUN_LIVENESS_POLL_MS = 1_000;
 
 async function readCheckoutSecretValues(checkoutPath: string, sharedEntries: readonly string[]): Promise<string[]> {
   const sharedEnvFiles = sharedEntries.filter((sharedEntry) => !sharedEntry.includes('..') && path.basename(sharedEntry).startsWith('.env'));
@@ -140,7 +146,30 @@ async function readCheckoutSecretValues(checkoutPath: string, sharedEntries: rea
   return envFileTexts.flatMap(envFileSecretValues);
 }
 
-export async function runChecksInCleanCheckout({
+export async function runChecksInCleanCheckout(options: FactoryCheckoutRunOptions): Promise<FactoryCheckoutRun | null> {
+  const { signal, isLive = () => true, checkRunGate = null, onMemoryWait } = options;
+  if (!checkRunGate) return runChecksInStagedCheckout(options);
+  const isStillWanted = () => isLive() && !signal.aborted;
+  const livenessLost = new AbortController();
+  const livenessPoll = setInterval(() => {
+    if (!isLive()) livenessLost.abort();
+  }, QUEUED_RUN_LIVENESS_POLL_MS);
+  const stopLivenessPoll = () => clearInterval(livenessPoll);
+  try {
+    return await checkRunGate.run(async () => {
+      stopLivenessPoll();
+      if (!isStillWanted()) return null;
+      return runChecksInStagedCheckout(options);
+    }, { isStillWanted, onMemoryWait, signal: AbortSignal.any([signal, livenessLost.signal]) });
+  } catch (error) {
+    if (isQueueAdmissionAbandoned(error)) return null;
+    throw error;
+  } finally {
+    stopLivenessPoll();
+  }
+}
+
+async function runChecksInStagedCheckout({
   projectPath, sha, commands, writeScopes, sharedEntries, gitWorkspace, baseEnv, secretValues, signal,
   isLive = () => true, prepareCheckRunner = prepareGuardedCheckRunner, rerunFailedChecks = false,
   writeFailedCheckOutputFile = async () => null,

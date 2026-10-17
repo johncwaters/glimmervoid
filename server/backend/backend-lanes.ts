@@ -116,6 +116,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     warn: (message) => logger.warn(message),
   });
   const spawnGate = createSpawnGate({ memoryAdmission });
+  const checkRunGate = createSpawnGate({ memoryAdmission, kind: 'checkRun' });
   const gitWorkspace = createGitWorkspace({ rerere: config.worktreeRerere !== false });
   const gitWorkspaceSync = createGitWorkspaceSync();
   const laneLedger = createLaneLedger({
@@ -153,7 +154,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   });
   const factoryHarnessMirror = createFactoryHarnessMirror({ runsDirectory: factoryHarnessRunsDirectory(process.env, os.homedir()) });
   const factory = createFactoryWiring({
-    config, gitWorkspace, broadcast: broadcastControl, log: logger, telemetry,
+    config, gitWorkspace, broadcast: broadcastControl, log: logger, telemetry, checkRunGate,
     saveProjectFactoryProfile: async (projectPath, profile) => {
       const savedConfig = await configStore.saveAsync((freshConfig) => {
         const project = freshConfig.projects?.find((entry) => entry.path === projectPath);

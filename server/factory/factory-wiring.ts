@@ -46,6 +46,7 @@ import { resolveFactoryProfile } from './core/factory-profile-core.ts';
 
 const COHERENCE_CONFIG_PROBE_TIMEOUT_MS = 5_000;
 const ORCHESTRATOR_EXCEPTION_PREFIX = 'factory-exception';
+const CHECK_RUN_HELD_FOR_MEMORY_NOTE = 'Waiting for memory to run checks';
 
 interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession = Session> extends Partial<Omit<FactoryPollerDeps, 'broadcast' | 'beforeTick'>> {
   config: Pick<Config, 'factory' | 'projects' | 'integrationBranch' | 'posthog' | 'worktreeShare' | 'worktreeRoot'>;
@@ -61,12 +62,13 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
   prepareCheckRunner?: FactoryCloseOutDeps['prepareCheckRunner'];
   saveProjectFactoryProfile?: (projectPath: string, profile: NonNullable<ProjectConfig['factoryProfile']>) => Promise<void>;
   trustClaudeFolder?: (repositoryRoot: string) => Promise<FolderTrustOutcome>;
+  checkRunGate?: FactoryCloseOutDeps['checkRunGate'];
   orchestratorOptions?: Omit<FactoryOrchestratorDeps<ManagedSession>, 'nodePath' | 'hookCliPath' | 'shimDir' | 'ensureLedger' | 'commitAndLand' | 'readTrustedIntentIds' | 'beginIntent'>;
 }
 
 export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSession = Session>({
   config, broadcast, gitWorkspace = createGitWorkspace(), homeDir = glimmervoidHomeDir(),
-  createPoller = createFactoryPoller, log = console, telemetry, orchestratorOptions, trustClaudeFolder, spawnReviewer, prepareCheckRunner, saveProjectFactoryProfile, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
+  createPoller = createFactoryPoller, log = console, telemetry, orchestratorOptions, trustClaudeFolder, spawnReviewer, prepareCheckRunner, saveProjectFactoryProfile, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), notify = () => {}, runCoherence: customRunCoherence, checkRunGate = null, ...pollerDeps
 }: FactoryWiringOptions<ManagedSession>) {
   gitWorkspace = isolateGitWorkspace(gitWorkspace, { disableRepoCommands: true });
   const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
@@ -140,7 +142,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     },
     globalChecks: () => config.factory?.checks,
     sharedEntries: () => config.worktreeShare ?? DEFAULT_CONFIG.worktreeShare,
-    gitWorkspace, prepareCheckRunner, spawnSetupAgent: spawnReviewer,
+    gitWorkspace, prepareCheckRunner, checkRunGate, spawnSetupAgent: spawnReviewer,
     model: () => config.factory?.reviewerModel ?? null,
     secretValues: factorySecretValues(process.env),
     saveProjectFactoryProfile: async (projectPath, profile) => {
@@ -686,6 +688,17 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       };
       const refresh = refreshAfter('state');
       const refusalsByWork = new Map<string, FactoryWorkRefusal & { projectId: string }>();
+      const projectsWithCheckRunHeldForMemory = new Set<string>();
+      const noteCheckRunHeldForMemory = (projectId: string, isWaiting: boolean) => {
+        if (isWaiting === projectsWithCheckRunHeldForMemory.has(projectId)) return;
+        if (isWaiting) projectsWithCheckRunHeldForMemory.add(projectId);
+        if (!isWaiting) projectsWithCheckRunHeldForMemory.delete(projectId);
+        refresh();
+      };
+      const withCheckMemoryNote = (projectId: string, note: string | null | undefined) => {
+        if (!projectsWithCheckRunHeldForMemory.has(projectId)) return note;
+        return note ? `${note}\n${CHECK_RUN_HELD_FOR_MEMORY_NOTE}` : CHECK_RUN_HELD_FOR_MEMORY_NOTE;
+      };
       const notifyOrchestrator = (projectId: string, event: FactoryDecisionWorkerEvent) => {
         const refusalKey = JSON.stringify([projectId, event.workId]);
         const shouldRecord = event.event !== 'refused' || refusalsByWork.get(refusalKey)?.reason !== (event.detail ?? null);
@@ -704,6 +717,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       const activeCloseOut = spawnReviewer ? createFactoryCloseOut({
         config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand, readIntegrationSha,
         recordFactoryLandedSha, readPaused, readIntentFloorAllowances, countTicketBlock, prepareCheckRunner,
+        checkRunGate, onCheckMemoryWait: noteCheckRunHeldForMemory,
         recordDecision: decisionLog.record,
         recordScopeNeeds: async (worker, files) => {
           let rememberedNeeds: readonly string[] = [];
@@ -826,7 +840,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           if (isInFlight) projectIdleSinceMs.delete(project.projectId);
           if (!isInFlight && !projectIdleSinceMs.has(project.projectId)) projectIdleSinceMs.set(project.projectId, stallClock());
           const factoryProfile = resolveFactoryProfile(config.factory, config.projects?.find((entry) => entry.id === project.projectId));
-          return { ...updated, reviewing, liveWorkers, factoryProfile: { checks: factoryProfile.checks, focusedTestCommand: factoryProfile.focusedTestCommand, widenableScopes: factoryProfile.widenableScopes },
+          return { ...updated, note: withCheckMemoryNote(project.projectId, updated.note), reviewing, liveWorkers, factoryProfile: { checks: factoryProfile.checks, focusedTestCommand: factoryProfile.focusedTestCommand, widenableScopes: factoryProfile.widenableScopes },
             spentTodayUsd: todaySpend.status === 'known' ? todaySpend.amountUsd : undefined, dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
             error: updated.error ?? projectException(project.projectId) ?? landingErrors.get(project.projectId) ?? null };
         },

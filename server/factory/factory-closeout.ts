@@ -25,6 +25,7 @@ import { readLaneResultFile } from '../lanes/lane-spawn.ts';
 import { writeJsonAtomic, writeTextAtomic } from '../json-file.ts';
 import { z } from 'zod';
 import type { LaneSpawn } from '../lanes/lane-spawn.ts';
+import type { SerialQueue } from '../spawn-gate.ts';
 
 export const FACTORY_REVIEWER_TOOLS = Object.freeze(['Read', 'Glob', 'Grep', 'Bash']);
 export const FACTORY_REVIEWER_PERMISSIONS = Object.freeze({
@@ -99,6 +100,8 @@ export interface FactoryCloseOutDeps {
   onReviewingChanged?: () => void;
   baseEnv?: NodeJS.ProcessEnv;
   prepareCheckRunner?: PrepareFactoryCheckRunner;
+  checkRunGate?: SerialQueue | null;
+  onCheckMemoryWait?: (projectId: string, isWaiting: boolean) => void;
 }
 
 export function factorySecretValues(baseEnv: NodeJS.ProcessEnv): (string | undefined)[] {
@@ -185,6 +188,7 @@ export async function runFactoryReview(options: Omit<FactoryStructuredAgentOptio
 export function createFactoryCloseOut({
   config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger, runCoherence, commitAndLand, readIntegrationSha, recordFactoryLandedSha, readPaused, readIntentFloorAllowances = async () => [],
   countTicketBlock = createMemoryCapCounter(), trustVerification, notifyOrchestrator, setException, clearException = () => {}, recordDecision = async () => {}, recordConfirmedFlakes = () => {}, recordScopeNeeds = createMemoryScopeNeedRecorder(), onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareGuardedCheckRunner,
+  checkRunGate = null, onCheckMemoryWait = () => {},
 }: FactoryCloseOutDeps) {
   const reviewing = new Set<string>();
   const attempts = new Map<string, number>();
@@ -290,6 +294,7 @@ export function createFactoryCloseOut({
       sharedEntries: sharedEntries(), baseEnv, secretValues: secretValues(), signal: reviewController.signal,
       isLive: () => isLive(worker), prepareCheckRunner, rerunFailedChecks,
       writeFailedCheckOutputFile: (outputText) => writeFailedCheckOutputFile(worker, outputText),
+      checkRunGate, onMemoryWait: (isWaiting) => onCheckMemoryWait(worker.projectId, isWaiting),
     });
   }
 

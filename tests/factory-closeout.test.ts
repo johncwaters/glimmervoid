@@ -14,6 +14,8 @@ import { createFactoryCloseOut } from '../server/factory/factory-closeout.ts';
 import type { FactoryCloseOutDeps, FactoryCloseOutWorker } from '../server/factory/factory-closeout.ts';
 import { commitAndLandFactoryLedger, hasCodeChangedBetween, readCodeDiffBetween, screenPendingLedgerWrites } from '../server/factory/factory-ledger.ts';
 import { hostScratchRoot } from '../server/host-scratch.ts';
+import { createSpawnGate } from '../server/spawn-gate.ts';
+import type { MemoryAdmission } from '../server/spawn-gate.ts';
 import type { LaneSpawn } from '../server/lanes/lane-spawn.ts';
 import { createFactoryWiring } from '../server/factory/factory-wiring.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
@@ -31,7 +33,7 @@ const prepareUnguardedCheckRunner: PrepareFactoryCheckRunner = async () => ({
   dispose: async () => {},
 });
 
-async function createFixture(context: TestContext, activateOrder = true, capCounters: Pick<FactoryCloseOutDeps, 'countTicketBlock'> = {}) {
+async function createFixture(context: TestContext, activateOrder = true, capCounters: Pick<FactoryCloseOutDeps, 'countTicketBlock' | 'checkRunGate' | 'onCheckMemoryWait'> = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'factory-closeout-'));
   const cleanupTasks: (() => Promise<void>)[] = [];
   context.after(async () => {
@@ -177,6 +179,33 @@ test('passing factory worker merges and pushes, closes with merge-tip evidence, 
   assert.ok(fixture.reviewRequests[0].prompt.includes(fixture.worker.baseSha ?? 'missing'));
   assert.ok(fixture.reviewRequests[0].prompt.includes('Retries pass'));
   assert.equal(await readFile(path.join(fixture.worker.projectPath, 'src/retry.ts'), 'utf8'), 'export const retries = 1;\n');
+});
+
+test('a check run held for memory waits without failing or charging the ticket, and merges once admitted', async (context) => {
+  const memoryWaits: [string, boolean][] = [];
+  let admitCheckRun = () => {};
+  const memoryAdmission: MemoryAdmission = {
+    waitForHeadroom: async (kind, options) => {
+      assert.equal(kind, 'checkRun');
+      options?.onMemoryWait?.(true);
+      await new Promise<void>((resolve) => { admitCheckRun = resolve; });
+      options?.onMemoryWait?.(false);
+    },
+    waitingCount: () => 0,
+  };
+  const checkRunGate = createSpawnGate({ memoryAdmission, kind: 'checkRun' });
+  const fixture = await createFixture(context, true, { checkRunGate, onCheckMemoryWait: (projectId, isWaiting) => memoryWaits.push([projectId, isWaiting]) });
+  await fixture.commitChange();
+  const closing = fixture.closeOut.turnEnded(fixture.worker);
+  await waitFor(() => memoryWaits.length === 1, 'the check run is held for memory', 10_000);
+  assert.deepEqual(fixture.reviewRequests, []);
+  assert.deepEqual(fixture.feedback, []);
+  admitCheckRun();
+  await closing;
+  assert.deepEqual(memoryWaits, [['repo', true], ['repo', false]]);
+  assert.deepEqual(fixture.exceptions, []);
+  assert.deepEqual(fixture.feedback, []);
+  assert.ok(fixture.mergedSha());
 });
 
 test('out-of-fence worker retries with the path and never runs a reviewer', async (context) => {

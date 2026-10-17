@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createMemoryAdmission, createSpawnGate, isQueueAdmissionTimeout } from '../server/spawn-gate.ts';
+import { createMemoryAdmission, createSpawnGate, isQueueAdmissionAbandoned, isQueueAdmissionTimeout } from '../server/spawn-gate.ts';
+import { waitFor } from './helpers/wait-for.ts';
 
 function deferredResolve(): { promise: Promise<void>; resolve: () => void } {
   let settle: () => void = () => {};
@@ -100,4 +101,24 @@ test('a start that is no longer wanted takes no memory reservation, so the next 
   assert.equal(await gate.run(() => 'started'), 'started');
   assert.deepEqual(await Promise.all(abandonedStarts), ['skipped', 'skipped']);
   assert.equal(sleepCount, 0);
+});
+
+test('a queued start whose signal aborts while the head is held for memory leaves at once and its work never runs', async () => {
+  const memoryAdmission = createMemoryAdmission({
+    readHeadroom: async () => ({ ok: true, headroomBytes: 0 }),
+    reserveBytesFor: () => 1,
+    sleep: () => new Promise(() => {}),
+    warn: () => {},
+  });
+  const gate = createSpawnGate({ memoryAdmission, kind: 'checkRun' });
+  const memoryWaits: boolean[] = [];
+  let abandonedWorkRan = false;
+  void gate.run(() => 'held');
+  const queuedController = new AbortController();
+  const queued = gate.run(() => { abandonedWorkRan = true; }, { signal: queuedController.signal, onMemoryWait: (isWaiting) => memoryWaits.push(isWaiting) });
+  await waitFor(() => memoryWaits.length === 1, 'the queued start is flagged as waiting for memory');
+  queuedController.abort();
+  await assert.rejects(queued, (error: unknown) => isQueueAdmissionAbandoned(error));
+  assert.deepEqual(memoryWaits, [true, false]);
+  assert.equal(abandonedWorkRan, false);
 });

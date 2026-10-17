@@ -6,6 +6,7 @@ import { parseJsonOrNull } from '../core/json-core.ts';
 import { runHardenedGit } from '../git/git-workspace.ts';
 import type { GitWorkspaceInstance } from '../git/git-workspace.ts';
 import type { LaneSpawn } from '../lanes/lane-spawn.ts';
+import type { SerialQueue } from '../spawn-gate.ts';
 import { contentMarker } from '../visions/core/visions-dispatch-core.ts';
 import { parseCheckCommand, redactSecretLines } from './core/factory-core.ts';
 import { classifyFactorySetupCheck, decideFactorySetupProof, detectFactorySetup } from './core/factory-setup-core.ts';
@@ -24,6 +25,7 @@ interface FactorySetupDeps {
   spawnSetupAgent?: LaneSpawn;
   model?: () => string | null;
   prepareCheckRunner?: PrepareFactoryCheckRunner;
+  checkRunGate?: SerialQueue | null;
   baseEnv?: NodeJS.ProcessEnv;
   secretValues?: readonly (string | undefined)[];
 }
@@ -31,7 +33,7 @@ interface FactorySetupDeps {
 const setupAgentProfileSchema = ProjectConfig.shape.factoryProfile.unwrap().pick({ checks: true, focusedTestCommand: true });
 
 export function createFactorySetup({ readIntegrationSha, globalChecks, sharedEntries, gitWorkspace, saveProjectFactoryProfile,
-  recordBaseline = async () => {}, spawnSetupAgent, model = () => null, prepareCheckRunner, baseEnv = process.env, secretValues = [] }: FactorySetupDeps) {
+  recordBaseline = async () => {}, spawnSetupAgent, model = () => null, prepareCheckRunner, checkRunGate = null, baseEnv = process.env, secretValues = [] }: FactorySetupDeps) {
   const pending = new Map<string, Promise<FactorySetupResult>>();
   const controller = new AbortController();
 
@@ -54,7 +56,7 @@ export function createFactorySetup({ readIntegrationSha, globalChecks, sharedEnt
         if (missingCommands.length === 0) return;
         const run = await runChecksInCleanCheckout({
           projectPath, sha, commands: missingCommands, writeScopes: [], sharedEntries: sharedEntries(), gitWorkspace,
-          baseEnv, secretValues, signal: controller.signal, prepareCheckRunner,
+          baseEnv, secretValues, signal: controller.signal, prepareCheckRunner, checkRunGate,
         });
         if (!run) throw new Error('Factory setup was interrupted');
         for (const check of run.checks) checkProofs.set(check.command, classifyFactorySetupCheck({

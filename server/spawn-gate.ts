@@ -3,11 +3,13 @@ import type { MemoryReading, MemoryReservation, MemoryStartKind } from './core/m
 
 const BYTES_PER_MEGABYTE = 1024 * 1024;
 const QUEUE_ADMISSION_TIMED_OUT = 'serial-queue-admission-timed-out';
+const QUEUE_ADMISSION_ABANDONED = 'serial-queue-admission-abandoned';
 
 interface SerialQueueRunOptions {
   admissionTimeoutMs?: number;
   isStillWanted?: () => boolean;
   onMemoryWait?: (isWaiting: boolean) => void;
+  signal?: AbortSignal;
 }
 
 interface SerialQueue {
@@ -21,6 +23,10 @@ interface KeyedSerialQueue {
 
 function isQueueAdmissionTimeout(error: unknown): boolean {
   return error instanceof Error && error.message === QUEUE_ADMISSION_TIMED_OUT;
+}
+
+function isQueueAdmissionAbandoned(error: unknown): boolean {
+  return error instanceof Error && error.message === QUEUE_ADMISSION_ABANDONED;
 }
 
 function createSerialQueue(): SerialQueue {
@@ -38,17 +44,25 @@ function createSerialQueue(): SerialQueue {
       () => undefined,
       () => undefined,
     );
-    const admissionTimeoutMs = options.admissionTimeoutMs;
-    if (admissionTimeoutMs === undefined) return result;
+    const { admissionTimeoutMs, signal } = options;
+    if (admissionTimeoutMs === undefined && signal === undefined) return result;
     return new Promise<T>((resolve, reject) => {
-      const admissionTimer = setTimeout(() => {
+      const leaveUnlessStarted = (reason: string) => {
         if (started) return;
         abandoned = true;
-        reject(new Error(QUEUE_ADMISSION_TIMED_OUT));
-      }, admissionTimeoutMs);
+        reject(new Error(reason));
+      };
+      const admissionTimer = admissionTimeoutMs === undefined ? undefined : setTimeout(() => leaveUnlessStarted(QUEUE_ADMISSION_TIMED_OUT), admissionTimeoutMs);
+      const leaveOnAbort = () => leaveUnlessStarted(QUEUE_ADMISSION_ABANDONED);
+      signal?.addEventListener('abort', leaveOnAbort, { once: true });
+      if (signal?.aborted) leaveOnAbort();
+      const stopWatching = () => {
+        clearTimeout(admissionTimer);
+        signal?.removeEventListener('abort', leaveOnAbort);
+      };
       result.then(
-        (value) => { clearTimeout(admissionTimer); resolve(value); },
-        (error: unknown) => { clearTimeout(admissionTimer); reject(error); },
+        (value) => { stopWatching(); resolve(value); },
+        (error: unknown) => { stopWatching(); reject(error); },
       );
     });
   }
@@ -170,7 +184,7 @@ interface QueuedStart {
   onMemoryWait: (isWaiting: boolean) => void;
 }
 
-function createSpawnGate({ memoryAdmission = null }: { memoryAdmission?: MemoryAdmission | null } = {}): SerialQueue {
+function createSpawnGate({ memoryAdmission = null, kind = 'session' }: { memoryAdmission?: MemoryAdmission | null; kind?: MemoryStartKind } = {}): SerialQueue {
   const queue = createSerialQueue();
   if (!memoryAdmission) return queue;
   const admission = memoryAdmission;
@@ -202,7 +216,7 @@ function createSpawnGate({ memoryAdmission = null }: { memoryAdmission?: MemoryA
     queuedStarts.add(queuedStart);
     if (isHeadStartHeld) flagWaitingForMemory(queuedStart);
     const release = () => leaveQueue(queuedStart);
-    const result = queue.run(() => admission.waitForHeadroom('session', { isStillWanted, onMemoryWait: noteHeadStartHeld }).finally(release).then(fn), options);
+    const result = queue.run(() => admission.waitForHeadroom(kind, { isStillWanted, onMemoryWait: noteHeadStartHeld }).finally(release).then(fn), options);
     result.then(release, release);
     return result;
   }
@@ -210,4 +224,5 @@ function createSpawnGate({ memoryAdmission = null }: { memoryAdmission?: MemoryA
   return { run, idle: queue.idle };
 }
 
-export { createKeyedSerialQueue, createMemoryAdmission, createSerialQueue, createSpawnGate, isQueueAdmissionTimeout };
+export { createKeyedSerialQueue, createMemoryAdmission, createSerialQueue, createSpawnGate, isQueueAdmissionAbandoned, isQueueAdmissionTimeout };
+export type { MemoryAdmission, SerialQueue };
