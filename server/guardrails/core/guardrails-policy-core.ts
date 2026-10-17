@@ -140,6 +140,7 @@ const GUARDRAILS_PLACEHOLDER_NAMES: readonly string[] = Object.freeze([
   '.bash_profile', '.bashrc', '.claude', '.gitconfig', '.gitmodules', '.idea', '.mcp.json', '.profile', '.ripgreprc', '.vscode', '.zprofile', '.zshrc',
 ]);
 const WHOLE_FILESYSTEM = '/';
+const GUARDRAILS_TEMP_FOLDER = 'guardrails-temp';
 const GLIMMERVOID_CONFIG_SIBLING_ENTRIES: readonly string[] = Object.freeze([
   'bin', 'pairings.json', 'pairings-seen.json', 'plans', 'telegram-outbox.json', 'traces', 'uploads', 'usage-budget-state.json', 'usage-lanes.json', 'usage-warehouse.json',
   'visions-intent.json',
@@ -409,5 +410,5 @@ function buildGuardrailsLaunchPlan(role: GuardrailsRole, host: GuardrailsHost): 
   };
 }
 
-export { buildGuardrailsLaunchPlan, lockedClaudeMountPoints, GUARDRAILS_PLACEHOLDER_NAMES, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates };
+export { buildGuardrailsLaunchPlan, lockedClaudeMountPoints, GUARDRAILS_PLACEHOLDER_NAMES, GUARDRAILS_TEMP_FOLDER, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates };
 export type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, GuardrailsNetworkAccess, GuardrailsRole };

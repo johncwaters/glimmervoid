@@ -10,7 +10,7 @@ import { glimmervoidHomeDir } from '../config-store.ts';
 import { listClaudeGlobalConfigPathCandidates } from '../core/claude-trust-core.ts';
 import { decideConfigPath } from '../core/config-path-core.ts';
 import { bridgeSocketLauncherEnv } from './core/guardrails-bridge-socket-core.ts';
-import { buildGuardrailsLaunchPlan, lockedClaudeMountPoints, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates } from './core/guardrails-policy-core.ts';
+import { buildGuardrailsLaunchPlan, GUARDRAILS_TEMP_FOLDER, lockedClaudeMountPoints, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates } from './core/guardrails-policy-core.ts';
 import type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, GuardrailsRole } from './core/guardrails-policy-core.ts';
 import { codexHomes, grokHomes, projectDirCandidates } from '../usage/core/usage-scan-core.ts';
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
@@ -40,7 +40,6 @@ type GuardrailsLaunchResult = { ok: true; launch: GuardrailsLaunch } | { ok: fal
 const LAUNCH_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const GUARDED_ENV_COMMAND = '/usr/bin/env';
 const POLICY_FOLDER = 'guardrails-policies';
-const TEMP_FOLDER = 'guardrails-temp';
 const LAUNCH_HOME_FOLDER = 'guardrails-homes';
 const START_FOLDER = 'start';
 const OWNER_FILE_SUFFIX = '.owner.json';
@@ -245,7 +244,7 @@ async function sweepOrphanedGuardrailsLaunches(log: Pick<Console, 'log' | 'warn'
           policyPath: path.join(policyDir, `${launchId}.json`),
           ownerPath,
           launchHomeDir: path.join(glimmervoidHome, LAUNCH_HOME_FOLDER, launchId),
-          ownedTempDir: owner.ownsTempDir ? path.join(glimmervoidHome, TEMP_FOLDER, launchId) : null,
+          ownedTempDir: owner.ownsTempDir ? path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER, launchId) : null,
         }, owner, launchId, { onlyNewerLogins: true });
         removedLaunchCount += 1;
       } catch (error) {
@@ -282,7 +281,7 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, enterDir }: Gu
     await mkdir(policyDir, { recursive: true, mode: 0o700 });
     const [homeDir, glimmervoidHome, realRole, ownerPidNamespace] = await Promise.all([realpath(os.homedir()), realpath(glimmervoidHomeDir()), withRealRoots(role), readOwnPidNamespace()]);
     const ownsTempDir = tempDir === undefined;
-    const launchTempDir = tempDir === undefined ? path.join(glimmervoidHome, TEMP_FOLDER, launchId) : path.resolve(tempDir);
+    const launchTempDir = tempDir === undefined ? path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER, launchId) : path.resolve(tempDir);
     const launchHomeDir = path.join(glimmervoidHome, LAUNCH_HOME_FOLDER, launchId);
     const vendorLocations = await resolveVendorLocations(process.env, homeDir);
     if (vendorLocations === null) return { ok: false, reason: 'CODEX_HOME names no folder' };

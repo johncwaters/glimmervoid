@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
-import { SANE_YOLO_FILES } from '../session/core/sane-yolo.ts';
+import { saneYoloFiles } from '../session/core/sane-yolo.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
+import { GUARDRAILS_TEMP_FOLDER } from './guardrails/core/guardrails-policy-core.ts';
 import { dataHome } from './ingest/core/ingest-shell-core.ts';
 import { getRtkPath } from './rtk-resolver.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
@@ -15,13 +16,17 @@ const warnedTools = new Set<string>();
 const ensuredDataDirs = new Set<string>();
 const RTK_DATA_FOLDER = 'rtk';
 
-function saneYoloHomeDir(): string {
-  return path.join(glimmervoidHomeDir(os.homedir(), process.env), 'sane-yolo');
+function currentGlimmervoidHome(): string {
+  return glimmervoidHomeDir(os.homedir(), process.env);
 }
 
-function writeSaneYoloPolicy(homeDir: string): void {
+function saneYoloHomeDir(): string {
+  return path.join(currentGlimmervoidHome(), 'sane-yolo');
+}
+
+function writeSaneYoloPolicy(homeDir: string, glimmervoidHome = currentGlimmervoidHome()): void {
   if (writtenHomes.has(homeDir)) return;
-  for (const [relativePath, contents] of Object.entries(SANE_YOLO_FILES)) {
+  for (const [relativePath, contents] of Object.entries(saneYoloFiles(path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER)))) {
     const filePath = path.join(homeDir, relativePath);
     const serialized = `${JSON.stringify(contents, null, 2)}\n`;
     fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });

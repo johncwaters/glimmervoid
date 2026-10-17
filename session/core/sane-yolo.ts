@@ -1,18 +1,21 @@
 const SANE_YOLO_PATH_ENV = 'GLIMMERVOID_SANE_YOLO_PATH';
 
-const SANE_YOLO_POLICY = {
-  version: 1,
-  destructive_command_protection: {
-    enabled: true,
-    overrides: {
-      'git.branch-force-delete': 'off',
-      'git.merge-abort': 'off',
-      'git.rebase-abort': 'off',
-      'rm.recursive-force-dynamic-target': 'on',
+function saneYoloPolicy(guardrailsTempRoot: string) {
+  return {
+    version: 1,
+    destructive_command_protection: {
+      enabled: true,
+      overrides: {
+        'git.branch-force-delete': 'off',
+        'git.merge-abort': 'off',
+        'git.rebase-abort': 'off',
+        'rm.recursive-force-dynamic-target': 'on',
+      },
+      allow_paths: [guardrailsTempRoot],
     },
-  },
-  secret_protection: { enabled: false },
-};
+    secret_protection: { enabled: false },
+  };
+}
 
 const SANE_YOLO_RULES = { version: 1, rules: ['infra'], overrides: {}, transparent_wrappers: ['rtk', 'npx'] };
 const INFRA_REASON = 'Sane YOLO blocks infrastructure teardown; run this command by hand.';
@@ -33,11 +36,13 @@ const SANE_YOLO_INFRA_RULEBOOK = {
   ],
 };
 
-const SANE_YOLO_FILES = {
-  'policy.json': SANE_YOLO_POLICY,
-  'rules/rule.json': SANE_YOLO_RULES,
-  'rules/infra/rulebook.json': SANE_YOLO_INFRA_RULEBOOK,
-};
+function saneYoloFiles(guardrailsTempRoot: string) {
+  return {
+    'policy.json': saneYoloPolicy(guardrailsTempRoot),
+    'rules/rule.json': SANE_YOLO_RULES,
+    'rules/infra/rulebook.json': SANE_YOLO_INFRA_RULEBOOK,
+  };
+}
 
 function saneYoloEnv(homeDir: string): Record<string, string> {
   return {
@@ -48,4 +53,4 @@ function saneYoloEnv(homeDir: string): Record<string, string> {
   };
 }
 
-export { SANE_YOLO_PATH_ENV, SANE_YOLO_FILES, saneYoloEnv };
+export { SANE_YOLO_PATH_ENV, saneYoloEnv, saneYoloFiles };

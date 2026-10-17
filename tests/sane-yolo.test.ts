@@ -12,7 +12,7 @@ import codex from '../session/adapters/codex.ts';
 import grok from '../session/adapters/grok.ts';
 import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
-import { SANE_YOLO_FILES, SANE_YOLO_PATH_ENV, saneYoloEnv } from '../session/core/sane-yolo.ts';
+import { SANE_YOLO_PATH_ENV, saneYoloEnv, saneYoloFiles } from '../session/core/sane-yolo.ts';
 
 const executeFile = promisify(execFile);
 const deniedCommands = [
@@ -69,12 +69,14 @@ for (const hostFlag of ['--coding-cli', '--codex', '--grok-build']) {
       fs.mkdirSync(cwd);
       const env = { ...process.env, HOME: temporaryHome, USERPROFILE: temporaryHome, GLIMMERVOID_HOME: temporaryHome, ...saneYoloEnv(policyHome) };
       await executeFile('git', ['init', cwd], { env });
-      writeSaneYoloPolicy(policyHome);
+      const glimmervoidHomeOutsideTemp = path.join(path.parse(temporaryHome).root, 'glimmervoid-home-outside-temp');
+      writeSaneYoloPolicy(policyHome, glimmervoidHomeOutsideTemp);
+      const sessionScratchDelete = `rm -rf '${path.join(glimmervoidHomeOutsideTemp, 'guardrails-temp', 'launch', 'scratchpad')}'`;
       const binPath = resolvePackageBin('cc-safety-net', 'cc-safety-net');
       assert.ok(binPath);
       const verification = await executeFile(process.execPath, [binPath, 'rule', 'verify'], { cwd, env });
       assert.match(verification.stdout, /infra/);
-      for (const [shouldDeny, commands] of [[true, deniedCommands], [false, allowedCommands]] as const) {
+      for (const [shouldDeny, commands] of [[true, deniedCommands], [false, [...allowedCommands, sessionScratchDelete]]] as const) {
         for (const command of commands) {
           await context.test(`${shouldDeny ? 'deny' : 'allow'} ${command}`, async () => {
             const response = await executeFile(process.execPath, [binPath, 'hook', hostFlag], { cwd, env, input: hookPayload(hostFlag, command, cwd) });
@@ -97,16 +99,17 @@ for (const hostFlag of ['--coding-cli', '--codex', '--grok-build']) {
 
 test('Sane YOLO policy writer preserves identical files and writes the exact configured policy', () => {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-policy-writer-'));
+  const policyFiles = saneYoloFiles(path.join(homeDir, 'guardrails-temp'));
   try {
-    for (const [relativePath, contents] of Object.entries(SANE_YOLO_FILES)) {
+    for (const [relativePath, contents] of Object.entries(policyFiles)) {
       const filePath = path.join(homeDir, relativePath);
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, `${JSON.stringify(contents, null, 2)}\n`);
       fs.utimesSync(filePath, 1000, 1000);
     }
-    writeSaneYoloPolicy(homeDir);
-    writeSaneYoloPolicy(homeDir);
-    for (const [relativePath, contents] of Object.entries(SANE_YOLO_FILES)) {
+    writeSaneYoloPolicy(homeDir, homeDir);
+    writeSaneYoloPolicy(homeDir, homeDir);
+    for (const [relativePath, contents] of Object.entries(policyFiles)) {
       const filePath = path.join(homeDir, relativePath);
       assert.deepEqual(JSON.parse(fs.readFileSync(filePath, 'utf8')), contents);
       assert.equal(fs.statSync(filePath).mtimeMs, 1000000);
