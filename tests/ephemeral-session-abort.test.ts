@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 
-import { awaitSessionExit, drainPending, raceWithAbort } from '../server/lanes/ephemeral-session.ts';
+import { awaitSessionExit, drainPending, raceWithAbort, registerEphemeralSession } from '../server/lanes/ephemeral-session.ts';
 import type { Session } from '../session/sessions.ts';
 import { plainSession } from './helpers/fake-session.ts';
 import { manualTimers } from './helpers/manual-timers.ts';
@@ -120,4 +121,39 @@ test('a job that finishes normally hands back a start that is already settled', 
     start: async () => ({ verdict: 'CLEAN', summary: 'ok' }),
   });
   assert.deepEqual(result, { verdict: 'CLEAN', summary: 'ok' });
+});
+
+test('an exited ephemeral session is destroyed after every exit listener has run, so its teardown cleanup fires', async () => {
+  const events: string[] = [];
+  const sessions = new Map<string, unknown>();
+  const session = Object.assign(new EventEmitter(), { destroy: () => { events.push('destroyed'); } });
+  registerEphemeralSession({ map: sessions, id: 'lane-1', sess: session, closeSessionDataClients: () => events.push('clients closed'), logPrefix: 'lane', name: 'lane-1' });
+  session.on('exit', () => events.push(`late exit listener sees map entry ${sessions.has('lane-1')}`));
+
+  session.emit('exit');
+  assert.deepEqual(events, ['clients closed', 'late exit listener sees map entry false']);
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['clients closed', 'late exit listener sees map entry false', 'destroyed']);
+});
+
+test('an ephemeral session that errors without a live terminal is released after every error listener has run, and one with a live terminal is kept', async () => {
+  const events: string[] = [];
+  const sessions = new Map<string, unknown>();
+  const session = Object.assign(new EventEmitter(), { hasLivePty: true, destroy: () => { events.push('destroyed'); } });
+  registerEphemeralSession({ map: sessions, id: 'lane-1', sess: session, closeSessionDataClients: () => events.push('clients closed'), logPrefix: 'lane', name: 'lane-1' });
+  session.on('error', () => events.push('late error listener'));
+
+  session.emit('error', new Error('taskkill failed'));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['late error listener']);
+  assert.equal(sessions.has('lane-1'), true);
+
+  session.hasLivePty = false;
+  session.emit('error', new Error('guardrail settings could not be applied, session not started'));
+  assert.deepEqual(events, ['late error listener', 'clients closed', 'late error listener']);
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['late error listener', 'clients closed', 'late error listener', 'destroyed']);
+  assert.equal(sessions.has('lane-1'), false);
 });

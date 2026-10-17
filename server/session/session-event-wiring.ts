@@ -30,6 +30,7 @@ interface WiringIngestLane {
   fsEnabled: boolean;
   noteRepos: () => unknown;
   noteSessionRoots: (session: Session) => unknown;
+  detachSessionTap: (session: Session) => unknown;
 }
 
 interface SessionEventDependencies {
@@ -184,6 +185,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('teardown', () => {
       clearCompactionConfirm();
       isAcknowledgeDeferredForCompaction = false;
+      dependencies.getIngestLane()?.detachSessionTap(session);
     });
 
     const resolvePostTurn = () => {

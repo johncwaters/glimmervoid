@@ -172,6 +172,7 @@ interface RegisterableSession {
   on(event: 'error', listener: (error: Error) => void): unknown;
   on(event: 'exit', listener: () => void): unknown;
   destroy: () => void;
+  readonly hasLivePty?: boolean;
 }
 
 function registerEphemeralSession({ map, id, sess, closeSessionDataClients, logPrefix, name, recordLane = null }: {
@@ -195,7 +196,15 @@ function registerEphemeralSession({ map, id, sess, closeSessionDataClients, logP
       closeSessionDataClients(id);
     }
   };
-  sess.on('exit', removeFromMap);
+  const releaseAfterListeners = () => {
+    removeFromMap();
+    setImmediate(() => sess.destroy());
+  };
+  sess.on('exit', releaseAfterListeners);
+  sess.on('error', () => {
+    if (sess.hasLivePty !== false) return;
+    releaseAfterListeners();
+  });
   const origDestroy = sess.destroy.bind(sess);
   sess.destroy = () => { origDestroy(); removeFromMap(); };
 }
