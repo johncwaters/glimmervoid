@@ -4,6 +4,8 @@ c #ffff00
 d #33ff00
 e #0099ff
 f #6633ff
+halo #f0e8ff40
+wrap
 
 aaaaaaaa........
 aaaaaaaa........

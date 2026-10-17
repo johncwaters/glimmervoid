@@ -8,9 +8,11 @@ import { getFlyingAnimalsOptions, isFlyingAnimalsEnabled } from './ui-prefs.ts';
 let flightElement: HTMLDivElement | null = null;
 let spriteElement: HTMLDivElement | null = null;
 let trailElement: HTMLDivElement | null = null;
+let trailHoldElement: HTMLDivElement | null = null;
 let timeoutId: number | null = null;
 let lastAnimalIndex = -1;
 let verticalProgress: number | null = null;
+let flightPath = { isRightToLeft: false, arcProgress: 0 };
 let flightScale = 1;
 
 function updateFlightGeometry() {
@@ -19,6 +21,7 @@ function updateFlightGeometry() {
     viewportWidthPx: document.documentElement.clientWidth,
     viewportHeightPx: document.documentElement.clientHeight,
     verticalProgress,
+    ...flightPath,
   });
   setStyleProperties(flightElement, nyanFlightStyleProperties(geometry, flightScale, window.devicePixelRatio));
 }
@@ -41,11 +44,12 @@ export function currentFlightBlockReason(isEnabled = isFlyingAnimalsEnabled()) {
 function parkFlight(flight: HTMLDivElement) {
   flight.onanimationend = null;
   flight.style.animation = 'none';
+  if (trailHoldElement) trailHoldElement.style.animation = 'none';
   flight.hidden = true;
 }
 
 function launchFlight(isFirst: boolean, requestedSprite?: string) {
-  if (!flightElement || !spriteElement || !trailElement) return;
+  if (!flightElement || !spriteElement || !trailElement || !trailHoldElement) return;
   if (currentFlightBlockReason()) return;
   const options = getFlyingAnimalsOptions();
   clearScheduledFlight();
@@ -56,6 +60,7 @@ function launchFlight(isFirst: boolean, requestedSprite?: string) {
     return;
   }
   verticalProgress = launch.verticalProgress;
+  flightPath = { isRightToLeft: launch.isRightToLeft, arcProgress: launch.arcProgress };
   flightScale = options.flyingAnimalsScale;
   updateFlightGeometry();
   const animal = ANIMALS[launch.animalIndex];
@@ -65,7 +70,11 @@ function launchFlight(isFirst: boolean, requestedSprite?: string) {
   flightElement.hidden = false;
   void flightElement.offsetWidth;
   flightElement.style.animation = `nyan-fly ${launch.durationSeconds}s linear`;
-  if (isFirst) flightElement.style.animationDelay = `-${launch.firstDelaySeconds}s`;
+  trailHoldElement.style.animation = `nyan-trail-hold ${launch.durationSeconds}s linear`;
+  if (isFirst) {
+    flightElement.style.animationDelay = `-${launch.firstDelaySeconds}s`;
+    trailHoldElement.style.animationDelay = `-${launch.firstDelaySeconds}s`;
+  }
   flightElement.onanimationend = (event) => {
     if (!flightElement || event.target !== flightElement) return;
     parkFlight(flightElement);
@@ -79,9 +88,15 @@ export function startNyanCat() {
   flightElement = document.createElement('div');
   flightElement.className = 'nyan-flight';
   flightElement.setAttribute('aria-hidden', 'true');
+  const trailWindowElement = document.createElement('div');
+  trailWindowElement.className = 'nyan-trail-window';
+  trailHoldElement = document.createElement('div');
+  trailHoldElement.className = 'nyan-trail-hold';
   trailElement = document.createElement('div');
+  trailHoldElement.append(trailElement);
+  trailWindowElement.append(trailHoldElement);
   spriteElement = document.createElement('div');
-  flightElement.append(trailElement, spriteElement);
+  flightElement.append(trailWindowElement, spriteElement);
   document.body.appendChild(flightElement);
   window.addEventListener('resize', updateFlightGeometry);
   window.addEventListener('orientationchange', updateFlightGeometry);
@@ -101,6 +116,7 @@ export function stopNyanCat() {
   flightElement = null;
   spriteElement = null;
   trailElement = null;
+  trailHoldElement = null;
   lastAnimalIndex = -1;
   verticalProgress = null;
 }

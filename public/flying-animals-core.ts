@@ -3,6 +3,9 @@ import { ANIMALS } from './nyan-animals-core.ts';
 
 export { FLYING_ANIMALS_DEFAULTS };
 
+const SWOOP_CHANCE = 1 / 25;
+const SWOOP_ARC_MULTIPLIER = 3;
+
 type FlyingAnimalsAdvanced = { [Key in keyof typeof FLYING_ANIMALS_DEFAULTS]: typeof FLYING_ANIMALS_DEFAULTS[Key] extends boolean ? boolean : number };
 export type FlyingAnimalsOptions = FlyingAnimalsAdvanced & { flyingAnimalsExcludedSprites: string[] };
 
@@ -55,7 +58,12 @@ export function deriveFlyingAnimalLaunch(options: FlyingAnimalsOptions, previous
   if (animalIndex === null || animalIndex < 0) return null;
   const durationSeconds = options.flyingAnimalsMinDurationSeconds + random() * (options.flyingAnimalsMaxDurationSeconds - options.flyingAnimalsMinDurationSeconds);
   const gapMs = 1000 * (options.flyingAnimalsMinGapSeconds + random() * (options.flyingAnimalsMaxGapSeconds - options.flyingAnimalsMinGapSeconds));
-  return { animalIndex, durationSeconds, gapMs, firstDelaySeconds: random() * durationSeconds, verticalProgress: random() };
+  const firstDelaySeconds = random() * durationSeconds;
+  const verticalProgress = random();
+  const isRightToLeft = random() < 0.5;
+  const arcMultiplier = random() < SWOOP_CHANCE ? SWOOP_ARC_MULTIPLIER : 1;
+  const arcProgress = (random() * 2 - 1) * arcMultiplier;
+  return { animalIndex, durationSeconds, gapMs, firstDelaySeconds, verticalProgress, isRightToLeft, arcProgress };
 }
 
 export function flyingAnimalsFlightBlockReason({ isEnabled, hasReducedMotion, isPhone, options }: {

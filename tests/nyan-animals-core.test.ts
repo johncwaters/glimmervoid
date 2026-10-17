@@ -37,12 +37,18 @@ test('deriveNyanGeometry: preserves desktop scale and travel proportions', () =>
   assert.equal(geometry.scale, 1);
   assert.equal(geometry.startXpx, -0.45 * 1440);
   assert.equal(geometry.endXpx, 1.45 * 1440);
+  const returning = deriveNyanGeometry({ viewportWidthPx: 1440, viewportHeightPx: 900, verticalProgress: 0.5, isRightToLeft: true });
+  assert.deepEqual([returning.startXpx, returning.endXpx, returning.facing], [geometry.endXpx, geometry.startXpx, -1]);
 });
 
 test('deriveNyanGeometry: scales narrow sprites and preserves vertical clearance', () => {
   const geometry = deriveNyanGeometry({ viewportWidthPx: 360, viewportHeightPx: 300, verticalProgress: 1 });
   assert.equal(geometry.scale, 0.68);
   assert.ok(geometry.topPx >= 64);
+  for (const arcProgress of [-3, 3]) {
+    const swoop = deriveNyanGeometry({ viewportWidthPx: 1440, viewportHeightPx: 900, verticalProgress: arcProgress < 0 ? 0 : 1, arcProgress });
+    assert.ok(swoop.topPx + swoop.arcPx >= 64 && swoop.topPx + swoop.arcPx <= 0.85 * 900, `a swoop of ${arcProgress} leaves the sky`);
+  }
 });
 
 test('deriveNyanGeometry: keeps vertical placement relative to the viewport across resize', () => {
@@ -52,8 +58,8 @@ test('deriveNyanGeometry: keeps vertical placement relative to the viewport acro
   assert.equal(wideGeometry.topPx / 900, narrowGeometry.topPx / 640);
 });
 
-test('nyanFlightStyleProperties: maps geometry onto the six nyan-fly custom properties, snapping scale to whole device pixels', () => {
-  const geometry = { scale: 0.5, spriteWidthPx: 68, spriteHeightPx: 42, topPx: 120, startXpx: -648, endXpx: 2088 };
+test('nyanFlightStyleProperties: maps geometry onto the nyan-fly custom properties, snapping scale to whole device pixels', () => {
+  const geometry = { scale: 0.5, spriteWidthPx: 68, spriteHeightPx: 42, topPx: 120, startXpx: -648, endXpx: 2088, facing: -1, arcPx: 30 };
   assert.deepEqual(new Map(nyanFlightStyleProperties(geometry, 1.5, 1.25)).get('--nyan-scale'), '0.8');
   assert.deepEqual(nyanFlightStyleProperties(geometry, 1.5, 1), [
     ['--nyan-top', '120px'],
@@ -62,6 +68,9 @@ test('nyanFlightStyleProperties: maps geometry onto the six nyan-fly custom prop
     ['--nyan-height', '42px'],
     ['--nyan-start-x', '-648px'],
     ['--nyan-end-x', '2088px'],
+    ['--nyan-facing', '-1'],
+    ['--nyan-arc', '30px'],
+    ['--nyan-travel', '2736px'],
   ]);
 });
 

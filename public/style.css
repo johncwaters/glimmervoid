@@ -8703,11 +8703,42 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
   pointer-events: none;
   transform-origin: left center;
 
-  transform: translateX(var(--nyan-start-x)) scale(var(--nyan-scale));
+  transform: translateX(var(--nyan-start-x)) scale(calc(var(--nyan-scale) * var(--nyan-facing, 1)), var(--nyan-scale));
 }
 
 html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
   z-index: 110;
+}
+
+:root[data-flying-animals="true"] .nyan-flight,
+.flying-animal-preview {
+  --nyan-trail-length: 36vw;
+  --nyan-trail-fade: linear-gradient(to left, transparent, #000 10%, #000 55%, transparent);
+}
+
+:root[data-flying-animals="true"] .nyan-trail-window {
+  position: absolute;
+  right: calc(100% - 20px);
+  top: 0;
+  width: var(--nyan-trail-length);
+  height: 100%;
+  overflow: hidden;
+  mask-image: var(--nyan-trail-fade);
+  -webkit-mask-image: var(--nyan-trail-fade);
+}
+
+:root[data-flying-animals="true"] .nyan-trail-hold {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--nyan-trail-length) + var(--nyan-travel));
+  height: 100%;
+}
+
+:root[data-flying-animals="true"] .nyan-trail-hold > .nyan-trail {
+  --nyan-trail-length: 100%;
+  --nyan-trail-fade: none;
+  right: 0;
 }
 
 :root[data-flying-animals="true"] .nyan-trail,
@@ -8716,16 +8747,13 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
 
   right: calc(100% - 20px);
   top: 0;
-  width: 36vw;
+  width: var(--nyan-trail-length);
   height: 100%;
   animation: nyan-bob 0.6s steps(1, end) infinite;
   animation-delay: -0.15s;
 
-  mask-image: linear-gradient(to left, transparent, #000 10%, #000 55%, transparent);
-  -webkit-mask-image: linear-gradient(to left, transparent, #000 10%, #000 55%, transparent);
-
-  filter: drop-shadow(1px 0 0 rgba(240, 232, 255, 0.7)) drop-shadow(-1px 0 0 rgba(240, 232, 255, 0.7))
-    drop-shadow(0 1px 0 rgba(240, 232, 255, 0.7)) drop-shadow(0 -1px 0 rgba(240, 232, 255, 0.7));
+  mask-image: var(--nyan-trail-fade);
+  -webkit-mask-image: var(--nyan-trail-fade);
 }
 
 :root[data-flying-animals="true"] .nyan-trail.is-rainbow,
@@ -8737,9 +8765,6 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
 
   animation: nyan-bob 0.6s steps(1, end) infinite, rainbow-wave 0.6s steps(2) infinite;
   animation-delay: -0.15s, 0s;
-
-  filter: drop-shadow(1px 0 0 rgba(240, 232, 255, 0.25)) drop-shadow(-1px 0 0 rgba(240, 232, 255, 0.25))
-    drop-shadow(0 1px 0 rgba(240, 232, 255, 0.25)) drop-shadow(0 -1px 0 rgba(240, 232, 255, 0.25));
 }
 
 :root[data-flying-animals="true"] .nyan-trail.is-sparkles,
@@ -8763,8 +8788,6 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
   background-repeat: no-repeat;
   image-rendering: pixelated;
   animation: nyan-bob 0.6s steps(1, end) infinite, nyan-frames 0.9s steps(6) infinite;
-  filter: drop-shadow(1px 0 0 rgba(240, 232, 255, 0.7)) drop-shadow(-1px 0 0 rgba(240, 232, 255, 0.7))
-    drop-shadow(0 1px 0 rgba(240, 232, 255, 0.7)) drop-shadow(0 -1px 0 rgba(240, 232, 255, 0.7));
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-cat,
@@ -9208,8 +9231,19 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
 }
 
 @keyframes nyan-fly {
-  from { transform: translateX(var(--nyan-start-x)) scale(var(--nyan-scale)); }
-  to   { transform: translateX(var(--nyan-end-x)) scale(var(--nyan-scale)); }
+      0% { transform: translate(calc(var(--nyan-start-x) + (var(--nyan-end-x) - var(--nyan-start-x)) * 0), calc(var(--nyan-arc, 0px) * 0)) scale(calc(var(--nyan-scale) * var(--nyan-facing, 1)), var(--nyan-scale)); }
+   12.5% { transform: translate(calc(var(--nyan-start-x) + (var(--nyan-end-x) - var(--nyan-start-x)) * 0.125), calc(var(--nyan-arc, 0px) * 0.383)) scale(calc(var(--nyan-scale) * var(--nyan-facing, 1)), var(--nyan-scale)); }
+     25% { transform: translate(calc(var(--nyan-start-x) + (var(--nyan-end-x) - var(--nyan-start-x)) * 0.25), calc(var(--nyan-arc, 0px) * 0.707)) scale(calc(var(--nyan-scale) * var(--nyan-facing, 1)), var(--nyan-scale)); }
+   37.5% { transform: translate(calc(var(--nyan-start-x) + (var(--nyan-end-x) - var(--nyan-start-x)) * 0.375), calc(var(--nyan-arc, 0px) * 0.924)) scale(calc(var(--nyan-scale) * var(--nyan-facing, 1)), var(--nyan-scale)); }
+     50% { transform: translate(calc(var(--nyan-start-x) + (var(--nyan-end-x) - var(--nyan-start-x)) * 0.5), calc(var(--nyan-arc, 0px) * 1)) scale(calc(var(--nyan-scale) * var(--nyan-facing, 1)), var(--nyan-scale)); }
+   62.5% { transform: translate(calc(var(--nyan-start-x) + (var(--nyan-end-x) - var(--nyan-start-x)) * 0.625), calc(var(--nyan-arc, 0px) * 0.924)) scale(calc(var(--nyan-scale) * var(--nyan-facing, 1)), var(--nyan-scale)); }
+     75% { transform: translate(calc(var(--nyan-start-x) + (var(--nyan-end-x) - var(--nyan-start-x)) * 0.75), calc(var(--nyan-arc, 0px) * 0.707)) scale(calc(var(--nyan-scale) * var(--nyan-facing, 1)), var(--nyan-scale)); }
+   87.5% { transform: translate(calc(var(--nyan-start-x) + (var(--nyan-end-x) - var(--nyan-start-x)) * 0.875), calc(var(--nyan-arc, 0px) * 0.383)) scale(calc(var(--nyan-scale) * var(--nyan-facing, 1)), var(--nyan-scale)); }
+    100% { transform: translate(calc(var(--nyan-start-x) + (var(--nyan-end-x) - var(--nyan-start-x)) * 1), calc(var(--nyan-arc, 0px) * 0)) scale(calc(var(--nyan-scale) * var(--nyan-facing, 1)), var(--nyan-scale)); }
+}
+
+@keyframes nyan-trail-hold {
+  to { translate: calc(-1 * var(--nyan-travel)) 0; }
 }
 
 @keyframes nyan-bob {
@@ -9461,7 +9495,7 @@ html[data-layout="phone"] .factory-floor { font-size: inherit; }
 .factory-paused-marker { display: block; color: var(--state-waiting); margin-top: 6px; height: 18px; }
 .factory-paused-marker[hidden] { display: block; visibility: hidden; }
 .factory-sprite { --nyan-width: 68px; --nyan-height: 42px; position: relative; width: var(--nyan-width); height: var(--nyan-height); flex: none; }
-.factory-floor .factory-sprite .nyan-sprite { animation: none; filter: drop-shadow(1px 0 0 color-mix(in srgb, var(--text-head) 45%, transparent)) drop-shadow(-1px 0 0 color-mix(in srgb, var(--text-head) 45%, transparent)); }
+.factory-floor .factory-sprite .nyan-sprite { animation: none; }
 .factory-floor-band { padding-top: 18px; }
 .factory-pipe { position: relative; display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(310px, 2.4fr) repeat(2, minmax(150px, 1fr)); height: 300px; border: 1px solid var(--border-dim); border-radius: 64px 32px 32px 64px; background: var(--bg-card); padding: 16px 16px 16px 30px; overflow: hidden; }
 .factory-station { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; padding-inline: 10px; }

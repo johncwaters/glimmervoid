@@ -78,7 +78,7 @@ test('launches use the current timing values and allow an explicit excluded anim
     flyingAnimalsExcludedSprites: allSprites,
   });
   assert.deepEqual(deriveFlyingAnimalLaunch(options, -1, () => 0.5, 'is-cat'), {
-    animalIndex: 0, durationSeconds: 3, gapMs: 20000, firstDelaySeconds: 1.5, verticalProgress: 0.5,
+    animalIndex: 0, durationSeconds: 3, gapMs: 20000, firstDelaySeconds: 1.5, verticalProgress: 0.5, isRightToLeft: false, arcProgress: 0,
   });
   assert.equal(deriveFlyingAnimalLaunch(options, -1, () => 0, 'is-missing'), null);
   for (const progress of [0, 1]) {

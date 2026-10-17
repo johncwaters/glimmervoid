@@ -2,6 +2,8 @@ a #bfe0f0
 b #7fb8d8
 c #eaf4f0
 d #ffffff
+halo #f0e8ffb3
+wrap
 
 ........................
 ........................
