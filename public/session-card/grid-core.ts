@@ -37,6 +37,12 @@ interface ViewerEngagementInput {
   isPhoneLayout: boolean;
 }
 
+interface CardTerminalVisibilityInput {
+  isDocumentVisible: boolean;
+  isBorrowedCard: boolean;
+  isTerminalFaceShown: boolean;
+}
+
 interface GridEngagementEdgeInput {
   authoritative: TerminalGrid | null;
   isActiveViewer: boolean;
@@ -96,6 +102,14 @@ export function isViewerEngaged({
   if (isPhoneLayout) return true;
   if (isDocumentFocused) return true;
   return hasFocusInsideCard && !hasWindowBlurredSinceFocus;
+}
+
+export function isCardTerminalHidden({
+  isDocumentVisible,
+  isBorrowedCard,
+  isTerminalFaceShown,
+}: CardTerminalVisibilityInput): boolean {
+  return !isDocumentVisible || !isBorrowedCard || !isTerminalFaceShown;
 }
 
 export function decideGridEngagementEdge({

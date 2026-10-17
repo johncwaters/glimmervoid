@@ -5,7 +5,7 @@ import {
   VIEWER_MAX_ROWS,
 } from '../shared/contracts/data-messages.ts';
 import type { DataFrameState, GridDecisionInput } from '../public/session-card/grid-core.ts';
-import { decideGridActions, decideGridEngagementEdge, retainGridClaimForReconnect, isFollowingGrid, isViewerEngaged, readDataFrame } from '../public/session-card/grid-core.ts';
+import { decideGridActions, decideGridEngagementEdge, retainGridClaimForReconnect, isCardTerminalHidden, isFollowingGrid, isViewerEngaged, readDataFrame } from '../public/session-card/grid-core.ts';
 
 const IDLE_VIEWER: GridDecisionInput = {
   authoritative: null,
@@ -228,6 +228,14 @@ test('a visible phone is engaged however the window and the card report their fo
   assert.equal(isViewerEngaged(blurredPhone), true);
   assert.equal(isViewerEngaged({ ...blurredPhone, hasFocusInsideCard: false }), true);
   assert.equal(isViewerEngaged({ ...blurredPhone, isDocumentVisible: false }), false);
+});
+
+test('only the borrowed card showing its terminal face in a visible tab renders output', () => {
+  const shownCard = { isDocumentVisible: true, isBorrowedCard: true, isTerminalFaceShown: true };
+  assert.equal(isCardTerminalHidden(shownCard), false);
+  assert.equal(isCardTerminalHidden({ ...shownCard, isBorrowedCard: false }), true);
+  assert.equal(isCardTerminalHidden({ ...shownCard, isTerminalFaceShown: false }), true);
+  assert.equal(isCardTerminalHidden({ ...shownCard, isDocumentVisible: false }), true);
 });
 
 test('an engagement edge re-bids for a following viewer and only re-syncs the exact owner', () => {
