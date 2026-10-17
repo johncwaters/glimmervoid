@@ -7,6 +7,8 @@ import { NO_PATH_KEY } from '../focus-view/roster-groups-core.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { quickAddSession, readSessionRows, requestSessionRemoval } from '../session-actions.ts';
+import type { ActivityRenderKind } from '../session-card/activity.ts';
+import { pulseActivityGlyph } from '../session-card/activity.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
@@ -128,6 +130,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     row.toggleAttribute('data-monitoring', isMonitoring);
     row.dataset.prompt = ui.pendingPromptKind ?? '';
     row.toggleAttribute('data-unseen', unseen);
+    row.dataset.activity = ui._activity || '';
     rowDetails.refs.glyph.textContent = glyph;
     rowDetails.refs.name.textContent = name;
     const taskTitle = el('span', 'session-list-task-title', ui.taskTitle ?? '');
@@ -242,6 +245,17 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     emptyDescEl.hidden = isFirstRun;
   }
 
+  function renderActivity(ui: SessionUi, kind: ActivityRenderKind) {
+    const id = ui.card?.dataset.id;
+    const row = id ? rowById.get(id) : undefined;
+    if (!row) return;
+    if (kind === 'flag') {
+      row.dataset.activity = ui._activity || '';
+      return;
+    }
+    pulseActivityGlyph(rowState.get(row)?.refs.glyph);
+  }
+
   onSessionTick(() => {
     for (const [id, row] of rowById) {
       const ui = sessionUIs.get(id);
@@ -255,6 +269,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     topBarEl: topBar,
     refresh,
     acknowledge,
+    renderActivity,
     getAttentionCount: () => attentionCount,
   };
 }

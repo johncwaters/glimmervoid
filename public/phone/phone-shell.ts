@@ -2,6 +2,7 @@ import type { AdoptableElement } from '../dom-helpers.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import { pickStrongestAttention } from '../focus-view/attention-core.ts';
 import { getRestorableSessionId, requestSessionOpen, selectSession } from '../session-actions.ts';
+import { addActivityRenderer } from '../session-card/activity.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
 import { reparentReviewPanel } from '../sidebar/review-sidebar.ts';
@@ -172,6 +173,7 @@ function build() {
   if (shellEl) return;
 
   boardScreen = createBoardScreen({ onSelectSession: openSession });
+  addActivityRenderer((ui, kind) => { if (active) boardScreen?.renderActivity(ui, kind); });
   terminalScreen = createTerminalScreen({ onBack: () => showScreen(BOARD) });
   reviewMountEl = el('div', 'phone-review');
 

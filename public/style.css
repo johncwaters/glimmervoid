@@ -6175,7 +6175,7 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
 .focus-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .focus-pill.focused {
   border-color: var(--accent);
-  background: color-mix(in oklch, var(--accent) 12%, var(--bg-card));
+  background-color: color-mix(in oklch, var(--accent) 12%, var(--bg-card));
   color: var(--text-head);
 }
 
@@ -6220,16 +6220,21 @@ html[data-compact-status] .focus-pill-label { display: none; }
 .focus-pill-merge:empty { display: none; }
 .focus-pill-prs { grid-column: 1 / -1; margin-top: 4px; }
 
-:is(.focus-pill, .status-legend-row)[data-state="RUNNING"] { --st: var(--state-running); }
-:is(.focus-pill, .status-legend-row)[data-state="RUNNING"][data-monitoring] { --st: var(--state-monitoring); }
-:is(.focus-pill, .status-legend-row)[data-state="WAITING"] { --st: var(--state-waiting); }
-:is(.focus-pill, .status-legend-row)[data-state="FAILED"] { --st: var(--state-failed); }
-:is(.focus-pill, .status-legend-row)[data-state="DONE"] { --st: var(--state-done); }
-:is(.focus-pill, .status-legend-row)[data-state="IDLE"] { --st: var(--state-idle); }
-:is(.focus-pill, .status-legend-row)[data-state="STARTING"] { --st: var(--state-starting); }
-:is(.focus-pill, .status-legend-row)[data-state="COMPLETE"] { --st: var(--state-complete); }
-:is(.focus-pill, .status-legend-row)[data-state="INITIALIZING"] { --st: var(--state-initializing); }
-:is(.focus-pill, .status-legend-row)[data-state="DORMANT"] { --st: var(--text-muted); }
+:is(.focus-pill, .status-legend-row, .phone-row, .phone-terminal-bar)[data-state="RUNNING"] { --st: var(--state-running); }
+:is(.focus-pill, .status-legend-row, .phone-row, .phone-terminal-bar)[data-state="RUNNING"][data-monitoring] { --st: var(--state-monitoring); }
+:is(.focus-pill, .status-legend-row, .phone-row, .phone-terminal-bar)[data-state="WAITING"] { --st: var(--state-waiting); }
+:is(.focus-pill, .status-legend-row, .phone-row, .phone-terminal-bar)[data-state="FAILED"] { --st: var(--state-failed); }
+:is(.focus-pill, .status-legend-row, .phone-row, .phone-terminal-bar)[data-state="DONE"] { --st: var(--state-done); }
+:is(.focus-pill, .status-legend-row, .phone-row, .phone-terminal-bar)[data-state="IDLE"] { --st: var(--state-idle); }
+:is(.focus-pill, .status-legend-row, .phone-row, .phone-terminal-bar)[data-state="STARTING"] { --st: var(--state-starting); }
+:is(.focus-pill, .status-legend-row, .phone-row, .phone-terminal-bar)[data-state="COMPLETE"] { --st: var(--state-complete); }
+:is(.focus-pill, .status-legend-row, .phone-row, .phone-terminal-bar)[data-state="INITIALIZING"] { --st: var(--state-initializing); }
+:is(.focus-pill, .status-legend-row, .phone-row, .phone-terminal-bar)[data-state="DORMANT"] { --st: var(--text-muted); }
+:is(.focus-pill, .phone-row)[data-merge="parked"] { --st: var(--state-failed); }
+:is(.focus-pill, .phone-row):is([data-state="WAITING"], [data-state="FAILED"], [data-state="COMPLETE"][data-unseen], [data-merge="parked"]) {
+  --tint: color-mix(in oklch, var(--st) 12%, transparent);
+}
+.focus-pill { background-image: linear-gradient(var(--tint, transparent), var(--tint, transparent)); }
 
 .focus-pill-row { position: relative; }
 .focus-pill .focus-pill-badge,
@@ -6277,35 +6282,32 @@ html[data-compact-status] .focus-pill-label { display: none; }
 .focus-pill[data-state="DORMANT"] .focus-pill-name { color: var(--text-dim); }
 .focus-pill.focused .focus-pill-name { color: var(--text-head); }
 
-.focus-pill[data-state="WAITING"] {
-  border-color: var(--state-waiting);
-  background: color-mix(in oklch, var(--state-waiting) 12%, var(--bg-card));
-}
+.focus-pill[data-state="WAITING"] { border-color: var(--state-waiting); }
 
 .focus-pill[data-state="COMPLETE"] {
   border-color: color-mix(in oklch, var(--state-complete) 35%, var(--border-dim));
 }
-.focus-pill[data-state="COMPLETE"][data-unseen] {
-  border-color: var(--state-complete);
-  background: color-mix(in oklch, var(--state-complete) 12%, var(--bg-card));
-}
+.focus-pill[data-state="COMPLETE"][data-unseen] { border-color: var(--state-complete); }
 @media (prefers-reduced-motion: no-preference) {
-  .focus-pill[data-state="COMPLETE"][data-unseen] {
-    animation: focus-pill-complete-flash 1.2s cubic-bezier(0.22, 1, 0.36, 1) 1;
+  .focus-pill[data-state="COMPLETE"][data-unseen],
+  .phone-row[data-state="COMPLETE"][data-unseen]::before {
+    animation: complete-flash 1.2s cubic-bezier(0.22, 1, 0.36, 1) 1;
   }
 }
-@keyframes focus-pill-complete-flash {
-  0%   { box-shadow: 0 0 0 0 transparent; }
-  30%  { box-shadow: 0 0 0 3px color-mix(in oklch, var(--state-complete) 42%, transparent); }
-  100% { box-shadow: 0 0 0 0 transparent; }
+@keyframes complete-flash {
+  0%   { box-shadow: var(--flash-inset,) 0 0 0 0 transparent; }
+  30%  { box-shadow: var(--flash-inset,) 0 0 0 3px color-mix(in oklch, var(--state-complete) 42%, transparent); }
+  100% { box-shadow: var(--flash-inset,) 0 0 0 0 transparent; }
 }
 
-.focus-pill[data-state="RUNNING"][data-activity="quiet"] .focus-pill-glyph {
+.focus-pill[data-state="RUNNING"][data-activity="quiet"] .focus-pill-glyph,
+.phone-row[data-state="RUNNING"][data-activity="quiet"] .phone-row-glyph {
   opacity: 0.55;
 }
 
-.focus-pill[data-merge="parked"] { --st: var(--state-failed); border-color: var(--state-failed); }
-.focus-pill[data-merge="parked"] .focus-pill-merge { color: var(--state-failed); }
+.focus-pill[data-merge="parked"] { border-color: var(--state-failed); }
+.focus-pill[data-merge="parked"] .focus-pill-merge,
+.phone-row[data-merge="parked"] .phone-row-merge { color: var(--state-failed); }
 
 .focus-center {
   flex: 1 1 auto;
@@ -8021,6 +8023,8 @@ html[data-layout="phone"] .phone-board-group-forget[hidden] { display: none; }
 html[data-layout="phone"] .phone-board-group-rows:empty { display: none; }
 
 html[data-layout="phone"] .phone-row-item {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid var(--border-dim);
@@ -8044,7 +8048,7 @@ html[data-layout="phone"] .phone-row-item {
 .phone-row:active { background: color-mix(in srgb, var(--text) 5%, transparent); }
 .phone-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-.phone-row-glyph { flex: 0 0 auto; font-size: 12px; line-height: 1; color: var(--text-muted); }
+.phone-row-glyph { flex: 0 0 auto; font-size: 12px; line-height: 1; color: var(--st, var(--text-muted)); }
 .phone-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .phone-row-name {
   font-family: var(--font-mono);
@@ -8064,9 +8068,9 @@ html[data-layout="phone"] .phone-row-item {
   color: var(--text-muted);
   white-space: nowrap;
 }
+.phone-row-badge { color: var(--st, var(--text-muted)); }
 .phone-row-merge { color: var(--accent-dim); }
 .phone-row-merge:empty { display: none; }
-.phone-row[data-merge="parked"] .phone-row-merge { color: var(--state-failed); }
 .phone-row-elapsed {
   flex: 0 0 auto;
   font-family: var(--font-mono);
@@ -8078,23 +8082,15 @@ html[data-layout="phone"] .phone-row-item {
 html[data-compact-status] .phone-row:not([data-prompt="plan"]) .phone-row-badge { display: none; }
 html[data-compact-status] .phone-row:not([data-prompt="plan"]) .phone-row-meta:has(.phone-row-merge:empty) { display: none; }
 
-.phone-row[data-state="RUNNING"] .phone-row-glyph { color: var(--state-running); }
-.phone-row[data-state="RUNNING"][data-monitoring] .phone-row-glyph,
-.phone-row[data-state="RUNNING"][data-monitoring] .phone-row-badge { color: var(--state-monitoring); }
-.phone-row[data-state="IDLE"] .phone-row-glyph { color: var(--state-idle); }
-.phone-row[data-state="STARTING"] .phone-row-glyph { color: var(--state-starting); }
-.phone-row[data-state="DONE"] .phone-row-glyph { color: var(--state-done); }
-
-.phone-row-item:has(> .phone-row[data-state="COMPLETE"][data-unseen]) { background: color-mix(in oklab, var(--state-complete) 10%, transparent); }
-.phone-row[data-state="COMPLETE"][data-unseen] .phone-row-glyph,
-.phone-row[data-state="COMPLETE"][data-unseen] .phone-row-badge { color: var(--state-complete); }
-
-.phone-row-item:has(> .phone-row[data-state="WAITING"]) { background: color-mix(in oklab, var(--state-waiting) 10%, transparent); }
-.phone-row[data-state="WAITING"] .phone-row-glyph,
-.phone-row[data-state="WAITING"] .phone-row-badge { color: var(--state-waiting); }
-.phone-row-item:has(> .phone-row[data-state="FAILED"]) { background: color-mix(in oklab, var(--state-failed) 10%, transparent); }
-.phone-row[data-state="FAILED"] .phone-row-glyph,
-.phone-row[data-state="FAILED"] .phone-row-badge { color: var(--state-failed); }
+.phone-row::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  --flash-inset: inset;
+  background: var(--tint, transparent);
+  pointer-events: none;
+}
 
 .phone-terminal { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
@@ -8145,7 +8141,7 @@ html[data-compact-status] .phone-row:not([data-prompt="plan"]) .phone-row-meta:h
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: var(--text-muted);
+  color: var(--st, var(--text-muted));
 }
 .phone-terminal-elapsed {
   font-weight: 400;
@@ -8156,15 +8152,6 @@ html[data-compact-status] .phone-row:not([data-prompt="plan"]) .phone-row-meta:h
 
 .phone-terminal-actions { flex: 0 0 auto; display: flex; align-items: center; }
 .phone-terminal-actions:empty { display: none; }
-
-.phone-terminal-bar[data-state="RUNNING"] .phone-terminal-badge { color: var(--state-running); }
-.phone-terminal-bar[data-state="RUNNING"][data-monitoring] .phone-terminal-badge { color: var(--state-monitoring); }
-.phone-terminal-bar[data-state="IDLE"] .phone-terminal-badge { color: var(--state-idle); }
-.phone-terminal-bar[data-state="STARTING"] .phone-terminal-badge { color: var(--state-starting); }
-.phone-terminal-bar[data-state="DONE"] .phone-terminal-badge { color: var(--state-done); }
-.phone-terminal-bar[data-state="COMPLETE"] .phone-terminal-badge { color: var(--state-complete); }
-.phone-terminal-bar[data-state="WAITING"] .phone-terminal-badge { color: var(--state-waiting); }
-.phone-terminal-bar[data-state="FAILED"] .phone-terminal-badge { color: var(--state-failed); }
 
 .phone-card-slot {
   flex: 1 1 auto;

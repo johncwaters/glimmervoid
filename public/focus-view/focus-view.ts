@@ -6,7 +6,7 @@ import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { getRestorableSessionId, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession } from '../session-actions.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
-import { setActivityRenderer } from '../session-card/activity.ts';
+import { addActivityRenderer, pulseActivityGlyph } from '../session-card/activity.ts';
 import { buildShortcutKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { railAriaKeyShortcuts, shortcutChord } from '../shortcuts-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
@@ -263,20 +263,9 @@ function renderPillActivity(ui: SessionUi, kind: ActivityRenderKind) {
     pill.dataset.activity = ui._activity || '';
     return;
   }
-
-  if (reducedMotion?.matches || document.hidden) return;
-  const glyph = pill._refs?.glyph;
-  if (!glyph?.animate) return;
-  glyph.animate(
-    [
-      { transform: 'scale(1)', opacity: 0.65 },
-      { transform: 'scale(1.35)', opacity: 1, offset: 0.3 },
-      { transform: 'scale(1)', opacity: 0.9 },
-    ],
-    { duration: 300, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
-  );
+  pulseActivityGlyph(pill._refs?.glyph);
 }
-setActivityRenderer(renderPillActivity);
+addActivityRenderer(renderPillActivity);
 
 export function refreshFocusRoster() {
   if (!active) return;
