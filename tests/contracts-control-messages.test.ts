@@ -174,6 +174,8 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     applyRefusal: { reason: 'already-staged', message: 'Restart to apply the staged update.' },
   },
   { type: 'update-progress', journal: UPDATE_JOURNAL },
+  { type: 'post-turn-leftovers', repositories: ['/repos/one'], command: "git -C '/repos/one' rm --cached -q -- '.glimmervoid/post-turn/one.json'" },
+  { type: 'post-turn-leftovers', repositories: [], command: '' },
   { type: 'error', message: 'refused' },
   { type: 'session-error', id: 'session-1', session: 'glimmervoid', message: 'failed' },
   { type: 'settings', requestId: 'settings-1', settings: { cursorBlink: false } },

@@ -12,7 +12,7 @@ import path from 'node:path';
 import type { WebSocket, WebSocketServer } from 'ws';
 import {
   ClientMessage, RUNTIME_CONFIG_SCALAR_KEYS, ConfigUpdate, configIssueMessage,
-  type ClientMessageOf,
+  type ClientMessageOf, type ServerMessageOf,
 } from '../shared/contracts/index.ts';
 import { TASK_TITLE_MAX_LENGTH, TaskTitle } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
@@ -118,6 +118,8 @@ interface ControlHandlerDeps {
   buildHealthSnapshot?: (() => unknown) | null;
   getUpdateStatus?: (() => UpdateStatus | null) | null;
   getUpdateJournal?: (() => UpdateJournal | null) | null;
+  getPostTurnLeftoversNotice?: (() => ServerMessageOf<'post-turn-leftovers'> | null) | null;
+  recheckPostTurnLeftovers?: (() => void) | null;
   checkNow?: (() => Promise<UpdateStatus>) | null;
   applyUpdate?: (() => Promise<UpdateApplyOutcome>) | null;
   isStaging?: (() => boolean) | null;
@@ -313,6 +315,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     buildHealthSnapshot,
     getUpdateStatus,
     getUpdateJournal = null,
+    getPostTurnLeftoversNotice = null,
+    recheckPostTurnLeftovers = null,
     checkNow = null,
     applyUpdate = null,
     isStaging = null,
@@ -1566,6 +1570,10 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
     const updateJournal = typeof getUpdateJournal === 'function' ? getUpdateJournal() : null;
     if (updateJournal) ws.send(JSON.stringify({ type: 'update-progress', journal: updateJournal }));
+
+    const postTurnLeftoversNotice = getPostTurnLeftoversNotice?.() ?? null;
+    if (postTurnLeftoversNotice) ws.send(JSON.stringify(postTurnLeftoversNotice));
+    recheckPostTurnLeftovers?.();
 
     const radarStatus = typeof getRadarStatus === 'function' ? getRadarStatus() : null;
     if (radarStatus) {

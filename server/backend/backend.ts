@@ -40,6 +40,10 @@ import { checkGuardrailsDependencies } from '../guardrails/guardrails-deps.ts';
 import { warnWhenGitIsTooOld } from '../git/git-version.ts';
 import { createOutcomesLane } from '../outcomes-wiring.ts';
 import { createUpdateApplyLane } from '../update-apply.ts';
+import { cleanPostTurnLeftovers, recheckRepositoriesTrackingReports } from '../post-turn-leftovers.ts';
+import { trackedReportCleanupCommands } from '../../shared/post-turn-leftovers.ts';
+import type { RepositoryTrackingReports } from '../../shared/post-turn-leftovers.ts';
+import { errorMessage } from '../../shared/text.ts';
 import { bundled, packageRoot } from '../runtime-paths.ts';
 import { createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
@@ -391,10 +395,42 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     },
     logger: console,
   });
+  let repositoriesTrackingPostTurnReports: RepositoryTrackingReports[] = [];
+  let isRecheckingPostTurnReports = false;
+  function postTurnLeftoversMessage() {
+    return {
+      type: 'post-turn-leftovers' as const,
+      repositories: repositoriesTrackingPostTurnReports.map(({ repositoryPath }) => repositoryPath),
+      command: trackedReportCleanupCommands(repositoriesTrackingPostTurnReports, process.platform),
+    };
+  }
+  function startPostTurnLeftoverCleanup(): void {
+    cleanPostTurnLeftovers({ projects: config.projects }).then((repositories) => {
+      repositoriesTrackingPostTurnReports = repositories;
+      if (repositories.length > 0) broadcastControlFromWebSockets(postTurnLeftoversMessage());
+    }).catch((error) => {
+      console.warn(`[post-turn] old report cleanup failed: ${errorMessage(error)}`);
+    });
+  }
+  function recheckPostTurnLeftovers(): void {
+    if (isRecheckingPostTurnReports || repositoriesTrackingPostTurnReports.length === 0) return;
+    isRecheckingPostTurnReports = true;
+    const previousRepositories = repositoriesTrackingPostTurnReports;
+    recheckRepositoriesTrackingReports(previousRepositories).then((repositories) => {
+      if (JSON.stringify(repositories) === JSON.stringify(previousRepositories)) return;
+      repositoriesTrackingPostTurnReports = repositories;
+      broadcastControlFromWebSockets(postTurnLeftoversMessage());
+    }).catch((error) => {
+      console.warn(`[post-turn] old report re-check failed: ${errorMessage(error)}`);
+    }).finally(() => {
+      isRecheckingPostTurnReports = false;
+    });
+  }
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
     configStore,
     cancelAutoResume: sessionRegistry.cancelAutoResume,
+    cancelPostTurnLeftoverCleanup: () => httpServer.off('listening', startPostTurnLeftoverCleanup),
     healthInterval,
     getStopConfigWatch: () => stopConfigWatch,
     remoteAuth,
@@ -463,6 +499,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     buildHealthSnapshot,
     getUpdateStatus: updateCheck.getStatus,
     getUpdateJournal: updateApply.getJournal,
+    getPostTurnLeftoversNotice: () => (repositoriesTrackingPostTurnReports.length > 0 ? postTurnLeftoversMessage() : null),
+    recheckPostTurnLeftovers,
     checkNow: updateCheck.checkNow,
     applyUpdate: updateApply.applyUpdate,
     isStaging: updateApply.isStaging,
@@ -492,6 +530,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const { handleUpgrade } = webSockets;
   httpServer.on('upgrade', handleUpgrade);
   updateApply.startAfterListening(httpServer);
+  httpServer.once('listening', startPostTurnLeftoverCleanup);
 
   stopConfigWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);

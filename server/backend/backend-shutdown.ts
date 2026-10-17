@@ -12,6 +12,7 @@ interface Stoppable {
 
 interface BackendShutdownDependencies {
   cancelAutoResume: () => void;
+  cancelPostTurnLeftoverCleanup?: () => void;
   healthInterval: NodeJS.Timeout;
   getStopConfigWatch: () => (() => void) | null;
   remoteAuth: { stop: () => unknown } | null;
@@ -75,6 +76,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     isShuttingDown = true;
     const stoppers = createStopperCollector();
     dependencies.cancelAutoResume();
+    dependencies.cancelPostTurnLeftoverCleanup?.();
     clearInterval(dependencies.healthInterval);
     const stopConfigWatch = dependencies.getStopConfigWatch();
     if (stopConfigWatch) stopConfigWatch();

@@ -13,6 +13,7 @@ import type { PlanDecision } from '../../shared/contracts/plan-review.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type { MyPrsStatus } from '../../shared/contracts/my-prs.ts';
 import type { UpdateJournal } from '../../shared/contracts/update-journal.ts';
+import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { UpdateApplyOutcome } from '../update-apply.ts';
 import type { UpdateStatus } from './backend-update.ts';
 import type { PlanReadResult } from '../plan-review-wiring.ts';
@@ -67,6 +68,8 @@ interface BackendControlDependencies {
   buildHealthSnapshot: () => Record<string, unknown>;
   getUpdateStatus: () => UpdateStatus | null;
   getUpdateJournal: () => UpdateJournal;
+  getPostTurnLeftoversNotice: () => ServerMessageOf<'post-turn-leftovers'> | null;
+  recheckPostTurnLeftovers: () => void;
   checkNow: () => Promise<UpdateStatus>;
   applyUpdate: () => Promise<UpdateApplyOutcome>;
   isStaging: () => boolean;
@@ -129,6 +132,8 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     buildHealthSnapshot: dependencies.buildHealthSnapshot,
     getUpdateStatus: dependencies.getUpdateStatus,
     getUpdateJournal: dependencies.getUpdateJournal,
+    getPostTurnLeftoversNotice: dependencies.getPostTurnLeftoversNotice,
+    recheckPostTurnLeftovers: dependencies.recheckPostTurnLeftovers,
     checkNow: dependencies.checkNow,
     applyUpdate: dependencies.applyUpdate,
     isStaging: dependencies.isStaging,

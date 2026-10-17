@@ -8629,6 +8629,16 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
   color: var(--accent);
 }
 
+.post-turn-leftovers-banner {
+  flex-wrap: wrap;
+}
+
+.post-turn-leftovers-cmd {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre;
+}
+
 .update-banner-copy {
   padding: 3px 10px;
   border-radius: var(--radius);

@@ -5,6 +5,7 @@ import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-m
 import { shouldShowServerAction } from '#shared/client-trust.ts';
 import { createCoalescedTimer } from '#shared/coalesce-timer.ts';
 import { STATES } from '#shared/states.ts';
+import { trackedReportNoticeText } from '#shared/post-turn-leftovers.ts';
 import { getBorrowedCardId } from './card-host.ts';
 import { createClientErrorReporter } from './client-error-core.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
@@ -405,6 +406,7 @@ const messageHandlers = {
   'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },
   'update-status':      (msg) => { showUpdateBanner(msg); applySettingsUpdateStatus(msg); },
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
+  'post-turn-leftovers': (msg) => showPostTurnLeftoversBanner(msg),
   'error':              (msg) => { clearSettingsUpdateRequest(); applyTraceError(msg); applyConversationTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
   'session-error':      (msg) => { applySessionPlanError(msg); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
   'settings-updated':   (msg) => {
@@ -471,6 +473,19 @@ onControlMessage((msg) => {
 
 let updateBannerDismissed = false;
 
+function bindBannerCopy(copyButton: HTMLButtonElement, copyStatus: HTMLSpanElement, text: string) {
+  copyButton.onclick = () => {
+    const write = writeClipboardText(text);
+    if (!write) {
+      copyStatus.textContent = 'Copy failed';
+      return;
+    }
+    write
+      .then(() => { copyStatus.textContent = 'Copied'; })
+      .catch(() => { copyStatus.textContent = 'Copy failed'; });
+  };
+}
+
 const UPDATES_SECTION_HREF = createSettingsLink(UPDATES_SECTION_ID, UPDATES_ACTIONS_SETTING_ID, 'Update').href;
 
 function updateIdentity(msg: ServerMessageOf<'update-status'>) {
@@ -508,19 +523,31 @@ function showUpdateBanner(msg: ServerMessageOf<'update-status'>) {
   link.href = typeof msg.releaseUrl === 'string' ? msg.releaseUrl : '';
   banner.hidden = false;
 
-  copyBtn.onclick = () => {
-    const write = writeClipboardText(command);
-    if (!write) {
-      copyStatus.textContent = 'Copy failed';
-      return;
-    }
-    write
-      .then(() => { copyStatus.textContent = 'Copied'; })
-      .catch(() => { copyStatus.textContent = 'Copy failed'; });
-  };
+  bindBannerCopy(copyBtn, copyStatus, command);
   queryTag(document, '#update-banner-dismiss', 'button').onclick = () => {
     updateBannerDismissed = true;
     setDismissedUpdate(identity);
+    banner.hidden = true;
+  };
+}
+
+let isPostTurnLeftoversBannerDismissed = false;
+
+function showPostTurnLeftoversBanner({ repositories, command }: ServerMessageOf<'post-turn-leftovers'>) {
+  const banner = queryTag(document, '#post-turn-leftovers-banner', 'div');
+  if (repositories.length === 0) {
+    banner.hidden = true;
+    return;
+  }
+  if (isPostTurnLeftoversBannerDismissed) return;
+  const copyStatus = queryTag(document, '#post-turn-leftovers-copy-status', 'span');
+  queryTag(document, '#post-turn-leftovers-text', 'span').textContent = trackedReportNoticeText(repositories.length);
+  queryTag(document, '#post-turn-leftovers-cmd', 'code').textContent = command;
+  copyStatus.textContent = '';
+  banner.hidden = false;
+  bindBannerCopy(queryTag(document, '#post-turn-leftovers-copy', 'button'), copyStatus, command);
+  queryTag(document, '#post-turn-leftovers-dismiss', 'button').onclick = () => {
+    isPostTurnLeftoversBannerDismissed = true;
     banner.hidden = true;
   };
 }
