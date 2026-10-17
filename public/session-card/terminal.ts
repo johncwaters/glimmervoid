@@ -15,7 +15,7 @@ import { clearPageToken, loadPageToken, withPageToken } from '../ws-token.ts';
 import { noteSessionOutput } from './activity.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
 import type { DataFrameState, TerminalGrid } from './grid-core.ts';
-import { decideGridActions, decideGridEngagementEdge, retainGridClaimForReconnect, isCardTerminalHidden, isFollowingGrid, isViewerEngaged, readDataFrame } from './grid-core.ts';
+import { dataAttachPath, decideGridActions, decideGridEngagementEdge, retainGridClaimForReconnect, isCardTerminalHidden, isFollowingGrid, isViewerEngaged, readDataFrame, shouldRequestDeepHistory } from './grid-core.ts';
 import { uiState } from '../ui-state-core.ts';
 import {
   bytesForBackwardDeletion,
@@ -69,6 +69,23 @@ function isCardTerminalHiddenNow(ui: SessionUi, sessionId: string) {
     isBorrowedCard: uiState.snapshot().borrowedCardId === sessionId,
     isTerminalFaceShown: ui.face === 'terminal',
   });
+}
+
+const deepHistoryLinesFromBottomBySessionUi = new WeakMap<SessionUi, number>();
+const sessionUisWithDeepHistory = new WeakSet<SessionUi>();
+
+function requestDeepHistoryAtTop(ui: SessionUi, sessionId: string, viewportTopLine: number) {
+  const term = ui.term;
+  if (!term) return;
+  const shouldRequest = shouldRequestDeepHistory({
+    viewportTopLine,
+    scrollbackLineCount: term.buffer.active.baseY,
+    isDeepHistoryLoadedOrPending: sessionUisWithDeepHistory.has(ui),
+  });
+  if (!shouldRequest) return;
+  sessionUisWithDeepHistory.add(ui);
+  deepHistoryLinesFromBottomBySessionUi.set(ui, term.buffer.active.length - viewportTopLine);
+  reconnectDataWs(sessionId);
 }
 
 function reattachIfMissedWhileHidden(ui: SessionUi, sessionId: string) {
@@ -176,7 +193,11 @@ function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, d
 }
 
 function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
-  const url = buildWebSocketUrl(location, withPageToken(`/terminals/${encodeURIComponent(sessionId)}`));
+  const deepHistoryLinesFromBottom = deepHistoryLinesFromBottomBySessionUi.get(ui);
+  deepHistoryLinesFromBottomBySessionUi.delete(ui);
+  const isDeepAttach = deepHistoryLinesFromBottom !== undefined;
+  let isAwaitingDeepSnapshot = false;
+  const url = buildWebSocketUrl(location, withPageToken(dataAttachPath(sessionId, isDeepAttach)));
   const ws = new WebSocket(url);
   ws.binaryType = 'arraybuffer';
   ui.dataWs = ws;
@@ -191,15 +212,24 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     const frame = readDataFrame(event.data, frameState);
     if (frame.kind === 'bytes') {
       noteSessionOutput(ui);
+      const isDeepSnapshot = isAwaitingDeepSnapshot;
+      isAwaitingDeepSnapshot = false;
       if (isCardTerminalHiddenNow(ui, sessionId)) {
         ui._hasMissedOutputWhileHidden = true;
         return;
       }
       renderScheduler.enqueue(sessionId, frame.data);
+      if (!isDeepSnapshot) return;
+      const linesFromBottom = deepHistoryLinesFromBottom ?? 0;
+      renderScheduler.enqueueAction(sessionId, () => {
+        term.scrollToLine(Math.max(0, term.buffer.active.length - linesFromBottom));
+      });
       return;
     }
     if (frame.kind === 'attach-size') {
       ui._hasMissedOutputWhileHidden = false;
+      isAwaitingDeepSnapshot = isDeepAttach;
+      if (!isDeepAttach) sessionUisWithDeepHistory.delete(ui);
       frameState.hasSeenSize = true;
       frameState.lastSeq = frame.seq;
       term.reset();
@@ -574,6 +604,7 @@ export function wireTerminalIO(ui: SessionUi, sessionId: string) {
   const term = ui.term;
   if (!term) return;
   term.onData((data) => { sendTerminalInput(ui, data); });
+  term.onScroll((viewportTopLine) => { requestDeepHistoryAtTop(ui, sessionId, viewportTopLine); });
 
   wireFileTransfer(ui.termWrap, sessionId, ui.abortController.signal);
   connectDataWs(sessionId, ui, term);

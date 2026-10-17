@@ -1,4 +1,6 @@
 import {
+  DATA_ATTACH_HISTORY_PARAM,
+  DEEP_HISTORY_SCROLLBACK_LINES,
   parsePtySizeFrame,
   VIEWER_MAX_COLS,
   VIEWER_MAX_ROWS,
@@ -41,6 +43,12 @@ interface CardTerminalVisibilityInput {
   isDocumentVisible: boolean;
   isBorrowedCard: boolean;
   isTerminalFaceShown: boolean;
+}
+
+interface DeepHistoryRequestInput {
+  viewportTopLine: number;
+  scrollbackLineCount: number;
+  isDeepHistoryLoadedOrPending: boolean;
 }
 
 interface GridEngagementEdgeInput {
@@ -110,6 +118,21 @@ export function isCardTerminalHidden({
   isTerminalFaceShown,
 }: CardTerminalVisibilityInput): boolean {
   return !isDocumentVisible || !isBorrowedCard || !isTerminalFaceShown;
+}
+
+export function shouldRequestDeepHistory({
+  viewportTopLine,
+  scrollbackLineCount,
+  isDeepHistoryLoadedOrPending,
+}: DeepHistoryRequestInput): boolean {
+  const isLocalHistoryBelowServerCap = scrollbackLineCount > 0 && scrollbackLineCount < DEEP_HISTORY_SCROLLBACK_LINES;
+  return viewportTopLine === 0 && isLocalHistoryBelowServerCap && !isDeepHistoryLoadedOrPending;
+}
+
+export function dataAttachPath(sessionId: string, isDeepHistory: boolean): string {
+  const sessionPath = `/terminals/${encodeURIComponent(sessionId)}`;
+  if (!isDeepHistory) return sessionPath;
+  return `${sessionPath}?${DATA_ATTACH_HISTORY_PARAM}=deep`;
 }
 
 export function decideGridEngagementEdge({

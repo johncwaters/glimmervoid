@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Deeper scrollback after a reload**: a terminal reopened from the server, after a page reload, on the phone, or when you open a card that was hidden, used to start with only its last 500 lines. Scrolling to the top now loads up to 5000 lines once, and the line you were reading stays where it was.
+
 ### Changed
 
 - **Hidden terminals stop drawing**: a session card you are not looking at, one showing its plan or conversation instead of its terminal, and every card while the dashboard tab is in the background, no longer draws incoming terminal output. With many busy sessions this was about a third of the tab's work. The rail's working pulse still beats for those sessions, and when you open one that produced output while hidden it reloads its current screen with the last 500 lines of scrollback.

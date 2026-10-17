@@ -25,6 +25,8 @@ export type PtySizeFrame = z.infer<typeof PtySizeFrame>;
 
 export const DATA_ATTACH_HISTORY_PARAM = 'history';
 
+export const DEEP_HISTORY_SCROLLBACK_LINES = 5000;
+
 export const DataAttachHistory = z.enum(['screen', 'deep']);
 export type DataAttachHistory = z.infer<typeof DataAttachHistory>;
 

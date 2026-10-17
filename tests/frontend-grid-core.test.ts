@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  DEEP_HISTORY_SCROLLBACK_LINES,
   VIEWER_MAX_COLS,
   VIEWER_MAX_ROWS,
 } from '../shared/contracts/data-messages.ts';
 import type { DataFrameState, GridDecisionInput } from '../public/session-card/grid-core.ts';
-import { decideGridActions, decideGridEngagementEdge, retainGridClaimForReconnect, isCardTerminalHidden, isFollowingGrid, isViewerEngaged, readDataFrame } from '../public/session-card/grid-core.ts';
+import { dataAttachPath, decideGridActions, decideGridEngagementEdge, retainGridClaimForReconnect, isCardTerminalHidden, isFollowingGrid, isViewerEngaged, readDataFrame, shouldRequestDeepHistory } from '../public/session-card/grid-core.ts';
+import { parseDataAttachHistory } from '../shared/contracts/data-messages.ts';
 
 const IDLE_VIEWER: GridDecisionInput = {
   authoritative: null,
@@ -387,4 +389,11 @@ test('a viewer whose claim matches the pty grid reads as exact without waiting f
   );
   assert.equal(isFollowingGrid({ authoritative, isActiveViewer: false, lastClaim: authoritative }), true);
   assert.equal(isFollowingGrid({ authoritative: null, isActiveViewer: true, lastClaim: null }), true);
+});
+
+test('a card already holding the server deep history never reattaches for it, and the deep attach path round trips', () => {
+  const atTopOfFullLocalHistory = { viewportTopLine: 0, scrollbackLineCount: DEEP_HISTORY_SCROLLBACK_LINES, isDeepHistoryLoadedOrPending: false };
+  assert.equal(shouldRequestDeepHistory(atTopOfFullLocalHistory), false);
+  assert.equal(parseDataAttachHistory(dataAttachPath('a b', true)), 'deep');
+  assert.equal(parseDataAttachHistory(dataAttachPath('a b', false)), 'screen');
 });
