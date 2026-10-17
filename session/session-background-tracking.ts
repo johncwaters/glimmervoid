@@ -56,6 +56,7 @@ interface SessionBackgroundTracking {
   trackSubagent(raw: HookSignal): void;
   activeAgentCount(): number;
   awaitingBackgroundTasks(): boolean;
+  hasBackgroundWork(): boolean;
   emitAgentsChange(): void;
   clearAgents(): void;
   stashGateHeldReady(signal: ResolvedStatusSignal): void;
@@ -95,6 +96,7 @@ function createSessionBackgroundTracking({
   let agentBreakdown: TaskRegistryBreakdown = { counted: 0, declared: 0, idleNames: 0, idleTasks: 0 };
   let publishedActiveAgents = 0;
   let publishedAwaitingBackgroundTasks = false;
+  let publishedHasBackgroundWork = false;
 
   const wakeups: WakeupMap = new Map();
   let wakeupSeq = 0;
@@ -128,12 +130,22 @@ function createSessionBackgroundTracking({
       && tasks.isOnlyBackgroundTasks();
   }
 
+  function hasBackgroundWork(): boolean {
+    if (activeAgentCount() > 0) return true;
+    if (detectBackgroundAgents && tasks.hasLiveMonitor()) return true;
+    return pendingWakeup() !== null;
+  }
+
   function publishAgentsChange(): void {
+    if (port.isDestroyed()) return;
     const activeAgents = activeAgentCount();
     const awaiting = awaitingBackgroundTasks();
-    if (activeAgents === publishedActiveAgents && awaiting === publishedAwaitingBackgroundTasks) return;
+    const backgroundWork = hasBackgroundWork();
+    if (activeAgents === publishedActiveAgents && awaiting === publishedAwaitingBackgroundTasks
+      && backgroundWork === publishedHasBackgroundWork) return;
     publishedActiveAgents = activeAgents;
     publishedAwaitingBackgroundTasks = awaiting;
+    publishedHasBackgroundWork = backgroundWork;
     port.emit("agents-change", { activeAgents, awaitingBackgroundTasks: awaiting });
   }
 
@@ -365,6 +377,7 @@ function createSessionBackgroundTracking({
   }
 
   function emitWakeupChange(): void {
+    if (port.isDestroyed()) return;
     port.emit("wakeup-change", { pendingWakeup: pendingWakeup() });
     armWakeupExpiryTimer();
   }
@@ -392,6 +405,7 @@ function createSessionBackgroundTracking({
     trackSubagent,
     activeAgentCount,
     awaitingBackgroundTasks,
+    hasBackgroundWork,
     emitAgentsChange,
     clearAgents,
     stashGateHeldReady,

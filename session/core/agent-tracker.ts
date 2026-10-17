@@ -224,6 +224,7 @@ interface TaskRegistry {
   regateByAgentId(agentId: unknown): void;
   activeCount(): number;
   isOnlyBackgroundTasks(): boolean;
+  hasLiveMonitor(): boolean;
   getBreakdown(): TaskRegistryBreakdown;
   msUntilNextDrain(at: number): number | null;
   clear(): void;
@@ -376,6 +377,15 @@ function createTaskRegistry({
         declaredEntries, countedAgents, idleTaskIds, (entry) => entryAgeMs(entry, at),
         shellTaskTtlMs, idleTeammateNames.size, teammateTaskTtlMs, agentTtlMs,
       );
+    },
+
+    hasLiveMonitor() {
+      const at = now();
+      reap(at);
+      if (declaredEntries === null) return false;
+      return declaredEntries.some((entry) => entry.type === 'monitor'
+        && !(entry.id && idleTaskIds.has(entry.id))
+        && entryAgeMs(entry, at) < shellTaskTtlMs);
     },
 
     getBreakdown() {

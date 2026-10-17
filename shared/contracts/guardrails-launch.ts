@@ -10,6 +10,7 @@ export const GuardrailsLaunchOwner = z.object({
   ownerHost: z.string(),
   ownerPidNamespace: z.string().nullable(),
   ownsTempDir: z.boolean(),
+  keptTempFolderName: z.string().min(1).optional(),
   logins: z.array(GuardrailsLaunchLogin),
   placeholderPaths: z.array(z.string().min(1)),
 }).strict();

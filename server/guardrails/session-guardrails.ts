@@ -94,7 +94,7 @@ function createSessionGuardrails({
       if (guardrailsRefusalReason !== null) return { ok: false, reason: `${guardrailsRefusalReason} ${OPT_OUT_HINT}` };
       try {
         const { role, cwd, trustFolder } = await describeSessionAccess(facts, request);
-        const prepared = await prepareGuardrails({ role, launchId: facts.launchId, enterDir: cwd });
+        const prepared = await prepareGuardrails({ role, launchId: facts.launchId, keptTempFolderName: request.sessionId, enterDir: cwd });
         if (!prepared.ok) return { ok: false, reason: `${prepared.reason}. ${OPT_OUT_HINT}` };
         await recordClaudeFolderTrust(trustFolder);
         const githubToken = await readGithubToken();

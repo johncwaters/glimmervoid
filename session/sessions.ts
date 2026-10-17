@@ -1051,6 +1051,10 @@ class Session extends EventEmitter {
     return this._hookSeen;
   }
 
+  get hasBackgroundWork(): boolean {
+    return this.backgroundTracking.hasBackgroundWork();
+  }
+
   get agentToken(): string | null {
     return this._agentToken;
   }

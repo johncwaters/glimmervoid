@@ -1,7 +1,9 @@
 import fs from 'node:fs';
+import path from 'node:path';
 
 import { configSiblingPath } from './pairings-store.ts';
 import { pruneAgedFiles } from './prune-files.ts';
+import { pruneLeftoverSessionTempFolders } from './guardrails/guardrails-launch.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
 import type { ClearIntervalFn, SetIntervalFn } from '../shared/timer-deps.ts';
 
@@ -31,6 +33,7 @@ function createUploadsWiring({
       isRetainedId: (id) => retainedSessionIds.has(id),
       fsPromises: fs.promises,
     });
+    await pruneLeftoverSessionTempFolders(path.dirname(uploadsRoot), retainedSessionIds);
   }
   async function start(): Promise<void> {
     if (timer) return;

@@ -3,7 +3,7 @@ import path from "node:path";
 import { encodeProjectDir } from "./conversation-history.ts";
 
 const RESUME_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
-const AUTO_CONTINUE_PROMPT = "Glimmervoid restarted while you were mid-turn and resumed this conversation. This is not a new request from the user: carry on with the task you were working on. Any tool call, background command or subagent that was running was stopped and its outcome is unknown, so check the current state, such as files, git status and running processes, before relying on it or repeating it. Do not recap or ask for confirmation. If the task was already finished, say so in one line.";
+const AUTO_CONTINUE_PROMPT = "Glimmervoid restarted while you were working and resumed this conversation. This is not a new request from the user: carry on with the task you were working on. Any tool call, background command, monitor or subagent that was running was stopped and its outcome is unknown, so check the current state, such as files, git status and running processes, before relying on it or repeating it, and start again any background work the task still needs. Do not recap or ask for confirmation. If the task was already finished, say so in one line.";
 
 interface ResumeTargetOptions {
   resumeSessionId: string | null;

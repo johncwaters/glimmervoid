@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import pty from 'node-pty';
 import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { glimmervoidHomeDir } from '../server/config-store.ts';
 import { workRole } from '../server/guardrails/core/guardrails-roles-core.ts';
-import { prepareGuardrailsLaunch, sweepOrphanedGuardrailsLaunches } from '../server/guardrails/guardrails-launch.ts';
+import { prepareGuardrailsLaunch, pruneLeftoverSessionTempFolders, sweepOrphanedGuardrailsLaunches } from '../server/guardrails/guardrails-launch.ts';
 
 async function launchLockedCheckout(checkout: string, launchId: string) {
   const prepared = await prepareGuardrailsLaunch({ role: workRole({ vendor: 'claude', cwd: checkout, checkout, agentSessionId: null, readablePaths: [] }), launchId });
@@ -135,4 +135,33 @@ test('a guarded terminal launch can switch its own terminal to raw mode but cann
   await new Promise((resolve) => terminal.onExit(resolve));
   assert.match(output, /raw-mode-set/, output);
   assert.match(output, /sibling-denied/, output);
+});
+
+test('a session temp folder survives its launch so the next launch of that session finds the same scratch files, and an aged one stays while any launch still uses it', async (context) => {
+  const factoryFolder = await mkdtemp(path.join(glimmervoidHomeDir(), 'factory-'));
+  const sessionTempFolder = path.join(await realpath(glimmervoidHomeDir()), 'guardrails-temp', 'kept-temp-session');
+  context.after(() => Promise.all([rm(factoryFolder, { recursive: true, force: true }), rm(sessionTempFolder, { recursive: true, force: true })]));
+  const checkout = path.join(factoryFolder, 'repo');
+  await mkdir(checkout);
+  const role = workRole({ vendor: 'claude', cwd: checkout, checkout, agentSessionId: null, readablePaths: [] });
+  const firstLaunch = await prepareGuardrailsLaunch({ role, launchId: 'kept-temp-first-launch', keptTempFolderName: 'kept-temp-session' });
+  assert.ok(firstLaunch.ok, firstLaunch.ok ? '' : firstLaunch.reason);
+  assert.equal(firstLaunch.launch.env.CLAUDE_CODE_TMPDIR, sessionTempFolder);
+  await writeFile(path.join(sessionTempFolder, 'scratchpad-note'), 'kept');
+  await firstLaunch.launch.dispose();
+
+  const secondLaunch = await prepareGuardrailsLaunch({ role, launchId: 'kept-temp-second-launch', keptTempFolderName: 'kept-temp-session' });
+  assert.ok(secondLaunch.ok, secondLaunch.ok ? '' : secondLaunch.reason);
+  context.after(() => secondLaunch.launch.dispose());
+  assert.equal(secondLaunch.launch.env.CLAUDE_CODE_TMPDIR, sessionTempFolder);
+  assert.equal(await readFile(path.join(sessionTempFolder, 'scratchpad-note'), 'utf8'), 'kept');
+
+  const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+  await utimes(sessionTempFolder, eightDaysAgo, eightDaysAgo);
+  await pruneLeftoverSessionTempFolders(await realpath(glimmervoidHomeDir()), new Set());
+  assert.equal(await readFile(path.join(sessionTempFolder, 'scratchpad-note'), 'utf8'), 'kept');
+
+  await secondLaunch.launch.dispose();
+  await pruneLeftoverSessionTempFolders(await realpath(glimmervoidHomeDir()), new Set());
+  await assert.rejects(lstat(sessionTempFolder), { code: 'ENOENT' });
 });

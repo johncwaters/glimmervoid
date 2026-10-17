@@ -136,6 +136,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     };
     let lastPersistedWasActive: boolean | null = null;
     let lastPersistedWasWorking: boolean | null = null;
+    let isTurnWorking: boolean | null = null;
     let spawnedAtMs: number | null = null;
     const persistProjectField = (field: string, value: unknown) => {
       void Promise.resolve(persistSessionField(dependencies.configStore, dependencies.config, session.id, field, value))
@@ -150,6 +151,15 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         exit_kind: classifySessionExit(exit),
         duration_seconds: durationSeconds,
       });
+    };
+
+    const persistWasWorking = () => {
+      const hasBackgroundWork = session.hasBackgroundWork;
+      if (isTurnWorking === null && !hasBackgroundWork) return;
+      const wasWorking = isTurnWorking === true || hasBackgroundWork;
+      if (wasWorking === lastPersistedWasWorking) return;
+      lastPersistedWasWorking = wasWorking;
+      persistProjectField('wasWorking', wasWorking);
     };
 
     let liveTranscriptPath: string | null = null;
@@ -244,11 +254,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         lastPersistedWasActive = nextWasActive;
         persistProjectField('wasActive', nextWasActive);
       }
-      const nextWasWorking = decideWasWorkingFlip(to, event, detail?.isIdleCompactionActivity === true);
-      if (nextWasWorking !== null && nextWasWorking !== lastPersistedWasWorking) {
-        lastPersistedWasWorking = nextWasWorking;
-        persistProjectField('wasWorking', nextWasWorking);
-      }
+      const nextIsTurnWorking = decideWasWorkingFlip(to, event, detail?.isIdleCompactionActivity === true);
+      if (nextIsTurnWorking !== null) isTurnWorking = nextIsTurnWorking;
+      persistWasWorking();
       const acknowledgeDecision = decideAcknowledge(isAcknowledgeDeferredForCompaction, from, event, detail?.isIdleCompactionActivity === true);
       isAcknowledgeDeferredForCompaction = acknowledgeDecision.isAcknowledgeDeferred;
       clearCompactionConfirm();
@@ -316,6 +324,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       timestamp: Date.now(),
     }));
     session.on('agents-change', (payload: { activeAgents: number; awaitingBackgroundTasks: boolean }) => {
+      persistWasWorking();
       dependencies.telegramChannel.recheck(session.id);
       dependencies.broadcastControl({
         type: 'session-agents',
@@ -327,6 +336,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       });
     });
     relay('wakeup-change', 'session-wakeup');
+    session.on('wakeup-change', persistWasWorking);
     relay('prompt-kind-change', 'session-prompt');
     relay('conversation-change', 'session-conversation');
 

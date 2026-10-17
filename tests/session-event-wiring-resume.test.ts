@@ -11,6 +11,7 @@ import type { Server } from 'node:http';
 import { createSessionRegistry } from '../server/session/session-registry.ts';
 
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
+import { STATES } from '../shared/states.ts';
 import { plainSession } from './helpers/fake-session.ts';
 
 function wiredSession(session = plainSession('resume-persist-session'), configStore?: ConfigStore) {
@@ -35,9 +36,41 @@ function wiredSession(session = plainSession('resume-persist-session'), configSt
     logger: { error: () => {}, log: () => {}, warn: () => {} },
   });
   const savedField = () => config.projects[0]?.resumeSessionId ?? null;
+  const savedWasWorking = () => config.projects[0]?.wasWorking;
   wireSessionEvents(session);
-  return { session, recordedLanes, savedField };
+  return { session, recordedLanes, savedField, savedWasWorking };
 }
+
+function hook(session: Session, signal: string, payload: Record<string, unknown> = {}) {
+  session.ingestHookSignal({ signal, source: 'hook', ts: Date.now(), payload });
+}
+
+test('a session idle at its prompt with a background agent or monitor in flight is saved as working, through shutdown', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const agentSession = new Session({ id: 'resume-persist-session', name: 'agent', path: process.cwd(), statusConflictMs: 20, statusDedupMs: 10 });
+  agentSession.state = STATES.RUNNING;
+  const { savedWasWorking: agentWasWorking } = wiredSession(agentSession);
+  hook(agentSession, 'subagent-start', { agent_id: 'fixer' });
+  hook(agentSession, 'ready');
+  t.mock.timers.tick(40);
+  hook(agentSession, 'awaiting-input');
+  t.mock.timers.tick(40);
+  assert.equal(agentSession.state, STATES.WAITING);
+  agentSession.destroy();
+  assert.equal(agentWasWorking(), true, 'the in-flight agent survives the shutdown teardown');
+
+  const monitorSession = new Session({ id: 'resume-persist-session', name: 'monitor', path: process.cwd(), statusConflictMs: 20, statusDedupMs: 10 });
+  monitorSession.state = STATES.RUNNING;
+  const { savedWasWorking: monitorWasWorking } = wiredSession(monitorSession);
+  hook(monitorSession, 'ready', { background_tasks: [{ id: 'watch-ci', type: 'monitor', status: 'running' }] });
+  t.mock.timers.tick(40);
+  assert.equal(monitorSession.state, STATES.COMPLETE);
+  assert.equal(monitorWasWorking(), true);
+  hook(monitorSession, 'ready', { background_tasks: [] });
+  t.mock.timers.tick(40);
+  assert.equal(monitorWasWorking(), false, 'a finished monitor leaves nothing to continue');
+  monitorSession.destroy();
+});
 
 test('a live id that is not the resume target is never written to config', () => {
   const { session, recordedLanes, savedField } = wiredSession();

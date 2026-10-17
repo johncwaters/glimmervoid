@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Sessions with background work keep working after a restart**: a session that had finished its turn but still had a background agent, a monitor or a scheduled wakeup in flight now counts as working, so after a restart auto-resume tells it to continue instead of leaving it idle at the prompt with its background work silently gone.
+- **A restart keeps a guarded session's scratchpad**: a guarded session's temporary folder, which holds Claude Code's scratchpad and background task output, is now named after the session and survives restarts. Before, every restart started the session in a fresh folder and deleted the old one. Folders of removed sessions are cleared after a week.
 - **Sessions can clear out their own scratch**: a guarded session's temporary folder, where Claude Code keeps its scratchpad, lives under the Glimmervoid folder rather than the system temp folder, so Sane YOLO refused `rm -rf` inside it as a delete outside the project. Recursive deletes inside Glimmervoid's guarded session temp folders are now allowed, the same as inside the system temp folder.
 - **Phone board row highlights span the whole row**: the tint on a finished, waiting or failed session now runs under the remove button too, instead of stopping short of it.
 - **Session status looks the same on phone and desktop**: the phone board and the desktop session list now share one set of state colors and highlights. Desktop now tints failed sessions; phone now tints a parked merge, flashes once when a session finishes, colors every status, and dims the icon of a running session that has gone quiet, pulsing it on new output.

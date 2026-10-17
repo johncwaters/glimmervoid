@@ -15,6 +15,7 @@ import type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, Guardra
 import { codexHomes, grokHomes, projectDirCandidates } from '../usage/core/usage-scan-core.ts';
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { relayPath, resolvePackageBin } from '../runtime-paths.ts';
+import { pruneAgedFiles } from '../prune-files.ts';
 
 interface WrappedCommand {
   file: string;
@@ -32,6 +33,7 @@ interface GuardrailsLaunchRequest {
   role: GuardrailsRole;
   launchId: string;
   tempDir?: string;
+  keptTempFolderName?: string;
   enterDir?: string;
 }
 
@@ -47,6 +49,7 @@ const ENTER_FOLDER_SCRIPT = 'cd "$1" && shift && exec "$@"';
 const LOGIN_FILE_MODE = 0o600;
 const ABSENT_PATH_DENY_PLATFORM = 'darwin';
 const OWN_PID_NAMESPACE_LINK = '/proc/self/ns/pid';
+const SESSION_TEMP_RETAIN_DAYS = 7;
 
 async function isPresent(candidate: string): Promise<boolean> {
   try {
@@ -257,6 +260,28 @@ async function sweepOrphanedGuardrailsLaunches(log: Pick<Console, 'log' | 'warn'
   }
 }
 
+async function pruneLeftoverSessionTempFolders(glimmervoidHome: string, liveSessionIds: ReadonlySet<string>, log: Pick<Console, 'warn'> = console): Promise<void> {
+  const policyEntryNames = await readdir(path.join(glimmervoidHome, POLICY_FOLDER)).catch((error: unknown) => {
+    if (isMissingFileError(error)) return [];
+    log.warn(`[guardrails] kept every session temp folder because the launch list could not be read: ${errorMessage(error)}`);
+    return null;
+  });
+  if (policyEntryNames === null) return;
+  const ownerEntryNames = policyEntryNames.filter((entryName) => entryName.endsWith(OWNER_FILE_SUFFIX));
+  const owners = await Promise.all(ownerEntryNames.map((entryName) => readOwnerFile(path.join(glimmervoidHome, POLICY_FOLDER, entryName))));
+  const tempFolderNamesWithOwners = new Set([
+    ...ownerEntryNames.map((entryName) => entryName.slice(0, -OWNER_FILE_SUFFIX.length)),
+    ...owners.flatMap((owner) => owner?.keptTempFolderName === undefined ? [] : [owner.keptTempFolderName]),
+  ]);
+  await pruneAgedFiles({
+    directory: path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER),
+    suffixes: [''],
+    retainDays: SESSION_TEMP_RETAIN_DAYS,
+    entryMode: 'directory',
+    isRetainedId: (id) => liveSessionIds.has(id) || tempFolderNamesWithOwners.has(id),
+  });
+}
+
 function launcherCommand(plan: GuardrailsLaunchPlan, policyPath: string): WrappedCommand | null {
   if (plan.launcher === 'open-network') return { file: process.execPath, args: [relayPath('guardrails-open-launcher'), policyPath] };
   const runtimeCliPath = resolvePackageBin('@anthropic-ai/sandbox-runtime', 'srt');
@@ -274,14 +299,20 @@ function enteringFolder(enterDir: string | undefined, file: string, args: readon
   return ['/bin/sh', '-c', ENTER_FOLDER_SCRIPT, 'sh', enterDir, file, ...args];
 }
 
-async function prepareGuardrailsLaunch({ role, launchId, tempDir, enterDir }: GuardrailsLaunchRequest): Promise<GuardrailsLaunchResult> {
+function launchTempDirFor(glimmervoidHome: string, launchId: string, tempDir: string | undefined, keptTempFolderName: string | undefined): string {
+  if (tempDir !== undefined) return path.resolve(tempDir);
+  return path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER, keptTempFolderName ?? launchId);
+}
+
+async function prepareGuardrailsLaunch({ role, launchId, tempDir, keptTempFolderName, enterDir }: GuardrailsLaunchRequest): Promise<GuardrailsLaunchResult> {
   if (!LAUNCH_ID_SHAPE.test(launchId)) return { ok: false, reason: 'guardrails launch id is invalid' };
+  if (keptTempFolderName !== undefined && !LAUNCH_ID_SHAPE.test(keptTempFolderName)) return { ok: false, reason: 'guardrails temp folder name is invalid' };
   try {
     const policyDir = path.join(glimmervoidHomeDir(), POLICY_FOLDER);
     await mkdir(policyDir, { recursive: true, mode: 0o700 });
     const [homeDir, glimmervoidHome, realRole, ownerPidNamespace] = await Promise.all([realpath(os.homedir()), realpath(glimmervoidHomeDir()), withRealRoots(role), readOwnPidNamespace()]);
-    const ownsTempDir = tempDir === undefined;
-    const launchTempDir = tempDir === undefined ? path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER, launchId) : path.resolve(tempDir);
+    const ownsTempDir = tempDir === undefined && keptTempFolderName === undefined;
+    const launchTempDir = launchTempDirFor(glimmervoidHome, launchId, tempDir, keptTempFolderName);
     const launchHomeDir = path.join(glimmervoidHome, LAUNCH_HOME_FOLDER, launchId);
     const vendorLocations = await resolveVendorLocations(process.env, homeDir);
     if (vendorLocations === null) return { ok: false, reason: 'CODEX_HOME names no folder' };
@@ -327,6 +358,7 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, enterDir }: Gu
       ownerHost: os.hostname(),
       ownerPidNamespace,
       ownsTempDir,
+      ...(keptTempFolderName === undefined ? {} : { keptTempFolderName }),
       logins: plan.launchHomeLinks.filter((link) => link.isLogin).map(({ linkPath, targetPath }) => ({ linkPath, targetPath })),
       placeholderPaths: [],
     };
@@ -354,5 +386,5 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, enterDir }: Gu
   }
 }
 
-export { prepareGuardrailsLaunch, sweepOrphanedGuardrailsLaunches };
+export { prepareGuardrailsLaunch, pruneLeftoverSessionTempFolders, sweepOrphanedGuardrailsLaunches };
 export type { GuardrailsLaunch, GuardrailsLaunchResult };
