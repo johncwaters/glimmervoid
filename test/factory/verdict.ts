@@ -73,16 +73,6 @@ export function decideGate(evidence: GateEvidence | null): (GateEvidence & { hel
   return { ...evidence, held: true };
 }
 
-const LONGEST_BRIDGE_SOCKET_NAME = 'claude-socks-0123456789abcdef.sock';
-const UNIX_SOCKET_PATH_BYTE_LIMIT = 107;
-
-export function bridgeSocketPathRefusal(instanceTempDirectory: string, platform: NodeJS.Platform): string | null {
-  if (platform !== 'linux') return null;
-  const socketPathBytes = Buffer.byteLength(path.join(instanceTempDirectory, LONGEST_BRIDGE_SOCKET_NAME));
-  if (socketPathBytes <= UNIX_SOCKET_PATH_BYTE_LIMIT) return null;
-  return `Factory harness refuses to start: the check guardrails socket under ${instanceTempDirectory} needs ${socketPathBytes} bytes and a unix socket path holds ${UNIX_SOCKET_PATH_BYTE_LIMIT}; point TMPDIR at a shorter folder`;
-}
-
 export interface VerdictInput {
   intentName: string;
   expectedEnd: ExpectedEnd;

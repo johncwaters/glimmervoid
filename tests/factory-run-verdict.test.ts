@@ -17,7 +17,7 @@ import {
 import type { HarnessTelemetryInputs } from '../test/factory/telemetry-core.ts';
 import { adoptRunHomeRemoteSwitch, loadHarnessInstallState, resolveHarnessTelemetryInputs, sendRunTelemetry } from '../test/factory/telemetry.ts';
 import { removeInside, resolveInside } from '../test/factory/cleanup.ts';
-import { bridgeSocketPathRefusal, decideGate, decideVerdict, findUnrecoveredException, matchedProductText, parseDecisionLines, pidsStillNamingSameProcess, processesUsingBuildOutput, readBuildOutput, unexpectedAcceptanceError } from '../test/factory/verdict.ts';
+import { decideGate, decideVerdict, findUnrecoveredException, matchedProductText, parseDecisionLines, pidsStillNamingSameProcess, processesUsingBuildOutput, readBuildOutput, unexpectedAcceptanceError } from '../test/factory/verdict.ts';
 import type { GateEvidence, VerdictInput } from '../test/factory/verdict.ts';
 
 const repoRoot = path.resolve(import.meta.dirname, '..');
@@ -209,10 +209,6 @@ test('a process running from the dist of this checkout, or one whose relative ar
   } finally {
     await rm(checkout, { recursive: true, force: true });
   }
-  assert.equal(bridgeSocketPathRefusal('/tmp/glimmervoid-factory-run-XXXXXX/0001/tmp', 'linux'), null);
-  assert.equal(bridgeSocketPathRefusal(`/${'a'.repeat(71)}`, 'linux'), null);
-  assert.match(bridgeSocketPathRefusal(`/${'a'.repeat(72)}`, 'linux') ?? '', /needs 108 bytes and a unix socket path holds 107/);
-  assert.equal(bridgeSocketPathRefusal(`/${'a'.repeat(72)}`, 'darwin'), null);
 });
 
 test('bounded removal reaches a child through a symlinked parent and still refuses a path that leaves it', async () => {

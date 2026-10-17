@@ -19,7 +19,7 @@ import { checkGate, readGateProof, readRealCommits } from './gate.ts';
 import { removeInside } from './cleanup.ts';
 import { targets } from './targets.ts';
 import { summaryRows } from './summary.ts';
-import { bridgeSocketPathRefusal, decideVerdict, findUnrecoveredException, parseDecisionLines, unexpectedAcceptanceError } from './verdict.ts';
+import { decideVerdict, findUnrecoveredException, parseDecisionLines, unexpectedAcceptanceError } from './verdict.ts';
 import type { VerdictInput } from './verdict.ts';
 import { adoptRunHomeRemoteSwitch, resolveHarnessTelemetryInputs, sendRunTelemetry } from './telemetry.ts';
 import { decideHarnessTelemetry } from './telemetry-core.ts';
@@ -201,11 +201,6 @@ export async function runBatch(options: Arguments): Promise<number> {
   if (!resumedRun && !options.intentFile && intent.target !== options.target) throw new Error(`Intent ${intent.name} belongs to target ${intent.target}, not ${options.target}`);
   await checkEnvironment();
   const runtimeParent = await realpath(await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-factory-run-')));
-  const socketRefusal = bridgeSocketPathRefusal(resumedRun?.prepared.isolatedTemp ?? path.join(runtimeParent, harnessRunName(options.runs), 'tmp'), process.platform);
-  if (socketRefusal) {
-    await rmdir(runtimeParent);
-    throw new Error(socketRefusal);
-  }
   const stateDirectory = factoryHarnessRunsDirectory(process.env, os.homedir());
   const parent = resumedRun ? path.dirname(path.dirname(resumedRun.recordDirectory)) : options.artifacts ?? stateDirectory;
   const requestedBatchDirectory = path.resolve(parent, harnessBatchName(new Date(), randomUUID()));

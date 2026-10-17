@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Visible terminal losing its WebGL context**: terminal WebGL contexts are now released when a card is evicted or removed, ending the "Too many active WebGL contexts" losses that hit the terminal you were looking at while sessions came and went.
 - **Crash on a flooding session**: a session writing to its terminal faster than the server-side screen can keep up no longer crashes Glimmervoid at about 50 MB of backlog. The screen sheds the backlog and rebuilds the attach view from recent output instead.
 - **Window titles in large redraws**: the window-title status fallback and task titles now work for terminal redraws larger than 8 KB, where every title was silently dropped before.
+- **Guarded sessions failing to start under a long temp folder**: on Linux, when Glimmervoid itself ran with a long `TMPDIR` (for example when you start it, or its browser tests, from inside a guarded session), every guarded session failed at launch with "Failed to create bridge sockets", because the guardrails network bridge socket path ran past the 107-byte limit for a unix socket. The guardrails launcher now puts that socket in `/tmp` when the inherited folder is too long, and the agent's own temp folder is unchanged.
 
 ## [0.37.0] - 2026-10-16
 

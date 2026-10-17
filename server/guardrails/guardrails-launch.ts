@@ -9,6 +9,7 @@ import { errorCode, errorMessage, isMissingFileError } from '../../shared/text.t
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { listClaudeGlobalConfigPathCandidates } from '../core/claude-trust-core.ts';
 import { decideConfigPath } from '../core/config-path-core.ts';
+import { bridgeSocketLauncherEnv } from './core/guardrails-bridge-socket-core.ts';
 import { buildGuardrailsLaunchPlan, lockedClaudeMountPoints, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates } from './core/guardrails-policy-core.ts';
 import type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, GuardrailsRole } from './core/guardrails-policy-core.ts';
 import { codexHomes, grokHomes, projectDirCandidates } from '../usage/core/usage-scan-core.ts';
@@ -344,7 +345,7 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, enterDir }: Gu
           await createMissingMountPoints(lockedClaudeMountPoints(realRole));
           return { file: launcher.file, args: [...launcher.args, ...envPrefix, ...enteringFolder(enterDir, file, args)] };
         },
-        env: { ...plan.launchEnv },
+        env: { ...plan.launchEnv, ...bridgeSocketLauncherEnv(os.tmpdir(), process.platform) },
         ...(startDir === undefined ? {} : { cwd: startDir }),
         dispose: () => removeLaunch(folders, owner, launchId, { onlyNewerLogins: false }),
       },
