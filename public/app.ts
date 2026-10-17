@@ -37,13 +37,13 @@ import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryS
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-panel.ts';
 import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './github/issues-panel.ts';
 
-import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar/radar-core.ts';
+import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from './radar/radar-core.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from './radar/radar-panel.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse, setCardPrChipsPainter, setSessionSaneYolo } from './session-card/card-dom.ts';
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
-import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionGuarded, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
+import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionGuarded, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -64,7 +64,7 @@ import { applyTraceChanged, applyTraceError, applyTraceResponse, setTraceNavigat
 import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
 import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isCompactStatusLabels, isFlyingAnimalsEnabled, isSessionUsageChips, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';
-import { updateBannerMode } from './updates-view-core.ts';
+import { updateBanner } from './updates-view-core.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
 import { applyPlanLimits, applyUsageReport, applyUsageSessions, setUsageRequestSender } from './usage/usage-panel.ts';
@@ -471,7 +471,7 @@ onControlMessage((msg) => {
   refreshViewsIfVisible(msg.type);
 });
 
-let updateBannerDismissed = false;
+let dismissedUpdateBannerIdentity: string | null | undefined;
 
 function bindBannerCopy(copyButton: HTMLButtonElement, copyStatus: HTMLSpanElement, text: string) {
   copyButton.onclick = () => {
@@ -501,16 +501,20 @@ function showUpdateBanner(msg: ServerMessageOf<'update-status'>) {
     banner.hidden = true;
     return;
   }
-  if (updateBannerDismissed) return;
-  const identity = updateIdentity(msg);
+  const { mode, text } = updateBanner(msg);
+  const updateId = updateIdentity(msg);
+  const identity = updateId && mode === 'restart' ? `${updateId}:ready` : updateId;
+  if (dismissedUpdateBannerIdentity !== undefined && identity === dismissedUpdateBannerIdentity) return;
   if (identity && getDismissedUpdate() === identity) return;
   const command = String(msg.command ?? '');
-  queryTag(document, '#update-banner-text', 'span').textContent = updateBannerText(msg);
+  queryTag(document, '#update-banner-text', 'span').textContent = text;
   queryTag(document, '#update-banner-cmd', 'code').textContent = command;
-  const mode = updateBannerMode(msg);
   const updateLink = queryTag(document, '#update-banner-update', 'a');
   updateLink.href = UPDATES_SECTION_HREF;
   updateLink.hidden = mode !== 'link';
+  const restartButton = queryTag(document, '#update-banner-restart', 'button');
+  restartButton.hidden = mode !== 'restart';
+  restartButton.onclick = confirmServerRestart;
   const commandEl = queryTag(document, '#update-banner-cmd', 'code');
   commandEl.hidden = mode !== 'command';
   const copyBtn = queryTag(document, '#update-banner-copy', 'button');
@@ -525,7 +529,7 @@ function showUpdateBanner(msg: ServerMessageOf<'update-status'>) {
 
   bindBannerCopy(copyBtn, copyStatus, command);
   queryTag(document, '#update-banner-dismiss', 'button').onclick = () => {
-    updateBannerDismissed = true;
+    dismissedUpdateBannerIdentity = identity;
     setDismissedUpdate(identity);
     banner.hidden = true;
   };
@@ -666,7 +670,6 @@ queryTag(document, '#btn-help', 'button').addEventListener('click', () => {
 
 const VIEW_TABS = createDashboardViews({
   onRestart: confirmServerRestart,
-  onConfirmUpdateAndRestart: confirmUpdateAndRestart,
   openTerminal: (id) => {
     if (showPhoneSession(id)) return;
     activateView('focus');
@@ -883,23 +886,6 @@ function confirmServerPowerAction({ type, title, confirmLabel, danger, idleMessa
 
 function confirmServerRestart() {
   confirmServerPowerAction({ type: 'restart-server', title: 'Restart Server', confirmLabel: 'Restart', danger: false, idleMessage: 'Restart the server?', actionAfterKillingSessions: 'restart the server' });
-}
-
-function confirmUpdateAndRestart(proceed: (confirmedSessionIds: string[]) => void) {
-  const confirmableSessionIds = getSessionIds();
-  const count = confirmableSessionIds.length;
-  if (count === 0) {
-    proceed(confirmableSessionIds);
-    return;
-  }
-  const suffix = count > 1 ? 's' : '';
-  openConfirmDialog({
-    title: 'Update and restart',
-    message: `Glimmervoid restarts once the update is staged, which kills ${count} running session${suffix}. Continue?`,
-    confirmLabel: 'Update and restart',
-    danger: false,
-    onConfirm: () => proceed(confirmableSessionIds),
-  });
 }
 
 queryTag(document, '#btn-restart', 'button').addEventListener('click', confirmServerRestart);

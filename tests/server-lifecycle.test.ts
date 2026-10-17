@@ -169,9 +169,10 @@ test('dev restart releases the guard when onRestart throws, so a later restart p
   assert.equal(calls, 2, 'guard reset after the throw allowed a second in-process restart');
 });
 
-test('requestShutdown closes the server and exits once', async () => {
+test('requestShutdown hands off a staged update, closes the server and exits once', async () => {
   const http = fakeHttpServer();
   const exits: (number | undefined)[] = [];
+  let handOffCalls = 0;
   const lc = createLifecycle({
     shutdown: () => [],
     httpServer: http,
@@ -179,8 +180,10 @@ test('requestShutdown closes the server and exits once', async () => {
     env: UNSUPERVISED,
     spawn: fakeSpawn().fn,
     exit: (code) => exits.push(code),
+    beforeHandOff: async () => { handOffCalls += 1; },
   });
   await lc.requestShutdown();
+  assert.equal(handOffCalls, 1, 'staged update handed off before exit');
   assert.equal(http.closes, 1, 'listener closed');
   assert.deepEqual(exits, [0], 'exited exactly once');
 });
@@ -343,21 +346,6 @@ test('the default five minute cap is the last resort a handoff bounded by its ow
   await restarted;
   assert.deepEqual(exits, [SUPERVISED_RESTART_EXIT_CODE]);
   assert.equal(logs.some((message) => message.includes('before handoff exceeded')), false);
-});
-
-test('requestShutdown never calls beforeHandOff', async () => {
-  let handOffCalls = 0;
-  const lifecycle = createLifecycle({
-    shutdown: () => [],
-    httpServer: fakeHttpServer(),
-    onRestart: null,
-    env: SYSTEMD,
-    spawn: fakeSpawn().fn,
-    exit: () => {},
-    beforeHandOff: async () => { handOffCalls += 1; },
-  });
-  await lifecycle.requestShutdown();
-  assert.equal(handOffCalls, 0);
 });
 
 test('supervised SHUTDOWN still exits 0 so the unit stays down', async () => {

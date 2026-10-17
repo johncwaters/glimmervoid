@@ -36,7 +36,7 @@ function isBootRefusal(error: unknown): error is Error {
 
 function createBackendOrExit(): ReturnType<typeof createBackend> {
   try {
-    return createBackend(server, { staticDir: 'auto' });
+    return createBackend(server, { staticDir: 'auto', downloadUpdatesInBackground: true });
   } catch (err) {
     if (!isBootRefusal(err)) throw err;
     console.error(err.message);
@@ -46,7 +46,7 @@ function createBackendOrExit(): ReturnType<typeof createBackend> {
 
 const backend = createBackendOrExit();
 
-const { shutdown, port, app, telemetry, version } = backend;
+const { shutdown, handOffStagedUpdate, port, app, telemetry, version } = backend;
 server.on('request', app);
 
 function writeTerminalTitle(sequence: string): void {
@@ -146,6 +146,7 @@ const { requestShutdown } = createLifecycle({
   extraServers: remoteServers,
   spawn,
   exit: exitWithClearedTerminalTitle,
+  beforeHandOff: handOffStagedUpdate,
 });
 
 function handleShutdownSignal(signal: string): void {

@@ -142,7 +142,7 @@ interface ApplyHarness {
   lane: ReturnType<typeof createUpdateApplyLane>;
   fileSystem: FakeFileSystem;
   admission: QueueAdmission;
-  commands: Array<{ file: string; args: string[]; cwd: string; timeout: number; terminalPrompt: string | undefined }>;
+  commands: Array<{ file: string; args: string[]; cwd: string; timeout: number; terminalPrompt: string | undefined; isNiced: boolean }>;
   removals: string[];
   resets: Array<{ expectedHead: string; sha: string }>;
   broadcasts: Record<string, unknown>[];
@@ -174,7 +174,7 @@ function makeStatus(options: HarnessOptions): UpdateStatus {
 
 function makeHarness(options: HarnessOptions = {}): ApplyHarness {
   const fileSystem = makeFakeFileSystem();
-  const commands: Array<{ file: string; args: string[]; cwd: string; timeout: number; terminalPrompt: string | undefined }> = [];
+  const commands: Array<{ file: string; args: string[]; cwd: string; timeout: number; terminalPrompt: string | undefined; isNiced: boolean }> = [];
   const removals: string[] = [];
   const resets: Array<{ expectedHead: string; sha: string }> = [];
   const broadcasts: Record<string, unknown>[] = [];
@@ -230,14 +230,17 @@ function makeHarness(options: HarnessOptions = {}): ApplyHarness {
       return { ok: true, out: '' };
     },
   };
-  const runCommand: NonNullable<UpdateApplyDependencies['runCommand']> = async (file, ...rest) => {
-    const args = Array.isArray(rest[0]) ? rest[0].map(String) : [];
+  const runCommand: NonNullable<UpdateApplyDependencies['runCommand']> = async (launcher, ...rest) => {
+    const launcherArgs = Array.isArray(rest[0]) ? rest[0].map(String) : [];
+    const isNiced = launcher === 'nice' && launcherArgs[0] === '-n' && launcherArgs[1] === '19';
+    const file = isNiced ? launcherArgs[2] : launcher;
+    const args = isNiced ? launcherArgs.slice(3) : launcherArgs;
     const commandOptions = rest[1] && typeof rest[1] === 'object' ? rest[1] as Record<string, unknown> : {};
     const cwd = String(commandOptions.cwd || ROOT);
     const timeout = Number(commandOptions.timeout || 0);
     const childEnv = commandOptions.env && typeof commandOptions.env === 'object' ? commandOptions.env as Record<string, unknown> : {};
     const terminalPrompt = typeof childEnv.GIT_TERMINAL_PROMPT === 'string' ? childEnv.GIT_TERMINAL_PROMPT : undefined;
-    commands.push({ file, args, cwd, timeout, terminalPrompt });
+    commands.push({ file, args, cwd, timeout, terminalPrompt, isNiced });
     const joined = args.join(' ');
     if (file === 'git' && joined === 'rev-parse --abbrev-ref HEAD') {
       if (options.branch === null) return { stdout: 'HEAD\n', stderr: '' };
@@ -298,6 +301,7 @@ test('staging with a changed lockfile runs npm ci in the detached worktree', asy
   assert.deepEqual(npmCommands.map((command) => command.args), [['ci']]);
   assert.equal(npmCommands[0]?.cwd, STAGING_PATH);
   assert.equal(npmCommands[0]?.timeout, 15 * 60_000);
+  assert.equal(npmCommands[0]?.isNiced, true);
 });
 
 test('every git probe the update runs refuses to wait on a credential prompt', async () => {
@@ -318,6 +322,7 @@ test('staging with an unchanged lockfile links live dependencies and runs the bu
   assert.deepEqual(npmCommands.map((command) => command.args), [['run', 'build']]);
   assert.equal(npmCommands[0]?.cwd, STAGING_PATH);
   assert.equal(npmCommands[0]?.timeout, 10 * 60_000);
+  assert.equal(npmCommands[0]?.isNiced, true);
 });
 
 const FAILURE_STEPS = ['fetch', 'stage', 'install', 'build'] as const;

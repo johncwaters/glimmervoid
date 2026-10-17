@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Updates download on their own**: when a check finds an update a clone install can apply, Glimmervoid now downloads and builds it in the background at the lowest CPU priority, without being asked. Once it is ready, the update banner offers Restart, and if you do not restart, the update installs the next time Glimmervoid stops or restarts. Restart still works during a download, which simply starts over afterwards, and a failed download is retried at the next check. Turning off update checks also turns this off.
+- **One update button at a time**: the Updates settings page now shows only the action the moment calls for: Check for updates, Update, or Restart once a download is ready. Update and restart and Update without restart are gone, along with the step list for a finished run. A failed run still shows its steps and output, and an npm or npx install shows the command to run.
+
 ## [0.38.0] - 2026-10-17
 
 ### Added

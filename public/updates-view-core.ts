@@ -2,18 +2,23 @@ import type { UpdateStatus } from '#shared/contracts/control-messages.ts';
 import type { UpdateJournal, UpdateRunState, UpdateStepStatus } from '#shared/contracts/update-journal.ts';
 import { textOr } from '#shared/coerce.ts';
 import { shortSha } from '#shared/git-text.ts';
-import { versionLabel } from './radar/radar-core.ts';
+import { updateBannerText, versionLabel } from './radar/radar-core.ts';
 
 export type UpdateStatusView = Partial<UpdateStatus>;
 
-interface UpdateActionDecision {
-  enabled: boolean;
-  reason: string | null;
+export type UpdateActionId = 'update' | 'restart' | 'check';
+
+interface UpdateControls {
+  actions: UpdateActionId[];
+  note: string | null;
+  command: string | null;
 }
 
-interface UpdateActionAvailability {
-  update: UpdateActionDecision;
-  restart: UpdateActionDecision;
+type UpdateBannerMode = 'restart' | 'link' | 'command';
+
+interface UpdateBanner {
+  mode: UpdateBannerMode;
+  text: string;
 }
 
 interface UpdateProgressStep {
@@ -81,15 +86,17 @@ function updateRunState(
   return status?.journalSummary?.state;
 }
 
-function unavailable(reason: string): UpdateActionDecision {
-  return { enabled: false, reason };
+function controls(actions: UpdateActionId[], note: string | null = null, command: string | null = null): UpdateControls {
+  return { actions, note, command };
 }
 
-function available(): UpdateActionDecision {
-  return { enabled: true, reason: null };
+function isInstallShapeRefusal(status: UpdateStatusView | null | undefined): boolean {
+  const refusal = status?.applyRefusal;
+  if (!refusal) return false;
+  return INSTALL_SHAPE_REFUSALS.includes(refusal.reason);
 }
 
-export function updateActionAvailability({
+export function updateControls({
   status,
   journal,
   request = IDLE_UPDATE_REQUEST,
@@ -97,26 +104,30 @@ export function updateActionAvailability({
   status?: UpdateStatusView | null;
   journal?: UpdateJournal | null;
   request?: UpdateRequestState;
-}): UpdateActionAvailability {
+}): UpdateControls {
   const runState = updateRunState(status, journal);
-  const isLaneInFlight = runState === 'running' || request.requested;
-  const restart = isLaneInFlight
-    ? unavailable('Wait for update staging to finish.')
-    : available();
-  if (request.failure) return { update: unavailable(request.failure), restart };
-  if (isLaneInFlight) return { update: unavailable('Wait for the current update to finish.'), restart };
-  if (!status) return { update: unavailable('Update status unavailable. Check for updates.'), restart };
+  if (request.failure) return controls([], request.failure);
+  if (runState === 'running' || request.requested) return controls([]);
+  if (runState === 'staged') return controls(['restart']);
+  if (!status?.updateAvailable) return controls(['check']);
   const refusal = status.applyRefusal;
-  if (refusal) return { update: unavailable(refusal.message), restart };
-  return { update: available(), restart };
+  if (!refusal) return controls(['update']);
+  if (refusal.reason === 'target-already-checked-out') return controls(['restart'], refusal.message);
+  if (isInstallShapeRefusal(status)) return controls(['check'], refusal.message, textOr(status.command, null));
+  return controls(['check'], refusal.message);
 }
 
-export function updateBannerMode(status: UpdateStatusView | null | undefined): 'link' | 'command' {
-  const refusal = status?.applyRefusal;
-  if (refusal === undefined) return 'command';
-  if (refusal === null) return 'link';
-  if (INSTALL_SHAPE_REFUSALS.includes(refusal.reason)) return 'command';
-  return 'link';
+function isUpdateReady(status: UpdateStatusView | null | undefined): boolean {
+  return status?.journalSummary?.state === 'staged' || status?.applyRefusal?.reason === 'target-already-checked-out';
+}
+
+export function updateBanner(status: UpdateStatusView | null | undefined): UpdateBanner {
+  const latest = versionLabel(status?.latest, status?.latestSha) || 'A new version';
+  if (isUpdateReady(status)) return { mode: 'restart', text: `${latest} is ready. Restart to update, or it installs on the next start.` };
+  if (status?.journalSummary?.state === 'running') return { mode: 'link', text: `Downloading ${latest} in the background.` };
+  const text = updateBannerText(status);
+  if (!status || status.applyRefusal === undefined || isInstallShapeRefusal(status)) return { mode: 'command', text };
+  return { mode: 'link', text };
 }
 
 function reasonSuffix(reason: unknown): string {
@@ -125,11 +136,10 @@ function reasonSuffix(reason: unknown): string {
   return `: ${text}`;
 }
 
+const QUIET_PROGRESS_STATES: ReadonlySet<UpdateRunState> = new Set<UpdateRunState>(['idle', 'staged', 'succeeded', 'discarded']);
+
 function terminalProgressLine(journal: UpdateJournal): string | null {
-  if (journal.state === 'staged') return `Update staged. Restart to hand it off${reasonSuffix(journal.reason)}.`;
-  if (journal.state === 'succeeded') return `Update succeeded at restart${reasonSuffix(journal.reason)}.`;
   if (journal.state === 'failed') return `Update failed${reasonSuffix(journal.reason)}.`;
-  if (journal.state === 'discarded') return `Update discarded${reasonSuffix(journal.reason)}.`;
   if (journal.state === 'interrupted') return `Update interrupted${reasonSuffix(journal.reason)}.`;
   return null;
 }
@@ -147,7 +157,7 @@ function visibleOutputTail(journal: UpdateJournal): { stepId: string | null; lin
 }
 
 export function projectUpdateProgress(journal: UpdateJournal | null | undefined): UpdateProgressProjection | null {
-  if (!journal || journal.state === 'idle') return null;
+  if (!journal || QUIET_PROGRESS_STATES.has(journal.state)) return null;
   const output = visibleOutputTail(journal);
   const borrowedStepId = output.stepId !== null && output.stepId !== journal.activeStep ? output.stepId : null;
   return {
@@ -186,8 +196,8 @@ export function updateSummary(
   const target = versionLabel(journal?.toVersion, journal?.toSha)
     || versionLabel(status?.latest, status?.latestSha)
     || 'the update';
-  if (runState === 'running') return { tone: 'running', headline: `Updating to ${target}. Glimmervoid keeps running until the restart.` };
-  if (runState === 'staged') return { tone: 'staged', headline: `${target} is staged. Restart to finish updating.` };
+  if (runState === 'running') return { tone: 'running', headline: `Downloading ${target} in the background. Glimmervoid keeps running.` };
+  if (runState === 'staged') return { tone: 'staged', headline: `${target} is ready. Restart to update now, or it installs on the next start.` };
   if (!status) return { tone: 'unknown', headline: 'No update check has run yet.' };
   const current = versionLabel(status.current, status.currentSha) || 'an unknown version';
   if (status.updateAvailable) {

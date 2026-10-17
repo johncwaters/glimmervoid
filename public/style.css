@@ -7507,6 +7507,18 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   line-height: 1.4;
 }
 
+.settings-update-command {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
 .settings-update-progress {
   margin-top: 8px;
   padding: 10px;

@@ -72,7 +72,6 @@ interface BackendControlDependencies {
   recheckPostTurnLeftovers: () => void;
   checkNow: () => Promise<UpdateStatus>;
   applyUpdate: () => Promise<UpdateApplyOutcome>;
-  isStaging: () => boolean;
   noteRestartRequested: () => void;
   laneAssembly: LaneReader;
   posthog: RadarControl;
@@ -136,7 +135,6 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     recheckPostTurnLeftovers: dependencies.recheckPostTurnLeftovers,
     checkNow: dependencies.checkNow,
     applyUpdate: dependencies.applyUpdate,
-    isStaging: dependencies.isStaging,
     noteRestartRequested: dependencies.noteRestartRequested,
     getRadarStatus: () => posthog.getStatus(),
     posthogSetIssueStatus: (args) => posthog.setIssueStatus(args),

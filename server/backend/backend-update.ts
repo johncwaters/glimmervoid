@@ -1,6 +1,7 @@
 import type { UpdateApplyRefusal, UpdateStatus } from '../../shared/contracts/control-messages.ts';
 import type { UpdateChannel, UpdateJournal, UpdateJournalSummary } from '../../shared/contracts/update-journal.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
+import type { UpdateApplyOutcome } from '../update-apply.ts';
 import { decideFastForward, decidePreflight } from '../core/update-apply-core.ts';
 import { decideUpdateStatus, normalizeUpdateChannel, shortSha } from '../core/update-core.ts';
 import { checkForUpdate as defaultCheckForUpdate } from '../update-check.ts';
@@ -28,6 +29,7 @@ interface BackendUpdateDependencies {
   broadcastControl: ControlBroadcast;
   logger: Pick<Console, 'log'>;
   now?: () => number;
+  downloadUpdate?: () => Promise<UpdateApplyOutcome>;
 }
 
 interface BackendUpdateCheck {
@@ -60,6 +62,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
   let inFlight: Promise<UpdateStatus> | null = null;
   let lastChannel = normalizeUpdateChannel(dependencies.config.updateChannel);
   let lastSurfacedIdentity: string | null = null;
+  let lastDownloadedIdentity: string | null = null;
   let pendingChannelRefresh = false;
   let stopped = false;
   const now = dependencies.now || (() => Date.now());
@@ -164,6 +167,30 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
     );
   }
 
+  function downloadInBackground(status: UpdateStatus): void {
+    const downloadUpdate = dependencies.downloadUpdate;
+    if (!downloadUpdate || dependencies.config.checkForUpdates === false) return;
+    if (!status.updateAvailable || status.applyRefusal) return;
+    const identity = status.latestSha || status.latest;
+    if (!identity || identity === lastDownloadedIdentity) return;
+    lastDownloadedIdentity = identity;
+    dependencies.logger.log(`[update] downloading ${status.latest || shortSha(status.latestSha)} in the background`);
+    const allowRetryAtNextCheck = (): void => {
+      if (lastDownloadedIdentity === identity) lastDownloadedIdentity = null;
+    };
+    void downloadUpdate().then(
+      (outcome) => {
+        if (outcome.ok) return;
+        allowRetryAtNextCheck();
+        dependencies.logger.log(`[update] background download stopped: ${outcome.message}`);
+      },
+      (error: unknown) => {
+        allowRetryAtNextCheck();
+        dependencies.logger.log(`[update] background download failed: ${String(error)}`);
+      },
+    );
+  }
+
   function runCheck(ttlMs?: number): Promise<UpdateStatus> {
     if (inFlight) return inFlight;
     const channel = normalizeUpdateChannel(dependencies.config.updateChannel);
@@ -184,6 +211,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
         }
         const status = recordStatus(updateResult, checkedAt, channel);
         surfaceAvailableUpdate(status);
+        downloadInBackground(status);
         return status;
       })
       .finally(() => {
@@ -209,6 +237,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
     recordedStatus = null;
     lastLaneSignature = null;
     lastSurfacedIdentity = null;
+    lastDownloadedIdentity = null;
     updateAbort?.abort();
     return true;
   }

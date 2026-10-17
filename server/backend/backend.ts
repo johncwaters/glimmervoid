@@ -57,6 +57,7 @@ interface CreateBackendOptions extends BackendLaneOptions {
   settingsDefaults?: Record<string, unknown>;
   checkForUpdate?: CheckForUpdate | null;
   onRestart?: (() => void) | null;
+  downloadUpdatesInBackground?: boolean;
 }
 
 const AGENT_INGRESS_HOST = '127.0.0.1';
@@ -373,6 +374,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     void laneAssembly.restartDynamicLanes();
   }
 
+  function downloadUpdateOnceListening() {
+    if (httpServer.listening) return updateApply.applyUpdate();
+    return new Promise<void>((resolve) => { httpServer.once('listening', resolve); }).then(() => updateApply.applyUpdate());
+  }
   const updateCheck = createBackendUpdateCheck({
     config,
     currentVersion: packageJson.version,
@@ -384,6 +389,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getControlClientCount: () => controlWss.clients.size,
     broadcastControl,
     logger: console,
+    ...(options.downloadUpdatesInBackground ? { downloadUpdate: downloadUpdateOnceListening } : {}),
   });
   const updateApply = createUpdateApplyLane({
     gitWorkspace: assembledGitWorkspace,
@@ -507,7 +513,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     recheckPostTurnLeftovers,
     checkNow: updateCheck.checkNow,
     applyUpdate: updateApply.applyUpdate,
-    isStaging: updateApply.isStaging,
     noteRestartRequested: () => {
       updateApply.noteRestartRequested();
       updateCheck.refreshApplyAvailability();
@@ -544,6 +549,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   return {
     shutdown,
+    handOffStagedUpdate: updateApply.handOffStagedUpdate,
     port,
     app,
     telemetry,

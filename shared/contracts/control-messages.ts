@@ -209,10 +209,7 @@ const clientVariants = [
   loose('focus-change', { focused: z.boolean() }),
   loose('request-health-snapshot'),
   loose('update-check'),
-  loose('update-apply', {
-    restartWhenStaged: z.boolean().optional(),
-    confirmedSessionIds: z.array(z.string().min(1)).max(1000).optional(),
-  }),
+  loose('update-apply'),
   loose('session-trace', {
     id: sessionId,
     requestId,

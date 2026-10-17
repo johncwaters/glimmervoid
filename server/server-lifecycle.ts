@@ -123,6 +123,7 @@ function createLifecycle({
     requested = true;
     await awaitTeardown(shutdown(), { capMs, warn: log });
     closeExtraServers(extraServers);
+    await prepareHandOffOnce();
     let exited = false;
     const doExit = () => {
       if (exited) return;

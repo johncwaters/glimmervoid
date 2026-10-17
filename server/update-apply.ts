@@ -22,6 +22,7 @@ import {
   markSucceeded,
   idleJournal,
   interruptedDisplayJournal,
+  lowPriorityCommand,
   planHandOffRenames,
   planSteps,
   PREVIOUS_DEPENDENCIES_BACKUP_NAME,
@@ -102,7 +103,6 @@ interface UpdateApplyLane {
   getJournal(): UpdateJournal;
   handOffStagedUpdate(): Promise<void>;
   isRestartRequested(): boolean;
-  isStaging(): boolean;
   noteRestartRequested(): void;
   startAfterListening(httpServer: ListeningServer): void;
   stop(): Promise<void>;
@@ -202,7 +202,8 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     timeout: number,
   ): Promise<void> {
     await publish(beginStep(journal, { stepId, now: clock() }));
-    const outcome = await command(file, args, cwd, timeout);
+    const throttled = lowPriorityCommand({ file, args, platform: dependencies.platform || process.platform });
+    const outcome = await command(throttled.file, throttled.args, cwd, timeout);
     journal = appendStepOutput(journal, stepId, outcome.output);
     if (!outcome.ok) throw new Error(outcome.reason || `${stepId} failed`);
     await publish(finishStep(journal, { stepId, now: clock() }));
@@ -473,10 +474,6 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     await run;
   }
 
-  function isStaging(): boolean {
-    return inFlight;
-  }
-
   function isRestartRequested(): boolean {
     return restartRequested;
   }
@@ -565,7 +562,6 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     getJournal,
     handOffStagedUpdate,
     isRestartRequested,
-    isStaging,
     noteRestartRequested,
     startAfterListening,
     stop,

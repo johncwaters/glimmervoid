@@ -11,8 +11,8 @@ import {
   projectUpdateProgress,
   reduceUpdateRequest,
   shouldAutoCheckUpdates,
-  updateActionAvailability,
-  updateBannerMode,
+  updateBanner,
+  updateControls,
   updateSummary,
 } from '../public/updates-view-core.ts';
 import type { UpdateStatusView } from '../public/updates-view-core.ts';
@@ -100,80 +100,23 @@ function journalStagingWithSilentActiveStep(): UpdateJournal {
   return beginStep(fetched, { stepId: 'stage', now: 2_000 });
 }
 
-test('updateActionAvailability enables the update when the server reports no refusal', () => {
-  assert.deepEqual(updateActionAvailability({ status: status() }), {
-    update: { enabled: true, reason: null },
-    restart: { enabled: true, reason: null },
-  });
-});
-
-test('updateActionAvailability renders the server refusal verbatim and derives none of its own', () => {
-  const cases: { status: UpdateStatusView; reason: string }[] = [
-    {
-      status: status({ applyRefusal: { reason: 'unsupported-flavor', message: 'Use the install command because dashboard updates require a clone.' } }),
-      reason: 'Use the install command because dashboard updates require a clone.',
-    },
-    {
-      status: status({ applyRefusal: { reason: 'checkout-changed', message: 'The checkout moved since the last check. Check for updates again.' } }),
-      reason: 'The checkout moved since the last check. Check for updates again.',
-    },
-    {
-      status: status({ applyRefusal: { reason: 'already-staged', message: 'Restart to apply the staged update.' } }),
-      reason: 'Restart to apply the staged update.',
-    },
-    {
-      status: status({
-        applyRefusal: {
-          reason: 'target-already-checked-out',
-          message: 'The checkout already contains the update target. Restart to run it.',
-        },
-      }),
-      reason: 'The checkout already contains the update target. Restart to run it.',
-    },
+test('updateControls shows only the one action the update state calls for', () => {
+  const dirty = { reason: 'dirty-tree', message: 'Commit or discard the checkout changes before updating. Check for updates again.' };
+  const npmGlobal = { reason: 'unsupported-flavor', message: 'Use the install command because dashboard updates require a clone.' };
+  const alreadyCheckedOut = { reason: 'target-already-checked-out', message: 'The checkout already contains the update target. Restart to run it.' };
+  const cases: { name: string; input: Parameters<typeof updateControls>[0]; expected: ReturnType<typeof updateControls> }[] = [
+    { name: 'no status yet', input: { status: null }, expected: { actions: ['check'], note: null, command: null } },
+    { name: 'up to date', input: { status: status({ updateAvailable: false }) }, expected: { actions: ['check'], note: null, command: null } },
+    { name: 'applicable update', input: { status: status() }, expected: { actions: ['update'], note: null, command: null } },
+    { name: 'downloading', input: { status: status(), journal: journal('running') }, expected: { actions: [], note: null, command: null } },
+    { name: 'request in flight', input: { status: status(), request: { requested: true, failure: null } }, expected: { actions: [], note: null, command: null } },
+    { name: 'ready to restart', input: { status: status(), journal: journal('staged') }, expected: { actions: ['restart'], note: null, command: null } },
+    { name: 'refused checkout', input: { status: status({ applyRefusal: dirty }) }, expected: { actions: ['check'], note: dirty.message, command: null } },
+    { name: 'install command', input: { status: status({ applyRefusal: npmGlobal }) }, expected: { actions: ['check'], note: npmGlobal.message, command: 'git pull --ff-only' } },
+    { name: 'already checked out', input: { status: status({ applyRefusal: alreadyCheckedOut }) }, expected: { actions: ['restart'], note: alreadyCheckedOut.message, command: null } },
+    { name: 'unsent request', input: { status: status(), request: { requested: false, failure: 'Not connected to the server. Reconnecting.' } }, expected: { actions: [], note: 'Not connected to the server. Reconnecting.', command: null } },
   ];
-  for (const entry of cases) {
-    assert.deepEqual(updateActionAvailability({ status: entry.status }).update, { enabled: false, reason: entry.reason });
-  }
-  const contradicted = status({
-    updateAvailable: false,
-    flavor: 'npm-global',
-    platform: 'win32',
-    isTreeClean: false,
-    installedBranch: null,
-    upstream: 'fork/main',
-    latestSha: null,
-    reason: 'branch-diverged',
-    applyRefusal: null,
-  });
-  assert.deepEqual(updateActionAvailability({ status: contradicted }).update, { enabled: true, reason: null });
-});
-
-test('updateActionAvailability keeps only the conditions the browser alone knows', () => {
-  assert.deepEqual(updateActionAvailability({ status: null }).update, {
-    enabled: false,
-    reason: 'Update status unavailable. Check for updates.',
-  });
-  const requested = updateActionAvailability({ status: status(), request: { requested: true, failure: null } });
-  assert.deepEqual(requested.update, { enabled: false, reason: 'Wait for the current update to finish.' });
-  assert.deepEqual(requested.restart, { enabled: false, reason: 'Wait for update staging to finish.' });
-  const unsent = updateActionAvailability({ status: status(), request: { requested: false, failure: 'Not connected to the server. Reconnecting.' } });
-  assert.deepEqual(unsent.update, { enabled: false, reason: 'Not connected to the server. Reconnecting.' });
-  assert.deepEqual(unsent.restart, { enabled: true, reason: null });
-});
-
-test('updateActionAvailability disables Restart while staging runs and leaves it live once staged', () => {
-  assert.deepEqual(updateActionAvailability({ status: status(), journal: journal('running') }).restart, {
-    enabled: false,
-    reason: 'Wait for update staging to finish.',
-  });
-  assert.deepEqual(updateActionAvailability({ status: status(), journal: journal('running') }).update, {
-    enabled: false,
-    reason: 'Wait for the current update to finish.',
-  });
-  assert.deepEqual(updateActionAvailability({ status: status(), journal: journal('staged') }).restart, {
-    enabled: true,
-    reason: null,
-  });
+  for (const entry of cases) assert.deepEqual(updateControls(entry.input), entry.expected, entry.name);
 });
 
 test('reduceUpdateRequest locks on a sent request and unlocks on the answering frame', () => {
@@ -192,19 +135,27 @@ test('reduceUpdateRequest reports an unsent request and clears it on the next fr
   assert.deepEqual(reduceUpdateRequest(unsent, 'request-sent'), { requested: true, failure: null });
 });
 
-test('updateBannerMode keeps the command only where the install shape rules the dashboard out', () => {
-  assert.equal(updateBannerMode(status()), 'link');
-  assert.equal(updateBannerMode(status({
+test('updateBanner prompts a restart once ready and keeps the command only where the install shape rules the dashboard out', () => {
+  assert.deepEqual(updateBanner(status()), { mode: 'link', text: 'Update available: v0.24.0 to v0.25.0' });
+  assert.deepEqual(updateBanner(status({ journalSummary: { ...journal('running'), state: 'running' } })), {
+    mode: 'link',
+    text: 'Downloading v0.25.0 in the background.',
+  });
+  assert.deepEqual(updateBanner(status({ journalSummary: { ...journal('staged'), state: 'staged' } })), {
+    mode: 'restart',
+    text: 'v0.25.0 is ready. Restart to update, or it installs on the next start.',
+  });
+  assert.equal(updateBanner(status({
     applyRefusal: { reason: 'unsupported-flavor', message: 'Use the install command because dashboard updates require a clone.' },
-  })), 'command');
-  assert.equal(updateBannerMode(status({
+  })).mode, 'command');
+  assert.equal(updateBanner(status({
     applyRefusal: { reason: 'unsupported-platform', message: 'Use the install command because dashboard updates are unavailable on Windows.' },
-  })), 'command');
-  assert.equal(updateBannerMode(status({
+  })).mode, 'command');
+  assert.equal(updateBanner(status({
     applyRefusal: { reason: 'dirty-tree', message: 'Commit or discard the checkout changes before updating. Check for updates again.' },
-  })), 'link');
-  assert.equal(updateBannerMode(status({ applyRefusal: undefined })), 'command');
-  assert.equal(updateBannerMode(null), 'command');
+  })).mode, 'link');
+  assert.equal(updateBanner(status({ applyRefusal: undefined })).mode, 'command');
+  assert.equal(updateBanner(null).mode, 'command');
 });
 
 test('projectUpdateProgress falls back to the last spoken step while the active one is silent', () => {
@@ -231,21 +182,15 @@ test('projectUpdateProgress leaves the tail unlabelled while the active step is 
   assert.equal(projection?.outputStepLabel, null);
 });
 
-test('projectUpdateProgress keeps the steps and the output beside a terminal reason line', () => {
+test('projectUpdateProgress stays quiet once the run needs nothing from the operator', () => {
   const staged = markStaged(journalStagingWithSilentActiveStep(), { now: 3_000 });
-  const projection = projectUpdateProgress(staged);
-  assert.equal(projection?.terminalLine, 'Update staged. Restart to hand it off.');
-  assert.deepEqual(projection?.steps.map((step) => step.id), ['fetch', 'stage', 'install', 'build']);
-  assert.deepEqual(projection?.outputTail, ['fetching origin', 'received objects']);
-  assert.equal(projection?.outputStepLabel, 'Fetch');
+  assert.equal(projectUpdateProgress(staged), null);
+  for (const state of ['idle', 'succeeded', 'discarded'] as const) assert.equal(projectUpdateProgress(journal(state)), null, state);
 });
 
-test('projectUpdateProgress renders each terminal journal state as one reason-bearing line', () => {
+test('projectUpdateProgress keeps the steps and output beside one reason-bearing line for a stopped run', () => {
   const cases: { state: UpdateRunState; reason: string | null; line: string }[] = [
-    { state: 'staged', reason: null, line: 'Update staged. Restart to hand it off.' },
-    { state: 'succeeded', reason: null, line: 'Update succeeded at restart.' },
     { state: 'failed', reason: 'build timed out', line: 'Update failed: build timed out.' },
-    { state: 'discarded', reason: 'restarted without handoff', line: 'Update discarded: restarted without handoff.' },
     { state: 'interrupted', reason: 'interrupted', line: 'Update interrupted: interrupted.' },
   ];
   for (const entry of cases) {
@@ -318,11 +263,11 @@ test('updateSummary names the running and target versions in one headline', () =
 test('updateSummary follows the update run over the last check', () => {
   assert.deepEqual(updateSummary(status(), journal('running')), {
     tone: 'running',
-    headline: 'Updating to v0.25.0. Glimmervoid keeps running until the restart.',
+    headline: 'Downloading v0.25.0 in the background. Glimmervoid keeps running.',
   });
   assert.deepEqual(updateSummary(status({ updateAvailable: false }), journal('staged')), {
     tone: 'staged',
-    headline: 'v0.25.0 is staged. Restart to finish updating.',
+    headline: 'v0.25.0 is ready. Restart to update now, or it installs on the next start.',
   });
 });
 

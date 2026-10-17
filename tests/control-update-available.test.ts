@@ -7,7 +7,6 @@ import { decideUpdateStatus } from '../server/core/update-core.ts';
 import type { ControlHandlerDeps } from '../server/control-handlers.ts';
 import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
-import { plainSession } from './helpers/fake-session.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 
 function createUpdateCheck(overrides: Pick<Parameters<typeof createBackendUpdateCheck>[0], 'checkForUpdate'> & Partial<Parameters<typeof createBackendUpdateCheck>[0]>) {
@@ -203,6 +202,52 @@ test('the recorded status carries the preflight verdict instead of leaving it to
     checkForUpdate: async () => makeCloneStatus({ platform: 'win32' }),
   });
   assert.equal((await windows.checkNow()).applyRefusal?.reason, 'unsupported-platform');
+});
+
+test('an applicable update downloads in the background once per target and never when refused or checks are off', async () => {
+  let downloads = 0;
+  const downloadUpdate = async () => { downloads += 1; return { ok: true, reason: null, message: '' }; };
+  const results = [makeCloneStatus(), makeCloneStatus(), makeCloneStatus({ isTreeClean: false })];
+  let checksRun = 0;
+  const updateCheck = createUpdateCheck({
+    config: { checkForUpdates: true, updateChannel: 'release' },
+    platform: 'linux',
+    checkForUpdate: async () => results[checksRun++] ?? null,
+    downloadUpdate,
+  });
+  await updateCheck.checkNow();
+  await updateCheck.checkNow();
+  await updateCheck.checkNow();
+  assert.equal(downloads, 1);
+
+  const checksOff = createUpdateCheck({
+    config: { checkForUpdates: false, updateChannel: 'release' },
+    platform: 'linux',
+    checkForUpdate: async () => makeCloneStatus(),
+    downloadUpdate,
+  });
+  await checksOff.checkNow();
+  assert.equal(downloads, 1);
+
+  let retriedAttempts = 0;
+  const flakyDownload = async () => {
+    retriedAttempts += 1;
+    if (retriedAttempts === 1) return { ok: false, reason: 'x', message: 'network blip' };
+    return { ok: true, reason: null, message: '' };
+  };
+  const retrying = createUpdateCheck({
+    config: { checkForUpdates: true, updateChannel: 'release' },
+    platform: 'linux',
+    checkForUpdate: async () => makeCloneStatus(),
+    downloadUpdate: flakyDownload,
+  });
+  await retrying.checkNow();
+  await new Promise((resolve) => setImmediate(resolve));
+  await retrying.checkNow();
+  await new Promise((resolve) => setImmediate(resolve));
+  await retrying.checkNow();
+  await retrying.checkNow();
+  assert.equal(retriedAttempts, 2);
 });
 
 test('the apply refusal tracks the lane and re-broadcasts the status when it changes', async () => {
@@ -432,128 +477,26 @@ test('update-apply sends a named refusal to the requesting socket', async () => 
   });
 });
 
-test('update-apply asked to restart once staged hands off after a staged run', async (t) => {
+test('restart-server proceeds while a background update download is staging', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const order: string[] = [];
-  const server = createControlServer(controlDeps({ projects: [] }, {
-    applyUpdate: async () => { order.push('staged'); return { ok: true, reason: null, message: '' }; },
-    isStaging: () => false,
-    noteRestartRequested: () => { order.push('notice'); },
-    requestRestart: () => { order.push('restart'); },
-  }));
-  const connection = connectControl<Record<string, unknown>>(server);
-  await connection.send({ type: 'update-apply', restartWhenStaged: true, confirmedSessionIds: [] });
-  t.mock.timers.tick(200);
-  assert.deepEqual(order, ['staged', 'notice', 'restart']);
-});
-
-test('update-apply skips the restart when a session started after the operator confirmed', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  let restartsRequested = 0;
-  const sessions = new Map([
-    ['s-confirmed', plainSession('s-confirmed')],
-    ['s-started-during-staging', plainSession('s-started-during-staging')],
-  ]);
-  const server = createControlServer(controlDeps({ projects: [] }, {
-    sessions,
-    applyUpdate: async () => ({ ok: true, reason: null, message: '' }),
-    isStaging: () => false,
-    requestRestart: () => { restartsRequested += 1; },
-  }));
-  const connection = connectControl<Record<string, unknown>>(server);
-  await connection.send({ type: 'update-apply', restartWhenStaged: true, confirmedSessionIds: ['s-confirmed'] });
-  t.mock.timers.tick(200);
-  assert.equal(restartsRequested, 0);
-  assert.deepEqual(connection.sent.at(-1), {
-    type: 'error',
-    message: '[update-restart-skipped] The update is staged, but sessions started since you confirmed. Restart when ready.',
-  });
-});
-
-test('update-apply skips the restart when a confirmed session was swapped for an unconfirmed one', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  let restartsRequested = 0;
-  const sessions = new Map([['session-b', plainSession('session-b')]]);
-  const server = createControlServer(controlDeps({ projects: [] }, {
-    sessions,
-    applyUpdate: async () => ({ ok: true, reason: null, message: '' }),
-    isStaging: () => false,
-    requestRestart: () => { restartsRequested += 1; },
-  }));
-  const connection = connectControl<Record<string, unknown>>(server);
-  await connection.send({ type: 'update-apply', restartWhenStaged: true, confirmedSessionIds: ['session-a'] });
-  t.mock.timers.tick(200);
-  assert.equal(restartsRequested, 0);
-  assert.deepEqual(connection.sent.at(-1), {
-    type: 'error',
-    message: '[update-restart-skipped] The update is staged, but sessions started since you confirmed. Restart when ready.',
-  });
-});
-
-test('update-apply skips the restart when an agent API session started after the operator confirmed', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  let restartsRequested = 0;
-  const sessions = new Map([['s-confirmed', plainSession('s-confirmed')]]);
-  const agentSessions = new Map([['agent-started-during-staging', plainSession('agent-started-during-staging')]]);
-  const server = createControlServer(controlDeps({ projects: [] }, {
-    sessions,
-    agentSessions,
-    applyUpdate: async () => ({ ok: true, reason: null, message: '' }),
-    isStaging: () => false,
-    requestRestart: () => { restartsRequested += 1; },
-  }));
-  const connection = connectControl<Record<string, unknown>>(server);
-  await connection.send({ type: 'update-apply', restartWhenStaged: true, confirmedSessionIds: ['s-confirmed'] });
-  t.mock.timers.tick(200);
-  assert.equal(restartsRequested, 0);
-  assert.deepEqual(connection.sent.at(-1), {
-    type: 'error',
-    message: '[update-restart-skipped] The update is staged, but sessions started since you confirmed. Restart when ready.',
-  });
-});
-
-test('update-apply never restarts after a refused run or when no restart was asked for', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  let restartsRequested = 0;
-  let isRefused = true;
-  const server = createControlServer(controlDeps({ projects: [] }, {
-    applyUpdate: async () => (isRefused
-      ? { ok: false, reason: 'dirty-worktree', message: 'Commit or stash local changes.' }
-      : { ok: true, reason: null, message: '' }),
-    isStaging: () => false,
-    requestRestart: () => { restartsRequested += 1; },
-  }));
-  const connection = connectControl<Record<string, unknown>>(server);
-  await connection.send({ type: 'update-apply', restartWhenStaged: true });
-  isRefused = false;
-  await connection.send({ type: 'update-apply' });
-  t.mock.timers.tick(200);
-  assert.equal(restartsRequested, 0);
-});
-
-test('restart-server refuses while update staging is active', () => {
   let restartsRequested = 0;
   let restartNotices = 0;
   const server = createControlServer(controlDeps({ projects: [] }, {
-    isStaging: () => true,
     noteRestartRequested: () => { restartNotices += 1; },
     requestRestart: () => { restartsRequested += 1; },
   }));
   const connection = connectControl<Record<string, unknown>>(server);
   connection.send({ type: 'restart-server' });
-  assert.deepEqual(connection.sent.at(-1), {
-    type: 'error',
-    message: '[update-staging] Wait for the update staging run to finish before restarting.',
-  });
-  assert.equal(restartNotices, 0);
-  assert.equal(restartsRequested, 0);
+  t.mock.timers.tick(200);
+  assert.equal(connection.sent.some((message) => message.type === 'error'), false);
+  assert.equal(restartNotices, 1);
+  assert.equal(restartsRequested, 1);
 });
 
 test('restart-server records the request before scheduling restart', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const order: string[] = [];
   const server = createControlServer(controlDeps({ projects: [] }, {
-    isStaging: () => false,
     noteRestartRequested: () => { order.push('notice'); },
     requestRestart: () => { order.push('restart'); },
     broadcastControl: (message) => { order.push(String(message.type)); },

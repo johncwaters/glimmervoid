@@ -122,7 +122,6 @@ interface ControlHandlerDeps {
   recheckPostTurnLeftovers?: (() => void) | null;
   checkNow?: (() => Promise<UpdateStatus>) | null;
   applyUpdate?: (() => Promise<UpdateApplyOutcome>) | null;
-  isStaging?: (() => boolean) | null;
   noteRestartRequested?: (() => void) | null;
   getRadarStatus?: (() => RadarLaneStatus | null) | null;
   posthogReportsDir?: string | null;
@@ -319,7 +318,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     recheckPostTurnLeftovers = null,
     checkNow = null,
     applyUpdate = null,
-    isStaging = null,
     noteRestartRequested = null,
 
     getRadarStatus,
@@ -1269,31 +1267,17 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     await checkNow();
   }
 
-  async function handleUpdateApply(msg: ClientMessageOf<'update-apply'>, ws: ControlSocket): Promise<void> {
+  async function handleUpdateApply(_msg: ClientMessageOf<'update-apply'>, ws: ControlSocket): Promise<void> {
     if (!applyUpdate) {
       sendError(ws, '[update-apply-unavailable] Update application is unavailable.');
       return;
     }
     const outcome = await applyUpdate();
-    if (!outcome.ok) {
-      sendError(ws, `[${outcome.reason || 'update-refused'}] ${outcome.message}`);
-      return;
-    }
-    if (msg.restartWhenStaged !== true) return;
-    const confirmedSessionIds = new Set(msg.confirmedSessionIds ?? []);
-    const hasSessionsBeyondConsent = [...sessions.keys(), ...agentSessions.keys()].some((liveSessionId) => !confirmedSessionIds.has(liveSessionId));
-    if (hasSessionsBeyondConsent) {
-      sendError(ws, '[update-restart-skipped] The update is staged, but sessions started since you confirmed. Restart when ready.');
-      return;
-    }
-    handleRestart(msg, ws);
+    if (outcome.ok) return;
+    sendError(ws, `[${outcome.reason || 'update-refused'}] ${outcome.message}`);
   }
 
-  function handleRestart(_msg: ClientMessageOf<'restart-server' | 'update-apply'>, ws: ControlSocket): void {
-    if (isStaging?.()) {
-      sendError(ws, '[update-staging] Wait for the update staging run to finish before restarting.');
-      return;
-    }
+  function handleRestart(_msg: ClientMessageOf<'restart-server'>): void {
     noteRestartRequested?.();
     console.log('[control] Restart requested via UI');
     broadcastControl({ type: 'restarting' });

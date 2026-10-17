@@ -14,6 +14,7 @@ const PREVIOUS_DEPENDENCIES_BACKUP_NAME = 'prev-node_modules';
 const QUARANTINED_DIST_NAME = 'broken-dist';
 const QUARANTINED_DEPENDENCIES_NAME = 'broken-node_modules';
 const SUPPORTED_UPDATE_REMOTE = 'origin';
+const LOWEST_SCHEDULING_PRIORITY = '19';
 
 type UpdateArtifact = 'dist' | 'node_modules';
 
@@ -212,6 +213,15 @@ function planSteps({ lockfileChanged }: { lockfileChanged: boolean }): UpdateSte
   return ['fetch', 'stage', 'link-deps', 'build'];
 }
 
+function lowPriorityCommand({ file, args, platform }: {
+  file: string;
+  args: string[];
+  platform: string;
+}): { file: string; args: string[] } {
+  if (platform === 'win32') return { file, args };
+  return { file: 'nice', args: ['-n', LOWEST_SCHEDULING_PRIORITY, file, ...args] };
+}
+
 function planHandOffRenames({
   root,
   stagingPath,
@@ -374,6 +384,7 @@ export {
   finishStep,
   idleJournal,
   interruptedDisplayJournal,
+  lowPriorityCommand,
   markDiscarded,
   markInterrupted,
   markStaged,

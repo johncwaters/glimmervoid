@@ -87,10 +87,10 @@ import {
   projectUpdateProgress,
   reduceUpdateRequest,
   shouldAutoCheckUpdates,
-  updateActionAvailability,
+  updateControls,
   updateSummary,
 } from '../updates-view-core.ts';
-import type { UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from '../updates-view-core.ts';
+import type { UpdateActionId, UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from '../updates-view-core.ts';
 
 type SectionSearchResult = SettingsSearchResult & { section: SettingsSection };
 
@@ -155,7 +155,6 @@ let updateStatus: UpdateStatusView | null = null;
 let updateJournal: UpdateJournal | null = null;
 let updateRequest: UpdateRequestState = IDLE_UPDATE_REQUEST;
 let restartServer = () => {};
-let confirmUpdateAndRestart = (proceed: (confirmedSessionIds: string[]) => void) => { proceed([]); };
 let lastAutoUpdateCheckAt: number | null = null;
 let isAutoUpdateCheckAwaitingStatus = false;
 let isUpdateCheckInFlight = false;
@@ -657,18 +656,11 @@ function renderProjects(setting: SettingsSetting) {
   return wrapper;
 }
 
-function buildUpdateButton(
-  label: string,
-  onClick: () => void,
-  { decision = { enabled: true, reason: null }, isPrimary = false }: {
-    decision?: { enabled: boolean; reason: string | null };
-    isPrimary?: boolean;
-  } = {},
-) {
+function buildUpdateButton(label: string, onClick: () => void, { isPrimary = false, isEnabled = true } = {}) {
   const tone = isPrimary ? 'btn-dialog-confirm' : 'btn-dialog-cancel';
   const button = el('button', `btn-dialog ${tone} settings-update-button`, label);
   button.type = 'button';
-  button.disabled = !decision.enabled;
+  button.disabled = !isEnabled;
   button.addEventListener('click', onClick);
   return button;
 }
@@ -686,8 +678,8 @@ function dispatchUpdateRequest(event: UpdateRequestEvent) {
   refreshUpdateRows();
 }
 
-function requestUpdateApply({ restartWhenStaged, confirmedSessionIds }: { restartWhenStaged: boolean; confirmedSessionIds?: string[] }) {
-  const isSent = sendControlMsg({ type: 'update-apply', restartWhenStaged, confirmedSessionIds });
+function requestUpdateApply() {
+  const isSent = sendControlMsg({ type: 'update-apply' });
   dispatchUpdateRequest(isSent ? 'request-sent' : 'request-unsent');
 }
 
@@ -719,27 +711,28 @@ function checkUpdatesIfStale() {
   if (isStale) requestUpdateCheck();
 }
 
+function buildUpdateAction(action: UpdateActionId) {
+  if (action === 'update') return buildUpdateButton('Update', requestUpdateApply, { isPrimary: true });
+  if (action === 'restart') return buildUpdateButton('Restart', restartServer, { isPrimary: true });
+  return buildUpdateButton('Check for updates', requestUpdateCheck, { isEnabled: !isUpdateCheckInFlight });
+}
+
 function buildUpdateActions() {
-  const decisions = updateActionAvailability({
+  const decided = updateControls({
     status: updateStatus,
     journal: updateJournal,
     request: updateRequest,
   });
   const actions = el('div', 'settings-update-actions');
-  const buttons = el('div', 'settings-update-buttons');
-  buttons.append(
-    buildUpdateButton(
-      'Update and restart',
-      () => confirmUpdateAndRestart((confirmedSessionIds) => requestUpdateApply({ restartWhenStaged: true, confirmedSessionIds })),
-      { decision: decisions.update, isPrimary: true },
-    ),
-    buildUpdateButton('Update without restart', () => requestUpdateApply({ restartWhenStaged: false }), { decision: decisions.update }),
-    buildUpdateButton('Check for updates', requestUpdateCheck, { decision: { enabled: !isUpdateCheckInFlight, reason: null } }),
-    buildUpdateButton('Restart', restartServer, { decision: decisions.restart }),
-  );
-  actions.append(buttons, buildUpdateActionStatus(decisions.update.reason));
+  if (decided.actions.length > 0) {
+    const buttons = el('div', 'settings-update-buttons');
+    buttons.append(...decided.actions.map(buildUpdateAction));
+    actions.appendChild(buttons);
+  }
   const checkStatusText = updateCheckStatusText();
-  if (checkStatusText) actions.append(buildUpdateActionStatus(checkStatusText));
+  if (checkStatusText) actions.appendChild(buildUpdateActionStatus(checkStatusText));
+  if (decided.note) actions.appendChild(buildUpdateActionStatus(decided.note));
+  if (decided.command) actions.appendChild(el('code', 'settings-update-command', decided.command));
   return actions;
 }
 
@@ -780,13 +773,7 @@ function buildUpdateProgress() {
   return panel;
 }
 
-function buildUpdateStatusBlock() {
-  const block = el('div', 'settings-view-status-block settings-update-status');
-  const summary = updateSummary(updateStatus, updateJournal);
-  const headline = el('div', 'settings-update-summary', summary.headline);
-  headline.dataset.tone = summary.tone;
-  block.appendChild(headline);
-  block.appendChild(buildUpdateFact('Running', installedUpdateText(updateStatus)));
+function buildLatestUpdateFact() {
   const latest = latestUpdateDetails(updateStatus);
   const latestParts: (string | HTMLElement)[] = [latest.label];
   if (latest.behind) latestParts.push(el('span', 'settings-update-behind', latest.behind));
@@ -797,7 +784,17 @@ function buildUpdateStatusBlock() {
     release.rel = 'noopener noreferrer';
     latestParts.push(release);
   }
-  block.appendChild(buildUpdateFact('Latest', ...latestParts));
+  return buildUpdateFact('Latest', ...latestParts);
+}
+
+function buildUpdateStatusBlock() {
+  const block = el('div', 'settings-view-status-block settings-update-status');
+  const summary = updateSummary(updateStatus, updateJournal);
+  const headline = el('div', 'settings-update-summary', summary.headline);
+  headline.dataset.tone = summary.tone;
+  block.appendChild(headline);
+  block.appendChild(buildUpdateFact('Running', installedUpdateText(updateStatus)));
+  if (updateStatus?.updateAvailable) block.appendChild(buildLatestUpdateFact());
   const lastCheckedAt = typeof updateStatus?.lastCheckAt === 'number' ? updateStatus.lastCheckAt : null;
   const lastChecked = buildUpdateFact('Last checked', lastUpdateCheckText({
     status: updateStatus,
@@ -1437,11 +1434,9 @@ export function mountSettingsView(
   container: HTMLElement,
   {
     onRestart = () => {},
-    onConfirmUpdateAndRestart = (proceed: (confirmedSessionIds: string[]) => void) => { proceed([]); },
-  }: { onRestart?: () => void; onConfirmUpdateAndRestart?: (proceed: (confirmedSessionIds: string[]) => void) => void } = {},
+  }: { onRestart?: () => void } = {},
 ) {
   restartServer = onRestart;
-  confirmUpdateAndRestart = onConfirmUpdateAndRestart;
   onSoundEnabledChange(syncSoundEnabledValue);
   rootEl = container;
   rootEl.textContent = '';
