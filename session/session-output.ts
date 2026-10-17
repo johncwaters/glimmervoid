@@ -51,6 +51,7 @@ interface SessionOutput {
   push(chunk: string): void;
   since(offset: number): OutputRingSlice;
   snapshot(): ScreenSnapshot;
+  deepSnapshot(): Promise<ScreenSnapshot>;
   reset(): void;
   setMax(bytes: number): void;
   stats(): OutputRingStats;
@@ -145,12 +146,25 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     ring.reset();
   }
 
+  function ringSnapshot(): ScreenSnapshot {
+    return { data: SCREEN_RESET + ring.replay(), offset: ring.stats().total };
+  }
+
   function snapshot(): ScreenSnapshot {
-    const offset = ring.stats().total;
-    if (!keeper || keeper.isOverrun()) return { data: SCREEN_RESET + ring.replay(), offset };
+    if (!keeper || keeper.isOverrun()) return ringSnapshot();
     const tail = ring.since(keeperBaseOffset + keeper.parsedOffset());
-    if (tail.evicted) return { data: SCREEN_RESET + ring.replay(), offset };
-    return { data: SCREEN_RESET + keeper.serialize() + tail.data, offset };
+    if (tail.evicted) return ringSnapshot();
+    return { data: SCREEN_RESET + keeper.serialize() + tail.data, offset: ring.stats().total };
+  }
+
+  async function deepSnapshot(): Promise<ScreenSnapshot> {
+    const deepKeeper = keeper;
+    if (!deepKeeper || deepKeeper.isOverrun()) return ringSnapshot();
+    const deepScreen = await deepKeeper.serializeDeep();
+    if (!deepScreen || keeper !== deepKeeper) return ringSnapshot();
+    const tail = ring.since(keeperBaseOffset + deepScreen.parsedOffset);
+    if (tail.evicted) return ringSnapshot();
+    return { data: SCREEN_RESET + deepScreen.data + tail.data, offset: ring.stats().total };
   }
 
   options.on("exit", disposeScreenKeeper);
@@ -159,6 +173,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     push,
     since: (offset) => ring.since(offset),
     snapshot,
+    deepSnapshot,
     reset,
     setMax: (bytes) => ring.setMax(bytes),
     stats: () => ring.stats(),
