@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-10-17
+
 ### Added
 
 - **Any repository can put itself on the factory**: a session can now set its own repository up for factory builds and hand work over without the Factory tab. `glimmervoid factory setup` proves and saves the repository's factory checks and prints them, and `glimmervoid factory queue <file>` queues an intent written as JSON, such as the intent file the spec skill's cut writes, in the same shape as a Factory tab request; its name and project id are dropped and floor allowances are refused. The intent always goes to the session's own repository, and floor allowances stay yours to grant from the Factory tab. A repository joins the factory once its integration branch holds a `coherence.config.json` (holding `{}`), which the session can commit and land with `glimmervoid push`; setup prints that step when it is still missing, and queueing before it is refused with the same step. Both commands answer operator sessions and the sessions they spawn, never factory workers, orchestrators or lanes, and the repository must already be a project in your config.
