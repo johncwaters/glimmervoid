@@ -96,7 +96,7 @@ for (const titleKind of ['automatic', 'pending', 'custom'] as const) {
         firstSession.applyTaskTitleRefinement({ action: 'replace', title: 'Hidden refined task' });
       }
       if (titleKind === 'pending') firstSession.setPendingTaskTitle('Latest substantive task prompt');
-      const expectedTitle = firstSession.settledTaskTitle;
+      const expectedTitle = firstSession.persistedTaskTitle?.taskTitle;
       await firstStore.idle();
       firstSession.destroy();
       const secondStore = createConfigStore();
@@ -106,7 +106,7 @@ for (const titleKind of ['automatic', 'pending', 'custom'] as const) {
       wiredSession(restoredSession, secondStore);
       assert.equal(restoredSession.toSnapshot().taskTitle, expectedTitle);
       assert.equal(restoredSession.toSnapshot().taskTitleIsCustom, titleKind === 'custom');
-      assert.equal(restoredSession.settledTaskTitle, titleKind === 'custom' ? 'Custom task' : 'Refined task');
+      assert.equal(restoredSession.persistedTaskTitle?.taskTitle, titleKind === 'custom' ? 'Custom task' : 'Refined task');
       assert.equal(restoredSession.refocusTaskTitle, titleKind === 'custom' ? 'Custom task' : 'Fix the original task');
       restoredSession.applyTaskTitleRefinement({ action: 'keep' });
       assert.equal(restoredSession.taskTitle, titleKind === 'custom' ? 'Custom task' : 'Refined task');

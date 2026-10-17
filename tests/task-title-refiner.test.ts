@@ -75,7 +75,8 @@ test('the lane shows an instant title and refines with Claude, a constant bootst
     assert.equal(request.prompt, 'Read task-title-prompt.txt and follow its instructions');
     const prompt = await fs.readFile(path.join(request.cwd, 'task-title-prompt.txt'), 'utf8');
     assert.match(prompt, /untrusted data/);
-    assert.match(prompt, /"Original task title"/);
+    assert.match(prompt, /BEGIN_GLIMMERVOID-CURRENT_TITLE-\w+\nnull\n/);
+    assert.doesNotMatch(prompt, /Original task title/);
     assert.doesNotMatch(prompt, /Hidden instructions/);
     release.resolve();
     await waitFor(() => session.taskTitle === 'Improve dashboard titles');

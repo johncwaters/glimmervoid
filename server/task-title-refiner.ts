@@ -196,7 +196,7 @@ function createTaskTitleRefiner({ getConfig, spawnLane, nowFn = () => Date.now()
       return;
     }
     const request: RefinementRequest = {
-      session, revision: session.taskTitlePromptRevision, currentTitle: session.settledTaskTitle, recentPrompts: session.recentTaskPrompts,
+      session, revision: session.taskTitlePromptRevision, currentTitle: session.refinedTaskTitle, recentPrompts: session.recentTaskPrompts,
     };
     queuedBySession.set(session, request);
     startNext();

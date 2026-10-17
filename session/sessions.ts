@@ -664,8 +664,8 @@ class Session extends EventEmitter {
     this._updateTaskTitle();
   }
 
-  get settledTaskTitle(): string | null {
-    return resolveTaskTitle({ ...this._taskTitleSources, pendingPromptTitle: null }).taskTitle;
+  get refinedTaskTitle(): string | null {
+    return this._taskTitleSources.refinedTitle ?? null;
   }
 
   get persistedTaskTitle(): PersistedTaskTitle | undefined {

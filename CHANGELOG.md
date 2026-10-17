@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every session gets a refined title**: a session whose first prompt was short enough to show in full kept that prompt as its card title, because the title model was asked whether the prompt itself still described the session and nearly always said yes. The first refinement now always writes a short title of its own, and later refinements still keep a refined title that remains accurate.
+
 ### Changed
 
 - **Updates download on their own**: when a check finds an update a clone install can apply, Glimmervoid now downloads and builds it in the background at the lowest CPU priority, without being asked. Once it is ready, the update banner offers Restart, and if you do not restart, the update installs the next time Glimmervoid stops or restarts. Restart still works during a download, which simply starts over afterwards, and a failed download is retried at the next check. Turning off update checks also turns this off.
