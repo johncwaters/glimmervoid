@@ -96,6 +96,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   if (options.worktree) card.dataset.worktree = '';
   if (options.workspace) card.dataset.workspace = '';
   if (options.guarded) card.dataset.guarded = '';
+  if (options.guardrailsReleased) card.dataset.guardrailsReleased = '';
   if (options.path) card.dataset.path = String(options.path);
 
   const header = el('div', 'session-card-header');
@@ -136,12 +137,15 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const btnConversationView = buildRestartMenuItem('Conversation view', 'Show this session as messages (experimental)', 'overflow-conversation-view');
   btnConversationView.setAttribute('role', 'menuitemcheckbox');
   btnConversationView.setAttribute('aria-checked', 'false');
+  const btnGuardrails = buildRestartMenuItem('Guardrails', 'Limit what this session can read, write and reach', 'overflow-guardrails');
+  btnGuardrails.setAttribute('role', 'menuitemcheckbox');
+  paintGuardrailsMenuItem(btnGuardrails, card);
   btnLinkPr.onclick = () => {
     restartMenu.classList.remove('open');
     btnRestartMenu.setAttribute('aria-expanded', 'false');
     openLinkPullRequestDialog(sessionId);
   };
-  restartMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnConversationView, btnLinkPr);
+  restartMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnLinkPr);
   restartMenuWrap.append(btnRestartMenu, restartMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug', '\u2699');
@@ -188,7 +192,13 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnRestartMenu, btnResume, btnWorkspaceRepos, btnConversationView, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, faceSwitch, btnFaceTerminal, btnFaceConversation, restartMenu, termWrap };
+  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnRestartMenu, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, faceSwitch, btnFaceTerminal, btnFaceConversation, restartMenu, termWrap };
+}
+
+export function paintGuardrailsMenuItem(button: HTMLButtonElement, card: HTMLElement) {
+  const isGuarded = card.dataset.guarded !== undefined;
+  button.classList.toggle('visible', isGuarded || card.dataset.guardrailsReleased !== undefined);
+  button.setAttribute('aria-checked', String(isGuarded));
 }
 
 function buildRestartMenuItem(label: string, hint: string, className: string) {

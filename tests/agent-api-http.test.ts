@@ -588,6 +588,7 @@ test('a spawned child reaches the dashboard as one session-added card', async ()
       saneYolo: false,
       worktree: fixture.parent.isWorktree,
       guarded: false,
+      guardrailsReleased: false,
       resumeSessionId: null,
       ephemeral: true,
     });
@@ -669,6 +670,7 @@ test('the shared session card projection carries exactly the session-added paylo
     saneYolo: false,
     worktree: false,
     guarded: false,
+    guardrailsReleased: false,
     resumeSessionId: null,
     ephemeral: true,
   });

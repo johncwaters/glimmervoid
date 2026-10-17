@@ -109,6 +109,7 @@ test('the borrowed card swaps to plan and release restores the terminal face thr
     btnResume: button,
     btnWorkspaceRepos: button,
     btnConversationView: button,
+    btnGuardrails: button,
     btnTrace: button,
     btnPlan: button,
     faceSwitch: document.createElement('div'),

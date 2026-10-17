@@ -978,7 +978,8 @@ body {
   white-space: nowrap;
 }
 
-.overflow-conversation-view .restart-menu-label::before {
+.overflow-conversation-view .restart-menu-label::before,
+.overflow-guardrails .restart-menu-label::before {
   content: "";
   display: inline-block;
   width: 8px;
@@ -988,7 +989,8 @@ body {
   vertical-align: middle;
 }
 
-.overflow-conversation-view[aria-checked="true"] .restart-menu-label::before {
+.overflow-conversation-view[aria-checked="true"] .restart-menu-label::before,
+.overflow-guardrails[aria-checked="true"] .restart-menu-label::before {
   border-color: var(--accent);
   background: var(--accent);
 }

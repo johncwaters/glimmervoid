@@ -69,6 +69,11 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     return isGuarded ? dependencies.sessionGuardrails.prepareFor({ sessionId: project.id, isWorkspace: Boolean(project.repos?.length) }) : null;
   }
 
+  function isReleasedOnlyByMark(project: ProjectEntry, config: GlimmervoidConfig, overrides: SessionSpawnOverrides): boolean {
+    if (project.unguarded !== true || !dependencies.sessionGuardrails) return false;
+    return willSessionRunGuarded({ ...project, agent: overrides.agent ?? project.agent, unguarded: false }, config, dependencies.homeDir ?? null);
+  }
+
   return function makeSession(
     project: ProjectEntry,
     config: GlimmervoidConfig,
@@ -87,6 +92,8 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       dangerouslySkipPermissions: skipPermissions,
       agent: project.agent,
       bypassHookTrust: project.codexBypassHookTrust === true,
+      isMarkedUnguarded: project.unguarded === true,
+      isGuardrailsReleased: isReleasedOnlyByMark(project, config, overrides),
       isConversationViewEnabled: () => isConversationViewOnFor(dependencies.getConfig?.() ?? config, project.id),
       isConversationViewSettingOn: () => (dependencies.getConfig?.() ?? config).conversationView === true,
       replayBufferKB: config.replayBufferKB,
