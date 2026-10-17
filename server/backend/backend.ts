@@ -37,6 +37,7 @@ import { detectInstallFlavor } from '../update-check.ts';
 import type { CheckForUpdate } from './backend-update.ts';
 import { createBackendSessionRuntime } from './backend-session-runtime.ts';
 import { checkGuardrailsDependencies } from '../guardrails/guardrails-deps.ts';
+import { sweepOrphanedGuardrailsLaunches } from '../guardrails/guardrails-launch.ts';
 import { warnWhenGitIsTooOld } from '../git/git-version.ts';
 import { createOutcomesLane } from '../outcomes-wiring.ts';
 import { createUpdateApplyLane } from '../update-apply.ts';
@@ -343,6 +344,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const reconcileProjectsOnReload = sessionRegistry.applyConfigReload;
 
   void rtkInstall.maybeInstall();
+  void sweepOrphanedGuardrailsLaunches();
   laneAssembly.startRuntimeLanes();
 
   function applyCustomAgents(sourceConfig: GlimmervoidConfig): void {

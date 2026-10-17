@@ -1,8 +1,10 @@
-import { access, chmod, copyFile, lstat, mkdir, readdir, realpath, rename, rm, symlink } from 'node:fs/promises';
+import { access, chmod, copyFile, lstat, mkdir, readdir, readlink, realpath, rename, rm, stat, symlink } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { rawTextOr } from '../../shared/coerce.ts';
+import { GuardrailsLaunchOwner } from '../../shared/contracts/guardrails-launch.ts';
+import { isPathInside } from '../../shared/paths.ts';
 import { errorCode, errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { listClaudeGlobalConfigPathCandidates } from '../core/claude-trust-core.ts';
@@ -10,7 +12,7 @@ import { decideConfigPath } from '../core/config-path-core.ts';
 import { buildGuardrailsLaunchPlan, lockedClaudeMountPoints, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates } from './core/guardrails-policy-core.ts';
 import type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, GuardrailsRole } from './core/guardrails-policy-core.ts';
 import { codexHomes, grokHomes, projectDirCandidates } from '../usage/core/usage-scan-core.ts';
-import { writeJsonAtomic } from '../json-file.ts';
+import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { relayPath, resolvePackageBin } from '../runtime-paths.ts';
 
 interface WrappedCommand {
@@ -40,9 +42,11 @@ const POLICY_FOLDER = 'guardrails-policies';
 const TEMP_FOLDER = 'guardrails-temp';
 const LAUNCH_HOME_FOLDER = 'guardrails-homes';
 const START_FOLDER = 'start';
+const OWNER_FILE_SUFFIX = '.owner.json';
 const ENTER_FOLDER_SCRIPT = 'cd "$1" && shift && exec "$@"';
 const LOGIN_FILE_MODE = 0o600;
 const ABSENT_PATH_DENY_PLATFORM = 'darwin';
+const OWN_PID_NAMESPACE_LINK = '/proc/self/ns/pid';
 
 async function isPresent(candidate: string): Promise<boolean> {
   try {
@@ -166,13 +170,90 @@ async function createMissingMountPoints(mountPoints: readonly string[]): Promise
   }
 }
 
-async function keepRefreshedLogins(links: GuardrailsLaunchPlan['launchHomeLinks'], launchId: string): Promise<void> {
-  for (const { linkPath, targetPath } of links.filter((link) => link.isLogin)) {
+async function isNewerThanTarget(linkPath: string, targetPath: string): Promise<boolean> {
+  const targetStats = await stat(targetPath).catch(() => null);
+  if (targetStats === null) return true;
+  return (await lstat(linkPath)).mtimeMs > targetStats.mtimeMs;
+}
+
+async function keepRefreshedLogins(logins: GuardrailsLaunchOwner['logins'], launchId: string, { onlyWhenNewer }: { onlyWhenNewer: boolean }): Promise<void> {
+  for (const { linkPath, targetPath } of logins) {
     if (!await isRegularFile(linkPath)) continue;
+    if (onlyWhenNewer && !await isNewerThanTarget(linkPath, targetPath)) continue;
     const stagedPath = `${targetPath}.${launchId}`;
     await copyFile(linkPath, stagedPath);
     await chmod(stagedPath, LOGIN_FILE_MODE);
     await rename(stagedPath, targetPath);
+  }
+}
+
+interface LaunchFolders {
+  policyPath: string;
+  ownerPath: string;
+  launchHomeDir: string;
+  ownedTempDir: string | null;
+}
+
+async function removeLaunch(folders: LaunchFolders, owner: GuardrailsLaunchOwner, launchId: string, { onlyNewerLogins }: { onlyNewerLogins: boolean }): Promise<void> {
+  await rm(folders.policyPath, { force: true });
+  await removeLeftoverPlaceholders(owner.placeholderPaths);
+  const loginsInLaunchHome = owner.logins.filter((login) => isPathInside(folders.launchHomeDir, login.linkPath, { allowEqual: false }));
+  await keepRefreshedLogins(loginsInLaunchHome, launchId, { onlyWhenNewer: onlyNewerLogins });
+  await rm(folders.launchHomeDir, { recursive: true, force: true });
+  if (folders.ownedTempDir !== null) await rm(folders.ownedTempDir, { recursive: true, force: true });
+  await rm(folders.ownerPath, { force: true });
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return errorCode(error) === 'EPERM';
+  }
+}
+
+function readOwnPidNamespace(): Promise<string | null> {
+  return readlink(OWN_PID_NAMESPACE_LINK).catch(() => null);
+}
+
+async function readOwnerFile(ownerPath: string): Promise<GuardrailsLaunchOwner | null> {
+  const outcome = await loadJsonStateFile({ filePath: ownerPath, quarantine: false, parse: (raw) => GuardrailsLaunchOwner.safeParse(raw).data ?? null });
+  return outcome.status === 'loaded' ? outcome.value : null;
+}
+
+async function sweepOrphanedGuardrailsLaunches(log: Pick<Console, 'log' | 'warn'> = console): Promise<void> {
+  try {
+    const policyDir = path.join(glimmervoidHomeDir(), POLICY_FOLDER);
+    const entryNames = await readdir(policyDir).catch((error: unknown) => {
+      if (isMissingFileError(error)) return [];
+      throw error;
+    });
+    const glimmervoidHome = await realpath(glimmervoidHomeDir());
+    const sweeperPidNamespace = await readOwnPidNamespace();
+    let removedLaunchCount = 0;
+    for (const entryName of entryNames) {
+      if (!entryName.endsWith(OWNER_FILE_SUFFIX)) continue;
+      const launchId = entryName.slice(0, -OWNER_FILE_SUFFIX.length);
+      if (!LAUNCH_ID_SHAPE.test(launchId)) continue;
+      const ownerPath = path.join(policyDir, entryName);
+      const owner = await readOwnerFile(ownerPath);
+      if (owner === null || owner.ownerHost !== os.hostname() || owner.ownerPidNamespace !== sweeperPidNamespace || isProcessAlive(owner.ownerPid)) continue;
+      try {
+        await removeLaunch({
+          policyPath: path.join(policyDir, `${launchId}.json`),
+          ownerPath,
+          launchHomeDir: path.join(glimmervoidHome, LAUNCH_HOME_FOLDER, launchId),
+          ownedTempDir: owner.ownsTempDir ? path.join(glimmervoidHome, TEMP_FOLDER, launchId) : null,
+        }, owner, launchId, { onlyNewerLogins: true });
+        removedLaunchCount += 1;
+      } catch (error) {
+        log.warn(`[guardrails] could not remove the leftover launch ${launchId}: ${errorMessage(error)}`);
+      }
+    }
+    if (removedLaunchCount > 0) log.log(`[guardrails] removed ${removedLaunchCount} launch folders left by sessions that ended without a clean shutdown`);
+  } catch (error) {
+    log.warn(`[guardrails] could not sweep leftover launch folders: ${errorMessage(error)}`);
   }
 }
 
@@ -198,7 +279,7 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, enterDir }: Gu
   try {
     const policyDir = path.join(glimmervoidHomeDir(), POLICY_FOLDER);
     await mkdir(policyDir, { recursive: true, mode: 0o700 });
-    const [homeDir, glimmervoidHome, realRole] = await Promise.all([realpath(os.homedir()), realpath(glimmervoidHomeDir()), withRealRoots(role)]);
+    const [homeDir, glimmervoidHome, realRole, ownerPidNamespace] = await Promise.all([realpath(os.homedir()), realpath(glimmervoidHomeDir()), withRealRoots(role), readOwnPidNamespace()]);
     const ownsTempDir = tempDir === undefined;
     const launchTempDir = tempDir === undefined ? path.join(glimmervoidHome, TEMP_FOLDER, launchId) : path.resolve(tempDir);
     const launchHomeDir = path.join(glimmervoidHome, LAUNCH_HOME_FOLDER, launchId);
@@ -235,8 +316,22 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, enterDir }: Gu
     if (startDir !== undefined) await mkdir(startDir, { recursive: true });
     await Promise.all(plan.launchHomeLinks.map((link) => symlink(link.targetPath, link.linkPath)));
     await writeJsonAtomic(policyPath, plan.policy);
+    const folders: LaunchFolders = {
+      policyPath,
+      ownerPath: path.join(policyDir, `${launchId}${OWNER_FILE_SUFFIX}`),
+      launchHomeDir,
+      ownedTempDir: ownsTempDir ? launchTempDir : null,
+    };
+    const owner: GuardrailsLaunchOwner = {
+      ownerPid: process.pid,
+      ownerHost: os.hostname(),
+      ownerPidNamespace,
+      ownsTempDir,
+      logins: plan.launchHomeLinks.filter((link) => link.isLogin).map(({ linkPath, targetPath }) => ({ linkPath, targetPath })),
+      placeholderPaths: [],
+    };
+    await writeJsonAtomic(folders.ownerPath, owner);
     const envPrefix = guardedEnvPrefix(plan);
-    let placeholderPathsAbsentAtWrap: string[] = [];
     return {
       ok: true,
       launch: {
@@ -244,19 +339,14 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, enterDir }: Gu
           const rebuilt = await buildPlanFromCurrentDisk();
           if (!rebuilt.ok) throw new Error(rebuilt.reason);
           await writeJsonAtomic(policyPath, { ...rebuilt.plan.policy, allowPty: hasTerminal && rebuilt.plan.launcher === 'open-network' });
-          placeholderPathsAbsentAtWrap = await absentPaths(guardrailsPlaceholderPaths(realRole));
+          owner.placeholderPaths = await absentPaths(guardrailsPlaceholderPaths(realRole));
+          await writeJsonAtomic(folders.ownerPath, owner);
           await createMissingMountPoints(lockedClaudeMountPoints(realRole));
           return { file: launcher.file, args: [...launcher.args, ...envPrefix, ...enteringFolder(enterDir, file, args)] };
         },
         env: { ...plan.launchEnv },
         ...(startDir === undefined ? {} : { cwd: startDir }),
-        dispose: async () => {
-          await rm(policyPath, { force: true });
-          await removeLeftoverPlaceholders(placeholderPathsAbsentAtWrap);
-          await keepRefreshedLogins(plan.launchHomeLinks, launchId);
-          await rm(launchHomeDir, { recursive: true, force: true });
-          if (ownsTempDir) await rm(launchTempDir, { recursive: true, force: true });
-        },
+        dispose: () => removeLaunch(folders, owner, launchId, { onlyNewerLogins: false }),
       },
     };
   } catch (error) {
@@ -264,5 +354,5 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, enterDir }: Gu
   }
 }
 
-export { prepareGuardrailsLaunch };
+export { prepareGuardrailsLaunch, sweepOrphanedGuardrailsLaunches };
 export type { GuardrailsLaunch, GuardrailsLaunchResult };

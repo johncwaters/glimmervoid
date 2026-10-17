@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import pty from 'node-pty';
 import { glimmervoidHomeDir } from '../server/config-store.ts';
 import { workRole } from '../server/guardrails/core/guardrails-roles-core.ts';
-import { prepareGuardrailsLaunch } from '../server/guardrails/guardrails-launch.ts';
+import { prepareGuardrailsLaunch, sweepOrphanedGuardrailsLaunches } from '../server/guardrails/guardrails-launch.ts';
 
 async function launchLockedCheckout(checkout: string, launchId: string) {
   const prepared = await prepareGuardrailsLaunch({ role: workRole({ vendor: 'claude', cwd: checkout, checkout, agentSessionId: null, readablePaths: [] }), launchId });
@@ -32,6 +33,48 @@ test('a locked checkout with a project .claude folder gets the runtime deny moun
   await bareLaunch.wrap('/bin/true', [], { hasTerminal: false });
   assert.deepEqual(await readdir(bareCheckout), []);
   await bareLaunch.dispose();
+});
+
+async function launchFolderNames(launchId: string): Promise<string[]> {
+  const glimmervoidHome = await realpath(glimmervoidHomeDir());
+  const candidates = [
+    path.join(glimmervoidHome, 'guardrails-policies', `${launchId}.json`),
+    path.join(glimmervoidHome, 'guardrails-policies', `${launchId}.owner.json`),
+    path.join(glimmervoidHome, 'guardrails-homes', launchId),
+    path.join(glimmervoidHome, 'guardrails-temp', launchId),
+  ];
+  const present = await Promise.all(candidates.map((candidate) => lstat(candidate).then(() => true, () => false)));
+  return candidates.filter((_candidate, index) => present[index]).map((candidate) => path.relative(glimmervoidHome, candidate));
+}
+
+test('the startup sweep removes only the launch folders whose owning process has exited', async (context) => {
+  const factoryFolder = await mkdtemp(path.join(glimmervoidHomeDir(), 'factory-'));
+  context.after(() => rm(factoryFolder, { recursive: true, force: true }));
+  const checkout = path.join(factoryFolder, 'repo');
+  await mkdir(checkout);
+  const liveLaunch = await launchLockedCheckout(checkout, 'sweep-live-launch');
+  context.after(() => liveLaunch.dispose());
+  await launchLockedCheckout(checkout, 'sweep-orphaned-launch');
+  const orphanedOwnerPath = path.join(glimmervoidHomeDir(), 'guardrails-policies', 'sweep-orphaned-launch.owner.json');
+  const exitedPid = spawnSync(process.execPath, ['-e', '']).pid;
+  assert.ok(exitedPid);
+  await writeFile(orphanedOwnerPath, JSON.stringify({ ...JSON.parse(await readFile(orphanedOwnerPath, 'utf8')), ownerPid: exitedPid }));
+  const otherNamespaceLaunch = await launchLockedCheckout(checkout, 'sweep-other-namespace-launch');
+  context.after(() => otherNamespaceLaunch.dispose());
+  const otherNamespaceOwnerPath = path.join(glimmervoidHomeDir(), 'guardrails-policies', 'sweep-other-namespace-launch.owner.json');
+  await writeFile(otherNamespaceOwnerPath, JSON.stringify({ ...JSON.parse(await readFile(otherNamespaceOwnerPath, 'utf8')), ownerPid: exitedPid, ownerPidNamespace: 'pid:[1]' }));
+  const otherNamespaceFoldersBefore = await launchFolderNames('sweep-other-namespace-launch');
+  const liveFoldersBefore = await launchFolderNames('sweep-live-launch');
+  assert.ok(liveFoldersBefore.includes(path.join('guardrails-policies', 'sweep-live-launch.owner.json')), liveFoldersBefore.join(', '));
+  assert.ok(liveFoldersBefore.includes(path.join('guardrails-temp', 'sweep-live-launch')), liveFoldersBefore.join(', '));
+  assert.equal((await launchFolderNames('sweep-orphaned-launch')).length, liveFoldersBefore.length);
+
+  await sweepOrphanedGuardrailsLaunches({ log: () => {}, warn: (line: string) => assert.fail(line) });
+
+  assert.deepEqual(await launchFolderNames('sweep-orphaned-launch'), []);
+  assert.deepEqual(await launchFolderNames('sweep-live-launch'), liveFoldersBefore);
+  assert.equal(otherNamespaceFoldersBefore.length, liveFoldersBefore.length);
+  assert.deepEqual(await launchFolderNames('sweep-other-namespace-launch'), otherNamespaceFoldersBefore);
 });
 
 test('a guarded terminal launch can switch its own terminal to raw mode but cannot reach another terminal', { skip: process.platform !== 'darwin' }, async (context) => {
