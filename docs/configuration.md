@@ -195,6 +195,14 @@ A typed local graph of projects, tasks, notes, references and questions, driven 
 |-----|---------|---------|-------|
 | `knowledgeGraph.enabled` | Enable the knowledge graph | `false` | Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents' tickets disagree, without modifying those ledgers. Graph writes go to the selected SQLite database, which can be inside a repository when --db names that path. Off by default. |
 
+### Coherence (experimental)
+
+Coherence decision journals, hooks and repository trends for agent sessions and review lanes.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `coherence.enabled` | Use Coherence in every session | `false` | Saved for an upcoming release that runs Coherence in every session of a repository whose root holds coherence.config.json. Factory sessions always use Coherence. Off by default. |
+
 ### Change map
 
 Optional model narration for deterministic change facts.

@@ -26,11 +26,6 @@ export const FACTORY_TICKET_BLOCK_CAP = 3;
 
 const NO_FINDINGS_TEXT = 'No findings returned';
 
-export function isCompletedCommandFailure(error: unknown): error is Error & { code: number } {
-  if (!(error instanceof Error) || !('code' in error) || typeof error.code !== 'number') return false;
-  return !('killed' in error && error.killed === true);
-}
-
 export function findFactoryProjectPath(config: Pick<Config, 'projects'>, projectId: string): string | undefined {
   return config.projects?.find((candidate) => candidate.id === projectId)?.path;
 }

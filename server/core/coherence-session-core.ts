@@ -7,6 +7,16 @@ export const COHERENCE_POST_TOOL_USE_MATCHER = 'Read|Grep|Glob|Write|Edit|MultiE
 
 const claudeSessionIdSchema = z.uuid();
 
+type CoherenceSessionKind = 'factory' | 'writer' | 'review' | 'utility';
+
+export function decideCoherenceAttachment({ sessionKind, isSettingOn, hasRepoConfig }: {
+  sessionKind: CoherenceSessionKind; isSettingOn: boolean; hasRepoConfig: boolean;
+}): boolean {
+  if (sessionKind === 'utility') return false;
+  if (sessionKind === 'factory') return true;
+  return isSettingOn && hasRepoConfig;
+}
+
 function quoteCommandPath(commandPath: string): string {
   if (commandPath.includes('"')) throw new Error('Coherence command paths must not contain double quotes');
   return `"${commandPath}"`;

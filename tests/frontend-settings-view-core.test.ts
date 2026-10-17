@@ -293,7 +293,7 @@ test('a child section resolves to its parent page, and the navigation lists only
   assert.equal(pageSectionOf(sections, 'missing'), null);
   assert.deepEqual(pageSectionOf(SECTIONS, 'lanes-posthog')?.id, 'lanes');
   assert.deepEqual(childSectionsOf(SECTIONS, 'lanes').map((entry) => entry.id), [
-    'lanes-visions', 'lanes-posthog', 'lanes-team-review', 'lanes-workflows', 'lanes-factory', 'lanes-benchmarks', 'lanes-knowledge-graph', 'lanes-change-map',
+    'lanes-visions', 'lanes-posthog', 'lanes-team-review', 'lanes-workflows', 'lanes-factory', 'lanes-benchmarks', 'lanes-knowledge-graph', 'lanes-coherence', 'lanes-change-map',
   ]);
 });
 

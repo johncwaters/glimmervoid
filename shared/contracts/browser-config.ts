@@ -142,6 +142,10 @@ const KnowledgeGraphSettings = optionalObject('knowledgeGraph', {
   enabled: optionalBoolean('knowledgeGraph.enabled'),
 });
 
+const CoherenceSettings = optionalObject('coherence', {
+  enabled: optionalBoolean('coherence.enabled'),
+});
+
 const posthogNumberRanges = {
   intervalMinutes: ranges.POSTHOG_INTERVAL_RANGE,
   maxConcurrentInvestigations: ranges.POSTHOG_MAX_CONCURRENT_RANGE,
@@ -282,6 +286,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   benchmarks: BenchmarksSettings,
   factory: FactorySettings,
   knowledgeGraph: KnowledgeGraphSettings,
+  coherence: CoherenceSettings,
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Coherence toggle (experimental)**: Settings > Lanes > Coherence is off by default, ready for later releases to run Coherence in every session of repositories holding coherence.config.json. It does not change sessions yet.
 - **Swipe arrow pad on phone (experimental)**: a Settings toggle under Appearance swaps the four arrow keys for one pad you swipe on, sending one arrow per short drag.
 - **Release a session from its guardrails**: a Guardrails checkbox in each session's restart menu releases or restores that session's guardrails from the dashboard, phone included. After you confirm, the session restarts with the new setting, which is saved to that session only. A GitHub issue session opened from an unguarded session now starts guarded.
 

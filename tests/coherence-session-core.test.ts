@@ -6,11 +6,37 @@ import {
   buildCoherenceUserHooks,
   COHERENCE_HOOK_EVENTS,
   COHERENCE_POST_TOOL_USE_MATCHER,
+  decideCoherenceAttachment,
 } from '../server/core/coherence-session-core.ts';
 
 const nodePath = '/Program Files/node/node';
 const hookCliPath = '/installed packages/coherence/hook.js';
 const claudeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
+
+test('coherence attachment always includes Factory, excludes utility and gates writers and reviews on both prerequisites', () => {
+  const cases = [
+    ['factory', false, false, true],
+    ['factory', false, true, true],
+    ['factory', true, false, true],
+    ['factory', true, true, true],
+    ['utility', false, false, false],
+    ['utility', false, true, false],
+    ['utility', true, false, false],
+    ['utility', true, true, false],
+    ['writer', false, false, false],
+    ['writer', false, true, false],
+    ['writer', true, false, false],
+    ['writer', true, true, true],
+    ['review', false, false, false],
+    ['review', false, true, false],
+    ['review', true, false, false],
+    ['review', true, true, true],
+  ] as const;
+  for (const [sessionKind, isSettingOn, hasRepoConfig, expected] of cases) {
+    assert.equal(decideCoherenceAttachment({ sessionKind, isSettingOn, hasRepoConfig }), expected,
+      `${sessionKind}: setting=${isSettingOn}, config=${hasRepoConfig}`);
+  }
+});
 
 test('coherence hooks match its Claude bundle with a matcher only on PostToolUse', () => {
   const hooks = buildCoherenceUserHooks({ nodePath, hookCliPath });

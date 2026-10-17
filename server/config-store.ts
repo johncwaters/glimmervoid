@@ -552,6 +552,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       benchmarks: pickBlock('benchmarks', config.benchmarks),
       factory: pickBlock('factory', config.factory),
       knowledgeGraph: pickBlock('knowledgeGraph', config.knowledgeGraph),
+      coherence: pickBlock('coherence', config.coherence),
       workflows: config.workflows ?? null,
 
       posthog: pickBlock('posthog', config.posthog),
@@ -603,6 +604,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.benchmarks != null) config.benchmarks = newConfig.benchmarks;
     if (newConfig.factory != null) config.factory = newConfig.factory;
     if (newConfig.knowledgeGraph != null) config.knowledgeGraph = newConfig.knowledgeGraph;
+    if (newConfig.coherence != null) config.coherence = newConfig.coherence;
     if (newConfig.posthog != null) config.posthog = newConfig.posthog;
     if (newConfig.usage != null) config.usage = newConfig.usage;
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;

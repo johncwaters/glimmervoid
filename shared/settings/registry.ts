@@ -682,6 +682,20 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     ],
   },
   {
+    id: 'lanes-coherence',
+    level: 'lanes',
+    parent: LANES_SECTION_ID,
+    title: 'Coherence (experimental)',
+    description: 'Coherence decision journals, hooks and repository trends for agent sessions and review lanes.',
+    settings: [
+      {
+        id: 'coherence-enabled', path: 'coherence.enabled', title: 'Use Coherence in every session',
+        description: 'Saved for an upcoming release that runs Coherence in every session of a repository whose root holds coherence.config.json. Factory sessions always use Coherence. Off by default.',
+        control: 'toggle', keywords: ['experimental', 'coherence', 'journal', 'decisions'], defaultValue: false, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
     id: 'lanes-change-map',
     level: 'lanes',
     parent: LANES_SECTION_ID,
