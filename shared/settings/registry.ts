@@ -159,6 +159,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'toggle', keywords: ['usage', 'cost', 'tokens', 'card', 'price'], defaultValue: false, ...BROWSER_NOW,
       },
       {
+        id: 'phone-arrow-pad', path: 'pref:phoneArrowPad', title: 'Swipe arrow pad on phone (experimental)',
+        description: 'Replace the four arrow keys above the phone keyboard with one pad: swipe on it to send arrow keys, one per short drag.',
+        control: 'toggle', keywords: ['experimental', 'mobile', 'keys', 'arrows', 'swipe', 'gesture'], defaultValue: false, ...BROWSER_NOW,
+      },
+      {
         id: 'flying-animals', path: 'pref:flyingAnimalsEnabled', title: 'Flying animals',
         description: 'Show animated animals flying across the dashboard.',
         control: 'toggle', keywords: ['animation', 'motion', 'animals'], defaultValue: false, ...BROWSER_NOW,
