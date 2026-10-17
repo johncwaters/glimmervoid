@@ -15,22 +15,8 @@ pairings.json
 pairings-seen.json
 # Images uploaded from the phone (POST /upload/:sessionId). Same story, and a `git add -A` must never sweep them into a commit.
 uploads/
-# Leftover Long-Term Memory signing keys and projections must stay out of git.
-/memory/
-# Leftover Long-Term Memory sqlite databases must stay out of git.
-/glimmervoid.db
-/glimmervoid.db-wal
-/glimmervoid.db-shm
-.pty-capture/
-# Runtime output (team runs, post-turn checker telemetry, etc). Not a deliverable.
-# Excludes the project pack (.glimmervoid/pack/, .glimmervoid/teams/*/pack/), which AGENTS.md documents as committed.
-.glimmervoid/update/
-.glimmervoid/teams/*/runs/
-.glimmervoid/teams/*/log.md
-# Leftovers from a retired team id; the live teams are listed in teams/.
-.glimmervoid/teams/release-notes/
-# Local scratch repo used for integration testing; not part of the package.
-ita-test/
+# Update staging and backups written into the install folder by the in-place updater.
+.glimmervoid/
 # Browser harness output (screenshots and traces from a real Chromium run). Runtime output, not a deliverable.
 test/browser/artifacts/
 test/site-capture/out/
@@ -39,6 +25,3 @@ site/.astro/
 
 # compiled-commit runner scratch
 .compiled-commit-tmp/
-
-# Packaged VS Code extension artifact (tools/vscode-navigator); rebuilt by vsce, never committed
-*.vsix
