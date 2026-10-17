@@ -31,6 +31,10 @@ export type Step =
   | { kind: 'expect-face'; value: 'plan' | 'terminal'; viewer?: ViewerId }
   | { kind: 'expect-link'; value: 'live' | 'connecting'; viewer?: ViewerId }
   | { kind: 'click'; control: CardControl; viewer?: ViewerId }
+  | { kind: 'watch-terminal'; viewer?: ViewerId }
+  | { kind: 'expect-terminal-untouched'; durationMs: number; viewer?: ViewerId }
+  | { kind: 'expect-revealed'; viewer?: ViewerId }
+  | { kind: 'load-deep-history'; viewer?: ViewerId }
   | { kind: 'shot'; name: string; viewer?: ViewerId };
 
 export type ResolvedStep = Exclude<Step, { kind: 'resize-by' }>;
@@ -246,6 +250,30 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'resize-by', deltaHeight: 60 },
       { kind: 'settle' },
       { kind: 'shot', name: 'after-burst' },
+    ],
+  },
+  {
+    name: 'hidden-output-deep-history',
+    viewports: ['desktop-1280', 'phone-393'],
+    steps: [
+      { kind: 'open' },
+      { kind: 'settle' },
+      { kind: 'watch-terminal' },
+      { kind: 'background' },
+      { kind: 'type', text: 'history' },
+      { kind: 'type', text: 'history' },
+      { kind: 'type', text: 'history' },
+      { kind: 'type', text: 'history' },
+      { kind: 'type', text: 'frame' },
+      { kind: 'expect-terminal-untouched', durationMs: 1500 },
+      { kind: 'foreground' },
+      { kind: 'expect-revealed' },
+      { kind: 'load-deep-history' },
+      { kind: 'watch-terminal' },
+      { kind: 'background' },
+      { kind: 'wait', durationMs: 300 },
+      { kind: 'foreground' },
+      { kind: 'expect-terminal-untouched', durationMs: 1000 },
     ],
   },
   {

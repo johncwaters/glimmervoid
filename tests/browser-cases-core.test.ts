@@ -18,8 +18,8 @@ import {
 import type { HarnessCase, Scenario, Step, Viewport } from '../test/browser/cases-core.ts';
 import { BURST_CAP } from '../test/browser/frame-core.ts';
 
-const DEFAULT_CASE_COUNT = 65;
-const PROVE_FAILURE_CASE_COUNT = 67;
+const DEFAULT_CASE_COUNT = 67;
+const PROVE_FAILURE_CASE_COUNT = 69;
 
 function viewportNamed(name: string): Viewport {
   const found = VIEWPORTS.find((viewport) => viewport.name === name);
@@ -53,7 +53,7 @@ test('every scenario verifies its final state before the harness stops looking',
   for (const scenario of SCENARIOS) {
     const last = lastSteadyStep(scenario.steps);
     assert.ok(
-      last.kind === 'settle' || last.kind === 'assert-grid' || last.kind === 'assert-team-review' || last.kind === 'assert-issues' || last.kind === 'touch-scroll' || last.kind === 'assert-fit',
+      last.kind === 'settle' || last.kind === 'assert-grid' || last.kind === 'assert-team-review' || last.kind === 'assert-issues' || last.kind === 'touch-scroll' || last.kind === 'assert-fit' || last.kind === 'expect-terminal-untouched',
       `${scenario.name} ends on ${last.kind}, without verifying its final state`,
     );
   }
@@ -286,6 +286,7 @@ test('cases come out in viewport order then scenario order', () => {
     'two-viewers',
     'offline-online',
     'burst-during-resize',
+    'hidden-output-deep-history',
     'plan-face',
     'h1-desktop-first',
     'h2-companion-reconnect',
