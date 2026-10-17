@@ -207,6 +207,8 @@ interface SessionOptions {
   agent?: string;
   adapter?: AgentAdapter | null;
   bypassHookTrust?: boolean;
+  isMarkedUnguarded?: boolean;
+  isGuardrailsReleased?: boolean;
   isConversationViewEnabled?: (() => boolean) | null;
   isConversationViewSettingOn?: (() => boolean) | null;
   startCodexBridge?: typeof startCodexAppServerBridge;
@@ -278,6 +280,8 @@ class Session extends EventEmitter {
   agentId: string;
   usageVendor: string;
   bypassHookTrust: boolean;
+  isMarkedUnguarded: boolean;
+  isGuardrailsReleased: boolean;
   _isConversationViewEnabled: () => boolean;
   _startCodexBridge: typeof startCodexAppServerBridge;
   _codexBridge: CodexAppServerBridge | null;
@@ -381,6 +385,8 @@ class Session extends EventEmitter {
     adapter = null,
 
     bypassHookTrust = false,
+    isMarkedUnguarded = false,
+    isGuardrailsReleased = false,
     isConversationViewEnabled = null,
     isConversationViewSettingOn = null,
     startCodexBridge = startCodexAppServerBridge,
@@ -502,6 +508,8 @@ class Session extends EventEmitter {
 
     this.usageVendor = this._adapter.usageVendor || "claude";
     this.bypassHookTrust = bypassHookTrust === true;
+    this.isMarkedUnguarded = isMarkedUnguarded === true;
+    this.isGuardrailsReleased = isGuardrailsReleased === true;
     const isConversationViewConfigured = isConversationViewEnabled ?? (() => false);
     this._isConversationViewEnabled = () => isConversationViewConfigured() && !this.isConversationBridgeRefused();
     this._startCodexBridge = startCodexBridge;
@@ -1304,6 +1312,7 @@ class Session extends EventEmitter {
       isWorktree: this.isWorktree,
       isWorkspace: this.isWorkspace,
       isGuarded: this.isGuarded,
+      isGuardrailsReleased: this.isGuardrailsReleased,
       resumeSessionId: this._resumeSessionId,
       activeAgents: active,
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),

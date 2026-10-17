@@ -29,7 +29,7 @@ import { setRunningActivity } from './activity.ts';
 import { agentBadgeText } from './agent-core.ts';
 import { computeAggregate } from './aggregate-core.ts';
 import type { CardOptions } from './card-dom.ts';
-import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintTaskTitle, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
+import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintGuardrailsMenuItem, paintTaskTitle, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
 import { aggregateEl, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
 import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';
@@ -221,6 +221,29 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     sendControlMsg({ type: 'set-session-conversation-view', id: sessionId, isOn: !ui.isConversationViewOn });
   });
 
+  ui.btnGuardrails.addEventListener('click', () => {
+    closeRestartMenu(ui);
+    ui.btnRestartMenu.focus();
+    const sendGuardrails = (isOn: boolean) => () => sendControlMsg({ type: 'set-session-guardrails', id: sessionId, isOn });
+    if (ui.card.dataset.guarded === undefined) {
+      openConfirmDialog({
+        title: 'Restore guardrails',
+        message: 'This session restarts with guardrails on, interrupting any turn in progress.',
+        confirmLabel: 'Restore guardrails',
+        danger: false,
+        onConfirm: sendGuardrails(true),
+      });
+      return;
+    }
+    openConfirmDialog({
+      title: 'Release guardrails',
+      message: 'This session restarts without guardrails, interrupting any turn in progress. It can then read, write and reach anything your account can, including credentials and Glimmervoid itself.',
+      confirmLabel: 'Release guardrails',
+      danger: true,
+      onConfirm: sendGuardrails(false),
+    });
+  });
+
   ui.btnFaceTerminal.addEventListener('click', () => {
     ui.prefersConversation = false;
     ui._showTerminalFace?.();
@@ -263,7 +286,7 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     ui.btnRestartMenu.setAttribute('aria-expanded', String(isOpen));
   });
 
-  const menuItems = [ui.btnRestart, ui.btnRestartFresh, ui.btnResume, ui.btnWorkspaceRepos, ui.btnConversationView];
+  const menuItems = [ui.btnRestart, ui.btnRestartFresh, ui.btnResume, ui.btnWorkspaceRepos, ui.btnConversationView, ui.btnGuardrails];
   function moveMenuFocus(event: KeyboardEvent) {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     event.preventDefault();
@@ -445,6 +468,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnResume: dom.btnResume,
     btnWorkspaceRepos: dom.btnWorkspaceRepos,
     btnConversationView: dom.btnConversationView,
+    btnGuardrails: dom.btnGuardrails,
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
     faceSwitch: dom.faceSwitch,
@@ -599,11 +623,17 @@ export function setSessionWorktree(sessionId: unknown, worktree: unknown) {
   delete ui.card.dataset.worktree;
 }
 
-export function setSessionGuarded(sessionId: unknown, isGuarded: boolean) {
+export function setSessionGuarded(sessionId: unknown, isGuarded: boolean, isGuardrailsReleased: boolean) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
-  if (isGuarded) { ui.card.dataset.guarded = ''; return; }
-  delete ui.card.dataset.guarded;
+  toggleCardFlag(ui.card, 'guarded', isGuarded);
+  toggleCardFlag(ui.card, 'guardrailsReleased', isGuardrailsReleased);
+  paintGuardrailsMenuItem(ui.btnGuardrails, ui.card);
+}
+
+function toggleCardFlag(card: HTMLElement, datasetKey: string, isOn: boolean) {
+  if (isOn) { card.dataset[datasetKey] = ''; return; }
+  delete card.dataset[datasetKey];
 }
 
 function paintCardBadge(ui: SessionUi, selector: string, datasetKey: string, badgeState: { on: boolean; value?: string; text?: string; title?: string }) {

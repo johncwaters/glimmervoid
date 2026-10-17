@@ -50,6 +50,21 @@ test('a workspace whose repository list changed is recreated so its members are 
   assert.deepEqual(diff.modified.map((project) => project.id), ['project-1']);
 });
 
+test('releasing or restoring guardrails recreates the session so its launch is rebuilt', () => {
+  const released = diffProjects(
+    new Map([['project-1', liveSession()]]),
+    [declaredProject({ unguarded: true })],
+    dependenciesWithFingerprints(null, null),
+  );
+  const restored = diffProjects(
+    new Map([['project-1', liveSession({ isMarkedUnguarded: true })]]),
+    [declaredProject()],
+    dependenciesWithFingerprints(null, null),
+  );
+  assert.deepEqual(released.modified.map((project) => project.id), ['project-1']);
+  assert.deepEqual(restored.modified.map((project) => project.id), ['project-1']);
+});
+
 test('an unchanged custom agent declaration leaves its live session alone across a reload', () => {
   const fingerprint = '["opencode",["--yolo"],"idle","busy"]';
   const diff = diffProjects(

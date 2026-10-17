@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A Guardrails checkbox in each session's restart menu releases or restores that session's guardrails from the dashboard, phone included. After you confirm, the session restarts with the new setting, which is saved to that session only.
+
 ## [0.38.2] - 2026-10-17
 
 ### Fixed

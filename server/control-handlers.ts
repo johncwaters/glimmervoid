@@ -911,6 +911,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return config.projects.find((project) => project.id === projectId) ?? null;
   }
 
+  function canRestoreGuardrails(session: Session): boolean {
+    if (!session.isGuardrailsReleased) return false;
+    const project = findConfiguredProject(session.id);
+    if (!project) return false;
+    return willSessionRunGuarded({ ...project, unguarded: false }, config, null);
+  }
+
   const issueOpenQueue = createKeyedSerialQueue();
 
   async function handleIssueDetail(request: ClientMessageOf<'issue-detail'>, ws: ControlSocket): Promise<void> {
@@ -1434,6 +1441,25 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       });
       if (freshConfig) applyConfigReload(freshConfig);
       session.announceConversationView();
+    },
+    'set-session-guardrails': (message: ClientMessageOf<'set-session-guardrails'>, ws: ControlSocket) => {
+      const session = findSession(message);
+      if (!session) return sendError(ws, 'Session not found', { id: message.id, scope: 'guardrails' });
+      if (session.ephemeral) return sendError(ws, 'This session cannot change its guardrails', { id: session.id, scope: 'guardrails' });
+      if (message.isOn && !session.isGuarded && !canRestoreGuardrails(session)) return sendError(ws, 'Guardrails cannot cover this session, so restoring them would only restart it', { id: session.id, scope: 'guardrails' });
+      const freshConfig = configStore.save((config) => {
+        const project = config.projects.find((candidate) => candidate.id === session.id);
+        if (!project) return ABORT_CONFIG_SAVE;
+        if (message.isOn) {
+          delete project.unguarded;
+          return undefined;
+        }
+        project.unguarded = true;
+        return undefined;
+      });
+      if (!freshConfig) return sendError(ws, `Could not save session "${session.name}"`, { id: session.id, scope: 'guardrails' });
+      applyConfigReload(freshConfig);
+      console.log(`[control] Guardrails ${message.isOn ? 'restored' : 'released'} via UI: ${session.name}`);
     },
     'plan-decision':    (message: ClientMessageOf<'plan-decision'>, ws: ControlSocket) => {
       const requestedSessionId = String(message.id || '');
