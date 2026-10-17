@@ -10,7 +10,6 @@ import {
 import type { RuleConfig } from '../session/core/post-turn-rules.ts';
 import { runGit } from './git/git-exec.ts';
 import { errorMessage } from '../shared/text.ts';
-import { writeJsonAtomicSync } from './json-file.ts';
 
 const GIT_TIMEOUT_MS = 5000;
 
@@ -37,7 +36,6 @@ interface PostTurnCheckConfig {
   maxFileBytes: number;
   debounceMs: number;
   runOnExit: boolean;
-  reportDir: string;
 }
 
 interface PostTurnReport {
@@ -59,7 +57,6 @@ interface CheckConfigLayer {
   maxFileBytes?: unknown;
   debounceMs?: unknown;
   runOnExit?: unknown;
-  reportDir?: unknown;
   include?: unknown;
   exclude?: unknown;
   rules?: unknown;
@@ -97,7 +94,6 @@ const DEFAULTS = Object.freeze({
   maxFileBytes: 524288,
   debounceMs: 1500,
   runOnExit: false,
-  reportDir: '.glimmervoid/post-turn',
 });
 
 interface MutableCheckConfig {
@@ -110,7 +106,6 @@ interface MutableCheckConfig {
   maxFileBytes: number;
   debounceMs: number;
   runOnExit: unknown;
-  reportDir: string;
 }
 
 function explicitMode(mode: unknown): 'fix' | 'report' {
@@ -127,7 +122,7 @@ function normalizeRule(val: unknown, topMode: string): RuleConfig {
   return { enabled: true, mode: topMode };
 }
 
-const SCALAR_KEYS = ['enabled', 'mode', 'maxFiles', 'maxFileBytes', 'debounceMs', 'runOnExit', 'reportDir'] as const;
+const SCALAR_KEYS = ['enabled', 'mode', 'maxFiles', 'maxFileBytes', 'debounceMs', 'runOnExit'] as const;
 
 function resolveCheckConfig(globalCfg?: unknown, projectCfg?: unknown): PostTurnCheckConfig {
   const base = JSON.parse(JSON.stringify(DEFAULTS)) as MutableCheckConfig;
@@ -157,7 +152,6 @@ function resolveCheckConfig(globalCfg?: unknown, projectCfg?: unknown): PostTurn
     maxFileBytes: base.maxFileBytes,
     debounceMs: base.debounceMs,
     runOnExit: !!base.runOnExit,
-    reportDir: base.reportDir,
   };
 }
 
@@ -195,12 +189,10 @@ async function listChangedFiles(root: string): Promise<string[]> {
 async function runPostTurnChecks({
   cwd,
   config,
-  sessionId,
   deps = {},
 }: {
   cwd?: string;
   config?: PostTurnCheckConfig | null;
-  sessionId?: string;
   deps?: PostTurnDependencies;
 } = {}): Promise<PostTurnReport> {
   const started = Date.now();
@@ -296,19 +288,7 @@ async function runPostTurnChecks({
     }
   }
 
-  const finalReport = done();
-
-  if (sessionId) {
-    try {
-      const dir = path.join(root, cfg.reportDir);
-      fs.mkdirSync(dir, { recursive: true });
-      const safe = String(sessionId).replace(/[^a-zA-Z0-9_.-]/g, '_');
-      writeJsonAtomicSync(path.join(dir, `${safe}.json`), finalReport);
-    } catch {
-    }
-  }
-
-  return finalReport;
+  return done();
 }
 
 export { gitRoot, listChangedFiles, resolveCheckConfig, runPostTurnChecks };

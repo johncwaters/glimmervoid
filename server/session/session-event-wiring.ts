@@ -198,7 +198,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         postTurnDebounce = null;
         const runConfig = resolvePostTurn();
         if (!runConfig?.enabled) return;
-        runPostTurnChecks({ cwd: session.effectiveCwd(), config: runConfig, sessionId: session.id })
+        runPostTurnChecks({ cwd: session.effectiveCwd(), config: runConfig })
           .then((report) => {
             dependencies.broadcastControl({
               type: 'post-turn-result',

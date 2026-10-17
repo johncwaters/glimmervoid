@@ -24,7 +24,6 @@ uploads/
 .pty-capture/
 # Runtime output (team runs, post-turn checker telemetry, etc). Not a deliverable.
 # Excludes the project pack (.glimmervoid/pack/, .glimmervoid/teams/*/pack/), which AGENTS.md documents as committed.
-.glimmervoid/post-turn/
 .glimmervoid/update/
 .glimmervoid/teams/*/runs/
 .glimmervoid/teams/*/log.md
