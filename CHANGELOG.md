@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Deeper scrollback after a reload**: a terminal reopened from the server, after a page reload, on the phone, or when you open a card that was hidden, used to start with only its last 500 lines. Scrolling to the top now loads up to 5000 lines once, and the line you were reading stays where it was.
+
 ### Removed
 
 - **Settings that never did anything**: the file-only settings `autoRecoverSeconds`, `inputGraceSeconds` and `promptDetectionMs` are gone from the settings reference, since nothing read them. A value already in your `config.json` is ignored, as it always was.
