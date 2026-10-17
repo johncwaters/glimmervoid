@@ -43,6 +43,10 @@ interface ProbedTerminal {
   rows: number;
   buffer: { active: ProbedBuffer };
   element?: HTMLElement;
+  write(data: string | Uint8Array, callback?: () => void): void;
+  scrollToTop(): void;
+  harnessWriteCount?: number;
+  harnessIsWriteCounted?: boolean;
 }
 
 interface ProbedSessionUi {
@@ -52,7 +56,7 @@ interface ProbedSessionUi {
   } | null;
   term?: ProbedTerminal | null;
   ptySize?: { cols: number; rows: number } | null;
-  dataWs?: { readyState: number; close(): void } | null;
+  dataWs?: { readyState: number; close(): void; harnessIsWatched?: boolean } | null;
   card?: { dataset: { grid?: string; face?: string; link?: string } } | null;
 }
 
@@ -105,6 +109,57 @@ export async function dropDataSocket({ sessionId, registryUrl }: ReadGridRequest
   if (!socket) return false;
   socket.close();
   return true;
+}
+
+export interface TopOfScrollbackReading {
+  topLine: string;
+  linesFromBottom: number;
+  bufferLength: number;
+}
+
+export interface TerminalWatchReading {
+  writeCount: number;
+  isSameDataSocket: boolean;
+}
+
+export async function watchTerminal({ sessionId, registryUrl }: ReadGridRequest): Promise<boolean> {
+  const imported = await import(registryUrl) as { sessionUIs: Map<string, ProbedSessionUi> };
+  const sessionUi = imported.sessionUIs.get(sessionId);
+  const term = sessionUi?.term;
+  const socket = sessionUi?.dataWs;
+  if (!term || !socket) return false;
+  if (!term.harnessIsWriteCounted) {
+    const writeToTerminal = term.write.bind(term);
+    term.write = (data, callback) => {
+      term.harnessWriteCount = (term.harnessWriteCount ?? 0) + 1;
+      writeToTerminal(data, callback);
+    };
+    term.harnessIsWriteCounted = true;
+  }
+  term.harnessWriteCount = 0;
+  socket.harnessIsWatched = true;
+  return true;
+}
+
+export async function readTerminalWatch({ sessionId, registryUrl }: ReadGridRequest): Promise<TerminalWatchReading | null> {
+  const imported = await import(registryUrl) as { sessionUIs: Map<string, ProbedSessionUi> };
+  const sessionUi = imported.sessionUIs.get(sessionId);
+  const term = sessionUi?.term;
+  if (!term) return null;
+  return { writeCount: term.harnessWriteCount ?? 0, isSameDataSocket: sessionUi?.dataWs?.harnessIsWatched === true };
+}
+
+export async function scrollTerminalToTop({ sessionId, registryUrl }: ReadGridRequest): Promise<TopOfScrollbackReading | null> {
+  const imported = await import(registryUrl) as { sessionUIs: Map<string, ProbedSessionUi> };
+  const term = imported.sessionUIs.get(sessionId)?.term;
+  if (!term) return null;
+  term.scrollToTop();
+  const buffer = term.buffer.active;
+  return {
+    topLine: buffer.getLine(buffer.viewportY)?.translateToString(true) ?? '',
+    linesFromBottom: buffer.length - buffer.viewportY,
+    bufferLength: buffer.length,
+  };
 }
 
 export async function setFitMeasurement({ sessionId, registryUrl, available }: ReadGridRequest & { available: boolean }): Promise<boolean> {

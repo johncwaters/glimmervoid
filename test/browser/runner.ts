@@ -3,13 +3,14 @@ import path from 'node:path';
 
 import type { Browser, BrowserContext, ConsoleMessage, Page, WebSocketRoute } from 'playwright-core';
 
+import { SCREEN_KEEPER_ATTACH_SCROLLBACK } from '../../session/core/screen-keeper-core.ts';
 import { safeTextTail } from '../support/backend-harness.ts';
 import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.ts';
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
 import { expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyIssues } from './issues.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
-import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, pillIds, readDocumentEngagement, readGrid, readLayout, readTerminalFocus, setDocumentEngagement, setFitMeasurement } from './probe.ts';
+import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, pillIds, readDocumentEngagement, readGrid, readLayout, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
 import type { GridReading } from './probe.ts';
 import { caseKey } from './report-core.ts';
 import type { CaseRecord, GridSnapshot, Outcome, StepRecord } from './report-core.ts';
@@ -76,6 +77,7 @@ interface ProbeResult {
   reading?: GridReading | null;
   mismatch?: RowMismatch | null;
   tick?: number | null;
+  isDrawingDeferred?: boolean;
 }
 
 interface PollResult {
@@ -180,6 +182,7 @@ function describeStep(step: Step): string {
   if (step.kind === 'expect-face') return `expect-face ${step.value}`;
   if (step.kind === 'expect-link') return `expect-link ${step.value}`;
   if (step.kind === 'click') return `click ${step.control}`;
+  if (step.kind === 'expect-terminal-untouched') return `expect-terminal-untouched ${step.durationMs}ms`;
   if (step.kind === 'shot') return `shot ${step.name}`;
   return step.kind;
 }
@@ -263,6 +266,10 @@ async function probeSettled(
   }
   if (reading.dataGrid !== expectGrid) {
     return { ok: false, reading, detail: `data-grid is ${String(reading.dataGrid)}, wanted ${expectGrid}` };
+  }
+  const engagement = await viewer.page.evaluate(readDocumentEngagement);
+  if (engagement.visibilityState === 'hidden') {
+    return { ok: true, reading, isDrawingDeferred: true, detail: `settled at ${reading.cols}x${reading.rows} while hidden, drawing deferred until shown` };
   }
   if (reading.bufferLength !== reading.rows) {
     return { ok: false, reading, detail: `buffer holds ${reading.bufferLength} lines for ${reading.rows} rows` };
@@ -504,7 +511,7 @@ async function runSettle(
       heldKey = '';
       return attempt;
     }
-    if (tickMustExceed !== null && (attempt.tick ?? -1) <= tickMustExceed) {
+    if (tickMustExceed !== null && !attempt.isDrawingDeferred && (attempt.tick ?? -1) <= tickMustExceed) {
       heldKey = '';
       return { ...attempt, ok: false, detail: `${attempt.detail}, still at or below the pre burst tick ${tickMustExceed}` };
     }
@@ -525,6 +532,70 @@ async function runSettle(
   const mismatch = settled.last?.mismatch ?? null;
   const diffPath = mismatch ? writeDiffFile(artifacts, key, mismatch, settled.detail) : null;
   return { ok: false, predicate: 'grid-fixpoint', detail: settled.detail, grid, shot: null, mismatch, diffPath };
+}
+
+async function runWatchTerminal(viewer: Viewer, sessionId: string, tickAtWatchByViewer: Map<ViewerId, number>): Promise<StepOutcome> {
+  const isWatched = await viewer.page.evaluate(watchTerminal, { sessionId, registryUrl: CARD_REGISTRY_URL });
+  if (!isWatched) return failedOutcome('terminal-watched', 'the card has no terminal or data socket to watch');
+  const tick = await readTick(viewer, sessionId);
+  tickAtWatchByViewer.delete(viewer.id);
+  if (tick !== null) tickAtWatchByViewer.set(viewer.id, tick);
+  return passedOutcome('terminal-watched', `write count reset at tick ${String(tick)}`);
+}
+
+async function runExpectTerminalUntouched(viewer: Viewer, sessionId: string, durationMs: number): Promise<StepOutcome> {
+  await sleep(durationMs);
+  const watch = await viewer.page.evaluate(readTerminalWatch, { sessionId, registryUrl: CARD_REGISTRY_URL });
+  if (!watch) return failedOutcome('terminal-untouched', 'the card has no terminal');
+  const detail = `${watch.writeCount} terminal writes over ${durationMs}ms, data socket ${watch.isSameDataSocket ? 'kept' : 'replaced'}`;
+  if (watch.writeCount !== 0 || !watch.isSameDataSocket) return failedOutcome('terminal-untouched', detail);
+  return passedOutcome('terminal-untouched', detail);
+}
+
+async function runExpectRevealed(viewer: Viewer, sessionId: string, tickAtWatch: number | null, deadlines: Deadlines): Promise<StepOutcome> {
+  if (tickAtWatch === null) return failedOutcome('reveal-baseline', 'no tick was recorded when the terminal was watched');
+  const revealed = await pollUntil(async () => {
+    const reading = await readGridOf(viewer, sessionId);
+    if (!reading) return { ok: false, detail: 'the session card carries no terminal yet', reading: null };
+    if (reading.link !== 'live') return { ok: false, reading, detail: `data-link is ${String(reading.link)}, wanted live` };
+    const status = parseStatusRow(reading.lines[reading.rows - 1] ?? '');
+    if (!status) return { ok: false, reading, detail: 'last row carries no status' };
+    if (status.tick <= tickAtWatch) {
+      return { ok: false, reading, tick: status.tick, detail: `screen still shows tick ${status.tick}, painted at or before the hidden output` };
+    }
+    const mismatch = firstMismatch(expectedRows(reading.cols, reading.rows, status.tick), reading.lines);
+    if (mismatch) return { ok: false, reading, tick: status.tick, mismatch, detail: `row ${mismatch.index} differs from the ruler frame` };
+    const scrollbackLines = reading.bufferLength - reading.rows;
+    if (scrollbackLines <= 0 || scrollbackLines > SCREEN_KEEPER_ATTACH_SCROLLBACK) {
+      return { ok: false, reading, tick: status.tick, detail: `scrollback holds ${scrollbackLines} lines, wanted 1 to ${SCREEN_KEEPER_ATTACH_SCROLLBACK}` };
+    }
+    return { ok: true, reading, tick: status.tick, detail: `current at tick ${status.tick} with ${scrollbackLines} lines of scrollback` };
+  }, { label: `reveal for viewer ${viewer.id}`, timeoutMs: deadlines.settleMs, intervalMs: deadlines.pollIntervalMs });
+  return outcomeFor('revealed-current', revealed);
+}
+
+async function runLoadDeepHistory(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
+  const top = await viewer.page.evaluate(scrollTerminalToTop, { sessionId, registryUrl: CARD_REGISTRY_URL });
+  if (!top) return failedOutcome('deep-history-loaded', 'the card has no terminal to scroll');
+  const loaded = await pollUntil(async () => {
+    const reading = await readGridOf(viewer, sessionId);
+    if (!reading) return { ok: false, detail: 'the session card carries no terminal yet', reading: null };
+    if (reading.link !== 'live') return { ok: false, reading, detail: `data-link is ${String(reading.link)}, wanted live` };
+    if (reading.bufferLength <= top.bufferLength) {
+      return { ok: false, reading, detail: `buffer holds ${reading.bufferLength} lines, no deeper than the ${top.bufferLength} at the top` };
+    }
+    const linesFromBottom = reading.bufferLength - reading.viewportY;
+    const topLine = reading.lines[0] ?? '';
+    if (topLine !== top.topLine || linesFromBottom !== top.linesFromBottom) {
+      return {
+        ok: false,
+        reading,
+        detail: `top row ${JSON.stringify(topLine)} sits ${linesFromBottom} lines from the bottom, wanted ${JSON.stringify(top.topLine)} at ${top.linesFromBottom}`,
+      };
+    }
+    return { ok: true, reading, detail: `${reading.bufferLength} lines after ${top.bufferLength}, top row held its place` };
+  }, { label: `deep history for viewer ${viewer.id}`, timeoutMs: deadlines.settleMs, intervalMs: deadlines.pollIntervalMs });
+  return outcomeFor('deep-history-loaded', loaded);
 }
 
 async function runAssertGrid(
@@ -747,6 +818,7 @@ export async function runCase({
   };
 
   const tickToPassAtNextSettleByViewer = new Map<ViewerId, number>();
+  const tickAtWatchByViewer = new Map<ViewerId, number>();
   const rememberedGridByKey = new Map<string, RememberedGrid>();
 
   const runStep = async (step: ResolvedStep): Promise<StepOutcome> => {
@@ -811,6 +883,10 @@ export async function runCase({
     if (step.kind === 'expect-face') return runExpectFace(viewer, sessionId, step.value, deadlines);
     if (step.kind === 'expect-link') return runExpectLink(viewer, sessionId, step.value, deadlines);
     if (step.kind === 'click') return runClick(viewer, step.control, deadlines);
+    if (step.kind === 'watch-terminal') return runWatchTerminal(viewer, sessionId, tickAtWatchByViewer);
+    if (step.kind === 'expect-terminal-untouched') return runExpectTerminalUntouched(viewer, sessionId, step.durationMs);
+    if (step.kind === 'expect-revealed') return runExpectRevealed(viewer, sessionId, tickAtWatchByViewer.get(viewer.id) ?? null, deadlines);
+    if (step.kind === 'load-deep-history') return runLoadDeepHistory(viewer, sessionId, deadlines);
     const shot = await takeShot(viewer, artifacts, key, step.name);
     if (shot.shot) shots.push(shot.shot);
     return shot;
