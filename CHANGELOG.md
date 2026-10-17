@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Hidden terminals stop drawing**: a session card you are not looking at, one showing its plan or conversation instead of its terminal, and every card while the dashboard tab is in the background, no longer draws incoming terminal output. With many busy sessions this was about a third of the tab's work. The rail's working pulse still beats for those sessions, and when you open one that produced output while hidden it reloads its current screen with the last 500 lines of scrollback.
 - **Lighter usage scan at turn end**: when a session finishes a turn, usage tracking now rescans only that session's own transcript folder instead of every Claude project, removing a burst of about 200 ms of CPU per turn on large histories. The full scan every 5 minutes is unchanged.
 - **Quieter background polling**: session trace polling no longer reopens unchanged transcripts every 2 seconds, and the factory no longer runs git every 10 seconds to look for a coherence config while a project's integration branch has not moved.
 - **Faster hook relays**: the hook relays for Codex and Grok sessions, the statusline refresh and the session start relay each start about 19 ms sooner, so every supervised turn reports back faster.

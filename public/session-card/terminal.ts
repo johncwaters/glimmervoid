@@ -15,7 +15,8 @@ import { clearPageToken, loadPageToken, withPageToken } from '../ws-token.ts';
 import { noteSessionOutput } from './activity.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
 import type { DataFrameState, TerminalGrid } from './grid-core.ts';
-import { decideGridActions, decideGridEngagementEdge, retainGridClaimForReconnect, isFollowingGrid, isViewerEngaged, readDataFrame } from './grid-core.ts';
+import { decideGridActions, decideGridEngagementEdge, retainGridClaimForReconnect, isCardTerminalHidden, isFollowingGrid, isViewerEngaged, readDataFrame } from './grid-core.ts';
+import { uiState } from '../ui-state-core.ts';
 import {
   bytesForBackwardDeletion,
   bytesForSoftKeyboardEdit,
@@ -61,6 +62,30 @@ function isViewerEngagedAt(card: HTMLElement) {
     isPhoneLayout: isPhoneLayout(),
   });
 }
+
+function isCardTerminalHiddenNow(ui: SessionUi, sessionId: string) {
+  return isCardTerminalHidden({
+    isDocumentVisible: document.visibilityState === 'visible',
+    isBorrowedCard: uiState.snapshot().borrowedCardId === sessionId,
+    isTerminalFaceShown: ui.face === 'terminal',
+  });
+}
+
+function reattachIfMissedWhileHidden(ui: SessionUi, sessionId: string) {
+  if (!ui._hasMissedOutputWhileHidden) return;
+  if (isCardTerminalHiddenNow(ui, sessionId)) return;
+  ui._hasMissedOutputWhileHidden = false;
+  reconnectDataWs(sessionId);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  const borrowedCardId = uiState.snapshot().borrowedCardId;
+  if (!borrowedCardId) return;
+  const borrowedUi = sessionUIs.get(borrowedCardId);
+  if (!borrowedUi) return;
+  reattachIfMissedWhileHidden(borrowedUi, borrowedCardId);
+});
 
 function decodeOsc52Payload(b64: string) {
   const bin = atob(b64);
@@ -166,10 +191,15 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     const frame = readDataFrame(event.data, frameState);
     if (frame.kind === 'bytes') {
       noteSessionOutput(ui);
+      if (isCardTerminalHiddenNow(ui, sessionId)) {
+        ui._hasMissedOutputWhileHidden = true;
+        return;
+      }
       renderScheduler.enqueue(sessionId, frame.data);
       return;
     }
     if (frame.kind === 'attach-size') {
+      ui._hasMissedOutputWhileHidden = false;
       frameState.hasSeenSize = true;
       frameState.lastSeq = frame.seq;
       term.reset();
@@ -590,6 +620,7 @@ export function syncGridOnEngagementEdge(ui: SessionUi | null | undefined) {
 export function ensureTerminalReady(ui: SessionUi | null | undefined, sessionId: string) {
   if (!ui) return;
   ensureTerminalSetup(ui, sessionId);
+  reattachIfMissedWhileHidden(ui, sessionId);
   reacquireWebglIfStale(ui);
   const term = ui.term;
   if (!term) return;
