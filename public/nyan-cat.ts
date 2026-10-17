@@ -20,7 +20,7 @@ function updateFlightGeometry() {
     viewportHeightPx: document.documentElement.clientHeight,
     verticalProgress,
   });
-  setStyleProperties(flightElement, nyanFlightStyleProperties(geometry, flightScale));
+  setStyleProperties(flightElement, nyanFlightStyleProperties(geometry, flightScale, window.devicePixelRatio));
 }
 
 function clearScheduledFlight() {

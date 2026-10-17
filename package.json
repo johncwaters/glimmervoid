@@ -70,7 +70,8 @@
     "postinstall": "node scripts/postinstall.mjs",
     "prepare": "node scripts/prepare-build.js",
     "release": "node scripts/release.ts",
-    "docs:config": "node scripts/generate-config-docs.ts"
+    "docs:config": "node scripts/generate-config-docs.ts",
+    "animals:build": "node scripts/generate-animal-sprites.ts"
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.79",

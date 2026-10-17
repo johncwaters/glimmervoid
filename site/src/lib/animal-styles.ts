@@ -2,9 +2,10 @@ const DASHBOARD_FLIGHT_SCOPE = ':root[data-flying-animals="true"] .nyan';
 const SITE_FLIGHT_SCOPE = '.sky .nyan';
 const FIRST_ANIMAL_RULE = `${DASHBOARD_FLIGHT_SCOPE}-flight {`;
 const REDUCED_MOTION_OPENER = '@media (prefers-reduced-motion: reduce) {';
+const ANIMAL_SPRITE_URL = /url\("\.\/animals\/([a-z0-9-]+\.png)"\)/g;
 const PHONE_ONLY_RULE = /html\[data-layout="phone"\]\[data-flying-animals="true"\] \.nyan-flight \{[^}]*\}\n/g;
 
-export function extractAnimalStyles(dashboardStylesheet: string): string {
+export function extractAnimalStyles(dashboardStylesheet: string, spriteUrlsByFileName: Readonly<Record<string, string>>): string {
   const lines = dashboardStylesheet.split('\n');
   const firstLineIndex = lines.indexOf(FIRST_ANIMAL_RULE);
   if (firstLineIndex < 0) throw new Error(`public/style.css no longer has the line: ${FIRST_ANIMAL_RULE}`);
@@ -16,5 +17,10 @@ export function extractAnimalStyles(dashboardStylesheet: string): string {
     .slice(firstLineIndex, endLineIndex)
     .join('\n')
     .replaceAll(DASHBOARD_FLIGHT_SCOPE, SITE_FLIGHT_SCOPE)
-    .replace(PHONE_ONLY_RULE, '');
+    .replace(PHONE_ONLY_RULE, '')
+    .replace(ANIMAL_SPRITE_URL, (_, fileName: string) => {
+      const spriteUrl = spriteUrlsByFileName[fileName];
+      if (!spriteUrl) throw new Error(`public/animals/${fileName} is referenced by public/style.css but was not bundled`);
+      return `url("${spriteUrl}")`;
+    });
 }

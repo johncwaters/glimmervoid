@@ -1,0 +1,28 @@
+a #ff0000
+b #ff9900
+c #ffff00
+d #33ff00
+e #0099ff
+f #6633ff
+
+aaaaaaaa........
+aaaaaaaa........
+aaaaaaaa........
+bbbbbbbbaaaaaaaa
+bbbbbbbbaaaaaaaa
+bbbbbbbbaaaaaaaa
+ccccccccbbbbbbbb
+ccccccccbbbbbbbb
+ccccccccbbbbbbbb
+ddddddddcccccccc
+ddddddddcccccccc
+ddddddddcccccccc
+eeeeeeeedddddddd
+eeeeeeeedddddddd
+eeeeeeeedddddddd
+ffffffffeeeeeeee
+ffffffffeeeeeeee
+ffffffffeeeeeeee
+........ffffffff
+........ffffffff
+........ffffffff

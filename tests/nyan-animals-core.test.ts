@@ -52,13 +52,14 @@ test('deriveNyanGeometry: keeps vertical placement relative to the viewport acro
   assert.equal(wideGeometry.topPx / 900, narrowGeometry.topPx / 640);
 });
 
-test('nyanFlightStyleProperties: maps geometry onto the six nyan-fly custom properties', () => {
-  const geometry = { scale: 0.5, spriteWidthPx: 61.2, spriteHeightPx: 37.8, topPx: 120, startXpx: -648, endXpx: 2088 };
-  assert.deepEqual(nyanFlightStyleProperties(geometry, 1.5), [
+test('nyanFlightStyleProperties: maps geometry onto the six nyan-fly custom properties, snapping scale to whole device pixels', () => {
+  const geometry = { scale: 0.5, spriteWidthPx: 68, spriteHeightPx: 42, topPx: 120, startXpx: -648, endXpx: 2088 };
+  assert.deepEqual(new Map(nyanFlightStyleProperties(geometry, 1.5, 1.25)).get('--nyan-scale'), '0.8');
+  assert.deepEqual(nyanFlightStyleProperties(geometry, 1.5, 1), [
     ['--nyan-top', '120px'],
-    ['--nyan-scale', '0.75'],
-    ['--nyan-width', '61.2px'],
-    ['--nyan-height', '37.8px'],
+    ['--nyan-scale', '1'],
+    ['--nyan-width', '68px'],
+    ['--nyan-height', '42px'],
     ['--nyan-start-x', '-648px'],
     ['--nyan-end-x', '2088px'],
   ]);
@@ -93,7 +94,7 @@ test('the flight box comes from the geometry core, not stylesheet literals', () 
   assert.match(backgroundSize, /var\(--nyan-height\)/);
   assert.match(readDeclaration(nyanFrames[0], 'to', 'background-position-x'), /var\(--nyan-width\)/);
   const nyanSections = readNyanSections(css);
-  for (const literal of ['61.2px', '37.8px', '367.2px']) {
+  for (const literal of ['68px', '408px']) {
     assert.equal(nyanSections.includes(literal), false, `stylesheet literal ${literal} should come from the geometry core`);
   }
 });

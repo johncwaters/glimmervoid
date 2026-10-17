@@ -1,5 +1,5 @@
-const DESKTOP_SPRITE_WIDTH_PX = 61.2;
-const DESKTOP_SPRITE_HEIGHT_PX = 37.8;
+const SPRITE_FRAME_WIDTH_PX = 68;
+const SPRITE_FRAME_HEIGHT_PX = 42;
 const NARROW_VIEWPORT_WIDTH_PX = 768;
 const MIN_NARROW_SCALE = 0.68;
 const MIN_TOP_PX = 64;
@@ -24,8 +24,8 @@ export function deriveNyanGeometry({
 
   return {
     scale,
-    spriteWidthPx: DESKTOP_SPRITE_WIDTH_PX,
-    spriteHeightPx: DESKTOP_SPRITE_HEIGHT_PX,
+    spriteWidthPx: SPRITE_FRAME_WIDTH_PX,
+    spriteHeightPx: SPRITE_FRAME_HEIGHT_PX,
     topPx: Math.max(requestedTopPx, MIN_TOP_PX),
     startXpx: -0.45 * viewportWidthPx,
     endXpx: 1.45 * viewportWidthPx,
@@ -34,10 +34,16 @@ export function deriveNyanGeometry({
 
 type NyanGeometry = ReturnType<typeof deriveNyanGeometry>;
 
-export function nyanFlightStyleProperties(geometry: NyanGeometry, scaleMultiplier: number): Array<readonly [string, string]> {
+function snapPixelArtScale(requestedScale: number, devicePixelRatio: number): number {
+  const deviceScale = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  const devicePixelsPerArtPixel = Math.max(1, Math.round(requestedScale * deviceScale));
+  return devicePixelsPerArtPixel / deviceScale;
+}
+
+export function nyanFlightStyleProperties(geometry: NyanGeometry, scaleMultiplier: number, devicePixelRatio: number): Array<readonly [string, string]> {
   return [
     ['--nyan-top', `${geometry.topPx}px`],
-    ['--nyan-scale', String(geometry.scale * scaleMultiplier)],
+    ['--nyan-scale', String(snapPixelArtScale(geometry.scale * scaleMultiplier, devicePixelRatio))],
     ['--nyan-width', `${geometry.spriteWidthPx}px`],
     ['--nyan-height', `${geometry.spriteHeightPx}px`],
     ['--nyan-start-x', `${geometry.startXpx}px`],

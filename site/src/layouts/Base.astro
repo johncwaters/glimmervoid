@@ -23,7 +23,9 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site).href;
 const socialImageUrl = new URL(sitePath(socialImagePath), Astro.site).href;
 
 const dashboardTokens = extractDashboardTokens(dashboardStylesheet);
-const animalStyles = extractAnimalStyles(dashboardStylesheet);
+const animalSpriteUrlsByPath = import.meta.glob<string>('../../../public/animals/*.png', { eager: true, query: '?url', import: 'default' });
+const animalSpriteUrlsByFileName = Object.fromEntries(Object.entries(animalSpriteUrlsByPath).map(([spritePath, spriteUrl]) => [spritePath.split('/').at(-1) ?? spritePath, spriteUrl]));
+const animalStyles = extractAnimalStyles(dashboardStylesheet, animalSpriteUrlsByFileName);
 const celebrationStyles = extractCelebrationStyles(dashboardStylesheet);
 ---
 <html lang="en">

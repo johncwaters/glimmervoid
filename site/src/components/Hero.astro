@@ -165,7 +165,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
       flight.append(createElement('div', `nyan-trail ${trail}`), createElement('div', `nyan-sprite ${sprite}`));
       const geometry = deriveNyanGeometry({ viewportWidthPx: sky.clientWidth, viewportHeightPx: sky.clientHeight, verticalProgress: 0 });
       const skyGeometry = { ...geometry, scale: 1, topPx: 20 + Math.random() * 120 };
-      for (const [propertyName, value] of nyanFlightStyleProperties(skyGeometry, 1)) flight.style.setProperty(propertyName, value);
+      for (const [propertyName, value] of nyanFlightStyleProperties(skyGeometry, 1, window.devicePixelRatio)) flight.style.setProperty(propertyName, value);
       flight.style.top = 'var(--nyan-top)';
       flight.style.left = '0';
       flight.style.width = 'var(--nyan-width)';

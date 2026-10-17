@@ -8,9 +8,14 @@ import { extractDashboardTokens } from '../site/src/lib/dashboard-tokens.ts';
 
 const REPO_ROOT = path.join(import.meta.dirname, '..');
 const dashboardStylesheet = fs.readFileSync(path.join(REPO_ROOT, 'public', 'style.css'), 'utf8');
+const bundledSpriteUrlsByFileName = Object.fromEntries(
+  fs.readdirSync(path.join(REPO_ROOT, 'public', 'animals')).filter((fileName) => fileName.endsWith('.png')).map((fileName) => [fileName, `/_astro/${fileName}`]),
+);
 
 test('the dashboard stylesheet still yields the flying animal styles, rescoped to the site sky', () => {
-  const animalStyles = extractAnimalStyles(dashboardStylesheet);
+  const animalStyles = extractAnimalStyles(dashboardStylesheet, bundledSpriteUrlsByFileName);
+  assert.ok(animalStyles.includes('url("/_astro/sprite-cat.png")'));
+  assert.equal(animalStyles.includes('./animals/'), false);
   assert.ok(animalStyles.startsWith('.sky .nyan-flight {'));
   assert.ok(animalStyles.includes('@keyframes'));
   assert.equal(animalStyles.includes('data-flying-animals'), false);
@@ -18,7 +23,7 @@ test('the dashboard stylesheet still yields the flying animal styles, rescoped t
 });
 
 test('a stylesheet without the flying animals block is refused', () => {
-  assert.throws(() => extractAnimalStyles('body { color: red; }'), /no longer has the line/);
+  assert.throws(() => extractAnimalStyles('body { color: red; }', bundledSpriteUrlsByFileName), /no longer has the line/);
 });
 
 const SITE_VISUAL_TOKENS = [
