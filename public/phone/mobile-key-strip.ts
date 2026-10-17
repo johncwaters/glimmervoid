@@ -79,20 +79,27 @@ function createArrowPad(send: (data: string | null | undefined) => void) {
   pad.type = 'button';
   pad.title = 'Swipe to send arrow keys';
   let dragOrigin: { x: number; y: number } | null = null;
+  let activePointerId: number | null = null;
 
   pad.addEventListener('pointerdown', (event) => {
     event.preventDefault();
+    if (activePointerId !== null) return;
     pad.setPointerCapture(event.pointerId);
+    activePointerId = event.pointerId;
     dragOrigin = { x: event.clientX, y: event.clientY };
   });
   pad.addEventListener('pointermove', (event) => {
-    if (!dragOrigin) return;
+    if (event.pointerId !== activePointerId || !dragOrigin) return;
     const arrowSteps = arrowStepsForDrag(event.clientX - dragOrigin.x, event.clientY - dragOrigin.y);
     if (!arrowSteps) return;
     for (let step = 0; step < arrowSteps.stepCount; step++) send(mobileKeyBytes(arrowSteps.arrowKeyId));
     dragOrigin = { x: dragOrigin.x + arrowSteps.consumedX, y: dragOrigin.y + arrowSteps.consumedY };
   });
-  const endDrag = () => { dragOrigin = null; };
+  const endDrag = (event: PointerEvent) => {
+    if (event.pointerId !== activePointerId) return;
+    activePointerId = null;
+    dragOrigin = null;
+  };
   pad.addEventListener('pointerup', endDrag);
   pad.addEventListener('pointercancel', endDrag);
   return pad;

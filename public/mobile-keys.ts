@@ -56,7 +56,7 @@ export function arrowStepsForDrag(deltaX: number, deltaY: number, stepPx: number
   return {
     arrowKeyId,
     stepCount,
-    consumedX: isHorizontal ? consumedPx : 0,
-    consumedY: isHorizontal ? 0 : consumedPx,
+    consumedX: isHorizontal ? consumedPx : deltaX,
+    consumedY: isHorizontal ? deltaY : consumedPx,
   };
 }
