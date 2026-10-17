@@ -12,7 +12,6 @@ test('SessionSnapshot preserves nested extension fields', () => {
     agent: 'claude-code',
     state: 'DORMANT',
     stateSince: 1,
-    sleeping: false,
     dangerouslySkipPermissions: false,
     saneYolo: true,
     ephemeral: false,

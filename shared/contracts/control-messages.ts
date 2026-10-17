@@ -144,7 +144,7 @@ export const ClientErrorReport = z.object({
 export type ClientErrorReport = z.infer<typeof ClientErrorReport>;
 
 const idOnlyClientTypes = [
-  'remove-session', 'kill', 'start-session', 'restart', 'force-restart', 'sleep', 'wake',
+  'remove-session', 'kill', 'start-session', 'restart', 'force-restart',
   'merge-session', 'finish-session', 'merge-continue-session', 'discard-session-worktree',
   'resolve-session-merge', 'request-session-diff', 'request-change-map', 'request-branch-sync', 'resync-branch', 'debug-state',
 ] as const;
@@ -174,7 +174,6 @@ const clientVariants = [
   loose('set-session-title', { id: sessionId, title: TaskTitle }),
   loose('link-session-pr', { id: sessionId, key: PullRequestKey }),
   loose('unlink-session-pr', { id: sessionId, key: PullRequestKey }),
-  loose('reorder-sessions', { order: z.array(sessionId) }),
   loose('ping', { requestId }),
   loose('get-settings', { requestId }),
   loose('update-settings', { settings: z.record(z.string(), z.unknown()), requestId }),
@@ -258,8 +257,6 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'session-wakeup',
   'session-prompt',
   'session-conversation',
-  'session-sleep',
-  'session-wake',
   'session-merge-status',
   'session-worktree-blocked',
   'session-worktree-warning',
@@ -332,7 +329,6 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'ingest-activity',
   'ingest-snapshot',
   'client-trust',
-  'sessions-reordered',
   'shutting-down',
   'restarting',
 ] as const);
@@ -379,8 +375,6 @@ const serverVariants = [
   loose('session-prompt', { isCompacting: z.boolean().optional(), id: sessionId, pendingPromptKind: nullableString, timestamp }),
   loose('session-conversation', { id: sessionId, hasConversationBridge: z.boolean(), isConversationViewOn: z.boolean(), conversationApproval: ConversationApproval.nullable() }),
 
-  loose('session-sleep'),
-  loose('session-wake'),
   loose('session-merge-status', {
     id: sessionId,
     mergeStatus: z.string(),
@@ -656,7 +650,6 @@ const serverVariants = [
   loose('ingest-activity', { events: z.array(opaqueObject), overflow: z.number().int().nonnegative(), ts: timestamp }),
   loose('ingest-snapshot', { events: z.array(opaqueObject), sources: z.unknown(), ts: timestamp }),
   loose('client-trust', { trust: z.enum(['local', 'remote']) }),
-  loose('sessions-reordered', { order: z.array(sessionId) }),
   loose('shutting-down'),
   loose('restarting'),
 ] as const;

@@ -19,8 +19,6 @@ interface HealthSession {
   outputBufferBytes: number;
   outputBufferEntries: number;
   dataListenerCount: number;
-  sleeping: boolean;
-  autoKilled: boolean;
   destroyed: boolean;
   pendingRestart: boolean;
   timers: Record<string, unknown>;
@@ -39,7 +37,6 @@ export interface HealthSnapshot {
   sessions: {
     total: number;
     alivePty: number;
-    sleeping: number;
     totalDataListeners: number;
     totalOutputBufferBytes: number;
     list: HealthSession[];
@@ -110,7 +107,7 @@ function renderSummary() {
     <span class="health-stat" title="Resident set size (process memory)"><span class="health-stat-label">RSS</span> ${formatBytes(s.process.rss)}</span>
     <span class="health-stat" title="External buffers (PTY data lives here)"><span class="health-stat-label">Ext</span> ${formatBytes(s.process.external)}</span>
     <span class="health-stat" title="Active resources (handles + requests)"><span class="health-stat-label">Hdl</span> ${s.process.activeResources}</span>
-    <span class="health-stat" title="Sessions: alivePty / sleeping / total"><span class="health-stat-label">Sess</span> ${s.sessions.alivePty}/${s.sessions.sleeping}/${s.sessions.total}</span>
+    <span class="health-stat" title="Sessions: alivePty / total"><span class="health-stat-label">Sess</span> ${s.sessions.alivePty}/${s.sessions.total}</span>
     <span class="health-stat" title="WebSockets: control + data"><span class="health-stat-label">WS</span> ${s.websockets.control}+${s.websockets.data}</span>
     <span class="health-stat" title="Server uptime"><span class="health-stat-label">Up</span> ${formatUptime(s.uptimeSeconds)}</span>
     ${anomalies > 0 ? `<span class="health-anomaly" title="${anomalies} anomaly type(s), expand for details">⚠ ${anomalies}</span>` : ''}
@@ -141,8 +138,6 @@ function renderDetail() {
 
   const sessionRows = sess.list.map((sx) => {
     const flags: string[] = [];
-    if (sx.sleeping) flags.push('sleeping');
-    if (sx.autoKilled) flags.push('autoKilled');
     if (sx.destroyed) flags.push('destroyed');
     if (sx.pendingRestart) flags.push('pendingRestart');
     const timers = Object.entries(sx.timers).filter(([, v]) => v).map(([k]) => k).join(',') || 'none';
@@ -185,7 +180,7 @@ function renderDetail() {
     </div>
 
     <div class="health-section">
-      <div class="health-section-title">Sessions (${sess.total} total · ${sess.alivePty} alive PTY · ${sess.sleeping} sleeping)</div>
+      <div class="health-section-title">Sessions (${sess.total} total · ${sess.alivePty} alive PTY)</div>
       <div class="health-row health-dim">Listeners ${sess.totalDataListeners} · Output buffer ${formatBytes(sess.totalOutputBufferBytes)}</div>
       <table class="health-table">
         <thead>

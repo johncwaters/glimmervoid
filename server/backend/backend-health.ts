@@ -29,7 +29,6 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
     const memory = process.memoryUsage();
     const sessionStats: Record<string, unknown>[] = [];
     let alivePtyCount = 0;
-    let sleepingCount = 0;
     let totalDataListeners = 0;
     let totalOutputBufferBytes = 0;
     let listenerMismatch = false;
@@ -43,7 +42,6 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
       };
       sessionStats.push(stats);
       if (stats.hasPty) alivePtyCount += 1;
-      if (stats.sleeping) sleepingCount += 1;
       totalDataListeners += stats.dataListenerCount;
       totalOutputBufferBytes += stats.outputBufferBytes;
       if (!session.ephemeral) {
@@ -78,7 +76,6 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
       sessions: {
         total: dependencies.sessions.size,
         alivePty: alivePtyCount,
-        sleeping: sleepingCount,
         totalDataListeners,
         totalOutputBufferBytes,
         list: sessionStats,

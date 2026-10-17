@@ -103,7 +103,6 @@ const SESSION = {
   agent: 'claude-code',
   state: STATES.RUNNING,
   stateSince: NOW,
-  sleeping: false,
   taskTitle: null,
   taskTitleIsCustom: false,
   dangerouslySkipPermissions: true,
@@ -142,8 +141,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-wakeup', id: 'session-1', pendingWakeup: { at: NOW, kind: 'cron', reason: null }, session: 'glimmervoid', timestamp: NOW },
   { type: 'session-prompt', id: 'session-1', pendingPromptKind: 'permission', session: 'glimmervoid', timestamp: NOW },
   { type: 'session-conversation', id: 'session-1', hasConversationBridge: true, isConversationViewOn: true, conversationApproval: { requestId: 0, kind: 'command', summary: 'touch marker.txt', isSummaryTruncated: false }, session: 'glimmervoid', timestamp: NOW },
-  { type: 'session-sleep', id: 'session-1', session: 'glimmervoid', timestamp: NOW },
-  { type: 'session-wake', id: 'session-1', session: 'glimmervoid', timestamp: NOW },
   { type: 'session-merge-status', id: 'session-1', session: 'glimmervoid', mergeStatus: 'pending-review', reason: null, parked: false, timestamp: NOW },
   { type: 'session-worktree-blocked', id: 'session-1', session: 'glimmervoid', branch: 'develop', notice: 'missing branch', timestamp: NOW },
   { type: 'session-worktree-ready', id: 'session-1', session: 'glimmervoid', branch: 'glimmervoid/session/1', base: 'develop', timestamp: NOW },
@@ -255,7 +252,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'ingest-activity', events: [], overflow: 0, ts: NOW },
   { type: 'ingest-snapshot', events: [], sources: { terminal: true }, ts: NOW },
   { type: 'client-trust', trust: 'local' },
-  { type: 'sessions-reordered', order: ['session-1'] },
   { type: 'session-worktree-warning', id: 'session-1', session: 'Session 1', branch: 'glimmervoid/session/session-1', notice: 'offline', timestamp: NOW },
   { type: 'shutting-down' },
   { type: 'restarting' },
@@ -463,7 +459,7 @@ test('session-diff pins the object payload returned by Session.getDiff', () => {
 });
 
 test('server variants read by the browser validate more than their type name', () => {
-  const intentionallyOpaque = new Set(['session-sleep', 'session-wake', 'shutting-down', 'restarting']);
+  const intentionallyOpaque = new Set(['shutting-down', 'restarting']);
   for (const option of ServerMessage.options) {
     const type = option.shape.type.value;
     if (intentionallyOpaque.has(type)) continue;

@@ -10,7 +10,6 @@ function snapshotSource() {
     agent: "claude-code",
     state: "COMPLETE",
     stateSince: 42,
-    sleeping: false,
     dangerouslySkipPermissions: false,
     ephemeral: false,
     isWorktree: true,

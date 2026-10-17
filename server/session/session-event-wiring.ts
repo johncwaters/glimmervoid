@@ -327,8 +327,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     relay('wakeup-change', 'session-wakeup');
     relay('prompt-kind-change', 'session-prompt');
     relay('conversation-change', 'session-conversation');
-    relay('sleep', 'session-sleep');
-    relay('wake', 'session-wake');
 
     session.on('merge-status', ({ mergeStatus, reason, parked }: {
       mergeStatus: string;

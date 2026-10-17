@@ -77,7 +77,6 @@ const KILL_POLL_INTERVAL_MS = 200;
 const KILL_MAX_WAIT_MS = 3000;
 
 const KILL_REAP_MAX_WAIT_MS = 2400;
-const SLEEP_KILL_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_PENDING_ATTENTION_NOTES = 5;
 const GUARDRAILS_UNAPPLIED_ERROR = "guardrail settings could not be applied, session not started";
 const GUARDRAILS_REFUSED_PREFIX = "session not started, the guardrails refused: ";
@@ -126,7 +125,7 @@ interface SessionPlanReviewPort {
   hasPlan: (sessionId: string) => boolean;
 }
 
-type TimerField = "_killPollTimer" | "_killReapTimer" | "_sleepKillTimer" | "_titleQuietFallbackTimer";
+type TimerField = "_killPollTimer" | "_killReapTimer" | "_titleQuietFallbackTimer";
 
 interface SessionRecorderPort {
   writeHeader(config: { agent?: string | null; cols?: number; rows?: number } & Record<string, unknown>): void;
@@ -291,13 +290,10 @@ class Session extends EventEmitter {
   _receivedFirstOutput: boolean;
   _killPollTimer: NodeJS.Timeout | null;
   _killReapTimer: NodeJS.Timeout | null;
-  _sleepKillTimer: NodeJS.Timeout | null;
   _titleQuietFallbackTimer: NodeJS.Timeout | null;
   _resolveKillReap: (() => void) | null;
   _killReap: Promise<void> | null;
   _exitReap: Promise<void> | null;
-  _sleeping: boolean;
-  _autoKilled: boolean;
   _destroyed: boolean;
   _pendingRestart: boolean;
   _finishing: boolean;
@@ -473,9 +469,6 @@ class Session extends EventEmitter {
     this._killReap = null;
 
     this._exitReap = null;
-    this._sleeping = false;
-    this._sleepKillTimer = null;
-    this._autoKilled = false;
     this._destroyed = false;
     this._pendingRestart = false;
 
@@ -1135,10 +1128,6 @@ class Session extends EventEmitter {
     this._raiseAttention(releasing.join(AGENT_ATTENTION_NOTE_SEPARATOR));
   }
 
-  get sleeping(): boolean {
-    return this._sleeping;
-  }
-
   get hasLivePty(): boolean {
     return !this._destroyed && !!this.ptyProcess && !!this._ptyAlive;
   }
@@ -1264,8 +1253,6 @@ class Session extends EventEmitter {
       id: this.id,
       name: this.name,
       state: this.state,
-      sleeping: this._sleeping,
-      autoKilled: this._autoKilled,
       destroyed: this._destroyed,
       pendingRestart: this._pendingRestart,
       hasPty: this.ptyProcess !== null,
@@ -1277,7 +1264,6 @@ class Session extends EventEmitter {
       dataListenerCount: this.listenerCount("data"),
       hookSeen: this._hookSeen,
       timers: {
-        sleepKill: this._sleepKillTimer !== null,
         killPoll: this._killPollTimer !== null,
       },
     };
@@ -1299,7 +1285,6 @@ class Session extends EventEmitter {
       agent: this.agentId,
       state: this.state,
       stateSince: this.stateSince,
-      sleeping: this._sleeping,
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       saneYolo: this.saneYolo,
       ephemeral: this.ephemeral,
@@ -1443,10 +1428,8 @@ class Session extends EventEmitter {
       this.transition("user_start");
     }
     this._receivedFirstOutput = false;
-    this._sleeping = false;
 
     this._clearDetectionTracking();
-    this._autoKilled = false;
     this._output.reset();
 
     this.emit("rebaseline");
@@ -1822,12 +1805,10 @@ class Session extends EventEmitter {
       this.transition("first_output");
     }
 
-    if (!this._sleeping) {
-      try {
-        this._titleSource.feed(data);
-      } catch (err) {
-        console.error(`[session:${this.name}] title source error: ${errorMessage(err)}`);
-      }
+    try {
+      this._titleSource.feed(data);
+    } catch (err) {
+      console.error(`[session:${this.name}] title source error: ${errorMessage(err)}`);
     }
 
     this._output.push(data);
@@ -2064,47 +2045,8 @@ class Session extends EventEmitter {
     return this.transition("user_dismiss");
   }
 
-  sleep(): void {
-    if (this._sleeping) return;
-
-    if (!RESTARTABLE_STATES.includes(this.state)) return;
-    this._sleeping = true;
-    this._resetDetectionSources();
-    this._scheduleSleepKill();
-    this.emit("sleep");
-  }
-
-  wake(): void {
-    if (this._destroyed) return;
-    if (!this._sleeping) return;
-    this._sleeping = false;
-    this._clearSleepKill();
-    this.emit("wake");
-
-    if (this._autoKilled
-        && !this._teardownPending()
-        && RESTARTABLE_STATES.includes(this.state)) {
-      this.restart();
-    }
-  }
-
   _teardownPending(): boolean {
     return this._pendingRestart || this._finishing;
-  }
-
-  _scheduleSleepKill(): void {
-    this._armTimer("_sleepKillTimer", SLEEP_KILL_TIMEOUT_MS, () => {
-      if (!this._sleeping) return;
-      const wasActive = KILLABLE_STATES.includes(this.state);
-      this.killSession();
-      if (wasActive && RESTARTABLE_STATES.includes(this.state)) {
-        this._autoKilled = true;
-      }
-    });
-  }
-
-  _clearSleepKill(): void {
-    this._clearTimer("_sleepKillTimer");
   }
 
   killSession(): boolean {
@@ -2192,8 +2134,6 @@ class Session extends EventEmitter {
     this._agentToken = null;
     this._commitSigningToken = null;
     this._pendingAttentionNotes = [];
-
-    this._clearSleepKill();
 
     this._clearPendingPaste();
 

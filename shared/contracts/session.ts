@@ -54,7 +54,6 @@ export const SessionSnapshot = z.object({
   agent: z.string(),
   state: SessionState,
   stateSince: z.number(),
-  sleeping: z.boolean(),
   dangerouslySkipPermissions: z.boolean(),
   saneYolo: z.boolean().default(false),
   ephemeral: z.boolean(),

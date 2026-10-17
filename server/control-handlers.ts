@@ -641,48 +641,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     session.unlinkPr(msg.key);
   }
 
-  function handleReorderSessions(msg: ClientMessageOf<'reorder-sessions'>, ws: ControlSocket): void {
-    const order = msg.order;
-    if (!Array.isArray(order) || order.length === 0) {
-      sendError(ws, 'order must be a non-empty array');
-      return;
-    }
-
-    const allExist = order.every(id => sessions.has(id));
-    if (!allExist) {
-      sendError(ws, 'Session list changed during reorder');
-      broadcastControl(buildSnapshot());
-      return;
-    }
-
-    const entries = new Map(sessions);
-    sessions.clear();
-    for (const id of order) {
-      const existing = entries.get(id);
-      if (existing) sessions.set(id, existing);
-    }
-    for (const [id, sess] of entries) {
-      if (!sessions.has(id)) {
-        sessions.set(id, sess);
-      }
-    }
-
-    configStore.save(cfg => {
-      const projectMap = new Map(cfg.projects.map(p => [p.id, p]));
-      cfg.projects = order
-        .map(id => projectMap.get(id))
-        .filter((project): project is ProjectEntry => project !== undefined);
-      for (const p of projectMap.values()) {
-        if (!cfg.projects.some(x => x.id === p.id)) {
-          cfg.projects.push(p);
-        }
-      }
-    });
-
-    broadcastControl({ type: 'sessions-reordered', order });
-    console.log(`[control] Sessions reordered`);
-  }
-
   async function handleListConversations(msg: ClientMessageOf<'list-conversations'>, ws: ControlSocket): Promise<void> {
     const sess = findSession(msg);
     if (!sess) {
@@ -1355,7 +1313,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'set-session-title': handleSetSessionTitle,
     'link-session-pr':  handleLinkSessionPr,
     'unlink-session-pr': handleUnlinkSessionPr,
-    'reorder-sessions': handleReorderSessions,
     'ping':             handlePing,
     'get-settings':     handleGetSettings,
     'update-settings':  handleUpdateSettings,
@@ -1391,8 +1348,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (msg.expectedState !== undefined && session.state !== msg.expectedState) return;
       session.dismiss();
     },
-    'sleep':            (msg: ClientMessageOf<'sleep'>) => { const s = findSession(msg); if (s) s.sleep(); },
-    'wake':             (msg: ClientMessageOf<'wake'>) => { const s = findSession(msg); if (s) s.wake(); },
 
     'merge-session':              async (msg: ClientMessageOf<'merge-session'>, ws: ControlSocket) => { const s = findSession(msg); if (s) reportMergeRefusal(ws, s, await s.mergeWorktree()); },
 

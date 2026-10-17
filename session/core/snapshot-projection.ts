@@ -58,7 +58,6 @@ interface SnapshotSource {
   agent: string;
   state: string;
   stateSince: number;
-  sleeping: boolean;
   dangerouslySkipPermissions: boolean;
   saneYolo?: boolean;
   ephemeral: boolean;
@@ -95,7 +94,6 @@ function projectSessionSnapshots(source: SnapshotSource) {
     agent: source.agent,
     state: source.state,
     stateSince: source.stateSince,
-    sleeping: source.sleeping,
     dangerouslySkipPermissions: source.dangerouslySkipPermissions,
     saneYolo: !!source.saneYolo,
     ephemeral: source.ephemeral,
