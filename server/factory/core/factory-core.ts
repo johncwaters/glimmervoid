@@ -11,6 +11,7 @@ import type { CoherenceOrient, CoherenceWorkInspect } from '../../../shared/cont
 import type { FactoryWorkerEvent, FactoryIntentTicket, FactoryQueueIntentRequest } from '../../../shared/contracts/factory.ts';
 import { FACTORY_INTENT_CONFIRMED_FLAKE_LIMIT, FACTORY_INTENT_SCOPE_NEED_LIMIT, FACTORY_PROTECTED_PATH_FLOOR, FactoryProjectState, FactoryReviewerOutput, FactoryReviewVerdict } from '../../../shared/contracts/factory.ts';
 import { DEFAULT_WIDENABLE_SCOPES } from './factory-profile-core.ts';
+import { FACTORY_TEST_COMMANDS } from './factory-setup-core.ts';
 import { STATES } from '../../../shared/states.ts';
 import type { LaneSpend } from '../../usage/core/usage-scan-core.ts';
 import type { SessionState } from '../../../shared/states.ts';
@@ -528,6 +529,22 @@ export function appendFactoryLandedSha(landedShas: readonly string[], landedSha:
 export { absolutePathEditRule } from '../../lanes/core/lane-permissions-core.ts';
 export { isWorktreeAdminDirOf, parseGitdirPointer } from '../../guardrails/core/guardrails-roles-core.ts';
 
+export function workerChecksOf(checks: readonly string[]): string[] {
+  return checks.filter((command) => !FACTORY_TEST_COMMANDS.some((testCommand) => command === testCommand || command.startsWith(`${testCommand} `)));
+}
+
+const CLOSE_OUT_RUNS_EVERY_CHECK = 'Do not run the full test suite; Glimmervoid runs every check in a clean checkout when you stop.';
+
+function workerCheckInstruction(checks: readonly string[], focusedTestCommand: string | undefined): string {
+  const workerChecks = workerChecksOf(checks);
+  const workerChecksText = workerChecks.length > 0 ? ` and these checks: ${JSON.stringify(workerChecks)}` : '';
+  if (focusedTestCommand) {
+    return `While iterating, run the test files you touched with ${focusedTestCommand} <file> ... . Before finishing, run those test files once more${workerChecksText}. ${CLOSE_OUT_RUNS_EVERY_CHECK}`;
+  }
+  if (workerChecks.length === 0) return CLOSE_OUT_RUNS_EVERY_CHECK;
+  return `Run these checks before finishing: ${JSON.stringify(workerChecks)}. ${CLOSE_OUT_RUNS_EVERY_CHECK}`;
+}
+
 export function buildWorkerPrompt({ projectName, intent, order, claudeSessionId, checks = DEFAULT_FACTORY_CHECKS, focusedTestCommand }: {
   projectName: string; intent: FactoryWorkOrder; order: FactoryWorkOrder; claudeSessionId: string; checks?: string[]; focusedTestCommand?: string;
 }): string {
@@ -548,9 +565,7 @@ export function buildWorkerPrompt({ projectName, intent, order, claudeSessionId,
     'Edit only inside these write scopes. Do not expand the ticket or the intent.',
     `Start by running coherence context ${scopes} --max-bytes 12000`,
     'Leave your finished changes in the working tree and never run git add or git commit. Glimmervoid commits every change in this worktree when you stop, so remove any file you do not want landed.',
-    focusedTestCommand
-      ? `While iterating, run the test files you touched with ${focusedTestCommand} <file> ... . Run the full checks once at the end before finishing: ${JSON.stringify(checks)}`
-      : `Run these checks before finishing: ${JSON.stringify(checks)}`,
+    workerCheckInstruction(checks, focusedTestCommand),
     'Never push, never open PRs, never change coherence work state. Glimmervoid closes the ticket.',
     'Run each shell command on its own with no pipes, &&, ; or subshells, because chained commands are denied.',
     'A denied command means "not allowed here". Do not retry it another way.',

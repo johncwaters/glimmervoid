@@ -124,11 +124,12 @@ test('worker prompt pins its ticket, scopes, checks and finish policy', () => {
   const prompt = buildWorkerPrompt({ projectName: 'Factory', intent, order, claudeSessionId: 'conversation' });
   for (const text of [order.work, intent.work, 'conversation', 'Add retries', 'Retries pass', 'Edit only inside',
     "coherence context 'src/retry.ts' --max-bytes 12000", 'never run git add or git commit', 'Glimmervoid commits every change in this worktree', 'npm run typecheck',
-    'npm run lint', 'npm test', 'Never push', 'never open PRs', 'never change coherence work state', 'Glimmervoid closes the ticket', 'Finish by stopping',
+    'npm run lint', 'Do not run the full test suite', 'Never push', 'never open PRs', 'never change coherence work state', 'Glimmervoid closes the ticket', 'Finish by stopping',
     'A denied command means "not allowed here". Do not retry it another way.',
     'can write only inside this worktree and the temp directory']) {
     assert.ok(prompt.includes(text), text);
   }
+  assert.equal(prompt.includes('"npm test"'), false);
   const customPrompt = buildWorkerPrompt({ projectName: 'Factory', intent, order, claudeSessionId: 'conversation', checks: ['node verify.ts'] });
   assert.match(customPrompt, /node verify.ts/);
   assert.equal(customPrompt.includes('npm test'), false);

@@ -18,6 +18,8 @@ const PACKAGE_MANAGERS = [
   { lockfiles: ['bun.lockb', 'bun.lock'], prefix: 'bun run', test: 'bun run test' },
 ];
 
+export const FACTORY_TEST_COMMANDS: readonly string[] = PACKAGE_MANAGERS.map((manager) => manager.test);
+
 const FOCUSED_RUNNERS = [
   { dependency: 'vitest', command: 'npx vitest run' },
   { dependency: 'jest', command: 'npx jest' },
