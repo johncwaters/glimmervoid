@@ -6236,6 +6236,16 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   font-variant-numeric: tabular-nums;
 }
 .session-row-elapsed:empty { display: none; }
+.session-row .session-pr-chips { gap: 8px; }
+.session-row .session-pr-chip { gap: 3px; padding: 0; border: none; line-height: 14px; letter-spacing: 0.02em; }
+.session-row .session-pr-chip .pr-status-icon { width: 11px; height: 11px; }
+.session-row .session-pr-chip[data-tone="danger"] { color: var(--state-failed); }
+.session-row .session-pr-chip[data-tone="warn"] { color: var(--state-waiting); }
+.session-row .session-pr-chip[data-tone="ok"] { color: var(--state-complete); }
+.session-row .session-pr-chip:hover { color: var(--text-head); text-decoration: underline; }
+html[data-compact-status] .session-row .session-row-main { flex-direction: row; align-items: center; gap: 8px; }
+html[data-compact-status] .session-row .session-row-name { flex: 1 1 auto; min-width: 0; }
+html[data-compact-status] .session-row .session-row-meta { flex: 0 0 auto; flex-wrap: nowrap; }
 html[data-compact-status] .session-row:not([data-prompt="plan"]) .session-row-label { display: none; }
 html[data-compact-status] .session-row:not([data-prompt="plan"]) .session-row-meta:has(.session-row-merge:empty):has(.session-row-prs[hidden]) { display: none; }
 
