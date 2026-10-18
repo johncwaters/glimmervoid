@@ -1,6 +1,6 @@
 import type { CoherenceDecomposeFinding, CoherenceReadingRow, CoherenceRedundancyPair, CoherenceTrendWindow } from '#shared/contracts/coherence.ts';
 
-export interface CoherenceTrendPanelRow {
+interface CoherenceTrendPanelRow {
   label: string;
   text: string;
   configLine?: string;

@@ -2,6 +2,7 @@ import '@xterm/xterm/css/xterm.css';
 import './tailwind.css';
 
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import type { BrowserConfig } from '#shared/contracts/browser-config.ts';
 import { shouldShowServerAction } from '#shared/client-trust.ts';
 import { createCoalescedTimer } from '#shared/coalesce-timer.ts';
 import { STATES } from '#shared/states.ts';
@@ -14,7 +15,8 @@ import { createAddSessionDialog } from './dialogs.ts';
 import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, buildSessionCoherenceLine, forgetSessionCoherence, paintSessionCoherenceLine, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
-import { applyProjectCoherenceTrend, applyProjectCoherenceTrendSnapshot, buildProjectCoherenceChip, forgetCoherenceTrendProject, noteCoherenceTrendProject, paintProjectHeaderCoherenceChip, setCoherenceTrendProjects } from './coherence/trend-chip.ts';
+import { applyProjectCoherenceTrend, applyProjectCoherenceTrendSnapshot, forgetCoherenceTrendProject, noteCoherenceTrendProject, setCoherenceTrendProjects } from './coherence/trend-chip.ts';
+import { applyProjectCoherenceAdoptResponse, applyProjectCoherenceStatus, buildProjectCoherenceAction, paintProjectHeaderCoherenceAction, setCoherenceAdoptFactoryProjects, setProjectCoherenceAdoptEnabled, setProjectCoherenceAdoptRefresh } from './coherence/adopt-action.ts';
 import { setProjectHeaderCoherencePainter } from './project-header.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
@@ -352,7 +354,8 @@ setFactoryRequestSender(sendControlMsg);
 setCardPrChipsPainter(paintSessionPrChips);
 setSessionRowPrChipsPainter(paintSessionPrChips);
 setSessionRowCoherenceLinePainter({ build: buildSessionCoherenceLine, paint: paintSessionCoherenceLine });
-setProjectHeaderCoherencePainter({ build: buildProjectCoherenceChip, paint: paintProjectHeaderCoherenceChip });
+setProjectCoherenceAdoptRefresh(refreshRosterAndAttentionSurfaces);
+setProjectHeaderCoherencePainter({ build: buildProjectCoherenceAction, paint: paintProjectHeaderCoherenceAction });
 
 function refreshViewsIfVisible(reason: ViewRefreshReason) {
   refreshVisibleViews(VIEW_TABS, { isPhoneShellActive: isPhoneShellActive(), activeView: getActiveView(), phoneScreen: uiState.snapshot().phoneScreen }, reason);
@@ -418,6 +421,8 @@ const messageHandlers = {
   'session-coherence-snapshot': (msg) => { applySessionCoherenceSnapshot(msg); refreshRosterAndAttentionSurfaces(); },
   'project-coherence-trend': (msg) => { applyProjectCoherenceTrend(msg); refreshRosterAndAttentionSurfaces(); refreshFactoryCoherenceTrends(); },
   'project-coherence-trend-snapshot': (msg) => { applyProjectCoherenceTrendSnapshot(msg); refreshRosterAndAttentionSurfaces(); refreshFactoryCoherenceTrends(); },
+  'project-coherence-status': (msg) => applyProjectCoherenceStatus(msg),
+  'project-coherence-adopt-response': (msg) => applyProjectCoherenceAdoptResponse(msg),
   'session-coherence-journal-response': (msg) => applyCoherenceJournalResponse(msg),
 
   'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },
@@ -436,7 +441,7 @@ const messageHandlers = {
   'radar-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
   'my-prs-status': (msg) => { applyMyPrsStatus(msg); refreshSessionPrChipStages(); },
-  'factory-state': (msg) => applyFactoryState(msg),
+  'factory-state': (msg) => { setCoherenceAdoptFactoryProjects(msg.projects); applyFactoryState(msg); },
   'factory-queue-intent-result': (msg) => applyFactoryQueueIntentResult(msg),
   'factory-control-result': (msg) => applyFactoryControlResult(msg),
   'benchmark-status': (msg) => applyBenchmarkStatus(msg),
@@ -767,7 +772,7 @@ function applySurfaceSettings(settings: FeatureSurfaceSettings) {
   for (const { view, isAvailable } of viewAvailabilityFromSettings(VIEW_TABS, settings)) setSurfaceAvailable(view, isAvailable);
 }
 
-function applyDashboardSettings(settings: FeatureSurfaceSettings & { streamerMode?: boolean; conversationView?: boolean }) {
+function applyDashboardSettings(settings: FeatureSurfaceSettings & Pick<BrowserConfig, 'coherence'> & { streamerMode?: boolean; conversationView?: boolean }) {
   applyTerminalSettings(settings);
   applySettingsBroadcast(settings);
   applyVisionsSettings(settings);
@@ -775,6 +780,7 @@ function applyDashboardSettings(settings: FeatureSurfaceSettings & { streamerMod
   syncTelemetryBanner(settings);
   setStreamerMode(settings.streamerMode === true);
   setConversationViewEnabled(settings.conversationView === true);
+  setProjectCoherenceAdoptEnabled(settings.coherence?.enabled === true);
 }
 
 for (const viewTab of VIEW_TABS) {

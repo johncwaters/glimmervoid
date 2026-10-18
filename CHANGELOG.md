@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A project without Coherence can adopt it from the dashboard in one confirmed step that commits the native install to its integration branch and pushes it.
 - **Project Coherence trends**: With Coherence installed in a repository, Glimmervoid reads its drift, decomposition, redundancy and size each time the integration branch moves and shows whether it is converging or decohering on the project and on the Factory floor.
 
 - **Coherence session journals**: With Coherence installed, each session row shows its latest Coherence journal entry or Coherence's suggested next action, opens the full journal on demand, and says when the repository's Coherence hooks are not active.

@@ -59,6 +59,15 @@ export function paintProjectHeaderCoherenceChip(slot: HTMLElement, projectPath: 
   if (chip) paintProjectCoherenceChip(chip, projectId);
 }
 
+export function findCoherenceTrendProjectId(projectPath: string): string | undefined {
+  return [...pathsByProjectId].find(([, path]) => path === projectPath)?.[0];
+}
+
+export function hasCoherenceTrendReading(projectId: string): boolean {
+  const projectPath = pathsByProjectId.get(projectId);
+  return trendsByProjectId.has(projectId) || [...pathsByProjectId].some(([candidateId, path]) => path === projectPath && trendsByProjectId.has(candidateId));
+}
+
 function paintOpenPanel() {
   if (!openPanel) return;
   const reading = trendsByProjectId.get(openPanel.projectId);
