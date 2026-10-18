@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+codex_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+IFS= read -r coherence_rel < "$codex_root/.codex/coherence-root"
+coherence_root=$(CDPATH= cd -- "$codex_root/$coherence_rel" && pwd -P)
+cd "$coherence_root"
+export COHERENCE_PROJECT_ROOT="$coherence_root"
+export COHERENCE_HOOK_HOST="codex"
+export COHERENCE_HOOK_TRANSPORT="launcher"
+export COHERENCE_HOOK_BUNDLE_FINGERPRINT="7bb294bd05008ed4764873d0d6c0a15c2f635f1c32c61fd4a77c956632a67d8f"
+
+if [ -x "$coherence_root/node_modules/.bin/coherence-hook" ]; then
+  exec "$coherence_root/node_modules/.bin/coherence-hook" "$@"
+fi
+if [ -f "$coherence_root/src/hook-cli.ts" ]; then
+  exec node "$coherence_root/src/hook-cli.ts" "$@"
+fi
+printf '%s\n' "coherence hook target missing under $coherence_root" >&2
+exit 127
