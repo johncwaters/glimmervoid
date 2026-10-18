@@ -1,5 +1,7 @@
-export const INSTALL_COMMAND = 'npx glimmervoid@latest';
-export const LINUX_INSTALL_COMMAND = 'npx --allow-scripts=node-pty glimmervoid@latest';
+import { buildUpdateCommand } from '../../../server/core/update-core.ts';
+
+export const INSTALL_COMMAND = buildUpdateCommand('npx', null);
+export const LINUX_INSTALL_COMMAND = buildUpdateCommand('npx', null, 'linux');
 
 export type InstallCommandSegment =
   | { kind: 'text'; text: string }

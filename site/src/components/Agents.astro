@@ -1,3 +1,6 @@
+---
+import { AGENT_CARDS } from '../lib/product-facts.ts';
+---
 <section id="agents">
   <div class="section-head reveal">
     <p class="eyebrow">Bring your own agent</p>
@@ -5,9 +8,7 @@
     <p>Your agents run unmodified, in real terminals.</p>
   </div>
   <div class="agents-row">
-    <div class="agent reveal"><span class="mono">CC</span><h3>Claude Code</h3><p>Full support</p></div>
-    <div class="agent reveal"><span class="mono">CX</span><h3>Codex CLI</h3><p>Hook status</p></div>
-    <div class="agent reveal"><span class="mono">GK</span><h3>Grok Build</h3><p>Hook status</p></div>
+    {AGENT_CARDS.map(({ monogram, label, support }) => <div class="agent reveal"><span class="mono">{monogram}</span><h3>{label}</h3><p>{support}</p></div>)}
     <div class="agent reveal"><span class="mono blank">&gt;_</span><h3>Any CLI</h3><p>Title status</p></div>
   </div>
 </section>
