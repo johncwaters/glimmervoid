@@ -63,9 +63,10 @@ export function paintSessionCoherenceLine(row: HTMLElement) {
   if (!sessionId || !line) return;
   const hooks = hooksBySessionId.get(sessionId) ?? null;
   const coherence = coherenceBySessionId.get(sessionId) ?? null;
-  line.hidden = !hooks && !coherence;
+  const summaryText = coherenceRowLine(hooks, coherence);
+  line.hidden = summaryText === null && coherence?.journal.ok !== true;
   const summary = line.querySelector('.coherence-row-summary');
-  if (summary) summary.textContent = coherenceRowLine(hooks, coherence) ?? '';
+  if (summary) summary.textContent = summaryText ?? '';
 }
 
 function paintOpenReading(sessionId: string) {

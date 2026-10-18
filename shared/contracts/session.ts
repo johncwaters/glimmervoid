@@ -46,6 +46,14 @@ export const ConversationAnswers = z.record(z.string().max(CONVERSATION_QUESTION
 export const ConversationApprovalDecision = z.enum(['accept', 'acceptForSession', 'decline']);
 
 const COHERENCE_HOOKS_REASON_MAX_CHARS = 80;
+export const COHERENCE_HOOKS_INACTIVE = Object.freeze({
+  configMissing: 'config missing',
+  configRefused: 'config refused',
+  codexHooksUntrusted: 'Codex hooks need trust in /hooks',
+  controlFilesMissing: 'control files missing',
+  nodeModulesNotIgnored: 'node_modules not ignored',
+  sharedNodeModulesMissingCoherence: 'Coherence not installed in shared node_modules',
+});
 export const CoherenceHooksState = z.discriminatedUnion('active', [
   z.object({ active: z.literal(true) }).strict(),
   z.object({ active: z.literal(false), reason: z.string().min(1).max(COHERENCE_HOOKS_REASON_MAX_CHARS) }).strict(),

@@ -1,9 +1,9 @@
 import { lstat, mkdir, open, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import type { CoherenceHooksState } from '../../shared/contracts/session.ts';
+import { COHERENCE_HOOKS_INACTIVE, type CoherenceHooksState } from '../../shared/contracts/session.ts';
 import { errorCode, errorMessage, isMissingFileError } from '../../shared/text.ts';
 import {
-  buildCoherenceTargetShims, COHERENCE_HOOKS_INACTIVE, COHERENCE_NATIVE_CONTROL_FILES, COHERENCE_TARGET_BIN_NAMES, COHERENCE_TARGET_SCRIPTS,
+  buildCoherenceTargetShims, COHERENCE_NATIVE_CONTROL_FILES, COHERENCE_TARGET_BIN_NAMES, COHERENCE_TARGET_SCRIPTS,
   coherenceHooksStateFromCheck, planCoherenceTargetShims,
 } from './core/coherence-session-core.ts';
 import type { CoherenceHost, CoherenceTargetBinName } from './core/coherence-session-core.ts';

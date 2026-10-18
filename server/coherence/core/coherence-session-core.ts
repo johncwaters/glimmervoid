@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { CoherenceHooksState } from '../../../shared/contracts/session.ts';
+import { COHERENCE_HOOKS_INACTIVE, type CoherenceHooksState } from '../../../shared/contracts/session.ts';
 import type { UserHook } from '../../../session/core/user-hooks-core.ts';
 import type { SessionSpawnOverrides } from '../../session/session-factory.ts';
 
@@ -23,15 +23,6 @@ export const COHERENCE_NATIVE_CONTROL_FILES: Readonly<Record<CoherenceHost, read
 export const COHERENCE_TARGET_SCRIPTS = Object.freeze({ 'coherence-hook': 'dist/hook-cli.js', coherence: 'dist/cli.js' });
 export type CoherenceTargetBinName = keyof typeof COHERENCE_TARGET_SCRIPTS;
 export const COHERENCE_TARGET_BIN_NAMES: readonly CoherenceTargetBinName[] = Object.freeze(['coherence-hook', 'coherence']);
-
-export const COHERENCE_HOOKS_INACTIVE = Object.freeze({
-  configMissing: 'config missing',
-  configRefused: 'config refused',
-  codexHooksUntrusted: 'Codex hooks need trust in /hooks',
-  controlFilesMissing: 'control files missing',
-  nodeModulesNotIgnored: 'node_modules not ignored',
-  sharedNodeModulesMissingCoherence: 'Coherence not installed in shared node_modules',
-});
 
 export function coherenceHooksStateFromCheck(exitCode: number | null): CoherenceHooksState {
   if (exitCode === 0) return { active: true };

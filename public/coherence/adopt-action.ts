@@ -61,6 +61,11 @@ export function buildProjectCoherenceAction(): HTMLElement {
   return container;
 }
 
+function paintAdoptStatus(status: HTMLElement, adoption: { requestId: string | null; text: string; ok: boolean } | undefined) {
+  status.textContent = adoption?.text ?? '';
+  status.dataset.error = String(adoption?.ok === false && adoption.requestId === null);
+}
+
 export function paintProjectHeaderCoherenceAction(slot: HTMLElement, projectPath: string) {
   const container = slot.querySelector<HTMLElement>('.coherence-project-action');
   if (!container) return;
@@ -75,8 +80,8 @@ export function paintProjectHeaderCoherenceAction(slot: HTMLElement, projectPath
   if (action) action.hidden = !canAdopt;
   const button = action?.querySelector('button');
   if (button) button.hidden = adoption?.ok === true;
-  const status = action?.querySelector('.coherence-adopt-status');
-  if (status) status.textContent = adoption?.text ?? '';
+  const status = action?.querySelector<HTMLElement>('.coherence-adopt-status');
+  if (status) paintAdoptStatus(status, adoption);
   container.hidden = !canAdopt && (!chip || chip.hidden);
 }
 
@@ -99,8 +104,7 @@ function openAdoptDialog(projectId: string) {
     paint: () => {
       const adoption = adoptionsByProjectId.get(projectId);
       adoptButton.disabled = adoption?.requestId != null;
-      status.textContent = adoption?.text ?? '';
-      status.dataset.error = String(adoption?.ok === false && adoption.requestId === null);
+      paintAdoptStatus(status, adoption);
     },
     close: () => {
       if (openDialog === dialog) openDialog = null;

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { CoherenceJournalEntry, CoherenceReadingRow, CoherenceTrendWindow, SessionCoherence } from '../shared/contracts/coherence.ts';
 import { coherenceTrendDirectionLabel, coherenceTrendPanelRows } from '../public/coherence/trend-core.ts';
+import { COHERENCE_HOOKS_INACTIVE } from '../shared/contracts/session.ts';
 import { coherenceRowLine, formatCoherenceReading, formatJournalEntry } from '../public/coherence/journal-core.ts';
 
 test('Coherence keeps one row line with hooks, actionable guidance and journal priority while preserving drawer detail', () => {
@@ -16,6 +17,7 @@ test('Coherence keeps one row line with hooks, actionable guidance and journal p
   };
   assert.equal(coherenceRowLine(null, null), null);
   assert.equal(coherenceRowLine({ active: true }, null), null);
+  assert.equal(coherenceRowLine({ active: false, reason: COHERENCE_HOOKS_INACTIVE.configMissing }, null), null);
   for (const action of ['release', 'refuse'] as const) {
     if (!coherence.regulation.ok) assert.fail('Expected an available next action');
     coherence.regulation.nextAction.action = action;

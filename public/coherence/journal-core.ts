@@ -1,5 +1,5 @@
 import type { CoherenceJournalEntry, CoherenceJournalKind, CoherenceNextAction, SessionCoherence } from '#shared/contracts/coherence.ts';
-import type { CoherenceHooksState } from '#shared/contracts/session.ts';
+import { COHERENCE_HOOKS_INACTIVE, type CoherenceHooksState } from '#shared/contracts/session.ts';
 
 const JOURNAL_KIND_LABELS: Record<CoherenceJournalKind, string> = {
   session: 'Session',
@@ -20,7 +20,7 @@ const NEXT_ACTION_LABELS: Record<CoherenceNextAction['action'], string> = {
 };
 
 export function coherenceRowLine(hooks: CoherenceHooksState | null, coherence: SessionCoherence | null): string | null {
-  if (hooks?.active === false) return `Coherence hooks not active: ${hooks.reason}`;
+  if (hooks?.active === false && hooks.reason !== COHERENCE_HOOKS_INACTIVE.configMissing) return `Coherence hooks not active: ${hooks.reason}`;
   if (!coherence) return null;
   if (coherence.regulation.ok) {
     const nextAction = coherence.regulation.nextAction;
