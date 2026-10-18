@@ -27,7 +27,7 @@ import { readLaneResultFile } from '../lanes/lane-spawn.ts';
 import { writeJsonAtomic, writeTextAtomic } from '../json-file.ts';
 import { z } from 'zod';
 import type { LaneCoherenceJournal, LaneSpawn } from '../lanes/lane-spawn.ts';
-import { copyLaneJournalIntoLedger } from './factory-ledger.ts';
+import { copyLaneJournal } from '../coherence/coherence-journal-store.ts';
 import type { SerialQueue } from '../spawn-gate.ts';
 
 export const FACTORY_REVIEWER_TOOLS = Object.freeze(['Read', 'Glob', 'Grep', 'Bash']);
@@ -184,7 +184,7 @@ export async function landFactoryLaneJournal({ serializeProject, ensureLedger, r
   try {
     await serializeProject(projectId, async () => {
       const ledger = await ensureLedger(projectId, projectPath);
-      await copyLaneJournalIntoLedger({ laneCwd: laneJournal.cwd, claudeSessionId: laneJournal.claudeSessionId, ledgerCwd: ledger.cwd, runCoherence,
+      await copyLaneJournal({ laneCwd: laneJournal.cwd, claudeSessionId: laneJournal.claudeSessionId, destinationCwd: ledger.cwd, destinationLabel: 'ledger', runCoherence,
         onRejected: (journalPath, reason) => log.warn(`[factory] discarding ${laneName} journal ${journalPath}: ${reason}`),
         onUntrusted: (journalPaths) => log.warn(`[factory] discarding ${laneName} journals ${journalPaths.join(', ')}: coherence orient did not read them as an undamaged trusted projection`) });
     });

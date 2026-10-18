@@ -22,6 +22,10 @@ import { createLaneRunner } from '../lanes/lane-runner.ts';
 import type { LaneRunnerGate, LaneStatusRecord, SharedClock } from '../lanes/lane-runner.ts';
 import { THREAD_JUDGE_TOOLS, createThreadJudge } from './team-review-thread-judge.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
+import type { CoherenceJournal } from '../lanes/lane-spawn.ts';
+import type { LocalCoherenceJournals } from '../coherence/coherence-journal-store.ts';
+import { coherenceJournalStoreKey } from '../core/coherence-session-core.ts';
+import type { UserHook } from '../../session/core/user-hooks-core.ts';
 import { TeamReviewActionRequest as ActionRequestSchema } from '../../shared/contracts/team-review.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
@@ -131,6 +135,8 @@ type TeamReviewSpawn = (options: TeamReviewConfinement & {
   resumeSessionId?: string | null;
   initialPrompt?: string;
   onToolStep?: (step: { tool: string; detail: string }) => void;
+  extraUserHooks?: UserHook[];
+  prependPathDirs?: string[];
 }) => Promise<void>;
 
 type TeamReviewReap = (options: Required<TeamReviewReapOptions>) => Promise<void>;
@@ -154,6 +160,7 @@ interface TeamReviewDispatchOptions {
   readLocalCheckoutConfig?: () => Pick<TeamReviewWiringConfig, 'projects' | 'repoRoots'>;
   reapProcesses?: TeamReviewReap;
   log?: Pick<Console, 'warn'>;
+  coherenceJournals?: LocalCoherenceJournals | null;
 }
 
 interface TeamReviewWiringOptions {
@@ -176,6 +183,7 @@ interface TeamReviewWiringOptions {
   reapProcesses?: TeamReviewReap;
   guardrailsRefusal?: GuardrailsSpawnRefusal;
   clock?: SharedClock;
+  coherenceJournals?: LocalCoherenceJournals | null;
 }
 
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
@@ -224,20 +232,23 @@ interface TeamReviewRoleFacts {
   checkoutPath: string;
   cachedClone: string;
   unreadablePaths: readonly string[];
+  journalShimDirs?: readonly string[];
 }
 
-function teamReviewRole(facts: SessionGuardrailsFacts, { checkoutPath, cachedClone, unreadablePaths }: TeamReviewRoleFacts): GuardrailsRole {
+function teamReviewRole(facts: SessionGuardrailsFacts, { checkoutPath, cachedClone, unreadablePaths, journalShimDirs = [] }: TeamReviewRoleFacts): GuardrailsRole {
   return {
-    ...judgeRole({ vendor: 'claude', cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId, readablePaths: [...facts.readablePaths, checkoutPath, cachedClone] }),
+    ...judgeRole({ vendor: 'claude', cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId, readablePaths: [...facts.readablePaths, checkoutPath, cachedClone, ...journalShimDirs] }),
     vendors: ['claude', 'codex'],
     network: { access: 'allowlist', domains: [...TEAM_REVIEW_EXTRA_DOMAINS], hookPort: facts.hookPort },
     readDenied: [...unreadablePaths],
   };
 }
 
-async function describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout }: { checkoutPath: string; cachedClone: string; linkedCheckout: string | null }): Promise<DescribeGuardrailsRole> {
+async function describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout, journalShimDirs = [] }: {
+  checkoutPath: string; cachedClone: string; linkedCheckout: string | null; journalShimDirs?: readonly string[];
+}): Promise<DescribeGuardrailsRole> {
   const unreadablePaths = await linkedCheckoutUnreadablePaths(linkedCheckout);
-  return (facts) => teamReviewRole(facts, { checkoutPath, cachedClone, unreadablePaths });
+  return (facts) => teamReviewRole(facts, { checkoutPath, cachedClone, unreadablePaths, journalShimDirs });
 }
 
 async function linkedCheckoutUnreadablePaths(linkedCheckout: string | null): Promise<string[]> {
@@ -246,9 +257,12 @@ async function linkedCheckoutUnreadablePaths(linkedCheckout: string | null): Pro
   return entryNames.filter((entryName) => LINKED_CHECKOUT_UNREADABLE_ENTRY.test(entryName)).map((entryName) => path.join(linkedCheckout, entryName));
 }
 
-function teamReviewClaudeArgs(tier: ReviewTier, readable: { checkoutPath: string; linkedCheckout: string | null }): string[] {
+function teamReviewClaudeArgs(tier: ReviewTier, readable: { checkoutPath: string; linkedCheckout: string | null }, coherenceJournal: Pick<CoherenceJournal, 'allowRules' | 'extraClaudeArgs'> | null = null): string[] {
   const model = tier === 'full' ? core.FULL_MODEL : core.STAMP_MODEL;
-  return ['-p', '--allowedTools', TEAM_REVIEW_SHELL_ALLOW_RULE, ...teamReviewReadAllowRules(readable), '--strict-mcp-config', '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, '--model', model];
+  return [
+    '-p', '--allowedTools', TEAM_REVIEW_SHELL_ALLOW_RULE, ...teamReviewReadAllowRules(readable), ...(coherenceJournal?.allowRules ?? []), '--strict-mcp-config',
+    ...(coherenceJournal?.extraClaudeArgs ?? []), '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, '--model', model,
+  ];
 }
 
 function emptyGhConfigDir(workDir: string): string {
@@ -457,6 +471,7 @@ function createTeamReviewDispatcher({
   readLocalCheckoutConfig = () => ({}),
   reapProcesses = reapTeamReviewProcesses,
   log = console,
+  coherenceJournals = null,
 }: TeamReviewDispatchOptions) {
   async function removeCheckout({ projectPath, worktreePath }: { projectPath: string; worktreePath: string }): Promise<void> {
     const removal = await gitWorkspace.removeWorktreeByPath({ projectPath, cwd: worktreePath })
@@ -519,8 +534,9 @@ function createTeamReviewDispatcher({
   }
 
   function spawnWithTimeout(
-    { candidate, detail, tier, reasons, reportProgress, resume, priorReview, signal: cancelSignal, timeoutMs, workDir, checkoutPath, cachedClone, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
+    { candidate, detail, tier, reasons, reportProgress, resume, priorReview, signal: cancelSignal, timeoutMs, workDir, checkoutPath, cachedClone, linkedCheckout, reportPath, postingPath, commentable, coherenceJournal, onPending, onSessionId }: SpawnReviewArgs & {
       timeoutMs: number; workDir: string; checkoutPath: string; cachedClone: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null;
+      coherenceJournal: CoherenceJournal | null;
       onPending: (pending: Promise<unknown>) => void;
       onSessionId: (id: string) => void;
     },
@@ -537,10 +553,11 @@ function createTeamReviewDispatcher({
         id: `${core.TEAM_REVIEW_LANE_ID}:${candidate.key}`,
         name: `Team review ${candidate.key}`,
         cwd: workDir,
-        spawnEnv: hooksPathPinnedSpawnEnv(workDir),
-        extraClaudeArgs: teamReviewClaudeArgs(tier, { checkoutPath, linkedCheckout }),
+        spawnEnv: { ...hooksPathPinnedSpawnEnv(workDir), ...coherenceJournal?.spawnEnv },
+        extraClaudeArgs: teamReviewClaudeArgs(tier, { checkoutPath, linkedCheckout }, coherenceJournal),
         settingsPermissions: teamReviewAcceptEditsPermissions(),
-        guardrailsRole: await describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout }),
+        guardrailsRole: await describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout, journalShimDirs: coherenceJournal ? [coherenceJournal.shimDir] : [] }),
+        ...(coherenceJournal ? { extraUserHooks: coherenceJournal.extraUserHooks, prependPathDirs: coherenceJournal.prependPathDirs } : {}),
         signal: AbortSignal.any([signal, shutdownSignal, cancelSignal].filter((candidate): candidate is AbortSignal => candidate instanceof AbortSignal)),
         onSessionId,
         resumeSessionId: resume?.sessionId,
@@ -580,7 +597,9 @@ function createTeamReviewDispatcher({
     let sessionId = args.resume?.sessionId ?? null;
     let deadlineAt = startedAt + timeoutSeconds * 1000;
     let timeoutBudgetMs = timeoutSeconds * 1000;
-    const resources: { workDirHandle: TeamReviewWorkDir | null; checkout: { projectPath: string; worktreePath: string } | null; awakeStopwatch: AwakeStopwatch | null } = { workDirHandle: null, checkout: null, awakeStopwatch: null };
+    const resources: {
+      workDirHandle: TeamReviewWorkDir | null; checkout: { projectPath: string; worktreePath: string } | null; awakeStopwatch: AwakeStopwatch | null; coherenceJournal: CoherenceJournal | null;
+    } = { workDirHandle: null, checkout: null, awakeStopwatch: null, coherenceJournal: null };
     let pendingSession: Promise<unknown> | null = null;
     let shouldPreserve = false;
     let draft: ReviewDraft;
@@ -599,13 +618,16 @@ function createTeamReviewDispatcher({
             resources.checkout = { projectPath, worktreePath: args.resume.worktreePath };
             await reapProcesses({ ownedDirectories: [resumedWorkDir, args.resume.worktreePath], reviewRoots: [workRoot, worktreeRoot], scope: 'run', log }).catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] process reap failed: ${errorMessage(error)}`));
             const diff = await github.prDiff(candidate.repo, detail.number);
+            resources.coherenceJournal = await coherenceJournals?.prepare({
+              repoDir: args.resume.worktreePath, laneCwd: resumedWorkDir, laneName: core.TEAM_REVIEW_LANE_ID, resumedClaudeSessionId: args.resume.sessionId,
+            }) ?? null;
             reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds: timeoutBudgetMs / 1000 });
             resources.awakeStopwatch = startAwakeStopwatch({ now });
             return spawnWithTimeout({
               ...args, timeoutMs: timeoutBudgetMs, workDir: args.resume.workDir, checkoutPath: args.resume.worktreePath, cachedClone: projectPath, linkedCheckout: await resumedLinkedCheckout(candidate.repo, args.resume.worktreePath),
               reportPath: path.join(args.resume.workDir, core.REVIEW_REPORT_FILENAME),
               postingPath: path.join(args.resume.workDir, core.REVIEW_POSTING_FILENAME),
-              commentable: diff === null ? null : core.commentableLines(diff),
+              commentable: diff === null ? null : core.commentableLines(diff), coherenceJournal: resources.coherenceJournal,
               onPending: (pending) => { pendingSession = pending; },
               onSessionId: (id) => { sessionId = id; },
             });
@@ -658,10 +680,12 @@ function createTeamReviewDispatcher({
       });
       await fs.writeFile(path.join(workDir, core.REVIEW_PROMPT_FILENAME), prompt, 'utf8');
       await fs.mkdir(emptyGhConfigDir(workDir), { recursive: true });
+      resources.coherenceJournal = await coherenceJournals?.prepare({ repoDir: worktreePath, laneCwd: workDir, laneName: core.TEAM_REVIEW_LANE_ID }) ?? null;
       reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds });
       resources.awakeStopwatch = startAwakeStopwatch({ now });
       return await spawnWithTimeout({
         ...args, resume: undefined, timeoutMs: timeoutBudgetMs, workDir, checkoutPath: worktreePath, cachedClone: staged.projectPath, linkedCheckout, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
+        coherenceJournal: resources.coherenceJournal,
         onPending: (pending) => { pendingSession = pending; },
         onSessionId: (id) => { sessionId = id; },
       });
@@ -695,6 +719,13 @@ function createTeamReviewDispatcher({
         await reapProcesses({ ownedDirectories: [reviewWorkDir, resources.checkout?.worktreePath].filter((directory): directory is string => directory !== undefined), reviewRoots: [workRoot, worktreeRoot], scope: 'run', log })
           .catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] process reap failed: ${errorMessage(error)}`));
       }
+      const coherenceJournal = resources.coherenceJournal;
+      if (coherenceJournal && shouldPreserve) await coherenceJournals?.release(coherenceJournal, core.TEAM_REVIEW_LANE_ID);
+      if (coherenceJournal && !shouldPreserve && reviewWorkDir !== undefined) {
+        await coherenceJournals?.land({
+          journal: coherenceJournal, laneCwd: reviewWorkDir, repoKey: coherenceJournalStoreKey({ source: 'github', identity: candidate.repo }), laneName: core.TEAM_REVIEW_LANE_ID,
+        });
+      }
       if (!shouldPreserve) {
         if (resources.checkout) await removeCheckout(resources.checkout);
         if (resources.workDirHandle) await resources.workDirHandle.cleanup();
@@ -726,7 +757,7 @@ function createTeamReviewSpawn({
   prepareGuardrails?: typeof prepareGuardrailsLaunch;
   platform?: NodeJS.Platform;
 }): TeamReviewSpawn {
-  return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, settingsGuardrails, guardrailsRole, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt }) {
+  return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, settingsGuardrails, guardrailsRole, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt, extraUserHooks, prependPathDirs }) {
     if (guardrailsRole !== undefined && platform === SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
     const skipPermissions = settingsPermissions.defaultMode === 'bypassPermissions';
     const sess = makeSession({
@@ -737,6 +768,8 @@ function createTeamReviewSpawn({
       dangerouslySkipPermissions: skipPermissions,
       hookTools: hookToolConfig ? resolveHookTools({ saneYolo: hookToolConfig.saneYolo }, { skipPermissions }) : [],
       extraClaudeArgs,
+      ...(extraUserHooks ? { extraUserHooks } : {}),
+      ...(prependPathDirs ? { prependPathDirs } : {}),
       initialPrompt: initialPrompt ?? core.REVIEW_BOOTSTRAP_PROMPT,
       resumeSessionId,
       ephemeral: true,
@@ -934,6 +967,7 @@ function createTeamReviewWiring({
   reapProcesses = reapTeamReviewProcesses,
   guardrailsRefusal = allowGuardedSpawn,
   clock,
+  coherenceJournals = null,
 }: TeamReviewWiringOptions) {
   const stateIo = createTeamReviewStateIo(path.join(homeDir, core.TEAM_REVIEW_STATE_FILENAME), log);
   const worktreeRoot = path.join(homeDir, 'team-review-worktrees');
@@ -941,7 +975,7 @@ function createTeamReviewWiring({
   const shutdownController = new AbortController();
   const inFlightReviews = new Set<Promise<ReviewOutcome>>();
   const reviewPullRequest = createTeamReviewDispatcher({
-    github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, repoCacheRoot, shutdownSignal: shutdownController.signal, reapProcesses, log,
+    github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, repoCacheRoot, shutdownSignal: shutdownController.signal, reapProcesses, log, coherenceJournals,
     readReviewSkill: () => core.readTeamReviewSettings(config).skill,
     readLocalCheckoutConfig: () => ({ projects: config.projects, repoRoots: config.repoRoots }),
   });

@@ -81,11 +81,25 @@ export function buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hook
 
 const COHERENCE_DECIDE_ALLOW_RULE = 'Bash(coherence decide:*)';
 
-export function buildCoherenceJournalLaneOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir, laneCwd }: {
-  claudeSessionId: string; nodePath: string; hookCliPath: string; shimDir: string; laneCwd: string;
+export function buildCoherenceJournalLaneOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir, laneCwd, isResumed = false }: {
+  claudeSessionId: string; nodePath: string; hookCliPath: string; shimDir: string; laneCwd: string; isResumed?: boolean;
 }) {
   const sessionOverrides = buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir });
-  return { ...sessionOverrides, spawnEnv: { ...sessionOverrides.spawnEnv, COHERENCE_PROJECT_ROOT: laneCwd }, allowRules: [COHERENCE_DECIDE_ALLOW_RULE] };
+  return {
+    ...sessionOverrides,
+    extraClaudeArgs: isResumed ? [] : sessionOverrides.extraClaudeArgs,
+    spawnEnv: { ...sessionOverrides.spawnEnv, COHERENCE_PROJECT_ROOT: laneCwd },
+    allowRules: [COHERENCE_DECIDE_ALLOW_RULE],
+  };
+}
+
+const STORE_KEY_RESERVED_CHARACTERS = /[!'()*.~]/g;
+
+export function coherenceJournalStoreKey({ source, identity }: { source: 'github' | 'project'; identity: string }): string {
+  const comparableIdentity = source === 'github' ? identity.toLowerCase() : identity;
+  const encodedIdentity = encodeURIComponent(comparableIdentity)
+    .replace(STORE_KEY_RESERVED_CHARACTERS, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `${source}-${encodedIdentity}`;
 }
 
 export function buildCoherenceShims({ nodePath, cliPath, glimmervoidCliPath }: { nodePath: string; cliPath: string; glimmervoidCliPath?: string }) {

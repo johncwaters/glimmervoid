@@ -68,6 +68,8 @@ interface LaneSpawnOptions {
   coherenceCli?: { nodePath: string; cliPath: string; hookCliPath: string } | null;
 }
 
+type LaneCoherenceCli = NonNullable<LaneSpawnOptions['coherenceCli']>;
+
 type CoherenceJournal = ReturnType<typeof buildCoherenceJournalLaneOverrides> & LaneCoherenceJournalLaunch;
 
 interface LaneCoherenceJournalLaunch {
@@ -75,8 +77,8 @@ interface LaneCoherenceJournalLaunch {
   claudeSessionId: string;
 }
 
-async function prepareCoherenceJournal({ laneCwd, coherenceCli, isCodex, laneName }: {
-  laneCwd: string; coherenceCli: LaneSpawnOptions['coherenceCli']; isCodex: boolean; laneName: string;
+async function prepareCoherenceJournal({ laneCwd, coherenceCli, isCodex, laneName, resumedClaudeSessionId = null }: {
+  laneCwd: string; coherenceCli: LaneSpawnOptions['coherenceCli']; isCodex: boolean; laneName: string; resumedClaudeSessionId?: string | null;
 }): Promise<CoherenceJournal> {
   if (isCodex) throw new Error(`${laneName} lane journals into Coherence only on Claude Code`);
   if (!coherenceCli) throw new Error(`${laneName} lane cannot journal into Coherence: the Coherence CLI is unavailable`);
@@ -89,9 +91,16 @@ async function prepareCoherenceJournal({ laneCwd, coherenceCli, isCodex, laneNam
     await fsPromises.rm(shimDir, { recursive: true, force: true });
     throw error;
   }
-  const claudeSessionId = crypto.randomUUID();
-  const journalOverrides = buildCoherenceJournalLaneOverrides({ claudeSessionId, nodePath: coherenceCli.nodePath, hookCliPath: coherenceCli.hookCliPath, shimDir, laneCwd });
-  return { ...journalOverrides, shimDir, claudeSessionId };
+  const claudeSessionId = resumedClaudeSessionId ?? crypto.randomUUID();
+  try {
+    const journalOverrides = buildCoherenceJournalLaneOverrides({
+      claudeSessionId, nodePath: coherenceCli.nodePath, hookCliPath: coherenceCli.hookCliPath, shimDir, laneCwd, isResumed: resumedClaudeSessionId !== null,
+    });
+    return { ...journalOverrides, shimDir, claudeSessionId };
+  } catch (error) {
+    await fsPromises.rm(shimDir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function withAllowRules(permissions: Record<string, unknown>, allowRules: readonly string[]): Record<string, unknown> {
@@ -191,5 +200,5 @@ async function readLaneResultFile(resultPath: string): Promise<Record<string, un
   }
 }
 
-export { LANE_SPAWN_DENY_TOOLS, createLaneSpawn, readLaneResultFile };
-export type { LaneCoherenceJournal, LaneSpawn };
+export { LANE_SPAWN_DENY_TOOLS, createLaneSpawn, prepareCoherenceJournal, readLaneResultFile };
+export type { CoherenceJournal, LaneCoherenceCli, LaneCoherenceJournal, LaneSpawn };
