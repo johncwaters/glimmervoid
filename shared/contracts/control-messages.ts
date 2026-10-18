@@ -19,6 +19,7 @@ import {
 } from './coherence.ts';
 import { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
 import { TraceRecord } from './trace.ts';
+import { SessionSetup } from './session-setup.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus, hasRequiredActionHead } from './team-review.ts';
 import { LinkedPr, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus, SessionPrLinks } from './my-prs.ts';
@@ -235,6 +236,7 @@ const clientVariants = [
   loose('session-doc-read', { id: sessionId, path: sessionDocPath, requestId }),
   loose('session-doc-save', { id: sessionId, path: sessionDocPath, text: z.string(), baseHash: z.string().min(1), requestId }),
   loose('session-coherence-journal', { id: sessionId, requestId }),
+  loose('session-setup', { id: sessionId, requestId }),
   loose('project-coherence-adopt', { ...ProjectCoherenceAdoptRequest.shape, requestId }),
   loose('project-coherence-check', { ...ProjectCoherenceCheckRequest.shape, requestId }),
   loose('client-error', ClientErrorReport.shape),
@@ -289,6 +291,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'session-coherence',
   'session-coherence-snapshot',
   'session-coherence-journal-response',
+  'session-setup-response',
   'project-coherence-trend',
   'project-coherence-trend-snapshot',
   'project-coherence-adopt-response',
@@ -479,6 +482,7 @@ const serverVariants = [
   loose('session-coherence', { id: sessionId, ...SessionCoherence.shape }),
   loose('session-coherence-snapshot', { sessions: z.record(z.string(), SessionCoherence) }),
   loose('session-coherence-journal-response', { requestId, id: sessionId, ok: z.boolean(), entries: z.array(CoherenceJournalEntry).max(COHERENCE_JOURNAL_DRAWER_MAX_ROWS), error: optionalError }),
+  loose('session-setup-response', { requestId, id: sessionId, ok: z.boolean(), setup: SessionSetup.optional(), error: optionalError }),
   loose('project-coherence-trend', { projectId: z.string(), ...ProjectCoherenceTrend.shape }),
   loose('project-coherence-trend-snapshot', { projects: z.record(z.string(), ProjectCoherenceTrend) }),
   loose('project-coherence-adopt-response', { ...ProjectCoherenceAdoptResult.shape, requestId }),

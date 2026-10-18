@@ -686,6 +686,10 @@ class Session extends EventEmitter {
     return this._taskTitleSources.refinedTitle ?? null;
   }
 
+  get transcriptPath(): string | null {
+    return this._transcriptPath;
+  }
+
   get persistedTaskTitle(): PersistedTaskTitle | undefined {
     return buildPersistedTaskTitle(this._taskTitleSources);
   }

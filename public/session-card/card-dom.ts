@@ -48,6 +48,12 @@ export function setCardCoherenceJournal(journal: CardCoherenceJournal) {
   cardCoherenceJournal = journal;
 }
 
+let openCardSessionSetup: ((sessionId: string) => void) | null = null;
+
+export function setCardSessionSetup(open: (sessionId: string) => void) {
+  openCardSessionSetup = open;
+}
+
 interface TagBadgeSpec {
   cls: string;
   text?: string;
@@ -168,7 +174,14 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     cardCoherenceJournal?.open(sessionId);
   };
-  sessionMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnCoherenceJournal, btnLinkPr);
+  const btnSessionSetup = buildMenuItem('Session setup', 'MCP servers, plugins and hooks this session loaded', 'overflow-session-setup visible');
+  btnSessionSetup.setAttribute('aria-haspopup', 'dialog');
+  btnSessionSetup.onclick = () => {
+    sessionMenu.classList.remove('open');
+    btnSessionMenu.setAttribute('aria-expanded', 'false');
+    openCardSessionSetup?.(sessionId);
+  };
+  sessionMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnCoherenceJournal, btnSessionSetup, btnLinkPr);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug', '\u2699');

@@ -18,6 +18,7 @@ import { TASK_TITLE_MAX_LENGTH, TaskTitle } from '../shared/contracts/session.ts
 import { STATES } from '../shared/states.ts';
 import { claudeProjectsDir, listRepoConversations } from '../session/core/conversation-history.ts';
 import type { Session } from '../session/sessions.ts';
+import { readSessionSetup } from './session/session-setup-wiring.ts';
 import type { ControlSocket } from './backend/backend-websockets.ts';
 import { glimmervoidHomeDir, ABORT_CONFIG_SAVE } from './config-store.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
@@ -280,6 +281,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'session-doc-read': () => ({ type: 'session-doc-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
     'session-doc-save': () => ({ type: 'session-doc-save-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
     'session-coherence-journal': () => ({ type: 'session-coherence-journal-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, entries: [], error: message }),
+    'session-setup': () => ({ type: 'session-setup-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'project-coherence-adopt': () => {
       const verdict = judgeCoherenceAdoptRequest(msg);
       return { type: 'project-coherence-adopt-response', requestId, projectId: typeof msg?.projectId === 'string' ? msg.projectId.slice(0, 128) : '', ok: false, error: verdict.ok ? CoherenceAdoptError.enum.invalidRequest : verdict.error };
@@ -1523,6 +1525,18 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       const journal = await coherenceFeed.readJournal(session);
       if (!journal.ok) return ws.send(JSON.stringify({ ...reply, ok: false, entries: [], error: journal.error }));
       ws.send(JSON.stringify({ ...reply, ok: true, entries: journal.entries }));
+    },
+    'session-setup': async (message: ClientMessageOf<'session-setup'>, ws: ControlSocket) => {
+      const session = findSession(message);
+      if (!session) return replyTo(ws, message, 'session-setup-response', { id: message.id, ok: false, error: 'Session not found' });
+      const transcriptPath = session.transcriptPath;
+      if (session.agentId !== 'claude-code' || !transcriptPath) return replyTo(ws, message, 'session-setup-response', { id: message.id, ok: false, error: 'No Claude Code transcript for this session yet' });
+      try {
+        const setup = await readSessionSetup(transcriptPath);
+        replyTo(ws, message, 'session-setup-response', { id: message.id, ok: true, setup });
+      } catch {
+        replyTo(ws, message, 'session-setup-response', { id: message.id, ok: false, error: 'Could not read the Claude Code transcript for this session' });
+      }
     },
     'session-doc-save': async (message: ClientMessageOf<'session-doc-save'>, ws: ControlSocket) => {
       const reply = { type: 'session-doc-save-result', requestId: message.requestId ?? null, id: message.id, path: message.path };

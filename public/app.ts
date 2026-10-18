@@ -42,7 +42,8 @@ import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, a
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from './radar/radar-core.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from './radar/radar-panel.ts';
-import { handleDebugStateRefresh, handleDebugStateResponse, setCardCoherenceJournal, setCardPrChipsPainter, setSessionSaneYolo } from './session-card/card-dom.ts';
+import { handleDebugStateRefresh, handleDebugStateResponse, setCardCoherenceJournal, setCardPrChipsPainter, setCardSessionSetup, setSessionSaneYolo } from './session-card/card-dom.ts';
+import { applySessionSetupResponse, openSessionSetup } from './session-setup/setup-dialog.ts';
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
@@ -353,6 +354,7 @@ setCardPrChipsPainter(paintSessionPrChips);
 addSessionRowSignalSource(sessionRowCoherenceSignals);
 addSessionRowSignalSource(sessionRowPrSignals);
 setCardCoherenceJournal({ isReadable: isSessionJournalReadable, open: openCoherenceJournal });
+setCardSessionSetup(openSessionSetup);
 setProjectCoherenceAdoptRefresh(refreshFactoryCoherenceTrends);
 
 function refreshViewsIfVisible(reason: ViewRefreshReason) {
@@ -421,6 +423,7 @@ const messageHandlers = {
   'project-coherence-trend-snapshot': (msg) => { applyProjectCoherenceTrendSnapshot(msg); refreshRosterAndAttentionSurfaces(); refreshFactoryCoherenceTrends(); },
   'project-coherence-status': (msg) => applyProjectCoherenceStatus(msg),
   'session-coherence-journal-response': (msg) => applyCoherenceJournalResponse(msg),
+  'session-setup-response': (msg) => applySessionSetupResponse(msg),
 
   'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },
   'update-status':      (msg) => { showUpdateBanner(msg); applySettingsUpdateStatus(msg); },

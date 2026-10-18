@@ -175,6 +175,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   },
   { type: 'session-coherence-snapshot', sessions: { 'session-1': { journal: { ok: false, reason: 'the Coherence journal is not a regular file' }, regulation: { ok: false, reason: 'coherence regulate timed out' }, updatedAt: NOW } } },
   { type: 'session-coherence-journal-response', requestId: 'r-journal', id: 'session-1', ok: true, entries: [{ id: 'def-0123456789ab', at: '2026-10-17T10:05:00.000Z', kind: 'defect', text: 'flaky socket test', detail: null, supersedes: null }] },
+  { type: 'session-setup-response', requestId: 'r-setup', id: 'session-1', ok: true, setup: { model: null, mcpServers: [], plugins: [], skills: [], agents: [], hookEvents: [], hookCommands: [] } },
   {
     type: 'project-coherence-trend', projectId: 'project-1',
     latest: {
