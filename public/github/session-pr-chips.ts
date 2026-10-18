@@ -2,14 +2,15 @@ import { SessionPrLinks } from '#shared/contracts/my-prs.ts';
 import type { LinkedPr, MyPr, MyPrStage, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { attentionSignature, createAttentionAck } from '../attention-ack-core.ts';
 import { sendControlMsg } from '../control-ws.ts';
-import { el, externalLink } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
 import { openExternalUrl } from '../external-link.ts';
 import { setSessionPrAttention } from '../session-card/lifecycle.ts';
 import { uiState } from '../ui-state-core.ts';
 import { latestMyPrsStatus, setMyPrsSessionLinks } from './my-prs-panel.ts';
 import { comparablePrKey } from './my-prs-view-core.ts';
-import { createPrStatusIcon } from './pr-status-icon.ts';
-import { buildSessionPrChips, nextMyPrsByKey } from './session-pr-chips-core.ts';
+import { rankSignals } from '../signal-core.ts';
+import { createSignal, createSignalOverflow } from '../signal.ts';
+import { nextMyPrsByKey, sessionPrSignals } from './session-pr-chips-core.ts';
 import type { MyPrsByKey, SessionPrChip } from './session-pr-chips-core.ts';
 
 const ATTENTION_STAGES: ReadonlySet<MyPrStage> = new Set<MyPrStage>(['checks-failing', 'changes-requested', 'unresolved-threads', 'conflicts', 'merged']);
@@ -85,23 +86,13 @@ function slotsFor(sessionId: string): NodeListOf<HTMLElement> {
   return document.querySelectorAll<HTMLElement>(`[data-pr-chips-for="${CSS.escape(sessionId)}"]`);
 }
 
-function openChip(event: MouseEvent, url: string): void {
-  event.stopPropagation();
-  if (event.defaultPrevented) return;
-  event.preventDefault();
-  openExternalUrl(url);
-}
-
 function createChip(chip: SessionPrChip, isInsideButton: boolean): HTMLElement {
-  const chipElement = isInsideButton ? el('span', 'session-pr-chip') : externalLink('session-pr-chip', '', chip.url, chip.hoverText);
-  chipElement.title = chip.hoverText;
-  if (chip.stage) {
-    chipElement.dataset.tone = chip.stage.tone;
-    chipElement.append(createPrStatusIcon(chip.stage.icon, chip.stage.tone));
-  }
-  chipElement.append(chip.numberText);
+  const chipElement = createSignal(chip, {
+    className: 'session-pr-chip',
+    linkUrl: isInsideButton ? undefined : chip.url,
+    onActivate: () => openExternalUrl(chip.url),
+  });
   if (!isInsideButton) chipElement.setAttribute('aria-label', `Open pull request ${chip.key}`);
-  chipElement.addEventListener('click', (event) => openChip(event, chip.url));
   return chipElement;
 }
 
@@ -125,14 +116,11 @@ export function paintSessionPrChips(slot: HTMLElement, sessionId: string): void 
   if (slot.dataset.prChipsFor === sessionId && slot.dataset.prChipsRevision === revision) return;
   slot.dataset.prChipsFor = sessionId;
   slot.dataset.prChipsRevision = revision;
-  const view = buildSessionPrChips(linksBySessionId.get(sessionId) ?? [], prsByKey);
+  const ranked = rankSignals(sessionPrSignals(linksBySessionId.get(sessionId) ?? [], prsByKey));
   const isInsideButton = slot.closest('button') !== null;
-  const chipElements = view.chips.map((chip) => isInsideButton ? createChip(chip, true) : createUnlinkableChip(chip, sessionId));
-  if (view.overflowCount > 0) {
-    const overflow = el('span', 'session-pr-chip-overflow', `+${view.overflowCount}`);
-    overflow.title = view.overflowHoverText;
-    chipElements.push(overflow);
-  }
+  const chipElements = ranked.visible.map((chip) => isInsideButton ? createChip(chip, true) : createUnlinkableChip(chip, sessionId));
+  const overflow = createSignalOverflow(ranked);
+  if (overflow) chipElements.push(overflow);
   slot.hidden = chipElements.length === 0;
   slot.replaceChildren(...chipElements);
 }

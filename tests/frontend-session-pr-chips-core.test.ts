@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSessionPrChips, nextMyPrsByKey } from '../public/github/session-pr-chips-core.ts';
+import { nextMyPrsByKey, sessionPrSignals } from '../public/github/session-pr-chips-core.ts';
+import { rankSignals, SIGNAL_TIER } from '../public/signal-core.ts';
 import { parseMyPrsStatus } from '../public/github/my-prs-view-core.ts';
 import { toMyPr } from '../server/github/core/my-prs-core.ts';
 import type { LinkedPr, MyPr, MyPrSearchNode, MyPrsStatus } from '../shared/contracts/my-prs.ts';
@@ -16,27 +17,36 @@ const myPr = (number: number, state: MyPr['state'], stage: MyPr['stage']): MyPr 
 const link = (number: number, linkedAt: number): LinkedPr => ({ repo: 'Acme/app', number, url: `https://github.com/Acme/app/pull/${number}`, source: 'hook', linkedAt });
 const status = (fields: Partial<MyPrsStatus>): MyPrsStatus | null => parseMyPrsStatus({ type: 'my-prs-status', ts: 1, configured: true, viewer: 'alice', prs: [], ...fields });
 
-test('chips put open before merged before closed, newest first within each, keep two and collapse the rest into an overflow', () => {
+test('settled chips put open before merged before closed, newest first within each, keep two and collapse the rest into an overflow', () => {
   const prsByKey = nextMyPrsByKey(new Map(), status({ prs: [myPr(1, 'CLOSED', 'unknown'), myPr(2, 'MERGED', 'merged'), myPr(3, 'OPEN', 'ready'), myPr(4, 'OPEN', 'draft')] }));
-  const view = buildSessionPrChips([link(1, 40), link(2, 30), link(3, 10), link(4, 20)], prsByKey);
-  assert.deepEqual(view.chips.map((chip) => chip.numberText), ['#4', '#3']);
-  assert.deepEqual(view.chips.map((chip) => chip.stage?.icon), ['draft', 'ready']);
-  assert.equal(view.chips[1]?.hoverText, 'Acme/app: Title 3 (Ready to merge)');
-  assert.equal(view.overflowCount, 2);
-  assert.match(view.overflowHoverText, /^#2 [^\n]+\n#1 /);
+  const ranked = rankSignals(sessionPrSignals([link(1, 40), link(2, 30), link(3, 10), link(4, 20)], prsByKey));
+  assert.deepEqual(ranked.visible.map((chip) => chip.text), ['#4', '#3']);
+  assert.deepEqual(ranked.visible.map((chip) => chip.look?.icon), ['draft', 'ready']);
+  assert.equal(ranked.visible[1]?.hoverText, 'Acme/app: Title 3 (Ready to merge)');
+  assert.equal(ranked.overflowCount, 2);
+  assert.match(ranked.overflowHoverText, /^#2 [^\n]+\n#1 /);
+});
+
+test('a broken pull request outranks a newer settled one, and a needs-you signal outranks both', () => {
+  const prsByKey = nextMyPrsByKey(new Map(), status({ prs: [myPr(1, 'OPEN', 'checks-failing'), myPr(2, 'MERGED', 'merged')] }));
+  const prSignals = sessionPrSignals([link(1, 10), link(2, 20)], prsByKey);
+  const decision = { key: 'coherence', text: 'decision', hoverText: '', look: null, tier: SIGNAL_TIER.needsYou };
+  const ranked = rankSignals([...prSignals, decision]);
+  assert.deepEqual(ranked.visible.map((signal) => signal.text), ['decision', '#1']);
+  assert.equal(ranked.overflowCount, 1);
 });
 
 test('a link missing from My PRs shows its number without a stage, a link in other letter case still finds its stage, and unconfigured My PRs drops every stage', () => {
   const configured = nextMyPrsByKey(new Map(), status({ prs: [myPr(3, 'OPEN', 'ready')] }));
-  assert.equal(buildSessionPrChips([{ ...link(3, 1), repo: 'acme/APP' }], configured).chips[0]?.stage?.icon, 'ready');
-  const missing = buildSessionPrChips([link(9, 1)], configured);
-  assert.deepEqual(missing.chips, [{ key: 'Acme/app#9', numberText: '#9', url: 'https://github.com/Acme/app/pull/9', hoverText: 'Acme/app', stage: null }]);
+  assert.equal(sessionPrSignals([{ ...link(3, 1), repo: 'acme/APP' }], configured)[0]?.look?.icon, 'ready');
+  const missing = sessionPrSignals([link(9, 1)], configured);
+  assert.deepEqual(missing, [{ key: 'Acme/app#9', text: '#9', url: 'https://github.com/Acme/app/pull/9', hoverText: 'Acme/app', look: null, tier: SIGNAL_TIER.settled }]);
   const unconfigured = nextMyPrsByKey(configured, status({ configured: false, prs: [myPr(3, 'OPEN', 'ready')] }));
-  assert.equal(buildSessionPrChips([link(3, 1)], unconfigured).chips[0]?.stage, null);
+  assert.equal(sessionPrSignals([link(3, 1)], unconfigured)[0]?.look, null);
 });
 
 test('a failed poll keeps the stages from the last good status', () => {
   const good = nextMyPrsByKey(new Map(), status({ prs: [myPr(3, 'OPEN', 'ready')] }));
   const afterFailure = nextMyPrsByKey(good, status({ error: 'rate limited', prs: [] }));
-  assert.equal(buildSessionPrChips([link(3, 1)], afterFailure).chips[0]?.stage?.icon, 'ready');
+  assert.equal(sessionPrSignals([link(3, 1)], afterFailure)[0]?.look?.icon, 'ready');
 });
