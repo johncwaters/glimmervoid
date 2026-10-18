@@ -48,13 +48,13 @@ export function nextRequestId(prefix: string): string {
   return `${prefix}-${requestSequence}`;
 }
 
-export function sendControlRequest(type: string, payload?: Record<string, unknown>): Promise<ServerMessage> {
+export function sendControlRequest(type: string, payload?: Record<string, unknown>, { timeoutMs = 5000 }: { timeoutMs?: number } = {}): Promise<ServerMessage> {
   const requestId = nextRequestId(type);
   return new Promise<ServerMessage>((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingRequests.delete(requestId);
       reject(new Error('Request timed out'));
-    }, 5000);
+    }, timeoutMs);
     pendingRequests.set(requestId, { resolve, reject, timer });
     if (controlWs?.readyState !== WebSocket.OPEN) {
       clearTimeout(timer);

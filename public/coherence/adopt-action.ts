@@ -1,5 +1,5 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { nextRequestId, sendControlMsg } from '../control-ws.ts';
+import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { buildDialogShell } from '../session-card/modal.ts';
 import { coherenceAdoptReplyStatus, shouldOfferCoherenceAdopt } from './adopt-core.ts';
@@ -9,7 +9,7 @@ let projectStatuses: ServerMessageOf<'project-coherence-status'>['projects'] = {
 let isCoherenceEnabled = false;
 let factoryProjectIds = new Set<string>();
 let refreshHeaders = () => {};
-const adoptionsByProjectId = new Map<string, { requestId: string | null; text: string; ok: boolean }>();
+const adoptionsByProjectId = new Map<string, { isPending: boolean; text: string; ok: boolean }>();
 let openDialog: { projectId: string; paint: () => void; close: () => void } | null = null;
 
 export function setProjectCoherenceAdoptRefresh(refresh: () => void) {
@@ -34,10 +34,8 @@ export function applyProjectCoherenceStatus(message: ServerMessageOf<'project-co
   refreshHeaders();
 }
 
-export function applyProjectCoherenceAdoptResponse(message: ServerMessageOf<'project-coherence-adopt-response'>) {
-  const adoption = adoptionsByProjectId.get(message.projectId);
-  if (!adoption?.requestId || adoption.requestId !== message.requestId) return;
-  adoptionsByProjectId.set(message.projectId, { requestId: null, text: coherenceAdoptReplyStatus(message), ok: message.ok });
+function applyProjectCoherenceAdoptResponse(message: ServerMessageOf<'project-coherence-adopt-response'>) {
+  adoptionsByProjectId.set(message.projectId, { isPending: false, text: coherenceAdoptReplyStatus(message), ok: message.ok });
   if (openDialog?.projectId === message.projectId) {
     if (message.ok) openDialog.close();
     if (!message.ok) openDialog?.paint();
@@ -67,8 +65,8 @@ function buildAdoptProgress(): HTMLElement[] {
   return [spinner, status];
 }
 
-function paintAdoptProgress(container: HTMLElement, adoption: { requestId: string | null; text: string; ok: boolean } | undefined, adoptingText = '') {
-  const isAdopting = adoption?.requestId != null;
+function paintAdoptProgress(container: HTMLElement, adoption: { isPending: boolean; text: string; ok: boolean } | undefined, adoptingText = '') {
+  const isAdopting = adoption?.isPending === true;
   const spinner = container.querySelector<HTMLElement>('.coherence-adopt-spinner');
   if (spinner) spinner.dataset.active = String(isAdopting);
   const status = container.querySelector<HTMLElement>('.coherence-adopt-status');
@@ -113,7 +111,7 @@ function openAdoptDialog(projectId: string) {
     projectId,
     paint: () => {
       const adoption = adoptionsByProjectId.get(projectId);
-      adoptButton.disabled = adoption?.requestId != null;
+      adoptButton.disabled = adoption?.isPending === true;
       paintAdoptProgress(progress, adoption, 'Installing and pushing, this can take a minute');
     },
     close: () => {
@@ -133,12 +131,22 @@ function openAdoptDialog(projectId: string) {
     shell.btnCancel.focus();
   });
   adoptButton.addEventListener('click', () => {
-    if (adoptionsByProjectId.get(projectId)?.requestId) return;
-    const requestId = nextRequestId('coherence-adopt');
-    adoptionsByProjectId.set(projectId, { requestId, text: '', ok: false });
-    if (!sendControlMsg({ type: 'project-coherence-adopt', projectId, requestId, confirm: true })) {
-      adoptionsByProjectId.set(projectId, { requestId: null, text: 'Adopt failed: Not connected', ok: false });
-    }
+    if (adoptionsByProjectId.get(projectId)?.isPending) return;
+    const adoption = { isPending: true, text: '', ok: false };
+    adoptionsByProjectId.set(projectId, adoption);
+    void sendControlRequest('project-coherence-adopt', { projectId, confirm: true }, { timeoutMs: 330_000 })
+      .then((message) => {
+        if (adoptionsByProjectId.get(projectId) !== adoption) return;
+        if (message.type !== 'project-coherence-adopt-response' || message.projectId !== projectId) return;
+        applyProjectCoherenceAdoptResponse(message);
+      })
+      .catch((error: unknown) => {
+        if (adoptionsByProjectId.get(projectId) !== adoption) return;
+        const reason = error instanceof Error ? error.message : String(error);
+        adoptionsByProjectId.set(projectId, { isPending: false, text: `Adopt failed: ${reason}`, ok: false });
+        if (openDialog?.projectId === projectId) openDialog.paint();
+        refreshHeaders();
+      });
     dialog.paint();
     refreshHeaders();
   });

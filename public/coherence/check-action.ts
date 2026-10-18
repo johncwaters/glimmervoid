@@ -1,33 +1,19 @@
 import type { ProjectCoherenceCheckResult } from '#shared/contracts/coherence.ts';
-import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { nextRequestId, sendControlMsg } from '../control-ws.ts';
+import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { coherenceCheckStageText, coherenceCheckStatus } from './check-core.ts';
 
 const CHECK_REPLY_TIMEOUT_MS = 120_000;
-const checksByProjectId = new Map<string, { requestId: string | null; reply?: ProjectCoherenceCheckResult; replyTimer?: ReturnType<typeof setTimeout> }>();
+const checksByProjectId = new Map<string, { isPending: boolean; reply?: ProjectCoherenceCheckResult }>();
 let openAction: { projectId: string; paint: () => void } | null = null;
 
 function settleCheck(projectId: string, reply: ProjectCoherenceCheckResult) {
-  clearTimeout(checksByProjectId.get(projectId)?.replyTimer);
-  checksByProjectId.set(projectId, { requestId: null, reply });
+  checksByProjectId.set(projectId, { isPending: false, reply });
   if (openAction?.projectId === projectId) openAction.paint();
 }
 
 function failCheck(projectId: string, error: string) {
   settleCheck(projectId, { projectId, ok: false, stages: [], error });
-}
-
-export function applyProjectCoherenceCheckResponse(message: ServerMessageOf<'project-coherence-check-response'>) {
-  const check = checksByProjectId.get(message.projectId);
-  if (!check?.requestId || check.requestId !== message.requestId) return;
-  settleCheck(message.projectId, message);
-}
-
-export function abandonPendingCoherenceChecks() {
-  for (const [projectId, check] of checksByProjectId) {
-    if (check.requestId) failCheck(projectId, 'Connection lost');
-  }
 }
 
 export function buildProjectCoherenceCheckAction(projectId: string) {
@@ -44,7 +30,7 @@ export function buildProjectCoherenceCheckAction(projectId: string) {
   element.append(controls, stages, summary);
   const action = { projectId, paint: () => {
     const check = checksByProjectId.get(projectId);
-    const isPending = check?.requestId != null;
+    const isPending = check?.isPending === true;
     button.disabled = isPending;
     pendingStatus.textContent = coherenceCheckStatus(isPending);
     stages.replaceChildren(...(check?.reply?.stages ?? []).map((stage) => {
@@ -58,16 +44,19 @@ export function buildProjectCoherenceCheckAction(projectId: string) {
   } };
   openAction = action;
   button.addEventListener('click', () => {
-    if (checksByProjectId.get(projectId)?.requestId) return;
-    const requestId = nextRequestId('coherence-check');
-    if (!sendControlMsg({ type: 'project-coherence-check', projectId, requestId })) {
-      failCheck(projectId, 'Not connected');
-      return;
-    }
-    const replyTimer = setTimeout(() => {
-      if (checksByProjectId.get(projectId)?.requestId === requestId) failCheck(projectId, 'Check timed out');
-    }, CHECK_REPLY_TIMEOUT_MS);
-    checksByProjectId.set(projectId, { requestId, replyTimer });
+    if (checksByProjectId.get(projectId)?.isPending) return;
+    const check = { isPending: true };
+    checksByProjectId.set(projectId, check);
+    void sendControlRequest('project-coherence-check', { projectId }, { timeoutMs: CHECK_REPLY_TIMEOUT_MS })
+      .then((message) => {
+        if (checksByProjectId.get(projectId) !== check) return;
+        if (message.type !== 'project-coherence-check-response' || message.projectId !== projectId) return;
+        settleCheck(projectId, message);
+      })
+      .catch((error: unknown) => {
+        if (checksByProjectId.get(projectId) !== check) return;
+        failCheck(projectId, error instanceof Error ? error.message : 'Connection lost');
+      });
     action.paint();
   });
   action.paint();
