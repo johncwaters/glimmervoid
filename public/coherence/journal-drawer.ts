@@ -75,7 +75,7 @@ function paintOpenReading(sessionId: string) {
   if (reading.command) openDrawer.reading.append(el('pre', 'coherence-command', reading.command));
 }
 
-export function openCoherenceJournal(sessionId: string) {
+function openCoherenceJournal(sessionId: string) {
   openDrawer?.close();
   const requestId = nextRequestId('coherence-journal');
   const closeDrawer = () => drawer.close();
