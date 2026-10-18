@@ -72,6 +72,42 @@ test('a session idle at its prompt with a background agent or monitor in flight 
   monitorSession.destroy();
 });
 
+test('a turn proven real by a submitted prompt or a tool call is saved as working, however RUNNING was entered', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const titleTurn = new Session({ id: 'resume-persist-session', name: 'task-notification', path: process.cwd(), statusConflictMs: 20, statusDedupMs: 10 });
+  titleTurn.state = STATES.COMPLETE;
+  const { savedWasWorking: titleTurnWasWorking } = wiredSession(titleTurn);
+  titleTurn._statusSource.ingest({ signal: 'working', source: 'title', ts: Date.now() });
+  t.mock.timers.tick(40);
+  assert.equal(titleTurn.state, STATES.RUNNING);
+  titleTurn.emit('hook-event', { event: 'PostToolUse', payload: { tool_name: 'Bash' } });
+  assert.equal(titleTurnWasWorking(), true);
+  titleTurn.destroy();
+
+  const queuedPrompt = new Session({ id: 'resume-persist-session', name: 'queued-prompt', path: process.cwd(), statusConflictMs: 20, statusDedupMs: 10 });
+  queuedPrompt.state = STATES.RUNNING;
+  const { savedWasWorking: queuedPromptWasWorking } = wiredSession(queuedPrompt);
+  hook(queuedPrompt, 'ready');
+  t.mock.timers.tick(5);
+  hook(queuedPrompt, 'resume');
+  t.mock.timers.tick(40);
+  assert.equal(queuedPrompt.state, STATES.RUNNING);
+  assert.equal(queuedPromptWasWorking(), true);
+  queuedPrompt.destroy();
+
+  const promptWhileWaiting = new Session({ id: 'resume-persist-session', name: 'prompt-while-waiting', path: process.cwd(), statusConflictMs: 20, statusDedupMs: 10 });
+  promptWhileWaiting.state = STATES.RUNNING;
+  const { savedWasWorking: promptWhileWaitingWasWorking } = wiredSession(promptWhileWaiting);
+  hook(promptWhileWaiting, 'awaiting-input', { notification_type: 'elicitation_dialog' });
+  t.mock.timers.tick(40);
+  assert.equal(promptWhileWaitingWasWorking(), false);
+  hook(promptWhileWaiting, 'resume');
+  t.mock.timers.tick(40);
+  assert.equal(promptWhileWaiting.state, STATES.RUNNING);
+  assert.equal(promptWhileWaitingWasWorking(), true);
+  promptWhileWaiting.destroy();
+});
+
 test('a live id that is not the resume target is never written to config', () => {
   const { session, recordedLanes, savedField } = wiredSession();
   session.emit('claude-session-id', {

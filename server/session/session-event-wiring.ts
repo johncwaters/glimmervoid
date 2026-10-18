@@ -7,7 +7,7 @@ import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../../shared/contracts/session.t
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
-import { decideWasActiveFlip, decideWasWorkingFlip } from './core/session-registry-core.ts';
+import { decideWasActiveFlip, decideWasWorkingFlip, isTurnWorkHookEvent } from './core/session-registry-core.ts';
 import { adapterBucket, classifySessionExit } from '../core/telemetry-core.ts';
 import { INTERACTIVE_LANE } from '../usage/core/usage-lane-core.ts';
 import { resolveCheckConfig, runPostTurnChecks } from '../post-turn-checker.ts';
@@ -164,6 +164,13 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       lastPersistedWasWorking = wasWorking;
       persistProjectField('wasWorking', wasWorking);
     };
+    const markTurnWorking = () => {
+      isTurnWorking = true;
+      persistWasWorking();
+    };
+    session.on('hook-event', ({ event }: { event: string }) => {
+      if (isTurnWorkHookEvent(event)) markTurnWorking();
+    });
 
     let liveTranscriptPath: string | null = null;
     session.on('claude-session-id', ({ id, vendor, isResumeTarget, transcriptPath }: ClaudeSessionIdEvent) => {
@@ -314,6 +321,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       pendingAgentNote = pendingAgentNote === null ? note : `${pendingAgentNote}${AGENT_ATTENTION_NOTE_SEPARATOR}${note}`;
     });
     session.on('user-prompt', () => {
+      markTurnWorking();
       pendingAgentNote = null;
       notifyGate.reset();
       releaseDeferredAcknowledge();

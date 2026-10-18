@@ -1,6 +1,7 @@
 import type { ProjectConfig } from '../../../shared/contracts/config.ts';
 import type { SessionState } from '../../../shared/states.ts';
 import { STATES } from '../../../shared/states.ts';
+import { TOOL_RESULT_HOOK_EVENTS } from '../../../session/core/claude-approval-core.ts';
 
 export type AgentId = ProjectConfig['agent'];
 
@@ -61,6 +62,10 @@ function decideWasWorkingFlip(to: SessionState, event: string, isIdleCompactionA
   return false;
 }
 
+function isTurnWorkHookEvent(hookEvent: string): boolean {
+  return TOOL_RESULT_HOOK_EVENTS.has(hookEvent.toLowerCase());
+}
+
 function haveSameWorkspaceRepos(projectRepos: string[] | undefined, sessionRepos: string[] | null | undefined): boolean {
   const configured = projectRepos ?? [];
   const running = sessionRepos ?? [];
@@ -119,4 +124,4 @@ function diffProjects(
   return { added, removed, modified, renamed, unchanged };
 }
 
-export { decideWasActiveFlip, decideWasWorkingFlip, diffProjects, machineSkipsPermissionsByDefault, projectSkipsPermissions, shouldStartAfterModify };
+export { decideWasActiveFlip, decideWasWorkingFlip, diffProjects, isTurnWorkHookEvent, machineSkipsPermissionsByDefault, projectSkipsPermissions, shouldStartAfterModify };

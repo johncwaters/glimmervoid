@@ -19,7 +19,7 @@ const HOLD_KEEPING_HOOK_EVENTS: ReadonlySet<string> = new Set([
   'statusline',
   CONVERSATION_PERMISSION_HOOK_EVENT,
 ]);
-const TOOL_RESULT_HOOK_EVENTS: ReadonlySet<string> = new Set(['posttooluse', 'posttoolusefailure', CONVERSATION_TOOL_RESULT_HOOK_EVENT]);
+export const TOOL_RESULT_HOOK_EVENTS: ReadonlySet<string> = new Set(['posttooluse', 'posttoolusefailure', CONVERSATION_TOOL_RESULT_HOOK_EVENT]);
 const PRIMARY_INPUT_KEYS_BY_TOOL: Readonly<Record<string, readonly string[]>> = {
   Bash: ['command'],
   Edit: ['file_path', 'old_string', 'new_string'],
