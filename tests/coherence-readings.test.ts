@@ -197,8 +197,9 @@ test('adopting Coherence pushes one fast-forward commit holding exactly the nati
     'evil.sh': `#!/bin/sh\necho "$@" > ${JSON.stringify(npmrcGitMarker)}\nexit 1\n`,
     'package.json': `${JSON.stringify({ private: true, dependencies: { x: 'git+ssh://git@example.invalid/x.git' } })}\n`,
   });
-  const directoryIgnored = await seedHostileProject(workRoot, 'directory-ignored', { '.gitignore': 'node_modules/\n' });
+  const directoryIgnored = await seedHostileProject(workRoot, 'directory-ignored', { '.gitignore': 'node_modules/\n.coherence/activity/\n' });
   const claudeIgnored = await seedHostileProject(workRoot, 'claude-ignored', { '.gitignore': '.claude/*\n!.claude/release-profile.json\n', '.claude/release-profile.json': '{}\n' });
+  const jsonlIgnored = await seedHostileProject(workRoot, 'jsonl-ignored', { '.gitignore': '*.jsonl\n' });
   const realWorkspace = createGitWorkspace();
   const racingClone = path.join(workRoot, 'racing-clone');
   await execFileAsync('git', ['clone', '-q', raced.origin, racingClone]);
@@ -218,6 +219,7 @@ test('adopting Coherence pushes one fast-forward commit holding exactly the nati
     listProjects: () => [
       { id: 'project-1', path: adopted.repo }, { id: 'project-2', path: raced.repo }, { id: 'project-3', path: plantedCli.repo }, { id: 'project-4', path: npmrcGit.repo },
       { id: 'project-5', path: directoryIgnored.repo }, { id: 'project-6', path: claudeIgnored.repo },
+      { id: 'project-7', path: jsonlIgnored.repo },
     ],
     readConfig: () => ({}),
     gitWorkspace,
@@ -228,7 +230,7 @@ test('adopting Coherence pushes one fast-forward commit holding exactly the nati
 
   assert.deepEqual((await adopt.statusMessage()).projects, {
     'project-1': { configured: false }, 'project-2': { configured: false }, 'project-3': { configured: false }, 'project-4': { configured: false }, 'project-5': { configured: false },
-    'project-6': { configured: false },
+    'project-6': { configured: false }, 'project-7': { configured: false },
   });
   assert.deepEqual(await adopt.adopt({ projectId: 'project-1', confirm: 'yes' }), { projectId: 'project-1', ok: false, error: 'not confirmed' });
 
@@ -254,6 +256,8 @@ test('adopting Coherence pushes one fast-forward commit holding exactly the nati
   await execFileAsync('npm', ['ci', '--ignore-scripts', '--offline', '--no-audit', '--no-fund'], { cwd: freshClone, encoding: 'utf8' });
   const freshCli = path.join(freshClone, 'node_modules', '@danilocampos', 'coherence', 'dist', 'cli.js');
   for (const host of ['claude', 'codex']) await execFileAsync(process.execPath, [freshCli, 'hooks', '--check', '--host', host], { cwd: freshClone, encoding: 'utf8' });
+  const journalProbes = ['.coherence/activity/s.jsonl', '.coherence/read-traces/s.jsonl', '.coherence/decisions/s.jsonl', '.coherence/work/s.jsonl'];
+  assert.equal((await git(freshClone, 'check-ignore', '--no-index', '--', ...journalProbes)).stdout, '.coherence/activity/s.jsonl\n.coherence/read-traces/s.jsonl\n');
 
   const status = await nextStatus(statusMessages);
   assert.equal(ServerMessage.safeParse(status).success, true);
@@ -274,12 +278,16 @@ test('adopting Coherence pushes one fast-forward commit holding exactly the nati
 
   const directoryIgnoredResult = await adopt.adopt({ projectId: 'project-5', confirm: true });
   assert.equal(directoryIgnoredResult.ok, true, JSON.stringify(directoryIgnoredResult));
-  assert.equal((await git(directoryIgnored.origin, 'show', `${directoryIgnoredResult.sha}:.gitignore`)).stdout, 'node_modules/\n');
+  assert.equal((await git(directoryIgnored.origin, 'show', `${directoryIgnoredResult.sha}:.gitignore`)).stdout.split('\n').slice(0, 4).join('\n'), 'node_modules/\n.coherence/activity/\n.coherence/*\n!.coherence/decisions/');
 
   assert.deepEqual(await adopt.adopt({ projectId: 'project-6', confirm: true }), {
     projectId: 'project-6', ok: false, error: 'repo ignores Coherence hook files', ignoredPaths: ['.claude/coherence-hook', '.claude/coherence-root'],
   });
-  assert.equal((await git(claudeIgnored.origin, 'ls-tree', '--name-only', 'refs/heads/main')).stdout.includes('coherence.config.json'), false);
+  assert.deepEqual(await adopt.adopt({ projectId: 'project-7', confirm: true }), {
+    projectId: 'project-7', ok: false, error: 'repo ignores Coherence hook files',
+    ignoredPaths: ['.coherence/decisions/', '.coherence/defects/', '.coherence/calibration/', '.coherence/experiments/', '.coherence/work/', '.coherence/consequences/'],
+  });
+  for (const hostile of [claudeIgnored, jsonlIgnored]) assert.equal((await git(hostile.origin, 'ls-tree', '--name-only', 'refs/heads/main')).stdout.includes('coherence.config.json'), false);
 });
 
 test('the Coherence check walks every stage of a native install inside guardrails, and a language module tip fails at install with every later stage skipped and nothing run', async (t) => {

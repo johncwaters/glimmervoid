@@ -8,8 +8,8 @@ import { COHERENCE_CONFIG_FILENAME } from './core/coherence-config-core.ts';
 import {
   COHERENCE_ADOPT_CONFIG_TEXT, COHERENCE_ADOPT_CONTROL_FILES, COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER, COHERENCE_ADOPT_HOSTS, COHERENCE_ADOPT_NO_SYMLINK_PATHS, COHERENCE_ADOPT_NODE_MODULES_PATHSPECS,
   COHERENCE_ADOPT_NPM_FILE_MAX_BYTES, COHERENCE_ADOPT_NPM_FILES, COHERENCE_ADOPT_TIMEOUT_MS, COHERENCE_PACKAGE_NAME,
-  coherenceAdoptCommitMessage, coherenceAdoptStepFailure, coherenceHooksInstallArgs, coherenceNpmLockfileArgs, coherencePushArgs, gitignoreTextWithNodeModules,
-  isExactCoherenceVersion, judgeCoherenceAdoptPaths, judgeCoherenceAdoptRequest, judgeCoherenceAdoptTrackedPaths, packageTextWithCoherencePin, pathsFromPorcelainStatus,
+  coherenceAdoptCommitMessage, coherenceAdoptStepFailure, coherenceHooksInstallArgs, coherenceNpmLockfileArgs, coherencePushArgs, adoptGitignoreText, COHERENCE_JOURNAL_RECORD_PROBES, COHERENCE_JOURNAL_TRANSIENT_PROBES,
+  ignoredJournalRecordPaths, isExactCoherenceVersion, judgeCoherenceAdoptPaths, judgeCoherenceAdoptRequest, judgeCoherenceAdoptTrackedPaths, packageTextWithCoherencePin, pathsFromPorcelainStatus,
 } from './core/coherence-adopt-core.ts';
 import type { CoherenceAdoptStep } from './core/coherence-adopt-core.ts';
 import { isCompletedCommandFailure } from '../core/command-failure-core.ts';
@@ -82,16 +82,6 @@ async function hasPathAtCommit(cwd: string, sha: string, relativePath: string): 
   }
 }
 
-async function isNodeModulesIgnored(checkout: string): Promise<boolean> {
-  try {
-    await runHardenedGit(['check-ignore', '-q', '--', COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER.relativePath.join('/')], { cwd: checkout, timeout: GIT_TIMEOUT_MS });
-    return true;
-  } catch (error) {
-    if (isCompletedCommandFailure(error) && error.code === 1) return false;
-    throw error;
-  }
-}
-
 async function readTextOrNull(filePath: string): Promise<string | null> {
   return readFile(filePath, 'utf8').catch((error: unknown) => {
     if (isMissingFileError(error)) return null;
@@ -115,9 +105,9 @@ async function trackedNodeModulesPaths(checkout: string): Promise<string[]> {
   return stdout.split('\0').filter((trackedPath) => trackedPath !== '');
 }
 
-async function ignoredControlPaths(checkout: string): Promise<string[]> {
+async function ignoredPathsAmong(checkout: string, candidatePaths: readonly string[]): Promise<string[]> {
   try {
-    const { stdout } = await runHardenedGit(['check-ignore', '--', ...COHERENCE_ADOPT_CONTROL_FILES], { cwd: checkout, timeout: GIT_TIMEOUT_MS });
+    const { stdout } = await runHardenedGit(['check-ignore', '--', ...candidatePaths], { cwd: checkout, timeout: GIT_TIMEOUT_MS });
     return stdout.split('\n').filter((ignoredPath) => ignoredPath !== '');
   } catch (error) {
     if (isCompletedCommandFailure(error) && error.code === 1) return [];
@@ -235,7 +225,7 @@ function createCoherenceAdopt({
     const trackedNodeModules = await trackedNodeModulesPaths(checkout);
     const trackedNodeModulesError = judgeCoherenceAdoptTrackedPaths(trackedNodeModules);
     if (trackedNodeModulesError !== null) return failure(trackedNodeModulesError, trackedNodeModules.slice(0, 5).join(', '));
-    const ignoredPaths = await ignoredControlPaths(checkout);
+    const ignoredPaths = await ignoredPathsAmong(checkout, COHERENCE_ADOPT_CONTROL_FILES);
     if (ignoredPaths.length > 0) return { ...failure(CoherenceAdoptError.enum.ignoresControlFiles, ignoredPaths.join(', ')), ignoredPaths };
     const symlinkedTarget = await findSymlinkedTarget(checkout);
     if (symlinkedTarget !== null) return failure(CoherenceAdoptError.enum.failed, `${symlinkedTarget} is a symbolic link`);
@@ -245,8 +235,15 @@ function createCoherenceAdopt({
     const npmFailure = await pinCoherenceInLockfile(checkout, npmFileTexts.value, shipped.version);
     if (npmFailure) return npmFailure;
     const gitignorePath = path.join(checkout, '.gitignore');
-    const gitignoreText = gitignoreTextWithNodeModules(await readTextOrNull(gitignorePath), await isNodeModulesIgnored(checkout));
+    const nodeModulesPlaceholder = COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER.relativePath.join('/');
+    const alreadyIgnored = await ignoredPathsAmong(checkout, [nodeModulesPlaceholder, ...COHERENCE_JOURNAL_TRANSIENT_PROBES]);
+    const gitignoreText = adoptGitignoreText(await readTextOrNull(gitignorePath), {
+      isNodeModulesIgnored: alreadyIgnored.includes(nodeModulesPlaceholder),
+      isTransientJournalIgnored: COHERENCE_JOURNAL_TRANSIENT_PROBES.every((transientProbe) => alreadyIgnored.includes(transientProbe)),
+    });
     if (gitignoreText !== null) await writeFile(gitignorePath, gitignoreText);
+    const ignoredJournalPaths = ignoredJournalRecordPaths(await ignoredPathsAmong(checkout, COHERENCE_JOURNAL_RECORD_PROBES));
+    if (ignoredJournalPaths.length > 0) return { ...failure(CoherenceAdoptError.enum.ignoresControlFiles, ignoredJournalPaths.join(', ')), ignoredPaths: ignoredJournalPaths };
     return installHooksWithShippedCli(checkout, shipped.cliPath);
   }
 

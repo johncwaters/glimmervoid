@@ -28,3 +28,12 @@ site/.astro/
 
 # compiled-commit runner scratch
 .compiled-commit-tmp/
+.coherence/*
+!.coherence/decisions/
+!.coherence/defects/
+!.coherence/status.json
+!.coherence/calibration/
+!.coherence/experiments/
+!.coherence/work/
+!.coherence/consequences/
+!.coherence/hooks/

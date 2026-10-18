@@ -95,11 +95,30 @@ export function coherenceAdoptCommitMessage(version: string): { subject: string;
   };
 }
 
-export function gitignoreTextWithNodeModules(existingText: string | null, isNodeModulesIgnored: boolean): string | null {
-  if (isNodeModulesIgnored) return null;
+export const COHERENCE_JOURNAL_TRANSIENT_PROBES = Object.freeze(['.coherence/activity/probe.jsonl', '.coherence/read-traces/probe.jsonl']);
+const COHERENCE_JOURNAL_RECORDS = Object.freeze([
+  { keptPath: '.coherence/decisions/', probePath: '.coherence/decisions/probe.jsonl' },
+  { keptPath: '.coherence/defects/', probePath: '.coherence/defects/probe.jsonl' },
+  { keptPath: '.coherence/status.json', probePath: '.coherence/status.json' },
+  { keptPath: '.coherence/calibration/', probePath: '.coherence/calibration/probe.jsonl' },
+  { keptPath: '.coherence/experiments/', probePath: '.coherence/experiments/probe.jsonl' },
+  { keptPath: '.coherence/work/', probePath: '.coherence/work/probe.jsonl' },
+  { keptPath: '.coherence/consequences/', probePath: '.coherence/consequences/probe.jsonl' },
+  { keptPath: '.coherence/hooks/', probePath: '.coherence/hooks/SessionStart.append.md' },
+]);
+export const COHERENCE_JOURNAL_RECORD_PROBES = Object.freeze(COHERENCE_JOURNAL_RECORDS.map((record) => record.probePath));
+const COHERENCE_JOURNAL_IGNORE_LINES = Object.freeze(['.coherence/*', ...COHERENCE_JOURNAL_RECORDS.map((record) => `!${record.keptPath}`)]);
+
+export function ignoredJournalRecordPaths(ignoredProbePaths: readonly string[]): string[] {
+  return COHERENCE_JOURNAL_RECORDS.filter((record) => ignoredProbePaths.includes(record.probePath)).map((record) => record.keptPath);
+}
+
+export function adoptGitignoreText(existingText: string | null, { isNodeModulesIgnored, isTransientJournalIgnored }: { isNodeModulesIgnored: boolean; isTransientJournalIgnored: boolean }): string | null {
+  const missingLines = [...(isNodeModulesIgnored ? [] : ['node_modules/']), ...(isTransientJournalIgnored ? [] : COHERENCE_JOURNAL_IGNORE_LINES)];
+  if (missingLines.length === 0) return null;
   const currentText = existingText ?? '';
   const separator = currentText === '' || currentText.endsWith('\n') ? '' : '\n';
-  return `${currentText}${separator}node_modules/\n`;
+  return `${currentText}${separator}${missingLines.join('\n')}\n`;
 }
 
 export function pathsFromPorcelainStatus(statusOutput: string): string[] {
