@@ -44,14 +44,13 @@ export function requestSessionRemoval(id: string, mergeStatus?: string) {
   if (!ui) return;
   const currentMergeStatus = mergeStatus || ui.card?.dataset.merge || 'none';
   const hasUnmergedWork = currentMergeStatus === 'pending-review' || currentMergeStatus === 'parked';
-  if (!hasUnmergedWork) {
-    sendControlMsg({ type: 'remove-session', id });
-    return;
-  }
   openConfirmDialog({
     title: 'Remove Session',
-    message: `"${sessionName(ui)}" has unmerged worktree changes that will be permanently discarded if you remove it. Merge or review them first to keep them. Remove anyway?`,
-    confirmLabel: 'Discard & Remove',
+    message: hasUnmergedWork
+      ? `"${sessionName(ui)}" has unmerged worktree changes that will be permanently discarded if you remove it. Merge or review them first to keep them. Remove anyway?`
+      : `Remove session "${sessionName(ui)}"?`,
+    confirmLabel: hasUnmergedWork ? 'Discard & Remove' : 'Remove',
+    danger: true,
     onConfirm: () => sendControlMsg({ type: 'remove-session', id }),
   });
 }

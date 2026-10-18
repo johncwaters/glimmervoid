@@ -53,6 +53,8 @@ const groupListById = new Map<string, GroupList>();
 const groupHeaderById = new Map<string, SessionGroupHeader>();
 
 let railTabStopId: string | null = null;
+let lastGroupOrderKey = '';
+let lastRailOrder: string[] = [];
 
 const NO_COLLAPSED = new Set<string>();
 function railVisibleIds() { return visibleOrder(groupsOf(orderedSessions()), NO_COLLAPSED); }
@@ -186,8 +188,10 @@ function buildPill(id: string) {
 }
 
 function onPillActivate(id: string) {
-  if (!requestSessionOpen(id)) return;
+  const ui = requestSessionOpen(id);
+  if (!ui) return;
   focusSession(id);
+  focusTerminalAfterSettle(ui, id);
 }
 
 function paintPill(pill: FocusPill, { id, ui, state, name, unseen }: RosterRow) {
@@ -245,10 +249,12 @@ export function refreshFocusRoster() {
   };
 
   const presentKeys = new Set(groups.order);
+  const groupOrderKey = groups.groups.map((group) => group.key).join('\n');
+  const groupsAlreadyInPlace = groupOrderKey === lastGroupOrderKey;
+  lastGroupOrderKey = groupOrderKey;
   for (const group of groups.groups) {
     const { header, list } = ensureGroup(group);
-    mountedRail.appendChild(header);
-    mountedRail.appendChild(list);
+    if (!groupsAlreadyInPlace) mountedRail.append(header, list);
     placeList(group.rows, list);
   }
 
@@ -273,12 +279,20 @@ export function refreshFocusRoster() {
     if (!sessionUIs.has(id)) mergeStatusById.delete(id);
   }
 
+  const previousRailOrder = lastRailOrder;
+  lastRailOrder = visibleOrder(groups, NO_COLLAPSED);
+
   const staleFocusedId = getFocusedSessionId();
   if (staleFocusedId && !sessionUIs.has(staleFocusedId)) {
     uiState.dispatch('focusSession', null);
     railTabStopId = null;
-    const next = order.find((o) => sessionUIs.has(o.id));
-    if (next) { focusSession(next.id); return; }
+    const neighborId = pickNeighborOfRemoved(previousRailOrder, staleFocusedId);
+    if (neighborId) {
+      const wasTerminalFocusLost = !document.activeElement || document.activeElement === document.body;
+      focusSession(neighborId);
+      if (wasTerminalFocusLost) focusTerminalAfterSettle(sessionUIs.get(neighborId), neighborId);
+      return;
+    }
   }
 
   updateCenter();
@@ -288,6 +302,13 @@ export function refreshFocusRoster() {
     if (ui && ui.card.parentElement !== cardSlotEl) borrowToCenter(ui, centeredId);
   }
   updateRailHead();
+}
+
+function pickNeighborOfRemoved(previousRailOrder: readonly string[], removedId: string) {
+  const survivorsAndRemoved = previousRailOrder.filter((id) => id === removedId || sessionUIs.has(id));
+  if (survivorsAndRemoved.length < 2) return lastRailOrder.find((id) => sessionUIs.has(id)) ?? null;
+  const isRemovedLast = survivorsAndRemoved.indexOf(removedId) === survivorsAndRemoved.length - 1;
+  return pickAdjacent(survivorsAndRemoved, removedId, isRemovedLast ? -1 : 1);
 }
 
 function attentionIds() {
@@ -409,7 +430,6 @@ export function focusAdjacentInRail(dir: number) {
   if (id == null) return;
   onPillActivate(id);
   pillById.get(id)?.scrollIntoView({ block: 'nearest' });
-  focusTerminalAfterSettle(sessionUIs.get(id), id);
 }
 
 export function activateFocusView() {

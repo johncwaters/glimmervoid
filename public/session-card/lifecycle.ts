@@ -37,6 +37,7 @@ import { runRestartChoice } from './restart-menu-core.ts';
 import type { RestartChoice } from './restart-menu-core.ts';
 import type { SessionCardFace } from './face-core.ts';
 import { openConfirmDialog } from './modal.ts';
+import { requestSessionRemoval } from '../session-actions.ts';
 import { openResumeDialog } from './resume-dialog.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { showErrorToast } from './toast.ts';
@@ -251,18 +252,7 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
 
   ui.btnRemove.addEventListener('click', () => {
     closeSessionMenu(ui);
-    const name = ui.card.dataset.session;
-
-    const merge = ui.card.dataset.merge;
-    const unmerged = merge === 'pending-review' || merge === 'parked';
-    openConfirmDialog({
-      title: 'Remove Session',
-      message: unmerged
-        ? `"${name}" has unmerged worktree changes that will be permanently discarded if you remove it. Merge or review them first to keep them. Remove anyway?`
-        : `Remove session "${name}"?`,
-      confirmLabel: unmerged ? 'Discard & Remove' : 'Remove',
-      onConfirm: () => sendControlMsg({ type: 'remove-session', id: sessionId }),
-    });
+    requestSessionRemoval(sessionId);
   });
 
   ui.btnSessionMenu.addEventListener('click', (event) => {

@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Rail picks land in the terminal, and removing always asks**: picking a session on the Focus rail (click, Enter, or Alt+1 to 9) now puts the keyboard in its terminal, so the first keys you type reach the agent. Delete or Backspace on a rail entry, and the remove X on the rail and phone board, always open a red confirm first instead of removing a session with no unmerged work at once. Removing the centered session lands on its rail neighbor rather than the first session, and the rail no longer drops keyboard focus when a session changes state.
 - **Same status marks on desktop and phone**: the Idle and Initializing marks used shapes the dashboard font does not draw, so each device substituted its own and the phone showed a different icon. Idle is now a ringed circle and Initializing a quartered circle, both drawn by the bundled font everywhere.
 - **Matching icons**: the session header's menu, close, trace and debug buttons, and every remove or close X (sidebar rows, project groups, the phone board, pull request chips, the debug overlay), now draw one set of matching line icons, so the menu dots no longer blur into a line and the X looks the same everywhere.
 - **Working sessions no longer look idle**: a running session that is thinking or in a long tool call kept its status mark dimmed, which on the Board and the desktop rail read as Idle or Complete now that rows carry no status word. The running mark now stays at full strength.
