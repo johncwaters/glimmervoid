@@ -647,6 +647,7 @@ body {
 }
 
 .session-task-title {
+  order: -1;
   letter-spacing: 0.02em;
   flex: 1 1 auto;
   min-width: 0;
@@ -654,8 +655,18 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-muted);
+  font-size: 12px;
+  color: var(--text-head);
   cursor: text;
+}
+
+.session-card-header .session-task-title:empty { order: 0; }
+
+.session-card-header:has(.session-task-title:not(:empty)) .session-name {
+  flex: 0 0 auto;
+  max-width: 20ch;
+  font-weight: 400;
+  color: var(--text-muted);
 }
 
 .session-task-title:empty:is(:hover, :focus-visible)::before {
@@ -6390,8 +6401,17 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   letter-spacing: 0.03em;
 }
 
-.focus-center .session-card.focus-centered :is(.session-task-title, .card-elapsed) {
+.focus-center .session-card.focus-centered .card-elapsed {
   font-size: 12px;
+}
+
+.focus-center .session-card.focus-centered .session-task-title {
+  font-size: 14px;
+}
+
+.focus-center .session-card.focus-centered .session-card-header:has(.session-task-title:not(:empty)) .session-name {
+  font-weight: 400;
+  color: var(--text-muted);
 }
 
 .focus-center .session-card.focus-centered .perms-badge,
