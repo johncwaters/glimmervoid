@@ -6331,15 +6331,13 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 :is(.session-row, .status-legend-row, .phone-terminal-bar)[data-state="DONE"] { --st: var(--state-done); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar)[data-state="IDLE"] { --st: var(--state-idle); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar)[data-state="STARTING"] { --st: var(--state-starting); }
-:is(.session-row, .status-legend-row, .phone-terminal-bar)[data-state="COMPLETE"] { --st: var(--state-complete); }
+:is(.session-row, .status-legend-row, .phone-terminal-bar)[data-state="COMPLETE"] { --st: var(--text-head); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar)[data-state="INITIALIZING"] { --st: var(--state-initializing); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar)[data-state="DORMANT"] { --st: var(--text-muted); }
 .session-row[data-merge="parked"] { --st: var(--state-failed); }
 .session-row:is([data-state="WAITING"], [data-state="FAILED"], [data-state="COMPLETE"][data-unseen], [data-merge="parked"]) {
   --tint: color-mix(in oklch, var(--st) 12%, transparent);
 }
-
-.session-row[data-state="RUNNING"][data-activity="quiet"] .session-row-glyph { opacity: 0.55; }
 
 @media (prefers-reduced-motion: no-preference) {
   .session-row[data-state="COMPLETE"][data-unseen]::before {
@@ -6348,7 +6346,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 }
 @keyframes complete-flash {
   0%   { box-shadow: inset 0 0 0 0 transparent; }
-  30%  { box-shadow: inset 0 0 0 3px color-mix(in oklch, var(--state-complete) 42%, transparent); }
+  30%  { box-shadow: inset 0 0 0 3px color-mix(in oklch, var(--st) 42%, transparent); }
   100% { box-shadow: inset 0 0 0 0 transparent; }
 }
 
