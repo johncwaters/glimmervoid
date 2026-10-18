@@ -86,6 +86,32 @@ function sessionRole({ writableRoots, readDenied, readablePaths, blockedPaths }:
   };
 }
 
+interface MainCheckoutFacts {
+  mainCheckout: string;
+  commonGitDir: string;
+  trackedPaths: readonly string[];
+  keptWritable: readonly string[];
+}
+
+const CLAUDE_CODE_WORKTREES_FOLDER = path.join('.claude', 'worktrees');
+
+function mainCheckoutWriteBlocks({ mainCheckout, commonGitDir, trackedPaths, keptWritable }: MainCheckoutFacts): string[] {
+  const writableInside = [...keptWritable, path.join(mainCheckout, CLAUDE_CODE_WORKTREES_FOLDER)];
+  const childNamesByParent = new Map<string, string[]>();
+  for (const trackedPath of trackedPaths) {
+    const parent = path.posix.dirname(trackedPath);
+    childNamesByParent.set(parent, [...childNamesByParent.get(parent) ?? [], path.posix.basename(trackedPath)]);
+  }
+  const blocksUnder = (relativeFolder: string): string[] => (childNamesByParent.get(relativeFolder) ?? []).flatMap((name) => {
+    const relativeEntry = relativeFolder === '.' ? name : path.posix.join(relativeFolder, name);
+    const entry = path.join(mainCheckout, relativeEntry);
+    if (writableInside.some((writable) => isPathInside(writable, entry))) return [];
+    if (writableInside.some((writable) => isPathInside(entry, writable))) return blocksUnder(relativeEntry);
+    return [entry];
+  });
+  return [...blocksUnder('.'), path.join(commonGitDir, 'index')];
+}
+
 function isGuardedSessionVendor(usageVendor: string | null): boolean {
   return usageVendor !== null && GUARDED_SESSION_VENDORS.includes(usageVendor);
 }
@@ -106,6 +132,6 @@ function isWorktreeAdminDirOf({ adminDir, commonGitDir }: { adminDir: string; co
 }
 
 export {
-  isGuardedSessionVendor, isSessionGuarded, isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, sessionRole,
+  isGuardedSessionVendor, isSessionGuarded, isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, mainCheckoutWriteBlocks, parseGitdirPointer, sessionRole,
   workRole,
 };

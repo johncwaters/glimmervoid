@@ -1,4 +1,4 @@
-import { mkdir, realpath } from 'node:fs/promises';
+import { lstat, mkdir, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { PrepareSessionGuardrails, SessionGuardrailsFacts } from '../../session/sessions.ts';
@@ -7,11 +7,12 @@ import { errorMessage } from '../../shared/text.ts';
 import { execFileAsync } from '../child-process-safe.ts';
 import { repositoryRootOfCommonGitDir } from '../core/claude-trust-core.ts';
 import type { GuardrailsRole } from './core/guardrails-policy-core.ts';
-import { sessionRole } from './core/guardrails-roles-core.ts';
+import { mainCheckoutWriteBlocks, sessionRole } from './core/guardrails-roles-core.ts';
 import { expandTilde } from '../usage/core/usage-scan-core.ts';
 import { allowGuardedSpawn } from './guardrails-deps.ts';
 import type { GuardrailsSpawnRefusal } from './guardrails-deps.ts';
 import { prepareGuardrailsLaunch } from './guardrails-launch.ts';
+import { runHardenedGit } from '../git/git-workspace.ts';
 import { existingRealPaths, readGitDirsOfOwnCheckout } from '../lanes/work-lane.ts';
 
 interface SessionGuardrailsSettings {
@@ -41,17 +42,13 @@ type SessionGuardrails = ReturnType<typeof createSessionGuardrails>;
 
 const UNWRAPPED_PLATFORM = 'win32';
 const GITHUB_TOKEN_TIMEOUT_MS = 5000;
+const MAIN_CHECKOUT_TREE_TIMEOUT_MS = 30_000;
 const OPT_OUT_HINT = 'Mark the session or its repository unguarded to start it without guardrails.';
 
 async function readGithubCliToken(env: NodeJS.ProcessEnv): Promise<string | null> {
   if (rawTextOr(env.GH_TOKEN, null) || rawTextOr(env.GITHUB_TOKEN, null)) return null;
   const token = await execFileAsync('gh', ['auth', 'token'], { timeout: GITHUB_TOKEN_TIMEOUT_MS, encoding: 'utf8' }).then(({ stdout }) => stdout.trim(), () => '');
   return token || null;
-}
-
-async function repositoryRootOf(cwd: string): Promise<string | null> {
-  const gitDirs = await readGitDirsOfOwnCheckout(cwd).catch(() => null);
-  return gitDirs === null ? null : repositoryRootOfCommonGitDir(gitDirs.commonGitDir);
 }
 
 function createSessionGuardrails({
@@ -61,22 +58,40 @@ function createSessionGuardrails({
   const expandHome = (candidates: readonly string[]) => candidates.map((candidate) => expandTilde(candidate.trim(), env, homeDir)).filter(Boolean);
   const githubCliConfigDir = () => rawTextOr(env.GH_CONFIG_DIR, null) ?? path.join(rawTextOr(env.XDG_CONFIG_HOME, null) ?? path.join(homeDir, '.config'), 'gh');
 
+  async function readMainCheckoutWriteBlocks({ mainCheckout, commonGitDir, keptWritable }: { mainCheckout: string; commonGitDir: string; keptWritable: readonly string[] }): Promise<string[]> {
+    try {
+      const { stdout } = await runHardenedGit(['ls-tree', '-r', '-t', '-z', '--name-only', 'HEAD'], { cwd: mainCheckout, timeout: MAIN_CHECKOUT_TREE_TIMEOUT_MS });
+      const blocks = mainCheckoutWriteBlocks({ mainCheckout, commonGitDir, trackedPaths: stdout.split('\0').filter(Boolean), keptWritable });
+      const isPresentAndNotSymlink = await Promise.all(blocks.map((block) => lstat(block).then((stats) => !stats.isSymbolicLink(), () => false)));
+      return blocks.filter((_block, index) => isPresentAndNotSymlink[index]);
+    } catch (error) {
+      log.warn(`[guardrails] leaving the main checkout ${mainCheckout} writable, because its tracked files could not be listed: ${errorMessage(error)}`);
+      return [];
+    }
+  }
+
   async function describeSessionAccess(facts: SessionGuardrailsFacts, { sessionId, isWorkspace }: SessionGuardrailsRequest): Promise<{ role: GuardrailsRole; cwd: string; trustFolder: string }> {
     const settings = getSettings();
     const sessionUploads = path.join(uploadsRoot, sessionId);
     await mkdir(sessionUploads, { recursive: true });
     const cwd = await realpath(facts.cwd);
-    const ownRepositoryRoot = isWorkspace ? null : await repositoryRootOf(cwd);
+    const gitDirs = isWorkspace ? null : await readGitDirsOfOwnCheckout(cwd).catch(() => null);
+    const ownRepositoryRoot = gitDirs === null ? null : repositoryRootOfCommonGitDir(gitDirs.commonGitDir);
+    const writableRoots = await existingRealPaths(facts.writablePaths);
     const expandedBlockedPaths = expandHome(settings.blockedPaths);
     const ignoredBlockedPaths = expandedBlockedPaths.filter((blockedPath) => !path.isAbsolute(blockedPath));
     if (ignoredBlockedPaths.length > 0) log.warn(`[guardrails] ignoring guardrails.blockedPaths entries that are not absolute paths: ${ignoredBlockedPaths.join(', ')}`);
+    const isLinkedWorktree = gitDirs !== null && gitDirs.worktreeAdminDir !== gitDirs.commonGitDir;
+    const mainCheckoutBlocks = isLinkedWorktree && ownRepositoryRoot !== null
+      ? await readMainCheckoutWriteBlocks({ mainCheckout: ownRepositoryRoot, commonGitDir: gitDirs.commonGitDir, keptWritable: [cwd, ...writableRoots] })
+      : [];
     return {
       cwd,
       trustFolder: ownRepositoryRoot ?? cwd,
       role: sessionRole({
-        writableRoots: await existingRealPaths(facts.writablePaths),
+        writableRoots,
         readDenied: expandHome(settings.unreadablePaths).filter((unreadablePath) => path.isAbsolute(unreadablePath)),
-        blockedPaths: expandedBlockedPaths.filter((blockedPath) => path.isAbsolute(blockedPath)),
+        blockedPaths: [...expandedBlockedPaths.filter((blockedPath) => path.isAbsolute(blockedPath)), ...mainCheckoutBlocks],
         readablePaths: [...facts.readablePaths, ...await existingRealPaths([sessionUploads, githubCliConfigDir()])],
       }),
     };
