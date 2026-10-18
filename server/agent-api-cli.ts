@@ -12,6 +12,8 @@ import type { GuardrailsProxy } from '../session/core/guardrails-proxy-core.ts';
 import { isAgentApiVerb, isOrchestratorAgentVerb } from './core/agent-api-core.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
+import { ProjectCoherenceCheckResult } from '../shared/contracts/coherence.ts';
+import { renderCoherenceCheckText } from './coherence/core/coherence-check-core.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
 const HELP_LIMITS_TIMEOUT_MS = 2000;
@@ -58,6 +60,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     return parsed.success ? parsed.data : null;
   },
   'factory-setup': (rest) => rest.length === 0 ? {} : null,
+  'coherence-check': (rest) => rest.length === 0 ? {} : null,
   'factory-queue': (rest) => {
     if (rest.length !== 1) return null;
     const intent = parseJsonOrNull(readFileSync(rest[0], 'utf8'));
@@ -100,6 +103,10 @@ function printableReply(verb: AgentApiVerb, replyText: string): string {
     if ('text' in reply && typeof reply.text === 'string') return reply.text;
     if ('error' in reply && typeof reply.error === 'string') return reply.error;
     return replyText;
+  }
+  if (verb === 'coherence-check') {
+    const result = ProjectCoherenceCheckResult.safeParse(parseJsonOrNull(replyText));
+    return result.success ? renderCoherenceCheckText(result.data) : replyText;
   }
   if (verb !== 'limits') return replyText;
   return limitsLines(replyText)?.join('\n') ?? replyText;
@@ -243,4 +250,4 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   return reply.hasSuccessStatus && bodySaysOk(reply.text) ? 0 : 1;
 }
 
-export { postToAgentIngress, runAgentApiCli, sessionLimitsHelpLines };
+export { AGENT_PATH_PREFIX, postToAgentIngress, runAgentApiCli, sessionLimitsHelpLines, verbEndpoint };

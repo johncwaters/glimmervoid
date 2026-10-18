@@ -1,11 +1,11 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 
-import { AGENT_API_VERBS, AgentAttentionRequest, AgentEditRequest, AgentFactoryRetryRequest, AgentFactorySetupRequest, AgentFactoryStatusRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
+import { AGENT_API_VERBS, AgentAttentionRequest, AgentCoherenceCheckRequest, AgentEditRequest, AgentFactoryRetryRequest, AgentFactorySetupRequest, AgentFactoryStatusRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, OrchestratorAgentVerb, TicketAgentVerb } from '../../shared/contracts/session.ts';
 import { AgentFactoryQueueRequest } from '../../shared/contracts/factory.ts';
 import type { FactoryProjectState } from '../../shared/contracts/factory.ts';
-import { attentionRoute, editRoute, NO_OWN_WORKTREE_REASON, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
+import { attentionRoute, coherenceCheckRoute, editRoute, NO_OWN_WORKTREE_REASON, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
 import type { RouteVerdict, SessionRoleFacts } from '../../session/core/session-routes.ts';
 
 const MAX_LIVE_CHILDREN = 3;
@@ -42,6 +42,7 @@ type AgentVerbRequest =
   | { ok: true; verb: 'factory-retry'; request: AgentFactoryRetryRequest }
   | { ok: true; verb: 'factory-setup'; request: AgentFactorySetupRequest }
   | { ok: true; verb: 'factory-queue'; request: AgentFactoryQueueRequest }
+  | { ok: true; verb: 'coherence-check'; request: AgentCoherenceCheckRequest }
   | { ok: true; verb: 'attention'; request: AgentAttentionRequest }
   | { ok: true; verb: 'edit'; request: AgentEditRequest }
   | { ok: true; verb: 'spawn'; request: AgentSpawnRequest }
@@ -136,6 +137,10 @@ function decideFactoryControlAllowance(caller: SessionRoleFacts): AgentVerdict {
   return refuseByRole(factoryControlRoute(caller));
 }
 
+function decideCoherenceCheckAllowance(caller: SessionRoleFacts): AgentVerdict {
+  return refuseByRole(coherenceCheckRoute(caller));
+}
+
 function describePushRouteRefusal(caller: SessionRoleFacts): AgentPushReply | null {
   const route = pushRoute(caller);
   if (route.answers) return null;
@@ -200,6 +205,11 @@ function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVe
   }
   if (verb === 'factory-queue') {
     const parsed = AgentFactoryQueueRequest.safeParse(payload);
+    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
+    return { ok: true, verb, request: parsed.data };
+  }
+  if (verb === 'coherence-check') {
+    const parsed = AgentCoherenceCheckRequest.safeParse(payload);
     if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
     return { ok: true, verb, request: parsed.data };
   }
@@ -342,5 +352,5 @@ function describeFactorySetupProfile(profile: { checks?: readonly string[]; focu
 export {
   decideAgentRequest, decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, decideTicketAction, deriveChildSessionName, describePushLanding,
   describePushRouteRefusal, isAgentApiVerb, isOrchestratorAgentVerb, parseAgentVerb, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
-  decideFactoryControlAllowance, describeFactorySetupProfile, FACTORY_ADOPTION_STEP, describeUnavailableFactoryState, findSessionProjectId, formatFactoryStatus, REFUSAL_REASON, REFUSAL_STATUS,
+  decideCoherenceCheckAllowance, decideFactoryControlAllowance, describeFactorySetupProfile, FACTORY_ADOPTION_STEP, describeUnavailableFactoryState, findSessionProjectId, formatFactoryStatus, REFUSAL_REASON, REFUSAL_STATUS,
 };

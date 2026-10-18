@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { COHERENCE_CHECK_DETAIL_MAX_CHARS, ProjectCoherenceCheckResult } from '../../shared/contracts/coherence.ts';
 import { AGENT_URL_ENV } from '../../shared/contracts/session.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { AGENT_PATH_PREFIX, postToAgentIngress, verbEndpoint } from '../agent-api-cli.ts';
 import { loadConfigFile } from '../config-store.ts';
 import { decideConfigPath, glimmervoidHomeDir } from '../core/config-path-core.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
@@ -20,6 +21,7 @@ const GIT_PROBE_TIMEOUT_MS = 10_000;
 
 const ControlTokenReply = z.looseObject({ token: z.string().min(1) });
 const CheckReplyFrame = z.looseObject({ type: z.literal('project-coherence-check-response'), requestId: z.string().nullable().optional() });
+const AgentRefusal = z.looseObject({ error: z.string().min(1) });
 
 interface ConfiguredProjects {
   projects: { id: string; path: string }[];
@@ -36,16 +38,10 @@ function readConfiguredProjects(): ConfiguredProjects {
   return { projects, configPort: loaded.config.port ?? null };
 }
 
-function portFromAgentUrl(rawUrl: string | undefined): number | null {
-  if (!rawUrl || !URL.canParse(rawUrl)) return null;
-  const port = Number.parseInt(new URL(rawUrl).port, 10);
-  return Number.isInteger(port) ? port : null;
-}
-
 function serverPort(configPort: number | null): number {
   const explicitPort = Number.parseInt(process.env.GLIMMERVOID_PORT ?? '', 10);
   if (Number.isInteger(explicitPort)) return explicitPort;
-  return portFromAgentUrl(process.env[AGENT_URL_ENV]) ?? configPort ?? DEFAULT_SERVER_PORT;
+  return configPort ?? DEFAULT_SERVER_PORT;
 }
 
 async function mainCheckoutOf(directory: string): Promise<string | null> {
@@ -95,6 +91,31 @@ function requestCheck(port: number, token: string, projectId: string): Promise<P
   }).finally(() => socket.terminate());
 }
 
+async function checkThroughOperatorControl(projectSelector: string | null): Promise<ProjectCoherenceCheckResult> {
+  const configured = readConfiguredProjects();
+  const projectId = await resolveProjectId(projectSelector, configured.projects);
+  const port = serverPort(configured.configPort);
+  return requestCheck(port, await fetchControlToken(port), projectId);
+}
+
+async function checkThroughSessionIngress(rawAgentUrl: string): Promise<ProjectCoherenceCheckResult> {
+  const target = verbEndpoint(rawAgentUrl, 'coherence-check');
+  if (!target.ok) throw new Error(`${AGENT_URL_ENV} must be a loopback http url under ${AGENT_PATH_PREFIX}, so nothing was sent`);
+  const reply = await postToAgentIngress({ endpoint: target.endpoint, token: target.token, body: {}, deadline: AbortSignal.timeout(CHECK_REPLY_TIMEOUT_MS) });
+  const replyBody = parseJsonOrNull(reply.text);
+  const result = ProjectCoherenceCheckResult.safeParse(replyBody);
+  if (reply.hasSuccessStatus && result.success) return result.data;
+  const refusal = AgentRefusal.safeParse(replyBody);
+  throw new Error(refusal.success ? refusal.data.error : 'the session ingress sent a reply that does not match the check result schema');
+}
+
+function runCheck(projectSelector: string | null): Promise<ProjectCoherenceCheckResult> {
+  const rawAgentUrl = process.env[AGENT_URL_ENV];
+  if (!rawAgentUrl) return checkThroughOperatorControl(projectSelector);
+  if (projectSelector !== null) throw new Error("inside a Glimmervoid session the check runs on this session's own project only, so drop --project");
+  return checkThroughSessionIngress(rawAgentUrl);
+}
+
 async function runCoherenceCheckCli(args: string[]): Promise<number> {
   const parsed = parseCoherenceCheckArgs(args);
   if (!parsed.ok) {
@@ -102,10 +123,7 @@ async function runCoherenceCheckCli(args: string[]): Promise<number> {
     return 1;
   }
   try {
-    const configured = readConfiguredProjects();
-    const projectId = await resolveProjectId(parsed.projectSelector, configured.projects);
-    const port = serverPort(configured.configPort);
-    const result = await requestCheck(port, await fetchControlToken(port), projectId);
+    const result = await runCheck(parsed.projectSelector);
     console.log(parsed.isJson ? JSON.stringify(result, null, 2) : renderCoherenceCheckText(result));
     return result.ok ? 0 : 1;
   } catch (error) {

@@ -88,12 +88,18 @@ function editRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot surface a file, because it has no card for the operator to open the file from' };
 }
 
+function coherenceCheckRoute({ isEphemeral, isSpawnedChild, factoryRole }: SessionKindFacts): RouteVerdict {
+  if (factoryRole === null && (!isEphemeral || isSpawnedChild)) return ANSWERS;
+  return { answers: false, reason: 'only an operator session or a session it spawned may run the Coherence check, so factory and lane sessions stay on their own task' };
+}
+
 const COMMAND_ROUTES: Readonly<Record<SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
   attention: attentionRoute,
   board: () => ANSWERS,
   edit: editRoute,
+  'coherence check': coherenceCheckRoute,
 });
 
 function commandLimit(name: SessionCommand, facts: SessionRoleFacts): SessionCommandLimit {
@@ -133,5 +139,5 @@ function formatSessionLimits({ commands, guarded, deadEnds }: SessionLimits): st
   ];
 }
 
-export { supervisionLine, permitsHelpCommand, pushRoute, spawnRoute, attentionRoute, editRoute, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
+export { supervisionLine, permitsHelpCommand, pushRoute, spawnRoute, attentionRoute, editRoute, coherenceCheckRoute, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
 export type { SessionRoleFacts, RouteVerdict };

@@ -338,6 +338,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     memoryAdmission: laneAssembly.memoryAdmission,
     recordLane,
     sessionDocs,
+    coherenceCheck,
     logger: console,
   });
 

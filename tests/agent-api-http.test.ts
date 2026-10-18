@@ -19,6 +19,7 @@ import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { decideTicketAction, describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { AgentLimitsReply } from '../shared/contracts/session.ts';
+import { ProjectCoherenceCheckRequest } from '../shared/contracts/coherence.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { FactoryProjectState, FactoryQueueIntentRequest } from '../shared/contracts/factory.ts';
 import type { AgentTicketRequest } from '../shared/contracts/session.ts';
@@ -193,6 +194,7 @@ test('attention raises the normal waiting notification path with an agent prompt
 
 interface WiringFixtureOptions {
   factory?: Parameters<typeof createAgentApiWiring>[0]['factory'];
+  coherenceCheck?: Parameters<typeof createAgentApiWiring>[0]['coherenceCheck'];
   parentSkipsPermissions?: boolean;
   spawnFails?: boolean;
   makeSessionThrowsFirst?: boolean;
@@ -204,7 +206,7 @@ interface WiringFixtureOptions {
 
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
-  holdSpawnGate = false, parentIsGuarded = false, factory, headroomBytes = 64 * 1024 * 1024 * 1024,
+  holdSpawnGate = false, parentIsGuarded = false, factory, coherenceCheck, headroomBytes = 64 * 1024 * 1024 * 1024,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -249,6 +251,7 @@ function wiringFixture({
   const wiring = createAgentApiWiring({
     config,
     factory,
+    coherenceCheck,
     agentSessions,
     listAllSessions: () => [parent, ...laneSessions, ...agentSessions.values()],
     listBoardSessions: () => [parent, ...agentSessions.values()],
@@ -279,7 +282,7 @@ function wiringFixture({
   };
 }
 
-test('factory CLI and HTTP verbs reach the injected digest and retry deps only from sessions without a factory role', async (context) => {
+test('factory and coherence check CLI and HTTP verbs reach the injected deps only from sessions without a factory role, on the session project', async (context) => {
   const intent: FactoryProjectState['orders'][number] = {
     id: 'intent', objective: 'Finish overnight', openedAt: '2026-10-15T00:00:00Z', criteria: [], boundary: 'src/', risk: 'low',
     state: 'open', readiness: 'ready', parent: null, dependsOn: [], writeScopes: ['src/'], owner: null, lastEvent: null,
@@ -312,7 +315,15 @@ test('factory CLI and HTTP verbs reach the injected digest and retry deps only f
   };
   const setupCalls: string[] = [];
   const queueCalls: FactoryQueueIntentRequest[] = [];
-  const fixture = wiringFixture({ factory });
+  const checkedProjectIds: string[] = [];
+  const coherenceCheck = {
+    check: async (request: unknown) => {
+      const { projectId } = ProjectCoherenceCheckRequest.parse(request);
+      checkedProjectIds.push(projectId);
+      return { projectId, ok: false, stages: [{ id: 'setting' as const, status: 'fail' as const, detail: 'the Coherence setting is off' }] };
+    },
+  };
+  const fixture = wiringFixture({ factory, coherenceCheck });
   fixture.parent._hooks.inject();
   const token = fixture.parent.agentToken;
   assert.ok(token);
@@ -344,9 +355,10 @@ test('factory CLI and HTTP verbs reach the injected digest and retry deps only f
   const send = (verb: string, body: unknown, session = fixture.parent) => fetch(`${base}/agent/${session.id}/${verb}`, {
     method: 'POST', headers: { authorization: `Bearer ${session.agentToken}` }, body: JSON.stringify(body),
   });
-  const runCli = async (args: string[]) => promisify(execFile)(process.execPath, ['bin/glimmervoid.ts', 'factory', ...args], {
+  const runCommand = async (args: string[]) => promisify(execFile)(process.execPath, ['bin/glimmervoid.ts', ...args], {
     cwd: path.join(import.meta.dirname, '..'), env: { ...process.env, [AGENT_URL_ENV]: `${base}/agent/parent?t=${token}` },
-  });
+  }).then(({ stdout, stderr }) => ({ code: 0, stdout, stderr }), (failure: { code: number; stdout: string; stderr: string }) => ({ code: failure.code, stdout: failure.stdout, stderr: failure.stderr }));
+  const runCli = (args: string[]) => runCommand(['factory', ...args]);
   const status = await send('factory-status', {});
   assert.equal(status.status, 200);
   const digest = await status.json();
@@ -365,7 +377,14 @@ test('factory CLI and HTTP verbs reach the injected digest and retry deps only f
   const unregistered = await send('factory-setup', {});
   assert.equal(unregistered.status, 404);
   assert.match((await unregistered.json()).error, /add this repository as a project/);
-  fixture.config.projects = [{ id: 'repo', name: 'Repository', path: process.cwd() }];
+  fixture.config.projects = [{ id: 'other', name: 'Other', path: path.join(process.cwd(), 'elsewhere') }, { id: 'repo', name: 'Repository', path: process.cwd() }];
+  assert.deepEqual(await runCommand(['coherence', 'check']), { code: 1, stdout: 'FAIL  setting        the Coherence setting is off\n1 failed\n', stderr: '' });
+  const namedProject = await runCommand(['coherence', 'check', '--project', 'other']);
+  assert.deepEqual([namedProject.code, namedProject.stderr], [1, "glimmervoid coherence check: inside a Glimmervoid session the check runs on this session's own project only, so drop --project\n"]);
+  assert.equal((await send('coherence-check', { projectId: 'other' })).status, 400);
+  assert.equal((await send('coherence-check', {}, worker)).status, 403);
+  assert.equal((await send('coherence-check', {}, reviewerLane)).status, 403);
+  assert.deepEqual(checkedProjectIds, ['repo']);
   assert.equal((await runCli(['setup'])).stdout.trim(), 'Factory checks: npm test\nFocused test command: node --test\nNext: glimmervoid factory queue <intent.json>, with an intent cut by the spec skill or written in the Factory tab request shape');
   assert.equal((await runCli(['queue', intentFile])).stdout.trim(), 'Queued wrk-queued on repo. Follow it with glimmervoid factory status --project repo');
   assert.deepEqual([setupCalls, queueCalls.map((request) => [request.projectId, request.objective])], [['repo'], [['repo', 'Build the parser']]]);
@@ -755,12 +774,12 @@ test('limits tells a session which commands answer, and a guarded operator sessi
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'attention', 'board', 'edit'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'attention', 'board', 'edit', 'coherence check'].map((name) => ({ name, answers: true })),
     ]);
     assert.equal(operatorLimits.guarded, true);
     assert.deepEqual(operatorLimits.deadEnds.map(({ route }) => route), ['flag the operator with glimmervoid attention']);
     const laneLimits = await limitsOf(guardedLane);
-    assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [['push', false], ['spawn', false], ['attention', false], ['board', true], ['edit', false]]);
+    assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [['push', false], ['spawn', false], ['attention', false], ['board', true], ['edit', false], ['coherence check', false]]);
     assert.deepEqual([laneLimits.guarded, laneLimits.deadEnds], [true, []]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],

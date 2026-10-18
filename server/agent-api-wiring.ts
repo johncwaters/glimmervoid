@@ -7,13 +7,14 @@ import type { SessionRoleFacts } from '../session/core/session-routes.ts';
 import type { Session } from '../session/sessions.ts';
 import type { AgentFactoryQueueRequest, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from '../shared/contracts/factory.ts';
 import type { FactorySetupResult } from './factory/core/factory-setup-core.ts';
+import type { CoherenceCheck } from './coherence/coherence-check.ts';
 import type {
   AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentLimitsReply, AgentSpawnRequest,
 } from '../shared/contracts/session.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
-  decideAttentionAllowance, decideEditAllowance, decideFactoryControlAllowance, decideSpawnAllowance, deriveChildSessionName, describeFactorySetupProfile, describePushLanding,
+  decideAttentionAllowance, decideCoherenceCheckAllowance, decideEditAllowance, decideFactoryControlAllowance, decideSpawnAllowance, deriveChildSessionName, describeFactorySetupProfile, describePushLanding,
   describePushRouteRefusal, describeUnavailableFactoryState, FACTORY_ADOPTION_STEP, findSessionProjectId, formatFactoryStatus, parseAgentVerb,
 } from './core/agent-api-core.ts';
 import { buildFactoryIntentDigest } from './factory/core/factory-core.ts';
@@ -53,6 +54,7 @@ interface AgentApiWiringOptions {
     rerunSetup: (projectId: string) => Promise<FactorySetupResult>;
     queueIntent: (request: FactoryQueueIntentRequest) => Promise<FactoryQueueIntentResult>;
   };
+  coherenceCheck?: Pick<CoherenceCheck, 'check'> | null;
   memoryAdmission?: Pick<MemoryAdmission, 'describeShortfallNow'> | null;
   logger?: Pick<Console, 'warn'>;
 }
@@ -73,6 +75,7 @@ interface AgentApiPort {
 function createAgentApiWiring({
   config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
   broadcastControl, spawnGate, sessionDocs, factory,
+  coherenceCheck = null,
   recordLane = null,
   memoryAdmission = null,
   logger = console,
@@ -227,6 +230,15 @@ function createAgentApiWiring({
     return { status: 200, body: { ok: true, projectId, workId: outcome.workId, text: `Queued ${outcome.workId ?? 'the intent'} on ${projectId}. Follow it with glimmervoid factory status --project ${projectId}` } };
   }
 
+  async function checkOwnProjectCoherence(session: Session): Promise<AgentApiReply> {
+    const allowance = decideCoherenceCheckAllowance(roleFactsOf(session));
+    if (!allowance.ok) return { status: allowance.status, body: { ok: false, error: allowance.reason } };
+    if (!coherenceCheck) return { status: 409, body: { ok: false, error: 'the Coherence check is not running' } };
+    const projectId = findSessionProjectId(config.projects, session.path);
+    if (!projectId) return { status: 404, body: { ok: false, error: `no configured project has the path ${session.path}, so the operator has to add this repository as a project first` } };
+    return { status: 200, body: await coherenceCheck.check({ projectId }) };
+  }
+
   async function handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply> {
     const parsed = parseAgentVerb(verb, payload);
     if (!parsed.ok) return { status: parsed.status, body: { ok: false, error: parsed.error } };
@@ -255,6 +267,7 @@ function createAgentApiWiring({
       if (!reply.ok) return { status: 409, body: reply };
       return { status: 200, body: { ...reply, text: `Reopened parked tickets: ${reply.reopenedWorkIds.join(', ') || 'none'}` } };
     }
+    if (parsed.verb === 'coherence-check') return checkOwnProjectCoherence(session);
     if (parsed.verb === 'board') return { status: 200, body: { ok: true, sessions: board() } };
     if (parsed.verb === 'push') return push(session);
     if (parsed.verb === 'limits') return { status: 200, body: limits(session) };

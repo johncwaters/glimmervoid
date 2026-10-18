@@ -121,7 +121,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch', 'reopen', 'cancel', 'push', 'edit', 'limits', 'factory-status', 'factory-retry', 'factory-setup', 'factory-queue'] as const;
+export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch', 'reopen', 'cancel', 'push', 'edit', 'limits', 'factory-status', 'factory-retry', 'factory-setup', 'factory-queue', 'coherence-check'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 export const ORCHESTRATOR_AGENT_VERBS = ['dispatch', 'reopen', 'cancel'] as const satisfies readonly AgentApiVerb[];
 export type OrchestratorAgentVerb = (typeof ORCHESTRATOR_AGENT_VERBS)[number];
@@ -139,6 +139,9 @@ export type AgentFactoryRetryRequest = z.infer<typeof AgentFactoryRetryRequest>;
 
 export const AgentFactorySetupRequest = z.object({}).strict();
 export type AgentFactorySetupRequest = z.infer<typeof AgentFactorySetupRequest>;
+
+export const AgentCoherenceCheckRequest = z.object({}).strict();
+export type AgentCoherenceCheckRequest = z.infer<typeof AgentCoherenceCheckRequest>;
 
 export const AgentSpawnRequest = z.object({
   prompt: z.string({ error: 'prompt must be a string' })
@@ -187,7 +190,7 @@ export const SessionDoc = z.object({
 export type AgentEditRequest = z.infer<typeof AgentEditRequest>;
 export type SessionDoc = z.infer<typeof SessionDoc>;
 
-export const SESSION_COMMANDS = ['push', 'spawn', 'attention', 'board', 'edit'] as const;
+export const SESSION_COMMANDS = ['push', 'spawn', 'attention', 'board', 'edit', 'coherence check'] as const;
 
 export const SessionLimits = z.object({
   commands: z.array(z.object({
