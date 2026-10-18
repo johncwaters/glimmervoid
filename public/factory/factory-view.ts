@@ -1,6 +1,5 @@
-import { FACTORY_PROTECTED_PATH_FLOOR, FactoryQueueIntentRequest } from '#shared/contracts/factory.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import type { FactoryProjectState, FactoryState } from '#shared/contracts/factory.ts';
+import type { FactoryControlRequest, FactoryProjectState, FactoryState } from '#shared/contracts/factory.ts';
 import { localClockText } from '#shared/display-text.ts';
 import { buildCoherenceAdoptControl, listAdoptableCoherenceProjects } from '../coherence/adopt-action.ts';
 import { buildProjectCoherenceChip, findTrendedCoherenceProjectId } from '../coherence/trend-chip.ts';
@@ -17,20 +16,9 @@ let selectedProjectId: string | null = null;
 let selectedOrderId: string | null = null;
 let requestSender: ((message: Record<string, unknown>) => boolean) | null = null;
 let requestSequence = 0;
-type IntentDraft = Omit<FactoryQueueIntentRequest, 'projectId' | 'criteria' | 'writeScopes'> & { criteria: string; writeScopes: string };
 type RequestStatus = { requestId: string | null; text: string; hasError: boolean; target?: string };
-const draftsByProject = new Map<string, IntentDraft>();
-const queueStatusByProject = new Map<string, RequestStatus>();
 const controlStatusByProject = new Map<string, RequestStatus>();
-const projectIdsWithFloorOptInOpen = new Set<string>();
-
-function intentDraft(projectId: string): IntentDraft {
-  const previous = draftsByProject.get(projectId);
-  if (previous) return previous;
-  const draft: IntentDraft = { objective: '', criteria: '', risk: 'low', boundary: '', writeScopes: '' };
-  draftsByProject.set(projectId, draft);
-  return draft;
-}
+let isAdoptListOpen = false;
 
 const SCROLLABLE_REGIONS_SELECTOR = '.factory-stack, .factory-pads, .factory-ledger, .factory-detail, .factory-intent-queue, .factory-criteria, .factory-digests';
 const FOCUS_RESTORE_TARGETS = [['[data-order-id]', 'orderId'], ['[data-factory-field]', 'factoryField'], ['[data-project-id]', 'projectId']] as const;
@@ -49,105 +37,13 @@ function buildRequestStatus(status: RequestStatus | undefined): HTMLElement {
   return element;
 }
 
-function sendFactoryRequest(projectId: string, type: 'factory-queue-intent' | 'factory-control', fields: Record<string, unknown>, statusText: string): void {
-  const statuses = type === 'factory-queue-intent' ? queueStatusByProject : controlStatusByProject;
-  if (statuses.get(projectId)?.requestId) return;
+function sendFactoryControl(projectId: string, fields: { action: FactoryControlRequest['action']; intentId?: string }, statusText: string): void {
+  if (controlStatusByProject.get(projectId)?.requestId) return;
   requestSequence += 1;
   const requestId = `factory-${requestSequence}`;
-  const sent = requestSender?.({ ...fields, projectId, type, requestId }) === true;
-  statuses.set(projectId, { requestId: sent ? requestId : null, text: sent ? statusText : 'Not connected.', hasError: !sent,
-    target: typeof fields.intentId === 'string' ? fields.intentId : typeof fields.action === 'string' ? fields.action : undefined,
-  });
+  const sent = requestSender?.({ ...fields, projectId, type: 'factory-control', requestId }) === true;
+  controlStatusByProject.set(projectId, { requestId: sent ? requestId : null, text: sent ? statusText : 'Not connected.', hasError: !sent, target: fields.intentId ?? fields.action });
   render();
-}
-
-function buildFloorAllowanceField(projectId: string, draft: IntentDraft, isPending: boolean): HTMLDetailsElement {
-  const disclosure = el('details', 'factory-floor-opt-in');
-  disclosure.open = projectIdsWithFloorOptInOpen.has(projectId) || (draft.floorAllowances?.length ?? 0) > 0;
-  disclosure.addEventListener('toggle', () => {
-    if (disclosure.open) { projectIdsWithFloorOptInOpen.add(projectId); return; }
-    projectIdsWithFloorOptInOpen.delete(projectId);
-  });
-  const summary = el('summary', 'factory-label factory-floor-opt-in-summary', 'Protected floor opt-in');
-  summary.dataset.factoryField = 'floor-opt-in';
-  disclosure.append(summary);
-  const fieldset = el('fieldset', 'factory-floor-allowances');
-  fieldset.append(el('legend', 'sr-only', 'Protected floor opt-in'));
-  for (const pattern of FACTORY_PROTECTED_PATH_FLOOR) {
-    const option = el('label', 'factory-floor-allowance');
-    const checkbox = el('input');
-    checkbox.type = 'checkbox';
-    checkbox.value = pattern;
-    checkbox.dataset.factoryField = `floor:${pattern}`;
-    checkbox.checked = draft.floorAllowances?.includes(pattern) === true;
-    checkbox.disabled = isPending;
-    checkbox.addEventListener('change', () => {
-      const others = (draft.floorAllowances ?? []).filter((allowance) => allowance !== pattern);
-      const next = checkbox.checked ? [...others, pattern] : others;
-      draft.floorAllowances = FACTORY_PROTECTED_PATH_FLOOR.filter((allowance) => next.includes(allowance));
-    });
-    option.append(checkbox, el('span', null, pattern));
-    fieldset.append(option);
-  }
-  disclosure.append(fieldset);
-  return disclosure;
-}
-
-function buildQueueForm(projectId: string): HTMLFormElement {
-  const draft = intentDraft(projectId);
-  const form = el('form', 'factory-queue-form');
-  const isPending = queueStatusByProject.get(projectId)?.requestId != null;
-  for (const [name, label, maxLength, rows] of [
-    ['objective', 'Objective', 4096, 2], ['criteria', 'Criteria, one per line', 49164, 2],
-    ['boundary', 'Authority boundary', 4096, 1], ['writeScopes', 'Write scopes, one per line', 32800, 2],
-  ] as const) {
-    const field = el('label', 'factory-form-field');
-    const input = el('textarea', 'factory-form-input');
-    input.name = name;
-    input.dataset.factoryField = name;
-    input.maxLength = maxLength;
-    input.rows = rows;
-    input.required = name !== 'writeScopes';
-    input.value = draft[name];
-    input.disabled = isPending;
-    input.addEventListener('input', () => { draft[name] = input.value; });
-    field.append(el('span', 'factory-label', label), input);
-    form.append(field);
-  }
-  const riskField = el('label', 'factory-form-field');
-  const risk = el('select', 'factory-form-input');
-  risk.name = 'risk';
-  risk.dataset.factoryField = 'risk';
-  risk.disabled = isPending;
-  for (const value of FactoryQueueIntentRequest.shape.risk.options) {
-    const option = el('option', null, value);
-    option.value = value;
-    risk.append(option);
-  }
-  risk.value = draft.risk;
-  risk.addEventListener('change', () => { draft.risk = FactoryQueueIntentRequest.shape.risk.parse(risk.value); });
-  riskField.append(el('span', 'factory-label', 'Risk'), risk);
-  form.append(buildFloorAllowanceField(projectId, draft, isPending));
-  const submit = el('button', 'factory-action', 'Queue intent');
-  submit.type = 'submit';
-  submit.disabled = !isConnected || isPending;
-  form.insertBefore(riskField, form.children[2] ?? null);
-  form.append(submit, buildRequestStatus(queueStatusByProject.get(projectId)));
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const parsed = FactoryQueueIntentRequest.safeParse({
-      ...draft, projectId,
-      criteria: draft.criteria.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
-      writeScopes: draft.writeScopes.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
-    });
-    if (!parsed.success) {
-      queueStatusByProject.set(projectId, { requestId: null, text: parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; '), hasError: true });
-      render();
-      return;
-    }
-    sendFactoryRequest(projectId, 'factory-queue-intent', parsed.data, 'Queueing intent.');
-  });
-  return form;
 }
 
 function buildFactoryControls(projectId: string, paused: boolean): HTMLElement {
@@ -155,7 +51,7 @@ function buildFactoryControls(projectId: string, paused: boolean): HTMLElement {
   const status = controlStatusByProject.get(projectId);
   for (const action of ['pause', 'resume'] as const) {
     const button = buildButton('factory-action', action === 'pause' ? 'Pause' : 'Resume',
-      () => sendFactoryRequest(projectId, 'factory-control', { action }, action === 'pause' ? 'Pausing factory.' : 'Resuming factory.'));
+      () => sendFactoryControl(projectId, { action }, action === 'pause' ? 'Pausing factory.' : 'Resuming factory.'));
     button.disabled = !isConnected || status?.requestId != null || (action === 'pause' ? paused : !paused);
     controls.append(button);
   }
@@ -176,7 +72,7 @@ function buildProjectProfile(project: FactoryProjectState): HTMLElement {
   if (project.observedRun) return section;
   const status = controlStatusByProject.get(project.projectId);
   const controls = el('div', 'factory-controls');
-  const button = buildButton('factory-action', 'Re-run setup', () => sendFactoryRequest(project.projectId, 'factory-control', { action: 'rerun-setup' }, 'Running project setup.'));
+  const button = buildButton('factory-action', 'Re-run setup', () => sendFactoryControl(project.projectId, { action: 'rerun-setup' }, 'Running project setup.'));
   button.dataset.factoryField = 'rerun-setup';
   button.disabled = !isConnected || status?.requestId != null;
   controls.append(button, buildRequestStatus(status?.target === 'rerun-setup' ? status : undefined));
@@ -211,7 +107,7 @@ function buildIntentDigests(floor: FactoryFloor, project: FactoryProjectState): 
     intent.append(el('h4', 'factory-label', 'Confirmed flakes'), flakes);
     if (digest.isPartial && !project.observedRun) {
       const controls = el('div', 'factory-controls');
-      const button = buildButton('factory-action', 'Retry parked', () => sendFactoryRequest(project.projectId, 'factory-control', { action: 'retry-parked', intentId: digest.intentId }, 'Reopening parked tickets.'));
+      const button = buildButton('factory-action', 'Retry parked', () => sendFactoryControl(project.projectId, { action: 'retry-parked', intentId: digest.intentId }, 'Reopening parked tickets.'));
       button.dataset.factoryField = `retry-parked:${digest.intentId}`;
       button.disabled = !isConnected || status?.requestId != null;
       controls.append(button, buildRequestStatus(status?.target === digest.intentId ? status : undefined));
@@ -329,7 +225,6 @@ function buildTop(floor: FactoryFloor, project: FactoryProjectState): HTMLElemen
   }
   upNext.append(intents);
   if (floor.upNext.length === 0) upNext.append(el('p', 'factory-empty', 'No queued intents.'));
-  if (!isReadOnly) upNext.append(buildQueueForm(projectId));
   band.append(intent, orchestrator, upNext);
   return band;
 }
@@ -397,32 +292,60 @@ function buildBottom(floor: FactoryFloor): HTMLElement {
   return band;
 }
 
-function buildCoherenceTrends(): HTMLElement {
-  const lines = el('div', 'factory-coherence-trends');
-  for (const project of snapshot?.projects ?? []) {
-    const coherenceProjectId = findTrendedCoherenceProjectId(project.projectPath);
-    if (!coherenceProjectId) continue;
-    const line = el('div', 'factory-coherence-line');
-    line.append(el('span', null, project.projectName), buildProjectCoherenceChip(coherenceProjectId));
-    lines.append(line);
+function selectProject(projectId: string): void {
+  selectedProjectId = projectId;
+  selectedOrderId = null;
+  render();
+}
+
+function buildProjectSwitcher(project: FactoryProjectState): HTMLElement {
+  const projects = snapshot?.projects ?? [];
+  if (projects.length < 2) return el('h2', 'factory-project-name', project.projectName);
+  const chips = el('div', 'factory-projects');
+  chips.setAttribute('aria-label', 'Factory projects');
+  for (const candidate of projects) {
+    const chip = buildButton('factory-project', candidate.projectName, () => selectProject(candidate.projectId));
+    chip.dataset.projectId = candidate.projectId;
+    chip.setAttribute('aria-pressed', String(candidate.projectId === project.projectId));
+    chips.append(chip);
   }
-  for (const project of listAdoptableCoherenceProjects()) {
-    const line = el('div', 'factory-coherence-line');
-    line.title = project.path;
-    line.append(el('span', null, basename(project.path)), buildCoherenceAdoptControl(project.projectId));
-    lines.append(line);
+  return chips;
+}
+
+function buildMasthead(project: FactoryProjectState): HTMLElement {
+  const masthead = el('div', 'factory-masthead');
+  masthead.append(buildProjectSwitcher(project));
+  const coherenceProjectId = findTrendedCoherenceProjectId(project.projectPath);
+  if (coherenceProjectId) masthead.append(buildProjectCoherenceChip(coherenceProjectId));
+  return masthead;
+}
+
+function buildAdoptList(): HTMLElement {
+  const adoptableProjects = listAdoptableCoherenceProjects();
+  const disclosure = el('details', 'factory-adopt');
+  disclosure.hidden = adoptableProjects.length === 0;
+  disclosure.open = isAdoptListOpen;
+  disclosure.addEventListener('toggle', () => { isAdoptListOpen = disclosure.open; });
+  disclosure.append(el('summary', 'factory-label factory-adopt-summary', 'Projects without Coherence'));
+  for (const adoptableProject of adoptableProjects) {
+    const line = el('div', 'factory-adopt-line');
+    line.title = adoptableProject.path;
+    line.append(el('span', null, basename(adoptableProject.path)), buildCoherenceAdoptControl(adoptableProject.projectId));
+    disclosure.append(line);
   }
-  return lines;
+  return disclosure;
 }
 
 export function refreshFactoryCoherenceTrends() {
-  root?.querySelector('.factory-coherence-trends')?.replaceWith(buildCoherenceTrends());
+  if (!root) return;
+  root.querySelector('.factory-adopt')?.replaceWith(buildAdoptList());
+  const project = pickFactoryProject(snapshot?.projects ?? [], selectedProjectId);
+  if (project) root.querySelector('.factory-masthead')?.replaceWith(buildMasthead(project));
 }
 
 function render(): void {
   if (!root) return;
   const focusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  const selection = focusedElement instanceof HTMLTextAreaElement ? { start: focusedElement.selectionStart, end: focusedElement.selectionEnd } : null;
   const scrollPositions = [...root.querySelectorAll<HTMLElement>(SCROLLABLE_REGIONS_SELECTOR)].map((element) => element.scrollTop);
   const content = document.createDocumentFragment();
   const connection = el('p', 'factory-connection', isConnected ? snapshot ? '' : 'Waiting for the server.' : 'Disconnected. Showing the last snapshot.');
@@ -430,44 +353,26 @@ function render(): void {
   content.append(connection);
   const project = pickFactoryProject(snapshot?.projects ?? [], selectedProjectId);
   if (!project) {
-    content.append(el('p', 'factory-empty', snapshot ? 'No repos holding coherence.config.json.' : 'Waiting for Factory state.'), buildCoherenceTrends());
+    content.append(el('p', 'factory-empty', snapshot ? 'No repos holding coherence.config.json.' : 'Waiting for Factory state.'), buildAdoptList());
     root.replaceChildren(content);
     return;
   }
   if (selectedProjectId !== project.projectId) selectedOrderId = null;
   selectedProjectId = project.projectId;
-  if (snapshot && snapshot.projects.length > 1) {
-    const chips = el('div', 'factory-projects');
-    chips.setAttribute('aria-label', 'Factory projects');
-    for (const candidate of snapshot.projects) {
-      const chip = buildButton('factory-project', candidate.projectName, () => {
-        selectedProjectId = candidate.projectId;
-        selectedOrderId = null;
-        render();
-      });
-      chip.dataset.projectId = candidate.projectId;
-      chip.setAttribute('aria-pressed', String(candidate.projectId === selectedProjectId));
-      chips.append(chip);
-    }
-    content.append(chips);
-  }
-  content.append(buildCoherenceTrends());
   const floor = buildFactoryFloor(project, selectedOrderId);
   const bands = el('div', 'factory-console');
   const floorBand = buildRegion('Floor', 'factory-band factory-floor-band');
   const pipe = el('div', 'factory-pipe');
   for (const station of STATIONS) pipe.append(buildStation(station, floor.stations[station.id], project.observedRun !== undefined));
   floorBand.append(pipe);
-  bands.append(buildTop(floor, project), buildProjectProfile(project), buildIntentDigests(floor, project), floorBand, buildBottom(floor));
-  content.append(bands);
+  bands.append(buildTop(floor, project), floorBand, buildBottom(floor), buildIntentDigests(floor, project), buildProjectProfile(project));
+  content.append(buildMasthead(project), bands, buildAdoptList());
   root.replaceChildren(content);
   [...root.querySelectorAll<HTMLElement>(SCROLLABLE_REGIONS_SELECTOR)].forEach((element, index) => { element.scrollTop = scrollPositions[index] ?? 0; });
   for (const [selector, datasetKey] of FOCUS_RESTORE_TARGETS) {
     const focusedValue = focusedElement?.dataset[datasetKey];
     if (!focusedValue) continue;
-    const restored = [...root.querySelectorAll<HTMLElement>(selector)].find((element) => element.dataset[datasetKey] === focusedValue);
-    restored?.focus({ preventScroll: true });
-    if (restored instanceof HTMLTextAreaElement && selection) restored.setSelectionRange(selection.start, selection.end);
+    [...root.querySelectorAll<HTMLElement>(selector)].find((element) => element.dataset[datasetKey] === focusedValue)?.focus({ preventScroll: true });
   }
 }
 
@@ -488,11 +393,9 @@ export function applyFactoryState(message: FactoryState): void {
 export function applyFactoryConnectionState(connected: boolean): void {
   isConnected = connected;
   if (!connected) {
-    for (const statuses of [queueStatusByProject, controlStatusByProject]) {
-      for (const [projectId, status] of statuses) {
-        if (!status.requestId) continue;
-        statuses.set(projectId, { ...status, requestId: null, text: 'Disconnected. Check the floor before submitting again.', hasError: true });
-      }
+    for (const [projectId, status] of controlStatusByProject) {
+      if (!status.requestId) continue;
+      controlStatusByProject.set(projectId, { ...status, requestId: null, text: 'Disconnected. Check the floor before submitting again.', hasError: true });
     }
   }
   render();
@@ -500,15 +403,6 @@ export function applyFactoryConnectionState(connected: boolean): void {
 
 export function setFactoryRequestSender(sender: (message: Record<string, unknown>) => boolean): void {
   requestSender = sender;
-}
-
-export function applyFactoryQueueIntentResult(message: ServerMessageOf<'factory-queue-intent-result'>): void {
-  if (queueStatusByProject.get(message.projectId)?.requestId !== message.requestId) return;
-  queueStatusByProject.set(message.projectId, {
-    requestId: null, text: message.ok ? `Queued ${message.workId ?? 'intent'}.` : message.error ?? 'Could not queue intent.', hasError: !message.ok,
-  });
-  if (message.ok) draftsByProject.delete(message.projectId);
-  render();
 }
 
 export function applyFactoryControlResult(message: ServerMessageOf<'factory-control-result'>): void {

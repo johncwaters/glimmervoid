@@ -36,7 +36,7 @@ import { forgetSessionLinkedPrs, paintSessionPrChips, refreshSessionPrChipStages
 import { addSessionRowSignalSource } from './session-row.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
-import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryState, refreshFactoryCoherenceTrends, setFactoryRequestSender } from './factory/factory-view.ts';
+import { applyFactoryControlResult, applyFactoryState, refreshFactoryCoherenceTrends, setFactoryRequestSender } from './factory/factory-view.ts';
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-panel.ts';
 import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './github/issues-panel.ts';
 
@@ -439,7 +439,6 @@ const messageHandlers = {
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
   'my-prs-status': (msg) => { applyMyPrsStatus(msg); refreshSessionPrChipStages(); },
   'factory-state': (msg) => { setCoherenceAdoptFactoryProjects(msg.projects); applyFactoryState(msg); },
-  'factory-queue-intent-result': (msg) => applyFactoryQueueIntentResult(msg),
   'factory-control-result': (msg) => applyFactoryControlResult(msg),
   'benchmark-status': (msg) => applyBenchmarkStatus(msg),
   'benchmark-action-result': (msg) => applyBenchmarkActionResult(msg),

@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Factory reads as a view into the factory**: the selected project's name and Coherence trend head the page, the floor and ledger come right after the intent, and digests and the project profile sit below them. Projects that could adopt Coherence move into a collapsed list at the bottom. On a phone the orchestrator leads, empty slots and idle pads are hidden, and the ledger and selected ticket size to their content.
 - **Conversation view composer works like a chat app**: the message box is one line that grows as you type, with + to attach a photo or file on the left and Stop and Send on the right, sized for a thumb on the phone. Enter sends on desktop and starts a new line on the phone, where you send with the button. The Terminal | Conversation switch in the card header and the Terminal button are gone; to get the terminal back, turn off Conversation view in the session menu. A prompt the view cannot answer still offers Open terminal, and after you answer it in the terminal, or close the plan, the card returns to the conversation.
 - **Photos show in the Conversation view**: in a Claude Code session, a photo you attached through Glimmervoid now shows under your message while Glimmervoid still keeps it, which covers the last 20 attached in that session. Tap one to open it full size. Send with an empty box sends an attached photo on its own, and + stays off while the agent is waiting on a prompt.
 - **Session card menu button**: the session card's menu button is now a neutral Session actions button instead of the restart arrow, since the menu holds more than Restart (Conversation view, Guardrails, Coherence journal, Link pull request).
@@ -51,6 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Running sessions pick up Coherence after adopt**: a session started before its repository adopted Coherence used to keep reporting the hooks as missing, and each Coherence hook failed with "coherence hook target missing". The session now checks again at the end of each turn, so its hooks and journal start working without a restart.
 - **Terminal stays live after a session setting change**: releasing or restoring a session's guardrails, or changing its agent, folder or permissions, no longer leaves its terminal blank until you restart it, on desktop or phone.
 - **Phone terminal has Left and Right keys**: the key strip above the phone keyboard now sends left and right arrows, so you can step back to an earlier question in a Claude Code multi-question prompt and change your answer. To make room, the arrows are compact glyph keys and the Image and File keys are one Attach key, whose picker still offers your photos.
+
+### Removed
+
+- **Queue intent form on the Factory page**: sessions queue intents with `glimmervoid factory queue <intent.json>`, which is how the factory is meant to be fed.
 
 ## [0.38.2] - 2026-10-17
 
