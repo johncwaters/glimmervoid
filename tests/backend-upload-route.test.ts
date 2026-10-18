@@ -192,6 +192,18 @@ test('an image is saved under the config dir and its path is bracket-pasted into
   assert.deepEqual(ptyWrites, [`\x1b[200~${body.path} \x1b[201~`], 'exactly the bracketed paste, nothing else');
   assert.equal(ptyWrites[0].includes('\r'), false, 'the operator presses Enter, not Glimmervoid');
   assert.equal(ptyWrites[0].includes('\n'), false);
+
+  const served = await fetch(`${ctx().base}/upload/${SESSION_ID}/${path.basename(body.path)}`);
+  assert.equal(served.status, 200);
+  assert.equal(served.headers.get('content-type'), 'image/png');
+  assert.equal(served.headers.get('x-content-type-options'), 'nosniff');
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), bytes, 'the conversation view reads back the same bytes');
+
+  const plantedName = path.basename(body.path).replace(/\.png$/, '.txt');
+  fs.writeFileSync(path.join(uploadsDirFor(SESSION_ID), plantedName), 'not an image');
+  assert.equal((await fetch(`${ctx().base}/upload/${SESSION_ID}/${plantedName}`)).status, 404, 'only images are served');
+  assert.equal((await fetch(`${ctx().base}/upload/${SESSION_ID}/..%2Fconfig.json`)).status, 404, 'no path escapes the uploads folder');
+  fs.rmSync(path.join(uploadsDirFor(SESSION_ID), plantedName));
 });
 
 test('a body past the 15MB cap is refused and the server survives', async () => {

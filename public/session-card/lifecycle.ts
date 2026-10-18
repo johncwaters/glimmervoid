@@ -82,12 +82,9 @@ function isConversationFaceAvailable(ui: SessionUi) {
   return canUseConversationView(ui) && ui.isConversationViewOn && ui.isBorrowed;
 }
 
-function paintFaceSwitch(ui: SessionUi) {
-  ui.faceSwitch.classList.toggle('visible', isConversationFaceAvailable(ui));
+function paintConversationViewItem(ui: SessionUi) {
   ui.btnConversationView.classList.toggle('visible', canUseConversationView(ui));
   ui.btnConversationView.setAttribute('aria-checked', String(ui.isConversationViewOn));
-  ui.btnFaceTerminal.setAttribute('aria-pressed', String(ui.face === 'terminal'));
-  ui.btnFaceConversation.setAttribute('aria-pressed', String(ui.face === 'conversation'));
 }
 
 export function setConversationViewEnabled(isEnabled: boolean) {
@@ -126,7 +123,6 @@ export function setSessionConversation(sessionId: unknown, update: SessionConver
   updateButtonVisibility(ui);
   ui.conversationFace.refresh();
   if (wasConversationViewOn === update.isConversationViewOn) return;
-  ui.prefersConversation = update.isConversationViewOn;
   if (update.isConversationViewOn) {
     showSessionConversationFace(sessionId);
     return;
@@ -148,7 +144,7 @@ export function applyConversationTraceChanged(sessionId: unknown) {
 }
 
 function updateButtonVisibility(ui: SessionUi) {
-  paintFaceSwitch(ui);
+  paintConversationViewItem(ui);
   const state = ui.currentState;
   const canRestart = isKillable(state) || isRestartable(state);
   ui.btnRestart.classList.toggle('visible', canRestart);
@@ -244,16 +240,6 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
       danger: true,
       onConfirm: sendGuardrails(false),
     });
-  });
-
-  ui.btnFaceTerminal.addEventListener('click', () => {
-    ui.prefersConversation = false;
-    ui._showTerminalFace?.();
-  });
-
-  ui.btnFaceConversation.addEventListener('click', () => {
-    ui.prefersConversation = true;
-    showSessionConversationFace(sessionId);
   });
 
   ui.btnPlan.addEventListener('click', () => {
@@ -434,10 +420,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   const conversationFace = createConversationFace({
     signal: abortController.signal,
     sendControl: (message) => sendControlMsg(message),
-    showTerminal: () => {
-      sessionUi.prefersConversation = false;
-      showTerminalFace();
-    },
+    showTerminal: showTerminalFace,
   });
   sessionUi = {
     term: null,
@@ -468,9 +451,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnGuardrails: dom.btnGuardrails,
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
-    faceSwitch: dom.faceSwitch,
-    btnFaceTerminal: dom.btnFaceTerminal,
-    btnFaceConversation: dom.btnFaceConversation,
     btnDocs: dom.btnDocs,
     btnRemove: dom.btnRemove,
     debugOverlay: null,
@@ -484,7 +464,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     planReviewState: { reviews: [] },
     planFace,
     conversationFace,
-    prefersConversation: false,
     conversationApproval: null,
     hasConversationBridge: false,
     isConversationViewOn: false,
@@ -496,7 +475,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
       showSessionPlanFace(id);
       return;
     }
-    if (sessionUi.prefersConversation && showSessionConversationFace(id)) return;
+    if (showSessionConversationFace(id)) return;
     showTerminalFace();
   };
   sessionUi._setBorrowed = (isBorrowed) => {

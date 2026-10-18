@@ -36,6 +36,7 @@ import {
   decideUploadType,
   exceedsUploadCap,
   framePathPaste,
+  imageMimeForUploadFilename,
   isSafePathSegment,
   planUploadRetention,
 } from '../core/upload-core.ts';
@@ -581,6 +582,31 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       })
       .catch(() => {
         if (!res.headersSent) res.status(500).json({ error: 'could not store the upload' });
+      });
+  });
+
+  app.get('/upload/:sessionId/:filename', (req, res) => {
+    const { sessionId, filename } = req.params;
+    const imageMime = imageMimeForUploadFilename(filename);
+    if (!imageMime || !isSafePathSegment(sessionId)) {
+      res.status(404).end();
+      return;
+    }
+    const savedPath = path.join(uploadsRoot, sessionId, filename);
+    fsp.lstat(savedPath)
+      .then((savedStat) => {
+        if (!savedStat.isFile()) {
+          res.status(404).end();
+          return;
+        }
+        res.setHeader('Content-Type', imageMime);
+        res.setHeader('Content-Length', String(savedStat.size));
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Cache-Control', 'private, max-age=604800, immutable');
+        pipeline(fs.createReadStream(savedPath), res, () => {});
+      })
+      .catch(() => {
+        if (!res.headersSent) res.status(404).end();
       });
   });
 

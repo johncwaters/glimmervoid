@@ -93,4 +93,11 @@ function isUploadFilename(name: unknown): boolean {
   return UPLOAD_FILENAME_RE.test(name);
 }
 
-export { MAX_UPLOAD_BYTES, UPLOAD_RETAIN_FILES, buildUploadFilename, decideUploadType, exceedsUploadCap, extensionForImageMime, extensionForUploadName, framePathPaste, isSafePathSegment, isUploadFilename, planUploadRetention };
+function imageMimeForUploadFilename(name: string): string | null {
+  if (!isUploadFilename(name)) return null;
+  const extension = path.extname(name).toLowerCase();
+  const imageEntry = Object.entries(IMAGE_EXTENSION_BY_MIME).find(([, imageExtension]) => imageExtension === extension);
+  return imageEntry ? imageEntry[0] : null;
+}
+
+export { MAX_UPLOAD_BYTES, UPLOAD_RETAIN_FILES, buildUploadFilename, decideUploadType, exceedsUploadCap, extensionForImageMime, extensionForUploadName, framePathPaste, imageMimeForUploadFilename, isSafePathSegment, isUploadFilename, planUploadRetention };

@@ -11,6 +11,8 @@ const BRACKETED_PASTE_START = `${ESCAPE}[200~`;
 const BRACKETED_PASTE_END = `${ESCAPE}[201~`;
 const SUBMIT_DELAY_MS = 400;
 const MAX_RESIDENT_RECORDS = 4000;
+const IMAGE_SOURCE_NOTE_RE = /^\[Image: source: (.+)\]$/;
+const UPLOADS_FOLDER_NAME = 'uploads';
 
 export interface TimedKeystroke {
   data: string;
@@ -32,13 +34,21 @@ export interface ConversationWorkGroup {
 }
 
 interface ConversationMessage {
-  kind: 'user' | 'assistant' | 'notice';
+  kind: 'assistant' | 'notice';
   key: string;
   text: string;
   at: number;
 }
 
-export type ConversationEntry = ConversationMessage | ConversationWorkGroup;
+interface ConversationUserMessage {
+  kind: 'user';
+  key: string;
+  text: string;
+  at: number;
+  imageUrls: string[];
+}
+
+export type ConversationEntry = ConversationUserMessage | ConversationMessage | ConversationWorkGroup;
 
 export interface ConversationFaceController {
   el: HTMLDivElement;
@@ -62,6 +72,11 @@ export function composerKeystrokes(agent: string | null | undefined, text: strin
   return [{ data: typed, delayBeforeMs: 0 }, { data: '\r', delayBeforeMs: SUBMIT_DELAY_MS }];
 }
 
+export function submitKeystrokes(agent: string | null | undefined): readonly TimedKeystroke[] | null {
+  if (!isConversationAgent(agent)) return null;
+  return [{ data: '\r', delayBeforeMs: 0 }];
+}
+
 export function interruptKeystrokes(agent: string | null | undefined): readonly TimedKeystroke[] | null {
   if (!isConversationAgent(agent)) return null;
   return [{ data: ESCAPE, delayBeforeMs: 0 }];
@@ -77,6 +92,21 @@ function recordKey(record: TraceRecord, index: number): string {
 
 function isSubagentRecord(record: TraceRecord): boolean {
   return typeof record.agentId === 'string';
+}
+
+function uploadedImageUrl(imageSourceNote: string): string | null {
+  const sourceMatch = IMAGE_SOURCE_NOTE_RE.exec(imageSourceNote.trim());
+  if (!sourceMatch) return null;
+  const pathSegments = sourceMatch[1].split(/[\\/]/);
+  const [uploadsFolder, sessionFolder, filename] = pathSegments.slice(-3);
+  if (uploadsFolder !== UPLOADS_FOLDER_NAME || !sessionFolder || !filename) return null;
+  return `/upload/${encodeURIComponent(sessionFolder)}/${encodeURIComponent(filename)}`;
+}
+
+function attachImageToLatestPrompt(entries: ConversationEntry[], imageUrl: string) {
+  const latestEntry = entries[entries.length - 1];
+  if (latestEntry?.kind !== 'user') return;
+  latestEntry.imageUrls.push(imageUrl);
 }
 
 function openWorkGroup(entries: ConversationEntry[], key: string, at: number): ConversationWorkGroup {
@@ -101,7 +131,14 @@ export function conversationEntries(records: readonly TraceRecord[]): Conversati
   records.forEach((record, index) => {
     const key = recordKey(record, index);
     if (record.kind === 'prompt' && !isSubagentRecord(record)) {
-      entries.push({ kind: 'user', key, text: record.text, at: record.ts });
+      entries.push({ kind: 'user', key, text: record.text, at: record.ts, imageUrls: [] });
+      return;
+    }
+    if (record.kind === 'expansion' && !isSubagentRecord(record)) {
+      for (const expansionLine of record.text.split('\n')) {
+        const imageUrl = uploadedImageUrl(expansionLine);
+        if (imageUrl) attachImageToLatestPrompt(entries, imageUrl);
+      }
       return;
     }
     if (record.kind === 'assistant' && !isSubagentRecord(record)) {

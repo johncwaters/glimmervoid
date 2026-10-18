@@ -5726,25 +5726,6 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   text-transform: uppercase;
 }
 
-.face-switch { display: none; align-items: center; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; margin-right: 4px; }
-.face-switch.visible { display: inline-flex; }
-.face-switch-option {
-  height: 22px;
-  padding: 0 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-.face-switch-option + .face-switch-option { border-left: 1px solid var(--border); }
-.face-switch-option[aria-pressed="true"] { background: color-mix(in oklab, var(--accent) 18%, transparent); color: var(--text-head); }
-.face-switch-option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-
 .conversation-face {
   flex: 1 1 auto;
   min-width: 0;
@@ -5805,23 +5786,30 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 .conversation-question-option { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
 .conversation-bridge-note { flex: 0 0 auto; margin: 0; padding: 8px 16px; font-size: 12px; color: var(--text-dim); border-top: 1px solid var(--border-dim); }
 .conversation-approval-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.conversation-composer { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 16px 12px; border-top: 1px solid var(--border-dim); background: var(--bg-surface); }
+.conversation-composer { flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-top: 1px solid var(--border-dim); background: var(--bg-surface); }
+.conversation-status { margin: 0; padding: 0 4px; color: var(--text-muted); font-size: 12px; }
+.conversation-status:empty { display: none; }
+.conversation-composer-row { display: flex; align-items: flex-end; gap: 6px; }
 .conversation-input {
-  width: 100%;
-  resize: vertical;
-  min-height: 44px;
-  max-height: 40vh;
-  padding: 8px 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  resize: none;
+  height: 36px;
+  min-height: 36px;
+  max-height: 168px;
+  overflow-y: auto;
+  padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--bg-card);
   color: var(--text-head);
   font: inherit;
   font-size: 14px;
+  line-height: 18px;
 }
-.conversation-composer-actions { display: flex; align-items: center; gap: 6px; }
-.conversation-status { flex: 1 1 auto; min-width: 0; color: var(--text-muted); font-size: 12px; }
-.conversation-face button:not(.face-switch-option) {
+.conversation-input:focus { border-color: var(--accent); outline: none; }
+.conversation-input::placeholder { color: var(--text-muted); }
+.conversation-face button {
   height: 28px;
   padding: 0 12px;
   border: 1px solid var(--border);
@@ -5831,11 +5819,28 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   font-size: 12px;
   cursor: pointer;
 }
-.conversation-face .conversation-send { border-color: var(--accent-dim); color: var(--text-head); background: color-mix(in oklab, var(--accent) 16%, transparent); }
-.conversation-face button:disabled { opacity: 0.45; cursor: default; }
+.conversation-face .conversation-icon-button {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+.conversation-face .conversation-attach { border-color: transparent; font-weight: 700; }
+.conversation-face .conversation-stop { font-size: 12px; }
+.conversation-face .conversation-send { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.conversation-face .conversation-send:not(:disabled):hover { color: var(--accent); border-color: var(--accent); background: color-mix(in oklab, var(--accent) 14%, transparent); }
+.conversation-face button:disabled { opacity: 0.4; cursor: default; }
 .conversation-face button:not(:disabled):hover { color: var(--text-head); border-color: var(--border-hover); }
-.conversation-face :is(button, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-html[data-layout="phone"] .phone-terminal:has(.session-card[data-face="conversation"]) .phone-key-strip { display: none; }
+.conversation-face button:not(:disabled):active { transform: scale(0.93); }
+.conversation-face button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+html[data-layout="phone"] .conversation-input { height: 44px; min-height: 44px; padding: 12px; font-size: 16px; line-height: 20px; }
+html[data-layout="phone"] .conversation-face .conversation-icon-button { width: 44px; height: 44px; }
+.conversation-image-link { display: block; margin-top: 8px; }
+.conversation-image { display: block; max-width: 100%; max-height: 240px; border: 1px solid var(--border); border-radius: 4px; object-fit: contain; }
 
 .session-card[data-prompt="plan"] .prompt-badge {
   color: var(--state-waiting);
@@ -8165,7 +8170,7 @@ html[data-layout="phone"] .phone-shell:not([data-keyboard="open"]) .phone-key-st
 html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-key-strip:not([hidden]) {
   display: flex;
 }
-html[data-layout="phone"] .phone-terminal:has(.session-card[data-face="plan"]) .phone-key-strip { display: none; }
+html[data-layout="phone"] .phone-terminal:has(.session-card:is([data-face="plan"], [data-face="conversation"])) .phone-key-strip { display: none; }
 .phone-key-strip[hidden] { display: none; }
 .phone-key {
   flex: 1 1 auto;

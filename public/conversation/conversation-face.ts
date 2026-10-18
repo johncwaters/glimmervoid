@@ -3,17 +3,20 @@ import type { ConversationAnswers, ConversationApproval, ConversationApprovalDec
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { STATES } from '#shared/states.ts';
 import { el } from '../dom-helpers.ts';
+import { isPhoneLayout } from '../form-factor.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { findSessionUi } from '../session-card/card-registry.ts';
 import { sendTerminalInput } from '../session-card/terminal.ts';
+import { uploadFileToSession } from '../session-upload.ts';
 import {
   composerKeystrokes,
   conversationEntries,
   interruptKeystrokes,
   isAnyPromptShowing,
   isWorkGroupRunning,
+  submitKeystrokes,
   trimResidentRecords,
   workGroupHeadline,
 } from './conversation-core.ts';
@@ -25,6 +28,9 @@ const REQUEST_ID_PREFIX = 'conversation:';
 const REQUEST_TIMEOUT_MS = 10_000;
 const STICK_TO_BOTTOM_PX = 48;
 const MULTI_SELECT_ANSWER_SEPARATOR = ', ';
+const ATTACH_GLYPH = '+';
+const STOP_GLYPH = String.fromCharCode(0x25a0);
+const SEND_GLYPH = String.fromCharCode(0x2191);
 const CODEX_APPROVAL_TITLES: Readonly<Record<string, string>> = { command: 'Run command?', fileChange: 'Apply file changes?', permissions: 'Grant permissions?' };
 
 interface ConversationFaceDeps {
@@ -40,6 +46,14 @@ interface PendingTraceRequest {
 }
 
 let nextRequestNumber = 1;
+
+function composerIconButton(className: string, glyph: string, actionName: string) {
+  const button = el('button', `conversation-icon-button ${className}`, glyph);
+  button.type = 'button';
+  button.title = actionName;
+  button.setAttribute('aria-label', actionName);
+  return button;
+}
 
 type KeystrokePlanOutcome = 'sent' | 'unreachable' | 'stopped-by-prompt';
 
@@ -72,22 +86,22 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   const traceUnavailableNote = el('p', 'conversation-bridge-note', 'The session trace is unavailable, so there is nothing to show here. Use the terminal.');
   traceUnavailableNote.hidden = true;
   const composer = el('form', 'conversation-composer');
+  const status = el('p', 'conversation-status');
+  status.setAttribute('role', 'status');
+  const composerRow = el('div', 'conversation-composer-row');
+  const attachButton = composerIconButton('conversation-attach', ATTACH_GLYPH, 'Attach a photo or file');
+  const filePicker = el('input', 'conversation-file-picker');
+  filePicker.type = 'file';
+  filePicker.hidden = true;
   const input = el('textarea', 'conversation-input');
-  input.rows = 2;
+  input.rows = 1;
   input.placeholder = 'Message the agent';
   input.setAttribute('aria-label', 'Message the agent');
-  const composerActions = el('div', 'conversation-composer-actions');
-  const status = el('span', 'conversation-status');
-  status.setAttribute('role', 'status');
-  const stopButton = el('button', 'conversation-stop', 'Stop');
-  stopButton.type = 'button';
-  stopButton.title = 'Interrupt the current turn (Esc)';
-  const terminalButton = el('button', 'conversation-terminal', 'Terminal');
-  terminalButton.type = 'button';
-  const sendButton = el('button', 'conversation-send', 'Send');
+  const stopButton = composerIconButton('conversation-stop', STOP_GLYPH, 'Stop the current turn (Esc)');
+  const sendButton = composerIconButton('conversation-send', SEND_GLYPH, 'Send');
   sendButton.type = 'submit';
-  composerActions.append(status, terminalButton, stopButton, sendButton);
-  composer.append(input, composerActions);
+  composerRow.append(attachButton, input, stopButton, sendButton);
+  composer.append(status, composerRow, filePicker);
   root.append(log, traceUnavailableNote, bridgeNote, approvalSlot, composer);
 
   let sessionId: string | null = null;
@@ -96,6 +110,8 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   let hasLoadedOnce = false;
   let pendingRequest: PendingTraceRequest | null = null;
   let isRefreshOwed = false;
+  let hasPendingAttachment = false;
+  let isAttachmentUploading = false;
 
   function currentUi(): SessionUi | null {
     return sessionId ? findSessionUi(sessionId) ?? null : null;
@@ -103,6 +119,11 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
 
   function setStatus(text: string) {
     status.textContent = text;
+  }
+
+  function fitInputToText() {
+    input.style.height = 'auto';
+    input.style.height = `${input.scrollHeight + input.offsetHeight - input.clientHeight}px`;
   }
 
   function clearPendingRequest() {
@@ -131,6 +152,20 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
     return log.scrollHeight - log.scrollTop - log.clientHeight <= STICK_TO_BOTTOM_PX;
   }
 
+  function renderImage(imageUrl: string) {
+    const link = el('a', 'conversation-image-link');
+    link.href = imageUrl;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    const image = el('img', 'conversation-image');
+    image.src = imageUrl;
+    image.alt = 'Attached image';
+    image.loading = 'lazy';
+    image.addEventListener('error', () => link.remove(), { once: true });
+    link.append(image);
+    return link;
+  }
+
   function renderMessage(entry: Extract<ConversationEntry, { kind: 'user' | 'assistant' | 'notice' }>) {
     const bubble = el('article', `conversation-message conversation-${entry.kind}`);
     if (entry.kind === 'assistant') {
@@ -138,6 +173,7 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
       return bubble;
     }
     bubble.append(el('p', 'conversation-text', entry.text));
+    if (entry.kind === 'user') bubble.append(...entry.imageUrls.map(renderImage));
     return bubble;
   }
 
@@ -296,10 +332,21 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
     bridgeNote.hidden = !isAwaitingBridge;
     approvalSlot.hidden = !pendingApproval && !isPromptShowing;
     sendButton.disabled = !approvalSlot.hidden || isAwaitingBridge;
+    renderAttachAvailability();
     if (!ui) return;
     if (pendingApproval) { renderPendingApproval(pendingApproval); return; }
     if (!isPromptShowing) return;
     renderTerminalOnlyPrompt();
+  }
+
+  function renderAttachAvailability() {
+    attachButton.disabled = sendButton.disabled || isAttachmentUploading;
+  }
+
+  function composerSubmitSteps(agent: string | null | undefined): readonly TimedKeystroke[] | null {
+    const typedSteps = composerKeystrokes(agent, input.value);
+    if (typedSteps || !hasPendingAttachment) return typedSteps;
+    return submitKeystrokes(agent);
   }
 
   function renderControls() {
@@ -310,19 +357,37 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   composer.addEventListener('submit', (event) => {
     event.preventDefault();
     if (sendButton.disabled) return;
-    const ui = currentUi();
-    const steps = composerKeystrokes(ui?.agent, input.value);
+    const steps = composerSubmitSteps(currentUi()?.agent);
     if (!steps) return;
     input.value = '';
+    fitInputToText();
+    hasPendingAttachment = false;
     sendPlan(steps, 'Sent.');
   }, { signal });
+  input.addEventListener('input', fitInputToText, { signal });
   input.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing || isPhoneLayout()) return;
     event.preventDefault();
     composer.requestSubmit();
   }, { signal });
   stopButton.addEventListener('click', () => sendPlan(interruptKeystrokes(currentUi()?.agent), 'Interrupt sent.'), { signal });
-  terminalButton.addEventListener('click', () => showTerminal(), { signal });
+  attachButton.addEventListener('click', () => filePicker.click(), { signal });
+  filePicker.addEventListener('change', () => {
+    const pickedFile = filePicker.files?.[0];
+    filePicker.value = '';
+    if (!pickedFile || !sessionId) return;
+    if (sendButton.disabled) { setStatus('Not attached: the agent is not ready for a message. Check the terminal.'); return; }
+    const uploadSessionId = sessionId;
+    isAttachmentUploading = true;
+    renderAttachAvailability();
+    void uploadFileToSession(uploadSessionId, pickedFile).then((isUploaded) => {
+      isAttachmentUploading = false;
+      renderAttachAvailability();
+      if (!isUploaded || sessionId !== uploadSessionId) return;
+      hasPendingAttachment = true;
+      setStatus('Attached. It goes with your next message.');
+    });
+  }, { signal });
 
   function show(id: string) {
     if (sessionId !== id) {
@@ -331,6 +396,7 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
       nextOffset = 0;
       hasLoadedOnce = false;
       clearPendingRequest();
+      hasPendingAttachment = false;
       setStatus('');
     }
     root.hidden = false;
