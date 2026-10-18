@@ -17,9 +17,8 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `dialogs.ts` | Add Session and investigation-report dialog factories |
 | `external-link.ts` / `external-link-core.ts` | THE opener for every off-dashboard link: inside an editor's Electron browser view it asks the host (`POST /open-external`) because that view keeps every popup as an internal tab |
 | `github/pr-status-icon.ts` / `github/pr-status-icon-core.ts` | THE pull request status icon set (Octicons, crisp only at their native 16px) and its help-page legend; separate from the agent status glyphs in `stateChip` |
-| `signal.ts` / `signal-core.ts` | THE small status badge (icon, tone, text) for session rows, card PR chips and project headers, plus the one ranking that keeps two per line by urgency tier and folds the rest into +N. A new badge kind is a Signal with a tier, never a new chip style |
-| `menu.ts` | Shared menu item markup and arrow-key focus for the card overflow and project actions menus |
-| `project-actions-menu.ts` | What a project header's + opens: New session plus registered project actions, a bottom sheet on phone and a dropdown on desktop. A project-level action goes here, never as a header button |
+| `signal.ts` / `signal-core.ts` | THE small status badge (icon, tone, text) for session rows, card PR chips and the Factory floor, plus the one ranking that keeps two per line by urgency tier and folds the rest into +N. A new badge kind is a Signal with a tier, never a new chip style |
+| `menu.ts` | Menu item markup and arrow-key focus for the card's Session actions menu |
 | `render-scheduler.ts` | Global xterm WRITE scheduler: callback-gated round-robin with per-frame budget |
 | `notifications.ts` | Native Web Notifications (browser routes to Windows Action Center); replaces the server-side toast path |
 | `notify-dedupe-core.ts` | Pure cross-tab claim (short-TTL localStorage) so exactly one open tab raises each notification |

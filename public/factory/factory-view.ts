@@ -2,8 +2,10 @@ import { FACTORY_PROTECTED_PATH_FLOOR, FactoryQueueIntentRequest } from '#shared
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { FactoryProjectState, FactoryState } from '#shared/contracts/factory.ts';
 import { localClockText } from '#shared/display-text.ts';
+import { buildCoherenceAdoptControl, listAdoptableCoherenceProjects } from '../coherence/adopt-action.ts';
 import { buildProjectCoherenceChip } from '../coherence/trend-chip.ts';
 import { buildPanelSection, el } from '../dom-helpers.ts';
+import { basename } from '../focus-view/roster-groups-core.ts';
 import { buildFactoryFloor, pickFactoryProject } from './factory-floor-core.ts';
 import type { FactoryCrate, FactoryFloor, FactoryStation } from './factory-floor-core.ts';
 
@@ -404,6 +406,12 @@ function buildCoherenceTrends(): HTMLElement {
     line.append(el('span', null, project.projectName), chip);
     lines.append(line);
   }
+  for (const project of listAdoptableCoherenceProjects()) {
+    const line = el('div', 'factory-coherence-line');
+    line.title = project.path;
+    line.append(el('span', null, basename(project.path)), buildCoherenceAdoptControl(project.projectId));
+    lines.append(line);
+  }
   return lines;
 }
 
@@ -422,7 +430,7 @@ function render(): void {
   content.append(connection);
   const project = pickFactoryProject(snapshot?.projects ?? [], selectedProjectId);
   if (!project) {
-    content.append(el('p', 'factory-empty', snapshot ? 'No repos holding coherence.config.json.' : 'Waiting for Factory state.'));
+    content.append(el('p', 'factory-empty', snapshot ? 'No repos holding coherence.config.json.' : 'Waiting for Factory state.'), buildCoherenceTrends());
     root.replaceChildren(content);
     return;
   }

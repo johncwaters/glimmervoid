@@ -1,7 +1,6 @@
 import type { ProjectCoherenceTrend } from '#shared/contracts/coherence.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { el } from '../dom-helpers.ts';
-import type { ProjectAction } from '../project-actions-menu.ts';
 import { buildProjectCoherenceCheckAction } from './check-action.ts';
 import { openCoherencePanelShell } from './coherence-panel-shell.ts';
 import { coherenceTrendDirectionLabel, coherenceTrendPanelRows } from './trend-core.ts';
@@ -46,20 +45,12 @@ export function buildProjectCoherenceChip(projectId: string): HTMLElement {
   return chip;
 }
 
-export function projectTrendAction(projectPath: string): ProjectAction | null {
-  const projectId = [...pathsByProjectId].find(([candidateId, path]) => path === projectPath && trendsByProjectId.has(candidateId))?.[0];
-  const reading = projectId ? trendsByProjectId.get(projectId) : undefined;
-  if (!projectId || !reading) return null;
-  return {
-    label: 'Coherence trend',
-    hint: `Currently ${coherenceTrendDirectionLabel(reading.trend)}`,
-    className: 'project-action-coherence-trend',
-    run: () => openCoherenceTrendPanel(projectId),
-  };
-}
-
-export function findCoherenceTrendProjectId(projectPath: string): string | undefined {
-  return [...pathsByProjectId].find(([, path]) => path === projectPath)?.[0];
+export function listCoherenceTrendProjects(): { projectId: string; path: string }[] {
+  const projectIdsByPath = new Map<string, string>();
+  for (const [projectId, path] of pathsByProjectId) {
+    if (!projectIdsByPath.has(path)) projectIdsByPath.set(path, projectId);
+  }
+  return [...projectIdsByPath].map(([path, projectId]) => ({ projectId, path }));
 }
 
 export function hasCoherenceTrendReading(projectId: string): boolean {

@@ -1,12 +1,13 @@
 import { STATES } from '#shared/states.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
-import { adoptElement, el, queryTag, releaseElement, stateChip } from '../dom-helpers.ts';
+import { adoptElement, el, queryTag, releaseElement } from '../dom-helpers.ts';
 import { isRenameInProgress, makeTitleEditable, paintTaskTitle, startInlineRename, startInlineTitleEdit } from '../session-card/card-dom.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { sendTerminalInput, setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { showErrorToast } from '../session-card/toast.ts';
+import { paintSessionRowStatus } from '../session-row.ts';
 import { createMobileKeyStrip } from './mobile-key-strip.ts';
 
 const BACK_GLYPH = String.fromCharCode(0x2039);
@@ -24,9 +25,8 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   const nameEl = el('span', 'phone-terminal-name');
   nameEl.title = 'Tap to rename';
   nameEl.addEventListener('click', () => renameShownSession());
-  const taskTitleEl = el('span', 'session-task-title session-list-task-title');
+  const taskTitleEl = el('span', 'session-task-title phone-terminal-title');
   makeTitleEditable(taskTitleEl, () => editShownTitle());
-  const identityLine = el('span', 'phone-terminal-identity-line');
   const badgeEl = el('span', 'phone-terminal-badge');
   badgeEl.innerHTML = '<span class="phone-terminal-glyph" aria-hidden="true"></span>'
     + '<span class="phone-terminal-label"></span>'
@@ -34,8 +34,8 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   const glyphEl = queryTag(badgeEl, '.phone-terminal-glyph', 'span');
   const labelEl = queryTag(badgeEl, '.phone-terminal-label', 'span');
   const elapsedEl = queryTag(badgeEl, '.phone-terminal-elapsed', 'span');
-  identityLine.append(nameEl, taskTitleEl);
-  identity.append(identityLine, badgeEl);
+  labelEl.before(nameEl);
+  identity.append(taskTitleEl, badgeEl);
 
   const actionSlot = el('div', 'phone-terminal-actions');
 
@@ -93,17 +93,16 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     if (!hasSession) {
       topBar.removeAttribute('data-state');
       topBar.removeAttribute('data-monitoring');
+      topBar.removeAttribute('data-prompt');
       return;
     }
     const state = ui.currentState || STATES.DORMANT;
-    topBar.dataset.state = state;
-    const { glyph, label, isMonitoring } = stateChip(state, ui.awaitingBackgroundTasks);
-    topBar.toggleAttribute('data-monitoring', isMonitoring);
+    paintSessionRowStatus(topBar, { glyph: glyphEl, label: labelEl }, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
 
-    if (!isRenameInProgress(nameEl)) nameEl.textContent = ui.card?.dataset.session || shownId;
+    const sessionName = ui.card?.dataset.session || shownId;
+    if (!isRenameInProgress(nameEl)) nameEl.textContent = sessionName;
+    taskTitleEl.dataset.sessionName = sessionName ?? '';
     paintTaskTitle(taskTitleEl, ui.taskTitle);
-    glyphEl.textContent = glyph;
-    labelEl.textContent = label;
     elapsedEl.textContent = sessionElapsedText(ui);
   }
 

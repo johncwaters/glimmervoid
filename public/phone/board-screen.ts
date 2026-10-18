@@ -7,10 +7,8 @@ import { attentionSummaryText, countAttentionByKind, orderRoster } from '../focu
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { NO_PATH_KEY } from '../focus-view/roster-groups-core.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
-import { paintProjectHeaderCoherence } from '../project-header.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
-import { readSessionRows, requestSessionRemoval } from '../session-actions.ts';
-import { attachProjectActionsMenu } from '../project-actions-menu.ts';
+import { quickAddSession, readSessionRows, requestSessionRemoval } from '../session-actions.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { pulseActivityGlyph } from '../session-card/activity.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
@@ -77,7 +75,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     const count = el('span', 'phone-board-group-count');
     const addButton = el('button', 'phone-board-group-add', '+');
     addButton.type = 'button';
-    const actionsMenu = attachProjectActionsMenu(addButton, () => ({ path: section.dataset.path ?? '', label: section.dataset.label ?? '' }));
+    addButton.addEventListener('click', () => quickAddSession(section.dataset.path, section.dataset.label));
     const forgetButton = el('button', 'phone-board-group-forget', 'x');
     forgetButton.type = 'button';
     forgetButton.addEventListener('click', () => {
@@ -86,7 +84,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     });
     const rows = el('div', 'phone-board-group-rows');
     rows.setAttribute('role', 'list');
-    header.append(label, count, forgetButton, addButton, actionsMenu);
+    header.append(label, count, forgetButton, addButton);
     section.append(header, rows);
     groupRefs.set(section, { header, label, count, addButton, forgetButton, rows });
     return section;
@@ -115,14 +113,13 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     addButton.hidden = isPathless;
     forgetButton.hidden = isPathless || !isEmpty;
     if (!isPathless) {
-      addButton.title = `${group.label} actions`;
-      addButton.setAttribute('aria-label', `${group.label} actions`);
+      addButton.title = `Add a session to ${group.label}`;
+      addButton.setAttribute('aria-label', `Add a session to ${group.label}`);
     }
     if (!isPathless && isEmpty) {
       forgetButton.title = `Remove ${group.label} from the Board`;
       forgetButton.setAttribute('aria-label', `Remove ${group.label} from the Board`);
     }
-    paintProjectHeaderCoherence(header, group.key);
     rows.setAttribute('aria-label', `${group.label} sessions`);
   }
 

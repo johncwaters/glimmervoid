@@ -13,7 +13,7 @@ interface GroupedRoster<Row> {
   groups: RosterGroup<Row>[];
 }
 
-function basename(p: unknown): string {
+export function basename(p: unknown): string {
   if (!p) return NO_PATH_KEY;
   const s = String(p).replace(/[/\\]+$/, '');
   const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));

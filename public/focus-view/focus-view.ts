@@ -2,10 +2,8 @@ import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { el, query } from '../dom-helpers.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
-import { paintProjectHeaderCoherence } from '../project-header.ts';
-import { attachProjectActionsMenu } from '../project-actions-menu.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
-import { getRestorableSessionId, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession } from '../session-actions.ts';
+import { getRestorableSessionId, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession } from '../session-actions.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { addActivityRenderer, pulseActivityGlyph } from '../session-card/activity.ts';
@@ -51,8 +49,6 @@ const unseenCompleteTracker = createUnseenCompleteTracker();
 
 const groupListById = new Map<string, GroupList>();
 const groupHeaderById = new Map<string, GroupHeader>();
-const RAIL_HEAD_CHILD_COUNT = 1;
-let railGroupOrderKey = '';
 
 let railTabStopId: string | null = null;
 
@@ -89,7 +85,7 @@ function ensureGroup(group: RosterGroup<RosterRow>) {
       + '<span class="focus-rail-group-rule" aria-hidden="true"></span>';
     const add = row._addBtn;
     add.type = 'button';
-    const actionsMenu = attachProjectActionsMenu(add, () => ({ path: row.dataset.path ?? '', label: row.dataset.label ?? '' }));
+    add.addEventListener('click', () => quickAddSession(row.dataset.path, row.dataset.label));
 
     const forget = row._forgetBtn;
     forget.type = 'button';
@@ -99,7 +95,6 @@ function ensureGroup(group: RosterGroup<RosterRow>) {
     });
     row.appendChild(forget);
     row.appendChild(add);
-    row.appendChild(actionsMenu);
     header = row;
     list = el('div', 'focus-rail-list');
     list.setAttribute('role', 'listbox');
@@ -115,8 +110,8 @@ function ensureGroup(group: RosterGroup<RosterRow>) {
   const empty = group.rows.length === 0;
   header._addBtn.hidden = noPath;
   if (!noPath) {
-    header._addBtn.title = `${group.label} actions`;
-    header._addBtn.setAttribute('aria-label', `${group.label} actions`);
+    header._addBtn.title = `Add a session to ${group.label}`;
+    header._addBtn.setAttribute('aria-label', `Add a session to ${group.label}`);
   }
   header._forgetBtn.hidden = noPath || !empty;
   if (!noPath && empty) {
@@ -124,7 +119,6 @@ function ensureGroup(group: RosterGroup<RosterRow>) {
     header._forgetBtn.setAttribute('aria-label', `Remove ${group.label} from the rail`);
   }
   header.toggleAttribute('data-empty', empty);
-  paintProjectHeaderCoherence(header, group.key);
   list.setAttribute('aria-label', `${group.label} sessions`);
   return { header, list };
 }
@@ -284,15 +278,12 @@ export function refreshFocusRoster() {
   };
 
   const presentKeys = new Set(groups.order);
-  const newRailGroupOrderKey = groups.groups.map((group) => group.key).join(',');
-  const railGroupOrderUnchanged = railGroupOrderKey === newRailGroupOrderKey
-    && mountedRail.childElementCount === RAIL_HEAD_CHILD_COUNT + groups.groups.length * 2;
   for (const group of groups.groups) {
     const { header, list } = ensureGroup(group);
-    if (!railGroupOrderUnchanged) mountedRail.append(header, list);
+    mountedRail.appendChild(header);
+    mountedRail.appendChild(list);
     placeList(group.rows, list);
   }
-  railGroupOrderKey = newRailGroupOrderKey;
 
   for (const [key, header] of [...groupHeaderById]) {
     if (!presentKeys.has(key)) {
