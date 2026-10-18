@@ -79,6 +79,15 @@ export function buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hook
   } satisfies SessionSpawnOverrides;
 }
 
+const COHERENCE_DECIDE_ALLOW_RULE = 'Bash(coherence decide:*)';
+
+export function buildCoherenceJournalLaneOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir, laneCwd }: {
+  claudeSessionId: string; nodePath: string; hookCliPath: string; shimDir: string; laneCwd: string;
+}) {
+  const sessionOverrides = buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir });
+  return { ...sessionOverrides, spawnEnv: { ...sessionOverrides.spawnEnv, COHERENCE_PROJECT_ROOT: laneCwd }, allowRules: [COHERENCE_DECIDE_ALLOW_RULE] };
+}
+
 export function buildCoherenceShims({ nodePath, cliPath, glimmervoidCliPath }: { nodePath: string; cliPath: string; glimmervoidCliPath?: string }) {
   const commandPrefix = `${quoteCommandPath(nodePath)} ${quoteCommandPath(cliPath)}`;
   const glimmervoidCommand = glimmervoidCliPath ? `${quoteCommandPath(nodePath)} ${quoteCommandPath(glimmervoidCliPath)}` : null;

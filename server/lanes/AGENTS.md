@@ -16,6 +16,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 ### Ephemeral Lane Write Boundaries
 
 - THE boundary is `defaultMode: acceptEdits` plus a throwaway cwd holding only the result file. Four plausible spellings fail SILENTLY, so every clause below comes from live probes recorded in `server/lanes/core/lane-permissions-core.ts`.
+- Factory lanes journal only inside their throwaway cwd; the host copies their own validated journal files into the ledger.
 - No lane may grant a bare `Write` allow, which unbounds the writes, and nothing narrower grants the tool.
 - A PATH DENY is not a write boundary: probed with a bare `Write` allow present, both spellings let the write through, and a rule that looks like a boundary and is not is worse than none.
 - No lane may deny bare `Read`, `Write`, `Glob` or `Grep`: a bare `Read` deny refuses the Write tool, mutually exclusive with a result-file contract.

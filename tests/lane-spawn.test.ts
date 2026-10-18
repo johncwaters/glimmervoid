@@ -6,6 +6,7 @@ import test from 'node:test';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../server/lanes/core/lane-permissions-core.ts';
 import { LANE_CREDENTIAL_ENV } from '../server/guardrails/core/guardrails-roles-core.ts';
 import { createLaneSpawn } from '../server/lanes/lane-spawn.ts';
+import type { LaneCoherenceJournal } from '../server/lanes/lane-spawn.ts';
 import { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS } from '../server/factory/factory-closeout.ts';
 import { THREAD_JUDGE_TOOLS } from '../server/github/team-review-thread-judge.ts';
 import { Session } from '../session/sessions.ts';
@@ -126,24 +127,32 @@ test('a failed standalone settings write removes its directory without construct
 });
 
 
-test('factory reviewer spawns wrapped in the judge guardrails role with its prompt file readable, structured output and a selectable model', async () => {
-  for (const hasHookRouter of [true, false]) {
+test('factory reviewer spawns wrapped in the judge guardrails role with its prompt file readable, structured output, a selectable model and an optional Coherence journal', async () => {
+  const coherenceCli = { nodePath: '/usr/bin/node', cliPath: '/opt/coherence/dist/cli.js', hookCliPath: '/opt/coherence/dist/hook-cli.js' };
+  const coherenceHookCommands = ['SubagentStart', 'SessionStart', 'SubagentStop', 'Stop', 'PostToolUse'].map((event) => `"/usr/bin/node" "/opt/coherence/dist/hook-cli.js" ${event}`);
+  for (const [hasHookRouter, hasJournal] of [[true, false], [false, false], [true, true], [false, true]]) {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'factory-review-spawn-'));
     const captured: SessionOptions[] = [];
     const createdSessions: Session[] = [];
     const chunks: string[] = [];
     const preparedRoles: GuardrailsRole[] = [];
+    const standaloneSettings: unknown[] = [];
+    const shimFileNames: string[][] = [];
+    const landedJournals: LaneCoherenceJournal[] = [];
     const promptFile = path.join(path.dirname(cwd), 'prompt.txt');
     try {
       const spawnReviewer = createLaneSpawn({
         prepareGuardrails: async ({ role }) => { preparedRoles.push(role); return { ok: false, reason: 'synthetic' }; },
         laneName: 'factory', platform: 'linux', getHookPort: () => 3911, allowTools: FACTORY_REVIEWER_TOOLS, settingsPermissions: FACTORY_REVIEWER_PERMISSIONS, spawnEnv: FACTORY_REVIEWER_SPAWN_ENV,
-        hookRouter: hasHookRouter ? { register: () => {}, unregister: () => {} } : null,
+        hookRouter: hasHookRouter ? { register: () => {}, unregister: () => {} } : null, coherenceCli,
         createSession: (options) => {
           captured.push(options);
           const session = new Session(options);
           createdSessions.push(session);
           session.start = async () => {
+            const args = options.extraClaudeArgs ?? [];
+            if (args.includes('--settings')) standaloneSettings.push(JSON.parse(await fs.readFile(args[args.indexOf('--settings') + 1], 'utf8')));
+            for (const shimDir of options.prependPathDirs ?? []) shimFileNames.push((await fs.readdir(shimDir)).sort());
             session.emit('data', '{"type":"result"}');
             session.emit('exit');
           };
@@ -152,18 +161,34 @@ test('factory reviewer spawns wrapped in the judge guardrails role with its prom
       });
       await spawnReviewer({ id: 'factory-review', name: 'Factory review', cwd, model: 'sonnet',
         prompt: 'Review the assigned factory ticket and return its structured verdict.',
+        landCoherenceJournal: hasJournal ? async (laneJournal) => { landedJournals.push(laneJournal); } : null,
         extraArgs: ['--output-format', 'json', '--permission-mode', 'dontAsk'], readablePaths: [promptFile], onOutput: (chunk) => { chunks.push(chunk); } });
       const options = captured[0];
+      const args = options.extraClaudeArgs ?? [];
+      const claudeSessionId = hasJournal ? args[args.indexOf('--session-id') + 1] : null;
+      const shimDirs = options.prependPathDirs ?? [];
+      const journalEnv = hasJournal ? { COHERENCE_PROJECT_ROOT: cwd, COHERENCE_HOOK_HOST: 'claude' } : {};
+      assert.equal(args.includes('--session-id'), hasJournal);
+      if (claudeSessionId !== null) assert.match(claudeSessionId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      assert.deepEqual(landedJournals, hasJournal ? [{ cwd, claudeSessionId }] : []);
+      assert.equal(shimDirs.length, hasJournal ? 1 : 0);
+      assert.equal(shimDirs.some((shimDir) => shimDir.startsWith(cwd)), false);
+      assert.deepEqual(shimFileNames, hasJournal ? [['coherence', 'coherence.cmd']] : []);
+      for (const shimDir of shimDirs) await assert.rejects(fs.stat(shimDir), { code: 'ENOENT' });
+      const laneHookCommands = hasHookRouter
+        ? (options.extraUserHooks ?? []).map((hook) => hook.command)
+        : Object.values((standaloneSettings[0] as { hooks?: Record<string, { hooks: { command: string }[] }[]> }).hooks ?? {}).flat().flatMap((entry) => entry.hooks.map((handler) => handler.command));
+      assert.deepEqual(coherenceHookCommands.filter((command) => laneHookCommands.includes(command)), hasJournal ? coherenceHookCommands : []);
+      if (!hasHookRouter) assert.deepEqual(Object.keys(standaloneSettings[0] as object), hasJournal ? ['permissions', 'hooks'] : ['permissions']);
       assert.equal(options.path, cwd);
       assert.equal(options.dangerouslySkipPermissions, false);
       assert.equal(options.ephemeral, true);
       assert.equal(options.agent, 'claude-code');
       assert.equal(toolsArgument(options), 'Read,Glob,Grep,Bash');
       assert.deepEqual(options.settingsPermissions, {
-        defaultMode: 'dontAsk', allow: ['Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)'],
+        defaultMode: 'dontAsk', allow: ['Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)', ...(hasJournal ? ['Bash(coherence decide:*)'] : [])],
         deny: ['Edit', 'Write', 'NotebookEdit', ...LANE_CONFIG_EDIT_DENY_RULES],
       });
-      const args = options.extraClaudeArgs ?? [];
       assert.equal(args.includes('-p'), true);
       assert.equal(args[args.indexOf('--model') + 1], 'sonnet');
       assert.equal(args[args.indexOf('--output-format') + 1], 'json');
@@ -172,12 +197,12 @@ test('factory reviewer spawns wrapped in the judge guardrails role with its prom
       assert.equal(args.includes('--disable-slash-commands'), true);
       assert.equal(args[args.indexOf('--setting-sources') + 1], 'project,local');
       assert.deepEqual(chunks, ['{"type":"result"}']);
-      assert.deepEqual(options.spawnEnv, { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '0', ...LANE_CREDENTIAL_ENV });
+      assert.deepEqual(options.spawnEnv, { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '0', ...journalEnv, ...LANE_CREDENTIAL_ENV });
       assert.equal(options.settingsGuardrails ?? null, null);
       await options.prepareGuardrails?.({ launchId: 'launch-one', cwd, hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: 'agent-session-one' });
       assert.deepEqual(preparedRoles, [{
         vendors: ['claude'], vendorHome: { scope: 'launch', cwd, agentSessionId: 'agent-session-one' }, network: { access: 'allowlist', domains: [], hookPort: 3911 },
-        writableRoots: [cwd], lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: ['/hook/settings', promptFile],
+        writableRoots: [cwd], lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: ['/hook/settings', promptFile, ...shimDirs],
       }]);
       if (hasHookRouter) {
         assert.equal(options.getHookTools, null);

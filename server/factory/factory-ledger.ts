@@ -1,11 +1,12 @@
 import { constants } from 'node:fs';
-import { mkdir, open, readFile, rm } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { isMissingFileError } from '../../shared/text.ts';
+import { errorCode, isMissingFileError } from '../../shared/text.ts';
 import { runHardenedGit } from '../git/git-workspace.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { FACTORY_INTEGRATION_MOVED_OUTSIDE, appendedLedgerLines, factoryRecordIdOf, findForbiddenLedgerWrites, isFactoryLedgerLineOfWrite } from './core/factory-core.ts';
 import type { FactoryDeclaredRecord, FactoryLedgerChange } from './core/factory-core.ts';
+import { FACTORY_WORKER_JOURNAL_MAX_BYTES, isJournalProjectionTrusted, isValidWorkerJournal, listWorkerJournalPaths } from './core/factory-journal-core.ts';
 import type { FactoryUnlandedRecord } from '../../shared/contracts/factory.ts';
 import { nulSeparatedPaths } from '../git/core/git-changed-paths-core.ts';
 import type { GitWorkspaceInstance } from '../git/git-workspace.ts';
@@ -136,6 +137,65 @@ export async function screenPendingLedgerWrites({ cwd, intentId, declaredFactory
   if (forbiddenWrites.length === 0) return;
   await discardPendingLedgerWrites(cwd, declaredFactoryRecords);
   onRefused(`Factory discarded pending orchestrator ledger writes: ${forbiddenWrites.join('; ')}`);
+}
+
+type LaneJournalRead = { outcome: 'absent' } | { outcome: 'rejected'; reason: string } | { outcome: 'valid'; bytes: Buffer };
+
+async function readLaneJournalFile(realLaneCwd: string, journalPath: string, claudeSessionId: string): Promise<LaneJournalRead> {
+  const sourcePath = path.join(realLaneCwd, journalPath);
+  const sourceStats = await lstat(sourcePath).catch((error: unknown) => {
+    if (isMissingFileError(error)) return null;
+    throw error;
+  });
+  if (sourceStats === null) return { outcome: 'absent' };
+  if (!sourceStats.isFile()) return { outcome: 'rejected', reason: 'it is not a regular file' };
+  if (await realpath(sourcePath) !== sourcePath) return { outcome: 'rejected', reason: 'it resolves outside the lane folder' };
+  if (sourceStats.size > FACTORY_WORKER_JOURNAL_MAX_BYTES) return { outcome: 'rejected', reason: 'it is over 1 MiB' };
+  const journalFile = await open(sourcePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const bytes = await journalFile.readFile().finally(() => journalFile.close());
+  if (!isValidWorkerJournal({ relativePath: journalPath, bytes, claudeSessionId })) return { outcome: 'rejected', reason: "it is not a canonical JSONL journal of the lane's own session" };
+  return { outcome: 'valid', bytes };
+}
+
+async function writeNewLedgerJournal(realLedgerCwd: string, journalPath: string, bytes: Buffer): Promise<string | null> {
+  const destinationPath = path.join(realLedgerCwd, journalPath);
+  await mkdir(path.dirname(destinationPath), { recursive: true });
+  if (await realpath(path.dirname(destinationPath)) !== path.dirname(destinationPath)) return 'its ledger folder resolves elsewhere';
+  try {
+    await writeFile(destinationPath, bytes, { flag: 'wx' });
+    return null;
+  } catch (error) {
+    if (errorCode(error) === 'EEXIST') return 'it already exists in the ledger';
+    throw error;
+  }
+}
+
+export async function copyLaneJournalIntoLedger({ laneCwd, claudeSessionId, ledgerCwd, runCoherence, onRejected, onUntrusted }: {
+  laneCwd: string; claudeSessionId: string; ledgerCwd: string; runCoherence: (request: { cwd: string; args: string[] }) => Promise<string>;
+  onRejected: (journalPath: string, reason: string) => void; onUntrusted: (journalPaths: readonly string[]) => void;
+}): Promise<void> {
+  const realLaneCwd = await realpath(laneCwd);
+  const realLedgerCwd = await realpath(ledgerCwd);
+  const copiedJournalPaths: string[] = [];
+  for (const journalPath of listWorkerJournalPaths(claudeSessionId)) {
+    const laneJournal = await readLaneJournalFile(realLaneCwd, journalPath, claudeSessionId);
+    if (laneJournal.outcome === 'absent') continue;
+    if (laneJournal.outcome === 'rejected') {
+      onRejected(journalPath, laneJournal.reason);
+      continue;
+    }
+    const writeRefusal = await writeNewLedgerJournal(realLedgerCwd, journalPath, laneJournal.bytes);
+    if (writeRefusal !== null) {
+      onRejected(journalPath, writeRefusal);
+      continue;
+    }
+    copiedJournalPaths.push(journalPath);
+  }
+  if (copiedJournalPaths.length === 0) return;
+  const orientOutput = await runCoherence({ cwd: realLedgerCwd, args: ['orient', '--json'] }).catch(() => null);
+  if (isJournalProjectionTrusted(orientOutput)) return;
+  await Promise.all(copiedJournalPaths.map((journalPath) => rm(path.join(realLedgerCwd, journalPath), { force: true })));
+  onUntrusted(copiedJournalPaths);
 }
 
 async function pushIntegrationToOrigin(projectPath: string, targetBranch: string): Promise<void> {

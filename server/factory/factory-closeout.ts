@@ -26,7 +26,8 @@ import type { GitWorkspaceInstance } from '../git/git-workspace.ts';
 import { readLaneResultFile } from '../lanes/lane-spawn.ts';
 import { writeJsonAtomic, writeTextAtomic } from '../json-file.ts';
 import { z } from 'zod';
-import type { LaneSpawn } from '../lanes/lane-spawn.ts';
+import type { LaneCoherenceJournal, LaneSpawn } from '../lanes/lane-spawn.ts';
+import { copyLaneJournalIntoLedger } from './factory-ledger.ts';
 import type { SerialQueue } from '../spawn-gate.ts';
 
 export const FACTORY_REVIEWER_TOOLS = Object.freeze(['Read', 'Glob', 'Grep', 'Bash']);
@@ -137,11 +138,11 @@ function closeOutFailureText(decision: ReturnType<typeof decideCloseOut>): strin
 type FactoryStructuredAgentOptions<Value> = {
   spawnReviewer: LaneSpawn; model: string | null; signal: AbortSignal;
   buildPrompt: (resultPath: string) => string; name: string; extraArgs?: string[]; readablePaths?: string[];
-  schema: z.ZodType<Value>; prompt?: string;
+  landCoherenceJournal?: ((laneJournal: LaneCoherenceJournal) => Promise<void>) | null; schema: z.ZodType<Value>; prompt?: string;
   failureMessages?: { missingOutput: (output: string) => string; invalidFile: string };
 };
 
-export async function runFactoryStructuredAgent<Value>({ spawnReviewer, model, signal, buildPrompt, name, extraArgs = [], readablePaths = [], schema,
+export async function runFactoryStructuredAgent<Value>({ spawnReviewer, model, signal, buildPrompt, name, extraArgs = [], readablePaths = [], landCoherenceJournal = null, schema,
   prompt = 'Read the assigned factory task and return its structured output.',
   failureMessages = { missingOutput: (output) => `Agent returned no structured output. Output tail: ${reviewerOutputTail(output) || '(empty)'}`, invalidFile: 'Agent result file is missing or invalid' },
 }: FactoryStructuredAgentOptions<Value>): Promise<{ ok: true; value: Value } | { ok: false; reason: string }> {
@@ -157,7 +158,7 @@ export async function runFactoryStructuredAgent<Value>({ spawnReviewer, model, s
     await spawnReviewer({
       id: `factory-review-${crypto.randomUUID()}`, name, cwd: reviewerCwd,
       prompt, agent: 'claude-code',
-      model, signal, readablePaths: [promptPath, ...readablePaths],
+      model, signal, readablePaths: [promptPath, ...readablePaths], landCoherenceJournal,
       extraArgs: [...extraArgs, '--append-system-prompt-file', promptPath, '--output-format', 'json', '--json-schema', JSON.stringify(z.toJSONSchema(schema, { target: 'draft-7' })), '--permission-mode', 'dontAsk'],
       onOutput: (chunk) => {
         if (reviewerOutput.length + chunk.length > 16 * 1024 * 1024) { hasOutputOverflow = true; return; }
@@ -174,6 +175,21 @@ export async function runFactoryStructuredAgent<Value>({ spawnReviewer, model, s
     return { ok: false, reason: failureText(error) };
   } finally {
     await rm(reviewDirectory, { recursive: true, force: true });
+  }
+}
+
+export async function landFactoryLaneJournal({ serializeProject, ensureLedger, runCoherence, log, projectId, projectPath, laneName, laneJournal }: Pick<FactoryCloseOutDeps, 'serializeProject' | 'ensureLedger' | 'runCoherence'> & {
+  log: Pick<Console, 'warn'>; projectId: string; projectPath: string; laneName: string; laneJournal: LaneCoherenceJournal;
+}): Promise<void> {
+  try {
+    await serializeProject(projectId, async () => {
+      const ledger = await ensureLedger(projectId, projectPath);
+      await copyLaneJournalIntoLedger({ laneCwd: laneJournal.cwd, claudeSessionId: laneJournal.claudeSessionId, ledgerCwd: ledger.cwd, runCoherence,
+        onRejected: (journalPath, reason) => log.warn(`[factory] discarding ${laneName} journal ${journalPath}: ${reason}`),
+        onUntrusted: (journalPaths) => log.warn(`[factory] discarding ${laneName} journals ${journalPaths.join(', ')}: coherence orient did not read them as an undamaged trusted projection`) });
+    });
+  } catch (error) {
+    log.warn(`[factory] could not copy the ${laneName} journal into the ledger: ${failureText(error)}`);
   }
 }
 
@@ -539,7 +555,7 @@ export function createFactoryCloseOut({
       checkoutSecretValues = captured.checkoutSecretValues;
       const shouldReview = fence.ok && checks.every((check) => check.pass);
       verdict = shouldReview ? await runFactoryReview({ spawnReviewer, model: config.factory?.reviewerModel ?? null, signal: reviewController.signal,
-        name: `Factory review ${worker.workId}`, buildPrompt: (resultPath) => buildFactoryReviewerPrompt({ ...worker, baseSha }, headSha, resultPath, reviewDiff) }) : null;
+        landCoherenceJournal: (laneJournal) => landFactoryLaneJournal({ serializeProject, ensureLedger, runCoherence, log, projectId: worker.projectId, projectPath: worker.projectPath, laneName: `review ${worker.workId}`, laneJournal }), name: `Factory review ${worker.workId}`, buildPrompt: (resultPath) => buildFactoryReviewerPrompt({ ...worker, baseSha }, headSha, resultPath, reviewDiff) }) : null;
       if (!isLive(worker)) return;
       attemptFailureClass = factoryCloseOutFailureClass(fence, checks, verdict);
       const outsideScopes = { failingFilesOutsideScopes, previousFailingFilesOutsideScopes: failingFilesOutsideScopesByWork.get(worker.workId) ?? [],

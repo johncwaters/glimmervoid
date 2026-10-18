@@ -67,6 +67,7 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
   let shouldWriteVerdictFileOnly = false;
   let verdict: unknown = { pass: true, findings: [] };
   let reviewBarrier: (() => Promise<void>) | null = null;
+  let writeReviewerJournal: ((laneCwd: string) => Promise<readonly string[]>) | null = null;
   let mergeReason: string | null = null;
   let mergedSha: string | null = null;
   let workerBaseSha = workspace.baseSha;
@@ -115,6 +116,9 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
       assert.ok(promptFile);
       reviewRequests.push({ ...request, prompt: await readFile(promptFile, 'utf8') });
       reviewerCwdEntries.push(await readdir(request.cwd));
+      if (writeReviewerJournal && request.landCoherenceJournal) {
+        for (const claudeSessionId of await writeReviewerJournal(request.cwd)) await request.landCoherenceJournal({ cwd: request.cwd, claudeSessionId });
+      }
       await reviewBarrier?.();
       if (verdict === null) return;
       if (shouldWriteVerdictFileOnly) {
@@ -141,14 +145,29 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
     setVerdictFileOnly: (nextVerdict: unknown) => { verdict = nextVerdict; shouldWriteVerdictFileOnly = true; },
     setVerdict: (nextVerdict: unknown) => { verdict = nextVerdict; },
     setReviewBarrier: (barrier: () => Promise<void>) => { reviewBarrier = barrier; },
+    setReviewerJournal: (writer: (laneCwd: string) => Promise<readonly string[]>) => { writeReviewerJournal = writer; },
     setMergeReason: (reason: string) => { mergeReason = reason; },
     setCheckRunner: (nextPrepareCheckRunner: PrepareFactoryCheckRunner) => { prepareCheckRunner = nextPrepareCheckRunner; },
   };
 }
 
-test('passing factory worker merges and pushes, closes with merge-tip evidence, and files a trusted merge verification', async (context) => {
+test('passing factory worker merges and pushes, closes with merge-tip evidence, files a trusted merge verification, and lands only the reviewer lane its own journal', async (context) => {
   const fixture = await createFixture(context);
+  const reviewerSessionId = crypto.randomUUID();
+  const reviewerDecisionsPath = `.coherence/decisions/${reviewerSessionId}.jsonl`;
+  const damagingReviewerSessionId = crypto.randomUUID();
+  fixture.setReviewerJournal(async (laneCwd) => {
+    await fixture.runCoherence({ cwd: laneCwd, args: ['decide', 'retries reviewed', '--because', 'diff read', '--session', reviewerSessionId] });
+    await mkdir(path.join(laneCwd, '.coherence/decisions/leak'), { recursive: true });
+    await mkdir(path.join(laneCwd, '.coherence/work'), { recursive: true });
+    await writeFile(path.join(laneCwd, `.coherence/decisions/${crypto.randomUUID()}.jsonl`), `${JSON.stringify({ id: 'd-0000abcd', session: 'operator', at: new Date().toISOString(), kind: 'session' })}\n`);
+    await writeFile(path.join(laneCwd, '.coherence/decisions/leak/id_rsa'), '-----BEGIN OPENSSH PRIVATE KEY-----\nx\n');
+    await writeFile(path.join(laneCwd, '.coherence/work/forged.jsonl'), `${JSON.stringify({ event: 'opened', parent: fixture.worker.intentId })}\n`);
+    await writeFile(path.join(laneCwd, `.coherence/decisions/${damagingReviewerSessionId}.jsonl`), `${JSON.stringify({ id: 'd-00000000', session: damagingReviewerSessionId, at: 'x', kind: 'decision' })}\n`);
+    return [reviewerSessionId, damagingReviewerSessionId];
+  });
   await fixture.commitChange();
+  const ledgerPathsBefore = (await fixture.git(['ls-tree', '-r', '--name-only', 'origin/integration', '--', '.coherence'])).split('\n');
   const previousOrigin = await fixture.git(['rev-parse', 'origin/integration']);
   await fixture.closeOut.turnEnded(fixture.worker);
   assert.deepEqual(fixture.feedback, []);
@@ -180,6 +199,11 @@ test('passing factory worker merges and pushes, closes with merge-tip evidence, 
   assert.ok(fixture.reviewRequests[0].prompt.includes(fixture.worker.baseSha ?? 'missing'));
   assert.ok(fixture.reviewRequests[0].prompt.includes('Retries pass'));
   assert.equal(await readFile(path.join(fixture.worker.projectPath, 'src/retry.ts'), 'utf8'), 'export const retries = 1;\n');
+  const landedLanePaths = (await fixture.git(['ls-tree', '-r', '--name-only', 'origin/integration', '--', '.coherence'])).split('\n')
+    .filter((ledgerPath) => !ledgerPathsBefore.includes(ledgerPath) && !ledgerPath.startsWith('.coherence/work/') && !ledgerPath.startsWith('.coherence/consequences/'));
+  assert.deepEqual(landedLanePaths, [reviewerDecisionsPath]);
+  assert.match(await fixture.git(['show', `origin/integration:${reviewerDecisionsPath}`]), /retries reviewed/);
+  assert.equal(await fixture.git(['ls-tree', '-r', '--name-only', 'origin/integration', '--', '.coherence/work/forged.jsonl']), '');
 });
 
 test('a check run held for memory waits without failing or charging the ticket, and merges once admitted', async (context) => {

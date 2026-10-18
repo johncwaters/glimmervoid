@@ -26,6 +26,7 @@ import { createIngestLane } from '../ingest/ingest-wiring.ts';
 import { createChangeNarrator } from '../change-map/change-narrator.ts';
 import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-refiner.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
+import { createCoherenceRuntime } from '../coherence/coherence-runtime.ts';
 import { createPlanReviewWiring } from '../plan-review-wiring.ts';
 import { createRadarWiring } from '../radar/radar-wiring.ts';
 import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
@@ -152,6 +153,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     countRunningSessions: () => allLiveSessions().filter((session) => session.state === STATES.RUNNING).length,
     log: logger,
   });
+  const factoryCoherenceRuntime = createCoherenceRuntime();
   const factoryHarnessMirror = createFactoryHarnessMirror({ runsDirectory: factoryHarnessRunsDirectory(process.env, os.homedir()) });
   const factory = createFactoryWiring({
     config, gitWorkspace, broadcast: broadcastControl, log: logger, telemetry, checkRunGate,
@@ -174,6 +176,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       sessions: agentSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
       replayBufferKB: config.replayBufferKB, laneName: 'factory', allowTools: FACTORY_REVIEWER_TOOLS,
       settingsPermissions: FACTORY_REVIEWER_PERMISSIONS, spawnEnv: FACTORY_REVIEWER_SPAWN_ENV, guardrailsRefusal,
+      coherenceCli: factoryCoherenceRuntime.cliPath && factoryCoherenceRuntime.hookCliPath
+        ? { nodePath: process.execPath, cliPath: factoryCoherenceRuntime.cliPath, hookCliPath: factoryCoherenceRuntime.hookCliPath } : null,
     }),
     trustClaudeFolder: createClaudeFolderTrust().ensureTrusted,
     orchestratorOptions: {

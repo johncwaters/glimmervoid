@@ -4,9 +4,9 @@ import { errorMessage } from '../../shared/text.ts';
 import { FactoryConsequences } from '../../shared/contracts/factory.ts';
 import type { FactoryLaneState, FactoryProjectState, FactoryUnlandedRecord, FactoryWorkerEvent } from '../../shared/contracts/factory.ts';
 import { FACTORY_LEDGER_SESSION, buildVerifierPrompt, decideIntentClose, evidenceNamesOnlySha, factoryWrittenRecordId, findFactoryProjectPath, verifierDefectEvidence, verifierRejectionNote } from './core/factory-core.ts';
-import { runFactoryReview } from './factory-closeout.ts';
+import { landFactoryLaneJournal, runFactoryReview } from './factory-closeout.ts';
 import { captureFactoryLedgerRecord, listRecordsMissingFromHead } from './factory-ledger.ts';
-import type { LaneSpawn } from '../lanes/lane-spawn.ts';
+import type { LaneCoherenceJournal, LaneSpawn } from '../lanes/lane-spawn.ts';
 
 interface FactoryVerifierDeps {
   config: Pick<Config, 'factory' | 'projects'>;
@@ -25,10 +25,11 @@ interface FactoryVerifierDeps {
   notifyOrchestrator: (projectId: string, event: FactoryWorkerEvent) => void;
   stopOrchestrator: (projectId: string) => void;
   onChanged: () => void;
+  log?: Pick<Console, 'warn'>;
 }
 
 export function createFactoryVerifier({ config, spawnVerifier, serializeProject, ensureLedger, ensureControlCheckout,
-  hasCodeChangedSince, readIntentDiff = async () => null, readLaneState, writeLaneState, runCoherence, commitAndLand, pause, setException, notifyOrchestrator, stopOrchestrator, onChanged }: FactoryVerifierDeps) {
+  hasCodeChangedSince, readIntentDiff = async () => null, readLaneState, writeLaneState, runCoherence, commitAndLand, pause, setException, notifyOrchestrator, stopOrchestrator, onChanged, log = console }: FactoryVerifierDeps) {
   const readyByProject = new Map<string, string>();
   const notesByProject = new Map<string, string>();
   const checkedIntents = new Set<string>();
@@ -116,7 +117,9 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
     const verificationId = verifierLinkId(intent.id);
     const cwd = await ensureControlCheckout({ projectId: project.projectId, projectPath, sha: tipSha });
     const intentDiff = await readIntentDiff({ projectId: project.projectId, projectPath, intentId: intent.id, tipSha });
-    const verdict = await runFactoryReview({ spawnReviewer: spawnVerifier, model: config.factory?.verifierModel ?? null,
+    const landCoherenceJournal = (laneJournal: LaneCoherenceJournal) => landFactoryLaneJournal({ serializeProject, ensureLedger, runCoherence, log,
+      projectId: project.projectId, projectPath, laneName: `verifier ${intent.id}`, laneJournal });
+    const verdict = await runFactoryReview({ spawnReviewer: spawnVerifier, model: config.factory?.verifierModel ?? null, landCoherenceJournal,
       signal: controller.signal, name: `Factory verifier ${intent.id}`, extraArgs: ['--add-dir', cwd], readablePaths: [cwd],
       buildPrompt: () => buildVerifierPrompt({ projectName: project.projectName, intent, children, tipSha, checkoutPath: cwd, intentDiff }) });
     if (!isEnabled()) return;
