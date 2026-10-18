@@ -15,9 +15,9 @@ export function paintProjectHeaderCoherence(header: HTMLElement, projectPath: st
   if (!projectCoherencePainter) return;
   let slot = header.querySelector<HTMLElement>('.project-coherence-slot');
   if (!slot) {
-    slot = el('div', 'project-coherence-slot');
+    slot = el('span', 'project-coherence-slot');
     slot.append(projectCoherencePainter.build());
-    header.append(slot);
+    header.firstElementChild?.after(slot);
   }
   projectCoherencePainter.paint(slot, projectPath);
   slot.hidden = slot.firstElementChild instanceof HTMLElement && slot.firstElementChild.hidden;

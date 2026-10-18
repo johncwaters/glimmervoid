@@ -1,6 +1,7 @@
 import type { ProjectCoherenceTrend } from '#shared/contracts/coherence.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { el } from '../dom-helpers.ts';
+import type { ProjectAction } from '../project-actions-menu.ts';
 import { buildProjectCoherenceCheckAction } from './check-action.ts';
 import { openCoherencePanelShell } from './coherence-panel-shell.ts';
 import { coherenceTrendDirectionLabel, coherenceTrendPanelRows } from './trend-core.ts';
@@ -33,31 +34,28 @@ export function applyProjectCoherenceTrendSnapshot(message: ServerMessageOf<'pro
   paintOpenPanel();
 }
 
-export function buildProjectCoherenceChip(projectId?: string): HTMLElement {
+export function buildProjectCoherenceChip(projectId: string): HTMLElement {
+  const reading = trendsByProjectId.get(projectId);
   const chip = el('div', 'coherence-trend-chip');
+  chip.hidden = !reading;
   const button = el('button', 'coherence-journal-button', 'Coherence');
   button.type = 'button';
   button.setAttribute('aria-haspopup', 'dialog');
-  button.addEventListener('click', () => {
-    if (chip.dataset.projectId) openCoherenceTrendPanel(chip.dataset.projectId);
-  });
-  chip.append(button, el('span', 'coherence-trend-direction'));
-  paintProjectCoherenceChip(chip, projectId);
+  button.addEventListener('click', () => openCoherenceTrendPanel(projectId));
+  chip.append(button, el('span', 'coherence-trend-direction', reading ? coherenceTrendDirectionLabel(reading.trend) : ''));
   return chip;
 }
 
-function paintProjectCoherenceChip(chip: HTMLElement, projectId?: string) {
+export function projectTrendAction(projectPath: string): ProjectAction | null {
+  const projectId = [...pathsByProjectId].find(([candidateId, path]) => path === projectPath && trendsByProjectId.has(candidateId))?.[0];
   const reading = projectId ? trendsByProjectId.get(projectId) : undefined;
-  chip.hidden = !reading;
-  chip.dataset.projectId = projectId ?? '';
-  const direction = chip.querySelector('.coherence-trend-direction');
-  if (direction) direction.textContent = reading ? coherenceTrendDirectionLabel(reading.trend) : '';
-}
-
-export function paintProjectHeaderCoherenceChip(slot: HTMLElement, projectPath: string) {
-  const projectId = [...pathsByProjectId].find(([projectId, path]) => path === projectPath && trendsByProjectId.has(projectId))?.[0];
-  const chip = slot.querySelector<HTMLElement>('.coherence-trend-chip');
-  if (chip) paintProjectCoherenceChip(chip, projectId);
+  if (!projectId || !reading) return null;
+  return {
+    label: 'Coherence trend',
+    hint: `Currently ${coherenceTrendDirectionLabel(reading.trend)}`,
+    className: 'project-action-coherence-trend',
+    run: () => openCoherenceTrendPanel(projectId),
+  };
 }
 
 export function findCoherenceTrendProjectId(projectPath: string): string | undefined {
