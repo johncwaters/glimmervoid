@@ -11,6 +11,7 @@ import { decideConfigPath } from './core/config-path-core.ts';
 import { decideBindHost } from './core/remote-config.ts';
 import { FIRST_RUN_NOTICE } from './core/telemetry-core.ts';
 import { buildTitleClearSequence, buildTitleSequence } from './core/terminal-title.ts';
+import { sweepOrphanedHostScratch } from './host-scratch.ts';
 import { createHostUrlOpener } from './host-url-opener.ts';
 import { createLifecycle } from './server-lifecycle.ts';
 
@@ -106,6 +107,9 @@ server.on('error', (err) => {
 server.listen(port, bind.host, () => {
   const boundPort = listeningPort(server, port);
   void printStartupBanner(boundPort);
+  sweepOrphanedHostScratch().catch((error: unknown) => {
+    console.warn(`Leftover scratch sweep failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
   telemetry.capture('app_started', {});
   writeTerminalTitle(buildTitleSequence(`glimmervoid :${boundPort}`));
   if (bind.reason === 'insecure-bind') {
