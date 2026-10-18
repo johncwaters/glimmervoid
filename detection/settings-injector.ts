@@ -110,27 +110,34 @@ function toForwardSlashes(value: string): string {
   return String(value).replace(/\\/g, '/');
 }
 
-function readUserStatuslineCommand(settingsPath: string): string | null {
-  return loadedJsonValue(loadJsonStateFileSync({
-    filePath: settingsPath,
-    quarantine: false,
-    parse(parsed) {
-      if (!isRecord(parsed) || !isRecord(parsed.statusLine)) return null;
-      if (parsed.statusLine.type !== 'command') return null;
-      return textOr(parsed.statusLine.command, null);
-    },
-  }));
+interface OperatorClaudeSettings {
+  statuslineCommand: string | null;
+  awaySummaryEnabled: boolean | null;
 }
 
-function readUserAwaySummaryEnabled(settingsPath: string): boolean | null {
+const NO_OPERATOR_SETTINGS: OperatorClaudeSettings = { statuslineCommand: null, awaySummaryEnabled: null };
+
+function statuslineCommandFrom(parsed: Record<string, unknown>): string | null {
+  if (!isRecord(parsed.statusLine) || parsed.statusLine.type !== 'command') return null;
+  return textOr(parsed.statusLine.command, null);
+}
+
+function readOperatorClaudeSettings(settingsPath: string): OperatorClaudeSettings {
   return loadedJsonValue(loadJsonStateFileSync({
     filePath: settingsPath,
     quarantine: false,
     parse(parsed) {
-      if (!isRecord(parsed) || typeof parsed.awaySummaryEnabled !== 'boolean') return null;
-      return parsed.awaySummaryEnabled;
+      if (!isRecord(parsed)) return null;
+      return {
+        statuslineCommand: statuslineCommandFrom(parsed),
+        awaySummaryEnabled: typeof parsed.awaySummaryEnabled === 'boolean' ? parsed.awaySummaryEnabled : null,
+      };
     },
-  }));
+  })) ?? NO_OPERATOR_SETTINGS;
+}
+
+function readUserStatuslineCommand(settingsPath: string): string | null {
+  return readOperatorClaudeSettings(settingsPath).statuslineCommand;
 }
 
 function buildStatuslineCommand(
@@ -218,9 +225,9 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
     settings.enableAllProjectMcpServers = true;
   }
   const operatorSettingsPath = userSettingsPath || path.join(os.homedir(), '.claude', 'settings.json');
-  const operatorAwaySummaryEnabled = readUserAwaySummaryEnabled(operatorSettingsPath);
-  if (operatorAwaySummaryEnabled !== null) {
-    settings.awaySummaryEnabled = operatorAwaySummaryEnabled;
+  const operatorSettings = readOperatorClaudeSettings(operatorSettingsPath);
+  if (operatorSettings.awaySummaryEnabled !== null) {
+    settings.awaySummaryEnabled = operatorSettings.awaySummaryEnabled;
   }
   if (planLimits) {
     settings.statusLine = {
@@ -228,7 +235,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
       command: buildStatuslineCommand({
         relayPath,
         postUrl: `${base}/statusline?t=${encodeURIComponent(token)}`,
-        userCommand: readUserStatuslineCommand(operatorSettingsPath),
+        userCommand: operatorSettings.statuslineCommand,
       }),
     };
   }
