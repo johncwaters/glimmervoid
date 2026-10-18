@@ -13,7 +13,7 @@ function hasRoomForBridgeSocket(tempDirectory: string, platform: NodeJS.Platform
 }
 
 function bridgeSocketLauncherEnv(inheritedTempDirectory: string, platform: NodeJS.Platform): Record<string, string> {
-  if (hasRoomForBridgeSocket(inheritedTempDirectory, platform)) return {};
+  if (hasRoomForBridgeSocket(inheritedTempDirectory, platform)) return { TMPDIR: inheritedTempDirectory };
   return { TMPDIR: SHORT_BRIDGE_SOCKET_FOLDER };
 }
 

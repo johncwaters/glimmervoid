@@ -42,27 +42,29 @@ function linuxSandboxSkipReason(): string | false {
   return errors.length === 0 ? false : errors.join('; ');
 }
 
-test('a guarded launch starts when the inherited temp folder leaves no room for a bridge socket, and the agent writes to its guarded temp folder', { skip: linuxSandboxSkipReason() }, async (context) => {
-  const launchFolder = await mkdtemp(path.join(glimmervoidHomeDir(), 'long-temp-'));
-  context.after(() => rm(launchFolder, { recursive: true, force: true }));
-  const checkout = path.join(launchFolder, 'repo');
-  const longTempFolder = path.join(launchFolder, 't'.repeat(Math.max(1, 90 - launchFolder.length)));
-  await mkdir(checkout);
-  await mkdir(longTempFolder);
-  const inheritedTempFolder = process.env.TMPDIR;
-  process.env.TMPDIR = longTempFolder;
-  context.after(() => {
-    if (inheritedTempFolder === undefined) delete process.env.TMPDIR;
-    if (inheritedTempFolder !== undefined) process.env.TMPDIR = inheritedTempFolder;
+for (const longTempFolderSource of ['inherited', 'caller'] as const) {
+  test(`a guarded launch starts when the ${longTempFolderSource} temp folder leaves no room for a bridge socket, and the agent writes to its guarded temp folder`, { skip: linuxSandboxSkipReason() }, async (context) => {
+    const launchFolder = await mkdtemp(path.join(glimmervoidHomeDir(), 'long-temp-'));
+    context.after(() => rm(launchFolder, { recursive: true, force: true }));
+    const checkout = path.join(launchFolder, 'repo');
+    const longTempFolder = path.join(launchFolder, 't'.repeat(Math.max(1, 90 - launchFolder.length)));
+    await mkdir(checkout);
+    await mkdir(longTempFolder);
+    const inheritedTempFolder = process.env.TMPDIR;
+    process.env.TMPDIR = longTempFolderSource === 'inherited' ? longTempFolder : '/tmp';
+    context.after(() => {
+      if (inheritedTempFolder === undefined) delete process.env.TMPDIR;
+      if (inheritedTempFolder !== undefined) process.env.TMPDIR = inheritedTempFolder;
+    });
+    const prepared = await prepareGuardrailsLaunch({ role: { vendors: [], vendorHome: { scope: 'state' }, network: { access: 'none' }, writableRoots: [checkout], lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: [] }, launchId: `long-temp-${longTempFolderSource}-launch` });
+    assert.ok(prepared.ok, prepared.ok ? '' : prepared.reason);
+    context.after(() => prepared.launch.dispose());
+    const wrapped = await prepared.launch.wrap('/bin/sh', ['-c', 'printf written > "$TMPDIR/probe" && printf %s "$TMPDIR"'], { hasTerminal: false });
+    const launched = spawnSync(wrapped.file, wrapped.args, { cwd: checkout, env: { ...process.env, TMPDIR: longTempFolder, ...prepared.launch.env }, encoding: 'utf8' });
+    assert.equal(launched.status, 0, launched.stderr);
+    assert.equal(launched.stdout, prepared.launch.env.CLAUDE_CODE_TMPDIR);
   });
-  const prepared = await prepareGuardrailsLaunch({ role: { vendors: [], vendorHome: { scope: 'state' }, network: { access: 'none' }, writableRoots: [checkout], lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: [] }, launchId: 'long-temp-launch' });
-  assert.ok(prepared.ok, prepared.ok ? '' : prepared.reason);
-  context.after(() => prepared.launch.dispose());
-  const wrapped = await prepared.launch.wrap('/bin/sh', ['-c', 'printf written > "$TMPDIR/probe" && printf %s "$TMPDIR"'], { hasTerminal: false });
-  const launched = spawnSync(wrapped.file, wrapped.args, { cwd: checkout, env: { ...process.env, ...prepared.launch.env }, encoding: 'utf8' });
-  assert.equal(launched.status, 0, launched.stderr);
-  assert.equal(launched.stdout, prepared.launch.env.CLAUDE_CODE_TMPDIR);
-});
+}
 
 async function launchFolderNames(launchId: string): Promise<string[]> {
   const glimmervoidHome = await realpath(glimmervoidHomeDir());

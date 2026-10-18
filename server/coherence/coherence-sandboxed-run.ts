@@ -258,7 +258,7 @@ async function withGuardrailsLaunch<Outcome>({ scratch, snapshot, readablePaths,
   const runGuarded: GuardedCommand = async (file, args, { timeoutMs, input, extraEnv = {} }) => {
     const wrapped = await prepared.launch.wrap(file, args, { hasTerminal: false });
     const { stdout } = await execFileAsync(wrapped.file, wrapped.args, {
-      cwd: prepared.launch.cwd, env: { ...env, ...extraEnv, TMPDIR: tempDir, TMP: tempDir, TEMP: tempDir, ...prepared.launch.env },
+      cwd: prepared.launch.cwd, env: { ...env, ...extraEnv, ...prepared.launch.env },
       timeout: timeoutMs, maxBuffer: GUARDED_RUN_MAX_BUFFER_BYTES, encoding: 'utf8', input,
     });
     return stdout;
