@@ -145,7 +145,7 @@ Always paired with a glyph or shape; never carried by hue alone.
 - **Signal Cyan** (#67e8f9): Done (Phyrexian).
 - **Signal Gold** (#eab308): Idle.
 - **Signal Pink** (#f472b6): Starting (Phyrexian).
-- **Signal Emerald** (#34d399): Complete, except session row marks, which use lavender-white so they never sit beside Running green.
+- **Signal Emerald** (#34d399): Complete.
 - **Signal Slate** (#6b7280): Initializing.
 
 ### Named Rules
