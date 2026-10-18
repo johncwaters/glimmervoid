@@ -15,8 +15,10 @@ const IMAGE_SOURCE_NOTE_RE = /^\[Image: source: (.+)\]$/;
 const UPLOADS_FOLDER_NAME = 'uploads';
 const AGENT_TOOL_NAMES: ReadonlySet<string> = new Set(['Agent', 'Task']);
 const BACKGROUND_AGENT_LAUNCH_RE = /^Async agent launched/;
+const TASK_NOTIFICATION_PREFIX = '<task-notification>';
+const TASK_NOTIFICATION_TOOL_USE_ID_RE = /<tool-use-id>([^<]+)<\/tool-use-id>/;
+const TASK_NOTIFICATION_TASK_ID_RE = /<task-id>([^<]+)<\/task-id>/;
 const LAUNCHED_AGENT_ID_RE = /agentId: ([\w-]+)/;
-const TASK_NOTIFICATION_ID_RE = /<task-id>([^<]+)<\/task-id>/;
 const TASK_NOTIFICATION_STATUS_RE = /<status>([^<]+)<\/status>/;
 const ECHO_LIFETIME_MS = 10 * 60 * 1000;
 
@@ -138,18 +140,25 @@ function agentDescription(input: unknown): string {
 function finishAgentRun(run: ConversationAgentRun | undefined, result: ToolResultRecord, agentRunsByAgentId: Map<string, ConversationAgentRun>) {
   if (!run) return;
   if (result.isError) { run.state = 'failed'; return; }
+  if (!BACKGROUND_AGENT_LAUNCH_RE.test(result.content)) { run.state = 'done'; return; }
   const launchedAgentId = LAUNCHED_AGENT_ID_RE.exec(result.content)?.[1];
-  if (launchedAgentId && BACKGROUND_AGENT_LAUNCH_RE.test(result.content)) {
-    agentRunsByAgentId.set(launchedAgentId, run);
-    return;
-  }
-  run.state = 'done';
+  if (launchedAgentId) agentRunsByAgentId.set(launchedAgentId, run);
 }
 
-function applyTaskNotification(text: string, agentRunsByAgentId: Map<string, ConversationAgentRun>) {
-  const taskId = TASK_NOTIFICATION_ID_RE.exec(text)?.[1];
-  const run = taskId ? agentRunsByAgentId.get(taskId) : undefined;
-  if (!run) return;
+function isTaskNotificationText(text: string): boolean {
+  return text.trimStart().startsWith(TASK_NOTIFICATION_PREFIX);
+}
+
+function notifiedAgentRun(text: string, agentRunsByToolUseId: Map<string, ConversationAgentRun>, agentRunsByAgentId: Map<string, ConversationAgentRun>): ConversationAgentRun | undefined {
+  const toolUseId = TASK_NOTIFICATION_TOOL_USE_ID_RE.exec(text)?.[1];
+  if (toolUseId) return agentRunsByToolUseId.get(toolUseId);
+  const taskId = TASK_NOTIFICATION_TASK_ID_RE.exec(text)?.[1];
+  return taskId ? agentRunsByAgentId.get(taskId) : undefined;
+}
+
+function applyTaskNotification(text: string, agentRunsByToolUseId: Map<string, ConversationAgentRun>, agentRunsByAgentId: Map<string, ConversationAgentRun>) {
+  const run = notifiedAgentRun(text, agentRunsByToolUseId, agentRunsByAgentId);
+  if (run?.state !== 'running') return;
   run.state = TASK_NOTIFICATION_STATUS_RE.exec(text)?.[1] === 'completed' ? 'done' : 'failed';
 }
 
@@ -175,13 +184,16 @@ export function conversationEntries(records: readonly TraceRecord[]): Conversati
   records.forEach((record, index) => {
     const key = recordKey(record, index);
     if (isSubagentRecord(record)) return;
+    if ((record.kind === 'prompt' || record.kind === 'expansion') && isTaskNotificationText(record.text)) {
+      applyTaskNotification(record.text, agentRunsByToolUseId, agentRunsByAgentId);
+      return;
+    }
     if (record.kind === 'prompt') {
       closeTurn();
       entries.push({ kind: 'user', key, text: record.text, at: record.ts, imageUrls: [] });
       return;
     }
     if (record.kind === 'expansion') {
-      applyTaskNotification(record.text, agentRunsByAgentId);
       for (const expansionLine of record.text.split('\n')) {
         const imageUrl = uploadedImageUrl(expansionLine);
         if (imageUrl) attachImageToLatestPrompt(entries, imageUrl);
