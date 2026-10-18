@@ -52,6 +52,8 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Which paths rerere replayed is deliberately unreported: git clears `MERGE_RR` as it resolves, so any list would be a guess, and a guess in a forensic trace is worse than a silence.
 - rerere config is seeded only when UNSET, an operator who disabled it meaning it. A rebase suppresses the change funnel while it runs, or the review gate self-heals to none mid-rebase.
 
+- Every worktree Glimmervoid adds inside its home is locked with its own reason, because guarded sessions are denied that folder yet can write the shared `.git`, so their `git worktree prune` would drop it; only Glimmervoid unlocks it, and branch GC treats that lock as unlocked (`tests/git-workspace-session.test.ts`).
+
 ### Worktree Base Branch
 
 - A worktree's fork-base marker pins its base across restarts. With no configured branch, a marker whose branch the detected default already absorbed, or whose branch is gone, migrates to that default, so an abandoned staging branch stops showing landed commits as pending review; a marker holding commits the default lacks is kept (`tests/git-workspace-session.test.ts`).

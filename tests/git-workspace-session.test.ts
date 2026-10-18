@@ -216,7 +216,9 @@ test('untrusted staging and removal run git with hooks pointed at the null devic
   assert.deepEqual(calls, [
     { args: [...hookless, 'worktree', 'add', '--detach', '/checks', sha], cwd: '/repo', replaceEnv },
     { args: [...hookless, 'worktree', 'remove', '--force', '/checks'], cwd: '/repo', replaceEnv },
+    { args: [...hookless, 'worktree', 'list', '--porcelain'], cwd: '/repo', replaceEnv },
     { args: [...hookless, 'worktree', 'prune'], cwd: '/repo', replaceEnv },
+    { args: [...hookless, 'worktree', 'list', '--porcelain'], cwd: '/repo', replaceEnv },
     { args: [...hookless, 'worktree', 'prune'], cwd: '/repo', replaceEnv },
   ]);
 });
@@ -1823,4 +1825,27 @@ test('a session based on a pull request branch forks from its origin tip and a b
   const forcePushed = await workspace.seedBranchFromOrigin({ projectPath: checkout, name: 'feature/pr-branch' });
   assert.equal(forcePushed.ok, false);
   assert.equal(git(['rev-parse', 'refs/heads/feature/pr-branch'], checkout).trim(), fastForwardedHead);
+});
+
+test('a checkout in the Glimmervoid home survives a git worktree prune run where its folder cannot be seen', { skip: !GIT }, async (context) => {
+  const repo = initRepoOnMain('glimmervoid-lock-');
+  const glimmervoidHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-lock-home-'));
+  context.after(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(glimmervoidHome, { recursive: true, force: true });
+  });
+  const workspace = createGitWorkspace({ glimmervoidHome });
+  const controlCheckout = path.join(glimmervoidHome, 'factory', 'project', 'control');
+  fs.mkdirSync(path.dirname(controlCheckout), { recursive: true });
+  const sha = git(['rev-parse', 'HEAD'], repo).trim();
+  assert.equal((await workspace.stageDetachedWorktree({ projectPath: repo, worktreePath: controlCheckout, sha })).ok, true);
+
+  fs.renameSync(controlCheckout, `${controlCheckout}-out-of-sight`);
+  git(['worktree', 'prune'], repo);
+  fs.renameSync(`${controlCheckout}-out-of-sight`, controlCheckout);
+  assert.equal(git(['rev-parse', 'HEAD'], controlCheckout).trim(), sha);
+
+  fs.rmSync(controlCheckout, { recursive: true, force: true });
+  assert.equal((await workspace.pruneWorktrees({ projectPath: repo })).ok, true);
+  assert.doesNotMatch(git(['worktree', 'list', '--porcelain'], repo), /control/);
 });
