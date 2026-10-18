@@ -2,15 +2,15 @@ import { isPathInside } from '../../../shared/paths.ts';
 
 export const GLIMMERVOID_WORKTREE_LOCK_REASON = 'glimmervoid: guarded sessions cannot see this checkout, so a git worktree prune run from one would drop it';
 
-export function isWorktreeHiddenFromGuardedSessions(worktreePath: string, glimmervoidHome: string): boolean {
-  return isPathInside(glimmervoidHome, worktreePath, { allowEqual: false });
+export function isWorktreeHiddenFromGuardedSessions(worktreePath: string, glimmervoidHomes: readonly string[]): boolean {
+  return glimmervoidHomes.some((glimmervoidHome) => isPathInside(glimmervoidHome, worktreePath, { allowEqual: false }));
 }
 
 export function isOwnWorktreeLockLine(porcelainLine: string): boolean {
   return porcelainLine === `locked ${GLIMMERVOID_WORKTREE_LOCK_REASON}`;
 }
 
-export function listOwnLockedWorktreePaths(porcelain: string): string[] {
+export function listOwnLockedWorktreePaths(porcelain: string, glimmervoidHomes: readonly string[]): string[] {
   const lockedPaths: string[] = [];
   let currentPath: string | null = null;
   for (const line of porcelain.split(/\r?\n/)) {
@@ -20,10 +20,10 @@ export function listOwnLockedWorktreePaths(porcelain: string): string[] {
     }
     if (currentPath !== null && isOwnWorktreeLockLine(line)) lockedPaths.push(currentPath);
   }
-  return lockedPaths;
+  return lockedPaths.filter((lockedPath) => isWorktreeHiddenFromGuardedSessions(lockedPath, glimmervoidHomes));
 }
 
-export function listHomeWorktreePathsMissingLock(porcelain: string, glimmervoidHome: string): string[] {
+export function listHomeWorktreePathsMissingLock(porcelain: string, glimmervoidHomes: readonly string[]): string[] {
   const entries: { path: string; isLocked: boolean }[] = [];
   for (const line of porcelain.split(/\r?\n/)) {
     if (line.startsWith('worktree ')) {
@@ -35,6 +35,6 @@ export function listHomeWorktreePathsMissingLock(porcelain: string, glimmervoidH
   }
   return entries
     .slice(1)
-    .filter((entry) => !entry.isLocked && isWorktreeHiddenFromGuardedSessions(entry.path, glimmervoidHome))
+    .filter((entry) => !entry.isLocked && isWorktreeHiddenFromGuardedSessions(entry.path, glimmervoidHomes))
     .map((entry) => entry.path);
 }

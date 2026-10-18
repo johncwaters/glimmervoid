@@ -1829,10 +1829,13 @@ test('a session based on a pull request branch forks from its origin tip and a b
 
 test('a checkout in the Glimmervoid home survives a git worktree prune run where its folder cannot be seen', { skip: !GIT }, async (context) => {
   const repo = initRepoOnMain('glimmervoid-lock-');
-  const glimmervoidHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-lock-home-'));
+  const realGlimmervoidHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-lock-home-'));
+  const glimmervoidHome = `${realGlimmervoidHome}-link`;
+  fs.symlinkSync(realGlimmervoidHome, glimmervoidHome);
   context.after(() => {
     fs.rmSync(repo, { recursive: true, force: true });
-    fs.rmSync(glimmervoidHome, { recursive: true, force: true });
+    fs.rmSync(glimmervoidHome, { force: true });
+    fs.rmSync(realGlimmervoidHome, { recursive: true, force: true });
   });
   const workspace = createGitWorkspace({ glimmervoidHome });
   const controlCheckout = path.join(glimmervoidHome, 'factory', 'project', 'control');
@@ -1842,10 +1845,16 @@ test('a checkout in the Glimmervoid home survives a git worktree prune run where
 
   fs.renameSync(controlCheckout, `${controlCheckout}-out-of-sight`);
   git(['worktree', 'prune'], repo);
+  assert.equal((await createGitWorkspace({ glimmervoidHome: repo }).pruneWorktrees({ projectPath: repo })).ok, true);
   fs.renameSync(`${controlCheckout}-out-of-sight`, controlCheckout);
   assert.equal(git(['rev-parse', 'HEAD'], controlCheckout).trim(), sha);
 
-  fs.rmSync(controlCheckout, { recursive: true, force: true });
+  fs.renameSync(realGlimmervoidHome, `${realGlimmervoidHome}-out-of-sight`);
+  assert.equal((await workspace.pruneWorktrees({ projectPath: repo })).ok, true);
+  fs.renameSync(`${realGlimmervoidHome}-out-of-sight`, realGlimmervoidHome);
+  assert.equal(git(['rev-parse', 'HEAD'], controlCheckout).trim(), sha);
+
+  fs.rmSync(path.dirname(controlCheckout), { recursive: true, force: true });
   assert.equal((await workspace.pruneWorktrees({ projectPath: repo })).ok, true);
   assert.doesNotMatch(git(['worktree', 'list', '--porcelain'], repo), /control/);
 });
