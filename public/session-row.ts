@@ -5,11 +5,20 @@ import { sessionElapsedText } from './session-card/session-tick.ts';
 export type SessionRowRefs = ReturnType<typeof buildSessionRow>['refs'];
 type PrChipsPainter = (slot: HTMLElement, sessionId: string) => void;
 let paintSessionRowPrChips: PrChipsPainter | null = null;
+interface CoherenceLinePainter {
+  build: (sessionId: string) => HTMLElement;
+  paint: (row: HTMLElement) => void;
+}
+let sessionRowCoherenceLine: CoherenceLinePainter | null = null;
 
 const PLAN_PROMPT_KIND = 'plan';
 
 export function setSessionRowPrChipsPainter(painter: PrChipsPainter) {
   paintSessionRowPrChips = painter;
+}
+
+export function setSessionRowCoherenceLinePainter(painter: CoherenceLinePainter) {
+  sessionRowCoherenceLine = painter;
 }
 
 export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extraClassName = '') {
@@ -44,6 +53,7 @@ export function wrapSessionRow(row: HTMLElement, onRemove: () => void) {
     onRemove();
   });
   item.append(row, removeButton);
+  if (sessionRowCoherenceLine) item.append(sessionRowCoherenceLine.build(row.dataset.id ?? ''));
   return { item, removeButton };
 }
 
@@ -78,6 +88,7 @@ export function paintSessionRow(
   refs.merge.textContent = MERGE_TAGS[mergeStatus] || '';
   row.dataset.activity = ui._activity || '';
   refs.elapsed.textContent = sessionElapsedText(ui);
+  sessionRowCoherenceLine?.paint(row);
   const accessibleLabel = [name, ui.taskTitle, statusLabel].filter(Boolean).join(', ');
   row.setAttribute('aria-label', accessibleLabel);
   row.title = accessibleLabel;

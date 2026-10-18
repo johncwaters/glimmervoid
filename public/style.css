@@ -6171,11 +6171,12 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   position: relative;
   isolation: isolate;
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
   border-bottom: 1px solid var(--border-dim);
 }
 .session-row {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -6238,6 +6239,23 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   font-variant-numeric: tabular-nums;
 }
 .session-row-elapsed:empty { display: none; }
+.coherence-row-line { position: relative; flex: 0 0 100%; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px 6px 32px; color: var(--text-muted); font-size: 11px; }
+.coherence-row-line[hidden] { display: none; }
+.coherence-row-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+.coherence-journal-button { flex: 0 0 auto; padding: 2px 4px; border: 1px solid var(--border); border-radius: var(--radius); background: transparent; color: var(--text-muted); font: inherit; cursor: pointer; }
+.coherence-journal-button:hover { color: var(--text-head); border-color: var(--border-hover); }
+.coherence-journal-button:active { background: var(--bg-surface); }
+.coherence-journal-button:disabled { opacity: 0.4; cursor: default; }
+.coherence-journal-button:focus-visible, .coherence-journal-drawer button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.coherence-journal-drawer { width: 640px; gap: 12px; font-size: 12px; overflow-wrap: anywhere; }
+.coherence-journal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.coherence-journal-status, .coherence-journal-entry h4 { color: var(--text-muted); font-size: 11px; font-weight: 400; }
+.coherence-journal-reading p, .coherence-journal-entry p { margin: 6px 0; white-space: pre-wrap; }
+.coherence-journal-entry { padding: 12px 0; border-top: 1px solid var(--border-dim); }
+.coherence-journal-entry h4 { margin: 0 0 6px; }
+.coherence-command { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; user-select: text; }
+html[data-layout="phone"] .coherence-journal-drawer { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+html[data-layout="phone"] .coherence-journal-drawer button, html[data-layout="phone"] .coherence-journal-button { min-height: 44px; }
 .session-row .session-pr-chips { gap: 8px; }
 .session-row .session-pr-chip { gap: 3px; padding: 0; border: none; line-height: 14px; letter-spacing: 0.02em; }
 .session-row .session-pr-chip .pr-status-icon { width: 11px; height: 11px; }

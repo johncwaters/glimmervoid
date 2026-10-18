@@ -13,6 +13,7 @@ import { checkControlLiveness, connectControl, onControlMessage, sendControlMsg,
 import { createAddSessionDialog } from './dialogs.ts';
 import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
+import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, buildSessionCoherenceLine, forgetSessionCoherence, paintSessionCoherenceLine, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
 import type { FeatureSurfaceSettings } from './feature-surfaces-core.ts';
@@ -30,7 +31,7 @@ import { noteKnownProjectPath } from './project-registry.ts';
 import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-panel.ts';
 import { forgetSessionLinkedPrs, paintSessionPrChips, refreshSessionPrChipStages, setSessionLinkedPrs } from './github/session-pr-chips.ts';
-import { setSessionRowPrChipsPainter } from './session-row.ts';
+import { setSessionRowCoherenceLinePainter, setSessionRowPrChipsPainter } from './session-row.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
 import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryState, setFactoryRequestSender } from './factory/factory-view.ts';
@@ -225,6 +226,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     permissionMode: session.dangerouslySkipPermissions ? 'Skip permissions' : 'Default',
   })));
   for (const s of rows) {
+    setSessionCoherenceHooks(s.id, s.coherenceHooks);
     if (!s.ephemeral) noteKnownProjectPath(s.path);
     setSessionLinkedPrs(s.id, s.linkedPrs);
     const exists = hasSession(s.id);
@@ -346,6 +348,7 @@ setBenchmarkRequestSender(sendControlMsg);
 setFactoryRequestSender(sendControlMsg);
 setCardPrChipsPainter(paintSessionPrChips);
 setSessionRowPrChipsPainter(paintSessionPrChips);
+setSessionRowCoherenceLinePainter({ build: buildSessionCoherenceLine, paint: paintSessionCoherenceLine });
 
 function refreshViewsIfVisible(reason: ViewRefreshReason) {
   refreshVisibleViews(VIEW_TABS, { isPhoneShellActive: isPhoneShellActive(), activeView: getActiveView(), phoneScreen: uiState.snapshot().phoneScreen }, reason);
@@ -362,12 +365,13 @@ const messageHandlers = {
 
   'state-change':       (msg) => handleStateChange(msg),
   'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
-  'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-removed':    (msg) => { removeSessionCard(msg.id); forgetSessionCoherence(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
   'session-prs': (msg) => setSessionLinkedPrs(msg.id, msg.linkedPrs),
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
     if (!msg.ephemeral) noteKnownProjectPath(msg.path);
+
     const previousUi = sessionUIs.get(String(msg.id));
     removeSessionCard(msg.id);
     forgetReviewSession(msg.id);
@@ -403,6 +407,9 @@ const messageHandlers = {
   'session-plan-response': (msg) => { applySessionPlanResponse(msg); },
   'session-docs-changed': (msg) => applySessionDocsChanged(msg),
   'session-docs-snapshot': (msg) => applySessionDocsSnapshot(msg),
+  'session-coherence': (msg) => { applySessionCoherence(msg); refreshRosterAndAttentionSurfaces(); },
+  'session-coherence-snapshot': (msg) => { applySessionCoherenceSnapshot(msg); refreshRosterAndAttentionSurfaces(); },
+  'session-coherence-journal-response': (msg) => applyCoherenceJournalResponse(msg),
 
   'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },
   'update-status':      (msg) => { showUpdateBanner(msg); applySettingsUpdateStatus(msg); },

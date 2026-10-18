@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Coherence session journals**: With Coherence installed, each session row shows its latest Coherence journal entry or Coherence's suggested next action, opens the full journal on demand, and says when the repository's Coherence hooks are not active.
 - **Coherence in team PR reviews (experimental)**: With the Coherence setting on, team PR reviews of configured repositories include the PR's Coherence change signal and the redundancy it introduces. A pull request whose coherence.config.json names a language module, or that tracks a symlink, gets a one-line "Coherence reading unavailable" note instead, so its code never runs on your machine.
 - **Local review journals (experimental)**: With the Coherence setting on, team PR review lanes in a repository whose root holds coherence.config.json keep a local Coherence journal in Glimmervoid's home folder that Glimmervoid never commits or pushes.
 - **Factory review journals**: Factory reviewer and verifier lanes now record Coherence decisions that land on the integration branch with the Factory ledger.
