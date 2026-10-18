@@ -920,10 +920,17 @@ queryTag(document, '#btn-shutdown', 'button').addEventListener('click', () => {
   confirmServerPowerAction({ type: 'shutdown', title: 'Shut Down Server', confirmLabel: 'Shut Down', danger: true, idleMessage: 'Shut down the server?', actionAfterKillingSessions: 'shut down the server' });
 });
 
-function isRealInputFocused() {
+const CURSOR_MOVEMENT_KEYS: ReadonlySet<string> = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown']);
+
+function isComposerOwningKey(composer: HTMLTextAreaElement, event: KeyboardEvent) {
+  return composer.value !== '' && CURSOR_MOVEMENT_KEYS.has(event.key);
+}
+
+function isRealInputOwningKey(event: KeyboardEvent) {
   const a = document.activeElement;
   if (!(a instanceof HTMLElement)) return false;
   if (a.isContentEditable) return true;
+  if (a instanceof HTMLTextAreaElement && a.dataset.dashboardShortcuts === 'allowed') return isComposerOwningKey(a, event);
   return (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')
     && !a.classList.contains('xterm-helper-textarea');
 }
@@ -963,7 +970,7 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
 
 document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
-  if (isRealInputFocused()) return;
+  if (isRealInputOwningKey(e)) return;
   const shortcut = resolveDashboardShortcut(e, SHORTCUT_PLATFORM);
   if (!shortcut) return;
   if (runDashboardShortcut(shortcut)) e.preventDefault();

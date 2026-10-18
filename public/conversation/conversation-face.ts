@@ -118,6 +118,7 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   filePicker.type = 'file';
   filePicker.hidden = true;
   const input = el('textarea', 'conversation-input');
+  input.dataset.dashboardShortcuts = 'allowed';
   input.rows = 1;
   input.placeholder = 'Message the agent';
   input.setAttribute('aria-label', 'Message the agent');
