@@ -21,5 +21,5 @@ test('session usage chips defaults off, normalizes booleans and persists without
   assert.ok(setting && 'defaultValue' in setting);
   assert.equal(setting.defaultValue, false);
   const settings = SETTINGS_REGISTRY.sections.find((section) => section.id === 'browser-appearance')?.settings ?? [];
-  assert.equal(settings.findIndex((entry) => entry.id === 'session-usage-chips'), settings.findIndex((entry) => entry.id === 'compact-status') + 1);
+  assert.equal(settings.findIndex((entry) => entry.id === 'session-usage-chips'), settings.findIndex((entry) => entry.id === 'theme') + 1);
 });

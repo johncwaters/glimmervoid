@@ -1,5 +1,6 @@
 import { el, externalLink } from './dom-helpers.ts';
 import { createPrStatusIcon } from './github/pr-status-icon.ts';
+import { rankSignals, signalsSignature } from './signal-core.ts';
 import type { RankedSignals, Signal } from './signal-core.ts';
 
 interface SignalOptions {
@@ -7,6 +8,8 @@ interface SignalOptions {
   linkUrl?: string;
   onActivate?: () => void;
 }
+
+export interface ActivatableSignal extends Signal, SignalOptions {}
 
 export function createSignal(signal: Signal, { className = '', linkUrl, onActivate }: SignalOptions = {}): HTMLElement {
   const signalClassName = `signal ${className}`.trim();
@@ -28,9 +31,21 @@ export function createSignal(signal: Signal, { className = '', linkUrl, onActiva
   return signalElement;
 }
 
-export function createSignalOverflow(ranked: RankedSignals<Signal>): HTMLElement | null {
+function createSignalOverflow(ranked: RankedSignals<Signal>): HTMLElement | null {
   if (ranked.overflowCount === 0) return null;
   const overflow = el('span', 'signal-overflow', `+${ranked.overflowCount}`);
   overflow.title = ranked.overflowHoverText;
   return overflow;
+}
+
+export function paintSignalLine<Line extends ActivatableSignal>(slot: HTMLElement, signals: readonly Line[], buildSignal: (signal: Line) => HTMLElement = (signal) => createSignal(signal, signal)): void {
+  const signature = signalsSignature(signals);
+  if (slot.dataset.signalSignature === signature) return;
+  slot.dataset.signalSignature = signature;
+  const ranked = rankSignals(signals);
+  const signalElements = ranked.visible.map(buildSignal);
+  const overflow = createSignalOverflow(ranked);
+  if (overflow) signalElements.push(overflow);
+  slot.hidden = signalElements.length === 0;
+  slot.replaceChildren(...signalElements);
 }

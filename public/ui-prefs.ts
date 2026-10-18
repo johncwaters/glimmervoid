@@ -12,7 +12,6 @@ export interface UiPrefs extends FlyingAnimalsOptions {
   themeId: string;
   flyingAnimalsEnabled: boolean;
   notificationsEnabled: boolean;
-  compactStatusLabels: boolean;
   sessionUsageChips: boolean;
   phoneArrowPad: boolean;
   activeView: string;
@@ -56,7 +55,6 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   flyingAnimalsOnPhone: asBoolean(FLYING_ANIMALS_DEFAULTS.flyingAnimalsOnPhone),
   flyingAnimalsExcludedSprites: normalizeExcludedSprites,
   notificationsEnabled: asBoolean(true),
-  compactStatusLabels: asBoolean(false),
   sessionUsageChips: asBoolean(false),
   phoneArrowPad: asBoolean(false),
   activeView: asString('focus'),
@@ -107,8 +105,6 @@ export const setSoundId = (id: string) => write('soundId', id);
 export const isNotificationsEnabled = () => read('notificationsEnabled');
 export const setNotificationsEnabled = (enabled: boolean) => write('notificationsEnabled', enabled);
 
-export const isCompactStatusLabels = () => read('compactStatusLabels');
-export const setCompactStatusLabels = (enabled: boolean) => write('compactStatusLabels', enabled);
 export const isSessionUsageChips = () => read('sessionUsageChips');
 export const setSessionUsageChips = (enabled: boolean) => write('sessionUsageChips', enabled);
 export const isPhoneArrowPad = () => read('phoneArrowPad');

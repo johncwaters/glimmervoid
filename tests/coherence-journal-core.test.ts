@@ -3,7 +3,8 @@ import test from 'node:test';
 import type { CoherenceJournalEntry, CoherenceReadingRow, CoherenceTrendWindow, SessionCoherence } from '../shared/contracts/coherence.ts';
 import { coherenceTrendDirectionLabel, coherenceTrendPanelRows } from '../public/coherence/trend-core.ts';
 import { COHERENCE_HOOKS_INACTIVE } from '../shared/contracts/session.ts';
-import { coherenceRowLine, formatCoherenceReading, formatJournalEntry } from '../public/coherence/journal-core.ts';
+import { coherenceRowSignals, formatCoherenceReading, formatJournalEntry } from '../public/coherence/journal-core.ts';
+import { SIGNAL_TIER } from '../public/signal-core.ts';
 import { coherenceCheckStageLabel, coherenceCheckSummary } from '../public/coherence/check-core.ts';
 
 test('Coherence check summary counts failures without counting skipped stages', () => {
@@ -24,7 +25,7 @@ test('Coherence check preserves unknown stage ids including inherited property n
   }
 });
 
-test('Coherence keeps one row line with hooks, actionable guidance and journal priority while preserving drawer detail', () => {
+test('Coherence row signals carry only a pending decision or redirect and inactive hooks, while the drawer keeps the detail', () => {
   const entry: CoherenceJournalEntry = {
     id: 'entry-1', at: '2026-10-17T12:00:00.000Z', kind: 'decision',
     text: '<img src=x onerror=alert(1)>', detail: 'Keep markup as text', supersedes: 'entry-0',
@@ -34,38 +35,31 @@ test('Coherence keeps one row line with hooks, actionable guidance and journal p
     regulation: { ok: true, nextAction: { action: 'release', rule: null, evidence: 'Waiting for approval', remedy: 'Choose a direction', command: 'coherence decide', remaining: 1 } },
     updatedAt: 1,
   };
-  assert.equal(coherenceRowLine(null, null), null);
-  assert.equal(coherenceRowLine({ active: true }, null), null);
-  assert.equal(coherenceRowLine({ active: false, reason: COHERENCE_HOOKS_INACTIVE.configMissing }, null), null);
+  const rowTexts = (hooks: Parameters<typeof coherenceRowSignals>[0], reading: SessionCoherence | null) => coherenceRowSignals(hooks, reading).map((signal) => signal.text);
+  assert.deepEqual(rowTexts(null, null), []);
+  assert.deepEqual(rowTexts({ active: true }, null), []);
+  assert.deepEqual(rowTexts({ active: false, reason: COHERENCE_HOOKS_INACTIVE.configMissing }, null), []);
   for (const action of ['release', 'refuse'] as const) {
     if (!coherence.regulation.ok) assert.fail('Expected an available next action');
     coherence.regulation.nextAction.action = action;
-    assert.equal(coherenceRowLine(null, coherence), `Decision: ${entry.text}`);
-    assert.equal(coherenceRowLine(null, { ...coherence, journal: { ok: true, latest: null } }), null);
-  }
-  for (const action of ['require-decision', 'redirect'] as const) {
-    if (!coherence.regulation.ok) assert.fail('Expected an available next action');
-    coherence.regulation.nextAction.action = action;
-    assert.equal(coherenceRowLine(null, coherence), 'Coherence: Choose a direction coherence decide');
-    assert.equal(coherenceRowLine({ active: false, reason: 'Missing hook' }, coherence), 'Coherence hooks not active: Missing hook');
+    assert.deepEqual(rowTexts(null, coherence), []);
   }
   if (!coherence.regulation.ok) assert.fail('Expected an available next action');
+  coherence.regulation.nextAction.action = 'require-decision';
+  const [decision, hooksOff] = coherenceRowSignals({ active: false, reason: 'Missing hook' }, coherence);
+  assert.deepEqual([decision?.tier, decision?.look?.icon, decision?.hoverText], [SIGNAL_TIER.needsYou, 'your-turn', 'Coherence: Choose a direction coherence decide']);
+  assert.deepEqual([hooksOff?.tier, hooksOff?.hoverText], [SIGNAL_TIER.broken, 'Coherence hooks not active: Missing hook']);
+  coherence.regulation.nextAction.action = 'redirect';
   coherence.regulation.nextAction.remedy = null;
-  assert.equal(coherenceRowLine(null, coherence), 'Coherence: Waiting for approval coherence decide');
+  assert.equal(coherenceRowSignals(null, coherence)[0]?.hoverText, 'Coherence: Waiting for approval coherence decide');
   coherence.regulation.nextAction.action = 'refuse';
   const drawerReading = formatCoherenceReading(null, coherence);
   assert.ok(drawerReading.lines.includes('Next action: Refuse'));
   assert.ok(drawerReading.lines.includes('Evidence: Waiting for approval'));
   assert.equal(drawerReading.command, 'coherence decide');
   const unavailable: SessionCoherence = { ...coherence, journal: { ok: false, reason: 'No journal' }, regulation: { ok: false, reason: 'No regulation' } };
-  assert.equal(coherenceRowLine(null, unavailable), null);
+  assert.deepEqual(rowTexts(null, unavailable), []);
   assert.deepEqual(formatCoherenceReading(null, unavailable).lines, ['Journal unavailable: No journal', 'Next action unavailable: No regulation']);
-  for (const kind of ['decision', 'defect', 'blocked', 'conjecture'] as const) {
-    const latest = { ...entry, kind };
-    const rowLine = coherenceRowLine(null, { ...coherence, journal: { ok: true, latest } });
-    assert.equal(rowLine, `${kind[0].toUpperCase()}${kind.slice(1)}: ${entry.text}`);
-  }
-  assert.equal(coherenceRowLine(null, { ...coherence, journal: { ok: true, latest: { ...entry, kind: 'session' } } }), null);
   assert.deepEqual(formatJournalEntry(entry), {
     heading: 'Decision | 2026-10-17T12:00:00.000Z | entry-1',
     text: entry.text, detail: entry.detail, supersedes: 'Supersedes: entry-0',

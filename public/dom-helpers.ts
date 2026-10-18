@@ -94,8 +94,6 @@ export function externalLink(className: string, text: string, url: string | null
   return link;
 }
 
-export const MERGE_TAGS: Readonly<Record<string, string>> = { parked: 'PARKED', merging: 'MERGING' };
-
 export function isMonitoringState(state: string | null | undefined, awaitingBackgroundTasks: boolean | undefined): boolean {
   return state === STATES.RUNNING && awaitingBackgroundTasks === true;
 }

@@ -6221,8 +6221,7 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
 }
 .session-row[data-state="DORMANT"] .session-row-name { color: var(--text-dim); }
 .session-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
-.session-row-label,
-.session-row-merge {
+.session-row-label {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -6230,9 +6229,8 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   white-space: nowrap;
 }
 .session-row-label { color: var(--st, var(--text-muted)); }
-.session-row-merge { color: var(--accent-dim); }
-.session-row-merge:empty { display: none; }
-.session-row[data-merge="parked"] .session-row-merge { color: var(--state-failed); }
+.session-row:not([data-prompt="plan"]) .session-row-label { display: none; }
+.session-row:not([data-prompt="plan"]) .session-row-meta:has(.session-row-signals[hidden]) { display: none; }
 .session-row-elapsed {
   flex: 0 0 auto;
   font-size: 11px;
@@ -6271,9 +6269,6 @@ html[data-layout="phone"] .coherence-adopt-dialog .btn-dialog { min-height: 44px
 .factory-coherence-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }
 html[data-layout="phone"] .phone-board-group-header:has(.project-coherence-slot:not([hidden])) { flex-wrap: wrap; }
 html[data-layout="phone"] .project-coherence-slot { padding-bottom: 6px; }
-.coherence-row-line { position: relative; flex: 0 0 100%; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px 6px 32px; color: var(--text-muted); font-size: 11px; }
-.coherence-row-line[hidden] { display: none; }
-.coherence-row-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
 .coherence-journal-button { position: relative; flex: 0 0 auto; padding: 2px 4px; border: 1px solid var(--border); border-radius: var(--radius); background: transparent; color: var(--text-muted); font: inherit; cursor: pointer; }
 .coherence-journal-button:hover { color: var(--text-head); border-color: var(--border-hover); }
 .coherence-journal-button:active { background: var(--bg-surface); }
@@ -6289,15 +6284,11 @@ html[data-layout="phone"] .project-coherence-slot { padding-bottom: 6px; }
 html[data-layout="phone"] .coherence-journal-drawer { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
 html[data-layout="phone"] .coherence-journal-drawer button { min-height: 44px; }
 html[data-layout="phone"] .coherence-journal-button::after { content: ""; position: absolute; inset: -12px -6px; }
-.session-row .session-pr-chips { gap: 8px; }
-.session-row .session-pr-chip { gap: 3px; padding: 0; border: none; line-height: 14px; letter-spacing: 0.02em; }
-.session-row .session-pr-chip .pr-status-icon { width: 11px; height: 11px; }
-.session-row .session-pr-chip:hover { color: var(--text-head); text-decoration: underline; }
-html[data-compact-status] .session-row .session-row-main { flex-direction: row; align-items: center; gap: 8px; }
-html[data-compact-status] .session-row .session-row-name { flex: 1 1 auto; min-width: 0; }
-html[data-compact-status] .session-row .session-row-meta { flex: 0 0 auto; flex-wrap: nowrap; }
-html[data-compact-status] .session-row:not([data-prompt="plan"]) .session-row-label { display: none; }
-html[data-compact-status] .session-row:not([data-prompt="plan"]) .session-row-meta:has(.session-row-merge:empty):has(.session-row-prs[hidden]) { display: none; }
+.session-row-signals { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-muted); }
+.session-row-signals[hidden] { display: none; }
+.session-row .signal { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: none; font-family: var(--font-mono); font-size: 10px; font-weight: 700; line-height: 14px; letter-spacing: 0.02em; white-space: nowrap; cursor: pointer; }
+.session-row .signal .pr-status-icon { width: 11px; height: 11px; }
+.session-row .signal:hover { color: var(--text-head); text-decoration: underline; }
 
 .session-row-remove {
   flex: 0 0 32px;
@@ -6346,19 +6337,6 @@ html[data-compact-status] .session-row:not([data-prompt="plan"]) .session-row-me
   0%   { box-shadow: inset 0 0 0 0 transparent; }
   30%  { box-shadow: inset 0 0 0 3px color-mix(in oklch, var(--state-complete) 42%, transparent); }
   100% { box-shadow: inset 0 0 0 0 transparent; }
-}
-
-.compact-status-preview {
-  grid-column: 1 / -1;
-  display: grid;
-  max-width: 280px;
-  border-top: 1px solid var(--border-dim);
-}
-.compact-status-preview-pill {
-  position: relative;
-  isolation: isolate;
-  border-bottom: 1px solid var(--border-dim);
-  cursor: default;
 }
 
 .focus-center {

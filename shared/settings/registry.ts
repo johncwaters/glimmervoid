@@ -148,11 +148,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'select', optionsFrom: 'themes', keywords: ['color', 'palette'], defaultValue: 'phyrexian', ...BROWSER_NOW,
       },
       {
-        id: 'compact-status', path: 'pref:compactStatusLabels', title: 'Hide status words in sidebar',
-        description: 'Hide status words in the sidebar and on the phone Board while keeping the colored status mark and the phone Plan ready badge.',
-        control: 'toggle', keywords: ['sidebar', 'status', 'compact'], defaultValue: false, ...BROWSER_NOW,
-      },
-      {
         id: 'session-usage-chips', path: 'pref:sessionUsageChips', title: 'Show usage on session cards',
         description: "Shows each card's transcript token count and CLI-reported cost when available, otherwise a calculated API list-price estimate.",
         control: 'toggle', keywords: ['usage', 'cost', 'tokens', 'card', 'price'], defaultValue: false, ...BROWSER_NOW,

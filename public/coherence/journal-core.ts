@@ -1,5 +1,7 @@
 import type { CoherenceJournalEntry, CoherenceJournalKind, CoherenceNextAction, SessionCoherence } from '#shared/contracts/coherence.ts';
 import { COHERENCE_HOOKS_INACTIVE, type CoherenceHooksState } from '#shared/contracts/session.ts';
+import { SIGNAL_TIER } from '../signal-core.ts';
+import type { Signal } from '../signal-core.ts';
 
 const JOURNAL_KIND_LABELS: Record<CoherenceJournalKind, string> = {
   session: 'Session',
@@ -19,19 +21,20 @@ const NEXT_ACTION_LABELS: Record<CoherenceNextAction['action'], string> = {
   redirect: 'Redirect',
 };
 
-export function coherenceRowLine(hooks: CoherenceHooksState | null, coherence: SessionCoherence | null): string | null {
-  if (hooks?.active === false && hooks.reason !== COHERENCE_HOOKS_INACTIVE.configMissing) return `Coherence hooks not active: ${hooks.reason}`;
-  if (!coherence) return null;
-  if (coherence.regulation.ok) {
+export function coherenceRowSignals(hooks: CoherenceHooksState | null, coherence: SessionCoherence | null): Signal[] {
+  const signals: Signal[] = [];
+  if (coherence?.regulation.ok) {
     const nextAction = coherence.regulation.nextAction;
     if (nextAction.action === 'require-decision' || nextAction.action === 'redirect') {
-      return [`Coherence: ${nextAction.remedy || nextAction.evidence || NEXT_ACTION_LABELS[nextAction.action]}`, nextAction.command].filter(Boolean).join(' ');
+      const label = NEXT_ACTION_LABELS[nextAction.action];
+      const hoverText = [`Coherence: ${nextAction.remedy || nextAction.evidence || label}`, nextAction.command].filter(Boolean).join(' ');
+      signals.push({ key: 'coherence-next-action', text: label, hoverText, look: { icon: 'your-turn', tone: 'warn' }, tier: SIGNAL_TIER.needsYou });
     }
   }
-  if (!coherence.journal.ok || !coherence.journal.latest) return null;
-  const entry = coherence.journal.latest;
-  if (!['decision', 'defect', 'blocked', 'conjecture'].includes(entry.kind)) return null;
-  return `${JOURNAL_KIND_LABELS[entry.kind]}: ${entry.text}`;
+  if (hooks?.active === false && hooks.reason !== COHERENCE_HOOKS_INACTIVE.configMissing) {
+    signals.push({ key: 'coherence-hooks', text: 'Hooks off', hoverText: `Coherence hooks not active: ${hooks.reason}`, look: { icon: 'failed', tone: 'danger' }, tier: SIGNAL_TIER.broken });
+  }
+  return signals;
 }
 
 export function formatJournalEntry(entry: CoherenceJournalEntry) {

@@ -8,8 +8,9 @@ import { setSessionPrAttention } from '../session-card/lifecycle.ts';
 import { uiState } from '../ui-state-core.ts';
 import { latestMyPrsStatus, setMyPrsSessionLinks } from './my-prs-panel.ts';
 import { comparablePrKey } from './my-prs-view-core.ts';
-import { rankSignals } from '../signal-core.ts';
-import { createSignal, createSignalOverflow } from '../signal.ts';
+import { repaintSessionRowSignals } from '../session-row.ts';
+import { createSignal, paintSignalLine } from '../signal.ts';
+import type { ActivatableSignal } from '../signal.ts';
 import { nextMyPrsByKey, sessionPrSignals } from './session-pr-chips-core.ts';
 import type { MyPrsByKey, SessionPrChip } from './session-pr-chips-core.ts';
 
@@ -21,7 +22,6 @@ const prAttentionBySessionId = new Map<string, ReturnType<typeof createAttention
 let prsByKey: MyPrsByKey = new Map();
 let indexedStatus: MyPrsStatus | null = null;
 let hasStageBaseline = false;
-let paintRevision = 0;
 
 function attentionPrsFor(sessionId: string): MyPr[] {
   const attentionPrs: MyPr[] = [];
@@ -86,17 +86,19 @@ function slotsFor(sessionId: string): NodeListOf<HTMLElement> {
   return document.querySelectorAll<HTMLElement>(`[data-pr-chips-for="${CSS.escape(sessionId)}"]`);
 }
 
-function createChip(chip: SessionPrChip, isInsideButton: boolean): HTMLElement {
-  const chipElement = createSignal(chip, {
+type PrSignal = SessionPrChip & ActivatableSignal;
+
+export function sessionRowPrSignals(sessionId: string): PrSignal[] {
+  return sessionPrSignals(linksBySessionId.get(sessionId) ?? [], prsByKey).map((chip) => ({
+    ...chip,
     className: 'session-pr-chip',
-    linkUrl: isInsideButton ? undefined : chip.url,
     onActivate: () => openExternalUrl(chip.url),
-  });
-  if (!isInsideButton) chipElement.setAttribute('aria-label', `Open pull request ${chip.key}`);
-  return chipElement;
+  }));
 }
 
-function createUnlinkableChip(chip: SessionPrChip, sessionId: string): HTMLElement {
+function createUnlinkableChip(chip: PrSignal, sessionId: string): HTMLElement {
+  const chipLink = createSignal(chip, { className: chip.className, linkUrl: chip.url, onActivate: chip.onActivate });
+  chipLink.setAttribute('aria-label', `Open pull request ${chip.key}`);
   const unlinkButton = el('button', 'session-pr-chip-unlink', String.fromCharCode(0xd7));
   unlinkButton.type = 'button';
   unlinkButton.title = `Unlink ${chip.key} from this session`;
@@ -107,30 +109,21 @@ function createUnlinkableChip(chip: SessionPrChip, sessionId: string): HTMLEleme
     sendControlMsg({ type: 'unlink-session-pr', id: sessionId, key: chip.key });
   });
   const chipItem = el('span', 'session-pr-chip-item');
-  chipItem.append(createChip(chip, false), unlinkButton);
+  chipItem.append(chipLink, unlinkButton);
   return chipItem;
 }
 
 export function paintSessionPrChips(slot: HTMLElement, sessionId: string): void {
-  const revision = String(paintRevision);
-  if (slot.dataset.prChipsFor === sessionId && slot.dataset.prChipsRevision === revision) return;
   slot.dataset.prChipsFor = sessionId;
-  slot.dataset.prChipsRevision = revision;
-  const ranked = rankSignals(sessionPrSignals(linksBySessionId.get(sessionId) ?? [], prsByKey));
-  const isInsideButton = slot.closest('button') !== null;
-  const chipElements = ranked.visible.map((chip) => isInsideButton ? createChip(chip, true) : createUnlinkableChip(chip, sessionId));
-  const overflow = createSignalOverflow(ranked);
-  if (overflow) chipElements.push(overflow);
-  slot.hidden = chipElements.length === 0;
-  slot.replaceChildren(...chipElements);
+  paintSignalLine(slot, sessionRowPrSignals(sessionId), (chip) => createUnlinkableChip(chip, sessionId));
 }
 
 function repaintSlots(slots: Iterable<HTMLElement>): void {
-  paintRevision += 1;
   for (const slot of slots) {
     const sessionId = slot.dataset.prChipsFor;
     if (sessionId) paintSessionPrChips(slot, sessionId);
   }
+  repaintSessionRowSignals();
 }
 
 export function setSessionLinkedPrs(sessionId: string, linkedPrs: unknown): void {

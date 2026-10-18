@@ -39,3 +39,7 @@ export function rankSignals<Ranked extends Signal>(signals: readonly Ranked[]): 
     overflowHoverText: hidden.map((signal) => `${signal.text} ${signal.hoverText}`).join('\n'),
   };
 }
+
+export function signalsSignature(signals: readonly Signal[]): string {
+  return signals.map((signal) => [signal.key, signal.text, signal.hoverText, signal.look?.icon, signal.look?.tone, signal.tier].join('|')).join('\n');
+}

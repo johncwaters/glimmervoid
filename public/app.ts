@@ -14,7 +14,7 @@ import { checkControlLiveness, connectControl, onControlMessage, sendControlMsg,
 import { createAddSessionDialog } from './dialogs.ts';
 import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
-import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, buildSessionCoherenceLine, forgetSessionCoherence, paintSessionCoherenceLine, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
+import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, forgetSessionCoherence, isSessionJournalReadable, openCoherenceJournal, sessionRowCoherenceSignals, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
 import { applyProjectCoherenceTrend, applyProjectCoherenceTrendSnapshot, forgetCoherenceTrendProject, noteCoherenceTrendProject, setCoherenceTrendProjects } from './coherence/trend-chip.ts';
 import { abandonPendingCoherenceChecks, applyProjectCoherenceCheckResponse } from './coherence/check-action.ts';
 import { applyProjectCoherenceAdoptResponse, applyProjectCoherenceStatus, buildProjectCoherenceAction, paintProjectHeaderCoherenceAction, setCoherenceAdoptFactoryProjects, setProjectCoherenceAdoptEnabled, setProjectCoherenceAdoptRefresh } from './coherence/adopt-action.ts';
@@ -35,8 +35,8 @@ import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShe
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-panel.ts';
-import { forgetSessionLinkedPrs, paintSessionPrChips, refreshSessionPrChipStages, setSessionLinkedPrs } from './github/session-pr-chips.ts';
-import { setSessionRowCoherenceLinePainter, setSessionRowPrChipsPainter } from './session-row.ts';
+import { forgetSessionLinkedPrs, paintSessionPrChips, refreshSessionPrChipStages, sessionRowPrSignals, setSessionLinkedPrs } from './github/session-pr-chips.ts';
+import { addSessionRowSignalSource } from './session-row.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
 import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryState, refreshFactoryCoherenceTrends, setFactoryRequestSender } from './factory/factory-view.ts';
@@ -45,7 +45,7 @@ import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, a
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from './radar/radar-core.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from './radar/radar-panel.ts';
-import { handleDebugStateRefresh, handleDebugStateResponse, setCardPrChipsPainter, setSessionSaneYolo } from './session-card/card-dom.ts';
+import { handleDebugStateRefresh, handleDebugStateResponse, setCardCoherenceJournal, setCardPrChipsPainter, setSessionSaneYolo } from './session-card/card-dom.ts';
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
@@ -65,10 +65,10 @@ import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
 import { mountStreamerToggle, onStreamerModeChanged, setStreamerMode, toggleStreamerMode } from './streamer-mode.ts';
 import { mountStreamerTextMask } from './streamer-text-mask.ts';
-import { applyCompactStatusLabels, applyPhoneArrowPad, applySessionUsageChips, applyTheme } from './theme.ts';
+import { applyPhoneArrowPad, applySessionUsageChips, applyTheme } from './theme.ts';
 import { applyTraceChanged, applyTraceError, applyTraceResponse, setTraceNavigate, setTraceRequestSender, setTraceSessions } from './trace-panel.ts';
 import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
-import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isCompactStatusLabels, isFlyingAnimalsEnabled, isPhoneArrowPad, isSessionUsageChips, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setTelemetryNoticeDismissed } from './ui-prefs.ts';
+import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isFlyingAnimalsEnabled, isPhoneArrowPad, isSessionUsageChips, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';
 import { updateBanner } from './updates-view-core.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
@@ -80,7 +80,6 @@ import { refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings 
 import type { ViewRefreshReason } from './view-registry-core.ts';
 
 applyTheme(getThemeId());
-applyCompactStatusLabels(isCompactStatusLabels());
 applySessionUsageChips(isSessionUsageChips());
 applyPhoneArrowPad(isPhoneArrowPad());
 applyFlyingAnimals(isFlyingAnimalsEnabled());
@@ -354,8 +353,9 @@ setIssuesRequestSender(sendControlMsg);
 setBenchmarkRequestSender(sendControlMsg);
 setFactoryRequestSender(sendControlMsg);
 setCardPrChipsPainter(paintSessionPrChips);
-setSessionRowPrChipsPainter(paintSessionPrChips);
-setSessionRowCoherenceLinePainter({ build: buildSessionCoherenceLine, paint: paintSessionCoherenceLine });
+addSessionRowSignalSource(sessionRowCoherenceSignals);
+addSessionRowSignalSource(sessionRowPrSignals);
+setCardCoherenceJournal({ isReadable: isSessionJournalReadable, open: openCoherenceJournal });
 setProjectCoherenceAdoptRefresh(refreshRosterAndAttentionSurfaces);
 setProjectHeaderCoherencePainter({ build: buildProjectCoherenceAction, paint: paintProjectHeaderCoherenceAction });
 

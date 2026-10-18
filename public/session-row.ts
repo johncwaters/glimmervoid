@@ -1,24 +1,41 @@
-import { el, MERGE_TAGS, query, stateChip } from './dom-helpers.ts';
+import { el, query, stateChip } from './dom-helpers.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionElapsedText } from './session-card/session-tick.ts';
+import { SIGNAL_TIER } from './signal-core.ts';
+import type { Signal } from './signal-core.ts';
+import { paintSignalLine } from './signal.ts';
+import type { ActivatableSignal } from './signal.ts';
 
 export type SessionRowRefs = ReturnType<typeof buildSessionRow>['refs'];
-type PrChipsPainter = (slot: HTMLElement, sessionId: string) => void;
-let paintSessionRowPrChips: PrChipsPainter | null = null;
-interface CoherenceLinePainter {
-  build: (sessionId: string) => HTMLElement;
-  paint: (row: HTMLElement) => void;
-}
-let sessionRowCoherenceLine: CoherenceLinePainter | null = null;
+type SessionRowSignalSource = (sessionId: string) => ActivatableSignal[];
+const sessionRowSignalSources: SessionRowSignalSource[] = [];
 
 const PLAN_PROMPT_KIND = 'plan';
 
-export function setSessionRowPrChipsPainter(painter: PrChipsPainter) {
-  paintSessionRowPrChips = painter;
+const MERGE_SIGNALS: Readonly<Record<string, Omit<Signal, 'key'>>> = {
+  parked: { text: 'PARKED', hoverText: 'Merge parked', look: { icon: 'failed', tone: 'danger' }, tier: SIGNAL_TIER.broken },
+  merging: { text: 'MERGING', hoverText: 'Merging', look: { icon: 'queued', tone: 'wait' }, tier: SIGNAL_TIER.waiting },
+};
+
+export function addSessionRowSignalSource(source: SessionRowSignalSource) {
+  sessionRowSignalSources.push(source);
 }
 
-export function setSessionRowCoherenceLinePainter(painter: CoherenceLinePainter) {
-  sessionRowCoherenceLine = painter;
+function mergeSignals(mergeStatus: string): ActivatableSignal[] {
+  const mergeSignal = MERGE_SIGNALS[mergeStatus];
+  return mergeSignal ? [{ ...mergeSignal, key: 'merge' }] : [];
+}
+
+function paintSessionRowSignals(slot: HTMLElement) {
+  const row = slot.closest<HTMLElement>('.session-row');
+  const sessionId = row?.dataset.id;
+  if (!row || !sessionId) return;
+  const signals = [...mergeSignals(row.dataset.merge ?? ''), ...sessionRowSignalSources.flatMap((source) => source(sessionId))];
+  paintSignalLine(slot, signals);
+}
+
+export function repaintSessionRowSignals() {
+  for (const slot of document.querySelectorAll<HTMLElement>('.session-row-signals')) paintSessionRowSignals(slot);
 }
 
 export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extraClassName = '') {
@@ -27,16 +44,15 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
     + '<span class="session-row-main">'
     + '<span class="session-row-name"></span>'
     + '<span class="session-row-meta">'
-    + '<span class="session-row-label"></span><span class="session-row-merge"></span>'
-    + '<span class="session-pr-chips session-row-prs" hidden></span>'
+    + '<span class="session-row-label"></span>'
+    + '<span class="session-row-signals" hidden></span>'
     + '</span></span>'
     + '<span class="session-row-elapsed" aria-hidden="true"></span>';
   const refs = {
     glyph: query(row, '.session-row-glyph'),
     label: query(row, '.session-row-label'),
     name: query(row, '.session-row-name'),
-    merge: query(row, '.session-row-merge'),
-    prs: query(row, '.session-row-prs'),
+    signals: query(row, '.session-row-signals'),
     elapsed: query(row, '.session-row-elapsed'),
   };
   return { row, refs };
@@ -53,13 +69,12 @@ export function wrapSessionRow(row: HTMLElement, onRemove: () => void) {
     onRemove();
   });
   item.append(row, removeButton);
-  if (sessionRowCoherenceLine) item.append(sessionRowCoherenceLine.build(row.dataset.id ?? ''));
   return { item, removeButton };
 }
 
 export function paintSessionRowStatus(
   row: HTMLElement,
-  refs: Pick<SessionRowRefs, 'glyph' | 'label'> & Partial<Pick<SessionRowRefs, 'prs'>>,
+  refs: Pick<SessionRowRefs, 'glyph' | 'label'>,
   state: string,
   awaitingBackgroundTasks = false,
   pendingPromptKind: string | null = null,
@@ -71,7 +86,6 @@ export function paintSessionRowStatus(
   row.toggleAttribute('data-monitoring', isMonitoring);
   refs.glyph.textContent = glyph;
   refs.label.textContent = statusLabel;
-  if (refs.prs && row.dataset.id) paintSessionRowPrChips?.(refs.prs, row.dataset.id);
   return statusLabel;
 }
 
@@ -82,13 +96,11 @@ export function paintSessionRow(
 ) {
   row.toggleAttribute('data-unseen', unseen);
   const statusLabel = paintSessionRowStatus(row, refs, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
-  refs.name.textContent = name;
-  refs.name.append(el('span', 'session-list-task-title', ui.taskTitle ?? ''));
+  refs.name.textContent = ui.taskTitle || name;
   row.dataset.merge = mergeStatus;
-  refs.merge.textContent = MERGE_TAGS[mergeStatus] || '';
+  paintSessionRowSignals(refs.signals);
   row.dataset.activity = ui._activity || '';
   refs.elapsed.textContent = sessionElapsedText(ui);
-  sessionRowCoherenceLine?.paint(row);
   const accessibleLabel = [name, ui.taskTitle, statusLabel].filter(Boolean).join(', ');
   row.setAttribute('aria-label', accessibleLabel);
   row.title = accessibleLabel;

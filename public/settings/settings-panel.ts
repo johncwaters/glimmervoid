@@ -1,4 +1,3 @@
-import { renderCompactStatusPreview } from '../compact-status-preview.ts';
 import { renderFlyingAnimalsGallery } from '../flying-animals-gallery.ts';
 import { isPhoneLayout, onLayoutChange } from '../form-factor.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';
@@ -53,7 +52,7 @@ import { isStreamerMode, onStreamerModeChanged, saveStreamerMode } from '../stre
 import { shortcutGroupsFor } from '../shortcuts-core.ts';
 import { renderPrStatusLegend, renderStatusLegend } from '../status-legend.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
-import { applyCompactStatusLabels, applyPhoneArrowPad, applySessionUsageChips, applyTheme, getThemeList } from '../theme.ts';
+import { applyPhoneArrowPad, applySessionUsageChips, applyTheme, getThemeList } from '../theme.ts';
 import {
   isFlyingAnimalsEnabled,
   getFlyingAnimalsEnteredValues,
@@ -67,12 +66,10 @@ import {
   getSoundId,
   getThemeId,
   isNotificationsEnabled,
-  isCompactStatusLabels,
   isSessionUsageChips,
   isPhoneArrowPad,
   setPhoneArrowPad,
   isSoundEnabled,
-  setCompactStatusLabels,
   setSessionUsageChips,
   setFlyingAnimalsEnabled,
   setNotificationsEnabled,
@@ -173,7 +170,6 @@ function browserPreferences() {
     soundEnabled: isSoundEnabled(),
     soundId: resolveSoundId(getSoundId()),
     notificationsEnabled: isNotificationsEnabled(),
-    compactStatusLabels: isCompactStatusLabels(),
     sessionUsageChips: isSessionUsageChips(),
     phoneArrowPad: isPhoneArrowPad(),
   };
@@ -279,11 +275,6 @@ const FLYING_ANIMALS_PREFERENCE_WRITERS: Record<string, (value: unknown) => void
 };
 
 function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
-  if (setting.path === 'pref:compactStatusLabels') {
-    setCompactStatusLabels(value === true);
-    applyCompactStatusLabels(value === true);
-    return;
-  }
   if (setting.path === 'pref:sessionUsageChips') {
     setSessionUsageChips(value === true);
     applySessionUsageChips(value === true);
@@ -1041,7 +1032,6 @@ function renderRow(setting: SettingsSetting) {
   control.appendChild(renderControl(setting));
   if (setting.control !== 'readonly') control.appendChild(renderControlFoot(setting));
   article.append(text, control);
-  if (setting.id === 'compact-status') article.appendChild(renderCompactStatusPreview());
   if (shouldShowDangerWarning(setting, storedValue(setting))) article.appendChild(el('div', 'settings-view-warning settings-warning', setting.warning));
   const statusSlot = buildStatusSlot(setting);
   if (statusSlot) article.appendChild(statusSlot);

@@ -4,7 +4,8 @@ import type { CoherenceHooksState } from '#shared/contracts/session.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { openCoherencePanelShell } from './coherence-panel-shell.ts';
-import { coherenceRowLine, formatCoherenceReading, formatJournalEntry } from './journal-core.ts';
+import type { ActivatableSignal } from '../signal.ts';
+import { coherenceRowSignals, formatCoherenceReading, formatJournalEntry } from './journal-core.ts';
 
 const coherenceBySessionId = new Map<string, SessionCoherence>();
 const hooksBySessionId = new Map<string, CoherenceHooksState>();
@@ -46,27 +47,13 @@ export function applySessionCoherenceSnapshot(message: ServerMessageOf<'session-
   if (openDrawer) paintOpenReading(openDrawer.sessionId);
 }
 
-export function buildSessionCoherenceLine(sessionId: string) {
-  const line = el('div', 'coherence-row-line');
-  const button = el('button', 'coherence-journal-button', 'Journal');
-  button.type = 'button';
-  button.setAttribute('aria-haspopup', 'dialog');
-  button.addEventListener('click', () => openCoherenceJournal(sessionId));
-  line.append(button, el('span', 'coherence-row-summary'));
-  line.hidden = true;
-  return line;
+export function sessionRowCoherenceSignals(sessionId: string): ActivatableSignal[] {
+  const signals = coherenceRowSignals(hooksBySessionId.get(sessionId) ?? null, coherenceBySessionId.get(sessionId) ?? null);
+  return signals.map((signal) => ({ ...signal, onActivate: () => openCoherenceJournal(sessionId) }));
 }
 
-export function paintSessionCoherenceLine(row: HTMLElement) {
-  const sessionId = row.dataset.id;
-  const line = row.parentElement?.querySelector<HTMLElement>('.coherence-row-line');
-  if (!sessionId || !line) return;
-  const hooks = hooksBySessionId.get(sessionId) ?? null;
-  const coherence = coherenceBySessionId.get(sessionId) ?? null;
-  const summaryText = coherenceRowLine(hooks, coherence);
-  line.hidden = summaryText === null && coherence?.journal.ok !== true;
-  const summary = line.querySelector('.coherence-row-summary');
-  if (summary) summary.textContent = summaryText ?? '';
+export function isSessionJournalReadable(sessionId: string): boolean {
+  return coherenceBySessionId.get(sessionId)?.journal.ok === true;
 }
 
 function paintOpenReading(sessionId: string) {
@@ -76,7 +63,7 @@ function paintOpenReading(sessionId: string) {
   if (reading.command) openDrawer.reading.append(el('pre', 'coherence-command', reading.command));
 }
 
-function openCoherenceJournal(sessionId: string) {
+export function openCoherenceJournal(sessionId: string) {
   openDrawer?.close();
   const requestId = nextRequestId('coherence-journal');
   const reading = el('div', 'coherence-journal-reading');

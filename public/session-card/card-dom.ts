@@ -37,6 +37,16 @@ export function setCardPrChipsPainter(painter: PrChipsPainter) {
   paintCardPrChips = painter;
 }
 
+interface CardCoherenceJournal {
+  isReadable: (sessionId: string) => boolean;
+  open: (sessionId: string) => void;
+}
+let cardCoherenceJournal: CardCoherenceJournal | null = null;
+
+export function setCardCoherenceJournal(journal: CardCoherenceJournal) {
+  cardCoherenceJournal = journal;
+}
+
 interface TagBadgeSpec {
   cls: string;
   text?: string;
@@ -145,7 +155,17 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnRestartMenu.setAttribute('aria-expanded', 'false');
     openLinkPullRequestDialog(sessionId);
   };
-  restartMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnLinkPr);
+  const btnCoherenceJournal = buildRestartMenuItem('Coherence journal', 'Decisions and notes this session recorded', 'overflow-coherence-journal');
+  btnCoherenceJournal.setAttribute('aria-haspopup', 'dialog');
+  const paintCoherenceJournalItem = () => btnCoherenceJournal.classList.toggle('visible', cardCoherenceJournal?.isReadable(sessionId) === true);
+  btnRestartMenu.onclick = paintCoherenceJournalItem;
+  btnRestartMenu.onkeydown = paintCoherenceJournalItem;
+  btnCoherenceJournal.onclick = () => {
+    restartMenu.classList.remove('open');
+    btnRestartMenu.setAttribute('aria-expanded', 'false');
+    cardCoherenceJournal?.open(sessionId);
+  };
+  restartMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnCoherenceJournal, btnLinkPr);
   restartMenuWrap.append(btnRestartMenu, restartMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug', '\u2699');
