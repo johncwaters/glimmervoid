@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { hasTrackedSymlink, judgeCoherenceConfig, newRedundancyPairs, parseRedundancyPairs, renderCoherenceSection } from '../server/github/core/team-review-coherence-core.ts';
+import { hasTrackedSymlink, newRedundancyPairs, parseRedundancyPairs, renderCoherenceSection } from '../server/github/core/team-review-coherence-core.ts';
+import { judgeCoherenceConfig } from '../server/core/coherence-config-core.ts';
 import {
   advanceAwakeElapsed,
   AUTOMATED_REVIEW_NOTE,

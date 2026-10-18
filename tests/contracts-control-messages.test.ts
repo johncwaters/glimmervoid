@@ -162,6 +162,13 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-docs-snapshot', sessions: { 'session-1': [{ path: '/repo/drafts/post.md', name: 'drafts/post.md', surfacedAt: NOW }] } },
   { type: 'session-doc-response', requestId: 'session-doc-read-1', id: 'session-1', path: '/repo/drafts/post.md', ok: true, text: '# Draft', hash: 'abc' },
   { type: 'session-doc-save-result', requestId: 'session-doc-save-1', id: 'session-1', path: '/repo/drafts/post.md', ok: false, conflict: true, error: 'the file changed on disk since it was opened, so reload it before saving' },
+  {
+    type: 'session-coherence', id: 'session-1', updatedAt: NOW,
+    journal: { ok: true, latest: { id: 'd-f16808ad', at: '2026-10-17T10:00:00.000Z', kind: 'decision', text: 'use plain files', detail: 'simplest', supersedes: null } },
+    regulation: { ok: true, nextAction: { action: 'refuse', rule: 'canonical-lifecycle-control', evidence: 'lifecycle target is missing', remedy: null, command: null, remaining: 0 } },
+  },
+  { type: 'session-coherence-snapshot', sessions: { 'session-1': { journal: { ok: false, reason: 'the Coherence journal is not a regular file' }, regulation: { ok: false, reason: 'coherence regulate timed out' }, updatedAt: NOW } } },
+  { type: 'session-coherence-journal-response', requestId: 'r-journal', id: 'session-1', ok: true, entries: [{ id: 'def-0123456789ab', at: '2026-10-17T10:05:00.000Z', kind: 'defect', text: 'flaky socket test', detail: null, supersedes: null }] },
   { type: 'notify', session: 'session-1', category: 'complete', message: 'finished', escalationCount: 0 },
   {
     type: 'update-status', updateAvailable: true, current: '0.23.1', latest: '0.24.0', currentSha: null,

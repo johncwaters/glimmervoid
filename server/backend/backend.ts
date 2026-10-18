@@ -48,6 +48,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { bundled, packageRoot } from '../runtime-paths.ts';
 import { createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
+import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir } from '../core/config-path-core.ts';
 import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
@@ -200,6 +201,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   } = webSockets;
   broadcastControl = broadcastControlFromWebSockets;
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
+  const coherenceFeed = createCoherenceSessionFeed({ broadcastControl: broadcastControlFromWebSockets, getConfig: () => configStore.config });
 
   const sessions = new Map<string, Session>();
   const agentSessions = new Map<string, Session>();
@@ -312,6 +314,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     tapIngestForSession,
     traceWiring,
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
+    coherenceFeed,
     planReview: laneAssembly.planReview,
     closeSessionDataClients,
     telemetry,
@@ -529,6 +532,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     readPlanRevision: laneAssembly.planReview?.readPlanRevision ?? null,
     decidePlanReview: laneAssembly.planReview?.decide ?? null,
     sessionDocs,
+    coherenceFeed,
     changeMapNarrator: laneAssembly.changeMapNarrator,
     serverBuild: () => serverBuild,
     telemetry,

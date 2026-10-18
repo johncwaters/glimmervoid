@@ -1,6 +1,3 @@
-const COHERENCE_CONFIG_FILENAME = 'coherence.config.json';
-const COHERENCE_CONFIG_MAX_BYTES = 256 * 1024;
-const BUILTIN_LANGUAGE_NAME = /^[a-z0-9-]+$/;
 const TRACKED_SYMLINK_MODE = '120000 ';
 const SECTION_MAX_CHARS = 1500;
 const MAX_LISTED_PAIRS = 5;
@@ -17,15 +14,6 @@ const SIGNAL_CHANGED_FILES = /(\d+) changed file\(s\)/;
 const SIGNAL_SURFACE = /surface \+(\d+) exports \/ \+(\d+) variants \/ \+(\d+) LOC/;
 const SIGNAL_ANCHORS = /anchors \+(\d+)/;
 const SIGNAL_COMPONENTS = /components \+(\d+)/;
-
-type CoherenceConfigEntry =
-  | { kind: 'missing' }
-  | { kind: 'symlink' }
-  | { kind: 'not-a-file' }
-  | { kind: 'too-large' }
-  | { kind: 'file'; text: string };
-
-type CoherenceConfigVerdict = { ok: true } | { ok: false; reason: string };
 
 type ChangeSignalState = 'quiet' | 'anchored' | 'attested' | 'needs-decision';
 
@@ -66,28 +54,6 @@ const SIGNAL_STATE_SENTENCES: Record<ChangeSignalState, string> = {
   attested: 'A no-new-invariant decision is recorded for this patch.',
   'needs-decision': 'Significant behavioral surface arrives with no new invariant, boundary or parity anchor.',
 };
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function judgeCoherenceConfig(entry: CoherenceConfigEntry): CoherenceConfigVerdict {
-  if (entry.kind === 'missing') return { ok: false, reason: `the checkout has no ${COHERENCE_CONFIG_FILENAME}` };
-  if (entry.kind === 'symlink') return { ok: false, reason: `${COHERENCE_CONFIG_FILENAME} is a symlink` };
-  if (entry.kind === 'not-a-file') return { ok: false, reason: `${COHERENCE_CONFIG_FILENAME} is not a regular file` };
-  if (entry.kind === 'too-large') return { ok: false, reason: `${COHERENCE_CONFIG_FILENAME} is larger than ${COHERENCE_CONFIG_MAX_BYTES} bytes` };
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(entry.text);
-  } catch {
-    return { ok: false, reason: `${COHERENCE_CONFIG_FILENAME} is not valid JSON` };
-  }
-  if (!isPlainObject(parsed)) return { ok: false, reason: `${COHERENCE_CONFIG_FILENAME} is not a JSON object` };
-  const language = parsed.language;
-  if (language === undefined) return { ok: true };
-  if (typeof language === 'string' && BUILTIN_LANGUAGE_NAME.test(language)) return { ok: true };
-  return { ok: false, reason: `${COHERENCE_CONFIG_FILENAME} names a language module instead of a built-in language` };
-}
 
 function hasTrackedSymlink(lsTreeNulSeparated: string): boolean {
   return lsTreeNulSeparated.split('\0').some((entry) => entry.startsWith(TRACKED_SYMLINK_MODE));
@@ -214,5 +180,5 @@ function renderCoherenceSection(reading: CoherenceReading): string {
   return lines.join('\n');
 }
 
-export { COHERENCE_CONFIG_FILENAME, COHERENCE_CONFIG_MAX_BYTES, hasTrackedSymlink, judgeCoherenceConfig, newRedundancyPairs, parseChangeSignal, parseRedundancyPairs, renderCoherenceSection };
-export type { CoherenceConfigEntry, CoherenceReading };
+export { hasTrackedSymlink, newRedundancyPairs, parseChangeSignal, parseRedundancyPairs, renderCoherenceSection };
+export type { CoherenceReading };

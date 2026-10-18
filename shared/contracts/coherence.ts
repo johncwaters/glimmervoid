@@ -124,3 +124,69 @@ export const CoherenceWorkCreated = z.looseObject({
 });
 
 export const CoherenceTicketCreated = CoherenceWorkCreated.extend({ parent: z.string().regex(/^wrk-[a-f0-9]{16}$/) });
+
+export const COHERENCE_JOURNAL_TEXT_MAX_CHARS = 280;
+export const COHERENCE_JOURNAL_DRAWER_MAX_ROWS = 200;
+const COHERENCE_FEED_REASON_MAX_CHARS = 200;
+const COHERENCE_ENTRY_ID_MAX_CHARS = 64;
+
+export const CoherenceJournalKind = z.enum([
+  'session', 'decision', 'blocked', 'retraction', 'conjecture', 'resolution', 'dismissal', 'defect',
+]);
+export type CoherenceJournalKind = z.infer<typeof CoherenceJournalKind>;
+
+export const CoherenceJournalEntry = z.strictObject({
+  id: z.string().min(1).max(COHERENCE_ENTRY_ID_MAX_CHARS),
+  at: z.iso.datetime(),
+  kind: CoherenceJournalKind,
+  text: z.string().max(COHERENCE_JOURNAL_TEXT_MAX_CHARS),
+  detail: z.string().max(COHERENCE_JOURNAL_TEXT_MAX_CHARS).nullable(),
+  supersedes: z.string().max(COHERENCE_ENTRY_ID_MAX_CHARS).nullable(),
+});
+export type CoherenceJournalEntry = z.infer<typeof CoherenceJournalEntry>;
+
+export const CoherenceRegulateOutput = z.looseObject({
+  doctrine: z.string(),
+  id: z.string(),
+  action: z.enum(['release', 'refuse', 'require-decision', 'redirect']),
+  host: z.enum(['claude', 'codex']),
+  selected: z.looseObject({
+    rule: z.string(),
+    evidence: z.string(),
+    remedy: z.string().optional(),
+    command: z.looseObject({ name: z.string(), args: z.array(z.string()) }).optional(),
+  }).optional(),
+  remaining: z.number().int().nonnegative(),
+});
+export type CoherenceRegulateOutput = z.infer<typeof CoherenceRegulateOutput>;
+
+export const CoherenceNextAction = z.strictObject({
+  action: CoherenceRegulateOutput.shape.action,
+  rule: z.string().max(COHERENCE_JOURNAL_TEXT_MAX_CHARS).nullable(),
+  evidence: z.string().max(COHERENCE_JOURNAL_TEXT_MAX_CHARS).nullable(),
+  remedy: z.string().max(COHERENCE_JOURNAL_TEXT_MAX_CHARS).nullable(),
+  command: z.string().max(COHERENCE_JOURNAL_TEXT_MAX_CHARS).nullable(),
+  remaining: z.number().int().nonnegative(),
+});
+export type CoherenceNextAction = z.infer<typeof CoherenceNextAction>;
+
+const CoherenceUnavailable = z.strictObject({ ok: z.literal(false), reason: z.string().min(1).max(COHERENCE_FEED_REASON_MAX_CHARS) });
+
+export const CoherenceJournalReading = z.discriminatedUnion('ok', [
+  z.strictObject({ ok: z.literal(true), latest: CoherenceJournalEntry.nullable() }),
+  CoherenceUnavailable,
+]);
+export type CoherenceJournalReading = z.infer<typeof CoherenceJournalReading>;
+
+export const CoherenceRegulationReading = z.discriminatedUnion('ok', [
+  z.strictObject({ ok: z.literal(true), nextAction: CoherenceNextAction }),
+  CoherenceUnavailable,
+]);
+export type CoherenceRegulationReading = z.infer<typeof CoherenceRegulationReading>;
+
+export const SessionCoherence = z.strictObject({
+  journal: CoherenceJournalReading,
+  regulation: CoherenceRegulationReading,
+  updatedAt: z.number().finite(),
+});
+export type SessionCoherence = z.infer<typeof SessionCoherence>;

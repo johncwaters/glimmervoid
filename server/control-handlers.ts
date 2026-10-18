@@ -59,6 +59,7 @@ import type { UpdateStatus } from './backend/backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
+import type { CoherenceSessionFeed } from './coherence/coherence-session-feed.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import { createChangeMapService } from './change-map/change-map-wiring.ts';
 import type { ChangeMapNarrator } from './change-map/change-map-wiring.ts';
@@ -155,6 +156,7 @@ interface ControlHandlerDeps {
   readPlanRevision?: ((sessionId: string, request: PlanReadRequest) => Promise<PlanReadResult | null>) | null;
   decidePlanReview?: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs?: SessionDocsPort | null;
+  coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   telemetry?: Pick<Telemetry, 'captureException' | 'captureClientError'> | null;
 }
 
@@ -270,6 +272,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'send-diff-annotations': () => ({ type: 'send-diff-annotations-result', requestId, ok: false, error: message }),
     'session-doc-read': () => ({ type: 'session-doc-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
     'session-doc-save': () => ({ type: 'session-doc-save-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
+    'session-coherence-journal': () => ({ type: 'session-coherence-journal-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, entries: [], error: message }),
   };
   const requestType = typeof msg?.type === 'string' ? msg.type : '';
   if (Object.hasOwn(builders, requestType)) return builders[requestType]();
@@ -358,6 +361,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     readPlanRevision = null,
     decidePlanReview = null,
     sessionDocs = null,
+    coherenceFeed = null,
     changeMapNarrator = null,
   } = deps;
 
@@ -1487,6 +1491,14 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       } catch (error) {
         ws.send(JSON.stringify({ ...reply, ok: false, error: `Read failed: ${errorMessage(error)}` }));
       }
+    },
+    'session-coherence-journal': async (message: ClientMessageOf<'session-coherence-journal'>, ws: ControlSocket) => {
+      const reply = { type: 'session-coherence-journal-response', requestId: message.requestId ?? null, id: message.id };
+      const session = findSession(message);
+      if (!coherenceFeed || !session) return ws.send(JSON.stringify({ ...reply, ok: false, entries: [], error: 'Session not found' }));
+      const journal = await coherenceFeed.readJournal(session);
+      if (!journal.ok) return ws.send(JSON.stringify({ ...reply, ok: false, entries: [], error: journal.error }));
+      ws.send(JSON.stringify({ ...reply, ok: true, entries: journal.entries }));
     },
     'session-doc-save': async (message: ClientMessageOf<'session-doc-save'>, ws: ControlSocket) => {
       const reply = { type: 'session-doc-save-result', requestId: message.requestId ?? null, id: message.id, path: message.path };

@@ -49,6 +49,7 @@ interface SessionEventDependencies {
   tapIngestForSession: (session: Session) => void;
   closeSessionDataClients: (id: string) => void;
   taskTitleRefiner?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
+  coherenceFeed?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
   traceWiring?: { attachSession: (session: Session) => void } | null;
   planReview?: {
     attachSession: (session: Session) => void;
@@ -107,6 +108,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
   return function wireSessionEvents(session: Session): void {
     dependencies.traceWiring?.attachSession(session);
     dependencies.taskTitleRefiner?.attachSession(session);
+    dependencies.coherenceFeed?.attachSession(session);
     dependencies.planReview?.attachSession(session);
     let postTurnDebounce: NodeJS.Timeout | null = null;
     let pendingPromptKind: string | null = null;
@@ -231,7 +233,10 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       event: string;
       detail: { signal?: string | null; isIdleCompactionActivity?: boolean } | null;
     }) => {
-      if (to === STATES.IDLE || to === STATES.COMPLETE) dependencies.taskTitleRefiner?.onTurnEnd(session);
+      if (to === STATES.IDLE || to === STATES.COMPLETE) {
+        dependencies.taskTitleRefiner?.onTurnEnd(session);
+        dependencies.coherenceFeed?.onTurnEnd(session);
+      }
       if (event === 'spawn_success') {
         spawnedAtMs = Date.now();
         dependencies.telemetry?.capture('session_started', { adapter: adapterBucket(session.agentId) });

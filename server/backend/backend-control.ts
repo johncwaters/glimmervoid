@@ -21,6 +21,7 @@ import type { TracePage, TracePageRequest } from '../trace-wiring.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
+import type { CoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -88,6 +89,7 @@ interface BackendControlDependencies {
   ) => Promise<PlanReadResult | null>) | null;
   decidePlanReview: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs: SessionDocsPort;
+  coherenceFeed: CoherenceSessionFeed;
   changeMapNarrator: ChangeMapNarrator | null;
   serverBuild: () => string;
   telemetry: Pick<Telemetry, 'captureException' | 'captureClientError'>;
@@ -160,6 +162,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     readPlanRevision: dependencies.readPlanRevision,
     decidePlanReview: dependencies.decidePlanReview,
     sessionDocs: dependencies.sessionDocs,
+    coherenceFeed: dependencies.coherenceFeed,
     changeMapNarrator: dependencies.changeMapNarrator,
   });
 
@@ -184,6 +187,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
   sendLaneSnapshotOnConnect('visions', laneAssembly.currentVisions, false);
   sendLaneSnapshotOnConnect('ingest', laneAssembly.currentIngest, true);
   sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs, false);
+  sendLaneSnapshotOnConnect('coherence-feed', () => dependencies.coherenceFeed, false);
 }
 
 export { createBackendControl };

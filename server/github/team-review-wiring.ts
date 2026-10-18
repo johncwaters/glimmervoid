@@ -27,7 +27,9 @@ import type { LocalCoherenceJournals } from '../coherence/coherence-journal-stor
 import { coherenceJournalStoreKey } from '../core/coherence-session-core.ts';
 import { createCoherenceRuntime } from '../coherence/coherence-runtime.ts';
 import * as coherenceCore from './core/team-review-coherence-core.ts';
-import type { CoherenceConfigEntry, CoherenceReading } from './core/team-review-coherence-core.ts';
+import type { CoherenceReading } from './core/team-review-coherence-core.ts';
+import { COHERENCE_CONFIG_FILENAME, judgeCoherenceConfig, unreadableConfigEntry } from '../core/coherence-config-core.ts';
+import type { CoherenceConfigEntry } from '../core/coherence-config-core.ts';
 import { runHardenedGit } from '../git/git-workspace.ts';
 import { GLIMMERVOID_SECRET_KEYS } from '../../session/core/spawn-env.ts';
 import type { UserHook } from '../../session/core/user-hooks-core.ts';
@@ -371,16 +373,12 @@ async function pathExists(candidatePath: string): Promise<boolean> {
 }
 
 async function readCheckoutCoherenceConfig(checkoutPath: string): Promise<CoherenceConfigEntry> {
-  const configPath = path.join(checkoutPath, coherenceCore.COHERENCE_CONFIG_FILENAME);
+  const configPath = path.join(checkoutPath, COHERENCE_CONFIG_FILENAME);
   const entry = await fs.lstat(configPath).catch((error: unknown) => {
     if (isMissingFileError(error)) return null;
     throw error;
   });
-  if (!entry) return { kind: 'missing' };
-  if (entry.isSymbolicLink()) return { kind: 'symlink' };
-  if (!entry.isFile()) return { kind: 'not-a-file' };
-  if (entry.size > coherenceCore.COHERENCE_CONFIG_MAX_BYTES) return { kind: 'too-large' };
-  return { kind: 'file', text: await fs.readFile(configPath, 'utf8') };
+  return unreadableConfigEntry(entry) ?? { kind: 'file', text: await fs.readFile(configPath, 'utf8') };
 }
 
 function coherenceReadingEnv(workDir: string, tmpDir: string): NodeJS.ProcessEnv {
@@ -421,7 +419,7 @@ async function readStagedCoherence({ run, headPath, basePath, mergeBase, workDir
   const baseConfig = await readCheckoutCoherenceConfig(basePath);
   const hasBaseConfig = baseConfig.kind !== 'missing';
   if (hasBaseConfig) {
-    const baseVerdict = coherenceCore.judgeCoherenceConfig(baseConfig);
+    const baseVerdict = judgeCoherenceConfig(baseConfig);
     if (!baseVerdict.ok) return { ok: false, reason: `at the base, ${baseVerdict.reason}` };
   }
   const tmpDir = path.join(workDir, COHERENCE_TMP_DIRNAME);
@@ -578,7 +576,7 @@ function createTeamReviewDispatcher({
   }): Promise<CoherenceReading | null> {
     const headConfig = await readCheckoutCoherenceConfig(checkout.worktreePath);
     if (headConfig.kind === 'missing') return null;
-    const headVerdict = coherenceCore.judgeCoherenceConfig(headConfig);
+    const headVerdict = judgeCoherenceConfig(headConfig);
     if (!headVerdict.ok) return headVerdict;
     const { projectPath } = checkout;
     const mergeBase = CommitSha.safeParse((await coherenceGitText(['merge-base', core.prBaseRef(detail.number), detail.headRefOid], projectPath, log))?.trim());
