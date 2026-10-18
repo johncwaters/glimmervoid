@@ -50,7 +50,7 @@ const RESTORE_MARKER_NAME = 'restore.json';
 
 type UpdateFileSystem = Pick<
   typeof fs.promises,
-  'appendFile' | 'mkdir' | 'readFile' | 'rename' | 'rm' | 'symlink' | 'writeFile'
+  'access' | 'appendFile' | 'mkdir' | 'readFile' | 'rename' | 'rm' | 'symlink' | 'writeFile'
 >;
 type RunCommand = typeof execFileAsync;
 type UpdateGitWorkspace = Pick<
@@ -494,6 +494,15 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     }
   }
 
+  async function isStagingCheckoutPresent(): Promise<boolean> {
+    try {
+      await fsPromises.access(stagingPath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function hasRestoreMarker(): Promise<boolean> {
     try {
       await fsPromises.readFile(path.join(updatePath, RESTORE_MARKER_NAME), 'utf8');
@@ -508,16 +517,19 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     journal = persistedJournal.journal;
     const journalToDisplay = retireAtBoot(journal, { wasPersisted: persistedJournal.wasPersisted });
     if (journalToDisplay !== journal) await publish(journalToDisplay, false);
+    const wasRunInFlight = journal.state === 'staged' || journal.state === 'running';
     if (journal.state === 'staged') {
       await publish(markDiscarded(journal, { reason: 'restarted without handoff', now: clock() }), false);
     }
     if (journal.state === 'running') {
       await publish(markInterrupted(journal, { reason: 'interrupted', now: clock() }), false);
     }
-    await dependencies.gitWorkspace.removeWorktreeByPath({
-      projectPath: dependencies.packageRoot,
-      cwd: stagingPath,
-    });
+    if (wasRunInFlight || await isStagingCheckoutPresent()) {
+      await dependencies.gitWorkspace.removeWorktreeByPath({
+        projectPath: dependencies.packageRoot,
+        cwd: stagingPath,
+      });
+    }
     await fsPromises.rm(path.join(updatePath, QUARANTINED_DIST_NAME), { recursive: true, force: true });
     await fsPromises.rm(path.join(updatePath, QUARANTINED_DEPENDENCIES_NAME), { recursive: true, force: true });
     if (await hasRestoreMarker()) return;

@@ -82,6 +82,12 @@ function makeFakeFileSystem(): FakeFileSystem {
   }
 
   const fakeMethods = {
+    access: async (filePath: unknown) => {
+      if (entries.has(String(filePath))) return;
+      const error = new Error(`missing ${String(filePath)}`) as Error & { code: string };
+      error.code = 'ENOENT';
+      throw error;
+    },
     appendFile: async () => {},
     mkdir: async () => undefined,
     readFile: async (filePath: unknown) => {
@@ -576,6 +582,7 @@ for (const [state, expectedState, expectedReason] of [
     assert.equal(displayedJournal.reason, expectedReason);
     assert.equal(persistedAfterBoot.state, expectedState);
     assert.equal(persistedAfterBoot.reason, expectedReason);
+    assert.deepEqual(harness.removals, []);
   });
 }
 
