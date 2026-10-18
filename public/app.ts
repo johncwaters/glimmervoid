@@ -16,6 +16,7 @@ import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, buildSessionCoherenceLine, forgetSessionCoherence, paintSessionCoherenceLine, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
 import { applyProjectCoherenceTrend, applyProjectCoherenceTrendSnapshot, forgetCoherenceTrendProject, noteCoherenceTrendProject, setCoherenceTrendProjects } from './coherence/trend-chip.ts';
+import { abandonPendingCoherenceChecks, applyProjectCoherenceCheckResponse } from './coherence/check-action.ts';
 import { applyProjectCoherenceAdoptResponse, applyProjectCoherenceStatus, buildProjectCoherenceAction, paintProjectHeaderCoherenceAction, setCoherenceAdoptFactoryProjects, setProjectCoherenceAdoptEnabled, setProjectCoherenceAdoptRefresh } from './coherence/adopt-action.ts';
 import { setProjectHeaderCoherencePainter } from './project-header.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
@@ -168,6 +169,7 @@ setConnectionStateCallback((state, label) => {
   showConnectionState(state, label);
   applyPlanConnectionState(state === 'connected');
   for (const viewTab of VIEW_TABS) viewTab.onConnectionChange?.(state === 'connected');
+  abandonPendingCoherenceChecks();
 
   if (state === 'connected') {
     if (shutdownScreen.classList.contains('active')) {
@@ -423,6 +425,7 @@ const messageHandlers = {
   'project-coherence-trend-snapshot': (msg) => { applyProjectCoherenceTrendSnapshot(msg); refreshRosterAndAttentionSurfaces(); refreshFactoryCoherenceTrends(); },
   'project-coherence-status': (msg) => applyProjectCoherenceStatus(msg),
   'project-coherence-adopt-response': (msg) => applyProjectCoherenceAdoptResponse(msg),
+  'project-coherence-check-response': (msg) => applyProjectCoherenceCheckResponse(msg),
   'session-coherence-journal-response': (msg) => applyCoherenceJournalResponse(msg),
 
   'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },

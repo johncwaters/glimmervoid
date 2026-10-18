@@ -6254,6 +6254,15 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
 .coherence-adopt-dialog .btn-dialog:disabled { opacity: 0.4; cursor: default; }
 html[data-layout="phone"] .coherence-adopt-dialog .btn-dialog { min-height: 44px; }
 .coherence-trend-panel { width: 560px; }
+.coherence-check-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.coherence-check-status { margin: 6px 0; color: var(--text-muted); overflow-wrap: anywhere; }
+.coherence-check-status:empty, .coherence-check-stages:empty { display: none; }
+.coherence-check-stages { display: grid; gap: 8px; padding: 0; margin: 12px 0; list-style: none; }
+.coherence-check-stage { display: grid; gap: 4px; min-width: 0; color: var(--text-muted); }
+.coherence-check-stage-heading { font-weight: 700; }
+.coherence-check-stage[data-status="pass"] .coherence-check-stage-heading { color: var(--state-complete); }
+.coherence-check-stage[data-status="fail"] .coherence-check-stage-heading, .coherence-check-status[data-error="true"] { color: var(--state-failed); }
+.coherence-check-detail { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .coherence-trend-reading { min-width: 0; padding: 8px 0; border-top: 1px solid var(--border-dim); }
 .coherence-trend-reading h4 { margin: 0; color: var(--text-muted); font-size: 11px; font-weight: 400; }
 .coherence-trend-reading p { margin: 6px 0; white-space: pre-wrap; user-select: text; }

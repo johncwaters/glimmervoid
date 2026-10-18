@@ -4,6 +4,25 @@ import type { CoherenceJournalEntry, CoherenceReadingRow, CoherenceTrendWindow, 
 import { coherenceTrendDirectionLabel, coherenceTrendPanelRows } from '../public/coherence/trend-core.ts';
 import { COHERENCE_HOOKS_INACTIVE } from '../shared/contracts/session.ts';
 import { coherenceRowLine, formatCoherenceReading, formatJournalEntry } from '../public/coherence/journal-core.ts';
+import { coherenceCheckStageLabel, coherenceCheckSummary } from '../public/coherence/check-core.ts';
+
+test('Coherence check summary counts failures without counting skipped stages', () => {
+  const stages = [
+    { id: 'setting', status: 'pass', detail: 'Enabled' },
+    { id: 'install', status: 'fail', detail: 'Not installed' },
+    { id: 'hooks-claude', status: 'skip', detail: 'Install required' },
+    { id: 'hooks-codex', status: 'fail', detail: 'Missing hook' },
+  ] as const;
+  assert.equal(coherenceCheckSummary(stages), '2 failed');
+  assert.equal(coherenceCheckSummary(stages.slice(0, 2)), '1 failed');
+  assert.equal(coherenceCheckSummary(stages.filter((stage) => stage.status !== 'fail')), 'All stages passed');
+});
+
+test('Coherence check preserves unknown stage ids including inherited property names', () => {
+  for (const stageId of ['future-stage', 'constructor', '__proto__']) {
+    assert.equal(coherenceCheckStageLabel(stageId), stageId);
+  }
+});
 
 test('Coherence keeps one row line with hooks, actionable guidance and journal priority while preserving drawer detail', () => {
   const entry: CoherenceJournalEntry = {

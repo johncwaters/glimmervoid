@@ -1,6 +1,7 @@
 import type { ProjectCoherenceTrend } from '#shared/contracts/coherence.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { el } from '../dom-helpers.ts';
+import { buildProjectCoherenceCheckAction } from './check-action.ts';
 import { openCoherencePanelShell } from './coherence-panel-shell.ts';
 import { coherenceTrendDirectionLabel, coherenceTrendPanelRows } from './trend-core.ts';
 
@@ -89,15 +90,17 @@ function openCoherenceTrendPanel(projectId: string) {
   if (!trendsByProjectId.has(projectId)) return;
   openPanel?.close();
   const reading = el('div', 'coherence-trend-readings');
+  const checkAction = buildProjectCoherenceCheckAction(projectId);
   const shell = openCoherencePanelShell({
     dialogClass: 'dialog coherence-journal-drawer coherence-trend-panel',
     titleText: 'Coherence trend',
     titleId: 'coherence-trend-title',
-    body: [reading],
+    body: [checkAction.element, reading],
     onCloseRequest: () => panel.close(),
   });
   const panel = { projectId, reading, close: () => {
     if (openPanel === panel) openPanel = null;
+    checkAction.dispose();
     shell.close();
   } };
   openPanel = panel;
