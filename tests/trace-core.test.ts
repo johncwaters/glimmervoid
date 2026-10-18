@@ -67,6 +67,38 @@ test('the no-debug-value table and compaction summaries are dropped', () => {
   }), { vendorSessionId: 'vendor-session', now: 1 }), []);
 });
 
+test('a message the operator queued mid-turn is a prompt, other queued commands stay dropped', () => {
+  const queuedLine = (attachment: Record<string, unknown>) => JSON.stringify({
+    type: 'attachment',
+    uuid: 'queued-uuid',
+    parentUuid: 'parent-uuid',
+    timestamp: '2026-10-18T13:23:00.648Z',
+    attachment: { type: 'queued_command', source_uuid: 'source-uuid', ...attachment },
+  });
+  const operatorText = queuedLine({ commandMode: 'prompt', origin: { kind: 'human' }, humanTurn: true, prompt: 'also make it blue' });
+  const operatorWithImage = queuedLine({
+    commandMode: 'prompt',
+    origin: { kind: 'human' },
+    imagePasteIds: [2],
+    prompt: [
+      { type: 'text', text: '[Image #2] this one' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
+    ],
+  });
+
+  const [textPrompt] = traceRecordsFromTranscriptLine(operatorText, context);
+  assert.equal(textPrompt?.kind === 'prompt' ? textPrompt.text : null, 'also make it blue');
+  assert.equal(textPrompt?.uuid, 'queued-uuid');
+  assert.equal(textPrompt?.ts, Date.parse('2026-10-18T13:23:00.648Z'));
+  const [imagePrompt] = traceRecordsFromTranscriptLine(operatorWithImage, context);
+  assert.equal(imagePrompt?.kind === 'prompt' ? imagePrompt.text : null, '[Image #2] this one');
+
+  const taskNotification = queuedLine({ commandMode: 'task-notification', origin: { kind: 'task-notification' }, prompt: '<task-notification></task-notification>' });
+  const telegramMessage = queuedLine({ commandMode: 'prompt', isMeta: true, origin: { kind: 'channel', server: 'plugin:telegram:telegram' }, prompt: 'hi' });
+  assert.deepEqual(traceRecordsFromTranscriptLine(taskNotification, context), []);
+  assert.deepEqual(traceRecordsFromTranscriptLine(telegramMessage, context), []);
+});
+
 test('Claude bookkeeping line types are dropped instead of retained as raw trace records', () => {
   for (const type of ['frame-link', 'artifact-autoreact-ledger', 'cost-state', 'artifact-comment-monitor']) {
     const records = traceRecordsFromTranscriptLine(JSON.stringify({ type }), context);

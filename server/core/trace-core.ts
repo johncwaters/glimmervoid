@@ -57,6 +57,12 @@ interface TranscriptLine {
   sourceToolUseID?: unknown;
   subtype?: unknown;
   message?: { content?: unknown };
+  attachment?: {
+    type?: unknown;
+    commandMode?: unknown;
+    origin?: { kind?: unknown } | null;
+    prompt?: unknown;
+  };
 }
 
 type TraceRecordBase = Pick<TraceRecord, 'ts' | 'uuid' | 'parentUuid' | 'vendorSessionId' | 'agentId' | 'agentType'>;
@@ -68,10 +74,13 @@ function parseTranscriptLine(rawLine: string): TranscriptLine | null {
   return parsed as TranscriptLine;
 }
 
-function contentBlocks(line: TranscriptLine): TranscriptContentBlock[] {
-  const content = line.message?.content;
+function objectBlocks(content: unknown): TranscriptContentBlock[] {
   if (!Array.isArray(content)) return [];
   return content.filter((block): block is TranscriptContentBlock => Boolean(block) && typeof block === 'object');
+}
+
+function contentBlocks(line: TranscriptLine): TranscriptContentBlock[] {
+  return objectBlocks(line.message?.content);
 }
 
 function baseRecord(line: TranscriptLine | null, context: TraceLineContext): TraceRecordBase {
@@ -213,6 +222,16 @@ function mapUserLine(
   return [{ ...base, kind: 'prompt', ...boundedTextFields(text) }];
 }
 
+function queuedOperatorPromptText(line: TranscriptLine): string | null {
+  const attachment = line.attachment;
+  if (line.type !== 'attachment' || !attachment) return null;
+  if (attachment.type !== 'queued_command' || attachment.commandMode !== 'prompt') return null;
+  if (attachment.origin?.kind !== 'human') return null;
+  const prompt = attachment.prompt;
+  if (typeof prompt === 'string') return prompt || null;
+  return firstTextBlock(objectBlocks(prompt));
+}
+
 function mapAssistantLine(rawLine: string, line: TranscriptLine, context: TraceLineContext): TraceRecord[] {
   const base = baseRecord(line, context);
   const records: TraceRecord[] = [];
@@ -247,6 +266,8 @@ function mapAssistantLine(rawLine: string, line: TranscriptLine, context: TraceL
 function traceRecordsFromTranscriptLine(rawLine: string, context: TraceLineContext): TraceRecord[] {
   const line = parseTranscriptLine(rawLine);
   if (!line) return [rawRecord(rawLine, null, context)];
+  const queuedPromptText = queuedOperatorPromptText(line);
+  if (queuedPromptText) return [{ ...baseRecord(line, context), kind: 'prompt', ...boundedTextFields(queuedPromptText) }];
   if (isDroppedLine(line)) return [];
   if (line.type === 'user') return mapUserLine(rawLine, line, context);
   if (line.type === 'assistant') return mapAssistantLine(rawLine, line, context);
