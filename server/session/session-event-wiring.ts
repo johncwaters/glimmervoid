@@ -161,8 +161,11 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       if (isTurnWorking === null && !hasBackgroundWork) return;
       const wasWorking = isTurnWorking === true || hasBackgroundWork;
       if (wasWorking === lastPersistedWasWorking) return;
+      const hasWorkStartedOrEnded = wasWorking || lastPersistedWasWorking === true;
+      const hasNoLastWorkedAt = typeof dependencies.config.projects.find((project) => project.id === session.id)?.lastWorkedAt !== 'number';
       lastPersistedWasWorking = wasWorking;
       persistProjectField('wasWorking', wasWorking);
+      if (hasWorkStartedOrEnded || hasNoLastWorkedAt) persistProjectField('lastWorkedAt', Date.now());
     };
     const markTurnWorking = () => {
       isTurnWorking = true;

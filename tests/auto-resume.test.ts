@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { pickAutoResume, resolveResumeTarget, shouldAdoptReportedResumeId, RESUME_ID_RE } from '../session/core/auto-resume.ts';
+import { pickAutoResume, resolveResumeTarget, shouldAdoptReportedResumeId, AUTO_RESUME_IDLE_CUTOFF_MS, RESUME_ID_RE } from '../session/core/auto-resume.ts';
 import { projectDirCandidates } from '../server/usage/core/usage-scan-core.ts';
 
 const RESUME_SESSION_ID = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
 const REPORTED_SESSION_ID = '11111111-1111-4111-8111-111111111111';
+const NOW_MS = Date.UTC(2026, 9, 18);
 
 function resolvedIdAndPath(resumeTarget: ReturnType<typeof resolveResumeTarget>) {
   return { resumeSessionId: resumeTarget.resumeSessionId, transcriptPath: resumeTarget.transcriptPath };
@@ -255,28 +256,28 @@ test('shouldAdoptReportedResumeId adopts a ready naming a different id when conf
 
 test('pickAutoResume picks a project that was active and has a resumeSessionId', () => {
   const projects = [{ id: 'a', wasActive: true, resumeSessionId: 'abcd1234' }];
-  assert.deepEqual(pickAutoResume(projects, { autoResume: true }), ['a']);
+  assert.deepEqual(pickAutoResume(projects, { autoResume: true }, NOW_MS), ['a']);
 });
 
 test('pickAutoResume skips a dormant project even with a resumeSessionId', () => {
   const projects = [{ id: 'a', wasActive: false, resumeSessionId: 'abcd1234' }];
-  assert.deepEqual(pickAutoResume(projects, { autoResume: true }), []);
+  assert.deepEqual(pickAutoResume(projects, { autoResume: true }, NOW_MS), []);
 });
 
 test('pickAutoResume skips an active project with no resumeSessionId (no silent --continue)', () => {
   const projects = [{ id: 'a', wasActive: true }];
-  assert.deepEqual(pickAutoResume(projects, { autoResume: true }), []);
+  assert.deepEqual(pickAutoResume(projects, { autoResume: true }, NOW_MS), []);
 });
 
 test('pickAutoResume returns nothing when autoResume is false (kill switch)', () => {
   const projects = [{ id: 'a', wasActive: true, resumeSessionId: 'abcd1234' }];
-  assert.deepEqual(pickAutoResume(projects, { autoResume: false }), []);
+  assert.deepEqual(pickAutoResume(projects, { autoResume: false }, NOW_MS), []);
 });
 
 test('pickAutoResume treats a missing config / autoResume field as enabled', () => {
   const projects = [{ id: 'a', wasActive: true, resumeSessionId: 'abcd1234' }];
-  assert.deepEqual(pickAutoResume(projects, {}), ['a']);
-  assert.deepEqual(pickAutoResume(projects, undefined), ['a']);
+  assert.deepEqual(pickAutoResume(projects, {}, NOW_MS), ['a']);
+  assert.deepEqual(pickAutoResume(projects, undefined, NOW_MS), ['a']);
 });
 
 test('pickAutoResume picks only the matching subset across several projects', () => {
@@ -285,12 +286,23 @@ test('pickAutoResume picks only the matching subset across several projects', ()
     { id: 'dormant', wasActive: false, resumeSessionId: 'abcd1234' },
     { id: 'no-id', wasActive: true },
   ];
-  assert.deepEqual(pickAutoResume(projects, { autoResume: true }), ['picked']);
+  assert.deepEqual(pickAutoResume(projects, { autoResume: true }, NOW_MS), ['picked']);
+});
+
+test('pickAutoResume skips a session idle for over a day but resumes one that was working or has no stamp yet', () => {
+  const longAgo = NOW_MS - AUTO_RESUME_IDLE_CUTOFF_MS - 1;
+  const projects = [
+    { id: 'stale-idle', wasActive: true, wasWorking: false, lastWorkedAt: longAgo, resumeSessionId: 'abcd1234' },
+    { id: 'stale-working', wasActive: true, wasWorking: true, lastWorkedAt: longAgo, resumeSessionId: 'abcd1234' },
+    { id: 'recent-idle', wasActive: true, wasWorking: false, lastWorkedAt: NOW_MS - AUTO_RESUME_IDLE_CUTOFF_MS, resumeSessionId: 'abcd1234' },
+    { id: 'unstamped', wasActive: true, resumeSessionId: 'abcd1234' },
+  ];
+  assert.deepEqual(pickAutoResume(projects, { autoResume: true }, NOW_MS), ['stale-working', 'recent-idle', 'unstamped']);
 });
 
 test('pickAutoResume tolerates a non-array projects list', () => {
-  assert.deepEqual(pickAutoResume(null, { autoResume: true }), []);
-  assert.deepEqual(pickAutoResume(undefined, { autoResume: true }), []);
+  assert.deepEqual(pickAutoResume(null, { autoResume: true }, NOW_MS), []);
+  assert.deepEqual(pickAutoResume(undefined, { autoResume: true }, NOW_MS), []);
 });
 
 test('RESUME_ID_RE is THE session-id shape, imported by control-handlers rather than restated', () => {

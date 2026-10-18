@@ -36,5 +36,6 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 - The Claude session id is captured from WHICHEVER main-agent hook arrives: SessionStart does not reliably fire, and keying it there left boot auto-resume dead in production.
 - It persists at HOOK time, not shutdown, which makes a hard kill lossless. Shutdown never writes config, since `wasActive` surviving IS the resume signal.
+- Boot skips a session idle past `AUTO_RESUME_IDLE_CUTOFF_MS`. Its `lastWorkedAt` moves only when a turn starts or ends (or is first seeded), never on a boot resume that has one, or an idle tab never ages out (`tests/session-event-wiring-resume.test.ts`).
 - No captured id means dormant; never guess with `--continue`. A stale id fails the session, flipping `wasActive` false, so there is no retry loop.
 - Every lane's `stop()` is awaited under a bound, or a restart runs a fresh backend while the old one still writes the same state file; an overrunning lane is named and left behind. Cleanup waits for the killed PTY tree's reap, a surviving handle inside a worktree having failed the discard and leaked the checkout.

@@ -81,7 +81,7 @@ function runAutoResume(
   spawnGate: RegistrySpawnGate,
   logger: Pick<Console, 'warn'> = console,
 ): Promise<unknown[]> {
-  const ids = pickAutoResume(config.projects, config);
+  const ids = pickAutoResume(config.projects, config, Date.now());
   const runs: Promise<unknown>[] = [];
   for (const id of ids) {
     const session = sessions.get(id);

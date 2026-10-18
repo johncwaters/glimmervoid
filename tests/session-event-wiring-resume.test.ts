@@ -14,9 +14,9 @@ import { createSessionEventWiring } from '../server/session/session-event-wiring
 import { STATES } from '../shared/states.ts';
 import { plainSession } from './helpers/fake-session.ts';
 
-function wiredSession(session = plainSession('resume-persist-session'), configStore?: ConfigStore) {
+function wiredSession(session = plainSession('resume-persist-session'), configStore?: ConfigStore, savedProject: Record<string, unknown> = {}) {
   const recordedLanes: string[] = [];
-  const config = configStore?.config ?? { projects: [{ id: 'resume-persist-session' } as Record<string, unknown>] };
+  const config = configStore?.config ?? { projects: [{ id: 'resume-persist-session', ...savedProject } as Record<string, unknown>] };
   const wireSessionEvents = createSessionEventWiring({
     configStore: configStore ?? {
       save: (mutator: (candidate: typeof config) => void) => {
@@ -37,8 +37,9 @@ function wiredSession(session = plainSession('resume-persist-session'), configSt
   });
   const savedField = () => config.projects[0]?.resumeSessionId ?? null;
   const savedWasWorking = () => config.projects[0]?.wasWorking;
+  const savedLastWorkedAt = () => config.projects[0]?.lastWorkedAt;
   wireSessionEvents(session);
-  return { session, recordedLanes, savedField, savedWasWorking };
+  return { session, recordedLanes, savedField, savedWasWorking, savedLastWorkedAt };
 }
 
 function hook(session: Session, signal: string, payload: Record<string, unknown> = {}) {
@@ -106,6 +107,36 @@ test('a turn proven real by a submitted prompt or a tool call is saved as workin
   assert.equal(promptWhileWaiting.state, STATES.RUNNING);
   assert.equal(promptWhileWaitingWasWorking(), true);
   promptWhileWaiting.destroy();
+});
+
+test('an idle session resumed at boot keeps its last-worked time until a turn starts or ends', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const lastWorkedLongAgo = 5;
+  const resumedIdle = new Session({ id: 'resume-persist-session', name: 'resumed-idle', path: process.cwd(), statusConflictMs: 20, statusDedupMs: 10 });
+  resumedIdle.state = STATES.STARTING;
+  const { savedLastWorkedAt } = wiredSession(resumedIdle, undefined, { wasActive: true, wasWorking: false, lastWorkedAt: lastWorkedLongAgo });
+  resumedIdle.transition('first_output');
+  assert.equal(resumedIdle.state, STATES.IDLE);
+  assert.equal(savedLastWorkedAt(), lastWorkedLongAgo);
+  const promptSubmittedAt = Date.now();
+  hook(resumedIdle, 'resume');
+  t.mock.timers.tick(40);
+  assert.equal(resumedIdle.state, STATES.RUNNING);
+  assert.equal(savedLastWorkedAt(), promptSubmittedAt);
+  t.mock.timers.tick(1000);
+  hook(resumedIdle, 'ready');
+  t.mock.timers.tick(40);
+  assert.equal(resumedIdle.state, STATES.COMPLETE);
+  assert.ok(Number(savedLastWorkedAt()) > promptSubmittedAt + 1000, 'the turn end restarts the idle clock');
+  resumedIdle.destroy();
+
+  const neverStamped = new Session({ id: 'resume-persist-session', name: 'never-stamped', path: process.cwd(), statusConflictMs: 20, statusDedupMs: 10 });
+  neverStamped.state = STATES.STARTING;
+  const { savedLastWorkedAt: neverStampedLastWorkedAt } = wiredSession(neverStamped);
+  assert.equal(neverStampedLastWorkedAt(), undefined);
+  neverStamped.transition('first_output');
+  assert.equal(neverStampedLastWorkedAt(), Date.now(), 'a session saved before the stamp existed starts its idle clock at its first resume');
+  neverStamped.destroy();
 });
 
 test('a live id that is not the resume target is never written to config', () => {
