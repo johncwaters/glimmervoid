@@ -14,6 +14,7 @@ import { pulseActivityGlyph } from '../session-card/activity.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
+import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { groupSessionsForBoard } from './board-groups-core.ts';
 
 type BoardRow = SessionRow<SessionUi>;
@@ -76,7 +77,8 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     const addButton = el('button', 'phone-board-group-add', '+');
     addButton.type = 'button';
     addButton.addEventListener('click', () => quickAddSession(section.dataset.path, section.dataset.label));
-    const forgetButton = el('button', 'phone-board-group-forget', 'x');
+    const forgetButton = el('button', 'phone-board-group-forget');
+    forgetButton.append(createLineIcon(CLOSE_ICON_PATH));
     forgetButton.type = 'button';
     forgetButton.addEventListener('click', () => {
       forgetProject(section.dataset.path);

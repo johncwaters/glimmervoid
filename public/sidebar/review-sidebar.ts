@@ -10,7 +10,7 @@ import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { shortcutHint } from '../shortcuts-core.ts';
-import { createSvgIcon, createSvgShape } from '../svg-dom.ts';
+import { createLineIcon, MORE_ICON_PATH } from '../svg-dom.ts';
 import type { UiPrefs } from '../ui-prefs.ts';
 import { getReviewSidebarView, getSidebarWidth, isReviewSidebarExpanded, setReviewSidebarExpanded, setReviewSidebarView, setSidebarWidth } from '../ui-prefs.ts';
 import { buildChangeMapView } from './change-map-core.ts';
@@ -108,16 +108,7 @@ function createReviewIconButton(label: string, strokePath: string) {
   button.type = 'button';
   button.title = label;
   button.setAttribute('aria-label', label);
-  const icon = createSvgIcon(16, 16);
-  icon.append(createSvgShape('path', {
-    d: strokePath,
-    fill: 'none',
-    stroke: 'currentColor',
-    'stroke-width': '2',
-    'stroke-linecap': 'round',
-    'stroke-linejoin': 'round',
-  }));
-  button.append(icon);
+  button.append(createLineIcon(strokePath));
   return button;
 }
 
@@ -1115,7 +1106,7 @@ function renderActions(id: string, {
   actionControls.append(actions);
   if (!reviewable || live) return actions.childElementCount > 0 ? actionControls : null;
 
-  const moreButton = createReviewIconButton('More review actions', 'M3 8h0.01M8 8h0.01M13 8h0.01');
+  const moreButton = createReviewIconButton('More review actions', MORE_ICON_PATH);
   moreButton.classList.add('review-more-button');
   moreButton.setAttribute('aria-haspopup', 'menu');
   moreButton.setAttribute('aria-expanded', String(isMoreMenuOpen));

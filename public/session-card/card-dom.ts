@@ -7,6 +7,7 @@ import { sendControlMsg } from '../control-ws.ts';
 import { escapeMarkup } from '#shared/escape-markup.ts';
 import { el } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
+import { CLOSE_ICON_PATH, createLineIcon, MORE_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH } from '../svg-dom.ts';
 import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell } from './modal.ts';
 import type { SessionUi } from './card-registry.ts';
@@ -131,7 +132,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const actions = el('div', 'session-actions');
 
   const sessionMenuWrap = el('div', 'session-overflow');
-  const btnSessionMenu = el('button', 'btn-action btn-session-menu visible', String.fromCharCode(0x22ef));
+  const btnSessionMenu = el('button', 'btn-action btn-session-menu visible');
+  btnSessionMenu.append(createLineIcon(MORE_ICON_PATH));
   btnSessionMenu.type = 'button';
   btnSessionMenu.title = 'Session actions';
   btnSessionMenu.setAttribute('aria-label', 'Session actions');
@@ -171,16 +173,19 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   sessionMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnCoherenceJournal, btnLinkPr);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
-  const btnDebug = el('button', 'btn-action btn-debug', '\u2699');
+  const btnDebug = el('button', 'btn-action btn-debug');
+  btnDebug.append(createLineIcon(SETTINGS_ICON_PATH));
   btnDebug.title = 'Debug state';
   btnDebug.setAttribute('aria-label', 'Debug session state');
 
-  const btnTrace = el('button', 'btn-action btn-trace', String.fromCharCode(0x2261));
+  const btnTrace = el('button', 'btn-action btn-trace');
+  btnTrace.append(createLineIcon(TRACE_ICON_PATH));
   btnTrace.type = 'button';
   btnTrace.title = 'Trace';
   btnTrace.setAttribute('aria-label', 'Trace');
 
-  const btnRemove = el('button', 'btn-action btn-remove visible', String.fromCharCode(0xd7));
+  const btnRemove = el('button', 'btn-action btn-remove visible');
+  btnRemove.append(createLineIcon(CLOSE_ICON_PATH));
   btnRemove.type = 'button';
   btnRemove.title = 'Remove session';
   btnRemove.setAttribute('aria-label', 'Remove session');
@@ -382,7 +387,14 @@ export function startInlineRename(ui: SessionUi, sessionId: string) {
 }
 
 
-const DEBUG_CLOSE_BTN = '<button type="button" class="debug-close" aria-label="Close debug overlay" title="Close">×</button>';
+function buildDebugCloseButton() {
+  const button = el('button', 'debug-close');
+  button.type = 'button';
+  button.title = 'Close';
+  button.setAttribute('aria-label', 'Close debug overlay');
+  button.append(createLineIcon(CLOSE_ICON_PATH));
+  return button;
+}
 
 function formatTimestamp(ts: number | undefined) {
   if (!ts) return '-';
@@ -465,7 +477,7 @@ function renderDebugOverlay(ui: SessionUi, payload: DebugStatePayload) {
   if (!ui.debugOverlay) return;
   const p = payload;
 
-  let html = DEBUG_CLOSE_BTN;
+  let html = '';
   html += `<div class="debug-section"><div class="debug-section-title">State</div>`;
   html += `<div class="debug-field"><span class="debug-label">Current:</span> <span class="debug-value">${escapeMarkup(p.state)}</span></div>`;
   html += `</div>`;
@@ -516,6 +528,7 @@ function renderDebugOverlay(ui: SessionUi, payload: DebugStatePayload) {
   html += `</div>`;
 
   ui.debugOverlay.innerHTML = html;
+  ui.debugOverlay.prepend(buildDebugCloseButton());
 }
 
 export function openDebugOverlay(ui: SessionUi, sessionId: string) {
@@ -523,7 +536,8 @@ export function openDebugOverlay(ui: SessionUi, sessionId: string) {
 
   const overlay = document.createElement('div');
   overlay.className = 'debug-overlay';
-  overlay.innerHTML = `${DEBUG_CLOSE_BTN}<div class="debug-field debug-dim">Loading...</div>`;
+  overlay.innerHTML = '<div class="debug-field debug-dim">Loading...</div>';
+  overlay.prepend(buildDebugCloseButton());
   ui.card.appendChild(overlay);
   ui.debugOverlay = overlay;
   ui.debugOpen = true;
