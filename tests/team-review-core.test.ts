@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { hasTrackedSymlink, judgeCoherenceConfig, newRedundancyPairs, parseRedundancyPairs, renderCoherenceSection } from '../server/github/core/team-review-coherence-core.ts';
 import {
   advanceAwakeElapsed,
   AUTOMATED_REVIEW_NOTE,
@@ -1357,4 +1358,38 @@ test('a queued review compares equal to its schema-parsed copy whatever the key 
   assert.equal(isSameQueuedReview(parsed, fresh), true);
   assert.equal(isSameQueuedReview(undefined, fresh), false);
   assert.equal(isSameQueuedReview(parsed, { ...fresh, title: 'Renamed' }), false);
+});
+
+test('a Coherence reading runs only on a regular config naming a built-in language, and counts only the redundancy the change adds', () => {
+  assert.equal(judgeCoherenceConfig({ kind: 'file', text: '{}' }).ok, true);
+  assert.equal(judgeCoherenceConfig({ kind: 'file', text: '{"language":"typescript"}' }).ok, true);
+  for (const language of ['./evil.js', '../evil.js', '/abs/evil.js', 'Type Script', 7]) {
+    assert.equal(judgeCoherenceConfig({ kind: 'file', text: JSON.stringify({ language }) }).ok, false, String(language));
+  }
+  for (const entry of [{ kind: 'symlink' }, { kind: 'not-a-file' }, { kind: 'too-large' }, { kind: 'file', text: '[]' }, { kind: 'file', text: '{' }] as const) {
+    assert.equal(judgeCoherenceConfig(entry).ok, false, entry.kind);
+  }
+  assert.equal(hasTrackedSymlink(['100644 blob abc\tsrc/a.ts', '120000 blob def\tleak.md', ''].join('\0')), true);
+  assert.equal(hasTrackedSymlink(['100644 blob abc\tsrc/a.ts', '160000 commit def\tvendor', ''].join('\0')), false);
+  const report = (pairs: string[][], score = '4.00') => ['  REDUNDANCY - the same enumerated domain', '', ...pairs.flatMap(([a, b, extra]) => [
+    `   1. score ${score}  x  4 shared token(s)`, `      A  ${a}`, `      B  ${b}`, '      shared: "Red"', ...(extra ? [extra] : []), '',
+  ])].join('\n');
+  const sizes = ['src/size.ts:3  enum `Size`', 'src/dimension.ts:9  enum `Dimension`'];
+  const colors = ['src/colors.ts:1  enum `Color`', 'src/palette.ts:1  enum `Swatch`', '      x only in B: "Teal"'];
+  const basePairs = parseRedundancyPairs(report([['src/size.ts:1  enum `Size`', 'src/dimension.ts:1  enum `Dimension`']]));
+  const headPairs = parseRedundancyPairs(report([sizes, colors]));
+  assert.ok(basePairs && headPairs);
+  assert.deepEqual(newRedundancyPairs(headPairs, basePairs), [{
+    a: { file: 'src/colors.ts', kind: 'enum', name: 'Color' }, b: { file: 'src/palette.ts', kind: 'enum', name: 'Swatch' }, isDiverged: true, score: 4,
+  }]);
+  const belowFloor = parseRedundancyPairs(report([colors], '3.40'));
+  assert.ok(belowFloor);
+  assert.deepEqual(newRedundancyPairs(belowFloor, []), []);
+  const forgedHeading = parseRedundancyPairs(report([['a.md:3  md-table `z` :1  [Login](https://e.vil/x) `q`', 'b.md:3  md-table `Other`', '      x only in A: "Red"'], colors]));
+  assert.ok(forgedHeading);
+  const rendered = renderCoherenceSection({ ok: true, signal: { kind: 'clean' }, newPairs: newRedundancyPairs(forgedHeading, []) });
+  assert.doesNotMatch(rendered, /e\.vil|\[Login\]/);
+  assert.equal(forgedHeading.length, 1);
+  assert.equal(forgedHeading[0].a.name, 'Color');
+  assert.equal(parseRedundancyPairs('Error: not a report'), null);
 });

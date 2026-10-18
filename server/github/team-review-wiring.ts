@@ -25,6 +25,11 @@ import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import type { CoherenceJournal } from '../lanes/lane-spawn.ts';
 import type { LocalCoherenceJournals } from '../coherence/coherence-journal-store.ts';
 import { coherenceJournalStoreKey } from '../core/coherence-session-core.ts';
+import { createCoherenceRuntime } from '../coherence/coherence-runtime.ts';
+import * as coherenceCore from './core/team-review-coherence-core.ts';
+import type { CoherenceConfigEntry, CoherenceReading } from './core/team-review-coherence-core.ts';
+import { runHardenedGit } from '../git/git-workspace.ts';
+import { GLIMMERVOID_SECRET_KEYS } from '../../session/core/spawn-env.ts';
 import type { UserHook } from '../../session/core/user-hooks-core.ts';
 import { TeamReviewActionRequest as ActionRequestSchema } from '../../shared/contracts/team-review.ts';
 import { createPrGh } from './pr-gh.ts';
@@ -41,7 +46,7 @@ import { judgeRole } from '../guardrails/core/guardrails-roles-core.ts';
 import { prepareGuardrailsLaunch } from '../guardrails/guardrails-launch.ts';
 import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
 import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
-import { TeamReviewStateEntry, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
+import { CommitSha, TeamReviewStateEntry, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type {
   PostingPlan, PrDetail, PriorReview, ResumableReview, ReviewComment, ReviewResult, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,
   TeamReviewState as TeamReviewStateType, TeamReviewStateEntry as TeamReviewStateEntryType, TeamReviewStatus as TeamReviewStatusType,
@@ -72,12 +77,23 @@ const PUSH_DISABLED_URL = 'https://push-disabled.invalid/';
 const REPLACED_DRAFT_ERROR = 'The draft was replaced after it was shown. Read the new draft before acting on it';
 const STALE_APPROVAL_DISMISSAL = 'The pull request moved while this approval was posting, so it no longer covers the current head.';
 const UNMARKED_POST_WARNING = 'The review was posted on GitHub, but its draft could not be marked posted. Do not post it again';
+const COHERENCE_TMP_DIRNAME = 'coherence-tmp';
+const COHERENCE_GIT_TIMEOUT_MS = 30_000;
+const COHERENCE_TREE_LIST_MAX_BYTES = 64 * 1024 * 1024;
 
 interface TeamReviewWiringConfig extends TeamReviewSettingsSource {
   replayBufferKB?: number;
   saneYolo?: boolean;
   projects?: { path: string }[];
   repoRoots?: string[];
+  coherence?: { enabled?: unknown } | null;
+}
+
+type RunCoherence = ReturnType<typeof createCoherenceRuntime>['run'];
+
+interface CoherenceReadingDeps {
+  isSettingOn: () => boolean;
+  run: RunCoherence;
 }
 
 type LaneSettingsGuardrails = {
@@ -161,6 +177,7 @@ interface TeamReviewDispatchOptions {
   reapProcesses?: TeamReviewReap;
   log?: Pick<Console, 'warn'>;
   coherenceJournals?: LocalCoherenceJournals | null;
+  coherenceReadings?: CoherenceReadingDeps | null;
 }
 
 interface TeamReviewWiringOptions {
@@ -184,6 +201,7 @@ interface TeamReviewWiringOptions {
   guardrailsRefusal?: GuardrailsSpawnRefusal;
   clock?: SharedClock;
   coherenceJournals?: LocalCoherenceJournals | null;
+  runCoherence?: RunCoherence;
 }
 
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
@@ -352,6 +370,78 @@ async function pathExists(candidatePath: string): Promise<boolean> {
   return fs.lstat(candidatePath).then(() => true, () => false);
 }
 
+async function readCheckoutCoherenceConfig(checkoutPath: string): Promise<CoherenceConfigEntry> {
+  const configPath = path.join(checkoutPath, coherenceCore.COHERENCE_CONFIG_FILENAME);
+  const entry = await fs.lstat(configPath).catch((error: unknown) => {
+    if (isMissingFileError(error)) return null;
+    throw error;
+  });
+  if (!entry) return { kind: 'missing' };
+  if (entry.isSymbolicLink()) return { kind: 'symlink' };
+  if (!entry.isFile()) return { kind: 'not-a-file' };
+  if (entry.size > coherenceCore.COHERENCE_CONFIG_MAX_BYTES) return { kind: 'too-large' };
+  return { kind: 'file', text: await fs.readFile(configPath, 'utf8') };
+}
+
+function coherenceReadingEnv(workDir: string, tmpDir: string): NodeJS.ProcessEnv {
+  const inheritedEnv = Object.fromEntries(Object.entries(process.env)
+    .filter(([key]) => !GLIMMERVOID_SECRET_KEYS.includes(key) && !key.startsWith('COHERENCE_')));
+  return { ...inheritedEnv, ...hooksPathPinnedSpawnEnv(workDir), TMPDIR: tmpDir, TMP: tmpDir, TEMP: tmpDir };
+}
+
+function wasKilledByTimeout(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'killed' in error && error.killed === true;
+}
+
+async function runCoherenceVerb(
+  run: RunCoherence, { cwd, args, env }: { cwd: string; args: string[]; env: NodeJS.ProcessEnv }, log: Pick<Console, 'warn'>,
+): Promise<{ ok: true; stdout: string } | { ok: false; reason: string }> {
+  const verb = args[0];
+  try {
+    return { ok: true, stdout: await run({ cwd, args, env }) };
+  } catch (error) {
+    log.warn(`[${core.TEAM_REVIEW_LANE_ID}] coherence ${verb} failed in ${cwd}: ${firstLine(errorMessage(error))}`);
+    return { ok: false, reason: wasKilledByTimeout(error) ? `coherence ${verb} timed out` : `coherence ${verb} failed` };
+  }
+}
+
+async function coherenceGitText(args: string[], cwd: string, log: Pick<Console, 'warn'>): Promise<string | null> {
+  try {
+    const { stdout } = await runHardenedGit(args, { cwd, encoding: 'utf8', timeout: COHERENCE_GIT_TIMEOUT_MS, maxBuffer: COHERENCE_TREE_LIST_MAX_BYTES });
+    return String(stdout);
+  } catch (error) {
+    log.warn(`[${core.TEAM_REVIEW_LANE_ID}] git ${args[0]} for the Coherence reading failed in ${cwd}: ${firstLine(errorMessage(error))}`);
+    return null;
+  }
+}
+
+async function readStagedCoherence({ run, headPath, basePath, mergeBase, workDir, log }: {
+  run: RunCoherence; headPath: string; basePath: string; mergeBase: string; workDir: string; log: Pick<Console, 'warn'>;
+}): Promise<CoherenceReading> {
+  const baseConfig = await readCheckoutCoherenceConfig(basePath);
+  const hasBaseConfig = baseConfig.kind !== 'missing';
+  if (hasBaseConfig) {
+    const baseVerdict = coherenceCore.judgeCoherenceConfig(baseConfig);
+    if (!baseVerdict.ok) return { ok: false, reason: `at the base, ${baseVerdict.reason}` };
+  }
+  const tmpDir = path.join(workDir, COHERENCE_TMP_DIRNAME);
+  await fs.mkdir(tmpDir, { recursive: true });
+  const env = coherenceReadingEnv(workDir, tmpDir);
+  const [signalRun, headRun, baseRun] = await Promise.all([
+    runCoherenceVerb(run, { cwd: headPath, args: ['signal', '--since', mergeBase], env }, log),
+    runCoherenceVerb(run, { cwd: headPath, args: ['redundancy', '--all'], env }, log),
+    hasBaseConfig ? runCoherenceVerb(run, { cwd: basePath, args: ['redundancy', '--all'], env }, log) : null,
+  ]);
+  if (!signalRun.ok) return signalRun;
+  if (!headRun.ok) return headRun;
+  if (baseRun && !baseRun.ok) return baseRun;
+  const signal = coherenceCore.parseChangeSignal(signalRun.stdout);
+  const headPairs = coherenceCore.parseRedundancyPairs(headRun.stdout);
+  const basePairs = baseRun ? coherenceCore.parseRedundancyPairs(baseRun.stdout) : [];
+  if (!signal || !headPairs || !basePairs) return { ok: false, reason: 'the Coherence output was not recognized' };
+  return { ok: true, signal, newPairs: coherenceCore.newRedundancyPairs(headPairs, basePairs) };
+}
+
 function isDirectChildOf(root: string, candidatePath: string): boolean {
   return path.dirname(path.resolve(candidatePath)) === path.resolve(root);
 }
@@ -472,6 +562,7 @@ function createTeamReviewDispatcher({
   reapProcesses = reapTeamReviewProcesses,
   log = console,
   coherenceJournals = null,
+  coherenceReadings = null,
 }: TeamReviewDispatchOptions) {
   async function removeCheckout({ projectPath, worktreePath }: { projectPath: string; worktreePath: string }): Promise<void> {
     const removal = await gitWorkspace.removeWorktreeByPath({ projectPath, cwd: worktreePath })
@@ -480,6 +571,35 @@ function createTeamReviewDispatcher({
     log.warn(`[${core.TEAM_REVIEW_LANE_ID}] worktree removal failed for ${worktreePath}, deleting it directly: ${firstLine(removal.err ?? '') || 'the directory is still present'}`);
     await deleteDirectory(worktreePath, log);
     await pruneCachedClone(gitWorkspace, projectPath, log);
+  }
+
+  async function readCoherenceReading({ run, candidate, detail, checkout, workDir }: {
+    run: RunCoherence; candidate: TeamReviewCandidate; detail: PrDetail; checkout: { projectPath: string; worktreePath: string }; workDir: string;
+  }): Promise<CoherenceReading | null> {
+    const headConfig = await readCheckoutCoherenceConfig(checkout.worktreePath);
+    if (headConfig.kind === 'missing') return null;
+    const headVerdict = coherenceCore.judgeCoherenceConfig(headConfig);
+    if (!headVerdict.ok) return headVerdict;
+    const { projectPath } = checkout;
+    const mergeBase = CommitSha.safeParse((await coherenceGitText(['merge-base', core.prBaseRef(detail.number), detail.headRefOid], projectPath, log))?.trim());
+    if (!mergeBase.success) return { ok: false, reason: 'the merge base of the change could not be found' };
+    for (const sha of [detail.headRefOid, mergeBase.data]) {
+      const trackedTree = await coherenceGitText(['ls-tree', '-r', '-z', '--full-tree', sha], projectPath, log);
+      if (trackedTree === null) return { ok: false, reason: 'the tracked files could not be listed' };
+      if (coherenceCore.hasTrackedSymlink(trackedTree)) return { ok: false, reason: 'the repository tracks a symlink, which Coherence would follow out of the checkout' };
+    }
+    const basePath = path.join(worktreeRoot, worktreeDirName(candidate.repo, detail.number, `${randomSuffix()}-base`));
+    try {
+      const stagedBase = await gitWorkspace.stageDetachedWorktree({ projectPath, worktreePath: basePath, sha: mergeBase.data })
+        .catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
+      if (!stagedBase.ok) {
+        log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not stage the base checkout for the Coherence reading of ${candidate.key}: ${firstLine(stagedBase.err ?? '')}`);
+        return { ok: false, reason: 'the base checkout could not be staged' };
+      }
+      return await readStagedCoherence({ run, headPath: checkout.worktreePath, basePath, mergeBase: mergeBase.data, workDir, log });
+    } finally {
+      if (await pathExists(basePath)) await removeCheckout({ projectPath, worktreePath: basePath });
+    }
   }
 
   async function discoverLocalCheckout(repo: string): Promise<string | null> {
@@ -603,6 +723,18 @@ function createTeamReviewDispatcher({
     let pendingSession: Promise<unknown> | null = null;
     let shouldPreserve = false;
     let draft: ReviewDraft;
+    async function withCoherenceSection(reviewed: ReviewDraft): Promise<ReviewDraft> {
+      const checkout = resources.checkout;
+      const workDir = resources.workDirHandle?.dir;
+      if (reviewed.status !== 'ready' || !checkout || workDir === undefined || shutdownSignal?.aborted) return reviewed;
+      if (!coherenceReadings?.isSettingOn()) return reviewed;
+      const reading = await readCoherenceReading({ run: coherenceReadings.run, candidate, detail, checkout, workDir }).catch((error: unknown): CoherenceReading => {
+        log.warn(`[${core.TEAM_REVIEW_LANE_ID}] the Coherence reading of ${candidate.key} failed: ${firstLine(errorMessage(error))}`);
+        return { ok: false, reason: 'the reading failed' };
+      });
+      if (!reading) return reviewed;
+      return { ...reviewed, body: `${reviewed.body}\n\n${coherenceCore.renderCoherenceSection(reading)}` };
+    }
     async function runReview(): Promise<ReviewDraft> {
       if (shutdownSignal?.aborted) return failed('review stopped by shutdown');
       if (args.resume) {
@@ -711,7 +843,7 @@ function createTeamReviewDispatcher({
         }
         return { kind: 'stopped', resumable: null };
       }
-      return draft;
+      return await withCoherenceSection(draft);
     } finally {
       resources.awakeStopwatch?.stop();
       const reviewWorkDir = resources.workDirHandle?.dir;
@@ -968,6 +1100,7 @@ function createTeamReviewWiring({
   guardrailsRefusal = allowGuardedSpawn,
   clock,
   coherenceJournals = null,
+  runCoherence = createCoherenceRuntime().run,
 }: TeamReviewWiringOptions) {
   const stateIo = createTeamReviewStateIo(path.join(homeDir, core.TEAM_REVIEW_STATE_FILENAME), log);
   const worktreeRoot = path.join(homeDir, 'team-review-worktrees');
@@ -976,6 +1109,7 @@ function createTeamReviewWiring({
   const inFlightReviews = new Set<Promise<ReviewOutcome>>();
   const reviewPullRequest = createTeamReviewDispatcher({
     github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, repoCacheRoot, shutdownSignal: shutdownController.signal, reapProcesses, log, coherenceJournals,
+    coherenceReadings: { isSettingOn: () => config.coherence?.enabled === true, run: runCoherence },
     readReviewSkill: () => core.readTeamReviewSettings(config).skill,
     readLocalCheckoutConfig: () => ({ projects: config.projects, repoRoots: config.repoRoots }),
   });

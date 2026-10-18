@@ -771,8 +771,60 @@ test('every tier runs the review from a throwaway work dir, and no argv entry na
   }
 });
 
-test('the report becomes a draft rendered in the pr-review posting format', async () => {
+function commitCoherenceFiles(repoDir: string, files: Record<string, string>, message: string): string {
+  for (const [relativePath, text] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(repoDir, relativePath)), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, relativePath), text);
+  }
+  git(['add', '-A'], repoDir);
+  git(['commit', '-q', '-m', message], repoDir);
+  return git(['rev-parse', 'HEAD'], repoDir).trim();
+}
+
+function coherencePullRequestRepo(): { repoDir: string; headSha: string } {
+  const repoDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-coherence-repo-')));
+  git(['init', '-q', '-b', 'main'], repoDir);
+  git(['config', 'user.email', 'test@example.com'], repoDir);
+  git(['config', 'user.name', 'Glimmervoid Test'], repoDir);
+  git(['config', 'commit.gpgsign', 'false'], repoDir);
+  const baseSha = commitCoherenceFiles(repoDir, {
+    'coherence.config.json': '{}\n',
+    'src/size.ts': "export enum Size { Small = 'small', Medium = 'medium', Large = 'large', Huge = 'huge' }\n",
+    'src/dimension.ts': "export enum Dimension { Small = 'small', Medium = 'medium', Large = 'large', Huge = 'huge' }\n",
+  }, 'base');
+  git(['update-ref', `refs/glimmervoid-base/${detail.number}`, baseSha], repoDir);
+  const headSha = commitCoherenceFiles(repoDir, {
+    'src/colors.ts': "export enum Color { Red = 'red', Green = 'green', Blue = 'blue', Amber = 'amber' }\n",
+    'src/palette.ts': "export enum Swatch { Red = 'red', Green = 'green', Blue = 'blue', Amber = 'amber' }\n",
+  }, 'head');
+  git(['checkout', '-q', '--detach', baseSha], repoDir);
+  return { repoDir, headSha };
+}
+
+function localRepoCache(repoDir: string, headSha: string): TeamReviewDispatchOptions['repoCache'] {
+  return {
+    listRepos: async () => [repoDir],
+    ensureRepo: async () => repoDir,
+    fetchPr: async () => ({ ok: true, headSha, err: '' }),
+    hydrateTree: async () => ({ ok: true, err: '' }),
+    hydrateRange: async () => ({ ok: true, err: '' }),
+    hydrateSince: async () => true,
+    isolateNewWork: async () => ({ ok: false, reason: 'unused' }),
+  };
+}
+
+test('the report becomes a draft rendered in the pr-review posting format, carrying the Coherence section only with the setting on', { skip: !hasGit() }, async () => {
   const { review, cleanup } = setup();
+  const { repoDir, headSha } = coherencePullRequestRepo();
+  const coherenceRuntime = createCoherenceRuntime();
+  const coherentReview = (isSettingOn: boolean) => setup({
+    repoCache: localRepoCache(repoDir, headSha),
+    gitWorkspace: createGitWorkspace(),
+    coherenceReadings: { isSettingOn: () => isSettingOn, run: coherenceRuntime.run },
+    writeReport: (workDir) => fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), reportText(headSha)),
+  });
+  const settingOn = coherentReview(true);
+  const settingOff = coherentReview(false);
   try {
     const draft = await review(reviewArgs('full'));
     assert.equal(draft.verdict, 'APPROVE WITH NITS');
@@ -781,8 +833,19 @@ test('the report becomes a draft rendered in the pr-review posting format', asyn
     assert.equal(draft.comments[0]?.line, 2);
     assert.match(draft.comments[0]?.body ?? '', /\*\*\[code\/logic\] MEDIUM\*\*/);
     assert.equal(draft.body, AUTOMATED_REVIEW_NOTE);
+    const pullRequestArgs = { ...reviewArgs('full'), detail: { ...detail, headRefOid: headSha } };
+    const withSection = await settingOn.review(pullRequestArgs);
+    assert.equal(withSection.status, 'ready');
+    assert.ok(withSection.body.startsWith(`${AUTOMATED_REVIEW_NOTE}\n\n**Coherence** (advisory)\nChange signal: 2 changed files;`), withSection.body);
+    assert.match(withSection.body, /New redundancy introduced by this change \(1\):\n- `enum` `Color` in `src\/colors.ts` and `enum` `Swatch` in `src\/palette.ts`/);
+    assert.doesNotMatch(withSection.body, /Size|Dimension/);
+    assert.equal((await settingOff.review(pullRequestArgs)).body, AUTOMATED_REVIEW_NOTE);
+    assert.equal(git(['worktree', 'list', '--porcelain'], repoDir).match(/^worktree /gm)?.length, 1);
   } finally {
     cleanup();
+    settingOn.cleanup();
+    settingOff.cleanup();
+    fs.rmSync(repoDir, { recursive: true, force: true });
   }
 });
 

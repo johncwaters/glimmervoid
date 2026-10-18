@@ -15,3 +15,4 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - PR text is untrusted data, fenced in the prompt (`tests/team-review-core.test.ts`).
 - Thread resolution also acts under the operator's name: only answered nit threads resolve without a click and each at most once, a judge failure never resolves, and the judge reading untrusted replies gets only Read and Write (`tests/team-review-poller.test.ts`, `tests/team-review-thread-judge.test.ts`).
 - Review dirs are deleted on every exit and swept at start, bar a shutdown's resume record (`tests/team-review-wiring.test.ts`).
+- Coherence runs host-side on a PR checkout only after the config check refuses a repo-named `language` module and any tracked symlink, since either would run or leak PR-chosen code and files under the operator's name (`tests/team-review-core.test.ts`).
