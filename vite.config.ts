@@ -60,6 +60,17 @@ export default defineConfig({
   build: {
     outDir: '../dist/client',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 750,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'xterm', test: /node_modules[\\/]@xterm[\\/]/ },
+            { name: 'zod', test: /node_modules[\\/]zod[\\/]/ },
+          ],
+        },
+      },
+    },
   },
 
   server: {
