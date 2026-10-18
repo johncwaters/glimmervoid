@@ -1,4 +1,4 @@
-import { lstat, mkdir, open, realpath, stat } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { CoherenceHooksState } from '../../shared/contracts/session.ts';
 import { errorCode, errorMessage, isMissingFileError } from '../../shared/text.ts';
@@ -7,15 +7,20 @@ import {
   coherenceHooksStateFromCheck, planCoherenceTargetShims,
 } from './core/coherence-session-core.ts';
 import type { CoherenceHost, CoherenceTargetBinName } from './core/coherence-session-core.ts';
-import { COHERENCE_CONFIG_FILENAME } from './core/coherence-config-core.ts';
+import { areCodexHooksTrusted, codexHookHashes, trustedCodexHookHashes } from './core/coherence-codex-trust-core.ts';
+import { COHERENCE_CONFIG_FILENAME, judgeCoherenceConfig } from './core/coherence-config-core.ts';
 import { isCompletedCommandFailure } from '../core/command-failure-core.ts';
 import { factoryGitEnvironment, runHardenedGit } from '../git/git-workspace.ts';
+import { getAdapter } from '../../session/adapters/index.ts';
+import type { SpawnEnv } from '../../session/core/spawn-env.ts';
 import { createCoherenceRuntime } from './coherence-runtime.ts';
+import { readCoherenceConfigEntry } from './coherence-sandboxed-run.ts';
 
 const GIT_PROBE_TIMEOUT_MS = 10_000;
 const HOOKS_CHECK_TIMEOUT_MS = 20_000;
 const COHERENCE_PACKAGE_DIRECTORY = path.join('node_modules', '@danilocampos', 'coherence');
 const TARGET_BIN_DIRECTORY = path.join('node_modules', '.bin');
+const CODEX_HOOKS_FILE = path.join('.codex', 'hooks.json');
 
 type CoherenceHooksRequest = { root: string; host: CoherenceHost; canWriteShims: boolean };
 
@@ -56,6 +61,13 @@ async function isPathIgnored(root: string, relativePath: string): Promise<boolea
   } catch {
     return false;
   }
+}
+
+async function readTextOrEmpty(filePath: string): Promise<string> {
+  return readFile(filePath, 'utf8').catch((error: unknown) => {
+    if (isMissingFileError(error)) return '';
+    throw error;
+  });
 }
 
 async function readMainCheckout(root: string): Promise<string | null> {
@@ -134,9 +146,20 @@ function scrubbedCheckEnv(gitEnvironment: Record<string, string>): Record<string
   return Object.fromEntries(Object.entries(gitEnvironment).filter(([key]) => !key.startsWith('COHERENCE_') && key !== 'CODEX_THREAD_ID'));
 }
 
-export function createCoherenceNativeHooks({ runtime = createCoherenceRuntime(), nodePath = process.execPath, platform = process.platform, log = console }: {
-  runtime?: CoherenceRuntime; nodePath?: string; platform?: NodeJS.Platform; log?: Pick<Console, 'warn'>;
+export function createCoherenceNativeHooks({
+  runtime = createCoherenceRuntime(), nodePath = process.execPath, platform = process.platform, codexEnv = process.env, log = console,
+}: {
+  runtime?: CoherenceRuntime; nodePath?: string; platform?: NodeJS.Platform; codexEnv?: SpawnEnv; log?: Pick<Console, 'warn'>;
 } = {}) {
+  async function areProjectCodexHooksTrusted(root: string): Promise<boolean> {
+    const operatorConfigPath = getAdapter('codex')?.operatorConfigPath?.(codexEnv) ?? null;
+    if (operatorConfigPath === null) return false;
+    const trustedHashByKey = trustedCodexHookHashes(await readTextOrEmpty(operatorConfigPath));
+    const hooksFileText = await readTextOrEmpty(path.join(root, CODEX_HOOKS_FILE));
+    const hooksFilePaths = new Set([path.join(root, CODEX_HOOKS_FILE), path.join(await realpath(root), CODEX_HOOKS_FILE)]);
+    return [...hooksFilePaths].some((hooksFilePath) => areCodexHooksTrusted(codexHookHashes(hooksFilePath, hooksFileText), trustedHashByKey));
+  }
+
   async function chooseScripts(root: string): Promise<Record<CoherenceTargetBinName, string> | null> {
     const mainCheckout = await readMainCheckout(root);
     const installedScripts = mainCheckout ? await readInstalledScripts(mainCheckout) : null;
@@ -158,14 +181,16 @@ export function createCoherenceNativeHooks({ runtime = createCoherenceRuntime(),
   async function runHooksCheck(root: string, host: CoherenceHost): Promise<CoherenceHooksState> {
     try {
       await runtime.run({ cwd: root, args: ['hooks', '--check', '--host', host], env: scrubbedCheckEnv(await factoryGitEnvironment(root)), timeoutMs: HOOKS_CHECK_TIMEOUT_MS });
-      return coherenceHooksStateFromCheck(0);
     } catch (error) {
       return coherenceHooksStateFromCheck(isCompletedCommandFailure(error) ? error.code : null);
     }
+    if (host === 'codex' && !await areProjectCodexHooksTrusted(root)) return { active: false, reason: COHERENCE_HOOKS_INACTIVE.codexHooksUntrusted };
+    return coherenceHooksStateFromCheck(0);
   }
 
   async function prepare({ root, host, canWriteShims }: CoherenceHooksRequest): Promise<CoherenceHooksState> {
     if (!await isRegularFileNoFollow(path.join(root, COHERENCE_CONFIG_FILENAME))) return { active: false, reason: COHERENCE_HOOKS_INACTIVE.configMissing };
+    if (!judgeCoherenceConfig(await readCoherenceConfigEntry(root)).ok) return { active: false, reason: COHERENCE_HOOKS_INACTIVE.configRefused };
     for (const controlFile of COHERENCE_NATIVE_CONTROL_FILES[host]) {
       if (!await isRegularFileNoFollow(path.join(root, controlFile))) return { active: false, reason: COHERENCE_HOOKS_INACTIVE.controlFilesMissing };
     }

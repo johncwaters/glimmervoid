@@ -84,7 +84,7 @@ async function hasPathAtCommit(cwd: string, sha: string, relativePath: string): 
 
 async function isNodeModulesIgnored(checkout: string): Promise<boolean> {
   try {
-    await runHardenedGit(['check-ignore', '-q', '--', 'node_modules'], { cwd: checkout, timeout: GIT_TIMEOUT_MS });
+    await runHardenedGit(['check-ignore', '-q', '--', COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER.relativePath.join('/')], { cwd: checkout, timeout: GIT_TIMEOUT_MS });
     return true;
   } catch (error) {
     if (isCompletedCommandFailure(error) && error.code === 1) return false;

@@ -1,11 +1,13 @@
 import { constants as fsConstants } from 'node:fs';
-import { lstat, mkdir, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, open, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { isMissingFileError } from '../../shared/text.ts';
+import { errorCode, isMissingFileError } from '../../shared/text.ts';
 import { execFileAsync } from '../child-process-safe.ts';
 import { COHERENCE_CONFIG_FILENAME, unreadableConfigEntry } from './core/coherence-config-core.ts';
 import type { CoherenceConfigEntry } from './core/coherence-config-core.ts';
+import { COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER } from './core/coherence-adopt-core.ts';
 import { changedPathsFromPorcelainStatus } from './core/coherence-feed-core.ts';
+import { COHERENCE_TARGET_BIN_NAMES } from './core/coherence-session-core.ts';
 import { prepareGuardrailsLaunch } from '../guardrails/guardrails-launch.ts';
 
 type FileRead =
@@ -209,6 +211,27 @@ async function snapshotCheckout({ cwd, snapshotRoot, env, source }: {
   return { ok: true, root: snapshotRoot, cwd: path.join(snapshotRoot, relativeCwd), readDenied: [realTop, commonGitDir], objectDirs };
 }
 
+async function isExecutableTarget(targetPath: string): Promise<boolean> {
+  const entry = await lstatOrNull(targetPath);
+  if (entry === null || !(entry.isFile() || entry.isSymbolicLink())) return false;
+  const resolved = entry.isSymbolicLink() ? await stat(targetPath).catch(() => null) : entry;
+  if (!resolved?.isFile()) return false;
+  return access(targetPath, fsConstants.X_OK).then(() => true, () => false);
+}
+
+async function mirrorLifecycleTargets(sourceCwd: string, snapshot: Extract<CheckoutSnapshot, { ok: true }>): Promise<void> {
+  const relativeBinDirectory = path.relative(snapshot.root, path.join(snapshot.cwd, 'node_modules', '.bin')).split(path.sep).join('/');
+  for (const binName of COHERENCE_TARGET_BIN_NAMES) {
+    if (!await isExecutableTarget(path.join(sourceCwd, 'node_modules', '.bin', binName))) continue;
+    if (!await isRealDirectoryChainUnder(snapshot.root, relativeBinDirectory, { isCreating: true })) return;
+    await writeFile(path.join(snapshot.root, relativeBinDirectory, binName), COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER.text, {
+      flag: 'wx', mode: COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER.mode,
+    }).catch((error: unknown) => {
+      if (errorCode(error) !== 'EEXIST') throw error;
+    });
+  }
+}
+
 async function nodeModulesHolding(filePath: string): Promise<string> {
   const realFile = await realpath(filePath);
   for (let current = path.dirname(realFile); path.dirname(current) !== current; current = path.dirname(current)) {
@@ -248,7 +271,7 @@ async function withGuardrailsLaunch<Outcome>({ scratch, snapshot, readablePaths,
 }
 
 export {
-  coherenceEnv, completedFailureStdout, lstatOrNull, nodeModulesHolding, readCoherenceConfigEntry, readRegularFileNoFollow, snapshotCheckout,
+  coherenceEnv, completedFailureStdout, lstatOrNull, mirrorLifecycleTargets, nodeModulesHolding, readCoherenceConfigEntry, readRegularFileNoFollow, snapshotCheckout,
   wasKilledByTimeout, withGuardrailsLaunch,
 };
 export type { CheckoutSnapshot, FileRead, GuardedCommand };

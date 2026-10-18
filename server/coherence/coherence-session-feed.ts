@@ -15,7 +15,7 @@ import { factoryGitEnvironment } from '../git/git-workspace.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { createCoherenceRuntime } from './coherence-runtime.ts';
 import {
-  coherenceEnv, completedFailureStdout, lstatOrNull, nodeModulesHolding, readCoherenceConfigEntry, readRegularFileNoFollow, snapshotCheckout,
+  coherenceEnv, completedFailureStdout, lstatOrNull, mirrorLifecycleTargets, nodeModulesHolding, readCoherenceConfigEntry, readRegularFileNoFollow, snapshotCheckout,
   wasKilledByTimeout, withGuardrailsLaunch,
 } from './coherence-sandboxed-run.ts';
 import type { CheckoutSnapshot, FileRead } from './coherence-sandboxed-run.ts';
@@ -164,6 +164,7 @@ function createCoherenceSessionFeed({
     if (!snapshot.ok) return snapshot;
     const configRefusal = regulationFromConfig(await readCoherenceConfigEntry(snapshot.cwd));
     if (configRefusal) return configRefusal;
+    await mirrorLifecycleTargets(cwd, snapshot);
     const readablePaths = [await nodeModulesHolding(resolvedCliPath), await realpath(process.execPath)];
     const args = [resolvedCliPath, ...regulateArgs({ host, baseSha: session.baseSha })];
     const stdout = await withGuardrailsLaunch({ scratch, snapshot, readablePaths, env }, (runGuarded) => runGuarded(process.execPath, args, { timeoutMs }));

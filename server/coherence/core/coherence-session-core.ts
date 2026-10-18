@@ -26,6 +26,8 @@ export const COHERENCE_TARGET_BIN_NAMES: readonly CoherenceTargetBinName[] = Obj
 
 export const COHERENCE_HOOKS_INACTIVE = Object.freeze({
   configMissing: 'config missing',
+  configRefused: 'config refused',
+  codexHooksUntrusted: 'Codex hooks need trust in /hooks',
   controlFilesMissing: 'control files missing',
   nodeModulesNotIgnored: 'node_modules not ignored',
   sharedNodeModulesMissingCoherence: 'Coherence not installed in shared node_modules',

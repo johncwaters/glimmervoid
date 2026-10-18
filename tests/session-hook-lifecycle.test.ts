@@ -17,6 +17,7 @@ import { saneYoloHomeDir } from '../server/hook-tools.ts';
 import { buildCoherenceSessionOverrides } from '../server/coherence/core/coherence-session-core.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
 import { createCoherenceNativeHooks } from '../server/coherence/coherence-native-hooks.ts';
+import { codexHookHashes } from '../server/coherence/core/coherence-codex-trust-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { resolvePackageBin } from '../server/runtime-paths.ts';
 import type { HooksBlock, UserHook } from '../session/core/user-hooks-core.ts';
@@ -151,7 +152,7 @@ async function scratchGit(cwd: string, ...args: string[]) {
   return execFileAsync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8' });
 }
 
-async function createNativeCoherenceWorktree(directory: string, name: string, { ignoresNodeModules }: { ignoresNodeModules: boolean }): Promise<string> {
+async function createNativeCoherenceWorktree(directory: string, name: string, { ignoresNodeModules, hosts = ['claude'] }: { ignoresNodeModules: boolean; hosts?: string[] }): Promise<string> {
   const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
   assert.ok(coherenceCliPath);
   const mainCheckout = path.join(directory, `${name}-main`);
@@ -164,8 +165,11 @@ async function createNativeCoherenceWorktree(directory: string, name: string, { 
   fs.mkdirSync(path.join(mainCheckout, 'node_modules', '.bin'));
   fs.symlinkSync('../@danilocampos/coherence/dist/hook-cli.js', path.join(mainCheckout, 'node_modules', '.bin', 'coherence-hook'));
   fs.symlinkSync('../@danilocampos/coherence/dist/cli.js', path.join(mainCheckout, 'node_modules', '.bin', 'coherence'));
-  await execFileAsync(process.execPath, [coherenceCliPath, 'hooks', 'install', '--host', 'claude'], { cwd: mainCheckout, encoding: 'utf8' });
-  await scratchGit(mainCheckout, 'add', '.gitignore', 'coherence.config.json', 'package.json', '.claude/settings.json', '.claude/coherence-hook', '.claude/coherence-root');
+  for (const host of hosts) await execFileAsync(process.execPath, [coherenceCliPath, 'hooks', 'install', '--host', host], { cwd: mainCheckout, encoding: 'utf8' });
+  const controlFilesByHost: Record<string, string[]> = {
+    claude: ['.claude/settings.json', '.claude/coherence-hook', '.claude/coherence-root'], codex: ['.codex/hooks.json', '.codex/coherence-hook', '.codex/coherence-root'],
+  };
+  await scratchGit(mainCheckout, 'add', '.gitignore', 'coherence.config.json', 'package.json', ...hosts.flatMap((host) => controlFilesByHost[host] ?? []));
   await scratchGit(mainCheckout, 'commit', '-q', '-m', 'adopt coherence');
   const worktree = path.join(directory, `${name}-worktree`);
   await scratchGit(mainCheckout, 'worktree', 'add', '-q', '-b', `session-${name}`, worktree);
@@ -177,11 +181,16 @@ test('ordinary sessions run the repository native Coherence install: shims make 
     const adoptedWorktree = await createNativeCoherenceWorktree(directory, 'adopted', { ignoresNodeModules: true });
     const unignoredWorktree = await createNativeCoherenceWorktree(directory, 'unignored', { ignoresNodeModules: false });
     const inPlaceCheckout = await createNativeCoherenceWorktree(directory, 'in-place', { ignoresNodeModules: true });
+    const refusedConfigWorktree = await createNativeCoherenceWorktree(directory, 'refused-config', { ignoresNodeModules: true });
+    fs.writeFileSync(path.join(refusedConfigWorktree, 'coherence.config.json'), JSON.stringify({ language: './evil.js' }));
+    const codexWorktree = await createNativeCoherenceWorktree(directory, 'codex', { ignoresNodeModules: true, hosts: ['codex'] });
+    const codexHome = path.join(directory, 'codex-home');
+    fs.mkdirSync(codexHome);
     const liveConfig = { projects: [], recordSignals: false, coherence: { enabled: true } };
     const makeSession = createSessionFactory({
       configStore: { configPath: path.join(directory, 'config.json') },
       getConfig: () => liveConfig,
-      coherenceNativeHooks: createCoherenceNativeHooks({ log: { warn: () => {} } }),
+      coherenceNativeHooks: createCoherenceNativeHooks({ codexEnv: { CODEX_HOME: codexHome }, log: { warn: () => {} } }),
       hookRouter: new HookRouter(), getHookPort: () => PORT,
       getGitWorkspace: () => null, getPlanReviewPort: () => null,
       resolveHookTools: () => [], getUserHooks: () => [],
@@ -239,6 +248,43 @@ test('ordinary sessions run the repository native Coherence install: shims make 
       assert.equal(fs.existsSync(path.join(inPlaceCheckout, 'node_modules')), false);
     } finally {
       inPlace.session.destroy();
+    }
+
+    const refusedConfig = await startSession('refused-config', refusedConfigWorktree, 'claude-code');
+    try {
+      assert.deepEqual(refusedConfig.session.coherenceHooks, { active: false, reason: 'config refused' });
+    } finally {
+      refusedConfig.session.destroy();
+    }
+
+    const untrustedCodex = await startSession('untrusted-codex', codexWorktree, 'codex');
+    try {
+      assert.deepEqual(untrustedCodex.session.coherenceHooks, { active: false, reason: 'Codex hooks need trust in /hooks' });
+    } finally {
+      untrustedCodex.session.destroy();
+    }
+    const codexHooksPath = path.join(codexWorktree, '.codex', 'hooks.json');
+    const trustedHookKeys = ['post_tool_use', 'session_start', 'subagent_start', 'subagent_stop', 'stop'].map((eventLabel) => `${codexHooksPath}:${eventLabel}:0:0`);
+    const writeTrustedHookHashes = (hooksFileText: string) => {
+      const hookHashByKey = codexHookHashes(codexHooksPath, hooksFileText);
+      fs.writeFileSync(path.join(codexHome, 'config.toml'), trustedHookKeys.map((hookKey) => `[hooks.state.${JSON.stringify(hookKey)}]\ntrusted_hash = ${JSON.stringify(hookHashByKey.get(hookKey))}\n`).join('\n'));
+    };
+    const installedHooksFileText = fs.readFileSync(codexHooksPath, 'utf8');
+    const earlierHooksFile = JSON.parse(installedHooksFileText) as { hooks: Record<string, { hooks: { command: string }[] }[]> };
+    earlierHooksFile.hooks.Stop[0].hooks[0].command = 'true';
+    writeTrustedHookHashes(JSON.stringify(earlierHooksFile));
+    const staleTrustCodex = await startSession('stale-trust-codex', codexWorktree, 'codex');
+    try {
+      assert.deepEqual(staleTrustCodex.session.coherenceHooks, { active: false, reason: 'Codex hooks need trust in /hooks' });
+    } finally {
+      staleTrustCodex.session.destroy();
+    }
+    writeTrustedHookHashes(installedHooksFileText);
+    const trustedCodex = await startSession('trusted-codex', codexWorktree, 'codex');
+    try {
+      assert.deepEqual(trustedCodex.session.coherenceHooks, { active: true });
+    } finally {
+      trustedCodex.session.destroy();
     }
   });
 });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -96,4 +96,37 @@ test('a turn end pushes the journal line and a measured regulate next action, an
   session.emit('exit');
   confinedSession.emit('exit');
   assert.deepEqual(feed.snapshotMessage().sessions, {});
+});
+
+test('regulate in the snapshot sees the session tree lifecycle target exactly as it is, releasing when installed and refusing once it is gone', async (t) => {
+  const { cliPath, hookCliPath } = createCoherenceRuntime();
+  assert.ok(cliPath && hookCliPath);
+  const repo = await mkdtemp(path.join(os.tmpdir(), 'coherence-feed-target-'));
+  t.after(() => rm(repo, { recursive: true, force: true }));
+  await git(repo, 'init', '-q', '-b', 'main');
+  await writeFile(path.join(repo, '.gitignore'), 'node_modules/\n');
+  await writeFile(path.join(repo, 'coherence.config.json'), '{}');
+  await writeFile(path.join(repo, 'index.ts'), 'export const answer = 42;\n');
+  const binDirectory = path.join(repo, 'node_modules', '.bin');
+  await mkdir(binDirectory, { recursive: true });
+  await symlink(hookCliPath, path.join(binDirectory, 'coherence-hook'));
+  await symlink(cliPath, path.join(binDirectory, 'coherence'));
+  await execFileAsync(process.execPath, [cliPath, 'hooks', 'install', '--host', 'claude'], { cwd: repo, encoding: 'utf8' });
+  await git(repo, 'add', '.');
+  await git(repo, 'commit', '-q', '-m', 'adopt coherence');
+  const baseSha = (await git(repo, 'rev-parse', 'HEAD')).stdout.trim();
+
+  const messages: ServerMessageOf<'session-coherence'>[] = [];
+  const feed = createCoherenceSessionFeed({ broadcastControl: (message) => messages.push(message), debounceMs: 0, log: { warn: () => {} } });
+  const session = sessionAt(repo, baseSha, 'claude-code');
+  feed.attachSession(session);
+  feed.onTurnEnd(session);
+  const installedReading = await nextMessage(messages, 0);
+  assert.equal(installedReading.regulation.ok && installedReading.regulation.nextAction.action, 'release', JSON.stringify(installedReading.regulation));
+
+  await rm(path.join(repo, 'node_modules'), { recursive: true, force: true });
+  feed.onTurnEnd(session);
+  const missingTargetReading = await nextMessage(messages, 1);
+  assert.equal(missingTargetReading.regulation.ok && missingTargetReading.regulation.nextAction.rule, 'canonical-lifecycle-control', JSON.stringify(missingTargetReading.regulation));
+  session.emit('exit');
 });

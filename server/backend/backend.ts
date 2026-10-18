@@ -295,6 +295,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     listProjects: () => (configStore.config.projects ?? []).flatMap(({ id, path: projectPath }) => (id && projectPath ? [{ id, path: projectPath }] : [])),
     readSettings: () => ({ isFactoryEnabled: configStore.config.factory?.enabled === true, isSettingOn: configStore.config.coherence?.enabled === true }),
     readIntegrationTip: integrationTipReader(assembledGitWorkspace, () => configStore.config),
+    fetchOrigin: assembledGitWorkspace.fetchOrigin,
     hasNativeControlAt: coherenceRuntime.hasNativeControlAt,
     broadcastControl: broadcastControlFromWebSockets,
     cliPath: coherenceRuntime.cliPath,

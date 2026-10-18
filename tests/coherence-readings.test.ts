@@ -49,6 +49,7 @@ test('each integration tip move records one sandboxed reading row and pushes the
     listProjects: () => [{ id: 'project-1', path: repo }],
     readSettings: () => ({ isFactoryEnabled: false, isSettingOn: true }),
     readIntegrationTip: integrationTipReader(createGitWorkspace(), () => ({})),
+    fetchOrigin: createGitWorkspace().fetchOrigin,
     hasNativeControlAt: runtime.hasNativeControlAt,
     broadcastControl: (message) => messages.push(message),
     debounceMs: 0,
@@ -129,6 +130,44 @@ async function seedHostileProject(workRoot: string, name: string, filesByPath: R
   return seeded;
 }
 
+test('a push to origin made outside Glimmervoid reaches the readings within one origin fetch interval', async (t) => {
+  const runtime = createCoherenceRuntime();
+  const workRoot = await mkdtemp(path.join(os.tmpdir(), 'coherence-readings-fetch-'));
+  t.after(() => rm(workRoot, { recursive: true, force: true }));
+  const pushed = await seedHostileProject(workRoot, 'pushed', { 'coherence.config.json': '{}', '.claude/coherence-hook': '{}', '.claude/coherence-root': '{}' });
+  const outsideClone = path.join(workRoot, 'outside-clone');
+  await execFileAsync('git', ['clone', '-q', pushed.origin, outsideClone]);
+  const gitWorkspace = createGitWorkspace();
+  let clockMs = Date.now();
+  const messages: ServerMessageOf<'project-coherence-trend'>[] = [];
+  const readings = createCoherenceReadings({
+    seriesRoot: path.join(workRoot, 'series'),
+    listProjects: () => [{ id: 'project-1', path: pushed.repo }],
+    readSettings: () => ({ isFactoryEnabled: false, isSettingOn: true }),
+    readIntegrationTip: integrationTipReader(gitWorkspace, () => ({})),
+    fetchOrigin: gitWorkspace.fetchOrigin,
+    hasNativeControlAt: runtime.hasNativeControlAt,
+    broadcastControl: (message) => messages.push(message),
+    debounceMs: 0,
+    now: () => clockMs,
+    log: { warn: () => {} },
+  });
+  t.after(() => readings.stop());
+  await readings.pollNow();
+  await nextTrend(messages, 0);
+
+  await writeFile(path.join(outsideClone, 'outside.ts'), 'export const outside = 1;\n');
+  const outsideTip = await commitAll(outsideClone, 'push from outside');
+  await git(outsideClone, 'push', '-q', 'origin', 'main');
+  clockMs += 60_000;
+  await readings.pollNow();
+  assert.equal((await git(pushed.repo, 'rev-parse', 'refs/remotes/origin/main')).stdout.trim() === outsideTip, false);
+  clockMs += 5 * 60_000;
+  await readings.pollNow();
+  const outsidePush = await nextTrend(messages, 1);
+  assert.equal(outsidePush.latest.sha, outsideTip);
+});
+
 async function nextStatus(messages: ServerMessageOf<'project-coherence-status'>[]) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const arrived = messages[0];
@@ -155,6 +194,7 @@ test('adopting Coherence pushes one fast-forward commit holding exactly the nati
     'evil.sh': `#!/bin/sh\necho "$@" > ${JSON.stringify(npmrcGitMarker)}\nexit 1\n`,
     'package.json': `${JSON.stringify({ private: true, dependencies: { x: 'git+ssh://git@example.invalid/x.git' } })}\n`,
   });
+  const directoryIgnored = await seedHostileProject(workRoot, 'directory-ignored', { '.gitignore': 'node_modules/\n' });
   const realWorkspace = createGitWorkspace();
   const racingClone = path.join(workRoot, 'racing-clone');
   await execFileAsync('git', ['clone', '-q', raced.origin, racingClone]);
@@ -173,6 +213,7 @@ test('adopting Coherence pushes one fast-forward commit holding exactly the nati
   const adopt = createCoherenceAdopt({
     listProjects: () => [
       { id: 'project-1', path: adopted.repo }, { id: 'project-2', path: raced.repo }, { id: 'project-3', path: plantedCli.repo }, { id: 'project-4', path: npmrcGit.repo },
+      { id: 'project-5', path: directoryIgnored.repo },
     ],
     readConfig: () => ({}),
     gitWorkspace,
@@ -182,7 +223,7 @@ test('adopting Coherence pushes one fast-forward commit holding exactly the nati
   });
 
   assert.deepEqual((await adopt.statusMessage()).projects, {
-    'project-1': { configured: false }, 'project-2': { configured: false }, 'project-3': { configured: false }, 'project-4': { configured: false },
+    'project-1': { configured: false }, 'project-2': { configured: false }, 'project-3': { configured: false }, 'project-4': { configured: false }, 'project-5': { configured: false },
   });
   assert.deepEqual(await adopt.adopt({ projectId: 'project-1', confirm: 'yes' }), { projectId: 'project-1', ok: false, error: 'not confirmed' });
 
@@ -225,4 +266,8 @@ test('adopting Coherence pushes one fast-forward commit holding exactly the nati
   assert.deepEqual(await adopt.adopt({ projectId: 'project-4', confirm: true }), { projectId: 'project-4', ok: false, error: 'npm install failed' });
   await assert.rejects(stat(npmrcGitMarker), { code: 'ENOENT' });
   for (const hostile of [plantedCli, npmrcGit]) assert.equal((await git(hostile.origin, 'ls-tree', '--name-only', 'refs/heads/main')).stdout.includes('coherence.config.json'), false);
+
+  const directoryIgnoredResult = await adopt.adopt({ projectId: 'project-5', confirm: true });
+  assert.equal(directoryIgnoredResult.ok, true, JSON.stringify(directoryIgnoredResult));
+  assert.equal((await git(directoryIgnored.origin, 'show', `${directoryIgnoredResult.sha}:.gitignore`)).stdout, 'node_modules/\n');
 });

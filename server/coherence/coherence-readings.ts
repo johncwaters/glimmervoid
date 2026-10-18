@@ -36,6 +36,7 @@ interface ProjectReadingsState {
   rows: CoherenceReadingRow[];
   rowsInFile: number;
   observedSha: string | null;
+  originFetchedAtMs: number | null;
   pendingSha: string | null;
   debounceTimer: NodeJS.Timeout | null;
   inFlight: Promise<void> | null;
@@ -49,6 +50,7 @@ interface CoherenceReadingsOptions {
   listProjects: () => ReadingsProject[];
   readSettings: () => { isFactoryEnabled: boolean; isSettingOn: boolean };
   readIntegrationTip: (projectPath: string) => Promise<string | null>;
+  fetchOrigin: GitWorkspaceInstance['fetchOrigin'];
   hasNativeControlAt: (projectPath: string, sha: string) => Promise<boolean>;
   broadcastControl: (message: ServerMessageOf<'project-coherence-trend'>) => void;
   cliPath?: string | null;
@@ -60,6 +62,7 @@ interface CoherenceReadingsOptions {
 }
 
 const READINGS_INTERVAL_MS = 60_000;
+const ORIGIN_FETCH_INTERVAL_MS = 5 * 60_000;
 const SERIES_FILE_MODE = 0o600;
 
 function unavailableEverywhere(reason: string): CoherenceVerbReadings {
@@ -78,7 +81,7 @@ function integrationTipReader(gitWorkspace: Pick<GitWorkspaceInstance, 'detectDe
 }
 
 function createCoherenceReadings({
-  seriesRoot, listProjects, readSettings, readIntegrationTip, hasNativeControlAt, broadcastControl, cliPath = createCoherenceRuntime().cliPath,
+  seriesRoot, listProjects, readSettings, readIntegrationTip, fetchOrigin, hasNativeControlAt, broadcastControl, cliPath = createCoherenceRuntime().cliPath,
   intervalMs = READINGS_INTERVAL_MS, debounceMs = 5_000, timeoutMs = 30_000, now = Date.now, log = console,
 }: CoherenceReadingsOptions) {
   const states = new Map<string, ProjectReadingsState>();
@@ -109,7 +112,7 @@ function createCoherenceReadings({
     const rows = parseReadingSeries(text);
     const loaded: ProjectReadingsState = {
       projectPath: project.path, seriesPath, rows, rowsInFile: text.split('\n').filter((line) => line.trim() !== '').length,
-      observedSha: rows[rows.length - 1]?.sha ?? null, pendingSha: null, debounceTimer: null, inFlight: null, isForgotten: false,
+      observedSha: rows[rows.length - 1]?.sha ?? null, originFetchedAtMs: null, pendingSha: null, debounceTimer: null, inFlight: null, isForgotten: false,
     };
     states.set(project.id, loaded);
     return loaded;
@@ -216,8 +219,17 @@ function createCoherenceReadings({
     state.debounceTimer.unref();
   }
 
+  async function fetchOriginWhenDue(state: ProjectReadingsState): Promise<void> {
+    const nowMs = now();
+    if (state.originFetchedAtMs !== null && nowMs - state.originFetchedAtMs < ORIGIN_FETCH_INTERVAL_MS) return;
+    state.originFetchedAtMs = nowMs;
+    const fetched = await fetchOrigin({ projectPath: state.projectPath });
+    if (!fetched.ok) log.warn(`[coherence-readings] fetching origin in ${state.projectPath} failed, reading local refs: ${firstLine(fetched.err ?? '')}`);
+  }
+
   async function observeProject(project: ReadingsProject): Promise<void> {
     const state = await loadState(project);
+    await fetchOriginWhenDue(state);
     const tipSha = await readIntegrationTip(project.path);
     if (tipSha === null || tipSha === state.observedSha) return;
     const hasNativeInstall = await hasNativeControlAt(project.path, tipSha);
