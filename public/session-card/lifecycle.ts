@@ -408,12 +408,16 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     updateButtonVisibility(sessionUi);
     ensureTerminalReady(sessionUi, id);
   }
+  function showConversationOrTerminalFace() {
+    if (showSessionConversationFace(id)) return;
+    showTerminalFace();
+  }
   const abortController = new AbortController();
   const planFace = createPlanFace({
     signal: abortController.signal,
     requestPlan: (requestedId, agentId, revision) => sendControlMsg({ type: 'session-plan', id: requestedId, agentId, revision }),
     requestDraft: (requestedId, agentId) => sendControlMsg({ type: 'session-plan', id: requestedId, agentId, draft: true }),
-    showTerminal: showTerminalFace,
+    showTerminal: showConversationOrTerminalFace,
     sendDecision: (requestedId, request) => sendControlMsg({ type: 'plan-decision', id: requestedId, ...request }),
     reportProblem: (message: string) => showErrorToast(`${dom.nameEl.textContent || id}: ${message}`),
   });
@@ -675,7 +679,9 @@ export function setSessionPrompt(sessionId: unknown, kind: unknown, isCompacting
   ui.pendingPromptKind = typeof kind === 'string' ? kind : null;
   paintCardBadge(ui, '.prompt-badge', 'prompt', promptBadgeState(kind, isCompacting, isWaitingForMemory));
   ui.conversationFace.refresh();
-  showPlanFaceWhenPreferred(sessionId);
+  if (showPlanFaceWhenPreferred(sessionId)) return;
+  const hasPendingPrompt = typeof kind === 'string' && kind !== '';
+  if (!hasPendingPrompt && ui.face === 'terminal') showSessionConversationFace(sessionId);
 }
 
 function formatWakeupChip(at: unknown) {
