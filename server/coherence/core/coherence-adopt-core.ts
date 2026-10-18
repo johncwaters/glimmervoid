@@ -6,10 +6,10 @@ import type { CoherenceHost } from './coherence-session-core.ts';
 export const COHERENCE_PACKAGE_NAME = '@danilocampos/coherence';
 export const COHERENCE_ADOPT_HOSTS: readonly CoherenceHost[] = Object.freeze(['claude', 'codex']);
 export const COHERENCE_ADOPT_CONFIG_TEXT = '{}\n';
-export const COHERENCE_ADOPT_COMMIT_SUBJECT = 'chore: adopt Coherence';
+const COHERENCE_ADOPT_COMMIT_SUBJECT = 'chore: adopt Coherence';
 
 export const COHERENCE_ADOPT_TIMEOUT_MS = Object.freeze({ npmInstall: 120_000, hooksInstall: 30_000, push: 60_000 });
-export const COHERENCE_ADOPT_NPM_REGISTRY = 'https://registry.npmjs.org/';
+const COHERENCE_ADOPT_NPM_REGISTRY = 'https://registry.npmjs.org/';
 export const COHERENCE_ADOPT_NPM_FILES = Object.freeze(['package.json', 'package-lock.json']);
 export const COHERENCE_ADOPT_NPM_FILE_MAX_BYTES = 32 * 1024 * 1024;
 export const COHERENCE_ADOPT_NODE_MODULES_PATHSPECS = Object.freeze([':(glob)**/node_modules', ':(glob)**/node_modules/**']);
@@ -28,8 +28,8 @@ export const COHERENCE_ADOPT_NO_SYMLINK_PATHS = Object.freeze([
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 export type CoherenceAdoptStep = 'fetch' | 'npm-install' | 'hooks-install' | 'commit' | 'push';
-export type CoherenceAdoptRequestVerdict = { ok: true; projectId: string } | { ok: false; error: CoherenceAdoptError };
-export type CoherenceAdoptPathsVerdict = { ok: true; paths: string[] } | { ok: false; error: CoherenceAdoptError; unexpectedPaths: string[]; missingPaths: string[] };
+type CoherenceAdoptRequestVerdict = { ok: true; projectId: string } | { ok: false; error: CoherenceAdoptError };
+type CoherenceAdoptPathsVerdict = { ok: true; paths: string[] } | { ok: false; error: CoherenceAdoptError; unexpectedPaths: string[]; missingPaths: string[] };
 
 export function judgeCoherenceAdoptRequest(request: unknown): CoherenceAdoptRequestVerdict {
   const parsed = ProjectCoherenceAdoptRequest.safeParse(request);
