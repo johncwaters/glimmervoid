@@ -14,6 +14,7 @@ const confirmedFlakes = z.array(z.string().min(1)).max(FACTORY_INTENT_CONFIRMED_
 export const FactoryProjectState = z.object({
   projectId: z.string(),
   projectName: z.string(),
+  projectPath: z.string(),
   headSha: z.string().nullable(),
   paused: z.boolean(),
   orchestrator: z.object({ sessionId: z.string(), intentId: z.string(), state: SessionState }).nullable(),

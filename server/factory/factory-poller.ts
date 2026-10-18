@@ -76,12 +76,12 @@ export function createFactoryPoller({
     }
     const lastReported = state?.projects.find((reported) => reported.projectId === project.id);
     if (!lastReported) return null;
-    return { state: { ...lastReported, projectName: project.name, error: `Could not read the integration tip: ${integrationTip.error}` }, shouldProcess: false };
+    return { state: { ...lastReported, projectName: project.name, projectPath: project.path, error: `Could not read the integration tip: ${integrationTip.error}` }, shouldProcess: false };
   }
 
   async function readLedgerProject(project: FactoryProject, headSha: string): Promise<FactoryProjectState | null> {
     let paused = false;
-    const identity = { projectId: project.id, projectName: project.name };
+    const identity = { projectId: project.id, projectName: project.name, projectPath: project.path };
     try {
       paused = await readPaused(project.id);
       const previous = processedProjects.get(project.id);
@@ -89,7 +89,7 @@ export function createFactoryPoller({
       if (!isUnchangedTip && !(await hasNativeCoherenceAt(project.path, headSha))) return null;
       const confirmedFlakesByIntent = await readIntentConfirmedFlakes(project.id);
       if (previous?.path === project.path && (isUnchangedTip || shouldHoldCheckout(project.id))) {
-        return { ...previous.state, paused, projectName: project.name, confirmedFlakesByIntent };
+        return { ...previous.state, paused, projectName: project.name, projectPath: project.path, confirmedFlakesByIntent };
       }
       const cwd = await ensureControlCheckout({ projectId: project.id, projectPath: project.path, sha: headSha });
       const orient = CoherenceOrient.parse(JSON.parse(await readCoherenceReport({ cwd, args: ['orient', '--json'] })));

@@ -3,7 +3,7 @@ import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { FactoryProjectState, FactoryState } from '#shared/contracts/factory.ts';
 import { localClockText } from '#shared/display-text.ts';
 import { buildCoherenceAdoptControl, listAdoptableCoherenceProjects } from '../coherence/adopt-action.ts';
-import { buildProjectCoherenceChip } from '../coherence/trend-chip.ts';
+import { buildProjectCoherenceChip, findTrendedCoherenceProjectId } from '../coherence/trend-chip.ts';
 import { buildPanelSection, el } from '../dom-helpers.ts';
 import { basename } from '../focus-view/roster-groups-core.ts';
 import { buildFactoryFloor, pickFactoryProject } from './factory-floor-core.ts';
@@ -400,10 +400,10 @@ function buildBottom(floor: FactoryFloor): HTMLElement {
 function buildCoherenceTrends(): HTMLElement {
   const lines = el('div', 'factory-coherence-trends');
   for (const project of snapshot?.projects ?? []) {
-    const chip = buildProjectCoherenceChip(project.projectId);
-    if (chip.hidden) continue;
+    const coherenceProjectId = findTrendedCoherenceProjectId(project.projectPath);
+    if (!coherenceProjectId) continue;
     const line = el('div', 'factory-coherence-line');
-    line.append(el('span', null, project.projectName), chip);
+    line.append(el('span', null, project.projectName), buildProjectCoherenceChip(coherenceProjectId));
     lines.append(line);
   }
   for (const project of listAdoptableCoherenceProjects()) {

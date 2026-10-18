@@ -101,7 +101,7 @@ test('factory status formats the digest, ticket blocks and next actions, project
   ];
   for (const scenario of cases) {
     const project: FactoryProjectState = {
-      projectId: 'repo', projectName: 'Repository', headSha: null, paused: false, orchestrator: null, error: null,
+      projectId: 'repo', projectName: 'Repository', projectPath: '/repo', headSha: null, paused: false, orchestrator: null, error: null,
       heading: { action: 'steady', reasons: [] }, conflicts: [], unverifiedCompletedWork: [], spentTodayUsd: 2.5, dailyBudgetUsd: 10,
       partialIntentIds: scenario.isPartial ? ['intent'] : [], confirmedFlakesByIntent: { intent: ['tests/check.test.ts: intermittent timeout'] },
       orders: [
@@ -122,7 +122,7 @@ test('factory status formats the digest, ticket blocks and next actions, project
     ].join('\n'), scenario.state);
   }
   assert.equal(formatFactoryStatus([], buildFactoryIntentDigest), 'No factory projects.');
-  const unreadableLedger = buildFactoryProjectState({ projectId: 'repo', projectName: 'Repository', headSha: null, orient: null, work: null, error: 'ledger read failed' });
+  const unreadableLedger = buildFactoryProjectState({ projectId: 'repo', projectName: 'Repository', projectPath: '/repo', headSha: null, orient: null, work: null, error: 'ledger read failed' });
   assert.equal(formatFactoryStatus([{ ...unreadableLedger, dailyBudgetUsd: null }], buildFactoryIntentDigest), [
     'Project repo: Repository', 'Project spend today: unknown of unlimited budget', 'Factory exception: ledger read failed',
   ].join('\n'));

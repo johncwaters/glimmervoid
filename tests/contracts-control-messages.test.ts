@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { factoryRepoId } from '../server/factory/core/factory-repos-core.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -67,6 +68,8 @@ test('the browser dispatches update-progress from the complete contract table', 
   assert.equal(serverTypes.includes('update-progress'), true);
   assert.equal(schemaTypes(ServerMessage).has('update-progress'), true);
 });
+
+const factoryProjectId = factoryRepoId('/repo');
 
 const NOW = 1_777_000_000_000;
 const UPDATE_JOURNAL = {
@@ -238,11 +241,11 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'radar-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },
   { type: 'team-review-action-result', requestId: 'review-1', key: 'PostHog/wizard#1350', ok: true },
   { type: 'github-polling-refresh-result', requestId: 'refresh-1', ok: true },
-  { type: 'factory-queue-intent-result', requestId: 'factory-1', projectId: 'project-1', ok: true, workId: 'wrk-123' },
-  { type: 'factory-control-result', requestId: 'factory-2', projectId: 'project-1', action: 'pause', ok: true },
+  { type: 'factory-queue-intent-result', requestId: 'factory-1', projectId: factoryProjectId, ok: true, workId: 'wrk-123' },
+  { type: 'factory-control-result', requestId: 'factory-2', projectId: factoryProjectId, action: 'pause', ok: true },
   { type: 'benchmark-action-result', requestId: 'bench-1', suiteId: 'review-ladder', action: 'run', ok: true, runId: 'run-1' },
   { type: 'factory-state', ts: NOW, projects: [{
-    projectId: 'project-1', projectName: 'Factory', headSha: 'a'.repeat(40), error: null, paused: false, orchestrator: null,
+    projectId: factoryProjectId, projectName: 'repo', projectPath: '/repo', headSha: 'a'.repeat(40), error: null, paused: false, orchestrator: null,
     heading: { action: 'dispatch', reasons: ['ready work'] },
     orders: [{ id: 'work-1', objective: 'Fix retries', openedAt: '2026-10-08T10:00:00.000Z', criteria: ['Retry test passes'], boundary: 'This repository', risk: 'high', state: 'open', readiness: 'ready', parent: null, dependsOn: [], writeScopes: ['src/retry.ts'], owner: 'session-1', lastEvent: null }],
     conflicts: [], unverifiedCompletedWork: [],
@@ -773,25 +776,25 @@ test('session-prompt carries a validated compaction flag beside the prompt kind'
 });
 
 const FACTORY_INTENT = {
-  type: 'factory-queue-intent', requestId: 'factory-1', projectId: 'project-1',
+  type: 'factory-queue-intent', requestId: 'factory-1', projectId: factoryProjectId,
   objective: 'Ship retries', criteria: ['Tests pass'], risk: 'low', boundary: 'This repository', writeScopes: [],
 };
 
 test('factory queue and control contracts round-trip requests and results', () => {
   assert.deepEqual(ClientMessage.parse(FACTORY_INTENT), FACTORY_INTENT);
   for (const action of ['pause', 'resume', 'rerun-setup']) {
-    const request = { type: 'factory-control', projectId: 'project-1', action, requestId: 'factory-2' };
+    const request = { type: 'factory-control', projectId: factoryProjectId, action, requestId: 'factory-2' };
     const reply = { ...request, type: 'factory-control-result', ok: true };
     assert.deepEqual(ClientMessage.parse(request), request);
     assert.deepEqual(ServerMessage.parse(reply), reply);
   }
-  const retry = { type: 'factory-control', projectId: 'project-1', action: 'retry-parked', intentId: 'wrk-intent', requestId: 'factory-retry' };
+  const retry = { type: 'factory-control', projectId: factoryProjectId, action: 'retry-parked', intentId: 'wrk-intent', requestId: 'factory-retry' };
   assert.deepEqual(ClientMessage.parse(retry), retry);
   for (const intentId of [undefined, '', ' ']) assert.equal(FactoryControlRequest.safeParse({ ...retry, intentId }).success, false);
   const retryReply = { type: 'factory-control-result', projectId: retry.projectId, action: retry.action, requestId: retry.requestId, ok: true, reopenedWorkIds: ['wrk-parked'] };
   assert.deepEqual(ServerMessage.parse(retryReply), retryReply);
   for (const outcome of [{ ok: true, workId: 'wrk-123' }, { ok: false, error: 'Landing failed' }]) {
-    const reply = { type: 'factory-queue-intent-result', projectId: 'project-1', requestId: 'factory-1', ...outcome };
+    const reply = { type: 'factory-queue-intent-result', projectId: factoryProjectId, requestId: 'factory-1', ...outcome };
     assert.deepEqual(ServerMessage.parse(reply), reply);
   }
 });
@@ -804,13 +807,13 @@ test('factory queue contracts reject empty, oversized and invalid input', () => 
     { risk: 'urgent' }, { projectId: '../project' }, { projectId: '' }, { projectId: 'x'.repeat(129) },
   ]) assert.equal(ClientMessage.safeParse({ ...FACTORY_INTENT, ...fields }).success, false, JSON.stringify(fields));
   assert.equal(ClientMessage.safeParse({ ...FACTORY_INTENT, criteria: Array(12).fill('criterion'), writeScopes: Array(32).fill('src') }).success, true);
-  assert.equal(ClientMessage.safeParse({ type: 'factory-control', projectId: 'project-1', action: 'stop' }).success, false);
-  assert.equal(ServerMessage.safeParse({ type: 'factory-control-result', projectId: 'project-1', action: 'pause', ok: 'yes' }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'factory-control', projectId: factoryProjectId, action: 'stop' }).success, false);
+  assert.equal(ServerMessage.safeParse({ type: 'factory-control-result', projectId: factoryProjectId, action: 'pause', ok: 'yes' }).success, false);
 });
 
 test('factory control handlers reject unknown projects and an off lane with correlated replies', async (context) => {
   for (const [projectId, enabled, error] of [
-    ['missing', true, 'Unknown factory project'], ['project-1', false, 'Factory is not running'],
+    ['missing', true, 'Unknown factory project'], [factoryProjectId, false, 'Factory is not running'],
   ] as const) {
     const server = createControlServer(controlDeps({ projects: [{ id: 'project-1', name: 'Factory', path: '/repo' }], factory: { enabled } }));
     context.after(() => server.close());
@@ -838,18 +841,18 @@ test('factory handlers route validated requests and retain request ids', async (
   context.after(() => server.close());
   const connection = connectControl<ServerPayload>(server);
   await connection.send(FACTORY_INTENT);
-  await connection.send({ type: 'factory-control', requestId: 'factory-2', projectId: 'project-1', action: 'resume' });
-  await connection.send({ type: 'factory-control', requestId: 'factory-3', projectId: 'project-1', action: 'retry-parked', intentId: 'wrk-intent' });
-  await connection.send({ type: 'factory-control', requestId: 'factory-4', projectId: 'project-1', action: 'rerun-setup' });
+  await connection.send({ type: 'factory-control', requestId: 'factory-2', projectId: factoryProjectId, action: 'resume' });
+  await connection.send({ type: 'factory-control', requestId: 'factory-3', projectId: factoryProjectId, action: 'retry-parked', intentId: 'wrk-intent' });
+  await connection.send({ type: 'factory-control', requestId: 'factory-4', projectId: factoryProjectId, action: 'rerun-setup' });
   assert.deepEqual(connection.sent.filter((frame) => frame.type.startsWith('factory-')), [
-    { type: 'factory-queue-intent-result', projectId: 'project-1', requestId: 'factory-1', ok: true, workId: 'wrk-123' },
-    { type: 'factory-control-result', projectId: 'project-1', requestId: 'factory-2', action: 'resume', ok: true },
-    { type: 'factory-control-result', projectId: 'project-1', requestId: 'factory-3', action: 'retry-parked', ok: true },
-    { type: 'factory-control-result', projectId: 'project-1', requestId: 'factory-4', action: 'rerun-setup', ok: true },
+    { type: 'factory-queue-intent-result', projectId: factoryProjectId, requestId: 'factory-1', ok: true, workId: 'wrk-123' },
+    { type: 'factory-control-result', projectId: factoryProjectId, requestId: 'factory-2', action: 'resume', ok: true },
+    { type: 'factory-control-result', projectId: factoryProjectId, requestId: 'factory-3', action: 'retry-parked', ok: true },
+    { type: 'factory-control-result', projectId: factoryProjectId, requestId: 'factory-4', action: 'rerun-setup', ok: true },
   ]);
   assert.deepEqual(routedIntents, [undefined, 'wrk-intent', undefined]);
   for (const intentId of [undefined, '', ' ']) {
-    await connection.send({ type: 'factory-control', requestId: 'invalid-retry', projectId: 'project-1', action: 'retry-parked', intentId });
+    await connection.send({ type: 'factory-control', requestId: 'invalid-retry', projectId: factoryProjectId, action: 'retry-parked', intentId });
     const reply = connection.sent.at(-1);
     assert.equal(reply?.type, 'factory-control-result');
     assert.equal(reply?.action, 'retry-parked');
@@ -872,7 +875,7 @@ test('factory request validation failures return bounded correlated contract res
   assert.equal(reply.ok, false);
   assert.equal(reply.requestId, FACTORY_INTENT.requestId);
   assert.equal(ServerMessage.safeParse(reply).success, true);
-  assert.equal(ServerMessage.safeParse({ type: 'factory-queue-intent-result', projectId: 'project-1', ok: false, error: 'x'.repeat(16385) }).success, false);
+  assert.equal(ServerMessage.safeParse({ type: 'factory-queue-intent-result', projectId: factoryProjectId, ok: false, error: 'x'.repeat(16385) }).success, false);
   for (const action of ['pause', 'resume', 'retry-parked', 'rerun-setup']) {
     await connection.send({ type: 'factory-control', requestId: 'invalid-project', projectId: 'x'.repeat(129), action });
     const controlReply = connection.sent.at(-1);

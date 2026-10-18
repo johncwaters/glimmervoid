@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { factoryRepoId } from '../server/factory/core/factory-repos-core.ts';
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
@@ -33,6 +34,7 @@ async function createFixture(context: TestContext) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'factory-dispatch-'));
   const coherenceLedger = await createCoherenceLedger(directory);
   const { projectPath, gitWorkspace, ledger, runCoherence, land } = coherenceLedger;
+  const factoryProjectId = factoryRepoId(projectPath);
   const hookCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence-hook');
   assert.ok(hookCliPath);
   assert.ok(ledger.isGit);
@@ -71,7 +73,7 @@ async function createFixture(context: TestContext) {
     onReadyIntent: (_projectId, intentId) => { readyIntents.push(intentId); },
     onWorkerTurnEnd: async (worker) => { turnEnds.push(worker); },
     config, sessions, shimDir: path.join(directory, 'bin'),
-    getOrchestrator: (sessionId) => sessionId === 'orchestrator' && isOrchestratorLive ? { projectId: 'repo', intentId } : null,
+    getOrchestrator: (sessionId) => sessionId === 'orchestrator' && isOrchestratorLive ? { projectId: factoryProjectId, intentId } : null,
     serializeProject: coherenceLedger.serializeProject,
     ensureLedger: async () => ledger, commitAndLand: land, runCoherence,
     readTodaySpend: () => todaySpend,
@@ -95,7 +97,7 @@ async function createFixture(context: TestContext) {
   };
   const dispatcher = createFactoryDispatch(dependencies);
   context.after(async () => { await dispatcher.stop(); await coherenceLedger.settleProjectChain(); await rm(directory, { recursive: true, force: true }); });
-  return { ...coherenceLedger, dispatcher, dependencies, directory, config, createOrder, workId, intentId, spawned, sessions, events, broadcasts, laneRecords, exceptions, hookCliPath,
+  return { ...coherenceLedger, factoryProjectId, dispatcher, dependencies, directory, config, createOrder, workId, intentId, spawned, sessions, events, broadcasts, laneRecords, exceptions, hookCliPath,
     spawnEnvs, spawnArguments, preparedRoles, turnEnds, readyIntents, setSpend: (spend: LaneSpend) => { todaySpend = spend; },
     settle: coherenceLedger.settleProjectChain,
     setPaused: (paused: boolean) => { isPaused = paused; },
@@ -173,11 +175,11 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.equal(fixture.sessions.get(reply.sessionId), spawned.session);
   spawned.session.emit('claude-session-id', { id: claudeSessionId, vendor: 'claude' });
   assert.deepEqual(fixture.laneRecords, ['factory']);
-  assert.deepEqual(fixture.dispatcher.getLiveWorkers('repo'), [{ workId: fixture.workId, sessionId: reply.sessionId }]);
+  assert.deepEqual(fixture.dispatcher.getLiveWorkers(fixture.factoryProjectId), [{ workId: fixture.workId, sessionId: reply.sessionId }]);
   assert.equal(fixture.events.at(-1)?.event, 'dispatched');
   assert.equal(fixture.broadcasts[0].type, 'session-added');
   spawned.session.destroy();
-  assert.deepEqual(fixture.dispatcher.getLiveWorkers('repo'), []);
+  assert.deepEqual(fixture.dispatcher.getLiveWorkers(fixture.factoryProjectId), []);
   assert.equal(fixture.events.at(-1)?.event, 'ended');
   assert.equal(fixture.events.filter((event) => event.event === 'ended').length, 1);
   assert.equal(fixture.broadcasts.at(-1)?.type, 'session-removed');
@@ -236,7 +238,7 @@ test('dispatch refuses missing tickets, invalid callers, disabled factory and ov
   assert.equal((await fixture.dispatcher.dispatch('orchestrator', { workId: 'wrk-ffffffffffffffff' })).ok, false);
   fixture.setSpend({ status: 'known', amountUsd: 11 });
   assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason: 'daily spend is over budget' });
-  assert.equal(fixture.exceptions.get('repo'), 'daily spend is over budget');
+  assert.equal(fixture.exceptions.get(fixture.factoryProjectId), 'daily spend is over budget');
   assert.equal(fixture.spawned.length, 0);
   assert.equal(fixture.commands.some((args) => args[1] === 'handoff'), false);
   fixture.config.factory = { enabled: false };
@@ -255,7 +257,7 @@ test('serialized concurrent dispatches enforce the live-worker cap and exit rele
   assert.ok(refusal && !refusal.ok);
   assert.match(refusal.reason, /cap/);
   fixture.spawned[0].session.emit('exit');
-  assert.deepEqual(fixture.dispatcher.getLiveWorkers('repo'), []);
+  assert.deepEqual(fixture.dispatcher.getLiveWorkers(fixture.factoryProjectId), []);
   assert.equal((await fixture.dispatcher.dispatch('orchestrator', { workId: secondId })).ok, true);
 });
 
@@ -264,7 +266,7 @@ test('a failed spawn reopens the ticket so the real admission gate admits a seco
   fixture.failMake();
   assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason: 'Session construction failed' });
   assert.equal(fixture.sessions.size, 0);
-  assert.deepEqual(fixture.dispatcher.getLiveWorkers('repo'), []);
+  assert.deepEqual(fixture.dispatcher.getLiveWorkers(fixture.factoryProjectId), []);
   assert.equal(await fixture.orderState(fixture.workId), 'open');
   fixture.failMake(false);
   const second = await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId });
@@ -280,7 +282,7 @@ test('a repository whose attributes name a filter driver refuses dispatch with a
   await fixture.git(['commit', '-m', 'track binaries with lfs'], fixture.ledger.cwd);
   const reason = 'repository uses git filter drivers (lfs), which factory workers cannot run safely';
   assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason });
-  assert.equal(fixture.exceptions.get('repo'), reason);
+  assert.equal(fixture.exceptions.get(fixture.factoryProjectId), reason);
   assert.equal(fixture.events.at(-1)?.event, 'refused');
   assert.equal(fixture.commands.some((args) => args[1] === 'handoff'), false);
   assert.equal(fixture.spawned.length, 0);
@@ -301,7 +303,7 @@ test('a repository whose tracked path list exceeds the pipe buffer still passes 
   assert.ok(trackedPathBytes > 128 * 1024, String(trackedPathBytes));
   const reply = await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId });
   assert.equal(reply.ok, true, JSON.stringify(reply));
-  assert.equal(fixture.exceptions.has('repo'), false);
+  assert.equal(fixture.exceptions.has(fixture.factoryProjectId), false);
   assert.equal(fixture.spawned.length, 1);
 });
 
@@ -319,10 +321,10 @@ test('a daily budget with unknown spend refuses dispatch and raises the factory 
   const fixture = await createFixture(context);
   fixture.setSpend({ status: 'tracking-off' });
   assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason: 'daily budget set but usage tracking is off' });
-  assert.equal(fixture.exceptions.get('repo'), 'daily budget set but usage tracking is off');
+  assert.equal(fixture.exceptions.get(fixture.factoryProjectId), 'daily budget set but usage tracking is off');
   fixture.setSpend({ status: 'catching-up' });
   assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason: 'usage history is still being scanned; spend is not known yet' });
-  assert.equal(fixture.exceptions.get('repo'), 'usage history is still being scanned; spend is not known yet');
+  assert.equal(fixture.exceptions.get(fixture.factoryProjectId), 'usage history is still being scanned; spend is not known yet');
   assert.equal(fixture.spawned.length, 0);
 });
 
@@ -330,7 +332,7 @@ test('an unavailable Sane YOLO refuses dispatch with the factory exception befor
   const fixture = await createFixture(context);
   fixture.removeSaneYolo();
   assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason: 'Sane YOLO is unavailable' });
-  assert.equal(fixture.exceptions.get('repo'), 'Sane YOLO is unavailable');
+  assert.equal(fixture.exceptions.get(fixture.factoryProjectId), 'Sane YOLO is unavailable');
   assert.equal(fixture.spawned.length, 0);
   assert.equal(fixture.commands.some((args) => args[1] === 'handoff' || args[1] === 'transition'), false);
   assert.equal((await fixture.inspect()).work.find((candidate) => candidate.work === fixture.workId)?.state, 'open');
@@ -344,7 +346,7 @@ test('lane start reconciles a factory-activated ticket with no live worker back 
   assert.equal(await fixture.orderState(fixture.workId), 'active');
   const restarted = createFactoryDispatch({ ...fixture.dependencies });
   context.after(() => restarted.stop());
-  const project = buildFactoryProjectState({ projectId: 'repo', projectName: 'Factory', headSha: null, error: null, work: await fixture.inspect(),
+  const project = buildFactoryProjectState({ projectId: fixture.factoryProjectId, projectName: path.basename(fixture.projectPath), projectPath: fixture.projectPath, headSha: null, error: null, work: await fixture.inspect(),
     orient: await fixture.readOrient() });
   assert.equal(project.orders.find((order) => order.id === fixture.workId)?.state, 'active');
   await restarted.reconcileActiveOrders(project);

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { factoryRepoId } from '../server/factory/core/factory-repos-core.ts';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -283,12 +284,14 @@ function wiringFixture({
 }
 
 test('factory and coherence check CLI and HTTP verbs reach the injected deps only from sessions without a factory role, on the session project', async (context) => {
+  const projectPath = process.cwd();
+  const factoryProjectId = factoryRepoId(projectPath);
   const intent: FactoryProjectState['orders'][number] = {
     id: 'intent', objective: 'Finish overnight', openedAt: '2026-10-15T00:00:00Z', criteria: [], boundary: 'src/', risk: 'low',
     state: 'open', readiness: 'ready', parent: null, dependsOn: [], writeScopes: ['src/'], owner: null, lastEvent: null,
   };
   const project: FactoryProjectState = {
-    projectId: 'repo', projectName: 'Repository', headSha: null, paused: false, orchestrator: null, error: null,
+    projectId: factoryProjectId, projectName: path.basename(projectPath), projectPath, headSha: null, paused: false, orchestrator: null, error: null,
     heading: { action: 'steady', reasons: [] }, conflicts: [], unverifiedCompletedWork: [], partialIntentIds: ['intent'],
     confirmedFlakesByIntent: { intent: ['tests/check.test.ts: timeout'] },
     orders: [intent, { ...intent, id: 'merged', parent: 'intent', state: 'completed' },
@@ -341,7 +344,7 @@ test('factory and coherence check CLI and HTTP verbs reach the injected deps onl
     getSession: (id) => [fixture.parent, orchestrator, worker, reviewerLane].find((session) => session.id === id) ?? null,
     getUsage: () => ({ ingestStatusline: () => {} }), getAgentApi: () => fixture.wiring,
     getFactory: () => ({
-      getLiveOrchestrator: (id) => id === 'orchestrator' && isLiveOrchestrator ? { projectId: 'repo', intentId: 'intent' } : null,
+      getLiveOrchestrator: (id) => id === 'orchestrator' && isLiveOrchestrator ? { projectId: factoryProjectId, intentId: 'intent' } : null,
       dispatch: async () => ({ ok: true, sessionId: 'worker' }),
     }),
   });
@@ -367,7 +370,7 @@ test('factory and coherence check CLI and HTTP verbs reach the injected deps onl
   assert.match(digest.text, /parked \| state: parked \| blocks: 0 \| last reason: Needs write scope: src\/entry.ts/);
   assert.match(digest.text, /tests\/check.test.ts: timeout/);
   assert.match(digest.text, /Intent other-intent/);
-  const filtered = await runCli(['status', '--project', 'repo']);
+  const filtered = await runCli(['status', '--project', factoryProjectId]);
   assert.match(filtered.stdout, /glimmervoid factory retry intent/);
   assert.doesNotMatch(filtered.stdout, /Other repository/);
   assert.equal(filtered.stderr, '');
@@ -386,19 +389,21 @@ test('factory and coherence check CLI and HTTP verbs reach the injected deps onl
   assert.equal((await send('coherence-check', {}, reviewerLane)).status, 403);
   assert.deepEqual(checkedProjectIds, ['repo']);
   assert.equal((await runCli(['setup'])).stdout.trim(), 'Factory checks: npm test\nFocused test command: node --test\nNext: glimmervoid factory queue <intent.json>, with an intent cut by the spec skill or written in the Factory tab request shape');
-  assert.equal((await runCli(['queue', intentFile])).stdout.trim(), 'Queued wrk-queued on repo. Follow it with glimmervoid factory status --project repo');
-  assert.deepEqual([setupCalls, queueCalls.map((request) => [request.projectId, request.objective])], [['repo'], [['repo', 'Build the parser']]]);
+  assert.equal((await runCli(['queue', intentFile])).stdout.trim(), `Queued wrk-queued on ${factoryProjectId}. Follow it with glimmervoid factory status --project ${factoryProjectId}`);
+  assert.deepEqual([setupCalls, queueCalls.map((request) => [request.projectId, request.objective])], [[factoryProjectId], [[factoryProjectId, 'Build the parser']]]);
   const queueRequest = { objective: 'x', criteria: ['y'], risk: 'low', boundary: 'z', writeScopes: ['src/'] };
   assert.equal((await send('factory-queue', { ...queueRequest, projectId: 'other' })).status, 400);
   assert.equal((await send('factory-queue', { ...queueRequest, floorAllowances: ['**/package.json'] })).status, 400);
   assert.equal(queueCalls.length, 1);
   fixture.config.projects = [{ id: 'fresh', name: 'Fresh', path: process.cwd() }];
+  projects = projects.filter((candidate) => candidate.projectId !== factoryProjectId);
   const notFactoryYet = await send('factory-queue', queueRequest);
   assert.equal(notFactoryYet.status, 409);
   assert.match((await notFactoryYet.json()).error, /adopt Coherence at the repository root/);
   assert.equal((await send('factory-queue', { objective: 'x' })).status, 400);
   assert.equal((await send('factory-setup', {}, worker)).status, 403);
   assert.equal((await send('factory-queue', queueRequest, reviewerLane)).status, 403);
+  projects = [project];
   const retried = await runCli(['retry', 'intent']);
   assert.equal(retried.stdout.trim(), 'Reopened parked tickets: parked');
   assert.equal((await send('factory-retry', { intentId: 'intent' }, worker)).status, 403);
@@ -413,13 +418,13 @@ test('factory and coherence check CLI and HTTP verbs reach the injected deps onl
   assert.equal((await send('factory-retry', { intentId: 'parked' })).status, 404);
   assert.equal((await send('factory-retry', {})).status, 400);
   assert.equal((await send('factory-status', { projectId: '' })).status, 400);
-  assert.deepEqual(retryCalls, [{ projectId: 'repo', intentId: 'intent' }]);
+  assert.deepEqual(retryCalls, [{ projectId: factoryProjectId, intentId: 'intent' }]);
   retryError = 'Intent is not partial';
   const refusedRetry = await send('factory-retry', { intentId: 'intent' });
   assert.equal(refusedRetry.status, 409);
   assert.deepEqual(await refusedRetry.json(), { ok: false, error: 'Intent is not partial' });
   projects = [{ ...project, orders: [], error: 'ledger read failed', heading: { action: 'refuse', reasons: ['ledger read failed'] } }];
-  assert.deepEqual(await (await send('factory-retry', { intentId: 'intent' })).json(), { ok: false, error: 'Factory state for repo is unavailable: ledger read failed' });
+  assert.deepEqual(await (await send('factory-retry', { intentId: 'intent' })).json(), { ok: false, error: `Factory state for ${factoryProjectId} is unavailable: ledger read failed` });
   projects = null;
   for (const verb of ['factory-status', 'factory-retry', 'factory-setup']) {
     const unavailable = await send(verb, verb === 'factory-retry' ? { intentId: 'intent' } : {});

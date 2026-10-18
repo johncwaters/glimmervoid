@@ -53,9 +53,17 @@ export function listCoherenceTrendProjects(): { projectId: string; path: string 
   return [...projectIdsByPath].map(([path, projectId]) => ({ projectId, path }));
 }
 
+export function findTrendedCoherenceProjectId(projectPath: string): string | undefined {
+  return [...pathsByProjectId].find(([candidateId, path]) => path === projectPath && trendsByProjectId.has(candidateId))?.[0];
+}
+
+export function findCoherenceTrendProjectPath(projectId: string): string | undefined {
+  return pathsByProjectId.get(projectId);
+}
+
 export function hasCoherenceTrendReading(projectId: string): boolean {
   const projectPath = pathsByProjectId.get(projectId);
-  return trendsByProjectId.has(projectId) || [...pathsByProjectId].some(([candidateId, path]) => path === projectPath && trendsByProjectId.has(candidateId));
+  return trendsByProjectId.has(projectId) || (projectPath !== undefined && findTrendedCoherenceProjectId(projectPath) !== undefined);
 }
 
 function paintOpenPanel() {

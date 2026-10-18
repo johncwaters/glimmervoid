@@ -4,7 +4,7 @@ type FactoryProfile = NonNullable<ProjectConfig['factoryProfile']>;
 
 export const DEFAULT_WIDENABLE_SCOPES = ['tests/', 'test/', '__tests__/', '**/*.test.*', '**/*.spec.*'];
 
-export function resolveFactoryProfile(globalSettings: FactoryProfile | null | undefined, project?: ProjectConfig | null) {
+export function resolveFactoryProfile(globalSettings: FactoryProfile | null | undefined, project?: Pick<ProjectConfig, 'factoryProfile'> | null) {
   const effectiveProfile = { ...globalSettings };
   for (const [field, value] of Object.entries(project?.factoryProfile ?? {})) {
     if (value === undefined) continue;

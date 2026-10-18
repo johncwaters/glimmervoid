@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One factory per repository**: the Factory tab showed a separate factory for every session open in a repository, each with its own pause state and orchestrator over the same work ledger. All sessions in a repository now share one factory, named after the repository, that keeps its state while any session in that repository stays open. Pause state and setup history from the old per-session factories do not carry over, so re-check Pause on a repository you had paused.
 - **Swipe back in phone Settings**: swiping back from a Settings section now slides straight to the section list, instead of sliding the same section away and then blinking over to the list.
 - **No terminal keys over the Conversation view**: on the phone, opening the keyboard in the Conversation view no longer shows the Esc, Tab, arrows and Paste strip meant for the terminal.
 - **Messages sent mid-turn show in the Conversation view**: a message you send while the agent is still working now shows as your message in the Conversation view and in Trace, instead of never appearing. A photo in such a message shows as its [Image #N] label only.

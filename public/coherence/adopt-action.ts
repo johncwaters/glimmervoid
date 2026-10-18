@@ -5,11 +5,11 @@ import { buildDialogShell } from '../session-card/modal.ts';
 import { createSignal } from '../signal.ts';
 import { SIGNAL_TIER } from '../signal-core.ts';
 import { coherenceAdoptReplyStatus, shouldOfferCoherenceAdopt } from './adopt-core.ts';
-import { hasCoherenceTrendReading, listCoherenceTrendProjects } from './trend-chip.ts';
+import { findCoherenceTrendProjectPath, hasCoherenceTrendReading, listCoherenceTrendProjects } from './trend-chip.ts';
 
 let projectStatuses: ServerMessageOf<'project-coherence-status'>['projects'] = {};
 let isCoherenceEnabled = false;
-let factoryProjectIds = new Set<string>();
+let factoryProjectPaths = new Set<string>();
 let refreshAdoptOffers = () => {};
 const adoptionsByProjectId = new Map<string, { isPending: boolean; text: string; ok: boolean }>();
 let openDialog: { projectId: string; paint: () => void; close: () => void } | null = null;
@@ -23,8 +23,8 @@ export function setProjectCoherenceAdoptEnabled(isEnabled: boolean) {
   refreshAdoptOffers();
 }
 
-export function setCoherenceAdoptFactoryProjects(projects: readonly { projectId: string }[]) {
-  factoryProjectIds = new Set(projects.map((project) => project.projectId));
+export function setCoherenceAdoptFactoryProjects(projects: readonly { projectPath: string }[]) {
+  factoryProjectPaths = new Set(projects.map((project) => project.projectPath));
   refreshAdoptOffers();
 }
 
@@ -46,7 +46,7 @@ function applyProjectCoherenceAdoptResponse(message: ServerMessageOf<'project-co
 }
 
 function canAdoptProject(projectId: string) {
-  return shouldOfferCoherenceAdopt(hasCoherenceTrendReading(projectId), projectStatuses[projectId], isCoherenceEnabled, factoryProjectIds.has(projectId));
+  return shouldOfferCoherenceAdopt(hasCoherenceTrendReading(projectId), projectStatuses[projectId], isCoherenceEnabled, factoryProjectPaths.has(findCoherenceTrendProjectPath(projectId) ?? ''));
 }
 
 export function listAdoptableCoherenceProjects(): { projectId: string; path: string }[] {

@@ -18,6 +18,7 @@ import {
   describePushRouteRefusal, describeUnavailableFactoryState, FACTORY_ADOPTION_STEP, findSessionProjectId, formatFactoryStatus, parseAgentVerb,
 } from './core/agent-api-core.ts';
 import { buildFactoryIntentDigest } from './factory/core/factory-core.ts';
+import { findFactoryRepoByPath } from './factory/core/factory-repos-core.ts';
 import { isGuardedSessionVendor } from './guardrails/core/guardrails-roles-core.ts';
 import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
@@ -210,7 +211,7 @@ function createAgentApiWiring({
   async function setUpFactoryProject(
     session: Session, factoryPort: NonNullable<AgentApiWiringOptions['factory']>, projects: FactoryState['projects'],
   ): Promise<AgentApiReply> {
-    const projectId = findSessionProjectId(config.projects, session.path);
+    const projectId = findFactoryRepoByPath(config, session.path)?.id;
     if (!projectId) return { status: 404, body: { ok: false, error: `no configured project has the path ${session.path}, so the operator has to add this repository as a project first` } };
     const outcome = await factoryPort.rerunSetup(projectId);
     if (!outcome.ok) return { status: 409, body: { ok: false, error: outcome.reason } };
@@ -220,7 +221,7 @@ function createAgentApiWiring({
   async function queueFactoryIntent(
     session: Session, factoryPort: NonNullable<AgentApiWiringOptions['factory']>, projects: FactoryState['projects'], request: AgentFactoryQueueRequest,
   ): Promise<AgentApiReply> {
-    const projectId = findSessionProjectId(config.projects, session.path);
+    const projectId = findFactoryRepoByPath(config, session.path)?.id;
     if (!projectId) return { status: 404, body: { ok: false, error: `no configured project has the path ${session.path}, so the operator has to add this repository as a project first` } };
     if (!projects.some((project) => project.projectId === projectId)) {
       return { status: 409, body: { ok: false, error: `${projectId} is not a factory project yet: ${FACTORY_ADOPTION_STEP}, then queue again` } };

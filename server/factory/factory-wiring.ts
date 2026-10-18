@@ -8,7 +8,7 @@ import type { Config, ProjectConfig } from '../../shared/contracts/config.ts';
 import type { AgentTicketReply, AgentTicketRequest, TicketAgentVerb } from '../../shared/contracts/session.ts';
 import { createCoherenceRuntime } from '../coherence/coherence-runtime.ts';
 import { DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
-import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, decideIntentOutcomeNotices, exceedsRiskCeiling, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, redactSecretLines, withIntentFloorAllowances, withIntentConfirmedFlakes, withIntentScopeNeeds, withTicketBlockCount } from './core/factory-core.ts';
+import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, decideIntentOutcomeNotices, exceedsRiskCeiling, factoryConfigKey, factoryWrittenRecordId, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, redactSecretLines, withIntentFloorAllowances, withIntentConfirmedFlakes, withIntentScopeNeeds, withTicketBlockCount } from './core/factory-core.ts';
 import type { FactoryWorkRefusal } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import type { LaneSpend } from '../usage/core/usage-scan-core.ts';
@@ -28,6 +28,7 @@ import { createFactoryOrchestrator, createFactoryTicketVerbs } from './factory-o
 import type { Session } from '../../session/sessions.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
 import { createFactoryPoller } from './factory-poller.ts';
+import { findFactoryProjectPath, findFactoryRepo, listFactoryRepos, saveFactoryProfileOnRepo } from './core/factory-repos-core.ts';
 import type { FactoryPoller, FactoryPollerDeps } from './factory-poller.ts';
 import { createGitWorkspace, factoryGitEnvironment, isolateGitWorkspace, runHardenedGit } from '../git/git-workspace.ts';
 import type { GitWorkspaceInstance } from '../git/git-workspace.ts';
@@ -107,8 +108,8 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
 
   async function findProjectIdOfLedger(cwd: string): Promise<string | null> {
     const checkoutKey = await comparableDirectoryPath(cwd);
-    for (const { id } of config.projects ?? []) {
-      if (!id || !isSingleFactoryPathSegment(id)) continue;
+    for (const { id } of listFactoryRepos(config)) {
+      if (!isSingleFactoryPathSegment(id)) continue;
       const { ledgerPath } = await readLaneState(id);
       if (ledgerPath && await comparableDirectoryPath(ledgerPath) === checkoutKey) return id;
     }
@@ -140,9 +141,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     saveProjectFactoryProfile: async (projectPath, profile) => {
       if (!saveProjectFactoryProfile) throw new Error('Factory setup profile persistence is unavailable');
       await saveProjectFactoryProfile(projectPath, profile);
-      const project = config.projects?.find((entry) => entry.path === projectPath);
-      if (!project) throw new Error('Factory setup project is no longer configured');
-      project.factoryProfile = profile;
+      saveFactoryProfileOnRepo(config.projects, projectPath, profile);
     },
     recordBaseline: async (projectId, baseline) => {
       await mkdir(projectHomePath(projectId), { recursive: true });
@@ -460,7 +459,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       const ticketProblem = findIntentTicketProblem(intent);
       if (ticketProblem) throw new Error(`Invalid tickets: ${ticketProblem}`);
       requireProject(intent.projectId);
-      if (!config.projects?.find((project) => project.id === intent.projectId)?.factoryProfile) {
+      if (!findFactoryRepo(config, intent.projectId)?.factoryProfile) {
         const setupResult = await rerunSetup(intent.projectId);
         if (!setupResult.ok) throw new Error(setupResult.reason);
       }
@@ -553,7 +552,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
   }
 
   function notifyProject(projectId: string, reason: string): void {
-    notify(config.projects.find((project) => project.id === projectId)?.name ?? projectId, FACTORY_NOTIFY_CATEGORY, reason);
+    notify(findFactoryRepo(config, projectId)?.name ?? projectId, FACTORY_NOTIFY_CATEGORY, reason);
   }
 
   function recordException(projectId: string, reason: string): void {
@@ -761,10 +760,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       }
       const poller = createPoller({
         log,
-        listFactoryProjects: () => (config.projects ?? []).flatMap(({ id, name, path: projectPath }) => {
-          if (!id || !projectPath) return [];
-          return [{ id, name: name ?? path.basename(projectPath), path: projectPath }];
-        }),
+        listFactoryProjects: () => listFactoryRepos(config),
         resolveIntegrationBranch,
         readPaused,
         readIntentWriteScopes,
@@ -804,7 +800,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           const isInFlight = isFactoryProjectInFlight({ ...updated, liveWorkers }) || (activeDispatcher?.hasPendingRefusal(project.projectId) ?? false);
           if (isInFlight) projectIdleSinceMs.delete(project.projectId);
           if (!isInFlight && !projectIdleSinceMs.has(project.projectId)) projectIdleSinceMs.set(project.projectId, stallClock());
-          const factoryProfile = resolveFactoryProfile(config.factory, config.projects?.find((entry) => entry.id === project.projectId));
+          const factoryProfile = resolveFactoryProfile(config.factory, findFactoryRepo(config, project.projectId));
           return { ...updated, note: withCheckMemoryNote(project.projectId, updated.note), reviewing, liveWorkers, factoryProfile: { checks: factoryProfile.checks, focusedTestCommand: factoryProfile.focusedTestCommand, widenableScopes: factoryProfile.widenableScopes },
             spentTodayUsd: todaySpend.status === 'known' ? todaySpend.amountUsd : undefined, dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
             error: updated.error ?? projectException(project.projectId) ?? landingErrors.get(project.projectId) ?? null };

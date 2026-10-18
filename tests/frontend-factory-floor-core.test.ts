@@ -18,7 +18,7 @@ function makeOrder(id: string, overrides: Partial<FactoryOrder> = {}): FactoryOr
 
 function makeProject(orders: FactoryOrder[], overrides: Partial<FactoryProjectState> = {}): FactoryProjectState {
   return {
-    projectId: 'project', projectName: 'Factory', headSha: null, error: null, paused: false, orchestrator: null,
+    projectId: 'project', projectName: 'Factory', projectPath: '/repo', headSha: null, error: null, paused: false, orchestrator: null,
     heading: { action: 'dispatch', reasons: ['Ready work', 'Another reason'] },
     orders, conflicts: [], unverifiedCompletedWork: [], ...overrides,
   };
@@ -27,7 +27,7 @@ function makeProject(orders: FactoryOrder[], overrides: Partial<FactoryProjectSt
 async function readFixtureProject(action: string): Promise<FactoryProjectState> {
   const [orientation, inspection] = await Promise.all([readCoherenceFixture(`orient-${action}`), readCoherenceFixture(`work-${action}`)]);
   return buildFactoryProjectState({
-    projectId: 'project', projectName: 'Factory', headSha: null, error: null,
+    projectId: 'project', projectName: 'Factory', projectPath: '/repo', headSha: null, error: null,
     orient: CoherenceOrient.parse(JSON.parse(orientation)), work: CoherenceWorkInspect.parse(JSON.parse(inspection)),
   });
 }

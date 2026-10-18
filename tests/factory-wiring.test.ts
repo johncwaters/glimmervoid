@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { factoryRepoId } from '../server/factory/core/factory-repos-core.ts';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { access, appendFile, chmod, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -151,6 +152,7 @@ for (const configuredBranch of [undefined, 'integration']) {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'factory-wiring-'));
     context.after(() => rm(directory, { recursive: true, force: true }));
     const projectPath = path.join(directory, 'repo');
+    const factoryProjectId = factoryRepoId(projectPath);
     const homeDir = path.join(directory, 'home');
     await mkdir(projectPath);
     const git = gitRunnerIn(projectPath);
@@ -175,7 +177,7 @@ for (const configuredBranch of [undefined, 'integration']) {
     context.after(wiring.stop);
     wiring.start();
     await waitFor(() => pollers.length === 1, 'factory creates its poller');
-    const checkoutPath = path.join(homeDir, 'factory', 'project-1', 'control');
+    const checkoutPath = path.join(homeDir, 'factory', factoryProjectId, 'control');
     await pollers[0].tick();
     assert.equal(messages[0].projects[0].error, null);
     assert.equal(messages[0].projects[0].headSha, firstSha);
@@ -206,6 +208,7 @@ async function createFactoryFixture(context: test.TestContext, { integrationBran
     await rm(directory, { recursive: true, force: true });
   });
   const projectPath = path.join(directory, 'repo');
+  const factoryProjectId = factoryRepoId(projectPath);
   const homeDir = path.join(directory, 'home');
   await mkdir(projectPath);
   const git = gitRunnerIn(projectPath);
@@ -234,7 +237,7 @@ async function createFactoryFixture(context: test.TestContext, { integrationBran
     await waitFor(() => pollers.length === 1, 'factory creates its poller');
     return wiring;
   };
-  const checkoutPath = path.join(homeDir, 'factory', 'project-1', 'control');
+  const checkoutPath = path.join(homeDir, 'factory', factoryProjectId, 'control');
   return { directory, projectPath, checkoutPath, config, git, commitLedger, initRepository, startWiring, pollers, messages };
 }
 
@@ -405,6 +408,7 @@ async function createIntentFixture(context: test.TestContext) {
   });
   const homeDir = path.join(directory, 'home');
   const { projectPath, originPath, git } = await createRepositoryWithOrigin(directory, 'integration', { 'coherence.config.json': '{}\n', ...NATIVE_COHERENCE_CLAUDE_CONTROL });
+  const factoryProjectId = factoryRepoId(projectPath);
   const config = { factory: { enabled: true }, integrationBranch: 'integration', projects: [{ id: 'project-1', name: 'Factory', path: projectPath, factoryProfile: {} as ProjectConfig['factoryProfile'] }] };
   const broadcasts: FactoryState[] = [];
   const start = async (gitWorkspace?: GitWorkspaceInstance, runCoherence?: (request: { cwd: string; args: string[] }) => Promise<string>,
@@ -419,10 +423,10 @@ async function createIntentFixture(context: test.TestContext) {
     return wiring;
   };
   const request = {
-    projectId: 'project-1', objective: 'Ship retries', criteria: ['Retry tests pass', 'No lost work'],
+    projectId: factoryProjectId, objective: 'Ship retries', criteria: ['Retry tests pass', 'No lost work'],
     risk: 'low' as const, boundary: 'This repository', writeScopes: ['server/retry.ts'],
   };
-  const statePath = path.join(homeDir, 'factory', 'project-1', 'state.json');
+  const statePath = path.join(homeDir, 'factory', factoryProjectId, 'state.json');
   const readState = async () => FactoryLaneState.parse(JSON.parse(await readFile(statePath, 'utf8')));
   return { projectPath, homeDir, originPath, config, broadcasts, git, start, request, statePath, readState };
 }
@@ -548,7 +552,7 @@ test('queue intent lands on integration and origin, reuses its ledger, and pause
   assert.ok(queued.workId);
   const state = await readState();
   assert.equal(state.paused, true);
-  assert.equal(state.ledgerBranch, 'glimmervoid/project-1/factory-ledger');
+  assert.equal(state.ledgerBranch, `glimmervoid/${request.projectId}/factory-ledger`);
   assert.ok(state.ledgerPath);
   assert.equal(await git(['status', '--porcelain'], state.ledgerPath), '');
   const integrationSha = await git(['rev-parse', 'integration']);
@@ -1142,7 +1146,7 @@ test('the factory trusts the repository root before its orchestrator starts, lea
     return 'granted';
   } });
   assert.deepEqual(trustCalls, [{ repositoryRoot: await realpath(trusted.projectPath), sessionsSpawnedSoFar: 0 }]);
-  const decisionsDirectory = path.join(trusted.homeDir, 'factory', 'project-1', 'decisions');
+  const decisionsDirectory = path.join(trusted.homeDir, 'factory', factoryRepoId(trusted.projectPath), 'decisions');
   const readDecisions = () => (existsSync(decisionsDirectory) ? readdirSync(decisionsDirectory) : [])
     .flatMap((fileName) => readFileSync(path.join(decisionsDirectory, fileName), 'utf8').trim().split('\n'))
     .map((line) => FactoryDecisionLogLine.parse(JSON.parse(line)));

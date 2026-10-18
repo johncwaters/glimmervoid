@@ -2,6 +2,7 @@ import { createFactoryVerifier } from '../server/factory/factory-verifier.ts';
 import { buildFactoryProjectState, FACTORY_REVIEW_DIFF_MAX_CHARS, formatWorkerEvent, nextIntent } from '../server/factory/core/factory-core.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
 import assert from 'node:assert/strict';
+import { factoryRepoId } from '../server/factory/core/factory-repos-core.ts';
 import crypto from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -43,6 +44,7 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
   });
   const coherenceLedger = await createCoherenceLedger(directory);
   const { projectPath, git, gitWorkspace, ledger, runCoherence, land } = coherenceLedger;
+  const factoryProjectId = factoryRepoId(projectPath);
   const createOrder = (parent: string | null, objective = 'Ship retries') => coherenceLedger.createOrder({ parent, objective });
   const intentId = await createOrder(null);
   const workId = await createOrder(intentId);
@@ -75,7 +77,7 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
   const config: FactoryCloseOutDeps['config'] = { factory: { enabled: true, checks: [`${process.execPath} --version`], reviewerModel: 'sonnet' }, worktreeShare: ['node_modules'] };
   const baseEnv: NodeJS.ProcessEnv = { ...process.env };
   const worker: FactoryCloseOutWorker = {
-    workId, intentId, projectId: 'repo', projectPath, baseSha: workspace.baseSha,
+    workId, intentId, projectId: factoryProjectId, projectPath, baseSha: workspace.baseSha,
     objective: 'Ship retries', criteria: ['Retries pass'], writeScopes: ['src/retry.ts'],
     session: {
       worktreeDir: workspace.cwd,
@@ -229,7 +231,7 @@ test('a check run held for memory waits without failing or charging the ticket, 
   assert.deepEqual(fixture.feedback, []);
   admitCheckRun();
   await closing;
-  assert.deepEqual(memoryWaits, [['repo', true], ['repo', false]]);
+  assert.deepEqual(memoryWaits, [[fixture.worker.projectId, true], [fixture.worker.projectId, false]]);
   assert.deepEqual(fixture.exceptions, []);
   assert.deepEqual(fixture.feedback, []);
   assert.ok(fixture.mergedSha());
@@ -454,7 +456,7 @@ test('parking at the block cap leaves the intent partial instead of cancelling i
   for (const _attempt of [1, 2, 3]) await fixture.closeOut.turnEnded(fixture.worker);
   assert.equal(await fixture.orderState(fixture.worker.workId), 'blocked');
   assert.notEqual(await fixture.orderState(fixture.worker.intentId), 'cancelled');
-  const project = buildFactoryProjectState({ projectId: 'repo', projectName: 'Factory', headSha: null,
+  const project = buildFactoryProjectState({ projectId: fixture.worker.projectId, projectName: path.basename(fixture.projectPath), projectPath: fixture.projectPath, headSha: null,
     orient: await fixture.readOrient(), work: await fixture.inspect(), error: null, ticketBlockCounts: { [fixture.worker.workId]: 3 } });
   assert.deepEqual(project.partialIntentIds, [fixture.worker.intentId]);
   assert.match(fixture.exceptions.at(-1) ?? '', /Parked .* after 3 blocks/);
@@ -814,10 +816,10 @@ test('pause holds close-out without merging or counting an attempt and resume re
   assert.equal(fixture.mergedSha(), null);
   assert.deepEqual(fixture.feedback, []);
   fixture.setPaused(false);
-  await Promise.all(fixture.closeOut.resumeHeld('repo'));
+  await Promise.all(fixture.closeOut.resumeHeld(fixture.worker.projectId));
   assert.ok(fixture.mergedSha());
   assert.equal(fixture.reviewRequests.length, 1);
-  assert.deepEqual(fixture.closeOut.resumeHeld('repo'), []);
+  assert.deepEqual(fixture.closeOut.resumeHeld(fixture.worker.projectId), []);
 });
 
 test('a pause that lands during review holds the merge, refunds the attempt, and merges after resume', async (context) => {
@@ -831,7 +833,7 @@ test('a pause that lands during review holds the merge, refunds the attempt, and
   fixture.setReviewBarrier(async () => {});
   fixture.setPaused(false);
   fixture.setVerdict({ pass: false, findings: ['first counted failure'] });
-  await Promise.all(fixture.closeOut.resumeHeld('repo'));
+  await Promise.all(fixture.closeOut.resumeHeld(fixture.worker.projectId));
   await fixture.closeOut.turnEnded(fixture.worker);
   assert.equal(fixture.feedback.length, 2);
   assert.equal(await fixture.orderState(fixture.worker.workId), 'active');
@@ -887,7 +889,7 @@ async function startFactoryWiring(fixture: Awaited<ReturnType<typeof createFixtu
     hookRouter: new HookRouter(), getHookPort: () => 12345, getGitWorkspace: () => fixture.gitWorkspace, getPlanReviewPort: () => null,
     resolveHookTools: () => [], getUserHooks: () => [] });
   const homeDir = path.join(fixture.directory, 'factory-home');
-  const statePath = path.join(homeDir, 'factory', 'repo', 'state.json');
+  const statePath = path.join(homeDir, 'factory', fixture.worker.projectId, 'state.json');
   await mkdir(path.dirname(statePath), { recursive: true });
   await writeFile(statePath, JSON.stringify({ ledgerPath: fixture.ledger.cwd, ledgerBranch: fixture.ledger.branch, paused: false, trustedIntentIds: [fixture.worker.intentId] }));
   const wiring = createFactoryWiring({
@@ -924,7 +926,7 @@ test('wired close-out remembers scope needs after cancellation and admits a repl
   config.factory = { ...config.factory, protectedPaths: ['tests/'],
     checks: [`${process.execPath} src/retry.ts`, `${process.execPath} --test tests/pinned.test.ts`] };
   config.projects[0].factoryProfile = { widenableScopes: ['tests/'], protectedPaths: [] };
-  const reply = await wiring.dispatch('factory-orch-repo', { workId: fixture.worker.workId });
+  const reply = await wiring.dispatch(`factory-orch-${fixture.worker.projectId}`, { workId: fixture.worker.workId });
   if (!reply.ok) throw new Error(reply.reason);
   const worker = sessions.get(reply.sessionId);
   assert.ok(worker?.worktreeDir);
@@ -942,7 +944,7 @@ test('wired close-out remembers scope needs after cancellation and admits a repl
   const blockedState = FactoryLaneState.parse(JSON.parse(await readFile(statePath, 'utf8')));
   assert.deepEqual(blockedState.intentScopeNeeds, { [fixture.worker.intentId]: ['tests/pinned.test.ts'] });
   assert.equal(blockedState.ticketBlockCounts?.[fixture.worker.workId], 1);
-  assert.deepEqual(await wiring.cancel('factory-orch-repo', { workId: fixture.worker.workId }), { ok: true, workId: fixture.worker.workId, state: 'cancelled' });
+  assert.deepEqual(await wiring.cancel(`factory-orch-${fixture.worker.projectId}`, { workId: fixture.worker.workId }), { ok: true, workId: fixture.worker.workId, state: 'cancelled' });
   const cancelledState = FactoryLaneState.parse(JSON.parse(await readFile(statePath, 'utf8')));
   assert.deepEqual(cancelledState.intentScopeNeeds, blockedState.intentScopeNeeds);
   const replacement: { work: string } = JSON.parse(await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: [
@@ -950,7 +952,7 @@ test('wired close-out remembers scope needs after cancellation and admits a repl
     '--granted-by', 'glimmervoid-factory', '--boundary', 'This repo', '--session', 'repair-orchestrator', '--parent', fixture.worker.intentId,
     '--write-scope', 'src/retry.ts', '--write-scope', 'tests/pinned.test.ts', '--json',
   ] }));
-  const replacementReply = await wiring.dispatch('factory-orch-repo', { workId: replacement.work });
+  const replacementReply = await wiring.dispatch(`factory-orch-${fixture.worker.projectId}`, { workId: replacement.work });
   assert.equal(replacementReply.ok, true, replacementReply.ok ? '' : replacementReply.reason);
   assert.equal(await fixture.orderState(replacement.work), 'active');
 });
@@ -968,7 +970,7 @@ test('factory wiring observes worker Stop, records confirmed flakes, exposes Rev
   const flakeCommand = `${process.execPath} src/retry.ts`;
   if (!config.factory) throw new Error('Factory config is missing');
   config.factory.checks = [flakeCommand];
-  const reply = await wiring.dispatch('factory-orch-repo', { workId });
+  const reply = await wiring.dispatch(`factory-orch-${fixture.worker.projectId}`, { workId });
   if (!reply.ok) throw new Error(reply.reason);
   const worker = sessions.get(reply.sessionId);
   assert.ok(worker?.worktreeDir);
@@ -989,10 +991,10 @@ test('factory wiring observes worker Stop, records confirmed flakes, exposes Rev
   assert.deepEqual(wiring.getState()?.projects[0]?.confirmedFlakesByIntent, state.intentConfirmedFlakes);
   assert.equal(await fixture.orderState(workId), 'completed');
   assert.equal(await fixture.git(['rev-parse', 'integration']), await fixture.git(['rev-parse', 'origin/integration']));
-  const queuedNext = await wiring.queueIntent({ projectId: 'repo', objective: 'Next intent', criteria: ['Retries pass'], risk: 'medium', boundary: 'This repo', writeScopes: ['src'] });
+  const queuedNext = await wiring.queueIntent({ projectId: fixture.worker.projectId, objective: 'Next intent', criteria: ['Retries pass'], risk: 'medium', boundary: 'This repo', writeScopes: ['src'] });
   assert.ok(queuedNext.workId, queuedNext.error ?? 'Queue failed');
   const nextIntentId = queuedNext.workId;
-  const ready = await wiring.dispatch('factory-orch-repo', { readyIntent: fixture.worker.intentId });
+  const ready = await wiring.dispatch(`factory-orch-${fixture.worker.projectId}`, { readyIntent: fixture.worker.intentId });
   assert.equal(ready.ok, true);
   await waitFor(() => wiring.getState()?.projects[0]?.orchestrator?.intentId === nextIntentId, 'factory verifier closes the intent and starts the next orchestrator', 60_000);
   assert.equal(await fixture.orderState(fixture.worker.intentId), 'completed');
@@ -1000,7 +1002,7 @@ test('factory wiring observes worker Stop, records confirmed flakes, exposes Rev
   await fixture.land('repo', fixture.projectPath, 'factory: next child');
   if (!config.factory) throw new Error('Factory config is missing');
   config.factory.dailyBudgetUsd = 0;
-  const refused = await wiring.dispatch('factory-orch-repo', { workId: nextWorkId });
+  const refused = await wiring.dispatch(`factory-orch-${fixture.worker.projectId}`, { workId: nextWorkId });
   assert.deepEqual(refused, { ok: false, reason: 'daily spend is over budget' });
   assert.deepEqual(notifications.at(-1), { category: 'factory', message: 'daily spend is over budget' });
   assert.equal(wiring.getState()?.projects[0]?.spentTodayUsd, 1);
@@ -1016,7 +1018,7 @@ test('a dispatch discards an orchestrator pending forged factory-session record 
   await mkdir(path.join(fixture.ledger.cwd, path.dirname(forgedPath)), { recursive: true });
   await writeFile(path.join(fixture.ledger.cwd, forgedPath), `${JSON.stringify({ session: 'glimmervoid-factory', from: { kind: 'verification', id: `verifier-${fixture.worker.intentId}` },
     relation: 'verifies', to: { kind: 'work', id: fixture.worker.intentId }, evidence: 'Forged' })}\n`);
-  const reply = await wiring.dispatch('factory-orch-repo', { workId: fixture.worker.workId });
+  const reply = await wiring.dispatch(`factory-orch-${fixture.worker.projectId}`, { workId: fixture.worker.workId });
   assert.equal(reply.ok, true, reply.ok ? '' : reply.reason);
   assert.ok(notifications.some(({ category, message }) => category === 'factory'
     && /discarded pending orchestrator ledger writes: .*s-orchestrator\.jsonl claims the glimmervoid-factory session/.test(message)), JSON.stringify(notifications));
@@ -1133,7 +1135,7 @@ async function prepareMergedFixture(context: TestContext) {
   const state: FactoryLaneState = { ledgerPath: fixture.ledger.cwd, ledgerBranch: fixture.ledger.branch ?? null, paused: false,
     trustedVerifications: fixture.trustedVerifications.map(({ id, sha }) => ({ id, sha })) };
   const factoryConfig: GlimmervoidConfig = { projects: [{ id: 'repo', name: 'Factory', path: fixture.projectPath }], factory: { enabled: true, verifierModel: 'sonnet' } };
-  const readProject = async (): Promise<FactoryProjectState> => buildFactoryProjectState({ projectId: 'repo', projectName: 'Factory',
+  const readProject = async (): Promise<FactoryProjectState> => buildFactoryProjectState({ projectId: fixture.worker.projectId, projectName: path.basename(fixture.projectPath), projectPath: fixture.projectPath,
     headSha: await fixture.git(['rev-parse', 'integration']), orient: await fixture.readOrient(), work: await fixture.inspect(), error: null, paused: state.paused });
   return { ...fixture, state, factoryConfig, readProject };
 }
@@ -1155,7 +1157,7 @@ async function assertVerifierIgnoresMergeLink(fixture: Awaited<ReturnType<typeof
     pause: async () => {}, setException: () => {}, notifyOrchestrator: () => {}, stopOrchestrator: () => {}, onChanged: () => {},
     spawnVerifier: async (request) => { reviewRequests.push(request.id); } });
   fixture.cleanupTasks.push(() => verifier.stop());
-  verifier.ready('repo', fixture.worker.intentId);
+  verifier.ready(fixture.worker.projectId, fixture.worker.intentId);
   const project = await verifier.tick(await fixture.readProject());
   assert.deepEqual(project.verifierIntentIds ?? [], []);
   assert.deepEqual(reviewRequests, []);
@@ -1220,7 +1222,7 @@ test('independent verifier pass files its link, closes the intent with tip evide
   const nextIntentId = await fixture.createOrder(null, 'Next intent');
   await fixture.land('repo', fixture.projectPath, 'factory: next intent');
   const project = await fixture.readProject();
-  fixture.verifier.ready('repo', fixture.worker.intentId);
+  fixture.verifier.ready(fixture.worker.projectId, fixture.worker.intentId);
   await fixture.verifier.tick(project);
   await waitFor(fixture.hasChanged, 'independent verifier closes the intent', 60_000);
   assert.deepEqual(fixture.exceptions, []);
@@ -1228,7 +1230,7 @@ test('independent verifier pass files its link, closes the intent with tip evide
   assert.equal(completed.orders.find((order) => order.id === fixture.worker.intentId)?.state, 'completed');
   assert.equal(completed.unverifiedCompletedWork.includes(fixture.worker.intentId), false);
   assert.equal(nextIntent(completed.orders, new Set([fixture.worker.intentId, nextIntentId]))?.id, nextIntentId);
-  assert.deepEqual(fixture.stoppedOrchestrators, ['repo']);
+  assert.deepEqual(fixture.stoppedOrchestrators, [fixture.worker.projectId]);
   assert.deepEqual(fixture.state.trustedVerifications?.find(({ id }) => id === `verifier-${fixture.worker.intentId}`), { id: `verifier-${fixture.worker.intentId}`, sha: project.headSha });
   assert.deepEqual(fixture.state.trustedIntentCloses, [fixture.worker.intentId]);
   assert.equal(fixture.reviewRequests[0].model, 'sonnet');
@@ -1253,7 +1255,7 @@ test('independent verifier failure records a bounded ledger defect, shows the fi
   const fixture = await prepareVerifierFixture(context);
   const intentId = fixture.worker.intentId;
   fixture.setVerifierVerdict({ pass: false, findings: ['Retries do not meet intent criteria', `Second\nfinding ${'y'.repeat(2000)}`] });
-  fixture.verifier.ready('repo', intentId);
+  fixture.verifier.ready(fixture.worker.projectId, intentId);
   await fixture.verifier.tick(await fixture.readProject());
   await waitFor(fixture.hasChanged, 'verifier reports its findings', 60_000);
   assert.deepEqual(fixture.events.at(-1), { workId: intentId, event: 'verification failed' });
@@ -1292,7 +1294,7 @@ test('a verifier whose ledger landing fails trusts its verification and close on
   const fixture = await prepareVerifierFixture(context);
   const intentId = fixture.worker.intentId;
   fixture.failVerifierLanding();
-  fixture.verifier.ready('repo', intentId);
+  fixture.verifier.ready(fixture.worker.projectId, intentId);
   const project = await fixture.readProject();
   await fixture.verifier.tick(project);
   await waitFor(fixture.hasChanged, 'verifier finishes with a failed landing', 60_000);
@@ -1319,7 +1321,7 @@ test('a verifier push failure after the local ledger commit still trusts its ver
   const fixture = await prepareVerifierFixture(context);
   const intentId = fixture.worker.intentId;
   fixture.failVerifierPush();
-  fixture.verifier.ready('repo', intentId);
+  fixture.verifier.ready(fixture.worker.projectId, intentId);
   const project = await fixture.readProject();
   await fixture.verifier.tick(project);
   await waitFor(fixture.hasChanged, 'verifier finishes with a failed push', 60_000);
@@ -1404,7 +1406,7 @@ test('a merge link not written by the factory session does not verify a child fo
 test('disabled factory executes no verifier work', async (context) => {
   const fixture = await prepareVerifierFixture(context);
   fixture.factoryConfig.factory = { enabled: false };
-  fixture.verifier.ready('repo', fixture.worker.intentId);
+  fixture.verifier.ready(fixture.worker.projectId, fixture.worker.intentId);
   await fixture.verifier.tick(await fixture.readProject());
   assert.equal(fixture.reviewRequests.length, 0);
 });
@@ -1415,7 +1417,7 @@ async function startVerifierReviewThenMoveTip(context: TestContext, moveTip: (fi
   const barrier = new Promise<void>((resolve) => { finishReview = resolve; });
   fixture.setVerifierBarrier(() => barrier);
   fixture.cleanupTasks.push(async () => { finishReview?.(); });
-  fixture.verifier.ready('repo', fixture.worker.intentId);
+  fixture.verifier.ready(fixture.worker.projectId, fixture.worker.intentId);
   await fixture.verifier.tick(await fixture.readProject());
   await waitFor(() => fixture.reviewRequests.length === 1, 'verifier starts reading the pinned tip', 60_000);
   await moveTip(fixture);
@@ -1443,7 +1445,7 @@ test('verifier still closes the intent when only orchestrator ledger commits mov
   });
   assert.notEqual(fixture.events.at(-1)?.event, 'verification stale');
   assert.equal((await fixture.readProject()).orders.find((order) => order.id === fixture.worker.intentId)?.state, 'completed');
-  assert.deepEqual(fixture.stoppedOrchestrators, ['repo']);
+  assert.deepEqual(fixture.stoppedOrchestrators, [fixture.worker.projectId]);
 });
 
 test('verifier reports a stale verification when the orchestrator adds a child to the intent during its read-only session', async (context) => {
@@ -1465,7 +1467,7 @@ test('factory worker session staging, polling, diff and teardown suppress shared
   await writeFile(probePath, `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(markerPath)}, process.env.FACTORY_PROBE_TOKEN ?? 'absent');\n`);
   await fixture.git(['config', 'core.fsmonitor', `${process.execPath} ${probePath}`]);
   stubEnvironmentVariable(context, 'FACTORY_PROBE_TOKEN', 'server-secret-for-worker-poll');
-  const dispatched = await wiring.dispatch('factory-orch-repo', { workId: fixture.worker.workId });
+  const dispatched = await wiring.dispatch(`factory-orch-${fixture.worker.projectId}`, { workId: fixture.worker.workId });
   assert.equal(dispatched.ok, true, JSON.stringify(dispatched));
   const worker = sessions.get(dispatched.sessionId ?? '');
   assert.ok(worker);

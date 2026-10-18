@@ -29,7 +29,7 @@ const workerSha = 'a'.repeat(40);
 const completedBroadcast = {
   arrivedAt: endedAt,
   state: FactoryState.parse({ type: 'factory-state', ts: Date.parse(endedAt), projects: [{
-    projectId: 'seed', projectName: 'Seed', headSha: workerSha, paused: false, orchestrator: null, error: null,
+    projectId: 'seed', projectName: 'Seed', projectPath: '/repo', headSha: workerSha, paused: false, orchestrator: null, error: null,
     heading: { action: 'steady', reasons: [] }, orders: [{
       id: 'intent', objective: 'Add subtract', openedAt: startedAt, criteria: ['subtract works'], boundary: 'Seed',
       risk: 'low', state: 'completed', readiness: 'ready', parent: null, dependsOn: [], writeScopes: ['src'], owner: null, lastEvent: null,

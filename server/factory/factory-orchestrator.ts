@@ -15,8 +15,9 @@ import { decideTicketAction } from '../core/agent-api-core.ts';
 import { buildCoherenceSessionOverrides } from '../coherence/core/coherence-session-core.ts';
 import {
   FACTORY_LEDGER_SESSION, FACTORY_ORCHESTRATOR_EXIT_WINDOW_MS, FACTORY_SANE_YOLO_UNAVAILABLE, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent,
-  findFactoryProjectPath, isTurnEndHookEvent, nextIntent,
+  isTurnEndHookEvent, nextIntent,
 } from './core/factory-core.ts';
+import { findFactoryProjectPath } from './core/factory-repos-core.ts';
 import type { FactoryStallSession } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
 import { registerEphemeralSession } from '../lanes/ephemeral-session.ts';

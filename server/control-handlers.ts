@@ -26,6 +26,7 @@ import { normalizeClientTrust } from './core/request-trust.ts';
 import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from './core/settings-block-core.ts';
 import { readPosthogReport } from './radar/radar-report.ts';
 import { willSessionRunGuarded } from './session/session-factory.ts';
+import { findFactoryRepo, findFactoryRepoByPath } from './factory/core/factory-repos-core.ts';
 import * as radarLaneCore from './radar/core/radar-lane-core.ts';
 import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './github/core/github-issues-core.ts';
@@ -895,6 +896,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (unguarded) project.unguarded = true;
     if (agent) project.agent = agent;
     const freshConfig = configStore.save(cfg => {
+      const repoFactoryProfile = project.repos ? undefined : findFactoryRepoByPath(cfg, project.path)?.factoryProfile;
+      if (repoFactoryProfile) project.factoryProfile = repoFactoryProfile;
       cfg.projects.push(project);
     });
     if (!freshConfig) return { ok: false, error: `Could not save session "${name}"` };
@@ -1124,7 +1127,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
   function factoryRequestError(projectId: string): string | null {
-    if (!config.projects?.some((project) => project.id === projectId)) return 'Unknown factory project';
+    if (!findFactoryRepo(config, projectId)) return 'Unknown factory project';
     if (!factory || config.factory?.enabled !== true) return 'Factory is not running';
     return null;
   }

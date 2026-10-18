@@ -10,7 +10,7 @@ import { AgentDispatchRequest } from '../../shared/contracts/session.ts';
 import type { FactoryDispatchResult, FactoryProjectState } from '../../shared/contracts/factory.ts';
 import { buildCoherenceSessionOverrides } from '../coherence/core/coherence-session-core.ts';
 import {
-  FACTORY_LEDGER_SESSION, FACTORY_REFUSAL_PAUSED, FACTORY_SANE_YOLO_UNAVAILABLE, buildWorkerPrompt, decideAdmission, findFactoryProjectPath, isTransientAdmissionRefusal,
+  FACTORY_LEDGER_SESSION, FACTORY_REFUSAL_PAUSED, FACTORY_SANE_YOLO_UNAVAILABLE, buildWorkerPrompt, decideAdmission, isTransientAdmissionRefusal,
   isTurnEndHookEvent, workerChecksOf,
 } from './core/factory-core.ts';
 import type { FactoryLiveWorker, FactoryStallSession } from './core/factory-core.ts';
@@ -24,6 +24,7 @@ import { resolveWorkLane } from '../lanes/work-lane.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
 import type { FactoryCloseOutWorker } from './factory-closeout.ts';
 import { resolveFactoryProfile } from './core/factory-profile-core.ts';
+import { findFactoryProjectPath, findFactoryRepo } from './core/factory-repos-core.ts';
 
 const FACTORY_WORKER_DENY = Object.freeze(['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', ...LANE_CONFIG_EDIT_DENY_RULES]);
 
@@ -135,7 +136,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
           && getOrchestrator(sessionId)?.intentId === intentId;
         if (!isAuthorized()) return refuse('factory orchestrator is no longer live');
         if (await readPaused(projectId)) return refuse(FACTORY_REFUSAL_PAUSED);
-        const project = config.projects.find((candidate) => candidate.id === projectId);
+        const project = findFactoryRepo(config, projectId);
         if (!project) return refuse('unknown factory project');
         const ledger = await ensureLedger(projectId, project.path);
         const inspectedWork = await inspectWork(ledger.cwd);
@@ -294,7 +295,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
       const context = getOrchestrator(orchestrator.sessionId);
       if (stopped || config.factory?.enabled !== true || !context || pendingRefusals.get(project.projectId) !== refusal) return;
       const inspectedWork = await inspectWork(ledgerPath);
-      const profile = resolveFactoryProfile(config.factory, config.projects.find((candidate) => candidate.id === project.projectId));
+      const profile = resolveFactoryProfile(config.factory, findFactoryRepo(config, project.projectId));
       const admission = decideAdmission({
         order: inspectedWork.find((order) => order.work === refusal.workId) ?? null,
         intent: inspectedWork.find((order) => order.work === context.intentId) ?? null,

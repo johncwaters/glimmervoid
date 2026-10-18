@@ -14,6 +14,7 @@ import type { FactoryCheckoutRun, PrepareFactoryCheckRunner } from './factory-ch
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, FACTORY_TICKET_BLOCK_CAP, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, isInheritedCheckFailure, findWorkerCommitRefusal, listStagedGuardrailsPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseFactoryStructuredOutput, planScopeNeedRecovery, redactSecretLines, reviewerOutputTail, withIntentScopeNeeds, withTicketBlockCount, listDirtyPaths } from './core/factory-core.ts';
 import { resolveFactoryProfile } from './core/factory-profile-core.ts';
+import { findFactoryRepo, findFactoryRepoByPath } from './core/factory-repos-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
 import { GUARDRAILS_PLACEHOLDER_NAMES } from '../guardrails/core/guardrails-policy-core.ts';
@@ -322,7 +323,7 @@ export function createFactoryCloseOut({
   function runWorkerChecks(worker: FactoryCloseOutWorker, sha: string, { commands, rerunFailedChecks = false }: {
     commands?: readonly string[]; rerunFailedChecks?: boolean;
   } = {}): Promise<FactoryCheckoutRun | null> {
-    const profile = resolveFactoryProfile(config.factory, config.projects?.find((project) => project.path === worker.projectPath));
+    const profile = resolveFactoryProfile(config.factory, findFactoryRepoByPath(config, worker.projectPath));
     return runChecksInCleanCheckout({
       projectPath: worker.projectPath, sha, commands: commands ?? profile.checks ?? DEFAULT_FACTORY_CHECKS, writeScopes: worker.writeScopes, gitWorkspace,
       sharedEntries: sharedEntries(), baseEnv, secretValues: secretValues(), signal: reviewController.signal,
@@ -452,7 +453,7 @@ export function createFactoryCloseOut({
         ] });
       }
       const scopeNeeds = decision.reason.startsWith('Needs write scope:') ? failingFilesOutsideScopesByWork.get(worker.workId) ?? [] : [];
-      const profile = resolveFactoryProfile(config.factory, config.projects?.find((project) => project.id === worker.projectId));
+      const profile = resolveFactoryProfile(config.factory, findFactoryRepo(config, worker.projectId));
       const { widenedNeeds, isRecoverable } = planScopeNeedRecovery({ scopeNeeds, trackedFiles: trackedScopeNeeds, intentWriteScopes: worker.intentWriteScopes,
         widenableScopes: profile.widenableScopes, protectedPaths: profile.protectedPaths });
       const rememberedNeeds = widenedNeeds.length > 0 ? await recordScopeNeeds(worker, widenedNeeds) : [];
@@ -531,7 +532,7 @@ export function createFactoryCloseOut({
         await failedAttempt('Worker change', 'No change was found in the worktree. Make the change, then finish the turn.', true);
         return;
       }
-      const profile = resolveFactoryProfile(config.factory, config.projects?.find((project) => project.id === worker.projectId));
+      const profile = resolveFactoryProfile(config.factory, findFactoryRepo(config, worker.projectId));
       fence = checkFence({ changedPaths, writeScopes: worker.writeScopes, intentWriteScopes: worker.intentWriteScopes,
         protectedPaths: profile.protectedPaths ?? DEFAULT_FACTORY_PROTECTED_PATHS,
         floorAllowances: await readIntentFloorAllowances(worker.projectId, worker.intentId) });

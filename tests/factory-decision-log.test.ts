@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { factoryRepoId } from '../server/factory/core/factory-repos-core.ts';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -21,6 +22,7 @@ test('close-out logs one decision per attempt with redacted byte-capped output a
   let stopLane = async () => {};
   context.after(async () => { await stopLane(); await rm(directory, { recursive: true, force: true }); });
   const fixture = await createCoherenceLedger(directory);
+  const factoryProjectId = factoryRepoId(fixture.projectPath);
   const intentId = await fixture.createOrder({ parent: null, objective: 'Ship retries' });
   const workId = await fixture.createOrder({ parent: intentId, objective: 'Implement retries' });
   await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', workId, 'active', '--because', 'Factory dispatch', '--session', 'glimmervoid-factory'] });
@@ -49,7 +51,7 @@ test('close-out logs one decision per attempt with redacted byte-capped output a
   const workerTempDirectory = path.join(directory, 'worker-temp');
   await mkdir(workerTempDirectory);
   const worker: FactoryCloseOutWorker = {
-    projectId: 'repo', projectPath: fixture.projectPath, workId, intentId, baseSha: workspace.baseSha,
+    projectId: factoryProjectId, projectPath: fixture.projectPath, workId, intentId, baseSha: workspace.baseSha,
     objective: 'Implement retries', criteria: ['Retries pass'], writeScopes: ['src/retry.ts'],
     session: { id: 'worker-session', worktreeDir: workspace.cwd, baseSha: workspace.baseSha,
       _guardrailsLaunch: { env: { CLAUDE_CODE_TMPDIR: workerTempDirectory } },
@@ -71,7 +73,7 @@ test('close-out logs one decision per attempt with redacted byte-capped output a
   stopLane = closeOut.stop;
   await Promise.all([closeOut.turnEnded(worker), closeOut.turnEnded(worker)]);
   await decisionLog.idle();
-  const filePath = path.join(directory, 'factory/repo/decisions/2026-10-11.jsonl');
+  const filePath = path.join(directory, 'factory', factoryProjectId, 'decisions', '2026-10-11.jsonl');
   const readLines = async () => (await readFile(filePath, 'utf8')).trim().split('\n').map((line) => FactoryDecisionLogLine.parse(JSON.parse(line)));
   const [firstAttempt] = await readLines();
   assert.equal((await readLines()).length, 1);
@@ -137,6 +139,7 @@ test('a repeated check failure retains the diagnostic in the blocked ledger reas
   let stopLane = async () => {};
   context.after(async () => { await stopLane(); await rm(directory, { recursive: true, force: true }); });
   const fixture = await createCoherenceLedger(directory);
+  const factoryProjectId = factoryRepoId(fixture.projectPath);
   const intentId = await fixture.createOrder({ parent: null, objective: 'Ship retries' });
   const workId = await fixture.createOrder({ parent: intentId, objective: 'Implement retries' });
   await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', workId, 'active', '--because', 'Factory dispatch', '--session', 'glimmervoid-factory'] });
@@ -151,7 +154,7 @@ test('a repeated check failure retains the diagnostic in the blocked ledger reas
   const decisions: FactoryDecisionLogLine[] = [];
   let isDestroyed = false;
   const worker: FactoryCloseOutWorker = {
-    projectId: 'repo', projectPath: fixture.projectPath, workId, intentId, baseSha: workspace.baseSha,
+    projectId: factoryProjectId, projectPath: fixture.projectPath, workId, intentId, baseSha: workspace.baseSha,
     objective: 'Implement retries', criteria: ['Retries pass'], writeScopes: ['src/retry.ts'],
     session: { id: 'worker-session', worktreeDir: workspace.cwd, baseSha: workspace.baseSha,
       _guardrailsLaunch: { env: { CLAUDE_CODE_TMPDIR: workerTempDirectory } },
@@ -188,10 +191,11 @@ test('wiring logs identical exceptions and landing failures once, then records r
   let stopLane = async () => {};
   context.after(async () => { await stopLane(); await rm(directory, { recursive: true, force: true }); });
   const fixture = await createCoherenceLedger(directory);
+  const factoryProjectId = factoryRepoId(fixture.projectPath);
   const homeDir = path.join(directory, 'home');
-  const decisionsDirectory = path.join(homeDir, 'factory/repo/decisions');
+  const decisionsDirectory = path.join(homeDir, 'factory', factoryProjectId, 'decisions');
   await mkdir(decisionsDirectory, { recursive: true });
-  await writeFile(path.join(homeDir, 'factory/repo/state.json'), JSON.stringify({ ledgerPath: fixture.ledger.cwd, ledgerBranch: fixture.ledger.branch, paused: false }));
+  await writeFile(path.join(homeDir, 'factory', factoryProjectId, 'state.json'), JSON.stringify({ ledgerPath: fixture.ledger.cwd, ledgerBranch: fixture.ledger.branch, paused: false }));
   const agedFilePath = path.join(decisionsDirectory, '2000-01-01.jsonl');
   await writeFile(agedFilePath, '{}\n');
   await utimes(agedFilePath, new Date('2000-01-01'), new Date('2000-01-01'));
@@ -212,7 +216,7 @@ test('wiring logs identical exceptions and landing failures once, then records r
   stubEnvironmentVariable(context, 'FACTORY_DECISION_TEST_TOKEN', exceptionSecret);
   await mkdir(path.join(fixture.ledger.cwd, '.coherence'), { recursive: true });
   await writeFile(path.join(fixture.ledger.cwd, '.coherence', `${exceptionSecret}.txt`), 'stray orchestrator write\n');
-  const request = { projectId: 'repo', objective: 'Ship retries', criteria: ['Retries pass'], risk: 'low' as const, boundary: 'This repo', writeScopes: ['src/retry.ts'] };
+  const request = { projectId: factoryProjectId, objective: 'Ship retries', criteria: ['Retries pass'], risk: 'low' as const, boundary: 'This repo', writeScopes: ['src/retry.ts'] };
   assert.equal((await wiring.queueIntent(request)).error, 'landing refused');
   assert.equal((await wiring.queueIntent({ ...request, objective: 'Second intent' })).error, 'landing refused');
   shouldFailLanding = false;
@@ -223,7 +227,7 @@ test('wiring logs identical exceptions and landing failures once, then records r
   const refused = await wiring.queueIntent({ ...request, objective: 'Fourth intent' });
   assert.equal(refused.ok, false);
   assert.match(refused.error ?? '', /integration branch moved outside the factory/);
-  const state = FactoryLaneState.parse(JSON.parse(await readFile(path.join(homeDir, 'factory/repo/state.json'), 'utf8')));
+  const state = FactoryLaneState.parse(JSON.parse(await readFile(path.join(homeDir, 'factory', factoryProjectId, 'state.json'), 'utf8')));
   assert.ok(state.ledgerPath);
   await fixture.git(['restore', '--source=HEAD', '--staged', '--worktree', '--', '.coherence'], state.ledgerPath);
   await fixture.git(['clean', '-fdq', '--', '.coherence'], state.ledgerPath);

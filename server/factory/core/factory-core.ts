@@ -26,10 +26,6 @@ export const FACTORY_TICKET_BLOCK_CAP = 3;
 
 const NO_FINDINGS_TEXT = 'No findings returned';
 
-export function findFactoryProjectPath(config: Pick<Config, 'projects'>, projectId: string): string | undefined {
-  return config.projects?.find((candidate) => candidate.id === projectId)?.path;
-}
-
 export const FACTORY_STALL_MS = 120_000;
 
 export type FactoryStallSession = {
@@ -105,9 +101,10 @@ function isTicketParkedAtCap(ticketBlockCounts: Readonly<Record<string, number>>
   return (ticketBlockCounts?.[workId] ?? 0) >= FACTORY_TICKET_BLOCK_CAP;
 }
 
-export function buildFactoryProjectState({ projectId, projectName, headSha, orient, work, error, paused = false, intentWriteScopes, confirmedFlakesByIntent, ticketBlockCounts }: {
+export function buildFactoryProjectState({ projectId, projectName, projectPath, headSha, orient, work, error, paused = false, intentWriteScopes, confirmedFlakesByIntent, ticketBlockCounts }: {
   projectId: string;
   projectName: string;
+  projectPath: string;
   headSha: string | null;
   orient: CoherenceOrient | null;
   work: CoherenceWorkInspect | null;
@@ -119,7 +116,7 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
 }): FactoryProjectState {
   if (error === null && orient?.action === 'refuse') {
     return {
-      projectId, projectName, headSha, paused, orchestrator: null, error: null,
+      projectId, projectName, projectPath, headSha, paused, orchestrator: null, error: null,
       heading: { action: 'refuse', reasons: orient.reasons },
       orders: [], conflicts: [], unverifiedCompletedWork: orient.consequences?.unverifiedCompletedWork ?? [],
       confirmedFlakesByIntent, partialIntentIds: [],
@@ -128,7 +125,7 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
   if (error !== null || orient === null || work === null) {
     const failure = error ?? 'Coherence orientation or work inspection is unavailable';
     return {
-      projectId, projectName, headSha, paused, orchestrator: null, error: failure,
+      projectId, projectName, projectPath, headSha, paused, orchestrator: null, error: failure,
       heading: { action: 'refuse', reasons: [failure] },
       orders: [], conflicts: [], unverifiedCompletedWork: [],
       confirmedFlakesByIntent, partialIntentIds: [],
@@ -193,7 +190,7 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
     return children?.hasParkedChild === true && !children.hasUnsettledChild;
   }).map((order) => order.id);
   return {
-    projectId, projectName, headSha, paused, orchestrator: null, error: null,
+    projectId, projectName, projectPath, headSha, paused, orchestrator: null, error: null,
     heading: { action: orient.action, reasons: orient.reasons },
     orders, confirmedFlakesByIntent, partialIntentIds,
     conflicts: (orient.work?.conflicts ?? []).map(({ left, right, scope }) => ({ left, right, scope })),

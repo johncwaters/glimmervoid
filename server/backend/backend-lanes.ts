@@ -14,6 +14,7 @@ import { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIE
 import { createFactoryWiring } from '../factory/factory-wiring.ts';
 import { createFactoryHarnessMirror } from '../factory/factory-harness-mirror.ts';
 import { factoryHarnessRunsDirectory, isHarnessMirrorEnabled } from '../factory/core/factory-harness-mirror-core.ts';
+import { saveFactoryProfileOnRepo } from '../factory/core/factory-repos-core.ts';
 import { createCoderActivityWiring } from '../coder-activity-wiring.ts';
 import { createBranchGcWiring } from '../branch-gc-wiring.ts';
 import { createClaudeCredentials } from '../claude-credentials.ts';
@@ -166,9 +167,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     config, gitWorkspace, broadcast: broadcastControl, log: logger, telemetry, checkRunGate,
     saveProjectFactoryProfile: async (projectPath, profile) => {
       const savedConfig = await configStore.saveAsync((freshConfig) => {
-        const project = freshConfig.projects?.find((entry) => entry.path === projectPath);
-        if (!project) throw new Error('Factory setup project is no longer configured');
-        project.factoryProfile = profile;
+        saveFactoryProfileOnRepo(freshConfig.projects, projectPath, profile);
       });
       if (!savedConfig) throw new Error('Could not save the factory setup profile');
     },

@@ -8,7 +8,7 @@ import { createFactoryHarnessMirror } from '../server/factory/factory-harness-mi
 
 function harnessProject(headSha: string) {
   return {
-    projectId: 'seed', projectName: 'Factory seed', headSha, paused: false, orchestrator: null, error: null,
+    projectId: 'seed', projectName: 'Factory seed', projectPath: '/repo', headSha, paused: false, orchestrator: null, error: null,
     heading: { action: 'dispatch', reasons: ['ready'] }, orders: [], conflicts: [], unverifiedCompletedWork: [],
   };
 }

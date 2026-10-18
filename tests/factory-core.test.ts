@@ -7,8 +7,9 @@ import type { FactoryStallSession } from '../server/factory/core/factory-core.ts
 import { STATES } from '../shared/states.ts';
 import { FactoryLaneState, FactoryProjectState } from '../shared/contracts/factory.ts';
 import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
+import { factoryRepoId, findFactoryRepoByPath, listFactoryRepos } from '../server/factory/core/factory-repos-core.ts';
 
-const identity = { projectId: 'project-1', projectName: 'Factory', headSha: 'a'.repeat(40) };
+const identity = { projectId: 'project-1', projectName: 'Factory', projectPath: '/repo', headSha: 'a'.repeat(40) };
 
 async function readFixture(name: string): Promise<unknown> {
   return JSON.parse(await readCoherenceFixture(name));
@@ -393,4 +394,18 @@ test('factory config key changes for worker permission settings and not for live
   assert.notEqual(factoryConfigKey({ factory: { enabled: true, maxRisk: 'high' } }), baseline);
   assert.notEqual(factoryConfigKey({ factory: { enabled: false } }), baseline);
   assert.equal(factoryConfigKey({ factory: { enabled: true, maxLiveWorkers: 5, dailyBudgetUsd: 3, reviewerModel: 'opus' } }), baseline);
+});
+
+test('every session in one repository shares one factory project that outlives the session that set it up', () => {
+  const repoPath = path.resolve('/work/glimmervoid');
+  const factoryProfile = { checks: ['npm test'] };
+  const sessions = [
+    { id: 'session-a', name: 'glimmervoid', path: repoPath },
+    { id: 'session-b', name: 'glimmervoid (4)', path: `${repoPath}${path.sep}`, factoryProfile },
+    { id: 'workspace', name: 'pair', path: path.resolve('/work/pair'), repos: [repoPath, path.resolve('/work/other')] },
+  ];
+  assert.deepEqual(listFactoryRepos({ projects: sessions }), [{ id: factoryRepoId(repoPath), name: 'glimmervoid', path: repoPath, factoryProfile }]);
+  assert.deepEqual(listFactoryRepos({ projects: sessions.slice(1) }).map((repo) => repo.id), [factoryRepoId(repoPath)]);
+  const laterSession = { id: 'session-c', name: 'glimmervoid (5)', path: repoPath, factoryProfile: findFactoryRepoByPath({ projects: sessions }, repoPath)?.factoryProfile };
+  assert.deepEqual(listFactoryRepos({ projects: [sessions[0], laterSession] }).map((repo) => repo.factoryProfile), [factoryProfile]);
 });
