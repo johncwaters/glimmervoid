@@ -9,7 +9,7 @@ import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
 import { Session } from '../../session/sessions.ts';
 import type { SessionOptions } from '../../session/sessions.ts';
 import { buildLanePermissions } from './core/lane-permissions-core.ts';
-import { buildCoherenceJournalLaneOverrides, buildCoherenceShims } from '../core/coherence-session-core.ts';
+import { buildCoherenceJournalLaneOverrides, buildCoherenceShims } from '../coherence/core/coherence-session-core.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
 import { judgeRole, LANE_CREDENTIAL_ENV } from '../guardrails/core/guardrails-roles-core.ts';
 import { resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';

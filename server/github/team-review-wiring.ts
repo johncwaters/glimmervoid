@@ -24,12 +24,12 @@ import { THREAD_JUDGE_TOOLS, createThreadJudge } from './team-review-thread-judg
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import type { CoherenceJournal } from '../lanes/lane-spawn.ts';
 import type { LocalCoherenceJournals } from '../coherence/coherence-journal-store.ts';
-import { coherenceJournalStoreKey } from '../core/coherence-session-core.ts';
+import { coherenceJournalStoreKey } from '../coherence/core/coherence-session-core.ts';
 import { createCoherenceRuntime } from '../coherence/coherence-runtime.ts';
 import * as coherenceCore from './core/team-review-coherence-core.ts';
 import type { CoherenceReading } from './core/team-review-coherence-core.ts';
-import { COHERENCE_CONFIG_FILENAME, judgeCoherenceConfig, unreadableConfigEntry } from '../core/coherence-config-core.ts';
-import type { CoherenceConfigEntry } from '../core/coherence-config-core.ts';
+import { COHERENCE_CONFIG_FILENAME, judgeCoherenceConfig, unreadableConfigEntry } from '../coherence/core/coherence-config-core.ts';
+import type { CoherenceConfigEntry } from '../coherence/core/coherence-config-core.ts';
 import { runHardenedGit } from '../git/git-workspace.ts';
 import { GLIMMERVOID_SECRET_KEYS } from '../../session/core/spawn-env.ts';
 import type { UserHook } from '../../session/core/user-hooks-core.ts';

@@ -23,6 +23,7 @@ import { errorMessage } from '../../shared/text.ts';
 import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
 import type { CoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import type { CoherenceReadings } from '../coherence/coherence-readings.ts';
+import type { CoherenceAdopt } from '../coherence/coherence-adopt.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -92,6 +93,7 @@ interface BackendControlDependencies {
   sessionDocs: SessionDocsPort;
   coherenceFeed: CoherenceSessionFeed;
   coherenceReadings: Pick<CoherenceReadings, 'snapshotMessage'>;
+  coherenceAdopt: CoherenceAdopt;
   changeMapNarrator: ChangeMapNarrator | null;
   serverBuild: () => string;
   telemetry: Pick<Telemetry, 'captureException' | 'captureClientError'>;
@@ -165,6 +167,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     decidePlanReview: dependencies.decidePlanReview,
     sessionDocs: dependencies.sessionDocs,
     coherenceFeed: dependencies.coherenceFeed,
+    coherenceAdopt: dependencies.coherenceAdopt,
     changeMapNarrator: dependencies.changeMapNarrator,
   });
 
@@ -191,6 +194,11 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
   sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs, false);
   sendLaneSnapshotOnConnect('coherence-feed', () => dependencies.coherenceFeed, false);
   sendLaneSnapshotOnConnect('coherence-readings', () => dependencies.coherenceReadings, false);
+  controlWss.on('connection', (socket: WebSocket) => {
+    dependencies.coherenceAdopt.statusMessage().then((message) => {
+      if (socket.readyState === 1) socket.send(JSON.stringify(message));
+    }, (statusError: unknown) => logger.warn(`[coherence-adopt] connect-time status failed: ${errorMessage(statusError)}`));
+  });
 }
 
 export { createBackendControl };

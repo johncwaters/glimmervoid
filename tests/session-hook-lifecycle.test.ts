@@ -14,7 +14,7 @@ import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import grok from '../session/adapters/grok.ts';
 import { renderGrokHooksFile } from '../session/core/grok-hooks-file-core.ts';
 import { saneYoloHomeDir } from '../server/hook-tools.ts';
-import { buildCoherenceSessionOverrides } from '../server/core/coherence-session-core.ts';
+import { buildCoherenceSessionOverrides } from '../server/coherence/core/coherence-session-core.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
 import { createCoherenceNativeHooks } from '../server/coherence/coherence-native-hooks.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';

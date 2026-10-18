@@ -3,9 +3,9 @@ import { lstat, mkdir, open, readFile, realpath, rm, writeFile } from 'node:fs/p
 import path from 'node:path';
 import { isMissingFileError } from '../../shared/text.ts';
 import { execFileAsync } from '../child-process-safe.ts';
-import { COHERENCE_CONFIG_FILENAME, unreadableConfigEntry } from '../core/coherence-config-core.ts';
-import type { CoherenceConfigEntry } from '../core/coherence-config-core.ts';
-import { changedPathsFromPorcelainStatus } from '../core/coherence-feed-core.ts';
+import { COHERENCE_CONFIG_FILENAME, unreadableConfigEntry } from './core/coherence-config-core.ts';
+import type { CoherenceConfigEntry } from './core/coherence-config-core.ts';
+import { changedPathsFromPorcelainStatus } from './core/coherence-feed-core.ts';
 import { prepareGuardrailsLaunch } from '../guardrails/guardrails-launch.ts';
 
 type FileRead =

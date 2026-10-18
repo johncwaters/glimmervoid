@@ -104,3 +104,5 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 ### Coherence Readings
 
 - In the session feed and the readings poll, a Coherence verb that builds the graph runs only inside guardrails on a private snapshot whose config was judged first, never on the host or a live checkout, because the graph imports a repo-named language module and those trees are agent-written (`tests/coherence-session-feed.test.ts`, `tests/coherence-readings.test.ts`).
+- Adopt commits to a project's integration branch only on an explicit operator confirm, builds the commit in a private worktree deleted afterwards (never a live checkout or session worktree) and pushes fast-forward only, because it writes origin on the operator's behalf (`tests/coherence-readings.test.ts`).
+- Adopt never runs npm or Coherence from the checkout, because the tip is agent-written: it uses the shipped CLI and a lockfile-only npm in an isolated dir with the public registry, and refuses a tip that tracks node_modules (`tests/coherence-readings.test.ts`).

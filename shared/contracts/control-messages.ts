@@ -13,7 +13,9 @@ import {
   PlanResponseFrame,
 } from './plan-review.ts';
 import { ChangeMap } from './change-map.ts';
-import { COHERENCE_JOURNAL_DRAWER_MAX_ROWS, CoherenceJournalEntry, ProjectCoherenceTrend, SessionCoherence } from './coherence.ts';
+import {
+  COHERENCE_JOURNAL_DRAWER_MAX_ROWS, CoherenceJournalEntry, ProjectCoherenceAdoptRequest, ProjectCoherenceAdoptResult, ProjectCoherenceStatus, ProjectCoherenceTrend, SessionCoherence,
+} from './coherence.ts';
 import { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
@@ -231,6 +233,7 @@ const clientVariants = [
   loose('session-doc-read', { id: sessionId, path: sessionDocPath, requestId }),
   loose('session-doc-save', { id: sessionId, path: sessionDocPath, text: z.string(), baseHash: z.string().min(1), requestId }),
   loose('session-coherence-journal', { id: sessionId, requestId }),
+  loose('project-coherence-adopt', { ...ProjectCoherenceAdoptRequest.shape, requestId }),
   loose('client-error', ClientErrorReport.shape),
   loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
   ...idOnlyClientVariants,
@@ -285,6 +288,8 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'session-coherence-journal-response',
   'project-coherence-trend',
   'project-coherence-trend-snapshot',
+  'project-coherence-adopt-response',
+  'project-coherence-status',
   'notify',
   'update-status',
   'update-progress',
@@ -472,6 +477,8 @@ const serverVariants = [
   loose('session-coherence-journal-response', { requestId, id: sessionId, ok: z.boolean(), entries: z.array(CoherenceJournalEntry).max(COHERENCE_JOURNAL_DRAWER_MAX_ROWS), error: optionalError }),
   loose('project-coherence-trend', { projectId: z.string(), ...ProjectCoherenceTrend.shape }),
   loose('project-coherence-trend-snapshot', { projects: z.record(z.string(), ProjectCoherenceTrend) }),
+  loose('project-coherence-adopt-response', { ...ProjectCoherenceAdoptResult.shape, requestId }),
+  loose('project-coherence-status', { projects: z.record(z.string(), ProjectCoherenceStatus) }),
   loose('notify', {
     session: z.string(),
     category: z.string(),

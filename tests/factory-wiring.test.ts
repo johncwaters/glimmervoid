@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { glimmervoidHomeDir } from '../server/config-store.ts';
-import { buildCoherenceShims } from '../server/core/coherence-session-core.ts';
+import { buildCoherenceShims } from '../server/coherence/core/coherence-session-core.ts';
 import { createFactoryPoller } from '../server/factory/factory-poller.ts';
 import type { FactoryPoller } from '../server/factory/factory-poller.ts';
 import { createGitWorkspace, runHardenedGit } from '../server/git/git-workspace.ts';

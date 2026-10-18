@@ -60,6 +60,9 @@ import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import type { CoherenceSessionFeed } from './coherence/coherence-session-feed.ts';
+import type { CoherenceAdopt } from './coherence/coherence-adopt.ts';
+import { judgeCoherenceAdoptRequest } from './coherence/core/coherence-adopt-core.ts';
+import { CoherenceAdoptError } from '../shared/contracts/coherence.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import { createChangeMapService } from './change-map/change-map-wiring.ts';
 import type { ChangeMapNarrator } from './change-map/change-map-wiring.ts';
@@ -157,6 +160,7 @@ interface ControlHandlerDeps {
   decidePlanReview?: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs?: SessionDocsPort | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
+  coherenceAdopt?: Pick<CoherenceAdopt, 'adopt'> | null;
   telemetry?: Pick<Telemetry, 'captureException' | 'captureClientError'> | null;
 }
 
@@ -273,6 +277,10 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'session-doc-read': () => ({ type: 'session-doc-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
     'session-doc-save': () => ({ type: 'session-doc-save-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
     'session-coherence-journal': () => ({ type: 'session-coherence-journal-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, entries: [], error: message }),
+    'project-coherence-adopt': () => {
+      const verdict = judgeCoherenceAdoptRequest(msg);
+      return { type: 'project-coherence-adopt-response', requestId, projectId: typeof msg?.projectId === 'string' ? msg.projectId.slice(0, 128) : '', ok: false, error: verdict.ok ? CoherenceAdoptError.enum.invalidRequest : verdict.error };
+    },
   };
   const requestType = typeof msg?.type === 'string' ? msg.type : '';
   if (Object.hasOwn(builders, requestType)) return builders[requestType]();
@@ -362,6 +370,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     decidePlanReview = null,
     sessionDocs = null,
     coherenceFeed = null,
+    coherenceAdopt = null,
     changeMapNarrator = null,
   } = deps;
 
@@ -1491,6 +1500,10 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       } catch (error) {
         ws.send(JSON.stringify({ ...reply, ok: false, error: `Read failed: ${errorMessage(error)}` }));
       }
+    },
+    'project-coherence-adopt': async (message: ClientMessageOf<'project-coherence-adopt'>, ws: ControlSocket) => {
+      if (!coherenceAdopt) return replyTo(ws, message, 'project-coherence-adopt-response', { projectId: message.projectId, ok: false, error: CoherenceAdoptError.enum.failed });
+      replyTo(ws, message, 'project-coherence-adopt-response', await coherenceAdopt.adopt(message));
     },
     'session-coherence-journal': async (message: ClientMessageOf<'session-coherence-journal'>, ws: ControlSocket) => {
       const reply = { type: 'session-coherence-journal-response', requestId: message.requestId ?? null, id: message.id };

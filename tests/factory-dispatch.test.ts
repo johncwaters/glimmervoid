@@ -9,7 +9,7 @@ import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
-import { buildCoherenceShims, buildCoherenceUserHooks } from '../server/core/coherence-session-core.ts';
+import { buildCoherenceShims, buildCoherenceUserHooks } from '../server/coherence/core/coherence-session-core.ts';
 import type { FactoryCloseOutWorker } from '../server/factory/factory-closeout.ts';
 import { createFactoryDispatch } from '../server/factory/factory-dispatch.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/lanes/core/lane-permissions-core.ts';

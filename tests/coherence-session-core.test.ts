@@ -7,15 +7,16 @@ import {
   COHERENCE_HOOK_EVENTS,
   COHERENCE_POST_TOOL_USE_MATCHER,
   decideCoherenceAttachment,
-} from '../server/core/coherence-session-core.ts';
+} from '../server/coherence/core/coherence-session-core.ts';
 import {
   appendJournalWindow, attachedCoherenceHost, COHERENCE_FEED_UNAVAILABLE, nextActionFromRegulateOutput, parseJournalLines, regulateArgs, regulationFromConfig,
   selectLatestShownEntry,
-} from '../server/core/coherence-feed-core.ts';
-import { judgeCoherenceConfig } from '../server/core/coherence-config-core.ts';
+} from '../server/coherence/core/coherence-feed-core.ts';
+import { judgeCoherenceConfig } from '../server/coherence/core/coherence-config-core.ts';
+import { gitignoreTextWithNodeModules, judgeCoherenceAdoptPaths, judgeCoherenceAdoptRequest } from '../server/coherence/core/coherence-adopt-core.ts';
 import {
   admitVerbReadings, hasComponentsMap, hasDeclaredMassCommands, parseDecomposeOutput, parseDriftOutput, parseMassOutput, parseRedundancyOutput, summarizeCoherenceTrend,
-} from '../server/core/coherence-readings-core.ts';
+} from '../server/coherence/core/coherence-readings-core.ts';
 import { COHERENCE_JOURNAL_DRAWER_MAX_ROWS, COHERENCE_JOURNAL_TEXT_MAX_CHARS, CoherenceReadingRow } from '../shared/contracts/coherence.ts';
 import { ServerMessage } from '../shared/contracts/control-messages.ts';
 
@@ -271,4 +272,27 @@ test('the coherence trend compares redundant pairs per thousand lines across the
   assert.equal(summarizeCoherenceTrend([readingRow(1, { pairCount: 0, lines: 10 }), readingRow(2, { pairCount: 0, lines: 900 })]).direction, 'steady');
   const longSeries = [readingRow(0, { pairCount: 50, lines: 1000 }), ...Array.from({ length: 20 }, (_, index) => readingRow(index + 1, { pairCount: 1, lines: 1000 }))];
   assert.deepEqual(summarizeCoherenceTrend(longSeries), { direction: 'steady', rows: 20, comparedRows: 20, redundancyPairs: { from: 1, to: 1 }, lines: { from: 1000, to: 1000 } });
+});
+
+test('adopt refuses anything but a literal confirm, never commits node_modules or a stray path, and adds the ignore line only when git does not ignore node_modules', () => {
+  assert.deepEqual(judgeCoherenceAdoptRequest({ projectId: 'project-1', confirm: true }), { ok: true, projectId: 'project-1' });
+  for (const confirm of [undefined, false, 'true', 1]) assert.deepEqual(judgeCoherenceAdoptRequest({ projectId: 'project-1', confirm }), { ok: false, error: 'not confirmed' });
+  assert.deepEqual(judgeCoherenceAdoptRequest({ projectId: '', confirm: true }), { ok: false, error: 'invalid request' });
+
+  const nativeInstall = [
+    'coherence.config.json', 'package.json', 'package-lock.json', '.claude/settings.json', '.claude/coherence-hook', '.claude/coherence-root',
+    '.codex/hooks.json', '.codex/coherence-hook', '.codex/coherence-root',
+  ];
+  const accepted = judgeCoherenceAdoptPaths([...nativeInstall, '.gitignore']);
+  assert.equal(accepted.ok && accepted.paths.length, 10);
+  assert.deepEqual(judgeCoherenceAdoptPaths([...nativeInstall, 'node_modules/.bin/coherence', 'src/index.ts']), {
+    ok: false, error: 'hooks install failed', unexpectedPaths: ['node_modules/.bin/coherence', 'src/index.ts'], missingPaths: [],
+  });
+  assert.deepEqual(judgeCoherenceAdoptPaths(nativeInstall.filter((changedPath) => !changedPath.startsWith('.codex/'))), {
+    ok: false, error: 'hooks install failed', unexpectedPaths: [], missingPaths: ['.codex/hooks.json', '.codex/coherence-hook', '.codex/coherence-root'],
+  });
+
+  assert.equal(gitignoreTextWithNodeModules('dist\n', true), null);
+  assert.equal(gitignoreTextWithNodeModules(null, false), 'node_modules/\n');
+  assert.equal(gitignoreTextWithNodeModules('dist', false), 'dist\nnode_modules/\n');
 });

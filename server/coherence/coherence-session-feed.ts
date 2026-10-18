@@ -8,8 +8,8 @@ import { errorMessage } from '../../shared/text.ts';
 import {
   appendJournalWindow, COHERENCE_FEED_UNAVAILABLE, attachedCoherenceHost, journalFileNames, nextActionFromRegulateOutput,
   parseJournalLines, regulateArgs, regulationFromConfig, selectLatestShownEntry,
-} from '../core/coherence-feed-core.ts';
-import type { JournalSource } from '../core/coherence-feed-core.ts';
+} from './core/coherence-feed-core.ts';
+import type { JournalSource } from './core/coherence-feed-core.ts';
 import { firstLine } from '../core/text-core.ts';
 import { factoryGitEnvironment } from '../git/git-workspace.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';

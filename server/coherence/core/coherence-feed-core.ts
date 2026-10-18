@@ -5,11 +5,11 @@ import {
   COHERENCE_JOURNAL_TEXT_MAX_CHARS,
   CoherenceJournalKind,
   CoherenceRegulateOutput,
-} from '../../shared/contracts/coherence.ts';
-import type { CoherenceJournalEntry, CoherenceNextAction, CoherenceRegulationReading } from '../../shared/contracts/coherence.ts';
-import type { CoherenceHooksState } from '../../shared/contracts/session.ts';
+} from '../../../shared/contracts/coherence.ts';
+import type { CoherenceJournalEntry, CoherenceNextAction, CoherenceRegulationReading } from '../../../shared/contracts/coherence.ts';
+import type { CoherenceHooksState } from '../../../shared/contracts/session.ts';
 import { judgeCoherenceConfig } from './coherence-config-core.ts';
-import { sanitizeOneLine } from './text-core.ts';
+import { sanitizeOneLine } from '../../core/text-core.ts';
 import type { CoherenceConfigEntry } from './coherence-config-core.ts';
 
 const SHOWN_KINDS: ReadonlySet<CoherenceJournalKind> = new Set(['decision', 'defect', 'blocked', 'conjecture']);

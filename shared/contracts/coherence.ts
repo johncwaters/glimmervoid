@@ -280,3 +280,38 @@ export const ProjectCoherenceTrend = z.strictObject({
   trend: CoherenceTrendWindow,
 });
 export type ProjectCoherenceTrend = z.infer<typeof ProjectCoherenceTrend>;
+
+export const CoherenceAdoptError = z.enum({
+  invalidRequest: 'invalid request',
+  notConfirmed: 'not confirmed',
+  unknownProject: 'unknown project',
+  alreadyConfigured: 'already configured',
+  notGitRepository: 'not a git repository',
+  noOrigin: 'no origin',
+  tracksNodeModules: 'repo tracks node_modules',
+  npmInstallFailed: 'npm install failed',
+  hooksInstallFailed: 'hooks install failed',
+  pushRejected: 'push rejected',
+  timedOut: 'timed out',
+  failed: 'adopt failed',
+});
+export type CoherenceAdoptError = z.infer<typeof CoherenceAdoptError>;
+
+const coherenceProjectId = z.string().min(1).max(128);
+
+export const ProjectCoherenceAdoptRequest = z.object({
+  projectId: coherenceProjectId,
+  confirm: z.literal(true),
+});
+export type ProjectCoherenceAdoptRequest = z.infer<typeof ProjectCoherenceAdoptRequest>;
+
+export const ProjectCoherenceAdoptResult = z.object({
+  projectId: z.string().max(128),
+  ok: z.boolean(),
+  sha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/).optional(),
+  error: CoherenceAdoptError.optional(),
+});
+export type ProjectCoherenceAdoptResult = z.infer<typeof ProjectCoherenceAdoptResult>;
+
+export const ProjectCoherenceStatus = z.strictObject({ configured: z.boolean() });
+export type ProjectCoherenceStatus = z.infer<typeof ProjectCoherenceStatus>;

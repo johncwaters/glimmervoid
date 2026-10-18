@@ -4,13 +4,13 @@ import type { CoherenceReadingRow, ProjectCoherenceTrend } from '../../shared/co
 import { COHERENCE_READING_REASON_MAX_CHARS, COHERENCE_TREND_WINDOW_ROWS } from '../../shared/contracts/coherence.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import { errorMessage, isMissingFileError } from '../../shared/text.ts';
-import { judgeCoherenceConfig } from '../core/coherence-config-core.ts';
+import { judgeCoherenceConfig } from './core/coherence-config-core.ts';
 import {
   admitVerbReadings, COHERENCE_READING_SERIES_MAX_ROWS, COHERENCE_READING_UNAVAILABLE, hasComponentsMap, hasDeclaredMassCommands, isProjectWatched, needsComponents,
   parseDecomposeOutput, parseDriftOutput, parseMassOutput, parseReadingSeries, parseRedundancyOutput, refusedMassCommands, summarizeCoherenceTrend,
-} from '../core/coherence-readings-core.ts';
-import type { CoherenceReadingVerb, CoherenceVerbReadings } from '../core/coherence-readings-core.ts';
-import { coherenceJournalStoreKey } from '../core/coherence-session-core.ts';
+} from './core/coherence-readings-core.ts';
+import type { CoherenceReadingVerb, CoherenceVerbReadings } from './core/coherence-readings-core.ts';
+import { coherenceJournalStoreKey } from './core/coherence-session-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { firstLine } from '../core/text-core.ts';
 import { factoryGitEnvironment } from '../git/git-workspace.ts';

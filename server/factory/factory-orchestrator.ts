@@ -12,7 +12,7 @@ import { STATES } from '../../shared/states.ts';
 import type { ControlBroadcast } from '../backend/backend-websockets.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { decideTicketAction } from '../core/agent-api-core.ts';
-import { buildCoherenceSessionOverrides } from '../core/coherence-session-core.ts';
+import { buildCoherenceSessionOverrides } from '../coherence/core/coherence-session-core.ts';
 import {
   FACTORY_LEDGER_SESSION, FACTORY_ORCHESTRATOR_EXIT_WINDOW_MS, FACTORY_SANE_YOLO_UNAVAILABLE, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent,
   findFactoryProjectPath, isTurnEndHookEvent, nextIntent,

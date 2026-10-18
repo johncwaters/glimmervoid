@@ -8,7 +8,7 @@ import { DEFAULT_FACTORY_CHECKS } from '../../shared/contracts/browser-config.ts
 import { CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
 import { AgentDispatchRequest } from '../../shared/contracts/session.ts';
 import type { FactoryDispatchResult, FactoryProjectState } from '../../shared/contracts/factory.ts';
-import { buildCoherenceSessionOverrides } from '../core/coherence-session-core.ts';
+import { buildCoherenceSessionOverrides } from '../coherence/core/coherence-session-core.ts';
 import {
   FACTORY_LEDGER_SESSION, FACTORY_REFUSAL_PAUSED, FACTORY_SANE_YOLO_UNAVAILABLE, buildWorkerPrompt, decideAdmission, findFactoryProjectPath, isTransientAdmissionRefusal,
   isTurnEndHookEvent, workerChecksOf,

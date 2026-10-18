@@ -189,6 +189,8 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     },
     trend: { direction: 'steady', rows: 1, comparedRows: 1, redundancyPairs: null, lines: null },
   } } },
+  { type: 'project-coherence-adopt-response', requestId: 'r-adopt', projectId: 'project-1', ok: true, sha: 'c'.repeat(40) },
+  { type: 'project-coherence-status', projects: { 'project-1': { configured: true }, 'project-2': { configured: false } } },
   { type: 'notify', session: 'session-1', category: 'complete', message: 'finished', escalationCount: 0 },
   {
     type: 'update-status', updateAvailable: true, current: '0.23.1', latest: '0.24.0', currentSha: null,

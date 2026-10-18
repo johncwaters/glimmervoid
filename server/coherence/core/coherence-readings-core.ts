@@ -1,9 +1,9 @@
 import {
   COHERENCE_READING_PATH_MAX_CHARS, COHERENCE_READING_TEXT_MAX_CHARS, COHERENCE_READING_TOP_ITEMS, COHERENCE_TREND_WINDOW_ROWS, CoherenceDecomposeReading,
   CoherenceDriftReading, CoherenceMassReading, CoherenceReadingRow, CoherenceRedundancyReading,
-} from '../../shared/contracts/coherence.ts';
-import type { CoherenceDecomposeFinding, CoherenceRedundancyPair, CoherenceTrendWindow } from '../../shared/contracts/coherence.ts';
-import { parseRedundancyPairs } from '../github/core/team-review-coherence-core.ts';
+} from '../../../shared/contracts/coherence.ts';
+import type { CoherenceDecomposeFinding, CoherenceRedundancyPair, CoherenceTrendWindow } from '../../../shared/contracts/coherence.ts';
+import { parseRedundancyPairs } from '../../github/core/team-review-coherence-core.ts';
 import { decideCoherenceAttachment } from './coherence-session-core.ts';
 
 type CoherenceReadingVerb = 'drift' | 'decompose' | 'redundancy' | 'mass';

@@ -5,9 +5,9 @@ import { errorCode, errorMessage, isMissingFileError } from '../../shared/text.t
 import {
   buildCoherenceTargetShims, COHERENCE_HOOKS_INACTIVE, COHERENCE_NATIVE_CONTROL_FILES, COHERENCE_TARGET_BIN_NAMES, COHERENCE_TARGET_SCRIPTS,
   coherenceHooksStateFromCheck, planCoherenceTargetShims,
-} from '../core/coherence-session-core.ts';
-import type { CoherenceHost, CoherenceTargetBinName } from '../core/coherence-session-core.ts';
-import { COHERENCE_CONFIG_FILENAME } from '../core/coherence-config-core.ts';
+} from './core/coherence-session-core.ts';
+import type { CoherenceHost, CoherenceTargetBinName } from './core/coherence-session-core.ts';
+import { COHERENCE_CONFIG_FILENAME } from './core/coherence-config-core.ts';
 import { isCompletedCommandFailure } from '../core/command-failure-core.ts';
 import { factoryGitEnvironment, runHardenedGit } from '../git/git-workspace.ts';
 import { createCoherenceRuntime } from './coherence-runtime.ts';

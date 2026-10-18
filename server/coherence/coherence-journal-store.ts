@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, open, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { errorCode, errorMessage, isMissingFileError } from '../../shared/text.ts';
-import { decideCoherenceAttachment } from '../core/coherence-session-core.ts';
+import { decideCoherenceAttachment } from './core/coherence-session-core.ts';
 import { FACTORY_WORKER_JOURNAL_MAX_BYTES, isJournalProjectionTrusted, isValidWorkerJournal, listWorkerJournalPaths } from '../factory/core/factory-journal-core.ts';
 import { prepareCoherenceJournal } from '../lanes/lane-spawn.ts';
 import type { CoherenceJournal, LaneCoherenceCli } from '../lanes/lane-spawn.ts';

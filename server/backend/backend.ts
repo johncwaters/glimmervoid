@@ -51,6 +51,7 @@ import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import { createCoherenceReadings, integrationTipReader } from '../coherence/coherence-readings.ts';
 import { createCoherenceRuntime } from '../coherence/coherence-runtime.ts';
+import { createCoherenceAdopt } from '../coherence/coherence-adopt.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir } from '../core/config-path-core.ts';
@@ -299,6 +300,13 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     cliPath: coherenceRuntime.cliPath,
   });
   void coherenceReadings.start();
+  const coherenceAdopt = createCoherenceAdopt({
+    listProjects: () => (configStore.config.projects ?? []).flatMap(({ id, path: projectPath }) => (id && projectPath ? [{ id, path: projectPath }] : [])),
+    readConfig: () => configStore.config,
+    gitWorkspace: assembledGitWorkspace,
+    broadcastControl: broadcastControlFromWebSockets,
+    cliPath: coherenceRuntime.cliPath,
+  });
   httpServer.once('close', () => {
     void coherenceReadings.stop();
   });
@@ -551,6 +559,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessionDocs,
     coherenceFeed,
     coherenceReadings,
+    coherenceAdopt,
     changeMapNarrator: laneAssembly.changeMapNarrator,
     serverBuild: () => serverBuild,
     telemetry,
