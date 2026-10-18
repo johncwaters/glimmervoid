@@ -6239,6 +6239,19 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   font-variant-numeric: tabular-nums;
 }
 .session-row-elapsed:empty { display: none; }
+.project-coherence-slot { flex: 0 0 100%; min-width: 0; }
+.project-coherence-slot[hidden], .coherence-trend-chip[hidden] { display: none; }
+.focus-rail-group:has(.project-coherence-slot:not([hidden])) { flex-wrap: wrap; }
+.coherence-trend-chip { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; font-weight: 400; letter-spacing: normal; text-transform: none; }
+.coherence-trend-panel { width: 560px; }
+.coherence-trend-reading { min-width: 0; padding: 8px 0; border-top: 1px solid var(--border-dim); }
+.coherence-trend-reading h4 { margin: 0; color: var(--text-muted); font-size: 11px; font-weight: 400; }
+.coherence-trend-reading p { margin: 6px 0; white-space: pre-wrap; user-select: text; }
+.factory-coherence-trends { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.factory-coherence-trends:empty { display: none; }
+.factory-coherence-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }
+html[data-layout="phone"] .phone-board-group-header:has(.project-coherence-slot:not([hidden])) { flex-wrap: wrap; }
+html[data-layout="phone"] .project-coherence-slot { padding-bottom: 6px; }
 .coherence-row-line { position: relative; flex: 0 0 100%; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px 6px 32px; color: var(--text-muted); font-size: 11px; }
 .coherence-row-line[hidden] { display: none; }
 .coherence-row-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }

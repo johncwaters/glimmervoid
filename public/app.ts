@@ -14,6 +14,8 @@ import { createAddSessionDialog } from './dialogs.ts';
 import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, buildSessionCoherenceLine, forgetSessionCoherence, paintSessionCoherenceLine, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
+import { applyProjectCoherenceTrend, applyProjectCoherenceTrendSnapshot, buildProjectCoherenceChip, forgetCoherenceTrendProject, noteCoherenceTrendProject, paintProjectHeaderCoherenceChip, setCoherenceTrendProjects } from './coherence/trend-chip.ts';
+import { setProjectHeaderCoherencePainter } from './project-header.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
 import type { FeatureSurfaceSettings } from './feature-surfaces-core.ts';
@@ -34,7 +36,7 @@ import { forgetSessionLinkedPrs, paintSessionPrChips, refreshSessionPrChipStages
 import { setSessionRowCoherenceLinePainter, setSessionRowPrChipsPainter } from './session-row.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
-import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryState, setFactoryRequestSender } from './factory/factory-view.ts';
+import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryState, refreshFactoryCoherenceTrends, setFactoryRequestSender } from './factory/factory-view.ts';
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-panel.ts';
 import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './github/issues-panel.ts';
 
@@ -218,6 +220,7 @@ function noteServerBuild(serverBuild: unknown) {
 }
 
 function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
+  setCoherenceTrendProjects(rows);
   setVisionsProjectNames(new Map(rows.filter((s) => !s.ephemeral).map((s): [string, string] => [s.id, s.name])));
   applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
     id: session.id,
@@ -349,6 +352,7 @@ setFactoryRequestSender(sendControlMsg);
 setCardPrChipsPainter(paintSessionPrChips);
 setSessionRowPrChipsPainter(paintSessionPrChips);
 setSessionRowCoherenceLinePainter({ build: buildSessionCoherenceLine, paint: paintSessionCoherenceLine });
+setProjectHeaderCoherencePainter({ build: buildProjectCoherenceChip, paint: paintProjectHeaderCoherenceChip });
 
 function refreshViewsIfVisible(reason: ViewRefreshReason) {
   refreshVisibleViews(VIEW_TABS, { isPhoneShellActive: isPhoneShellActive(), activeView: getActiveView(), phoneScreen: uiState.snapshot().phoneScreen }, reason);
@@ -364,12 +368,13 @@ const messageHandlers = {
   'delete-hook-result': (msg) => applyDeleteHookResult(msg),
 
   'state-change':       (msg) => handleStateChange(msg),
-  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
-  'session-removed':    (msg) => { removeSessionCard(msg.id); forgetSessionCoherence(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { noteCoherenceTrendProject(msg); if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-removed':    (msg) => { forgetCoherenceTrendProject(msg.id); removeSessionCard(msg.id); forgetSessionCoherence(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
   'session-prs': (msg) => setSessionLinkedPrs(msg.id, msg.linkedPrs),
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
+    noteCoherenceTrendProject(msg);
     if (!msg.ephemeral) noteKnownProjectPath(msg.path);
 
     const previousUi = sessionUIs.get(String(msg.id));
@@ -411,6 +416,8 @@ const messageHandlers = {
   'session-coherence-hooks': (msg) => { setSessionCoherenceHooks(msg.id, msg.coherenceHooks); refreshRosterAndAttentionSurfaces(); },
   'session-coherence': (msg) => { applySessionCoherence(msg); refreshRosterAndAttentionSurfaces(); },
   'session-coherence-snapshot': (msg) => { applySessionCoherenceSnapshot(msg); refreshRosterAndAttentionSurfaces(); },
+  'project-coherence-trend': (msg) => { applyProjectCoherenceTrend(msg); refreshRosterAndAttentionSurfaces(); refreshFactoryCoherenceTrends(); },
+  'project-coherence-trend-snapshot': (msg) => { applyProjectCoherenceTrendSnapshot(msg); refreshRosterAndAttentionSurfaces(); refreshFactoryCoherenceTrends(); },
   'session-coherence-journal-response': (msg) => applyCoherenceJournalResponse(msg),
 
   'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },

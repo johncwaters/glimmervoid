@@ -7,6 +7,7 @@ import { attentionSummaryText, countAttentionByKind, orderRoster } from '../focu
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { NO_PATH_KEY } from '../focus-view/roster-groups-core.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
+import { paintProjectHeaderCoherence } from '../project-header.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { quickAddSession, readSessionRows, requestSessionRemoval } from '../session-actions.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
@@ -120,6 +121,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
       forgetButton.title = `Remove ${group.label} from the Board`;
       forgetButton.setAttribute('aria-label', `Remove ${group.label} from the Board`);
     }
+    paintProjectHeaderCoherence(header, group.key);
     rows.setAttribute('aria-label', `${group.label} sessions`);
   }
 

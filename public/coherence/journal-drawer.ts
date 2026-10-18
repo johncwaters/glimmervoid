@@ -3,7 +3,7 @@ import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { CoherenceHooksState } from '#shared/contracts/session.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { applyDialogAria, createModalOverlay } from '../session-card/modal.ts';
+import { openCoherencePanelShell } from './coherence-panel-shell.ts';
 import { coherenceRowLine, formatCoherenceReading, formatJournalEntry } from './journal-core.ts';
 
 const coherenceBySessionId = new Map<string, SessionCoherence>();
@@ -78,20 +78,17 @@ function paintOpenReading(sessionId: string) {
 function openCoherenceJournal(sessionId: string) {
   openDrawer?.close();
   const requestId = nextRequestId('coherence-journal');
-  const closeDrawer = () => drawer.close();
-  const modal = createModalOverlay({ dialogClass: 'dialog coherence-journal-drawer', closeOnBackdrop: false, onEscape: closeDrawer });
-  const header = el('div', 'coherence-journal-header');
-  const title = el('h3', 'dialog-title', 'Coherence journal');
-  title.id = `${requestId}-title`;
-  const closeButton = el('button', 'btn-dialog btn-dialog-cancel', 'Close');
-  closeButton.type = 'button';
-  header.append(title, closeButton);
   const reading = el('div', 'coherence-journal-reading');
   const status = el('p', 'coherence-journal-status', 'Loading journal');
   status.setAttribute('role', 'status');
   const entries = el('div', 'coherence-journal-entries');
-  modal.dialog.append(header, reading, status, entries);
-  applyDialogAria(modal.dialog, title.id);
+  const shell = openCoherencePanelShell({
+    dialogClass: 'dialog coherence-journal-drawer',
+    titleText: 'Coherence journal',
+    titleId: `${requestId}-title`,
+    body: [reading, status, entries],
+    onCloseRequest: () => drawer.close(),
+  });
 
   const drawer: JournalDrawer = {
     sessionId, requestId, status, reading, entries, timer: null,
@@ -99,16 +96,12 @@ function openCoherenceJournal(sessionId: string) {
       if (drawer.timer !== null) clearTimeout(drawer.timer);
       drawer.requestId = null;
       if (openDrawer === drawer) openDrawer = null;
-      modal.close();
+      shell.close();
     },
   };
   openDrawer = drawer;
-  closeButton.addEventListener('click', closeDrawer);
-  modal.overlay.addEventListener('click', (event) => {
-    if (event.target === modal.overlay) closeDrawer();
-  });
   paintOpenReading(sessionId);
-  closeButton.focus();
+  shell.focusClose();
 
   if (!sendControlMsg({ type: 'session-coherence-journal', id: sessionId, requestId })) {
     drawer.requestId = null;

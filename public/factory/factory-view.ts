@@ -2,6 +2,7 @@ import { FACTORY_PROTECTED_PATH_FLOOR, FactoryQueueIntentRequest } from '#shared
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { FactoryProjectState, FactoryState } from '#shared/contracts/factory.ts';
 import { localClockText } from '#shared/display-text.ts';
+import { buildProjectCoherenceChip } from '../coherence/trend-chip.ts';
 import { buildPanelSection, el } from '../dom-helpers.ts';
 import { buildFactoryFloor, pickFactoryProject } from './factory-floor-core.ts';
 import type { FactoryCrate, FactoryFloor, FactoryStation } from './factory-floor-core.ts';
@@ -394,6 +395,22 @@ function buildBottom(floor: FactoryFloor): HTMLElement {
   return band;
 }
 
+function buildCoherenceTrends(): HTMLElement {
+  const lines = el('div', 'factory-coherence-trends');
+  for (const project of snapshot?.projects ?? []) {
+    const chip = buildProjectCoherenceChip(project.projectId);
+    if (chip.hidden) continue;
+    const line = el('div', 'factory-coherence-line');
+    line.append(el('span', null, project.projectName), chip);
+    lines.append(line);
+  }
+  return lines;
+}
+
+export function refreshFactoryCoherenceTrends() {
+  root?.querySelector('.factory-coherence-trends')?.replaceWith(buildCoherenceTrends());
+}
+
 function render(): void {
   if (!root) return;
   const focusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -426,6 +443,7 @@ function render(): void {
     }
     content.append(chips);
   }
+  content.append(buildCoherenceTrends());
   const floor = buildFactoryFloor(project, selectedOrderId);
   const bands = el('div', 'factory-console');
   const floorBand = buildRegion('Floor', 'factory-band factory-floor-band');

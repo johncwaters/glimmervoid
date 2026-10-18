@@ -2,6 +2,7 @@ import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { el, query } from '../dom-helpers.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
+import { paintProjectHeaderCoherence } from '../project-header.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { getRestorableSessionId, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession } from '../session-actions.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
@@ -119,6 +120,7 @@ function ensureGroup(group: RosterGroup<RosterRow>) {
     header._forgetBtn.setAttribute('aria-label', `Remove ${group.label} from the rail`);
   }
   header.toggleAttribute('data-empty', empty);
+  paintProjectHeaderCoherence(header, group.key);
   list.setAttribute('aria-label', `${group.label} sessions`);
   return { header, list };
 }
