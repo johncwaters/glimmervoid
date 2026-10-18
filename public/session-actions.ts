@@ -30,7 +30,8 @@ export function getRestorableSessionId() {
 export function readSessionRows(): SessionRow<SessionUi>[];
 export function readSessionRows<Name extends string | null>(nameOf: (ui: SessionUi) => Name): SessionRow<SessionUi, Name>[];
 export function readSessionRows(nameOf: (ui: SessionUi) => string | null = sessionName) {
-  return buildSessionRows(sessionUIs, nameOf);
+  const operatorSessions = [...sessionUIs].filter(([, ui]) => ui.card.dataset.factory === undefined);
+  return buildSessionRows(operatorSessions, nameOf);
 }
 
 export function quickAddSession(path: string | null | undefined, label: string | null | undefined) {

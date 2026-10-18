@@ -75,7 +75,7 @@ type PostTurnReport = ServerMessageOf<'post-turn-result'>;
 let isConversationViewEnabled = false;
 
 function canUseConversationView(ui: SessionUi) {
-  return isConversationViewEnabled && isConversationAgent(ui.agent);
+  return isConversationViewEnabled && isConversationAgent(ui.agent) && ui.card.dataset.ephemeral === undefined;
 }
 
 function isConversationFaceAvailable(ui: SessionUi) {
@@ -150,7 +150,7 @@ function updateButtonVisibility(ui: SessionUi) {
   ui.btnRestart.classList.toggle('visible', canRestart);
   ui.btnRestartFresh.classList.toggle('visible', canRestart);
 
-  ui.btnResume.classList.add('visible');
+  ui.btnResume.classList.toggle('visible', ui.card.dataset.ephemeral === undefined);
   ui.btnWorkspaceRepos.classList.toggle('visible', ui.card.dataset.workspace !== undefined);
   ui.btnTrace.classList.toggle('visible', isDebugModeEnabled());
   ui.btnPlan.classList.toggle('visible', decidePlanHeaderAction(ui) !== 'hidden');

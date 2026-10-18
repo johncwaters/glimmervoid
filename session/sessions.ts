@@ -1319,6 +1319,7 @@ class Session extends EventEmitter {
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       saneYolo: this.saneYolo,
       ephemeral: this.ephemeral,
+      factoryRole: this._factoryRole,
       isWorktree: this.isWorktree,
       isWorkspace: this.isWorkspace,
       isGuarded: this.isGuarded,

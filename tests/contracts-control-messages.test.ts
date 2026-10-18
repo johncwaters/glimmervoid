@@ -122,6 +122,7 @@ const SESSION = {
   conversationApproval: null,
   hasConversationBridge: false,
   isConversationViewOn: false,
+  isFactory: false,
   hasPlan: false,
   mergeStatus: 'none',
   mergeReason: null,

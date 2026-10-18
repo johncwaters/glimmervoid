@@ -117,3 +117,10 @@ test('the URL is single-quoted, so its query string cannot be reinterpreted by t
   });
   assert.ok(command.includes(`'http://127.0.0.1:9/hook/a/statusline?t=abc'`));
 });
+
+test('a lane that drops user settings still keeps the operator recap choice', () => {
+  const recapOff = buildHookSettings({ ...BASE, userSettingsPath: userSettings({ awaySummaryEnabled: false }) });
+  assert.equal(recapOff.awaySummaryEnabled, false);
+  const unset = buildHookSettings({ ...BASE, userSettingsPath: userSettings({}) });
+  assert.equal('awaySummaryEnabled' in unset, false);
+});

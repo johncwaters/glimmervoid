@@ -84,6 +84,7 @@ export const SessionCardFields = z.object({
   guardrailsReleased: z.boolean().optional(),
   resumeSessionId: nullableString,
   ephemeral: z.boolean().optional(),
+  isFactory: z.boolean().optional(),
   linkedPrs: z.array(LinkedPr).optional(),
 });
 export type SessionCardFields = z.infer<typeof SessionCardFields>;

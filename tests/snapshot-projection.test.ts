@@ -12,6 +12,7 @@ function snapshotSource() {
     stateSince: 42,
     dangerouslySkipPermissions: false,
     ephemeral: false,
+    factoryRole: null,
     isWorktree: true,
     isWorkspace: false,
     resumeSessionId: "resume-1",

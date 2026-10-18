@@ -49,6 +49,7 @@ interface HookSettings {
   enableAllProjectMcpServers?: boolean;
   statusLine?: { type: string; command: string };
   sandbox?: Record<string, unknown>;
+  awaySummaryEnabled?: boolean;
 }
 
 interface BuildHookSettingsOptions {
@@ -117,6 +118,17 @@ function readUserStatuslineCommand(settingsPath: string): string | null {
       if (!isRecord(parsed) || !isRecord(parsed.statusLine)) return null;
       if (parsed.statusLine.type !== 'command') return null;
       return textOr(parsed.statusLine.command, null);
+    },
+  }));
+}
+
+function readUserAwaySummaryEnabled(settingsPath: string): boolean | null {
+  return loadedJsonValue(loadJsonStateFileSync({
+    filePath: settingsPath,
+    quarantine: false,
+    parse(parsed) {
+      if (!isRecord(parsed) || typeof parsed.awaySummaryEnabled !== 'boolean') return null;
+      return parsed.awaySummaryEnabled;
     },
   }));
 }
@@ -205,14 +217,18 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   if (enableProjectMcp) {
     settings.enableAllProjectMcpServers = true;
   }
+  const operatorSettingsPath = userSettingsPath || path.join(os.homedir(), '.claude', 'settings.json');
+  const operatorAwaySummaryEnabled = readUserAwaySummaryEnabled(operatorSettingsPath);
+  if (operatorAwaySummaryEnabled !== null) {
+    settings.awaySummaryEnabled = operatorAwaySummaryEnabled;
+  }
   if (planLimits) {
-    const statuslinePath = userSettingsPath || path.join(os.homedir(), '.claude', 'settings.json');
     settings.statusLine = {
       type: 'command',
       command: buildStatuslineCommand({
         relayPath,
         postUrl: `${base}/statusline?t=${encodeURIComponent(token)}`,
-        userCommand: readUserStatuslineCommand(statuslinePath),
+        userCommand: readUserStatuslineCommand(operatorSettingsPath),
       }),
     };
   }

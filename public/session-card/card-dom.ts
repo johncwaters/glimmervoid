@@ -108,6 +108,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   if (options.workspace) card.dataset.workspace = '';
   if (options.guarded) card.dataset.guarded = '';
   if (options.guardrailsReleased) card.dataset.guardrailsReleased = '';
+  if (options.ephemeral) card.dataset.ephemeral = '';
+  if (options.isFactory) card.dataset.factory = '';
   if (options.path) card.dataset.path = String(options.path);
 
   const header = el('div', 'session-card-header');
@@ -207,7 +209,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
 export function paintGuardrailsMenuItem(button: HTMLButtonElement, card: HTMLElement) {
   const isGuarded = card.dataset.guarded !== undefined;
-  button.classList.toggle('visible', isGuarded || card.dataset.guardrailsReleased !== undefined);
+  const canChangeGuardrails = card.dataset.ephemeral === undefined && (isGuarded || card.dataset.guardrailsReleased !== undefined);
+  button.classList.toggle('visible', canChangeGuardrails);
   button.setAttribute('aria-checked', String(isGuarded));
 }
 
