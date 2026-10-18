@@ -9,7 +9,7 @@ import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } fr
 import { createPollAgoTicker, formatAgo } from '../poll-ago.ts';
 import { createPrQueueColumns, createPrQueueFoot, createPrQueueHead } from './pr-queue-columns.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
-import { createSvgIcon as svgIcon, createSvgShape as svgShape } from '../svg-dom.ts';
+import { MORE_ICON_PATH, createLineIcon, createSvgIcon as svgIcon, createSvgShape as svgShape } from '../svg-dom.ts';
 import { formatTrailOffset } from '../radar/radar-core.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import {
@@ -589,7 +589,6 @@ function createInlineComment(comment: DraftComment, index: number, includedIndex
 }
 
 const MORE_ACTIONS_LABEL = 'More review actions';
-const MORE_ICON_PATH = 'M3 8h0.01M8 8h0.01M13 8h0.01';
 const FOLLOW_UP_APPROVAL_HINT = 'Your comments are on GitHub. Approve adds an approval without posting them again.';
 
 function sendAction(origin: DetailOrigin, review: Pick<ReviewDraft, 'key' | 'repo' | 'number'>, request: TeamReviewActionRequest, settle: (isDone: boolean, text: string) => void): boolean {
@@ -641,9 +640,7 @@ function createMoreActions(actions: readonly TeamReviewAction[], runAction: (act
   toggle.setAttribute('aria-label', MORE_ACTIONS_LABEL);
   toggle.setAttribute('aria-haspopup', 'menu');
   toggle.setAttribute('aria-expanded', 'false');
-  const icon = svgIcon(16, 16);
-  icon.append(svgShape('path', { d: MORE_ICON_PATH, fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
-  toggle.append(icon);
+  toggle.append(createLineIcon(MORE_ICON_PATH));
   _moreMenuCount += 1;
   const menu = el('div', 'review-more-menu');
   menu.id = `pr-more-menu-${_moreMenuCount}`;

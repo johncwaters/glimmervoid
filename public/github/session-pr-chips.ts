@@ -10,6 +10,7 @@ import { latestMyPrsStatus, setMyPrsSessionLinks } from './my-prs-panel.ts';
 import { comparablePrKey } from './my-prs-view-core.ts';
 import { repaintSessionRowSignals } from '../session-row.ts';
 import { createSignal, paintSignalLine } from '../signal.ts';
+import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import type { ActivatableSignal } from '../signal.ts';
 import { nextMyPrsByKey, sessionPrSignals } from './session-pr-chips-core.ts';
 import type { MyPrsByKey, SessionPrChip } from './session-pr-chips-core.ts';
@@ -99,7 +100,8 @@ export function sessionRowPrSignals(sessionId: string): PrSignal[] {
 function createUnlinkableChip(chip: PrSignal, sessionId: string): HTMLElement {
   const chipLink = createSignal(chip, { className: chip.className, linkUrl: chip.url, onActivate: chip.onActivate });
   chipLink.setAttribute('aria-label', `Open pull request ${chip.key}`);
-  const unlinkButton = el('button', 'session-pr-chip-unlink', String.fromCharCode(0xd7));
+  const unlinkButton = el('button', 'session-pr-chip-unlink');
+  unlinkButton.append(createLineIcon(CLOSE_ICON_PATH));
   unlinkButton.type = 'button';
   unlinkButton.title = `Unlink ${chip.key} from this session`;
   unlinkButton.setAttribute('aria-label', `Unlink pull request ${chip.key}`);

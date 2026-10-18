@@ -744,8 +744,6 @@ body {
   border-left: none;
   border-radius: 0 var(--radius) var(--radius) 0;
   background: none;
-  font-size: 11px;
-  line-height: 1;
   color: var(--text-dim);
   cursor: pointer;
 }
@@ -1019,9 +1017,17 @@ body {
   background: color-mix(in oklab, var(--state-failed) 10%, transparent);
 }
 
+.line-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+.review-icon-button .line-icon { width: 16px; height: 16px; }
+.focus-rail-group-remove .line-icon { width: 12px; height: 12px; }
+.session-pr-chip-unlink .line-icon { width: 10px; height: 10px; }
+
 .btn-remove {
-  font-size: 14px;
-  line-height: 1;
   color: var(--text-dim);
 }
 
@@ -6324,9 +6330,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   background: transparent;
   border: none;
   color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: 14px;
-  line-height: 1;
   cursor: pointer;
 }
 .session-row-remove:active { color: var(--state-failed); }
@@ -8512,14 +8515,6 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
 .phone-nav-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .phone-nav-menu-item[aria-current="page"] { color: var(--accent); }
 
-.btn-debug {
-  font-size: 12px;
-}
-
-.btn-session-menu {
-  font-size: 12px;
-}
-
 .debug-overlay {
   position: absolute;
   top: 32px;
@@ -8550,8 +8545,6 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
   border-radius: 3px;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
   z-index: 21;
 }
 
