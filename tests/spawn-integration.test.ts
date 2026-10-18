@@ -58,3 +58,23 @@ test('start() routes a .cmd shim command through cmd.exe /c claude', { skip: pro
     s.destroy();
   }
 });
+
+test('start() announces the Coherence hooks state it records, so the dashboard never keeps a stale warning', async () => {
+  const announced: unknown[] = [];
+  const s = new Session({
+    id: 'spawn-coherence',
+    name: 'spawn-coherence',
+    path: process.cwd(),
+    spawnCommand: { path: process.execPath, kind: 'exe' },
+    ptySpawn: () => fakePty(),
+    prepareCoherenceHooks: async () => ({ active: false, reason: 'control files missing' }),
+  });
+  s.on('coherence-hooks-change', (state) => announced.push(state));
+  try {
+    await s.start();
+    assert.deepEqual(announced, [{ active: false, reason: 'control files missing' }]);
+    assert.deepEqual(s.coherenceHooks, { active: false, reason: 'control files missing' });
+  } finally {
+    s.destroy();
+  }
+});

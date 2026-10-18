@@ -1,6 +1,7 @@
 import { createNotifyGate, decideAcknowledge, explainNotification } from '../../session/core/notify-gate.ts';
 import type { ClaudeSessionIdEvent, Session } from '../../session/sessions.ts';
 import type { PersistedTaskTitle } from '../../shared/contracts/config.ts';
+import type { CoherenceHooksState } from '../../shared/contracts/session.ts';
 import type { SessionPrLinks } from '../../shared/contracts/my-prs.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../../shared/contracts/session.ts';
 import { STATES } from '../../shared/states.ts';
@@ -360,6 +361,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         timestamp: Date.now(),
       });
       dependencies.broadcastControl({ type: 'session-git', id: session.id, worktree: !!session.isWorktree });
+    });
+    session.on('coherence-hooks-change', (coherenceHooks: CoherenceHooksState | null) => {
+      dependencies.broadcastControl({ type: 'session-coherence-hooks', id: session.id, coherenceHooks });
     });
     session.on('task-title-change', ({ taskTitle, isCustom }: { taskTitle: string | null; isCustom: boolean }) => {
       dependencies.broadcastControl({ type: 'session-title', id: session.id, taskTitle, isCustom });

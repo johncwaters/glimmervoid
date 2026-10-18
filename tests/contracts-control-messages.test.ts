@@ -139,6 +139,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-prs', id: 'session-1', linkedPrs: [{ repo: 'PostHog/glimmervoid', number: 42, url: 'https://github.com/PostHog/glimmervoid/pull/42', source: 'hook', linkedAt: NOW }] },
   { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, guarded: true, resumeSessionId: null },
   { type: 'session-git', id: 'session-1', worktree: true },
+  { type: 'session-coherence-hooks', id: 'session-1', coherenceHooks: { active: false, reason: 'control files missing' } },
   { type: 'session-agents', id: 'session-1', activeAgents: 2, awaitingBackgroundTasks: true, session: 'glimmervoid', timestamp: NOW },
   { type: 'session-wakeup', id: 'session-1', pendingWakeup: { at: NOW, kind: 'cron', reason: null }, session: 'glimmervoid', timestamp: NOW },
   { type: 'session-prompt', id: 'session-1', pendingPromptKind: 'permission', session: 'glimmervoid', timestamp: NOW },

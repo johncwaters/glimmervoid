@@ -373,6 +373,7 @@ const messageHandlers = {
     if (!msg.ephemeral) noteKnownProjectPath(msg.path);
 
     const previousUi = sessionUIs.get(String(msg.id));
+    setSessionCoherenceHooks(msg.id, null);
     removeSessionCard(msg.id);
     forgetReviewSession(msg.id);
     setSessionLinkedPrs(msg.id, msg.linkedPrs);
@@ -407,6 +408,7 @@ const messageHandlers = {
   'session-plan-response': (msg) => { applySessionPlanResponse(msg); },
   'session-docs-changed': (msg) => applySessionDocsChanged(msg),
   'session-docs-snapshot': (msg) => applySessionDocsSnapshot(msg),
+  'session-coherence-hooks': (msg) => { setSessionCoherenceHooks(msg.id, msg.coherenceHooks); refreshRosterAndAttentionSurfaces(); },
   'session-coherence': (msg) => { applySessionCoherence(msg); refreshRosterAndAttentionSurfaces(); },
   'session-coherence-snapshot': (msg) => { applySessionCoherenceSnapshot(msg); refreshRosterAndAttentionSurfaces(); },
   'session-coherence-journal-response': (msg) => applyCoherenceJournalResponse(msg),

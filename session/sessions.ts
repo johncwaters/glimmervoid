@@ -1452,6 +1452,7 @@ class Session extends EventEmitter {
     if (this._prepareCoherenceHooks) {
       this.coherenceHooks = await this._prepareCoherenceHooks(this.effectiveCwd(), { canWriteShims: this.worktreeDir !== null });
       if (this._destroyed) return;
+      this.emit('coherence-hooks-change', this.coherenceHooks);
     }
 
     if (this.worktreeDir) {
