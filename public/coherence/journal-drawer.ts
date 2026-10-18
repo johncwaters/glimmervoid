@@ -48,7 +48,7 @@ export function applySessionCoherenceSnapshot(message: ServerMessageOf<'session-
 }
 
 export function sessionRowCoherenceSignals(sessionId: string): ActivatableSignal[] {
-  const signals = coherenceRowSignals(hooksBySessionId.get(sessionId) ?? null, coherenceBySessionId.get(sessionId) ?? null);
+  const signals = coherenceRowSignals(hooksBySessionId.get(sessionId) ?? null);
   return signals.map((signal) => ({ ...signal, onActivate: () => openCoherenceJournal(sessionId) }));
 }
 

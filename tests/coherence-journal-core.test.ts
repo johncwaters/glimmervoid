@@ -25,7 +25,7 @@ test('Coherence check preserves unknown stage ids including inherited property n
   }
 });
 
-test('Coherence row signals carry only a pending decision or redirect and inactive hooks, while the drawer keeps the detail', () => {
+test('Coherence row signals carry only inactive hooks, never an agent-facing next action, while the drawer keeps the detail', () => {
   const entry: CoherenceJournalEntry = {
     id: 'entry-1', at: '2026-10-17T12:00:00.000Z', kind: 'decision',
     text: '<img src=x onerror=alert(1)>', detail: 'Keep markup as text', supersedes: 'entry-0',
@@ -35,30 +35,19 @@ test('Coherence row signals carry only a pending decision or redirect and inacti
     regulation: { ok: true, nextAction: { action: 'release', rule: null, evidence: 'Waiting for approval', remedy: 'Choose a direction', command: 'coherence decide', remaining: 1 } },
     updatedAt: 1,
   };
-  const rowTexts = (hooks: Parameters<typeof coherenceRowSignals>[0], reading: SessionCoherence | null) => coherenceRowSignals(hooks, reading).map((signal) => signal.text);
-  assert.deepEqual(rowTexts(null, null), []);
-  assert.deepEqual(rowTexts({ active: true }, null), []);
-  assert.deepEqual(rowTexts({ active: false, reason: COHERENCE_HOOKS_INACTIVE.configMissing }, null), []);
-  for (const action of ['release', 'refuse'] as const) {
-    if (!coherence.regulation.ok) assert.fail('Expected an available next action');
-    coherence.regulation.nextAction.action = action;
-    assert.deepEqual(rowTexts(null, coherence), []);
-  }
-  if (!coherence.regulation.ok) assert.fail('Expected an available next action');
-  coherence.regulation.nextAction.action = 'require-decision';
-  const [decision, hooksOff] = coherenceRowSignals({ active: false, reason: 'Missing hook' }, coherence);
-  assert.deepEqual([decision?.tier, decision?.look?.icon, decision?.hoverText], [SIGNAL_TIER.needsYou, 'your-turn', 'Coherence: Choose a direction coherence decide']);
+  const rowTexts = (hooks: Parameters<typeof coherenceRowSignals>[0]) => coherenceRowSignals(hooks).map((signal) => signal.text);
+  assert.deepEqual(rowTexts(null), []);
+  assert.deepEqual(rowTexts({ active: true }), []);
+  assert.deepEqual(rowTexts({ active: false, reason: COHERENCE_HOOKS_INACTIVE.configMissing }), []);
+  const [hooksOff] = coherenceRowSignals({ active: false, reason: 'Missing hook' });
   assert.deepEqual([hooksOff?.tier, hooksOff?.hoverText], [SIGNAL_TIER.broken, 'Coherence hooks not active: Missing hook']);
-  coherence.regulation.nextAction.action = 'redirect';
-  coherence.regulation.nextAction.remedy = null;
-  assert.equal(coherenceRowSignals(null, coherence)[0]?.hoverText, 'Coherence: Waiting for approval coherence decide');
+  if (!coherence.regulation.ok) assert.fail('Expected an available next action');
   coherence.regulation.nextAction.action = 'refuse';
   const drawerReading = formatCoherenceReading(null, coherence);
   assert.ok(drawerReading.lines.includes('Next action: Refuse'));
   assert.ok(drawerReading.lines.includes('Evidence: Waiting for approval'));
   assert.equal(drawerReading.command, 'coherence decide');
   const unavailable: SessionCoherence = { ...coherence, journal: { ok: false, reason: 'No journal' }, regulation: { ok: false, reason: 'No regulation' } };
-  assert.deepEqual(rowTexts(null, unavailable), []);
   assert.deepEqual(formatCoherenceReading(null, unavailable).lines, ['Journal unavailable: No journal', 'Next action unavailable: No regulation']);
   assert.deepEqual(formatJournalEntry(entry), {
     heading: 'Decision | 2026-10-17T12:00:00.000Z | entry-1',
