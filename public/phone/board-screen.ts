@@ -3,9 +3,12 @@ import { el, observeHeaderHeight } from '../dom-helpers.ts';
 import type { SessionRowRefs } from '../session-row.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import type { SessionRow } from '../focus-view/attention-core.ts';
-import { attentionSummaryText, countAttentionByKind, orderRoster } from '../focus-view/attention-core.ts';
+import { countAttentionByKind, needsAttention, orderRoster, pickNextAttention } from '../focus-view/attention-core.ts';
+import { buildAttentionBanner, paintAttentionBanner } from '../attention-banner.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
-import { NO_PATH_KEY } from '../focus-view/roster-groups-core.ts';
+import { groupRoster, visibleOrder } from '../focus-view/roster-groups-core.ts';
+import type { SessionGroupHeader } from '../focus-view/roster-group-header.ts';
+import { buildSessionGroupHeader, paintSessionGroupHeader } from '../focus-view/roster-group-header.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { quickAddSession, readSessionRows, requestSessionRemoval } from '../session-actions.ts';
@@ -14,19 +17,12 @@ import { pulseActivityGlyph } from '../session-card/activity.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
-import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
-import { groupSessionsForBoard } from './board-groups-core.ts';
 
 type BoardRow = SessionRow<SessionUi>;
 
 const projectPathOf = (row: BoardRow) => row.ui.path;
 
-interface GroupRefs {
-  header: HTMLDivElement;
-  label: HTMLSpanElement;
-  count: HTMLSpanElement;
-  addButton: HTMLButtonElement;
-  forgetButton: HTMLButtonElement;
+interface GroupRefs extends SessionGroupHeader {
   rows: HTMLDivElement;
 }
 
@@ -35,9 +31,14 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
 
   const topBar = el('header', 'phone-topbar');
 
-  const attentionEl = el('div', 'phone-attention');
-  attentionEl.setAttribute('role', 'status');
-  attentionEl.setAttribute('aria-live', 'polite');
+  let attentionCursorId: string | null = null;
+  const attentionEl = buildAttentionBanner(() => {
+    const attentionIds = currentOrderedRows().filter(needsAttention).map((entry) => entry.id);
+    const nextId = pickNextAttention(attentionIds, attentionCursorId);
+    if (!nextId) return;
+    attentionCursorId = nextId;
+    onSelectSession?.(nextId);
+  });
 
   const groupsEl = el('div', 'phone-board-list');
 
@@ -68,27 +69,19 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     return row;
   }
 
-  function buildGroup(key: string) {
+  function buildGroup() {
     const section = el('section', 'phone-board-group');
-    section.dataset.key = key;
-    const header = el('div', 'phone-board-group-header');
-    const label = el('span', 'phone-board-group-label');
-    const count = el('span', 'phone-board-group-count');
-    const addButton = el('button', 'phone-board-group-add', '+');
-    addButton.type = 'button';
-    addButton.addEventListener('click', () => quickAddSession(section.dataset.path, section.dataset.label));
-    const forgetButton = el('button', 'phone-board-group-forget');
-    forgetButton.append(createLineIcon(CLOSE_ICON_PATH));
-    forgetButton.type = 'button';
-    forgetButton.addEventListener('click', () => {
-      forgetProject(section.dataset.path);
-      refresh();
+    const groupHeader = buildSessionGroupHeader({
+      onAdd: quickAddSession,
+      onForget: (path) => {
+        forgetProject(path);
+        refresh();
+      },
     });
     const rows = el('div', 'phone-board-group-rows');
     rows.setAttribute('role', 'list');
-    header.append(label, count, forgetButton, addButton);
-    section.append(header, rows);
-    groupRefs.set(section, { header, label, count, addButton, forgetButton, rows });
+    section.append(groupHeader.header, rows);
+    groupRefs.set(section, { ...groupHeader, rows });
     return section;
   }
 
@@ -102,27 +95,8 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
   function paintGroup(section: HTMLElement, group: RosterGroup<BoardRow>) {
     const refs = groupRefs.get(section);
     if (!refs) return;
-    const { header, label, count, addButton, forgetButton, rows } = refs;
-    const isPathless = group.key === NO_PATH_KEY;
-    const isEmpty = group.rows.length === 0;
-    section.dataset.path = group.key;
-    section.dataset.label = group.label;
-    section.toggleAttribute('data-empty', isEmpty);
-    header.title = group.title;
-    label.textContent = group.label;
-    count.textContent = String(group.rows.length);
-    count.title = `${group.rows.length} ${group.rows.length === 1 ? 'session' : 'sessions'}`;
-    addButton.hidden = isPathless;
-    forgetButton.hidden = isPathless || !isEmpty;
-    if (!isPathless) {
-      addButton.title = `Add a session to ${group.label}`;
-      addButton.setAttribute('aria-label', `Add a session to ${group.label}`);
-    }
-    if (!isPathless && isEmpty) {
-      forgetButton.title = `Remove ${group.label} from the Board`;
-      forgetButton.setAttribute('aria-label', `Remove ${group.label} from the Board`);
-    }
-    rows.setAttribute('aria-label', `${group.label} sessions`);
+    paintSessionGroupHeader(refs, group, 'Board');
+    refs.rows.setAttribute('aria-label', `${group.label} sessions`);
   }
 
   const { noteStates, acknowledge, isUnseen } = createUnseenCompleteTracker();
@@ -136,15 +110,10 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
 
   function refresh() {
     const orderedRows = currentOrderedRows();
-    const boardGroups = groupSessionsForBoard(
-      orderedRows,
-      projectPathOf,
-      emptyProjectKeys(orderedRows, projectPathOf),
-    );
+    const boardGroups = groupRoster(orderedRows, projectPathOf, emptyProjectKeys(orderedRows, projectPathOf));
     const attentionCounts = countAttentionByKind(orderedRows);
     attentionCount = attentionCounts.waitingCount + attentionCounts.finishedCount;
-    attentionEl.textContent = attentionSummaryText(attentionCounts);
-    attentionEl.toggleAttribute('data-lit', attentionCount > 0);
+    paintAttentionBanner(attentionEl, attentionCounts);
 
     const presentGroupKeys = new Set(boardGroups.order);
     const groupOrderKey = boardGroups.order.join(',');
@@ -153,7 +122,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     for (const group of boardGroups.groups) {
       let section = groupSectionByKey.get(group.key);
       if (!section) {
-        section = buildGroup(group.key);
+        section = buildGroup();
         groupSectionByKey.set(group.key, section);
       }
       paintGroup(section, group);
@@ -182,7 +151,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
       section.remove();
       groupSectionByKey.delete(key);
     }
-    const seen = new Set(boardGroups.visibleIds);
+    const seen = new Set(visibleOrder(boardGroups));
     for (const [id, row] of [...rowById]) {
       if (seen.has(id)) continue;
       const state = rowState.get(row);

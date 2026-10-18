@@ -10,7 +10,7 @@ import { KILLABLE_STATES, RESTARTABLE_STATES, STATE_GLYPHS, STATES } from '#shar
 import { playAlertSound } from '../alert-sound.ts';
 import { hasSessionDocs, openDocEditor } from '../doc-editor.ts';
 import { sendControlMsg } from '../control-ws.ts';
-import { el, isMonitoringState } from '../dom-helpers.ts';
+import { el, isMonitoringState, stateChip } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { setHealthMonitorDebugMode } from '../health-monitor.ts';
 import { createPlanFace, dropPlanBodyCache } from '../plan/plan-face.ts';
@@ -438,6 +438,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     taskTitleEl: dom.taskTitleEl,
     taskTitle: options.taskTitle ?? null,
     taskTitleIsCustom: options.taskTitleIsCustom ?? false,
+    glyphEl: dom.glyphEl,
     elapsedEl: dom.elapsedEl,
 
     path: asText(options.path),
@@ -833,6 +834,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
 
   ui.card.dataset.state = state;
   ui.card.toggleAttribute('data-monitoring', isMonitoringState(state, ui.awaitingBackgroundTasks));
+  ui.glyphEl.textContent = stateChip(state, ui.awaitingBackgroundTasks).glyph;
 
   updateButtonVisibility(ui);
 

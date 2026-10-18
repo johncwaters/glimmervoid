@@ -3,7 +3,7 @@ import { STATES } from '#shared/states.ts';
 import type { SessionStateSource } from '../session-actions-core.ts';
 
 export type SessionAttentionTier = 'now' | 'next' | 'later' | 'ready' | 'working' | 'resting';
-export type SessionAttentionOption = 'needs-you' | 'phone-triage' | 'favicon';
+export type SessionAttentionOption = 'needs-you' | 'favicon';
 
 interface SessionAttentionRow {
   state?: unknown;
@@ -18,15 +18,15 @@ const SESSION_ATTENTION_RANK_BY_TIER: Readonly<Record<SessionAttentionTier, numb
 });
 
 const SESSION_ATTENTION_RULES: Readonly<Record<SessionState, StateAttentionRule>> = {
-  WAITING: { tier: 'now', 'needs-you': 'always', 'phone-triage': 'always', favicon: 'always' },
-  FAILED: { tier: 'next', 'needs-you': 'never', 'phone-triage': 'always', favicon: 'never' },
-  COMPLETE: { tier: 'later', 'needs-you': 'unseen', 'phone-triage': 'always', favicon: 'always' },
-  IDLE: { tier: 'ready', 'needs-you': 'never', 'phone-triage': 'never', favicon: 'never' },
-  RUNNING: { tier: 'working', 'needs-you': 'never', 'phone-triage': 'always', favicon: 'never' },
-  STARTING: { tier: 'working', 'needs-you': 'never', 'phone-triage': 'never', favicon: 'never' },
-  INITIALIZING: { tier: 'working', 'needs-you': 'never', 'phone-triage': 'never', favicon: 'never' },
-  DORMANT: { tier: 'resting', 'needs-you': 'never', 'phone-triage': 'never', favicon: 'never' },
-  DONE: { tier: 'resting', 'needs-you': 'never', 'phone-triage': 'never', favicon: 'never' },
+  WAITING: { tier: 'now', 'needs-you': 'always', favicon: 'always' },
+  FAILED: { tier: 'next', 'needs-you': 'never', favicon: 'never' },
+  COMPLETE: { tier: 'later', 'needs-you': 'unseen', favicon: 'always' },
+  IDLE: { tier: 'ready', 'needs-you': 'never', favicon: 'never' },
+  RUNNING: { tier: 'working', 'needs-you': 'never', favicon: 'never' },
+  STARTING: { tier: 'working', 'needs-you': 'never', favicon: 'never' },
+  INITIALIZING: { tier: 'working', 'needs-you': 'never', favicon: 'never' },
+  DORMANT: { tier: 'resting', 'needs-you': 'never', favicon: 'never' },
+  DONE: { tier: 'resting', 'needs-you': 'never', favicon: 'never' },
 };
 const attentionRuleByState: ReadonlyMap<string, StateAttentionRule> = new Map(Object.entries(SESSION_ATTENTION_RULES));
 
@@ -39,7 +39,7 @@ export function sessionAttentionTier(row: SessionAttentionRow, option: SessionAt
   return rule.tier;
 }
 
-export function sessionAttentionRank(row: SessionAttentionRow, option: SessionAttentionOption): number {
+function sessionAttentionRank(row: SessionAttentionRow, option: SessionAttentionOption): number {
   return SESSION_ATTENTION_RANK_BY_TIER[sessionAttentionTier(row, option)];
 }
 

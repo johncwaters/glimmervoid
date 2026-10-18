@@ -68,7 +68,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 - Section heads, stat chips, `projectsOf` and `isPanelHidden` come from `dom-helpers.ts`; a new tab panel passes its class prefix rather than copying the builders.
 
 ### Testing Requirements
-- Pure cores have node:test coverage (`tests/frontend-*.test.js`, `shortcuts-core`, `render-scheduler`, `roster-groups-core`, `board-groups-core`); DOM modules are verified manually via `npm run dev`.
+- Pure cores have node:test coverage (`tests/frontend-*.test.js`, `shortcuts-core`, `render-scheduler`, `roster-groups-core`); DOM modules are verified manually via `npm run dev`.
 
 ### Common Patterns
 - Pure-core (`*-core`) + DOM-wrapper pairs, mirroring the server's seam pattern.
@@ -94,7 +94,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 - Two first-class layouts, not one responsive shell. `decideLayout` needs a coarse pointer AND a narrow viewport: a narrowed desktop window keeps the three-panel IA, and a coarse-pointer tablet has room for it. All phone styling keys off `[data-layout="phone"]`.
 - Nothing is duplicated; live elements are RE-PARENTED into the phone screens and back, a second copy meaning a second state pipeline for the same facts. The card-borrow seam holds a GLOBAL single borrower, a session owning one xterm.
-- Board order is attention-first, the opposite of the rail's stable identity order: a rail needs a fixed spatial map, a phone answers "who needs me". The "needs you" RULE lives once, in `public/focus-view/attention-core.ts`.
+- The Board and the rail share name order, the project group header (`public/focus-view/roster-group-header.ts`) and the Needs you banner (`public/attention-banner.ts`), one source each so the two cannot drift. The "needs you" RULE lives once, in `public/focus-view/attention-core.ts`.
 - Touch scroll is ours because xterm 6.0.0 has no touch path at all. The alternate buffer re-emits the drag as synthetic wheel notches so xterm's OWN listeners decide the meaning.
 - Predictive text bypasses xterm's input path on PHONE ONLY: xterm 6.0.0 mishandles autocorrect events (upstream `xtermjs/xterm.js#3600`, open). Desktop is untouched, where the same takeover would regress CJK composition.
 

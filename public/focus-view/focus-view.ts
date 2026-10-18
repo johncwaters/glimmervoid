@@ -1,6 +1,6 @@
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
-import { el, query } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { getRestorableSessionId, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession } from '../session-actions.ts';
@@ -13,13 +13,15 @@ import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
-import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { getRailWidth, setRailWidth } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
 import type { SessionRow } from './attention-core.ts';
-import { attentionSummaryText, countAttentionByKind, needsAttention, orderRoster, pickAdjacent, pickNextAttention } from './attention-core.ts';
+import { countAttentionByKind, needsAttention, orderRoster, pickAdjacent, pickNextAttention } from './attention-core.ts';
 import type { RosterGroup } from './roster-groups-core.ts';
-import { groupRoster, NO_PATH_KEY, visibleOrder } from './roster-groups-core.ts';
+import { groupRoster, visibleOrder } from './roster-groups-core.ts';
+import type { SessionGroupHeader } from './roster-group-header.ts';
+import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group-header.ts';
+import { buildAttentionBanner, paintAttentionBanner } from '../attention-banner.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import { createUnseenCompleteTracker } from './unseen-complete-core.ts';
 
@@ -30,7 +32,6 @@ const projectPathOf = (row: RosterRow) => row.ui.path;
 type FocusPill = ReturnType<typeof buildPill>;
 
 type GroupList = HTMLDivElement & { _lastOrderKey?: string };
-type GroupHeader = HTMLDivElement & { _addBtn: HTMLButtonElement; _forgetBtn: HTMLButtonElement };
 
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
@@ -49,7 +50,7 @@ const pillById = new Map<string, FocusPill>();
 const unseenCompleteTracker = createUnseenCompleteTracker();
 
 const groupListById = new Map<string, GroupList>();
-const groupHeaderById = new Map<string, GroupHeader>();
+const groupHeaderById = new Map<string, SessionGroupHeader>();
 
 let railTabStopId: string | null = null;
 
@@ -74,55 +75,24 @@ function groupsOf(order: RosterRow[]) {
 }
 
 function ensureGroup(group: RosterGroup<RosterRow>) {
-  let header = groupHeaderById.get(group.key);
+  let groupHeader = groupHeaderById.get(group.key);
   let list = groupListById.get(group.key);
-  if (!header || !list) {
-    const row: GroupHeader = Object.assign(el('div', 'focus-rail-group'), {
-      _addBtn: el('button', 'focus-rail-group-add', '+'),
-      _forgetBtn: el('button', 'focus-rail-group-remove'),
+  if (!groupHeader || !list) {
+    groupHeader = buildSessionGroupHeader({
+      onAdd: quickAddSession,
+      onForget: (path) => {
+        forgetProject(path);
+        refreshFocusRoster();
+      },
     });
-    row.dataset.key = group.key;
-    row.innerHTML = '<span class="focus-rail-group-label"></span>'
-      + '<span class="focus-rail-group-rule" aria-hidden="true"></span>';
-    const add = row._addBtn;
-    add.type = 'button';
-    add.addEventListener('click', () => quickAddSession(row.dataset.path, row.dataset.label));
-
-    const forget = row._forgetBtn;
-    forget.type = 'button';
-    forget.append(createLineIcon(CLOSE_ICON_PATH));
-    forget.addEventListener('click', () => {
-      forgetProject(row.dataset.path);
-      refreshFocusRoster();
-    });
-    row.appendChild(forget);
-    row.appendChild(add);
-    header = row;
     list = el('div', 'focus-rail-list');
     list.setAttribute('role', 'listbox');
-    groupHeaderById.set(group.key, header);
+    groupHeaderById.set(group.key, groupHeader);
     groupListById.set(group.key, list);
   }
-  query(header, '.focus-rail-group-label').textContent = group.label;
-  header.title = group.title;
-  header.dataset.path = group.key;
-  header.dataset.label = group.label;
-
-  const noPath = group.key === NO_PATH_KEY;
-  const empty = group.rows.length === 0;
-  header._addBtn.hidden = noPath;
-  if (!noPath) {
-    header._addBtn.title = `Add a session to ${group.label}`;
-    header._addBtn.setAttribute('aria-label', `Add a session to ${group.label}`);
-  }
-  header._forgetBtn.hidden = noPath || !empty;
-  if (!noPath && empty) {
-    header._forgetBtn.title = `Remove ${group.label} from the rail`;
-    header._forgetBtn.setAttribute('aria-label', `Remove ${group.label} from the rail`);
-  }
-  header.toggleAttribute('data-empty', empty);
+  paintSessionGroupHeader(groupHeader, group, 'rail');
   list.setAttribute('aria-label', `${group.label} sessions`);
-  return { header, list };
+  return { header: groupHeader.header, list };
 }
 
 export function isFocusActive() { return active; }
@@ -141,12 +111,7 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   mountedRail.removeAttribute('aria-label');
   mountedRail.setAttribute('aria-keyshortcuts', railAriaKeyShortcuts(SHORTCUT_PLATFORM));
 
-  railHeadEl = el('button', 'focus-rail-head');
-  railHeadEl.type = 'button';
-
-  railHeadEl.append(el('span', 'focus-rail-head-count'), buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)));
-  railHeadEl.addEventListener('click', focusNextAttention);
-  setRailHeadActive(false, attentionSummaryText({ waitingCount: 0, finishedCount: 0 }));
+  railHeadEl = buildAttentionBanner(focusNextAttention, buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)));
 
   mountedRail.append(railHeadEl);
 
@@ -287,9 +252,9 @@ export function refreshFocusRoster() {
     placeList(group.rows, list);
   }
 
-  for (const [key, header] of [...groupHeaderById]) {
+  for (const [key, groupHeader] of [...groupHeaderById]) {
     if (!presentKeys.has(key)) {
-      header.remove();
+      groupHeader.header.remove();
       groupListById.get(key)?.remove();
       groupHeaderById.delete(key);
       groupListById.delete(key);
@@ -330,21 +295,7 @@ function attentionIds() {
 }
 
 function updateRailHead() {
-  const attentionCounts = countAttentionByKind(orderedSessions());
-  setRailHeadActive(attentionCounts.waitingCount + attentionCounts.finishedCount > 0, attentionSummaryText(attentionCounts));
-}
-
-function setRailHeadActive(on: boolean, label: string) {
-  if (!railHeadEl) return;
-  query(railHeadEl, '.focus-rail-head-count').textContent = label;
-  railHeadEl.disabled = !on;
-  if (on) {
-    railHeadEl.removeAttribute('data-empty');
-    railHeadEl.removeAttribute('aria-hidden');
-    return;
-  }
-  railHeadEl.dataset.empty = '';
-  railHeadEl.setAttribute('aria-hidden', 'true');
+  if (railHeadEl) paintAttentionBanner(railHeadEl, countAttentionByKind(orderedSessions()));
 }
 
 export function focusNextAttention() {

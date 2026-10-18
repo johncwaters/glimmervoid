@@ -5,7 +5,7 @@ import { localClockText } from '#shared/display-text.ts';
 import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { escapeMarkup } from '#shared/escape-markup.ts';
-import { el } from '../dom-helpers.ts';
+import { el, stateChip } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
 import { CLOSE_ICON_PATH, createLineIcon, MORE_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH } from '../svg-dom.ts';
 import type { CardOptions } from './card-options-core.ts';
@@ -132,6 +132,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   prChipsEl.hidden = true;
   paintCardPrChips?.(prChipsEl, sessionId);
 
+  const glyphEl = el('span', 'session-card-glyph', stateChip(state).glyph);
+  glyphEl.setAttribute('aria-hidden', 'true');
   const elapsedEl = el('span', 'card-elapsed');
   elapsedEl.setAttribute('aria-hidden', 'true');
 
@@ -216,13 +218,13 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec));
   if (permsBadge) tagChildren.push(permsBadge);
   tags.append(...tagChildren);
-  header.append(nameEl, elapsedEl, taskTitleEl, prChipsEl, tags, actions);
+  header.append(glyphEl, nameEl, elapsedEl, taskTitleEl, prChipsEl, tags, actions);
 
   const termWrap = el('div', 'terminal-wrap');
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnSessionMenu, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, sessionMenu, termWrap };
+  return { card, header, glyphEl, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnSessionMenu, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, sessionMenu, termWrap };
 }
 
 export function paintGuardrailsMenuItem(button: HTMLButtonElement, card: HTMLElement) {
