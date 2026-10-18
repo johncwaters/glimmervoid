@@ -243,6 +243,12 @@ function createCoherenceSessionFeed({
     return { ok: true, entries: [...state.window] };
   }
 
+  async function readNextAction(session: CoherenceFeedSession): Promise<CoherenceRegulationReading> {
+    const host = attachedHost(session);
+    if (!host) return { ok: false, reason: 'Coherence is not attached to this session' };
+    return regulationReadingFor(session, session.effectiveCwd(), host);
+  }
+
   function snapshotMessage(): ServerMessageOf<'session-coherence-snapshot'> {
     const sessions: Record<string, SessionCoherence> = {};
     for (const [sessionId, state] of states) {
@@ -251,10 +257,10 @@ function createCoherenceSessionFeed({
     return { type: 'session-coherence-snapshot', sessions };
   }
 
-  return { attachSession, onTurnEnd, readJournal, snapshotMessage };
+  return { attachSession, onTurnEnd, readJournal, readNextAction, snapshotMessage };
 }
 
 type CoherenceSessionFeed = ReturnType<typeof createCoherenceSessionFeed>;
 
 export { createCoherenceSessionFeed };
-export type { CoherenceSessionFeed };
+export type { CoherenceFeedSession, CoherenceSessionFeed };

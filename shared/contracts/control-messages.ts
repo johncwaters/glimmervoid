@@ -14,7 +14,8 @@ import {
 } from './plan-review.ts';
 import { ChangeMap } from './change-map.ts';
 import {
-  COHERENCE_JOURNAL_DRAWER_MAX_ROWS, CoherenceJournalEntry, ProjectCoherenceAdoptRequest, ProjectCoherenceAdoptResult, ProjectCoherenceStatus, ProjectCoherenceTrend, SessionCoherence,
+  COHERENCE_JOURNAL_DRAWER_MAX_ROWS, CoherenceJournalEntry, ProjectCoherenceAdoptRequest, ProjectCoherenceAdoptResult, ProjectCoherenceCheckRequest, ProjectCoherenceCheckResult,
+  ProjectCoherenceStatus, ProjectCoherenceTrend, SessionCoherence,
 } from './coherence.ts';
 import { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
 import { TraceRecord } from './trace.ts';
@@ -234,6 +235,7 @@ const clientVariants = [
   loose('session-doc-save', { id: sessionId, path: sessionDocPath, text: z.string(), baseHash: z.string().min(1), requestId }),
   loose('session-coherence-journal', { id: sessionId, requestId }),
   loose('project-coherence-adopt', { ...ProjectCoherenceAdoptRequest.shape, requestId }),
+  loose('project-coherence-check', { ...ProjectCoherenceCheckRequest.shape, requestId }),
   loose('client-error', ClientErrorReport.shape),
   loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
   ...idOnlyClientVariants,
@@ -289,6 +291,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'project-coherence-trend',
   'project-coherence-trend-snapshot',
   'project-coherence-adopt-response',
+  'project-coherence-check-response',
   'project-coherence-status',
   'notify',
   'update-status',
@@ -478,6 +481,7 @@ const serverVariants = [
   loose('project-coherence-trend', { projectId: z.string(), ...ProjectCoherenceTrend.shape }),
   loose('project-coherence-trend-snapshot', { projects: z.record(z.string(), ProjectCoherenceTrend) }),
   loose('project-coherence-adopt-response', { ...ProjectCoherenceAdoptResult.shape, requestId }),
+  loose('project-coherence-check-response', { ...ProjectCoherenceCheckResult.shape, requestId }),
   loose('project-coherence-status', { projects: z.record(z.string(), ProjectCoherenceStatus) }),
   loose('notify', {
     session: z.string(),

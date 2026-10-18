@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { createCoherenceAdopt } from '../server/coherence/coherence-adopt.ts';
+import { createCoherenceCheck } from '../server/coherence/coherence-check.ts';
+import { createCoherenceNativeHooks } from '../server/coherence/coherence-native-hooks.ts';
 import { createCoherenceReadings, integrationTipReader } from '../server/coherence/coherence-readings.ts';
 import { createCoherenceRuntime } from '../server/coherence/coherence-runtime.ts';
+import { codexHookHashes } from '../server/coherence/core/coherence-codex-trust-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import type { ServerMessageOf } from '../shared/contracts/control-messages.ts';
 import { ServerMessage } from '../shared/contracts/control-messages.ts';
@@ -277,4 +280,99 @@ test('adopting Coherence pushes one fast-forward commit holding exactly the nati
     projectId: 'project-6', ok: false, error: 'repo ignores Coherence hook files', ignoredPaths: ['.claude/coherence-hook', '.claude/coherence-root'],
   });
   assert.equal((await git(claudeIgnored.origin, 'ls-tree', '--name-only', 'refs/heads/main')).stdout.includes('coherence.config.json'), false);
+});
+
+test('the Coherence check walks every stage of a native install inside guardrails, and a language module tip fails at install with every later stage skipped and nothing run', async (t) => {
+  const runtime = createCoherenceRuntime();
+  const workRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'coherence-check-')));
+  t.after(() => rm(workRoot, { recursive: true, force: true }));
+  const installed = await seedProjectWithOrigin(workRoot, 'installed');
+  const shippedNodeModules = await realpath(path.join(import.meta.dirname, '..', 'node_modules'));
+  const shippedVersion = JSON.parse(await readFile(path.join(shippedNodeModules, '@danilocampos', 'coherence', 'package.json'), 'utf8')).version;
+  await symlink(shippedNodeModules, path.join(installed.repo, 'node_modules'), 'dir');
+  await writeFile(path.join(installed.repo, '.gitignore'), 'node_modules\n');
+  await writeFile(path.join(installed.repo, 'coherence.config.json'), '{}\n');
+  await writeFile(path.join(installed.repo, 'package.json'), `${JSON.stringify({ private: true, devDependencies: { '@danilocampos/coherence': shippedVersion } })}\n`);
+  for (const host of ['claude', 'codex']) await execFileAsync(process.execPath, [runtime.cliPath ?? '', 'hooks', 'install', '--host', host], { cwd: installed.repo, encoding: 'utf8' });
+  const installedTip = await commitAll(installed.repo, 'adopt Coherence');
+  await git(installed.repo, 'push', '-q', 'origin', 'main');
+  await git(installed.repo, 'fetch', '-q', 'origin');
+  const codexHome = path.join(workRoot, 'codex-home');
+  await mkdir(codexHome);
+  const codexHooksPath = path.join(installed.repo, '.codex', 'hooks.json');
+  const trustLines = [...codexHookHashes(codexHooksPath, await readFile(codexHooksPath, 'utf8'))].map(([hookKey, hash]) => `[hooks.state.${JSON.stringify(hookKey)}]\ntrusted_hash = ${JSON.stringify(hash)}\n`);
+  await writeFile(path.join(codexHome, 'config.toml'), trustLines.join('\n'));
+  const codexConfigBefore = await readFile(path.join(codexHome, 'config.toml'), 'utf8');
+
+  const evilMarker = path.join(workRoot, 'evil-ran.marker');
+  const evil = await seedHostileProject(workRoot, 'evil', {
+    'coherence.config.json': JSON.stringify({ language: './evil.js' }),
+    'evil.js': `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(evilMarker)}, 'ran'); export default {};\n`,
+  });
+
+  const projects = [{ id: 'installed', path: installed.repo }, { id: 'evil', path: evil.repo }];
+  const gitWorkspace = createGitWorkspace();
+  const readIntegrationTip = integrationTipReader(gitWorkspace, () => ({}));
+  const readingsOptions = {
+    seriesRoot: path.join(workRoot, 'series'),
+    listProjects: () => projects,
+    readSettings: () => ({ isFactoryEnabled: false, isSettingOn: true }),
+    readIntegrationTip,
+    fetchOrigin: gitWorkspace.fetchOrigin,
+    hasNativeControlAt: runtime.hasNativeControlAt,
+    broadcastControl: () => {},
+    debounceMs: 0,
+    log: { warn: () => {} },
+  };
+  const readings = createCoherenceReadings(readingsOptions);
+  t.after(() => readings.stop());
+  await readings.pollNow();
+  const codexEnv = { ...process.env, CODEX_HOME: codexHome };
+  const checkOptions: Parameters<typeof createCoherenceCheck>[0] = {
+    listProjects: () => projects,
+    readSettings: () => ({ isFactoryEnabled: false, isSettingOn: true }),
+    readIntegrationTip,
+    nativeHooks: createCoherenceNativeHooks({ runtime, codexEnv, log: { warn: () => {} } }),
+    readings,
+    listLiveSessions: () => [{ name: 'live-1', path: installed.repo, hasLivePty: true, coherenceHooks: { active: true } }, { name: 'dormant', path: installed.repo, hasLivePty: false, coherenceHooks: null }],
+    cliPath: runtime.cliPath,
+    log: { warn: () => {} },
+  };
+  const check = createCoherenceCheck(checkOptions);
+  const statusBefore = (await git(installed.repo, 'status', '--porcelain', '--untracked-files=all')).stdout;
+
+  const passing = await check.check({ projectId: 'installed' });
+  assert.equal(ServerMessage.safeParse({ type: 'project-coherence-check-response', requestId: 'r1', ...passing }).success, true);
+  assert.deepEqual(passing.stages.filter((stage) => stage.status !== 'pass'), [], JSON.stringify(passing.stages, null, 2));
+  assert.equal(passing.ok, true);
+  assert.match(passing.stages.find((stage) => stage.id === 'install')?.detail ?? '', new RegExp(`coherence ${shippedVersion} declared`));
+  assert.match(passing.stages.find((stage) => stage.id === 'journal')?.detail ?? '', /^probe decision d-[0-9a-f]{8} read back by the feed$/);
+  assert.match(passing.stages.find((stage) => stage.id === 'readings')?.detail ?? '', new RegExp(`^${installedTip.slice(0, 7)} read .* ago, .*, at the integration tip$`));
+  assert.equal((await git(installed.repo, 'status', '--porcelain', '--untracked-files=all')).stdout, statusBefore);
+  assert.equal((await git(installed.origin, 'rev-parse', 'refs/heads/main')).stdout.trim(), installedTip);
+  assert.equal(await readFile(path.join(codexHome, 'config.toml'), 'utf8'), codexConfigBefore);
+
+  const failingCliPath = path.join(workRoot, 'failing-cli.mjs');
+  await writeFile(failingCliPath, 'process.exit(2);\n');
+  const unreadableReadings = createCoherenceReadings({ ...readingsOptions, seriesRoot: path.join(workRoot, 'unreadable-series'), cliPath: failingCliPath });
+  t.after(() => unreadableReadings.stop());
+  await unreadableReadings.pollNow();
+  const unreadable = await createCoherenceCheck({ ...checkOptions, readings: unreadableReadings }).check({ projectId: 'installed' });
+  const unreadableStage = unreadable.stages.find((stage) => stage.id === 'readings');
+  assert.equal(unreadableStage?.status, 'fail', JSON.stringify(unreadableStage));
+  assert.match(unreadableStage?.detail ?? '', /redundancy unavailable: the reading failed; mass unavailable: the reading failed$/);
+
+  const refused = await check.check({ projectId: 'evil' });
+  assert.equal(refused.ok, false);
+  assert.deepEqual(refused.stages.map(({ id, status }) => `${status} ${id}`), [
+    'pass setting', 'fail install', 'skip hooks-claude', 'skip hooks-codex', 'skip session-start', 'skip journal', 'skip next-action', 'skip readings', 'skip live-sessions',
+  ]);
+  assert.equal(refused.stages[1]?.detail, 'coherence.config.json names a language module instead of a built-in language');
+  await assert.rejects(stat(evilMarker), { code: 'ENOENT' });
+
+  await git(installed.repo, 'reset', '-q', '--hard', installed.tip);
+  const lagging = await check.check({ projectId: 'installed' });
+  const laggingHooks = lagging.stages.filter((stage) => stage.id === 'hooks-claude' || stage.id === 'hooks-codex');
+  assert.deepEqual(laggingHooks.map(({ id, status }) => `${status} ${id}`), ['pass hooks-claude', 'pass hooks-codex'], JSON.stringify(lagging.stages, null, 2));
+  assert.match(laggingHooks[1]?.detail ?? '', /trust is per session worktree; see live sessions$/);
 });

@@ -21,7 +21,7 @@ type CheckoutSnapshot =
 
 type SnapshotSource = { kind: 'working-tree' } | { kind: 'commit'; sha: string };
 
-type GuardedCommand = (file: string, args: string[], options: { timeoutMs: number }) => Promise<string>;
+type GuardedCommand = (file: string, args: string[], options: { timeoutMs: number; input?: string; extraEnv?: Record<string, string> }) => Promise<string>;
 
 const CONFIG_READ_MAX_BYTES = 256 * 1024;
 const GUARDED_RUN_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
@@ -255,11 +255,11 @@ async function withGuardrailsLaunch<Outcome>({ scratch, snapshot, readablePaths,
     enterDir: snapshot.cwd,
   });
   if (!prepared.ok) return null;
-  const runGuarded: GuardedCommand = async (file, args, { timeoutMs }) => {
+  const runGuarded: GuardedCommand = async (file, args, { timeoutMs, input, extraEnv = {} }) => {
     const wrapped = await prepared.launch.wrap(file, args, { hasTerminal: false });
     const { stdout } = await execFileAsync(wrapped.file, wrapped.args, {
-      cwd: prepared.launch.cwd, env: { ...env, TMPDIR: tempDir, TMP: tempDir, TEMP: tempDir, ...prepared.launch.env },
-      timeout: timeoutMs, maxBuffer: GUARDED_RUN_MAX_BUFFER_BYTES, encoding: 'utf8',
+      cwd: prepared.launch.cwd, env: { ...env, ...extraEnv, TMPDIR: tempDir, TMP: tempDir, TEMP: tempDir, ...prepared.launch.env },
+      timeout: timeoutMs, maxBuffer: GUARDED_RUN_MAX_BUFFER_BYTES, encoding: 'utf8', input,
     });
     return stdout;
   };

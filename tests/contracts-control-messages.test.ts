@@ -190,6 +190,10 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     trend: { direction: 'steady', rows: 1, comparedRows: 1, redundancyPairs: null, lines: null },
   } } },
   { type: 'project-coherence-adopt-response', requestId: 'r-adopt', projectId: 'project-1', ok: true, sha: 'c'.repeat(40) },
+  {
+    type: 'project-coherence-check-response', requestId: 'r-check', projectId: 'project-1', ok: false,
+    stages: [{ id: 'setting', status: 'pass', detail: 'Factory always uses Coherence' }, { id: 'install', status: 'fail', detail: 'no coherence.config.json' }, { id: 'hooks-claude', status: 'skip', detail: 'needs install' }],
+  },
   { type: 'project-coherence-status', projects: { 'project-1': { configured: true }, 'project-2': { configured: false } } },
   { type: 'notify', session: 'session-1', category: 'complete', message: 'finished', escalationCount: 0 },
   {

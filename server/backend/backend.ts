@@ -52,6 +52,8 @@ import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.
 import { createCoherenceReadings, integrationTipReader } from '../coherence/coherence-readings.ts';
 import { createCoherenceRuntime } from '../coherence/coherence-runtime.ts';
 import { createCoherenceAdopt } from '../coherence/coherence-adopt.ts';
+import { createCoherenceCheck } from '../coherence/coherence-check.ts';
+import { createCoherenceNativeHooks } from '../coherence/coherence-native-hooks.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir } from '../core/config-path-core.ts';
@@ -290,10 +292,12 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
   const coherenceRuntime = createCoherenceRuntime();
+  const listCoherenceProjects = () => (configStore.config.projects ?? []).flatMap(({ id, path: projectPath }) => (id && projectPath ? [{ id, path: projectPath }] : []));
+  const readCoherenceSettings = () => ({ isFactoryEnabled: configStore.config.factory?.enabled === true, isSettingOn: configStore.config.coherence?.enabled === true });
   const coherenceReadings = createCoherenceReadings({
     seriesRoot: configSiblingPath(configStore.configPath, 'coherence-readings'),
-    listProjects: () => (configStore.config.projects ?? []).flatMap(({ id, path: projectPath }) => (id && projectPath ? [{ id, path: projectPath }] : [])),
-    readSettings: () => ({ isFactoryEnabled: configStore.config.factory?.enabled === true, isSettingOn: configStore.config.coherence?.enabled === true }),
+    listProjects: listCoherenceProjects,
+    readSettings: readCoherenceSettings,
     readIntegrationTip: integrationTipReader(assembledGitWorkspace, () => configStore.config),
     fetchOrigin: assembledGitWorkspace.fetchOrigin,
     hasNativeControlAt: coherenceRuntime.hasNativeControlAt,
@@ -302,10 +306,19 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   });
   void coherenceReadings.start();
   const coherenceAdopt = createCoherenceAdopt({
-    listProjects: () => (configStore.config.projects ?? []).flatMap(({ id, path: projectPath }) => (id && projectPath ? [{ id, path: projectPath }] : [])),
+    listProjects: listCoherenceProjects,
     readConfig: () => configStore.config,
     gitWorkspace: assembledGitWorkspace,
     broadcastControl: broadcastControlFromWebSockets,
+    cliPath: coherenceRuntime.cliPath,
+  });
+  const coherenceCheck = createCoherenceCheck({
+    listProjects: listCoherenceProjects,
+    readSettings: readCoherenceSettings,
+    readIntegrationTip: integrationTipReader(assembledGitWorkspace, () => configStore.config),
+    nativeHooks: createCoherenceNativeHooks({ runtime: coherenceRuntime }),
+    readings: coherenceReadings,
+    listLiveSessions: () => allLiveSessions(),
     cliPath: coherenceRuntime.cliPath,
   });
   httpServer.once('close', () => {
@@ -561,6 +574,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     coherenceFeed,
     coherenceReadings,
     coherenceAdopt,
+    coherenceCheck,
     changeMapNarrator: laneAssembly.changeMapNarrator,
     serverBuild: () => serverBuild,
     telemetry,

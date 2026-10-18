@@ -61,6 +61,7 @@ import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import type { CoherenceSessionFeed } from './coherence/coherence-session-feed.ts';
 import type { CoherenceAdopt } from './coherence/coherence-adopt.ts';
+import type { CoherenceCheck } from './coherence/coherence-check.ts';
 import { judgeCoherenceAdoptRequest } from './coherence/core/coherence-adopt-core.ts';
 import { CoherenceAdoptError } from '../shared/contracts/coherence.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
@@ -161,6 +162,7 @@ interface ControlHandlerDeps {
   sessionDocs?: SessionDocsPort | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   coherenceAdopt?: Pick<CoherenceAdopt, 'adopt'> | null;
+  coherenceCheck?: Pick<CoherenceCheck, 'check'> | null;
   telemetry?: Pick<Telemetry, 'captureException' | 'captureClientError'> | null;
 }
 
@@ -281,6 +283,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
       const verdict = judgeCoherenceAdoptRequest(msg);
       return { type: 'project-coherence-adopt-response', requestId, projectId: typeof msg?.projectId === 'string' ? msg.projectId.slice(0, 128) : '', ok: false, error: verdict.ok ? CoherenceAdoptError.enum.invalidRequest : verdict.error };
     },
+    'project-coherence-check': () => ({ type: 'project-coherence-check-response', requestId, projectId: typeof msg?.projectId === 'string' ? msg.projectId.slice(0, 128) : '', ok: false, stages: [], error: 'invalid request' }),
   };
   const requestType = typeof msg?.type === 'string' ? msg.type : '';
   if (Object.hasOwn(builders, requestType)) return builders[requestType]();
@@ -371,6 +374,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     sessionDocs = null,
     coherenceFeed = null,
     coherenceAdopt = null,
+    coherenceCheck = null,
     changeMapNarrator = null,
   } = deps;
 
@@ -1504,6 +1508,10 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'project-coherence-adopt': async (message: ClientMessageOf<'project-coherence-adopt'>, ws: ControlSocket) => {
       if (!coherenceAdopt) return replyTo(ws, message, 'project-coherence-adopt-response', { projectId: message.projectId, ok: false, error: CoherenceAdoptError.enum.failed });
       replyTo(ws, message, 'project-coherence-adopt-response', await coherenceAdopt.adopt(message));
+    },
+    'project-coherence-check': async (message: ClientMessageOf<'project-coherence-check'>, ws: ControlSocket) => {
+      if (!coherenceCheck) return replyTo(ws, message, 'project-coherence-check-response', { projectId: message.projectId, ok: false, stages: [], error: 'the Coherence check is not available' });
+      replyTo(ws, message, 'project-coherence-check-response', await coherenceCheck.check(message));
     },
     'session-coherence-journal': async (message: ClientMessageOf<'session-coherence-journal'>, ws: ControlSocket) => {
       const reply = { type: 'session-coherence-journal-response', requestId: message.requestId ?? null, id: message.id };

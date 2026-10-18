@@ -315,5 +315,30 @@ export const ProjectCoherenceAdoptResult = z.object({
 });
 export type ProjectCoherenceAdoptResult = z.infer<typeof ProjectCoherenceAdoptResult>;
 
+export const COHERENCE_CHECK_STAGE_IDS = Object.freeze([
+  'setting', 'install', 'hooks-claude', 'hooks-codex', 'session-start', 'journal', 'next-action', 'readings', 'live-sessions',
+] as const);
+export const CoherenceCheckStageId = z.enum(COHERENCE_CHECK_STAGE_IDS);
+export type CoherenceCheckStageId = z.infer<typeof CoherenceCheckStageId>;
+export const COHERENCE_CHECK_DETAIL_MAX_CHARS = 300;
+
+export const CoherenceCheckStage = z.strictObject({
+  id: CoherenceCheckStageId,
+  status: z.enum(['pass', 'fail', 'skip']),
+  detail: z.string().min(1).max(COHERENCE_CHECK_DETAIL_MAX_CHARS),
+});
+export type CoherenceCheckStage = z.infer<typeof CoherenceCheckStage>;
+
+export const ProjectCoherenceCheckRequest = z.object({ projectId: coherenceProjectId });
+export type ProjectCoherenceCheckRequest = z.infer<typeof ProjectCoherenceCheckRequest>;
+
+export const ProjectCoherenceCheckResult = z.object({
+  projectId: z.string().max(128),
+  ok: z.boolean(),
+  stages: z.array(CoherenceCheckStage).max(COHERENCE_CHECK_STAGE_IDS.length),
+  error: z.string().min(1).max(COHERENCE_CHECK_DETAIL_MAX_CHARS).optional(),
+});
+export type ProjectCoherenceCheckResult = z.infer<typeof ProjectCoherenceCheckResult>;
+
 export const ProjectCoherenceStatus = z.strictObject({ configured: z.boolean() });
 export type ProjectCoherenceStatus = z.infer<typeof ProjectCoherenceStatus>;

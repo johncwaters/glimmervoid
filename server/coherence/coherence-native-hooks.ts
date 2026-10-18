@@ -22,7 +22,7 @@ const COHERENCE_PACKAGE_DIRECTORY = path.join('node_modules', '@danilocampos', '
 const TARGET_BIN_DIRECTORY = path.join('node_modules', '.bin');
 const CODEX_HOOKS_FILE = path.join('.codex', 'hooks.json');
 
-type CoherenceHooksRequest = { root: string; host: CoherenceHost; canWriteShims: boolean };
+type CoherenceHooksRequest = { root: string; host: CoherenceHost; canWriteShims: boolean; checkCodexTrust?: boolean };
 
 type CoherenceRuntime = Pick<ReturnType<typeof createCoherenceRuntime>, 'cliPath' | 'hookCliPath' | 'run'>;
 
@@ -178,27 +178,27 @@ export function createCoherenceNativeHooks({
     for (const shim of shims) await writeNewFile(path.join(binDirectory, shim.fileName), shim.text, shim.mode);
   }
 
-  async function runHooksCheck(root: string, host: CoherenceHost): Promise<CoherenceHooksState> {
+  async function runHooksCheck(root: string, host: CoherenceHost, checkCodexTrust: boolean): Promise<CoherenceHooksState> {
     try {
       await runtime.run({ cwd: root, args: ['hooks', '--check', '--host', host], env: scrubbedCheckEnv(await factoryGitEnvironment(root)), timeoutMs: HOOKS_CHECK_TIMEOUT_MS });
     } catch (error) {
       return coherenceHooksStateFromCheck(isCompletedCommandFailure(error) ? error.code : null);
     }
-    if (host === 'codex' && !await areProjectCodexHooksTrusted(root)) return { active: false, reason: COHERENCE_HOOKS_INACTIVE.codexHooksUntrusted };
+    if (host === 'codex' && checkCodexTrust && !await areProjectCodexHooksTrusted(root)) return { active: false, reason: COHERENCE_HOOKS_INACTIVE.codexHooksUntrusted };
     return coherenceHooksStateFromCheck(0);
   }
 
-  async function prepare({ root, host, canWriteShims }: CoherenceHooksRequest): Promise<CoherenceHooksState> {
+  async function prepare({ root, host, canWriteShims, checkCodexTrust = true }: CoherenceHooksRequest): Promise<CoherenceHooksState> {
     if (!await isRegularFileNoFollow(path.join(root, COHERENCE_CONFIG_FILENAME))) return { active: false, reason: COHERENCE_HOOKS_INACTIVE.configMissing };
     if (!judgeCoherenceConfig(await readCoherenceConfigEntry(root)).ok) return { active: false, reason: COHERENCE_HOOKS_INACTIVE.configRefused };
     for (const controlFile of COHERENCE_NATIVE_CONTROL_FILES[host]) {
       if (!await isRegularFileNoFollow(path.join(root, controlFile))) return { active: false, reason: COHERENCE_HOOKS_INACTIVE.controlFilesMissing };
     }
-    if (!canWriteShims) return runHooksCheck(root, host);
+    if (!canWriteShims) return runHooksCheck(root, host, checkCodexTrust);
     const isNodeModulesShared = await isSymbolicLink(path.join(root, 'node_modules')) || await isSymbolicLink(path.join(root, TARGET_BIN_DIRECTORY));
     if (isNodeModulesShared) {
       if (!await hasCoherenceInSharedBin(root, platform)) return { active: false, reason: COHERENCE_HOOKS_INACTIVE.sharedNodeModulesMissingCoherence };
-      return runHooksCheck(root, host);
+      return runHooksCheck(root, host, checkCodexTrust);
     }
     const targets: { binName: CoherenceTargetBinName; exists: boolean; isIgnored: boolean }[] = [];
     for (const binName of COHERENCE_TARGET_BIN_NAMES) {
@@ -211,7 +211,7 @@ export function createCoherenceNativeHooks({
     await writeTargetShims(root, plan.binNamesToWrite).catch((error: unknown) => {
       log.warn(`[coherence] could not write the hook target shims in ${root}: ${errorMessage(error)}`);
     });
-    return runHooksCheck(root, host);
+    return runHooksCheck(root, host, checkCodexTrust);
   }
 
   async function prepareSafely(request: CoherenceHooksRequest): Promise<CoherenceHooksState> {

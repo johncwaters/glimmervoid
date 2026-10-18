@@ -271,6 +271,10 @@ function createCoherenceReadings({
     await Promise.all([...states.values()].map((state) => state.inFlight));
   }
 
+  async function readTrend(project: ReadingsProject): Promise<ProjectCoherenceTrend | null> {
+    return trendOf(await loadState(project));
+  }
+
   function readWindow(projectId: string): CoherenceReadingRow[] {
     return states.get(projectId)?.rows.slice(-COHERENCE_TREND_WINDOW_ROWS) ?? [];
   }
@@ -284,7 +288,7 @@ function createCoherenceReadings({
     return { type: 'project-coherence-trend-snapshot', projects };
   }
 
-  return { start: () => loop.start(), stop, pollNow, readWindow, snapshotMessage };
+  return { start: () => loop.start(), stop, pollNow, readTrend, readWindow, snapshotMessage };
 }
 
 type CoherenceReadings = ReturnType<typeof createCoherenceReadings>;
