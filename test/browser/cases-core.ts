@@ -9,6 +9,7 @@ export type Step =
   | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
   | { kind: 'back'; viewer?: ViewerId }
+  | { kind: 'assert-settings-back'; viewer?: ViewerId }
   | { kind: 'resize'; width: number; height: number; viewer?: ViewerId }
   | { kind: 'resize-by'; deltaWidth?: number; deltaHeight?: number; viewer?: ViewerId }
   | { kind: 'keyboard'; state: 'up' | 'down'; viewer?: ViewerId }
@@ -198,6 +199,11 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'settle' },
       { kind: 'shot', name: 'reopened' },
     ],
+  },
+  {
+    name: 'phone-settings-back',
+    phoneOnly: true,
+    steps: [{ kind: 'assert-settings-back' }],
   },
   {
     name: 'resize-storm',

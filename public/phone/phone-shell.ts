@@ -50,7 +50,8 @@ let active = false;
 const SOFT_KEYBOARD_OPEN_DELTA_PX = 120;
 let keyboardClosedBaselineHeightPx = 0;
 let baselineViewportWidthPx = 0;
-let pushedHistoryEntry: 'none' | 'screen' = 'none';
+let pushedHistoryDepth = 0;
+let urlAwaitingOwnHistoryPop: string | null = null;
 
 function resetSoftKeyboardBaseline() {
   keyboardClosedBaselineHeightPx = 0;
@@ -222,56 +223,84 @@ function openSession(sessionId: string) {
   showScreen('terminal');
 }
 
-function pushHistoryFor(screenId: string) {
-  if (screenId === BOARD) {
-    surrenderHistoryEntry();
+interface PhoneHistoryState {
+  glimmervoidScreen?: unknown;
+  glimmervoidNested?: unknown;
+}
+
+function historyStateFor(screenId: string, isNested: boolean) {
+  if (isNested) return { glimmervoidScreen: screenId, glimmervoidNested: true };
+  return { glimmervoidScreen: screenId };
+}
+
+function screenIdFromHistoryState(state: unknown): string | null {
+  const named = (state as PhoneHistoryState | null)?.glimmervoidScreen;
+  return typeof named === 'string' ? named : null;
+}
+
+function historyDepthOf(state: unknown) {
+  if (!screenIdFromHistoryState(state)) return 0;
+  return (state as PhoneHistoryState).glimmervoidNested === true ? 2 : 1;
+}
+
+function desiredHistoryDepth(screenId: string) {
+  if (screenId === BOARD) return 0;
+  return hooks.canGoBack?.(screenId) ? 2 : 1;
+}
+
+function isCurrentHistoryStateFor(screenId: string, isNested: boolean) {
+  return screenIdFromHistoryState(history.state) === screenId && historyDepthOf(history.state) === (isNested ? 2 : 1);
+}
+
+export function syncPhoneHistory() {
+  if (!active || urlAwaitingOwnHistoryPop !== null) return;
+  const screenId = uiState.snapshot().phoneScreen || BOARD;
+  const desiredDepth = desiredHistoryDepth(screenId);
+  if (pushedHistoryDepth > desiredDepth) {
+    urlAwaitingOwnHistoryPop = location.href;
+    history.go(desiredDepth - pushedHistoryDepth);
+    pushedHistoryDepth = desiredDepth;
     return;
   }
-  const state = { glimmervoidScreen: screenId };
-  if (pushedHistoryEntry !== 'none') {
-    history.replaceState(state, '');
-    pushedHistoryEntry = 'screen';
-    return;
+  const isTopNested = pushedHistoryDepth === 2;
+  if (pushedHistoryDepth > 0 && !isCurrentHistoryStateFor(screenId, isTopNested)) history.replaceState(historyStateFor(screenId, isTopNested), '');
+  if (pushedHistoryDepth === 0 && desiredDepth > 0) {
+    history.pushState(historyStateFor(screenId, false), '');
+    pushedHistoryDepth = 1;
   }
-  history.pushState(state, '');
-  pushedHistoryEntry = 'screen';
+  if (pushedHistoryDepth === 1 && desiredDepth === 2) {
+    history.pushState(historyStateFor(screenId, true), '');
+    pushedHistoryDepth = 2;
+  }
 }
 
 function adoptInheritedHistory() {
   const inherited = screenIdFromHistoryState(history.state);
   if (inherited && canShowScreen(inherited)) {
-    pushedHistoryEntry = 'screen';
+    pushedHistoryDepth = historyDepthOf(history.state);
     return inherited;
   }
   if (inherited) history.replaceState(null, '');
-  pushedHistoryEntry = 'none';
+  pushedHistoryDepth = 0;
   return BOARD;
-}
-
-function surrenderHistoryEntry() {
-  if (pushedHistoryEntry === 'none') return;
-  pushedHistoryEntry = 'none';
-  history.back();
-}
-
-function screenIdFromHistoryState(state: unknown): string | null {
-  const named = (state as { glimmervoidScreen?: unknown } | null)?.glimmervoidScreen;
-  return typeof named === 'string' ? named : null;
 }
 
 function onPopState(event: PopStateEvent) {
   if (!active) return;
-  const currentScreenId = uiState.snapshot().phoneScreen;
-  if (currentScreenId && hooks.canGoBack?.(currentScreenId)) {
-    pushedHistoryEntry = 'none';
-    pushHistoryFor(currentScreenId);
-    hooks.onBack?.(currentScreenId);
-    applyScreen(currentScreenId);
+  if (urlAwaitingOwnHistoryPop !== null) {
+    history.replaceState(history.state, '', urlAwaitingOwnHistoryPop);
+    urlAwaitingOwnHistoryPop = null;
+    syncPhoneHistory();
     return;
   }
   const target = screenIdFromHistoryState(event.state);
-  pushedHistoryEntry = target ? 'screen' : 'none';
-  applyScreen(target && canShowScreen(target) ? target : BOARD);
+  const targetScreenId = target && canShowScreen(target) ? target : BOARD;
+  pushedHistoryDepth = historyDepthOf(event.state);
+  const currentScreenId = uiState.snapshot().phoneScreen;
+  const isLeavingNestedScreen = pushedHistoryDepth < 2 && targetScreenId === currentScreenId && hooks.canGoBack?.(currentScreenId);
+  if (isLeavingNestedScreen) hooks.onBack?.(currentScreenId);
+  applyScreen(targetScreenId);
+  syncPhoneHistory();
 }
 
 function syncCurrent(buttonById: Map<string, HTMLElement>, screenId: string) {
@@ -310,8 +339,8 @@ function canShowScreen(screenId: string) {
 
 function showScreen(screenId: string) {
   if (!shellEl || !canShowScreen(screenId)) return;
-  if (screenId !== uiState.snapshot().phoneScreen) pushHistoryFor(screenId);
   applyScreen(screenId);
+  syncPhoneHistory();
 }
 
 export function mountPhoneShell(options?: PhoneShellHooks) {
@@ -340,11 +369,11 @@ export function activatePhoneShell({ sessionId, linkedScreenId }: { sessionId?: 
     return;
   }
   if (sessionId && startScreen === BOARD) {
-    uiState.dispatch('setPhoneScreen', BOARD);
     showScreen('terminal');
     return;
   }
   applyScreen(startScreen);
+  syncPhoneHistory();
 }
 
 export function deactivatePhoneShell() {
@@ -359,7 +388,9 @@ export function deactivatePhoneShell() {
   shellEl.hidden = true;
   shellEl.removeAttribute('data-keyboard');
   resetSoftKeyboardBaseline();
-  surrenderHistoryEntry();
+  if (pushedHistoryDepth > 0) history.go(-pushedHistoryDepth);
+  pushedHistoryDepth = 0;
+  urlAwaitingOwnHistoryPop = null;
 }
 
 export function showPhonePlan(sessionId: string) {

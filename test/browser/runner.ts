@@ -10,7 +10,7 @@ import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Vi
 import { expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyIssues } from './issues.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
-import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, pillIds, readDocumentEngagement, readGrid, readLayout, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
+import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
 import type { GridReading } from './probe.ts';
 import { caseKey } from './report-core.ts';
 import type { CaseRecord, GridSnapshot, Outcome, StepRecord } from './report-core.ts';
@@ -56,6 +56,9 @@ const DESKTOP_CARD_SLOT = '.focus-card-slot';
 const DESKTOP_LEAVE_FOCUS_SELECTOR = '#tab-settings';
 const DESKTOP_ENTER_FOCUS_SELECTOR = '#tab-focus';
 const PHONE_BACK_SELECTOR = 'button.phone-back';
+const PHONE_MORE_SELECTOR = 'button.phone-nav-item[aria-expanded]';
+const PHONE_SETTINGS_MENU_SELECTOR = 'button.phone-nav-menu-item[data-screen="settings"]';
+const SETTINGS_SECTION_SELECTOR = 'button.settings-view-nav-item';
 const SELECTOR_BY_CONTROL: Record<CardControl, string> = {
   'plan-terminal': 'button.plan-minimize-button',
 };
@@ -347,6 +350,37 @@ async function runBack(viewer: Viewer, sessionId: string, deadlines: Deadlines):
     return { ok: true, reading, detail: `released to ${String(reading.dataGrid)}` };
   }, { label: `viewer ${viewer.id} released the grid`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
   return outcomeFor('grid-released', released);
+}
+
+async function waitForSettingsHistory(
+  viewer: Viewer,
+  label: string,
+  expected: { phoneScreen: string; settingsScreen?: string; historyLength?: number; isNestedEntry?: boolean },
+  deadlines: Deadlines,
+): Promise<PollResult> {
+  return pollUntil(async () => {
+    const reading = await viewer.page.evaluate(readSettingsHistory);
+    const mismatched = Object.entries(expected).filter(([field, value]) => reading[field as keyof typeof reading] !== value);
+    if (mismatched.length > 0) return { ok: false, detail: `wanted ${JSON.stringify(expected)}, read ${JSON.stringify(reading)}` };
+    return { ok: true, detail: JSON.stringify(reading) };
+  }, { label, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+}
+
+async function runAssertSettingsBack(viewer: Viewer, deadlines: Deadlines): Promise<StepOutcome> {
+  await viewer.page.locator(PHONE_MORE_SELECTOR).first().click();
+  await viewer.page.locator(PHONE_SETTINGS_MENU_SELECTOR).first().click();
+  const atList = await waitForSettingsHistory(viewer, 'settings list shown', { phoneScreen: 'settings', settingsScreen: 'list' }, deadlines);
+  if (!atList.ok) return failedOutcome('settings-list', atList.detail);
+  const listHistoryLength = (await viewer.page.evaluate(readSettingsHistory)).historyLength;
+  await viewer.page.locator(SETTINGS_SECTION_SELECTOR).first().click();
+  const atSection = await waitForSettingsHistory(viewer, 'section has its own history entry', { phoneScreen: 'settings', settingsScreen: 'section', historyLength: listHistoryLength + 1, isNestedEntry: true }, deadlines);
+  if (!atSection.ok) return failedOutcome('settings-section-entry', atSection.detail);
+  await viewer.page.evaluate(() => history.back());
+  const backAtList = await waitForSettingsHistory(viewer, 'back lands on the settings list', { phoneScreen: 'settings', settingsScreen: 'list', isNestedEntry: false }, deadlines);
+  if (!backAtList.ok) return failedOutcome('settings-back-to-list', backAtList.detail);
+  await viewer.page.evaluate(() => history.back());
+  const backAtBoard = await waitForSettingsHistory(viewer, 'second back lands on the board', { phoneScreen: 'board' }, deadlines);
+  return outcomeFor('settings-back-to-board', backAtBoard);
 }
 
 async function runKeyboard(viewer: Viewer, state: 'up' | 'down', deadlines: Deadlines): Promise<StepOutcome> {
@@ -845,6 +879,7 @@ export async function runCase({
     }
     if (step.kind === 'open') return runOpen(viewer, sessionId, deadlines);
     if (step.kind === 'back') return runBack(viewer, sessionId, deadlines);
+    if (step.kind === 'assert-settings-back') return runAssertSettingsBack(viewer, deadlines);
     if (step.kind === 'resize') {
       await viewer.page.setViewportSize({ width: step.width, height: step.height });
       viewer.width = step.width;

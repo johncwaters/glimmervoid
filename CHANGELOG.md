@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swipe back in phone Settings**: swiping back from a Settings section now slides straight to the section list, instead of sliding the same section away and then blinking over to the list.
 - **Terminal gap**: the strip below a terminal's last row now matches the terminal background instead of showing black, most visible on phone above the bottom nav.
 - **Adopt Coherence names the hook files git ignores**: adopting Coherence in a repository whose .gitignore ignores the .claude or .codex folder used to fail with a vague "hooks install failed" after a full npm install. It now stops before installing anything and lists the exact Coherence hook files to unignore, so you can fix .gitignore and adopt again.
 - **Adopt sets up which Coherence journal files git keeps**: adopting now adds ignore rules so the Coherence records (decisions, defects, work, experiments and the rest) are committed with each session's work, while the per-session activity and read-trace logs stay out of git. Before, nothing was ignored and every session's activity log turned up in its diff. A repository whose existing rules would still hide any of those records (a `*.jsonl` rule, say) gets the same "git ignores" message as for ignored hook files.

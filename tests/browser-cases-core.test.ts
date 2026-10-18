@@ -18,8 +18,8 @@ import {
 import type { HarnessCase, Scenario, Step, Viewport } from '../test/browser/cases-core.ts';
 import { BURST_CAP } from '../test/browser/frame-core.ts';
 
-const DEFAULT_CASE_COUNT = 69;
-const PROVE_FAILURE_CASE_COUNT = 71;
+const DEFAULT_CASE_COUNT = 70;
+const PROVE_FAILURE_CASE_COUNT = 72;
 
 function viewportNamed(name: string): Viewport {
   const found = VIEWPORTS.find((viewport) => viewport.name === name);
@@ -53,7 +53,7 @@ test('every scenario verifies its final state before the harness stops looking',
   for (const scenario of SCENARIOS) {
     const last = lastSteadyStep(scenario.steps);
     assert.ok(
-      last.kind === 'settle' || last.kind === 'assert-grid' || last.kind === 'assert-team-review' || last.kind === 'assert-issues' || last.kind === 'touch-scroll' || last.kind === 'assert-fit' || last.kind === 'expect-terminal-untouched',
+      last.kind === 'settle' || last.kind === 'assert-grid' || last.kind === 'assert-team-review' || last.kind === 'assert-issues' || last.kind === 'assert-settings-back' || last.kind === 'touch-scroll' || last.kind === 'assert-fit' || last.kind === 'expect-terminal-untouched',
       `${scenario.name} ends on ${last.kind}, without verifying its final state`,
     );
   }
@@ -282,6 +282,7 @@ test('cases come out in viewport order then scenario order', () => {
     'release-guardrails',
     'cold-open',
     'reopen-x3',
+    'phone-settings-back',
     'resize-storm',
     'keyboard',
     'two-viewers',

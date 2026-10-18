@@ -28,7 +28,7 @@ import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVi
 import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, setHooksRequestSender } from './hooks-panel.ts';
 import { initNotifications, showDesktopNotification } from './notifications.ts';
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
-import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession } from './phone/phone-shell.ts';
+import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession, syncPhoneHistory } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-panel.ts';
@@ -52,7 +52,7 @@ import { openConfirmDialog } from './session-card/modal.ts';
 import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
 import { showErrorToast } from './session-card/toast.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
-import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, clearSettingsUpdateRequest, refreshSettingsStatus, resolveSettingsTarget, returnToSettingsList } from './settings/settings-panel.ts';
+import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, clearSettingsUpdateRequest, onPhoneSettingsScreenChanged, refreshSettingsStatus, resolveSettingsTarget, returnToSettingsList } from './settings/settings-panel.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
@@ -861,6 +861,7 @@ mountPhoneShell({
     powerMenu,
   ],
 });
+onPhoneSettingsScreenChanged(syncPhoneHistory);
 
 function applyFormFactorLayout(layout: string) {
   if (layout === 'phone') {

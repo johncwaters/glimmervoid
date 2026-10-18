@@ -186,6 +186,25 @@ export function readLayout(): LayoutReading {
   };
 }
 
+export interface SettingsHistoryReading {
+  phoneScreen: string | null;
+  settingsScreen: string | null;
+  historyLength: number;
+  isNestedEntry: boolean;
+}
+
+export function readSettingsHistory(): SettingsHistoryReading {
+  const shownScreen = [...document.querySelectorAll<HTMLElement>('.phone-screen')].find((screen) => !screen.hidden);
+  const historyState: unknown = history.state;
+  const isNestedEntry = typeof historyState === 'object' && historyState !== null && 'glimmervoidNested' in historyState && historyState.glimmervoidNested === true;
+  return {
+    phoneScreen: shownScreen?.dataset.screen ?? null,
+    settingsScreen: document.querySelector<HTMLElement>('.settings-view-shell')?.dataset.settingsScreen ?? null,
+    historyLength: history.length,
+    isNestedEntry,
+  };
+}
+
 export function boardRowIds(): string[] {
   const found: string[] = [];
   for (const element of document.querySelectorAll('.phone-board-list button.session-row')) {

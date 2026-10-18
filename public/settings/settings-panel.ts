@@ -1354,11 +1354,20 @@ function currentPhoneSettingsScreen() {
   return phoneSettingsScreenOf(SETTINGS_VIEW_MAP, phoneSectionId, searchQuery, isStreamerMode());
 }
 
+const phoneSettingsScreenListeners = new Set<() => void>();
+
+export function onPhoneSettingsScreenChanged(listener: () => void) {
+  phoneSettingsScreenListeners.add(listener);
+}
+
 function syncPhoneSettingsScreen() {
   if (!shellEl) return;
   const screen = currentPhoneSettingsScreen();
+  const hasScreenChanged = shellEl.dataset.settingsScreen !== screen;
   shellEl.dataset.settingsScreen = screen;
   if (backButtonEl) backButtonEl.hidden = screen !== 'section';
+  if (!hasScreenChanged) return;
+  for (const listener of phoneSettingsScreenListeners) listener();
 }
 
 export function canReturnToSettingsList() {
