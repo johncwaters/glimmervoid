@@ -31,6 +31,11 @@ interface JournalCursor {
   ino: number;
 }
 
+interface RegulationMemo {
+  inputKey: string;
+  reading: CoherenceRegulationReading;
+}
+
 interface SessionFeedState {
   isClosed: boolean;
   coherenceSessionId: string | null;
@@ -40,6 +45,7 @@ interface SessionFeedState {
   debounceTimer: NodeJS.Timeout | null;
   inFlight: Promise<void> | null;
   isRerunWanted: boolean;
+  regulationMemo: RegulationMemo | null;
 }
 
 interface CoherenceSessionFeedOptions {
@@ -79,7 +85,7 @@ function createCoherenceSessionFeed({
     const existing = states.get(sessionId);
     if (existing) return existing;
     const created: SessionFeedState = {
-      isClosed: false, coherenceSessionId: null, cursors: new Map(), window: [], published: null, debounceTimer: null, inFlight: null, isRerunWanted: false,
+      isClosed: false, coherenceSessionId: null, cursors: new Map(), window: [], published: null, debounceTimer: null, inFlight: null, isRerunWanted: false, regulationMemo: null,
     };
     states.set(sessionId, created);
     return created;
@@ -158,25 +164,31 @@ function createCoherenceSessionFeed({
     }
   }
 
-  async function regulateInSnapshot(session: CoherenceFeedSession, cwd: string, host: 'claude' | 'codex', resolvedCliPath: string, scratch: string): Promise<CoherenceRegulationReading> {
+  async function regulateInSnapshot(
+    session: CoherenceFeedSession, state: SessionFeedState | null, cwd: string, host: 'claude' | 'codex', resolvedCliPath: string, scratch: string,
+  ): Promise<CoherenceRegulationReading> {
     const env = coherenceEnv(await factoryGitEnvironment(cwd));
     const snapshot = await snapshotFor(session, cwd, path.join(scratch, 'snapshot'), env);
     if (!snapshot.ok) return snapshot;
     const configRefusal = regulationFromConfig(await readCoherenceConfigEntry(snapshot.cwd));
     if (configRefusal) return configRefusal;
-    await mirrorLifecycleTargets(cwd, snapshot);
+    const mirroredBinNames = await mirrorLifecycleTargets(cwd, snapshot);
+    const inputKey = [resolvedCliPath, host, session.baseSha ?? '', snapshot.inputDigest, ...mirroredBinNames].join('\0');
+    if (state?.regulationMemo?.inputKey === inputKey) return state.regulationMemo.reading;
     const readablePaths = [await nodeModulesHolding(resolvedCliPath), await realpath(process.execPath)];
     const args = [resolvedCliPath, ...regulateArgs({ host, baseSha: session.baseSha })];
     const stdout = await withGuardrailsLaunch({ scratch, snapshot, readablePaths, env }, (runGuarded) => runGuarded(process.execPath, args, { timeoutMs }));
     if (stdout === null) return { ok: false, reason: COHERENCE_FEED_UNAVAILABLE.guardrails };
-    return nextActionFromRegulateOutput(stdout);
+    const reading = nextActionFromRegulateOutput(stdout);
+    if (state) state.regulationMemo = reading.ok ? { inputKey, reading } : null;
+    return reading;
   }
 
-  async function regulationReadingFor(session: CoherenceFeedSession, cwd: string, host: 'claude' | 'codex'): Promise<CoherenceRegulationReading> {
+  async function regulationReadingFor(session: CoherenceFeedSession, state: SessionFeedState | null, cwd: string, host: 'claude' | 'codex'): Promise<CoherenceRegulationReading> {
     if (!cliPath) return { ok: false, reason: COHERENCE_FEED_UNAVAILABLE.noCli };
     const scratch = await makeHostScratchDirectory('coherence-regulate-');
     try {
-      return await regulateInSnapshot(session, cwd, host, cliPath, scratch);
+      return await regulateInSnapshot(session, state, cwd, host, cliPath, scratch);
     } catch (error) {
       const finishedStdout = completedFailureStdout(error);
       if (finishedStdout !== null) return nextActionFromRegulateOutput(finishedStdout);
@@ -201,7 +213,7 @@ function createCoherenceSessionFeed({
     const host = attachedHost(session);
     if (!host || state.isClosed) return;
     const journal = await journalReadingFor(state, cwd, session);
-    const regulation = await regulationReadingFor(session, cwd, host);
+    const regulation = await regulationReadingFor(session, state, cwd, host);
     publish(session, state, { journal, regulation });
   }
 
@@ -246,7 +258,7 @@ function createCoherenceSessionFeed({
   async function readNextAction(session: CoherenceFeedSession): Promise<CoherenceRegulationReading> {
     const host = attachedHost(session);
     if (!host) return { ok: false, reason: 'Coherence is not attached to this session' };
-    return regulationReadingFor(session, session.effectiveCwd(), host);
+    return regulationReadingFor(session, null, session.effectiveCwd(), host);
   }
 
   function snapshotMessage(): ServerMessageOf<'session-coherence-snapshot'> {

@@ -5,7 +5,8 @@ import type { CoherenceHost } from './coherence-session-core.ts';
 
 export const COHERENCE_PACKAGE_NAME = '@danilocampos/coherence';
 export const COHERENCE_ADOPT_HOSTS: readonly CoherenceHost[] = Object.freeze(['claude', 'codex']);
-export const COHERENCE_ADOPT_CONFIG_TEXT = '{}\n';
+const COHERENCE_ADOPT_IGNORED_NAMES = Object.freeze(['node_modules', '.git', 'dist', '.turbo', '.wrangler', 'tests', 'test', '__tests__']);
+export const COHERENCE_ADOPT_CONFIG_TEXT = `${JSON.stringify({ ignore: COHERENCE_ADOPT_IGNORED_NAMES }, null, 2)}\n`;
 const COHERENCE_ADOPT_COMMIT_SUBJECT = 'chore: adopt Coherence';
 
 export const COHERENCE_ADOPT_TIMEOUT_MS = Object.freeze({ npmInstall: 120_000, hooksInstall: 30_000, push: 60_000 });

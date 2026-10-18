@@ -98,6 +98,45 @@ test('a turn end pushes the journal line and a measured regulate next action, an
   assert.deepEqual(feed.snapshotMessage().sessions, {});
 });
 
+test('a turn end over an unchanged session tree reuses the last regulate reading, and any tree change reruns regulate', async (t) => {
+  const { cliPath } = createCoherenceRuntime();
+  assert.ok(cliPath);
+  const repo = await mkdtemp(path.join(os.tmpdir(), 'coherence-feed-memo-'));
+  const wrapperDirectory = await mkdtemp(path.join(os.tmpdir(), 'coherence-feed-wrapper-'));
+  t.after(() => Promise.all([rm(repo, { recursive: true, force: true }), rm(wrapperDirectory, { recursive: true, force: true })]));
+  const runStampingCliPath = path.join(wrapperDirectory, 'cli.mjs');
+  await writeFile(runStampingCliPath, [
+    "import { spawnSync } from 'node:child_process';",
+    `const run = spawnSync(process.execPath, [${JSON.stringify(cliPath)}, ...process.argv.slice(2)], { encoding: 'utf8' });`,
+    'const document = JSON.parse(run.stdout);',
+    'document.remaining = 1 + Math.floor(Math.random() * 1e9);',
+    'process.stdout.write(JSON.stringify(document));',
+  ].join('\n'));
+  await git(repo, 'init', '-q', '-b', 'main');
+  await writeFile(path.join(repo, 'coherence.config.json'), '{}');
+  await writeFile(path.join(repo, 'index.ts'), 'export const answer = 42;\n');
+  await git(repo, 'add', '.');
+  await git(repo, 'commit', '-q', '-m', 'init');
+  const baseSha = (await git(repo, 'rev-parse', 'HEAD')).stdout.trim();
+
+  const messages: ServerMessageOf<'session-coherence'>[] = [];
+  const feed = createCoherenceSessionFeed({ broadcastControl: (message) => messages.push(message), cliPath: runStampingCliPath, debounceMs: 0, log: { warn: () => {} } });
+  const session = sessionAt(repo, baseSha, 'claude-code');
+  feed.attachSession(session);
+  const remainingAfterTurn = async () => {
+    const countBeforeTurn = messages.length;
+    feed.onTurnEnd(session);
+    const reading = await nextMessage(messages, countBeforeTurn);
+    assert.ok(reading.regulation.ok, JSON.stringify(reading.regulation));
+    return reading.regulation.nextAction.remaining;
+  };
+  const firstRunStamp = await remainingAfterTurn();
+  assert.equal(await remainingAfterTurn(), firstRunStamp);
+  await writeFile(path.join(repo, 'index.ts'), 'export const answer = 43;\n');
+  assert.notEqual(await remainingAfterTurn(), firstRunStamp);
+  session.emit('exit');
+});
+
 test('regulate in the snapshot sees the session tree lifecycle target exactly as it is, releasing when installed and refusing once it is gone', async (t) => {
   const { cliPath, hookCliPath } = createCoherenceRuntime();
   assert.ok(cliPath && hookCliPath);

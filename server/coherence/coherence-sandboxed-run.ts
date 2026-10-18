@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import type { Hash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { access, lstat, mkdir, open, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -16,7 +18,7 @@ type FileRead =
   | { kind: 'read'; bytes: Buffer; start: number; size: number; isTail: boolean; cursor: { dev: number; ino: number } };
 
 type CheckoutSnapshot =
-  | { ok: true; root: string; cwd: string; readDenied: string[]; objectDirs: string[] }
+  | { ok: true; root: string; cwd: string; readDenied: string[]; objectDirs: string[]; inputDigest: string }
   | { ok: false; failure: 'too-large' | 'failed' };
 
 type SnapshotSource = { kind: 'working-tree' } | { kind: 'commit'; sha: string };
@@ -134,13 +136,14 @@ async function removeFromSnapshot(snapshotRoot: string, relativePath: string): P
   await rm(destinationPath, { force: true });
 }
 
-async function overlayChangedFile(realTop: string, snapshotRoot: string, relativePath: string, remainingBytes: number): Promise<number | 'too-large'> {
+async function overlayChangedFile(realTop: string, snapshotRoot: string, relativePath: string, remainingBytes: number, inputDigest: Hash): Promise<number | 'too-large'> {
   const isParentInside = await isSourceParentInsideTree(realTop, relativePath);
   if (isParentInside === false) return 0;
   const sourcePath = path.join(realTop, relativePath);
   const source = isParentInside === null ? null : await lstatOrNull(sourcePath);
   if (source === null) {
     await removeFromSnapshot(snapshotRoot, relativePath);
+    inputDigest.update(`removed\0${relativePath}\0`);
     return 0;
   }
   if (source.isSymbolicLink() || !source.isFile()) return 0;
@@ -148,6 +151,7 @@ async function overlayChangedFile(realTop: string, snapshotRoot: string, relativ
   const read = await readRegularFileNoFollow(sourcePath, { fromOffset: 0, maxBytes: remainingBytes + 1 });
   if (read.kind === 'missing') {
     await removeFromSnapshot(snapshotRoot, relativePath);
+    inputDigest.update(`removed\0${relativePath}\0`);
     return 0;
   }
   if (read.kind === 'refused') return 0;
@@ -157,7 +161,9 @@ async function overlayChangedFile(realTop: string, snapshotRoot: string, relativ
   const existing = await lstatOrNull(destinationPath);
   if (existing?.isDirectory()) return 0;
   await rm(destinationPath, { force: true });
-  await writeFile(destinationPath, read.bytes, { flag: 'wx', mode: source.mode & SNAPSHOT_FILE_MODE_MASK });
+  const mode = source.mode & SNAPSHOT_FILE_MODE_MASK;
+  await writeFile(destinationPath, read.bytes, { flag: 'wx', mode });
+  inputDigest.update(`file\0${relativePath}\0${mode}\0${read.bytes.length}\0`).update(read.bytes);
   return read.bytes.length;
 }
 
@@ -180,10 +186,10 @@ async function alternateObjectDirectories(snapshotRoot: string): Promise<string[
   return found;
 }
 
-async function overlayWorkingTreeChanges(realTop: string, snapshotRoot: string, changedPaths: readonly string[]): Promise<boolean> {
+async function overlayWorkingTreeChanges(realTop: string, snapshotRoot: string, changedPaths: readonly string[], inputDigest: Hash): Promise<boolean> {
   let remainingBytes = SNAPSHOT_MAX_BYTES;
   for (const relativePath of changedPaths) {
-    const copiedBytes = await overlayChangedFile(realTop, snapshotRoot, relativePath, remainingBytes);
+    const copiedBytes = await overlayChangedFile(realTop, snapshotRoot, relativePath, remainingBytes, inputDigest);
     if (copiedBytes === 'too-large') return false;
     remainingBytes -= copiedBytes;
   }
@@ -206,9 +212,10 @@ async function snapshotCheckout({ cwd, snapshotRoot, env, source }: {
   if (changedPaths.length > SNAPSHOT_MAX_FILES) return { ok: false, failure: 'too-large' };
   await gitText(['clone', '--quiet', '--shared', '--no-checkout', realTop, snapshotRoot], path.dirname(snapshotRoot), env);
   await gitText(['checkout', '--quiet', '--detach', checkoutSha], snapshotRoot, env);
-  if (!await overlayWorkingTreeChanges(realTop, snapshotRoot, changedPaths)) return { ok: false, failure: 'too-large' };
+  const inputDigest = createHash('sha256').update(`${checkoutSha}\0${relativeCwd}\0`);
+  if (!await overlayWorkingTreeChanges(realTop, snapshotRoot, changedPaths, inputDigest)) return { ok: false, failure: 'too-large' };
   const objectDirs = await alternateObjectDirectories(snapshotRoot);
-  return { ok: true, root: snapshotRoot, cwd: path.join(snapshotRoot, relativeCwd), readDenied: [realTop, commonGitDir], objectDirs };
+  return { ok: true, root: snapshotRoot, cwd: path.join(snapshotRoot, relativeCwd), readDenied: [realTop, commonGitDir], objectDirs, inputDigest: inputDigest.digest('hex') };
 }
 
 async function isExecutableTarget(targetPath: string): Promise<boolean> {
@@ -219,17 +226,20 @@ async function isExecutableTarget(targetPath: string): Promise<boolean> {
   return access(targetPath, fsConstants.X_OK).then(() => true, () => false);
 }
 
-async function mirrorLifecycleTargets(sourceCwd: string, snapshot: Extract<CheckoutSnapshot, { ok: true }>): Promise<void> {
+async function mirrorLifecycleTargets(sourceCwd: string, snapshot: Extract<CheckoutSnapshot, { ok: true }>): Promise<string[]> {
   const relativeBinDirectory = path.relative(snapshot.root, path.join(snapshot.cwd, 'node_modules', '.bin')).split(path.sep).join('/');
+  const mirroredBinNames: string[] = [];
   for (const binName of COHERENCE_TARGET_BIN_NAMES) {
     if (!await isExecutableTarget(path.join(sourceCwd, 'node_modules', '.bin', binName))) continue;
-    if (!await isRealDirectoryChainUnder(snapshot.root, relativeBinDirectory, { isCreating: true })) return;
+    if (!await isRealDirectoryChainUnder(snapshot.root, relativeBinDirectory, { isCreating: true })) return mirroredBinNames;
     await writeFile(path.join(snapshot.root, relativeBinDirectory, binName), COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER.text, {
       flag: 'wx', mode: COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER.mode,
     }).catch((error: unknown) => {
       if (errorCode(error) !== 'EEXIST') throw error;
     });
+    mirroredBinNames.push(binName);
   }
+  return mirroredBinNames;
 }
 
 async function nodeModulesHolding(filePath: string): Promise<string> {
