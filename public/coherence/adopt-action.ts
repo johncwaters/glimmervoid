@@ -54,16 +54,27 @@ export function buildProjectCoherenceAction(): HTMLElement {
   button.addEventListener('click', () => {
     if (container.dataset.projectId) openAdoptDialog(container.dataset.projectId);
   });
-  const status = el('span', 'coherence-adopt-status');
-  status.setAttribute('role', 'status');
-  action.append(button, status);
+  action.append(button, ...buildAdoptProgress());
   container.append(buildProjectCoherenceChip(), action);
   return container;
 }
 
-function paintAdoptStatus(status: HTMLElement, adoption: { requestId: string | null; text: string; ok: boolean } | undefined) {
-  status.textContent = adoption?.text ?? '';
-  status.dataset.error = String(adoption?.ok === false && adoption.requestId === null);
+function buildAdoptProgress(): HTMLElement[] {
+  const spinner = el('span', 'coherence-adopt-spinner');
+  spinner.setAttribute('aria-hidden', 'true');
+  const status = el('span', 'coherence-adopt-status');
+  status.setAttribute('role', 'status');
+  return [spinner, status];
+}
+
+function paintAdoptProgress(container: HTMLElement, adoption: { requestId: string | null; text: string; ok: boolean } | undefined, adoptingText = '') {
+  const isAdopting = adoption?.requestId != null;
+  const spinner = container.querySelector<HTMLElement>('.coherence-adopt-spinner');
+  if (spinner) spinner.dataset.active = String(isAdopting);
+  const status = container.querySelector<HTMLElement>('.coherence-adopt-status');
+  if (!status) return;
+  status.textContent = isAdopting ? adoptingText : adoption?.text ?? '';
+  status.dataset.error = String(adoption?.ok === false && !isAdopting);
 }
 
 export function paintProjectHeaderCoherenceAction(slot: HTMLElement, projectPath: string) {
@@ -80,8 +91,7 @@ export function paintProjectHeaderCoherenceAction(slot: HTMLElement, projectPath
   if (action) action.hidden = !canAdopt;
   const button = action?.querySelector('button');
   if (button) button.hidden = adoption?.ok === true;
-  const status = action?.querySelector<HTMLElement>('.coherence-adopt-status');
-  if (status) paintAdoptStatus(status, adoption);
+  if (action) paintAdoptProgress(action, adoption);
   container.hidden = !canAdopt && (!chip || chip.hidden);
 }
 
@@ -90,21 +100,21 @@ function openAdoptDialog(projectId: string) {
   if (openDialog?.projectId === projectId) return;
   openDialog?.close();
   const shell = buildDialogShell({ title: 'Adopt Coherence', dialogClass: 'dialog coherence-adopt-dialog' });
-  const description = el('p', 'dialog-message', 'This creates one commit on the project\'s integration branch and pushes it to origin. It adds coherence.config.json, adds or updates package.json and package-lock.json with Coherence as a dev dependency, adds a node_modules ignore line if needed, and installs the Claude and Codex hook files.');
+  const description = el('p', 'dialog-message', 'This creates one commit on the project\'s integration branch and pushes it to origin. It adds coherence.config.json, pins Coherence in package.json and package-lock.json, as a dev dependency unless it is already a dependency, adds a node_modules ignore line if needed, and installs the Claude and Codex hook files.');
   const trust = el('p', 'dialog-message', 'Codex asks you to trust the new project hooks once in its /hooks screen.');
-  const status = el('span', 'coherence-adopt-status');
-  status.setAttribute('role', 'status');
+  const progress = el('p', 'coherence-adopt-progress');
+  progress.append(...buildAdoptProgress());
   const adoptButton = el('button', 'btn-dialog btn-dialog-confirm', 'Adopt');
   adoptButton.type = 'button';
   shell.btnCancel.type = 'button';
-  shell.actions.append(adoptButton, status);
-  shell.dialog.append(description, trust, shell.actions);
+  shell.actions.append(adoptButton);
+  shell.dialog.append(description, trust, progress, shell.actions);
   const dialog = {
     projectId,
     paint: () => {
       const adoption = adoptionsByProjectId.get(projectId);
       adoptButton.disabled = adoption?.requestId != null;
-      paintAdoptStatus(status, adoption);
+      paintAdoptProgress(progress, adoption, 'Installing and pushing, this can take a minute');
     },
     close: () => {
       if (openDialog === dialog) openDialog = null;
@@ -125,7 +135,7 @@ function openAdoptDialog(projectId: string) {
   adoptButton.addEventListener('click', () => {
     if (adoptionsByProjectId.get(projectId)?.requestId) return;
     const requestId = nextRequestId('coherence-adopt');
-    adoptionsByProjectId.set(projectId, { requestId, text: 'Adopting', ok: false });
+    adoptionsByProjectId.set(projectId, { requestId, text: '', ok: false });
     if (!sendControlMsg({ type: 'project-coherence-adopt', projectId, requestId, confirm: true })) {
       adoptionsByProjectId.set(projectId, { requestId: null, text: 'Adopt failed: Not connected', ok: false });
     }

@@ -71,6 +71,10 @@ export function packageTextWithCoherencePin(existingPackageText: string | null, 
   if (!isExactCoherenceVersion(version)) throw new Error(`not an exact Coherence version: ${version}`);
   const manifest = existingPackageText === null ? { private: true } : parsedJsonOrNull(existingPackageText);
   if (!isPlainObject(manifest)) return null;
+  const dependencies = manifest.dependencies;
+  if (isPlainObject(dependencies) && Object.hasOwn(dependencies, COHERENCE_PACKAGE_NAME)) {
+    return `${JSON.stringify({ ...manifest, dependencies: { ...dependencies, [COHERENCE_PACKAGE_NAME]: version } }, null, 2)}\n`;
+  }
   const devDependencies = manifest.devDependencies ?? {};
   if (!isPlainObject(devDependencies)) return null;
   return `${JSON.stringify({ ...manifest, devDependencies: { ...devDependencies, [COHERENCE_PACKAGE_NAME]: version } }, null, 2)}\n`;
@@ -87,7 +91,7 @@ export function coherencePushArgs(sha: string, branch: string): string[] {
 export function coherenceAdoptCommitMessage(version: string): { subject: string; body: string } {
   return {
     subject: COHERENCE_ADOPT_COMMIT_SUBJECT,
-    body: `Installs ${COHERENCE_PACKAGE_NAME}@${version} as a dev dependency with coherence.config.json and the Claude and Codex lifecycle controls that coherence hooks install wrote.`,
+    body: `Pins ${COHERENCE_PACKAGE_NAME}@${version} in package.json with coherence.config.json and the Claude and Codex lifecycle controls that coherence hooks install wrote.`,
   };
 }
 

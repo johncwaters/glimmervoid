@@ -13,7 +13,7 @@ import {
   selectLatestShownEntry,
 } from '../server/coherence/core/coherence-feed-core.ts';
 import { judgeCoherenceConfig } from '../server/coherence/core/coherence-config-core.ts';
-import { gitignoreTextWithNodeModules, judgeCoherenceAdoptPaths, judgeCoherenceAdoptRequest } from '../server/coherence/core/coherence-adopt-core.ts';
+import { gitignoreTextWithNodeModules, judgeCoherenceAdoptPaths, judgeCoherenceAdoptRequest, packageTextWithCoherencePin } from '../server/coherence/core/coherence-adopt-core.ts';
 import {
   admitVerbReadings, hasComponentsMap, hasDeclaredMassCommands, parseDecomposeOutput, parseDriftOutput, parseMassOutput, parseRedundancyOutput, summarizeCoherenceTrend,
 } from '../server/coherence/core/coherence-readings-core.ts';
@@ -295,4 +295,7 @@ test('adopt refuses anything but a literal confirm, never commits node_modules o
   assert.equal(gitignoreTextWithNodeModules('dist\n', true), null);
   assert.equal(gitignoreTextWithNodeModules(null, false), 'node_modules/\n');
   assert.equal(gitignoreTextWithNodeModules('dist', false), 'dist\nnode_modules/\n');
+
+  const runtimePinned = JSON.parse(packageTextWithCoherencePin(JSON.stringify({ dependencies: { '@danilocampos/coherence': '0.37.0' }, devDependencies: { vite: '^8.3.4' } }), '0.37.1') ?? '');
+  assert.deepEqual(runtimePinned, { dependencies: { '@danilocampos/coherence': '0.37.1' }, devDependencies: { vite: '^8.3.4' } });
 });
