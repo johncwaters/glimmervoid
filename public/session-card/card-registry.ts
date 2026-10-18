@@ -28,12 +28,12 @@ export interface SessionUi {
   elapsedEl: HTMLSpanElement;
   path: string;
   stateSince: number;
-  restartMenu: HTMLDivElement;
+  sessionMenu: HTMLDivElement;
   termWrap: HTMLDivElement;
   btnDebug: HTMLButtonElement;
   btnRestart: HTMLButtonElement;
   btnRestartFresh: HTMLButtonElement;
-  btnRestartMenu: HTMLButtonElement;
+  btnSessionMenu: HTMLButtonElement;
   btnResume: HTMLButtonElement;
   btnWorkspaceRepos: HTMLButtonElement;
   btnConversationView: HTMLButtonElement;

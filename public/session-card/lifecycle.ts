@@ -161,9 +161,9 @@ function updateButtonVisibility(ui: SessionUi) {
   ui.btnRemove.classList.add('visible');
 }
 
-function closeRestartMenu(ui: SessionUi) {
-  ui.restartMenu.classList.remove('open');
-  ui.btnRestartMenu.setAttribute('aria-expanded', 'false');
+function closeSessionMenu(ui: SessionUi) {
+  ui.sessionMenu.classList.remove('open');
+  ui.btnSessionMenu.setAttribute('aria-expanded', 'false');
 }
 
 function wireCardEvents(ui: SessionUi, sessionId: string) {
@@ -186,8 +186,8 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
   });
 
   function restartSession(action: RestartChoice) {
-    closeRestartMenu(ui);
-    ui.btnRestartMenu.focus();
+    closeSessionMenu(ui);
+    ui.btnSessionMenu.focus();
     runRestartChoice(action, sessionId, {
       readState: () => ui.currentState,
       send: sendControlMsg,
@@ -199,33 +199,33 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
   ui.btnRestartFresh.addEventListener('click', () => restartSession('restart-fresh'));
 
   ui.btnResume.addEventListener('click', () => {
-    closeRestartMenu(ui);
+    closeSessionMenu(ui);
     openResumeDialog(sessionId, { currentState: ui.currentState });
   });
 
   ui.btnWorkspaceRepos.addEventListener('click', () => {
-    closeRestartMenu(ui);
+    closeSessionMenu(ui);
     openWorkspaceReposDialog(sessionId);
   });
 
   ui.btnTrace.addEventListener('click', () => {
-    closeRestartMenu(ui);
+    closeSessionMenu(ui);
     openTraceForSession(sessionId);
   });
 
   ui.btnDocs.addEventListener('click', () => {
-    closeRestartMenu(ui);
+    closeSessionMenu(ui);
     openDocEditor(sessionId);
   });
 
   ui.btnConversationView.addEventListener('click', () => {
-    closeRestartMenu(ui);
+    closeSessionMenu(ui);
     sendControlMsg({ type: 'set-session-conversation-view', id: sessionId, isOn: !ui.isConversationViewOn });
   });
 
   ui.btnGuardrails.addEventListener('click', () => {
-    closeRestartMenu(ui);
-    ui.btnRestartMenu.focus();
+    closeSessionMenu(ui);
+    ui.btnSessionMenu.focus();
     const sendGuardrails = (isOn: boolean) => () => sendControlMsg({ type: 'set-session-guardrails', id: sessionId, isOn });
     if (ui.card.dataset.guarded === undefined) {
       openConfirmDialog({
@@ -264,7 +264,7 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
   });
 
   ui.btnRemove.addEventListener('click', () => {
-    closeRestartMenu(ui);
+    closeSessionMenu(ui);
     const name = ui.card.dataset.session;
 
     const merge = ui.card.dataset.merge;
@@ -279,13 +279,13 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     });
   });
 
-  ui.btnRestartMenu.addEventListener('click', (event) => {
+  ui.btnSessionMenu.addEventListener('click', (event) => {
     event.stopPropagation();
     for (const [, other] of sessionUIs) {
-      if (other !== ui) closeRestartMenu(other);
+      if (other !== ui) closeSessionMenu(other);
     }
-    const isOpen = ui.restartMenu.classList.toggle('open');
-    ui.btnRestartMenu.setAttribute('aria-expanded', String(isOpen));
+    const isOpen = ui.sessionMenu.classList.toggle('open');
+    ui.btnSessionMenu.setAttribute('aria-expanded', String(isOpen));
   });
 
   function moveMenuFocus(event: KeyboardEvent) {
@@ -293,25 +293,25 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     event.preventDefault();
     event.stopPropagation();
     for (const [, other] of sessionUIs) {
-      if (other !== ui) closeRestartMenu(other);
+      if (other !== ui) closeSessionMenu(other);
     }
-    ui.restartMenu.classList.add('open');
-    ui.btnRestartMenu.setAttribute('aria-expanded', 'true');
-    focusAdjacentMenuItem([...ui.restartMenu.querySelectorAll<HTMLElement>('.popup-menu-item.visible')], event);
+    ui.sessionMenu.classList.add('open');
+    ui.btnSessionMenu.setAttribute('aria-expanded', 'true');
+    focusAdjacentMenuItem([...ui.sessionMenu.querySelectorAll<HTMLElement>('.popup-menu-item.visible')], event);
   }
-  ui.btnRestartMenu.addEventListener('keydown', moveMenuFocus);
-  ui.restartMenu.addEventListener('keydown', moveMenuFocus);
+  ui.btnSessionMenu.addEventListener('keydown', moveMenuFocus);
+  ui.sessionMenu.addEventListener('keydown', moveMenuFocus);
 
   document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape' || !ui.restartMenu.classList.contains('open')) return;
+    if (event.key !== 'Escape' || !ui.sessionMenu.classList.contains('open')) return;
     event.preventDefault();
-    closeRestartMenu(ui);
-    ui.btnRestartMenu.focus();
+    closeSessionMenu(ui);
+    ui.btnSessionMenu.focus();
   }, { signal: ui.abortController.signal });
 
   document.addEventListener('click', (event) => {
     const clicked = event.target instanceof Node ? event.target : null;
-    if (!ui.restartMenu.contains(clicked) && clicked !== ui.btnRestartMenu) closeRestartMenu(ui);
+    if (!ui.sessionMenu.contains(clicked) && clicked !== ui.btnSessionMenu) closeSessionMenu(ui);
   }, { signal: ui.abortController.signal });
 
   ui.termWrap.addEventListener('mousedown', () => {
@@ -456,12 +456,12 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     path: asText(options.path),
 
     stateSince: typeof options.stateSince === 'number' && Number.isFinite(options.stateSince) ? options.stateSince : Date.now(),
-    restartMenu: dom.restartMenu,
+    sessionMenu: dom.sessionMenu,
     termWrap: dom.termWrap,
     btnDebug: dom.btnDebug,
     btnRestart: dom.btnRestart,
     btnRestartFresh: dom.btnRestartFresh,
-    btnRestartMenu: dom.btnRestartMenu,
+    btnSessionMenu: dom.btnSessionMenu,
     btnResume: dom.btnResume,
     btnWorkspaceRepos: dom.btnWorkspaceRepos,
     btnConversationView: dom.btnConversationView,
@@ -803,7 +803,7 @@ function _handleEndedTransition(ui: SessionUi, wasActive: boolean, state: string
   ui.term.reset();
   const label = state === STATES.DONE ? 'Session complete' : 'Session failed';
   const color = state === STATES.DONE ? '\x1b[34m' : '\x1b[31m';
-  ui.term.write(`\r\n\x1b[2m${color}  ${label}\x1b[0m\r\n\r\n\x1b[2m  Press Restart to start a new session.\x1b[0m\r\n`);
+  ui.term.write(`\r\n\x1b[2m${color}  ${label}\x1b[0m\r\n\r\n\x1b[2m  Open the session actions menu and choose Restart to start a new session.\x1b[0m\r\n`);
 }
 
 function _handleRestartTransition(ui: SessionUi, prevState: string) {

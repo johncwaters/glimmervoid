@@ -128,17 +128,17 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   const actions = el('div', 'session-actions');
 
-  const restartMenuWrap = el('div', 'session-overflow');
-  const btnRestartMenu = el('button', 'btn-action btn-restart-menu visible', String.fromCharCode(0x21bb));
-  btnRestartMenu.type = 'button';
-  btnRestartMenu.title = 'Restart';
-  btnRestartMenu.setAttribute('aria-label', 'Restart');
-  btnRestartMenu.setAttribute('aria-haspopup', 'menu');
-  btnRestartMenu.setAttribute('aria-expanded', 'false');
-  const restartMenu = el('div', 'popup-menu session-overflow-menu');
-  restartMenu.id = `restart-menu-${sessionId}`;
-  restartMenu.setAttribute('role', 'menu');
-  btnRestartMenu.setAttribute('aria-controls', restartMenu.id);
+  const sessionMenuWrap = el('div', 'session-overflow');
+  const btnSessionMenu = el('button', 'btn-action btn-session-menu visible', String.fromCharCode(0x22ef));
+  btnSessionMenu.type = 'button';
+  btnSessionMenu.title = 'Session actions';
+  btnSessionMenu.setAttribute('aria-label', 'Session actions');
+  btnSessionMenu.setAttribute('aria-haspopup', 'menu');
+  btnSessionMenu.setAttribute('aria-expanded', 'false');
+  const sessionMenu = el('div', 'popup-menu session-overflow-menu');
+  sessionMenu.id = `session-menu-${sessionId}`;
+  sessionMenu.setAttribute('role', 'menu');
+  btnSessionMenu.setAttribute('aria-controls', sessionMenu.id);
 
   const btnRestart = buildMenuItem('Restart', 'Keeps this conversation', 'overflow-restart');
   const btnRestartFresh = buildMenuItem('Restart fresh', 'Ends this conversation and starts a new one', 'overflow-restart-fresh');
@@ -152,22 +152,22 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnGuardrails.setAttribute('role', 'menuitemcheckbox');
   paintGuardrailsMenuItem(btnGuardrails, card);
   btnLinkPr.onclick = () => {
-    restartMenu.classList.remove('open');
-    btnRestartMenu.setAttribute('aria-expanded', 'false');
+    sessionMenu.classList.remove('open');
+    btnSessionMenu.setAttribute('aria-expanded', 'false');
     openLinkPullRequestDialog(sessionId);
   };
   const btnCoherenceJournal = buildMenuItem('Coherence journal', 'Decisions and notes this session recorded', 'overflow-coherence-journal');
   btnCoherenceJournal.setAttribute('aria-haspopup', 'dialog');
   const paintCoherenceJournalItem = () => btnCoherenceJournal.classList.toggle('visible', cardCoherenceJournal?.isReadable(sessionId) === true);
-  btnRestartMenu.onclick = paintCoherenceJournalItem;
-  btnRestartMenu.onkeydown = paintCoherenceJournalItem;
+  btnSessionMenu.onclick = paintCoherenceJournalItem;
+  btnSessionMenu.onkeydown = paintCoherenceJournalItem;
   btnCoherenceJournal.onclick = () => {
-    restartMenu.classList.remove('open');
-    btnRestartMenu.setAttribute('aria-expanded', 'false');
+    sessionMenu.classList.remove('open');
+    btnSessionMenu.setAttribute('aria-expanded', 'false');
     cardCoherenceJournal?.open(sessionId);
   };
-  restartMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnCoherenceJournal, btnLinkPr);
-  restartMenuWrap.append(btnRestartMenu, restartMenu);
+  sessionMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnCoherenceJournal, btnLinkPr);
+  sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug', '\u2699');
   btnDebug.title = 'Debug state';
@@ -202,7 +202,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnFaceConversation.setAttribute('aria-pressed', 'false');
   faceSwitch.append(btnFaceTerminal, btnFaceConversation);
 
-  actions.append(faceSwitch, btnDocs, btnPlan, btnDebug, btnTrace, restartMenuWrap, btnRemove);
+  actions.append(faceSwitch, btnDocs, btnPlan, btnDebug, btnTrace, sessionMenuWrap, btnRemove);
   const tags = el('div', 'session-card-tags');
   const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec));
   if (permsBadge) tagChildren.push(permsBadge);
@@ -213,7 +213,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnRestartMenu, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, faceSwitch, btnFaceTerminal, btnFaceConversation, restartMenu, termWrap };
+  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnSessionMenu, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, faceSwitch, btnFaceTerminal, btnFaceConversation, sessionMenu, termWrap };
 }
 
 export function paintGuardrailsMenuItem(button: HTMLButtonElement, card: HTMLElement) {

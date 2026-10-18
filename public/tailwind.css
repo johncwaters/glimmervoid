@@ -1,4 +1,5 @@
 @import "tailwindcss" layer(tailwind);
+@import "@xterm/xterm/css/xterm.css" layer(xterm);
 
 
 @layer tailwind {

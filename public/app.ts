@@ -1,4 +1,3 @@
-import '@xterm/xterm/css/xterm.css';
 import './tailwind.css';
 
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
