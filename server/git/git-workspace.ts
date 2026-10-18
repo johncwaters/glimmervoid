@@ -752,11 +752,43 @@ function createGitWorkspace(opts: {
     return entryStats?.isFile() === true && entryStats.size === 0;
   }
 
-  async function readUncommittedWork(worktreePath: string): Promise<{ ok: boolean; hasWork: boolean }> {
-    const status = await run(['--no-optional-locks', 'status', '--porcelain'], worktreePath);
+  async function readUncommittedWork(worktreePath: string, statusPathspec: string[] = []): Promise<{ ok: boolean; hasWork: boolean }> {
+    const status = await run([...WORKTREE_STATUS_ARGS, ...statusPathspec], worktreePath);
     const statusEntries = status.out.split('\n').filter((statusEntry) => statusEntry !== '');
     const placeholderFlags = await Promise.all(statusEntries.map((statusEntry) => isLeftoverGuardrailsPlaceholder(worktreePath, statusEntry)));
     return { ok: status.ok, hasWork: placeholderFlags.includes(false) };
+  }
+
+  async function isRegularCoherenceJournal(worktreePath: string, journalPath: string): Promise<boolean> {
+    const pathSegments = journalPath.split('/');
+    if (pathSegments.length < 2 || pathSegments[0] !== '.coherence') return false;
+    let checkedPath = worktreePath;
+    for (const [index, segment] of pathSegments.entries()) {
+      if (!segment || segment === '.' || segment === '..') return false;
+      checkedPath = path.join(checkedPath, segment);
+      const entryStats = await fsp.lstat(checkedPath).catch(() => null);
+      if (!entryStats) return false;
+      if (index === pathSegments.length - 1) return entryStats.isFile();
+      if (!entryStats.isDirectory()) return false;
+    }
+    return false;
+  }
+
+  async function recordCoherenceJournals(worktreePath: string): Promise<boolean> {
+    const modifiedFiles = await run(['ls-files', '--modified', '--others', '--exclude-standard', '-z', '--', '.coherence'], worktreePath);
+    if (!modifiedFiles.ok) return false;
+    const stagedFiles = await run(['diff', '--cached', '--name-only', '--no-renames', '-z', '--', '.coherence'], worktreePath);
+    if (!stagedFiles.ok) return false;
+    const journalPaths = [...new Set([...modifiedFiles.out.split('\0'), ...stagedFiles.out.split('\0')].filter(Boolean))];
+    if (journalPaths.length === 0) return true;
+    for (const journalPath of journalPaths) {
+      if (!await isRegularCoherenceJournal(worktreePath, journalPath)) return false;
+    }
+    const literalJournalPaths = journalPaths.map((journalPath) => `:(literal)${journalPath}`);
+    const staged = await runUntrusted(['add', '--', ...literalJournalPaths], worktreePath, { disableHooks: true });
+    if (!staged.ok) return false;
+    const committed = await runUntrusted(['commit', '-m', 'chore: record Coherence journal', '--only', '--', ...literalJournalPaths], worktreePath, { disableHooks: true });
+    return committed.ok;
   }
 
   async function mergeBackBody({ projectPath, workspace, targetBranch }: WorktreeArgs): Promise<MergeOutcome> {
@@ -770,7 +802,8 @@ function createGitWorkspace(opts: {
     }
     const warning = mergeSyncWarning(baseSync, target);
 
-    if ((await readUncommittedWork(wt)).hasWork) {
+    const uncommitted = await readUncommittedWork(wt, EXCLUDE_COHERENCE_BOOKKEEPING_PATHSPEC);
+    if (!uncommitted.ok || uncommitted.hasWork || !await recordCoherenceJournals(wt)) {
       return includeWarning({ merged: false, committed: false, branch, base: target, reason: 'uncommitted-changes', parked: true }, warning);
     }
 

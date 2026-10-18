@@ -92,6 +92,7 @@ function fakeSessionGit(cmds: string[], opts: FakeGitOptions = {}): (rawArgs: st
     if (args[0] === 'stash' && args[1] === 'push') stashedMessage = args.at(-1) ?? '';
     if (args[0] === 'stash' && args[1] === 'list') return stashedMessage ? `stash@{0} stashsha On glimmervoid/session/abc: ${stashedMessage}\n` : '';
     if (args.includes('status')) return dirty;
+    if (args[0] === 'diff' && args.includes('--cached') && args.includes('--name-only')) return '';
     if (args[0] === 'diff') return conflicts.join('\n');
     if (args[0] === 'rev-parse' && args.includes('REBASE_HEAD')) {
       if (!conflicts.length) fail('no REBASE_HEAD');
@@ -799,24 +800,72 @@ test('mergeBack (real git): only-uncommitted work cannot merge and is preserved 
   }
 });
 
-test('mergeBack (real git): committed + uncommitted -> refuses (parks), destroying nothing', { skip: !GIT }, async () => {
+test('mergeBack (real git): Coherence journals land with committed work, other uncommitted files park without a commit', { skip: !GIT }, async () => {
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
     const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'mixed', baseBranch: 'develop' });
+    const activityPath = path.join('.coherence', 'activity', 'x.jsonl');
+    const decisionPath = path.join('.coherence', 'decisions', 'x.jsonl');
+    const committedActivity = '{"event":"start"}\n';
+    const committedDecision = '{"decision":"keep session journals"}\n';
+    fs.mkdirSync(path.join(ws.cwd, '.coherence', 'activity'), { recursive: true });
+    fs.mkdirSync(path.join(ws.cwd, '.coherence', 'decisions'), { recursive: true });
+    fs.writeFileSync(path.join(ws.cwd, activityPath), committedActivity, 'utf8');
+    fs.writeFileSync(path.join(ws.cwd, decisionPath), committedDecision, 'utf8');
     fs.writeFileSync(path.join(ws.cwd, 'committed.js'), 'done\n', 'utf8');
-    git(['add', 'committed.js'], ws.cwd); git(['commit', '-m', 'committed work'], ws.cwd);
+    git(['add', 'committed.js', '.coherence'], ws.cwd);
+    git(['commit', '-m', 'committed work and journals'], ws.cwd);
+    const sessionCommit = git(['rev-parse', 'HEAD'], ws.cwd).trim();
+    const uncommittedActivity = '{"event":"stop"}\n';
+    const uncommittedDecision = '{"decision":"commit journals with work"}\n';
+    fs.appendFileSync(path.join(ws.cwd, activityPath), uncommittedActivity, 'utf8');
+    fs.appendFileSync(path.join(ws.cwd, decisionPath), uncommittedDecision, 'utf8');
+    fs.writeFileSync(path.join(ws.cwd, '.coherence', 'activity', 'subagent.jsonl'), '{"event":"subagent-stop"}\n', 'utf8');
     fs.writeFileSync(path.join(ws.cwd, 'wip.js'), 'work in progress\n', 'utf8');
+    git(['add', 'wip.js'], ws.cwd);
 
     const r = await gw.mergeBack({ projectPath: repo, workspace: ws, targetBranch: 'develop' });
     assert.equal(r.merged, false);
     assert.equal(r.parked, true);
     assert.equal(r.reason, 'uncommitted-changes');
+    assert.equal(r.committed, false);
+    assert.equal(git(['rev-parse', 'HEAD'], ws.cwd).trim(), sessionCommit);
     assert.ok(fs.existsSync(ws.cwd), 'worktree preserved (never torn down while dirty)');
     assert.ok(fs.existsSync(path.join(ws.cwd, 'wip.js')), 'uncommitted work survives');
     assert.ok(!fs.existsSync(path.join(repo, 'committed.js')), 'nothing merged while dirty (commit/discard the wip first)');
     assert.ok(git(['branch', '--list', branchOf(ws)], repo).trim(), 'parked branch preserved');
-    await gw.removeWorktreeByPath({ projectPath: repo, cwd: ws.cwd, branch: ws.branch });
+    git(['reset', 'HEAD', '--', 'wip.js'], ws.cwd);
+    fs.rmSync(path.join(ws.cwd, 'wip.js'));
+
+    if (!WIN) {
+      const journalLinkPath = path.join(ws.cwd, '.coherence', 'activity', 'link.jsonl');
+      fs.symlinkSync('x.jsonl', journalLinkPath);
+      const refusedLink = await gw.mergeBack({ projectPath: repo, workspace: ws, targetBranch: 'develop' });
+      assert.equal(refusedLink.reason, 'uncommitted-changes');
+      assert.equal(refusedLink.parked, true);
+      assert.equal(git(['rev-parse', 'HEAD'], ws.cwd).trim(), sessionCommit);
+      fs.unlinkSync(journalLinkPath);
+    }
+
+    const hooksDirectory = path.join(repo, '.git', 'reject-commit-hooks');
+    fs.mkdirSync(hooksDirectory);
+    fs.writeFileSync(path.join(hooksDirectory, 'pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    git(['config', 'core.hooksPath', hooksDirectory], repo);
+
+    const merged = await gw.mergeBack({ projectPath: repo, workspace: ws, targetBranch: 'develop' });
+    assert.equal(merged.reason, null);
+    assert.equal(merged.merged, true);
+    assert.equal(fs.readFileSync(path.join(repo, 'committed.js'), 'utf8'), 'done\n');
+    assert.equal(git(['show', 'develop:.coherence/decisions/x.jsonl'], repo).replace(/\r\n/g, '\n'), committedDecision + uncommittedDecision);
+    assert.equal(git(['show', 'develop:.coherence/activity/x.jsonl'], repo).replace(/\r\n/g, '\n'), committedActivity + uncommittedActivity);
+    assert.equal(git(['show', 'develop:.coherence/activity/subagent.jsonl'], repo).replace(/\r\n/g, '\n'), '{"event":"subagent-stop"}\n');
+    assert.equal(git(['rev-list', '--count', `${sessionCommit}..develop`], repo).trim(), '1');
+    assert.equal(git(['log', '-1', '--format=%s', 'develop'], repo).trim(), 'chore: record Coherence journal');
+    assert.deepEqual(git(['diff-tree', '--no-commit-id', '--name-only', '-r', 'develop'], repo).trim().split('\n'), [
+      '.coherence/activity/subagent.jsonl', '.coherence/activity/x.jsonl', '.coherence/decisions/x.jsonl',
+    ]);
+    assert.ok(!fs.existsSync(ws.cwd), 'worktree removed after journals land');
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
