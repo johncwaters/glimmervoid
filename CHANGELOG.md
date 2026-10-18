@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Lanes settings split up**: Each lane (Visions, PostHog, Team review, Workflows, Factory and the rest) now has its own Settings page, listed under a Lanes heading, instead of one long page. On a phone each lane is one tap from the list. Old #settings/lanes links open Visions.
 - **Factory workers keep their Coherence journals**: a Factory worker's own Coherence decision journals (decisions, activity, calibration and read traces) now land with its merged change instead of being discarded. Only new files named for that worker's own session that hold valid journal lines are kept, and they never count toward its write scopes or its review. The Factory's work ledger stays fenced from workers.
 
 ### Fixed

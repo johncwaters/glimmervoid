@@ -123,7 +123,6 @@ const DIAGNOSTIC = 'A diagnostic switch kept out of the Settings view; change it
 const PROCESS_SETTING = 'Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind.';
 const STRUCTURED_VALUE = 'A structured value with no dashboard control; edit it in config.json.';
 const BY_RULE = 'Never editable from the dashboard by rule; edit it in config.json.';
-const LANES_SECTION_ID = 'lanes';
 
 function capitalizedOptions(values: readonly string[]): SettingsOption[] {
   return values.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }));
@@ -404,19 +403,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     ],
   },
   {
-    id: LANES_SECTION_ID,
-    level: 'lanes',
-    title: 'Lanes',
-    description: 'The background work Glimmervoid runs for you, one sub-section per lane.',
-    settings: [],
-  },
-  {
     id: 'lanes-visions',
     level: 'lanes',
-    parent: LANES_SECTION_ID,
     title: 'Visions',
     description: 'Editor-buffer findings, bounded model comments, and the machine-context ingest behind them.',
-    legacyIds: ['visions', 'lanes-ingest', 'ingest'],
+    legacyIds: ['lanes', 'visions', 'lanes-ingest', 'ingest'],
     settings: [
       {
         id: 'visions-enabled', path: 'visions.enabled', title: 'Enable Visions',
@@ -459,7 +450,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   {
     id: 'lanes-posthog',
     level: 'lanes',
-    parent: LANES_SECTION_ID,
     title: 'PostHog',
     description: 'Error monitoring, investigations and traffic-spike alerts.',
     legacyIds: ['posthog'],
@@ -516,7 +506,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   {
     id: 'lanes-team-review',
     level: 'lanes',
-    parent: LANES_SECTION_ID,
     title: 'Team review',
     description: "Draft reviews of teammates' pull requests for you to post from the Reviews tab.",
     legacyIds: ['team-review', 'reviews'],
@@ -573,7 +562,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   {
     id: 'lanes-workflows',
     level: 'lanes',
-    parent: LANES_SECTION_ID,
     title: 'Workflows',
     description: 'Rules that act on pull request events in the repositories you choose.',
     legacyIds: ['workflows'],
@@ -598,7 +586,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   {
     id: 'lanes-factory',
     level: 'lanes',
-    parent: LANES_SECTION_ID,
     title: 'Factory',
     description: 'Read Coherence reports from repositories whose integration branch holds a coherence.config.json and show their status in the Factory tab.',
     legacyIds: ['factory'],
@@ -654,7 +641,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   {
     id: 'lanes-benchmarks',
     level: 'lanes',
-    parent: LANES_SECTION_ID,
     title: 'Benchmarks',
     description: 'Compare agent setups on frozen cases from the suites in the benchmarks folder of the Glimmervoid home.',
     legacyIds: ['benchmarks'],
@@ -669,7 +655,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   {
     id: 'lanes-knowledge-graph',
     level: 'lanes',
-    parent: LANES_SECTION_ID,
     title: 'Knowledge graph (experimental)',
     description: 'A typed local graph of projects, tasks, notes, references and questions, driven from the glimmervoid kg command. Its SQLite database defaults to the Glimmervoid home; --db selects another path.',
     legacyIds: ['knowledge-graph'],
@@ -684,7 +669,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   {
     id: 'lanes-coherence',
     level: 'lanes',
-    parent: LANES_SECTION_ID,
     title: 'Coherence (experimental)',
     description: 'Coherence decision journals, hooks and repository trends for agent sessions and review lanes.',
     settings: [
@@ -698,7 +682,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   {
     id: 'lanes-change-map',
     level: 'lanes',
-    parent: LANES_SECTION_ID,
     title: 'Change map',
     description: 'Optional model narration for deterministic change facts.',
     legacyIds: ['change-map'],

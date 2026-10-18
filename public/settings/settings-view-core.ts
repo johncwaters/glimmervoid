@@ -42,6 +42,7 @@ const SEGMENTED_CHOICE_LIMIT = 3;
 const MAX_SEARCH_QUERY_LENGTH = 200;
 const PATHS_SUMMARIZED_IN_PAYLOAD: ReadonlySet<string> = new Set(['customAgents']);
 const INTEGER_TOLERANCE = 1e-9;
+const LANES_HEADING = 'Lanes';
 
 export const EFFECT_LABELS: Readonly<Record<SettingsEffect, string>> = Object.freeze({
   now: 'Applies now',
@@ -136,7 +137,8 @@ export function settingsSearchBreadcrumb(sections: readonly SettingsSection[], s
   const group = section ?? sections.find((entry) => entry.id === setting.group);
   if (!group) return settingsGroupOf(setting.group ?? '')?.title ?? 'config.json';
   const parent = sections.find((entry) => entry.id === group.parent);
-  return parent ? `${parent.title} / ${group.title}` : group.title;
+  if (parent) return `${parent.title} / ${group.title}`;
+  return group.level === 'lanes' ? `${LANES_HEADING} / ${group.title}` : group.title;
 }
 
 export function parseSettingsSearchHash(hash: unknown): { query: string } | null {
@@ -159,6 +161,13 @@ export function pageSectionOf(sections: readonly SettingsSection[], sectionId: s
 
 export function topLevelSectionsOf(sections: readonly SettingsSection[]): SettingsSection[] {
   return sections.filter((section) => !section.parent);
+}
+
+export function settingsNavigationGroupsOf(sections: readonly SettingsSection[]): { heading: string | null; sections: SettingsSection[] }[] {
+  const laneSections = sections.filter((section) => section.level === 'lanes');
+  const otherSections = sections.filter((section) => section.level !== 'lanes');
+  const groups = [{ heading: null, sections: otherSections }, { heading: LANES_HEADING, sections: laneSections }];
+  return groups.filter((group) => group.sections.length > 0);
 }
 
 export function phoneSettingsScreenOf(

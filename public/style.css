@@ -6986,6 +6986,15 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   margin-bottom: 18px;
 }
 
+.settings-view-nav-heading {
+  padding: 0 10px 4px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .settings-view-nav-item {
   width: 100%;
   padding: 8px 10px;
@@ -7646,6 +7655,14 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 [data-layout="phone"] .settings-view-nav-group {
   gap: 8px;
   margin-bottom: 0;
+}
+
+[data-layout="phone"] .settings-view-nav-group + .settings-view-nav-group {
+  margin-top: 20px;
+}
+
+[data-layout="phone"] .settings-view-nav-heading {
+  padding: 0 4px;
 }
 
 [data-layout="phone"] .settings-view-nav-item {

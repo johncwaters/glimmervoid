@@ -9,7 +9,7 @@ import { SETTINGS_INDEX, displayValue, parseSettingsHash, scoreSettingsSearch, s
 import {
   STORED_SECRET_MASK, childSectionsOf, collectDirtyBlocks, displayRange, draftCommitOf,
   fileOnlyDefaultText, hydrateFromSettings, isAtDefault, listFromDraft, needsDangerConfirmation, numberDraftError, numberDraftOf, numberFromDraft,
-  pageSectionOf, phoneSettingsScreenOf, pairedSettingOf, parseSettingsSearchHash, resetConfirmationOf, resetValueOf, settingError, settingSavePayload, settingsSearchBreadcrumb, shouldShowDangerWarning, topLevelSectionsOf, validateLocally,
+  pageSectionOf, phoneSettingsScreenOf, pairedSettingOf, parseSettingsSearchHash, resetConfirmationOf, resetValueOf, settingError, settingSavePayload, settingsNavigationGroupsOf, settingsSearchBreadcrumb, shouldShowDangerWarning, topLevelSectionsOf, validateLocally,
   withoutWorkflowRuleDefinitions, workflowRuleSummaryLines, workflowRuleToggleRows,
 } from '../public/settings/settings-view-core.ts';
 import { settableFromDashboard } from './helpers/settings-allow-list.ts';
@@ -283,7 +283,7 @@ test('settings hashes resolve aliases and canonical anchors', () => {
   assert.deepEqual(parseSettingsHash('#settings/machine-sessions', SECTIONS), { sectionId: 'machine-sessions', settingId: null, hash: '#settings/machine-sessions' });
 });
 
-test('a child section resolves to its parent page, and the navigation lists only parentless sections', () => {
+test('a child section resolves to its parent page, and the navigation lists parentless sections with lanes under their own heading', () => {
   const section = (id: string, level: SettingsLevel, parent?: string): SettingsSection => ({ id, level, parent, title: id, description: '', settings: [] });
   const sections = [section('a', 'browser'), section('a-child', 'machine', 'a'), section('lane-1', 'lanes'), section('lane-2', 'lanes'), section('z', 'machine')];
   assert.deepEqual(topLevelSectionsOf(sections).map((entry) => entry.id), ['a', 'lane-1', 'lane-2', 'z']);
@@ -291,9 +291,9 @@ test('a child section resolves to its parent page, and the navigation lists only
   assert.equal(pageSectionOf(sections, 'a-child')?.id, 'a');
   assert.equal(pageSectionOf(sections, 'z')?.id, 'z');
   assert.equal(pageSectionOf(sections, 'missing'), null);
-  assert.deepEqual(pageSectionOf(SECTIONS, 'lanes-posthog')?.id, 'lanes');
-  assert.deepEqual(childSectionsOf(SECTIONS, 'lanes').map((entry) => entry.id), [
-    'lanes-visions', 'lanes-posthog', 'lanes-team-review', 'lanes-workflows', 'lanes-factory', 'lanes-benchmarks', 'lanes-knowledge-graph', 'lanes-coherence', 'lanes-change-map',
+  assert.equal(pageSectionOf(SECTIONS, 'lanes-posthog')?.id, 'lanes-posthog');
+  assert.deepEqual(settingsNavigationGroupsOf(topLevelSectionsOf(sections)).map((group) => [group.heading, group.sections.map((entry) => entry.id)]), [
+    [null, ['a', 'z']], ['Lanes', ['lane-1', 'lane-2']],
   ]);
 });
 

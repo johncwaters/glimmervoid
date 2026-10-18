@@ -233,6 +233,7 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
     unattended: 'machine-guardrails',
     updates: 'machine-updates',
     usage: 'machine-usage',
+    lanes: 'lanes-visions',
     visions: 'lanes-visions',
     'lanes-ingest': 'lanes-visions',
     ingest: 'lanes-visions',

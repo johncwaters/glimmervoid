@@ -38,6 +38,7 @@ import {
   rtkInstallStatusText,
   secretEnvironmentSource,
   settingSavePayload,
+  settingsNavigationGroupsOf,
   settingsSearchBreadcrumb,
   shouldShowDangerWarning,
   topLevelSectionsOf,
@@ -1383,17 +1384,19 @@ export function returnToSettingsList() {
 
 function renderNavigation() {
   if (!navigationEl || !shellEl) return;
-  const sections = topLevelSectionsOf(SETTINGS_VIEW_MAP);
   navigationEl.textContent = '';
-  const group = el('div', 'settings-view-nav-group');
-  for (const section of sections) {
-    const button = el('button', 'settings-view-nav-item', section.title);
-    button.type = 'button';
-    button.dataset.settingsSection = section.id;
-    button.addEventListener('click', () => selectSection(section.id, { focusContent: isPhoneLayout() }));
-    group.appendChild(button);
+  for (const navigationGroup of settingsNavigationGroupsOf(topLevelSectionsOf(SETTINGS_VIEW_MAP))) {
+    const group = el('div', 'settings-view-nav-group');
+    if (navigationGroup.heading) group.appendChild(el('div', 'settings-view-nav-heading', navigationGroup.heading));
+    for (const section of navigationGroup.sections) {
+      const button = el('button', 'settings-view-nav-item', section.title);
+      button.type = 'button';
+      button.dataset.settingsSection = section.id;
+      button.addEventListener('click', () => selectSection(section.id, { focusContent: isPhoneLayout() }));
+      group.appendChild(button);
+    }
+    navigationEl.appendChild(group);
   }
-  navigationEl.appendChild(group);
   if (searchQuery) {
     syncPhoneSettingsScreen();
     renderSearchContent();
