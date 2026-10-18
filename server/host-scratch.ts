@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { glimmervoidHomeDir } from './config-store.ts';
-import { decideOrphanedScratchFolders, type HostScratchPrefix } from './core/host-scratch-core.ts';
+import { decideOrphanedScratchFolders, HOST_SCRATCH_PREFIXES, type HostScratchPrefix } from './core/host-scratch-core.ts';
 
 const folderNamesCreatedByThisProcess = new Set<string>();
 
@@ -28,7 +28,7 @@ async function listScratchFolderNames(scratchRoot: string): Promise<string[]> {
 
 export async function sweepOrphanedHostScratch(): Promise<void> {
   const scratchRoot = hostScratchRoot();
-  const orphanedFolderNames = decideOrphanedScratchFolders(await listScratchFolderNames(scratchRoot), folderNamesCreatedByThisProcess);
+  const orphanedFolderNames = decideOrphanedScratchFolders(await listScratchFolderNames(scratchRoot), HOST_SCRATCH_PREFIXES, folderNamesCreatedByThisProcess);
   for (const folderName of orphanedFolderNames) {
     try {
       await rm(path.join(scratchRoot, folderName), { recursive: true, force: true });
