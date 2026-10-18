@@ -45,6 +45,12 @@ export const ConversationAnswers = z.record(z.string().max(CONVERSATION_QUESTION
 
 export const ConversationApprovalDecision = z.enum(['accept', 'acceptForSession', 'decline']);
 
+const COHERENCE_HOOKS_REASON_MAX_CHARS = 80;
+export const CoherenceHooksState = z.discriminatedUnion('active', [
+  z.object({ active: z.literal(true) }).strict(),
+  z.object({ active: z.literal(false), reason: z.string().min(1).max(COHERENCE_HOOKS_REASON_MAX_CHARS) }).strict(),
+]);
+
 export const SessionSnapshot = z.object({
   id: z.string(),
   name: z.string(),
@@ -77,11 +83,13 @@ export const SessionSnapshot = z.object({
   worktreeNotice: z.string().nullable(),
   effectiveBase: z.string().nullable(),
   linkedPrs: z.array(LinkedPr).default([]),
+  coherenceHooks: CoherenceHooksState.nullable().default(null),
   auditLog: z.array(z.unknown()),
 }).passthrough();
 
 export type SessionState = z.infer<typeof SessionState>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
+export type CoherenceHooksState = z.infer<typeof CoherenceHooksState>;
 export type PendingWakeup = z.infer<typeof PendingWakeup>;
 export type ConversationApproval = z.infer<typeof ConversationApproval>;
 export type ConversationApprovalDecision = z.infer<typeof ConversationApprovalDecision>;

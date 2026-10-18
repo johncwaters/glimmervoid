@@ -201,7 +201,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   } = webSockets;
   broadcastControl = broadcastControlFromWebSockets;
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
-  const coherenceFeed = createCoherenceSessionFeed({ broadcastControl: broadcastControlFromWebSockets, getConfig: () => configStore.config });
+  const coherenceFeed = createCoherenceSessionFeed({ broadcastControl: broadcastControlFromWebSockets });
 
   const sessions = new Map<string, Session>();
   const agentSessions = new Map<string, Session>();

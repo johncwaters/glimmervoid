@@ -14,7 +14,7 @@ import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
   decideAttentionAllowance, decideEditAllowance, decideFactoryControlAllowance, decideSpawnAllowance, deriveChildSessionName, describeFactorySetupProfile, describePushLanding,
-  describePushRouteRefusal, describeUnavailableFactoryState, findSessionProjectId, formatFactoryStatus, parseAgentVerb,
+  describePushRouteRefusal, describeUnavailableFactoryState, FACTORY_ADOPTION_STEP, findSessionProjectId, formatFactoryStatus, parseAgentVerb,
 } from './core/agent-api-core.ts';
 import { buildFactoryIntentDigest } from './factory/core/factory-core.ts';
 import { isGuardedSessionVendor } from './guardrails/core/guardrails-roles-core.ts';
@@ -220,7 +220,7 @@ function createAgentApiWiring({
     const projectId = findSessionProjectId(config.projects, session.path);
     if (!projectId) return { status: 404, body: { ok: false, error: `no configured project has the path ${session.path}, so the operator has to add this repository as a project first` } };
     if (!projects.some((project) => project.projectId === projectId)) {
-      return { status: 409, body: { ok: false, error: `${projectId} is not a factory project yet: commit a coherence.config.json holding {} at the repository root, land it on the integration branch with glimmervoid push, then queue again` } };
+      return { status: 409, body: { ok: false, error: `${projectId} is not a factory project yet: ${FACTORY_ADOPTION_STEP}, then queue again` } };
     }
     const outcome = await factoryPort.queueIntent({ ...request, projectId });
     if (!outcome.ok) return { status: 409, body: { ok: false, error: outcome.error ?? 'the factory refused the intent' } };

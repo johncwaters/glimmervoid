@@ -70,7 +70,7 @@ async function createFixture(context: TestContext) {
     workLane: passthroughWorkLane(preparedRoles),
     onReadyIntent: (_projectId, intentId) => { readyIntents.push(intentId); },
     onWorkerTurnEnd: async (worker) => { turnEnds.push(worker); },
-    config, sessions, nodePath: process.execPath, hookCliPath, shimDir: path.join(directory, 'bin'),
+    config, sessions, shimDir: path.join(directory, 'bin'),
     getOrchestrator: (sessionId) => sessionId === 'orchestrator' && isOrchestratorLive ? { projectId: 'repo', intentId } : null,
     serializeProject: coherenceLedger.serializeProject,
     ensureLedger: async () => ledger, commitAndLand: land, runCoherence,
@@ -103,7 +103,7 @@ async function createFixture(context: TestContext) {
     endOrchestrator: () => { isOrchestratorLive = false; }, failMake: (shouldFail = true) => { shouldThrowOnMake = shouldFail; } };
 }
 
-test('dispatch hands off and activates at the integration tip, then provisions a worker worktree with coherence hooks, a worktree-scoped edit rule and a work role locked to the worktree', async (context) => {
+test('dispatch hands off and activates at the integration tip, then provisions a worker worktree with only the coherence PATH note, a worktree-scoped edit rule and a work role locked to the worktree', async (context) => {
   const fixture = await createFixture(context);
   const reply = await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId });
   if (!reply.ok) throw new Error(reply.reason);
@@ -114,7 +114,7 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.equal(spawned.project.id, reply.sessionId);
   assert.equal(spawned.project.dangerouslySkipPermissions, false);
   const overrides = spawned.overrides;
-  assert.deepEqual(overrides.extraUserHooks, buildCoherenceUserHooks({ nodePath: process.execPath, hookCliPath: fixture.hookCliPath }));
+  assert.deepEqual(overrides.extraUserHooks, buildCoherenceUserHooks({ nodePath: process.execPath, hookCliPath: fixture.hookCliPath }).filter((hook) => hook.id === 'coherence-cli-on-path'));
   assert.equal(overrides.extraClaudeArgs?.[0], '--session-id');
   const claudeSessionId = overrides.extraClaudeArgs?.[1];
   assert.match(claudeSessionId ?? '', /^[0-9a-f-]{36}$/);
@@ -123,7 +123,7 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.equal(overrides.factoryRole, 'worker');
   assert.equal(overrides.requireWorktree, true);
   assert.equal(overrides.dangerouslySkipPermissions, false);
-  assert.deepEqual(overrides.spawnEnv, { COHERENCE_HOOK_HOST: 'claude', SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false',
+  assert.deepEqual(overrides.spawnEnv, { SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false',
     GIT_TERMINAL_PROMPT: '0', GH_TOKEN: '', GITHUB_TOKEN: '', GH_ENTERPRISE_TOKEN: '', GITHUB_ENTERPRISE_TOKEN: '',
     CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1', BASH_DEFAULT_TIMEOUT_MS: '900000', BASH_MAX_TIMEOUT_MS: '900000' });
   assert.deepEqual(overrides.extraClaudeArgs?.slice(2), [...LANE_ENVIRONMENT_ARGS]);
@@ -153,7 +153,6 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.equal(work?.state, 'active');
   assert.deepEqual(work?.owner, { session: claudeSessionId, agent: 'claude-code' });
   assert.equal(await fixture.git(['rev-parse', 'integration']), await fixture.git(['rev-parse', 'origin/integration']));
-  assert.equal(fixture.spawnEnvs[0].COHERENCE_HOOK_HOST, 'claude');
   assert.equal(fixture.spawnEnvs[0].SSH_AUTH_SOCK, '');
   assert.equal(fixture.spawnEnvs[0].GIT_ASKPASS, '');
   assert.equal(fixture.spawnEnvs[0].PATH?.split(path.delimiter)[0], overrides.prependPathDirs?.[0]);

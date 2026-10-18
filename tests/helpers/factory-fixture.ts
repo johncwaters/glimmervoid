@@ -13,6 +13,17 @@ import type { FactoryUnlandedRecord } from '../../shared/contracts/factory.ts';
 
 const REAL_PROCESS_TIMEOUT_MS = 30_000;
 
+export const NATIVE_COHERENCE_CLAUDE_CONTROL: Readonly<Record<string, string>> = Object.freeze({
+  '.claude/settings.json': '{}\n', '.claude/coherence-hook': '#!/bin/sh\n', '.claude/coherence-root': '.\n',
+});
+
+export async function writeNativeCoherenceControl(cwd: string): Promise<void> {
+  for (const [relativePath, text] of Object.entries(NATIVE_COHERENCE_CLAUDE_CONTROL)) {
+    await mkdir(path.dirname(path.join(cwd, relativePath)), { recursive: true });
+    await writeFile(path.join(cwd, relativePath), text);
+  }
+}
+
 export function stubEnvironmentVariable(context: TestContext, name: string, value: string): void {
   const previousValue = process.env[name];
   process.env[name] = value;
@@ -64,7 +75,9 @@ export async function createLedgerRepository(directory: string, branch: string, 
 }
 
 export async function createCoherenceLedger(directory: string) {
-  const repository = await createLedgerRepository(directory, 'integration', { 'src/retry.ts': 'export const retries = 0;\n', 'coherence.config.json': '{}\n' });
+  const repository = await createLedgerRepository(directory, 'integration', {
+    'src/retry.ts': 'export const retries = 0;\n', 'coherence.config.json': '{}\n', ...NATIVE_COHERENCE_CLAUDE_CONTROL,
+  });
   const { projectPath, ledger, gitWorkspace } = repository;
   const coherenceCli = resolvePackageBin('@danilocampos/coherence', 'coherence');
   assert.ok(coherenceCli);

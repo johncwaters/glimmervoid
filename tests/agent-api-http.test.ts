@@ -376,7 +376,7 @@ test('factory CLI and HTTP verbs reach the injected digest and retry deps only f
   fixture.config.projects = [{ id: 'fresh', name: 'Fresh', path: process.cwd() }];
   const notFactoryYet = await send('factory-queue', queueRequest);
   assert.equal(notFactoryYet.status, 409);
-  assert.match((await notFactoryYet.json()).error, /commit a coherence\.config\.json/);
+  assert.match((await notFactoryYet.json()).error, /adopt Coherence at the repository root/);
   assert.equal((await send('factory-queue', { objective: 'x' })).status, 400);
   assert.equal((await send('factory-setup', {}, worker)).status, 403);
   assert.equal((await send('factory-queue', queueRequest, reviewerLane)).status, 403);

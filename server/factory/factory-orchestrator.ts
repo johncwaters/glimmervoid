@@ -99,8 +99,6 @@ export interface FactoryOrchestratorDeps<ManagedSession extends FactoryOrchestra
   broadcast: ControlBroadcast;
   spawnGate: SpawnGate;
   recordLane: RecordLane;
-  nodePath: string;
-  hookCliPath: string;
   shimDir: string;
   ensureLedger: (projectId: string) => Promise<{ ledgerPath: string; commonGitDir: string }>;
   commitAndLand: (projectId: string, intentId: string) => Promise<void>;
@@ -128,7 +126,7 @@ type OrchestratorRecord<ManagedSession> = {
 
 export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestratorSession>({
   config, sessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcast, spawnGate, recordLane,
-  nodePath, hookCliPath, shimDir, ensureLedger, commitAndLand, readTrustedIntentIds, beginIntent = async () => ({ hasTickets: false }), now = Date.now,
+  shimDir, ensureLedger, commitAndLand, readTrustedIntentIds, beginIntent = async () => ({ hasTickets: false }), now = Date.now,
   workLane = {}, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools, notifyException = () => {},
 }: FactoryOrchestratorDeps<ManagedSession>) {
   const records = new Map<string, OrchestratorRecord<ManagedSession>>();
@@ -202,10 +200,10 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
         throw new Error(FACTORY_SANE_YOLO_UNAVAILABLE);
       }
       const claudeSessionId = crypto.randomUUID();
-      const coherence = buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir });
+      const coherence = buildCoherenceSessionOverrides({ claudeSessionId, shimDir });
       const identity = { id: `factory-orch-${project.projectId}`, name: `${project.projectName} orchestrator`, path: ledgerPath, dangerouslySkipPermissions: false };
       const session = makeSession(identity, config, {
-        ...coherence, ...posture.sessionOverrides, spawnEnv: { ...coherence.spawnEnv, ...posture.sessionOverrides.spawnEnv }, agent: 'claude-code', ephemeral: true, factoryRole: 'orchestrator', gitWorkspace: null, dangerouslySkipPermissions: false,
+        ...coherence, ...posture.sessionOverrides, agent: 'claude-code', ephemeral: true, factoryRole: 'orchestrator', gitWorkspace: null, dangerouslySkipPermissions: false,
         gitIsolation: { disableRepoCommands: true },
         initialPrompt: buildOrchestratorPrompt({ projectName: project.projectName, intent, claudeSessionId, hasTickets }),
         extraClaudeArgs: [...coherence.extraClaudeArgs, ...posture.sessionOverrides.extraClaudeArgs],

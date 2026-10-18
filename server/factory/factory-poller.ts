@@ -18,7 +18,7 @@ type FactoryPollerDeps = Pick<TickLoopOptions, 'now' | 'setIntervalFn' | 'clearI
   listFactoryProjects: () => FactoryProject[] | Promise<FactoryProject[]>;
   resolveIntegrationBranch: (projectPath: string) => Promise<string>;
   readBranchSha: (projectPath: string, branch: string) => Promise<string>;
-  hasCoherenceConfigAt: (projectPath: string, sha: string) => Promise<boolean>;
+  hasNativeCoherenceAt: (projectPath: string, sha: string) => Promise<boolean>;
   ensureControlCheckout: (args: { projectId: string; projectPath: string; sha: string }) => Promise<string>;
   releaseControlCheckout: (projectId: string) => Promise<void>;
   runCoherence: (args: { cwd: string; args: string[] }) => Promise<string>;
@@ -33,7 +33,7 @@ type FactoryPollerDeps = Pick<TickLoopOptions, 'now' | 'setIntervalFn' | 'clearI
 };
 
 export function createFactoryPoller({
-  shouldHoldCheckout = () => false, beforeTick = () => {}, listFactoryProjects, resolveIntegrationBranch, readBranchSha, hasCoherenceConfigAt,
+  shouldHoldCheckout = () => false, beforeTick = () => {}, listFactoryProjects, resolveIntegrationBranch, readBranchSha, hasNativeCoherenceAt,
   ensureControlCheckout, releaseControlCheckout, runCoherence, readPaused = async () => false, readIntentWriteScopes = async () => new Map(), readIntentConfirmedFlakes = async () => undefined, readTicketBlockCounts = async () => undefined, processProjectState = async (project) => project, releaseOrchestrator = () => {}, listObservedProjects = async () => [], broadcast, now = Date.now, ...loopOptions
 }: FactoryPollerDeps) {
   const log = loopOptions.log ?? console;
@@ -86,7 +86,7 @@ export function createFactoryPoller({
       paused = await readPaused(project.id);
       const previous = processedProjects.get(project.id);
       const isUnchangedTip = previous?.path === project.path && previous.state.headSha === headSha;
-      if (!isUnchangedTip && !(await hasCoherenceConfigAt(project.path, headSha))) return null;
+      if (!isUnchangedTip && !(await hasNativeCoherenceAt(project.path, headSha))) return null;
       const confirmedFlakesByIntent = await readIntentConfirmedFlakes(project.id);
       if (previous?.path === project.path && (isUnchangedTip || shouldHoldCheckout(project.id))) {
         return { ...previous.state, paused, projectName: project.name, confirmedFlakesByIntent };

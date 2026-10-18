@@ -18,7 +18,9 @@ import { createFactoryWiring } from '../server/factory/factory-wiring.ts';
 import { cliPath as glimmervoidCliPath, resolvePackageBin } from '../server/runtime-paths.ts';
 import type { FactoryState } from '../shared/contracts/factory.ts';
 import type { ProjectConfig } from '../shared/contracts/config.ts';
-import { createRepositoryWithOrigin, gitRunnerIn, initGitRepository, stubEnvironmentVariable } from './helpers/factory-fixture.ts';
+import {
+  createRepositoryWithOrigin, gitRunnerIn, initGitRepository, NATIVE_COHERENCE_CLAUDE_CONTROL, stubEnvironmentVariable, writeNativeCoherenceControl,
+} from './helpers/factory-fixture.ts';
 import { FACTORY_STALL_MS, buildFactoryIntentDigest, buildOrchestratorPrompt, decideIntentClose } from '../server/factory/core/factory-core.ts';
 import { FACTORY_ORCHESTRATOR_ALLOW, FACTORY_ORCHESTRATOR_DENY } from '../server/factory/factory-orchestrator.ts';
 import type { LaneSpend } from '../server/usage/core/usage-scan-core.ts';
@@ -154,6 +156,7 @@ for (const configuredBranch of [undefined, 'integration']) {
     const git = gitRunnerIn(projectPath);
     await initGitRepository(git, 'main');
     await writeFile(path.join(projectPath, 'coherence.config.json'), '{}\n');
+    await writeNativeCoherenceControl(projectPath);
     await git(['add', '.']);
     await git(['commit', '-m', 'Initial ledger']);
     if (configuredBranch) await git(['checkout', '-b', configuredBranch]);
@@ -208,6 +211,7 @@ async function createFactoryFixture(context: test.TestContext, { integrationBran
   const git = gitRunnerIn(projectPath);
   const commitLedger = async (cwd: string, content: string) => {
     await writeFile(path.join(cwd, 'coherence.config.json'), content);
+    await writeNativeCoherenceControl(cwd);
     await git(['add', '.'], cwd);
     await git(['commit', '-m', 'Ledger'], cwd);
     return git(['rev-parse', 'HEAD'], cwd);
@@ -317,6 +321,18 @@ test('deleting the coherence config removes and unregisters the control checkout
   assert.equal((await registeredWorktreePaths(git)).length, 1);
 });
 
+test('a coherence config committed without the native Claude hook control keeps the project off the floor', async (context) => {
+  const { projectPath, checkoutPath, git, initRepository, startWiring, pollers, messages } = await createFactoryFixture(context);
+  await initRepository(projectPath);
+  await writeFile(path.join(projectPath, 'coherence.config.json'), '{}\n');
+  await git(['add', '.']);
+  await git(['commit', '-m', 'Config without hooks']);
+  await startWiring();
+  await pollers[0].tick();
+  assert.deepEqual(messages[0].projects, []);
+  await assert.rejects(access(checkoutPath), { code: 'ENOENT' });
+});
+
 test('a coherence config committed only on a checked-out feature branch keeps the project off the floor', async (context) => {
   const { projectPath, checkoutPath, git, commitLedger, initRepository, startWiring, pollers, messages } = await createFactoryFixture(context);
   await initRepository(projectPath);
@@ -388,7 +404,7 @@ async function createIntentFixture(context: test.TestContext) {
     await rm(directory, { recursive: true, force: true });
   });
   const homeDir = path.join(directory, 'home');
-  const { projectPath, originPath, git } = await createRepositoryWithOrigin(directory, 'integration', { 'coherence.config.json': '{}\n' });
+  const { projectPath, originPath, git } = await createRepositoryWithOrigin(directory, 'integration', { 'coherence.config.json': '{}\n', ...NATIVE_COHERENCE_CLAUDE_CONTROL });
   const config = { factory: { enabled: true }, integrationBranch: 'integration', projects: [{ id: 'project-1', name: 'Factory', path: projectPath, factoryProfile: {} as ProjectConfig['factoryProfile'] }] };
   const broadcasts: FactoryState[] = [];
   const start = async (gitWorkspace?: GitWorkspaceInstance, runCoherence?: (request: { cwd: string; args: string[] }) => Promise<string>,

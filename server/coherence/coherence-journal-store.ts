@@ -95,7 +95,7 @@ export function createLocalCoherenceJournals({ storeRoot, isSettingOn, coherence
     if (coherenceCli === null) return null;
     try {
       const isSettingOnNow = isSettingOn();
-      const isAttached = decideCoherenceAttachment({ sessionKind: 'review', isSettingOn: isSettingOnNow, hasRepoConfig: isSettingOnNow && await hasRepoConfig(repoDir) });
+      const isAttached = decideCoherenceAttachment({ sessionKind: 'review', isSettingOn: isSettingOnNow }) && await hasRepoConfig(repoDir);
       if (!isAttached) return null;
       return await prepareCoherenceJournal({ laneCwd, coherenceCli, isCodex: false, laneName, resumedClaudeSessionId });
     } catch (error) {

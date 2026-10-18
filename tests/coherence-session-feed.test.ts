@@ -19,7 +19,7 @@ async function git(cwd: string, ...args: string[]) {
 function sessionAt(cwd: string, baseSha: string, agentId: string) {
   const emitter = new EventEmitter();
   return Object.assign(emitter, {
-    id: `glimmervoid-session-${agentId}`, resumeSessionId: COHERENCE_SESSION_ID, baseSha, factoryRole: 'worker' as const, ephemeral: false, agentId, effectiveCwd: () => cwd,
+    id: `glimmervoid-session-${agentId}`, resumeSessionId: COHERENCE_SESSION_ID, baseSha, coherenceHooks: { active: true as const }, agentId, effectiveCwd: () => cwd,
   });
 }
 
@@ -46,7 +46,7 @@ test('a turn end pushes the journal line and a measured regulate next action, an
   await execFileAsync(process.execPath, [cliPath, 'decide', 'use plain files', '--because', 'simplest', '--session', COHERENCE_SESSION_ID], { cwd: repo, encoding: 'utf8' });
 
   const messages: ServerMessageOf<'session-coherence'>[] = [];
-  const feed = createCoherenceSessionFeed({ broadcastControl: (message) => messages.push(message), getConfig: () => ({ coherence: { enabled: false } }), debounceMs: 0, log: { warn: () => {} } });
+  const feed = createCoherenceSessionFeed({ broadcastControl: (message) => messages.push(message), debounceMs: 0, log: { warn: () => {} } });
   const session = sessionAt(repo, baseSha, 'claude-code');
   feed.attachSession(session);
   feed.onTurnEnd(session);

@@ -92,7 +92,7 @@ async function createFixture(context: TestContext, commitAndLand: (projectId: st
   let nowMs = 1_000_000;
   const orchestrator = createFactoryOrchestrator({
     config: { projects: [], factory: { enabled: true } }, sessions,
-    nodePath: '/node', hookCliPath: '/coherence-hook.js', shimDir: '/factory/bin',
+    shimDir: '/factory/bin',
     workLane: passthroughWorkLane(preparedRoles),
     ensureLedger: async () => ({ ledgerPath, commonGitDir }), commitAndLand, readTrustedIntentIds: async () => trustedIntentIds,
     resolveSaneYoloHookTools: () => saneYoloHookTools,
@@ -123,7 +123,7 @@ async function createMainLedgerRepository(context: TestContext, prefix: string) 
   return { repository, origin, ...ledgerRepository };
 }
 
-test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a work role locked to the ledger and denying permissions and registers visibly before starting', async (context) => {
+test('orchestrator uses the ledger cwd, the repository native Coherence hooks with only the PATH note added, Sane YOLO, a work role locked to the ledger and denying permissions and registers visibly before starting', async (context) => {
   const fixture = await createFixture(context);
   const state = await fixture.orchestrator.tick(project);
   const { project: identity, overrides, session } = fixture.spawned[0];
@@ -131,13 +131,11 @@ test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a work r
   const claudeSessionId = overrides.extraClaudeArgs?.[1];
   assert.match(claudeSessionId ?? '', /^[a-f0-9-]{36}$/);
   assert.deepEqual(overrides.extraClaudeArgs, ['--session-id', claudeSessionId, '--strict-mcp-config', '--disable-slash-commands', '--setting-sources', 'project,local']);
-  assert.deepEqual(overrides.extraUserHooks?.map((hook) => hook.event), ['SubagentStart', 'SessionStart', 'SubagentStop', 'Stop', 'PostToolUse', 'SessionStart']);
-  assert.deepEqual(overrides.extraUserHooks?.map((hook) => hook.command), [
-    ...['SubagentStart', 'SessionStart', 'SubagentStop', 'Stop', 'PostToolUse'].map((event) => `"/node" "/coherence-hook.js" ${event}`),
-    'echo In this Glimmervoid session coherence is on PATH, so run coherence followed by the verb wherever the Coherence instructions say npx coherence.',
+  assert.deepEqual(overrides.extraUserHooks?.map((hook) => [hook.event, hook.command]), [
+    ['SessionStart', 'echo In this Glimmervoid session coherence is on PATH, so run coherence followed by the verb wherever the Coherence instructions say npx coherence.'],
   ]);
   assert.deepEqual(overrides.prependPathDirs, ['/factory/bin']);
-  assert.deepEqual(overrides.spawnEnv, { COHERENCE_HOOK_HOST: 'claude', ...LANE_CREDENTIAL_ENV });
+  assert.deepEqual(overrides.spawnEnv, { ...LANE_CREDENTIAL_ENV });
   assert.equal(Object.hasOwn(overrides.spawnEnv ?? {}, AGENT_URL_ENV), false);
   assert.equal(overrides.agent, 'claude-code');
   assert.equal(overrides.ephemeral, true);
@@ -422,7 +420,7 @@ test('wiring stays inert when disabled and lane disabling destroys only its orch
   const pollers: FactoryPoller[] = [];
   const wiring = createFactoryWiring({
     config, homeDir, broadcast: () => {}, firstTickDelayMs: () => 0,
-    readBranchSha: async () => 'a'.repeat(40), hasCoherenceConfigAt: async () => true,
+    readBranchSha: async () => 'a'.repeat(40), hasNativeCoherenceAt: async () => true,
     ensureControlCheckout: async () => '/control', releaseControlCheckout: async () => {},
     runCoherence: async ({ args }) => args[0] === 'orient' ? orient : work,
     createPoller: (dependencies) => {

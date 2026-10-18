@@ -20,7 +20,7 @@ import { prepareGuardrailsLaunch } from '../guardrails/guardrails-launch.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { createCoherenceRuntime } from './coherence-runtime.ts';
 
-type CoherenceFeedSession = Pick<Session, 'id' | 'resumeSessionId' | 'baseSha' | 'factoryRole' | 'ephemeral' | 'agentId'> & {
+type CoherenceFeedSession = Pick<Session, 'id' | 'resumeSessionId' | 'baseSha' | 'coherenceHooks' | 'agentId'> & {
   effectiveCwd(): string;
   on(event: 'exit', listener: () => void): unknown;
 };
@@ -49,7 +49,6 @@ type FileRead =
 
 interface CoherenceSessionFeedOptions {
   broadcastControl: (message: ServerMessageOf<'session-coherence'>) => void;
-  getConfig: () => { coherence?: { enabled?: unknown } | null };
   cliPath?: string | null;
   debounceMs?: number;
   timeoutMs?: number;
@@ -291,7 +290,7 @@ async function runInsideGuardrails({ scratch, snapshot, readablePaths, file, arg
 }
 
 function createCoherenceSessionFeed({
-  broadcastControl, getConfig, cliPath = createCoherenceRuntime().cliPath, debounceMs = 1500, timeoutMs = 30_000, now = Date.now, log = console,
+  broadcastControl, cliPath = createCoherenceRuntime().cliPath, debounceMs = 1500, timeoutMs = 30_000, now = Date.now, log = console,
 }: CoherenceSessionFeedOptions) {
   const states = new Map<string, SessionFeedState>();
 
@@ -319,12 +318,8 @@ function createCoherenceSessionFeed({
     broadcastControl({ type: 'session-coherence', id: session.id, ...state.published });
   }
 
-  async function attachedHost(session: CoherenceFeedSession, cwd: string): Promise<'claude' | 'codex' | null> {
-    const configEntry = await readCoherenceConfigEntry(cwd).catch((): CoherenceConfigEntry => ({ kind: 'not-a-file' }));
-    return attachedCoherenceHost({
-      host: getAdapter(session.agentId)?.usageVendor, factoryRole: session.factoryRole, isEphemeral: session.ephemeral,
-      isSettingOn: getConfig().coherence?.enabled === true, hasRepoConfig: configEntry.kind !== 'missing',
-    });
+  function attachedHost(session: CoherenceFeedSession): 'claude' | 'codex' | null {
+    return attachedCoherenceHost({ host: getAdapter(session.agentId)?.usageVendor, coherenceHooks: session.coherenceHooks });
   }
 
   async function readJournalFile(state: SessionFeedState, filePath: string, source: JournalSource, coherenceSessionId: string): Promise<'ok' | 'refused'> {
@@ -419,7 +414,7 @@ function createCoherenceSessionFeed({
 
   async function refreshOnce(session: CoherenceFeedSession, state: SessionFeedState): Promise<void> {
     const cwd = session.effectiveCwd();
-    const host = await attachedHost(session, cwd);
+    const host = attachedHost(session);
     if (!host || state.isClosed) return;
     const journal = await journalReadingFor(state, cwd, session);
     const regulation = await regulationReadingFor(session, cwd, host);
@@ -457,7 +452,7 @@ function createCoherenceSessionFeed({
 
   async function readJournal(session: CoherenceFeedSession): Promise<{ ok: true; entries: CoherenceJournalEntry[] } | { ok: false; error: string }> {
     const cwd = session.effectiveCwd();
-    if (!await attachedHost(session, cwd)) return { ok: false, error: 'Coherence is not attached to this session' };
+    if (!attachedHost(session)) return { ok: false, error: 'Coherence is not attached to this session' };
     const state = stateOf(session.id);
     const journal = await journalReadingFor(state, cwd, session);
     if (!journal.ok) return { ok: false, error: journal.reason };

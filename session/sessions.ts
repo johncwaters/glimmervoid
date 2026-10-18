@@ -38,7 +38,7 @@ import { DEFAULT_AGENT_ID, resolveAdapter, commandFor } from "./adapters/index.t
 import { startCodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import type { CodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import { CODEX_REMOTE_TOKEN_ENV, needsAppServerRefusedFlag, remoteTuiArgs, splitCodexRemoteLaunch } from "./core/codex-remote-launch-core.ts";
-import type { ConversationAnswers, ConversationApproval, ConversationApprovalDecision } from "../shared/contracts/session.ts";
+import type { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision } from "../shared/contracts/session.ts";
 import { claudeApprovalFor, claudeDecisionReply, isHoldReleasedByHookEvent, parseClaudePermissionRequest } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities } from "./adapters/index.ts";
@@ -230,7 +230,7 @@ interface SessionOptions {
   planLimits?: boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
-  getExtraUserHooks?: (() => UserHook[]) | null;
+  prepareCoherenceHooks?: ((cwd: string, options: { canWriteShims: boolean }) => Promise<CoherenceHooksState | null>) | null;
   ptySpawn?: PtySpawn | null;
   screenKeeperFactory?: ScreenKeeperFactory | null;
   killProc?: KillProc | null;
@@ -331,6 +331,8 @@ class Session extends EventEmitter {
   _isSaneYoloActive: boolean;
   _planLimits: boolean;
   _planReviewPort: SessionPlanReviewPort | null;
+  _prepareCoherenceHooks: ((cwd: string, options: { canWriteShims: boolean }) => Promise<CoherenceHooksState | null>) | null;
+  coherenceHooks: CoherenceHooksState | null;
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
   _agentToken: string | null;
@@ -421,7 +423,7 @@ class Session extends EventEmitter {
 
     getUserHooks = null,
     extraUserHooks = [],
-    getExtraUserHooks = null,
+    prepareCoherenceHooks = null,
 
     ptySpawn = null,
     requireWorktree = false,
@@ -565,6 +567,8 @@ class Session extends EventEmitter {
     this._isSaneYoloActive = false;
     this._planLimits = planLimits === true && this._can("statusLine");
     this._planReviewPort = planReviewPort;
+    this._prepareCoherenceHooks = prepareCoherenceHooks;
+    this.coherenceHooks = null;
     this._hooks = createSessionHookLifecycle({
       id: this.id,
       name: this.name,
@@ -584,7 +588,6 @@ class Session extends EventEmitter {
       conversationApprovals: () => this.agentId === "claude-code" && (isConversationViewSettingOn ?? isConversationViewConfigured)(),
       getUserHooks,
       extraUserHooks,
-      getExtraUserHooks,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
       agentEnv: () => this._buildSpawnEnv(),
@@ -1332,6 +1335,7 @@ class Session extends EventEmitter {
       worktreeNotice: this.worktreeNotice,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,
+      coherenceHooks: this.coherenceHooks,
       auditLog: this.auditLog,
       detection: {
         ...this.getDetectionStats(),
@@ -1445,6 +1449,10 @@ class Session extends EventEmitter {
     }
 
     if (this._destroyed) return;
+    if (this._prepareCoherenceHooks) {
+      this.coherenceHooks = await this._prepareCoherenceHooks(this.effectiveCwd(), { canWriteShims: this.worktreeDir !== null });
+      if (this._destroyed) return;
+    }
 
     if (this.worktreeDir) {
       this.worktreeLifecycle.startWatching();

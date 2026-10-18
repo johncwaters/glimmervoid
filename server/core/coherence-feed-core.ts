@@ -7,7 +7,7 @@ import {
   CoherenceRegulateOutput,
 } from '../../shared/contracts/coherence.ts';
 import type { CoherenceJournalEntry, CoherenceNextAction, CoherenceRegulationReading } from '../../shared/contracts/coherence.ts';
-import { decideCoherenceAttachment } from './coherence-session-core.ts';
+import type { CoherenceHooksState } from '../../shared/contracts/session.ts';
 import { judgeCoherenceConfig } from './coherence-config-core.ts';
 import { sanitizeOneLine } from './text-core.ts';
 import type { CoherenceConfigEntry } from './coherence-config-core.ts';
@@ -192,12 +192,9 @@ function regulateArgs({ host, baseSha }: { host: 'claude' | 'codex'; baseSha: st
   return ['regulate', '--json', ...sinceArgs, '--host', host];
 }
 
-function attachedCoherenceHost({ host, factoryRole, isEphemeral, isSettingOn, hasRepoConfig }: {
-  host: string | null | undefined; factoryRole: string | null; isEphemeral: boolean; isSettingOn: boolean; hasRepoConfig: boolean;
-}): 'claude' | 'codex' | null {
+function attachedCoherenceHost({ host, coherenceHooks }: { host: string | null | undefined; coherenceHooks: CoherenceHooksState | null }): 'claude' | 'codex' | null {
   if (host !== 'claude' && host !== 'codex') return null;
-  const sessionKind = factoryRole !== null ? 'factory' : isEphemeral ? 'utility' : 'writer';
-  return decideCoherenceAttachment({ sessionKind, isSettingOn, hasRepoConfig }) ? host : null;
+  return coherenceHooks?.active === true ? host : null;
 }
 
 export type { JournalSource };

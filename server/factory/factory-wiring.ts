@@ -60,7 +60,7 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
   saveProjectFactoryProfile?: (projectPath: string, profile: NonNullable<ProjectConfig['factoryProfile']>) => Promise<void>;
   trustClaudeFolder?: (repositoryRoot: string) => Promise<FolderTrustOutcome>;
   checkRunGate?: FactoryCloseOutDeps['checkRunGate'];
-  orchestratorOptions?: Omit<FactoryOrchestratorDeps<ManagedSession>, 'nodePath' | 'hookCliPath' | 'shimDir' | 'ensureLedger' | 'commitAndLand' | 'readTrustedIntentIds' | 'beginIntent'>;
+  orchestratorOptions?: Omit<FactoryOrchestratorDeps<ManagedSession>, 'shimDir' | 'ensureLedger' | 'commitAndLand' | 'readTrustedIntentIds' | 'beginIntent'>;
 }
 
 export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSession = Session>({
@@ -614,7 +614,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       const activeOrchestrator = orchestratorOptions && coherenceHookCliPath ? createFactoryOrchestrator({
         ...orchestratorOptions,
         now: pollerDeps.now ?? orchestratorOptions.now,
-        nodePath: process.execPath, hookCliPath: coherenceHookCliPath, shimDir: binDir, readTrustedIntentIds, beginIntent: (request) => serializeProject(request.projectId, () => beginIntent(request)), notifyException: notifySpawnException,
+        shimDir: binDir, readTrustedIntentIds, beginIntent: (request) => serializeProject(request.projectId, () => beginIntent(request)), notifyException: notifySpawnException,
         ensureLedger: (projectId) => serializeProject(projectId, async () => {
           const ledger = await ensureLedgerCheckout(projectId, requireProject(projectId));
           const commonGitDir = await readLaneCommonGitDir(ledger.cwd);
@@ -706,7 +706,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         onReviewingChanged: refreshAfter('review state'),
       }) : null;
       const activeDispatcher = orchestratorOptions && coherenceHookCliPath ? createFactoryDispatch({
-        ...orchestratorOptions, nodePath: process.execPath, hookCliPath: coherenceHookCliPath, shimDir: binDir,
+        ...orchestratorOptions, shimDir: binDir,
         now: pollerDeps.now ?? orchestratorOptions.now,
         onWorkerTurnEnd: activeCloseOut?.turnEnded,
         discardLeftoverWorkerBranch: async (projectPath, workerSessionId) => {
@@ -777,7 +777,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           if (!tip?.sha) throw new Error(`Could not resolve origin/${branch} or ${branch}`);
           return tip.sha;
         },
-        hasCoherenceConfigAt: runtime.hasConfigAt,
+        hasNativeCoherenceAt: runtime.hasNativeControlAt,
         ensureControlCheckout,
         releaseControlCheckout: removeCheckout,
         runCoherence,

@@ -1,6 +1,5 @@
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
 import { refreshRtkHookTools } from '../../session/core/rtk-settings-core.ts';
-import fs from 'node:fs';
 import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
@@ -12,7 +11,8 @@ import type { SessionOptions, SessionPlanReviewPort } from '../../session/sessio
 import { getAdapter } from '../../session/adapters/index.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
-import { buildCoherenceWriterOverrides, decideCoherenceAttachment } from '../core/coherence-session-core.ts';
+import type { CoherenceNativeHooks } from '../coherence/coherence-native-hooks.ts';
+import { decideCoherenceAttachment } from '../core/coherence-session-core.ts';
 import type { CoherenceSessionKind } from '../core/coherence-session-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { isSessionGuarded } from '../guardrails/core/guardrails-roles-core.ts';
@@ -35,7 +35,7 @@ interface SessionFactoryDependencies {
   getUserHooks: (projectId: string) => UserHook[];
   sessionGuardrails?: SessionGuardrails;
   commitSigningProgram?: string | null;
-  coherence?: Parameters<typeof buildCoherenceWriterOverrides>[0] | null;
+  coherenceNativeHooks?: CoherenceNativeHooks | null;
   homeDir?: string;
 }
 
@@ -86,20 +86,13 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     const skipPermissions = projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
     const originalHookTools = dependencies.resolveHookTools(config, { skipPermissions });
     const sessionKind: CoherenceSessionKind = overrides.factoryRole ? 'factory' : 'writer';
-    const coherence = dependencies.coherence;
+    const coherenceNativeHooks = dependencies.coherenceNativeHooks;
     const coherenceHost = getAdapter(overrides.agent ?? project.agent)?.usageVendor;
-    const coherenceOverrides = sessionKind === 'writer' && coherence
-      && (coherenceHost === 'claude' || coherenceHost === 'codex')
-      ? buildCoherenceWriterOverrides({ ...coherence, host: coherenceHost }) : null;
-    const coherenceHooksForThisStart = (): UserHook[] => {
-      if (!coherenceOverrides) return [];
-      const isAttached = decideCoherenceAttachment({
-        sessionKind,
-        isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true,
-        hasRepoConfig: fs.existsSync(path.join(session.effectiveCwd(), 'coherence.config.json')),
-      });
-      return isAttached ? coherenceOverrides.extraUserHooks : [];
-    };
+    const prepareCoherenceHooks = coherenceNativeHooks && (coherenceHost === 'claude' || coherenceHost === 'codex')
+      ? async (cwd: string, { canWriteShims }: { canWriteShims: boolean }) => {
+        const isAttached = decideCoherenceAttachment({ sessionKind, isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true });
+        return isAttached ? coherenceNativeHooks.prepare({ root: cwd, host: coherenceHost, canWriteShims }) : null;
+      } : null;
     const session = new Session({
       id: project.id,
       name: project.name,
@@ -133,13 +126,9 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),
-      getExtraUserHooks: coherenceHooksForThisStart,
+      prepareCoherenceHooks,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       ...overrides,
-      ...(coherenceOverrides ? {
-        prependPathDirs: [...coherenceOverrides.prependPathDirs, ...(overrides.prependPathDirs ?? [])],
-        spawnEnv: { ...coherenceOverrides.spawnEnv, ...overrides.spawnEnv },
-      } : {}),
       prepareGuardrails: 'prepareGuardrails' in overrides ? overrides.prepareGuardrails : defaultGuardrailsFor(project, config, overrides),
     });
     const captureConfig = {

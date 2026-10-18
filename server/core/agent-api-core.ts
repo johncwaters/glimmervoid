@@ -327,6 +327,7 @@ function findSessionProjectId(projects: readonly { id: string; path: string }[] 
 }
 
 const FACTORY_QUEUE_STEP = 'glimmervoid factory queue <intent.json>, with an intent cut by the spec skill or written in the Factory tab request shape';
+const FACTORY_ADOPTION_STEP = 'adopt Coherence at the repository root (npm install --save-dev @danilocampos/coherence, a coherence.config.json holding {}, then npx coherence hooks install --host claude), commit coherence.config.json with .claude/settings.json, .claude/coherence-hook and .claude/coherence-root, land them on the integration branch with glimmervoid push';
 
 function describeFactorySetupProfile(profile: { checks?: readonly string[]; focusedTestCommand?: string }, isFactoryProject: boolean): string {
   return [
@@ -334,12 +335,12 @@ function describeFactorySetupProfile(profile: { checks?: readonly string[]; focu
     `Focused test command: ${profile.focusedTestCommand ?? 'none proven, so every ticket runs the full checks'}`,
     isFactoryProject
       ? `Next: ${FACTORY_QUEUE_STEP}`
-      : `Next: commit a coherence.config.json holding {} at the repository root, land it with glimmervoid push, then ${FACTORY_QUEUE_STEP}`,
+      : `Next: ${FACTORY_ADOPTION_STEP}, then ${FACTORY_QUEUE_STEP}`,
   ].join('\n');
 }
 
 export {
   decideAgentRequest, decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, decideTicketAction, deriveChildSessionName, describePushLanding,
   describePushRouteRefusal, isAgentApiVerb, isOrchestratorAgentVerb, parseAgentVerb, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
-  decideFactoryControlAllowance, describeFactorySetupProfile, describeUnavailableFactoryState, findSessionProjectId, formatFactoryStatus, REFUSAL_REASON, REFUSAL_STATUS,
+  decideFactoryControlAllowance, describeFactorySetupProfile, FACTORY_ADOPTION_STEP, describeUnavailableFactoryState, findSessionProjectId, formatFactoryStatus, REFUSAL_REASON, REFUSAL_STATUS,
 };

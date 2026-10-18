@@ -674,7 +674,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     settings: [
       {
         id: 'coherence-enabled', path: 'coherence.enabled', title: 'Use Coherence in every session',
-        description: 'When on, Claude Code and Codex sessions in a repository whose root holds coherence.config.json run Coherence hooks and a decision journal in .coherence in their worktree to commit with the work. Factory sessions always use Coherence. Off by default.',
+        description: 'When on, Claude Code and Codex sessions use the Coherence hooks the repository installed itself: a native install (coherence.config.json plus the files npx coherence hooks install commits) is required, and Glimmervoid never adds hooks of its own. Their decision journal lands in .coherence in the worktree to commit with the work. Factory sessions always use Coherence and need the native Claude install. Off by default.',
         control: 'toggle', keywords: ['experimental', 'coherence', 'journal', 'decisions'], defaultValue: false, ...MACHINE_NOW,
       },
     ],

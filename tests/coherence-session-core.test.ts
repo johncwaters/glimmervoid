@@ -19,28 +19,17 @@ const nodePath = '/Program Files/node/node';
 const hookCliPath = '/installed packages/coherence/hook.js';
 const claudeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
 
-test('coherence attachment always includes Factory, excludes utility and gates writers and reviews on both prerequisites', () => {
+test('coherence attachment always includes Factory and gates writers and reviews on the setting', () => {
   const cases = [
-    ['factory', false, false, true],
-    ['factory', false, true, true],
-    ['factory', true, false, true],
-    ['factory', true, true, true],
-    ['utility', false, false, false],
-    ['utility', false, true, false],
-    ['utility', true, false, false],
-    ['utility', true, true, false],
-    ['writer', false, false, false],
-    ['writer', false, true, false],
-    ['writer', true, false, false],
-    ['writer', true, true, true],
-    ['review', false, false, false],
-    ['review', false, true, false],
-    ['review', true, false, false],
-    ['review', true, true, true],
+    ['factory', false, true],
+    ['factory', true, true],
+    ['writer', false, false],
+    ['writer', true, true],
+    ['review', false, false],
+    ['review', true, true],
   ] as const;
-  for (const [sessionKind, isSettingOn, hasRepoConfig, expected] of cases) {
-    assert.equal(decideCoherenceAttachment({ sessionKind, isSettingOn, hasRepoConfig }), expected,
-      `${sessionKind}: setting=${isSettingOn}, config=${hasRepoConfig}`);
+  for (const [sessionKind, isSettingOn, expected] of cases) {
+    assert.equal(decideCoherenceAttachment({ sessionKind, isSettingOn }), expected, `${sessionKind}: setting=${isSettingOn}`);
   }
 });
 
@@ -84,19 +73,18 @@ test('coherence hook commands reject a double quote in either path', () => {
   assert.throws(() => buildCoherenceUserHooks({ nodePath, hookCliPath: '/bad"hook.js' }), /double quotes/);
 });
 
-test('coherence session overrides preassign the conversation and carry hooks, PATH and host env only', () => {
+test('coherence Factory overrides preassign the conversation and carry only the PATH note and shim, never a hook bundle', () => {
   const shimDir = '/glimmervoid home/factory/bin';
-  assert.deepEqual(buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir }), {
+  assert.deepEqual(buildCoherenceSessionOverrides({ claudeSessionId, shimDir }), {
     extraClaudeArgs: ['--session-id', claudeSessionId],
-    extraUserHooks: buildCoherenceUserHooks({ nodePath, hookCliPath }),
+    extraUserHooks: buildCoherenceUserHooks({ nodePath, hookCliPath }).filter((hook) => hook.id === 'coherence-cli-on-path'),
     prependPathDirs: [shimDir],
-    spawnEnv: { COHERENCE_HOOK_HOST: 'claude' },
   });
 });
 
 test('coherence session overrides reject non-UUID conversation ids', () => {
   for (const invalidId of ['', 'not-a-uuid', '--resume', `${claudeSessionId}extra`, ` ${claudeSessionId}`]) {
-    assert.throws(() => buildCoherenceSessionOverrides({ claudeSessionId: invalidId, nodePath, hookCliPath, shimDir: '/bin' }), /UUID/);
+    assert.throws(() => buildCoherenceSessionOverrides({ claudeSessionId: invalidId, shimDir: '/bin' }), /UUID/);
   }
 });
 
@@ -147,7 +135,8 @@ test('the coherence feed shows the latest unretracted entry, maps one regulate n
   assert.equal(regulationFromConfig({ kind: 'file', text: '{}' }), null);
   assert.deepEqual(regulationFromConfig({ kind: 'file', text: '{"language":"./evil.js"}' }), judgeCoherenceConfig({ kind: 'file', text: '{"language":"./evil.js"}' }));
   assert.equal(regulationFromConfig({ kind: 'symlink' })?.ok, false);
-  assert.equal(attachedCoherenceHost({ host: 'claude', factoryRole: null, isEphemeral: false, isSettingOn: false, hasRepoConfig: true }), null);
-  assert.equal(attachedCoherenceHost({ host: 'claude', factoryRole: 'worker', isEphemeral: true, isSettingOn: false, hasRepoConfig: false }), 'claude');
-  assert.equal(attachedCoherenceHost({ host: 'grok', factoryRole: 'worker', isEphemeral: false, isSettingOn: true, hasRepoConfig: true }), null);
+  assert.equal(attachedCoherenceHost({ host: 'claude', coherenceHooks: null }), null);
+  assert.equal(attachedCoherenceHost({ host: 'claude', coherenceHooks: { active: false, reason: 'control files missing' } }), null);
+  assert.equal(attachedCoherenceHost({ host: 'claude', coherenceHooks: { active: true } }), 'claude');
+  assert.equal(attachedCoherenceHost({ host: 'grok', coherenceHooks: { active: true } }), null);
 });

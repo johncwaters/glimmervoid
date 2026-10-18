@@ -67,7 +67,7 @@ interface FactoryDispatchDeps<ManagedSession extends FactoryOrchestratorSession 
 
 export function createFactoryDispatch<ManagedSession extends FactoryOrchestratorSession>({
   config, sessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcast, spawnGate, recordLane,
-  nodePath, hookCliPath, shimDir, getOrchestrator, serializeProject, ensureLedger, commitAndLand, runCoherence,
+  shimDir, getOrchestrator, serializeProject, ensureLedger, commitAndLand, runCoherence,
   readTodaySpend, readPaused, readTrustedIntentIds, readIntentWriteScopes = async () => new Map(), readIntentScopeNeeds = async () => new Map(), notifyOrchestrator, setException, onWorkerTurnEnd, onReadyIntent,
   discardLeftoverWorkerBranch = async () => null, now = Date.now, workLane = {}, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools,
 }: FactoryDispatchDeps<ManagedSession>) {
@@ -184,14 +184,14 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
             id: workerSessionId, name: `${project.name} worker ${workId.slice(-8)}`,
             path: project.path, dangerouslySkipPermissions: false,
           };
-          const coherence = buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir });
+          const coherence = buildCoherenceSessionOverrides({ claudeSessionId, shimDir });
           const worker = makeSession(identity, config, {
             ...coherence, ...posture.sessionOverrides,
             agent: 'claude-code', ephemeral: true, factoryRole: 'worker', requireWorktree: true, dangerouslySkipPermissions: false,
             gitIsolation: { disableRepoCommands: true },
             initialPrompt: buildWorkerPrompt({ projectName: project.name, intent, order, claudeSessionId, checks, focusedTestCommand: profile.focusedTestCommand }),
             extraClaudeArgs: [...coherence.extraClaudeArgs, ...posture.sessionOverrides.extraClaudeArgs],
-            spawnEnv: { ...coherence.spawnEnv, ...posture.sessionOverrides.spawnEnv, ...FACTORY_WORKER_SHELL_ENV },
+            spawnEnv: { ...posture.sessionOverrides.spawnEnv, ...FACTORY_WORKER_SHELL_ENV },
           });
           const closeOutWorker: FactoryCloseOutWorker = {
             workId, intentId, projectId, projectPath: project.path, baseSha: null,

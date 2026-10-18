@@ -2,7 +2,8 @@ import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { isMissingFileError } from '../../shared/text.ts';
 import { execFileAsync } from '../child-process-safe.ts';
-import { buildCoherenceShims } from '../core/coherence-session-core.ts';
+import { COHERENCE_CONFIG_FILENAME } from '../core/coherence-config-core.ts';
+import { buildCoherenceShims, COHERENCE_NATIVE_CONTROL_FILES } from '../core/coherence-session-core.ts';
 import { isCompletedCommandFailure } from '../core/command-failure-core.ts';
 import { runHardenedGit } from '../git/git-workspace.ts';
 import { writeTextAtomic } from '../json-file.ts';
@@ -39,9 +40,9 @@ export function createCoherenceRuntime() {
     }
   }
 
-  async function hasConfigAt(projectPath: string, sha: string): Promise<boolean> {
+  async function hasPathAt(projectPath: string, sha: string, relativePath: string): Promise<boolean> {
     try {
-      await runHardenedGit(['cat-file', '-e', `${sha}:coherence.config.json`], {
+      await runHardenedGit(['cat-file', '-e', `${sha}:${relativePath}`], {
         cwd: projectPath, encoding: 'utf8', timeout: COHERENCE_CONFIG_PROBE_TIMEOUT_MS,
       });
       return true;
@@ -49,6 +50,13 @@ export function createCoherenceRuntime() {
       if (isCompletedCommandFailure(error)) return false;
       throw error;
     }
+  }
+
+  async function hasNativeControlAt(projectPath: string, sha: string): Promise<boolean> {
+    for (const relativePath of [COHERENCE_CONFIG_FILENAME, ...COHERENCE_NATIVE_CONTROL_FILES.claude]) {
+      if (!await hasPathAt(projectPath, sha, relativePath)) return false;
+    }
+    return true;
   }
 
   async function hasConfigInWorkingTree(directory: string): Promise<boolean> {
@@ -60,5 +68,5 @@ export function createCoherenceRuntime() {
     }
   }
 
-  return { cliPath, hookCliPath, run, ensureShims, hasConfigAt, hasConfigInWorkingTree };
+  return { cliPath, hookCliPath, run, ensureShims, hasNativeControlAt, hasConfigInWorkingTree };
 }

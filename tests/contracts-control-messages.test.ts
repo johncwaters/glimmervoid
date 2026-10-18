@@ -125,6 +125,7 @@ const SESSION = {
   worktreeNotice: null,
   effectiveBase: 'develop',
   linkedPrs: [{ repo: 'acme/app', number: 42, url: 'https://github.com/acme/app/pull/42', source: 'hook', linkedAt: NOW }],
+  coherenceHooks: { active: false, reason: 'node_modules not ignored' },
   auditLog: [],
 };
 

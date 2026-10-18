@@ -54,7 +54,6 @@ interface SessionHookOptions {
   conversationApprovals: () => boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
-  getExtraUserHooks?: (() => UserHook[]) | null;
   bypassHookTrust: boolean;
   effectiveCwd: () => string;
   agentEnv: () => Record<string, string | undefined>;
@@ -193,10 +192,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   }
 
   function glimmervoidSuppliedHooks(): UserHook[] {
-    return [
-      ...(typeof options.getExtraUserHooks === "function" ? options.getExtraUserHooks() : []),
-      ...(options.extraUserHooks ?? []),
-    ];
+    return [...(options.extraUserHooks ?? [])];
   }
 
   function injectRelayHooks(port: number, injection: ArgvConfigInjection): HookInjectionResult {
