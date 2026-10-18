@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Boop a flying animal**: tap or click an animal as it flies by and it does a happy loop-de-loop, then zooms off the screen three times faster.
 - A project without Coherence can adopt it from the dashboard in one confirmed step that commits the native install to its integration branch and pushes it.
 - `glimmervoid coherence check [--project <id or path>] [--json]` walks every Coherence stage for a project (setting, install, Claude and Codex hooks, a real SessionStart, the journal, the next action, the readings and the live sessions) and prints PASS, FAIL or SKIP with the exact reason for each, exiting 1 when any stage fails. The same check runs from Check Coherence in the project's Coherence panel, and from inside a Glimmervoid session, guarded or not, where it checks that session's own project only.
 - **Project Coherence trends**: With Coherence installed in a repository, Glimmervoid reads its drift, decomposition, redundancy and size each time the integration branch moves and shows whether it is converging or decohering on the project and on the Factory floor.

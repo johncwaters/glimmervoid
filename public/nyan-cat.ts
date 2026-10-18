@@ -9,11 +9,14 @@ let flightElement: HTMLDivElement | null = null;
 let spriteElement: HTMLDivElement | null = null;
 let trailElement: HTMLDivElement | null = null;
 let trailHoldElement: HTMLDivElement | null = null;
+let boopElement: HTMLDivElement | null = null;
 let timeoutId: number | null = null;
 let lastAnimalIndex = -1;
 let verticalProgress: number | null = null;
 let flightPath = { isRightToLeft: false, arcProgress: 0 };
 let flightScale = 1;
+
+const BOOPED_FLIGHT_PLAYBACK_RATE = 3;
 
 function updateFlightGeometry() {
   if (!flightElement || verticalProgress === null) return;
@@ -67,6 +70,7 @@ function launchFlight(isFirst: boolean, requestedSprite?: string) {
   spriteElement.className = `nyan-sprite ${animal.sprite}`;
   trailElement.className = `nyan-trail ${animal.trail}`;
   lastAnimalIndex = launch.animalIndex;
+  boopElement?.classList.remove('is-booped');
   flightElement.hidden = false;
   void flightElement.offsetWidth;
   flightElement.style.animation = `nyan-fly ${launch.durationSeconds}s linear`;
@@ -80,6 +84,14 @@ function launchFlight(isFirst: boolean, requestedSprite?: string) {
     parkFlight(flightElement);
     timeoutId = setTimeout(() => launchFlight(false), launch.gapMs);
   };
+}
+
+function boopFlight() {
+  if (!flightElement || !trailHoldElement || !boopElement) return;
+  boopElement.classList.remove('is-booped');
+  void boopElement.offsetWidth;
+  boopElement.classList.add('is-booped');
+  for (const animation of [...flightElement.getAnimations(), ...trailHoldElement.getAnimations()]) animation.playbackRate = BOOPED_FLIGHT_PLAYBACK_RATE;
 }
 
 export function startNyanCat() {
@@ -96,7 +108,11 @@ export function startNyanCat() {
   trailHoldElement.append(trailElement);
   trailWindowElement.append(trailHoldElement);
   spriteElement = document.createElement('div');
-  flightElement.append(trailWindowElement, spriteElement);
+  boopElement = document.createElement('div');
+  boopElement.className = 'nyan-boop';
+  boopElement.append(spriteElement);
+  boopElement.addEventListener('pointerdown', boopFlight);
+  flightElement.append(trailWindowElement, boopElement);
   document.body.appendChild(flightElement);
   window.addEventListener('resize', updateFlightGeometry);
   window.addEventListener('orientationchange', updateFlightGeometry);
@@ -117,6 +133,7 @@ export function stopNyanCat() {
   spriteElement = null;
   trailElement = null;
   trailHoldElement = null;
+  boopElement = null;
   lastAnimalIndex = -1;
   verticalProgress = null;
 }

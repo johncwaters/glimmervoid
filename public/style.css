@@ -9294,6 +9294,30 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
   }
 }
 
+:root[data-flying-animals="true"] .nyan-boop {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+:root[data-flying-animals="true"] .nyan-boop::before {
+  content: "";
+  position: absolute;
+  inset: -12px;
+}
+
+:root[data-flying-animals="true"] .nyan-boop.is-booped {
+  animation: nyan-boop 0.7s ease-out;
+}
+
+@keyframes nyan-boop {
+  0%   { transform: none; }
+  15%  { transform: scale(1.2, 0.8); }
+  60%  { transform: translateY(-18px) rotate(-300deg) scale(1.1); }
+  100% { transform: rotate(-360deg); }
+}
+
 .flying-animals-gallery {
   font-family: var(--font-mono);
   display: grid;
