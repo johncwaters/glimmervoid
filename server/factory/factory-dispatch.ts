@@ -163,7 +163,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         pendingRefusals.delete(projectId);
         const checks = profile.checks ?? DEFAULT_FACTORY_CHECKS;
         const posture = await resolveWorkLane({
-          cwd: project.path, deferWorktree: true, allowCommands: ['coherence context', 'rm', ...workerChecksOf(checks), ...(profile.focusedTestCommand ? [profile.focusedTestCommand] : [])], extraDeny: FACTORY_WORKER_DENY,
+          cwd: project.path, deferWorktree: true, allowCommands: ['coherence context', 'coherence decide', 'rm', ...workerChecksOf(checks), ...(profile.focusedTestCommand ? [profile.focusedTestCommand] : [])], extraDeny: FACTORY_WORKER_DENY,
         }, { ...workLane, resolveSaneYoloHookTools: () => resolveSaneYoloHookTools(config) });
         if (!posture.ok) return refuse(posture.reason === 'Sane YOLO is unavailable' ? FACTORY_SANE_YOLO_UNAVAILABLE : posture.reason, true);
         if (!order || !intent || !isAuthorized()) return refuse('factory orchestrator is no longer live');

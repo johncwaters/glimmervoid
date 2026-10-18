@@ -67,7 +67,7 @@ async function createFixture(context: TestContext) {
   let isPaused = false;
   let isOrchestratorLive = true;
   let shouldThrowOnMake = false;
-  let saneYoloHookTools: ResolvedHookTool[] | null = [{ id: 'saneYolo', binPath: path.join(directory, 'cc-safety-net.js') }];
+  let saneYoloHookTools: ResolvedHookTool[] | null = [{ id: 'rtk', binPath: path.join(directory, 'rtk') }, { id: 'saneYolo', binPath: path.join(directory, 'cc-safety-net.js') }];
   const dependencies: Parameters<typeof createFactoryDispatch<Session>>[0] = {
     workLane: passthroughWorkLane(preparedRoles),
     onReadyIntent: (_projectId, intentId) => { readyIntents.push(intentId); },
@@ -136,7 +136,7 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   const worktreeAdminDir = await realpath((await readFile(path.join(worktreePath, '.git'), 'utf8')).replace(/^gitdir:\s*/, '').trim());
   assert.equal(path.dirname(worktreeAdminDir), path.join(commonGitDir, 'worktrees'));
   assert.deepEqual(overrides.settingsPermissions, { defaultMode: 'dontAsk',
-    allow: [`Edit(/${worktreePath}/**)`, 'Bash(coherence context:*)', 'Bash(rm:*)', 'Bash(npm run typecheck:*)', 'Bash(npm run lint:*)'],
+    allow: [`Edit(/${worktreePath}/**)`, 'Bash(coherence context:*)', 'Bash(coherence decide:*)', 'Bash(rm:*)', 'Bash(npm run typecheck:*)', 'Bash(npm run lint:*)'],
     deny: ['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', 'Edit(**/.git/**)', 'Edit(**/.claude/**)'] });
   const privateHome = await lanePrivateHome();
   const sessionHookFolder = path.join(privateHome, 'scratch', 'glimmervoid-hooks', reply.sessionId);
@@ -200,7 +200,7 @@ test('dispatch gives workers the project profile checks minus the test suite and
   const allowedCommands = overrides.settingsPermissions?.allow;
   assert.ok(Array.isArray(allowedCommands));
   assert.deepEqual(allowedCommands.slice(1), [
-    'Bash(coherence context:*)', 'Bash(rm:*)', 'Bash(npm run lint:*)', 'Bash(npm run test:files:*)',
+    'Bash(coherence context:*)', 'Bash(coherence decide:*)', 'Bash(rm:*)', 'Bash(npm run lint:*)', 'Bash(npm run test:files:*)',
   ]);
   assert.ok(overrides.initialPrompt?.includes('run the test files you touched with npm run test:files <file>'));
   assert.ok(overrides.initialPrompt?.includes('run those test files once more and these checks: ["npm run lint"]'));

@@ -25,7 +25,6 @@ type WorkLaneInput = {
 };
 
 export type WorkLaneDependencies = {
-  hookToolConfig?: { rtk?: boolean };
   resolveSaneYoloHookTools?: (config: { rtk?: boolean }) => ResolvedHookTool[] | null;
   homeDir?: string;
   prepareGuardrails?: typeof prepareGuardrailsLaunch;
@@ -85,13 +84,13 @@ export async function readGitDirsOfOwnCheckout(cwd: string): Promise<{ commonGit
 }
 
 export async function resolveWorkLane(input: WorkLaneInput, {
-  hookToolConfig = {}, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools, homeDir = glimmervoidHomeDir(),
+  resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools, homeDir = glimmervoidHomeDir(),
   prepareGuardrails = prepareGuardrailsLaunch, guardrailsRefusal = allowGuardedSpawn, platform = process.platform,
 }: WorkLaneDependencies = {}) {
   if (platform === UNWRAPPED_PLATFORM) return { ok: false as const, reason: `the sandbox runtime does not run on ${platform}` };
   const guardrailsRefusalReason = guardrailsRefusal();
   if (guardrailsRefusalReason !== null) return { ok: false as const, reason: guardrailsRefusalReason };
-  const hookTools = resolveSaneYoloHookTools(hookToolConfig);
+  const hookTools = resolveSaneYoloHookTools({})?.filter((tool) => tool.id !== 'rtk') ?? null;
   if (!hookTools?.some((tool) => tool.id === 'saneYolo')) return { ok: false as const, reason: GUARD_HOOK_UNAVAILABLE_ERROR };
   try {
     const cwd = await realpath(input.cwd);
