@@ -446,6 +446,15 @@ body {
               0 0 16px color-mix(in oklab, var(--state-failed) 7%, transparent);
 }
 
+.session-failure-reason {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--state-failed);
+  background: var(--state-failed-bg);
+  overflow-wrap: anywhere;
+}
+
 .session-card[data-state="DONE"] {
   border-color: color-mix(in oklab, var(--accent) 20%, transparent);
 }

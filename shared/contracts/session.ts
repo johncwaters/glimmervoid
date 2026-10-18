@@ -90,6 +90,7 @@ export const SessionSnapshot = z.object({
   mergeStatus: z.string().nullable(),
   mergeReason: z.string().nullable(),
   worktreeNotice: z.string().nullable(),
+  failureReason: z.string().nullable().optional(),
   effectiveBase: z.string().nullable(),
   linkedPrs: z.array(LinkedPr).default([]),
   coherenceHooks: CoherenceHooksState.nullable().default(null),

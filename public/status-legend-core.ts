@@ -25,5 +25,5 @@ export const STATUS_LEGEND: readonly StatusLegendEntry[] = Object.freeze([
   entry(STATES.IDLE, 'Ready for the next prompt.'),
   entry(STATES.COMPLETE, 'Finished a turn you have not looked at yet.'),
   entry(STATES.DONE, 'The agent process ended.'),
-  entry(STATES.FAILED, 'The agent failed to start or crashed.'),
+  entry(STATES.FAILED, 'The agent failed to start or crashed. A red line above the terminal says why it could not start; its terminal output shows a crash.'),
 ]);

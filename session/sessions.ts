@@ -80,6 +80,17 @@ const KILL_REAP_MAX_WAIT_MS = 2400;
 const MAX_PENDING_ATTENTION_NOTES = 5;
 const GUARDRAILS_UNAPPLIED_ERROR = "guardrail settings could not be applied, session not started";
 const GUARDRAILS_REFUSED_PREFIX = "session not started, the guardrails refused: ";
+const SPAWN_FAILURE_TEXT_BY_REASON: Record<string, string> = {
+  spawn_cwd_missing: "The session folder no longer exists. Re-add the session on a folder that exists.",
+};
+const SPAWN_FAILURE_FALLBACK_TEXT = "The agent could not be started. The server log has the cause.";
+
+function describeSpawnFailure(detail: unknown): string {
+  if (typeof detail !== "object" || detail === null) return SPAWN_FAILURE_FALLBACK_TEXT;
+  if ("error" in detail && typeof detail.error === "string" && detail.error) return detail.error;
+  const reason = "reason" in detail && typeof detail.reason === "string" ? detail.reason : "";
+  return SPAWN_FAILURE_TEXT_BY_REASON[reason] ?? SPAWN_FAILURE_FALLBACK_TEXT;
+}
 const INNER_GUARDRAILS_OFF = Object.freeze({ enabled: false });
 
 function settingsGuardrailsForHooks(
@@ -277,6 +288,7 @@ class Session extends EventEmitter {
   ptyProcess: SessionPty | null;
   state: SessionState;
   stateSince: number;
+  failureReason: string | null;
   ephemeral: boolean;
   agentId: string;
   usageVendor: string;
@@ -473,6 +485,7 @@ class Session extends EventEmitter {
     this.ptyProcess = null;
     this.state = STATES.DORMANT;
     this.stateSince = Date.now();
+    this.failureReason = null;
     this._receivedFirstOutput = false;
     this._killPollTimer = null;
     this._killReapTimer = null;
@@ -1342,6 +1355,7 @@ class Session extends EventEmitter {
       mergeStatus: this.mergeStatus,
       mergeReason: this.mergeReason,
       worktreeNotice: this.worktreeNotice,
+      failureReason: this.failureReason,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,
       coherenceHooks: this.coherenceHooks,
@@ -1396,6 +1410,8 @@ class Session extends EventEmitter {
     }
 
     this.state = to;
+    if (event === "spawn_fail") this.failureReason = describeSpawnFailure(detail);
+    if (to === STATES.INITIALIZING) this.failureReason = null;
     if (to === STATES.IDLE || to === STATES.COMPLETE) this._observeCompaction("settled");
 
     const entryHook = ENTRY_HOOKS[to];

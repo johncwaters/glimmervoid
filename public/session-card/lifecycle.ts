@@ -775,11 +775,24 @@ export function removeSessionCard(sessionId: unknown) {
 
 function _handleEndedTransition(ui: SessionUi, wasActive: boolean, state: string) {
   if (!wasActive || !ui.term) return;
-  ui.term.clear();
-  ui.term.reset();
   const label = state === STATES.DONE ? 'Session complete' : 'Session failed';
   const color = state === STATES.DONE ? '\x1b[34m' : '\x1b[31m';
-  ui.term.write(`\r\n\x1b[2m${color}  ${label}\x1b[0m\r\n\r\n\x1b[2m  Open the session actions menu and choose Restart to start a new session.\x1b[0m\r\n`);
+  ui.term.write(`\r\n\r\n\x1b[2m${color}  ${label}\x1b[0m\r\n\r\n\x1b[2m  Open the session actions menu and choose Restart to start a new session.\x1b[0m\r\n`);
+}
+
+export function setSessionFailureReason(sessionId: unknown, failureReason: string | null | undefined) {
+  const ui = findSessionUi(sessionId);
+  if (!ui) return;
+  const existingLine = ui.card.querySelector<HTMLElement>(':scope > .session-failure-reason');
+  const shouldShow = ui.currentState === STATES.FAILED && !!failureReason;
+  if (!shouldShow) {
+    existingLine?.remove();
+    return;
+  }
+  const reasonLine = existingLine ?? el('p', 'session-failure-reason');
+  reasonLine.setAttribute('role', 'status');
+  reasonLine.textContent = failureReason;
+  if (!existingLine) ui.termWrap.before(reasonLine);
 }
 
 function _handleRestartTransition(ui: SessionUi, prevState: string) {

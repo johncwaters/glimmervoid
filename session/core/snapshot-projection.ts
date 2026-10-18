@@ -84,6 +84,7 @@ interface SnapshotSource {
   mergeStatus: string;
   mergeReason: string | null;
   worktreeNotice: string | null;
+  failureReason?: string | null;
   effectiveBase: string | null;
   linkedPrs: LinkedPr[];
   coherenceHooks?: CoherenceHooksState | null;
@@ -124,6 +125,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     mergeStatus: source.mergeStatus,
     mergeReason: source.mergeReason,
     worktreeNotice: source.worktreeNotice,
+    failureReason: source.failureReason ?? null,
     effectiveBase: source.effectiveBase ?? null,
     linkedPrs: source.linkedPrs,
     coherenceHooks: source.coherenceHooks ?? null,
