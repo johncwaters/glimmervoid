@@ -67,7 +67,7 @@ test('the no-debug-value table and compaction summaries are dropped', () => {
   }), { vendorSessionId: 'vendor-session', now: 1 }), []);
 });
 
-test('a message the operator queued mid-turn is a prompt, other queued commands stay dropped', () => {
+test('only operator messages are prompts: queued mid-turn ones count, task notifications never do', () => {
   const queuedLine = (attachment: Record<string, unknown>) => JSON.stringify({
     type: 'attachment',
     uuid: 'queued-uuid',
@@ -95,8 +95,23 @@ test('a message the operator queued mid-turn is a prompt, other queued commands 
 
   const taskNotification = queuedLine({ commandMode: 'task-notification', origin: { kind: 'task-notification' }, prompt: '<task-notification></task-notification>' });
   const telegramMessage = queuedLine({ commandMode: 'prompt', isMeta: true, origin: { kind: 'channel', server: 'plugin:telegram:telegram' }, prompt: 'hi' });
-  assert.deepEqual(traceRecordsFromTranscriptLine(taskNotification, context), []);
+  assert.deepEqual(traceRecordsFromTranscriptLine(taskNotification, context).map((record) => record.kind), ['expansion']);
   assert.deepEqual(traceRecordsFromTranscriptLine(telegramMessage, context), []);
+
+  const deliveredNotification = JSON.stringify({
+    type: 'user',
+    uuid: 'notification-uuid',
+    origin: { kind: 'task-notification', producer: 'session-task' },
+    promptSource: 'system',
+    message: { role: 'user', content: '<task-notification>\n<status>completed</status>\n</task-notification>' },
+  });
+  const legacyNotification = JSON.stringify({
+    type: 'user',
+    turnOrigin: { kind: 'task_notification' },
+    message: { role: 'user', content: [{ type: 'text', text: '<task-notification></task-notification>' }] },
+  });
+  assert.deepEqual(traceRecordsFromTranscriptLine(deliveredNotification, context).map((record) => record.kind), ['expansion']);
+  assert.deepEqual(traceRecordsFromTranscriptLine(legacyNotification, context).map((record) => record.kind), ['expansion']);
 });
 
 test('Claude bookkeeping line types are dropped instead of retained as raw trace records', () => {

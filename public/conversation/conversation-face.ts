@@ -15,12 +15,16 @@ import {
   conversationEntries,
   interruptKeystrokes,
   isAnyPromptShowing,
-  isWorkGroupRunning,
+  isEchoDelivered,
+  runningAgentRuns,
   submitKeystrokes,
+  trailingWorkGroup,
   trimResidentRecords,
+  userEntryKeys,
   workGroupHeadline,
+  workingHeadline,
 } from './conversation-core.ts';
-import type { ConversationEntry, ConversationFaceController, ConversationWorkGroup, TimedKeystroke } from './conversation-core.ts';
+import type { ConversationAgentRun, ConversationEntry, ConversationFaceController, ConversationWorkGroup, MessageEcho, TimedKeystroke } from './conversation-core.ts';
 
 type TraceReply = ServerMessageOf<'session-trace-response'>;
 
@@ -31,6 +35,7 @@ const MULTI_SELECT_ANSWER_SEPARATOR = ', ';
 const ATTACH_GLYPH = '+';
 const STOP_GLYPH = String.fromCharCode(0x25a0);
 const SEND_GLYPH = String.fromCharCode(0x2191);
+const WORKING_TICK_MS = 1000;
 const CODEX_APPROVAL_TITLES: Readonly<Record<string, string>> = { command: 'Run command?', fileChange: 'Apply file changes?', permissions: 'Grant permissions?' };
 
 interface ConversationFaceDeps {
@@ -45,7 +50,18 @@ interface PendingTraceRequest {
   timeoutHandle: ReturnType<typeof setTimeout>;
 }
 
+interface PendingAttachment {
+  name: string;
+  previewUrl: string | null;
+}
+
+type AttachmentEcho = MessageEcho<PendingAttachment>;
+
 let nextRequestNumber = 1;
+
+function forgetPreview(attachment: PendingAttachment | null) {
+  if (attachment?.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+}
 
 function composerIconButton(className: string, glyph: string, actionName: string) {
   const button = el('button', `conversation-icon-button ${className}`, glyph);
@@ -85,9 +101,17 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   bridgeNote.hidden = true;
   const traceUnavailableNote = el('p', 'conversation-bridge-note', 'The session trace is unavailable, so there is nothing to show here. Use the terminal.');
   traceUnavailableNote.hidden = true;
+  const workingLine = el('details', 'conversation-working');
+  const workingSummary = el('summary', 'conversation-working-summary');
+  workingSummary.setAttribute('role', 'status');
+  const workingAgentList = el('ul', 'conversation-agent-list');
+  workingLine.append(workingSummary, workingAgentList);
+  workingLine.hidden = true;
   const composer = el('form', 'conversation-composer');
   const status = el('p', 'conversation-status');
   status.setAttribute('role', 'status');
+  const attachmentSlot = el('div', 'conversation-attachment');
+  attachmentSlot.hidden = true;
   const composerRow = el('div', 'conversation-composer-row');
   const attachButton = composerIconButton('conversation-attach', ATTACH_GLYPH, 'Attach a photo or file');
   const filePicker = el('input', 'conversation-file-picker');
@@ -101,8 +125,8 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   const sendButton = composerIconButton('conversation-send', SEND_GLYPH, 'Send');
   sendButton.type = 'submit';
   composerRow.append(attachButton, input, stopButton, sendButton);
-  composer.append(status, composerRow, filePicker);
-  root.append(log, traceUnavailableNote, bridgeNote, approvalSlot, composer);
+  composer.append(status, attachmentSlot, composerRow, filePicker);
+  root.append(log, workingLine, traceUnavailableNote, bridgeNote, approvalSlot, composer);
 
   let sessionId: string | null = null;
   let records: TraceRecord[] = [];
@@ -110,8 +134,13 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   let hasLoadedOnce = false;
   let pendingRequest: PendingTraceRequest | null = null;
   let isRefreshOwed = false;
-  let hasPendingAttachment = false;
+  let pendingAttachment: PendingAttachment | null = null;
   let isAttachmentUploading = false;
+  let echoes: AttachmentEcho[] = [];
+  let latestEntries: ConversationEntry[] = [];
+  let workingTimer: ReturnType<typeof setInterval> | null = null;
+  let shouldScrollToEnd = false;
+  const expandedWorkKeys = new Set<string>();
 
   function currentUi(): SessionUi | null {
     return sessionId ? findSessionUi(sessionId) ?? null : null;
@@ -166,6 +195,14 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
     return link;
   }
 
+  function renderEcho(echo: AttachmentEcho) {
+    const bubble = el('article', 'conversation-message conversation-user is-pending');
+    if (echo.text) bubble.append(el('p', 'conversation-text', echo.text));
+    if (echo.attachment?.previewUrl) bubble.append(renderImage(echo.attachment.previewUrl));
+    if (echo.attachment && !echo.attachment.previewUrl) bubble.append(el('p', 'conversation-attachment-name', echo.attachment.name));
+    return bubble;
+  }
+
   function renderMessage(entry: Extract<ConversationEntry, { kind: 'user' | 'assistant' | 'notice' }>) {
     const bubble = el('article', `conversation-message conversation-${entry.kind}`);
     if (entry.kind === 'assistant') {
@@ -177,36 +214,115 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
     return bubble;
   }
 
+  function renderAgentRuns(list: HTMLUListElement, agentRuns: readonly ConversationAgentRun[]) {
+    list.replaceChildren(...agentRuns.map((run) => {
+      const item = el('li', `conversation-agent is-${run.state}`);
+      item.append(el('span', 'conversation-agent-name', run.description), el('span', 'conversation-agent-state', run.state));
+      return item;
+    }));
+  }
+
   function renderWorkGroup(group: ConversationWorkGroup) {
-    const line = el('p', 'conversation-work', workGroupHeadline(group));
-    if (isWorkGroupRunning(group)) line.classList.add('is-running');
-    if (group.errorCount > 0) line.classList.add('has-error');
-    return line;
+    if (group.agentRuns.length === 0) return el('p', 'conversation-work', workGroupHeadline(group));
+    const details = el('details', 'conversation-work');
+    details.open = expandedWorkKeys.has(group.key);
+    details.addEventListener('toggle', () => {
+      if (details.open) { expandedWorkKeys.add(group.key); return; }
+      expandedWorkKeys.delete(group.key);
+    });
+    const agentList = el('ul', 'conversation-agent-list');
+    renderAgentRuns(agentList, group.agentRuns);
+    details.append(el('summary', '', workGroupHeadline(group)), agentList);
+    return details;
+  }
+
+  function isAgentWorking() {
+    return currentUi()?.currentState === STATES.RUNNING;
+  }
+
+  function renderWorkingLine() {
+    const ui = currentUi();
+    const runningAgents = runningAgentRuns(latestEntries);
+    const foldedAgents = isAgentWorking() ? (trailingWorkGroup(latestEntries)?.agentRuns ?? []) : [];
+    const listedAgents = [...new Set([...foldedAgents, ...runningAgents])];
+    workingLine.hidden = !ui || (!isAgentWorking() && runningAgents.length === 0);
+    if (workingLine.hidden || !ui) return;
+    const elapsedMs = isAgentWorking() ? Math.max(0, Date.now() - ui.stateSince) : null;
+    workingSummary.textContent = workingHeadline(elapsedMs, runningAgents.length);
+    workingLine.classList.toggle('has-agents', listedAgents.length > 0);
+    renderAgentRuns(workingAgentList, listedAgents);
+  }
+
+  function syncWorkingTimer() {
+    const shouldTick = !root.hidden && isAgentWorking();
+    if (shouldTick && !workingTimer) workingTimer = setInterval(renderWorkingLine, WORKING_TICK_MS);
+    if (!shouldTick && workingTimer) { clearInterval(workingTimer); workingTimer = null; }
+    renderWorkingLine();
+  }
+
+  function scrollToEnd() {
+    log.scrollTop = log.scrollHeight;
   }
 
   function renderLog() {
-    const shouldStick = isNearBottom();
-    const entries = conversationEntries(records);
-    const nodes = entries.map((entry) => (entry.kind === 'work' ? renderWorkGroup(entry) : renderMessage(entry)));
+    const shouldStick = shouldScrollToEnd || isNearBottom();
+    latestEntries = conversationEntries(records);
+    const nowMs = Date.now();
+    const deliveredEchoes = echoes.filter((echo) => isEchoDelivered(echo, latestEntries, nowMs));
+    for (const echo of deliveredEchoes) forgetPreview(echo.attachment);
+    echoes = echoes.filter((echo) => !deliveredEchoes.includes(echo));
+    const foldedGroup = isAgentWorking() ? trailingWorkGroup(latestEntries) : null;
+    const shownEntries = foldedGroup ? latestEntries.slice(0, -1) : latestEntries;
+    const nodes = [
+      ...shownEntries.map((entry) => (entry.kind === 'work' ? renderWorkGroup(entry) : renderMessage(entry))),
+      ...echoes.map(renderEcho),
+    ];
     log.replaceChildren(...(nodes.length > 0 ? nodes : [emptyNote]));
-    if (shouldStick) log.scrollTop = log.scrollHeight;
+    renderWorkingLine();
+    if (!shouldStick) return;
+    scrollToEnd();
+    requestAnimationFrame(scrollToEnd);
+    if (hasLoadedOnce) shouldScrollToEnd = false;
   }
 
-  function sendPlan(steps: readonly TimedKeystroke[] | null, sentText: string) {
+  function renderAttachmentSlot() {
+    attachmentSlot.replaceChildren();
+    attachmentSlot.hidden = !pendingAttachment;
+    if (!pendingAttachment) return;
+    if (pendingAttachment.previewUrl) {
+      const thumbnail = el('img', 'conversation-attachment-thumbnail');
+      thumbnail.src = pendingAttachment.previewUrl;
+      thumbnail.alt = '';
+      attachmentSlot.append(thumbnail);
+    }
+    attachmentSlot.append(el('span', 'conversation-attachment-name', pendingAttachment.name));
+  }
+
+  function setPendingAttachment(attachment: PendingAttachment | null) {
+    if (pendingAttachment !== attachment) forgetPreview(pendingAttachment);
+    pendingAttachment = attachment;
+    renderAttachmentSlot();
+  }
+
+  function sendPlan(steps: readonly TimedKeystroke[] | null, onOutcome: (outcome: KeystrokePlanOutcome) => void = () => {}) {
     const ui = currentUi();
     if (!ui || !sessionId || !steps) { setStatus('Unable to reach this session.'); return; }
+    setStatus('');
     const statusByOutcome: Record<KeystrokePlanOutcome, string> = {
-      sent: sentText,
+      sent: '',
       unreachable: 'Unable to reach this session.',
       'stopped-by-prompt': 'Not sent: a prompt appeared, so the message was typed but not submitted. Check the terminal.',
     };
-    sendKeystrokePlan(sessionId, ui, steps, (outcome) => setStatus(statusByOutcome[outcome]));
+    sendKeystrokePlan(sessionId, ui, steps, (outcome) => {
+      setStatus(statusByOutcome[outcome]);
+      onOutcome(outcome);
+    });
   }
 
   function answerApproval(approval: ConversationApproval, decision: ConversationApprovalDecision, answers?: ConversationAnswers) {
     if (!sessionId) return;
     const isSent = sendControl({ type: 'conversation-approval', id: sessionId, requestId: approval.requestId, decision, ...(answers ? { answers } : {}) });
-    setStatus(isSent ? 'Answer sent.' : 'Unable to send the answer while disconnected.');
+    setStatus(isSent ? '' : 'Unable to send the answer while disconnected.');
   }
 
   function approvalButton(label: string, onClick: () => void) {
@@ -345,13 +461,14 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
 
   function composerSubmitSteps(agent: string | null | undefined): readonly TimedKeystroke[] | null {
     const typedSteps = composerKeystrokes(agent, input.value);
-    if (typedSteps || !hasPendingAttachment) return typedSteps;
+    if (typedSteps || !pendingAttachment) return typedSteps;
     return submitKeystrokes(agent);
   }
 
   function renderControls() {
     const ui = currentUi();
     stopButton.disabled = ui?.currentState !== STATES.RUNNING;
+    syncWorkingTimer();
   }
 
   composer.addEventListener('submit', (event) => {
@@ -359,18 +476,43 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
     if (sendButton.disabled) return;
     const steps = composerSubmitSteps(currentUi()?.agent);
     if (!steps) return;
+    const echo: AttachmentEcho = { text: input.value.trim(), attachment: pendingAttachment, sentAt: Date.now(), userKeysAtSend: userEntryKeys(latestEntries) };
     input.value = '';
     fitInputToText();
-    hasPendingAttachment = false;
-    sendPlan(steps, 'Sent.');
+    pendingAttachment = null;
+    renderAttachmentSlot();
+    echoes.push(echo);
+    shouldScrollToEnd = true;
+    renderLog();
+    sendPlan(steps, (outcome) => {
+      if (outcome === 'sent') return;
+      forgetPreview(echo.attachment);
+      echoes = echoes.filter((pendingEcho) => pendingEcho !== echo);
+      renderLog();
+    });
   }, { signal });
   input.addEventListener('input', fitInputToText, { signal });
+  let lastLogHeightPx = 0;
+  const logVisibilityObserver = new ResizeObserver(() => {
+    const logHeightPx = log.clientHeight;
+    const wasLogHidden = lastLogHeightPx === 0;
+    lastLogHeightPx = logHeightPx;
+    if (!wasLogHidden || logHeightPx === 0) return;
+    shouldScrollToEnd = true;
+    scrollToEnd();
+    if (hasLoadedOnce) shouldScrollToEnd = false;
+  });
+  logVisibilityObserver.observe(log);
+  signal?.addEventListener('abort', () => {
+    if (workingTimer) clearInterval(workingTimer);
+    logVisibilityObserver.disconnect();
+  }, { once: true });
   input.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || event.shiftKey || event.isComposing || isPhoneLayout()) return;
     event.preventDefault();
     composer.requestSubmit();
   }, { signal });
-  stopButton.addEventListener('click', () => sendPlan(interruptKeystrokes(currentUi()?.agent), 'Interrupt sent.'), { signal });
+  stopButton.addEventListener('click', () => sendPlan(interruptKeystrokes(currentUi()?.agent)), { signal });
   attachButton.addEventListener('click', () => filePicker.click(), { signal });
   filePicker.addEventListener('change', () => {
     const pickedFile = filePicker.files?.[0];
@@ -384,8 +526,8 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
       isAttachmentUploading = false;
       renderAttachAvailability();
       if (!isUploaded || sessionId !== uploadSessionId) return;
-      hasPendingAttachment = true;
-      setStatus('Attached. It goes with your next message.');
+      const previewUrl = pickedFile.type.startsWith('image/') ? URL.createObjectURL(pickedFile) : null;
+      setPendingAttachment({ name: pickedFile.name, previewUrl });
     });
   }, { signal });
 
@@ -396,11 +538,15 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
       nextOffset = 0;
       hasLoadedOnce = false;
       clearPendingRequest();
-      hasPendingAttachment = false;
+      setPendingAttachment(null);
+      expandedWorkKeys.clear();
+      for (const echo of echoes) forgetPreview(echo.attachment);
+      echoes = [];
       setStatus('');
     }
     root.hidden = false;
     traceUnavailableNote.hidden = true;
+    shouldScrollToEnd = true;
     renderLog();
     refresh();
     requestRecords();
@@ -409,12 +555,14 @@ export function createConversationFace({ signal, sendControl, showTerminal }: Co
   function hide() {
     root.hidden = true;
     clearPendingRequest();
+    syncWorkingTimer();
   }
 
   function refresh() {
     if (root.hidden) return;
     renderApproval();
     renderControls();
+    renderLog();
   }
 
   function applyTraceResponse(reply: TraceReply): boolean {

@@ -57,6 +57,8 @@ interface TranscriptLine {
   sourceToolUseID?: unknown;
   subtype?: unknown;
   message?: { content?: unknown };
+  origin?: { kind?: unknown } | null;
+  turnOrigin?: { kind?: unknown } | null;
   attachment?: {
     type?: unknown;
     commandMode?: unknown;
@@ -184,6 +186,10 @@ function everyTextBlockJoined(blocks: TranscriptContentBlock[]): string | null {
   return blockTexts.join('\n');
 }
 
+function isTaskNotificationLine(line: TranscriptLine): boolean {
+  return line.origin?.kind === 'task-notification' || line.turnOrigin?.kind === 'task_notification';
+}
+
 function mapUserLine(
   rawLine: string,
   line: TranscriptLine,
@@ -216,20 +222,27 @@ function mapUserLine(
   }
   const text = typeof content === 'string' ? content : firstTextBlock(blocks);
   if (!text) return [rawRecord(rawLine, line, context)];
+  if (isTaskNotificationLine(line)) return [{ ...base, kind: 'expansion', ...boundedTextFields(text) }];
   if (typeof content === 'string' && /<command-name>[\s\S]*?<\/command-name>/.test(content)) {
     return [{ ...base, kind: 'expansion', ...boundedTextFields(content) }];
   }
   return [{ ...base, kind: 'prompt', ...boundedTextFields(text) }];
 }
 
-function queuedOperatorPromptText(line: TranscriptLine): string | null {
-  const attachment = line.attachment;
-  if (line.type !== 'attachment' || !attachment) return null;
-  if (attachment.type !== 'queued_command' || attachment.commandMode !== 'prompt') return null;
-  if (attachment.origin?.kind !== 'human') return null;
-  const prompt = attachment.prompt;
+function queuedCommandText(prompt: unknown): string | null {
   if (typeof prompt === 'string') return prompt || null;
   return firstTextBlock(objectBlocks(prompt));
+}
+
+function queuedCommandRecords(line: TranscriptLine, context: TraceLineContext): TraceRecord[] | null {
+  const attachment = line.attachment;
+  if (line.type !== 'attachment' || attachment?.type !== 'queued_command') return null;
+  const text = queuedCommandText(attachment.prompt);
+  if (!text) return null;
+  const isOperatorMessage = attachment.commandMode === 'prompt' && attachment.origin?.kind === 'human';
+  if (isOperatorMessage) return [{ ...baseRecord(line, context), kind: 'prompt', ...boundedTextFields(text) }];
+  if (attachment.commandMode === 'task-notification') return [{ ...baseRecord(line, context), kind: 'expansion', ...boundedTextFields(text) }];
+  return null;
 }
 
 function mapAssistantLine(rawLine: string, line: TranscriptLine, context: TraceLineContext): TraceRecord[] {
@@ -266,8 +279,8 @@ function mapAssistantLine(rawLine: string, line: TranscriptLine, context: TraceL
 function traceRecordsFromTranscriptLine(rawLine: string, context: TraceLineContext): TraceRecord[] {
   const line = parseTranscriptLine(rawLine);
   if (!line) return [rawRecord(rawLine, null, context)];
-  const queuedPromptText = queuedOperatorPromptText(line);
-  if (queuedPromptText) return [{ ...baseRecord(line, context), kind: 'prompt', ...boundedTextFields(queuedPromptText) }];
+  const queuedRecords = queuedCommandRecords(line, context);
+  if (queuedRecords) return queuedRecords;
   if (isDroppedLine(line)) return [];
   if (line.type === 'user') return mapUserLine(rawLine, line, context);
   if (line.type === 'assistant') return mapAssistantLine(rawLine, line, context);

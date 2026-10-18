@@ -5758,9 +5758,28 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 .conversation-assistant { align-self: flex-start; }
 .conversation-notice { align-self: center; color: var(--text-muted); font-size: 12px; }
 .conversation-notice .conversation-text { margin: 0; }
-.conversation-work { flex: 0 0 auto; align-self: stretch; max-width: 76ch; margin: 0; padding: 2px 0; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conversation-work.is-running { color: var(--state-running); }
-.conversation-work.has-error { color: var(--state-failed); }
+.conversation-work { flex: 0 0 auto; align-self: stretch; max-width: 76ch; margin: 0; padding: 2px 0; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
+.conversation-work > summary { cursor: pointer; }
+.conversation-user.is-pending { opacity: 0.6; }
+.conversation-working { flex: 0 0 auto; margin: 0; padding: 4px 16px 8px; font-family: var(--font-mono); font-size: 12px; color: var(--state-running); }
+.conversation-working[hidden] { display: none; }
+.conversation-working-summary { display: flex; align-items: center; gap: 8px; list-style: none; }
+.conversation-working-summary::-webkit-details-marker { display: none; }
+.conversation-working.has-agents .conversation-working-summary { cursor: pointer; }
+.conversation-working:not(.has-agents) .conversation-agent-list { display: none; }
+.conversation-working-summary::before { content: ''; flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: conversation-working-pulse 1.4s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
+@keyframes conversation-working-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .conversation-working-summary::before { animation: none; } }
+.conversation-agent-list { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 0; padding: 0 0 0 14px; list-style: none; }
+.conversation-agent { display: flex; gap: 8px; min-width: 0; color: var(--text-dim); }
+.conversation-agent-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-agent-state { flex: 0 0 auto; color: var(--text-muted); }
+.conversation-agent.is-running .conversation-agent-state { color: var(--state-running); }
+.conversation-agent.is-failed .conversation-agent-state { color: var(--state-failed); }
+.conversation-attachment { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px; border: 1px solid var(--border); border-radius: 4px; }
+.conversation-attachment[hidden] { display: none; }
+.conversation-attachment-thumbnail { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 4px; object-fit: cover; }
+.conversation-attachment-name { min-width: 0; margin: 0; color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-approval {
   flex: 0 0 auto;
   margin: 0 16px 8px;
