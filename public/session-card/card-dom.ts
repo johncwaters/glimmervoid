@@ -191,18 +191,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnDocs.type = 'button';
   btnDocs.title = 'Open docs the agent surfaced';
 
-  const faceSwitch = el('div', 'face-switch');
-  faceSwitch.setAttribute('role', 'group');
-  faceSwitch.setAttribute('aria-label', 'Card view');
-  const btnFaceTerminal = el('button', 'face-switch-option', 'Terminal');
-  btnFaceTerminal.type = 'button';
-  btnFaceTerminal.setAttribute('aria-pressed', 'true');
-  const btnFaceConversation = el('button', 'face-switch-option', 'Conversation');
-  btnFaceConversation.type = 'button';
-  btnFaceConversation.setAttribute('aria-pressed', 'false');
-  faceSwitch.append(btnFaceTerminal, btnFaceConversation);
-
-  actions.append(faceSwitch, btnDocs, btnPlan, btnDebug, btnTrace, sessionMenuWrap, btnRemove);
+  actions.append(btnDocs, btnPlan, btnDebug, btnTrace, sessionMenuWrap, btnRemove);
   const tags = el('div', 'session-card-tags');
   const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec));
   if (permsBadge) tagChildren.push(permsBadge);
@@ -213,7 +202,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnSessionMenu, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, faceSwitch, btnFaceTerminal, btnFaceConversation, sessionMenu, termWrap };
+  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnSessionMenu, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, sessionMenu, termWrap };
 }
 
 export function paintGuardrailsMenuItem(button: HTMLButtonElement, card: HTMLElement) {

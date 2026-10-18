@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Conversation view composer works like a chat app**: the message box is one line that grows as you type, with + to attach a photo or file on the left and Stop and Send on the right, sized for a thumb on the phone. Enter sends on desktop and starts a new line on the phone, where you send with the button. The Terminal | Conversation switch in the card header and the Terminal button are gone; to get the terminal back, turn off Conversation view in the session menu. A prompt the view cannot answer still offers Open terminal.
+- **Photos show in the Conversation view**: every image you attached through Glimmervoid now shows under your message. Tap one to open it full size. Send with an empty box sends an attached photo on its own, and + stays off while the agent is waiting on a prompt.
 - **Session card menu button**: the session card's menu button is now a neutral Session actions button instead of the restart arrow, since the menu holds more than Restart (Conversation view, Guardrails, Coherence journal, Link pull request).
 - **Quiet project headers**: on the phone Board and the desktop rail, a project header shows only its name, session count and +, which starts a session straight away. Adopt Coherence and the Coherence trend moved to the Factory floor's Coherence lines, where a failed adopt shows a red Adopt failed signal that reopens the adopt dialog with the error.
 - **Phone session header leads with the task**: the phone terminal header gives the task title its own line and lets it wrap to three lines instead of cutting it off, with the session name, a state dot and the timer underneath.
@@ -34,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Swipe back in phone Settings**: swiping back from a Settings section now slides straight to the section list, instead of sliding the same section away and then blinking over to the list.
+- **No terminal keys over the Conversation view**: on the phone, opening the keyboard in the Conversation view no longer shows the Esc, Tab, arrows and Paste strip meant for the terminal.
 - **Terminal gap**: the strip below a terminal's last row now matches the terminal background instead of showing black, most visible on phone above the bottom nav.
 - **Adopt Coherence names the hook files git ignores**: adopting Coherence in a repository whose .gitignore ignores the .claude or .codex folder used to fail with a vague "hooks install failed" after a full npm install. It now stops before installing anything and lists the exact Coherence hook files to unignore, so you can fix .gitignore and adopt again.
 - **Adopt sets up which Coherence journal files git keeps**: adopting now adds ignore rules so the Coherence records (decisions, defects, work, experiments and the rest) are committed with each session's work, while the per-session activity and read-trace logs stay out of git. Before, nothing was ignored and every session's activity log turned up in its diff. A repository whose existing rules would still hide any of those records (a `*.jsonl` rule, say) gets the same "git ignores" message as for ignored hook files.

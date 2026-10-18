@@ -40,9 +40,6 @@ export interface SessionUi {
   btnGuardrails: HTMLButtonElement;
   btnTrace: HTMLButtonElement;
   btnPlan: HTMLButtonElement;
-  faceSwitch: HTMLDivElement;
-  btnFaceTerminal: HTMLButtonElement;
-  btnFaceConversation: HTMLButtonElement;
   btnDocs: HTMLButtonElement;
   btnRemove: HTMLButtonElement;
   debugOverlay: HTMLDivElement | null;
@@ -57,7 +54,6 @@ export interface SessionUi {
   planReviewState: PlanReviewState;
   planFace: PlanFaceController;
   conversationFace: ConversationFaceController;
-  prefersConversation: boolean;
   conversationApproval: ConversationApproval | null;
   hasConversationBridge: boolean;
   isConversationViewOn: boolean;

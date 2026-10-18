@@ -169,6 +169,12 @@ function boundedToolCallInput(input: unknown): { input: unknown; truncated?: tru
   return { input: bounded.input, truncated: true };
 }
 
+function everyTextBlockJoined(blocks: TranscriptContentBlock[]): string | null {
+  const blockTexts = blocks.flatMap((block) => firstTextBlock([block]) ?? []);
+  if (blockTexts.length === 0) return null;
+  return blockTexts.join('\n');
+}
+
 function mapUserLine(
   rawLine: string,
   line: TranscriptLine,
@@ -192,13 +198,14 @@ function mapUserLine(
     }];
   }
 
-  const text = typeof content === 'string' ? content : firstTextBlock(blocks);
   if (line.isMeta === true) {
-    if (!text) return [rawRecord(rawLine, line, context)];
+    const expansionText = typeof content === 'string' ? content : everyTextBlockJoined(blocks);
+    if (!expansionText) return [rawRecord(rawLine, line, context)];
     const sourceToolUseId = rawTextOr(line.sourceToolUseID, null);
-    if (!sourceToolUseId) return [{ ...base, kind: 'expansion', ...boundedTextFields(text) }];
-    return [{ ...base, kind: 'expansion', toolUseId: sourceToolUseId, ...boundedTextFields(text) }];
+    if (!sourceToolUseId) return [{ ...base, kind: 'expansion', ...boundedTextFields(expansionText) }];
+    return [{ ...base, kind: 'expansion', toolUseId: sourceToolUseId, ...boundedTextFields(expansionText) }];
   }
+  const text = typeof content === 'string' ? content : firstTextBlock(blocks);
   if (!text) return [rawRecord(rawLine, line, context)];
   if (typeof content === 'string' && /<command-name>[\s\S]*?<\/command-name>/.test(content)) {
     return [{ ...base, kind: 'expansion', ...boundedTextFields(content) }];

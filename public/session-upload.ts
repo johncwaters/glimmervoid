@@ -1,6 +1,6 @@
 import { showErrorToast } from './session-card/toast.ts';
 
-export async function uploadFileToSession(sessionId: string, file: File) {
+export async function uploadFileToSession(sessionId: string, file: File): Promise<boolean> {
   const headers: Record<string, string> = { 'x-glimmervoid-upload-name': encodeURIComponent(file.name) };
   if (file.type) headers['content-type'] = file.type;
   try {
@@ -9,9 +9,12 @@ export async function uploadFileToSession(sessionId: string, file: File) {
       body: file,
       headers,
     });
-    if (!res.ok) showErrorToast(await uploadErrorText(res));
+    if (res.ok) return true;
+    showErrorToast(await uploadErrorText(res));
+    return false;
   } catch {
     showErrorToast('Upload failed');
+    return false;
   }
 }
 
