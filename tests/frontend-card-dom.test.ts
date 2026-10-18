@@ -9,7 +9,7 @@ class CardElement {
   title = '';
   dataset: Record<string, string> = {};
   children: CardElement[] = [];
-  classList = { toggle() {} };
+  classList = { add() {}, toggle() {} };
 
   append(...children: CardElement[]) { this.children.push(...children); }
 
@@ -33,7 +33,7 @@ interface CardDomModule {
 }
 
 async function importCardDomWithStubbedDocument(context: TestContext): Promise<CardDomModule> {
-  stubGlobalForTest(context, 'document', { createElement: () => new CardElement(), getElementById: () => null });
+  stubGlobalForTest(context, 'document', { createElement: () => new CardElement(), createElementNS: () => new CardElement(), getElementById: () => null });
   const cardDomModulePath = '../public/session-card/card-dom.ts';
   return import(cardDomModulePath);
 }

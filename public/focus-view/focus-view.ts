@@ -13,6 +13,7 @@ import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
+import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { getRailWidth, setRailWidth } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
 import type { SessionRow } from './attention-core.ts';
@@ -78,7 +79,7 @@ function ensureGroup(group: RosterGroup<RosterRow>) {
   if (!header || !list) {
     const row: GroupHeader = Object.assign(el('div', 'focus-rail-group'), {
       _addBtn: el('button', 'focus-rail-group-add', '+'),
-      _forgetBtn: el('button', 'focus-rail-group-remove', '×'),
+      _forgetBtn: el('button', 'focus-rail-group-remove'),
     });
     row.dataset.key = group.key;
     row.innerHTML = '<span class="focus-rail-group-label"></span>'
@@ -89,6 +90,7 @@ function ensureGroup(group: RosterGroup<RosterRow>) {
 
     const forget = row._forgetBtn;
     forget.type = 'button';
+    forget.append(createLineIcon(CLOSE_ICON_PATH));
     forget.addEventListener('click', () => {
       forgetProject(row.dataset.path);
       refreshFocusRoster();

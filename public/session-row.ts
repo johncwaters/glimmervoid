@@ -4,6 +4,7 @@ import { sessionElapsedText } from './session-card/session-tick.ts';
 import { SIGNAL_TIER } from './signal-core.ts';
 import type { Signal } from './signal-core.ts';
 import { paintSignalLine } from './signal.ts';
+import { CLOSE_ICON_PATH, createLineIcon } from './svg-dom.ts';
 import type { ActivatableSignal } from './signal.ts';
 
 export type SessionRowRefs = ReturnType<typeof buildSessionRow>['refs'];
@@ -60,7 +61,8 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
 
 export function wrapSessionRow(row: HTMLElement, onRemove: () => void) {
   const item = el('div', 'session-row-item');
-  const removeButton = el('button', 'session-row-remove', 'x');
+  const removeButton = el('button', 'session-row-remove');
+  removeButton.append(createLineIcon(CLOSE_ICON_PATH));
   removeButton.type = 'button';
   removeButton.title = 'Remove session';
   removeButton.setAttribute('aria-label', 'Remove session');
