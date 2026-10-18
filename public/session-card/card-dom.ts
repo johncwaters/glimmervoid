@@ -6,6 +6,7 @@ import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { escapeMarkup } from '#shared/escape-markup.ts';
 import { el } from '../dom-helpers.ts';
+import { buildMenuItem } from '../menu.ts';
 import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell } from './modal.ts';
 import type { SessionUi } from './card-registry.ts';
@@ -134,20 +135,20 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnRestartMenu.setAttribute('aria-label', 'Restart');
   btnRestartMenu.setAttribute('aria-haspopup', 'menu');
   btnRestartMenu.setAttribute('aria-expanded', 'false');
-  const restartMenu = el('div', 'session-overflow-menu');
+  const restartMenu = el('div', 'popup-menu session-overflow-menu');
   restartMenu.id = `restart-menu-${sessionId}`;
   restartMenu.setAttribute('role', 'menu');
   btnRestartMenu.setAttribute('aria-controls', restartMenu.id);
 
-  const btnRestart = buildRestartMenuItem('Restart', 'Keeps this conversation', 'overflow-restart');
-  const btnRestartFresh = buildRestartMenuItem('Restart fresh', 'Ends this conversation and starts a new one', 'overflow-restart-fresh');
-  const btnResume = buildRestartMenuItem('Resume conversation...', 'Pick an earlier conversation', 'overflow-resume');
-  const btnWorkspaceRepos = buildRestartMenuItem('Edit repositories...', 'Add or remove repositories in this workspace', 'overflow-workspace-repos');
-  const btnLinkPr = buildRestartMenuItem('Link pull request...', 'Show a pull request on this card', 'overflow-link-pr visible');
-  const btnConversationView = buildRestartMenuItem('Conversation view', 'Show this session as messages (experimental)', 'overflow-conversation-view');
+  const btnRestart = buildMenuItem('Restart', 'Keeps this conversation', 'overflow-restart');
+  const btnRestartFresh = buildMenuItem('Restart fresh', 'Ends this conversation and starts a new one', 'overflow-restart-fresh');
+  const btnResume = buildMenuItem('Resume conversation...', 'Pick an earlier conversation', 'overflow-resume');
+  const btnWorkspaceRepos = buildMenuItem('Edit repositories...', 'Add or remove repositories in this workspace', 'overflow-workspace-repos');
+  const btnLinkPr = buildMenuItem('Link pull request...', 'Show a pull request on this card', 'overflow-link-pr visible');
+  const btnConversationView = buildMenuItem('Conversation view', 'Show this session as messages (experimental)', 'overflow-conversation-view');
   btnConversationView.setAttribute('role', 'menuitemcheckbox');
   btnConversationView.setAttribute('aria-checked', 'false');
-  const btnGuardrails = buildRestartMenuItem('Guardrails', 'Limit what this session can read, write and reach', 'overflow-guardrails');
+  const btnGuardrails = buildMenuItem('Guardrails', 'Limit what this session can read, write and reach', 'overflow-guardrails');
   btnGuardrails.setAttribute('role', 'menuitemcheckbox');
   paintGuardrailsMenuItem(btnGuardrails, card);
   btnLinkPr.onclick = () => {
@@ -155,7 +156,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnRestartMenu.setAttribute('aria-expanded', 'false');
     openLinkPullRequestDialog(sessionId);
   };
-  const btnCoherenceJournal = buildRestartMenuItem('Coherence journal', 'Decisions and notes this session recorded', 'overflow-coherence-journal');
+  const btnCoherenceJournal = buildMenuItem('Coherence journal', 'Decisions and notes this session recorded', 'overflow-coherence-journal');
   btnCoherenceJournal.setAttribute('aria-haspopup', 'dialog');
   const paintCoherenceJournalItem = () => btnCoherenceJournal.classList.toggle('visible', cardCoherenceJournal?.isReadable(sessionId) === true);
   btnRestartMenu.onclick = paintCoherenceJournalItem;
@@ -219,15 +220,6 @@ export function paintGuardrailsMenuItem(button: HTMLButtonElement, card: HTMLEle
   const isGuarded = card.dataset.guarded !== undefined;
   button.classList.toggle('visible', isGuarded || card.dataset.guardrailsReleased !== undefined);
   button.setAttribute('aria-checked', String(isGuarded));
-}
-
-function buildRestartMenuItem(label: string, hint: string, className: string) {
-  const button = el('button', `overflow-item ${className}`);
-  button.type = 'button';
-  button.setAttribute('role', 'menuitem');
-  button.setAttribute('aria-label', label);
-  button.append(el('span', 'restart-menu-label', label), el('span', 'restart-menu-hint', hint));
-  return button;
 }
 
 function openLinkPullRequestDialog(sessionId: string) {

@@ -15,9 +15,10 @@ import { createAddSessionDialog } from './dialogs.ts';
 import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, forgetSessionCoherence, isSessionJournalReadable, openCoherenceJournal, sessionRowCoherenceSignals, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
-import { applyProjectCoherenceTrend, applyProjectCoherenceTrendSnapshot, forgetCoherenceTrendProject, noteCoherenceTrendProject, setCoherenceTrendProjects } from './coherence/trend-chip.ts';
-import { applyProjectCoherenceStatus, buildProjectCoherenceAction, paintProjectHeaderCoherenceAction, setCoherenceAdoptFactoryProjects, setProjectCoherenceAdoptEnabled, setProjectCoherenceAdoptRefresh } from './coherence/adopt-action.ts';
+import { applyProjectCoherenceTrend, applyProjectCoherenceTrendSnapshot, forgetCoherenceTrendProject, noteCoherenceTrendProject, projectTrendAction, setCoherenceTrendProjects } from './coherence/trend-chip.ts';
+import { applyProjectCoherenceStatus, buildProjectAdoptFailure, paintProjectAdoptFailure, projectAdoptAction, setCoherenceAdoptFactoryProjects, setProjectCoherenceAdoptEnabled, setProjectCoherenceAdoptRefresh } from './coherence/adopt-action.ts';
 import { setProjectHeaderCoherencePainter } from './project-header.ts';
+import { addProjectActionSource } from './project-actions-menu.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
 import type { FeatureSurfaceSettings } from './feature-surfaces-core.ts';
@@ -355,7 +356,9 @@ addSessionRowSignalSource(sessionRowCoherenceSignals);
 addSessionRowSignalSource(sessionRowPrSignals);
 setCardCoherenceJournal({ isReadable: isSessionJournalReadable, open: openCoherenceJournal });
 setProjectCoherenceAdoptRefresh(refreshRosterAndAttentionSurfaces);
-setProjectHeaderCoherencePainter({ build: buildProjectCoherenceAction, paint: paintProjectHeaderCoherenceAction });
+setProjectHeaderCoherencePainter({ build: buildProjectAdoptFailure, paint: paintProjectAdoptFailure });
+addProjectActionSource(projectAdoptAction);
+addProjectActionSource(projectTrendAction);
 
 function refreshViewsIfVisible(reason: ViewRefreshReason) {
   refreshVisibleViews(VIEW_TABS, { isPhoneShellActive: isPhoneShellActive(), activeView: getActiveView(), phoneScreen: uiState.snapshot().phoneScreen }, reason);

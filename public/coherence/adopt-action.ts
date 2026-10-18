@@ -1,9 +1,12 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
+import type { ProjectAction } from '../project-actions-menu.ts';
 import { buildDialogShell } from '../session-card/modal.ts';
+import { createSignal } from '../signal.ts';
+import { SIGNAL_TIER } from '../signal-core.ts';
 import { coherenceAdoptReplyStatus, shouldOfferCoherenceAdopt } from './adopt-core.ts';
-import { buildProjectCoherenceChip, findCoherenceTrendProjectId, hasCoherenceTrendReading, paintProjectHeaderCoherenceChip } from './trend-chip.ts';
+import { findCoherenceTrendProjectId, hasCoherenceTrendReading } from './trend-chip.ts';
 
 let projectStatuses: ServerMessageOf<'project-coherence-status'>['projects'] = {};
 let isCoherenceEnabled = false;
@@ -43,18 +46,45 @@ function applyProjectCoherenceAdoptResponse(message: ServerMessageOf<'project-co
   refreshHeaders();
 }
 
-export function buildProjectCoherenceAction(): HTMLElement {
-  const container = el('div', 'coherence-project-action');
-  const action = el('div', 'coherence-adopt-action');
-  const button = el('button', 'coherence-journal-button', 'Adopt Coherence');
-  button.type = 'button';
-  button.setAttribute('aria-haspopup', 'dialog');
-  button.addEventListener('click', () => {
-    if (container.dataset.projectId) openAdoptDialog(container.dataset.projectId);
-  });
-  action.append(button, ...buildAdoptProgress());
-  container.append(buildProjectCoherenceChip(), action);
+function canAdoptProject(projectId: string) {
+  return shouldOfferCoherenceAdopt(hasCoherenceTrendReading(projectId), projectStatuses[projectId], isCoherenceEnabled, factoryProjectIds.has(projectId));
+}
+
+export function projectAdoptAction(projectPath: string): ProjectAction | null {
+  const projectId = findCoherenceTrendProjectId(projectPath);
+  if (!projectId || !canAdoptProject(projectId) || adoptionsByProjectId.get(projectId)?.ok) return null;
+  return {
+    label: 'Adopt Coherence',
+    hint: 'Set up the decision journal and its hooks',
+    className: 'project-action-adopt-coherence',
+    run: () => openAdoptDialog(projectId),
+  };
+}
+
+export function buildProjectAdoptFailure(): HTMLElement {
+  const container = el('span', 'coherence-adopt-failure');
+  container.hidden = true;
   return container;
+}
+
+export function paintProjectAdoptFailure(slot: HTMLElement, projectPath: string) {
+  const container = slot.querySelector<HTMLElement>('.coherence-adopt-failure');
+  if (!container) return;
+  const projectId = findCoherenceTrendProjectId(projectPath);
+  const adoption = projectId ? adoptionsByProjectId.get(projectId) : undefined;
+  const hasFailed = !!projectId && canAdoptProject(projectId) && adoption?.isPending === false && !adoption.ok;
+  const failureText = hasFailed ? adoption.text : '';
+  container.hidden = !hasFailed;
+  if (container.dataset.failureText === failureText) return;
+  container.dataset.failureText = failureText;
+  if (!hasFailed) {
+    container.replaceChildren();
+    return;
+  }
+  container.replaceChildren(createSignal(
+    { key: 'coherence-adopt-failed', text: 'Adopt failed', hoverText: failureText, look: { icon: 'failed', tone: 'danger' }, tier: SIGNAL_TIER.broken },
+    { onActivate: () => openAdoptDialog(projectId) },
+  ));
 }
 
 function buildAdoptProgress(): HTMLElement[] {
@@ -75,26 +105,8 @@ function paintAdoptProgress(container: HTMLElement, adoption: { isPending: boole
   status.dataset.error = String(adoption?.ok === false && !isAdopting);
 }
 
-export function paintProjectHeaderCoherenceAction(slot: HTMLElement, projectPath: string) {
-  const container = slot.querySelector<HTMLElement>('.coherence-project-action');
-  if (!container) return;
-  const projectId = findCoherenceTrendProjectId(projectPath);
-  const projectStatus = projectId ? projectStatuses[projectId] : undefined;
-  const canAdopt = !!projectId && shouldOfferCoherenceAdopt(hasCoherenceTrendReading(projectId), projectStatus, isCoherenceEnabled, factoryProjectIds.has(projectId));
-  const adoption = projectId ? adoptionsByProjectId.get(projectId) : undefined;
-  container.dataset.projectId = projectId ?? '';
-  paintProjectHeaderCoherenceChip(slot, projectPath);
-  const chip = container.querySelector<HTMLElement>('.coherence-trend-chip');
-  const action = container.querySelector<HTMLElement>('.coherence-adopt-action');
-  if (action) action.hidden = !canAdopt;
-  const button = action?.querySelector('button');
-  if (button) button.hidden = adoption?.ok === true;
-  if (action) paintAdoptProgress(action, adoption);
-  container.hidden = !canAdopt && (!chip || chip.hidden);
-}
-
 function openAdoptDialog(projectId: string) {
-  if (!shouldOfferCoherenceAdopt(hasCoherenceTrendReading(projectId), projectStatuses[projectId], isCoherenceEnabled, factoryProjectIds.has(projectId))) return;
+  if (!canAdoptProject(projectId)) return;
   if (openDialog?.projectId === projectId) return;
   openDialog?.close();
   const shell = buildDialogShell({ title: 'Adopt Coherence', dialogClass: 'dialog coherence-adopt-dialog' });

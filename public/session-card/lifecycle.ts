@@ -53,6 +53,7 @@ import {
 import { releaseWebgl } from './webgl-pool.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
 import { applyTerminalFontFamily } from '../mono-font-core.ts';
+import { focusAdjacentMenuItem, isMenuArrowKey } from '../menu.ts';
 
 const AGGREGATE_GLYPHS: Record<string, string> = {
   critical: STATE_GLYPHS[STATES.FAILED],
@@ -287,9 +288,8 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     ui.btnRestartMenu.setAttribute('aria-expanded', String(isOpen));
   });
 
-  const menuItems = [ui.btnRestart, ui.btnRestartFresh, ui.btnResume, ui.btnWorkspaceRepos, ui.btnConversationView, ui.btnGuardrails];
   function moveMenuFocus(event: KeyboardEvent) {
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    if (!isMenuArrowKey(event)) return;
     event.preventDefault();
     event.stopPropagation();
     for (const [, other] of sessionUIs) {
@@ -297,11 +297,7 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     }
     ui.restartMenu.classList.add('open');
     ui.btnRestartMenu.setAttribute('aria-expanded', 'true');
-    const visibleItems = menuItems.filter((item) => item.classList.contains('visible'));
-    const focusedElement = document.activeElement;
-    const focusedIndex = focusedElement instanceof HTMLButtonElement ? visibleItems.indexOf(focusedElement) : -1;
-    const nextIndex = event.key === 'ArrowDown' ? focusedIndex + 1 : focusedIndex < 0 ? visibleItems.length - 1 : focusedIndex - 1;
-    visibleItems[(nextIndex + visibleItems.length) % visibleItems.length]?.focus();
+    focusAdjacentMenuItem([...ui.restartMenu.querySelectorAll<HTMLElement>('.popup-menu-item.visible')], event);
   }
   ui.btnRestartMenu.addEventListener('keydown', moveMenuFocus);
   ui.restartMenu.addEventListener('keydown', moveMenuFocus);
