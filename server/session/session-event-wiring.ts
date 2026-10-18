@@ -236,7 +236,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     }) => {
       if (to === STATES.IDLE || to === STATES.COMPLETE) {
         dependencies.taskTitleRefiner?.onTurnEnd(session);
-        dependencies.coherenceFeed?.onTurnEnd(session);
+        void session.refreshCoherenceHooks()
+          .catch((error: unknown) => dependencies.logger.warn(`[${session.name}] Coherence hooks refresh failed: ${errorMessage(error)}`))
+          .finally(() => dependencies.coherenceFeed?.onTurnEnd(session));
       }
       if (event === 'spawn_success') {
         spawnedAtMs = Date.now();

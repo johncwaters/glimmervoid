@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Adopt Coherence names the hook files git ignores**: adopting Coherence in a repository whose .gitignore ignores the .claude or .codex folder used to fail with a vague "hooks install failed" after a full npm install. It now stops before installing anything and lists the exact Coherence hook files to unignore, so you can fix .gitignore and adopt again.
+- **Running sessions pick up Coherence after adopt**: a session started before its repository adopted Coherence used to keep reporting the hooks as missing, and each Coherence hook failed with "coherence hook target missing". The session now checks again at the end of each turn, so its hooks and journal start working without a restart.
 - **Phone terminal has Left and Right keys**: the key strip above the phone keyboard now sends left and right arrows, so you can step back to an earlier question in a Claude Code multi-question prompt and change your answer. To make room, the arrows are compact glyph keys and the Image and File keys are one Attach key, whose picker still offers your photos.
 
 ## [0.38.2] - 2026-10-17

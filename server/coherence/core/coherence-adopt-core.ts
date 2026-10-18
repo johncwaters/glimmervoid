@@ -15,14 +15,15 @@ export const COHERENCE_ADOPT_NPM_FILE_MAX_BYTES = 32 * 1024 * 1024;
 export const COHERENCE_ADOPT_NODE_MODULES_PATHSPECS = Object.freeze([':(glob)**/node_modules', ':(glob)**/node_modules/**']);
 export const COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER = Object.freeze({ relativePath: ['node_modules', '.bin', 'coherence-hook'], text: '#!/bin/sh\nexit 1\n', mode: 0o755 });
 
+export const COHERENCE_ADOPT_CONTROL_FILES: readonly string[] = Object.freeze(COHERENCE_ADOPT_HOSTS.flatMap((host) => COHERENCE_NATIVE_CONTROL_FILES[host]));
 const ADOPT_PACKAGE_FILES = Object.freeze([...COHERENCE_ADOPT_NPM_FILES, '.gitignore']);
 const ADOPT_COMMITTABLE_PATHS: ReadonlySet<string> = new Set([
-  COHERENCE_CONFIG_FILENAME, ...ADOPT_PACKAGE_FILES, ...COHERENCE_ADOPT_HOSTS.flatMap((host) => COHERENCE_NATIVE_CONTROL_FILES[host]),
+  COHERENCE_CONFIG_FILENAME, ...ADOPT_PACKAGE_FILES, ...COHERENCE_ADOPT_CONTROL_FILES,
 ]);
-const ADOPT_REQUIRED_PATHS = Object.freeze([COHERENCE_CONFIG_FILENAME, ...COHERENCE_ADOPT_HOSTS.flatMap((host) => COHERENCE_NATIVE_CONTROL_FILES[host])]);
+const ADOPT_REQUIRED_PATHS = Object.freeze([COHERENCE_CONFIG_FILENAME, ...COHERENCE_ADOPT_CONTROL_FILES]);
 
 export const COHERENCE_ADOPT_NO_SYMLINK_PATHS = Object.freeze([
-  ...ADOPT_PACKAGE_FILES, 'node_modules', '.claude', '.codex', ...COHERENCE_ADOPT_HOSTS.flatMap((host) => COHERENCE_NATIVE_CONTROL_FILES[host]),
+  ...ADOPT_PACKAGE_FILES, 'node_modules', '.claude', '.codex', ...COHERENCE_ADOPT_CONTROL_FILES,
 ]);
 
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;

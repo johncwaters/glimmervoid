@@ -333,6 +333,8 @@ class Session extends EventEmitter {
   _planReviewPort: SessionPlanReviewPort | null;
   _prepareCoherenceHooks: ((cwd: string, options: { canWriteShims: boolean }) => Promise<CoherenceHooksState | null>) | null;
   coherenceHooks: CoherenceHooksState | null;
+  _coherenceHooksRefresh: Promise<void> | null;
+  _coherenceHooksGeneration: number;
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
   _agentToken: string | null;
@@ -569,6 +571,8 @@ class Session extends EventEmitter {
     this._planReviewPort = planReviewPort;
     this._prepareCoherenceHooks = prepareCoherenceHooks;
     this.coherenceHooks = null;
+    this._coherenceHooksRefresh = null;
+    this._coherenceHooksGeneration = 0;
     this._hooks = createSessionHookLifecycle({
       id: this.id,
       name: this.name,
@@ -1426,6 +1430,21 @@ class Session extends EventEmitter {
     return this._startPending;
   }
 
+  refreshCoherenceHooks(): Promise<void> {
+    if (this._coherenceHooksRefresh) return this._coherenceHooksRefresh;
+    this._coherenceHooksRefresh = this._refreshCoherenceHooksBody().finally(() => { this._coherenceHooksRefresh = null; });
+    return this._coherenceHooksRefresh;
+  }
+
+  async _refreshCoherenceHooksBody(): Promise<void> {
+    if (!this._prepareCoherenceHooks || this.coherenceHooks?.active === true || this._destroyed) return;
+    const generationAtRefresh = this._coherenceHooksGeneration;
+    const refreshedHooks = await this._prepareCoherenceHooks(this.effectiveCwd(), { canWriteShims: this.worktreeDir !== null });
+    if (this._destroyed || generationAtRefresh !== this._coherenceHooksGeneration || JSON.stringify(refreshedHooks) === JSON.stringify(this.coherenceHooks)) return;
+    this.coherenceHooks = refreshedHooks;
+    this.emit('coherence-hooks-change', this.coherenceHooks);
+  }
+
   async _startBody({ fresh = false, resumePrompt = null }: { fresh?: boolean; resumePrompt?: string | null } = {}): Promise<void> {
     if (this._destroyed) return;
     this.setWaitingForMemory(false);
@@ -1450,6 +1469,7 @@ class Session extends EventEmitter {
 
     if (this._destroyed) return;
     if (this._prepareCoherenceHooks) {
+      this._coherenceHooksGeneration += 1;
       this.coherenceHooks = await this._prepareCoherenceHooks(this.effectiveCwd(), { canWriteShims: this.worktreeDir !== null });
       if (this._destroyed) return;
       this.emit('coherence-hooks-change', this.coherenceHooks);

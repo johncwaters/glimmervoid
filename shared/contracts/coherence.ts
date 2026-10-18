@@ -289,6 +289,7 @@ export const CoherenceAdoptError = z.enum({
   notGitRepository: 'not a git repository',
   noOrigin: 'no origin',
   tracksNodeModules: 'repo tracks node_modules',
+  ignoresControlFiles: 'repo ignores Coherence hook files',
   npmInstallFailed: 'npm install failed',
   hooksInstallFailed: 'hooks install failed',
   pushRejected: 'push rejected',
@@ -310,6 +311,7 @@ export const ProjectCoherenceAdoptResult = z.object({
   ok: z.boolean(),
   sha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/).optional(),
   error: CoherenceAdoptError.optional(),
+  ignoredPaths: z.array(z.string().max(256)).max(16).optional(),
 });
 export type ProjectCoherenceAdoptResult = z.infer<typeof ProjectCoherenceAdoptResult>;
 

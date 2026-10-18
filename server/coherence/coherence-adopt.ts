@@ -6,7 +6,7 @@ import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts
 import { errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { COHERENCE_CONFIG_FILENAME } from './core/coherence-config-core.ts';
 import {
-  COHERENCE_ADOPT_CONFIG_TEXT, COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER, COHERENCE_ADOPT_HOSTS, COHERENCE_ADOPT_NO_SYMLINK_PATHS, COHERENCE_ADOPT_NODE_MODULES_PATHSPECS,
+  COHERENCE_ADOPT_CONFIG_TEXT, COHERENCE_ADOPT_CONTROL_FILES, COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER, COHERENCE_ADOPT_HOSTS, COHERENCE_ADOPT_NO_SYMLINK_PATHS, COHERENCE_ADOPT_NODE_MODULES_PATHSPECS,
   COHERENCE_ADOPT_NPM_FILE_MAX_BYTES, COHERENCE_ADOPT_NPM_FILES, COHERENCE_ADOPT_TIMEOUT_MS, COHERENCE_PACKAGE_NAME,
   coherenceAdoptCommitMessage, coherenceAdoptStepFailure, coherenceHooksInstallArgs, coherenceNpmLockfileArgs, coherencePushArgs, gitignoreTextWithNodeModules,
   isExactCoherenceVersion, judgeCoherenceAdoptPaths, judgeCoherenceAdoptRequest, judgeCoherenceAdoptTrackedPaths, packageTextWithCoherencePin, pathsFromPorcelainStatus,
@@ -42,7 +42,7 @@ interface CoherenceAdoptOptions {
   log?: Pick<Console, 'warn'>;
 }
 
-type AdoptFailure = { ok: false; error: CoherenceAdoptError; detail: string };
+type AdoptFailure = { ok: false; error: CoherenceAdoptError; detail: string; ignoredPaths?: string[] };
 type ShippedCoherence = { cliPath: string; version: string };
 type NpmFileTexts = Record<string, string | null>;
 type AdoptOutcome<Value> = { ok: true; value: Value } | AdoptFailure;
@@ -113,6 +113,16 @@ async function findSymlinkedTarget(checkout: string): Promise<string | null> {
 async function trackedNodeModulesPaths(checkout: string): Promise<string[]> {
   const { stdout } = await runHardenedGit(['ls-files', '-z', '--', ...COHERENCE_ADOPT_NODE_MODULES_PATHSPECS], { cwd: checkout, timeout: GIT_TIMEOUT_MS, maxBuffer: COMMAND_MAX_BUFFER_BYTES });
   return stdout.split('\0').filter((trackedPath) => trackedPath !== '');
+}
+
+async function ignoredControlPaths(checkout: string): Promise<string[]> {
+  try {
+    const { stdout } = await runHardenedGit(['check-ignore', '--', ...COHERENCE_ADOPT_CONTROL_FILES], { cwd: checkout, timeout: GIT_TIMEOUT_MS });
+    return stdout.split('\n').filter((ignoredPath) => ignoredPath !== '');
+  } catch (error) {
+    if (isCompletedCommandFailure(error) && error.code === 1) return [];
+    throw error;
+  }
 }
 
 async function readNpmFiles(checkout: string): Promise<AdoptOutcome<NpmFileTexts>> {
@@ -225,6 +235,8 @@ function createCoherenceAdopt({
     const trackedNodeModules = await trackedNodeModulesPaths(checkout);
     const trackedNodeModulesError = judgeCoherenceAdoptTrackedPaths(trackedNodeModules);
     if (trackedNodeModulesError !== null) return failure(trackedNodeModulesError, trackedNodeModules.slice(0, 5).join(', '));
+    const ignoredPaths = await ignoredControlPaths(checkout);
+    if (ignoredPaths.length > 0) return { ...failure(CoherenceAdoptError.enum.ignoresControlFiles, ignoredPaths.join(', ')), ignoredPaths };
     const symlinkedTarget = await findSymlinkedTarget(checkout);
     if (symlinkedTarget !== null) return failure(CoherenceAdoptError.enum.failed, `${symlinkedTarget} is a symbolic link`);
     const npmFileTexts = await readNpmFiles(checkout);
@@ -310,7 +322,7 @@ function createCoherenceAdopt({
     const adopted = await adoptProjectAt(project.path).catch((error: unknown) => failure(CoherenceAdoptError.enum.failed, firstLine(errorMessage(error))));
     if (!adopted.ok) {
       log.warn(`[coherence-adopt] adopting ${projectId} failed with ${adopted.error}: ${adopted.detail}`);
-      return { projectId, ok: false, error: adopted.error };
+      return { projectId, ok: false, error: adopted.error, ...(adopted.ignoredPaths ? { ignoredPaths: adopted.ignoredPaths } : {}) };
     }
     void statusMessage().then(broadcastControl, (error: unknown) => log.warn(`[coherence-adopt] status after adopting ${projectId} failed: ${firstLine(errorMessage(error))}`));
     return { projectId, ok: true, sha: adopted.value };
