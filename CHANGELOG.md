@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Terminal stays live after a session setting change**: releasing or restoring a session's guardrails, or changing its agent, folder or permissions, no longer leaves its terminal blank until you restart it, on desktop or phone.
 - **Phone terminal has Left and Right keys**: the key strip above the phone keyboard now sends left and right arrows, so you can step back to an earlier question in a Claude Code multi-question prompt and change your answer. To make room, the arrows are compact glyph keys and the Image and File keys are one Attach key, whose picker still offers your photos.
 
 ## [0.38.2] - 2026-10-17

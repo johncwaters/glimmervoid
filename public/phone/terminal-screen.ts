@@ -163,6 +163,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     }
     if (ui.card.parentElement !== cardSlot) {
       show(shownId);
+      if (!screen.hidden) setTerminalActiveViewer(ui, shownId, true);
       return;
     }
     paint();

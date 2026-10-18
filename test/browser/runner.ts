@@ -669,6 +669,18 @@ async function runClick(
   return passedOutcome('control-clicked', `clicked ${control}`);
 }
 
+async function runReleaseGuardrails(viewer: Viewer, sessionId: string): Promise<StepOutcome> {
+  await viewer.page.evaluate(async (id) => {
+    const tokenResponse = await fetch('/control-token');
+    const { token } = await tokenResponse.json();
+    const controlSocket = new WebSocket(`ws://${location.host}/control?token=${encodeURIComponent(token)}`);
+    await new Promise((resolve) => controlSocket.addEventListener('open', resolve));
+    controlSocket.send(JSON.stringify({ type: 'set-session-guardrails', id, isOn: false }));
+    controlSocket.close();
+  }, sessionId);
+  return passedOutcome('guardrails-released', 'sent set-session-guardrails off');
+}
+
 async function takeShot(viewer: Viewer, artifacts: ArtifactPaths, key: string, name: string): Promise<StepOutcome> {
   const shotPath = path.join(artifacts.shotsDir, `${key}--${name}.png`);
   await viewer.page.screenshot({ path: shotPath, fullPage: false });
@@ -886,6 +898,7 @@ export async function runCase({
     if (step.kind === 'watch-terminal') return runWatchTerminal(viewer, sessionId, tickAtWatchByViewer);
     if (step.kind === 'expect-terminal-untouched') return runExpectTerminalUntouched(viewer, sessionId, step.durationMs);
     if (step.kind === 'expect-revealed') return runExpectRevealed(viewer, sessionId, tickAtWatchByViewer.get(viewer.id) ?? null, deadlines);
+    if (step.kind === 'release-guardrails') return runReleaseGuardrails(viewer, sessionId);
     if (step.kind === 'load-deep-history') return runLoadDeepHistory(viewer, sessionId, deadlines);
     const shot = await takeShot(viewer, artifacts, key, step.name);
     if (shot.shot) shots.push(shot.shot);

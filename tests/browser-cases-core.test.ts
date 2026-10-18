@@ -18,8 +18,8 @@ import {
 import type { HarnessCase, Scenario, Step, Viewport } from '../test/browser/cases-core.ts';
 import { BURST_CAP } from '../test/browser/frame-core.ts';
 
-const DEFAULT_CASE_COUNT = 67;
-const PROVE_FAILURE_CASE_COUNT = 69;
+const DEFAULT_CASE_COUNT = 69;
+const PROVE_FAILURE_CASE_COUNT = 71;
 
 function viewportNamed(name: string): Viewport {
   const found = VIEWPORTS.find((viewport) => viewport.name === name);
@@ -279,6 +279,7 @@ test('cases come out in viewport order then scenario order', () => {
     'phone-reconnect-mouse-scroll',
     'issues',
     'team-review',
+    'release-guardrails',
     'cold-open',
     'reopen-x3',
     'resize-storm',
