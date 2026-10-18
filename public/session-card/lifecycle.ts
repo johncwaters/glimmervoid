@@ -43,6 +43,7 @@ import { showErrorToast } from './toast.ts';
 
 import { refreshElapsed } from './session-tick.ts';
 import {
+  closeDataWs,
   ensureTerminalReady,
   ensureTerminalSetup,
   setTerminalCursorBlink,
@@ -790,7 +791,7 @@ export function removeSessionCard(sessionId: unknown) {
 
   if (ui.resizeObserver) ui.resizeObserver.disconnect();
   if (ui.abortController) ui.abortController.abort();
-  if (ui.dataWs && ui.dataWs.readyState <= WebSocket.OPEN) ui.dataWs.close();
+  closeDataWs(ui, sessionIdOf(sessionId));
   releaseWebgl(ui);
   if (ui.term) ui.term.dispose();
 

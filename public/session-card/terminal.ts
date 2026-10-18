@@ -303,6 +303,13 @@ export function reconnectDataWs(id: unknown) {
   abandonedSocket?.close();
 }
 
+export function closeDataWs(ui: SessionUi, sessionId: string) {
+  const closingSocket = ui.dataWs;
+  ui.dataWs = null;
+  renderScheduler.unregister(sessionId);
+  if (closingSocket && closingSocket.readyState <= WebSocket.OPEN) closingSocket.close();
+}
+
 export function sendTerminalInput(ui: SessionUi | null | undefined, data: string | null | undefined, options?: { fromSoftKeyboard?: boolean }) {
   if (!ui || data == null || data === '') return false;
   if (!options?.fromSoftKeyboard) ui._resetSoftKeyboardBuffer?.();
