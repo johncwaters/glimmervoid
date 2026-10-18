@@ -142,7 +142,7 @@ const GUARDRAILS_PLACEHOLDER_NAMES: readonly string[] = Object.freeze([
 const WHOLE_FILESYSTEM = '/';
 const GUARDRAILS_TEMP_FOLDER = 'guardrails-temp';
 const GLIMMERVOID_CONFIG_SIBLING_ENTRIES: readonly string[] = Object.freeze([
-  'bin', 'coherence-bin', 'coherence-journals', 'pairings.json', 'pairings-seen.json', 'plans', 'telegram-outbox.json', 'traces', 'uploads', 'usage-budget-state.json', 'usage-lanes.json', 'usage-warehouse.json',
+  'bin', 'coherence-bin', 'coherence-journals', 'coherence-readings', 'pairings.json', 'pairings-seen.json', 'plans', 'telegram-outbox.json', 'traces', 'uploads', 'usage-budget-state.json', 'usage-lanes.json', 'usage-warehouse.json',
   'visions-intent.json',
 ]);
 const GLIMMERVOID_HOME_STATE_ENTRIES: readonly string[] = Object.freeze([

@@ -100,3 +100,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Both servers are heartbeat-reaped: focus suppression and the Telegram zero-connections gate COUNT open connections, so a half-open socket silently blocks the channel of last resort.
 - Resize is arbitrated by ACTIVE VIEWER: a claim wins and a departure hands the PTY to the most recent survivor, since last-write-wins left a desktop stuck at a phone's column count forever.
 - ANSI is parsed in the browser for display and in the server keeper for attach, because raw bytes are only correct at the width that produced them.
+
+### Coherence Readings
+
+- In the session feed and the readings poll, a Coherence verb that builds the graph runs only inside guardrails on a private snapshot whose config was judged first, never on the host or a live checkout, because the graph imports a repo-named language module and those trees are agent-written (`tests/coherence-session-feed.test.ts`, `tests/coherence-readings.test.ts`).

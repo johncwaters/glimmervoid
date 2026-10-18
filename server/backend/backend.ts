@@ -49,6 +49,9 @@ import { bundled, packageRoot } from '../runtime-paths.ts';
 import { createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
+import { createCoherenceReadings, integrationTipReader } from '../coherence/coherence-readings.ts';
+import { createCoherenceRuntime } from '../coherence/coherence-runtime.ts';
+import { configSiblingPath } from '../pairings-store.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir } from '../core/config-path-core.ts';
 import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
@@ -285,6 +288,20 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     visionsSetup,
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
+  const coherenceRuntime = createCoherenceRuntime();
+  const coherenceReadings = createCoherenceReadings({
+    seriesRoot: configSiblingPath(configStore.configPath, 'coherence-readings'),
+    listProjects: () => (configStore.config.projects ?? []).flatMap(({ id, path: projectPath }) => (id && projectPath ? [{ id, path: projectPath }] : [])),
+    readSettings: () => ({ isFactoryEnabled: configStore.config.factory?.enabled === true, isSettingOn: configStore.config.coherence?.enabled === true }),
+    readIntegrationTip: integrationTipReader(assembledGitWorkspace, () => configStore.config),
+    hasNativeControlAt: coherenceRuntime.hasNativeControlAt,
+    broadcastControl: broadcastControlFromWebSockets,
+    cliPath: coherenceRuntime.cliPath,
+  });
+  void coherenceReadings.start();
+  httpServer.once('close', () => {
+    void coherenceReadings.stop();
+  });
   agentApi = createAgentApiWiring({
     config,
     factory,
@@ -533,6 +550,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     decidePlanReview: laneAssembly.planReview?.decide ?? null,
     sessionDocs,
     coherenceFeed,
+    coherenceReadings,
     changeMapNarrator: laneAssembly.changeMapNarrator,
     serverBuild: () => serverBuild,
     telemetry,

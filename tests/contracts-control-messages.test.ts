@@ -170,6 +170,24 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   },
   { type: 'session-coherence-snapshot', sessions: { 'session-1': { journal: { ok: false, reason: 'the Coherence journal is not a regular file' }, regulation: { ok: false, reason: 'coherence regulate timed out' }, updatedAt: NOW } } },
   { type: 'session-coherence-journal-response', requestId: 'r-journal', id: 'session-1', ok: true, entries: [{ id: 'def-0123456789ab', at: '2026-10-17T10:05:00.000Z', kind: 'defect', text: 'flaky socket test', detail: null, supersedes: null }] },
+  {
+    type: 'project-coherence-trend', projectId: 'project-1',
+    latest: {
+      sha: 'a'.repeat(40), at: '2026-10-17T10:00:00.000Z',
+      drift: { status: 'needs-components', configLine: '"components": [{ "name": "<component>", "files": ["<folder>/**"] }]' },
+      decompose: { status: 'ok', components: 2, commitsAnalyzed: 15, localityPercent: 25, topFindings: [{ kind: 'cross-boundary', subject: 'a <-> b', count: 15 }] },
+      redundancy: { status: 'ok', pairCount: 1, topPairs: [{ a: { file: 'src/size.ts', kind: 'enum', name: 'Size' }, b: { file: 'src/dimension.ts', kind: 'enum', name: 'Dimension' }, score: 4, isDiverged: false }] },
+      mass: { status: 'unavailable', reason: 'the reading timed out' },
+    },
+    trend: { direction: 'decohering', rows: 2, comparedRows: 2, redundancyPairs: { from: 0, to: 1 }, lines: { from: 1, to: 2 } },
+  },
+  { type: 'project-coherence-trend-snapshot', projects: { 'project-1': {
+    latest: {
+      sha: 'b'.repeat(40), at: '2026-10-17T10:00:00.000Z', drift: { status: 'insufficient-history', developmentCommits: 0 },
+      decompose: { status: 'unavailable', reason: 'the guardrails sandbox could not start' }, redundancy: { status: 'ok', pairCount: 0, topPairs: [] }, mass: { status: 'ok', lines: 34, files: 7, symbols: 33 },
+    },
+    trend: { direction: 'steady', rows: 1, comparedRows: 1, redundancyPairs: null, lines: null },
+  } } },
   { type: 'notify', session: 'session-1', category: 'complete', message: 'finished', escalationCount: 0 },
   {
     type: 'update-status', updateAvailable: true, current: '0.23.1', latest: '0.24.0', currentSha: null,

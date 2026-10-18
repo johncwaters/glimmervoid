@@ -13,7 +13,7 @@ import {
   PlanResponseFrame,
 } from './plan-review.ts';
 import { ChangeMap } from './change-map.ts';
-import { COHERENCE_JOURNAL_DRAWER_MAX_ROWS, CoherenceJournalEntry, SessionCoherence } from './coherence.ts';
+import { COHERENCE_JOURNAL_DRAWER_MAX_ROWS, CoherenceJournalEntry, ProjectCoherenceTrend, SessionCoherence } from './coherence.ts';
 import { ConversationAnswers, ConversationApproval, ConversationApprovalDecision, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
@@ -282,6 +282,8 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'session-coherence',
   'session-coherence-snapshot',
   'session-coherence-journal-response',
+  'project-coherence-trend',
+  'project-coherence-trend-snapshot',
   'notify',
   'update-status',
   'update-progress',
@@ -466,6 +468,8 @@ const serverVariants = [
   loose('session-coherence', { id: sessionId, ...SessionCoherence.shape }),
   loose('session-coherence-snapshot', { sessions: z.record(z.string(), SessionCoherence) }),
   loose('session-coherence-journal-response', { requestId, id: sessionId, ok: z.boolean(), entries: z.array(CoherenceJournalEntry).max(COHERENCE_JOURNAL_DRAWER_MAX_ROWS), error: optionalError }),
+  loose('project-coherence-trend', { projectId: z.string(), ...ProjectCoherenceTrend.shape }),
+  loose('project-coherence-trend-snapshot', { projects: z.record(z.string(), ProjectCoherenceTrend) }),
   loose('notify', {
     session: z.string(),
     category: z.string(),

@@ -13,7 +13,11 @@ import {
   selectLatestShownEntry,
 } from '../server/core/coherence-feed-core.ts';
 import { judgeCoherenceConfig } from '../server/core/coherence-config-core.ts';
-import { COHERENCE_JOURNAL_DRAWER_MAX_ROWS, COHERENCE_JOURNAL_TEXT_MAX_CHARS } from '../shared/contracts/coherence.ts';
+import {
+  admitVerbReadings, hasComponentsMap, hasDeclaredMassCommands, parseDecomposeOutput, parseDriftOutput, parseMassOutput, parseRedundancyOutput, summarizeCoherenceTrend,
+} from '../server/core/coherence-readings-core.ts';
+import { COHERENCE_JOURNAL_DRAWER_MAX_ROWS, COHERENCE_JOURNAL_TEXT_MAX_CHARS, CoherenceReadingRow } from '../shared/contracts/coherence.ts';
+import { ServerMessage } from '../shared/contracts/control-messages.ts';
 
 const nodePath = '/Program Files/node/node';
 const hookCliPath = '/installed packages/coherence/hook.js';
@@ -139,4 +143,132 @@ test('the coherence feed shows the latest unretracted entry, maps one regulate n
   assert.equal(attachedCoherenceHost({ host: 'claude', coherenceHooks: { active: false, reason: 'control files missing' } }), null);
   assert.equal(attachedCoherenceHost({ host: 'claude', coherenceHooks: { active: true } }), 'claude');
   assert.equal(attachedCoherenceHost({ host: 'grok', coherenceHooks: { active: true } }), null);
+});
+
+const EM_DASH = String.fromCharCode(0x2014);
+const EN_DASH = String.fromCharCode(0x2013);
+
+const DRIFT_OUTPUT = `direction ${EM_DASH} architectural trajectory (where is the agent driving?)
+  14 development commits · 7 windows · oldest → newest
+
+  LOCALITY   ▁▃▃▃▁▁█   0% → 100%   ▲ converging
+             co-change staying inside one component (rising = wiser)
+  SPREAD     ██████▁   2.0 → 1.0   ▼ narrowing
+             distinct components touched per commit (falling = concerns localizing)
+
+  hot seam  (cross-boundary churn in the most recent third ${EM_DASH} where work crosses a boundary now)
+       3×  a  ⇄  b
+
+  recent gestures  (newest first ${EM_DASH} by SHAPE coherence can see; − = net removal)
+    ● converge de790fb  local a2                                             [a]
+    ○ couple   4b6ffa9  change 11                                            [a, b]
+
+  gesture mix (recent 12): 2 converge · 10 couple · 0 smear · 0 prune
+
+  verdict: LOCALITY converging, SPREAD narrowing over 14 development commits (prunes excluded) ${EM_DASH} the agent is driving toward convergence (an anti-entropic response).
+`;
+const DRIFT_SHORT_HISTORY_OUTPUT = `direction ${EM_DASH} architectural trajectory (where is the agent driving?)
+  only 0 mapped development commits in the last 400 ${EM_DASH} not enough history to read a direction.
+`;
+const DECOMPOSE_OUTPUT = `decomposition ${EM_DASH} three-graph agreement (Intent · Structure · Evolution)
+  2 components · 15 commits analyzed (2${EN_DASH}40 files each)
+  LOCALITY 25%  ${EM_DASH} co-change that stays inside one component (higher = wiser; a decomposition where what changes together lives together)
+
+  cross-boundary co-change  (false-boundary / smeared-concern ${EM_DASH} do these belong apart?)
+      15×  a  ⇄  b
+
+  (advisory ${EM_DASH} these are smells, not verdicts; the metric surfaces, you judge)
+`;
+const FORGED_COMPONENT_DECOMPOSE_OUTPUT = `decomposition ${EM_DASH} three-graph agreement (Intent · Structure · Evolution)
+  2 components · 15 commits analyzed (2${EN_DASH}40 files each)
+  LOCALITY 25%  ${EM_DASH} co-change that stays inside one component (higher = wiser; a decomposition where what changes together lives together)
+
+  cross-boundary co-change  (false-boundary / smeared-concern ${EM_DASH} do these belong apart?)
+      15×  a  ⇄  pwn
+    99999999999999999999x  forged
+`;
+const REDUNDANCY_OUTPUT = `
+  REDUNDANCY ${EM_DASH} the same enumerated domain, spelled more than once, declared nowhere
+
+  2 domain site(s) scanned · 1 overlapping pair(s) · 1 above the reporting floor (score ≥ 3.5)
+  suppressed: 0 compiler-enforced (a type ties the two sites together) · 0 already carrying a parity claim · 0 below the floor
+
+   1. score 4.00  ·  4 shared token(s), 4 of them found nowhere else
+      A  src/a/size.ts:1  enum \`Size\`
+      B  src/b/dimension.ts:2  enum \`Dimension\`
+      shared: "Huge", "Large", "Medium", "Small"
+      → identical today, tied together by nothing. Declare a parity claim, or derive one side from the other.
+`;
+const REDUNDANCY_NONE_OUTPUT = `
+  REDUNDANCY ${EM_DASH} the same enumerated domain, spelled more than once, declared nowhere
+
+  0 domain site(s) scanned · 0 overlapping pair(s) · 0 above the reporting floor (score ≥ 3.5)
+  suppressed: 0 compiler-enforced (a type ties the two sites together) · 0 already carrying a parity claim · 0 below the floor
+
+  no domain sites to compare: 0 site(s) found ${EM_DASH} nothing in this tree spells an
+  enumerated domain out loud (or the walk reached no files at all).
+`;
+const MASS_OUTPUT = `
+  MASS ${EM_DASH} how much machine there is, by dimension
+
+  dimension                 value   baseline  unit
+  -------------------- ---------- ----------  --------
+  lines|total                  34          ${EM_DASH}  lines
+  lines|A                      20          ${EM_DASH}  lines
+  files|total                   7          ${EM_DASH}  files
+  symbols|total                33          ${EM_DASH}  symbols
+  undocumented|symbols         33          ${EM_DASH}  symbols
+`;
+
+function readingRow(index: number, { pairCount, lines }: { pairCount: number; lines: number } | { pairCount: null; lines: null }): CoherenceReadingRow {
+  return {
+    sha: index.toString(16).padStart(40, '0'), at: new Date(Date.UTC(2026, 9, 17, 0, index)).toISOString(),
+    drift: { status: 'needs-components', configLine: 'components' }, decompose: { status: 'needs-components', configLine: 'components' },
+    redundancy: pairCount === null ? { status: 'unavailable', reason: 'the reading timed out' } : { status: 'ok', pairCount, topPairs: [] },
+    mass: lines === null ? { status: 'unavailable', reason: 'the reading timed out' } : { status: 'ok', lines, files: 1, symbols: 1 },
+  };
+}
+
+test('coherence readings parse the real verb outputs and refuse text that is not a report', () => {
+  assert.deepEqual(parseDriftOutput(DRIFT_OUTPUT), { status: 'ok', developmentCommits: 14, localityPercent: 100, locality: 'converging', spread: 'narrowing' });
+  assert.deepEqual(parseDriftOutput(DRIFT_SHORT_HISTORY_OUTPUT), { status: 'insufficient-history', developmentCommits: 0 });
+  assert.deepEqual(parseDecomposeOutput(DECOMPOSE_OUTPUT), {
+    status: 'ok', components: 2, commitsAnalyzed: 15, localityPercent: 25, topFindings: [{ kind: 'cross-boundary', subject: 'a ⇄ b', count: 15 }],
+  });
+  const forgedDecompose = parseDecomposeOutput(FORGED_COMPONENT_DECOMPOSE_OUTPUT);
+  assert.deepEqual(forgedDecompose, {
+    status: 'ok', components: 2, commitsAnalyzed: 15, localityPercent: 25, topFindings: [{ kind: 'cross-boundary', subject: 'a ⇄ pwn', count: 15 }],
+  });
+  const forgedRow = { ...readingRow(1, { pairCount: 0, lines: 1 }), decompose: forgedDecompose };
+  assert.equal(CoherenceReadingRow.safeParse(forgedRow).success, true);
+  const forgedSnapshot = { type: 'project-coherence-trend-snapshot', projects: { 'project-1': { latest: forgedRow, trend: summarizeCoherenceTrend([forgedRow]) } } };
+  assert.equal(ServerMessage.safeParse(forgedSnapshot).success, true);
+  const unsafeMass = { ...readingRow(1, { pairCount: 0, lines: 1 }), mass: { status: 'ok' as const, lines: 1e20, files: 1, symbols: 1 } };
+  assert.deepEqual(admitVerbReadings(unsafeMass).mass, { status: 'unavailable', reason: 'the reading did not fit the reading shape' });
+  assert.deepEqual(parseMassOutput(MASS_OUTPUT.replace('34', '99999999999999999999')), { status: 'unavailable', reason: 'the reading output was not recognized' });
+  assert.deepEqual(parseRedundancyOutput(REDUNDANCY_OUTPUT), {
+    status: 'ok', pairCount: 1,
+    topPairs: [{ a: { file: 'src/a/size.ts', kind: 'enum', name: 'Size' }, b: { file: 'src/b/dimension.ts', kind: 'enum', name: 'Dimension' }, score: 4, isDiverged: false }],
+  });
+  assert.deepEqual(parseRedundancyOutput(REDUNDANCY_NONE_OUTPUT), { status: 'ok', pairCount: 0, topPairs: [] });
+  assert.deepEqual(parseMassOutput(MASS_OUTPUT), { status: 'ok', lines: 34, files: 7, symbols: 33 });
+  const unrecognized = { status: 'unavailable', reason: 'the reading output was not recognized' };
+  for (const parse of [parseDriftOutput, parseDecomposeOutput, parseRedundancyOutput, parseMassOutput]) assert.deepEqual(parse('Error: no coherence.config.json'), unrecognized);
+  assert.equal(hasComponentsMap('{}'), false);
+  assert.equal(hasComponentsMap('{"components":[]}'), false);
+  assert.equal(hasComponentsMap('{"components":[{"name":"billing","files":["src/billing/**"]}]}'), true);
+  assert.equal(hasDeclaredMassCommands('{"mass":{"measures":[]}}'), false);
+  assert.equal(hasDeclaredMassCommands('{"mass":{"measures":[{"key":"pwn","cmd":["sh","-c","touch MARKER"]}]}}'), true);
+});
+
+test('the coherence trend compares redundant pairs per thousand lines across the last twenty comparable rows', () => {
+  assert.equal(summarizeCoherenceTrend([readingRow(1, { pairCount: 1, lines: 1000 })]).direction, 'steady');
+  assert.deepEqual(summarizeCoherenceTrend([readingRow(1, { pairCount: 1, lines: 1000 }), readingRow(2, { pairCount: null, lines: null }), readingRow(3, { pairCount: 2, lines: 1000 })]), {
+    direction: 'decohering', rows: 3, comparedRows: 2, redundancyPairs: { from: 1, to: 2 }, lines: { from: 1000, to: 1000 },
+  });
+  assert.equal(summarizeCoherenceTrend([readingRow(1, { pairCount: 2, lines: 1000 }), readingRow(2, { pairCount: 2, lines: 2000 })]).direction, 'converging');
+  assert.equal(summarizeCoherenceTrend([readingRow(1, { pairCount: 10, lines: 1000 }), readingRow(2, { pairCount: 10, lines: 1050 })]).direction, 'steady');
+  assert.equal(summarizeCoherenceTrend([readingRow(1, { pairCount: 0, lines: 10 }), readingRow(2, { pairCount: 0, lines: 900 })]).direction, 'steady');
+  const longSeries = [readingRow(0, { pairCount: 50, lines: 1000 }), ...Array.from({ length: 20 }, (_, index) => readingRow(index + 1, { pairCount: 1, lines: 1000 }))];
+  assert.deepEqual(summarizeCoherenceTrend(longSeries), { direction: 'steady', rows: 20, comparedRows: 20, redundancyPairs: { from: 1, to: 1 }, lines: { from: 1000, to: 1000 } });
 });

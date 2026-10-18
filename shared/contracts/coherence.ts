@@ -190,3 +190,93 @@ export const SessionCoherence = z.strictObject({
   updatedAt: z.number().finite(),
 });
 export type SessionCoherence = z.infer<typeof SessionCoherence>;
+
+export const COHERENCE_READING_REASON_MAX_CHARS = 200;
+export const COHERENCE_READING_TEXT_MAX_CHARS = 120;
+export const COHERENCE_READING_PATH_MAX_CHARS = 200;
+export const COHERENCE_READING_TOP_ITEMS = 3;
+export const COHERENCE_TREND_WINDOW_ROWS = 20;
+
+const readingCount = z.number().int().nonnegative();
+const readingPercent = z.number().int().min(0).max(100);
+const readingText = z.string().max(COHERENCE_READING_TEXT_MAX_CHARS);
+
+const CoherenceReadingUnavailable = z.strictObject({ status: z.literal('unavailable'), reason: z.string().min(1).max(COHERENCE_READING_REASON_MAX_CHARS) });
+const CoherenceReadingNeedsComponents = z.strictObject({ status: z.literal('needs-components'), configLine: z.string().min(1).max(COHERENCE_READING_REASON_MAX_CHARS) });
+
+export const CoherenceDriftReading = z.discriminatedUnion('status', [
+  z.strictObject({ status: z.literal('insufficient-history'), developmentCommits: readingCount }),
+  z.strictObject({
+    status: z.literal('ok'), developmentCommits: readingCount, localityPercent: readingPercent,
+    locality: z.enum(['converging', 'decohering', 'flat']), spread: z.enum(['widening', 'narrowing', 'flat']),
+  }),
+  CoherenceReadingNeedsComponents,
+  CoherenceReadingUnavailable,
+]);
+export type CoherenceDriftReading = z.infer<typeof CoherenceDriftReading>;
+
+export const CoherenceDecomposeFinding = z.strictObject({
+  kind: z.enum(['cross-boundary', 'missing-abstraction', 'structure-hub']),
+  subject: readingText,
+  count: readingCount,
+});
+export type CoherenceDecomposeFinding = z.infer<typeof CoherenceDecomposeFinding>;
+
+export const CoherenceDecomposeReading = z.discriminatedUnion('status', [
+  z.strictObject({
+    status: z.literal('ok'), components: readingCount, commitsAnalyzed: readingCount, localityPercent: readingPercent,
+    topFindings: z.array(CoherenceDecomposeFinding).max(COHERENCE_READING_TOP_ITEMS),
+  }),
+  CoherenceReadingNeedsComponents,
+  CoherenceReadingUnavailable,
+]);
+export type CoherenceDecomposeReading = z.infer<typeof CoherenceDecomposeReading>;
+
+const CoherenceRedundancySite = z.strictObject({ file: z.string().max(COHERENCE_READING_PATH_MAX_CHARS), kind: readingText, name: readingText });
+
+export const CoherenceRedundancyPair = z.strictObject({
+  a: CoherenceRedundancySite,
+  b: CoherenceRedundancySite,
+  score: z.number().nonnegative().finite(),
+  isDiverged: z.boolean(),
+});
+export type CoherenceRedundancyPair = z.infer<typeof CoherenceRedundancyPair>;
+
+export const CoherenceRedundancyReading = z.discriminatedUnion('status', [
+  z.strictObject({ status: z.literal('ok'), pairCount: readingCount, topPairs: z.array(CoherenceRedundancyPair).max(COHERENCE_READING_TOP_ITEMS) }),
+  CoherenceReadingUnavailable,
+]);
+export type CoherenceRedundancyReading = z.infer<typeof CoherenceRedundancyReading>;
+
+export const CoherenceMassReading = z.discriminatedUnion('status', [
+  z.strictObject({ status: z.literal('ok'), lines: readingCount, files: readingCount, symbols: readingCount }),
+  CoherenceReadingUnavailable,
+]);
+export type CoherenceMassReading = z.infer<typeof CoherenceMassReading>;
+
+export const CoherenceReadingRow = z.strictObject({
+  sha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/),
+  at: z.iso.datetime(),
+  drift: CoherenceDriftReading,
+  decompose: CoherenceDecomposeReading,
+  redundancy: CoherenceRedundancyReading,
+  mass: CoherenceMassReading,
+});
+export type CoherenceReadingRow = z.infer<typeof CoherenceReadingRow>;
+
+const CoherenceTrendSpan = z.strictObject({ from: readingCount, to: readingCount });
+
+export const CoherenceTrendWindow = z.strictObject({
+  direction: z.enum(['converging', 'steady', 'decohering']),
+  rows: z.number().int().nonnegative().max(COHERENCE_TREND_WINDOW_ROWS),
+  comparedRows: z.number().int().nonnegative().max(COHERENCE_TREND_WINDOW_ROWS),
+  redundancyPairs: CoherenceTrendSpan.nullable(),
+  lines: CoherenceTrendSpan.nullable(),
+});
+export type CoherenceTrendWindow = z.infer<typeof CoherenceTrendWindow>;
+
+export const ProjectCoherenceTrend = z.strictObject({
+  latest: CoherenceReadingRow,
+  trend: CoherenceTrendWindow,
+});
+export type ProjectCoherenceTrend = z.infer<typeof ProjectCoherenceTrend>;

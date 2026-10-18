@@ -22,6 +22,7 @@ import type { Telemetry } from '../telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
 import type { CoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
+import type { CoherenceReadings } from '../coherence/coherence-readings.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -90,6 +91,7 @@ interface BackendControlDependencies {
   decidePlanReview: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs: SessionDocsPort;
   coherenceFeed: CoherenceSessionFeed;
+  coherenceReadings: Pick<CoherenceReadings, 'snapshotMessage'>;
   changeMapNarrator: ChangeMapNarrator | null;
   serverBuild: () => string;
   telemetry: Pick<Telemetry, 'captureException' | 'captureClientError'>;
@@ -188,6 +190,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
   sendLaneSnapshotOnConnect('ingest', laneAssembly.currentIngest, true);
   sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs, false);
   sendLaneSnapshotOnConnect('coherence-feed', () => dependencies.coherenceFeed, false);
+  sendLaneSnapshotOnConnect('coherence-readings', () => dependencies.coherenceReadings, false);
 }
 
 export { createBackendControl };

@@ -76,7 +76,7 @@ Each subsystem states its own rules beside its code, so a rule is loaded when th
 | Agent Adapters | `session/adapters/AGENTS.md` |
 | Session Spawning, Auto-Resume and Shutdown | `session/AGENTS.md` |
 | Notifications | `notifications/AGENTS.md` |
-| Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Benchmarks, Plan Review, Security: Trust Boundary, Transport and Session Identity | `server/AGENTS.md` |
+| Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Benchmarks, Plan Review, Security: Trust Boundary, Transport and Session Identity, Coherence Readings | `server/AGENTS.md` |
 | Ephemeral Lane Write Boundaries | `server/lanes/AGENTS.md` |
 | Usage Tracking | `server/usage/AGENTS.md` |
 | Team PR Review | `server/github/AGENTS.md` |
