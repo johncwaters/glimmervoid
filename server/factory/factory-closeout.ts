@@ -260,7 +260,7 @@ export function createFactoryCloseOut({
       ['-C', cwd, 'add', '--all', '--', ...WORK_OUTSIDE_LEDGER_PATHSPECS],
       ...(changedJournalPaths.length > 0 ? [['-C', cwd, 'add', '--all', '--', ...changedJournalPaths.map((journalPath) => `:(literal)${journalPath}`)]] : []),
     ];
-    const stagingCommands = [];
+    const stagingCommands: Awaited<ReturnType<typeof prepareHardenedGitCommand>>[] = [];
     for (const stagingArgs of stagingArgsList) stagingCommands.push(await prepareHardenedGitCommand(stagingArgs, { ...gitOptions, indexFile: stagingIndexFile }));
     const stagingGuardrails = await prepareCheckRunner({ scratchParent: indexDirectory, writablePaths: [indexDirectory, objectsDirectory], readablePaths: [cwd] });
     try {
