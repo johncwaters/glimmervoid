@@ -49,15 +49,9 @@ if (status) {
   process.exit(1);
 }
 
-const currentBranch = runCapture('git rev-parse --abbrev-ref HEAD');
-if (currentBranch !== RELEASE_BRANCH) {
-  console.error(`ERROR: Releases are cut from ${RELEASE_BRANCH}, but the current branch is ${currentBranch}. Check out ${RELEASE_BRANCH} first.`);
-  process.exit(1);
-}
-
 run(`git fetch origin ${RELEASE_BRANCH}`);
 if (!isAncestor(RELEASE_UPSTREAM, 'HEAD')) {
-  console.error(`ERROR: Local ${RELEASE_BRANCH} is behind or has diverged from ${RELEASE_UPSTREAM}. Run git pull --ff-only and re-check before releasing.`);
+  console.error(`ERROR: HEAD is behind or has diverged from ${RELEASE_UPSTREAM}. Rebase onto ${RELEASE_UPSTREAM} and re-check before releasing.`);
   process.exit(1);
 }
 
@@ -91,7 +85,7 @@ if (rawSources.length > 0) {
 console.log(`   ${packedFiles.length} files, all built.`);
 
 console.log('\n==> Pushing to GitHub...');
-run(`git push origin ${RELEASE_BRANCH}`);
+run(`git push origin HEAD:refs/heads/${RELEASE_BRANCH}`);
 
 console.log(`\n==> Tagging ${TAG}...`);
 run(`git tag -a ${TAG} -m "Glimmervoid ${TAG}"`);
