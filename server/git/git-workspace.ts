@@ -1,7 +1,8 @@
+import { COHERENCE_BOOKKEEPING_PATHSPEC, COHERENCE_JOURNAL_DIRECTORY, isCoherenceJournalPath } from '../coherence/core/coherence-paths-core.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { GIT_CONFIG_LISTING_ARGS, buildHardenedGitInvocation, gitInvocationEnvironment } from './core/git-invocation-core.ts';
+import { GIT_CONFIG_LISTING_ARGS, buildHardenedGitInvocation } from './core/git-invocation-core.ts';
 import type { GitIsolationOptions } from './core/git-invocation-core.ts';
 import os from 'node:os';
 import path from 'node:path';
@@ -175,12 +176,6 @@ async function prepareHardenedGitInvocation(args: string[], baseEnv: Readonly<Re
   return buildHardenedGitInvocation(args, { ...invocationOptions, configListing });
 }
 
-export async function checkGitEnvironment(cwd: string): Promise<Record<string, string>> {
-  const invocation = await prepareHardenedGitInvocation([], process.env,
-    async (probeArgs, probeEnv) => (await execFileAsync('git', probeArgs, { cwd, env: probeEnv, encoding: 'utf8', timeout: 30_000 })).stdout);
-  return gitInvocationEnvironment(invocation);
-}
-
 type HardenedGitOptions = { cwd: string; timeout?: number; maxBuffer?: number; encoding?: 'utf8'; env?: Record<string, string | undefined>; indexFile?: string };
 
 async function prepareHardenedGitCommand(args: string[], options: HardenedGitOptions) {
@@ -284,8 +279,7 @@ function findWorktreeForBranch(porcelain: string, branch: string): string | null
 
 const UNTRACKED_STATUS_PREFIX = '?? ';
 const WORKTREE_STATUS_ARGS = ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--ignore-submodules=none'];
-const EXCLUDE_COHERENCE_BOOKKEEPING_PATHSPEC = ['--', '.', ':(exclude).coherence'];
-const WORK_PRESENCE_STATUS_ARGS = [...WORKTREE_STATUS_ARGS, ...EXCLUDE_COHERENCE_BOOKKEEPING_PATHSPEC];
+const WORK_PRESENCE_STATUS_ARGS = [...WORKTREE_STATUS_ARGS, ...COHERENCE_BOOKKEEPING_PATHSPEC];
 
 const isDirtyResult = (dirty: GitResult) => dirty.ok && dirty.out !== '';
 function hasWorkFrom(dirty: GitResult, ahead: GitResult | null): boolean {
@@ -810,7 +804,7 @@ function createGitWorkspace(opts: {
 
   async function isRegularCoherenceJournal(worktreePath: string, journalPath: string): Promise<boolean> {
     const pathSegments = journalPath.split('/');
-    if (pathSegments.length < 2 || pathSegments[0] !== '.coherence') return false;
+    if (!isCoherenceJournalPath(journalPath)) return false;
     let checkedPath = worktreePath;
     for (const [index, segment] of pathSegments.entries()) {
       if (!segment || segment === '.' || segment === '..') return false;
@@ -824,9 +818,9 @@ function createGitWorkspace(opts: {
   }
 
   async function recordCoherenceJournals(worktreePath: string): Promise<boolean> {
-    const modifiedFiles = await run(['ls-files', '--modified', '--others', '--exclude-standard', '-z', '--', '.coherence'], worktreePath);
+    const modifiedFiles = await run(['ls-files', '--modified', '--others', '--exclude-standard', '-z', '--', COHERENCE_JOURNAL_DIRECTORY], worktreePath);
     if (!modifiedFiles.ok) return false;
-    const stagedFiles = await run(['diff', '--cached', '--name-only', '--no-renames', '-z', '--', '.coherence'], worktreePath);
+    const stagedFiles = await run(['diff', '--cached', '--name-only', '--no-renames', '-z', '--', COHERENCE_JOURNAL_DIRECTORY], worktreePath);
     if (!stagedFiles.ok) return false;
     const journalPaths = [...new Set([...modifiedFiles.out.split('\0'), ...stagedFiles.out.split('\0')].filter(Boolean))];
     if (journalPaths.length === 0) return true;
@@ -851,7 +845,7 @@ function createGitWorkspace(opts: {
     }
     const warning = mergeSyncWarning(baseSync, target);
 
-    const uncommitted = await readUncommittedWork(wt, EXCLUDE_COHERENCE_BOOKKEEPING_PATHSPEC);
+    const uncommitted = await readUncommittedWork(wt, COHERENCE_BOOKKEEPING_PATHSPEC);
     if (!uncommitted.ok || uncommitted.hasWork || !await recordCoherenceJournals(wt)) {
       return includeWarning({ merged: false, committed: false, branch, base: target, reason: 'uncommitted-changes', parked: true }, warning);
     }
@@ -1615,7 +1609,7 @@ function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => s
       const id = sessionIdFromBranch(name);
       if (id === null) continue;
       const { base: resolvedIntegrationBranch, measureRef } = migrateMarkerBase(projectPath, name, integrationBranch, configuredIntegrationBranch);
-      const dirty = run(['--no-optional-locks', 'status', '--porcelain', ...EXCLUDE_COHERENCE_BOOKKEEPING_PATHSPEC], wt);
+      const dirty = run(['--no-optional-locks', 'status', '--porcelain', ...COHERENCE_BOOKKEEPING_PATHSPEC], wt);
       const ahead = !isDirtyResult(dirty) && resolvedIntegrationBranch
         ? run(['rev-list', '--count', `${measureRef || resolvedIntegrationBranch}..${name}`], projectPath)
         : null;

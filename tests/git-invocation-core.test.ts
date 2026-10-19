@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { execFileAsync } from '../server/child-process-safe.ts';
-import { buildHardenedGitInvocation, gitInvocationEnvironment, parseFilterDriverNames } from '../server/git/core/git-invocation-core.ts';
+import { buildHardenedGitInvocation, parseFilterDriverNames } from '../server/git/core/git-invocation-core.ts';
 import { createGitWorkspace, runHardenedGit } from '../server/git/git-workspace.ts';
 
 const REAL_PROCESS_DEADLINE_MS = 30_000;
@@ -97,15 +97,7 @@ test('filter driver names come only from attributes that name a driver', () => {
   assert.deepEqual(parseFilterDriverNames(''), []);
 });
 
-test('nested check git commands receive numbered config overrides without inherited config or secrets', () => {
-  const gitEnvironment = gitInvocationEnvironment(buildHardenedGitInvocation([], { ...invocationOptions, configListing: scopedListing([['local', 'filter.probe.process', 'x']]) }));
-  const settings = Array.from({ length: Number(gitEnvironment.GIT_CONFIG_COUNT) }, (_, index) =>
-    `${gitEnvironment[`GIT_CONFIG_KEY_${index}`]}=${gitEnvironment[`GIT_CONFIG_VALUE_${index}`]}`);
-  assert.ok(settings.includes('core.fsmonitor=false'));
-  assert.ok(settings.includes('filter.probe.process='));
-  assert.equal(gitEnvironment.CHECK_PROBE_TOKEN, undefined);
-  assert.equal(gitEnvironment.GIT_CONFIG_PARAMETERS, undefined);
-});
+
 
 async function createRepository(context: test.TestContext, prefix: string) {
   const directory = await mkdtemp(path.join(os.tmpdir(), prefix));

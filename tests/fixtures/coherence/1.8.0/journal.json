@@ -1,0 +1,64 @@
+{
+  "branch": null,
+  "escalations": [],
+  "records": [
+    {
+      "id": "d-3267c3d7",
+      "kind": "decision",
+      "at": "2026-10-19T02:52:19.442Z",
+      "session": "s-fixture",
+      "agent": "fixture",
+      "commit": null,
+      "dirty": false,
+      "chose": "use a fixture",
+      "over": [
+        "hand-written json"
+      ],
+      "because": "real output pins the contract",
+      "binding": "none: this session owns no active work order"
+    },
+    {
+      "id": "c-099423f7",
+      "kind": "conjecture",
+      "at": "2026-10-19T02:52:19.956Z",
+      "session": "s-fixture",
+      "agent": "fixture",
+      "commit": null,
+      "dirty": false,
+      "observation": "a slow parse",
+      "couldBe": [
+        "the instrument is wrong",
+        "cold cache"
+      ],
+      "discriminatedBy": "rerun warm",
+      "binding": "none: this session owns no active work order"
+    },
+    {
+      "id": "u-467ef213",
+      "kind": "unable",
+      "at": "2026-10-19T02:52:20.491Z",
+      "session": "s-fixture",
+      "agent": "fixture",
+      "commit": null,
+      "dirty": false,
+      "what": "reach the network",
+      "because": "sandbox",
+      "binding": "none: this session owns no active work order"
+    },
+    {
+      "id": "df-487a8dab",
+      "kind": "defect",
+      "at": "2026-10-19T02:52:20.971Z",
+      "session": "s-fixture",
+      "agent": "fixture",
+      "commit": null,
+      "dirty": false,
+      "what": "a test flaked",
+      "evidence": "run 3 of 5 failed",
+      "files": [],
+      "binding": "none: this session owns no active work order"
+    }
+  ],
+  "citedBy": {},
+  "damaged": []
+}

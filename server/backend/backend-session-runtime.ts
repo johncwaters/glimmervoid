@@ -18,8 +18,6 @@ import { createSessionGuardrails } from '../guardrails/session-guardrails.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { cliPath } from '../runtime-paths.ts';
 import { createSshSigner, installCommitSigningShim } from '../ssh-signing.ts';
-import { createCoherenceNativeHooks } from '../coherence/coherence-native-hooks.ts';
-import { createCoherenceRuntime } from '../coherence/coherence-runtime.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -62,9 +60,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     log: dependencies.logger,
   });
   const sshSigner = commitSigningProgram ? createSshSigner() : null;
-  const coherenceRuntime = createCoherenceRuntime();
   const makeSession = createSessionFactory({
-    coherenceNativeHooks: coherenceRuntime.cliPath ? createCoherenceNativeHooks({ runtime: coherenceRuntime, log: dependencies.logger }) : null,
     commitSigningProgram,
     configStore: dependencies.configStore,
     getConfig: () => dependencies.configStore.config,

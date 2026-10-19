@@ -1,0 +1,3 @@
+coherence 1.8.0: the installed package (node_modules).
+latest published: never read yet
+update check: off, COHERENCE_NO_UPDATE_CHECK is set

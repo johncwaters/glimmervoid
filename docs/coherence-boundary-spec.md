@@ -42,34 +42,36 @@ The saved config schema is passthrough, so stale `factory`, `knowledgeGraph` and
 
 ### Resolution, no package dependency
 
-Glimmervoid drops `@danilocampos/coherence` from `package.json` and adds no replacement. It runs the CLI the repository installed, `<worktree>/node_modules/.bin/coherence`, so the repository pins its own version and a Coherence upgrade never needs a glimmervoid release.
+Glimmervoid drops `@danilocampos/coherence` from `package.json` and takes no runtime dependency on Coherence. Its own repository installs `@posthog/coherence` as a devDependency, the same way any repository would. It runs the CLI the repository installed, `<worktree>/node_modules/.bin/coherence` (a shared `node_modules` symlink is followed; no fallback to another checkout), so the repository pins its own version and a Coherence upgrade never needs a glimmervoid release.
 
-On first use per worktree glimmervoid runs `coherence version` and checks it against one supported range in `server/coherence/core/coherence-support-core.ts` (initially `>=1.8.0 <2`). Outside the range Coherence is unsupported for that repository and treated as off, with the reason shown. A session never fails to start because of Coherence.
+At session start glimmervoid runs `coherence version` once and checks it against one supported range in `server/coherence/core/coherence-support-core.ts` (initially `>=1.8.0 <2`). No CLI means not installed; outside the range means unsupported. Both are treated as off, with the reason shown. A session never fails to start because of Coherence. Every call runs with the allowlisted child env and a timeout.
 
 ### What glimmervoid uses
 
 | Feature | Source in `@posthog/coherence` | Glimmervoid use |
 |---|---|---|
-| Hook status | `coherence hooks status`, `hooks --check --host claude\|codex` | Session setup and project view show installed, drifted, or missing |
-| Decision journal | `coherence journal --json` | Session feed, team review context, knowledge graph source |
-| Mass | `coherence mass --json` | Trend panel keeps mass only |
+| Hook status | `coherence hooks --check --host claude\|codex`, plus the Codex trust check on `.codex/hooks.json` | The session row's Hooks off signal and its reason |
+| Decision journal | `coherence journal --json --session <id>` | Session feed and the journal drawer |
 
 Each call is parsed by a Zod schema in `shared/contracts/coherence.ts`, rewritten for the 1.8 shapes. An unknown journal kind parses as an opaque entry (kind plus id), so a new upstream kind degrades one row, not the feed.
 
-### Every agent, one path
+### One decision, one place
 
-Today Coherence reaches sessions and lanes through different code (`session/` for operator sessions, `buildCoherenceJournalLaneOverrides` and shims in `server/lanes/lane-spawn.ts` for lanes). Phase 2 collapses that into one decision applied at the one spawn path every agent goes through: given the worktree, the agent kind and `coherence.enabled`, it returns either nothing or the read-only facts the UI needs (version, hook status). The repository's own inline hook commands do the rest; glimmervoid injects no env, shims or hook paths.
+`resolveCoherence({ worktree, host, isSettingOn })` in `server/coherence/` returns either nothing or the facts the UI needs (version, hook status, a journal reader). Operator sessions get it through the session factory. Lanes run without Coherence: team review runs in a throwaway work directory where the repository's hooks never fire, and Radar, benchmarks and issues never had it. The repository's own inline hook commands do the rest; glimmervoid injects no env, shims or hook paths.
 
-A lane that cannot use Coherence runs without it. No lane requires it.
+`.coherence/` path knowledge used by the worktree merge-back (journal records land with the work and never count as work) moves behind `server/coherence/`.
 
 ### Removed
 
-These have no upstream equivalent; the operator approved deleting them on 2026-10-18:
+Operator approved on 2026-10-18:
 
-- the `regulate` next-action chip in the session feed, and `coherence-sandboxed-run.ts`;
-- the signal, drift, decompose and redundancy readings in the trend panel and team review;
-- PATH shims, `hookCliPath`, `COHERENCE_HOOK_HOST` and `COHERENCE_PROJECT_ROOT` injection, launcher control-file checks;
-- direct reads of `.coherence/decisions` and `.coherence/defects`;
+- the `regulate` next-action chip, `coherence-sandboxed-run.ts`;
+- the repository readings (drift, decompose, redundancy and mass), their poller, series and trend messages, since nothing shows them after the Factory screen went;
+- `glimmervoid coherence check`, the `coherence-check` agent verb and its control message, since nothing calls them;
+- adopt and project status (`project-coherence-adopt`, `project-coherence-status`): installing hooks is the repository's job;
+- Coherence in team review: the injected hooks, shims, journal landing and the advisory signal/redundancy section;
+- PATH shims, `hookCliPath`, `COHERENCE_HOOK_HOST` and `COHERENCE_PROJECT_ROOT` injection, launcher control-file and `coherence.config.json` checks;
+- direct reads of `.coherence/decisions` and `.coherence/defects`, the lane journal store;
 - the 0.37.1 fixtures.
 
 ## Phase 3: tidy
@@ -80,7 +82,7 @@ Each phase lands on its own with `npm test` green.
 
 ## Acceptance, each pinned by a test
 
-- **Boundary guard** (new `tests/coherence-boundary.test.ts`): nothing outside `server/coherence/` spawns a coherence CLI or reads `.coherence/`, and `package.json` names no coherence package.
-- **Every agent**: one spawn test per agent kind (operator Claude, operator Codex, a lane) gets Coherence status with a fake supported install and none without it, through the same path.
+- **Boundary guard** (new `tests/coherence-boundary.test.ts`): nothing outside `server/coherence/` spawns a coherence CLI or names `.coherence`, and `package.json` names no coherence package as a runtime dependency (the repository's own `@posthog/coherence` devDependency is its own install, not a glimmervoid dependency).
+- **Operator sessions**: a Claude and a Codex session spawned through the session factory get Coherence status from a fake supported install in the worktree, and none without it.
 - **Absent or unsupported**: a session spawns with no install, and with a fake `coherence version` printing `0.37.1`; both report the reason and neither blocks the spawn.
-- **Upstream shape**: `journal --json` and `mass --json` output recorded from `@posthog/coherence` 1.8.0 parse through the contracts (`tests/contracts-coherence.test.ts`, fixtures under `tests/fixtures/coherence/1.8.0/`).
+- **Upstream shape**: `journal --json` and `hooks` output recorded from `@posthog/coherence` 1.8.0 parse through the contracts and the Codex trust check (`tests/contracts-coherence.test.ts`, fixtures under `tests/fixtures/coherence/1.8.0/`).

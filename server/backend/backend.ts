@@ -49,12 +49,6 @@ import { bundled, packageRoot } from '../runtime-paths.ts';
 import { createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
-import { createCoherenceReadings, integrationTipReader } from '../coherence/coherence-readings.ts';
-import { createCoherenceRuntime } from '../coherence/coherence-runtime.ts';
-import { createCoherenceAdopt } from '../coherence/coherence-adopt.ts';
-import { createCoherenceCheck } from '../coherence/coherence-check.ts';
-import { createCoherenceNativeHooks } from '../coherence/coherence-native-hooks.ts';
-import { configSiblingPath } from '../pairings-store.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir } from '../core/config-path-core.ts';
 import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
@@ -287,39 +281,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     visionsSetup,
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
-  const coherenceRuntime = createCoherenceRuntime();
-  const listCoherenceProjects = () => (configStore.config.projects ?? []).flatMap(({ id, path: projectPath }) => (id && projectPath ? [{ id, path: projectPath }] : []));
-  const readCoherenceSettings = () => ({ isSettingOn: configStore.config.coherence?.enabled === true });
-  const coherenceReadings = createCoherenceReadings({
-    seriesRoot: configSiblingPath(configStore.configPath, 'coherence-readings'),
-    listProjects: listCoherenceProjects,
-    readSettings: readCoherenceSettings,
-    readIntegrationTip: integrationTipReader(assembledGitWorkspace, () => configStore.config),
-    fetchOrigin: assembledGitWorkspace.fetchOrigin,
-    hasNativeControlAt: coherenceRuntime.hasNativeControlAt,
-    broadcastControl: broadcastControlFromWebSockets,
-    cliPath: coherenceRuntime.cliPath,
-  });
-  void coherenceReadings.start();
-  const coherenceAdopt = createCoherenceAdopt({
-    listProjects: listCoherenceProjects,
-    readConfig: () => configStore.config,
-    gitWorkspace: assembledGitWorkspace,
-    broadcastControl: broadcastControlFromWebSockets,
-    cliPath: coherenceRuntime.cliPath,
-  });
-  const coherenceCheck = createCoherenceCheck({
-    listProjects: listCoherenceProjects,
-    readSettings: readCoherenceSettings,
-    readIntegrationTip: integrationTipReader(assembledGitWorkspace, () => configStore.config),
-    nativeHooks: createCoherenceNativeHooks({ runtime: coherenceRuntime }),
-    readings: coherenceReadings,
-    listLiveSessions: () => allLiveSessions(),
-    cliPath: coherenceRuntime.cliPath,
-  });
-  httpServer.once('close', () => {
-    void coherenceReadings.stop();
-  });
   agentApi = createAgentApiWiring({
     config,
     agentSessions,
@@ -333,7 +294,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     memoryAdmission: laneAssembly.memoryAdmission,
     recordLane,
     sessionDocs,
-    coherenceCheck,
     logger: console,
   });
 
@@ -567,9 +527,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     decidePlanReview: laneAssembly.planReview?.decide ?? null,
     sessionDocs,
     coherenceFeed,
-    coherenceReadings,
-    coherenceAdopt,
-    coherenceCheck,
     changeMapNarrator: laneAssembly.changeMapNarrator,
     serverBuild: () => serverBuild,
     telemetry,

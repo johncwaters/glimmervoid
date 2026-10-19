@@ -50,9 +50,6 @@ Commands:
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
-  coherence check     Walk every Coherence stage for a project and print PASS, FAIL or SKIP per stage
-                      (--project <id or path>, default the current repo; --json); inside a
-                      session it checks that session's own project and refuses --project
 
 Editor integration (Visions):
   visions install     Install the Visions extension into every VS Code family editor on PATH

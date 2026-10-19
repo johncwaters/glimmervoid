@@ -22,6 +22,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `github/` | GitHub lanes: issues, my PRs, team PR review and its reaper and thread judge, `gh` queries, the shared clock and rate limit (`github/AGENTS.md`) |
 | `radar/` | Radar lane: the PostHog API client, poller, wiring and report, with its cores (`radar/AGENTS.md`) |
 | `git/git-workspace.ts` | THE ONLY module allowed to run `git worktree` (`tests/no-direct-git-worktree.test.ts`) |
+| `coherence/` | Optional repository CLI boundary, pinned by `tests/coherence-boundary.test.ts` |
 | `config-store.ts` | Runtime config load/save/defaults |
 | `child-process-safe.ts` | THE ONLY importer of `node:child_process` (`tests/no-direct-child-process.test.ts`) |
 | `update-check.ts` | Startup release-tag check, advisory only |
@@ -100,10 +101,3 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Both servers are heartbeat-reaped: focus suppression and the Telegram zero-connections gate COUNT open connections, so a half-open socket silently blocks the channel of last resort.
 - Resize is arbitrated by ACTIVE VIEWER: a claim wins and a departure hands the PTY to the most recent survivor, since last-write-wins left a desktop stuck at a phone's column count forever.
 - ANSI is parsed in the browser for display and in the server keeper for attach, because raw bytes are only correct at the width that produced them.
-
-### Coherence Readings
-
-- In the session feed and the readings poll, a Coherence verb that builds the graph runs only inside guardrails on a private snapshot whose config was judged first, never on the host or a live checkout, because the graph imports a repo-named language module and those trees are agent-written (`tests/coherence-session-feed.test.ts`, `tests/coherence-readings.test.ts`).
-- Adopt commits to a project's integration branch only on an explicit operator confirm, builds the commit in a private worktree deleted afterwards (never a live checkout or session worktree) and pushes fast-forward only, because it writes origin on the operator's behalf (`tests/coherence-readings.test.ts`).
-- Adopt never runs npm or Coherence from the checkout, because the tip is agent-written: it uses the shipped CLI and a lockfile-only npm in an isolated dir with the public registry, and refuses a tip that tracks node_modules (`tests/coherence-readings.test.ts`).
-- The Coherence check writes only inside its private snapshot of the integration tip, deleted afterwards, and runs the repo's declared hook only inside guardrails with the project's node_modules readable, never writable, because the hook command and tip are agent-written; Codex hook trust is keyed by worktree path, so only live sessions report it (`tests/coherence-readings.test.ts`).

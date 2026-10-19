@@ -97,5 +97,5 @@ function buildAgentEnv(
   return env;
 }
 
-export { GLIMMERVOID_SECRET_KEYS, buildAgentEnv };
+export { buildAgentEnv };
 export type { AgentEnvOptions, AgentEnvProfile, SpawnEnv };

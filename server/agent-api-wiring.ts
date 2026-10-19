@@ -5,15 +5,14 @@ import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { describeSessionLimits } from '../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../session/core/session-routes.ts';
 import type { Session } from '../session/sessions.ts';
-import type { CoherenceCheck } from './coherence/coherence-check.ts';
 import type {
   AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentLimitsReply, AgentSpawnRequest,
 } from '../shared/contracts/session.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
-  decideAttentionAllowance, decideCoherenceCheckAllowance, decideEditAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding,
-  describePushRouteRefusal, findSessionProjectId, parseAgentVerb,
+  decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding,
+  describePushRouteRefusal, parseAgentVerb,
 } from './core/agent-api-core.ts';
 import { isGuardedSessionVendor } from './guardrails/core/guardrails-roles-core.ts';
 import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
@@ -45,7 +44,6 @@ interface AgentApiWiringOptions {
   spawnGate: SpawnGate;
   recordLane?: RecordLane | null;
   sessionDocs: SessionDocsPort;
-  coherenceCheck?: Pick<CoherenceCheck, 'check'> | null;
   memoryAdmission?: Pick<MemoryAdmission, 'describeShortfallNow'> | null;
   logger?: Pick<Console, 'warn'>;
 }
@@ -66,7 +64,6 @@ interface AgentApiPort {
 function createAgentApiWiring({
   config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
   broadcastControl, spawnGate, sessionDocs,
-  coherenceCheck = null,
   recordLane = null,
   memoryAdmission = null,
   logger = console,
@@ -197,19 +194,9 @@ function createAgentApiWiring({
     return describePushLanding(await session.mergeAndContinue({ force: true }));
   }
 
-  async function checkOwnProjectCoherence(session: Session): Promise<AgentApiReply> {
-    const allowance = decideCoherenceCheckAllowance(roleFactsOf(session));
-    if (!allowance.ok) return { status: allowance.status, body: { ok: false, error: allowance.reason } };
-    if (!coherenceCheck) return { status: 409, body: { ok: false, error: 'the Coherence check is not running' } };
-    const projectId = findSessionProjectId(config.projects, session.path);
-    if (!projectId) return { status: 404, body: { ok: false, error: `no configured project has the path ${session.path}, so the operator has to add this repository as a project first` } };
-    return { status: 200, body: await coherenceCheck.check({ projectId }) };
-  }
-
   async function handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply> {
     const parsed = parseAgentVerb(verb, payload);
     if (!parsed.ok) return { status: parsed.status, body: { ok: false, error: parsed.error } };
-    if (parsed.verb === 'coherence-check') return checkOwnProjectCoherence(session);
     if (parsed.verb === 'board') return { status: 200, body: { ok: true, sessions: board() } };
     if (parsed.verb === 'push') return push(session);
     if (parsed.verb === 'limits') return { status: 200, body: limits(session) };

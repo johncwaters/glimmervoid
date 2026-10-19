@@ -58,7 +58,6 @@ function paintOpenReading(sessionId: string) {
   if (!openDrawer || openDrawer.sessionId !== sessionId) return;
   const reading = formatCoherenceReading(hooksBySessionId.get(sessionId) ?? null, coherenceBySessionId.get(sessionId) ?? null);
   openDrawer.parts.reading.replaceChildren(...reading.lines.map((line) => el('p', null, line)));
-  if (reading.command) openDrawer.parts.reading.append(el('pre', 'coherence-command', reading.command));
 }
 
 export function openCoherenceJournal(sessionId: string) {

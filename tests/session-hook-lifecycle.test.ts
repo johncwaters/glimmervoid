@@ -15,10 +15,8 @@ import grok from '../session/adapters/grok.ts';
 import { renderGrokHooksFile } from '../session/core/grok-hooks-file-core.ts';
 import { saneYoloHomeDir } from '../server/hook-tools.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
-import { createCoherenceNativeHooks } from '../server/coherence/coherence-native-hooks.ts';
+import { installFakeCoherence } from './helpers/coherence-cli.ts';
 import { codexHookHashes } from '../server/coherence/core/coherence-codex-trust-core.ts';
-import { execFileAsync } from '../server/child-process-safe.ts';
-import { resolvePackageBin } from '../server/runtime-paths.ts';
 import type { HooksBlock } from '../session/core/user-hooks-core.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import type { SpawnCall } from './helpers/fake-pty.ts';
@@ -84,147 +82,6 @@ test('extra hooks reach settings when no project hook callback is configured', a
       assert.deepEqual(settings.hooks.Stop.at(-1), { hooks: [{ type: 'command', command: 'extra-stop' }] });
     } finally {
       session.destroy();
-    }
-  });
-});
-
-async function scratchGit(cwd: string, ...args: string[]) {
-  return execFileAsync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8' });
-}
-
-async function createNativeCoherenceWorktree(directory: string, name: string, { ignoresNodeModules, hosts = ['claude'] }: { ignoresNodeModules: boolean; hosts?: string[] }): Promise<string> {
-  const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
-  assert.ok(coherenceCliPath);
-  const mainCheckout = path.join(directory, `${name}-main`);
-  fs.mkdirSync(path.join(mainCheckout, 'node_modules', '@danilocampos'), { recursive: true });
-  await scratchGit(mainCheckout, 'init', '-q', '-b', 'main');
-  fs.writeFileSync(path.join(mainCheckout, '.gitignore'), ignoresNodeModules ? 'node_modules/\n' : 'dist/\n');
-  fs.writeFileSync(path.join(mainCheckout, 'coherence.config.json'), '{}\n');
-  fs.writeFileSync(path.join(mainCheckout, 'package.json'), '{"name":"scratch","private":true}\n');
-  fs.symlinkSync(path.dirname(path.dirname(coherenceCliPath)), path.join(mainCheckout, 'node_modules', '@danilocampos', 'coherence'), 'dir');
-  fs.mkdirSync(path.join(mainCheckout, 'node_modules', '.bin'));
-  fs.symlinkSync('../@danilocampos/coherence/dist/hook-cli.js', path.join(mainCheckout, 'node_modules', '.bin', 'coherence-hook'));
-  fs.symlinkSync('../@danilocampos/coherence/dist/cli.js', path.join(mainCheckout, 'node_modules', '.bin', 'coherence'));
-  for (const host of hosts) await execFileAsync(process.execPath, [coherenceCliPath, 'hooks', 'install', '--host', host], { cwd: mainCheckout, encoding: 'utf8' });
-  const controlFilesByHost: Record<string, string[]> = {
-    claude: ['.claude/settings.json', '.claude/coherence-hook', '.claude/coherence-root'], codex: ['.codex/hooks.json', '.codex/coherence-hook', '.codex/coherence-root'],
-  };
-  await scratchGit(mainCheckout, 'add', '.gitignore', 'coherence.config.json', 'package.json', ...hosts.flatMap((host) => controlFilesByHost[host] ?? []));
-  await scratchGit(mainCheckout, 'commit', '-q', '-m', 'adopt coherence');
-  const worktree = path.join(directory, `${name}-worktree`);
-  await scratchGit(mainCheckout, 'worktree', 'add', '-q', '-b', `session-${name}`, worktree);
-  return worktree;
-}
-
-test('ordinary sessions run the repository native Coherence install: shims make its hooks runnable, the state is recorded, and Glimmervoid injects no hook bundle', async () => {
-  await withTempDir(async (directory) => {
-    const adoptedWorktree = await createNativeCoherenceWorktree(directory, 'adopted', { ignoresNodeModules: true });
-    const unignoredWorktree = await createNativeCoherenceWorktree(directory, 'unignored', { ignoresNodeModules: false });
-    const inPlaceCheckout = await createNativeCoherenceWorktree(directory, 'in-place', { ignoresNodeModules: true });
-    const refusedConfigWorktree = await createNativeCoherenceWorktree(directory, 'refused-config', { ignoresNodeModules: true });
-    fs.writeFileSync(path.join(refusedConfigWorktree, 'coherence.config.json'), JSON.stringify({ language: './evil.js' }));
-    const codexWorktree = await createNativeCoherenceWorktree(directory, 'codex', { ignoresNodeModules: true, hosts: ['codex'] });
-    const codexHome = path.join(directory, 'codex-home');
-    fs.mkdirSync(codexHome);
-    const liveConfig = { projects: [], recordSignals: false, coherence: { enabled: true } };
-    const makeSession = createSessionFactory({
-      configStore: { configPath: path.join(directory, 'config.json') },
-      getConfig: () => liveConfig,
-      coherenceNativeHooks: createCoherenceNativeHooks({ codexEnv: { CODEX_HOME: codexHome }, log: { warn: () => {} } }),
-      hookRouter: new HookRouter(), getHookPort: () => PORT,
-      getGitWorkspace: () => null, getPlanReviewPort: () => null,
-      resolveHookTools: () => [], getUserHooks: () => [],
-    });
-    const startSession = async (id: string, sessionPath: string, agent: string, { hasOwnWorktree = true } = {}) => {
-      const session = makeSession({ id, name: id, path: sessionPath, agent }, liveConfig);
-      const calls: SpawnCall[] = [];
-      session._spawnCommand = { path: process.execPath, kind: 'exe' };
-      session._ptySpawn = (file, args, opts) => {
-        calls.push({ file, args, opts: opts as SpawnCall['opts'] });
-        return fakePty();
-      };
-      if (hasOwnWorktree) session.adoptWorktree({ worktreeDir: sessionPath, branch: `session-${id}`, base: 'main', watch: false, emit: false });
-      await session.start();
-      return { session, calls };
-    };
-
-    const adopted = await startSession('adopted', adoptedWorktree, 'claude-code');
-    try {
-      assert.deepEqual(adopted.session.coherenceHooks, { active: true });
-      assert.deepEqual(adopted.session.toSnapshot().coherenceHooks, { active: true });
-      const installedPackage = fs.realpathSync(path.join(directory, 'adopted-main', 'node_modules', '@danilocampos', 'coherence'));
-      for (const [binName, script] of [['coherence-hook', 'dist/hook-cli.js'], ['coherence', 'dist/cli.js']]) {
-        const shimPath = path.join(adoptedWorktree, 'node_modules', '.bin', binName);
-        assert.equal(fs.lstatSync(shimPath).isFile(), true, binName);
-        assert.equal(fs.readFileSync(shimPath, 'utf8'), `#!/bin/sh\nexec "${process.execPath}" "${path.join(installedPackage, script)}" "$@"\n`);
-      }
-      const { args, opts } = adopted.calls[0];
-      const settings = JSON.parse(fs.readFileSync(args[args.indexOf('--settings') + 1], 'utf8')) as { hooks: HooksBlock };
-      assert.equal(Object.values(settings.hooks).flat().some((entry) => entry.hooks.some((hook) => hook.command?.includes('coherence'))), false);
-      assert.equal('COHERENCE_HOOK_HOST' in opts.env, false);
-    } finally {
-      adopted.session.destroy();
-    }
-
-    const adoptedForOtherHost = await startSession('adopted-other-host', adoptedWorktree, 'codex');
-    try {
-      assert.deepEqual(adoptedForOtherHost.session.coherenceHooks, { active: false, reason: 'control files missing' });
-      assert.equal(adoptedForOtherHost.calls[0].args.some((argument) => argument.includes('coherence')), false);
-    } finally {
-      adoptedForOtherHost.session.destroy();
-    }
-
-    const unignored = await startSession('unignored', unignoredWorktree, 'claude-code');
-    try {
-      assert.deepEqual(unignored.session.coherenceHooks, { active: false, reason: 'node_modules not ignored' });
-      assert.equal(fs.existsSync(path.join(unignoredWorktree, 'node_modules')), false);
-    } finally {
-      unignored.session.destroy();
-    }
-
-    const inPlace = await startSession('in-place', inPlaceCheckout, 'claude-code', { hasOwnWorktree: false });
-    try {
-      assert.equal(inPlace.session.worktreeDir, null);
-      assert.equal(fs.existsSync(path.join(inPlaceCheckout, 'node_modules')), false);
-    } finally {
-      inPlace.session.destroy();
-    }
-
-    const refusedConfig = await startSession('refused-config', refusedConfigWorktree, 'claude-code');
-    try {
-      assert.deepEqual(refusedConfig.session.coherenceHooks, { active: false, reason: 'config refused' });
-    } finally {
-      refusedConfig.session.destroy();
-    }
-
-    const untrustedCodex = await startSession('untrusted-codex', codexWorktree, 'codex');
-    try {
-      assert.deepEqual(untrustedCodex.session.coherenceHooks, { active: false, reason: 'Codex hooks need trust in /hooks' });
-    } finally {
-      untrustedCodex.session.destroy();
-    }
-    const codexHooksPath = path.join(codexWorktree, '.codex', 'hooks.json');
-    const trustedHookKeys = ['post_tool_use', 'session_start', 'subagent_start', 'subagent_stop', 'stop'].map((eventLabel) => `${codexHooksPath}:${eventLabel}:0:0`);
-    const writeTrustedHookHashes = (hooksFileText: string) => {
-      const hookHashByKey = codexHookHashes(codexHooksPath, hooksFileText);
-      fs.writeFileSync(path.join(codexHome, 'config.toml'), trustedHookKeys.map((hookKey) => `[hooks.state.${JSON.stringify(hookKey)}]\ntrusted_hash = ${JSON.stringify(hookHashByKey.get(hookKey))}\n`).join('\n'));
-    };
-    const installedHooksFileText = fs.readFileSync(codexHooksPath, 'utf8');
-    const earlierHooksFile = JSON.parse(installedHooksFileText) as { hooks: Record<string, { hooks: { command: string }[] }[]> };
-    earlierHooksFile.hooks.Stop[0].hooks[0].command = 'true';
-    writeTrustedHookHashes(JSON.stringify(earlierHooksFile));
-    const staleTrustCodex = await startSession('stale-trust-codex', codexWorktree, 'codex');
-    try {
-      assert.deepEqual(staleTrustCodex.session.coherenceHooks, { active: false, reason: 'Codex hooks need trust in /hooks' });
-    } finally {
-      staleTrustCodex.session.destroy();
-    }
-    writeTrustedHookHashes(installedHooksFileText);
-    const trustedCodex = await startSession('trusted-codex', codexWorktree, 'codex');
-    try {
-      assert.deepEqual(trustedCodex.session.coherenceHooks, { active: true });
-    } finally {
-      trustedCodex.session.destroy();
     }
   });
 });
@@ -626,4 +483,82 @@ test('an unguarded Codex spawn keeps the inherited cc-safety-net env untouched',
       if (value !== undefined) process.env[key] = value;
     }
   }
+});
+
+
+test('operator Claude and Codex sessions resolve optional repository Coherence without blocking spawn', async () => {
+  await withTempDir(async (directory) => {
+    const priorCodexHome = process.env.CODEX_HOME;
+    const codexHome = path.join(directory, 'codex-home');
+    fs.mkdirSync(codexHome);
+    process.env.CODEX_HOME = codexHome;
+    const config = { projects: [], recordSignals: false, coherence: { enabled: true } };
+    const makeSession = createSessionFactory({
+      configStore: { configPath: path.join(directory, 'config.json') }, getConfig: () => config,
+      hookRouter: new HookRouter(), getHookPort: () => PORT,
+      getGitWorkspace: () => null, getPlanReviewPort: () => null,
+      resolveHookTools: () => [], getUserHooks: () => [],
+    });
+    try {
+      for (const agent of ['claude-code', 'codex']) {
+        for (const installation of ['supported', 'absent', 'unsupported', 'unreadable', 'hooks-missing', 'setting-off', 'lane', 'symlink']) {
+          const id = `${agent}-${installation}`;
+          const worktree = path.join(directory, id);
+          fs.mkdirSync(worktree);
+          if (installation !== 'absent') await installFakeCoherence(worktree, { version: installation === 'unsupported' ? '0.37.1' : installation === 'unreadable' ? 'unknown' : '1.8.0', hooksExitCode: installation === 'hooks-missing' ? 1 : 0 });
+          if (installation === 'symlink') {
+            const sharedModules = path.join(directory, `${id}-modules`);
+            fs.renameSync(path.join(worktree, 'node_modules'), sharedModules);
+            fs.symlinkSync(sharedModules, path.join(worktree, 'node_modules'), 'junction');
+          }
+          if (agent === 'codex') {
+            const hooksPath = path.join(worktree, '.codex', 'hooks.json');
+            fs.mkdirSync(path.dirname(hooksPath));
+            const text = fs.readFileSync(new URL('./fixtures/coherence/1.8.0/codex-hooks.json', import.meta.url), 'utf8');
+            fs.writeFileSync(hooksPath, text);
+            fs.writeFileSync(path.join(codexHome, 'config.toml'), [...codexHookHashes(hooksPath, text)].map(([key, hash]) => `[hooks.state.${JSON.stringify(key)}]\ntrusted_hash = ${JSON.stringify(hash)}`).join('\n'));
+          }
+          config.coherence.enabled = installation !== 'setting-off';
+          const session = makeSession({ id, name: id, path: worktree, agent }, config, { ephemeral: installation === 'lane' });
+          const calls: SpawnCall[] = [];
+          session._spawnCommand = { path: process.execPath, kind: 'exe' };
+          session._ptySpawn = (file, args, opts) => { calls.push({ file, args, opts: opts as SpawnCall['opts'] }); return fakePty(); };
+          try {
+            await session.start();
+            assert.equal(calls.length, 1, id);
+            const expectedByInstall = {
+              supported: { active: true }, symlink: { active: true },
+              absent: { active: false, reason: 'not installed' },
+              unsupported: { active: false, reason: 'unsupported version', version: '0.37.1' },
+              unreadable: { active: false, reason: 'version output unreadable' },
+              'hooks-missing': { active: false, reason: 'check failed with exit code 1' },
+              'setting-off': null, lane: null,
+            };
+            assert.deepEqual(session.toSnapshot().coherenceHooks, expectedByInstall[installation as keyof typeof expectedByInstall], id);
+            if (installation === 'hooks-missing' || installation === 'absent' || installation === 'unsupported') {
+              await installFakeCoherence(worktree);
+              await session.refreshCoherenceHooks();
+              assert.deepEqual(session.coherenceHooks, { active: true }, id);
+            }
+            const callLog = path.join(worktree, 'coherence-calls.jsonl');
+            if (fs.existsSync(callLog)) {
+              const probes = fs.readFileSync(callLog, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { args: string[]; env: Record<string, string> });
+              assert.equal(probes.filter(({ args }) => args[0] === 'version').length, installation === 'unsupported' ? 2 : 1, id);
+              assert.ok(probes.every(({ env }) => env.COHERENCE_NO_UPDATE_CHECK === '1' && !('CODEX_THREAD_ID' in env) && !('GLIMMERVOID_POSTHOG_API_KEY' in env)), id);
+            }
+            if (agent === 'claude-code') {
+              const args = calls[0].args;
+              const settings = fs.readFileSync(args[args.indexOf('--settings') + 1], 'utf8');
+              assert.equal(settings.includes('coherence'), false, id);
+            }
+          } finally {
+            session.destroy();
+          }
+        }
+      }
+    } finally {
+      if (priorCodexHome === undefined) delete process.env.CODEX_HOME;
+      if (priorCodexHome !== undefined) process.env.CODEX_HOME = priorCodexHome;
+    }
+  });
 });

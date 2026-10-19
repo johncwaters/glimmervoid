@@ -60,9 +60,9 @@ test('start() routes a .cmd shim command through cmd.exe /c claude', { skip: pro
   }
 });
 
-test('start() announces the Coherence hooks state it records, a turn end re-prepares inactive hooks so an adopt landing mid-session takes effect, and a refresh outlived by a restart never overwrites the restart verdict', async () => {
+test('start() announces the Coherence hooks state it records, a turn end re-prepares inactive hooks so installed hooks take effect mid-session, and a refresh outlived by a restart never overwrites the restart verdict', async () => {
   const announced: unknown[] = [];
-  let preparedHooks: CoherenceHooksState = { active: false, reason: 'control files missing' };
+  let preparedHooks: CoherenceHooksState = { active: false, reason: 'check failed with exit code 1' };
   let prepareCount = 0;
   let deferredPrepare: Promise<CoherenceHooksState> | null = null;
   let firePtyExit = () => {};
@@ -75,25 +75,32 @@ test('start() announces the Coherence hooks state it records, a turn end re-prep
       ...fakePty(),
       onExit(listener: (event: { exitCode: number }) => void) { firePtyExit = () => listener({ exitCode: 0 }); },
     }),
-    prepareCoherenceHooks: async () => {
+    prepareCoherence: async () => {
       prepareCount += 1;
-      return deferredPrepare ?? preparedHooks;
+      return {
+        hooks: preparedHooks, version: '1.8.0',
+        refreshHooks: async () => {
+          prepareCount += 1;
+          return deferredPrepare ?? preparedHooks;
+        },
+        readJournal: async () => ({ branch: null, escalations: [], records: [], citedBy: {}, damaged: [] }),
+      };
     },
   });
   s.on('coherence-hooks-change', (state) => announced.push(state));
   try {
     await s.start();
-    assert.deepEqual(announced, [{ active: false, reason: 'control files missing' }]);
-    assert.deepEqual(s.coherenceHooks, { active: false, reason: 'control files missing' });
+    assert.deepEqual(announced, [{ active: false, reason: 'check failed with exit code 1' }]);
+    assert.deepEqual(s.coherenceHooks, { active: false, reason: 'check failed with exit code 1' });
     await s.refreshCoherenceHooks();
     assert.equal(announced.length, 1);
     preparedHooks = { active: true };
     await s.refreshCoherenceHooks();
     await s.refreshCoherenceHooks();
-    assert.deepEqual(announced, [{ active: false, reason: 'control files missing' }, { active: true }]);
+    assert.deepEqual(announced, [{ active: false, reason: 'check failed with exit code 1' }, { active: true }]);
     assert.equal(prepareCount, 3);
 
-    preparedHooks = { active: false, reason: 'control files missing' };
+    preparedHooks = { active: false, reason: 'check failed with exit code 1' };
     firePtyExit();
     assert.equal(s.restart(), true);
     await s.start();
@@ -105,10 +112,10 @@ test('start() announces the Coherence hooks state it records, a turn end re-prep
     firePtyExit();
     assert.equal(s.restart(), true);
     await s.start();
-    resolveStalePrepare({ active: false, reason: 'control files missing' });
+    resolveStalePrepare({ active: false, reason: 'check failed with exit code 1' });
     await staleRefresh;
     assert.deepEqual(s.coherenceHooks, { active: true });
-    assert.deepEqual(announced.slice(2), [{ active: false, reason: 'control files missing' }, { active: true }]);
+    assert.deepEqual(announced.slice(2), [{ active: false, reason: 'check failed with exit code 1' }, { active: true }]);
   } finally {
     s.destroy();
   }

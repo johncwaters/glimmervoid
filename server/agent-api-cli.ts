@@ -11,8 +11,6 @@ import { decideGuardrailsProxy } from '../session/core/guardrails-proxy-core.ts'
 import type { GuardrailsProxy } from '../session/core/guardrails-proxy-core.ts';
 import { isAgentApiVerb } from './core/agent-api-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
-import { ProjectCoherenceCheckResult } from '../shared/contracts/coherence.ts';
-import { renderCoherenceCheckText } from './coherence/core/coherence-check-core.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
 const HELP_LIMITS_TIMEOUT_MS = 2000;
@@ -36,7 +34,6 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     return docPath ? { path: path.resolve(docPath) } : null;
   },
   limits: () => ({}),
-  'coherence-check': (rest) => rest.length === 0 ? {} : null,
 };
 
 function bodySaysOk(text: string): boolean {
@@ -55,10 +52,6 @@ function limitsLines(replyText: string): string[] | null {
 }
 
 function printableReply(verb: AgentApiVerb, replyText: string): string {
-  if (verb === 'coherence-check') {
-    const result = ProjectCoherenceCheckResult.safeParse(parseJsonOrNull(replyText));
-    return result.success ? renderCoherenceCheckText(result.data) : replyText;
-  }
   if (verb !== 'limits') return replyText;
   return limitsLines(replyText)?.join('\n') ?? replyText;
 }
@@ -186,4 +179,4 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   return reply.hasSuccessStatus && bodySaysOk(reply.text) ? 0 : 1;
 }
 
-export { AGENT_PATH_PREFIX, postToAgentIngress, runAgentApiCli, sessionLimitsHelpLines, verbEndpoint };
+export { postToAgentIngress, runAgentApiCli, sessionLimitsHelpLines };

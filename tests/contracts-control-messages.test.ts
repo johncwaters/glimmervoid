@@ -124,7 +124,7 @@ const SESSION = {
   worktreeNotice: null,
   effectiveBase: 'develop',
   linkedPrs: [{ repo: 'acme/app', number: 42, url: 'https://github.com/acme/app/pull/42', source: 'hook', linkedAt: NOW }],
-  coherenceHooks: { active: false, reason: 'node_modules not ignored' },
+  coherenceHooks: { active: false, reason: 'not installed' },
   auditLog: [],
 };
 
@@ -138,7 +138,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-prs', id: 'session-1', linkedPrs: [{ repo: 'PostHog/glimmervoid', number: 42, url: 'https://github.com/PostHog/glimmervoid/pull/42', source: 'hook', linkedAt: NOW }] },
   { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, guarded: true, resumeSessionId: null },
   { type: 'session-git', id: 'session-1', worktree: true },
-  { type: 'session-coherence-hooks', id: 'session-1', coherenceHooks: { active: false, reason: 'control files missing' } },
+  { type: 'session-coherence-hooks', id: 'session-1', coherenceHooks: { active: false, reason: 'check failed with exit code 1' } },
   { type: 'session-agents', id: 'session-1', activeAgents: 2, awaitingBackgroundTasks: true, session: 'glimmervoid', timestamp: NOW },
   { type: 'session-wakeup', id: 'session-1', pendingWakeup: { at: NOW, kind: 'cron', reason: null }, session: 'glimmervoid', timestamp: NOW },
   { type: 'session-prompt', id: 'session-1', pendingPromptKind: 'permission', session: 'glimmervoid', timestamp: NOW },
@@ -166,35 +166,10 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   {
     type: 'session-coherence', id: 'session-1', updatedAt: NOW,
     journal: { ok: true, latest: { id: 'd-f16808ad', at: '2026-10-17T10:00:00.000Z', kind: 'decision', text: 'use plain files', detail: 'simplest', supersedes: null } },
-    regulation: { ok: true, nextAction: { action: 'refuse', rule: 'canonical-lifecycle-control', evidence: 'lifecycle target is missing', remedy: null, command: null, remaining: 0 } },
   },
-  { type: 'session-coherence-snapshot', sessions: { 'session-1': { journal: { ok: false, reason: 'the Coherence journal is not a regular file' }, regulation: { ok: false, reason: 'coherence regulate timed out' }, updatedAt: NOW } } },
+  { type: 'session-coherence-snapshot', sessions: { 'session-1': { journal: { ok: false, reason: 'the Coherence journal is not a regular file' }, updatedAt: NOW } } },
   { type: 'session-coherence-journal-response', requestId: 'r-journal', id: 'session-1', ok: true, entries: [{ id: 'def-0123456789ab', at: '2026-10-17T10:05:00.000Z', kind: 'defect', text: 'flaky socket test', detail: null, supersedes: null }] },
   { type: 'session-setup-response', requestId: 'r-setup', id: 'session-1', ok: true, setup: { model: null, mcpServers: [], plugins: [], skills: [], agents: [], hookEvents: [], hookCommands: [] } },
-  {
-    type: 'project-coherence-trend', projectId: 'project-1',
-    latest: {
-      sha: 'a'.repeat(40), at: '2026-10-17T10:00:00.000Z',
-      drift: { status: 'needs-components', configLine: '"components": [{ "name": "<component>", "files": ["<folder>/**"] }]' },
-      decompose: { status: 'ok', components: 2, commitsAnalyzed: 15, localityPercent: 25, topFindings: [{ kind: 'cross-boundary', subject: 'a <-> b', count: 15 }] },
-      redundancy: { status: 'ok', pairCount: 1, topPairs: [{ a: { file: 'src/size.ts', kind: 'enum', name: 'Size' }, b: { file: 'src/dimension.ts', kind: 'enum', name: 'Dimension' }, score: 4, isDiverged: false }] },
-      mass: { status: 'unavailable', reason: 'the reading timed out' },
-    },
-    trend: { direction: 'decohering', rows: 2, comparedRows: 2, redundancyPairs: { from: 0, to: 1 }, lines: { from: 1, to: 2 } },
-  },
-  { type: 'project-coherence-trend-snapshot', projects: { 'project-1': {
-    latest: {
-      sha: 'b'.repeat(40), at: '2026-10-17T10:00:00.000Z', drift: { status: 'insufficient-history', developmentCommits: 0 },
-      decompose: { status: 'unavailable', reason: 'the guardrails sandbox could not start' }, redundancy: { status: 'ok', pairCount: 0, topPairs: [] }, mass: { status: 'ok', lines: 34, files: 7, symbols: 33 },
-    },
-    trend: { direction: 'steady', rows: 1, comparedRows: 1, redundancyPairs: null, lines: null },
-  } } },
-  { type: 'project-coherence-adopt-response', requestId: 'r-adopt', projectId: 'project-1', ok: true, sha: 'c'.repeat(40) },
-  {
-    type: 'project-coherence-check-response', requestId: 'r-check', projectId: 'project-1', ok: false,
-    stages: [{ id: 'setting', status: 'pass', detail: 'Settings > Lanes > Coherence is on' }, { id: 'install', status: 'fail', detail: 'no coherence.config.json' }, { id: 'hooks-claude', status: 'skip', detail: 'needs install' }],
-  },
-  { type: 'project-coherence-status', projects: { 'project-1': { configured: true }, 'project-2': { configured: false } } },
   { type: 'notify', session: 'session-1', category: 'complete', message: 'finished', escalationCount: 0 },
   {
     type: 'update-status', updateAvailable: true, current: '0.23.1', latest: '0.24.0', currentSha: null,

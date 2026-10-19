@@ -1,12 +1,6 @@
 export const HOST_SCRATCH_PREFIXES = [
-  'coherence-adopt-npm-',
-  'coherence-adopt-',
-  'coherence-check-',
-  'coherence-readings-',
-  'coherence-regulate-',
   'check-',
   'glimmervoid-lane-settings-',
-  'glimmervoid-lane-coherence-bin-',
 ] as const;
 
 export type HostScratchPrefix = (typeof HOST_SCRATCH_PREFIXES)[number];

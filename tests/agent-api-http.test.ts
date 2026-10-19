@@ -4,8 +4,6 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { setTimeout as setTimeoutPromise } from 'node:timers/promises';
 import type { Server } from 'node:http';
 
@@ -16,11 +14,8 @@ import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts'
 import { memoryReserveBytes } from '../server/core/memory-admission-core.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
-import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { AgentLimitsReply } from '../shared/contracts/session.ts';
-import { ProjectCoherenceCheckRequest } from '../shared/contracts/coherence.ts';
-import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
@@ -191,7 +186,6 @@ test('attention raises the normal waiting notification path with an agent prompt
 });
 
 interface WiringFixtureOptions {
-  coherenceCheck?: Parameters<typeof createAgentApiWiring>[0]['coherenceCheck'];
   parentSkipsPermissions?: boolean;
   spawnFails?: boolean;
   makeSessionThrowsFirst?: boolean;
@@ -203,7 +197,7 @@ interface WiringFixtureOptions {
 
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
-  holdSpawnGate = false, parentIsGuarded = false, coherenceCheck, headroomBytes = 64 * 1024 * 1024 * 1024,
+  holdSpawnGate = false, parentIsGuarded = false, headroomBytes = 64 * 1024 * 1024 * 1024,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -247,7 +241,6 @@ function wiringFixture({
   };
   const wiring = createAgentApiWiring({
     config,
-    coherenceCheck,
     agentSessions,
     listAllSessions: () => [parent, ...laneSessions, ...agentSessions.values()],
     listBoardSessions: () => [parent, ...agentSessions.values()],
@@ -278,50 +271,7 @@ function wiringFixture({
   };
 }
 
-test('coherence check CLI and HTTP verbs reach the injected deps only from operator sessions on the session project', async (context) => {
-  const checkedProjectIds: string[] = [];
-  const coherenceCheck = {
-    check: async (request: unknown) => {
-      const { projectId } = ProjectCoherenceCheckRequest.parse(request);
-      checkedProjectIds.push(projectId);
-      return { projectId, ok: false, stages: [{ id: 'setting' as const, status: 'fail' as const, detail: 'the Coherence setting is off' }] };
-    },
-  };
-  const fixture = wiringFixture({ coherenceCheck });
-  fixture.parent._hooks.inject();
-  const token = fixture.parent.agentToken;
-  assert.ok(token);
-  const reviewerLane = new Session({ id: 'reviewer-lane', name: 'Reviewer lane', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty() });
-  reviewerLane._hooks.inject();
-  const app = createBackendHttpApp({
-    staticDir: null, configStore: { configPath: path.join(os.tmpdir(), 'coherence-agent-config.json') },
-    remote: { allowedOrigins: [] }, remoteAuth: null, allowedHosts: [], listenerPortsFor: () => [], pageToken: 'page',
-    hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) },
-    getSession: (id) => [fixture.parent, reviewerLane].find((session) => session.id === id) ?? null,
-    getUsage: () => ({ ingestStatusline: () => {} }), getAgentApi: () => fixture.wiring,
 
-  });
-  const server = http.createServer(app);
-  await listenOnLoopback(server);
-  context.after(async () => {
-    fixture.destroyAll(); reviewerLane.destroy();
-    server.closeAllConnections(); await closeServer(server);
-  });
-  const base = `http://127.0.0.1:${boundPort(server)}`;
-  const send = (verb: string, body: unknown, session = fixture.parent) => fetch(`${base}/agent/${session.id}/${verb}`, {
-    method: 'POST', headers: { authorization: `Bearer ${session.agentToken}` }, body: JSON.stringify(body),
-  });
-  const runCommand = async (args: string[]) => promisify(execFile)(process.execPath, ['bin/glimmervoid.ts', ...args], {
-    cwd: path.join(import.meta.dirname, '..'), env: { ...process.env, [AGENT_URL_ENV]: `${base}/agent/parent?t=${token}` },
-  }).then(({ stdout, stderr }) => ({ code: 0, stdout, stderr }), (failure: { code: number; stdout: string; stderr: string }) => ({ code: failure.code, stdout: failure.stdout, stderr: failure.stderr }));
-  fixture.config.projects = [{ id: 'other', name: 'Other', path: path.join(process.cwd(), 'elsewhere') }, { id: 'repo', name: 'Repository', path: process.cwd() }];
-  assert.deepEqual(await runCommand(['coherence', 'check']), { code: 1, stdout: 'FAIL  setting        the Coherence setting is off\n1 failed\n', stderr: '' });
-  const namedProject = await runCommand(['coherence', 'check', '--project', 'other']);
-  assert.deepEqual([namedProject.code, namedProject.stderr], [1, "glimmervoid coherence check: inside a Glimmervoid session the check runs on this session's own project only, so drop --project\n"]);
-  assert.equal((await send('coherence-check', { projectId: 'other' })).status, 400);
-  assert.equal((await send('coherence-check', {}, reviewerLane)).status, 403);
-  assert.deepEqual(checkedProjectIds, ['repo']);
-});
 
 test('a valid spawn creates exactly one sibling that may not spawn again', async () => {
   const fixture = wiringFixture({ parentIsGuarded: true });
@@ -653,12 +603,12 @@ test('limits tells a session which commands answer, and a guarded operator sessi
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'attention', 'board', 'edit', 'coherence check'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'attention', 'board', 'edit'].map((name) => ({ name, answers: true })),
     ]);
     assert.equal(operatorLimits.guarded, true);
     assert.deepEqual(operatorLimits.deadEnds.map(({ route }) => route), ['flag the operator with glimmervoid attention']);
     const laneLimits = await limitsOf(guardedLane);
-    assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [['push', false], ['spawn', false], ['attention', false], ['board', true], ['edit', false], ['coherence check', false]]);
+    assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [['push', false], ['spawn', false], ['attention', false], ['board', true], ['edit', false]]);
     assert.deepEqual([laneLimits.guarded, laneLimits.deadEnds], [true, []]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],

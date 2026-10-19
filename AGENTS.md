@@ -75,7 +75,7 @@ Each subsystem states its own rules beside its code, so a rule is loaded when th
 | Agent Adapters | `session/adapters/AGENTS.md` |
 | Session Spawning, Auto-Resume and Shutdown | `session/AGENTS.md` |
 | Notifications | `notifications/AGENTS.md` |
-| Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Benchmarks, Plan Review, Security: Trust Boundary, Transport and Session Identity, Coherence Readings | `server/AGENTS.md` |
+| Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Benchmarks, Plan Review, Security: Trust Boundary, Transport and Session Identity | `server/AGENTS.md` |
 | Ephemeral Lane Write Boundaries | `server/lanes/AGENTS.md` |
 | Usage Tracking | `server/usage/AGENTS.md` |
 | Team PR Review | `server/github/AGENTS.md` |
@@ -102,11 +102,11 @@ Windows 11, Linux and macOS. Node floor and module split are stated under Workin
 
 Runtime: `express`, `ws` (no Socket.IO and no abstraction over WebSockets, ever), `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`.
 
-`@xterm/headless` with `@xterm/addon-serialize` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `@anthropic-ai/sandbox-runtime` (Seatbelt on macOS, bubblewrap on Linux) and `cc-safety-net` back the session guardrails. `@danilocampos/coherence` reads Coherence journals and repository readings.
+`@xterm/headless` with `@xterm/addon-serialize` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `@anthropic-ai/sandbox-runtime` (Seatbelt on macOS, bubblewrap on Linux) and `cc-safety-net` back the session guardrails. Glimmervoid runs each repository's own `@posthog/coherence` CLI and takes no runtime dependency on it.
 
 `@parcel/watcher` backs the fs ingest source only, chosen because it applies ignores BEFORE watch registration, which keeps a `node_modules` tree from exhausting `inotify.max_user_watches` on Linux. A load failure disables that one source and nothing else.
 
-Dev: `vite`, `tailwindcss` v4 with `@tailwindcss/vite`.
+Dev: `vite`, `tailwindcss` v4 with `@tailwindcss/vite`, and `@posthog/coherence`, this repository's own Coherence install.
 
 ## Parallel Agent Work
 

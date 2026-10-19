@@ -49,16 +49,13 @@ export const ConversationApprovalDecision = z.enum(['accept', 'acceptForSession'
 
 const COHERENCE_HOOKS_REASON_MAX_CHARS = 80;
 export const COHERENCE_HOOKS_INACTIVE = Object.freeze({
-  configMissing: 'config missing',
-  configRefused: 'config refused',
+  notInstalled: 'not installed',
+  unsupportedVersion: 'unsupported version',
   codexHooksUntrusted: 'Codex hooks need trust in /hooks',
-  controlFilesMissing: 'control files missing',
-  nodeModulesNotIgnored: 'node_modules not ignored',
-  sharedNodeModulesMissingCoherence: 'Coherence not installed in shared node_modules',
 });
 export const CoherenceHooksState = z.discriminatedUnion('active', [
   z.object({ active: z.literal(true) }).strict(),
-  z.object({ active: z.literal(false), reason: z.string().min(1).max(COHERENCE_HOOKS_REASON_MAX_CHARS) }).strict(),
+  z.object({ active: z.literal(false), reason: z.string().min(1).max(COHERENCE_HOOKS_REASON_MAX_CHARS), version: z.string().optional() }).strict(),
 ]);
 
 export const SessionSnapshot = z.object({
@@ -124,11 +121,9 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'push', 'edit', 'limits', 'coherence-check'] as const;
+export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'push', 'edit', 'limits'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
-export const AgentCoherenceCheckRequest = z.object({}).strict();
-export type AgentCoherenceCheckRequest = z.infer<typeof AgentCoherenceCheckRequest>;
 
 export const AgentSpawnRequest = z.object({
   prompt: z.string({ error: 'prompt must be a string' })
@@ -177,7 +172,7 @@ export const SessionDoc = z.object({
 export type AgentEditRequest = z.infer<typeof AgentEditRequest>;
 export type SessionDoc = z.infer<typeof SessionDoc>;
 
-export const SESSION_COMMANDS = ['push', 'spawn', 'attention', 'board', 'edit', 'coherence check'] as const;
+export const SESSION_COMMANDS = ['push', 'spawn', 'attention', 'board', 'edit'] as const;
 
 export const SessionLimits = z.object({
   commands: z.array(z.object({

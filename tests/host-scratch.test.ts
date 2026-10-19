@@ -20,13 +20,13 @@ after(async () => {
 
 test('sweep removes only a stale listed-prefix folder and spares hooks, unknown names and scratch made by this process', async () => {
   const scratchRoot = hostScratchRoot();
-  const staleListedFolder = 'coherence-check-Ab12Cd';
+  const staleListedFolder = 'check-Ab12Cd';
   const hooksFolder = 'glimmervoid-hooks';
   const unknownNameFolder = 'operator-notes';
   await mkdir(path.join(scratchRoot, staleListedFolder), { recursive: true });
   await mkdir(path.join(scratchRoot, hooksFolder), { recursive: true });
   await mkdir(path.join(scratchRoot, unknownNameFolder), { recursive: true });
-  const liveScratchFolder = path.basename(await makeHostScratchDirectory('coherence-check-'));
+  const liveScratchFolder = path.basename(await makeHostScratchDirectory('check-'));
 
   await sweepOrphanedHostScratch();
 

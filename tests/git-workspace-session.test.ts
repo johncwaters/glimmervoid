@@ -807,12 +807,12 @@ test('mergeBack (real git): Coherence journals land with committed work, other u
   try {
     const gw = createGitWorkspace();
     const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'mixed', baseBranch: 'develop' });
-    const activityPath = path.join('.coherence', 'activity', 'x.jsonl');
-    const decisionPath = path.join('.coherence', 'decisions', 'x.jsonl');
+    const activityPath = path.join('.coherence', 'runs', 'x.jsonl');
+    const decisionPath = path.join('.coherence', 'journal', 'x.jsonl');
     const committedActivity = '{"event":"start"}\n';
     const committedDecision = '{"decision":"keep session journals"}\n';
-    fs.mkdirSync(path.join(ws.cwd, '.coherence', 'activity'), { recursive: true });
-    fs.mkdirSync(path.join(ws.cwd, '.coherence', 'decisions'), { recursive: true });
+    fs.mkdirSync(path.join(ws.cwd, '.coherence', 'runs'), { recursive: true });
+    fs.mkdirSync(path.join(ws.cwd, '.coherence', 'journal'), { recursive: true });
     fs.writeFileSync(path.join(ws.cwd, activityPath), committedActivity, 'utf8');
     fs.writeFileSync(path.join(ws.cwd, decisionPath), committedDecision, 'utf8');
     fs.writeFileSync(path.join(ws.cwd, 'committed.js'), 'done\n', 'utf8');
@@ -823,7 +823,7 @@ test('mergeBack (real git): Coherence journals land with committed work, other u
     const uncommittedDecision = '{"decision":"commit journals with work"}\n';
     fs.appendFileSync(path.join(ws.cwd, activityPath), uncommittedActivity, 'utf8');
     fs.appendFileSync(path.join(ws.cwd, decisionPath), uncommittedDecision, 'utf8');
-    fs.writeFileSync(path.join(ws.cwd, '.coherence', 'activity', 'subagent.jsonl'), '{"event":"subagent-stop"}\n', 'utf8');
+    fs.writeFileSync(path.join(ws.cwd, '.coherence', 'runs', 'subagent.jsonl'), '{"event":"subagent-stop"}\n', 'utf8');
     fs.writeFileSync(path.join(ws.cwd, 'wip.js'), 'work in progress\n', 'utf8');
     git(['add', 'wip.js'], ws.cwd);
 
@@ -841,7 +841,7 @@ test('mergeBack (real git): Coherence journals land with committed work, other u
     fs.rmSync(path.join(ws.cwd, 'wip.js'));
 
     if (!WIN) {
-      const journalLinkPath = path.join(ws.cwd, '.coherence', 'activity', 'link.jsonl');
+      const journalLinkPath = path.join(ws.cwd, '.coherence', 'runs', 'link.jsonl');
       fs.symlinkSync('x.jsonl', journalLinkPath);
       const refusedLink = await gw.mergeBack({ projectPath: repo, workspace: ws, targetBranch: 'develop' });
       assert.equal(refusedLink.reason, 'uncommitted-changes');
@@ -859,13 +859,13 @@ test('mergeBack (real git): Coherence journals land with committed work, other u
     assert.equal(merged.reason, null);
     assert.equal(merged.merged, true);
     assert.equal(fs.readFileSync(path.join(repo, 'committed.js'), 'utf8'), 'done\n');
-    assert.equal(git(['show', 'develop:.coherence/decisions/x.jsonl'], repo).replace(/\r\n/g, '\n'), committedDecision + uncommittedDecision);
-    assert.equal(git(['show', 'develop:.coherence/activity/x.jsonl'], repo).replace(/\r\n/g, '\n'), committedActivity + uncommittedActivity);
-    assert.equal(git(['show', 'develop:.coherence/activity/subagent.jsonl'], repo).replace(/\r\n/g, '\n'), '{"event":"subagent-stop"}\n');
+    assert.equal(git(['show', 'develop:.coherence/journal/x.jsonl'], repo).replace(/\r\n/g, '\n'), committedDecision + uncommittedDecision);
+    assert.equal(git(['show', 'develop:.coherence/runs/x.jsonl'], repo).replace(/\r\n/g, '\n'), committedActivity + uncommittedActivity);
+    assert.equal(git(['show', 'develop:.coherence/runs/subagent.jsonl'], repo).replace(/\r\n/g, '\n'), '{"event":"subagent-stop"}\n');
     assert.equal(git(['rev-list', '--count', `${sessionCommit}..develop`], repo).trim(), '1');
     assert.equal(git(['log', '-1', '--format=%s', 'develop'], repo).trim(), 'chore: record Coherence journal');
     assert.deepEqual(git(['diff-tree', '--no-commit-id', '--name-only', '-r', 'develop'], repo).trim().split('\n'), [
-      '.coherence/activity/subagent.jsonl', '.coherence/activity/x.jsonl', '.coherence/decisions/x.jsonl',
+      '.coherence/journal/x.jsonl', '.coherence/runs/subagent.jsonl', '.coherence/runs/x.jsonl',
     ]);
     assert.ok(!fs.existsSync(ws.cwd), 'worktree removed after journals land');
   } finally {
@@ -995,7 +995,7 @@ test('hasUnmergedWork (real git): untracked Coherence journals alone are not wor
     const gw = createGitWorkspace();
     const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'journals', baseBranch: 'develop' });
     const workArgs = { projectPath: repo, workspace: ws, integrationBranch: 'develop', configuredIntegrationBranch: 'develop' };
-    for (const journal of ['activity', 'decisions']) {
+    for (const journal of ['runs', 'journal', 'work']) {
       fs.mkdirSync(path.join(ws.cwd, '.coherence', journal), { recursive: true });
       fs.writeFileSync(path.join(ws.cwd, '.coherence', journal, '22222222-2222-4222-8222-222222222222.jsonl'), '{}\n', 'utf8');
     }

@@ -105,14 +105,3 @@ export function buildHardenedGitInvocation(args: string[], { baseEnv, transportS
     env: { ...buildAllowlistedChildEnv(baseEnv, platform), ...transportEnv(transportSourceEnv), ...transportEnv(baseEnv), GIT_TERMINAL_PROMPT: '0' },
   };
 }
-
-export function gitInvocationEnvironment(invocation: { args: string[]; env: Record<string, string> }): Record<string, string> {
-  const gitEnvironment: Record<string, string> = { ...invocation.env, GIT_CONFIG_COUNT: String(invocation.args.length / 2) };
-  for (let index = 0; index < invocation.args.length; index += 2) {
-    const setting = invocation.args[index + 1];
-    const separatorIndex = setting.indexOf('=');
-    gitEnvironment[`GIT_CONFIG_KEY_${index / 2}`] = setting.slice(0, separatorIndex);
-    gitEnvironment[`GIT_CONFIG_VALUE_${index / 2}`] = setting.slice(separatorIndex + 1);
-  }
-  return gitEnvironment;
-}

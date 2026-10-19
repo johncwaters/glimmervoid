@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 type ParsedKey = { segments: string[]; end: number };
-type HookHandlerIdentity = { type: 'command'; command: string; timeout: number; async: boolean; statusMessage?: string };
+type HookHandlerIdentity = { type: 'command'; command: string; timeout: number; async: boolean; statusMessage?: string; additionalContextLimit?: number };
 
 const BARE_KEY_CHARACTER = /[A-Za-z0-9_-]/;
 const BASIC_STRING_ESCAPES: Readonly<Record<string, string>> = Object.freeze({ '"': '"', '\\': '\\', b: '\b', t: '\t', n: '\n', f: '\f', r: '\r' });
@@ -14,7 +14,7 @@ const KNOWN_EVENTS: ReadonlySet<string> = new Set([
 ]);
 const LONE_SURROGATE = /\p{Cs}/u;
 const HASHABLE_GROUP_FIELDS: ReadonlySet<string> = new Set(['matcher', 'hooks']);
-const HASHABLE_HANDLER_FIELDS: ReadonlySet<string> = new Set(['type', 'command', 'timeout', 'async', 'statusMessage']);
+const HASHABLE_HANDLER_FIELDS: ReadonlySet<string> = new Set(['type', 'command', 'timeout', 'async', 'statusMessage', 'additionalContextLimit']);
 
 function skipSpaces(text: string, start: number): number {
   let index = start;
@@ -150,10 +150,13 @@ function normalizedHandlerIdentity(eventName: string, handler: unknown): HookHan
   if (!isHashableString(handler.command) || handler.command.trim() === '') return null;
   if (handler.async !== undefined && typeof handler.async !== 'boolean') return null;
   if (handler.statusMessage !== undefined && !isHashableString(handler.statusMessage)) return null;
+  const contextLimit = handler.additionalContextLimit;
+  if (contextLimit !== undefined && contextLimit !== null && (typeof contextLimit !== 'number' || !Number.isSafeInteger(contextLimit) || contextLimit < 0)) return null;
   const timeout = normalizedTimeoutSeconds(eventName, handler.timeout);
   if (timeout === null) return null;
   const identity: HookHandlerIdentity = { type: 'command', command: handler.command, timeout, async: handler.async ?? false };
   if (handler.statusMessage !== undefined) identity.statusMessage = handler.statusMessage;
+  if (typeof contextLimit === 'number' && contextLimit !== 2500 && ['PreToolUse', 'PostToolUse', 'SessionStart', 'UserPromptSubmit', 'SubagentStart'].includes(eventName)) identity.additionalContextLimit = contextLimit;
   return identity;
 }
 

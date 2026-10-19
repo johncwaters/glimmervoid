@@ -1,0 +1,1 @@
+claude: /repo/.claude/settings.json: all 7 events match what install would write

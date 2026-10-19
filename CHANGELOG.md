@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Coherence support moves to @posthog/coherence 1.8 from each repository's own install. The bundled 0.37 package, repository readings, `glimmervoid coherence check`, adopt, the next-action chip and Coherence in team review are removed.
+
 - Removed the Factory tab, factory lanes, `glimmervoid factory` and `dispatch` commands, the experimental `glimmervoid kg` knowledge graph, and their settings.
 
 ### Added

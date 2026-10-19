@@ -1,3 +1,4 @@
+import { resolveCoherence } from '../coherence/coherence-runtime.ts';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
 import { refreshRtkHookTools } from '../../session/core/rtk-settings-core.ts';
 import path from 'node:path';
@@ -11,9 +12,6 @@ import type { SessionOptions, SessionPlanReviewPort } from '../../session/sessio
 import { getAdapter } from '../../session/adapters/index.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
-import type { CoherenceNativeHooks } from '../coherence/coherence-native-hooks.ts';
-import { decideCoherenceAttachment } from '../coherence/core/coherence-session-core.ts';
-import type { CoherenceSessionKind } from '../coherence/core/coherence-session-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { isSessionGuarded } from '../guardrails/core/guardrails-roles-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
@@ -35,7 +33,6 @@ interface SessionFactoryDependencies {
   getUserHooks: (projectId: string) => UserHook[];
   sessionGuardrails?: SessionGuardrails;
   commitSigningProgram?: string | null;
-  coherenceNativeHooks?: CoherenceNativeHooks | null;
   homeDir?: string;
 }
 
@@ -85,14 +82,10 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
   ): Session {
     const skipPermissions = projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
     const originalHookTools = dependencies.resolveHookTools(config, { skipPermissions });
-    const sessionKind: CoherenceSessionKind = 'writer';
-    const coherenceNativeHooks = dependencies.coherenceNativeHooks;
-    const coherenceHost = getAdapter(overrides.agent ?? project.agent)?.usageVendor;
-    const prepareCoherenceHooks = coherenceNativeHooks && (coherenceHost === 'claude' || coherenceHost === 'codex')
-      ? async (cwd: string, { canWriteShims }: { canWriteShims: boolean }) => {
-        const isAttached = decideCoherenceAttachment({ sessionKind, isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true });
-        return isAttached ? coherenceNativeHooks.prepare({ root: cwd, host: coherenceHost, canWriteShims }) : null;
-      } : null;
+    const prepareCoherence = overrides.ephemeral ? null : (cwd: string) => resolveCoherence({
+      worktree: cwd, host: getAdapter(overrides.agent ?? project.agent)?.usageVendor,
+      isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true,
+    });
     const session = new Session({
       id: project.id,
       name: project.name,
@@ -126,7 +119,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),
-      prepareCoherenceHooks,
+      prepareCoherence,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       ...overrides,
       prepareGuardrails: 'prepareGuardrails' in overrides ? overrides.prepareGuardrails : defaultGuardrailsFor(project, config, overrides),

@@ -91,7 +91,7 @@ test('a session with no team options spawns with the supervision line and no oth
 
 test('the supervision line is withheld exactly when the permission rules stop the session running glimmervoid --help', async () => {
   const permissionCases: [string, Record<string, unknown>, boolean][] = [
-    ['a factory worker denies the glimmervoid command', { defaultMode: 'dontAsk', allow: ['Bash(coherence context:*)'], deny: ['Bash(glimmervoid:*)'] }, false],
+    ['a lane denies the glimmervoid command', { defaultMode: 'dontAsk', allow: ['Bash(git status:*)'], deny: ['Bash(glimmervoid:*)'] }, false],
     ['a judge lane denies the shell outright', { defaultMode: 'acceptEdits', deny: ['Bash', 'Edit'] }, false],
     ['a never-ask lane allows other commands only', { defaultMode: 'dontAsk', allow: ['Bash(git diff:*)', 'Bash(glimmervoid dispatch:*)'], deny: ['Edit'] }, false],
     ['a never-ask lane allows the glimmervoid command', { defaultMode: 'dontAsk', allow: ['Bash(glimmervoid:*)'], deny: [] }, true],

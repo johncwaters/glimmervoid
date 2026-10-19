@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,8 +26,6 @@ import type { ResumableReview, ReviewComment, ReviewDraft as ReviewDraftType, Te
 import { GUARDRAILS_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import type { resolveHookTools as resolveSharedHookTools } from '../server/hook-tools.ts';
-import { createCoherenceRuntime } from '../server/coherence/coherence-runtime.ts';
-import { createLocalCoherenceJournals } from '../server/coherence/coherence-journal-store.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 
 const HEAD = 'c'.repeat(40);
@@ -771,84 +768,6 @@ test('every tier runs the review from a throwaway work dir, and no argv entry na
   }
 });
 
-function commitCoherenceFiles(repoDir: string, files: Record<string, string>, message: string): string {
-  for (const [relativePath, text] of Object.entries(files)) {
-    fs.mkdirSync(path.dirname(path.join(repoDir, relativePath)), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, relativePath), text);
-  }
-  git(['add', '-A'], repoDir);
-  git(['commit', '-q', '-m', message], repoDir);
-  return git(['rev-parse', 'HEAD'], repoDir).trim();
-}
-
-function coherencePullRequestRepo(): { repoDir: string; headSha: string } {
-  const repoDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-coherence-repo-')));
-  git(['init', '-q', '-b', 'main'], repoDir);
-  git(['config', 'user.email', 'test@example.com'], repoDir);
-  git(['config', 'user.name', 'Glimmervoid Test'], repoDir);
-  git(['config', 'commit.gpgsign', 'false'], repoDir);
-  const baseSha = commitCoherenceFiles(repoDir, {
-    'coherence.config.json': '{}\n',
-    'src/size.ts': "export enum Size { Small = 'small', Medium = 'medium', Large = 'large', Huge = 'huge' }\n",
-    'src/dimension.ts': "export enum Dimension { Small = 'small', Medium = 'medium', Large = 'large', Huge = 'huge' }\n",
-  }, 'base');
-  git(['update-ref', `refs/glimmervoid-base/${detail.number}`, baseSha], repoDir);
-  const headSha = commitCoherenceFiles(repoDir, {
-    'src/colors.ts': "export enum Color { Red = 'red', Green = 'green', Blue = 'blue', Amber = 'amber' }\n",
-    'src/palette.ts': "export enum Swatch { Red = 'red', Green = 'green', Blue = 'blue', Amber = 'amber' }\n",
-  }, 'head');
-  git(['checkout', '-q', '--detach', baseSha], repoDir);
-  return { repoDir, headSha };
-}
-
-function localRepoCache(repoDir: string, headSha: string): TeamReviewDispatchOptions['repoCache'] {
-  return {
-    listRepos: async () => [repoDir],
-    ensureRepo: async () => repoDir,
-    fetchPr: async () => ({ ok: true, headSha, err: '' }),
-    hydrateTree: async () => ({ ok: true, err: '' }),
-    hydrateRange: async () => ({ ok: true, err: '' }),
-    hydrateSince: async () => true,
-    isolateNewWork: async () => ({ ok: false, reason: 'unused' }),
-  };
-}
-
-test('the report becomes a draft rendered in the pr-review posting format, carrying the Coherence section only with the setting on', { skip: !hasGit() }, async () => {
-  const { review, cleanup } = setup();
-  const { repoDir, headSha } = coherencePullRequestRepo();
-  const coherenceRuntime = createCoherenceRuntime();
-  const coherentReview = (isSettingOn: boolean) => setup({
-    repoCache: localRepoCache(repoDir, headSha),
-    gitWorkspace: createGitWorkspace(),
-    coherenceReadings: { isSettingOn: () => isSettingOn, run: coherenceRuntime.run },
-    writeReport: (workDir) => fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), reportText(headSha)),
-  });
-  const settingOn = coherentReview(true);
-  const settingOff = coherentReview(false);
-  try {
-    const draft = await review(reviewArgs('full'));
-    assert.equal(draft.verdict, 'APPROVE WITH NITS');
-    assert.equal(draft.summary, 'one nit');
-    assert.equal(draft.comments.length, 1);
-    assert.equal(draft.comments[0]?.line, 2);
-    assert.match(draft.comments[0]?.body ?? '', /\*\*\[code\/logic\] MEDIUM\*\*/);
-    assert.equal(draft.body, AUTOMATED_REVIEW_NOTE);
-    const pullRequestArgs = { ...reviewArgs('full'), detail: { ...detail, headRefOid: headSha } };
-    const withSection = await settingOn.review(pullRequestArgs);
-    assert.equal(withSection.status, 'ready');
-    assert.ok(withSection.body.startsWith(`${AUTOMATED_REVIEW_NOTE}\n\n**Coherence** (advisory)\nChange signal: 2 changed files;`), withSection.body);
-    assert.match(withSection.body, /New redundancy introduced by this change \(1\):\n- `enum` `Color` in `src\/colors.ts` and `enum` `Swatch` in `src\/palette.ts`/);
-    assert.doesNotMatch(withSection.body, /Size|Dimension/);
-    assert.equal((await settingOff.review(pullRequestArgs)).body, AUTOMATED_REVIEW_NOTE);
-    assert.equal(git(['worktree', 'list', '--porcelain'], repoDir).match(/^worktree /gm)?.length, 1);
-  } finally {
-    cleanup();
-    settingOn.cleanup();
-    settingOff.cleanup();
-    fs.rmSync(repoDir, { recursive: true, force: true });
-  }
-});
-
 test('a Step 4 posting plan from the skill becomes the draft verbatim, and a bad one falls back to the findings', async () => {
   const inlineBody = `${AUTOMATED_REVIEW_NOTE}\n\n**[code/logic] MEDIUM**\n\nNit on the new line.\n\nSuggested fix: rename it.`;
   const plan = { event: 'COMMENT', body: 'Automated review. See inline comments.', commit_id: HEAD, comments: [{ path: 'src/a.ts', line: 2, side: 'RIGHT', body: inlineBody }] };
@@ -1187,67 +1106,7 @@ test('a report whose head is not the provided head is an error draft', async () 
   }
 });
 
-test('with the Coherence setting on in a configured repository the review lane journals in its work dir and only its own decision is kept in the local store, never a git repository', async () => {
-  const coherenceRuntime = createCoherenceRuntime();
-  assert.ok(coherenceRuntime.cliPath && coherenceRuntime.hookCliPath);
-  const storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-journal-store-'));
-  const warnings: string[] = [];
-  const spawnCalls: Parameters<TeamReviewSpawn>[0][] = [];
-  const shimFileNames: string[][] = [];
-  const coherenceJournals = createLocalCoherenceJournals({
-    storeRoot, isSettingOn: () => true, runCoherence: coherenceRuntime.run, hasRepoConfig: coherenceRuntime.hasConfigInWorkingTree, log: { warn: (message) => { warnings.push(message); } },
-    coherenceCli: { nodePath: process.execPath, cliPath: coherenceRuntime.cliPath, hookCliPath: coherenceRuntime.hookCliPath },
-  });
-  const { review, cleanup } = setup({
-    coherenceJournals,
-    gitWorkspace: checkoutSharingWorkspace({
-      stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); fs.writeFileSync(path.join(String(worktreePath), 'coherence.config.json'), '{}'); return { ok: true }; },
-      originUrl: async () => null,
-    }),
-    spawnSession: async (call) => {
-      spawnCalls.push(call);
-      for (const shimDir of call.prependPathDirs ?? []) shimFileNames.push(fs.readdirSync(shimDir).sort());
-      const args = call.extraClaudeArgs;
-      const claudeSessionId = args[args.indexOf('--session-id') + 1];
-      await coherenceRuntime.run({ cwd: call.cwd, args: ['decide', 'nits only on the retry path', '--because', 'the diff touches one line', '--session', claudeSessionId] });
-      fs.mkdirSync(path.join(call.cwd, '.coherence/work'), { recursive: true });
-      fs.writeFileSync(path.join(call.cwd, '.coherence/work/forged.jsonl'), `${JSON.stringify({ event: 'opened', parent: 'w-00000000' })}\n`);
-      fs.writeFileSync(path.join(call.cwd, `.coherence/decisions/${crypto.randomUUID()}.jsonl`), `${JSON.stringify({ id: 'd-0000abcd', session: 'operator', at: new Date().toISOString(), kind: 'decision' })}\n`);
-      fs.mkdirSync(path.join(call.cwd, '.coherence/activity'), { recursive: true });
-      fs.writeFileSync(path.join(call.cwd, `.coherence/activity/${claudeSessionId}.jsonl`), `${JSON.stringify({ session: 'operator' })}\n`);
-      fs.writeFileSync(path.join(call.cwd, REVIEW_REPORT_FILENAME), reportText());
-    },
-  });
-  try {
-    const draft = await review(reviewArgs('full'));
-    assert.equal(draft.status, 'ready');
-    const call = spawnCalls[0];
-    const args = call.extraClaudeArgs;
-    const claudeSessionId = args[args.indexOf('--session-id') + 1];
-    assert.match(claudeSessionId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    assert.deepEqual(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--strict-mcp-config')).filter((rule) => !rule.startsWith('Read(')), ['Bash', 'Bash(coherence decide:*)']);
-    assert.deepEqual(call.settingsPermissions, teamReviewAcceptEditsPermissions());
-    assert.equal(call.spawnEnv.COHERENCE_PROJECT_ROOT, call.cwd);
-    assert.equal((call.extraUserHooks ?? []).some((hook) => hook.command?.endsWith(' Stop')), true);
-    const shimDirs = call.prependPathDirs ?? [];
-    assert.deepEqual(shimFileNames, [['coherence', 'coherence.cmd']]);
-    assert.deepEqual(roleOf(call)?.writableRoots, [ROLE_FACTS.cwd]);
-    assert.deepEqual(roleOf(call)?.readableWithinDenied.slice(-1), shimDirs);
-    for (const shimDir of shimDirs) assert.equal(fs.existsSync(shimDir), false);
-    const storeCwd = path.join(storeRoot, 'github-acme%2Fapp');
-    const keptJournalPaths = fs.readdirSync(path.join(storeCwd, '.coherence'), { recursive: true, withFileTypes: true })
-      .filter((entry) => entry.isFile()).map((entry) => path.relative(storeCwd, path.join(entry.parentPath, entry.name)));
-    assert.deepEqual(keptJournalPaths, [`.coherence/decisions/${claudeSessionId}.jsonl`]);
-    assert.match(fs.readFileSync(path.join(storeCwd, keptJournalPaths[0]), 'utf8'), /nits only on the retry path/);
-    assert.equal(fs.readFileSync(path.join(storeCwd, 'coherence.config.json'), 'utf8'), '{}\n');
-    assert.equal(fs.existsSync(path.join(storeCwd, '.git')), false);
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], new RegExp(`activity/${claudeSessionId}\\.jsonl: it is not a canonical JSONL journal`));
-  } finally {
-    cleanup();
-    fs.rmSync(storeRoot, { recursive: true, force: true });
-  }
-});
+
 
 test('the review role writes only its work folder, reads its checkout and cached clone, and reaches only its agent APIs, the GitHub API and its session port', () => {
   assert.deepEqual(teamReviewRole(ROLE_FACTS, { checkoutPath: '/trees/app', cachedClone: CACHED_CLONE, unreadablePaths: ['/repos/app/.env'] }), {

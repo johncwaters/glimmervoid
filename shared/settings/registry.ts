@@ -595,11 +595,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     id: 'lanes-coherence',
     level: 'lanes',
     title: 'Coherence (experimental)',
-    description: 'Coherence decision journals, hooks and repository trends for agent sessions and review lanes.',
+    description: 'Per-session Coherence hook status and decision journal for agent sessions.',
     settings: [
       {
-        id: 'coherence-enabled', path: 'coherence.enabled', title: 'Use Coherence in every session',
-        description: 'When on, Claude Code and Codex sessions use the Coherence hooks the repository installed itself: a native install (coherence.config.json plus the files npx coherence hooks install commits) is required, and Glimmervoid never adds hooks of its own. Their decision journal lands in .coherence in the worktree to commit with the work. Off by default.',
+        id: 'coherence-enabled', path: 'coherence.enabled', title: 'Show session Coherence',
+        description: "Shows each session's Coherence hook status and decision journal when the repository installed @posthog/coherence 1.8 or newer. Off by default.",
         control: 'toggle', keywords: ['experimental', 'coherence', 'journal', 'decisions'], defaultValue: false, ...MACHINE_NOW,
       },
     ],

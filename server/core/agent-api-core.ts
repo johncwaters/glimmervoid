@@ -1,9 +1,8 @@
 import crypto from 'node:crypto';
-import path from 'node:path';
 
-import { AGENT_API_VERBS, AgentAttentionRequest, AgentCoherenceCheckRequest, AgentEditRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
+import { AGENT_API_VERBS, AgentAttentionRequest, AgentEditRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
-import { attentionRoute, coherenceCheckRoute, editRoute, NO_OWN_WORKTREE_REASON, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
+import { attentionRoute, editRoute, NO_OWN_WORKTREE_REASON, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
 import type { RouteVerdict, SessionRoleFacts } from '../../session/core/session-routes.ts';
 
 const MAX_LIVE_CHILDREN = 3;
@@ -35,7 +34,6 @@ type AgentVerbRequest =
   | { ok: true; verb: 'board' }
   | { ok: true; verb: 'push' }
   | { ok: true; verb: 'limits' }
-  | { ok: true; verb: 'coherence-check'; request: AgentCoherenceCheckRequest }
   | { ok: true; verb: 'attention'; request: AgentAttentionRequest }
   | { ok: true; verb: 'edit'; request: AgentEditRequest }
   | { ok: true; verb: 'spawn'; request: AgentSpawnRequest }
@@ -120,10 +118,6 @@ function decideEditAllowance(caller: SessionRoleFacts): AgentVerdict {
   return refuseByRole(editRoute(caller));
 }
 
-function decideCoherenceCheckAllowance(caller: SessionRoleFacts): AgentVerdict {
-  return refuseByRole(coherenceCheckRoute(caller));
-}
-
 function describePushRouteRefusal(caller: SessionRoleFacts): AgentPushReply | null {
   const route = pushRoute(caller);
   if (route.answers) return null;
@@ -140,11 +134,6 @@ function refuseInvalidBody(issues: readonly { message?: string }[]): AgentVerbRe
 
 function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVerbRequest {
   if (!isAgentApiVerb(verb)) return { ok: false, status: REFUSAL_STATUS, error: REFUSAL_REASON };
-  if (verb === 'coherence-check') {
-    const parsed = AgentCoherenceCheckRequest.safeParse(payload);
-    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
-    return { ok: true, verb, request: parsed.data };
-  }
   if (verb === 'board' || verb === 'push' || verb === 'limits') return { ok: true, verb };
   if (verb === 'attention') {
     const parsed = AgentAttentionRequest.safeParse(payload);
@@ -186,13 +175,9 @@ function deriveChildSessionName(parentName: string, existingNames: readonly stri
   return candidate;
 }
 
-function findSessionProjectId(projects: readonly { id: string; path: string }[] | undefined, sessionPath: string): string | null {
-  const resolvedSessionPath = path.resolve(sessionPath);
-  return projects?.find((project) => path.resolve(project.path) === resolvedSessionPath)?.id ?? null;
-}
 
 export {
   decideAgentRequest, decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding,
   describePushRouteRefusal, isAgentApiVerb, parseAgentVerb, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
-  decideCoherenceCheckAllowance, findSessionProjectId, REFUSAL_REASON, REFUSAL_STATUS,
+  REFUSAL_REASON, REFUSAL_STATUS,
 };

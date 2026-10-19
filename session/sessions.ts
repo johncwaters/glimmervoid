@@ -39,6 +39,7 @@ import { DEFAULT_AGENT_ID, resolveAdapter, commandFor } from "./adapters/index.t
 import { startCodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import type { CodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import { CODEX_REMOTE_TOKEN_ENV, needsAppServerRefusedFlag, remoteTuiArgs, splitCodexRemoteLaunch } from "./core/codex-remote-launch-core.ts";
+import type { CoherenceAttachment } from '../server/coherence/coherence-runtime.ts';
 import type { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision } from "../shared/contracts/session.ts";
 import { claudeApprovalFor, claudeDecisionReply, isHoldReleasedByHookEvent, parseClaudePermissionRequest } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
@@ -241,7 +242,7 @@ interface SessionOptions {
   planLimits?: boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
-  prepareCoherenceHooks?: ((cwd: string, options: { canWriteShims: boolean }) => Promise<CoherenceHooksState | null>) | null;
+  prepareCoherence?: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
   ptySpawn?: PtySpawn | null;
   screenKeeperFactory?: ScreenKeeperFactory | null;
   killProc?: KillProc | null;
@@ -341,8 +342,9 @@ class Session extends EventEmitter {
   _isSaneYoloActive: boolean;
   _planLimits: boolean;
   _planReviewPort: SessionPlanReviewPort | null;
-  _prepareCoherenceHooks: ((cwd: string, options: { canWriteShims: boolean }) => Promise<CoherenceHooksState | null>) | null;
+  _prepareCoherence: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
   coherenceHooks: CoherenceHooksState | null;
+  coherenceAttachment: CoherenceAttachment | null;
   _coherenceHooksRefresh: Promise<void> | null;
   _coherenceHooksGeneration: number;
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
@@ -434,7 +436,7 @@ class Session extends EventEmitter {
 
     getUserHooks = null,
     extraUserHooks = [],
-    prepareCoherenceHooks = null,
+    prepareCoherence = null,
 
     ptySpawn = null,
     requireWorktree = false,
@@ -577,8 +579,9 @@ class Session extends EventEmitter {
     this._isSaneYoloActive = false;
     this._planLimits = planLimits === true && this._can("statusLine");
     this._planReviewPort = planReviewPort;
-    this._prepareCoherenceHooks = prepareCoherenceHooks;
+    this._prepareCoherence = prepareCoherence;
     this.coherenceHooks = null;
+    this.coherenceAttachment = null;
     this._coherenceHooksRefresh = null;
     this._coherenceHooksGeneration = 0;
     this._hooks = createSessionHookLifecycle({
@@ -1446,9 +1449,9 @@ class Session extends EventEmitter {
   }
 
   async _refreshCoherenceHooksBody(): Promise<void> {
-    if (!this._prepareCoherenceHooks || this.coherenceHooks?.active === true || this._destroyed) return;
+    if (!this.coherenceAttachment || this.coherenceHooks?.active === true || this._destroyed) return;
     const generationAtRefresh = this._coherenceHooksGeneration;
-    const refreshedHooks = await this._prepareCoherenceHooks(this.effectiveCwd(), { canWriteShims: this.worktreeDir !== null });
+    const refreshedHooks = await this.coherenceAttachment.refreshHooks();
     if (this._destroyed || generationAtRefresh !== this._coherenceHooksGeneration || JSON.stringify(refreshedHooks) === JSON.stringify(this.coherenceHooks)) return;
     this.coherenceHooks = refreshedHooks;
     this.emit('coherence-hooks-change', this.coherenceHooks);
@@ -1477,9 +1480,10 @@ class Session extends EventEmitter {
     }
 
     if (this._destroyed) return;
-    if (this._prepareCoherenceHooks) {
+    if (this._prepareCoherence) {
       this._coherenceHooksGeneration += 1;
-      this.coherenceHooks = await this._prepareCoherenceHooks(this.effectiveCwd(), { canWriteShims: this.worktreeDir !== null });
+      this.coherenceAttachment = await this._prepareCoherence(this.effectiveCwd());
+      this.coherenceHooks = this.coherenceAttachment?.hooks ?? null;
       if (this._destroyed) return;
       this.emit('coherence-hooks-change', this.coherenceHooks);
     }
