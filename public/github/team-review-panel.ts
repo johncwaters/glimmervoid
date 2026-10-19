@@ -1,6 +1,7 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { createGithubPollingControls } from './my-prs-panel.ts';
+import { comparablePrKey } from './my-prs-view-core.ts';
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { DraftComment, EarlierReview, FindingSeverity, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
@@ -301,6 +302,17 @@ function selectReviewOnClick(row: HTMLButtonElement, reviewKey: string): void {
     trackAges(_root);
     if (document.documentElement.dataset.layout === 'phone') _detail?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   });
+}
+
+export function findTeamReviewRow(key: string): HTMLButtonElement | null {
+  const review = Object.values(groupDrafts(_view)).flat().find((review) => comparablePrKey(review) === key.toLowerCase());
+  if (!review) return null;
+  return queueRowForReviewKey(review.key);
+}
+
+function queueRowForReviewKey(reviewKey: string): HTMLButtonElement | null {
+  if (!_queue) return null;
+  return [..._queue.querySelectorAll<HTMLButtonElement>('button[data-review-key]')].find((row) => row.dataset.reviewKey === reviewKey) ?? null;
 }
 
 function createRowStateWord(rowGlyph: { tone: string; meaning: string }): HTMLSpanElement {
@@ -1126,9 +1138,8 @@ function focusedQueueReviewKey(): string | null {
 }
 
 function restoreQueueFocus(reviewKey: string | null): void {
-  if (!reviewKey || !_queue) return;
-  const rows = _queue.querySelectorAll<HTMLButtonElement>('button[data-review-key]');
-  [...rows].find((row) => row.dataset.reviewKey === reviewKey)?.focus({ preventScroll: true });
+  if (!reviewKey) return;
+  queueRowForReviewKey(reviewKey)?.focus({ preventScroll: true });
 }
 
 function render(): void {

@@ -6,15 +6,17 @@ import type { RankedSignals, Signal } from './signal-core.ts';
 interface SignalOptions {
   className?: string;
   linkUrl?: string;
+  ariaLabel?: string;
   onActivate?: () => void;
 }
 
 export interface ActivatableSignal extends Signal, SignalOptions {}
 
-export function createSignal(signal: Signal, { className = '', linkUrl, onActivate }: SignalOptions = {}): HTMLElement {
+export function createSignal(signal: Signal, { className = '', linkUrl, ariaLabel, onActivate }: SignalOptions = {}): HTMLElement {
   const signalClassName = `signal ${className}`.trim();
   const signalElement = linkUrl ? externalLink(signalClassName, '', linkUrl, signal.hoverText) : el('span', signalClassName);
   signalElement.title = signal.hoverText;
+  if (ariaLabel) signalElement.setAttribute('aria-label', ariaLabel);
   if (signal.look) {
     signalElement.dataset.tone = signal.look.tone;
     signalElement.append(createPrStatusIcon(signal.look.icon, signal.look.tone));
@@ -28,14 +30,17 @@ function makeSignalActivatable(signalElement: HTMLElement, onActivate: () => voi
   signalElement.addEventListener('click', (event) => {
     event.stopPropagation();
     if (event.defaultPrevented) return;
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     onActivate();
   });
-  if (!needsKeyboardStop) return;
-  signalElement.tabIndex = 0;
-  signalElement.setAttribute('role', 'button');
+  if (needsKeyboardStop) {
+    signalElement.tabIndex = 0;
+    signalElement.setAttribute('role', 'button');
+  }
   signalElement.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.stopPropagation();
     event.preventDefault();
     onActivate();

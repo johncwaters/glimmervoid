@@ -202,7 +202,7 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     const sessionRows = layout === 'phone' ? 'section.phone-screen[data-screen="board"]' : '#focus-rail';
     const chip = page.locator(`${sessionRows} .session-row[data-id="${sessionId}"] .session-pr-chip`).filter({ hasText: '#1' });
     await chip.waitFor({ state: 'visible' });
-    assert.equal(await chip.getAttribute('title'), `ACME/app: ${canonicalPr.title} (${stage})`);
+    assert.equal(await chip.getAttribute('title'), `ACME/app: ${canonicalPr.title} (${stage}). Show in Reviews; Cmd/Ctrl-click opens GitHub`);
     assert.equal(await chip.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML), await teamRow.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML));
     await openReviewsView(page, layout);
     await root.getByRole('tab', { name: 'Team', exact: true }).click();

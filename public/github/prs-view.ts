@@ -1,14 +1,20 @@
-import { mountMyPrsView } from './my-prs-panel.ts';
+import { findMyPrRow, mountMyPrsView } from './my-prs-panel.ts';
 import { resyncPrQueueLayouts } from './pr-queue-columns.ts';
 import { createPrScopeTabs } from './pr-scope-tabs.ts';
-import { acknowledgeTeamReviewAttention, mountTeamReviewView } from './team-review-panel.ts';
+import { acknowledgeTeamReviewAttention, findTeamReviewRow, mountTeamReviewView } from './team-review-panel.ts';
 import { getPrsMode, setPrsMode } from '../ui-prefs.ts';
+
+let showPr: ((key: string) => boolean) | null = null;
+
+export function showPrInReviews(key: string): boolean {
+  return showPr?.(key) ?? false;
+}
 
 export function acknowledgePrsViewAttention(): void {
   if (getPrsMode() === 'team') acknowledgeTeamReviewAttention();
 }
 
-export function mountPrsView(viewPrsElement: HTMLElement, navigation?: { openTerminal: (sessionId: string) => void }): void {
+export function mountPrsView(viewPrsElement: HTMLElement, navigation?: { openTerminal: (sessionId: string) => void; openReviews: () => boolean }): void {
   const onSelectMode = (mode: 'team' | 'mine', isKeyboard: boolean): void => {
     applyPrsMode(mode);
     acknowledgePrsViewAttention();
@@ -36,6 +42,18 @@ export function mountPrsView(viewPrsElement: HTMLElement, navigation?: { openTer
     minePrsRoot.hidden = mode !== 'mine';
     setPrsMode(mode);
   }
+
+  showPr = (key) => {
+    const mineRow = findMyPrRow(key);
+    const row = mineRow ?? findTeamReviewRow(key);
+    if (!row || !navigation?.openReviews()) return false;
+    applyPrsMode(mineRow ? 'mine' : 'team');
+    row.click();
+    row.focus({ preventScroll: true });
+    row.scrollIntoView({ block: 'nearest' });
+    acknowledgePrsViewAttention();
+    return true;
+  };
 
   applyPrsMode(getPrsMode());
 }

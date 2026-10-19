@@ -369,6 +369,17 @@ export function setMyPrsSessionLinks(linksBySessionId: ReadonlyMap<string, reado
   queueRender();
 }
 
+export function findMyPrRow(key: string): HTMLButtonElement | null {
+  const pr = joinMyPrs(latest?.prs ?? [], githubPrByKey).find((pr) => comparablePrKey(pr) === key.toLowerCase());
+  if (!pr) return null;
+  return queueRowForPrKey(pr.key);
+}
+
+function queueRowForPrKey(prKey: string): HTMLButtonElement | null {
+  if (!queue) return null;
+  return [...queue.querySelectorAll<HTMLButtonElement>('button[data-pr-key]')].find((row) => row.dataset.prKey === prKey) ?? null;
+}
+
 function render(): void {
   const prs = joinMyPrs(latest?.prs ?? [], githubPrByKey);
   const mergedSinceLastRender = newlyMergedPrs(previousJoinedPrs, prs);
@@ -413,11 +424,13 @@ function render(): void {
         renderDetail(pr);
         if (document.documentElement.dataset.layout === 'phone') detail?.scrollIntoView({ block: 'start', behavior: 'smooth' });
       });
-      sectionElement.append(row);
+      const rowGroup = el('div', 'my-pr-row-group');
+      rowGroup.append(row);
+      sectionElement.append(rowGroup);
       const sessionFocusControls = createSessionFocusControls(sessionsByPrKey.get(comparablePrKey(pr)));
       if (!sessionFocusControls) continue;
       if (parentKey) sessionFocusControls.style.paddingInlineStart = `${36 + Math.min(depth, 6) * 16}px`;
-      sectionElement.append(sessionFocusControls);
+      rowGroup.append(sessionFocusControls);
     }
     return sectionElement;
   });
@@ -430,7 +443,7 @@ function render(): void {
     queue.prepend(pollingControls.notice);
     pollingControls.update(latest);
   }
-  if (focusedKey) [...queue.querySelectorAll<HTMLButtonElement>('button[data-pr-key]')].find((row) => row.dataset.prKey === focusedKey)?.focus({ preventScroll: true });
+  if (focusedKey) queueRowForPrKey(focusedKey)?.focus({ preventScroll: true });
   renderDetail(prs.find((pr) => pr.key === selectedKey));
 }
 

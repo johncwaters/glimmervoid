@@ -21,6 +21,7 @@ interface ViewRegistryActions {
   onRestart: () => void;
   openTerminal: (id: string) => void;
   openPlan: (id: string) => void;
+  openReviews: () => boolean;
   setPhoneAttention: (view: string, attention: ViewAttention) => void;
 }
 
@@ -32,7 +33,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
     { view: 'focus', label: 'Focus', panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView },
     { view: 'zen', label: 'Zen', panelClass: 'zen-view', hasOwnPhoneScreen: true, hasPanelChrome: false, gate: { fromSettings: FEATURE_SURFACE_RULES.zenView }, mount: mountZenView, activate: activateZenView, deactivate: deactivateZenView },
-    { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, mount: (panel) => mountPrsView(panel, { openTerminal: actions.openTerminal }), attention: { subscribe: setTeamReviewActivityCallback, acknowledge: acknowledgePrsViewAttention }, onConnectionChange: (isConnected) => {
+    { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, mount: (panel) => mountPrsView(panel, { openTerminal: actions.openTerminal, openReviews: actions.openReviews }), attention: { subscribe: setTeamReviewActivityCallback, acknowledge: acknowledgePrsViewAttention }, onConnectionChange: (isConnected) => {
       applyMyPrsConnectionState(isConnected);
       applyTeamReviewConnectionState(isConnected);
     } },

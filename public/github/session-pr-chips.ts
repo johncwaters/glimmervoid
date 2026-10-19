@@ -6,6 +6,7 @@ import { openExternalUrl } from '../external-link.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { sendForSession } from '../session-actions.ts';
 import { setMyPrsSessionLinks } from './my-prs-panel.ts';
+import { showPrInReviews } from './prs-view.ts';
 import { repaintSessionRowSignals } from '../session-row.ts';
 import { createSignal, paintSignalLine } from '../signal.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
@@ -25,13 +26,18 @@ export function sessionRowPrSignals(sessionId: string): PrSignal[] {
   return sessionPrSignals(linksBySessionId.get(sessionId) ?? [], githubPrByKey).map((chip) => ({
     ...chip,
     className: 'session-pr-chip',
-    onActivate: () => openExternalUrl(chip.url),
+    linkUrl: chip.url,
+    ariaLabel: `Show pull request ${chip.key} in Reviews`,
+    hoverText: `${chip.hoverText}. Show in Reviews; Cmd/Ctrl-click opens GitHub`,
+    onActivate: () => {
+      if (showPrInReviews(chip.key)) return;
+      openExternalUrl(chip.url);
+    },
   }));
 }
 
 function createUnlinkableChip(chip: PrSignal, sessionId: string): HTMLElement {
-  const chipLink = createSignal(chip, { className: chip.className, linkUrl: chip.url, onActivate: chip.onActivate });
-  chipLink.setAttribute('aria-label', `Open pull request ${chip.key}`);
+  const chipLink = createSignal(chip, chip);
   const unlinkButton = el('button', 'session-pr-chip-unlink');
   unlinkButton.append(createLineIcon(CLOSE_ICON_PATH));
   unlinkButton.type = 'button';

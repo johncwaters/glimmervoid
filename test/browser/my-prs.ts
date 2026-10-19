@@ -151,15 +151,19 @@ async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus, initialP
     const chips = page.locator(`${sessionRows} .session-row[data-id="${sessionId}"] .session-pr-chip`);
     const ownChip = chips.filter({ hasText: '#1322' });
     await ownChip.waitFor({ state: 'visible' });
-    assert.equal(await ownChip.getAttribute('title'), `ACME/app: ${canonicalPr.title} (${expectedStage})`);
+    assert.equal(await ownChip.getAttribute('title'), `ACME/app: ${canonicalPr.title} (${expectedStage}). Show in Reviews; Cmd/Ctrl-click opens GitHub`);
     const teammateChip = chips.filter({ hasText: '#1323' });
     await teammateChip.waitFor({ state: 'visible' });
-    assert.equal(await teammateChip.getAttribute('title'), 'ACME/app: Teammate PR (Draft)');
+    assert.equal(await teammateChip.getAttribute('title'), 'ACME/app: Teammate PR (Draft). Show in Reviews; Cmd/Ctrl-click opens GitHub');
     if (isPhone) {
       await page.getByRole('button', { name: 'More', exact: true }).click();
       await page.getByRole('button', { name: 'Reviews', exact: true }).click();
     }
-    if (!isPhone) await page.locator('#tab-prs').click();
+    if (!isPhone) {
+      await ownChip.click();
+      await page.waitForFunction(() => document.body.dataset.activeView === 'prs');
+      assert.equal(await row.getAttribute('aria-current'), 'true');
+    }
   }
   await emitControlMessages(page, [{ type: 'github-prs', ts: status.ts, prs: {}, freshness: { lastRefreshedAt: status.ts, error: null } }]);
   await row.waitFor({ state: 'detached' });

@@ -742,6 +742,12 @@ const VIEW_TABS = createDashboardViews({
     centerSessionQuietly(id);
   },
   openPlan: (id) => { activateView('focus'); openPlanInFocus(id); },
+  openReviews: () => {
+    if (!isViewAvailable('prs')) return false;
+    if (showPhoneScreen('prs')) return true;
+    activateView('prs');
+    return true;
+  },
   setPhoneAttention: setPhoneScreenAttention,
 });
 
