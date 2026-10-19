@@ -1,7 +1,7 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { createGithubPollingControls } from './my-prs-panel.ts';
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
-import type { DraftComment, FindingSeverity, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
+import type { DraftComment, EarlierReview, FindingSeverity, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { createAttentionAck } from '../attention-ack-core.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
@@ -15,7 +15,7 @@ import { formatTrailOffset } from '../radar/radar-core.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview,
-  answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionOrder, nextAttentionKey, buildActionRequest, buildNotMineRequest, chooseSelectedReviewKey,
+  answeredNonNitThreads, changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionOrder, nextAttentionKey, buildActionRequest, buildNotMineRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, caughtUpSelectionView, planActionReply, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
@@ -61,6 +61,7 @@ let _caughtUpSelection: { actedKey: string | null } | null = null;
 let _actionNotice: ActionReplyNotice | null = null;
 let _actionNoticeLine: HTMLElement | null = null;
 let _renderedDetailSignature: string | null = null;
+let _inReviewEarlierDetails: { key: string; head: string; element: HTMLElement } | null = null;
 let _activityCallback: ((isActive: boolean) => void) | null = null;
 let _openTerminal: ((sessionId: string) => void) | null = null;
 const _sessionOpenByKey = new Map<string, { requestId: string | null; timer: number; text: string; tone: 'busy' | 'error' }>();
@@ -100,8 +101,7 @@ function createSeverityMeter(severity: FindingSeverity): HTMLElement {
   return meter;
 }
 
-function createVerdictSeal(draft: ReviewDraft): HTMLElement {
-  const { verdict } = draft;
+function createVerdictSeal({ verdict }: Pick<ReviewDraft, 'verdict'>): HTMLElement {
   const seal = el('span', 'pr-verdict-seal');
   seal.dataset.tone = verdictTone(verdict);
   const icon = svgIcon(20, 20);
@@ -462,7 +462,7 @@ function refreshDetailHeading(detail: HTMLElement, draft: ReviewDraft): HTMLElem
 }
 
 function otherDetailSignature(draft: ReviewDraft): string {
-  return `${JSON.stringify(draft.threads)}:${draft.liveHead}:${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}:${draft.postedEvent ?? ''}`;
+  return `${JSON.stringify(draft.threads)}:${draft.liveHead}:${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}:${draft.postedEvent ?? ''}:${draft.earlierReview?.head ?? ''}`;
 }
 
 function appendSegments(element: HTMLElement, segments: ReturnType<typeof parseInlineSegments>): HTMLElement {
@@ -560,19 +560,7 @@ function createCommentParagraph(paragraph: ReturnType<typeof parseReviewComment>
   return appendSegments(element, paragraph.segments);
 }
 
-function createInlineComment(comment: DraftComment, index: number, includedIndexes: Set<number>, updateFooter: () => void): HTMLElement {
-  const card = el('article', 'pr-comment-card');
-  const checkbox = el('input', 'pr-comment-checkbox');
-  checkbox.type = 'checkbox';
-  checkbox.checked = includedIndexes.has(index);
-  checkbox.setAttribute('aria-label', `Include comment on ${commentLocation(comment)}`);
-  checkbox.addEventListener('change', () => {
-    if (checkbox.checked) includedIndexes.add(index);
-    if (!checkbox.checked) includedIndexes.delete(index);
-    card.dataset.included = String(checkbox.checked);
-    updateFooter();
-  });
-  card.dataset.included = String(checkbox.checked);
+function createCommentContent(comment: DraftComment): HTMLDetailsElement {
   const content = el('details', 'pr-comment-content');
   const header = el('summary', 'pr-comment-header');
   const parsed = parseReviewComment(comment.body);
@@ -587,7 +575,63 @@ function createInlineComment(comment: DraftComment, index: number, includedIndex
   for (const paragraph of parsed.paragraphs) paragraphs.append(createCommentParagraph(paragraph));
   content.append(paragraphs);
   content.open = severity === 'HIGH' || severity === 'CRITICAL';
-  card.append(checkbox, content);
+  return content;
+}
+
+function createEarlierReviewDetails(review: EarlierReview, isOpen: boolean): HTMLElement {
+  const details = el('details', 'pr-disclosure pr-earlier-review');
+  const summary = el('summary', 'pr-disclosure-summary');
+  summary.append(el('span', 'pr-disclosure-label', 'Earlier review'), el('span', 'pr-disclosure-preview', earlierReviewPreview(review)));
+  const body = el('div', 'pr-earlier-review-body');
+  const verdictLine = el('div', 'pr-verdict-line');
+  verdictLine.append(createVerdictSeal(review));
+  body.append(verdictLine);
+  if (review.summary.trim()) body.append(appendInlineText(el('p', 'pr-verdict-summary'), review.summary));
+  for (const comment of review.comments) {
+    const card = el('article', 'pr-comment-card pr-comment-card-readonly');
+    card.append(createCommentContent(comment));
+    body.append(card);
+  }
+  details.append(summary, body);
+  details.open = isOpen;
+  return details;
+}
+
+function createChangedSinceReview(draft: ReviewDraft): HTMLElement[] {
+  const text = changedSinceReviewText(draft);
+  if (!text) return [];
+  const line = el('p', 'pr-changed-since', text);
+  line.append(' ', externalLink('pr-changed-since-link', 'Compare changes', changedSinceReviewUrl(draft), 'Open the commits since this review on GitHub'));
+  return [line];
+}
+
+function inReviewEarlierDetails(review: InFlightReview): HTMLElement[] {
+  const draft = _latest?.drafts.find((candidate) => candidate.key === review.key);
+  const earlier = draft?.earlierReview ?? null;
+  if (!earlier) {
+    _inReviewEarlierDetails = null;
+    return [];
+  }
+  if (_inReviewEarlierDetails?.key === review.key && _inReviewEarlierDetails.head === earlier.head) return [_inReviewEarlierDetails.element];
+  const element = createEarlierReviewDetails(earlier, false);
+  _inReviewEarlierDetails = { key: review.key, head: earlier.head, element };
+  return [element];
+}
+
+function createInlineComment(comment: DraftComment, index: number, includedIndexes: Set<number>, updateFooter: () => void): HTMLElement {
+  const card = el('article', 'pr-comment-card');
+  const checkbox = el('input', 'pr-comment-checkbox');
+  checkbox.type = 'checkbox';
+  checkbox.checked = includedIndexes.has(index);
+  checkbox.setAttribute('aria-label', `Include comment on ${commentLocation(comment)}`);
+  checkbox.addEventListener('change', () => {
+    if (checkbox.checked) includedIndexes.add(index);
+    if (!checkbox.checked) includedIndexes.delete(index);
+    card.dataset.included = String(checkbox.checked);
+    updateFooter();
+  });
+  card.dataset.included = String(checkbox.checked);
+  card.append(checkbox, createCommentContent(comment));
   return card;
 }
 
@@ -759,6 +803,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   };
   for (const [index, comment] of draft.comments.entries()) posts.append(createInlineComment(comment, index, includedIndexes, updateFooter));
   detail.append(posts, bodyDetails, noteDetails, createCoverageDetails(draft));
+  if (draft.earlierReview) detail.append(createEarlierReviewDetails(draft.earlierReview, false));
   const buttons: HTMLButtonElement[] = [];
   const setBusy = (isBusy: boolean) => {
     for (const button of buttons) button.disabled = isBusy;
@@ -840,7 +885,7 @@ function createInReviewDetail(review: InFlightReview): HTMLElement {
     list.append(item);
   }
   steps.append(list);
-  detail.append(steps, createNotMineFooter(review));
+  detail.append(steps, ...inReviewEarlierDetails(review), createNotMineFooter(review));
   return detail;
 }
 
@@ -920,6 +965,8 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
   detail.append(createDetailHeading(draft), ...createAboutPr(draft), ...createThreadDetails(draft));
   if (draft.status === 'posted') detail.append(createSummaryStrip(draft), createCoverageDetails(draft));
   if (draft.status !== 'posted') detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));
+  if (draft.status === 'stale') detail.append(...createChangedSinceReview(draft));
+  if (draft.earlierReview) detail.append(createEarlierReviewDetails(draft.earlierReview, draft.status === 'stale'));
   if (!hasRequeueFooter(draft.status)) {
     _otherDetails.set(draft.key, { signature: otherDetailSignature(draft), element: detail, settle: () => {} });
     return detail;

@@ -1,6 +1,6 @@
 import { canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
 import type {
-  DraftComment, GithubReview, GithubReviewState, InFlightReview, PostedReviewEvent, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread, ViewerThreadTally,
+  DraftComment, EarlierReview, GithubReview, GithubReviewState, InFlightReview, PostedReviewEvent, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread, ViewerThreadTally,
 } from '#shared/contracts/team-review.ts';
 import { shortSha } from '#shared/git-text.ts';
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
@@ -320,7 +320,7 @@ const ACTION_OUTCOME_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.f
   'approve-only': 'Approved on GitHub',
   comment: 'Comment posted on GitHub',
   discard: 'Marked not mine. Not reviewed again until queued.',
-  requeue: 'Queued. The next poll reviews it again.',
+  requeue: 'Queued. The review starts as soon as a slot is free.',
   'resolve-thread': 'Thread resolved on GitHub',
 });
 
@@ -634,6 +634,26 @@ export function hasRequeueFooter(status: ReviewDraft['status']): boolean {
   return REQUEUEABLE_STATUSES.has(status);
 }
 
+function movedHead(draft: Pick<ReviewDraft, 'reviewedHead' | 'liveHead'>): string | null {
+  return draft.liveHead && draft.liveHead !== draft.reviewedHead ? draft.liveHead : null;
+}
+
+export function changedSinceReviewText(draft: Pick<ReviewDraft, 'reviewedHead' | 'liveHead'>): string | null {
+  const liveHead = movedHead(draft);
+  return liveHead ? `Reviewed at ${shortSha(draft.reviewedHead)}. The pull request is now at ${shortSha(liveHead)}.` : null;
+}
+
+export function changedSinceReviewUrl(draft: Pick<ReviewDraft, 'repo' | 'reviewedHead' | 'liveHead'>): string | null {
+  const liveHead = movedHead(draft);
+  return liveHead ? `https://github.com/${draft.repo}/compare/${draft.reviewedHead}...${liveHead}` : null;
+}
+
+export function earlierReviewPreview(review: EarlierReview): string {
+  const parts = [`at ${shortSha(review.head)}`, commentCountText(review.comments.length)];
+  if (review.wasPosted) parts.push('posted');
+  return parts.join(', ');
+}
+
 export function verdictHeading(verdict: ReviewDraft['verdict']): string {
   const label = verdictLabel(verdict);
   return `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
@@ -664,7 +684,8 @@ export function inFlightProgressText(review: InFlightReview, nowMs: number): str
 }
 
 export function attentionDetail(draft: ReviewDraft): string {
-  if (draft.status === 'stale') return 'Out of date. Automatic review runs at the next poll after the configured wait. Queue review bypasses the wait.';
+  if (draft.status === 'stale' && draft.earlierReview) return 'Out of date. New commits landed after this review, so its findings may not match the code any more. Automatic review runs after the configured wait; Queue review starts it now and hands it these findings.';
+  if (draft.status === 'stale') return 'Out of date. New commits landed after this review, so its findings may not match the code any more. Automatic review runs after the configured wait; Queue review starts it now.';
   if (draft.status === 'discarded') return 'Marked not mine. Not reviewed again until queued.';
   return draft.error || draft.summary || 'The review failed.';
 }

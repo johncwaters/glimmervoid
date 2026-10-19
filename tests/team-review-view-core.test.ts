@@ -307,7 +307,7 @@ test('queue review sends an empty action payload and has stable progress and out
     key: 'Acme/app#1', head: HEAD, action: 'requeue', body: '', comments: [],
   });
   assert.equal(actionProgressText('requeue'), 'Queueing the review');
-  assert.equal(actionOutcomeText('requeue'), 'Queued. The next poll reviews it again.');
+  assert.equal(actionOutcomeText('requeue'), 'Queued. The review starts as soon as a slot is free.');
 });
 
 test('a ready review offers Comment, Approve and Approve and comment, and keeps Queue review and Not mine in the More menu', () => {
@@ -342,7 +342,8 @@ test('low-severity inline comments start excluded and every other comment starts
 });
 
 test('attention rows explain a stale draft and surface the error of a failed one', () => {
-  assert.equal(attentionDetail(draft(1, { status: 'stale' })), 'Out of date. Automatic review runs at the next poll after the configured wait. Queue review bypasses the wait.');
+  assert.equal(attentionDetail(draft(1, { status: 'stale' })), 'Out of date. New commits landed after this review, so its findings may not match the code any more. Automatic review runs after the configured wait; Queue review starts it now.');
+  assert.equal(attentionDetail(draft(1, { status: 'stale', earlierReview: { head: HEAD, verdict: 'APPROVE WITH NITS', summary: 'One finding.', comments: [], wasPosted: false } })), 'Out of date. New commits landed after this review, so its findings may not match the code any more. Automatic review runs after the configured wait; Queue review starts it now and hands it these findings.');
   assert.equal(attentionDetail(draft(1, { status: 'error', error: 'no result file' })), 'no result file');
   assert.equal(attentionDetail(draft(1, { status: 'discarded' })), 'Marked not mine. Not reviewed again until queued.');
 });

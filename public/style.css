@@ -3469,6 +3469,11 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .my-pr-session
 .pr-disclosure > .pr-body-input { margin-top: 12px; }
 .pr-coverage > .pr-assessment-part:first-of-type { margin-top: 12px; }
 .pr-coverage > .pr-verdict-summary { margin-top: 12px; }
+.pr-earlier-review-body { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.pr-earlier-review-body > .pr-comment-card { background: var(--bg-surface); }
+.pr-comment-card.pr-comment-card-readonly { grid-template-columns: minmax(0, 1fr); }
+.pr-changed-since { color: var(--text-dim); font-size: 12px; line-height: 1.6; }
+.pr-changed-since-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 
 .pr-body-input {
   width: 100%;
@@ -8598,6 +8603,8 @@ html[data-layout="phone"] .pr-footer { margin: 0 -16px; padding: 16px; }
 html[data-layout="phone"] .pr-action { min-height: 44px; }
 html[data-layout="phone"] .pr-link { display: inline-flex; align-items: center; min-height: 44px; }
 html[data-layout="phone"] .pr-comment-card { grid-template-columns: 44px minmax(0, 1fr); }
+html[data-layout="phone"] .pr-comment-card.pr-comment-card-readonly { grid-template-columns: minmax(0, 1fr); }
+html[data-layout="phone"] .pr-changed-since-link { display: inline-flex; align-items: center; min-height: 44px; }
 html[data-layout="phone"] .pr-comment-checkbox { width: 44px; height: 44px; margin: 0; }
 html[data-layout="phone"] .pr-comment-header { min-height: 44px; }
 html[data-layout="phone"] .pr-body-input { font-size: 16px; }

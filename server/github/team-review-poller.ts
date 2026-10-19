@@ -588,14 +588,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     entry.reviewAttempts = 0;
     entry.reviewedHead = null;
     entry.requeuedHead = entry.liveHead ?? head;
-    if (core.isUnreviewedDraft(entry.draft)) {
-      entry.draft = null;
-      entry.updatedAt = now();
-      await persist();
-      emitStatus();
-      return true;
-    }
-    if (entry.draft.status === 'discarded') {
+    if (core.isUnreviewedDraft(entry.draft)) entry.draft = null;
+    if (entry.draft?.status === 'discarded') {
       entry.discardedReviewHead = entry.draft.reviewedHead;
       entry.draft = { ...entry.draft, status: 'stale' };
     }
@@ -603,6 +597,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     entry.updatedAt = now();
     await persist();
     emitStatus();
+    loop.tickSoon();
     return true;
   }
 

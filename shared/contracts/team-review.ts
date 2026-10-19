@@ -161,6 +161,9 @@ export const PriorReview = z.object({
 });
 export type PriorReview = z.infer<typeof PriorReview>;
 
+export const EarlierReview = PriorReview.pick({ head: true, verdict: true, summary: true, wasPosted: true }).extend({ comments: z.array(DraftComment) });
+export type EarlierReview = z.infer<typeof EarlierReview>;
+
 export const ReviewThreadId = z.string().min(1).max(256).regex(NODE_ID_RE);
 export const TeamReviewThreadResult = z.object({ addressed: z.boolean(), reason: z.string().trim().min(1).max(4000) }).strict();
 export type TeamReviewThreadResult = z.infer<typeof TeamReviewThreadResult>;
@@ -256,6 +259,7 @@ export const ReviewDraft = z.object({
   postedEvent: PostedReviewEvent.optional(),
   priorReviewedHead: CommitSha.optional(),
   requeuedHead: CommitSha.optional(),
+  earlierReview: EarlierReview.optional(),
 });
 export type ReviewDraft = z.infer<typeof ReviewDraft>;
 

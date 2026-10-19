@@ -350,6 +350,28 @@ test('a review queued on a draft whose approval still counts after new commits r
   await poller.stop();
 });
 
+test('queue review on an out of date draft starts the review without waiting for the next poll and keeps the earlier review', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned, statuses } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  github.heads.set(1, HEAD_TWO);
+  await poller.tick();
+  await settle();
+  assert.equal(poller.getDraft(key)?.status, 'stale');
+  assert.equal(statuses.at(-1)?.drafts.find((row) => row.key === key)?.earlierReview?.head, HEAD_ONE);
+  assert.equal(spawned.length, 1);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  await settle();
+  assert.equal(spawned.length, 2);
+  assert.equal(spawned.at(-1)?.detail.headRefOid, HEAD_TWO);
+  assert.equal(poller.getDraft(key)?.status, 'ready');
+  assert.equal(statuses.at(-1)?.drafts.find((row) => row.key === key)?.earlierReview?.head, HEAD_ONE);
+  await poller.stop();
+});
+
 test('a review queued under a standing approval follows a head pushed before the next tick', async () => {
   const key = `${REPO}#1`;
   const headThree = '3'.repeat(40);
@@ -1563,7 +1585,7 @@ test('a requeued posted review whose PR moved reviews the new head as a re-revie
 
 test('a requeued discard whose PR moved reviews the new head from scratch, not as a re-review of the rejected one', async () => {
   const key = `${REPO}#1`;
-  const { poller, github, spawned } = setup();
+  const { poller, github, spawned, statuses } = setup();
   github.requested = [searchItem(1, 'teammate')];
   github.heads.set(1, HEAD_ONE);
   await poller.start();
@@ -1572,6 +1594,8 @@ test('a requeued discard whose PR moved reviews the new head from scratch, not a
   github.heads.set(1, HEAD_TWO);
   assert.equal(await poller.requeue(key, HEAD_ONE), true);
   assert.equal(poller._state()[key]?.discardedReviewHead, HEAD_ONE);
+  const requeuedDraft = statuses.at(-1)?.drafts.find((row) => row.key === key);
+  assert.deepEqual({ status: requeuedDraft?.status, earlierReview: requeuedDraft?.earlierReview }, { status: 'stale', earlierReview: undefined });
   await poller.tick();
   await settle();
   assert.equal(spawned.length, 2);

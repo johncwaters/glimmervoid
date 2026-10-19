@@ -43,6 +43,7 @@ interface TickLoop {
   start(prelude?: (() => Promise<void> | void) | null): Promise<void>;
   stop(): Promise<void>;
   tick(): Promise<void>;
+  tickSoon(): void;
   refresh(): Promise<GithubPollingRefreshResult>;
   scheduleStatus(): { nextAttemptAt: number | null; retry: GithubPollingRetry | null; isRefreshing: boolean; refreshNotice: string | null };
   persist(): Promise<void>;
@@ -76,6 +77,7 @@ function createTickLoop({
   let firstTickTimer: NodeJS.Timeout | null = null;
   let stopped = false;
   let tickRunning = false;
+  let isTickRequestedAfterRun = false;
   const persistQueue = createSerialQueue();
 
   let backoffUntil = 0;
@@ -182,11 +184,18 @@ function createTickLoop({
       tickRunning = false;
       isRefreshing = false;
       if (!stopped) onScheduleChange();
+      if (isTickRequestedAfterRun && !stopped) tickSoon();
     }
   }
 
   async function tick(): Promise<void> {
     await runTick('interval');
+  }
+
+  function tickSoon(): void {
+    isTickRequestedAfterRun = tickRunning;
+    if (tickRunning) return;
+    void runTick('interval');
   }
 
   function refresh(): Promise<GithubPollingRefreshResult> {
@@ -238,7 +247,7 @@ function createTickLoop({
     await persistQueue.idle();
   }
 
-  return { start, stop, tick, refresh, scheduleStatus, persist, track, isStopped: () => stopped, backoffUntil: () => backoffUntil };
+  return { start, stop, tick, tickSoon, refresh, scheduleStatus, persist, track, isStopped: () => stopped, backoffUntil: () => backoffUntil };
 }
 
 interface LaneRunnerGate {

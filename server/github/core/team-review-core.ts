@@ -1,4 +1,4 @@
-import { hasStandingViewerApproval, canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../../shared/contracts/team-review.ts';
+import { hasStandingViewerApproval, canApproveAfterComment, DECIDING_REVIEW_STATES, EarlierReview, FindingSeverity, GithubReviewState, PostingPlan, QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../../shared/contracts/team-review.ts';
 import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import type {
@@ -428,8 +428,25 @@ function isSameGithubReviews(left: readonly GithubReview[] | undefined, right: r
   return JSON.stringify(left ?? []) === JSON.stringify(right);
 }
 
+const STATUSES_SHOWING_EARLIER_REVIEW: ReadonlySet<ReviewDraft['status']> = new Set(['ready', 'error', 'posted', 'stale']);
+
+function earlierReviewSource(entry: TeamReviewStateEntry, draft: ReviewDraft): EarlierReview | null {
+  if (draft.status !== 'stale') return entry.priorReview ?? null;
+  if (draft.reviewedHead === entry.discardedReviewHead) return null;
+  return { ...priorReviewFromDraft(draft), comments: draft.comments };
+}
+
+function earlierReviewShown(entry: TeamReviewStateEntry, draft: ReviewDraft): EarlierReview | null {
+  if (!STATUSES_SHOWING_EARLIER_REVIEW.has(draft.status)) return null;
+  const prior = earlierReviewSource(entry, draft);
+  if (!prior) return null;
+  if (prior.comments.length === 0 && !prior.summary.trim()) return null;
+  return EarlierReview.parse(prior);
+}
+
 function presentedDraft(entry: TeamReviewStateEntry, draft: ReviewDraft): ReviewDraft {
-  draft = { ...draft, ...(entry.threads ? { threads: entry.threads } : {}), ...(entry.viewerThreads ? { viewerThreads: entry.viewerThreads } : {}) };
+  const earlierReview = earlierReviewShown(entry, draft);
+  draft = { ...draft, ...(entry.threads ? { threads: entry.threads } : {}), ...(entry.viewerThreads ? { viewerThreads: entry.viewerThreads } : {}), ...(earlierReview ? { earlierReview } : {}) };
   const withReviewTime = entry.reviewedAt !== undefined ? { ...draft, reviewedAt: entry.reviewedAt } : draft;
   const withReviews = entry.githubReviews?.length ? { ...withReviewTime, githubReviews: entry.githubReviews } : withReviewTime;
   const withDecision = entry.reviewDecision ? { ...withReviews, reviewDecision: entry.reviewDecision } : withReviews;
