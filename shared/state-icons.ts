@@ -3,7 +3,7 @@ import { STATES } from './states.ts';
 
 export type StatusIcon = 'not-started' | 'starting' | 'working' | 'monitoring' | 'needs-input' | 'idle' | 'exited' | 'failed';
 
-export interface StatusIconShape {
+interface StatusIconShape {
   tag: 'circle' | 'path' | 'rect';
   attributes: Readonly<Record<string, string>>;
 }

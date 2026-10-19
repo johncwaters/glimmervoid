@@ -2,7 +2,7 @@ import type { StatusIcon } from '#shared/state-icons.ts';
 import { STATUS_ICON_SHAPES } from '#shared/state-icons.ts';
 import { createSvgIcon, createSvgShape } from './svg-dom.ts';
 
-export function createStatusIcon(icon: StatusIcon): SVGSVGElement {
+function createStatusIcon(icon: StatusIcon): SVGSVGElement {
   const svg = createSvgIcon(16, 16);
   svg.classList.add('status-icon');
   svg.dataset.icon = icon;
