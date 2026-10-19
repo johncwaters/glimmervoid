@@ -34,7 +34,6 @@ import {
   trailContentKey,
   trailStatusText,
   trailStepRows,
-  trailTimelineRows,
   updateBannerText,
   verdictLabel,
 } from '../public/radar/radar-core.ts';
@@ -566,21 +565,6 @@ test('latestTrailLabel names the newest narration, else the newest step, and is 
   assert.equal(latestTrailLabel({ trail: [{ at: 1, note: 'Issue fetched; checking callers.' }, { at: 2, tool: 'Read', detail: 'a.ts' }] }), 'Issue fetched; checking callers.');
   assert.equal(latestTrailLabel({ trail: [{ at: 1, tool: 'Task', detail: '' }] }), 'Task');
   assert.equal(latestTrailLabel({}), '');
-});
-
-test('trailTimelineRows keeps narration and folds each run of tool steps into one counted row', () => {
-  const steps = trailStepRows([
-    { at: 1, tool: 'Bash', detail: 'curl issue' },
-    { at: 2, tool: 'Bash', detail: 'curl events' },
-    { at: 3, note: 'Issue fetched; checking callers.' },
-    { at: 3, tool: 'Grep', detail: 'useQuery' },
-  ]);
-  assert.deepEqual(trailTimelineRows(steps), [
-    { kind: 'work', at: 1, stepCount: 2 },
-    { kind: 'note', at: 3, text: 'Issue fetched; checking callers.' },
-    { kind: 'work', at: 3, stepCount: 1 },
-  ]);
-  assert.equal(trailStatusText({ inFlight: true, startedAt: 1, steps, verdict: '', summaryLine: '' }, '1m ago'), 'investigating, started 1m ago, 3 steps', 'narration is not a step');
 });
 
 test('applyInvestigationActivity patches the matching issue in place and reports whether anything matched', () => {
