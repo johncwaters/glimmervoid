@@ -64,6 +64,10 @@
     {
       "name": "failed",
       "definition": "A session state: the agent process exited with an error, so the session needs the operator to restart or close it before it can continue."
+    },
+    {
+      "name": "zen",
+      "definition": "The experimental dashboard view that shows no terminal until a session needs the operator, then stages that one session alone."
     }
   ]
 }

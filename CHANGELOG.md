@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A finished session on Zen can be cleared with a click**: the line above the session Zen shows now has a Next button beside the `Cmd+J` (Alt+J off a Mac) key hint. It does what the shortcut does: clears a finished session and moves on to the next one that needs you, or back to ALL CLEAR. Before, the shortcut was the only way out and nothing on screen said so. The line no longer repeats the session's name and project, which the card's own header already shows.
+
 ## [0.40.0] - 2026-10-19
 
 ### Added

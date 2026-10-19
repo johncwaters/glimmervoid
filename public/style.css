@@ -9947,22 +9947,27 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
 
 .zen-working-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.zen-working-project,
-.zen-staged-project { color: var(--text-muted); }
+.zen-working-project { color: var(--text-muted); }
 
 .zen-stage { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 
-.zen-reason-line {
+.zen-stage-bar {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
-  padding: 10px 14px;
-  font-size: 12px;
+  padding: 8px 14px;
   background: var(--bg-header);
   border-bottom: 1px solid var(--border-dim);
 }
 
-.zen-staged-name { font-weight: 700; color: var(--text-head); }
+.zen-reason-line {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  font-size: 12px;
+}
 
 .zen-staged-need { font-weight: 700; color: var(--state-waiting); }
 .zen-staged-need[data-state="FAILED"] { color: var(--state-failed); }
