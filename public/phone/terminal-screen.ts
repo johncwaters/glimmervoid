@@ -1,4 +1,5 @@
 import { STATES } from '#shared/states.ts';
+import { createActionStatus } from '../action-status.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { adoptElement, el, queryTag, releaseElement } from '../dom-helpers.ts';
 import { isRenameInProgress, makeTitleEditable, paintTaskTitle, startInlineRename, startInlineTitleEdit } from '../session-card/card-dom.ts';
@@ -6,8 +7,8 @@ import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { sendTerminalInput, setTerminalActiveViewer } from '../session-card/terminal.ts';
-import { showErrorToast } from '../session-card/toast.ts';
 import { paintSessionRowStatus } from '../session-row.ts';
+import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createMobileKeyStrip } from './mobile-key-strip.ts';
 
 const BACK_GLYPH = String.fromCharCode(0x2039);
@@ -49,7 +50,8 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
 
   const keyStrip = createMobileKeyStrip({ send: sendToShownTerminal, getSessionId: () => shownId });
 
-  screen.append(topBar, cardSlot, emptyEl, keyStrip);
+  const keyStatus = createActionStatus('phone-key-status m-0 px-3 py-1');
+  screen.append(topBar, cardSlot, emptyEl, keyStatus.element, keyStrip);
 
   let shownId: string | null = null;
 
@@ -59,8 +61,8 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   function sendToShownTerminal(data: string | null | undefined) {
     const ui = shownId ? sessionUIs.get(shownId) : null;
     if (!ui) return;
-    if (sendTerminalInput(ui, data)) return;
-    showErrorToast('Session is not connected; key press was dropped');
+    if (sendTerminalInput(ui, data)) { keyStatus.clear(); return; }
+    keyStatus.show('error', NOT_CONNECTED_TEXT);
   }
 
   function focusShownTerminal() {
@@ -74,7 +76,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   function renameShownSession() {
     const ui = shownId ? sessionUIs.get(shownId) : null;
     if (!ui || !shownId) return;
-    startInlineRename(ui, shownId);
+    startInlineRename(ui, shownId, { returnsFocusToTerminal: false });
   }
 
   function editShownTitle() {

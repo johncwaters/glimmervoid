@@ -1,20 +1,24 @@
-import { sendControlMsg } from './control-ws.ts';
+import { DEFAULT_REPLY_TIMEOUT_MS, reportUnsourcedError, requestFailureText } from './action-status.ts';
+import { sendControlMsg, sendControlRequest } from './control-ws.ts';
+import { addSessionRefusalText } from './dialogs.ts';
 import type { SessionRow } from './focus-view/attention-core.ts';
 import { buildSessionRows } from './focus-view/attention-core.ts';
 import type { SessionOpenStatePolicy } from './session-actions-core.ts';
 import { decideSessionOpenAction, pickRestorableSessionId } from './session-actions-core.ts';
+import { sendSessionAction } from './session-card/card-dom.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { suggestSessionName } from './session-card/naming.ts';
 import { setSelectedId } from './sidebar/selection.ts';
 import { getLastFocusedSessionId, setLastFocusedSessionId } from './ui-prefs.ts';
+import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 
 export function requestSessionOpen(id: string, statePolicy: SessionOpenStatePolicy = 'explicit-state') {
   const ui = sessionUIs.get(id);
   if (!ui) return null;
   const action = decideSessionOpenAction(ui.currentState, statePolicy);
-  if (action) sendControlMsg({ type: action, id });
+  if (action) sendSessionAction(ui, { type: action, id });
   return ui;
 }
 
@@ -34,9 +38,27 @@ export function readSessionRows(nameOf: (ui: SessionUi) => string | null = sessi
   return buildSessionRows(operatorSessions, nameOf);
 }
 
+export function sendForSession(id: string, message: Record<string, unknown>): boolean {
+  const ui = sessionUIs.get(id);
+  if (ui) return sendSessionAction(ui, message);
+  if (sendControlMsg(message)) return true;
+  reportUnsourcedError(NOT_CONNECTED_TEXT);
+  return false;
+}
+
+async function requestQuickAdd(path: string, label: string | null | undefined) {
+  try {
+    const reply = await sendControlRequest('add-session', { name: suggestSessionName(label), path }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+    if (reply.type === 'add-session-result' && reply.ok) return;
+    reportUnsourcedError(addSessionRefusalText(reply));
+  } catch (reason) {
+    reportUnsourcedError(`The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}`);
+  }
+}
+
 export function quickAddSession(path: string | null | undefined, label: string | null | undefined) {
   if (!path) return;
-  sendControlMsg({ type: 'add-session', name: suggestSessionName(label), path });
+  void requestQuickAdd(path, label);
 }
 
 export function requestSessionRemoval(id: string, mergeStatus?: string) {
@@ -51,6 +73,6 @@ export function requestSessionRemoval(id: string, mergeStatus?: string) {
       : `Remove session "${sessionName(ui)}"?`,
     confirmLabel: hasUnmergedWork ? 'Discard & Remove' : 'Remove',
     danger: true,
-    onConfirm: () => sendControlMsg({ type: 'remove-session', id }),
+    onConfirm: () => { sendSessionAction(ui, { type: 'remove-session', id }); },
   });
 }

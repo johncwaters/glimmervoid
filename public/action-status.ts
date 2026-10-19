@@ -3,7 +3,7 @@ import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 
-export type ActionStatusTone = 'busy' | 'ok' | 'error';
+type ActionStatusTone = 'busy' | 'ok' | 'error';
 
 export interface ActionStatus {
   element: HTMLElement;
@@ -19,6 +19,13 @@ const TONE_CLASS: Record<ActionStatusTone, string> = {
 
 export const DEFAULT_REPLY_TIMEOUT_MS = 15000;
 
+const STREAMER_HIDDEN_ERROR_TEXT = 'Something went wrong. Details are hidden in streamer mode.';
+
+function streamerSafeText(tone: ActionStatusTone, text: string): string {
+  if (tone !== 'error' || text === NOT_CONNECTED_TEXT) return text;
+  return document.documentElement.hasAttribute('data-streamer') ? STREAMER_HIDDEN_ERROR_TEXT : text;
+}
+
 export function createActionStatus(className = 'action-status'): ActionStatus {
   const element = el('p', className);
   element.setAttribute('role', 'status');
@@ -31,7 +38,7 @@ export function createActionStatus(className = 'action-status'): ActionStatus {
   const show = (tone: ActionStatusTone, text: string) => {
     element.className = `${className} text-xs ${TONE_CLASS[tone]}`;
     element.dataset.tone = tone;
-    element.textContent = text;
+    element.textContent = streamerSafeText(tone, text);
     element.hidden = false;
   };
   return { element, show, clear };
@@ -73,14 +80,14 @@ function headerStatusParts() {
   return { line, text };
 }
 
-export function reportUnsourcedError(message: string) {
+export function reportUnsourcedError(message: string, { hidesInStreamerMode = true }: { hidesInStreamerMode?: boolean } = {}) {
   const parts = headerStatusParts();
   if (!parts) return;
-  parts.text.textContent = message;
+  parts.text.textContent = hidesInStreamerMode ? streamerSafeText('error', message) : message;
   parts.line.hidden = false;
 }
 
-export function dismissHeaderStatus() {
+function dismissHeaderStatus() {
   const parts = headerStatusParts();
   if (!parts) return;
   parts.line.hidden = true;

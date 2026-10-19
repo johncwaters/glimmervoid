@@ -1,10 +1,11 @@
 import { SessionPrLinks } from '#shared/contracts/my-prs.ts';
 import type { LinkedPr, MyPr, MyPrStage, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { attentionSignature, createAttentionAck } from '../attention-ack-core.ts';
-import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { openExternalUrl } from '../external-link.ts';
 import { setSessionPrAttention } from '../session-card/lifecycle.ts';
+import { openConfirmDialog } from '../session-card/modal.ts';
+import { sendForSession } from '../session-actions.ts';
 import { uiState } from '../ui-state-core.ts';
 import { latestMyPrsStatus, setMyPrsSessionLinks } from './my-prs-panel.ts';
 import { comparablePrKey } from './my-prs-view-core.ts';
@@ -108,7 +109,13 @@ function createUnlinkableChip(chip: PrSignal, sessionId: string): HTMLElement {
   unlinkButton.addEventListener('click', (event) => {
     event.stopPropagation();
     event.preventDefault();
-    sendControlMsg({ type: 'unlink-session-pr', id: sessionId, key: chip.key });
+    openConfirmDialog({
+      title: 'Unlink pull request',
+      message: `Unlink ${chip.key} from this session? Its checks and reviews stop showing here until you link it again.`,
+      confirmLabel: 'Unlink',
+      danger: true,
+      onConfirm: () => { sendForSession(sessionId, { type: 'unlink-session-pr', id: sessionId, key: chip.key }); },
+    });
   });
   const chipItem = el('span', 'session-pr-chip-item');
   chipItem.append(chipLink, unlinkButton);

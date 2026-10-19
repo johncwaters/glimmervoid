@@ -1,8 +1,10 @@
 
 import { pullRequestKeyFromReference } from '#shared/contracts/control-messages.ts';
-import { TASK_TITLE_MAX_LENGTH } from '#shared/contracts/session.ts';
+import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH } from '#shared/contracts/session.ts';
 import { localClockText } from '#shared/display-text.ts';
 import { STATES } from '#shared/states.ts';
+import { createActionStatus, sendOrReport } from '../action-status.ts';
+import type { ActionStatus } from '../action-status.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { escapeMarkup } from '#shared/escape-markup.ts';
 import { el, stateChip } from '../dom-helpers.ts';
@@ -12,7 +14,25 @@ import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell } from './modal.ts';
 import type { SessionUi } from './card-registry.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
-import { showErrorToast } from './toast.ts';
+import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
+
+const actionStatusBySessionUi = new WeakMap<SessionUi, ActionStatus>();
+
+export function sessionActionStatus(ui: SessionUi): ActionStatus {
+  const existing = actionStatusBySessionUi.get(ui);
+  if (existing?.element.parentElement === ui.card) return existing;
+  const status = existing ?? createActionStatus('session-action-status m-0 px-3 py-1');
+  ui.termWrap.before(status.element);
+  actionStatusBySessionUi.set(ui, status);
+  return status;
+}
+
+export function sendSessionAction(ui: SessionUi, message: Record<string, unknown>): boolean {
+  const status = sessionActionStatus(ui);
+  if (!sendOrReport(message, status)) return false;
+  status.clear();
+  return true;
+}
 
 let _debugMode = false;
 const debugModeListeners = new Set<(isEnabled: boolean) => void>();
@@ -257,7 +277,7 @@ function openLinkPullRequestDialog(sessionId: string) {
       return;
     }
     if (!sendControlMsg({ type: 'link-session-pr', id: sessionId, key: pullRequestKey })) {
-      errorEl.textContent = 'Not connected to the server.';
+      errorEl.textContent = NOT_CONNECTED_TEXT;
       return;
     }
     close();
@@ -313,7 +333,7 @@ export function startInlineTitleEdit(ui: SessionUi, sessionId: string) {
   function finish(shouldCommit: boolean) {
     input.removeEventListener('blur', commit);
     input.removeEventListener('keydown', onKey);
-    if (shouldCommit) sendControlMsg({ type: 'set-session-title', id: sessionId, title: input.value.trim() });
+    if (shouldCommit) sendSessionAction(ui, { type: 'set-session-title', id: sessionId, title: input.value.trim() });
     targetEl.replaceChildren();
     if (previousRole !== null) targetEl.setAttribute('role', previousRole);
     if (previousTabIndex !== null) targetEl.setAttribute('tabindex', previousTabIndex);
@@ -340,17 +360,11 @@ export function isRenameInProgress(targetEl: Element | null | undefined) {
   return !!targetEl?.querySelector(`.${RENAME_INPUT_CLASS}`);
 }
 
-export function startInlineRename(ui: SessionUi, sessionId: string) {
+export function startInlineRename(ui: SessionUi, sessionId: string, { returnsFocusToTerminal = true } = {}) {
   const targetEl = ui.renameTargetEl?.isConnected ? ui.renameTargetEl : ui.nameEl;
   if (!targetEl || isRenameInProgress(targetEl)) return;
 
   const nameBeforeEdit = ui.card?.dataset.session ?? targetEl.textContent ?? '';
-
-  function repaintName() {
-    const name = ui.card?.dataset.session ?? nameBeforeEdit;
-    targetEl.textContent = name;
-    if (ui.nameEl && ui.nameEl !== targetEl) ui.nameEl.textContent = name;
-  }
 
   const input = document.createElement('input');
   input.type = 'text';
@@ -363,27 +377,52 @@ export function startInlineRename(ui: SessionUi, sessionId: string) {
   input.focus();
   input.select();
 
+  const status = sessionActionStatus(ui);
+
+  function refusalFor(newName: string) {
+    if (ui.card.dataset.ephemeral !== undefined) return 'This session cannot be renamed';
+    if (!SESSION_NAME_PATTERN.test(newName)) return SESSION_NAME_RULE_TEXT;
+    const isTakenByAnother = [...sessionUIs.values()].some((other) => other !== ui && other.card.dataset.session === newName);
+    return isTakenByAnother ? `Session "${newName}" already exists.` : '';
+  }
+
+  function finishEditing(shownName = ui.card?.dataset.session ?? nameBeforeEdit) {
+    targetEl.textContent = shownName;
+    if (ui.nameEl && ui.nameEl !== targetEl) ui.nameEl.textContent = shownName;
+    if (returnsFocusToTerminal) ui.term?.focus();
+  }
+
+  function submitFromKeyboard() {
+    const newName = input.value.trim();
+    const refusal = newName && newName !== nameBeforeEdit ? refusalFor(newName) : '';
+    if (!refusal) { commit(); return; }
+    status.show('error', refusal);
+    input.select();
+  }
+
   function commit() {
     const newName = input.value.trim();
     cleanup();
     if (!newName || newName === nameBeforeEdit) {
-      repaintName();
+      finishEditing();
       return;
     }
-    for (const [, other] of sessionUIs) {
-      if (other !== ui && other.card.dataset.session === newName) {
-        repaintName();
-        showErrorToast(`Session "${newName}" already exists.`);
-        return;
-      }
+    const refusal = refusalFor(newName);
+    if (refusal) {
+      status.show('error', refusal);
+      finishEditing();
+      return;
     }
-    sendControlMsg({ type: 'rename-session', id: sessionId, newName });
-    repaintName();
+    if (!sendSessionAction(ui, { type: 'rename-session', id: sessionId, newName })) {
+      finishEditing();
+      return;
+    }
+    finishEditing(newName);
   }
 
   function cancel() {
     cleanup();
-    repaintName();
+    finishEditing();
   }
 
   function cleanup() {
@@ -392,7 +431,7 @@ export function startInlineRename(ui: SessionUi, sessionId: string) {
   }
 
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Enter') { e.preventDefault(); submitFromKeyboard(); }
     if (e.key === 'Escape') { e.preventDefault(); cancel(); }
     e.stopPropagation();
   }

@@ -29,7 +29,7 @@ import { setRunningActivity } from './activity.ts';
 import { agentBadgeText } from './agent-core.ts';
 import { computeAggregate } from './aggregate-core.ts';
 import type { CardOptions } from './card-dom.ts';
-import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintGuardrailsMenuItem, paintTaskTitle, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
+import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintGuardrailsMenuItem, paintTaskTitle, sendSessionAction, sessionActionStatus, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
 import { aggregateEl, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
 import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';
@@ -40,7 +40,7 @@ import { openConfirmDialog } from './modal.ts';
 import { requestSessionRemoval } from '../session-actions.ts';
 import { openResumeDialog } from './resume-dialog.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
-import { showErrorToast } from './toast.ts';
+import { reportUnsourcedError } from '../action-status.ts';
 
 import { refreshElapsed } from './session-tick.ts';
 import {
@@ -187,7 +187,7 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     ui.btnSessionMenu.focus();
     runRestartChoice(action, sessionId, {
       readState: () => ui.currentState,
-      send: sendControlMsg,
+      send: (message) => { sendSessionAction(ui, message); },
       confirm: openConfirmDialog,
     });
   }
@@ -217,13 +217,13 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
 
   ui.btnConversationView.addEventListener('click', () => {
     closeSessionMenu(ui);
-    sendControlMsg({ type: 'set-session-conversation-view', id: sessionId, isOn: !ui.isConversationViewOn });
+    sendSessionAction(ui, { type: 'set-session-conversation-view', id: sessionId, isOn: !ui.isConversationViewOn });
   });
 
   ui.btnGuardrails.addEventListener('click', () => {
     closeSessionMenu(ui);
     ui.btnSessionMenu.focus();
-    const sendGuardrails = (isOn: boolean) => () => sendControlMsg({ type: 'set-session-guardrails', id: sessionId, isOn });
+    const sendGuardrails = (isOn: boolean) => () => { sendSessionAction(ui, { type: 'set-session-guardrails', id: sessionId, isOn }); };
     if (ui.card.dataset.guarded === undefined) {
       openConfirmDialog({
         title: 'Restore guardrails',
@@ -409,7 +409,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     requestDraft: (requestedId, agentId) => sendControlMsg({ type: 'session-plan', id: requestedId, agentId, draft: true }),
     showTerminal: showConversationOrTerminalFace,
     sendDecision: (requestedId, request) => sendControlMsg({ type: 'plan-decision', id: requestedId, ...request }),
-    reportProblem: (message: string) => showErrorToast(`${dom.nameEl.textContent || id}: ${message}`),
+    reportProblem: (message: string) => reportSessionProblem(id, message),
   });
   const conversationFace = createConversationFace({
     signal: abortController.signal,
@@ -778,6 +778,12 @@ function _handleEndedTransition(ui: SessionUi, wasActive: boolean, state: string
   const label = state === STATES.DONE ? 'Session complete' : 'Session failed';
   const color = state === STATES.DONE ? '\x1b[34m' : '\x1b[31m';
   ui.term.write(`\r\n\r\n\x1b[2m${color}  ${label}\x1b[0m\r\n\r\n\x1b[2m  Open the session actions menu and choose Restart to start a new session.\x1b[0m\r\n`);
+}
+
+function reportSessionProblem(sessionId: unknown, message: string) {
+  const ui = findSessionUi(sessionId);
+  if (!ui) { reportUnsourcedError(message); return; }
+  sessionActionStatus(ui).show('error', message);
 }
 
 export function setSessionFailureReason(sessionId: unknown, failureReason: string | null | undefined) {

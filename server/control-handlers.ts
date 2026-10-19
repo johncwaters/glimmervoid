@@ -15,7 +15,7 @@ import {
   ClientMessage, RUNTIME_CONFIG_SCALAR_KEYS, ConfigUpdate, configIssueMessage,
   type ClientMessageOf, type ServerMessageOf,
 } from '../shared/contracts/index.ts';
-import { TASK_TITLE_MAX_LENGTH, TaskTitle } from '../shared/contracts/session.ts';
+import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH, TaskTitle } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import { claudeProjectsDir, listRepoConversations } from '../session/core/conversation-history.ts';
 import type { Session } from '../session/sessions.ts';
@@ -288,7 +288,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
   const requestId = typeof msg?.requestId === 'string' ? msg.requestId : null;
   const builders: Record<string, () => Record<string, unknown>> = {
     'list-conversations': () => ({ type: 'conversations', requestId, id: typeof msg?.id === 'string' ? msg.id : null, conversations: [], error: message }),
-    'resume-conversation': () => ({ type: 'resume-conversation-ack', id: typeof msg?.id === 'string' ? msg.id : undefined, ok: false, error: message }),
+    'resume-conversation': () => ({ type: 'resume-conversation-ack', requestId, id: typeof msg?.id === 'string' ? msg.id : undefined, ok: false, error: message }),
     'ping': () => ({ type: 'pong', requestId, error: message }),
     'get-settings': () => ({ type: 'settings-error', requestId, message }),
     'update-settings': () => ({ type: 'settings-error', requestId, message }),
@@ -472,7 +472,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     };
   }
 
-  const SESSION_NAME_RE = /^[a-zA-Z0-9_\-. ()]{1,64}$/;
 
   function handleAddSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket): Promise<void> | undefined {
     const refusal = addSessionRefusal(msg);
@@ -533,7 +532,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
     if (!name || (!projectPath && !msg.repos)) return { error: 'Name and path are required' };
-    if (!SESSION_NAME_RE.test(name)) return { error: 'Session name may only contain letters, numbers, spaces, dashes, dots, underscores, and parentheses (max 64 chars)' };
+    if (!SESSION_NAME_PATTERN.test(name)) return { error: SESSION_NAME_RULE_TEXT };
     const requestedAgent = typeof msg.agent === 'string' ? msg.agent.trim() : '';
     if (requestedAgent && !isKnownAgentId(requestedAgent)) return { error: `Unknown agent "${requestedAgent}"` };
     const missingRepo = msg.repos?.find((repoPath) => !isExistingDirectory(repoPath));
@@ -593,8 +592,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
     if (sess.ephemeral) { sendError(ws, 'This session cannot be renamed'); return; }
 
-    if (!SESSION_NAME_RE.test(newName)) {
-      sendError(ws, 'Session name may only contain letters, numbers, spaces, dashes, dots, underscores, and parentheses (max 64 chars)');
+    if (!SESSION_NAME_PATTERN.test(newName)) {
+      sendError(ws, SESSION_NAME_RULE_TEXT);
       return;
     }
 
@@ -755,12 +754,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   function handleResumeConversation(msg: ClientMessageOf<'resume-conversation'>, ws: ControlSocket): void {
     const sess = findSession(msg);
-    if (!sess) { sendError(ws, 'Session not found'); return; }
-    if (sess.ephemeral) { sendError(ws, 'This session cannot resume a conversation'); return; }
+    const requestId = typeof msg.requestId === 'string' ? msg.requestId : undefined;
+    if (!sess) { sendError(ws, 'Session not found', { requestId }); return; }
+    if (sess.ephemeral) { sendError(ws, 'This session cannot resume a conversation', { requestId }); return; }
     const raw = typeof msg.conversationId === 'string' ? msg.conversationId.trim() : '';
     const conversationId = raw || null;
     if (conversationId && !RESUME_ID_RE.test(conversationId)) {
-      sendError(ws, 'Invalid conversation id');
+      sendError(ws, 'Invalid conversation id', { requestId });
       return;
     }
 
@@ -775,7 +775,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const live = sessions.get(sess.id) || sess;
     live.setResumeConversation(conversationId);
 
-    ws.send(JSON.stringify({ type: 'resume-conversation-ack', id: live.id, resumeSessionId: conversationId, ok: true }));
+    ws.send(JSON.stringify({ type: 'resume-conversation-ack', requestId, id: live.id, resumeSessionId: conversationId, ok: true }));
     console.log(`[control] resume-conversation: id=${live.id} -> ${conversationId || '(cleared)'}`);
   }
 

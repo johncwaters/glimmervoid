@@ -1,5 +1,6 @@
 import addSessionHTML from './components/add-session-dialog.html?raw';
-import { sendControlMsg, sendControlRequest } from './control-ws.ts';
+import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
+import { sendControlRequest } from './control-ws.ts';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { el, query, queryTag } from './dom-helpers.ts';
 import { createRepoRootsAdder } from './onboarding/repo-roots-adder.ts';
@@ -31,7 +32,7 @@ function skipsPermissionsByDefault(settings: unknown): boolean {
   return 'skipPermissionsByDefault' in settings && settings.skipPermissionsByDefault === true;
 }
 
-function addSessionRefusalText(reply: ServerMessage): string {
+export function addSessionRefusalText(reply: ServerMessage): string {
   if (reply.type === 'add-session-result' && reply.error) return reply.error;
   if (reply.type === 'error') return reply.message;
   return 'The session was not added.';
@@ -91,6 +92,24 @@ export function createAddSessionDialog() {
   const repoRootsAdder = createRepoRootsAdder({ onAdded: fillProjectPicker });
   repoRootsEl.append(repoRootsAdder.element);
 
+  const scanStatus = createActionStatus('dialog-hint');
+  const btnScanAgain = el('button', 'btn-dialog btn-dialog-cancel', 'Scan again');
+  btnScanAgain.type = 'button';
+  btnScanAgain.hidden = true;
+  btnScanAgain.addEventListener('click', () => { void fillProjectPicker(); });
+  const scanRow = el('div', 'flex items-center gap-2');
+  scanRow.append(scanStatus.element, btnScanAgain);
+  repoRootsEl.before(scanRow);
+
+  function showScanFailure(reason: string) {
+    pickerEl.textContent = '';
+    pickerEl.appendChild(option('Scan failed', { disabled: true, selected: true }));
+    workspaceListEl.textContent = '';
+    scanStatus.show('error', `The project scan failed: ${reason}`);
+    btnScanAgain.hidden = false;
+    btnScanAgain.disabled = false;
+  }
+
   function showRepoRootsAdder(message: ServerMessage) {
     const isScan = message.type === 'repo-roots-scanned';
     repoRootsTitleEl.textContent = isScan && message.directories.length > 0 ? 'No projects in your repository roots yet' : 'No repository roots yet';
@@ -99,8 +118,13 @@ export function createAddSessionDialog() {
   }
 
   function fillProjectPicker() {
-    return sendControlRequest('scan-repo-roots', { includeSuggestions: true })
+    btnScanAgain.disabled = true;
+    scanStatus.show('busy', 'Scanning your repository roots');
+    return sendControlRequest('scan-repo-roots', { includeSuggestions: true }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
       .then((message) => {
+        if (message.type === 'repo-roots-scanned' && message.error) { showScanFailure(message.error); return; }
+        scanStatus.clear();
+        btnScanAgain.hidden = true;
         pickerEl.textContent = '';
         workspaceListEl.textContent = '';
         repoRootsEl.hidden = true;
@@ -127,11 +151,7 @@ export function createAddSessionDialog() {
         workspaceListEl.textContent = 'No projects yet.';
         showRepoRootsAdder(message);
       })
-      .catch(() => {
-        pickerEl.textContent = '';
-        pickerEl.appendChild(option('Scan failed', { disabled: true, selected: true }));
-        workspaceListEl.textContent = 'Repository scan failed.';
-      });
+      .catch((reason) => { showScanFailure(requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)); });
   }
   void fillProjectPicker();
 
@@ -146,15 +166,18 @@ export function createAddSessionDialog() {
 
   let selectedAgentId = DEFAULT_AGENT_ID;
   let isSpawnBlocked = false;
+  function showWarning(text: string) {
+    const warningEl = el('p', 'dialog-hint dialog-hint-warning', text);
+    warningEl.setAttribute('role', 'status');
+    errorEl.before(warningEl);
+    return warningEl;
+  }
   function blockSpawnWithGuidance(guidance: string) {
     isSpawnBlocked = true;
     btnConfirm.disabled = true;
-    const agentGuidanceEl = el('p', 'dialog-hint dialog-hint-warning', guidance);
-    agentGuidanceEl.id = 'add-session-agent-guidance';
-    agentGuidanceEl.setAttribute('role', 'status');
-    errorEl.before(agentGuidanceEl);
+    showWarning(guidance).id = 'add-session-agent-guidance';
   }
-  sendControlRequest('list-agents', {})
+  sendControlRequest('list-agents', {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
     .then((message) => {
       const availability = decideAgentAvailability(message);
       if (!availability.canSpawn) blockSpawnWithGuidance(availability.guidance);
@@ -170,17 +193,18 @@ export function createAddSessionDialog() {
       }
       agentLabelEl.hidden = false;
     })
-    .catch(() => {});
+    .catch((reason) => { showWarning(`Could not load the agent list (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session uses the default agent.`); });
   agentSelectEl.addEventListener('change', () => { selectedAgentId = agentSelectEl.value; });
 
   let hasOperatorChosenPermissions = false;
   skipPermsCheckbox.addEventListener('change', () => { hasOperatorChosenPermissions = true; });
-  sendControlRequest('get-settings', {})
+  sendControlRequest('get-settings', {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
     .then((message) => {
+      if (message.type === 'settings-error') { showWarning(`Could not load your settings (${message.message}). Check Skip permissions yourself.`); return; }
       if (hasOperatorChosenPermissions) return;
       skipPermsCheckbox.checked = skipsPermissionsByDefault(message.settings);
     })
-    .catch(() => {});
+    .catch((reason) => { showWarning(`Could not load your settings (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}). Check Skip permissions yourself.`); });
 
   function showRunInPlaceChoice(isShown: boolean) {
     runInPlaceLabelEl.hidden = !isShown;
@@ -204,7 +228,6 @@ export function createAddSessionDialog() {
         return;
       }
       const message: Record<string, unknown> = {
-        type: 'add-session',
         name: suggestSessionName(name),
         path: repos[0],
         repos,
@@ -212,8 +235,7 @@ export function createAddSessionDialog() {
         unguarded: unguardedCheckbox.checked,
       };
       if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
-      sendControlMsg(message);
-      close();
+      requestAddSession(message);
       return;
     }
     if (!name || !projectPath) {
@@ -228,9 +250,13 @@ export function createAddSessionDialog() {
       runInPlace: runInPlaceCheckbox.checked,
     };
     if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
+    requestAddSession(message);
+  }
+
+  function requestAddSession(message: Record<string, unknown>) {
     btnConfirm.disabled = true;
     errorEl.textContent = '';
-    sendControlRequest('add-session', message)
+    sendControlRequest('add-session', message, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
       .then((reply) => {
         if (reply.type === 'add-session-result' && reply.ok) {
           close();
@@ -239,7 +265,7 @@ export function createAddSessionDialog() {
         errorEl.textContent = addSessionRefusalText(reply);
         if (reply.type === 'add-session-result' && reply.reason === 'not-git') runInPlaceLabelEl.hidden = false;
       })
-      .catch(() => { errorEl.textContent = 'The session was not added: the server did not answer.'; })
+      .catch((reason) => { errorEl.textContent = `The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}`; })
       .finally(() => { btnConfirm.disabled = isSpawnBlocked; });
   }
 
