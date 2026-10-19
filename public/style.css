@@ -4000,13 +4000,13 @@ a.pr-link:hover { color: var(--text-head); text-decoration: underline; }
   border-top: 1px solid var(--border-dim);
 }
 
-.hooks-editor-error {
+.hooks-editor-status,
+.hooks-row-status {
   margin: 0;
-  font-size: 11px;
-  color: var(--state-failed);
 }
 
-.hooks-editor-error[hidden] { display: none; }
+.hooks-editor-status[hidden],
+.hooks-row-status[hidden] { display: none; }
 
 .hooks-editor-shortcut {
   margin-left: auto;
@@ -4100,7 +4100,7 @@ html[data-layout="phone"] .hooks-editor-footer {
   background: var(--bg-header);
   border-top: 1px solid var(--border);
 }
-html[data-layout="phone"] .hooks-editor-error { flex-basis: 100%; font-size: 12px; }
+html[data-layout="phone"] .hooks-editor-status { flex-basis: 100%; }
 html[data-layout="phone"] .hooks-editor-shortcut { display: none; }
 html[data-layout="phone"] .hooks-editor-footer .btn-dialog { flex: 1 1 0; min-height: 44px; font-size: 14px; }
 
@@ -5019,6 +5019,8 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   font-size: 11px;
   color: var(--text-muted);
 }
+
+.usage-refresh-status[data-tone="error"] { color: var(--state-failed); }
 
 .usage-sort {
   border: 0;

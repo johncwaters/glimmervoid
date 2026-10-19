@@ -1,7 +1,9 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { buildPanelSection, el, isPanelHidden, query, writeClipboardText } from './dom-helpers.ts';
+import { createActionStatus } from './action-status.ts';
 import { formatTrailOffset } from './radar/radar-core.ts';
+import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 import {
   appendTraceRecords,
   createTraceGrouping,
@@ -76,6 +78,7 @@ let preselectedSessionId: string | null = null;
 let selectedTrace: SelectedTrace | null = null;
 let pendingRequest: PendingTraceRequest | null = null;
 let isRefreshNeeded = false;
+let traceFailureText: string | null = null;
 
 function isTraceVisible(): boolean {
   return !!rootElement && !isPanelHidden(rootElement);
@@ -93,12 +96,14 @@ function clearPendingRequest(): void {
 
 function abandonPendingRequest(): void {
   pendingRequest = null;
+  traceFailureText = `The trace did not load within ${Math.round(TRACE_REQUEST_TIMEOUT_MS / 1000)} s.`;
   renderPanel();
 }
 
 function startSelectedTrace(sessionId: string | null): void {
   clearPendingRequest();
   isRefreshNeeded = false;
+  traceFailureText = null;
   selectedSessionId = sessionId;
   selectedTrace = sessionId
     ? {
@@ -127,7 +132,11 @@ function sendTraceRequest(request: TraceRequest): void {
   const wireMessage = request.endingAt === undefined
     ? { type: 'session-trace', id: request.id, after: request.after }
     : { type: 'session-trace', id: request.id, endingAt: request.endingAt };
-  if (!sendRequest(wireMessage)) return;
+  if (!sendRequest(wireMessage)) {
+    traceFailureText = NOT_CONNECTED_TEXT;
+    renderHeader();
+    return;
+  }
   pendingRequest = { request, timeoutHandle: setTimeout(abandonPendingRequest, TRACE_REQUEST_TIMEOUT_MS) };
 }
 
@@ -238,6 +247,10 @@ function buildHeader(): HTMLElement {
     : null;
   if (sessionStartedAtMs !== null) controls.append(el('span', 'trace-session-start', `Started ${new Date(sessionStartedAtMs).toLocaleString()}`));
   section.append(controls, buildTraceFilters());
+  if (!traceFailureText) return section;
+  const failureStatus = createActionStatus('trace-status');
+  failureStatus.show('error', traceFailureText);
+  section.append(failureStatus.element);
   return section;
 }
 
@@ -593,6 +606,10 @@ export function applyTraceResponse(message: unknown): void {
     return;
   }
   clearPendingRequest();
+  if (traceFailureText) {
+    traceFailureText = null;
+    renderHeader();
+  }
   if (outcome === 'stale') {
     requestQueuedRefresh();
     return;
@@ -633,20 +650,25 @@ export function applyTraceChanged(message: unknown): void {
   requestSelectedTrace();
 }
 
-export function applyTraceError(message: unknown): void {
+export function applyTraceError(message: unknown): boolean {
   const sessionId = (message as { id?: unknown } | null)?.id;
-  if (typeof sessionId !== 'string' || pendingRequest?.request.id !== sessionId) return;
+  if (typeof sessionId !== 'string' || pendingRequest?.request.id !== sessionId) return false;
   clearPendingRequest();
   isRefreshNeeded = false;
+  const errorText = (message as { message?: unknown } | null)?.message;
+  traceFailureText = typeof errorText === 'string' && errorText ? errorText : 'The trace could not be read.';
   renderPanel();
+  return true;
 }
 
 export function applyTraceConnectionState(isConnected: boolean): void {
   clearPendingRequest();
   isRefreshNeeded = false;
+  traceFailureText = isConnected ? null : NOT_CONNECTED_TEXT;
   if (!isConnected) {
     renderPanel();
     return;
   }
+  renderHeader();
   requestSelectedTrace();
 }

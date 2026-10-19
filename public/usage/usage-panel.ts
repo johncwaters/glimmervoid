@@ -1,6 +1,7 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { createAttentionAck } from '../attention-ack-core.ts';
 import { nextRequestId } from '../control-ws.ts';
+import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { buildPanelSection, el, isPanelHidden } from '../dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from '../poll-ago.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
@@ -128,11 +129,13 @@ let _sessions: UsageSessionsPush | null = null;
 let _planLimits: PlanLimits | null = null;
 let _root: HTMLDivElement | null = null;
 let _activityCallback: ((isActive: boolean) => void) | null = null;
-let _sendRequest: ((message: Record<string, unknown>) => void) | null = null;
+let _sendRequest: ((message: Record<string, unknown>) => boolean) | null = null;
 let _latestRequestId: string | null = null;
 let _rangeValue: string = DEFAULT_RANGE_VALUE;
 let _refreshPending = false;
 let _refreshTimer: number | null = null;
+let _refreshFailureText: string | null = null;
+let _isConnected = true;
 
 let _daySort: SortState = DEFAULT_DAY_SORT;
 let _modelSort: SortState = DEFAULT_MODEL_SORT;
@@ -985,9 +988,19 @@ export function acknowledgeUsageAttention() {
   refreshActivity();
 }
 
+function refreshStatusText(): string {
+  if (!_isConnected) return _report ? `${NOT_CONNECTED_TEXT} The figures below are from before the connection dropped.` : NOT_CONNECTED_TEXT;
+  if (_refreshPending) return 'Refreshing';
+  return _refreshFailureText ?? '';
+}
+
 function applyRefreshPending() {
   if (_refreshButtonEl) _refreshButtonEl.disabled = _refreshPending;
-  if (_refreshStatusEl) _refreshStatusEl.textContent = _refreshPending ? 'Refreshing' : '';
+  if (!_refreshStatusEl) return;
+  _refreshStatusEl.textContent = refreshStatusText();
+  const hasFailure = !_isConnected || (!_refreshPending && _refreshFailureText !== null);
+  if (hasFailure) { _refreshStatusEl.dataset.tone = 'error'; return; }
+  delete _refreshStatusEl.dataset.tone;
 }
 
 function setRefreshPending(pending: boolean) {
@@ -1002,6 +1015,7 @@ function setRefreshPending(pending: boolean) {
   _refreshTimer = setTimeout(() => {
     _refreshTimer = null;
     _refreshPending = false;
+    _refreshFailureText = `Usage did not answer within ${Math.round(REFRESH_STATUS_TIMEOUT_MS / 1000)} s. Refresh to try again.`;
     applyRefreshPending();
   }, REFRESH_STATUS_TIMEOUT_MS);
 }
@@ -1011,7 +1025,7 @@ export function setUsageActivityCallback(callback: (isActive: boolean) => void) 
   refreshActivity();
 }
 
-export function setUsageRequestSender(send: (message: Record<string, unknown>) => void) {
+export function setUsageRequestSender(send: (message: Record<string, unknown>) => boolean) {
   _sendRequest = send;
 }
 
@@ -1022,8 +1036,16 @@ export function requestUsageReport({ force = false }: { force?: boolean } = {}) 
   if (force) msg.force = true;
   const days = daysForRange(_rangeValue);
   if (days !== null) msg.days = days;
+  _refreshFailureText = null;
   setRefreshPending(true);
-  _sendRequest(msg);
+  if (_sendRequest(msg)) return;
+  _refreshFailureText = NOT_CONNECTED_TEXT;
+  setRefreshPending(false);
+}
+
+export function applyUsageConnectionState(isConnected: boolean) {
+  _isConnected = isConnected;
+  applyRefreshPending();
 }
 
 export function mountUsageView(parent: HTMLElement) {
@@ -1058,6 +1080,7 @@ export function applyPlanLimits(msg: unknown) {
 
 export function applyUsageReport(msg: unknown) {
   if (!shouldApplyUsageReport(msg, _latestRequestId)) return;
+  _refreshFailureText = null;
   setRefreshPending(false);
   _report = msg as UsageReport;
   render();

@@ -1,5 +1,6 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { SessionDoc } from '#shared/contracts/session.ts';
+import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
 import { sendControlRequest } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
 import { parsePlanMarkdown } from './plan/plan-markdown-core.ts';
@@ -88,6 +89,16 @@ function whenChangesAreSafe(editor: OpenEditor, title: string, proceed: () => vo
   confirmDiscard(title, proceed);
 }
 
+type DocRequestOutcome = { reply: Awaited<ReturnType<typeof sendControlRequest>> | null; failureText: string | null };
+
+async function requestDoc(type: 'session-doc-read' | 'session-doc-save', payload: Record<string, unknown>): Promise<DocRequestOutcome> {
+  try {
+    return { reply: await sendControlRequest(type, payload, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS }), failureText: null };
+  } catch (reason) {
+    return { reply: null, failureText: requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS) };
+  }
+}
+
 async function loadDoc(editor: OpenEditor, docPath: string) {
   editor.docPath = docPath;
   editor.isBusy = true;
@@ -96,13 +107,13 @@ async function loadDoc(editor: OpenEditor, docPath: string) {
   fillDocPicker(editor);
   setStatus(editor, 'Loading');
   paintControls(editor);
-  const reply = await sendControlRequest('session-doc-read', { id: editor.sessionId, path: docPath }).catch(() => null);
+  const { reply, failureText } = await requestDoc('session-doc-read', { id: editor.sessionId, path: docPath });
   if (openEditor !== editor || editor.docPath !== docPath) return;
   editor.isBusy = false;
   editor.textarea.readOnly = false;
   const response = reply?.type === 'session-doc-response' ? reply : null;
   if (!response?.ok || response.text === undefined || response.hash === undefined) {
-    setStatus(editor, response?.error || 'Could not open this doc', 'warn');
+    setStatus(editor, response?.error || failureText || 'Could not open this doc', 'warn');
     paintControls(editor);
     return;
   }
@@ -121,12 +132,12 @@ async function saveDoc(editor: OpenEditor) {
   paintControls(editor);
   const savedPath = editor.docPath;
   const savedText = editor.textarea.value;
-  const reply = await sendControlRequest('session-doc-save', { id: editor.sessionId, path: savedPath, text: savedText, baseHash: editor.baseHash }).catch(() => null);
+  const { reply, failureText } = await requestDoc('session-doc-save', { id: editor.sessionId, path: savedPath, text: savedText, baseHash: editor.baseHash });
   if (openEditor !== editor || editor.docPath !== savedPath) return;
   editor.isBusy = false;
   const response = reply?.type === 'session-doc-save-result' ? reply : null;
   if (!response?.ok || response.hash === undefined) {
-    setStatus(editor, response?.conflict ? 'The agent changed this file since you opened it. Reload to see its version.' : response?.error || 'Save failed', 'warn');
+    setStatus(editor, response?.conflict ? 'The agent changed this file since you opened it. Reload to see its version.' : response?.error || failureText || 'Save failed', 'warn');
     paintControls(editor);
     return;
   }

@@ -1,8 +1,9 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { nextRequestId } from './control-ws.ts';
+import { nextRequestId, sendControlRequest } from './control-ws.ts';
+import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
+import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 import { buildPanelSection, buildStatChip, el, isPanelHidden, projectsOf } from './dom-helpers.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
-import { showErrorToast } from './session-card/toast.ts';
 import {
   ALL_PROJECTS_LABEL,
   BUILTIN_HINT,
@@ -62,21 +63,25 @@ import type { HookBuiltinRow, HookDraft, HookEvent, HookProject, HookRecord, Hoo
 
 let _report: HooksReport | null = null;
 let _root: HTMLDivElement | null = null;
-let _sendRequest: ((message: Record<string, unknown>) => void) | null = null;
+let _sendRequest: ((message: Record<string, unknown>) => boolean) | null = null;
+let _reportSendFailed = false;
 let _latestRequestId: string | null = null;
 let _draft: HookDraft | null = null;
 
 let _draftOrigin: Record<string, unknown> | null = null;
 let _editorEl: HTMLElement | null = null;
-let _editorErrorEl: HTMLElement | null = null;
+let _editorStatus: ReturnType<typeof createActionStatus> | null = null;
+let _editorSaveButton: HTMLButtonElement | null = null;
 let _saving = false;
-
-let _editorRequestId: string | null = null;
 let _filter = '';
 
 const _openPreviews = new Set<string>();
 
 const _busyIds = new Set<string>();
+
+type RowFeedback = { tone: 'busy' | 'error'; text: string };
+
+const _rowFeedbackById = new Map<string, RowFeedback>();
 
 let _focusAddOnRender = false;
 
@@ -96,11 +101,27 @@ function buildButton(className: string, label: string, onClick: () => void, aria
   return button;
 }
 
-function send(message: Record<string, unknown>): string | null {
-  if (!_sendRequest) return null;
-  const requestId = nextRequestId('hooks');
-  _sendRequest({ requestId, ...message });
-  return requestId;
+async function requestHookChange(type: 'save-hook' | 'delete-hook', payload: Record<string, unknown>): Promise<string | null> {
+  try {
+    const reply = await sendControlRequest(type, payload, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+    if ((reply.type === 'save-hook-result' || reply.type === 'delete-hook-result') && reply.ok) return null;
+    const fallbackText = type === 'save-hook' ? 'Could not save the hook.' : 'Could not delete the hook.';
+    return 'error' in reply && typeof reply.error === 'string' && reply.error ? reply.error : fallbackText;
+  } catch (reason) {
+    return requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS);
+  }
+}
+
+async function runRowRequest(hookId: string, type: 'save-hook' | 'delete-hook', payload: Record<string, unknown>, busyText: string) {
+  _busyIds.add(hookId);
+  _rowFeedbackById.set(hookId, { tone: 'busy', text: busyText });
+  render({ force: true });
+  const failureText = await requestHookChange(type, payload);
+  _busyIds.delete(hookId);
+  if (failureText) _rowFeedbackById.set(hookId, { tone: 'error', text: failureText });
+  if (!failureText) _rowFeedbackById.delete(hookId);
+  render({ force: true });
+  requestHooksReport();
 }
 
 function buildField(label: string, control: HTMLElement, hint: string | null) {
@@ -212,9 +233,9 @@ function buildTemplateRow(events: HookEvent[]) {
 }
 
 function setEditorError(text: string | null) {
-  if (!_editorErrorEl) return;
-  _editorErrorEl.textContent = text || '';
-  _editorErrorEl.hidden = !text;
+  if (!_editorStatus) return;
+  if (!text) { _editorStatus.clear(); return; }
+  _editorStatus.show('error', text);
 }
 
 function buildEditor(draft: HookDraft) {
@@ -277,15 +298,14 @@ function buildEditor(draft: HookDraft) {
     buildField('', enabledLabel, null),
   );
 
-  _editorErrorEl = el('p', 'hooks-editor-error');
-  _editorErrorEl.setAttribute('role', 'alert');
-  _editorErrorEl.hidden = true;
+  _editorStatus = createActionStatus('hooks-editor-status');
   const footer = el('div', 'hooks-editor-footer');
   const shortcut = el('span', 'hooks-editor-shortcut', SHORTCUT_HINT);
   const cancel = buildButton('btn-dialog btn-dialog-cancel', 'Cancel', requestCloseEditor);
   const save = el('button', 'btn-dialog btn-dialog-confirm', draft.id ? 'Save changes' : 'Add hook');
   save.type = 'submit';
-  footer.append(_editorErrorEl, shortcut, cancel, save);
+  _editorSaveButton = save;
+  footer.append(_editorStatus.element, shortcut, cancel, save);
   form.append(footer);
   section.append(form);
   return section;
@@ -306,9 +326,9 @@ function closeEditor() {
   _draft = null;
   _draftOrigin = null;
   _editorEl = null;
-  _editorErrorEl = null;
+  _editorStatus = null;
+  _editorSaveButton = null;
   _saving = false;
-  _editorRequestId = null;
   _focusAddOnRender = true;
   render({ force: true });
 }
@@ -318,14 +338,22 @@ function requestCloseEditor() {
   openConfirmDialog({ title: DISCARD_TITLE, message: DISCARD_TEXT, confirmLabel: 'Discard', danger: true, onConfirm: closeEditor });
 }
 
-function submitEditor() {
+async function submitEditor() {
   if (!_draft || _saving) return;
   const problem = draftProblem(_draft, eventsOf(_report), maxTimeoutOf(_report));
   if (problem) { setEditorError(problem); return; }
+  const savingStatus = _editorStatus;
+  const saveButton = _editorSaveButton;
   _saving = true;
-  setEditorError('');
-  _editorRequestId = send({ type: 'save-hook', hook: fromDraft(_draft) });
-  if (!_editorRequestId) _saving = false;
+  savingStatus?.show('busy', 'Saving the hook.');
+  if (saveButton) saveButton.disabled = true;
+  const failureText = await requestHookChange('save-hook', { hook: fromDraft(_draft) });
+  _saving = false;
+  if (saveButton) saveButton.disabled = false;
+  if (savingStatus !== _editorStatus) return;
+  if (failureText) { setEditorError(failureText); return; }
+  closeEditor();
+  requestHooksReport();
 }
 
 function buildPreview(hook: HookRecord) {
@@ -360,6 +388,12 @@ function buildRow(hook: HookRecord, { grouped = false }: { grouped?: boolean } =
   const missing = missingProjectIds(hook, projects);
   if (missing.length > 0) main.append(buildLine('hooks-row-meta', `Scoped to a project no longer in config: ${missing.join(', ')}`, 'warn'));
   main.append(buildPreview(hook));
+  const feedback = _rowFeedbackById.get(hook.id);
+  if (feedback) {
+    const rowStatus = createActionStatus('hooks-row-status');
+    rowStatus.show(feedback.tone, feedback.text);
+    main.append(rowStatus.element);
+  }
 
   const actions = el('div', 'hooks-row-actions');
   const toggleLabel = el('label', 'settings-view-toggle hooks-choice');
@@ -369,9 +403,7 @@ function buildRow(hook: HookRecord, { grouped = false }: { grouped?: boolean } =
   toggle.disabled = _busyIds.has(hook.id);
   toggle.setAttribute('aria-label', `${hook.name} enabled`);
   toggle.addEventListener('change', () => {
-    _busyIds.add(hook.id);
-    toggle.disabled = true;
-    send({ type: 'save-hook', hook: toggledHook(hook) });
+    void runRowRequest(hook.id, 'save-hook', { hook: toggledHook(hook) }, toggle.checked ? 'Turning the hook on.' : 'Turning the hook off.');
   });
   toggleLabel.append(toggle, el('span', null, 'On'));
   const edit = buildButton('hooks-btn', 'Edit', () => openEditor(hook), `Edit ${hook.name}`);
@@ -387,9 +419,7 @@ function buildRow(hook: HookRecord, { grouped = false }: { grouped?: boolean } =
       confirmLabel: 'Delete',
       danger: true,
       onConfirm: () => {
-        _busyIds.add(hook.id);
-        send({ type: 'delete-hook', id: hook.id });
-        render({ force: true });
+        void runRowRequest(hook.id, 'delete-hook', { id: hook.id }, 'Deleting the hook.');
       },
     });
   }, `Delete ${hook.name}`);
@@ -482,7 +512,7 @@ function buildBuiltinSection() {
 function buildBody() {
   const content = el('div', 'hooks-content');
   if (!_report) {
-    content.append(buildLine('hooks-empty', HOOKS_LOADING_TEXT));
+    content.append(_reportSendFailed ? buildLine('hooks-warning', NOT_CONNECTED_TEXT) : buildLine('hooks-empty', HOOKS_LOADING_TEXT));
     return content;
   }
   if (isHooksUnavailable(_report)) {
@@ -505,14 +535,17 @@ function render({ force = false }: { force?: boolean } = {}) {
   if (add instanceof HTMLButtonElement) add.focus();
 }
 
-export function setHooksRequestSender(send: (message: Record<string, unknown>) => void) {
+export function setHooksRequestSender(send: (message: Record<string, unknown>) => boolean) {
   _sendRequest = send;
 }
 
 export function requestHooksReport() {
   if (!_sendRequest) return;
   _latestRequestId = nextRequestId('hooks-report');
-  _sendRequest({ type: 'request-hooks-report', requestId: _latestRequestId });
+  const wasSent = _sendRequest({ type: 'request-hooks-report', requestId: _latestRequestId });
+  if (wasSent === !_reportSendFailed) return;
+  _reportSendFailed = !wasSent;
+  render();
 }
 
 export function mountHooksView(parent: HTMLElement) {
@@ -529,27 +562,10 @@ export function refreshHooksView() {
 export function applyHooksReport(msg: ServerMessageOf<'hooks-report'>) {
   if (!shouldApplyHooksReport(msg, _latestRequestId)) return;
   _report = msg;
-  _busyIds.clear();
-
-  _saving = false;
+  _reportSendFailed = false;
   render();
 }
 
-export function applySaveHookResult(result: ServerMessageOf<'save-hook-result'>) {
-  const wasEditorSave = _editorRequestId !== null && result.requestId === _editorRequestId;
-  if (wasEditorSave) { _editorRequestId = null; _saving = false; }
-  if (result.ok) {
-    if (wasEditorSave) closeEditor();
-    requestHooksReport();
-    return;
-  }
-  const error = typeof result.error === 'string' && result.error ? result.error : 'Could not save the hook';
-  if (wasEditorSave) { setEditorError(error); return; }
-  showErrorToast(error, { persist: true });
-  requestHooksReport();
-}
-
-export function applyDeleteHookResult(result: ServerMessageOf<'delete-hook-result'>) {
-  if (!result.ok) showErrorToast(typeof result.error === 'string' && result.error ? result.error : 'Could not delete the hook', { persist: true });
+export function applyLateHookResult() {
   requestHooksReport();
 }

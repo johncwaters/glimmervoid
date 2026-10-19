@@ -23,7 +23,7 @@ import { initFormFactor, isPhoneLayout, onLayoutChange } from './form-factor.ts'
 import type { HealthSnapshot } from './health-monitor.ts';
 import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
 import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, setVisionsProjectNames } from './visions/visions-panel.ts';
-import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, setHooksRequestSender } from './hooks-panel.ts';
+import { applyHooksReport, applyLateHookResult, setHooksRequestSender } from './hooks-panel.ts';
 import { showDesktopNotification } from './notifications.ts';
 import { clearUnsourcedError, reportUnsourcedError } from './action-status.ts';
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
@@ -397,8 +397,8 @@ const messageHandlers = {
   'snapshot':           (msg) => { noteServerBuild(msg.serverBuild); handleSnapshot(msg.sessions); },
 
   'hooks-report':       (msg) => applyHooksReport(msg),
-  'save-hook-result':   (msg) => applySaveHookResult(msg),
-  'delete-hook-result': (msg) => applyDeleteHookResult(msg),
+  'save-hook-result':   () => applyLateHookResult(),
+  'delete-hook-result': () => applyLateHookResult(),
 
   'state-change':       (msg) => handleStateChange(msg),
   'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
@@ -455,7 +455,14 @@ const messageHandlers = {
   'update-status':      (msg) => { showUpdateBanner(msg); applySettingsUpdateStatus(msg); },
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
   'post-turn-leftovers': (msg) => showPostTurnLeftoversBanner(msg),
-  'error':              (msg) => { clearSettingsUpdateRequest(); applyTraceError(msg); applyConversationTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
+  'error':              (msg) => {
+    clearSettingsUpdateRequest();
+    const isTraceErrorShownInline = applyTraceError(msg);
+    applyConversationTraceError(msg);
+    applySessionPlanError(msg);
+    if (isTraceErrorShownInline) return;
+    showErrorToast(msg.message, { persist: true });
+  },
   'session-error':      (msg) => { applySessionPlanError(msg); releaseReviewMergeRequest(msg.id); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
   'settings-updated':   (msg) => {
     if (msg.settings) applyDashboardSettings(msg.settings);

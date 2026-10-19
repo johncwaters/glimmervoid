@@ -10,7 +10,7 @@ import { onDebugModeChanged } from './session-card/card-dom.ts';
 import { mountSettingsView } from './settings/settings-panel.ts';
 import { setTeamReviewActivityCallback } from './github/team-review-panel.ts';
 import { applyTraceConnectionState, mountTraceView, openTraceForSession, refreshTraceView } from './trace-panel.ts';
-import { acknowledgeUsageAttention, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback } from './usage/usage-panel.ts';
+import { acknowledgeUsageAttention, applyUsageConnectionState, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback } from './usage/usage-panel.ts';
 import { acknowledgeVisionsAttention, mountVisionsView, refreshVisionsView, setVisionsActivityCallback } from './visions/visions-panel.ts';
 import { viewAttentionState } from './view-registry-core.ts';
 import type { PrimaryView, PrimaryViewDefinition, ViewAttention } from './view-registry-core.ts';
@@ -31,7 +31,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     { view: 'focus', label: 'Focus', panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView },
     { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, mount: (panel) => mountPrsView(panel, { openTerminal: actions.openTerminal }), attention: { subscribe: setTeamReviewActivityCallback, acknowledge: acknowledgePrsViewAttention } },
     { view: 'issues', label: 'Issues', glyph: '#', panelClass: 'issues-view', mount: mountIssuesView, refreshOn: ['shown'], refresh: refreshIssuesViewOnShow, onConnectionChange: applyIssuesConnectionState },
-    { view: 'usage', label: 'Usage', glyph: '\u25d4', panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, mount: mountUsageView, attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, refreshOn: ['shown', 'connected', 'usage-sessions'], refresh: (reason) => {
+    { view: 'usage', label: 'Usage', glyph: '\u25d4', panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, mount: mountUsageView, attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, onConnectionChange: applyUsageConnectionState, refreshOn: ['shown', 'connected', 'usage-sessions'], refresh: (reason) => {
       if (reason === 'shown') refreshUsageView();
       requestUsageReport();
     } },
