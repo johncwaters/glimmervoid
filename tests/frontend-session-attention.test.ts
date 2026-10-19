@@ -17,25 +17,25 @@ const currentTierByState: Record<string, SessionAttentionTier> = {
   DONE: 'resting',
 };
 
-test('every built-in session state has one attention tier shared by the rail, the Board and the favicon', () => {
+test('every built-in session state has one attention tier shared by the rail and the Board', () => {
   assert.deepEqual(Object.keys(currentTierByState).sort(), Object.values(STATES).sort());
   for (const state of Object.values(STATES)) {
     assert.equal(sessionAttentionTier({ state }), currentTierByState[state], state);
   }
 });
 
-test('FAILED joins the jump queue but is never dismissed on view and stays out of the favicon', () => {
+test('FAILED joins the jump queue and marks the favicon but is never dismissed on view', () => {
   const failed = { id: 'failed', name: 'Failed session', state: STATES.FAILED };
   assert.equal(needsAttention(failed), false);
   assert.deepEqual(orderAttentionQueue([failed]), ['failed']);
   assert.deepEqual(countAttentionByKind([failed]), { waitingCount: 0, finishedCount: 0, failedCount: 1 });
-  assert.equal(decideFaviconVariant([failed]), 'idle');
+  assert.equal(decideFaviconVariant([failed]), 'failed');
 });
 
-test('COMPLETE counts in the readout and the favicon alike until the operator sees it', () => {
+test('COMPLETE counts in the readout until the operator sees it but never marks the favicon', () => {
   const completed = { id: 'completed', name: 'Completed session', state: STATES.COMPLETE };
   assert.equal(needsAttention(completed), true);
-  assert.equal(decideFaviconVariant([completed]), 'complete');
+  assert.equal(decideFaviconVariant([completed]), 'idle');
 });
 
 test('unfamiliar states stay resting', () => {
@@ -46,7 +46,7 @@ test('unfamiliar states stay resting', () => {
 
 test('favicon preserves waiting priority and accepts absent or malformed session collections', () => {
   assert.equal(decideFaviconVariant([{ state: STATES.FAILED }, { state: STATES.COMPLETE }, { state: STATES.WAITING }]), 'waiting');
-  assert.equal(decideFaviconVariant([null, undefined, { state: STATES.FAILED }, { state: STATES.COMPLETE }]), 'complete');
+  assert.equal(decideFaviconVariant([null, undefined, { state: STATES.FAILED }, { state: STATES.COMPLETE }]), 'failed');
   for (const sessions of [undefined, null, {}, 'WAITING']) assert.equal(decideFaviconVariant(sessions), 'idle');
 });
 

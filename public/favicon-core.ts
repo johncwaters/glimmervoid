@@ -1,27 +1,23 @@
 import type { StatusIcon } from '#shared/state-icons.ts';
 import { STATE_ICONS, STATUS_ICON_SHAPES } from '#shared/state-icons.ts';
 import { STATES } from '#shared/states.ts';
-import { sessionAttentionTier } from './focus-view/attention-core.ts';
+import { countAttentionByKind } from './focus-view/attention-core.ts';
 
-type FaviconVariant = 'idle' | 'complete' | 'waiting';
+type FaviconVariant = 'idle' | 'failed' | 'waiting';
 type AttentionVariant = Exclude<FaviconVariant, 'idle'>;
 
 const BRAND_COLOR = '#c084fc';
 
 const STATUS_BY_VARIANT: Readonly<Record<AttentionVariant, { icon: StatusIcon; color: string }>> = Object.freeze({
-  complete: { icon: STATE_ICONS[STATES.COMPLETE], color: '#34d399' },
+  failed: { icon: STATE_ICONS[STATES.FAILED], color: '#ef4444' },
   waiting: { icon: STATE_ICONS[STATES.WAITING], color: '#f59e0b' },
 });
 
 export function decideFaviconVariant(sessions: unknown): FaviconVariant {
-  const rows: { state?: string }[] = Array.isArray(sessions) ? sessions : [];
-  let hasCompleteSession = false;
-  for (const session of rows) {
-    const tier = sessionAttentionTier(session || {});
-    if (tier === 'now') return 'waiting';
-    if (tier === 'later') hasCompleteSession = true;
-  }
-  return hasCompleteSession ? 'complete' : 'idle';
+  const { waitingCount, failedCount } = countAttentionByKind(Array.isArray(sessions) ? sessions : []);
+  if (waitingCount > 0) return 'waiting';
+  if (failedCount > 0) return 'failed';
+  return 'idle';
 }
 
 function renderStatusIconMarkup(icon: StatusIcon): string {
