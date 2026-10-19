@@ -6,19 +6,6 @@ import { FULL_SHA_RE } from '../git-text.ts';
 export const CommitSha = z.string().regex(FULL_SHA_RE);
 const repoSlug = z.string().regex(/^[^/]+\/[^/]+$/);
 
-export const SearchedPr = z.object({
-  number: z.number().int().positive(),
-  title: z.string(),
-  html_url: z.string(),
-  draft: z.boolean().optional(),
-  created_at: z.string().optional(),
-  updated_at: z.string().optional(),
-  repository_url: z.string(),
-  user: z.object({ login: z.string(), type: z.enum(['User', 'Bot']) }).passthrough(),
-  pull_request: z.object({}).passthrough(),
-}).passthrough();
-export type SearchedPr = z.infer<typeof SearchedPr>;
-
 export const PrDetail = z.object({
   number: z.number().int().positive(),
   title: z.string(),

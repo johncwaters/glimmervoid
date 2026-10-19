@@ -1,8 +1,14 @@
+import { CommitSha } from '../../../shared/contracts/team-review.ts';
 import { comparablePrKey, GithubPrKey } from '../../../shared/contracts/github-prs.ts';
 import type { GithubPr, GithubPrDetailNode, GithubPrLightSearchNode } from '../../../shared/contracts/github-prs.ts';
 import type { MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
 import { toMyPr } from './my-prs-core.ts';
 import { toWorkflowPr } from '../../core/workflows-core.ts';
+
+export function isBotAuthor(author: { __typename?: string; login: string } | null | undefined): boolean {
+  if (!author) return false;
+  return author.__typename === 'Bot' || author.login.toLowerCase().endsWith('[bot]');
+}
 
 export function normalizeGithubPr(node: GithubPrDetailNode, behindBy: number | null = null, threadNodes: readonly MyPrThreadNode[] = []): GithubPr {
   const myPr = toMyPr(node, behindBy, threadNodes);
@@ -10,7 +16,7 @@ export function normalizeGithubPr(node: GithubPrDetailNode, behindBy: number | n
   return {
     key: comparablePrKey(myPr), id: node.id,
     repo: myPr.repo, number: myPr.number, title: myPr.title, url: myPr.url,
-    author: workflowPr.author, labels: workflowPr.labels, commentCount: workflowPr.commentCount,
+    author: workflowPr.author, isAuthorBot: isBotAuthor(node.author), labels: workflowPr.labels, commentCount: workflowPr.commentCount,
     isDraft: myPr.isDraft, state: myPr.state,
     createdAt: myPr.createdAt, mergedAt: myPr.mergedAt, updatedAt: myPr.updatedAt,
     baseRefName: myPr.baseRefName, baseRefOid: myPr.baseRefOid,
@@ -19,7 +25,9 @@ export function normalizeGithubPr(node: GithubPrDetailNode, behindBy: number | n
     mergeMethod: myPr.mergeMethod, mergeable: myPr.mergeable, mergeStateStatus: myPr.mergeStateStatus,
     reviewDecision: node.reviewDecision, checks: myPr.checks, rollupState: node.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null,
     unresolvedThreads: myPr.unresolvedThreads, threads: myPr.threads, behindBy: myPr.behindBy,
-    reviewRequests: myPr.reviewRequests, approvals: myPr.approvals, reviews: myPr.reviews,
+    reviewRequests: myPr.reviewRequests, approvals: myPr.approvals,
+    reviews: node.latestReviews.nodes.map((review) => ({ reviewer: review.author?.login ?? null, state: review.state, submittedAt: review.submittedAt, commit: CommitSha.safeParse(review.commit?.oid).data ?? null })),
+    opinionatedWriterReviewStates: (node.writerOpinionatedReviews?.nodes ?? []).map((review) => review.state),
   };
 }
 
@@ -82,6 +90,10 @@ export function githubPrsWithChangedBehindCounts(prs: readonly GithubPr[], behin
 
 export function githubStoreLightIntervalMs(isDashboardConnected: boolean): number {
   return isDashboardConnected ? 60_000 : 300_000;
+}
+
+export function isGithubStoreMembershipDue(lastPolledAt: number | null, nowMs: number, isDashboardConnected: boolean): boolean {
+  return isGithubStorePollDue(lastPolledAt, nowMs, isDashboardConnected ? 300_000 : 900_000);
 }
 
 export function isGithubStorePollDue(lastPolledAt: number | null, nowMs: number, intervalMs: number): boolean {

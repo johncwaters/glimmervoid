@@ -40,7 +40,6 @@ import {
   readyDraft,
   reReviewResult,
   renderReview,
-  repoFromSearchItem,
   remoteMatchesGithubRepo,
   restoreDraftAtReviewedHead,
   resumeDecision,
@@ -53,9 +52,11 @@ import {
   triagePr,
 } from '../server/github/core/team-review-core.ts';
 import { parseReviewComment } from '../public/github/team-review-view-core.ts';
-import { FindingSeverity, InFlightReview, PostingPlan, PrDetail, QueuedReview, ReviewDraft, ReviewResult, SearchedPr, TeamReviewState } from '../shared/contracts/team-review.ts';
+import { FindingSeverity, InFlightReview, PostingPlan, PrDetail, QueuedReview, ReviewDraft, ReviewResult, TeamReviewState } from '../shared/contracts/team-review.ts';
 import { findingHeader, findingSeveritiesIn } from '../shared/team-review-markdown.ts';
 import type { NewWorkPointer } from '../server/github/core/team-review-core.ts';
+import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
+import type { GithubPr } from '../shared/contracts/github-prs.ts';
 import type { PriorReview, TeamReviewStateEntry } from '../shared/contracts/team-review.ts';
 
 test('prKey formats as repoSlug#prNumber', () => {
@@ -64,16 +65,15 @@ test('prKey formats as repoSlug#prNumber', () => {
 
 const HEAD = 'a'.repeat(40);
 
-function searchItem(repo: string, number: number, author: string, overrides: Record<string, unknown> = {}) {
-  return SearchedPr.parse({
-    number,
-    title: `PR ${number}`,
-    html_url: `https://github.com/${repo}/pull/${number}`,
-    repository_url: `https://api.github.com/repos/${repo}`,
-    user: { login: author, type: 'User' },
-    pull_request: { url: `https://api.github.com/repos/${repo}/pulls/${number}` },
-    ...overrides,
+function githubPr(repo: string, number: number, author: string | { login: string; __typename: string }, fields: Partial<GithubPr> = {}): GithubPr {
+  const pr = normalizeGithubPr({
+    __typename: 'PullRequest', id: `PR_${number}`, number, title: `PR ${number}`, url: `https://github.com/${repo}/pull/${number}`, isDraft: false,
+    state: 'OPEN', createdAt: '', mergedAt: null, updatedAt: '', baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'feature', isCrossRepository: false, headRefOid: HEAD, isInMergeQueue: false,
+    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null, repository: { nameWithOwner: repo, viewerDefaultMergeMethod: 'SQUASH' },
+    commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
+    author: typeof author === 'string' ? { login: author } : author, labels: { nodes: [] }, comments: { totalCount: 0 },
   });
+  return { ...pr, ...fields };
 }
 
 function prDetail(repo: string, number: number, files: { path: string; additions: number; deletions: number }[], isCrossRepository = false) {
@@ -96,34 +96,20 @@ function prDetail(repo: string, number: number, files: { path: string; additions
 
 test('search candidates union requested and authored PRs once, excluding self, drafts, and bots', () => {
   const requested = [
-    searchItem('PostHog/wizard', 1350, 'teammate', { created_at: '2026-09-26T12:00:00Z' }),
-    searchItem('PostHog/wizard', 1351, 'Operator'),
-    searchItem('PostHog/wizard', 1352, 'teammate', { draft: true }),
-    searchItem('PostHog/wizard', 1353, 'dependabot[bot]'),
+    githubPr('PostHog/wizard', 1350, 'teammate', { createdAt: '2026-09-26T12:00:00Z' }),
+    githubPr('PostHog/wizard', 1351, 'Operator'),
+    githubPr('PostHog/wizard', 1352, 'teammate', { isDraft: true }),
+    githubPr('PostHog/wizard', 1353, 'dependabot[bot]'),
   ];
   const authored = [
-    searchItem('PostHog/wizard', 1350, 'teammate'),
-    searchItem('PostHog/context-mill', 404, 'operator'),
-    searchItem('PostHog/wizard', 1354, 'machine', { user: { login: 'machine', type: 'Bot' } }),
-    searchItem('PostHog/context-mill', 405, 'colleague'),
+    githubPr('PostHog/wizard', 1350, 'teammate'),
+    githubPr('PostHog/context-mill', 404, 'operator'),
+    githubPr('PostHog/wizard', 1354, { login: 'machine', __typename: 'Bot' }),
+    githubPr('PostHog/context-mill', 405, 'colleague'),
   ];
-  assert.equal(repoFromSearchItem(requested[0]), 'PostHog/wizard');
   assert.deepEqual(selectCandidates([], requested, authored, { self: 'operator', nowMs: 1000, skipIdleAfterMs: 14 * 86400000 }), [
     { key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', requestSource: 'team', prCreatedAt: '2026-09-26T12:00:00Z' },
     { key: 'PostHog/context-mill#405', repo: 'PostHog/context-mill', number: 405, title: 'PR 405', url: 'https://github.com/PostHog/context-mill/pull/405', author: 'colleague', requestSource: 'team' },
-  ]);
-});
-
-test('search candidates accept enterprise repository URLs and skip unparseable ones', () => {
-  const enterprise = searchItem('PostHog/wizard', 1360, 'teammate', { repository_url: 'https://github.example.com/api/v3/repos/PostHog/wizard' });
-  const malformed = searchItem('PostHog/wizard', 1361, 'teammate', { repository_url: 'not a url' });
-  const notARepo = searchItem('PostHog/wizard', 1362, 'teammate', { repository_url: 'https://api.github.com/users/teammate' });
-  const valid = searchItem('PostHog/context-mill', 405, 'colleague');
-  assert.equal(repoFromSearchItem(enterprise), 'PostHog/wizard');
-  assert.equal(repoFromSearchItem(malformed), null);
-  assert.equal(repoFromSearchItem(notARepo), null);
-  assert.deepEqual(selectCandidates([], [malformed, enterprise, notARepo], [valid], { self: 'operator', nowMs: 1000, skipIdleAfterMs: 14 * 86400000 }).map((candidate) => candidate.key), [
-    'PostHog/wizard#1360', 'PostHog/context-mill#405',
   ]);
 });
 
@@ -131,10 +117,10 @@ test('search candidates keep recent, missing and unparseable activity while drop
   const nowMs = Date.parse('2026-09-25T00:00:00Z');
   const skipIdleAfterMs = DEFAULT_SKIP_IDLE_AFTER_DAYS * 86400000;
   const requested = [
-    searchItem('PostHog/wizard', 1, 'teammate', { updated_at: new Date(nowMs - skipIdleAfterMs).toISOString() }),
-    searchItem('PostHog/wizard', 2, 'teammate', { updated_at: new Date(nowMs - skipIdleAfterMs - 1).toISOString() }),
-    searchItem('PostHog/wizard', 3, 'teammate'),
-    searchItem('PostHog/wizard', 4, 'teammate', { updated_at: 'unparseable' }),
+    githubPr('PostHog/wizard', 1, 'teammate', { updatedAt: new Date(nowMs - skipIdleAfterMs).toISOString() }),
+    githubPr('PostHog/wizard', 2, 'teammate', { updatedAt: new Date(nowMs - skipIdleAfterMs - 1).toISOString() }),
+    githubPr('PostHog/wizard', 3, 'teammate'),
+    githubPr('PostHog/wizard', 4, 'teammate', { updatedAt: 'unparseable' }),
   ];
   assert.deepEqual(selectCandidates([], requested, [], { self: 'operator', nowMs, skipIdleAfterMs }).map((candidate) => candidate.number), [1, 3, 4]);
 });
@@ -1314,9 +1300,9 @@ test('a report with only a goal retains its assessment', () => {
 });
 
 test('direct review requests win deduplication over team and teammate searches', () => {
-  const sharedRequest = searchItem('Acme/app', 1, 'teammate');
-  const directRequest = searchItem('Acme/app', 2, 'outside-team');
-  const teamRequest = searchItem('Acme/app', 3, 'teammate');
+  const sharedRequest = githubPr('Acme/app', 1, 'teammate');
+  const directRequest = githubPr('Acme/app', 2, 'outside-team');
+  const teamRequest = githubPr('Acme/app', 3, 'teammate');
   const candidates = selectCandidates([sharedRequest, directRequest], [teamRequest, sharedRequest], [sharedRequest], { self: 'operator', nowMs: 1000, skipIdleAfterMs: 86400000 });
   assert.deepEqual(candidates.map(({ number, requestSource }) => [number, requestSource]), [[1, 'direct'], [2, 'direct'], [3, 'team']]);
 });

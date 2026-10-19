@@ -165,7 +165,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const sharedRepoCacheRoot = path.join(glimmervoidHome, 'team-review-repos');
   const sharedRepoCache = createRepoCache({ rootDir: sharedRepoCacheRoot });
   const teamReview = createTeamReviewWiring({
-    config,
+    config, store: githubStore.laneStore,
     github,
     requestPrRefresh: githubStore.laneStore.requestRefresh,
     reviewSessions,

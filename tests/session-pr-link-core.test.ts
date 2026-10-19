@@ -27,6 +27,11 @@ function storeHarness(context: TestContext, initialNodes: GithubPrDetailNode[] =
         const items = nodes.filter((node) => node.author?.login === 'operator').map((node) => GithubPrLightSearchNode.parse(node));
         return { ok: true, items, isComplete: true, totalCount: items.length, error: '' };
       },
+      async prsLightByKey(references) {
+        const keys = new Set(references.map(comparablePrKey));
+        return new Map(nodes.filter((node) => keys.has(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number })))
+          .map((node) => [comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), GithubPrLightSearchNode.parse(node)]));
+      },
       async prDetails(references) {
         const keys = references.map(comparablePrKey);
         detailCalls.push(keys);

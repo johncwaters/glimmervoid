@@ -1,14 +1,31 @@
 import test from 'node:test';
+import { z } from 'zod';
 import assert from 'node:assert/strict';
 
 import { threadNode, THREAD_BASE } from './helpers/team-review-thread-fixture.ts';
 import { THREAD_PLACEHOLDER_ERROR } from '../server/github/core/team-review-threads-core.ts';
 import { DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, MAX_REVIEW_ATTEMPTS, POSTED_RETENTION_MS, errorDraft, readyDraft } from '../server/github/core/team-review-core.ts';
-import { createTeamReviewPoller } from '../server/github/team-review-poller.ts';
-import type { PrReviewSnapshot } from '../server/github/pr-gh.ts';
+import { createTeamReviewPoller as createLanePoller } from '../server/github/team-review-poller.ts';
+import type { reviewSnapshotFromGithubPr } from '../server/github/core/team-review-core.ts';
+import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
+import { createSerialQueue } from '../server/spawn-gate.ts';
+import { comparablePrKey, GithubPrDetailNode, GithubPrLightSearchNode } from '../shared/contracts/github-prs.ts';
 import type { SpawnReviewArgs, TeamReviewGithub, TeamReviewPollerDependencies } from '../server/github/team-review-poller.ts';
-import { PrDetail, SearchedPr, TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import { PrDetail, TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type { ReviewDraft, TeamReviewState, TeamReviewStatus as TeamReviewStatusType } from '../shared/contracts/team-review.ts';
+
+const SearchedPr = z.object({
+  number: z.number().int().positive(),
+  title: z.string(),
+  html_url: z.string(),
+  draft: z.boolean().optional(),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+  repository_url: z.string(),
+  user: z.object({ login: z.string(), type: z.enum(['User', 'Bot']) }).passthrough(),
+  pull_request: z.object({}).passthrough(),
+}).passthrough();
+type SearchedPr = z.infer<typeof SearchedPr>;
 
 const REPO = 'Acme/app';
 const HEAD_ONE = '1'.repeat(40);
@@ -44,7 +61,11 @@ function draftFor({ candidate, detail, tier, reasons }: SpawnReviewArgs): Review
   });
 }
 
-interface FakeGithub extends TeamReviewGithub {
+interface FakeGithub extends TeamReviewGithub, Pick<Parameters<typeof createGithubStorePoller>[0]['github'], 'searchPrsLight' | 'prsLightByKey' | 'prDetails'> {
+  readTeamRequested(org: string, team: string): Promise<{ items: SearchedPr[]; complete: boolean }>;
+  readDirectRequested(org: string): Promise<{ items: SearchedPr[]; complete: boolean }>;
+  readAuthoredBy(org: string, logins: string[]): Promise<{ items: SearchedPr[]; complete: boolean }>;
+  checksStates: Map<number, 'FAILURE' | 'SUCCESS' | 'PENDING'>;
   directRequested: SearchedPr[];
   isDirectRequestedComplete: boolean;
   requested: SearchedPr[];
@@ -52,8 +73,8 @@ interface FakeGithub extends TeamReviewGithub {
   isRequestedComplete: boolean;
   isAuthoredComplete: boolean;
   heads: Map<number, string>;
-  reviews: Map<number, PrReviewSnapshot['reviews']>;
-  decisions: Map<number, NonNullable<PrReviewSnapshot['reviewDecision']>>;
+  reviews: Map<number, (Omit<ReturnType<typeof reviewSnapshotFromGithubPr>['reviews'][number], 'submittedAt'> & { submittedAt?: string | null })[]>;
+  decisions: Map<number, NonNullable<ReturnType<typeof reviewSnapshotFromGithubPr>['reviewDecision']>>;
   snapshotBatches: number[][];
   closedNumbers: Set<number>;
   authoredQueries: string[][];
@@ -63,6 +84,7 @@ interface FakeGithub extends TeamReviewGithub {
 
 function fakeGithub(): FakeGithub {
   const github: FakeGithub = {
+    checksStates: new Map(),
     directRequested: [],
     isDirectRequestedComplete: true,
     requested: [],
@@ -81,9 +103,9 @@ function fakeGithub(): FakeGithub {
     viewer: async () => (github.failViewer ? null : 'me'),
     teamProfile: async () => ({ org: 'Acme', slug: 'core', name: 'Core', avatarUrl: 'https://avatars.githubusercontent.com/t/1' }),
     teamMembers: async () => ['me', 'teammate', 'other'],
-    searchDirectRequested: async () => ({ items: github.directRequested, complete: github.isDirectRequestedComplete }),
-    searchTeamRequested: async () => ({ items: github.requested, complete: github.isRequestedComplete }),
-    searchAuthoredBy: async (_org, logins) => {
+    readDirectRequested: async () => ({ items: github.directRequested, complete: github.isDirectRequestedComplete }),
+    readTeamRequested: async () => ({ items: github.requested, complete: github.isRequestedComplete }),
+    readAuthoredBy: async (_org, logins) => {
       github.authoredQueries.push(logins);
       return { items: github.authored, complete: github.isAuthoredComplete };
     },
@@ -92,25 +114,97 @@ function fakeGithub(): FakeGithub {
       return head ? prDetail(number, head) : null;
     },
     prHead: async (_repo, number) => github.heads.get(number) ?? null,
-    prReviewSnapshots: async (prs) => {
-      github.snapshotBatches.push(prs.map((pr) => pr.number));
-      return new Map(prs.flatMap((pr) => {
-        const head = github.heads.get(pr.number);
-        return head ? [[`${pr.repo}#${pr.number}`, { head, isOpen: !github.closedNumbers.has(pr.number), reviewDecision: github.decisions.get(pr.number) ?? null, reviews: github.reviews.get(pr.number) ?? [] }] as const] : [];
+    searchPrsLight: async (qualifiers) => {
+      const org = qualifiers.match(/(?:^| )org:(\S+)/)?.[1] ?? '';
+      const team = qualifiers.match(/team-review-requested:[^/]+\/(\S+)/)?.[1];
+      const authors = [...qualifiers.matchAll(/(?:^| )author:(\S+)/g)].map((match) => match[1]);
+      if (qualifiers.startsWith('repo:')) {
+        const number = Number(qualifiers.split(' ')[1]);
+        return { ok: true, items: github.heads.has(number) ? [GithubPrLightSearchNode.parse(storeNode(searchItem(number, 'teammate')))] : [], isComplete: true, error: '' };
+      }
+      const search = await (team ? github.readTeamRequested(org, team) : authors.length > 0 ? github.readAuthoredBy(org, authors) : github.readDirectRequested(org));
+      return { ok: true, items: search.items.map((item) => GithubPrLightSearchNode.parse(storeNode(item))), isComplete: search.complete, error: '' };
+    },
+    prsLightByKey: async (references) => {
+      const itemsByNumber = new Map([...github.directRequested, ...github.requested, ...github.authored].map((item) => [item.number, item]));
+      return new Map(references.flatMap((reference) => {
+        if (!github.heads.has(reference.number) && !itemsByNumber.has(reference.number)) return [];
+        const node = storeNode(itemsByNumber.get(reference.number) ?? searchItem(reference.number, 'teammate'));
+        return [[comparablePrKey(reference), GithubPrLightSearchNode.parse(node)] as const];
+      }));
+    },
+    prDetails: async (references) => {
+      github.snapshotBatches.push(references.map((reference) => reference.number));
+      const itemsByKey = new Map([...github.directRequested, ...github.requested, ...github.authored].map((item) => [item.number, item]));
+      return new Map(references.flatMap((reference) => {
+        if (!github.heads.has(reference.number)) return [];
+        const node = storeNode(itemsByKey.get(reference.number) ?? searchItem(reference.number, 'teammate'));
+        return [[comparablePrKey(reference), node] as const];
       }));
     },
   };
+  let searchSequence = 0;
+  function storeNode(item: SearchedPr): GithubPrDetailNode {
+    searchSequence += 1;
+    const reviews = github.reviews.get(item.number) ?? [];
+    const repo = new URL(item.repository_url).pathname.replace('/repos/', '');
+    return GithubPrDetailNode.parse({
+      __typename: 'PullRequest', id: `PR_${item.number}`, number: item.number, title: item.title, url: item.html_url,
+      author: { login: item.user.login, __typename: item.user.type }, labels: { nodes: [] }, comments: { totalCount: 0 },
+      isDraft: item.draft ?? false, state: github.closedNumbers.has(item.number) ? 'CLOSED' : 'OPEN',
+      createdAt: item.created_at ?? '', updatedAt: item.updated_at ?? new Date(searchSequence).toISOString(), mergedAt: null,
+      baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'feature', headRefOid: github.heads.get(item.number) ?? HEAD_ONE,
+      isCrossRepository: false, isInMergeQueue: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
+      repository: { nameWithOwner: repo, viewerDefaultMergeMethod: 'SQUASH' }, reviewDecision: github.decisions.get(item.number) ?? null,
+      commits: { nodes: [{ commit: { statusCheckRollup: { state: github.checksStates.get(item.number) ?? null, contexts: { nodes: [] } } } }] },
+      reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] },
+      latestReviews: { nodes: reviews.map((review) => ({ author: { login: review.login }, state: review.state, submittedAt: review.submittedAt ?? null, commit: review.commit ? { oid: review.commit } : null })) },
+      latestOpinionatedReviews: { nodes: [] }, writerOpinionatedReviews: { nodes: [] },
+    });
+  }
   return github;
 }
 
-function setup(overrides: Partial<TeamReviewPollerDependencies> = {}) {
-  const github = fakeGithub();
+function setup(overrides: Partial<Omit<TeamReviewPollerDependencies, 'github' | 'store'>> & { github?: FakeGithub } = {}) {
+  const github = overrides.github ?? fakeGithub();
   const writes: TeamReviewState[] = [];
   const statuses: TeamReviewStatusType[] = [];
   const spawned: SpawnReviewArgs[] = [];
   let nowMs = 1000;
+  const queue = createSerialQueue();
+  const storePoller = createGithubStorePoller({
+    now: () => nowMs, isDashboardConnected: () => true, exclusive: queue.run,
+    setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn() {} },
+    github: {
+      ...github,
+      searchPrsLight: (qualifiers) => github.searchPrsLight(qualifiers),
+      prsLightByKey: (references) => github.prsLightByKey(references),
+      prDetails: (references) => github.prDetails(references),
+      async notificationsSince() { return { kind: 'unchanged' }; },
+      async behindCounts() { return new Map(); },
+      async reviewThreadsBatch() { return new Map(); },
+      async viewPr() { assert.fail('Unexpected store PR view'); },
+      async prDiff() { assert.fail('Unexpected store PR diff'); },
+      async compareCommits() { assert.fail('Unexpected store comparison'); },
+      async prHead() { assert.fail('Unexpected store head read'); },
+      async reviewThreads() { assert.fail('Unexpected store thread read'); },
+    },
+  });
+  const registeredWatches: Parameters<typeof storePoller.registerWatch>[0][] = [];
+  const unregisteredWatches: string[] = [];
+  const store: TeamReviewPollerDependencies['store'] = {
+    ...storePoller,
+    registerWatch: (watch) => { registeredWatches.push(watch); storePoller.registerWatch(watch); },
+    unregisterWatch: (name) => { unregisteredWatches.push(name); storePoller.unregisterWatch(name); },
+    subscribe: (event, listener) => {
+      storePoller.events.on(event, listener);
+      return () => { storePoller.events.off(event, listener); };
+    },
+  };
+  const refreshStore = () => store.refreshWatches(Object.keys(store.getSnapshot().watches));
   const dependencies: TeamReviewPollerDependencies = {
-    org: 'Acme',
+    org: 'Acme', store,
+    clock: { exclusive: async (work) => { await refreshStore(); return work(); }, schedule: () => () => {} },
     teams: [{ org: 'Acme', slug: 'core' }],
     github,
     spawnReview: async (args) => { spawned.push(args); return draftFor(args); },
@@ -122,8 +216,12 @@ function setup(overrides: Partial<TeamReviewPollerDependencies> = {}) {
     log: { warn: () => {} },
     ...overrides,
   };
-  const poller = createTeamReviewPoller(dependencies);
-  return { poller, github, writes, statuses, spawned, setNow: (value: number) => { nowMs = value; } };
+  const lane = createLanePoller(dependencies);
+  const poller = {
+    ...lane,
+    start: async () => { await lane.start(); await lane.tick(); },
+  };
+  return { poller, store, storePoller, registeredWatches, unregisteredWatches, github, writes, statuses, spawned, setNow: (value: number) => { nowMs = value; } };
 }
 
 async function settle() {
@@ -132,7 +230,7 @@ async function settle() {
 
 test('requested and authored PRs are deduped and self, bots and drafts never reach a review', async () => {
   const { poller, github, spawned, statuses } = setup();
-  github.requested = [searchItem(1, 'teammate'), searchItem(2, 'me'), searchItem(3, 'dependabot[bot]', { user: { login: 'dependabot[bot]', type: 'Bot' } })];
+  github.requested = [searchItem(1, 'teammate'), searchItem(2, 'me'), searchItem(3, 'automation', { user: { login: 'automation', type: 'Bot' } })];
   github.authored = [searchItem(1, 'teammate'), searchItem(4, 'other', { draft: true })];
   github.heads.set(1, HEAD_ONE);
   await poller.start();
@@ -151,17 +249,17 @@ test('requested and authored PRs are deduped and self, bots and drafts never rea
 
 test('two configured teams are searched and their members unioned with the first team profile', async () => {
   const teams = [{ org: 'Acme', slug: 'core' }, { org: 'Other', slug: 'tools' }];
-  const { poller, github, spawned, statuses } = setup({ teams });
+  const { poller, store, github, spawned, statuses, registeredWatches, unregisteredWatches } = setup({ teams });
   const memberQueries: string[] = [];
   const teamQueries: string[] = [];
   const profileQueries: string[] = [];
   const directQueries: string[] = [];
   const authoredByOrg: [string, string[]][] = [];
-  github.searchDirectRequested = async (org) => {
+  github.readDirectRequested = async (org) => {
     directQueries.push(org);
     return { items: [], complete: true };
   };
-  github.searchAuthoredBy = async (org, logins) => {
+  github.readAuthoredBy = async (org, logins) => {
     authoredByOrg.push([org, logins]);
     return { items: [], complete: true };
   };
@@ -174,7 +272,7 @@ test('two configured teams are searched and their members unioned with the first
     if (slug === 'core') return ['me', 'teammate', 'shared'];
     return ['ME', 'SHARED', 'other'];
   };
-  github.searchTeamRequested = async (org, slug) => {
+  github.readTeamRequested = async (org, slug) => {
     teamQueries.push(`${org}/${slug}`);
     if (slug === 'core') return { items: [searchItem(1, 'teammate')], complete: true };
     return { items: [searchItem(1, 'teammate'), searchItem(2, 'other')], complete: false };
@@ -184,23 +282,48 @@ test('two configured teams are searched and their members unioned with the first
   try {
     await poller.start();
     await settle();
-    assert.deepEqual(memberQueries, ['Acme/core', 'Other/tools']);
+    assert.deepEqual(memberQueries, ['Acme/core', 'Other/tools', 'Acme/core', 'Other/tools']);
     assert.deepEqual(teamQueries, ['Acme/core', 'Other/tools']);
     assert.deepEqual(profileQueries, ['Acme/core']);
     assert.deepEqual(directQueries, ['Acme', 'Other']);
     assert.deepEqual(authoredByOrg, [['Acme', ['teammate', 'shared']], ['Other', ['SHARED', 'other']]]);
+    assert.deepEqual(registeredWatches, [
+      { name: 'team-review-direct:acme', qualifiers: 'is:open draft:false org:Acme user-review-requested:@me', needsDetail: true },
+      { name: 'team-review-authored:acme:0', qualifiers: 'is:open draft:false org:Acme author:teammate author:shared', needsDetail: true },
+      { name: 'team-review-direct:other', qualifiers: 'is:open draft:false org:Other user-review-requested:@me', needsDetail: true },
+      { name: 'team-review-authored:other:0', qualifiers: 'is:open draft:false org:Other author:SHARED author:other', needsDetail: true },
+      { name: 'team-review-team:acme/core', qualifiers: 'is:open draft:false org:Acme team-review-requested:Acme/core', needsDetail: true },
+      { name: 'team-review-team:other/tools', qualifiers: 'is:open draft:false org:Other team-review-requested:Other/tools', needsDetail: true },
+    ]);
     assert.deepEqual(spawned.map((args) => args.candidate.key), [`${REPO}#1`, `${REPO}#2`]);
     assert.equal(statuses.at(-1)?.team?.slug, 'core');
-    github.searchTeamRequested = async (_org, slug) => ({ items: [], complete: slug === 'core' });
+    github.readTeamRequested = async (_org, slug) => ({ items: [], complete: slug === 'core' });
     await poller.tick();
     assert.ok(poller.getDraft(`${REPO}#1`));
     assert.ok(poller.getDraft(`${REPO}#2`));
-    github.searchTeamRequested = async () => ({ items: [], complete: true });
+    github.readTeamRequested = async () => ({ items: [], complete: true });
     await poller.tick();
     assert.equal(poller.getDraft(`${REPO}#1`), null);
     assert.equal(poller.getDraft(`${REPO}#2`), null);
+    const authors = Array.from({ length: 12 }, (_unused, index) => `member${index}`);
+    github.teamMembers = async () => ['me', ...authors];
+    await poller.tick();
+    assert.deepEqual(registeredWatches.filter((watch) => watch.name.startsWith('team-review-authored:acme:')).slice(-3).map((watch) => watch.qualifiers), [
+      'is:open draft:false org:Acme author:member0 author:member1 author:member2 author:member3 author:member4',
+      'is:open draft:false org:Acme author:member5 author:member6 author:member7 author:member8 author:member9',
+      'is:open draft:false org:Acme author:member10 author:member11',
+    ]);
+    github.teamMembers = async () => ['me', 'member0'];
+    await poller.tick();
+    assert.ok(unregisteredWatches.includes('team-review-authored:acme:1'));
+    assert.ok(unregisteredWatches.includes('team-review-authored:acme:2'));
+    assert.equal(store.getSnapshot().watches['team-review-authored:acme:0'].isLoaded, false);
+    github.teamMembers = async () => [];
+    await poller.tick();
+    assert.deepEqual(store.getSnapshot().watches, {});
   } finally {
     await poller.stop();
+    assert.deepEqual(store.getSnapshot().watches, {});
   }
 });
 
@@ -213,7 +336,7 @@ test('a failed member fetch for one team keeps the drafts and resumable reviews 
     if (slug === 'core') return ['me', 'teammate'];
     return isToolsFetchFailing ? null : ['other'];
   };
-  github.searchAuthoredBy = async (_org, logins) => ({ items: logins.includes('other') ? [searchItem(2, 'other')] : [], complete: true });
+  github.readAuthoredBy = async (_org, logins) => ({ items: logins.includes('other') ? [searchItem(2, 'other')] : [], complete: true });
   github.heads.set(2, HEAD_TWO);
   try {
     await poller.start();
@@ -414,7 +537,7 @@ test('a ready draft picks up the GitHub reviews on the next tick', async () => {
   await poller.tick();
   const draft = statuses.at(-1)?.drafts[0];
   assert.equal(draft?.status, 'ready');
-  assert.deepEqual(draft?.githubReviews, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE, isViewer: true }]);
+  assert.deepEqual(draft?.githubReviews, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE, isViewer: true, submittedAt: null }]);
   await poller.stop();
 });
 
@@ -625,7 +748,7 @@ test('saved drafts are published at start before the first GitHub search finishe
     readState: async () => structuredClone(savedState),
     beforeStart: () => new Promise(() => {}),
   });
-  github.searchTeamRequested = () => new Promise(() => {});
+  github.readTeamRequested = () => new Promise(() => {});
   void poller.start();
   await settle();
   assert.deepEqual(statuses[0]?.drafts.map((published) => published.key), [key], 'the saved draft is published even while beforeStart is still sweeping');
@@ -1065,7 +1188,11 @@ test('a saved hand review row survives the state schema round trip without being
   await poller.tick();
   await settle();
   assert.equal(statuses.at(-1)?.handReview[0]?.key, key);
-  assert.deepEqual(writes, []);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0]?.[key]?.reviewDecision, 'REVIEW_REQUIRED');
+  const writesAfterMigration = writes.length;
+  await poller.tick();
+  assert.equal(writes.length, writesAfterMigration);
   await poller.stop();
 });
 
@@ -1195,6 +1322,8 @@ test('a posted review of a merged or closed PR leaves the list without waiting o
   github.requested = [];
   github.closedNumbers.add(1);
   await poller.tick();
+  assert.ok(poller.getDraft(`${REPO}#1`), 'the departed PR is unknown until the store fetches its watched key');
+  await poller.tick();
   await settle();
   assert.deepEqual(Object.keys(poller._state()), [`${REPO}#2`]);
   await poller.stop();
@@ -1299,7 +1428,7 @@ test('a stopped review saves its resume record without changing the prior draft 
   await settle();
   const entry = poller._state()[key];
   assert.equal(entry?.inFlight, false);
-  assert.deepEqual(entry?.draft, previousDraft);
+  assert.deepEqual(entry?.draft, { ...previousDraft, isDraft: false, checksState: null, reviewDecision: 'REVIEW_REQUIRED' });
   assert.equal(entry?.reviewAttempts, 1);
   assert.equal(entry?.reviewedHead, HEAD_ONE);
   assert.equal(entry?.reviewedAt, undefined);
@@ -1798,21 +1927,22 @@ test('an incomplete search without an exhausted rate limit still reviews what it
 });
 
 test('a candidate search failure reports its error and schedule without losing the last good drafts', async () => {
-  const { poller, github, statuses } = setup();
+  const { poller, github, statuses, setNow } = setup();
   github.requested = [searchItem(1, 'teammate')];
   github.heads.set(1, HEAD_ONE);
   await poller.start();
   await settle();
   const lastGoodDrafts = statuses.at(-1)?.drafts;
   assert.equal(lastGoodDrafts?.length, 1);
-  const successfulSearch = github.searchTeamRequested;
-  github.searchTeamRequested = async () => { throw new Error('offline'); };
+  const successfulSearch = github.readTeamRequested;
+  github.readTeamRequested = async () => { throw new Error('offline'); };
   await poller.tick();
   assert.equal(statuses.at(-1)?.error, 'offline');
   assert.equal(statuses.at(-1)?.nextAttemptAt, 11_000);
   assert.deepEqual(statuses.at(-1)?.retry, { attempt: 1, limit: 3 });
   assert.deepEqual(statuses.at(-1)?.drafts, lastGoodDrafts);
-  github.searchTeamRequested = successfulSearch;
+  github.readTeamRequested = successfulSearch;
+  setNow(61_000);
   assert.equal((await poller.refresh()).ok, true);
   assert.equal(statuses.at(-1)?.error, null);
   assert.equal(statuses.at(-1)?.nextAttemptAt, null);
@@ -1823,11 +1953,11 @@ test('a candidate search failure reports its error and schedule without losing t
 test('a GitHub secondary rate limit on the candidate search waits a minute with no quick retries and refuses refresh', async () => {
   const { poller, github, statuses } = setup();
   let searchCount = 0;
-  github.searchTeamRequested = async () => {
+  github.readTeamRequested = async () => {
     searchCount += 1;
     throw new Error('gh: You have triggered an abuse detection mechanism. Please wait a few minutes before you try again. (HTTP 403)');
   };
-  await poller.tick();
+  await poller.start();
   assert.equal(statuses.at(-1)?.retry, null);
   assert.equal(statuses.at(-1)?.nextAttemptAt, 61_000);
   assert.equal((await poller.refresh()).ok, false);
@@ -1857,14 +1987,17 @@ test('direct requests reach review once and survive an incomplete direct search'
 });
 
 test('existing draft priority refreshes when direct requests and CI change', async () => {
-  const { poller, github, spawned, statuses } = setup();
+  const { poller, store, github, spawned, statuses } = setup();
   github.requested = [searchItem(1, 'teammate')];
   github.heads.set(1, HEAD_ONE);
   await poller.start();
   await settle();
   github.directRequested = [searchItem(1, 'teammate')];
-  github.prReviewSnapshots = async () => new Map([[`${REPO}#1`, { head: HEAD_ONE, reviews: [], reviewDecision: 'REVIEW_REQUIRED', checksState: 'FAILURE', isDraft: false }]]);
-  await poller.tick();
+  github.decisions.set(1, 'REVIEW_REQUIRED');
+  github.checksStates.set(1, 'FAILURE');
+  const unsubscribe = store.subscribe('snapshot-changed', poller.rebuild);
+  await store.refreshWatches(Object.keys(store.getSnapshot().watches));
+  unsubscribe();
   const review = statuses.at(-1)?.drafts[0];
   assert.equal(review?.requestSource, 'direct');
   assert.equal(review?.checksState, 'FAILURE');

@@ -8,14 +8,14 @@ import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../../shared/contracts/github
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
 import { secondaryRateLimitWaitMs } from '../lanes/core/lane-backoff.ts';
 import { z } from 'zod';
-import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, GithubReviewDecision, decisionAsIfApprovalRequired, PrDetail, ReviewChecksState, ReviewComment, SearchedPr } from '../../shared/contracts/team-review.ts';
+import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, PrDetail, ReviewComment } from '../../shared/contracts/team-review.ts';
 import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../../shared/contracts/benchmark.ts';
 import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../../shared/contracts/benchmark.ts';
 import { MyPrCheckContext, MyPrCheckContextsResponse, MyPrMergeMethod, MyPrMergeStateResponse, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../../shared/contracts/my-prs.ts';
 import { WorkflowCommentBody, WorkflowLabelName, WorkflowSearchNode } from '../../shared/contracts/workflows.ts';
 import type { WorkflowSearchNode as WorkflowSearchNodeType } from '../../shared/contracts/workflows.ts';
-import type { GithubReviewDecision as GithubReviewDecisionType, PostedReviewEvent, PrDetail as PrDetailType, ReviewChecksState as ReviewChecksStateType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
+import type { PostedReviewEvent, PrDetail as PrDetailType, ReviewComment as ReviewCommentType, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 
 import type { TeamReviewThreadNode as ThreadNode, TeamReviewCompareFiles as CompareFiles } from '../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -59,20 +59,6 @@ interface GithubIssue {
 }
 
 
-interface PrSearchResult {
-  items: SearchedPrType[];
-  complete: boolean;
-}
-
-interface PrReviewSnapshot {
-  head: string;
-  isOpen?: boolean;
-  isDraft?: boolean;
-  checksState?: ReviewChecksStateType | null;
-  reviewDecision?: GithubReviewDecisionType | null;
-  reviews: { login: string; state: string; commit: string | null; submittedAt?: string | null }[];
-}
-
 interface PrReference {
   repo: string;
   number: number;
@@ -110,6 +96,7 @@ type NotificationsSinceResult = Exclude<ConditionalGetResult, { kind: 'ok' }>
 interface PrGh {
   conditionalGet(path: string, validators?: RestValidators): Promise<ConditionalGetResult>;
   searchPrsLight(qualifiers: string): Promise<{ ok: boolean; items: GithubPrLightSearchNodeType[]; isComplete: boolean; totalCount?: number; error: string }>;
+  prsLightByKey(prs: readonly PrReference[]): Promise<Map<string, GithubPrLightSearchNodeType>>;
   prDetails(prs: readonly PrReference[]): Promise<Map<string, GithubPrDetailNodeType>>;
   notificationsSince(lastModified?: string): Promise<NotificationsSinceResult>;
   searchRepoPrs(repo: string, mergedSince: string): Promise<RepoPrSearch>;
@@ -135,13 +122,9 @@ interface PrGh {
   viewer(): Promise<string | null>;
   teamMembers(org: string, team: string): Promise<string[] | null>;
   teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
-  searchTeamRequested(org: string, team: string): Promise<PrSearchResult>;
-  searchDirectRequested(org: string): Promise<PrSearchResult>;
-  searchAuthoredBy(org: string, logins: string[]): Promise<PrSearchResult>;
   viewPr(repo: string, number: number): Promise<PrDetailType | null>;
   prDiff(repo: string, number: number): Promise<string | null>;
   prHead(repo: string, number: number): Promise<string | null>;
-  prReviewSnapshots(prs: readonly PrReference[]): Promise<Map<string, PrReviewSnapshot>>;
   postReview(review: { repo: string; number: number; commitId: string; event: PostedReviewEvent; body: string; comments: ReviewCommentType[] }): Promise<PostedReview>;
   dismissReview(dismissal: { repo: string; number: number; reviewId: number; message: string }): Promise<{ ok: boolean; err: string }>;
 }
@@ -212,24 +195,36 @@ function paginatedPrSearchQuery(nodeFields: string, fragments: string): string {
 ${fragments}`;
 }
 
-const GITHUB_PRS_LIGHT_QUERY = paginatedPrSearchQuery(`... on PullRequest {
+const GITHUB_PR_LIGHT_FIELDS = `
   repository { nameWithOwner } number updatedAt headRefOid state
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
-  reviewDecision mergeStateStatus
-}`, '');
+  reviewDecision mergeStateStatus`;
+const GITHUB_PRS_LIGHT_QUERY = paginatedPrSearchQuery(`... on PullRequest { ${GITHUB_PR_LIGHT_FIELDS} }`, '');
+const GITHUB_PR_LIGHT_REPOSITORY = z.object({ pullRequest: GithubPrLightSearchNode.nullable() }).nullable();
 const GITHUB_PRS_LIGHT_RESPONSE = z.object({ data: z.object({ search: z.object({
   issueCount: z.number().int().nonnegative(),
   pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
   nodes: z.array(GithubPrLightSearchNode),
 }) }), errors: z.array(z.unknown()).optional() });
+const GITHUB_PR_REVIEW_FIELDS = `author { __typename login }
+  latestReviews(first: 20) { nodes { state submittedAt author { login } commit { oid } } }
+  writerOpinionatedReviews: latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state } }`;
 const GITHUB_PR_DETAIL_REPOSITORY = z.object({ pullRequest: GithubPrDetailNode.nullable() }).nullable();
 const GITHUB_NOTIFICATIONS = z.array(z.object({ subject: z.object({ type: z.string(), url: z.string().nullable() }) }));
 const MAX_GITHUB_PR_SEARCH_PAGES = 20;
 
+function githubPrsLightByKeyQuery(prs: readonly PrReference[]): string {
+  const fields = prs.map((pr, index) => {
+    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { ${GITHUB_PR_LIGHT_FIELDS} } }`;
+  });
+  return `query { ${fields.join(' ')} }`;
+}
+
 function githubPrDetailsQuery(prs: readonly PrReference[]): string {
   const fields = prs.map((pr, index) => {
     const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { ...myPrFields ...workflowPrFields } }`;
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { ...myPrFields ...workflowPrFields ${GITHUB_PR_REVIEW_FIELDS} } }`;
   });
   return `query { ${fields.join(' ')} }\n${MY_PR_FIELDS_FRAGMENT}\n${WORKFLOW_PR_FIELDS_FRAGMENT}`;
 }
@@ -299,37 +294,18 @@ const GH_LOGIN = z.string().regex(GH_SEGMENT);
 const GH_MEMBERS = z.array(GH_LOGIN);
 const TEAM_PROFILE = z.object({ data: z.object({ organization: z.object({ team: z.object({ name: z.string(), avatarUrl: z.string().url() }).nullable() }).nullable() }), errors: z.array(z.unknown()).optional() });
 const TEAM_PROFILE_QUERY = 'query($org: String!, $slug: String!) { organization(login: $org) { team(slug: $slug) { name avatarUrl } } }';
-const SEARCH_RESPONSE = z.object({ items: z.array(SearchedPr) });
 const SEARCH_PAGE_SIZE = 100;
 const MAX_SEARCH_PAGES = 5;
 const MAX_REVIEW_THREAD_PAGES = 5;
 const PR_DIFF_MAX_BYTES = 2 * 1024 * 1024;
 const CREATED_REVIEW = z.object({ id: z.number().int().positive() }).passthrough();
 const REVIEW_SNAPSHOT_BATCH_SIZE = 25;
-const LATEST_REVIEWS_PER_PR = 20;
-const GRAPHQL_REVIEW_REPOSITORY = z.object({
-  pullRequest: z.object({
-    headRefOid: CommitSha,
-    state: z.enum(['OPEN', 'CLOSED', 'MERGED']).optional(),
-    isDraft: z.boolean().optional(),
-    commits: z.object({ nodes: z.array(z.object({ commit: z.object({ statusCheckRollup: z.object({ state: ReviewChecksState.nullable() }).nullable() }) })) }).optional(),
-    reviewDecision: z.string().nullable().optional(),
-    latestReviews: z.object({
-      nodes: z.array(z.object({
-        author: z.object({ login: z.string() }).passthrough().nullable(),
-        state: z.string(),
-        submittedAt: z.string().nullable().optional(),
-        commit: z.object({ oid: z.string() }).passthrough().nullable().optional(),
-      }).passthrough().nullable()),
-    }).passthrough(),
-    latestOpinionatedReviews: z.object({ nodes: z.array(z.object({ state: z.string() }).passthrough().nullable()) }).passthrough().nullable().optional(),
-  }).passthrough().nullable(),
-}).passthrough().nullable();
 const GRAPHQL_BEHIND_REPOSITORY = z.object({
   pullRequest: z.object({ baseRef: z.object({ compare: z.object({ behindBy: z.number().int().nonnegative() }).nullable() }).nullable() }).nullable(),
 });
 const GRAPHQL_RESPONSE = z.object({ data: z.record(z.string(), z.unknown()).nullable(), errors: z.array(z.unknown()).optional() }).passthrough();
 const GRAPHQL_ERROR_ALIAS = z.object({ path: z.tuple([z.string()]).rest(z.union([z.string(), z.number()])) });
+const GRAPHQL_NOT_FOUND_ERROR = GRAPHQL_ERROR_ALIAS.extend({ type: z.literal('NOT_FOUND') });
 const PR_DIFF = z.string().refine((diff) => Buffer.byteLength(diff, 'utf8') <= PR_DIFF_MAX_BYTES);
 
 function aliasesOfErrors(errors: readonly unknown[]): Set<string> | null {
@@ -350,14 +326,6 @@ function reviewSnapshotKey(repo: string, number: number): string {
   return `${repo}#${number}`;
 }
 
-function reviewSnapshotQuery(prs: readonly PrReference[]): string {
-  const fields = prs.map((pr, index) => {
-    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { headRefOid state isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: ${LATEST_REVIEWS_PER_PR}) { nodes { author { login } state submittedAt commit { oid } } } latestOpinionatedReviews(first: ${LATEST_REVIEWS_PER_PR}, writersOnly: true) { nodes { state } } } }`;
-  });
-  return `query { ${fields.join(' ')} }`;
-}
-
 function issueLinkedPullRequestsQuery(issues: readonly PrReference[]): string {
   const fields = issues.map((issue, index) => {
     const [owner, name] = repoParts(issue.repo) ?? ['', ''];
@@ -372,17 +340,6 @@ function behindCountsQuery(prs: readonly PrHeadReference[]): string {
     return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { baseRef { compare(headRef: "${pr.headSha}") { behindBy } } } }`;
   });
   return `query { ${fields.join(' ')} }`;
-}
-
-function reviewSnapshotFrom(repository: unknown): PrReviewSnapshot | null {
-  const parsed = GRAPHQL_REVIEW_REPOSITORY.safeParse(repository);
-  const pullRequest = parsed.success ? parsed.data?.pullRequest : null;
-  if (!pullRequest) return null;
-  const reviews = pullRequest.latestReviews.nodes.flatMap((review) => (review?.author
-    ? [{ login: review.author.login, state: review.state, commit: CommitSha.safeParse(review.commit?.oid).data ?? null, ...(review.submittedAt !== undefined ? { submittedAt: review.submittedAt } : {}) }]
-    : []));
-  const opinionatedWriterReviewStates = (pullRequest.latestOpinionatedReviews?.nodes ?? []).flatMap((review) => (review ? [review.state] : []));
-  return { head: pullRequest.headRefOid, ...(pullRequest.state !== undefined ? { isOpen: pullRequest.state === 'OPEN' } : {}), ...(pullRequest.isDraft !== undefined ? { isDraft: pullRequest.isDraft } : {}), ...(pullRequest.commits ? { checksState: pullRequest.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null } : {}), reviewDecision: decisionAsIfApprovalRequired(GithubReviewDecision.safeParse(pullRequest.reviewDecision).data ?? null, opinionatedWriterReviewStates), reviews };
 }
 
 function uniqueValidPrs(prs: readonly PrReference[]): PrReference[] {
@@ -490,12 +447,16 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     return conditionalGetResult(response);
   }
 
-  async function forEachAliasedPr<Pr extends PrReference>(prs: readonly Pr[], buildQuery: (batch: readonly Pr[]) => string, visit: (pr: Pr, aliasValue: unknown) => void, batchSize = REVIEW_SNAPSHOT_BATCH_SIZE, requireComplete = false): Promise<void> {
+  async function forEachAliasedPr<Pr extends PrReference>(prs: readonly Pr[], buildQuery: (batch: readonly Pr[]) => string, visit: (pr: Pr, aliasValue: unknown) => void, batchSize = REVIEW_SNAPSHOT_BATCH_SIZE, requireComplete = false, shouldFailOnError = false): Promise<void> {
     for (let index = 0; index < prs.length; index += batchSize) {
       const batch = prs.slice(index, index + batchSize);
       const response = await runGh(['api', 'graphql', '-f', `query=${buildQuery(batch)}`]);
       const parsed = GRAPHQL_RESPONSE.safeParse(parseJsonOrNull(response.out));
       const errors = parsed.success ? parsed.data.errors ?? [] : [];
+      const areAllErrorsNotFound = errors.every((error) => GRAPHQL_NOT_FOUND_ERROR.safeParse(error).success);
+      if (shouldFailOnError && !response.ok && (errors.length === 0 || !areAllErrorsNotFound)) throw new Error(response.err.trim() || 'gh graphql batch failed');
+      if (shouldFailOnError && (!parsed.success || !parsed.data.data)) throw new Error('invalid gh graphql response');
+      if (shouldFailOnError && !areAllErrorsNotFound) throw new Error('gh graphql returned errors');
       const erroredAliases = requireComplete ? aliasesOfErrors(errors) : new Set<string>();
       if (erroredAliases === null) continue;
       if (requireComplete && !response.ok && errors.length === 0) continue;
@@ -568,24 +529,6 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     }
   }
 
-  async function searchPage(query: string, page: number): Promise<SearchedPrType[] | null> {
-    const response = await runGh(['api', '-X', 'GET', 'search/issues', '-f', `q=${query}`, '-f', `per_page=${SEARCH_PAGE_SIZE}`, '-f', `page=${page}`]);
-    if (!response.ok) return null;
-    const parsed = SEARCH_RESPONSE.safeParse(parseJsonOrNull(response.out));
-    return parsed.success ? parsed.data.items : null;
-  }
-
-  async function search(query: string): Promise<PrSearchResult> {
-    const items: SearchedPrType[] = [];
-    for (let page = 1; page <= MAX_SEARCH_PAGES; page += 1) {
-      const pageItems = await searchPage(query, page);
-      if (!pageItems) return { items, complete: false };
-      items.push(...pageItems);
-      if (pageItems.length < SEARCH_PAGE_SIZE) return { items, complete: true };
-    }
-    return { items, complete: false };
-  }
-
   async function searchIssuePages(query: string, maxPages: number, isCapAuthoritative = false): Promise<IssuesFetchResult> {
     const references = query.matchAll(/(?:^|\s)(?:repo|team):([^\s]+)/g);
     for (const reference of references) {
@@ -637,6 +580,19 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         cursor = search.pageInfo.endCursor;
       }
       return { ok: true, items, isComplete: false, totalCount, error: 'GitHub PR search reached its pagination limit.' };
+    },
+
+    async prsLightByKey(prs) {
+      const lightByKey = new Map<string, GithubPrLightSearchNodeType>();
+      const referencesByKey = new Map(uniqueValidPrs(prs).map((pr) => [comparablePrKey(pr), pr]));
+      await forEachAliasedPr([...referencesByKey.values()], githubPrsLightByKeyQuery, (pr, repository) => {
+        const parsed = GITHUB_PR_LIGHT_REPOSITORY.safeParse(repository);
+        if (!parsed.success) throw new Error('invalid gh graphql light PR response');
+        const node = parsed.data?.pullRequest;
+        if (!node) return;
+        lightByKey.set(comparablePrKey(pr), node);
+      }, 50, true, true);
+      return lightByKey;
     },
 
     async prDetails(prs) {
@@ -945,29 +901,6 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       return { org, slug: team, name: profile.name, avatarUrl: profile.avatarUrl };
     },
 
-    async searchTeamRequested(org, team) {
-      if (!GH_SEGMENT.test(org) || !GH_SEGMENT.test(team)) return { items: [], complete: false };
-      return search(`is:pr is:open draft:false org:${org} team-review-requested:${org}/${team}`);
-    },
-
-    async searchDirectRequested(org) {
-      if (!GH_SEGMENT.test(org)) return { items: [], complete: false };
-      return search(`is:pr is:open draft:false org:${org} user-review-requested:@me`);
-    },
-
-    async searchAuthoredBy(org, logins) {
-      if (!GH_SEGMENT.test(org) || !logins.every((login) => GH_SEGMENT.test(login))) return { items: [], complete: false };
-      const items: SearchedPrType[] = [];
-      let complete = true;
-      for (let index = 0; index < logins.length; index += 5) {
-        const authors = logins.slice(index, index + 5).map((login) => `author:${login}`).join(' ');
-        const chunk = await search(`is:pr is:open draft:false org:${org} ${authors}`);
-        items.push(...chunk.items);
-        complete = complete && chunk.complete;
-      }
-      return { items, complete };
-    },
-
     async viewPr(repo, number) {
       if (!repoParts(repo) || !isPrNumber(number)) return null;
       const response = await runGh(['pr', 'view', String(number), '-R', repo, '--json', 'number,title,body,url,author,isDraft,isCrossRepository,baseRefName,baseRefOid,headRefName,headRefOid,additions,deletions,files']);
@@ -982,16 +915,6 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!response.ok) return null;
       const parsed = PR_DIFF.safeParse(response.out);
       return parsed.success ? parsed.data : null;
-    },
-
-    async prReviewSnapshots(prs) {
-      const snapshots = new Map<string, PrReviewSnapshot>();
-      const validPrs = uniqueValidPrs(prs);
-      await forEachAliasedPr(validPrs, reviewSnapshotQuery, (pr, repository) => {
-        const snapshot = reviewSnapshotFrom(repository);
-        if (snapshot) snapshots.set(reviewSnapshotKey(pr.repo, pr.number), snapshot);
-      });
-      return snapshots;
     },
 
     async prHead(repo, number) {
@@ -1030,4 +953,4 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 }
 
 export { createPrGh };
-export type { CommandResult, PostedReview, PrGh, PrReference, PrReviewSnapshot, PrSearchResult };
+export type { CommandResult, PostedReview, PrGh };

@@ -45,14 +45,6 @@ test('notifications map PullRequest subjects to comparable keys and ignore Issue
   assert.deepEqual(await gh.notificationsSince(), { kind: 'ok', prKeys: ['acme/app#123'], lastModified, pollIntervalSeconds: 60 });
 });
 
-function searchItem(number: number) {
-  return {
-    number, title: `PR ${number}`, html_url: `https://github.com/Acme/repo/pull/${number}`,
-    repository_url: 'https://api.github.com/repos/Acme/repo',
-    user: { login: 'alice', type: 'User' }, pull_request: {},
-  };
-}
-
 function prDetail() {
   return {
     number: 7, title: 'Fix', body: 'Body', url: 'https://github.com/Acme/repo/pull/7',
@@ -95,91 +87,6 @@ test('teamProfile passes validated variables to graphql and rejects malformed re
   assert.equal(await failed.teamProfile('Acme', 'core'), null);
 });
 
-test('search methods use raw search API and chunk twelve authors into three requests', async () => {
-  const calls: string[][] = [];
-  const gh = createPrGh('/repo', async (_command, args) => {
-    calls.push(args);
-    return { ok: true, out: JSON.stringify({ items: [searchItem(calls.length)] }), err: '' };
-  });
-  const requested = await gh.searchTeamRequested('Acme', 'docs');
-  assert.deepEqual(requested.items.map((item) => item.number), [1]);
-  assert.equal(requested.complete, true);
-  const logins = Array.from({ length: 12 }, (_unused, index) => `member${index}`);
-  const authored = await gh.searchAuthoredBy('Acme', logins);
-  assert.deepEqual(authored.items.map((item) => item.number), [2, 3, 4]);
-  assert.equal(authored.complete, true);
-  assert.deepEqual(calls, [
-    ['api', '-X', 'GET', 'search/issues', '-f', 'q=is:pr is:open draft:false org:Acme team-review-requested:Acme/docs', '-f', 'per_page=100', '-f', 'page=1'],
-    ['api', '-X', 'GET', 'search/issues', '-f', 'q=is:pr is:open draft:false org:Acme author:member0 author:member1 author:member2 author:member3 author:member4', '-f', 'per_page=100', '-f', 'page=1'],
-    ['api', '-X', 'GET', 'search/issues', '-f', 'q=is:pr is:open draft:false org:Acme author:member5 author:member6 author:member7 author:member8 author:member9', '-f', 'per_page=100', '-f', 'page=1'],
-    ['api', '-X', 'GET', 'search/issues', '-f', 'q=is:pr is:open draft:false org:Acme author:member10 author:member11', '-f', 'per_page=100', '-f', 'page=1'],
-  ]);
-});
-
-test('team search retains the PR creation time when supplied', async () => {
-  const createdAt = '2026-09-26T12:00:00Z';
-  const gh = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ items: [{ ...searchItem(7), created_at: createdAt }] }), err: '' }));
-  assert.equal((await gh.searchTeamRequested('Acme', 'docs')).items[0]?.created_at, createdAt);
-});
-
-function searchPageOf(firstNumber: number, count: number) {
-  return JSON.stringify({ items: Array.from({ length: count }, (_unused, index) => searchItem(firstNumber + index)) });
-}
-
-test('search pages through full result pages until a short page', async () => {
-  const calls: string[][] = [];
-  const pageSizes = [100, 100, 3];
-  const gh = createPrGh('/repo', async (_command, args) => {
-    calls.push(args);
-    const pageIndex = calls.length - 1;
-    return { ok: true, out: searchPageOf(pageIndex * 100 + 1, pageSizes[pageIndex]), err: '' };
-  });
-  const requested = await gh.searchTeamRequested('Acme', 'docs');
-  assert.deepEqual(requested.items.map((item) => item.number), Array.from({ length: 203 }, (_unused, index) => index + 1));
-  assert.equal(requested.complete, true);
-  const query = 'q=is:pr is:open draft:false org:Acme team-review-requested:Acme/docs';
-  assert.deepEqual(calls, [1, 2, 3].map((page) => ['api', '-X', 'GET', 'search/issues', '-f', query, '-f', 'per_page=100', '-f', `page=${page}`]));
-});
-
-test('search stops paging at the page cap and reports the truncated result incomplete', async () => {
-  const calls: string[][] = [];
-  const gh = createPrGh('/repo', async (_command, args) => {
-    calls.push(args);
-    return { ok: true, out: searchPageOf((calls.length - 1) * 100 + 1, 100), err: '' };
-  });
-  const requested = await gh.searchTeamRequested('Acme', 'docs');
-  assert.equal(requested.items.length, 500);
-  assert.equal(requested.complete, false);
-  assert.deepEqual(calls.map((args) => args.at(-1)), ['page=1', 'page=2', 'page=3', 'page=4', 'page=5']);
-});
-
-test('search keeps gathered pages when a later page fails and reports the result incomplete', async () => {
-  const calls: string[][] = [];
-  const gh = createPrGh('/repo', async (_command, args) => {
-    calls.push(args);
-    if (calls.length === 2) return { ok: false, out: '', err: 'rate limited' };
-    return { ok: true, out: searchPageOf(1, 100), err: '' };
-  });
-  const requested = await gh.searchTeamRequested('Acme', 'docs');
-  assert.equal(requested.items.length, 100);
-  assert.equal(requested.complete, false);
-  assert.equal(calls.length, 2);
-});
-
-test('an authored search with one failed author chunk reports the result incomplete', async () => {
-  let calls = 0;
-  const gh = createPrGh('/repo', async () => {
-    calls += 1;
-    if (calls === 2) return { ok: false, out: '', err: 'rate limited' };
-    return { ok: true, out: searchPageOf(calls, 1), err: '' };
-  });
-  const logins = Array.from({ length: 12 }, (_unused, index) => `member${index}`);
-  const authored = await gh.searchAuthoredBy('Acme', logins);
-  assert.deepEqual(authored.items.map((item) => item.number), [1, 3]);
-  assert.equal(authored.complete, false);
-  assert.equal(calls, 3);
-});
-
 test('PR reads use exact argv and parse contract shapes', async () => {
   const calls: string[][] = [];
   const outputs = [JSON.stringify(prDetail()), 'diff --git a/file b/file', HEAD_SHA];
@@ -197,48 +104,6 @@ test('PR reads use exact argv and parse contract shapes', async () => {
   ]);
 });
 
-function reviewQueryField(alias: string, owner: string, name: string, number: number): string {
-  return `${alias}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${number}) { headRefOid state isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: 20) { nodes { author { login } state submittedAt commit { oid } } } latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state } } } }`;
-}
-
-test('review snapshots batch aliased GraphQL fields, null empty commits and drop ghost authors', async () => {
-  const calls: string[][] = [];
-  const gh = createPrGh('/repo', async (_command, args) => {
-    calls.push(args);
-    return { ok: true, out: JSON.stringify({ data: {
-      pr0: { pullRequest: { headRefOid: HEAD_SHA, state: 'MERGED', reviewDecision: 'APPROVED', latestReviews: { nodes: [
-        { author: { login: 'sarah' }, state: 'APPROVED', submittedAt: '2026-09-28T12:00:00Z', commit: { oid: HEAD_SHA } },
-        { author: { login: 'copilot' }, state: 'COMMENTED', submittedAt: null, commit: { oid: '' } },
-        { author: null, state: 'APPROVED', commit: { oid: HEAD_SHA } },
-      ] } } },
-      pr1: { pullRequest: null },
-    } }), err: '' };
-  });
-  const snapshots = await gh.prReviewSnapshots([
-    { repo: 'Acme/repo', number: 7 }, { repo: '../repo', number: 8 }, { repo: 'Acme/other', number: 9 }, { repo: 'Acme/repo', number: 0 },
-  ]);
-  assert.deepEqual([...snapshots.entries()], [['Acme/repo#7', { head: HEAD_SHA, isOpen: false, reviewDecision: 'APPROVED', reviews: [
-    { login: 'sarah', state: 'APPROVED', commit: HEAD_SHA, submittedAt: '2026-09-28T12:00:00Z' },
-    { login: 'copilot', state: 'COMMENTED', commit: null, submittedAt: null },
-  ] }]]);
-  assert.deepEqual(calls, [['api', 'graphql', '-f', `query=query { ${reviewQueryField('pr0', 'Acme', 'repo', 7)} ${reviewQueryField('pr1', 'Acme', 'other', 9)} }`]]);
-});
-
-test('review snapshots split into batches of 25 and keep partial data from a failed batch', async () => {
-  const calls: string[][] = [];
-  const gh = createPrGh('/repo', async (_command, args) => {
-    calls.push(args);
-    const data = { pr0: { pullRequest: { headRefOid: HEAD_SHA, latestReviews: { nodes: [] } } }, pr1: null };
-    return { ok: calls.length === 1, out: JSON.stringify({ data }), err: 'Could not resolve to a Repository' };
-  });
-  const prs = Array.from({ length: 27 }, (_unused, index) => ({ repo: 'Acme/repo', number: index + 1 }));
-  const snapshots = await gh.prReviewSnapshots(prs);
-  assert.equal(calls.length, 2);
-  assert.deepEqual([...snapshots.keys()], ['Acme/repo#1', 'Acme/repo#26']);
-  assert.equal((await gh.prReviewSnapshots([{ repo: 'bad/repo/path', number: 1 }])).size, 0);
-  assert.equal(calls.length, 2);
-});
-
 test('invalid inputs and malformed contract payloads fail closed', async () => {
   let calls = 0;
   const invalid = createPrGh('/repo', async () => {
@@ -246,16 +111,12 @@ test('invalid inputs and malformed contract payloads fail closed', async () => {
     return { ok: true, out: '{}', err: '' };
   });
   assert.deepEqual(await invalid.teamMembers('Acme/bad', 'docs'), []);
-  assert.deepEqual(await invalid.searchTeamRequested('Acme', '../docs'), { items: [], complete: false });
-  assert.deepEqual(await invalid.searchAuthoredBy('Acme', ['good', 'bad/login']), { items: [], complete: false });
   assert.equal(await invalid.viewPr('../repo', 7), null);
   assert.equal(await invalid.prDiff('Acme/repo', 0), null);
   assert.equal(await invalid.prHead('Acme/repo', 0), null);
   assert.equal(calls, 0);
   assert.equal(await invalid.viewer(), null);
   assert.equal(await invalid.teamMembers('Acme', 'docs'), null);
-  assert.deepEqual(await invalid.searchTeamRequested('Acme', 'docs'), { items: [], complete: false });
-  assert.deepEqual(await invalid.searchAuthoredBy('Acme', ['alice']), { items: [], complete: false });
   assert.equal(await invalid.viewPr('Acme/repo', 7), null);
   assert.equal(await invalid.prHead('Acme/repo', 7), null);
   const oversized = createPrGh('/repo', async () => ({ ok: true, out: 'x'.repeat(2 * 1024 * 1024 + 1), err: '' }));
@@ -668,65 +529,6 @@ test('compareCommits asks for the merge base and file names and flags a capped f
   assert.equal(calls.length, 2);
 });
 
-test('direct review request search shares paging bounds and fails closed', async () => {
-  const calls: string[][] = [];
-  const github = createPrGh('/repo', async (_command, args) => {
-    calls.push(args);
-    return { ok: true, out: searchPageOf((calls.length - 1) * 100 + 1, 100), err: '' };
-  });
-  const search = await github.searchDirectRequested('Acme');
-  assert.equal(calls.length, 5);
-  assert.equal(search.items.length, 500);
-  assert.equal(search.complete, false);
-  assert.ok(calls.every((args) => args.includes('q=is:pr is:open draft:false org:Acme user-review-requested:@me') && args.includes('per_page=100')));
-  assert.deepEqual(await github.searchDirectRequested('../Acme'), { items: [], complete: false });
-  assert.equal(calls.length, 5);
-});
-
-test('review snapshots carry validated draft and aggregate CI state', async () => {
-  const github = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: {
-    headRefOid: HEAD_SHA, isDraft: false, reviewDecision: 'REVIEW_REQUIRED', latestReviews: { nodes: [] },
-    commits: { nodes: [{ commit: { statusCheckRollup: { state: 'FAILURE' } } }] },
-  } } } }), err: '' }));
-  const snapshots = await github.prReviewSnapshots([{ repo: 'Acme/repo', number: 7 }]);
-  assert.deepEqual(snapshots.get('Acme/repo#7'), { head: HEAD_SHA, isDraft: false, reviewDecision: 'REVIEW_REQUIRED', reviews: [], checksState: 'FAILURE' });
-});
-
-test('a repository without required reviews reports the decision it would have if approval were required', async () => {
-  const snapshotWith = async (opinionatedStates: string[] | undefined, latestStates: string[] = []) => {
-    const github = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: {
-      headRefOid: HEAD_SHA, reviewDecision: null,
-      latestReviews: { nodes: latestStates.map((state, index) => ({ author: { login: `reviewer${index}` }, state, commit: { oid: HEAD_SHA } })) },
-      ...(opinionatedStates ? { latestOpinionatedReviews: { nodes: opinionatedStates.map((state) => ({ state })) } } : {}),
-    } } } }), err: '' }));
-    return (await github.prReviewSnapshots([{ repo: 'Acme/repo', number: 7 }])).get('Acme/repo#7')?.reviewDecision;
-  };
-  assert.equal(await snapshotWith(['APPROVED']), 'APPROVED');
-  assert.equal(await snapshotWith(['APPROVED', 'CHANGES_REQUESTED']), 'CHANGES_REQUESTED');
-  assert.equal(await snapshotWith([]), 'REVIEW_REQUIRED');
-  assert.equal(await snapshotWith(undefined), 'REVIEW_REQUIRED');
-});
-
-test('a writer who requested changes and later only commented still blocks a repository without required reviews', async () => {
-  const github = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: {
-    headRefOid: HEAD_SHA, reviewDecision: null,
-    latestReviews: { nodes: [{ author: { login: 'reviewer' }, state: 'COMMENTED', commit: { oid: HEAD_SHA } }] },
-    latestOpinionatedReviews: { nodes: [{ state: 'CHANGES_REQUESTED' }] },
-  } } } }), err: '' }));
-  const snapshot = (await github.prReviewSnapshots([{ repo: 'Acme/repo', number: 7 }])).get('Acme/repo#7');
-  assert.equal(snapshot?.reviewDecision, 'CHANGES_REQUESTED');
-  assert.deepEqual(snapshot?.reviews.map((review) => review.state), ['COMMENTED']);
-});
-
-test('approvals visible only in latest reviews do not satisfy a repository without required reviews', async () => {
-  const github = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: {
-    headRefOid: HEAD_SHA, reviewDecision: null,
-    latestReviews: { nodes: [{ author: { login: 'outsider' }, state: 'APPROVED', commit: { oid: HEAD_SHA } }] },
-    latestOpinionatedReviews: { nodes: [] },
-  } } } }), err: '' }));
-  assert.equal((await github.prReviewSnapshots([{ repo: 'Acme/repo', number: 7 }])).get('Acme/repo#7')?.reviewDecision, 'REVIEW_REQUIRED');
-});
-
 function workflowNode(number: number) {
   return { ...myPrNode(number), author: { login: 'alice' }, labels: { nodes: [{ name: 'bug' }] }, comments: { totalCount: 2 } };
 }
@@ -1064,4 +866,58 @@ test('linked issue PR failures omit checkpoints, keep successful aliases and val
   }
   const invalid = createPrGh('/repo', async () => { throw new Error('invalid issue keys must not invoke gh'); });
   assert.equal((await invalid.issueLinkedPullRequests(['Acme/../../app#1', 'Acme/app#-1'])).size, 0);
+});
+
+
+test('light PR reads share search fields and batch fifty comparable keys without detail fields', async () => {
+  const queries: string[] = [];
+  const references = Array.from({ length: 51 }, (_, index) => ({ repo: index % 2 === 0 ? 'Acme/app' : 'Acme/docs', number: index + 1 }));
+  const node = (number: number, repo: string) => ({
+    repository: { nameWithOwner: repo }, number, updatedAt: '2026-10-19T12:00:00Z', headRefOid: HEAD_SHA,
+    state: 'OPEN', commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] }, reviewDecision: null, mergeStateStatus: 'CLEAN',
+  });
+  const github = createPrGh('/repo', async (_command, args) => {
+    const query = args.find((argument) => argument.startsWith('query=')) ?? '';
+    queries.push(query);
+    if (args.some((argument) => argument.startsWith('searchQuery='))) {
+      return { ok: true, err: '', out: JSON.stringify({ data: { search: { issueCount: 1, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [node(1, 'Acme/app')] } } }) };
+    }
+    const aliases = [...query.matchAll(/(pr\d+): repository\(owner: "([^" ]+)", name: "([^" ]+)"\) \{ pullRequest\(number: (\d+)\)/g)];
+    const missingAliases = aliases.filter(([, , , , number]) => Number(number) === 51).map(([, alias]) => alias);
+    const errors = missingAliases.map((alias) => ({ type: 'NOT_FOUND', path: [alias, 'pullRequest'], message: 'Could not resolve to a PullRequest with the number of 51.' }));
+    return { ok: errors.length === 0, err: errors.length === 0 ? '' : 'gh: Could not resolve to a PullRequest', out: JSON.stringify({ data: Object.fromEntries(aliases.map(([, alias, owner, name, number]) => [alias, { pullRequest: Number(number) === 51 ? null : node(Number(number), `${owner}/${name}`) }])), ...(errors.length === 0 ? {} : { errors }) }) };
+  });
+  await github.searchPrsLight('author:@me');
+  const lightByKey = await github.prsLightByKey([...references, { repo: 'ACME/APP', number: 1 }, { repo: 'invalid', number: 1 }]);
+  assert.deepEqual(queries.slice(1).map((query) => [...query.matchAll(/pr\d+: repository/g)].length), [50, 1]);
+  assert.equal(lightByKey.size, 50);
+  assert.equal(lightByKey.get('acme/app#1')?.commits.nodes[0].commit.statusCheckRollup?.state, 'SUCCESS');
+  assert.equal(lightByKey.has('acme/app#51'), false);
+  const searchFields = queries[0].match(/\.\.\. on PullRequest \{ ([\s\S]+) \}/)?.[1];
+  assert.ok(searchFields);
+  assert.ok(queries.slice(1).every((query) => query.includes(searchFields)));
+  assert.ok(queries.every((query) => !query.includes('contexts') && !query.includes('latestReviews')));
+  const callCount = queries.length;
+  assert.equal((await github.prsLightByKey([])).size, 0);
+  assert.equal(queries.length, callCount);
+});
+
+test('failed or malformed light batches reject rather than reporting inaccessible PRs', async () => {
+  for (const response of [
+    { ok: false, out: '', err: 'offline' },
+    { ok: true, out: 'not json', err: '' },
+    { ok: true, out: JSON.stringify({ data: { pr0: null }, errors: [{ message: 'timeout', path: ['pr0'] }] }), err: '' },
+    { ok: true, out: JSON.stringify({ data: {} }), err: '' },
+    { ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: { number: 1 } } } }), err: '' },
+  ]) {
+    const github = createPrGh('/repo', async () => response);
+    await assert.rejects(github.prsLightByKey([{ repo: 'Acme/app', number: 1 }]));
+  }
+  let batchCount = 0;
+  const github = createPrGh('/repo', async () => {
+    batchCount += 1;
+    if (batchCount === 2) return { ok: false, out: '', err: 'second batch failed' };
+    return { ok: true, err: '', out: JSON.stringify({ data: Object.fromEntries(Array.from({ length: 50 }, (_, index) => [`pr${index}`, null])) }) };
+  });
+  await assert.rejects(github.prsLightByKey(Array.from({ length: 51 }, (_, index) => ({ repo: 'Acme/app', number: index + 1 }))), /second batch failed/);
 });

@@ -8,7 +8,7 @@ import type { SharedClock, TickOutcome } from '../lanes/lane-runner.ts';
 import { nextRetrySchedule, secondaryRateLimitWaitMs, shouldSkipTick } from '../lanes/core/lane-backoff.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import { hasUnresolvedThreads } from './core/my-prs-core.ts';
-import { applyGithubPrDetails, GITHUB_STORE_BEHIND_INTERVAL_MS, githubPrChangeSet, githubPrsWithChangedBehindCounts, githubStoreCacheEvictionKey, githubStoreLightIntervalMs, githubStorePrReference, githubStoreWatchNodes, githubStoreWatchUnion, isGithubStorePollDue, normalizeGithubPr } from './core/github-store-core.ts';
+import { applyGithubPrDetails, GITHUB_STORE_BEHIND_INTERVAL_MS, githubPrChangeSet, githubPrsWithChangedBehindCounts, githubStoreCacheEvictionKey, githubStoreLightIntervalMs, githubStorePrReference, githubStoreWatchNodes, githubStoreWatchUnion, isGithubStoreMembershipDue, isGithubStorePollDue, normalizeGithubPr } from './core/github-store-core.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 import { errorMessage } from '../../shared/text.ts';
 
@@ -19,7 +19,7 @@ interface GithubStoreWatch {
 }
 
 interface GithubStoreDependencies {
-  github: Pick<PrGh, 'searchPrsLight' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'compareCommits' | 'prHead' | 'reviewThreads'>;
+  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'compareCommits' | 'prHead' | 'reviewThreads'>;
   now: () => number;
   isDashboardConnected: () => boolean;
   exclusive: SharedClock['exclusive'];
@@ -29,7 +29,7 @@ interface GithubStoreDependencies {
 }
 
 type GithubStoreSnapshot = Pick<GithubPrsFrame, 'prs' | 'freshness'>;
-type WatchState = GithubStoreWatch & { nodes: readonly GithubPrLightSearchNode[]; returnedKeys: readonly string[]; returnedCount: number; totalCount: number; isComplete: boolean; isLoaded: boolean };
+type WatchState = GithubStoreWatch & { nodes: readonly GithubPrLightSearchNode[]; returnedKeys: readonly string[]; returnedCount: number; totalCount: number; isComplete: boolean; isLoaded: boolean; lastMembershipPolledAt: number | null; membershipRevision: number };
 
 const REFRESH_DEBOUNCE_MS = 5_000;
 const DEFAULT_NOTIFICATIONS_INTERVAL_MS = 60_000;
@@ -48,6 +48,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   const comparisonsByHeads = new Map<string, NonNullable<Awaited<ReturnType<PrGh['compareCommits']>>>>();
   let prs: GithubStoreSnapshot['prs'] = {};
   let lightByKey = new Map<string, GithubPrLightSearchNode>();
+  let membershipRevision = 0;
   let lastLightPolledAt: number | null = null;
   let lastNotificationsPolledAt: number | null = null;
   let lastBehindPolledAt: number | null = null;
@@ -70,8 +71,13 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
 
   function registerWatch(watch: GithubStoreWatch): void {
     const previous = watches.get(watch.name);
-    if (previous?.qualifiers === watch.qualifiers && previous.needsDetail === watch.needsDetail) return;
-    watches.set(watch.name, { ...watch, nodes: [], returnedKeys: [], returnedCount: 0, totalCount: 0, isComplete: false, isLoaded: false });
+    if (previous?.qualifiers === watch.qualifiers) {
+      if (previous.needsDetail === watch.needsDetail) return;
+      previous.needsDetail = watch.needsDetail;
+      lastLightPolledAt = null;
+      return;
+    }
+    watches.set(watch.name, { ...watch, nodes: [], returnedKeys: [], returnedCount: 0, totalCount: 0, isComplete: false, isLoaded: false, lastMembershipPolledAt: null, membershipRevision });
     lastLightPolledAt = null;
   }
 
@@ -85,9 +91,12 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
       const reference = githubStorePrReference(key);
       return reference ? [comparablePrKey(reference)] : [];
     });
+    const previousKeys = watchedKeysByOwner.get(owner) ?? new Set<string>();
+    const nextKeys = new Set(validKeys);
+    if (nextKeys.size === previousKeys.size && [...nextKeys].every((key) => previousKeys.has(key))) return;
     watchedKeysByOwner.delete(owner);
     for (const key of validKeys) unavailableKeys.delete(key);
-    if (validKeys.length > 0) watchedKeysByOwner.set(owner, new Set(validKeys));
+    if (validKeys.length > 0) watchedKeysByOwner.set(owner, nextKeys);
     lastLightPolledAt = null;
   }
 
@@ -148,8 +157,10 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   async function pollLight(tickStartedAt: number, watchNames?: ReadonlySet<string>) {
     const watchResults: { watch: WatchState; nodes: readonly GithubPrLightSearchNode[]; returnedKeys: readonly string[]; returnedCount: number; totalCount: number; isComplete: boolean }[] = [];
     let hasWatchChanges = false;
+    const pollMembershipRevision = membershipRevision;
     for (const watch of watches.values()) {
       if (watchNames && !watchNames.has(watch.name)) continue;
+      if (!watchNames && watch.membershipRevision === pollMembershipRevision && !isGithubStoreMembershipDue(watch.lastMembershipPolledAt, tickStartedAt, isDashboardConnected())) continue;
       const search = await github.searchPrsLight(watch.qualifiers);
       if (!search.ok) throw new Error(search.error);
       const nodes = githubStoreWatchNodes(watch.nodes, search.items, search.isComplete);
@@ -167,31 +178,29 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
       ...unchangedWatches,
       ...watchResults.map(({ watch, nodes }) => ({ nodes, needsDetail: watch.needsDetail })),
     ];
-    const returnedKeys = new Set(unionWatches.flatMap((watch) => watch.nodes.map((node) => comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }))));
     const union = githubStoreWatchUnion(unionWatches, watchedKeys, lightByKey);
-    for (const key of watchedKeys) {
-      if (returnedKeys.has(key)) continue;
+    const knownKeys = new Set([...union.lightByKey.keys(), ...watchedKeys]);
+    const references = [...knownKeys].flatMap((key) => {
       const reference = githubStorePrReference(key);
-      if (!reference) continue;
-      const search = await github.searchPrsLight(`repo:${reference.repo} ${reference.number}`);
-      if (!search.ok) throw new Error(search.error);
-      const node = search.items.find((candidate) => comparablePrKey({ repo: candidate.repository.nameWithOwner, number: candidate.number }) === key);
-      if (node) union.lightByKey.set(key, node);
-    }
-    const changes = githubPrChangeSet(lightByKey, [...union.lightByKey.values()]);
+      return reference ? [reference] : [];
+    });
+    const currentLightByKey = await github.prsLightByKey(references);
+    const missingLightKeys = [...knownKeys].filter((key) => !currentLightByKey.has(key));
+    const changes = githubPrChangeSet(lightByKey, [...currentLightByKey.values()]);
     const changedKeys = new Set(changes.detailKeys);
     for (const key of unavailableKeys) {
       if (!union.detailKeys.has(key)) unavailableKeys.delete(key);
     }
-    const detailKeys = [...union.detailKeys].filter((key) => changedKeys.has(key) || (!prs[key] && !unavailableKeys.has(key)));
+    const detailKeys = [...union.detailKeys].filter((key) => currentLightByKey.has(key) && (changedKeys.has(key) || (!prs[key] && !unavailableKeys.has(key))));
     const { details, nodes, missingKeys } = await fetchDetails(detailKeys);
     for (const refreshed of watchResults) {
       if (watches.get(refreshed.watch.name) !== refreshed.watch) continue;
-      Object.assign(refreshed.watch, { nodes: refreshed.nodes, returnedKeys: refreshed.returnedKeys, returnedCount: refreshed.returnedCount, totalCount: refreshed.totalCount, isComplete: refreshed.isComplete, isLoaded: true });
+      Object.assign(refreshed.watch, { nodes: refreshed.nodes, returnedKeys: refreshed.returnedKeys, returnedCount: refreshed.returnedCount, totalCount: refreshed.totalCount, isComplete: refreshed.isComplete, isLoaded: true, lastMembershipPolledAt: tickStartedAt, membershipRevision: pollMembershipRevision });
     }
     lightByKey = changes.lightByKey;
     for (const node of nodes) lightByKey.set(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), node);
-    const removedKeys = [...new Set([...changes.removedKeys, ...missingKeys.filter((key) => prs[key])])];
+    for (const key of missingLightKeys) unavailableKeys.add(key);
+    const removedKeys = [...new Set([...changes.removedKeys, ...missingLightKeys.filter((key) => prs[key]), ...missingKeys.filter((key) => prs[key])])];
     prs = applyGithubPrDetails(prs, details, removedKeys);
     if (!watchNames) lastLightPolledAt = tickStartedAt;
     lastRefreshedAt = now();
@@ -283,14 +292,24 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     const reference = githubStorePrReference(key);
     if (!reference) return;
     const comparableKey = comparablePrKey(reference);
+    if (!prs[comparableKey]) {
+      membershipRevision += 1;
+      lastLightPolledAt = null;
+    }
     const previousTimer = refreshTimersByKey.get(comparableKey);
     if (previousTimer) clearTimeoutFn(previousTimer);
     refreshTimersByKey.set(comparableKey, setTimeoutFn(() => {
       refreshTimersByKey.delete(comparableKey);
       void readWhenAllowed(async () => {
         const previousError = pollingError;
-        const { details, nodes, missingKeys } = await fetchDetails([comparableKey]);
-        const removedKeys = missingKeys.filter((key) => prs[key]);
+        const refreshedLightByKey = await github.prsLightByKey([reference]);
+        const lightNode = refreshedLightByKey.get(comparableKey);
+        const previousLight = lightByKey.get(comparableKey);
+        const changes = githubPrChangeSet(new Map(previousLight ? [[comparableKey, previousLight]] : []), lightNode ? [lightNode] : []);
+        const { details, nodes, missingKeys } = await fetchDetails(lightNode && !prs[comparableKey] ? [comparableKey] : changes.detailKeys);
+        const removedKeys = [...new Set([...changes.removedKeys, ...missingKeys])].filter((key) => prs[key]);
+        lightByKey.delete(comparableKey);
+        if (lightNode) lightByKey.set(comparableKey, lightNode);
         prs = applyGithubPrDetails(prs, details, removedKeys);
         for (const node of nodes) lightByKey.set(comparableKey, node);
         lastRefreshedAt = now();

@@ -51,6 +51,11 @@ function createMyPrsPoller({ github, ...dependencies }: Omit<LaneDependencies, '
           items: selected.map((pr) => GithubPrLightSearchNode.parse({ ...pr, updatedAt: new Date(NOW + searchSequence).toISOString() })),
         };
       },
+      async prsLightByKey(references) {
+        const keys = new Set(references.map(comparablePrKey));
+        return new Map(currentNodes.filter((pr) => keys.has(comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number })))
+          .map((pr) => [comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number }), GithubPrLightSearchNode.parse({ ...pr, updatedAt: new Date(NOW + searchSequence).toISOString() })]));
+      },
       async prDetails(references) {
         return new Map(currentNodes.filter((pr) => references.some((reference) => comparablePrKey(reference) === comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number })))
           .map((pr) => [comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number }), pr]));

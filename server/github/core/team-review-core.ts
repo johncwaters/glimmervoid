@@ -1,9 +1,10 @@
-import { hasStandingViewerApproval, canApproveAfterComment, DECIDING_REVIEW_STATES, EarlierReview, FindingSeverity, GithubReviewState, PostingPlan, QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../../shared/contracts/team-review.ts';
+import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
+import { decisionAsIfApprovalRequired, hasStandingViewerApproval, canApproveAfterComment, DECIDING_REVIEW_STATES, EarlierReview, FindingSeverity, GithubReviewState, PostingPlan, QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../../shared/contracts/team-review.ts';
 import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import type {
   GithubReview, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
-  ResumableReview, ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
+  ResumableReview, ReviewAssessment, ReviewResult as ReviewResultType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../../shared/contracts/team-review.ts';
 import { positiveNumberOr } from '../../../shared/coerce.ts';
 import { GH_SEGMENT } from '../../../shared/contracts/github-ids.ts';
@@ -127,14 +128,6 @@ function prBaseRef(prNumber: number): string {
   return `refs/glimmervoid-base/${prNumber}`;
 }
 
-function repoFromSearchItem(item: SearchedPr): string | null {
-  if (!URL.canParse(item.repository_url)) return null;
-  const repositoryPath = new URL(item.repository_url).pathname;
-  const match = /\/repos\/([^/]+\/[^/]+)\/?$/.exec(repositoryPath);
-  if (!match) return null;
-  return match[1];
-}
-
 function githubRepoSlugFromRemote(remoteUrl: string): string | null {
   const match = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/?#]+)\/([^/?#]+)\/?$/i.exec(remoteUrl.trim());
   if (!match) return null;
@@ -148,28 +141,35 @@ function remoteMatchesGithubRepo(remoteUrl: string, repo: string): boolean {
   return githubRepoSlugFromRemote(remoteUrl)?.toLowerCase() === repo.toLowerCase();
 }
 
-function selectCandidates(directRequested: SearchedPr[], teamRequested: SearchedPr[], authored: SearchedPr[], { self, nowMs, skipIdleAfterMs }: { self: string; nowMs: number; skipIdleAfterMs: number }): TeamReviewCandidate[] {
+function selectCandidates(directRequested: readonly GithubPr[], teamRequested: readonly GithubPr[], authored: readonly GithubPr[], { self, nowMs, skipIdleAfterMs }: { self: string; nowMs: number; skipIdleAfterMs: number }): TeamReviewCandidate[] {
   const candidates: TeamReviewCandidate[] = [];
   const seenKeys = new Set<string>();
   const requests = [
-    ...directRequested.map((item) => ({ item, requestSource: 'direct' as const })),
-    ...teamRequested.map((item) => ({ item, requestSource: 'team' as const })),
-    ...authored.map((item) => ({ item, requestSource: 'team' as const })),
+    ...directRequested.map((pr) => ({ pr, requestSource: 'direct' as const })),
+    ...teamRequested.map((pr) => ({ pr, requestSource: 'team' as const })),
+    ...authored.map((pr) => ({ pr, requestSource: 'team' as const })),
   ];
-  for (const { item, requestSource } of requests) {
-    if (item.user.login.toLowerCase() === self.toLowerCase()) continue;
-    if (item.draft === true) continue;
-    if (item.user.type === 'Bot' || item.user.login.toLowerCase().endsWith('[bot]')) continue;
-    const updatedAtMs = item.updated_at ? Date.parse(item.updated_at) : Number.NaN;
+  for (const { pr, requestSource } of requests) {
+    if (pr.state !== 'OPEN' || pr.author === null) continue;
+    if (pr.author.toLowerCase() === self.toLowerCase()) continue;
+    if (pr.isDraft) continue;
+    if (pr.isAuthorBot) continue;
+    const updatedAtMs = pr.updatedAt ? Date.parse(pr.updatedAt) : Number.NaN;
     if (Number.isFinite(updatedAtMs) && nowMs - updatedAtMs > skipIdleAfterMs) continue;
-    const repo = repoFromSearchItem(item);
-    if (repo === null) continue;
-    const key = prKey(repo, item.number);
+    const key = prKey(pr.repo, pr.number);
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
-    candidates.push({ key, repo, number: item.number, title: item.title, url: item.html_url, author: item.user.login, requestSource, ...(item.created_at ? { prCreatedAt: item.created_at } : {}) });
+    candidates.push({ key, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url, author: pr.author, requestSource, ...(pr.createdAt ? { prCreatedAt: pr.createdAt } : {}) });
   }
   return candidates;
+}
+
+function reviewSnapshotFromGithubPr(pr: GithubPr) {
+  return {
+    head: pr.headRefOid, isOpen: pr.state === 'OPEN', isDraft: pr.isDraft, checksState: pr.checks.state,
+    reviewDecision: decisionAsIfApprovalRequired(pr.reviewDecision, pr.opinionatedWriterReviewStates),
+    reviews: pr.reviews.flatMap((review) => review.reviewer === null ? [] : [{ login: review.reviewer, state: review.state, commit: review.commit, submittedAt: review.submittedAt }]),
+  };
 }
 
 function sensitivePathReason(filePath: string): string | null {
@@ -1111,5 +1111,5 @@ function absolutePathReadRule(absolutePath: string): string {
   return `Read(/${posixPath}/**)`;
 }
 
-export { STAMP_MODEL, FULL_MODEL, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS, advanceAwakeElapsed, handReviewRows, REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, HAND_APPROVAL_LINE, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, isSameQueuedReview, isSettledAtHead, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, readyDraft, reReviewResult, repoFromSearchItem, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
+export { reviewSnapshotFromGithubPr, STAMP_MODEL, FULL_MODEL, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS, advanceAwakeElapsed, handReviewRows, REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, HAND_APPROVAL_LINE, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, isSameQueuedReview, isSettledAtHead, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
 export type { CommentableLines, NewWorkPointer, NewWorkRange, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };

@@ -1,3 +1,5 @@
+import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
+import type { GithubLaneStore } from './github-store-wiring.ts';
 import { viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgePrompt, parseThreadJudgeResult, threadJudgePatch, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from './core/team-review-threads-core.ts';
 import * as core from './core/team-review-core.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
@@ -6,7 +8,7 @@ import type { ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSe
 import { firstLine } from '../lanes/ephemeral-session.ts';
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { SharedClock, TickOutcome } from '../lanes/lane-runner.ts';
-import type { PrReference, PrReviewSnapshot, PrSearchResult, PrGh } from './pr-gh.ts';
+import type { PrGh } from './pr-gh.ts';
 import { allowGuardedSpawn } from '../guardrails/guardrails-deps.ts';
 import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 import { hasStandingViewerApproval, ReviewDraft } from '../../shared/contracts/team-review.ts';
@@ -23,12 +25,8 @@ interface TeamReviewGithub extends Partial<Pick<PrGh, 'teamReviewThreads' | 'res
   viewer(): Promise<string | null>;
   teamMembers(org: string, team: string): Promise<string[] | null>;
   teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
-  searchTeamRequested(org: string, team: string): Promise<PrSearchResult>;
-  searchDirectRequested(org: string): Promise<PrSearchResult>;
-  searchAuthoredBy(org: string, logins: string[]): Promise<PrSearchResult>;
   viewPr(repo: string, number: number): Promise<PrDetail | null>;
   prHead(repo: string, number: number): Promise<string | null>;
-  prReviewSnapshots(prs: readonly PrReference[]): Promise<Map<string, PrReviewSnapshot>>;
   rateLimitWaitMs(nowMs: number, resourceNames: readonly string[]): Promise<number | null>;
 }
 
@@ -58,6 +56,7 @@ interface TeamReviewPollerDependencies {
   org: string;
   teams: TeamReviewSettings['teams'];
   github: TeamReviewGithub;
+  store: GithubLaneStore;
   judgeThread?: (prompt: string) => Promise<unknown>;
   spawnReview: (args: SpawnReviewArgs) => Promise<ReviewOutcome>;
   discardResumable?: (record: ResumableReview) => Promise<void>;
@@ -84,7 +83,7 @@ const REQUEUEABLE_STATUSES: ReadonlySet<ReviewDraftType['status']> = new Set(['e
 
 function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const {
-    org, teams, github, spawnReview, discardResumable = async () => {},
+    org, teams, github, store, spawnReview, discardResumable = async () => {},
     readState = async () => ({}), writeState = async () => {}, beforeStart = async () => {}, guardrailsRefusal = allowGuardedSpawn,
     setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn, clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
     setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
@@ -104,6 +103,9 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   let pendingProgressEmit: NodeJS.Timeout | null = null;
   let hasSlotFreedSinceSlotCount = false;
   let pollingError: string | null = null;
+  const watches = new Map<string, { qualifiers: string; source: 'direct' | 'team' | 'authored' }>();
+  let hasLoadedState = false;
+  let lastRebuildQueueSignature: string | null = null;
 
   const loop = createTickLoop({
     tag: core.TEAM_REVIEW_LANE_ID, intervalMs: (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000,
@@ -235,21 +237,16 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     if (waitingForSlot.length > 0 && !loop.isStopped()) void loop.tick();
   }
 
-  async function reviewSnapshotsFor(candidates: TeamReviewCandidate[]): Promise<Map<string, PrReviewSnapshot>> {
-    const prs = candidates.filter((candidate) => !state[candidate.key]?.inFlight).map(({ repo, number }) => ({ repo, number }));
-    if (prs.length === 0) return new Map();
-    return github.prReviewSnapshots(prs);
-  }
-
-  async function headsToReview(candidates: TeamReviewCandidate[]): Promise<{ queue: TeamReviewCandidate[]; isDirty: boolean }> {
+  function headsToReview(candidates: TeamReviewCandidate[]): { queue: TeamReviewCandidate[]; isDirty: boolean } {
     const queue: TeamReviewCandidate[] = [];
     let isDirty = false;
-    const snapshots = await reviewSnapshotsFor(candidates);
+    const prs = store.getSnapshot().prs;
     for (const candidate of candidates) {
       let entry = state[candidate.key];
       if (entry?.inFlight) continue;
-      const snapshot = snapshots.get(core.prKey(candidate.repo, candidate.number));
-      if (!snapshot) continue;
+      const pr = prs[comparablePrKey(candidate)];
+      if (!pr) continue;
+      const snapshot = core.reviewSnapshotFromGithubPr(pr);
       const head = snapshot.head;
       const githubReviews = core.githubReviewsFrom(snapshot.reviews, self ?? '');
       const reviewDecision = snapshot.reviewDecision ?? null;
@@ -399,16 +396,19 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return false;
   }
 
-  async function closedPostedKeys(candidateKeys: Set<string>): Promise<Set<string>> {
+  function closedPostedKeys(candidateKeys: Set<string>): Set<string> {
     const departedPosted = Object.entries(state).filter(([key, entry]) => !candidateKeys.has(key) && !entry.inFlight && entry.draft?.status === 'posted');
-    if (departedPosted.length === 0) return new Set();
-    const snapshots = await github.prReviewSnapshots(departedPosted.flatMap(([, entry]) => (entry.draft ? [{ repo: entry.draft.repo, number: entry.draft.number }] : [])));
-    return new Set(departedPosted.filter(([key]) => snapshots.get(key)?.isOpen === false).map(([key]) => key));
+    store.setWatchedKeys('team-review-departed', departedPosted.flatMap(([, entry]) => entry.draft ? [comparablePrKey(entry.draft)] : []));
+    const prs = store.getSnapshot().prs;
+    return new Set(departedPosted.filter(([, entry]) => {
+      const pr = entry.draft ? prs[comparablePrKey(entry.draft)] : undefined;
+      return pr !== undefined && pr.state !== 'OPEN';
+    }).map(([key]) => key));
   }
 
   async function pruneDeparted(candidateKeys: Set<string>): Promise<boolean> {
     let isDirty = false;
-    const closedKeys = await closedPostedKeys(candidateKeys);
+    const closedKeys = closedPostedKeys(candidateKeys);
     for (const [key, entry] of Object.entries(state)) {
       if (!candidateKeys.has(key) && entry.resumable) {
         await discardResumable(entry.resumable);
@@ -498,7 +498,10 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
 
   async function collectCandidates(): Promise<{ candidates: TeamReviewCandidate[]; isComplete: boolean } | null> {
     const firstTeam = teams[0];
-    if (!firstTeam) return null;
+    if (!firstTeam) {
+      unregisterWatches();
+      return null;
+    }
     if (teamProfile === null) teamProfile = await github.teamProfile(firstTeam.org, firstTeam.slug);
     if (self === null) self = await github.viewer();
     const viewer = self;
@@ -506,14 +509,78 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const memberLists = await Promise.all(teams.map((team) => github.teamMembers(team.org, team.slug)));
     const isMembershipComplete = memberLists.every((members) => members !== null);
     const fetchedMemberLists = memberLists.map((members) => members ?? []);
-    if (fetchedMemberLists.every((members) => members.length === 0)) return null;
+    if (fetchedMemberLists.every((members) => members.length === 0)) {
+      if (isMembershipComplete) unregisterWatches();
+      return null;
+    }
+    if (loop.isStopped()) return null;
     const searchPlans = core.orgSearchPlans(org, teams, fetchedMemberLists, viewer);
-    const directRequested = await Promise.all(searchPlans.map((plan) => github.searchDirectRequested(plan.org)));
-    const requested = await Promise.all(teams.map((team) => github.searchTeamRequested(team.org, team.slug)));
-    const authored = await Promise.all(searchPlans.map((plan) => (plan.authors.length > 0 ? github.searchAuthoredBy(plan.org, plan.authors) : { items: [], complete: true })));
-    const searches = [...directRequested, ...requested, ...authored];
-    const candidates = core.selectCandidates(directRequested.flatMap((search) => search.items), requested.flatMap((search) => search.items), authored.flatMap((search) => search.items), { self: viewer, nowMs: now(), skipIdleAfterMs });
-    return { candidates, isComplete: isMembershipComplete && searches.every((search) => search.complete) };
+    registerWatches(searchPlans);
+    const collected = candidatesFromSnapshot(viewer);
+    return { ...collected, isComplete: isMembershipComplete && collected.isComplete };
+  }
+
+  function registerWatches(searchPlans: ReturnType<typeof core.orgSearchPlans>): void {
+    const nextWatches = new Map<string, { qualifiers: string; source: 'direct' | 'team' | 'authored' }>();
+    for (const plan of searchPlans) {
+      nextWatches.set(`team-review-direct:${plan.org.toLowerCase()}`, { qualifiers: `is:open draft:false org:${plan.org} user-review-requested:@me`, source: 'direct' });
+      for (let index = 0; index < plan.authors.length; index += 5) {
+        const authors = plan.authors.slice(index, index + 5).map((author) => `author:${author}`).join(' ');
+        nextWatches.set(`team-review-authored:${plan.org.toLowerCase()}:${index / 5}`, { qualifiers: `is:open draft:false org:${plan.org} ${authors}`, source: 'authored' });
+      }
+    }
+    for (const team of teams) {
+      nextWatches.set(`team-review-team:${team.org.toLowerCase()}/${team.slug.toLowerCase()}`, { qualifiers: `is:open draft:false org:${team.org} team-review-requested:${team.org}/${team.slug}`, source: 'team' });
+    }
+    for (const name of watches.keys()) {
+      if (!nextWatches.has(name)) store.unregisterWatch(name);
+    }
+    for (const [name, watch] of nextWatches) {
+      if (watches.get(name)?.qualifiers !== watch.qualifiers) store.registerWatch({ name, qualifiers: watch.qualifiers, needsDetail: true });
+    }
+    watches.clear();
+    for (const [name, watch] of nextWatches) watches.set(name, watch);
+  }
+
+  function candidatesFromSnapshot(viewer: string): { candidates: TeamReviewCandidate[]; isComplete: boolean } {
+    const snapshot = store.getSnapshot();
+    const prsBySource: Record<'direct' | 'team' | 'authored', (typeof snapshot.prs)[string][]> = { direct: [], team: [], authored: [] };
+    let isComplete = true;
+    for (const [name, { source }] of watches) {
+      const watch = snapshot.watches[name];
+      if (!watch?.isLoaded || !watch.isComplete) isComplete = false;
+      for (const key of watch?.keys ?? []) {
+        const pr = snapshot.prs[key];
+        if (!pr) {
+          isComplete = false;
+          continue;
+        }
+        prsBySource[source].push(pr);
+      }
+    }
+    return { candidates: core.selectCandidates(prsBySource.direct, prsBySource.team, prsBySource.authored, { self: viewer, nowMs: now(), skipIdleAfterMs }), isComplete };
+  }
+
+  function rebuild(): void {
+    if (!hasLoadedState || loop.isStopped() || self === null) return;
+    const { candidates } = candidatesFromSnapshot(self);
+    const planned = headsToReview(candidates);
+    if (planned.isDirty) loop.track(persist());
+    emitStatus();
+    if (planned.queue.length === 0 || !canStartReview()) return;
+    const queueSignature = queuedHeadsSignature(planned.queue);
+    if (queueSignature === lastRebuildQueueSignature) return;
+    lastRebuildQueueSignature = queueSignature;
+    loop.tickSoon();
+  }
+
+  function canStartReview(): boolean {
+    return guardrailsRefusal() === null && inFlightKeys().length < maxConcurrentReviews;
+  }
+
+  function queuedHeadsSignature(queue: readonly TeamReviewCandidate[]): string {
+    const prs = store.getSnapshot().prs;
+    return JSON.stringify(queue.map((candidate) => [candidate.key, prs[comparablePrKey(candidate)]?.headRefOid ?? null]));
   }
 
   async function rateLimitedOutcome(): Promise<TickOutcome> {
@@ -532,6 +599,11 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       pollingError ??= 'Could not look up your GitHub account or team members.';
       return rateLimitedOutcome();
     }
+    const storeError = store.getSnapshot().freshness.error;
+    if (storeError) {
+      pollingError = storeError;
+      return rateLimitedOutcome();
+    }
     const { candidates, isComplete } = collected;
     const rateLimitWaitMs = isComplete ? null : await github.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES);
     if (rateLimitWaitMs !== null) {
@@ -539,7 +611,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       return { failed: true, retryAfterMs: rateLimitWaitMs };
     }
     const isPruned = isComplete ? await pruneDeparted(new Set(candidates.map((candidate) => candidate.key))) : false;
-    const planned = await headsToReview(candidates);
+    const planned = headsToReview(candidates);
     const isStarted = await startReviewsUnlessGuardrailsRefused(planned.queue);
     const areThreadsChanged = await handleAnsweredThreads(candidates);
     if (isPruned || planned.isDirty || areThreadsChanged || isStarted) await persist();
@@ -654,16 +726,34 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         keepPaths.add(entry.resumable.worktreePath);
       }
       await beforeStart(keepPaths);
+      hasLoadedState = true;
     });
   }
 
+  function unregisterWatches(): void {
+    for (const name of watches.keys()) store.unregisterWatch(name);
+    watches.clear();
+    store.setWatchedKeys('team-review-departed', []);
+  }
+
+  async function refresh() {
+    if (loop.isStopped()) return { ok: false, error: 'Reviews polling is stopped.' };
+    if (watches.size === 0) await collectCandidates();
+    const refreshed = await store.refreshWatches([...watches.keys()]);
+    rebuild();
+    if (!refreshed.ok) return refreshed;
+    return loop.refresh();
+  }
+
   async function stop(): Promise<void> {
+    hasLoadedState = false;
+    unregisterWatches();
     cancelPendingProgressEmit();
     await loop.stop();
     cancelPendingProgressEmit();
   }
 
-  return { start, stop, tick: loop.tick, refresh: loop.refresh, getDraft, updateDraft, updateThread, requeue, markNotMine, _state: () => state };
+  return { start, stop, tick: loop.tick, refresh, rebuild, getDraft, updateDraft, updateThread, requeue, markNotMine, _state: () => state };
 }
 
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;

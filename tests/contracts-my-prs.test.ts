@@ -92,13 +92,13 @@ test('keep mergeable attempts migrate old state and reject malformed persisted o
 test('canonical GitHub PR frames fail closed on malformed snapshots and PR fields', () => {
   const pr = {
     key: 'acme/app#7', id: 'PR_node', repo: 'Acme/app', number: 7, title: 'Fix', url: 'https://github.com/Acme/app/pull/7',
-    author: 'alice', labels: ['bug'], commentCount: 3,
+    author: 'alice', isAuthorBot: false, labels: ['bug'], commentCount: 3,
     isDraft: false, state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z',
     baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'feature', headRefOid: 'a'.repeat(40),
     isCrossRepository: false, isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
     reviewDecision: null, checks: { state: 'SUCCESS', failing: [], pendingCount: 0 }, rollupState: 'SUCCESS',
     unresolvedThreads: 0, threads: [], behindBy: null,
-    reviewRequests: [{ name: 'Acme/docs', isTeam: true, avatarUrl: null }], approvals: 0, reviews: [],
+    reviewRequests: [{ name: 'Acme/docs', isTeam: true, avatarUrl: null }], approvals: 0, reviews: [], opinionatedWriterReviewStates: [],
   };
   const frame = { type: 'github-prs', ts: 1234, prs: { [pr.key]: pr }, freshness: { lastRefreshedAt: 1234, error: null } };
   assert.deepEqual(GithubPr.parse(pr), pr);
@@ -110,6 +110,9 @@ test('canonical GitHub PR frames fail closed on malformed snapshots and PR field
     { reviewDecision: 'READY' }, { checks: { state: 'UNKNOWN', failing: [], pendingCount: 0 } },
     { checks: { state: null, failing: [], pendingCount: -1 } }, { checks: { ...pr.checks, extra: true } },
     { reviewRequests: [{ name: 'Acme/docs', isTeam: true }] }, { reviewRequests: [{ ...pr.reviewRequests[0], extra: true }] },
+    { isAuthorBot: undefined }, { opinionatedWriterReviewStates: [false] },
+    { reviews: [{ reviewer: 'alice', state: 'APPROVED', submittedAt: null, commit: 'bad' }] },
+    { reviews: [{ reviewer: 'alice', state: 'APPROVED', submittedAt: null }] },
     { keepMergeable: true }, { extra: true },
   ]) {
     const malformedPr = { ...pr, ...overrides };

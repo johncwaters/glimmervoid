@@ -1,3 +1,4 @@
+import { isBotAuthor } from '../github/core/github-store-core.ts';
 import type {
   BenchmarkCase, BenchmarkReference, CommitComparison, MergedPrListing, MinedBaseEvent, MinedPrReviewData, MinedReviewThread,
 } from '../../shared/contracts/benchmark.ts';
@@ -32,11 +33,6 @@ interface MinedCandidateOutcome {
   number: number;
   candidate: BenchmarkCase | null;
   refusal: string | null;
-}
-
-function isBotAuthor(author: { __typename: string; login: string } | null): boolean {
-  if (!author) return false;
-  return author.__typename === 'Bot' || author.login.endsWith('[bot]');
 }
 
 function authorTags(author: { __typename: string; login: string } | null): string[] {

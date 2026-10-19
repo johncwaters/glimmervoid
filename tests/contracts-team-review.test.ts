@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DraftComment, PrDetail, ReviewAssessment, ReviewComment, ReviewDraft, ReviewResult, SearchedPr, TeamReviewActionRequest, TeamReviewStateEntry, TeamReviewStatus, TeamReviewThread } from '../shared/contracts/team-review.ts';
+import { DraftComment, PrDetail, ReviewAssessment, ReviewComment, ReviewDraft, ReviewResult, TeamReviewActionRequest, TeamReviewStateEntry, TeamReviewStatus, TeamReviewThread } from '../shared/contracts/team-review.ts';
 
 const HEAD = 'a'.repeat(40);
 
@@ -31,27 +31,6 @@ test('saved review records parse with and without a remaining awake budget', () 
   assert.equal(TeamReviewStateEntry.parse({ ...oldEntry, resumable: legacyResumable }).resumable?.remainingAwakeMs, undefined);
   assert.equal(TeamReviewStateEntry.parse({ ...oldEntry, resumable: budgetedResumable }).resumable?.remainingAwakeMs, 120000);
   assert.equal(TeamReviewStateEntry.safeParse({ ...oldEntry, resumable: { ...legacyResumable, remainingAwakeMs: -1 } }).success, false);
-});
-
-test('search items require the fields needed to identify a PR while retaining GitHub fields', () => {
-  const item = {
-    number: 1350,
-    title: 'Improve agent detection',
-    html_url: 'https://github.com/PostHog/wizard/pull/1350',
-    repository_url: 'https://api.github.com/repos/PostHog/wizard',
-    user: { login: 'teammate', type: 'User', id: 7 },
-    pull_request: { url: 'https://api.github.com/repos/PostHog/wizard/pulls/1350' },
-    state: 'open',
-    updated_at: '2026-09-25T00:00:00Z',
-  };
-  assert.deepEqual(SearchedPr.parse(item), item);
-  for (const invalid of [
-    { ...item, pull_request: undefined },
-    { ...item, user: { login: 'teammate' } },
-    { ...item, number: 0 },
-    { ...item, draft: 'false' },
-    { ...item, updated_at: 123 },
-  ]) assert.equal(SearchedPr.safeParse(invalid).success, false);
 });
 
 test('PR detail requires the selected GitHub CLI fields', () => {

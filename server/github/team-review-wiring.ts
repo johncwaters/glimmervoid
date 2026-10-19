@@ -1,3 +1,4 @@
+import type { GithubLaneStore } from './github-store-wiring.ts';
 import { TeamReviewStateEntry, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import { randomBytes } from 'node:crypto';
@@ -162,6 +163,7 @@ interface TeamReviewDispatchOptions {
 
 interface TeamReviewWiringOptions {
   config: TeamReviewWiringConfig;
+  store: GithubLaneStore;
   reviewSessions: Map<string, unknown>;
   closeSessionDataClients: (id: string) => void;
   hookRouter: Pick<HookRouter, 'register' | 'unregister'> | null;
@@ -937,7 +939,7 @@ function createTeamReviewStateIo(statePath: string, log: Pick<Console, 'warn'>) 
 }
 
 function createTeamReviewWiring({
-  config, reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, gitWorkspace,
+  config, store, reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, gitWorkspace,
   recordLane = null, broadcast = () => {}, log = console,
   homeDir = glimmervoidHomeDir(),
   github = createPrGh(homeDir),
@@ -989,7 +991,7 @@ function createTeamReviewWiring({
         teams: settings.teams,
         reReviewAfterMs: settings.reReviewAfterHours * 60 * 60 * 1000,
         skipIdleAfterMs: settings.skipIdleAfterDays * 24 * 60 * 60 * 1000,
-        github,
+        github, store,
         spawnReview: trackReview,
         judgeThread: createThreadJudge(createLaneSpawn({ laneName: 'team-review', sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, allowTools: THREAD_JUDGE_TOOLS, guardrailsRefusal }), shutdownController.signal),
         guardrailsRefusal,
@@ -1013,6 +1015,8 @@ function createTeamReviewWiring({
     },
   });
 
+  const unsubscribe = store.subscribe('snapshot-changed', () => runner.getPoller()?.rebuild());
+
   function getStatus(): TeamReviewStatusType {
     const parsed = TeamReviewStatus.safeParse(runner.getStatus());
     return parsed.success ? parsed.data : emptyTeamReviewStatus(teamReviewShouldStart(config));
@@ -1025,6 +1029,7 @@ function createTeamReviewWiring({
   }
 
   async function stopPoller(): Promise<void> {
+    unsubscribe();
     shutdownController.abort();
     await Promise.allSettled([drainPending(Promise.allSettled([...inFlightReviews])), runner.stopPoller()]);
   }

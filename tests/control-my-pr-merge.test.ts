@@ -44,11 +44,16 @@ function readyNode(overrides: Partial<MyPrSearchNode> = {}): MyPrSearchNode {
   };
 }
 
-function storeReads(readNodes: () => MyPrSearchNode[]): Pick<PrGh, 'searchPrsLight' | 'prDetails' | 'notificationsSince'> {
+function storeReads(readNodes: () => MyPrSearchNode[]): Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince'> {
   return {
     async searchPrsLight(qualifiers) {
       const items = readNodes().filter((pr) => (pr.state === 'MERGED') === qualifiers.startsWith('is:merged'));
       return { ok: true, items: items.map((pr) => GithubPrLightSearchNode.parse(pr)), isComplete: true, totalCount: items.length, error: '' };
+    },
+    async prsLightByKey(references) {
+      const keys = new Set(references.map(comparablePrKey));
+      return new Map(readNodes().filter((pr) => keys.has(comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number })))
+        .map((pr) => [comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number }), GithubPrLightSearchNode.parse(pr)]));
     },
     async prDetails(references) {
       return new Map(readNodes().filter((pr) => references.some((reference) => comparablePrKey(reference) === comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number })))

@@ -1,3 +1,8 @@
+import { createPrGh } from '../server/github/pr-gh.ts';
+import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
+import { reviewSnapshotFromGithubPr } from '../server/github/core/team-review-core.ts';
+import { myPrFromGithubPr } from '../shared/my-pr-merge.ts';
+import { toMyPr } from '../server/github/core/my-prs-core.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
@@ -38,11 +43,14 @@ function storeHarness(ghCallDurationMs = 0) {
   let isDashboardConnected = true;
   let isExclusive = false;
   let nodes = [detailNode(1), detailNode(2)];
+  let searchNodeNumbers: ReadonlySet<number> | undefined;
+  let lightFailureMessage: string | null = null;
   let behindBy = 2;
   let notificationResponse: Awaited<ReturnType<PrGh['notificationsSince']>> = { kind: 'unchanged' };
   const queue = createSerialQueue();
   const timers = manualTimers();
   const searches: string[] = [];
+  const lightCalls: string[][] = [];
   const detailCalls: string[][] = [];
   const behindCalls: string[][] = [];
   const threadCalls: string[][] = [];
@@ -55,7 +63,16 @@ function storeHarness(ghCallDurationMs = 0) {
       assert.equal(isExclusive, true);
       searches.push(qualifiers);
       timestamp += ghCallDurationMs;
-      return { ok: true, items: nodes.map((node) => GithubPrLightSearchNode.parse(node)), isComplete: true, error: '' };
+      return { ok: true, items: nodes.filter((node) => !searchNodeNumbers || searchNodeNumbers.has(node.number)).map((node) => GithubPrLightSearchNode.parse(node)), isComplete: true, error: '' };
+    },
+    async prsLightByKey(references) {
+      assert.equal(isExclusive, true);
+      lightCalls.push(references.map(comparablePrKey));
+      timestamp += ghCallDurationMs;
+      if (lightFailureMessage) throw new Error(lightFailureMessage);
+      const keys = new Set(references.map(comparablePrKey));
+      return new Map(nodes.filter((node) => keys.has(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number })))
+        .map((node) => [comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), GithubPrLightSearchNode.parse(node)]));
     },
     async prDetails(references) {
       assert.equal(isExclusive, true);
@@ -114,11 +131,13 @@ function storeHarness(ghCallDurationMs = 0) {
     log: { warn: (warning: string) => { warnings.push(warning); } },
   });
   return {
-    poller, timers, searches, detailCalls, behindCalls, threadCalls, notificationCalls, diffCalls, rateLimitCalls, warnings,
+    poller, timers, searches, lightCalls, detailCalls, behindCalls, threadCalls, notificationCalls, diffCalls, rateLimitCalls, warnings,
     idle: queue.idle,
     advance: (milliseconds: number) => { timestamp += milliseconds; },
     setConnected: (connected: boolean) => { isDashboardConnected = connected; },
     setNodes: (nextNodes: GithubPrDetailNode[]) => { nodes = nextNodes; },
+    setSearchNodeNumbers: (numbers: readonly number[]) => { searchNodeNumbers = new Set(numbers); },
+    setLightFailure: (message: string | null) => { lightFailureMessage = message; },
     setBehindBy: (count: number) => { behindBy = count; },
     setNotifications: (response: Awaited<ReturnType<PrGh['notificationsSince']>>) => { notificationResponse = response; },
     cleanup: () => { for (const timer of timers.pending) timers.clearTimeoutFn(timer.handle); },
@@ -163,10 +182,10 @@ test('a rollup change without an updatedAt change fetches only that PR and emits
   harness.setConnected(false);
   harness.advance(299_999);
   await poller.tick();
-  assert.equal(harness.searches.length, 4);
+  assert.equal(harness.searches.length, 2);
   harness.advance(1);
   await poller.tick();
-  assert.equal(harness.searches.length, 6);
+  assert.equal(harness.searches.length, 2);
   assert.equal(harness.detailCalls.length, 2);
   harness.setNodes([detailNode(1), detailNode(2)]);
   const searchCountBeforeRefresh = harness.searches.length;
@@ -221,7 +240,8 @@ test('forbidden notifications disable once while light polling continues and 304
   assert.equal(forbidden.notificationCalls.length, 1);
   assert.equal(forbidden.warnings.length, 1);
   assert.match(forbidden.warnings[0], /disabled until restart/);
-  assert.equal(forbidden.searches.length, 3);
+  assert.equal(forbidden.searches.length, 1);
+  assert.equal(forbidden.lightCalls.length, 3);
   assert.equal(forbidden.poller.getSnapshot().freshness.error, null);
   unchanged.setNotifications({ kind: 'unchanged', lastModified: 'Mon, 19 Oct 2026 11:00:00 GMT', pollIntervalSeconds: 120 });
   unchanged.poller.registerWatch({ name: 'my-prs', qualifiers: 'author:@me', needsDetail: true });
@@ -232,7 +252,8 @@ test('forbidden notifications disable once while light polling continues and 304
   unchanged.advance(60_000);
   assert.deepEqual(await unchanged.poller.tick(), { failed: false });
   assert.deepEqual(unchanged.notificationCalls, [undefined, 'Mon, 19 Oct 2026 11:00:00 GMT']);
-  assert.equal(unchanged.searches.length, 3);
+  assert.equal(unchanged.searches.length, 1);
+  assert.equal(unchanged.lightCalls.length, 3);
   assert.equal(unchanged.poller.getSnapshot().freshness.error, null);
   assert.deepEqual(unchanged.warnings, []);
 });
@@ -250,6 +271,8 @@ test('two refresh requests for the same comparable key debounce to one detail fe
   harness.advance(5_000);
   harness.timers.fireAll();
   await harness.idle();
+  assert.deepEqual(harness.lightCalls, [['acme/app#1']]);
+  assert.deepEqual(harness.searches, []);
   assert.deepEqual(harness.detailCalls, [['acme/app#1']]);
   assert.equal(harness.poller.getSnapshot().prs['acme/app#1'].headRefOid, HEAD_SHA);
   assert.equal(harness.poller.getSnapshot().freshness.lastRefreshedAt, FIRST_TICK_AT + 6_000);
@@ -288,8 +311,113 @@ test('slow gh calls keep the connected light and notification polls on every one
   harness.poller.registerWatch({ name: 'my-prs', qualifiers: 'author:@me', needsDetail: true });
   for (let clockTick = 0; clockTick < 5; clockTick += 1) {
     assert.deepEqual(await harness.poller.tick(), { failed: false });
-    harness.advance(60_000 - 1_400);
+    harness.advance(60_000 - (clockTick === 0 ? 2_100 : 1_400));
   }
-  assert.equal(harness.searches.length, 5);
+  assert.equal(harness.searches.length, 1);
+  assert.equal(harness.lightCalls.length, 5);
   assert.equal(harness.notificationCalls.length, 5);
+});
+
+test('canonical detail reads preserve review commits and writer decisions without changing My PRs derivations', async () => {
+  const node = {
+    ...detailNode(7), reviewDecision: null, author: { login: 'automation', __typename: 'Bot' },
+    latestOpinionatedReviews: { nodes: [{ state: 'APPROVED' }, { state: 'APPROVED' }] },
+    writerOpinionatedReviews: { nodes: [{ state: 'CHANGES_REQUESTED' }] },
+    latestReviews: { nodes: [
+      { state: 'COMMENTED', submittedAt: '2026-10-19T11:00:00Z', author: { login: 'writer' }, commit: { oid: HEAD_SHA } },
+      { state: 'APPROVED', submittedAt: null, author: { login: 'outsider' }, commit: { oid: '' } },
+      { state: 'APPROVED', submittedAt: null, author: null, commit: null },
+    ] },
+  };
+  const github = createPrGh('/repo', async (_command, args) => {
+    const query = args.find((argument) => argument.startsWith('query=')) ?? '';
+    assert.match(query, /latestReviews\(first: 20\).*commit \{ oid \}/);
+    assert.match(query, /writerOpinionatedReviews: latestOpinionatedReviews\(first: 20, writersOnly: true\)/);
+    assert.match(query, /author \{ __typename login \}/);
+    return { ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: node } } }), err: '' };
+  });
+  const details = await github.prDetails([{ repo: 'Acme/app', number: 7 }]);
+  const detail = details.get('acme/app#7');
+  assert.ok(detail);
+  const pr = normalizeGithubPr(detail);
+  assert.equal(pr.reviewDecision, null);
+  assert.equal(pr.isAuthorBot, true);
+  assert.deepEqual(pr.reviews.map((review) => review.commit), [HEAD_SHA, null, null]);
+  const snapshot = reviewSnapshotFromGithubPr(pr);
+  assert.equal(snapshot.reviewDecision, 'CHANGES_REQUESTED');
+  assert.deepEqual(snapshot.reviews, [
+    { login: 'writer', state: 'COMMENTED', commit: HEAD_SHA, submittedAt: '2026-10-19T11:00:00Z' },
+    { login: 'outsider', state: 'APPROVED', commit: null, submittedAt: null },
+  ]);
+  for (const [opinionatedWriterReviewStates, expectedDecision] of [[[], 'REVIEW_REQUIRED'], [['APPROVED'], 'APPROVED'], [['APPROVED', 'CHANGES_REQUESTED'], 'CHANGES_REQUESTED']] as const) {
+    assert.equal(reviewSnapshotFromGithubPr({ ...pr, opinionatedWriterReviewStates: [...opinionatedWriterReviewStates] }).reviewDecision, expectedDecision);
+  }
+  assert.equal(reviewSnapshotFromGithubPr({ ...pr, reviewDecision: 'REVIEW_REQUIRED' }).reviewDecision, 'REVIEW_REQUIRED');
+  assert.deepEqual(myPrFromGithubPr(pr), toMyPr(detail, null));
+  GithubPrsFrame.parse({ type: 'github-prs', ts: FIRST_TICK_AT, prs: { [pr.key]: pr }, freshness: { lastRefreshedAt: FIRST_TICK_AT, error: null } });
+});
+
+test('membership searches and batched state reads stay within the viewed and unviewed light budget', async (context) => {
+  const harness = storeHarness();
+  context.after(harness.cleanup);
+  const { poller } = harness;
+  for (const name of ['direct', 'team', 'authored']) poller.registerWatch({ name, qualifiers: `watch:${name}`, needsDetail: true });
+  poller.setWatchedKeys('sessions', ['ACME/APP#2', 'acme/app#3', 'acme/app#4']);
+  harness.setNodes([detailNode(1), detailNode(2), detailNode(3), detailNode(4)]);
+  harness.setSearchNodeNumbers([1, 2, 5]);
+  for (let tickIndex = 0; tickIndex < 10; tickIndex += 1) {
+    assert.deepEqual(await poller.tick(), { failed: false });
+    harness.advance(60_000);
+  }
+  assert.deepEqual(harness.searches, ['watch:direct', 'watch:team', 'watch:authored', 'watch:direct', 'watch:team', 'watch:authored']);
+  assert.equal(harness.lightCalls.length, 10);
+  assert.ok(harness.lightCalls.every((keys) => keys.length === 4 && new Set(keys).size === 4));
+  assert.equal(harness.detailCalls.length, 1);
+  harness.setConnected(false);
+  for (let tickIndex = 0; tickIndex < 2; tickIndex += 1) {
+    await poller.tick();
+    harness.advance(300_000);
+  }
+  assert.equal(harness.searches.length, 6);
+  assert.equal(harness.lightCalls.length, 11);
+  await poller.tick();
+  assert.equal(harness.searches.length, 9);
+  assert.equal(harness.lightCalls.length, 12);
+  poller.registerWatch({ name: 'direct', qualifiers: 'watch:changed', needsDetail: true });
+  await poller.tick();
+  assert.equal(harness.searches.at(-1), 'watch:changed');
+  assert.equal(harness.searches.length, 10);
+  assert.deepEqual(await poller.refreshWatches(['team']), { ok: true });
+  assert.equal(harness.searches.at(-1), 'watch:team');
+  assert.equal(harness.searches.length, 11);
+  harness.setNodes([detailNode(1, 'SUCCESS'), detailNode(3), detailNode(4)]);
+  harness.advance(300_000);
+  await poller.tick();
+  assert.equal(poller.getSnapshot().prs['acme/app#2'], undefined);
+  assert.deepEqual(poller.getSnapshot().watches.team.keys, ['acme/app#1', 'acme/app#2']);
+  harness.setNodes([detailNode(1, 'SUCCESS'), detailNode(2), detailNode(3), detailNode(4), detailNode(5)]);
+  harness.setNotifications({ kind: 'ok', prKeys: ['acme/app#5'] });
+  harness.advance(60_000);
+  await poller.tick();
+  const searchesBeforeNotificationTick = harness.searches.length;
+  await poller.tick();
+  assert.equal(harness.searches.length, searchesBeforeNotificationTick + 3);
+  assert.ok(poller.getSnapshot().watches.team.keys.includes('acme/app#5'));
+  const previousPrs = poller.getSnapshot().prs;
+  harness.setLightFailure('light batch failed');
+  harness.advance(300_000);
+  const failedTick = await poller.tick();
+  assert.equal(failedTick.failed, true);
+  assert.equal(poller.getSnapshot().prs, previousPrs);
+  assert.equal(poller.getSnapshot().freshness.error, 'light batch failed');
+  harness.setLightFailure(null);
+  harness.advance(failedTick.retryAfterMs ?? 0);
+  assert.deepEqual(await poller.tick(), { failed: false });
+  assert.equal(poller.getSnapshot().freshness.error, null);
+  const searchesBeforeDetailChange = harness.searches.length;
+  const previousWatchKeys = poller.getSnapshot().watches.direct.keys;
+  poller.registerWatch({ name: 'direct', qualifiers: 'watch:changed', needsDetail: false });
+  assert.deepEqual(await poller.tick(), { failed: false });
+  assert.equal(harness.searches.length, searchesBeforeDetailChange);
+  assert.deepEqual(poller.getSnapshot().watches.direct.keys, previousWatchKeys);
 });

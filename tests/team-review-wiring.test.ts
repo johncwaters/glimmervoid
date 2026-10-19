@@ -1,3 +1,4 @@
+import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -1489,6 +1490,7 @@ test('discarding a saved review reaps its processes before removing its director
   const pollerCreated = deferredSignal();
   const wiring = createTeamReviewWiring({
     config: { teamReview: { enabled: true, org: 'Acme', team: 'core' } },
+    store: emptyGithubStore(),
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
     spawnGate: { run: async (task) => task() }, homeDir, log: { warn: () => {} },
     reapProcesses: async ({ ownedDirectories, reviewRoots, scope }) => {
@@ -1501,8 +1503,8 @@ test('discarding a saved review reaps its processes before removing its director
       events.push('reap');
     },
     github: {
-      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [], searchDirectRequested: async () => ({ items: [], complete: true }), searchTeamRequested: async () => ({ items: [], complete: true }),
-      searchAuthoredBy: async () => ({ items: [], complete: true }), viewPr: async () => null, prHead: async () => null, prReviewSnapshots: async () => new Map(), rateLimitWaitMs: async () => null, prDiff: async () => null,
+      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [],
+      viewPr: async () => null, prHead: async () => null, rateLimitWaitMs: async () => null, prDiff: async () => null,
     },
     repoCache: {
       listRepos: async () => [], ensureRepo: async () => null,
@@ -1555,6 +1557,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
   const sessionRunning = deferredSignal();
   const wiring = createTeamReviewWiring({
     config: { teamReview: { enabled: true, org: 'Acme', team: 'core' } },
+    store: emptyGithubStore(),
     reviewSessions: new Map(),
     closeSessionDataClients: () => {},
     hookRouter: null,
@@ -1564,8 +1567,8 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
     reapProcesses: async () => {},
     log: { warn: () => {} },
     github: {
-      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [], searchDirectRequested: async () => ({ items: [], complete: true }), searchTeamRequested: async () => ({ items: [], complete: true }),
-      searchAuthoredBy: async () => ({ items: [], complete: true }), viewPr: async () => null, prHead: async () => null, prReviewSnapshots: async () => new Map(), rateLimitWaitMs: async () => null, prDiff: async () => 'diff\n',
+      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [],
+      viewPr: async () => null, prHead: async () => null, rateLimitWaitMs: async () => null, prDiff: async () => 'diff\n',
     },
     repoCache: {
       listRepos: async () => [],
@@ -2159,16 +2162,19 @@ test('the wiring hands its cached guardrails refusal to the poller, whose status
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-guardrails-test-'));
   const refusal = 'not started: the Claude Code sandbox needs bwrap and socat, and socat is not on PATH. Install bubblewrap and socat';
   const pollerStarted = deferredSignal();
+  const store = emptyGithubStore();
+  let rebuildCount = 0;
   let pollerRefusal: string | null | undefined;
   const wiring = createTeamReviewWiring({
     config: { teamReview: { enabled: true, org: 'Acme', team: 'core' } },
+    store,
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
     spawnGate: { run: async (task) => task() }, homeDir, log: { warn: () => {} },
     reapProcesses: async () => {},
     guardrailsRefusal: () => refusal,
     github: {
-      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [], searchDirectRequested: async () => ({ items: [], complete: true }), searchTeamRequested: async () => ({ items: [], complete: true }),
-      searchAuthoredBy: async () => ({ items: [], complete: true }), viewPr: async () => null, prHead: async () => null, prReviewSnapshots: async () => new Map(), rateLimitWaitMs: async () => null, prDiff: async () => null,
+      viewer: async () => 'operator', teamProfile: async () => null, teamMembers: async () => ['operator', 'teammate'],
+      viewPr: async () => null, prHead: async () => null, rateLimitWaitMs: async () => null, prDiff: async () => null,
     },
     repoCache: {
       listRepos: async () => [], ensureRepo: async () => null,
@@ -2181,7 +2187,7 @@ test('the wiring hands its cached guardrails refusal to the poller, whose status
     createPoller: (dependencies) => {
       pollerRefusal = dependencies.guardrailsRefusal?.();
       const poller = createTeamReviewPoller({ ...dependencies, beforeStart: async () => {} });
-      return { ...poller, start: async () => { await poller.start(); pollerStarted.resolve(); } };
+      return { ...poller, rebuild: () => { rebuildCount += 1; poller.rebuild(); }, start: async () => { await poller.start(); pollerStarted.resolve(); } };
     },
   });
   try {
@@ -2189,8 +2195,21 @@ test('the wiring hands its cached guardrails refusal to the poller, whose status
     await pollerStarted.promise;
     assert.equal(pollerRefusal, refusal);
     assert.equal(wiring.getStatus().reason, refusal);
+    store.registerWatch({ name: 'other-lane', qualifiers: 'author:other', needsDetail: true });
+    const searchesBeforeRefresh = store.searches.length;
+    assert.deepEqual(await wiring.refresh(), { ok: true });
+    assert.deepEqual(store.searches.slice(searchesBeforeRefresh), [
+      'is:open draft:false org:Acme user-review-requested:@me',
+      'is:open draft:false org:Acme author:teammate',
+      'is:open draft:false org:Acme team-review-requested:Acme/core',
+    ]);
+    assert.equal(rebuildCount, 1);
   } finally {
     await wiring.stopPoller();
+    assert.deepEqual(Object.keys(store.getSnapshot().watches), ['other-lane']);
+    const rebuildCountAfterStop = rebuildCount;
+    await store.refreshWatches(['other-lane']);
+    assert.equal(rebuildCount, rebuildCountAfterStop);
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });
@@ -2267,3 +2286,32 @@ test('a nit whose automatic resolve failed resolves by hand, and each refusal na
     assert.deepEqual(patches, error === undefined ? [{ isResolved: true }] : [], scenario);
   }
 });
+
+function emptyGithubStore() {
+  const searches: string[] = [];
+  const poller = createGithubStorePoller({
+    now: Date.now, isDashboardConnected: () => true, exclusive: async (work) => work(),
+    setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn() {} },
+    github: {
+      async searchPrsLight(qualifiers) { searches.push(qualifiers); return { ok: true, items: [], isComplete: true, error: '' }; },
+      async prsLightByKey() { return new Map(); },
+      async prDetails() { return new Map(); },
+      async notificationsSince() { return { kind: 'unchanged' }; },
+      async behindCounts() { return new Map(); },
+      async reviewThreadsBatch() { return new Map(); },
+      async rateLimitWaitMs() { return null; },
+      async viewPr() { return null; },
+      async prDiff() { return null; },
+      async compareCommits() { return null; },
+      async prHead() { return null; },
+      async reviewThreads() { return []; },
+    },
+  });
+  return {
+    ...poller, searches,
+    subscribe: <Event extends 'snapshot-changed' | 'change'>(event: Event, listener: Parameters<typeof poller.events.on<Event>>[1]) => {
+      poller.events.on(event, listener);
+      return () => { poller.events.off(event, listener); };
+    },
+  };
+}
