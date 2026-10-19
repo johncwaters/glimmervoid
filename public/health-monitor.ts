@@ -50,7 +50,7 @@ let _latest: HealthSnapshot | null = null;
 let _debugModeEnabled = false;
 let _expanded = false;
 let _root: HTMLDivElement | null = null;
-let _summaryEl: HTMLButtonElement | null = null;
+let _statsEl: HTMLElement | null = null;
 let _detailEl: HTMLDivElement | null = null;
 
 const NO_VALUE = String.fromCharCode(0x2014);
@@ -76,19 +76,25 @@ function buildPanel() {
 
   root.hidden = true;
 
-  const summary = el('button', 'health-summary');
-  summary.type = 'button';
-  summary.setAttribute('aria-expanded', 'false');
-  summary.setAttribute('aria-controls', 'health-detail');
+  const summary = el('div', 'health-summary');
+  const toggle = el('button', 'health-toggle');
+  toggle.type = 'button';
+  toggle.setAttribute('aria-expanded', 'false');
+  toggle.setAttribute('aria-controls', 'health-detail');
+  const chevron = el('span', 'health-chev', '\u25b2');
+  chevron.setAttribute('aria-hidden', 'true');
+  toggle.append(chevron, el('span', 'health-toggle-label', 'Health'));
+  const stats = el('div', 'health-stats');
+  summary.append(toggle, stats);
 
   const detail = el('div', 'health-detail');
   detail.id = 'health-detail';
   detail.hidden = true;
 
-  summary.addEventListener('click', () => {
+  toggle.addEventListener('click', () => {
     _expanded = !_expanded;
     root.dataset.expanded = String(_expanded);
-    summary.setAttribute('aria-expanded', String(_expanded));
+    toggle.setAttribute('aria-expanded', String(_expanded));
     detail.hidden = !_expanded;
     if (_expanded) {
       sendControlMsg({ type: 'request-health-snapshot' });
@@ -98,17 +104,16 @@ function buildPanel() {
 
   root.append(summary, detail);
   _root = root;
-  _summaryEl = summary;
+  _statsEl = stats;
   _detailEl = detail;
   return root;
 }
 
 function renderSummary() {
-  if (!_summaryEl || !_latest) return;
+  if (!_statsEl || !_latest) return;
   const s = _latest;
   const anomalies = anomalyCount(s.anomalies);
-  _summaryEl.innerHTML = `
-    <span class="health-chev" aria-hidden="true">${_expanded ? '▼' : '▲'}</span>
+  _statsEl.innerHTML = `
     <span class="health-stat" title="V8 heap used"><span class="health-stat-label">Heap</span> ${formatBytes(s.process.heapUsed)}</span>
     <span class="health-stat" title="Resident set size (process memory)"><span class="health-stat-label">RSS</span> ${formatBytes(s.process.rss)}</span>
     <span class="health-stat" title="External buffers (PTY data lives here)"><span class="health-stat-label">Ext</span> ${formatBytes(s.process.external)}</span>

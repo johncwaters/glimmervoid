@@ -975,7 +975,7 @@ function renderSidebar() {
     resyncReasonLine.setAttribute('role', 'status');
     metadata.append(resyncReasonLine);
     if (!metadata.isConnected) controlsEl.insertBefore(metadata, statusLine.nextSibling);
-    controlsEl.querySelector('.review-branch-sync-text, .review-branch-sync-refresh')?.setAttribute('aria-describedby', resyncReasonLine.id);
+    controlsEl.querySelector('.review-branch-sync-button, .review-branch-sync-refresh')?.setAttribute('aria-describedby', resyncReasonLine.id);
   }
 
   if (resolveOutcome?.forId === id) controlsEl.append(statusNote(resolveOutcome.text, resolveOutcome.isError));
@@ -1027,15 +1027,15 @@ function renderBranchSync(id: string, shortcutResyncs: boolean) {
   if (sync === undefined) return null;
   if (sync === null) return el('span', 'review-branch-sync-text review-loading', 'Checking branch sync...');
   const label = branchSyncLabel(sync) || 'Base branch: sync state unknown';
-  const row = createReviewIconButton('Refresh branch sync', 'M13 6A5 5 0 1 0 13 10M13 2v4H9');
-  row.className = 'review-branch-sync-text';
-  row.removeAttribute('aria-label');
-  row.append(el('span', 'review-branch-sync-label', label));
-  row.disabled = resyncingIds.has(id);
+  const row = el('span', 'review-branch-sync-text');
   if (sync.state) row.dataset.syncState = sync.state;
   if (sync.fetched === false) row.dataset.stale = 'true';
-  row.title = branchSyncActionTitle(sync, resolveShortcutHint, shortcutResyncs);
-  row.addEventListener('click', () => requestBranchSyncAction(id));
+  const refreshButton = createReviewIconButton('Refresh branch sync', 'M13 6A5 5 0 1 0 13 10M13 2v4H9');
+  refreshButton.classList.add('review-branch-sync-button');
+  refreshButton.title = branchSyncActionTitle(sync, resolveShortcutHint, shortcutResyncs);
+  refreshButton.disabled = resyncingIds.has(id);
+  refreshButton.addEventListener('click', () => requestBranchSyncAction(id));
+  row.append(refreshButton, el('span', 'review-branch-sync-label', label));
   return row;
 }
 

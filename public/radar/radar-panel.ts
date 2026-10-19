@@ -323,6 +323,9 @@ function buildIssueActions(issue: RadarIssue, projectId: unknown, projectLabel: 
   if (issue.inFlight) {
     addButton('View investigation', 'Watch the running investigation', () => openInvestigationView(issue, projectId, projectLabel));
   }
+  if (!issue.inFlight && issue.verdict && issueReportId(issue)) {
+    addButton('Open report', 'Open the investigation report for this issue', () => openIssueReport(issue));
+  }
   if (!issue.inFlight) {
     addButton('Open session', 'Paste an investigation prompt into the mapped project session', () => {
       requestIssueAction(
@@ -366,7 +369,6 @@ function paintOpenableRowLabel(row: HTMLElement) {
   const openableRowLabel = _openableRowLabels.get(row);
   if (!openableRowLabel) return;
   row.title = openableRowLabel();
-  row.setAttribute('aria-label', row.title);
 }
 
 function repaintOpenableRowLabels() {
@@ -378,19 +380,11 @@ onStreamerModeChanged(repaintOpenableRowLabels);
 
 function makeRowOpenable(row: HTMLDivElement, openableRowLabel: () => string, open: () => void) {
   row.classList.add('radar-issue-reportable');
-  row.tabIndex = 0;
-  row.setAttribute('role', 'button');
   _openableRowLabels.set(row, openableRowLabel);
   paintOpenableRowLabel(row);
   row.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;
     if (event.target.closest('a, button')) return;
-    open();
-  });
-  row.addEventListener('keydown', (event) => {
-    if (event.target !== row) return;
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
     open();
   });
 }

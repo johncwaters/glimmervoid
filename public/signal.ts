@@ -20,15 +20,39 @@ export function createSignal(signal: Signal, { className = '', linkUrl, onActiva
     signalElement.append(createPrStatusIcon(signal.look.icon, signal.look.tone));
   }
   signalElement.append(signal.text);
-  if (onActivate) {
-    signalElement.addEventListener('click', (event) => {
-      event.stopPropagation();
-      if (event.defaultPrevented) return;
-      event.preventDefault();
-      onActivate();
-    });
-  }
+  if (onActivate) makeSignalActivatable(signalElement, onActivate, !linkUrl);
   return signalElement;
+}
+
+function makeSignalActivatable(signalElement: HTMLElement, onActivate: () => void, needsKeyboardStop: boolean): void {
+  signalElement.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    onActivate();
+  });
+  if (!needsKeyboardStop) return;
+  signalElement.tabIndex = 0;
+  signalElement.setAttribute('role', 'button');
+  signalElement.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.stopPropagation();
+    event.preventDefault();
+    onActivate();
+  });
+}
+
+function removeKeyboardStop(signalElement: HTMLElement): void {
+  signalElement.removeAttribute('tabindex');
+  signalElement.removeAttribute('role');
+}
+
+function removeNestedKeyboardStops(slot: HTMLElement, signalElements: readonly HTMLElement[]): void {
+  if (!slot.closest('button, a[href]')) return;
+  for (const signalElement of signalElements) {
+    removeKeyboardStop(signalElement);
+    for (const descendant of signalElement.querySelectorAll<HTMLElement>('[role="button"]')) removeKeyboardStop(descendant);
+  }
 }
 
 function createSignalOverflow(ranked: RankedSignals<Signal>): HTMLElement | null {
@@ -46,6 +70,7 @@ export function paintSignalLine<Line extends ActivatableSignal>(slot: HTMLElemen
   const signalElements = ranked.visible.map(buildSignal);
   const overflow = createSignalOverflow(ranked);
   if (overflow) signalElements.push(overflow);
+  removeNestedKeyboardStops(slot, signalElements);
   slot.hidden = signalElements.length === 0;
   slot.replaceChildren(...signalElements);
 }
