@@ -16,6 +16,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `package.json`, `biome.json`, `socket.yml` | Runtime/dev config; package, lint and scan policy |
 | `DESIGN.md`, `DESIGN.json`, `PRODUCT.md` | Visual system and product definition |
 | `docs/`, `bin/` | Design records and npm CLI |
+| `Glimmervoid.spec.md`, `*.spec.md`, `coherence.config.json`, `lexicon.json` | Coherence: the entry spec at the root, a component spec beside each unit's code, its config and vocabulary; `npm test` fails on a spec or lexicon problem |
 | `server/` | Backend runtime and lanes (`server/AGENTS.md`) |
 | `server/child-process-safe.ts` | The ONLY importer of `node:child_process`, bar the extension packed outside it |
 | `server/git/git-workspace.ts` | The ONLY module allowed to run `git worktree` |
