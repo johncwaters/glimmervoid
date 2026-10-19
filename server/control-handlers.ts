@@ -21,7 +21,7 @@ import { claudeProjectsDir, listRepoConversations } from '../session/core/conver
 import type { Session } from '../session/sessions.ts';
 import { readSessionSetup } from './session/session-setup-wiring.ts';
 import type { ControlSocket } from './backend/backend-websockets.ts';
-import { glimmervoidHomeDir, ABORT_CONFIG_SAVE } from './config-store.ts';
+import { ABORT_CONFIG_SAVE } from './config-store.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord, ReplayLog } from './core/control-replay-core.ts';
 import type { TelegramDeliveryControl } from './core/telegram-delivery-core.ts';
@@ -36,8 +36,8 @@ import { machineSkipsPermissionsByDefault } from './session/core/session-registr
 import { prKey, prSessionName, prSessionPrompt } from './github/core/team-review-core.ts';
 import type { PrSessionCheckout } from './github/team-review-wiring.ts';
 import { mergeWorkflowsUpdateOverStored } from './core/workflows-core.ts';
-import { createPrGh } from './github/pr-gh.ts';
-import type { PrGh } from './github/pr-gh.ts';
+import type { GithubLaneStore } from './github/github-store-wiring.ts';
+import { githubStoreRateLimitedError } from './github/github-store-poller.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from './settings-payload.ts';
 import { RESUME_ID_RE } from '../session/core/auto-resume.ts';
 import { listDroppedRepoPaths, planWorkspace, planWorkspaceMembers } from '../session/core/workspace-core.ts';
@@ -136,7 +136,7 @@ interface ControlHandlerDeps {
   myPrs?: MyPrMergeControl | null;
   getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
   benchmarks?: BenchmarkControl | null;
-  createGithubClient?: (cwd: string) => Pick<PrGh, 'viewIssue'>;
+  requestIssue?: GithubLaneStore['requestIssue'];
   issueProjectRepos?: ((projectId: string) => Promise<string[]>) | null;
   serverBuild?: () => string | null;
   getUsageSessions?: (() => unknown) | null;
@@ -367,7 +367,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     getBenchmarkStatus = null,
     benchmarks = null,
 
-    createGithubClient = createPrGh,
+    requestIssue = async () => ({ isRateLimited: false, value: { ok: false, issue: null, error: 'Issues polling is not running.' } }),
     issueProjectRepos = null,
 
     serverBuild = () => null,
@@ -985,7 +985,12 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   async function handleIssueDetail(request: ClientMessageOf<'issue-detail'>, ws: ControlSocket): Promise<void> {
     try {
-      const viewed = await createGithubClient(glimmervoidHomeDir()).viewIssue(request.issueNumber, request.repo);
+      const issueRead = await requestIssue(request.issueNumber, request.repo, 'no-wait');
+      if (issueRead.isRateLimited) {
+        replyTo(ws, request, 'issue-detail-result', { ok: false, body: null, error: githubStoreRateLimitedError(issueRead.waitMs, 'the issue') });
+        return;
+      }
+      const viewed = issueRead.value;
       if (!viewed.ok || !viewed.issue) {
         replyTo(ws, request, 'issue-detail-result', { ok: false, body: null, error: viewed.error || 'Issue not found.' });
         return;
@@ -1016,7 +1021,9 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         reply({ ok: true, sessionId: linkedSession.id, sessionName: linkedSession.name, existing: true });
         return;
       }
-      const viewed = await createGithubClient(path.resolve(project.path)).viewIssue(issueNumber, repo);
+      const issueRead = await requestIssue(issueNumber, repo, 'no-wait');
+      if (issueRead.isRateLimited) { reply({ error: githubStoreRateLimitedError(issueRead.waitMs, 'the issue') }); return; }
+      const viewed = issueRead.value;
       if (!viewed.ok) { reply({ error: `Could not read GitHub issue #${issueNumber}: ${viewed.error}` }); return; }
       const issue = viewed.issue;
       if (!issue) { reply({ error: `Open issue #${issueNumber} was not found` }); return; }

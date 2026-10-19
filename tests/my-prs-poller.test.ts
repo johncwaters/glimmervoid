@@ -1,3 +1,4 @@
+import type { PrGh } from '../server/github/pr-gh.ts';
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
 import { createSerialQueue } from '../server/spawn-gate.ts';
 import { GithubPrDetailNode, GithubPrLightSearchNode, comparablePrKey } from '../shared/contracts/github-prs.ts';
@@ -27,7 +28,7 @@ type LaneDependencies = Parameters<typeof createLanePoller>[0];
 type StoreGithub = Parameters<typeof createGithubStorePoller>[0]['github'];
 
 function createMyPrsPoller({ github, ...dependencies }: Omit<LaneDependencies, 'github' | 'store'> & {
-  github: LaneDependencies['github'] & Pick<StoreGithub, 'behindCounts' | 'reviewThreadsBatch'> & {
+  github: LaneDependencies['github'] & Pick<StoreGithub, 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs'> & Pick<PrGh, 'viewer'> & {
     readPrs: (org: string, mergedSince: string) => Promise<{ ok: boolean; items: MyPrSearchNode[]; totalCount: number; error: string }>;
   };
 }) {
@@ -774,7 +775,6 @@ test('auto-rebase off never rebases', async () => {
 test('a rejected viewer lookup publishes its error and schedule, then manual refresh recovers', async () => {
   const statuses: MyPrsSnapshot[] = [];
   let viewerCalls = 0;
-  let searchCalls = 0;
   const poller = createMyPrsPoller({
     org: 'Acme', now: () => NOW, onTickComplete: (status) => statuses.push(status),
     log: { warn() {} },
@@ -784,7 +784,7 @@ test('a rejected viewer lookup publishes its error and schedule, then manual ref
         if (viewerCalls === 1) throw new Error('error connecting to api.github.com');
         return 'alice';
       },
-      readPrs: async () => { searchCalls += 1; return { ok: true, items: [node('OPEN')], totalCount: 1, error: '' }; },
+      readPrs: async () => ({ ok: true, items: [node('OPEN')], totalCount: 1, error: '' }),
       behindCounts: async () => new Map(), reviewThreadsBatch: async () => new Map(),
       rebasePr: async () => ({ ok: true, err: '' }), rateLimitWaitMs: async () => null,
     },
@@ -792,7 +792,7 @@ test('a rejected viewer lookup publishes its error and schedule, then manual ref
   await poller.tick();
 
   assert.equal(statuses[0]?.isRefreshing, true);
-  assert.equal(statuses.at(-1)?.error, 'error connecting to api.github.com');
+  assert.equal(statuses.at(-1)?.error, 'Could not look up your GitHub account.');
   assert.equal(statuses.at(-1)?.nextAttemptAt, NOW + 10_000);
   assert.deepEqual(statuses.at(-1)?.retry, { attempt: 1, limit: 3 });
   assert.equal((await poller.refresh()).ok, true);

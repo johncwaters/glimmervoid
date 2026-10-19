@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Remaining GitHub reads share the rate limit**: opening an issue, mining benchmark cases and looking up your GitHub account now take their turn with the other reads and say at once when GitHub asks to wait, instead of failing or hanging.
 - **Issue pull request status matches My PRs**: an issue's linked pull request now shows the same status as My PRs and updates when that pull request changes, without waiting for the issue to change.
 - **Workflows reads the same PR status as My PRs**: workflow rules now see pull requests from the same GitHub data as My PRs, Reviews and the session chips, so a rule fires on the same checks, reviews and labels those views show. Each watched repository still checks its 50 most recently updated open pull requests every five minutes.
 - **Clearer session status icons**: each status now shows a familiar icon instead of a font symbol. Dormant is a dashed circle, Starting is a spinner, Working is a pulsing dot, Monitoring is an eye, Needs Input is a question mark, Idle is a pause sign, a session whose agent quit shows a stop square and a crash shows an X. Preparing now shows as Starting, and a finished turn you have not looked at shows as Idle, so the board has fewer statuses to tell apart.

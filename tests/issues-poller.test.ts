@@ -44,14 +44,12 @@ function harness(savedState: IssuesState = emptyIssuesState()) {
     writeState: async (state) => { saved = state; },
     onTickComplete: (status) => { statuses.push(status); },
     setIntervalFn: timer, clearIntervalFn: () => {}, setTimeoutFn: timer, clearTimeoutFn: () => {}, log: { warn() {} },
-    github: {
-      viewer: async () => {
+    store: {
+      requestViewer: async () => {
         assert.equal(statuses[0]?.issues[0]?.key, savedState.issues[0]?.key);
-        return 'alice';
+        return { isRateLimited: false, value: 'alice' };
       },
       rateLimitWaitMs: async () => null,
-    },
-    store: {
       setWatchedKeys: (owner, keys) => { watchedKeys.push({ owner, keys }); },
       requestIssueLinkedPullRequests: async (keys, mode) => {
         assert.equal(mode, 'no-wait');
@@ -261,8 +259,9 @@ test('issues wiring resolves workspace members without enabling review lanes and
     config, hasSession: (id) => sessionIds.has(id),
     homeDir: directory, broadcast: (status) => { statuses.push(status); },
     gitWorkspace: { originUrl: async ({ projectPath }) => { resolvedPaths.push(projectPath); return `git@github.com:acme/${path.basename(projectPath)}.git`; } },
-    github: { viewer: async () => viewer, rateLimitWaitMs: async () => null },
     store: {
+      requestViewer: async () => ({ isRateLimited: false, value: viewer }),
+      rateLimitWaitMs: async () => null,
       setWatchedKeys: () => {},
       requestIssueLinkedPullRequests: async (keys) => ({ isRateLimited: false, value: new Map(keys.map((key) => [key, []])) }),
       requestRepoIssues: async (repo) => { fetchedRepos.push(repo); return { isRateLimited: false, value: complete(repo === 'acme/app' ? [issue] : []) }; },
@@ -315,8 +314,9 @@ test('issues wiring retries an unreadable cache and keeps links made while it wa
   const wiring = createIssuesWiring({
     config: { projects: [] }, homeDir: directory, hasSession: () => true, broadcast: () => {},
     gitWorkspace: { originUrl: async () => null }, log: { warn() {} },
-    github: { viewer: async () => null, rateLimitWaitMs: async () => null },
     store: {
+      requestViewer: async () => ({ isRateLimited: false, value: null }),
+      rateLimitWaitMs: async () => null,
       setWatchedKeys: () => {},
       requestIssueLinkedPullRequests: async () => ({ isRateLimited: false, value: new Map() }),
       requestRepoIssues: async () => ({ isRateLimited: false, value: complete() }),
@@ -350,7 +350,7 @@ test('a tick on the shared GitHub clock reads through the gated store without de
   const clock = createGithubClock({ baseIntervalMs: 60000, setIntervalFn: timer, clearIntervalFn: () => {}, log: { warn() {} } });
   const githubStore = createGithubStoreWiring({ github, clock, isDashboardConnected: () => false, broadcast: () => {}, log: { warn() {} } });
   const poller = createIssuesPoller({
-    teams: [], resolveProjects: async () => [{ repo: 'acme/app', projectId: 'project-1' }], github, store: githubStore.laneStore, clock,
+    teams: [], resolveProjects: async () => [{ repo: 'acme/app', projectId: 'project-1' }], store: githubStore.laneStore, clock,
     readState: async () => emptyIssuesState(), writeState: async () => {}, onTickComplete: () => {},
     setIntervalFn: timer, clearIntervalFn: () => {}, setTimeoutFn: timer, clearTimeoutFn: () => {}, log: { warn() {} },
   });

@@ -1502,10 +1502,7 @@ test('discarding a saved review reaps its processes before removing its director
       assert.equal(fs.existsSync(worktreePath), true);
       events.push('reap');
     },
-    github: {
-      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [],
-      rateLimitWaitMs: async () => null,
-    },
+    github: {},
     repoCache: {
       listRepos: async () => [], ensureRepo: async () => null,
       fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false, isolateNewWork: async () => ({ ok: false, reason: '' }),
@@ -1566,10 +1563,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
     homeDir,
     reapProcesses: async () => {},
     log: { warn: () => {} },
-    github: {
-      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [],
-      rateLimitWaitMs: async () => null,
-    },
+    github: {},
     repoCache: {
       listRepos: async () => [],
       ensureRepo: async () => CACHED_CLONE,
@@ -2165,7 +2159,9 @@ test('the wiring hands its cached guardrails refusal to the poller, whose status
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-guardrails-test-'));
   const refusal = 'not started: the Claude Code sandbox needs bwrap and socat, and socat is not on PATH. Install bubblewrap and socat';
   const pollerStarted = deferredSignal();
-  const store = emptyGithubStore();
+  const store = emptyGithubStore({
+    viewer: async () => 'operator', teamProfile: async () => null, teamMembers: async () => ['operator', 'teammate'],
+  });
   let rebuildCount = 0;
   let pollerRefusal: string | null | undefined;
   const wiring = createTeamReviewWiring({
@@ -2175,10 +2171,7 @@ test('the wiring hands its cached guardrails refusal to the poller, whose status
     spawnGate: { run: async (task) => task() }, homeDir, log: { warn: () => {} },
     reapProcesses: async () => {},
     guardrailsRefusal: () => refusal,
-    github: {
-      viewer: async () => 'operator', teamProfile: async () => null, teamMembers: async () => ['operator', 'teammate'],
-      rateLimitWaitMs: async () => null,
-    },
+    github: {},
     repoCache: {
       listRepos: async () => [], ensureRepo: async () => null,
       fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false, isolateNewWork: async () => ({ ok: false, reason: '' }),

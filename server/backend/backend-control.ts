@@ -1,3 +1,4 @@
+import type { GithubLaneStore } from '../github/github-store-wiring.ts';
 import type { IssuesStatus } from '../../shared/contracts/issues.ts';
 import type { GithubPollingRefreshResult, GithubPrsFreshness } from '../../shared/contracts/github-polling.ts';
 import type { GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
@@ -29,7 +30,7 @@ interface SnapshotLane {
 }
 
 interface LaneReader {
-  githubStore: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness };
+  githubStore: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness; laneStore: Pick<GithubLaneStore, 'requestIssue'> };
   currentIngest: () => SnapshotLane | null;
   currentVisions: () => SnapshotLane | null;
 }
@@ -154,6 +155,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     myPrs,
     issues,
     githubStore: laneAssembly.githubStore,
+    requestIssue: laneAssembly.githubStore.laneStore.requestIssue,
     serverBuild: dependencies.serverBuild,
     telemetry: dependencies.telemetry,
     getUsageSessions: () => usage.getSessionsMessage(),

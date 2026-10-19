@@ -105,7 +105,7 @@ function harness({ savedState = null, actions = ALL_ACTIONS, filters = {}, trigg
   const sessions = createWorkflowSessionQueue({ spawnSession: spawnSession ?? (async ({ event }) => { steps.push(`spawn ${event.pr.repo}#${event.pr.number}`); }), log });
   const poller = createWorkflowsPoller({
     rules, teamName: null, github, store,
-    clock: { exclusive: async (work) => { await store.refreshWatches(Object.keys(store.getSnapshot().watches)); return work(); }, schedule: () => () => {} },
+    clock: { exclusive: async (work) => work(), schedule: () => () => {} },
     now: () => timestamp, areActionsEnabled,
     readState: async () => saved,
     writeState: async (state) => {
@@ -119,7 +119,11 @@ function harness({ savedState = null, actions = ALL_ACTIONS, filters = {}, trigg
     log,
   });
   return {
-    poller, store, rules, sessions, steps, warnings, registeredWatches,
+    poller: {
+      ...poller,
+      start: async () => { await store.refreshWatches(Object.keys(store.getSnapshot().watches)); await poller.start(); },
+      tick: async () => { await store.refreshWatches(Object.keys(store.getSnapshot().watches)); await poller.tick(); },
+    }, store, rules, sessions, steps, warnings, registeredWatches,
     setNow: (nextTimestamp: number) => { timestamp = nextTimestamp; }, savedState: () => saved, viewerLookups: () => viewerLookups,
     setItems: (nextItems: WorkflowSearchNode[]) => {
       snapshotRevision += 1;

@@ -8,6 +8,7 @@ import { createTickLoop } from './lanes/lane-runner.ts';
 import type { LaneStatusRecord, SharedClock } from './lanes/lane-runner.ts';
 import type { PrGh } from './github/pr-gh.ts';
 import type { GithubLaneStore } from './github/github-store-wiring.ts';
+import { storeReadingLaneClock } from './github/github-store-wiring.ts';
 import { WorkflowsState } from '../shared/contracts/workflows.ts';
 import type { WorkflowRule, WorkflowsState as WorkflowsStateType } from '../shared/contracts/workflows.ts';
 import { errorMessage } from '../shared/text.ts';
@@ -86,8 +87,8 @@ interface WorkflowsPollerDependencies {
   areActionsEnabled?: () => boolean;
   teamName: string | null;
   maxActionsPerPoll?: number;
-  github: Pick<PrGh, 'viewer' | 'addPrLabel' | 'commentOnPr' | 'rateLimitWaitMs'>;
-  store: Pick<GithubLaneStore, 'registerWatch' | 'unregisterWatch' | 'getSnapshot'>;
+  github: Pick<PrGh, 'addPrLabel' | 'commentOnPr'>;
+  store: Pick<GithubLaneStore, 'registerWatch' | 'unregisterWatch' | 'getSnapshot' | 'requestViewer' | 'rateLimitWaitMs'>;
   readState: () => Promise<WorkflowsStateType | null>;
   writeState: (state: WorkflowsStateType) => Promise<void>;
   notify: (notification: { sessionName: string; message: string }) => void;
@@ -144,9 +145,9 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
   }
 
   const loop = createTickLoop({
-    tag: core.WORKFLOWS_LANE_ID, intervalMs: intervalMinutes * 60000, now, log, clock: dependencies.clock, firstTickDelayMs: dependencies.firstTickDelayMs,
+    tag: core.WORKFLOWS_LANE_ID, intervalMs: intervalMinutes * 60000, now, log, clock: storeReadingLaneClock(dependencies.clock), firstTickDelayMs: dependencies.firstTickDelayMs,
     setIntervalFn: dependencies.setIntervalFn, clearIntervalFn: dependencies.clearIntervalFn, setTimeoutFn: dependencies.setTimeoutFn, clearTimeoutFn: dependencies.clearTimeoutFn,
-    rateLimitWaitMs: () => github.rateLimitWaitMs(now(), WORKFLOWS_RATE_LIMIT_RESOURCES),
+    rateLimitWaitMs: () => store.rateLimitWaitMs(now(), WORKFLOWS_RATE_LIMIT_RESOURCES),
     onScheduleChange: publishStatus,
     backoffMaxMs: GITHUB_RATE_LIMIT_WINDOW_MS,
     tick: async () => {
@@ -160,15 +161,8 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
   });
 
   async function failedOutcome(errorText: string) {
-    const rateLimitWaitMs = await github.rateLimitWaitMs(now(), WORKFLOWS_RATE_LIMIT_RESOURCES) ?? secondaryRateLimitWaitMs(errorText);
+    const rateLimitWaitMs = await store.rateLimitWaitMs(now(), WORKFLOWS_RATE_LIMIT_RESOURCES) ?? secondaryRateLimitWaitMs(errorText);
     return rateLimitWaitMs === null ? { failed: true } : { failed: true, retryAfterMs: rateLimitWaitMs };
-  }
-
-  async function lookUpViewer(): Promise<boolean> {
-    if (!isViewerNeeded || hasLookedUpViewer) return true;
-    viewer = await github.viewer();
-    hasLookedUpViewer = viewer !== null;
-    return hasLookedUpViewer;
   }
 
   async function runActionAndReportOwnComment(planned: PlannedWorkflowAction): Promise<boolean> {
@@ -192,7 +186,13 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
   async function runTick() {
     await loadState();
     if (loop.isStopped() || dependencies.areActionsEnabled?.() === false) return { failed: false };
-    if (!await lookUpViewer()) {
+    if (isViewerNeeded && !hasLookedUpViewer) {
+      const viewerRead = await store.requestViewer('no-wait');
+      if (viewerRead.isRateLimited) return { failed: true, retryAfterMs: viewerRead.waitMs };
+      viewer = viewerRead.value;
+      hasLookedUpViewer = viewer !== null;
+    }
+    if (isViewerNeeded && !hasLookedUpViewer) {
       pollingError = 'Could not look up your GitHub account.';
       return failedOutcome(pollingError);
     }

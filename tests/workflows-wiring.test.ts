@@ -11,6 +11,8 @@ import type { WorkflowsPollerDependencies } from '../server/workflows-poller.ts'
 import type { WorkflowPr } from '../shared/contracts/workflows.ts';
 
 const store: WorkflowsPollerDependencies['store'] = {
+  requestViewer: async () => ({ isRateLimited: false, value: null }),
+  rateLimitWaitMs: async () => null,
   registerWatch: () => {}, unregisterWatch: () => {},
   getSnapshot: () => ({ prs: {}, freshness: { lastRefreshedAt: null, error: null }, watches: {} }),
 };

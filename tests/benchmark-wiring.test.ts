@@ -85,10 +85,10 @@ function harness({ root, suite, cases, overrides = {} }: { root: string; suite: 
     runsRoot: runsRootFor(root),
     isEnabled: () => true,
     broadcast: (status) => statuses.push(BenchmarkStatus.parse(status)),
-    github: {
-      listMergedPrs: async () => ({ ok: false, reason: 'not used' }),
-      benchmarkReviewData: async () => new Map(),
-      compareCommits: async () => null,
+    store: {
+      requestMergedPrs: async () => ({ isRateLimited: false, value: { ok: false, reason: 'not used' } }),
+      requestBenchmarkReviewData: async () => ({ isRateLimited: false, value: new Map() }),
+      requestCompareCommits: async () => ({ isRateLimited: false, value: null }),
     },
     repoCache: { ensureRepo: async () => null, hydrateSince: async () => false },
     repoCacheRoot: repoCacheRootFor(root),

@@ -65,9 +65,16 @@ function storeHarness(ghCallDurationMs = 0) {
   const issueSearchCalls: string[] = [];
   const issueLinkedPrCalls: (readonly string[])[] = [];
   let hasIssueReadFailure = false;
+  let viewerLogin: string | null = null;
+  let viewerCalls = 0;
   const issueFetch = { ok: true, items: [], isComplete: true, error: '' };
 
   const github: Parameters<typeof createGithubStorePoller>[0]['github'] = {
+    async viewer() {
+      assert.equal(isExclusive, true);
+      viewerCalls += 1;
+      return viewerLogin;
+    },
     async listRepoIssues(...args) {
       assert.equal(isExclusive, true);
       repoIssueCalls.push(args);
@@ -159,6 +166,8 @@ function storeHarness(ghCallDurationMs = 0) {
     poller, timers, searches, membershipCaps, lightCalls, detailCalls, behindCalls, threadCalls, notificationCalls, diffCalls, rateLimitCalls, warnings,
     rateLimitResources, repoIssueCalls, issueSearchCalls, issueLinkedPrCalls, issueFetch,
     limitResource: (resource: string | null) => { rateLimitedResource = resource; },
+    setViewer: (login: string) => { viewerLogin = login; },
+    viewerCalls: () => viewerCalls,
     failIssueReads: () => { hasIssueReadFailure = true; },
     idle: queue.idle,
     advance: (milliseconds: number) => { timestamp += milliseconds; },
@@ -308,9 +317,16 @@ test('two refresh requests for the same comparable key debounce to one detail fe
   assert.equal(harness.poller.getSnapshot().freshness.lastRefreshedAt, FIRST_TICK_AT + 6_000);
 });
 
-test('one-shot diff reads cache by PR and head SHA without a second gh call', async (context) => {
+test('one-shot reads cache successful viewers and diffs by PR and head SHA without a second gh call', async (context) => {
   const harness = storeHarness();
   context.after(harness.cleanup);
+  assert.deepEqual(await harness.poller.requestViewer('no-wait'), { isRateLimited: false, value: null });
+  harness.setViewer('alice');
+  assert.deepEqual(await harness.poller.requestViewer('no-wait'), { isRateLimited: false, value: 'alice' });
+  harness.limitResource('core');
+  assert.deepEqual(await harness.poller.requestViewer('no-wait'), { isRateLimited: false, value: 'alice' });
+  assert.equal(harness.viewerCalls(), 2);
+  harness.limitResource(null);
   const firstDiff = await harness.poller.requestPrDiff('Acme/app', 1, HEAD_SHA);
   const rateLimitCallCount = harness.rateLimitCalls.length;
   assert.deepEqual(await harness.poller.requestPrDiff('acme/app', 1, HEAD_SHA), firstDiff);
@@ -440,6 +456,8 @@ test('membership searches and batched state reads stay within the viewed and unv
   assert.equal(failedTick.failed, true);
   assert.equal(poller.getSnapshot().prs, previousPrs);
   assert.equal(poller.getSnapshot().freshness.error, 'light batch failed');
+  assert.deepEqual(await poller.requestViewer('no-wait'), { isRateLimited: false, value: null });
+  assert.equal(harness.viewerCalls(), 1);
   harness.setLightFailure(null);
   harness.advance(failedTick.retryAfterMs ?? 0);
   assert.deepEqual(await poller.tick(), { failed: false });

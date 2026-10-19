@@ -6,6 +6,7 @@ import { drainPending, firstLine } from '../lanes/ephemeral-session.ts';
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
+import { storeReadingLaneClock } from './github-store-wiring.ts';
 import type { PrGh } from './pr-gh.ts';
 import type { MyPr, MyPrAutoRebase, MyPrsSnapshot, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeQueueFailure, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult } from '../../shared/contracts/my-prs.ts';
 import { myPrFromGithubPr } from '../../shared/my-pr-merge.ts';
@@ -23,7 +24,7 @@ interface MyPrsPollerDependencies {
   writeState?: (state: core.MyPrsLaneState) => Promise<void>;
   fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void>, latestListedPr: () => MyPr | undefined) => Promise<MyPrMergeabilityFixResult>;
   beforeStart?: () => Promise<void>;
-  github: Pick<PrGh, 'viewer' | 'rebasePr' | 'rateLimitWaitMs'>;
+  github: Pick<PrGh, 'rebasePr'>;
   store: GithubLaneStore;
   mergePr?: (pr: MyPr) => Promise<Omit<MyPrMergeResult, 'key'>>;
   onTickComplete: (status: MyPrsSnapshot) => void;
@@ -131,8 +132,8 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   }
 
   const loop = createTickLoop({
-    tag: core.MY_PRS_LANE_ID, intervalMs: intervalMinutes * 60000, setIntervalFn, clearIntervalFn, clock, firstTickDelayMs, setTimeoutFn, clearTimeoutFn, now, quickRetries: true,
-    rateLimitWaitMs: () => github.rateLimitWaitMs(now(), MY_PRS_RATE_LIMIT_RESOURCES),
+    tag: core.MY_PRS_LANE_ID, intervalMs: intervalMinutes * 60000, setIntervalFn, clearIntervalFn, clock: storeReadingLaneClock(clock), firstTickDelayMs, setTimeoutFn, clearTimeoutFn, now, quickRetries: true,
+    rateLimitWaitMs: () => store.rateLimitWaitMs(now(), MY_PRS_RATE_LIMIT_RESOURCES),
     onScheduleChange: publishStatus,
     writeState: writeCurrentState,
     backoffMaxMs: GITHUB_RATE_LIMIT_WINDOW_MS, log,
@@ -146,14 +147,16 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     },
   });
   async function failedOutcome(errorText: string) {
-    const rateLimitWaitMs = await github.rateLimitWaitMs(now(), MY_PRS_RATE_LIMIT_RESOURCES) ?? secondaryRateLimitWaitMs(errorText);
+    const rateLimitWaitMs = await store.rateLimitWaitMs(now(), MY_PRS_RATE_LIMIT_RESOURCES) ?? secondaryRateLimitWaitMs(errorText);
     return rateLimitWaitMs === null ? { failed: true } : { failed: true, retryAfterMs: rateLimitWaitMs };
   }
   async function runTick() {
     await loadState();
     if (loop.isStopped()) return { failed: false };
     if (!hasLookedUpViewer) {
-      viewer = await github.viewer();
+      const viewerRead = await store.requestViewer('no-wait');
+      if (viewerRead.isRateLimited) return { failed: true, retryAfterMs: viewerRead.waitMs };
+      viewer = viewerRead.value;
       if (loop.isStopped()) return { failed: false };
       if (viewer === null) {
         pollingError = 'Could not look up your GitHub account.';

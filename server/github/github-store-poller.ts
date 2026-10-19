@@ -21,7 +21,7 @@ interface GithubStoreWatch {
 }
 
 interface GithubStoreDependencies {
-  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads' | 'listRepoIssues' | 'searchIssues' | 'issueLinkedPullRequests'>>;
+  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads' | 'listRepoIssues' | 'searchIssues' | 'issueLinkedPullRequests' | 'viewer' | 'teamProfile' | 'teamMembers' | 'viewIssue' | 'listMergedPrs' | 'benchmarkReviewData' | 'compareCommits'>>;
   now: () => number;
   isDashboardConnected: () => boolean;
   exclusive: SharedClock['exclusive'];
@@ -39,8 +39,8 @@ const REFRESH_DEBOUNCE_MS = 5_000;
 const DEFAULT_NOTIFICATIONS_INTERVAL_MS = 60_000;
 const RATE_LIMIT_RESOURCES = ['graphql', 'core'] as const;
 
-export function githubStoreRateLimitedError(waitMs: number): string {
-  return `GitHub rate limit asks to wait about ${Math.max(1, Math.ceil(waitMs / 60_000))} min before reading the pull request. Try again then`;
+export function githubStoreRateLimitedError(waitMs: number, readSubject = 'the pull request'): string {
+  return `GitHub rate limit asks to wait about ${Math.max(1, Math.ceil(waitMs / 60_000))} min before reading ${readSubject}. Try again then`;
 }
 
 export function createGithubStorePoller({ github, now, isDashboardConnected, exclusive, setTimeoutFn, clearTimeoutFn, log }: GithubStoreDependencies) {
@@ -54,6 +54,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   const prViewsByHead = new Map<string, NonNullable<Awaited<ReturnType<PrGh['viewPr']>>>>();
   const diffsByHead = new Map<string, string>();
   const teamReviewComparisonsByHeads = new Map<string, Extract<Awaited<ReturnType<PrGh['teamReviewCompare']>>, { ok: true }>>();
+  let viewerLogin: string | null = null;
   let prs: GithubStoreSnapshot['prs'] = {};
   let lightByKey = new Map<string, GithubPrLightSearchNode>();
   let membershipRevision = 0;
@@ -67,6 +68,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   let lastRefreshedAt: number | null = null;
   let pollingError: string | null = null;
   let backoffUntil = 0;
+  let rateLimitedUntil = 0;
   let failureStreak = 0;
   const unavailableKeys = new Set<string>();
 
@@ -122,6 +124,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     const retryAfterMs = secondaryRateLimitWaitMs(pollingError) ?? undefined;
     const schedule = nextRetrySchedule({ failureStreak, quickRetryCount: 0, quickRetries: false, retryAfterMs, baseMs: 60_000, maxMs: GITHUB_RATE_LIMIT_WINDOW_MS, random: () => 1 });
     backoffUntil = now() + schedule.waitMs;
+    rateLimitedUntil = retryAfterMs === undefined ? 0 : backoffUntil;
     log.warn(`[github-store] ${pollingError}`);
     return { failed: true, retryAfterMs: schedule.waitMs };
   }
@@ -134,6 +137,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     pollingError = null;
     failureStreak = 0;
     backoffUntil = 0;
+    rateLimitedUntil = 0;
   }
 
   async function fetchDetails(keys: readonly string[]) {
@@ -297,6 +301,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
         const rateLimitWaitMs = await github.rateLimitWaitMs(now(), RATE_LIMIT_RESOURCES);
         if (rateLimitWaitMs !== null && rateLimitWaitMs > 0) {
           backoffUntil = now() + rateLimitWaitMs;
+          rateLimitedUntil = backoffUntil;
           return { failed: true, retryAfterMs: rateLimitWaitMs };
         }
         if (isLightDue) ({ details, removedKeys, hasWatchChanges } = await pollLight(tickStartedAt, watchNames ? new Set(watchNames) : undefined));
@@ -320,7 +325,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
 
   async function readWaitMs(resources: readonly string[]): Promise<number> {
     const rateLimitWaitMs = await github.rateLimitWaitMs(now(), resources);
-    return Math.max(backoffUntil - now(), rateLimitWaitMs ?? 0);
+    return Math.max(rateLimitedUntil - now(), rateLimitWaitMs ?? 0);
   }
 
   async function readWhenAllowed<Value>(read: () => Promise<Value>, canSkipWait: () => boolean = () => false, mode: GithubStoreReadMode = 'wait', resources: readonly string[] = RATE_LIMIT_RESOURCES): Promise<GithubStoreRead<Value>> {
@@ -388,6 +393,40 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     }, null, () => cache.has(key), mode);
   }
 
+  function requestViewer(mode: GithubStoreReadMode = 'wait') {
+    return requestRead(async () => {
+      if (viewerLogin !== null) return viewerLogin;
+      viewerLogin = await github.viewer?.() ?? null;
+      return viewerLogin;
+    }, null, () => viewerLogin !== null, mode, ['core']);
+  }
+
+  function requestTeamProfile(org: string, slug: string, mode: GithubStoreReadMode = 'wait') {
+    return requestRead(() => github.teamProfile?.(org, slug) ?? Promise.resolve(null), null, () => false, mode, ['graphql']);
+  }
+
+  function requestTeamMembers(org: string, slug: string, mode: GithubStoreReadMode = 'wait') {
+    return requestRead(() => github.teamMembers?.(org, slug) ?? Promise.resolve(null), null, () => false, mode, ['core']);
+  }
+
+  function requestIssue(number: number | string, repo: string, mode: GithubStoreReadMode = 'wait') {
+    const fallback = { ok: false, issue: null, error: 'gh issue view failed' };
+    return requestRead(() => github.viewIssue?.(number, repo) ?? Promise.resolve(fallback), fallback, () => false, mode, ['graphql']);
+  }
+
+  function requestMergedPrs(repo: string, limit: number, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['listMergedPrs']>>>> {
+    const fallback = { ok: false as const, reason: 'gh graphql search failed' };
+    return requestRead(() => github.listMergedPrs?.(repo, limit) ?? Promise.resolve(fallback), fallback, () => false, mode, ['graphql']);
+  }
+
+  function requestBenchmarkReviewData(repo: string, numbers: readonly number[], mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['benchmarkReviewData']>>>> {
+    return requestRead(() => github.benchmarkReviewData?.(repo, numbers) ?? Promise.resolve(new Map()), new Map(), () => false, mode, ['graphql']);
+  }
+
+  function requestCompareCommits(repo: string, base: string, head: string, mode: GithubStoreReadMode = 'wait') {
+    return requestRead(() => github.compareCommits?.(repo, base, head) ?? Promise.resolve(null), null, () => false, mode, ['core']);
+  }
+
   function requestPrView(repo: string, number: number, headSha: string, mode: GithubStoreReadMode = 'wait') {
     return requestCached(prViewsByHead, `${comparablePrKey({ repo, number })}@${headSha}`, async () => {
       const pr = await github.viewPr(repo, number);
@@ -443,6 +482,8 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
 
   return {
     events, registerWatch, unregisterWatch, setWatchedKeys, tick, requestRefresh, refreshWatches, getSnapshot,
+    requestViewer, requestTeamProfile, requestTeamMembers, requestIssue, requestMergedPrs, requestBenchmarkReviewData, requestCompareCommits,
+    rateLimitWaitMs: (nowMs: number, resources: readonly string[]) => github.rateLimitWaitMs(nowMs, resources),
     requestPrView, requestPrDiff, requestTeamReviewCompare, requestTeamReviewThreads,
     requestRepoIssues, requestIssueSearch, requestIssueLinkedPullRequests,
     requestPrHead: (repo: string, number: number, mode: GithubStoreReadMode = 'wait') => requestRead(() => github.prHead(repo, number), null, () => false, mode),

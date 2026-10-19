@@ -202,7 +202,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       }),
     }),
   });
-  const issues = createIssuesWiring({ config, github, store: githubStore.laneStore, gitWorkspace, broadcast: broadcastControl, hasSession: (id) => sessions.has(id), log: logger, clock: githubClock });
+  const issues = createIssuesWiring({ config, store: githubStore.laneStore, gitWorkspace, broadcast: broadcastControl, hasSession: (id) => sessions.has(id), log: logger, clock: githubClock });
   const workflowsWorkRoot = path.join(glimmervoidHome, 'workflows-work');
   const workflows = createWorkflowsWiring({
     config, notificationManager, store: githubStore.laneStore, log: logger, clock: githubClock,
@@ -235,7 +235,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     runsRoot: path.join(glimmervoidHome, 'benchmark-runs'),
     isEnabled: () => configStore.config.benchmarks?.enabled === true,
     broadcast: broadcastControl,
-    github,
+    store: githubStore.laneStore,
     repoCache: sharedRepoCache,
     repoCacheRoot: sharedRepoCacheRoot,
     gitWorkspace,

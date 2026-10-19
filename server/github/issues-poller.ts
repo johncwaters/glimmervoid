@@ -2,8 +2,8 @@ import * as core from './core/issues-core.ts';
 import { IssuesState } from '../../shared/contracts/issues.ts';
 import type { CachedIssueRow, IssuePullRequest, IssuesState as IssuesStateType, IssuesStatus } from '../../shared/contracts/issues.ts';
 import type { GithubPollingRefreshResult } from '../../shared/contracts/github-polling.ts';
-import type { PrGh } from './pr-gh.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
+import { storeReadingLaneClock } from './github-store-wiring.ts';
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
@@ -14,8 +14,7 @@ import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } fro
 interface IssuesPollerDependencies {
   teams: string[];
   resolveProjects: (cachedIssues: readonly CachedIssueRow[]) => Promise<core.IssuesProjectRepo[]>;
-  github: Pick<PrGh, 'viewer' | 'rateLimitWaitMs'>;
-  store: Pick<GithubLaneStore, 'requestRepoIssues' | 'requestIssueSearch' | 'requestIssueLinkedPullRequests' | 'setWatchedKeys'>;
+  store: Pick<GithubLaneStore, 'requestRepoIssues' | 'requestIssueSearch' | 'requestIssueLinkedPullRequests' | 'setWatchedKeys' | 'requestViewer' | 'rateLimitWaitMs'>;
   getSessionLinks?: () => Record<string, string>;
   readState: () => Promise<unknown>;
   writeState: (state: IssuesStateType) => Promise<void>;
@@ -31,7 +30,7 @@ interface IssuesPollerDependencies {
 }
 
 export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
-  const { teams, github, store, onTickComplete, now = Date.now, log = console } = dependencies;
+  const { teams, store, onTickComplete, now = Date.now, log = console } = dependencies;
   let state = core.emptyIssuesState();
   let projects: core.IssuesProjectRepo[] = [];
   let viewer: string | null = null;
@@ -40,7 +39,7 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
   let stateLoad: Promise<void> | null = null;
   let shouldReconcile = false;
   let laneTickCount = 0;
-  const rateLimitWaitMs = () => github.rateLimitWaitMs(now(), ['core', 'search']);
+  const rateLimitWaitMs = () => store.rateLimitWaitMs(now(), ['core', 'search']);
 
   function publishStatus(): void {
     if (loop.isStopped()) return;
@@ -67,7 +66,11 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     if (loop.isStopped()) return { failed: false };
     projects = await dependencies.resolveProjects(state.issues);
     if (loop.isStopped()) return { failed: false };
-    if (!viewer) viewer = await github.viewer();
+    if (!viewer) {
+      const viewerRead = await store.requestViewer('no-wait');
+      if (viewerRead.isRateLimited) return { failed: true, retryAfterMs: viewerRead.waitMs };
+      viewer = viewerRead.value;
+    }
     if (loop.isStopped()) return { failed: false };
     hasResolvedSources = true;
     const timestamp = now();
@@ -146,7 +149,7 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
 
   const loop = createTickLoop({
     tag: core.ISSUES_LANE_ID, intervalMs: core.POLL_INTERVAL_MINUTES * 60000, quickRetries: true,
-    now, clock: dependencies.clock ? { schedule: dependencies.clock.schedule, exclusive: async (work) => work() } : undefined, firstTickDelayMs: dependencies.firstTickDelayMs,
+    now, clock: storeReadingLaneClock(dependencies.clock), firstTickDelayMs: dependencies.firstTickDelayMs,
     setIntervalFn: dependencies.setIntervalFn, clearIntervalFn: dependencies.clearIntervalFn,
     setTimeoutFn: dependencies.setTimeoutFn, clearTimeoutFn: dependencies.clearTimeoutFn,
     log, backoffMaxMs: GITHUB_RATE_LIMIT_WINDOW_MS, rateLimitWaitMs,

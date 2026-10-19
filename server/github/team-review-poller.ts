@@ -1,6 +1,7 @@
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
+import { storeReadingLaneClock } from './github-store-wiring.ts';
 import { githubStoreRateLimitedError } from './github-store-poller.ts';
 import type { GithubStoreRead } from './github-store-poller.ts';
 import { viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgePrompt, parseThreadJudgeResult, threadJudgePatch, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from './core/team-review-threads-core.ts';
@@ -24,12 +25,7 @@ import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } fro
 
 const TEAM_REVIEW_RATE_LIMIT_RESOURCES = ['search', 'graphql', 'core'] as const;
 
-interface TeamReviewGithub extends Partial<Pick<PrGh, 'resolveReviewThread'>> {
-  viewer(): Promise<string | null>;
-  teamMembers(org: string, team: string): Promise<string[] | null>;
-  teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
-  rateLimitWaitMs(nowMs: number, resourceNames: readonly string[]): Promise<number | null>;
-}
+type TeamReviewGithub = Partial<Pick<PrGh, 'resolveReviewThread'>>;
 
 interface SpawnReviewArgs {
   candidate: TeamReviewCandidate;
@@ -127,8 +123,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       }
     },
     quickRetries: true, now, setTimeoutFn, clearTimeoutFn, onScheduleChange: emitStatus,
-    rateLimitWaitMs: () => github.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES),
-    writeState: () => writeState(state), setIntervalFn, clearIntervalFn, clock: deps.clock ? { schedule: deps.clock.schedule, exclusive: async (work) => work() } : undefined, firstTickDelayMs: deps.firstTickDelayMs, backoffMaxMs: GITHUB_RATE_LIMIT_WINDOW_MS, log,
+    rateLimitWaitMs: () => store.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES),
+    writeState: () => writeState(state), setIntervalFn, clearIntervalFn, clock: storeReadingLaneClock(deps.clock), firstTickDelayMs: deps.firstTickDelayMs, backoffMaxMs: GITHUB_RATE_LIMIT_WINDOW_MS, log,
   });
   const persist = () => loop.persist();
 
@@ -533,11 +529,24 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       unregisterWatches();
       return null;
     }
-    if (teamProfile === null) teamProfile = await github.teamProfile(firstTeam.org, firstTeam.slug);
-    if (self === null) self = await github.viewer();
+    if (teamProfile === null) {
+      const profileRead = await store.requestTeamProfile(firstTeam.org, firstTeam.slug, 'no-wait');
+      if (profileRead.isRateLimited) { tickRateLimitWaitMs = profileRead.waitMs; return null; }
+      teamProfile = profileRead.value;
+    }
+    if (self === null) {
+      const viewerRead = await store.requestViewer('no-wait');
+      if (viewerRead.isRateLimited) { tickRateLimitWaitMs = viewerRead.waitMs; return null; }
+      self = viewerRead.value;
+    }
     const viewer = self;
     if (viewer === null) return null;
-    const memberLists = await Promise.all(teams.map((team) => github.teamMembers(team.org, team.slug)));
+    const memberLists: (string[] | null)[] = [];
+    for (const team of teams) {
+      const membersRead = await store.requestTeamMembers(team.org, team.slug, 'no-wait');
+      if (membersRead.isRateLimited) { tickRateLimitWaitMs = membersRead.waitMs; return null; }
+      memberLists.push(membersRead.value);
+    }
     const isMembershipComplete = memberLists.every((members) => members !== null);
     const fetchedMemberLists = memberLists.map((members) => members ?? []);
     if (fetchedMemberLists.every((members) => members.length === 0)) {
@@ -643,18 +652,22 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   }
 
   async function rateLimitedOutcome(): Promise<TickOutcome> {
-    const rateLimitWaitMs = await github.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES) ?? secondaryRateLimitWaitMs(pollingError);
+    const rateLimitWaitMs = await store.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES) ?? secondaryRateLimitWaitMs(pollingError);
     return rateLimitWaitMs === null ? { failed: true } : { failed: true, retryAfterMs: rateLimitWaitMs };
   }
 
   async function runTick(): Promise<TickOutcome | undefined> {
     pollingError = null;
     tickRateLimitWaitMs = null;
-    const collected = await (deps.clock ? deps.clock.exclusive(collectCandidates) : collectCandidates()).catch((error: unknown) => {
+    const collected = await collectCandidates().catch((error: unknown) => {
       pollingError = errorMessage(error);
       log.warn(`[${core.TEAM_REVIEW_LANE_ID}] candidate search failed: ${pollingError}`);
       return null;
     });
+    if (tickRateLimitWaitMs !== null) {
+      pollingError = 'GitHub rate limit asks to wait.';
+      return { failed: true, retryAfterMs: tickRateLimitWaitMs };
+    }
     if (collected === null) {
       pollingError ??= 'Could not look up your GitHub account or team members.';
       return rateLimitedOutcome();
@@ -665,7 +678,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       return rateLimitedOutcome();
     }
     const { candidates, isComplete } = collected;
-    const rateLimitWaitMs = isComplete ? null : await github.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES);
+    const rateLimitWaitMs = isComplete ? null : await store.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES);
     if (rateLimitWaitMs !== null) {
       pollingError = 'GitHub rate limit asks to wait.';
       return { failed: true, retryAfterMs: rateLimitWaitMs };

@@ -15,6 +15,10 @@ interface GithubStoreWiringOptions {
   log: Pick<Console, 'warn'>;
 }
 
+export function storeReadingLaneClock(clock: SharedClock | undefined): SharedClock | undefined {
+  return clock ? { schedule: clock.schedule, exclusive: async (work) => work() } : undefined;
+}
+
 export function createGithubStoreWiring({ github, clock, now = Date.now, isDashboardConnected, broadcast, log }: GithubStoreWiringOptions) {
   const poller = createGithubStorePoller({
     github,
@@ -45,6 +49,14 @@ export function createGithubStoreWiring({ github, clock, now = Date.now, isDashb
     getSnapshot: poller.getSnapshot,
     refreshWatches: poller.refreshWatches,
     requestRefresh: poller.requestRefresh,
+    requestViewer: poller.requestViewer,
+    requestTeamProfile: poller.requestTeamProfile,
+    requestTeamMembers: poller.requestTeamMembers,
+    requestIssue: poller.requestIssue,
+    requestMergedPrs: poller.requestMergedPrs,
+    requestBenchmarkReviewData: poller.requestBenchmarkReviewData,
+    requestCompareCommits: poller.requestCompareCommits,
+    rateLimitWaitMs: poller.rateLimitWaitMs,
     requestPrView: poller.requestPrView,
     requestPrDiff: poller.requestPrDiff,
     requestPrHead: poller.requestPrHead,

@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
-import type { PrGh } from '../server/github/pr-gh.ts';
+import type { GithubLaneStore } from '../server/github/github-store-wiring.ts';
+import { githubStoreRateLimitedError } from '../server/github/github-store-poller.ts';
 import type { PrSessionCheckout } from '../server/github/team-review-wiring.ts';
 import type { ServerMessage } from '../shared/contracts/control-messages.ts';
 import { issuesStatus } from '../server/github/core/issues-core.ts';
@@ -46,7 +47,7 @@ function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket',
   const config: GlimmervoidConfig = { projects, skipPermissionsByDefault };
   const sessions = new Map<string, Session>();
   const pastesById = new Map<string, string[]>();
-  const githubPaths: string[] = [];
+  let issueReadWaitMs: number | null = null;
   const viewedRepos: (string | undefined)[] = [];
   const savedConfigs: string[] = [];
   let nextId = 0;
@@ -71,6 +72,8 @@ function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket',
     config, homeDir: path.join(issuesHome, String(harnessCount)), hasSession: (id) => sessions.has(id),
     broadcast: () => {}, gitWorkspace: { originUrl: async () => null },
     store: {
+      requestViewer: async () => ({ isRateLimited: false, value: null }),
+      rateLimitWaitMs: async () => null,
       setWatchedKeys: () => {},
       requestRepoIssues: async () => ({ isRateLimited: false, value: { ok: true, items: [], isComplete: true, error: '' } }),
       requestIssueSearch: async () => ({ isRateLimited: false, value: { ok: true, items: [], isComplete: true, error: '' } }),
@@ -86,21 +89,18 @@ function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket',
     return saved;
   };
 
-  const createGithubClient = (cwd: string): Pick<PrGh, 'viewIssue'> => {
-    githubPaths.push(cwd);
-    return {
-      viewIssue: async (_issueNumber, repo) => {
-        viewedRepos.push(repo);
-        return githubFailure
-          ? { ok: false, issue: null, error: githubFailure }
-          : { ok: true, issue: ISSUE_DETAIL, error: '' };
-      },
-    };
+  const requestIssue: GithubLaneStore['requestIssue'] = async (_issueNumber, repo, mode) => {
+    assert.equal(mode, 'no-wait');
+    viewedRepos.push(repo);
+    if (issueReadWaitMs !== null) return { isRateLimited: true, waitMs: issueReadWaitMs };
+    return { isRateLimited: false, value: githubFailure
+      ? { ok: false, issue: null, error: githubFailure }
+      : { ok: true, issue: ISSUE_DETAIL, error: '' } };
   };
   const server = createControlServer(controlDeps(config, {
     sessions,
     configStore,
-    createGithubClient,
+    requestIssue,
     issues,
     teamReview: preparePrSession ? { isRunning: () => true, submitAction: async () => ({ ok: true }), preparePrSession } : null,
     issueProjectRepos: async (projectId) => (projectId === 'p1' ? projectRepos : []),
@@ -120,7 +120,7 @@ function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket',
   return {
     ...connection,
     config,
-    githubPaths,
+    limitIssueRead: (waitMs: number) => { issueReadWaitMs = waitMs; },
     viewedRepos,
     savedConfigs,
     sessions,
@@ -138,7 +138,7 @@ test('open-issue-session refuses an unknown project without calling GitHub', asy
   assert.equal(h.sent[0].type, 'open-issue-session-result');
   assert.equal(h.sent[0].ok, false);
   assert.equal(h.sent[0].error, 'Project not found');
-  assert.deepEqual(h.githubPaths, []);
+  assert.deepEqual(h.viewedRepos, []);
 });
 
 test('open-issue-session creates one entry and pastes once without persisting the prompt', async () => {
@@ -217,7 +217,7 @@ test('open-issue-session refuses a repo outside the project without calling GitH
 
   assert.equal(h.sent[0].ok, false);
   assert.equal(h.sent[0].error, 'Repository evil/socket does not belong to project "socket"');
-  assert.deepEqual(h.githubPaths, []);
+  assert.deepEqual(h.viewedRepos, []);
   assert.equal(h.config.projects.length, 1);
 });
 
@@ -325,7 +325,6 @@ test('issue-detail reads an explicit repo without project membership or session 
   await controlHarness.send({ type: 'issue-detail', requestId: 'detail-1', repo: 'other/repo', issueNumber: 42 });
   assert.deepEqual(controlHarness.sent, [{ type: 'issue-detail-result', requestId: 'detail-1', ok: true, body: ISSUE_DETAIL.body, error: null }]);
   assert.deepEqual(controlHarness.viewedRepos, ['other/repo']);
-  assert.equal(controlHarness.githubPaths.length, 1);
   assert.equal(controlHarness.sessions.size, 0);
   assert.deepEqual(controlHarness.savedConfigs, []);
 });
@@ -340,10 +339,13 @@ test('issue-detail returns correlated failures and rejects unsafe repo slugs bef
   assert.equal(controlHarness.sent[1].body, null);
   assert.equal(controlHarness.viewedRepos.length, 1);
   assert.deepEqual(controlHarness.savedConfigs, []);
+  controlHarness.limitIssueRead(120000);
+  await controlHarness.send({ type: 'issue-detail', requestId: 'detail-limited', repo: 'acme/socket', issueNumber: 42 });
+  assert.deepEqual(controlHarness.sent[2], { type: 'issue-detail-result', requestId: 'detail-limited', ok: false, body: null, error: githubStoreRateLimitedError(120000, 'the issue') });
 });
 
 test('issue-detail converts thrown GitHub failures into a reply', async () => {
-  const server = createControlServer(controlDeps({ projects: [] }, { createGithubClient: () => ({ viewIssue: async () => { throw new Error('GitHub unavailable'); } }) }));
+  const server = createControlServer(controlDeps({ projects: [] }, { requestIssue: async () => { throw new Error('GitHub unavailable'); } }));
   const connection = connectControl<ServerMessage>(server);
   connection.sent.length = 0;
   await connection.send({ type: 'issue-detail', requestId: 'detail-thrown', repo: 'acme/app', issueNumber: 42 });

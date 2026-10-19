@@ -1,3 +1,4 @@
+import type { PrGh } from '../server/github/pr-gh.ts';
 import test from 'node:test';
 import { z } from 'zod';
 import assert from 'node:assert/strict';
@@ -61,7 +62,7 @@ function draftFor({ candidate, detail, tier, reasons }: SpawnReviewArgs): Review
   });
 }
 
-interface FakeGithub extends TeamReviewGithub, Pick<Parameters<typeof createGithubStorePoller>[0]['github'], 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'viewPr' | 'prHead'>, Partial<Pick<Parameters<typeof createGithubStorePoller>[0]['github'], 'teamReviewThreads' | 'teamReviewCompare'>> {
+interface FakeGithub extends TeamReviewGithub, Pick<Parameters<typeof createGithubStorePoller>[0]['github'], 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'viewPr' | 'prHead' | 'rateLimitWaitMs'>, Pick<PrGh, 'viewer' | 'teamProfile' | 'teamMembers'>, Partial<Pick<Parameters<typeof createGithubStorePoller>[0]['github'], 'teamReviewThreads' | 'teamReviewCompare'>> {
   readTeamRequested(org: string, team: string): Promise<{ items: SearchedPr[]; complete: boolean }>;
   readDirectRequested(org: string): Promise<{ items: SearchedPr[]; complete: boolean }>;
   readAuthoredBy(org: string, logins: string[]): Promise<{ items: SearchedPr[]; complete: boolean }>;
@@ -177,6 +178,9 @@ function setup(overrides: Partial<Omit<TeamReviewPollerDependencies, 'github' | 
     setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn() {} },
     github: {
       ...github,
+      viewer: () => github.viewer(),
+      teamProfile: (org, slug) => github.teamProfile(org, slug),
+      teamMembers: (org, slug) => github.teamMembers(org, slug),
       searchPrsLight: (qualifiers) => github.searchPrsLight(qualifiers),
       prsLightByKey: (references) => github.prsLightByKey(references),
       prDetails: (references) => github.prDetails(references),
@@ -194,6 +198,10 @@ function setup(overrides: Partial<Omit<TeamReviewPollerDependencies, 'github' | 
   const unregisteredWatches: string[] = [];
   const store: TeamReviewPollerDependencies['store'] = {
     ...storePoller,
+    requestTeamMembers: async (org, slug, mode) => {
+      if (org === dependencies.teams[0]?.org && slug === dependencies.teams[0]?.slug) await refreshStore();
+      return storePoller.requestTeamMembers(org, slug, mode);
+    },
     registerWatch: (watch) => { registeredWatches.push(watch); storePoller.registerWatch(watch); },
     unregisterWatch: (name) => { unregisteredWatches.push(name); storePoller.unregisterWatch(name); },
     subscribe: (event, listener) => {
@@ -204,7 +212,7 @@ function setup(overrides: Partial<Omit<TeamReviewPollerDependencies, 'github' | 
   const refreshStore = () => store.refreshWatches(Object.keys(store.getSnapshot().watches));
   const dependencies: TeamReviewPollerDependencies = {
     org: 'Acme', store,
-    clock: { exclusive: async (work) => { await refreshStore(); return work(); }, schedule: () => () => {} },
+    clock: { exclusive: queue.run, schedule: () => () => {} },
     teams: [{ org: 'Acme', slug: 'core' }],
     github,
     spawnReview: async (args) => { spawned.push(args); return draftFor(args); },

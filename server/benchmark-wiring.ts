@@ -10,7 +10,9 @@ import { mineCandidates } from './core/benchmark-mining-core.ts';
 import { absolutePathReadRule } from './github/core/team-review-core.ts';
 import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from './json-file.ts';
 import type { LaneSpawn } from './lanes/lane-spawn.ts';
-import type { PrGh } from './github/pr-gh.ts';
+import type { GithubLaneStore } from './github/github-store-wiring.ts';
+import { githubStoreRateLimitedError } from './github/github-store-poller.ts';
+import type { GithubStoreRead } from './github/github-store-poller.ts';
 import { allowGuardedSpawn } from './guardrails/guardrails-deps.ts';
 import type { GuardrailsSpawnRefusal } from './guardrails/guardrails-deps.ts';
 import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions } from './github/team-review-wiring.ts';
@@ -57,7 +59,7 @@ interface BenchmarkWiringOptions {
   runsRoot: string;
   isEnabled: () => boolean;
   broadcast: (status: BenchmarkStatusType) => void;
-  github: Pick<PrGh, 'listMergedPrs' | 'benchmarkReviewData' | 'compareCommits'>;
+  store: Pick<GithubLaneStore, 'requestMergedPrs' | 'requestBenchmarkReviewData' | 'requestCompareCommits'>;
   repoCache: Pick<TeamReviewRepoCache, 'ensureRepo' | 'hydrateSince'>;
   repoCacheRoot: string;
   gitWorkspace: BenchmarkGitWorkspace;
@@ -195,7 +197,7 @@ async function readBoundedText(filePath: string): Promise<string | null> {
 }
 
 function createBenchmarkWiring({
-  benchmarksRoot, runsRoot, isEnabled, broadcast, github, repoCache, repoCacheRoot, gitWorkspace, spawnSubject, spawnJudge, credentials, claudeCommand,
+  benchmarksRoot, runsRoot, isEnabled, broadcast, store, repoCache, repoCacheRoot, gitWorkspace, spawnSubject, spawnJudge, credentials, claudeCommand,
   runArmCommand = runArmCommandSafely,
   guardrailsRefusal = allowGuardedSpawn,
   baseEnv = process.env,
@@ -299,12 +301,23 @@ function createBenchmarkWiring({
     for (const folder of ['cases', 'candidates'] as const) {
       for (const fileName of await jsonFileNames(path.join(suiteDir(suiteId), folder))) knownCaseIds.add(fileName.replace(/\.json$/, ''));
     }
+    let rateLimitWaitMs: number | null = null;
+    async function miningRead<Value>(read: () => Promise<GithubStoreRead<Value>>, fallback: Value): Promise<Value> {
+      if (rateLimitWaitMs !== null) return fallback;
+      const response = await read();
+      if (response.isRateLimited) {
+        rateLimitWaitMs = response.waitMs;
+        return fallback;
+      }
+      return response.value;
+    }
     const mined = await mineCandidates({
       repo: caseSource.repo, limit: caseSource.limit, minBodies: caseSource.minBodies, knownCaseIds, now,
-      listMergedPrs: (repo, limit) => github.listMergedPrs(repo, limit),
-      reviewData: (repo, numbers) => github.benchmarkReviewData(repo, numbers),
-      compareCommits: (repo, base, head) => github.compareCommits(repo, base, head),
+      listMergedPrs: (repo, limit) => miningRead(() => store.requestMergedPrs(repo, limit, 'no-wait'), { ok: false, reason: 'gh graphql search failed' }),
+      reviewData: (repo, numbers) => miningRead(() => store.requestBenchmarkReviewData(repo, numbers, 'no-wait'), new Map()),
+      compareCommits: (repo, base, head) => miningRead(() => store.requestCompareCommits(repo, base, head, 'no-wait'), null),
     });
+    if (rateLimitWaitMs !== null) return { ok: false, error: githubStoreRateLimitedError(rateLimitWaitMs, 'benchmark pull requests') };
     if (!mined.ok) return { ok: false, error: mined.reason };
     const candidatesDir = path.join(suiteDir(suiteId), 'candidates');
     await fs.mkdir(candidatesDir, { recursive: true });
