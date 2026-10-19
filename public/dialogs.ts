@@ -31,6 +31,12 @@ function skipsPermissionsByDefault(settings: unknown): boolean {
   return 'skipPermissionsByDefault' in settings && settings.skipPermissionsByDefault === true;
 }
 
+function addSessionRefusalText(reply: ServerMessage): string {
+  if (reply.type === 'add-session-result' && reply.error) return reply.error;
+  if (reply.type === 'error') return reply.message;
+  return 'The session was not added.';
+}
+
 export function createAddSessionDialog() {
   const { dialog, close } = createModalOverlay();
   dialog.innerHTML = addSessionHTML;
@@ -52,6 +58,8 @@ export function createAddSessionDialog() {
   const pathLabelEl = query(dialog, '#add-session-path-label');
   const skipPermsCheckbox = queryTag(dialog, '#add-session-skip-perms', 'input');
   const unguardedCheckbox = queryTag(dialog, '#add-session-unguarded', 'input');
+  const runInPlaceLabelEl = query(dialog, '#add-session-run-in-place-label');
+  const runInPlaceCheckbox = queryTag(dialog, '#add-session-run-in-place', 'input');
   const errorEl = query(dialog, '#add-session-error');
   const btnCancel = queryTag(dialog, '#add-session-cancel', 'button');
   const btnConfirm = queryTag(dialog, '#add-session-confirm', 'button');
@@ -105,8 +113,9 @@ export function createAddSessionDialog() {
           group.label = directory.root;
           for (const project of directory.projects) {
             const existingCount = countSessionsByName(project.name);
-            const label = existingCount > 0 ? `${project.name} (${existingCount} open)` : project.name;
-            group.appendChild(option(label, { value: JSON.stringify({ name: project.name, path: project.path }) }));
+            const openLabel = existingCount > 0 ? `${project.name} (${existingCount} open)` : project.name;
+            const label = project.isGit === false ? `${openLabel} (not a git repo)` : openLabel;
+            group.appendChild(option(label, { value: JSON.stringify({ name: project.name, path: project.path, isGit: project.isGit !== false }) }));
             workspaceListEl.appendChild(buildRepoCheckbox(project.name, project.path));
             hasProjects = true;
           }
@@ -128,9 +137,10 @@ export function createAddSessionDialog() {
 
   pickerEl.addEventListener('change', () => {
     try {
-      const project = JSON.parse(pickerEl.value) as { name: string; path: string };
+      const project = JSON.parse(pickerEl.value) as { name: string; path: string; isGit: boolean };
       nameInput.value = suggestSessionName(project.name);
       pathInput.value = project.path;
+      showRunInPlaceChoice(!project.isGit);
     } catch {}
   });
 
@@ -172,8 +182,16 @@ export function createAddSessionDialog() {
     })
     .catch(() => {});
 
+  function showRunInPlaceChoice(isShown: boolean) {
+    runInPlaceLabelEl.hidden = !isShown;
+    runInPlaceCheckbox.checked = false;
+  }
+
   nameInput.addEventListener('input', () => { pickerEl.selectedIndex = 0; });
-  pathInput.addEventListener('input', () => { pickerEl.selectedIndex = 0; });
+  pathInput.addEventListener('input', () => {
+    pickerEl.selectedIndex = 0;
+    showRunInPlaceChoice(false);
+  });
 
   function submit() {
     if (isSpawnBlocked) return;
@@ -203,15 +221,26 @@ export function createAddSessionDialog() {
       return;
     }
     const message: Record<string, unknown> = {
-      type: 'add-session',
       name: suggestSessionName(name),
       path: projectPath,
       dangerouslySkipPermissions: skipPermsCheckbox.checked,
       unguarded: unguardedCheckbox.checked,
+      runInPlace: runInPlaceCheckbox.checked,
     };
     if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
-    sendControlMsg(message);
-    close();
+    btnConfirm.disabled = true;
+    errorEl.textContent = '';
+    sendControlRequest('add-session', message)
+      .then((reply) => {
+        if (reply.type === 'add-session-result' && reply.ok) {
+          close();
+          return;
+        }
+        errorEl.textContent = addSessionRefusalText(reply);
+        if (reply.type === 'add-session-result' && reply.reason === 'not-git') runInPlaceLabelEl.hidden = false;
+      })
+      .catch(() => { errorEl.textContent = 'The session was not added: the server did not answer.'; })
+      .finally(() => { btnConfirm.disabled = isSpawnBlocked; });
   }
 
   btnCancel.addEventListener('click', close);

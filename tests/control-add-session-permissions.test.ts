@@ -15,7 +15,7 @@ function addSessionUnder(skipPermissionsByDefault: boolean | undefined, requeste
     const reloadedConfigs: GlimmervoidConfig[] = [];
     const server = createControlServer(controlDeps(config, { applyConfigReload: (fresh) => { reloadedConfigs.push(fresh); } }));
     const connection = connectControl(server);
-    const message: Record<string, unknown> = { type: 'add-session', name: 'repo', path: projectDir };
+    const message: Record<string, unknown> = { type: 'add-session', name: 'repo', path: projectDir, runInPlace: true };
     if (requestedSkip !== undefined) message.dangerouslySkipPermissions = requestedSkip;
     connection.send(message);
     return { projects: config.projects, reloadedConfigs };

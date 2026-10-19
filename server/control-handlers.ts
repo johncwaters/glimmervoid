@@ -1,4 +1,5 @@
 import type { IssuesStatus } from '../shared/contracts/issues.ts';
+import { isSameDirectoryPath } from '../shared/canonical-paths.ts';
 import { createKeyedSerialQueue } from './spawn-gate.ts';
 import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest } from '../shared/contracts/factory.ts';
 import type { FactoryControlResult, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from '../shared/contracts/factory.ts';
@@ -168,6 +169,37 @@ interface ControlHandlerDeps {
   telemetry?: Pick<Telemetry, 'captureException' | 'captureClientError'> | null;
 }
 
+type ScannedProject = { name: string; path: string; isGit: boolean };
+type AddSessionRefusal = { error: string; reason?: 'not-git' };
+
+function isInsideGitCheckout(folderPath: string): boolean {
+  const resolvedFolder = path.resolve(folderPath);
+  if (fs.existsSync(path.join(resolvedFolder, '.git'))) return true;
+  const parentFolder = path.dirname(resolvedFolder);
+  if (parentFolder === resolvedFolder) return false;
+  return isInsideGitCheckout(parentFolder);
+}
+
+async function hasCommittedGitCheckout(folderPath: string): Promise<boolean> {
+  const insideWorkTree = await runGit(['rev-parse', '--is-inside-work-tree'], { cwd: folderPath });
+  if (!insideWorkTree.ok || insideWorkTree.out !== 'true') return false;
+  const head = await runGit(['rev-parse', 'HEAD'], { cwd: folderPath });
+  return head.ok;
+}
+
+async function canHaveOwnWorktree(folderPath: string): Promise<boolean> {
+  if (!isInsideGitCheckout(folderPath)) return false;
+  return hasCommittedGitCheckout(folderPath);
+}
+
+async function markWorktreeCapableProjects(projects: { name: string; path: string }[]): Promise<ScannedProject[]> {
+  const scannedProjects: ScannedProject[] = [];
+  for (const project of projects) {
+    scannedProjects.push({ ...project, isGit: await canHaveOwnWorktree(project.path) });
+  }
+  return scannedProjects;
+}
+
 function scanRepoRoots(roots: string[] | undefined): { root: string; projects: { name: string; path: string }[] }[] {
   const results: { root: string; projects: { name: string; path: string }[] }[] = [];
   if (!roots) return results;
@@ -216,6 +248,10 @@ async function runGitForConversationHistory(args: string[], cwd: string): Promis
   const result = await runGit(args, { cwd, timeoutMs: CONVERSATION_HISTORY_GIT_TIMEOUT_MS, trim: false });
   if (!result.ok) throw result.error;
   return result.out;
+}
+
+function notGitRepositoryError(folderPath: string): string {
+  return `${folderPath} is not a git repository, so the session cannot get its own worktree. Run git init in it and make a first commit, or tick "Run in this folder, no worktree" to let the agent change the folder itself.`;
 }
 
 function missingFolderError(folderPath: string): string {
@@ -276,6 +312,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'request-usage-report': () => ({ type: 'usage-report', requestId, error: message }),
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
     'save-hook': () => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
+    'add-session': () => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'delete-hook': () => ({ type: 'delete-hook-result', requestId, ok: false, error: message }),
     'send-diff-annotations': () => ({ type: 'send-diff-annotations-result', requestId, ok: false, error: message }),
     'session-doc-read': () => ({ type: 'session-doc-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
@@ -437,37 +474,44 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   const SESSION_NAME_RE = /^[a-zA-Z0-9_\-. ()]{1,64}$/;
 
-  function handleAddSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket): void {
+  function handleAddSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket): Promise<void> | undefined {
+    const refusal = addSessionRefusal(msg);
+    if (refusal) {
+      refuseAddSession(msg, ws, refusal);
+      return undefined;
+    }
+    if (!needsOwnWorktreeCheck(msg)) {
+      createAddedSession(msg, ws);
+      return undefined;
+    }
+    return createAddedSessionOnceWorktreeCapable(msg, ws);
+  }
+
+  function needsOwnWorktreeCheck(msg: ClientMessageOf<'add-session'>): boolean {
+    if (msg.repos || msg.runInPlace === true) return false;
+    const projectPath = (msg.path || '').trim();
+    return !config.projects.some((project) => isSameDirectoryPath(project.path, projectPath));
+  }
+
+  async function createAddedSessionOnceWorktreeCapable(msg: ClientMessageOf<'add-session'>, ws: ControlSocket): Promise<void> {
+    const projectPath = (msg.path || '').trim();
+    if (!(await hasCommittedGitCheckout(projectPath))) {
+      refuseAddSession(msg, ws, { error: notGitRepositoryError(projectPath), reason: 'not-git' });
+      return;
+    }
+    createAddedSession(msg, ws);
+  }
+
+  function createAddedSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket): void {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
     const repos = msg.repos;
 
-    if (!name || (!projectPath && !repos)) {
-      sendError(ws, 'Name and path are required');
-      return;
-    }
-
-    if (!SESSION_NAME_RE.test(name)) {
-      sendError(ws, 'Session name may only contain letters, numbers, spaces, dashes, dots, underscores, and parentheses (max 64 chars)');
-      return;
-    }
-
     const requestedAgent = typeof msg.agent === 'string' ? msg.agent.trim() : '';
-    if (requestedAgent && !isKnownAgentId(requestedAgent)) {
-      sendError(ws, `Unknown agent "${requestedAgent}"`);
-      return;
-    }
 
     const skipPerms = typeof msg.dangerouslySkipPermissions === 'boolean'
       ? msg.dangerouslySkipPermissions
       : machineSkipsPermissionsByDefault(config);
-    if (repos) {
-      for (const repoPath of repos) {
-        if (isExistingDirectory(repoPath)) continue;
-        sendError(ws, missingFolderError(repoPath));
-        return;
-      }
-    }
     const created = createProjectSession({
       name,
       path: projectPath,
@@ -478,10 +522,33 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       requireExistingPath: !repos,
     });
     if (!created.ok) {
-      sendError(ws, created.error);
+      refuseAddSession(msg, ws, { error: created.error });
       return;
     }
+    if (msg.requestId) replyTo(ws, msg, 'add-session-result', { ok: true, error: null });
     console.log(`[control] Added session via UI: ${name}${skipPerms ? ' (skip permissions)' : ' (permission prompts)'}`);
+  }
+
+  function addSessionRefusal(msg: ClientMessageOf<'add-session'>): AddSessionRefusal | null {
+    const name = (msg.name || '').trim();
+    const projectPath = (msg.path || '').trim();
+    if (!name || (!projectPath && !msg.repos)) return { error: 'Name and path are required' };
+    if (!SESSION_NAME_RE.test(name)) return { error: 'Session name may only contain letters, numbers, spaces, dashes, dots, underscores, and parentheses (max 64 chars)' };
+    const requestedAgent = typeof msg.agent === 'string' ? msg.agent.trim() : '';
+    if (requestedAgent && !isKnownAgentId(requestedAgent)) return { error: `Unknown agent "${requestedAgent}"` };
+    const missingRepo = msg.repos?.find((repoPath) => !isExistingDirectory(repoPath));
+    if (missingRepo) return { error: missingFolderError(missingRepo) };
+    if (msg.repos) return null;
+    if (!isExistingDirectory(projectPath)) return { error: missingFolderError(projectPath) };
+    return null;
+  }
+
+  function refuseAddSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket, refusal: AddSessionRefusal): void {
+    if (msg.requestId) {
+      replyTo(ws, msg, 'add-session-result', { ok: false, ...refusal });
+      return;
+    }
+    sendError(ws, refusal.error);
   }
 
   function handleStartSession(msg: ClientMessageOf<'start-session'>, ws: ControlSocket): void {
@@ -813,7 +880,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
   async function handleScanRepoRoots(msg: ClientMessageOf<'scan-repo-roots'>, ws: ControlSocket): Promise<void> {
-    const directories = scanRepoRoots(config.repoRoots);
+    const directories = await Promise.all(scanRepoRoots(config.repoRoots).map(async ({ root, projects }) => ({ root, projects: await markWorktreeCapableProjects(projects) })));
     const suggestions = msg.includeSuggestions ? await suggestRepoRoots({ homeDir: os.homedir(), configuredRoots: config.repoRoots || [] }) : undefined;
     ws.send(JSON.stringify({
       type: 'repo-roots-scanned',
