@@ -123,7 +123,8 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'push', 'edit', 'limits', 'review', 'reviews', 'prs', 'link-pr', 'settings'] as const;
+export const SESSION_COMMANDS = ['push', 'spawn', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings'] as const;
+export const AGENT_API_VERBS = [...SESSION_COMMANDS, 'limits'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
 
@@ -217,8 +218,6 @@ export const SessionDoc = z.object({
 
 export type AgentEditRequest = z.infer<typeof AgentEditRequest>;
 export type SessionDoc = z.infer<typeof SessionDoc>;
-
-export const SESSION_COMMANDS = ['push', 'spawn', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings'] as const;
 
 export const SessionLimits = z.object({
   commands: z.array(z.object({

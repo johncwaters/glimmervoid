@@ -1,17 +1,18 @@
 import crypto from 'node:crypto';
 
+import type { z } from 'zod';
+
 import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
 import { AGENT_API_VERBS, AgentAttentionRequest, AgentEditRequest, AgentPullRequestRequest, AgentSettingsRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, AgentPrsReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
-import { attentionRoute, editRoute, linkPrRoute, NO_OWN_WORKTREE_REASON, operatorStateRoute, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
-import type { RouteVerdict, SessionRoleFacts } from '../../session/core/session-routes.ts';
+import { COMMAND_ROUTES, NO_OWN_WORKTREE_REASON } from '../../session/core/session-routes.ts';
+import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
 
 const MAX_LIVE_CHILDREN = 3;
 const MAX_LIFETIME_SPAWNS = 10;
 const MAX_SPAWNS_IN_FLIGHT = 1;
-const SPAWNABLE_DEPTH = 0;
 
 const REFUSAL_STATUS = 404;
 const REFUSAL_REASON = 'unknown session';
@@ -27,27 +28,42 @@ interface SpawnBudget {
   liveChildren: number;
   lifetimeSpawns: number;
   inFlight: number;
-  depth: number;
-  isEphemeral: boolean;
 }
 
 type AgentVerdict = { ok: true } | { ok: false; status: number; reason: string };
 
-type AgentVerbRequest =
-  | { ok: true; verb: 'board' }
-  | { ok: true; verb: 'push' }
-  | { ok: true; verb: 'limits' }
-  | { ok: true; verb: 'attention'; request: AgentAttentionRequest }
-  | { ok: true; verb: 'edit'; request: AgentEditRequest }
-  | { ok: true; verb: 'spawn'; request: AgentSpawnRequest }
-  | { ok: true; verb: 'reviews' }
-  | { ok: true; verb: 'prs' }
-  | { ok: true; verb: 'review'; pullRequestKey: string }
-  | { ok: true; verb: 'link-pr'; pullRequestKey: string }
-  | { ok: true; verb: 'settings'; request: AgentSettingsRequest }
-  | { ok: false; status: number; error: string };
+type EmptyRequest = Record<string, never>;
+
+interface PullRequestKeyRequest {
+  pullRequestKey: string;
+}
+
+interface AgentRequestByVerb {
+  spawn: AgentSpawnRequest;
+  attention: AgentAttentionRequest;
+  board: EmptyRequest;
+  push: EmptyRequest;
+  edit: AgentEditRequest;
+  limits: EmptyRequest;
+  review: PullRequestKeyRequest;
+  reviews: EmptyRequest;
+  prs: EmptyRequest;
+  'link-pr': PullRequestKeyRequest;
+  settings: AgentSettingsRequest;
+}
+
+type AgentRequestOf<V extends AgentApiVerb> = AgentRequestByVerb[V];
+type AgentRequestRefusal = { ok: false; status: number; error: string };
+type AgentVerbRequest = { ok: true; verb: AgentApiVerb; request: AgentRequestOf<AgentApiVerb> } | AgentRequestRefusal;
+type RequestParser<Request> = (payload: Record<string, unknown>) => { ok: true; request: Request } | AgentRequestRefusal;
+
+interface AgentRoleRefusal {
+  status: number;
+  body: { ok: false; reason?: string; error: string };
+}
 
 const INVALID_BODY_STATUS = 400;
+const ROLE_REFUSED_STATUS = 403;
 const PUSH_REFUSED_STATUS = 409;
 
 interface PushLanding {
@@ -98,14 +114,7 @@ function decideAgentRequest({
   return { ok: true };
 }
 
-function refuseByRole(route: RouteVerdict): AgentVerdict {
-  if (route.answers) return { ok: true };
-  return { ok: false, status: 403, reason: route.reason };
-}
-
-function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight, depth, isEphemeral }: SpawnBudget): AgentVerdict {
-  const role = refuseByRole(spawnRoute({ isEphemeral, isSpawnedChild: depth !== SPAWNABLE_DEPTH }));
-  if (!role.ok) return role;
+function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight }: SpawnBudget): AgentVerdict {
   if (inFlight >= MAX_SPAWNS_IN_FLIGHT) {
     return { ok: false, status: 429, reason: 'a spawn is already in flight' };
   }
@@ -118,66 +127,58 @@ function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight, depth, i
   return { ok: true };
 }
 
-function decideAttentionAllowance(caller: SessionRoleFacts): AgentVerdict {
-  return refuseByRole(attentionRoute(caller));
-}
-
-function decideEditAllowance(caller: SessionRoleFacts): AgentVerdict {
-  return refuseByRole(editRoute(caller));
-}
-
-function decideOperatorStateAllowance(caller: SessionRoleFacts): AgentVerdict {
-  return refuseByRole(operatorStateRoute(caller));
-}
-
-function decideLinkPrAllowance(caller: SessionRoleFacts): AgentVerdict {
-  return refuseByRole(linkPrRoute(caller));
-}
-
-function describePushRouteRefusal(caller: SessionRoleFacts): AgentPushReply | null {
-  const route = pushRoute(caller);
+function describeRoleRefusal(verb: AgentApiVerb, caller: SessionRoleFacts): AgentRoleRefusal | null {
+  const route = COMMAND_ROUTES[verb](caller);
   if (route.answers) return null;
-  return { status: PUSH_REFUSED_STATUS, body: { ok: false, reason: route.code, error: route.reason } };
+  if (route.code) return { status: PUSH_REFUSED_STATUS, body: { ok: false, reason: route.code, error: route.reason } };
+  return { status: ROLE_REFUSED_STATUS, body: { ok: false, error: route.reason } };
 }
 
 function isAgentApiVerb(verb: string): verb is AgentApiVerb {
   return (AGENT_API_VERBS as readonly string[]).includes(verb);
 }
 
-function refuseInvalidBody(issues: readonly { message?: string }[]): AgentVerbRequest {
+function refuseInvalidBody(issues: readonly { message?: string }[]): AgentRequestRefusal {
   return { ok: false, status: INVALID_BODY_STATUS, error: issues[0]?.message || 'invalid request' };
 }
 
-function parsePullRequestVerb(verb: 'review' | 'link-pr', payload: Record<string, unknown>): AgentVerbRequest {
+function bodyParser<Request>(schema: z.ZodType<Request>): RequestParser<Request> {
+  return (payload) => {
+    const parsed = schema.safeParse(payload);
+    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
+    return { ok: true, request: parsed.data };
+  };
+}
+
+const parseEmptyBody: RequestParser<EmptyRequest> = () => ({ ok: true, request: {} });
+
+const parsePullRequestBody: RequestParser<PullRequestKeyRequest> = (payload) => {
   const parsed = AgentPullRequestRequest.safeParse(payload);
   if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
   const pullRequestKey = pullRequestKeyFromReference(parsed.data.pr);
   if (!pullRequestKey) return { ok: false, status: INVALID_BODY_STATUS, error: 'pr must be a GitHub pull request url or owner/repo#number' };
-  return { ok: true, verb, pullRequestKey };
-}
+  return { ok: true, request: { pullRequestKey } };
+};
+
+const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentRequestOf<V>> } = Object.freeze({
+  spawn: bodyParser(AgentSpawnRequest),
+  attention: bodyParser(AgentAttentionRequest),
+  board: parseEmptyBody,
+  push: parseEmptyBody,
+  edit: bodyParser(AgentEditRequest),
+  limits: parseEmptyBody,
+  review: parsePullRequestBody,
+  reviews: parseEmptyBody,
+  prs: parseEmptyBody,
+  'link-pr': parsePullRequestBody,
+  settings: bodyParser(AgentSettingsRequest),
+});
 
 function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVerbRequest {
   if (!isAgentApiVerb(verb)) return { ok: false, status: REFUSAL_STATUS, error: REFUSAL_REASON };
-  if (verb === 'board' || verb === 'push' || verb === 'limits' || verb === 'reviews' || verb === 'prs') return { ok: true, verb };
-  if (verb === 'review' || verb === 'link-pr') return parsePullRequestVerb(verb, payload);
-  if (verb === 'settings') {
-    const parsed = AgentSettingsRequest.safeParse(payload);
-    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
-    return { ok: true, verb, request: parsed.data };
-  }
-  if (verb === 'attention') {
-    const parsed = AgentAttentionRequest.safeParse(payload);
-    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
-    return { ok: true, verb, request: parsed.data };
-  }
-  if (verb === 'edit') {
-    const parsed = AgentEditRequest.safeParse(payload);
-    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
-    return { ok: true, verb, request: parsed.data };
-  }
-  const parsed = AgentSpawnRequest.safeParse(payload);
-  if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
-  return { ok: true, verb, request: parsed.data };
+  const parsed = REQUEST_PARSERS[verb](payload);
+  if (!parsed.ok) return parsed;
+  return { ok: true, verb, request: parsed.request };
 }
 
 function describePushLanding(landing: PushLanding): AgentPushReply {
@@ -239,7 +240,8 @@ function deriveChildSessionName(parentName: string, existingNames: readonly stri
 
 
 export {
-  decideAgentRequest, decideAttentionAllowance, decideEditAllowance, decideLinkPrAllowance, decideOperatorStateAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding,
-  describePushRouteRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviews, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
+  decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describePushLanding,
+  describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviews, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
   REFUSAL_REASON, REFUSAL_STATUS,
 };
+export type { AgentRequestOf };

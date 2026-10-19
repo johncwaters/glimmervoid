@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, tokensMatch,
+  decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeRoleRefusal, tokensMatch,
   MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS,
 } from '../server/core/agent-api-core.ts';
 
@@ -41,16 +41,22 @@ test('the token comparison refuses a wrong token and any wrong length', () => {
   assert.equal(tokensMatch('abcd', ''), false);
 });
 
-const EMPTY_BUDGET = { liveChildren: 0, lifetimeSpawns: 0, inFlight: 0, depth: 0, isEphemeral: false };
+const EMPTY_BUDGET = { liveChildren: 0, lifetimeSpawns: 0, inFlight: 0 };
+const OPERATOR_SESSION = { isEphemeral: false, isSpawnedChild: false, hasOwnWorktree: true };
 
 test('a fresh top-level session may spawn', () => {
+  assert.equal(describeRoleRefusal('spawn', OPERATOR_SESSION), null);
   assert.deepEqual(decideSpawnAllowance(EMPTY_BUDGET), { ok: true });
 });
 
 test('a spawned session may never spawn again', () => {
-  const verdict = decideSpawnAllowance({ ...EMPTY_BUDGET, depth: 1 });
-  assert.equal(verdict.ok, false);
-  assert.equal(verdict.ok === false && verdict.status, 403);
+  const refusal = describeRoleRefusal('spawn', { ...OPERATOR_SESSION, isEphemeral: true, isSpawnedChild: true });
+  assert.equal(refusal?.status, 403);
+});
+
+test('a lane session may never spawn', () => {
+  const refusal = describeRoleRefusal('spawn', { ...OPERATOR_SESSION, isEphemeral: true });
+  assert.equal(refusal?.status, 403);
 });
 
 test('only one spawn may be in flight at a time', () => {
@@ -69,10 +75,6 @@ test('the lifetime cap survives children exiting', () => {
   assert.equal(decideSpawnAllowance({ ...EMPTY_BUDGET, lifetimeSpawns: MAX_LIFETIME_SPAWNS }).ok, false);
 });
 
-test('depth is checked before every count, so a child is refused even with an empty budget', () => {
-  const verdict = decideSpawnAllowance({ liveChildren: 9, lifetimeSpawns: 99, inFlight: 5, depth: 2, isEphemeral: true });
-  assert.equal(verdict.ok === false && verdict.status, 403);
-});
 
 test('a child name is derived from the parent and never collides', () => {
   assert.equal(deriveChildSessionName('glimmervoid', []), 'glimmervoid agent');

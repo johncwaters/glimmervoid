@@ -1,5 +1,5 @@
 import { SESSION_COMMANDS } from '../../shared/contracts/session.ts';
-import type { SessionCommand, SessionLimits } from '../../shared/contracts/session.ts';
+import type { AgentApiVerb, SessionCommand, SessionLimits } from '../../shared/contracts/session.ts';
 
 const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
 const GUARDRAILS_LINE = 'Its guardrails are OS-enforced, so a read, write or connection they refuse will not succeed on retry.';
@@ -21,9 +21,8 @@ interface SessionLimitFacts extends SessionRoleFacts {
   isGuarded: boolean;
 }
 
-type RouteVerdict = { answers: true } | { answers: false; reason: string };
 type PushRefusalCode = 'not-operator-session' | 'no-worktree';
-type PushRouteVerdict = { answers: true } | { answers: false; reason: string; code: PushRefusalCode };
+type RouteVerdict = { answers: true } | { answers: false; reason: string; code?: PushRefusalCode };
 
 type SessionCommandLimit = SessionLimits['commands'][number];
 type SessionDeadEnd = SessionLimits['deadEnds'][number];
@@ -54,7 +53,7 @@ function permitsHelpCommand(settingsPermissions: Record<string, unknown> | null)
   return permissionRules(settingsPermissions.allow).some(coversHelpCommand);
 }
 
-function pushRoute({ isEphemeral, isSpawnedChild, hasOwnWorktree }: SessionRoleFacts): PushRouteVerdict {
+function pushRoute({ isEphemeral, isSpawnedChild, hasOwnWorktree }: SessionRoleFacts): RouteVerdict {
   if (isEphemeral && !isSpawnedChild) {
     return { answers: false, code: 'not-operator-session', reason: 'only an operator session or a session it spawned can push' };
   }
@@ -95,7 +94,7 @@ function linkPrRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot link a pull request, because it has no card to show the link on' };
 }
 
-const COMMAND_ROUTES: Readonly<Record<SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
+const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
   attention: attentionRoute,
@@ -106,6 +105,7 @@ const COMMAND_ROUTES: Readonly<Record<SessionCommand, (facts: SessionRoleFacts) 
   prs: operatorStateRoute,
   'link-pr': linkPrRoute,
   settings: operatorStateRoute,
+  limits: () => ANSWERS,
 });
 
 function commandLimit(name: SessionCommand, facts: SessionRoleFacts): SessionCommandLimit {
@@ -145,5 +145,5 @@ function formatSessionLimits({ commands, guarded, deadEnds }: SessionLimits): st
   ];
 }
 
-export { supervisionLine, permitsHelpCommand, pushRoute, spawnRoute, attentionRoute, editRoute, linkPrRoute, operatorStateRoute, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
-export type { SessionRoleFacts, RouteVerdict };
+export { supervisionLine, permitsHelpCommand, COMMAND_ROUTES, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
+export type { SessionRoleFacts };

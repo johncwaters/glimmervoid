@@ -6,7 +6,7 @@ import { describeSessionLimits } from '../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../session/core/session-routes.ts';
 import type { Session } from '../session/sessions.ts';
 import type {
-  AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentLimitsReply, AgentSettingsReply, AgentSettingsRequest, AgentSpawnRequest,
+  AgentApiVerb, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentEditRequest, AgentLimitsReply, AgentSettingsReply, AgentSettingsRequest, AgentSpawnRequest,
 } from '../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../shared/contracts/my-prs.ts';
 import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -14,9 +14,9 @@ import { manualPrLink } from '../session/core/session-pr-links-core.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
-  decideAttentionAllowance, decideEditAllowance, decideLinkPrAllowance, decideOperatorStateAllowance, decideSpawnAllowance,
-  deriveChildSessionName, describePushLanding, describePushRouteRefusal, parseAgentVerb, projectMyPrs, projectReviews,
+  decideSpawnAllowance, deriveChildSessionName, describePushLanding, describeRoleRefusal, parseAgentVerb, projectMyPrs, projectReviews,
 } from './core/agent-api-core.ts';
+import type { AgentRequestOf } from './core/agent-api-core.ts';
 import { isGuardedSessionVendor } from './guardrails/core/guardrails-roles-core.ts';
 import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
@@ -70,6 +70,8 @@ interface AgentApiReply {
   body: Record<string, unknown>;
 }
 
+type AgentVerbHandlers = { readonly [V in AgentApiVerb]: (session: Session, request: AgentRequestOf<V>) => AgentApiReply | Promise<AgentApiReply> };
+
 interface AgentApiPort {
   handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply>;
 }
@@ -95,7 +97,7 @@ function createAgentApiWiring({
   }
 
   function refuseByBudget(parent: Session): SpawnOutcome | null {
-    const allowance = decideSpawnAllowance({ ...parent.agentSpawnBudget(), isEphemeral: parent.ephemeral });
+    const allowance = decideSpawnAllowance(parent.agentSpawnBudget());
     if (allowance.ok) return null;
     return { ok: false, status: allowance.status, error: allowance.reason };
   }
@@ -182,8 +184,6 @@ function createAgentApiWiring({
   }
 
   function attention(session: Session, request: AgentAttentionRequest): AgentApiReply {
-    const allowance = decideAttentionAllowance(roleFactsOf(session));
-    if (!allowance.ok) return { status: allowance.status, body: { ok: false, error: allowance.reason } };
     const reply: AgentAttentionReply = session.noteAttention(request.note);
     return { status: reply.ok ? 200 : 429, body: reply };
   }
@@ -203,8 +203,6 @@ function createAgentApiWiring({
   }
 
   async function push(session: Session): Promise<AgentApiReply> {
-    const routeRefusal = describePushRouteRefusal(roleFactsOf(session));
-    if (routeRefusal) return routeRefusal;
     return describePushLanding(await session.mergeAndContinue({ force: true }));
   }
 
@@ -221,8 +219,6 @@ function createAgentApiWiring({
   }
 
   function linkPr(session: Session, pullRequestKey: string): AgentApiReply {
-    const allowance = decideLinkPrAllowance(roleFactsOf(session));
-    if (!allowance.ok) return refusal(allowance.status, allowance.reason);
     const link = manualPrLink(pullRequestKey, operatorState?.myPrsStatus()?.prs ?? [], Date.now());
     if (!link) return refusal(400, `not a GitHub pull request: ${pullRequestKey}`);
     session.linkPrManually(link);
@@ -235,35 +231,47 @@ function createAgentApiWiring({
     return { status: reply.ok ? 200 : 400, body: reply };
   }
 
-  async function handleOperatorState(session: Session, parsed: Extract<ReturnType<typeof parseAgentVerb>, { verb: 'review' | 'reviews' | 'prs' | 'settings' }>): Promise<AgentApiReply> {
-    const allowance = decideOperatorStateAllowance(roleFactsOf(session));
-    if (!allowance.ok) return refusal(allowance.status, allowance.reason);
-    if (parsed.verb === 'review') return review(parsed.pullRequestKey);
-    if (parsed.verb === 'settings') return settings(parsed.request);
-    if (!operatorState) return refusal(503, 'GitHub lanes are not available in this Glimmervoid');
-    if (parsed.verb === 'reviews') return { status: 200, body: projectReviews(operatorState.teamReviewStatus()) };
-    return { status: 200, body: projectMyPrs(operatorState.myPrsStatus()) };
+  async function edit(session: Session, request: AgentEditRequest): Promise<AgentApiReply> {
+    const reply = await sessionDocs.surface(session, request);
+    if (!reply.ok) return { status: 400, body: reply };
+    return { status: 200, body: { ok: true, path: reply.doc.path, name: reply.doc.name } };
+  }
+
+  async function spawnReply(session: Session, request: AgentSpawnRequest): Promise<AgentApiReply> {
+    const outcome = await spawn(session, request);
+    if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };
+    return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name } };
+  }
+
+  function githubLanesUnavailable(): AgentApiReply {
+    return refusal(503, 'GitHub lanes are not available in this Glimmervoid');
+  }
+
+  const handlers: AgentVerbHandlers = {
+    spawn: spawnReply,
+    attention,
+    board: () => ({ status: 200, body: { ok: true, sessions: board() } }),
+    push,
+    edit,
+    limits: (session) => ({ status: 200, body: limits(session) }),
+    review: (_session, { pullRequestKey }) => review(pullRequestKey),
+    reviews: () => (operatorState ? { status: 200, body: projectReviews(operatorState.teamReviewStatus()) } : githubLanesUnavailable()),
+    prs: () => (operatorState ? { status: 200, body: projectMyPrs(operatorState.myPrsStatus()) } : githubLanesUnavailable()),
+    'link-pr': (session, { pullRequestKey }) => linkPr(session, pullRequestKey),
+    settings: (_session, request) => settings(request),
+  };
+
+  function dispatch<V extends AgentApiVerb>(session: Session, verb: V, request: AgentRequestOf<V>): AgentApiReply | Promise<AgentApiReply> {
+    const handler: AgentVerbHandlers[V] = handlers[verb];
+    return handler(session, request);
   }
 
   async function handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply> {
     const parsed = parseAgentVerb(verb, payload);
     if (!parsed.ok) return { status: parsed.status, body: { ok: false, error: parsed.error } };
-    if (parsed.verb === 'review' || parsed.verb === 'reviews' || parsed.verb === 'prs' || parsed.verb === 'settings') return handleOperatorState(session, parsed);
-    if (parsed.verb === 'link-pr') return linkPr(session, parsed.pullRequestKey);
-    if (parsed.verb === 'board') return { status: 200, body: { ok: true, sessions: board() } };
-    if (parsed.verb === 'push') return push(session);
-    if (parsed.verb === 'limits') return { status: 200, body: limits(session) };
-    if (parsed.verb === 'attention') return attention(session, parsed.request);
-    if (parsed.verb === 'edit') {
-      const allowance = decideEditAllowance(roleFactsOf(session));
-      if (!allowance.ok) return { status: allowance.status, body: { ok: false, error: allowance.reason } };
-      const reply = await sessionDocs.surface(session, parsed.request);
-      if (!reply.ok) return { status: 400, body: reply };
-      return { status: 200, body: { ok: true, path: reply.doc.path, name: reply.doc.name } };
-    }
-    const outcome = await spawn(session, parsed.request);
-    if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };
-    return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name } };
+    const roleRefusal = describeRoleRefusal(parsed.verb, roleFactsOf(session));
+    if (roleRefusal) return roleRefusal;
+    return dispatch(session, parsed.verb, parsed.request);
   }
 
   return { handle };
