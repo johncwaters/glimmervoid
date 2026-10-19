@@ -46,7 +46,7 @@ import { applySessionSetupResponse, openSessionSetup } from './session-setup/set
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
-import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionGuarded, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
+import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionGuarded, setSessionWakeup, setSessionWorktree, updateAttentionTitle } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -293,7 +293,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
 
     restoreUsageChip(s.id);
   }
-  updateAggregateStatus();
+  updateAttentionTitle();
   refreshFavicon(sessionUIs);
 
   refreshFocusRoster();

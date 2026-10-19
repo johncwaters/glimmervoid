@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { attentionRank, attentionSummaryText, countAttentionByKind, headerAttentionState, needsAttention, orderAttentionQueue, orderRoster, pickAdjacent, pickNextAttention, pickStagedSession, pickStrongestAttention, stageNeedWords, titleAlertCount } from '../public/focus-view/attention-core.ts';
+import { attentionRank, attentionSummaryText, countAttentionByKind, needsAttention, orderAttentionQueue, orderRoster, pickAdjacent, pickNextAttention, pickStagedSession, pickStrongestAttention, stageNeedWords, titleAlertCount } from '../public/focus-view/attention-core.ts';
 
 test('orderRoster: non-dormant before dormant, add order within each group', () => {
   const out = orderRoster([
@@ -104,11 +104,7 @@ test('countAttentionByKind: counts the rows needsAttention accepts, plus failed 
   assert.deepEqual(countAttentionByKind([]), noAttention);
   assert.deepEqual(countAttentionByKind(undefined), noAttention);
   assert.deepEqual(countAttentionByKind([null, undefined]), noAttention);
-  assert.equal(headerAttentionState(noAttention), null);
   assert.equal(titleAlertCount(noAttention), 0);
-  assert.equal(headerAttentionState({ waitingCount: 1, finishedCount: 1, failedCount: 1 }), 'WAITING');
-  assert.equal(headerAttentionState({ waitingCount: 0, finishedCount: 1, failedCount: 1 }), 'FAILED');
-  assert.equal(headerAttentionState({ waitingCount: 0, finishedCount: 1, failedCount: 0 }), 'COMPLETE');
   assert.equal(titleAlertCount({ waitingCount: 2, finishedCount: 5, failedCount: 3 }), 5);
 });
 

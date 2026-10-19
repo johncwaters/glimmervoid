@@ -10,8 +10,8 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 
 | File | Description |
 |------|-------------|
-| `card-registry.ts` | Shared state owner: `sessionUIs` Map + 2 DOM singletons |
-| `lifecycle.ts` | `createSessionCard`, `removeSessionCard`, `applyState`, the header attention glyph over `focus-view/attention-core.ts` counts |
+| `card-registry.ts` | Shared state owner: `sessionUIs` Map + `container` DOM singleton |
+| `lifecycle.ts` | `createSessionCard`, `removeSessionCard`, `applyState`, the tab title count over `focus-view/attention-core.ts` counts |
 | `agent-core.ts` | Pure `agentBadgeText(agent)`: which agent adapter id earns a card chip (never the default one) |
 | `card-dom.ts` | Card builder, badge, inline rename, confirm dialog, debug overlay |
 | `terminal.ts` | xterm.js setup, data WebSocket, OSC-52 clipboard, key handling (consults `../shortcuts-core.ts` for which shortcuts bubble), phone soft-keyboard input takeover |
