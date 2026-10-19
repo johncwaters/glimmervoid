@@ -7,5 +7,5 @@ test('state chip shows Monitoring only for a running session awaiting background
   assert.equal(stateChip(STATES.RUNNING, true).label, 'MONITORING');
   assert.equal(stateChip(STATES.RUNNING, false).label, 'WORKING');
   assert.equal(stateChip(STATES.COMPLETE, true).label, 'COMPLETE');
-  assert.equal(stateChip(STATES.RUNNING, true).glyph, stateChip(STATES.RUNNING).glyph);
+  assert.notEqual(stateChip(STATES.RUNNING, true).glyph, stateChip(STATES.RUNNING).glyph);
 });

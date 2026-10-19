@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { STATE_GLYPHS } from '../shared/states.ts';
+import { MONITORING_GLYPH, STATE_GLYPHS } from '../shared/states.ts';
 
 const REPO_ROOT = path.join(import.meta.dirname, '..');
 const FONTS_DIRECTORY = path.join(REPO_ROOT, 'assets', 'fonts');
@@ -125,7 +125,7 @@ test('every session state glyph is drawn by the bundled mono font, so desktop an
   for (const fontFile of ['commit-mono-400-regular.woff2', 'commit-mono-700-regular.woff2']) {
     const codePoints = bundledFontCodePoints(path.join(FONTS_DIRECTORY, fontFile));
     assert.ok(codePoints.has('A'.codePointAt(0) ?? 0), `${fontFile} cmap parse found no Latin letters`);
-    const missingGlyphs = Object.entries(STATE_GLYPHS).filter(([, glyph]) => !codePoints.has(glyph.codePointAt(0) ?? 0));
+    const missingGlyphs = [...Object.entries(STATE_GLYPHS), ['MONITORING', MONITORING_GLYPH]].filter(([, glyph]) => !codePoints.has(glyph.codePointAt(0) ?? 0));
     assert.deepEqual(missingGlyphs, [], fontFile);
   }
 });

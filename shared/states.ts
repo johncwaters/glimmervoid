@@ -25,16 +25,18 @@ export const BADGE_LABELS: Readonly<Record<SessionState, string>> = Object.freez
 });
 
 export const STATE_GLYPHS: Readonly<Record<SessionState, string>> = Object.freeze({
-  [STATES.DORMANT]:      '\u25cb',
-  [STATES.INITIALIZING]: '\u25f4',
-  [STATES.STARTING]:     '\u25d0',
+  [STATES.DORMANT]:      '\u23fe',
+  [STATES.INITIALIZING]: '\u22ef',
+  [STATES.STARTING]:     '\u23fb',
   [STATES.RUNNING]:      '\u25cf',
   [STATES.WAITING]:      '\u25c6',
-  [STATES.IDLE]:         '\u25ce',
+  [STATES.IDLE]:         '\u279c',
   [STATES.FAILED]:       '\u25b2',
   [STATES.DONE]:         '\u25a0',
-  [STATES.COMPLETE]:     '\u25c7',
+  [STATES.COMPLETE]:     '\u2713',
 });
+
+export const MONITORING_GLYPH = '\u224b';
 
 export const KILLABLE_STATES: readonly SessionState[] = Object.freeze([
   STATES.INITIALIZING,
