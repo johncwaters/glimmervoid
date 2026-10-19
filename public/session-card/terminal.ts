@@ -28,7 +28,7 @@ import {
 import { osc8LinkHandler, registerUrlLinkProvider } from './terminal-links.ts';
 import { installTerminalSecretMask, resetTerminalSecretMask } from './terminal-secret-mask.ts';
 import { decideTerminalLinkState } from './terminal-link-core.ts';
-import { registerUploadReporter, uploadFilesToSession } from '../session-upload.ts';
+import { uploadFilesToSession } from '../session-upload.ts';
 import { wireTouchScroll } from './touch-scroll.ts';
 import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from '../flying-animal-preview.ts';
@@ -77,7 +77,7 @@ const restoredLinesFromBottomBySessionUi = new WeakMap<SessionUi, number>();
 const sessionUisWithDeepHistory = new WeakSet<SessionUi>();
 const sessionUisReattachingQuietly = new WeakSet<SessionUi>();
 
-type TerminalNoticeKind = 'keys' | 'upload' | 'clipboard';
+type TerminalNoticeKind = 'keys' | 'clipboard';
 type TerminalNoticeTone = 'busy' | 'ok' | 'error';
 
 interface TerminalNotices {
@@ -753,12 +753,6 @@ export function wireTerminalIO(ui: SessionUi, sessionId: string) {
   term.onData((data) => { sendTerminalInput(ui, data); });
   term.onScroll((viewportTopLine) => { requestDeepHistoryAtTop(ui, sessionId, viewportTopLine); });
 
-  registerUploadReporter(sessionId, (tone, text) => {
-    const isTerminalVisible = !ui.termWrap.hidden && ui.face === 'terminal';
-    if (!isTerminalVisible) return false;
-    showTerminalNotice(ui, 'upload', tone, text);
-    return true;
-  }, ui.abortController.signal);
   wireFileTransfer(ui.termWrap, sessionId, ui.abortController.signal);
   connectDataWs(sessionId, ui, term);
 }
