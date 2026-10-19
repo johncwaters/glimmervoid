@@ -23,7 +23,22 @@ export interface RadarIssue {
   status?: unknown;
 }
 
-type TrailStepRow = ServerMessageOf<'radar-investigation-activity'>['trail'][number];
+interface TrailToolRow {
+  at: number;
+  tool: string;
+  detail: string;
+}
+
+interface TrailNoteRow {
+  at: number;
+  note: string;
+}
+
+type TrailStepRow = TrailToolRow | TrailNoteRow;
+
+type TrailTimelineRow =
+  | { kind: 'note'; at: number; text: string }
+  | { kind: 'work'; at: number; stepCount: number };
 
 type InvestigationActivityFrame = Partial<Pick<ServerMessageOf<'radar-investigation-activity'>, 'projectId' | 'issueId' | 'inFlight' | 'startedAt' | 'trail'>>;
 
@@ -122,24 +137,50 @@ const VERDICT_LABEL: Record<string, string> = {
 
 export function trailStepRows(trail: unknown): TrailStepRow[] {
   if (!Array.isArray(trail)) return [];
-  return (trail as unknown[]).flatMap((entry) => {
-    const record = entry as { at?: unknown; tool?: unknown; detail?: unknown } | null | undefined;
+  return (trail as unknown[]).flatMap((entry): TrailStepRow[] => {
+    const record = entry as { at?: unknown; tool?: unknown; detail?: unknown; note?: unknown } | null | undefined;
+    const at = numberOr(record?.at, 0);
+    const note = textOr(record?.note, '');
+    if (note) return [{ at, note }];
     const tool = textOr(record?.tool, '');
     if (!tool) return [];
-    return [{ at: numberOr(record?.at, 0), tool, detail: textOr(record?.detail, '') }];
+    return [{ at, tool, detail: textOr(record?.detail, '') }];
   });
 }
 
-function trailStepLabel(step: TrailStepRow) {
+function toolSteps(steps: TrailStepRow[]): TrailToolRow[] {
+  return steps.filter((step): step is TrailToolRow => 'tool' in step);
+}
+
+function trailStepLabel(step: TrailToolRow) {
   if (!step.detail) return step.tool;
   return `${step.tool} ${step.detail}`;
 }
 
 export function latestTrailLabel(issue: RadarIssue | null | undefined) {
   const steps = trailStepRows(issue?.trail);
-  const last = steps.at(-1);
-  if (!last) return '';
-  return trailStepLabel(last);
+  const latestNote = steps.findLast((step): step is TrailNoteRow => 'note' in step);
+  if (latestNote) return latestNote.note;
+  const lastTool = toolSteps(steps).at(-1);
+  if (!lastTool) return '';
+  return trailStepLabel(lastTool);
+}
+
+export function trailTimelineRows(steps: TrailStepRow[]): TrailTimelineRow[] {
+  const rows: TrailTimelineRow[] = [];
+  for (const step of steps) {
+    if ('note' in step) {
+      rows.push({ kind: 'note', at: step.at, text: step.note });
+      continue;
+    }
+    const previous = rows.at(-1);
+    if (previous?.kind === 'work') {
+      previous.stepCount += 1;
+      continue;
+    }
+    rows.push({ kind: 'work', at: step.at, stepCount: 1 });
+  }
+  return rows;
 }
 
 export function issueSummaryText(issue: RadarIssue | null | undefined) {
@@ -230,12 +271,14 @@ export function formatTrailOffset(startedAt: number | null, at: number) {
 
 export function trailContentKey(view: InvestigationView) {
   const last = view.steps.at(-1);
-  return [view.steps.length, last?.at ?? 0, last?.tool ?? ''].join('::');
+  const lastLabel = last && 'tool' in last ? last.tool : last?.note ?? '';
+  return [view.steps.length, last?.at ?? 0, lastLabel].join('::');
 }
 
 export function trailStatusText(view: InvestigationView, startedAgoText: string) {
   if (view.inFlight) {
-    const stepsText = `${view.steps.length} ${view.steps.length === 1 ? 'step' : 'steps'}`;
+    const toolStepCount = toolSteps(view.steps).length;
+    const stepsText = `${toolStepCount} ${toolStepCount === 1 ? 'step' : 'steps'}`;
     const startedText = view.startedAt ? `started ${startedAgoText}` : 'starting';
     return `investigating, ${startedText}, ${stepsText}`;
   }

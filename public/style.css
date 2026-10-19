@@ -1764,7 +1764,7 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
 
 .dialog-trail-step {
   display: grid;
-  grid-template-columns: 5ch 10ch minmax(0, 1fr);
+  grid-template-columns: 5ch minmax(0, 1fr);
   gap: 8px;
   align-items: baseline;
   padding: 2px 0;
@@ -1775,17 +1775,20 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   font-size: 11px;
 }
 
-.dialog-trail-tool {
-  color: var(--accent);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .dialog-trail-detail {
   min-width: 0;
   color: var(--text);
   overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.dialog-trail-note {
+  padding: 6px 0;
+}
+
+.dialog-trail-work .dialog-trail-detail {
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .dialog-trail-empty {

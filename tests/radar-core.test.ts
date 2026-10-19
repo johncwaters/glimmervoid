@@ -34,9 +34,11 @@ import {
   trailContentKey,
   trailStatusText,
   trailStepRows,
+  trailTimelineRows,
   updateBannerText,
   verdictLabel,
 } from '../public/radar/radar-core.ts';
+import { appendTrailStep, createInvestigationTrail } from '../server/core/investigation-trail-core.ts';
 
 const changesOf = (issues: { change?: string }[]): (string | undefined)[] => issues.map((issue) => issue.change);
 
@@ -559,10 +561,26 @@ test('trailStepRows keeps only steps that name a tool and coerces the rest', () 
   assert.deepEqual(trailStepRows(undefined), []);
 });
 
-test('latestTrailLabel names the newest step, tool first, and is empty without a trail', () => {
+test('latestTrailLabel names the newest narration, else the newest step, and is empty without a trail', () => {
   assert.equal(latestTrailLabel({ trail: [{ at: 1, tool: 'Grep', detail: 'TypeError' }, { at: 2, tool: 'Read', detail: 'a.ts' }] }), 'Read a.ts');
+  assert.equal(latestTrailLabel({ trail: [{ at: 1, note: 'Issue fetched; checking callers.' }, { at: 2, tool: 'Read', detail: 'a.ts' }] }), 'Issue fetched; checking callers.');
   assert.equal(latestTrailLabel({ trail: [{ at: 1, tool: 'Task', detail: '' }] }), 'Task');
   assert.equal(latestTrailLabel({}), '');
+});
+
+test('trailTimelineRows keeps narration and folds each run of tool steps into one counted row', () => {
+  const steps = trailStepRows([
+    { at: 1, tool: 'Bash', detail: 'curl issue' },
+    { at: 2, tool: 'Bash', detail: 'curl events' },
+    { at: 3, note: 'Issue fetched; checking callers.' },
+    { at: 3, tool: 'Grep', detail: 'useQuery' },
+  ]);
+  assert.deepEqual(trailTimelineRows(steps), [
+    { kind: 'work', at: 1, stepCount: 2 },
+    { kind: 'note', at: 3, text: 'Issue fetched; checking callers.' },
+    { kind: 'work', at: 3, stepCount: 1 },
+  ]);
+  assert.equal(trailStatusText({ inFlight: true, startedAt: 1, steps, verdict: '', summaryLine: '' }, '1m ago'), 'investigating, started 1m ago, 3 steps', 'narration is not a step');
 });
 
 test('applyInvestigationActivity patches the matching issue in place and reports whether anything matched', () => {
@@ -637,6 +655,18 @@ test('trailStatusText counts steps in the singular while running and names the v
   assert.equal(trailStatusText({ ...running, startedAt: null, steps: [] }, 'never'), 'investigating, starting, 0 steps');
   assert.equal(trailStatusText({ ...running, inFlight: false, verdict: 'NEEDS_HUMAN' }, '2m ago'), 'finished: needs you');
   assert.equal(trailStatusText({ ...running, inFlight: false }, '2m ago'), 'finished');
+});
+
+test('a full trail never loses a step count to narration, each kind evicting only its own oldest entry', () => {
+  let trail = createInvestigationTrail(1);
+  for (let stepIndex = 0; stepIndex < 80; stepIndex++) trail = appendTrailStep(trail, { at: stepIndex, tool: 'Bash', detail: `run ${stepIndex}` });
+  const statusOf = () => trailStatusText({ inFlight: true, startedAt: 1, steps: trailStepRows(trail.steps), verdict: '', summaryLine: '' }, '1m ago');
+  assert.equal(statusOf(), 'investigating, started 1m ago, 80 steps');
+  trail = appendTrailStep(trail, { at: 100, note: 'Reading the handler.' });
+  trail = appendTrailStep(trail, { at: 101, tool: 'Read', detail: 'handler.ts' });
+  assert.equal(statusOf(), 'investigating, started 1m ago, 80 steps');
+  assert.deepEqual(trail.steps[0], { at: 1, tool: 'Bash', detail: 'run 1' });
+  assert.deepEqual(trail.steps.slice(-2), [{ at: 100, note: 'Reading the handler.' }, { at: 101, tool: 'Read', detail: 'handler.ts' }]);
 });
 
 test('findIssueInSnapshot walks project then issue and refuses a partial address', () => {

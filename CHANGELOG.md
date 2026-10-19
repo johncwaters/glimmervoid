@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **View investigation shows what the agent found, not its commands**: the investigation view now lists the agent's own progress notes as it works, such as what the issue turned out to be and what it is checking next, and folds each run of tool calls into one quiet line with a step count. The issue row shows the latest note while the investigation runs.
+
 ## [0.39.0] - 2026-10-19
 
 ### Added

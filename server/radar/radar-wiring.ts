@@ -1,6 +1,7 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
@@ -11,7 +12,10 @@ import type { ExecFileFn, RunCommandOptions } from '../git/git-exec.ts';
 import { resolveHookTools as resolveSharedHookTools } from '../hook-tools.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { stableConfigKey } from '../core/config-secrets-core.ts';
-import { appendTrailStep, createInvestigationTrail, trailStepFromHook } from '../core/investigation-trail-core.ts';
+import { appendTrailStep, createInvestigationTrail, trailNotesFromTranscriptLines, trailStepFromHook } from '../core/investigation-trail-core.ts';
+import { MAX_TRANSCRIPT_READ_BYTES, completeLineBytes, planContiguousRead } from '../core/trace-tail-core.ts';
+import { openContainedFile } from '../contained-file.ts';
+import { claudeProjectsDir } from '../../session/core/conversation-history.ts';
 import type { InvestigationTrail } from '../core/investigation-trail-core.ts';
 import { nulSeparatedPaths } from '../git/core/git-changed-paths-core.ts';
 import * as core from './core/radar-lane-core.ts';
@@ -170,6 +174,31 @@ async function radarLaneRole(facts: SessionGuardrailsFacts, { writableRoots, com
 interface ResolvedProject {
   projectId: string | number;
   name: string;
+}
+
+interface TranscriptTail {
+  realPath: string | null;
+  offset: number;
+}
+
+async function readNewTranscriptLines(tail: TranscriptTail, transcriptPath: string): Promise<string[]> {
+  const opened = await openContainedFile(path.resolve(transcriptPath), claudeProjectsDir(process.env, os.homedir()));
+  if (!opened.ok) return [];
+  const { handle, realPath, stat } = opened.file;
+  try {
+    if (tail.realPath !== realPath) Object.assign(tail, { realPath, offset: 0 });
+    const plan = planContiguousRead(tail, stat);
+    if (plan.action === 'skip') return [];
+    const chunk = Buffer.alloc(plan.end - plan.start);
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, plan.start);
+    const readBytes = chunk.subarray(0, bytesRead);
+    const wholeLineBytes = completeLineBytes(readBytes);
+    const isOneOversizedLine = wholeLineBytes === 0 && bytesRead >= MAX_TRANSCRIPT_READ_BYTES;
+    tail.offset = plan.start + (isOneOversizedLine ? bytesRead : wholeLineBytes);
+    return readBytes.subarray(0, wholeLineBytes).toString('utf8').split('\n');
+  } finally {
+    await handle.close().catch(() => {});
+  }
 }
 
 function safeIssueId(issueId: unknown): string {
@@ -543,12 +572,20 @@ function createRadarWiring({
 
   function observeTrail(sess: Session, onActivity: (trail: InvestigationTrail) => void): void {
     let trail = createInvestigationTrail(Date.now());
+    const transcriptTail: TranscriptTail = { realPath: null, offset: 0 };
+    let pendingReports: Promise<void> = Promise.resolve();
     onActivity(trail);
     sess.on('hook-event', ({ event, payload }: { event: string; payload: Record<string, unknown> }) => {
       const step = trailStepFromHook(event, payload);
       if (!step) return;
-      trail = appendTrailStep(trail, { at: Date.now(), ...step });
-      onActivity(trail);
+      const at = Date.now();
+      const transcriptPath = typeof payload.transcript_path === 'string' ? payload.transcript_path : '';
+      pendingReports = pendingReports.then(async () => {
+        const newTranscriptLines = transcriptPath ? await readNewTranscriptLines(transcriptTail, transcriptPath).catch(() => []) : [];
+        for (const note of trailNotesFromTranscriptLines(newTranscriptLines, at)) trail = appendTrailStep(trail, { at, note });
+        trail = appendTrailStep(trail, { at, ...step });
+        onActivity(trail);
+      });
     });
   }
 
