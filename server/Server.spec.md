@@ -3,38 +3,32 @@
 The backend runtime: the HTTP server and both WebSockets on loopback, the lanes, git workspace management and the shell around every pure core
 
 ## entrances
-- hook route: an agent's Claude Code or Codex hook posts a lifecycle event for its session, carrying the per-session bearer token
-  handler: backend/backend-http.ts
-  trust: agent-session
-- agent route: a session runs a glimmervoid agent verb (push, spawn, attention, board, limits) and the CLI posts it with the session token
-  handler: backend/backend-http.ts
-  trust: agent-session
-- sign route: a session asks the server to sign a payload for it, presenting the session token
-  handler: backend/backend-http.ts
-  trust: agent-session
-- control token route: the dashboard page fetches the control WebSocket token from loopback
-  handler: backend/backend-http.ts
-  trust: operator
-- open external route: the dashboard inside an editor's browser view asks the host to open a link outside it
-  handler: backend/backend-http.ts
-  trust: operator
-- upload route: the operator attaches a file to a session from the dashboard
-  handler: backend/backend-http.ts
-  trust: operator
-- upload read route: the dashboard reads back a file attached to a session
-  handler: backend/backend-http.ts
-  trust: operator
 - pair route: a device on the network redeems a pairing token to join remote mode
   handler: remote-auth.ts
   trust: remote
-- control socket: the dashboard opens the control WebSocket and sends JSON control messages
-  handler: createBackendWebSockets in backend/backend-websockets.ts
-  trust: operator
-- terminal socket: the dashboard opens a session's data WebSocket and types into its PTY
-  handler: createBackendWebSockets in backend/backend-websockets.ts
-  trust: operator
-- visions socket: the editor extension streams open documents to the Visions lane over LSP
-  handler: createVisionsWiring in visions/visions-wiring.ts
-  trust: operator
 
 ## invariants
+- child process chokepoint: Only server/child-process-safe.ts imports node:child_process, so every spawn outside a PTY goes through its scrubbed, shell-free wrapper.
+  over: every source file under server, session, detection, notifications, shared, bin and scripts that is not child-process-safe.ts
+  via: only child-process-safe.ts imports child_process directly (all spawns go through it)
+  because: a direct child_process call can pass shell: true or the unscrubbed environment, leaking the operator's secrets into a subprocess or running a shell string
+  kinds: credential
+  checklist: capability-authorization dismissed: the wrapper grants no credential; it withholds the environment's
+  checklist: revalidated-permission dismissed: a spawn runs at once, nothing is queued under an older permission
+  checklist: message-authenticity dismissed: no message is accepted here
+  checklist: encrypted-storage dismissed: nothing is persisted by the spawn wrapper
+  checklist: key-rotation-compatibility dismissed: no key is held or rotated
+  checklist: separation-of-duties dismissed: one actor, the glimmervoid process, spawns every child
+- pairing token single use: A pairing token joins at most one device, and a replayed, expired or unknown token joins none.
+  over: every redemption of a minted pairing token through the pairings store
+  via: redeem mints a device, marks the token used, and is single use
+  because: a pairing link can leak through chat or shell history; a reusable token would let anyone holding it pair a device into remote mode
+  crossing: remote -> host
+  entrances: pair route
+  kinds: credential
+  checklist: capability-authorization declared as pairing token single use
+  checklist: revalidated-permission dismissed: a redemption is decided when the request arrives, nothing is queued
+  checklist: message-authenticity dismissed: the token is a bearer secret; no message signature is part of pairing
+  checklist: encrypted-storage dismissed: only the token's hash and the device secret's hash are persisted, never the secrets
+  checklist: key-rotation-compatibility dismissed: no key is held or rotated; each device holds its own minted secret
+  checklist: separation-of-duties dismissed: one operator mints and redeems on their own devices
