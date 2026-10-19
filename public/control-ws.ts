@@ -174,7 +174,7 @@ export function connectControl() {
   });
 }
 
-export async function checkControlLiveness(hiddenForMs?: number) {
+export async function checkControlLiveness() {
   if (_connectionStateCallback) _connectionStateCallback('connecting', 'Connecting');
   if (livenessProbePromise) return livenessProbePromise;
   const action = decideLivenessAction({
@@ -182,7 +182,6 @@ export async function checkControlLiveness(hiddenForMs?: number) {
     readyState: controlWs?.readyState ?? null,
     retryPending: controlRetryTimer !== null,
     connectingAgeMs: Date.now() - connectingSince,
-    hiddenForMs,
   });
   if (action === 'retry-now') {
     if (controlRetryTimer !== null) clearTimeout(controlRetryTimer);

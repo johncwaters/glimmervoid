@@ -1,6 +1,8 @@
 
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
+import { createActionStatus } from '../action-status.ts';
+import type { ActionStatus } from '../action-status.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
 import type { SessionUi } from './card-registry.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
@@ -26,8 +28,7 @@ import {
 import { osc8LinkHandler, registerUrlLinkProvider } from './terminal-links.ts';
 import { installTerminalSecretMask, resetTerminalSecretMask } from './terminal-secret-mask.ts';
 import { decideTerminalLinkState } from './terminal-link-core.ts';
-import { showErrorToast } from './toast.ts';
-import { uploadFilesToSession } from '../session-upload.ts';
+import { registerUploadReporter, uploadFilesToSession } from '../session-upload.ts';
 import { wireTouchScroll } from './touch-scroll.ts';
 import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from '../flying-animal-preview.ts';
@@ -72,7 +73,78 @@ function isCardTerminalHiddenNow(ui: SessionUi, sessionId: string) {
 }
 
 const deepHistoryLinesFromBottomBySessionUi = new WeakMap<SessionUi, number>();
+const restoredLinesFromBottomBySessionUi = new WeakMap<SessionUi, number>();
 const sessionUisWithDeepHistory = new WeakSet<SessionUi>();
+const sessionUisReattachingQuietly = new WeakSet<SessionUi>();
+
+type TerminalNoticeKind = 'keys' | 'upload' | 'clipboard';
+type TerminalNoticeTone = 'busy' | 'ok' | 'error';
+
+interface TerminalNotices {
+  status: ActionStatus;
+  shownKind: TerminalNoticeKind | null;
+  clearTimerId: ReturnType<typeof setTimeout> | null;
+  clipboardPrompt: HTMLElement;
+  pendingClipboardText: string | null;
+  jumpToLatestButton: HTMLButtonElement;
+}
+
+const terminalNoticesBySessionUi = new WeakMap<SessionUi, TerminalNotices>();
+const OK_NOTICE_CLEAR_MS = 5000;
+const ERROR_NOTICE_CLEAR_MS = 15000;
+const HELD_KEYS_TEXT = 'Keys you type now are held and sent once the terminal reconnects.';
+const DROPPED_KEYS_TEXT = 'The terminal is still reconnecting and its key buffer is full, so new keys are dropped.';
+const CLIPBOARD_PROMPT_TEXT = 'The agent copied text. The browser needs a click before it can reach your clipboard.';
+const CLIPBOARD_UNAVAILABLE_TEXT = 'The clipboard is unavailable in this browser.';
+
+function showTerminalNotice(ui: SessionUi, kind: TerminalNoticeKind, tone: TerminalNoticeTone, text: string) {
+  const notices = terminalNoticesBySessionUi.get(ui);
+  if (!notices) return;
+  if (notices.clearTimerId !== null) clearTimeout(notices.clearTimerId);
+  notices.clearTimerId = null;
+  notices.shownKind = kind;
+  notices.status.show(tone, text);
+  if (tone === 'busy') return;
+  notices.clearTimerId = setTimeout(() => clearTerminalNotice(ui, kind), tone === 'ok' ? OK_NOTICE_CLEAR_MS : ERROR_NOTICE_CLEAR_MS);
+}
+
+function clearTerminalNotice(ui: SessionUi, kind: TerminalNoticeKind) {
+  const notices = terminalNoticesBySessionUi.get(ui);
+  if (!notices || notices.shownKind !== kind) return;
+  if (notices.clearTimerId !== null) clearTimeout(notices.clearTimerId);
+  notices.clearTimerId = null;
+  notices.shownKind = null;
+  notices.status.clear();
+}
+
+function isScrolledAwayFromLatest(term: Terminal) {
+  const buffer = term.buffer.active;
+  return buffer.viewportY < buffer.baseY;
+}
+
+function refreshJumpToLatest(ui: SessionUi, term: Terminal, { hasNewOutput = false }: { hasNewOutput?: boolean } = {}) {
+  const button = terminalNoticesBySessionUi.get(ui)?.jumpToLatestButton;
+  if (!button) return;
+  const isScrolledAway = isScrolledAwayFromLatest(term);
+  button.hidden = !isScrolledAway;
+  if (!isScrolledAway) {
+    delete button.dataset.hasNewOutput;
+    return;
+  }
+  if (hasNewOutput) button.dataset.hasNewOutput = 'true';
+}
+
+function rememberScrollOffsetForReattach(ui: SessionUi, term: Terminal) {
+  if (deepHistoryLinesFromBottomBySessionUi.has(ui)) return;
+  if (!isScrolledAwayFromLatest(term)) return;
+  const buffer = term.buffer.active;
+  const linesFromBottom = buffer.length - buffer.viewportY;
+  if (sessionUisWithDeepHistory.has(ui)) {
+    deepHistoryLinesFromBottomBySessionUi.set(ui, linesFromBottom);
+    return;
+  }
+  restoredLinesFromBottomBySessionUi.set(ui, linesFromBottom);
+}
 
 function requestDeepHistoryAtTop(ui: SessionUi, sessionId: string, viewportTopLine: number) {
   const term = ui.term;
@@ -84,6 +156,7 @@ function requestDeepHistoryAtTop(ui: SessionUi, sessionId: string, viewportTopLi
   });
   if (!shouldRequest) return;
   sessionUisWithDeepHistory.add(ui);
+  sessionUisReattachingQuietly.add(ui);
   deepHistoryLinesFromBottomBySessionUi.set(ui, term.buffer.active.length - viewportTopLine);
   reconnectDataWs(sessionId);
 }
@@ -111,10 +184,66 @@ function decodeOsc52Payload(b64: string) {
   return new TextDecoder().decode(bytes);
 }
 
-function reportClipboardFailure(source: string, err: unknown) {
+function reportClipboardFailure(ui: SessionUi, source: string, err: unknown) {
   const msg = (err instanceof Error ? err.message : '') || String(err);
   console.error(`[clipboard:${source}]`, err);
-  showErrorToast(`Clipboard ${source} failed: ${msg}`);
+  showTerminalNotice(ui, 'clipboard', 'error', `Clipboard ${source} failed: ${msg}`);
+}
+
+function copyTextToClipboard(ui: SessionUi, text: string, source: string, successText?: string) {
+  const write = writeClipboardText(text);
+  if (!write) {
+    showTerminalNotice(ui, 'clipboard', 'error', CLIPBOARD_UNAVAILABLE_TEXT);
+    return;
+  }
+  write
+    .then(() => {
+      if (successText) showTerminalNotice(ui, 'clipboard', 'ok', successText);
+    })
+    .catch((err) => reportClipboardFailure(ui, source, err));
+}
+
+function offerClipboardCopy(ui: SessionUi, text: string) {
+  const notices = terminalNoticesBySessionUi.get(ui);
+  if (!notices) return;
+  notices.pendingClipboardText = text;
+  notices.clipboardPrompt.hidden = false;
+}
+
+function copyOfferedClipboardText(ui: SessionUi) {
+  const notices = terminalNoticesBySessionUi.get(ui);
+  const text = notices?.pendingClipboardText;
+  if (!notices || text == null) return;
+  notices.pendingClipboardText = null;
+  notices.clipboardPrompt.hidden = true;
+  copyTextToClipboard(ui, text, 'osc52 write', 'Copied to the clipboard.');
+}
+
+function buildTerminalNotices(termWrap: HTMLElement, ui: SessionUi, term: Terminal) {
+  const status = createActionStatus('terminal-notice');
+  const clipboardPrompt = el('div', 'terminal-clipboard-prompt');
+  clipboardPrompt.hidden = true;
+  const copyButton = el('button', 'btn-dialog btn-dialog-confirm', 'Copy to clipboard');
+  copyButton.type = 'button';
+  copyButton.addEventListener('click', () => copyOfferedClipboardText(ui));
+  clipboardPrompt.append(el('span', 'terminal-clipboard-prompt-text', CLIPBOARD_PROMPT_TEXT), copyButton);
+  const noticeStack = el('div', 'terminal-notices');
+  noticeStack.append(clipboardPrompt, status.element);
+
+  const jumpToLatestButton = el('button', 'terminal-jump-latest btn-dialog btn-dialog-ghost', 'Jump to latest');
+  jumpToLatestButton.type = 'button';
+  jumpToLatestButton.hidden = true;
+  jumpToLatestButton.addEventListener('click', () => {
+    term.scrollToBottom();
+    term.focus();
+  });
+
+  const dropZone = el('div', 'terminal-drop-zone');
+  dropZone.setAttribute('aria-hidden', 'true');
+  dropZone.append(el('span', 'terminal-drop-zone-label', 'Drop to upload to this session'));
+
+  termWrap.append(noticeStack, jumpToLatestButton, dropZone);
+  terminalNoticesBySessionUi.set(ui, { status, shownKind: null, clearTimerId: null, clipboardPrompt, pendingClipboardText: null, jumpToLatestButton });
 }
 
 
@@ -158,11 +287,13 @@ export function countConnectingTerminals() {
 }
 
 function refreshTerminalLink(ui: SessionUi) {
-  const linkState = decideTerminalLinkState({
+  const decidedLinkState = decideTerminalLinkState({
     hasTerminal: ui.term !== null,
     isSocketOpen: ui.dataWs?.readyState === WebSocket.OPEN,
     isInputHeld: isInputHeldForWakeCheck,
   });
+  const isQuietReattach = decidedLinkState === 'connecting' && !isInputHeldForWakeCheck && sessionUisReattachingQuietly.has(ui);
+  const linkState = isQuietReattach ? 'live' : decidedLinkState;
   if (linkState === 'none') {
     delete ui.card.dataset.link;
     notifyTerminalLinkSubscribers();
@@ -179,6 +310,7 @@ function notifyTerminalLinkSubscribers() {
 }
 
 function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, delayMs: number) {
+  rememberScrollOffsetForReattach(ui, term);
   renderScheduler.unregister(sessionId);
   ui.dataWs = null;
   refreshTerminalLink(ui);
@@ -195,8 +327,11 @@ function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, d
 function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   const deepHistoryLinesFromBottom = deepHistoryLinesFromBottomBySessionUi.get(ui);
   deepHistoryLinesFromBottomBySessionUi.delete(ui);
+  const restoredLinesFromBottom = restoredLinesFromBottomBySessionUi.get(ui);
+  restoredLinesFromBottomBySessionUi.delete(ui);
   const isDeepAttach = deepHistoryLinesFromBottom !== undefined;
-  let isAwaitingDeepSnapshot = false;
+  const linesFromBottomToRestore = deepHistoryLinesFromBottom ?? restoredLinesFromBottom;
+  let isAwaitingSnapshotScroll = false;
   const url = buildWebSocketUrl(location, withPageToken(dataAttachPath(sessionId, isDeepAttach)));
   const ws = new WebSocket(url);
   ws.binaryType = 'arraybuffer';
@@ -212,15 +347,15 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     const frame = readDataFrame(event.data, frameState);
     if (frame.kind === 'bytes') {
       noteSessionOutput(ui);
-      const isDeepSnapshot = isAwaitingDeepSnapshot;
-      isAwaitingDeepSnapshot = false;
+      const isSnapshotToScroll = isAwaitingSnapshotScroll;
+      isAwaitingSnapshotScroll = false;
       if (isCardTerminalHiddenNow(ui, sessionId)) {
         ui._hasMissedOutputWhileHidden = true;
         return;
       }
       renderScheduler.enqueue(sessionId, frame.data);
-      if (!isDeepSnapshot) return;
-      const linesFromBottom = deepHistoryLinesFromBottom ?? 0;
+      if (!isSnapshotToScroll) return;
+      const linesFromBottom = linesFromBottomToRestore ?? 0;
       renderScheduler.enqueueAction(sessionId, () => {
         term.scrollToLine(Math.max(0, term.buffer.active.length - linesFromBottom));
       });
@@ -228,7 +363,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     }
     if (frame.kind === 'attach-size') {
       ui._hasMissedOutputWhileHidden = false;
-      isAwaitingDeepSnapshot = isDeepAttach;
+      isAwaitingSnapshotScroll = linesFromBottomToRestore !== undefined;
       if (!isDeepAttach) sessionUisWithDeepHistory.delete(ui);
       frameState.hasSeenSize = true;
       frameState.lastSeq = frame.seq;
@@ -249,6 +384,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
 
   ws.addEventListener('close', () => {
     if (ui.dataWs !== ws) return;
+    sessionUisReattachingQuietly.delete(ui);
     if (!hasEverOpened) clearPageToken();
     const retryDelayMs = nextReconnectDelayMs(ui._dataWsRetryAttempt || 0);
     ui._dataWsRetryAttempt = (ui._dataWsRetryAttempt || 0) + 1;
@@ -258,6 +394,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   ws.addEventListener('open', () => {
     hasEverOpened = true;
     ui._dataWsRetryAttempt = 0;
+    sessionUisReattachingQuietly.delete(ui);
     refreshTerminalLink(ui);
 
     ui._syncGrid?.({ isActivationEdge: true });
@@ -279,6 +416,7 @@ function sendQueuedInput(ui: SessionUi) {
   if (isInputHeldForWakeCheck || !queued?.length || ws?.readyState !== WebSocket.OPEN) return;
   for (const data of queued) ws.send(JSON.stringify({ type: 'input', data }));
   queued.length = 0;
+  clearTerminalNotice(ui, 'keys');
 }
 
 export function holdTerminalInputDuringWakeCheck() {
@@ -317,11 +455,15 @@ export function sendTerminalInput(ui: SessionUi | null | undefined, data: string
     ui.dataWs.send(JSON.stringify({ type: 'input', data }));
     return true;
   }
-  if (ui._inputQueue && ui._inputQueue.length < INPUT_QUEUE_MAX) {
-    ui._inputQueue.push(data);
-    return true;
+  if (!ui._inputQueue) return false;
+  const isReconnecting = ui.dataWs?.readyState !== WebSocket.OPEN;
+  if (ui._inputQueue.length >= INPUT_QUEUE_MAX) {
+    showTerminalNotice(ui, 'keys', 'error', DROPPED_KEYS_TEXT);
+    return false;
   }
-  return false;
+  ui._inputQueue.push(data);
+  if (isReconnecting) showTerminalNotice(ui, 'keys', 'busy', HELD_KEYS_TEXT);
+  return true;
 }
 
 
@@ -341,6 +483,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
   term.loadAddon(fitAddon);
   ensureConnectingOverlay(termWrap);
   term.open(termWrap);
+  buildTerminalNotices(termWrap, ui, term);
   registerUrlLinkProvider(term);
   installTerminalSecretMask(term, ui.abortController.signal);
 
@@ -477,8 +620,10 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
       scrollRafId = null;
       if (!ui.term) return;
       ui.term.refresh(0, ui.term.rows - 1);
+      refreshJumpToLatest(ui, ui.term);
     });
   });
+  term.onWriteParsed(() => refreshJumpToLatest(ui, term, { hasNewOutput: true }));
 
   term.parser.registerOscHandler(52, (data) => {
     const semi = data.indexOf(';');
@@ -489,17 +634,16 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
     try {
       text = decodeOsc52Payload(payload);
     } catch (err) {
-      reportClipboardFailure('osc52 decode', err);
+      reportClipboardFailure(ui, 'osc52 decode', err);
       return true;
     }
     const hasActivation = document.hasFocus()
       && navigator.userActivation?.isActive !== false;
-    if (!hasActivation) return true;
-    const write = writeClipboardText(text);
-    if (!write) return true;
-    write.catch((err) => {
-      reportClipboardFailure('osc52 write', err);
-    });
+    if (!hasActivation) {
+      offerClipboardCopy(ui, text);
+      return true;
+    }
+    copyTextToClipboard(ui, text, 'osc52 write');
     return true;
   });
 
@@ -510,11 +654,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
     if (ctrl && ev.key === 'c' && term.hasSelection()) {
       const selection = term.getSelection();
       term.clearSelection();
-      const write = writeClipboardText(selection);
-      if (!write) return false;
-      write.catch((err) => {
-        reportClipboardFailure('copy', err);
-      });
+      copyTextToClipboard(ui, selection, 'copy');
       return false;
     }
     if (ctrl && ev.key === 'v') {
@@ -613,6 +753,12 @@ export function wireTerminalIO(ui: SessionUi, sessionId: string) {
   term.onData((data) => { sendTerminalInput(ui, data); });
   term.onScroll((viewportTopLine) => { requestDeepHistoryAtTop(ui, sessionId, viewportTopLine); });
 
+  registerUploadReporter(sessionId, (tone, text) => {
+    const isTerminalVisible = !ui.termWrap.hidden && ui.face === 'terminal';
+    if (!isTerminalVisible) return false;
+    showTerminalNotice(ui, 'upload', tone, text);
+    return true;
+  }, ui.abortController.signal);
   wireFileTransfer(ui.termWrap, sessionId, ui.abortController.signal);
   connectDataWs(sessionId, ui, term);
 }
@@ -635,9 +781,16 @@ function wireFileTransfer(termWrap: HTMLElement, sessionId: string, signal: Abor
     if (!carriesFiles(event.dataTransfer)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
+    termWrap.dataset.dropTarget = 'true';
+  }, { signal });
+
+  termWrap.addEventListener('dragleave', (event) => {
+    if (event.relatedTarget instanceof Node && termWrap.contains(event.relatedTarget)) return;
+    delete termWrap.dataset.dropTarget;
   }, { signal });
 
   termWrap.addEventListener('drop', (event) => {
+    delete termWrap.dataset.dropTarget;
     if (!carriesFiles(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();

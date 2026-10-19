@@ -49,7 +49,6 @@ import { applyConversationTraceChanged, applyConversationTraceError, applyConver
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
-import { showErrorToast } from './session-card/toast.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, applySettingsUpdateError, onPhoneSettingsScreenChanged, refreshSettingsStatus, resolveSettingsTarget, returnToSettingsList, setFeatureTabViews } from './settings/settings-panel.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
@@ -427,8 +426,8 @@ const messageHandlers = {
   'session-wakeup':     (msg) => setSessionWakeup(msg.id, msg.pendingWakeup),
   'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind, msg.isCompacting === true, msg.isWaitingForMemory === true); refreshAttentionSurfaces(); },
   'session-merge-status': (msg) => { setSessionMergeStatus(msg.id, msg.mergeStatus, msg.reason); setFocusMergeStatus(msg.id, msg.mergeStatus); refreshAttentionSurfaces(); },
-  'session-worktree-blocked': (msg) => { showErrorToast(`${msg.session}: ${msg.notice || 'integration branch not found'}`, { persist: true }); },
-  'session-worktree-warning': (msg) => { showErrorToast(`${msg.session}: ${msg.notice || 'base branch warning'}`); },
+  'session-worktree-blocked': (msg) => { reportUnsourcedError(`${msg.session}: ${msg.notice || 'integration branch not found'}`); },
+  'session-worktree-warning': (msg) => { reportUnsourcedError(`${msg.session}: ${msg.notice || 'base branch warning'}`); },
   'session-worktree-ready': (msg) => { setSessionEffectiveBase(msg.id, msg.base); },
   'session-diff':       (msg) => { setSessionDiff(msg.id, { committed: msg.committed, uncommitted: msg.uncommitted, hasCommits: msg.hasCommits }); },
   'session-diff-error': (msg) => { setReviewDiffError(msg.id, msg.message); },
@@ -461,7 +460,7 @@ const messageHandlers = {
     applyConversationTraceError(msg);
     const isPlanErrorShownInline = applySessionPlanError(msg);
     if (isUpdateErrorShownInline || isTraceErrorShownInline || isPlanErrorShownInline) return;
-    showErrorToast(msg.message, { persist: true });
+    reportUnsourcedError(msg.message);
   },
   'session-error':      (msg) => {
     releaseReviewMergeRequest(msg.id);
@@ -682,17 +681,19 @@ function activateSettingsHash(hash: string) {
   return activateSettingsTarget(resolveSettingsTarget(hash));
 }
 
+const NO_STORED_PLAN_TEXT = 'No plan is stored for this session yet.';
+
 function activatePlanHash(hash: string) {
   const sessionId = resolvePlanTarget(hash);
   if (!sessionId) return false;
   if (!hasSession(sessionId)) return true;
   history.replaceState(history.state, '', `${location.pathname}${location.search}`);
   if (isPhoneShellActive()) {
-    if (!showPhonePlan(sessionId)) showErrorToast('No plan is stored for this session yet');
+    if (!showPhonePlan(sessionId)) reportUnsourcedError(NO_STORED_PLAN_TEXT);
     return true;
   }
   activateView('focus', { persist: false });
-  if (!openPlanInFocus(sessionId)) showErrorToast('No plan is stored for this session yet');
+  if (!openPlanInFocus(sessionId)) reportUnsourcedError(NO_STORED_PLAN_TEXT);
   return true;
 }
 
@@ -1036,23 +1037,13 @@ window.addEventListener('blur', noteViewerFocusEdge);
 document.addEventListener('visibilitychange', noteViewerFocusEdge);
 
 let _wakeLivenessCheckRunning = false;
-let _hiddenSinceMs: number | null = null;
-
-function takeHiddenForMs() {
-  if (document.visibilityState !== 'visible') return 0;
-  const hiddenSinceMs = _hiddenSinceMs;
-  _hiddenSinceMs = null;
-  if (hiddenSinceMs === null) return 0;
-  return Date.now() - hiddenSinceMs;
-}
 
 async function checkWakeLiveness() {
-  const hiddenForMs = takeHiddenForMs();
   if (_wakeLivenessCheckRunning) return;
   _wakeLivenessCheckRunning = true;
   holdTerminalInputDuringWakeCheck();
   try {
-    const state = await checkControlLiveness(hiddenForMs);
+    const state = await checkControlLiveness();
     if (state === 'ok') return;
     for (const id of sessionUIs.keys()) reconnectDataWs(id);
   } finally {
@@ -1062,10 +1053,7 @@ async function checkWakeLiveness() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') {
-    _hiddenSinceMs ??= Date.now();
-    return;
-  }
+  if (document.visibilityState !== 'visible') return;
   rebuildWebglGlyphAtlases();
   checkWakeLiveness();
 });

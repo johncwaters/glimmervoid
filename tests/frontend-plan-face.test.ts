@@ -784,8 +784,8 @@ test('a plan deep link that cannot open the plan says so', () => {
     appSource.indexOf('function activateLocationHash'),
   );
 
-  assert.match(planHashSource, /if \(!showPhonePlan\(sessionId\)\) showErrorToast\('No plan is stored for this session yet'\)/);
-  assert.match(planHashSource, /if \(!openPlanInFocus\(sessionId\)\) showErrorToast\('No plan is stored for this session yet'\)/);
+  assert.match(planHashSource, /if \(!showPhonePlan\(sessionId\)\) reportUnsourcedError\(NO_STORED_PLAN_TEXT\)/);
+  assert.match(planHashSource, /if \(!openPlanInFocus\(sessionId\)\) reportUnsourcedError\(NO_STORED_PLAN_TEXT\)/);
 });
 
 const twoRevisionReview = {
