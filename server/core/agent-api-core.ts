@@ -239,9 +239,55 @@ function deriveChildSessionName(parentName: string, existingNames: readonly stri
 }
 
 
+const USAGE_COLUMN_WIDTH = 20;
+
+interface AgentCommandHelp {
+  usage: string;
+  summary: string;
+  missingArgumentHint: string | null;
+}
+
+const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = Object.freeze({
+  spawn: {
+    usage: 'spawn <prompt>',
+    summary: 'Start a sibling session on that prompt',
+    missingArgumentHint: 'glimmervoid spawn: this command needs text, for example "glimmervoid spawn check the failing test"',
+  },
+  attention: {
+    usage: 'attention <note>',
+    summary: 'Flag this session as needing the operator',
+    missingArgumentHint: 'glimmervoid attention: this command needs text, for example "glimmervoid attention check the failing test"',
+  },
+  board: { usage: 'board', summary: 'List the live sessions', missingArgumentHint: null },
+  push: { usage: 'push', summary: "Land this session's commits on the integration branch and push it", missingArgumentHint: null },
+  edit: {
+    usage: 'edit <path>',
+    summary: 'Open a text file for the operator to edit in the dashboard',
+    missingArgumentHint: 'glimmervoid edit: this command needs a file path, for example "glimmervoid edit drafts/post.md"',
+  },
+  review: {
+    usage: 'review <pr>',
+    summary: 'Queue a team review of a pull request; the draft waits in the Reviews tab for the operator to post',
+    missingArgumentHint: 'glimmervoid review: this command needs a pull request, for example "glimmervoid review https://github.com/acme/app/pull/12" or "glimmervoid review acme/app#12"',
+  },
+  reviews: { usage: 'reviews', summary: 'List the Reviews tab: reviews running, queued and drafted', missingArgumentHint: null },
+  prs: { usage: 'prs', summary: "List the operator's open pull requests with their checks, reviews and merge state", missingArgumentHint: null },
+  'link-pr': {
+    usage: 'link-pr <pr>',
+    summary: "Link a pull request to this session's card",
+    missingArgumentHint: 'glimmervoid link-pr: this command needs a pull request, for example "glimmervoid link-pr acme/app#12"',
+  },
+  settings: { usage: 'settings list|get', summary: "Read Glimmervoid's settings; a secret shows only as configured or not", missingArgumentHint: null },
+  limits: { usage: 'limits', summary: 'List which of these commands answer here and what the guardrails block', missingArgumentHint: null },
+});
+
+function agentCommandHelpLines(): string[] {
+  return Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => `  ${usage.padEnd(USAGE_COLUMN_WIDTH)}${summary}`);
+}
+
 export {
   decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describePushLanding,
   describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviews, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
-  REFUSAL_REASON, REFUSAL_STATUS,
+  REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines,
 };
 export type { AgentRequestOf };

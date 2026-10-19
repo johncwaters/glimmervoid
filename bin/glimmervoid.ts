@@ -7,6 +7,7 @@ import path from 'node:path';
 import { AGENT_API_VERBS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { CustomAgentDeclaration } from '../shared/contracts/config.ts';
 import { execSync } from '../server/child-process-safe.ts';
+import { agentCommandHelpLines } from '../server/core/agent-api-core.ts';
 import { renderTable } from '../server/core/ascii-figure-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from '../server/core/config-path-core.ts';
 import { parseCommandLine } from '../server/core/command-line-core.ts';
@@ -44,17 +45,7 @@ Editor integration (Visions):
   visions relay       Run the Visions LSP relay on stdio (an editor's LSP client starts this)
 
 Inside a Glimmervoid session:
-  spawn <prompt>      Start a sibling session on that prompt
-  attention <note>    Flag this session as needing the operator
-  board               List the live sessions
-  push                Land this session's commits on the integration branch and push it
-  edit <path>         Open a text file for the operator to edit in the dashboard
-  review <pr>         Queue a team review of a pull request; the draft waits in the Reviews tab for the operator to post
-  reviews             List the Reviews tab: reviews running, queued and drafted
-  prs                 List the operator's open pull requests with their checks, reviews and merge state
-  link-pr <pr>        Link a pull request to this session's card
-  settings list|get   Read Glimmervoid's settings; a secret shows only as configured or not
-  limits              List which of these commands answer here and what the guardrails block
+${agentCommandHelpLines().join('\n')}
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
 
 Options:
@@ -89,7 +80,7 @@ if (commandLine.globalOptions.port) {
 
 type SubcommandRunner = (subcommandArgs: string[], subcommandName: string) => Promise<number>;
 
-const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
+const OWN_SUBCOMMAND_RUNNERS: [string, SubcommandRunner][] = [
   ['doctor', async () => {
     await runDoctor();
     return 0;
@@ -114,7 +105,13 @@ const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');
     return runSshSignCli(subcommandArgs);
   }],
-  ...AGENT_API_VERBS.filter((verb) => verb !== 'settings').map((verb): [string, SubcommandRunner] => [verb, async (subcommandArgs, subcommandName) => {
+];
+
+const ownSubcommandNames = new Set(OWN_SUBCOMMAND_RUNNERS.map(([name]) => name));
+
+const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
+  ...OWN_SUBCOMMAND_RUNNERS,
+  ...AGENT_API_VERBS.filter((verb) => !ownSubcommandNames.has(verb)).map((verb): [string, SubcommandRunner] => [verb, async (subcommandArgs, subcommandName) => {
     const { runAgentApiCli } = await import('../server/agent-api-cli.ts');
     return runAgentApiCli([subcommandName, ...subcommandArgs]);
   }]),

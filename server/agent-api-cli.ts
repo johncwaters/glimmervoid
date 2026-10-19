@@ -9,7 +9,7 @@ import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { errorCode } from '../shared/text.ts';
 import { decideGuardrailsProxy } from '../session/core/guardrails-proxy-core.ts';
 import type { GuardrailsProxy } from '../session/core/guardrails-proxy-core.ts';
-import { isAgentApiVerb } from './core/agent-api-core.ts';
+import { AGENT_COMMAND_HELP, isAgentApiVerb } from './core/agent-api-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
@@ -45,12 +45,6 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   'link-pr': pullRequestBody,
   settings: ([command, settingPath]) => ({ command, ...(settingPath === undefined ? {} : { path: settingPath }) }),
 };
-
-const MISSING_ARGUMENT_HINTS: Readonly<Partial<Record<AgentApiVerb, string>>> = Object.freeze({
-  edit: 'glimmervoid edit: this command needs a file path, for example "glimmervoid edit drafts/post.md"',
-  review: 'glimmervoid review: this command needs a pull request, for example "glimmervoid review https://github.com/acme/app/pull/12" or "glimmervoid review acme/app#12"',
-  'link-pr': 'glimmervoid link-pr: this command needs a pull request, for example "glimmervoid link-pr acme/app#12"',
-});
 
 function bodySaysOk(text: string): boolean {
   try {
@@ -173,7 +167,7 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   }
   const body = BODY_BUILDERS[verb](args.slice(1));
   if (!body) {
-    console.error(MISSING_ARGUMENT_HINTS[verb] ?? `glimmervoid ${verb}: this command needs text, for example "glimmervoid ${verb} check the failing test"`);
+    console.error(AGENT_COMMAND_HELP[verb].missingArgumentHint ?? `glimmervoid ${verb}: this command needs an argument`);
     return 1;
   }
   const target = sessionEndpoint(verb);
