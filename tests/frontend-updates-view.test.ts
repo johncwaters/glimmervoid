@@ -115,6 +115,7 @@ test('updateControls shows only the one action the update state calls for', () =
     { name: 'install command', input: { status: status({ applyRefusal: npmGlobal }) }, expected: { actions: ['check'], note: npmGlobal.message, command: 'git pull --ff-only' } },
     { name: 'already checked out', input: { status: status({ applyRefusal: alreadyCheckedOut }) }, expected: { actions: ['restart'], note: alreadyCheckedOut.message, command: null } },
     { name: 'unsent request', input: { status: status(), request: { requested: false, failure: 'Not connected to the server. Reconnecting.' } }, expected: { actions: [], note: 'Not connected to the server. Reconnecting.', command: null } },
+    { name: 'refused apply', input: { status: status(), request: { requested: false, failure: 'The target sha is unknown. Check for updates again.' } }, expected: { actions: ['update'], note: 'The target sha is unknown. Check for updates again.', command: null } },
   ];
   for (const entry of cases) assert.deepEqual(updateControls(entry.input), entry.expected, entry.name);
 });
@@ -124,6 +125,7 @@ test('reduceUpdateRequest locks on a sent request and unlocks on the answering f
   assert.deepEqual(sent, { requested: true, failure: null });
   assert.deepEqual(reduceUpdateRequest(sent, 'progress-frame'), IDLE_UPDATE_REQUEST);
   assert.deepEqual(reduceUpdateRequest(sent, 'error-frame'), IDLE_UPDATE_REQUEST);
+  assert.deepEqual(reduceUpdateRequest(sent, 'error-frame', 'Update application is unavailable.'), { requested: false, failure: 'Update application is unavailable.' });
   assert.equal(reduceUpdateRequest(IDLE_UPDATE_REQUEST, 'error-frame'), IDLE_UPDATE_REQUEST);
 });
 

@@ -45,13 +45,13 @@ import { applySessionSetupResponse, openSessionSetup } from './session-setup/set
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
-import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionGuarded, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
+import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionGuarded, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
 import { showErrorToast } from './session-card/toast.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
-import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, clearSettingsUpdateRequest, onPhoneSettingsScreenChanged, refreshSettingsStatus, resolveSettingsTarget, returnToSettingsList, setFeatureTabViews } from './settings/settings-panel.ts';
+import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, applySettingsUpdateError, onPhoneSettingsScreenChanged, refreshSettingsStatus, resolveSettingsTarget, returnToSettingsList, setFeatureTabViews } from './settings/settings-panel.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
@@ -456,14 +456,18 @@ const messageHandlers = {
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
   'post-turn-leftovers': (msg) => showPostTurnLeftoversBanner(msg),
   'error':              (msg) => {
-    clearSettingsUpdateRequest();
+    const isUpdateErrorShownInline = applySettingsUpdateError(msg);
     const isTraceErrorShownInline = applyTraceError(msg);
     applyConversationTraceError(msg);
-    applySessionPlanError(msg);
-    if (isTraceErrorShownInline) return;
+    const isPlanErrorShownInline = applySessionPlanError(msg);
+    if (isUpdateErrorShownInline || isTraceErrorShownInline || isPlanErrorShownInline) return;
     showErrorToast(msg.message, { persist: true });
   },
-  'session-error':      (msg) => { applySessionPlanError(msg); releaseReviewMergeRequest(msg.id); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
+  'session-error':      (msg) => {
+    releaseReviewMergeRequest(msg.id);
+    if (applySessionPlanError(msg)) return;
+    reportSessionProblem(msg.id, msg.message);
+  },
   'settings-updated':   (msg) => {
     if (msg.settings) applyDashboardSettings(msg.settings);
     refreshFirstRunChecklist();

@@ -473,6 +473,7 @@ test('update-apply sends a named refusal to the requesting socket', async () => 
   await connection.send({ type: 'update-apply' });
   assert.deepEqual(connection.sent.at(-1), {
     type: 'error',
+    scope: 'update',
     message: '[dirty-worktree] Commit or stash local changes.',
   });
 });

@@ -9595,6 +9595,10 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
   margin: 0;
 }
 
+.settings-workflow-rule-status {
+  margin: 0;
+}
+
 .repo-roots-adder {
   display: flex;
   flex-direction: column;

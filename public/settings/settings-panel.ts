@@ -3,7 +3,7 @@ import { isPhoneLayout, onLayoutChange } from '../form-factor.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';
 import type { CustomAgentSummaryRow } from '#shared/contracts/control-messages.ts';
 import { TelegramDeliveryStatus } from '#shared/contracts/control-messages.ts';
-import { createActionStatus, requestWithStatus } from '../action-status.ts';
+import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText, requestWithStatus } from '../action-status.ts';
 import type { UpdateJournal } from '#shared/contracts/update-journal.ts';
 import { REPO_SLUG } from '#shared/repo.ts';
 import { loadCustomSounds, playAlertSound, resolveSoundId, soundOptions } from '../alert-sound.ts';
@@ -93,6 +93,7 @@ import {
   reduceUpdateRequest,
   shouldAutoCheckUpdates,
   updateControls,
+  updateErrorText,
   updateSummary,
 } from '../updates-view-core.ts';
 import type { UpdateActionId, UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from '../updates-view-core.ts';
@@ -175,7 +176,9 @@ let isAutoUpdateCheckAwaitingStatus = false;
 let isUpdateCheckInFlight = false;
 let updateCheckSendFailure: string | null = null;
 const pendingWorkflowRuleIds = new Set<string>();
-const workflowRuleSaveErrorsById = new Map<string, string>();
+type WorkflowRuleFeedback = { tone: 'ok' | 'error'; text: string };
+
+const workflowRuleFeedbackById = new Map<string, WorkflowRuleFeedback>();
 
 function browserPreferences() {
   return {
@@ -875,28 +878,44 @@ function buildCustomAgentsStatus() {
   return block;
 }
 
+function showWorkflowRuleSaved(ruleId: string) {
+  workflowRuleFeedbackById.set(ruleId, { tone: 'ok', text: 'Saved' });
+  window.setTimeout(() => {
+    if (workflowRuleFeedbackById.get(ruleId)?.tone !== 'ok') return;
+    workflowRuleFeedbackById.delete(ruleId);
+    refreshSettingsStatus();
+  }, SAVED_STATUS_MS);
+}
+
 async function saveWorkflowRuleToggle(rule: WorkflowRuleToggleRow, isTurningOn: boolean) {
   pendingWorkflowRuleIds.add(rule.id);
-  workflowRuleSaveErrorsById.delete(rule.id);
+  workflowRuleFeedbackById.delete(rule.id);
   refreshSettingsStatus();
   try {
-    const message = await sendControlRequest('update-settings', { settings: { workflows: { rules: [{ id: rule.id, enabled: isTurningOn }] } } });
-    if (message.type === 'settings-error') workflowRuleSaveErrorsById.set(rule.id, String(message.message));
+    const message = await sendControlRequest('update-settings', { settings: { workflows: { rules: [{ id: rule.id, enabled: isTurningOn }] } } }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
     pendingWorkflowRuleIds.delete(rule.id);
+    if (message.type === 'settings-error') workflowRuleFeedbackById.set(rule.id, { tone: 'error', text: String(message.message) });
     if (message.type === 'settings-updated') {
+      showWorkflowRuleSaved(rule.id);
       applySettingsBroadcast(message.settings);
       return;
     }
   } catch (error) {
-    workflowRuleSaveErrorsById.set(rule.id, (error as Error)?.message || 'Failed to save the rule.');
+    workflowRuleFeedbackById.set(rule.id, { tone: 'error', text: requestFailureText(error, DEFAULT_REPLY_TIMEOUT_MS) });
   }
   pendingWorkflowRuleIds.delete(rule.id);
   refreshSettingsStatus();
 }
 
-function workflowRuleStatusText(rule: WorkflowRuleToggleRow): string {
-  if (pendingWorkflowRuleIds.has(rule.id)) return 'Saving';
-  return workflowRuleSaveErrorsById.get(rule.id) ?? '';
+function buildWorkflowRuleStatus(rule: WorkflowRuleToggleRow) {
+  const status = createActionStatus('settings-workflow-rule-status');
+  if (pendingWorkflowRuleIds.has(rule.id)) {
+    status.show('busy', 'Saving');
+    return status.element;
+  }
+  const feedback = workflowRuleFeedbackById.get(rule.id);
+  if (feedback) status.show(feedback.tone, feedback.text);
+  return status.element;
 }
 
 function buildWorkflowRuleToggle(rule: WorkflowRuleToggleRow) {
@@ -909,9 +928,7 @@ function buildWorkflowRuleToggle(rule: WorkflowRuleToggleRow) {
   input.setAttribute('aria-label', `Run rule ${rule.name}`);
   input.addEventListener('change', () => { void saveWorkflowRuleToggle(rule, input.checked); });
   label.append(input, el('span', 'settings-view-toggle-state', toggleStateText(rule.isEnabled)), el('span', 'settings-readonly', `${rule.name}  ${rule.summary}`));
-  const status = el('span', 'settings-view-copy-status', workflowRuleStatusText(rule));
-  status.setAttribute('role', 'status');
-  row.append(label, status);
+  row.append(label, buildWorkflowRuleStatus(rule));
   return row;
 }
 
@@ -1677,11 +1694,15 @@ export function applySettingsUpdateProgress(journal: unknown) {
   refreshUpdateRows();
 }
 
-export function clearSettingsUpdateRequest() {
-  dispatchUpdateRequest('error-frame');
-  if (!isUpdateCheckInFlight) return;
+export function applySettingsUpdateError(message: { scope?: string; message: string }): boolean {
+  if (message.scope !== 'update') return false;
+  const errorText = updateErrorText(message.message);
+  const wasApplyRequested = updateRequest.requested;
+  updateRequest = reduceUpdateRequest(updateRequest, 'error-frame', errorText);
   isUpdateCheckInFlight = false;
+  if (!wasApplyRequested) updateCheckSendFailure = errorText;
   refreshUpdateRows();
+  return true;
 }
 
 function refreshFlyingAnimalsAvailability() {

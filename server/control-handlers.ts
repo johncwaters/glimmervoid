@@ -1329,7 +1329,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   async function handleUpdateCheck(_msg: ClientMessageOf<'update-check'>, ws: ControlSocket): Promise<void> {
     if (!checkNow) {
-      sendError(ws, '[update-check-unavailable] Update checking is unavailable.');
+      sendError(ws, '[update-check-unavailable] Update checking is unavailable.', { scope: 'update' });
       return;
     }
     await checkNow();
@@ -1337,12 +1337,12 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   async function handleUpdateApply(_msg: ClientMessageOf<'update-apply'>, ws: ControlSocket): Promise<void> {
     if (!applyUpdate) {
-      sendError(ws, '[update-apply-unavailable] Update application is unavailable.');
+      sendError(ws, '[update-apply-unavailable] Update application is unavailable.', { scope: 'update' });
       return;
     }
     const outcome = await applyUpdate();
     if (outcome.ok) return;
-    sendError(ws, `[${outcome.reason || 'update-refused'}] ${outcome.message}`);
+    sendError(ws, `[${outcome.reason || 'update-refused'}] ${outcome.message}`, { scope: 'update' });
   }
 
   function handleRestart(_msg: ClientMessageOf<'restart-server'>): void {

@@ -552,16 +552,17 @@ export function applySessionPlanResponse(response: PlanResponse) {
   updateButtonVisibility(ui);
 }
 
-export function applySessionPlanError(message: ServerMessage) {
-  if (message.type !== 'error' && message.type !== 'session-error') return;
-  if (message.scope !== 'plan' && message.scope !== 'plan-decision') return;
+export function applySessionPlanError(message: ServerMessage): boolean {
+  if (message.type !== 'error' && message.type !== 'session-error') return false;
+  if (message.scope !== 'plan' && message.scope !== 'plan-decision') return false;
   const ui = findSessionUi(message.id);
-  if (!ui) return;
+  if (!ui) return false;
   if (message.scope === 'plan') {
     ui.planFace.update({ requestFailed: true });
-    return;
+    return true;
   }
-  ui.planFace.update({ decisionRefused: true });
+  ui.planFace.update({ decisionRefused: true, refusalText: message.message });
+  return true;
 }
 
 export function applyPlanConnectionState(isConnected: boolean) {
@@ -776,7 +777,7 @@ function _handleEndedTransition(ui: SessionUi, wasActive: boolean, state: string
   ui.term.write(`\r\n\r\n\x1b[2m${color}  ${label}\x1b[0m\r\n\r\n\x1b[2m  Open the session actions menu and choose Restart to start a new session.\x1b[0m\r\n`);
 }
 
-function reportSessionProblem(sessionId: unknown, message: string) {
+export function reportSessionProblem(sessionId: unknown, message: string) {
   const ui = findSessionUi(sessionId);
   if (!ui) { reportUnsourcedError(message); return; }
   sessionActionStatus(ui).show('error', message);

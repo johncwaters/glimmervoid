@@ -10,6 +10,7 @@ import type {
 } from '#shared/contracts/plan-review.ts';
 import { el } from '../dom-helpers.ts';
 import { uiState } from '../ui-state-core.ts';
+import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { diffPlanBodies } from './plan-diff-core.ts';
 import { parsePlanMarkdown, splitPlanSections } from './plan-markdown-core.ts';
 import type { PlanSection } from './plan-markdown-core.ts';
@@ -26,6 +27,7 @@ interface PlanFaceUpdate {
   isConnected?: boolean;
   requestFailed?: boolean;
   decisionRefused?: boolean;
+  refusalText?: string;
 }
 
 interface PlanFaceDeps {
@@ -488,7 +490,10 @@ export function createPlanFace(deps: PlanFaceDeps) {
       return false;
     }
     const request: PlanDecisionRequest = { agentId: target.agentId, revision: target.revision, decision, ...extras };
-    if (!deps.sendDecision(sessionId, request)) return false;
+    if (!deps.sendDecision(sessionId, request)) {
+      noteProblem(NOT_CONNECTED_TEXT);
+      return false;
+    }
     problem = null;
     isDecisionInFlight = true;
     awaitedApproval = isApprovalDecision(decision) ? target : null;
@@ -954,6 +959,7 @@ export function createPlanFace(deps: PlanFaceDeps) {
       awaitedApproval = null;
       isDecisionInFlight = false;
       sentComments = null;
+      if (next.refusalText) problem = next.refusalText;
     }
     if (typeof next.isConnected === 'boolean') {
       hasReconnected = next.isConnected && !isConnected;

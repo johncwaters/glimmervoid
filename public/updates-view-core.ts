@@ -69,11 +69,15 @@ export const NOT_CONNECTED_TEXT = 'Not connected to the server. Reconnecting.';
 
 export const IDLE_UPDATE_REQUEST: UpdateRequestState = Object.freeze({ requested: false, failure: null });
 
-export function reduceUpdateRequest(state: UpdateRequestState, event: UpdateRequestEvent): UpdateRequestState {
+export function updateErrorText(message: string): string {
+  return message.replace(/^\[[^\]]+\]\s*/, '');
+}
+
+export function reduceUpdateRequest(state: UpdateRequestState, event: UpdateRequestEvent, errorText: string | null = null): UpdateRequestState {
   if (event === 'request-sent') return { requested: true, failure: null };
   if (event === 'request-unsent') return { requested: false, failure: NOT_CONNECTED_TEXT };
   if (event === 'progress-frame') return IDLE_UPDATE_REQUEST;
-  if (event === 'error-frame') return state.requested ? IDLE_UPDATE_REQUEST : state;
+  if (event === 'error-frame') return state.requested ? { requested: false, failure: errorText } : state;
   if (state.failure === null) return state;
   return { requested: state.requested, failure: null };
 }
@@ -105,9 +109,14 @@ export function updateControls({
   journal?: UpdateJournal | null;
   request?: UpdateRequestState;
 }): UpdateControls {
-  const runState = updateRunState(status, journal);
-  if (request.failure) return controls([], request.failure);
-  if (runState === 'running' || request.requested) return controls([]);
+  if (request.failure === NOT_CONNECTED_TEXT) return controls([], NOT_CONNECTED_TEXT);
+  const decided = statusControls(updateRunState(status, journal), status, request.requested);
+  if (!request.failure) return decided;
+  return { ...decided, note: request.failure };
+}
+
+function statusControls(runState: unknown, status: UpdateStatusView | null | undefined, isRequestInFlight: boolean): UpdateControls {
+  if (runState === 'running' || isRequestInFlight) return controls([]);
   if (runState === 'staged') return controls(['restart']);
   if (!status?.updateAvailable) return controls(['check']);
   const refusal = status.applyRefusal;
