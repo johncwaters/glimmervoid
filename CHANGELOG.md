@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Pasting a screenshot no longer covers the prompt**: pasting or dropping a file on a terminal no longer pops a notice over the bottom of the terminal. The file's path appearing at the prompt is the confirmation, and a failed upload says why in the header status line.
+
 ## [0.39.0] - 2026-10-19
 
 ### Added
