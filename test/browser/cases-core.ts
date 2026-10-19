@@ -37,6 +37,7 @@ export type Step =
   | { kind: 'expect-revealed'; viewer?: ViewerId }
   | { kind: 'load-deep-history'; viewer?: ViewerId }
   | { kind: 'release-guardrails'; viewer?: ViewerId }
+  | { kind: 'rename-session'; newName: string; viewer?: ViewerId }
   | { kind: 'shot'; name: string; viewer?: ViewerId };
 
 export type ResolvedStep = Exclude<Step, { kind: 'resize-by' }>;
@@ -178,6 +179,16 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'release-guardrails' },
       { kind: 'settle' },
       { kind: 'shot', name: 'released' },
+    ],
+  },
+  {
+    name: 'rename-repaints-roster',
+    viewports: ['desktop-1280', 'phone-393'],
+    steps: [
+      { kind: 'open' },
+      { kind: 'settle' },
+      { kind: 'rename-session', newName: 'renamed probe' },
+      { kind: 'shot', name: 'renamed' },
     ],
   },
   {

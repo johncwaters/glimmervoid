@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Finished sessions are green again**: a session that finished a turn you have not looked at shows as Complete with a green check and a green row highlight, instead of looking the same as an Idle session. Once you look at it, it turns Idle. The browser tab icon shows the same green check while a finished turn is waiting for you.
 - **The needs-you readout stays visible when all is clear**: the box at the top of the rail keeps its full size, outline and bright ALL CLEAR text when nothing needs you, and shows the `Cmd+J` hint dimmed, so it never shrinks into the background.
 - **A finished session on Zen can be cleared with a click**: the line above the session Zen shows now has a Next button beside the `Cmd+J` (Alt+J off a Mac) key hint. It does what the shortcut does: clears a finished session and moves on to the next one that needs you, or back to ALL CLEAR. Before, the shortcut was the only way out and nothing on screen said so. The line no longer repeats the session's name and project, which the card's own header already shows.
+- **Session names update in the sidebar**: when a session is renamed, by you or by naming itself after its task, the desktop sidebar shows the new name at once instead of keeping the old one until the session next changes status.
 
 ## [0.40.0] - 2026-10-19
 
