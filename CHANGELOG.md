@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The startup screen's "server is not answering" hint is now a short centered note under "Reconnecting to server..." instead of one long run-on line that ran edge to edge on a phone.
-- **Resuming a dormant session shows it is preparing right away**: the card switches to Preparing the moment you open it, while Glimmervoid syncs the integration branch and recreates the worktree, instead of sitting on Dormant with no sign anything is happening. A session whose integration branch is missing still drops back to Dormant with its notice.
+- **Resuming a dormant session shows it is starting right away**: the card switches to Starting the moment you open it, while Glimmervoid syncs the integration branch and recreates the worktree, instead of sitting on Dormant with no sign anything is happening. A session whose integration branch is missing still drops back to Dormant with its notice.
 - **Pasting a screenshot no longer covers the prompt**: pasting or dropping a file on a terminal no longer pops a notice over the bottom of the terminal. The file's path appearing at the prompt is the confirmation, and a failed upload says why in the header status line.
 
 ### Changed

@@ -35,6 +35,6 @@ Precise, quiet, uncanny. The console is a machine intelligence watching its cons
 ## Accessibility & Inclusion
 
 - **Target: WCAG AA.** Text colors meet AA contrast on the canvas, card, and inset surfaces.
-- **Color-blind safe by construction.** State is never carried by hue alone. Every state reads through glyph plus shape plus color (and, at miniature scale in the minimized bar, through motion: amber-and-pulsing versus green-and-steady differ on hue, saturation, and animation at once).
+- **Color-blind safe by construction.** State is never carried by hue alone. Every state reads through icon plus shape plus color (and, at miniature scale in the minimized bar, through motion: amber-and-pulsing versus green-and-steady differ on hue, saturation, and animation at once).
 - **Reduced motion is honored strictly.** No animation runs unless the operator opts in via `prefers-reduced-motion`.
 - **Keyboard-first.** Every interactive element ships a visible 2px accent focus ring with an offset; focus is never removed without a replacement. The tool is operated by a developer who lives on the keyboard.

@@ -56,6 +56,10 @@
     {
       "name": "monitoring",
       "definition": "The status the dashboard shows for a working session whose turn has ended while its background tasks or sub-agents are still running"
+    },
+    {
+      "name": "starting",
+      "definition": "The status the dashboard shows while a session sets up its worktree and boots its agent, until the agent's first turn begins"
     }
   ]
 }

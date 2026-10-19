@@ -78,7 +78,8 @@
       "state-idle": { "role": "tertiary", "displayName": "Signal Gold", "canonical": "oklch(0.79 0.16 90)" },
       "state-starting": { "role": "tertiary", "displayName": "Signal Pink", "canonical": "oklch(0.72 0.17 350)" },
       "state-complete": { "role": "tertiary", "displayName": "Signal Emerald", "canonical": "oklch(0.78 0.15 165)" },
-      "state-initializing": { "role": "tertiary", "displayName": "Signal Slate", "canonical": "oklch(0.52 0.02 270)" }
+      "state-initializing": { "role": "tertiary", "displayName": "Signal Slate", "canonical": "oklch(0.52 0.02 270)" },
+      "state-monitoring": { "role": "tertiary", "displayName": "Signal Sky", "canonical": "oklch(0.79 0.15 212)" }
     },
     "typographyMeta": {
       "headline": { "displayName": "Headline", "purpose": "GLIMMERVOID wordmark and top bar titles. Widest tracking in the system." },
@@ -139,9 +140,9 @@
       "name": "State Badge",
       "kind": "chip",
       "refersTo": "badge",
-      "description": "Session state. Color plus glyph plus shape, so state never relies on hue alone.",
-      "html": "<span class=\"ds-badge\"><span class=\"ds-badge-glyph\">●</span>Running</span>",
-      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 2px; font-family: 'CommitMono', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--state-running); background: transparent; } .ds-badge .ds-badge-glyph { font-size: 11px; line-height: 1; }"
+      "description": "Session state. Color plus icon plus shape, so state never relies on hue alone.",
+      "html": "<span class=\"ds-badge\"><svg class=\"ds-badge-glyph\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"4\" fill=\"currentColor\"/></svg>Working</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 2px; font-family: 'CommitMono', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--state-running); background: transparent; } .ds-badge .ds-badge-glyph { flex: 0 0 12px; width: 12px; height: 12px; }"
     },
     {
       "name": "Nav Tab",
@@ -214,7 +215,7 @@
     ],
     "dos": [
       "Do keep Iridescent Orchid (#c084fc) to ~10% of any screen. One voice, used rarely.",
-      "Do carry state with a glyph plus shape plus color, never hue alone.",
+      "Do carry state with an icon plus shape plus color, never hue alone.",
       "Do speak in monospace (CommitMono) for all UI text, and build hierarchy from weight, tracking, color, and case rather than size.",
       "Do keep surfaces flat at rest; convey depth with the canvas/card/surface tonal ramp and 1px borders.",
       "Do reserve glow and motion for genuine state changes.",

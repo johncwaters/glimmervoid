@@ -21,6 +21,7 @@ colors:
   state-done: "#67e8f9"
   state-idle: "#eab308"
   state-starting: "#f472b6"
+  state-monitoring: "#22d3ee"
   state-complete: "#34d399"
   state-initializing: "#6b7280"
 typography:
@@ -138,15 +139,16 @@ A near-monochrome violet-tinted dark palette with one iridescent accent and a st
 - **Faint Lavender** (#8579b1): Tertiary labels, captions, the quietest legible text (AA on bg, card, and surface).
 
 ### State (semantic, color-blind-safe)
-Always paired with a glyph or shape; never carried by hue alone.
-- **Signal Green** (#22c55e): Running.
-- **Signal Amber** (#f59e0b): Waiting / needs attention / setup-required.
+Always paired with a status icon; never carried by hue alone.
+- **Signal Green** (#22c55e): Working.
+- **Signal Amber** (#f59e0b): Needs Input / needs attention / setup-required.
 - **Signal Red** (#ef4444): Failed, disconnected, destructive.
-- **Signal Cyan** (#67e8f9): Done (Phyrexian).
-- **Signal Gold** (#eab308): Idle.
-- **Signal Pink** (#f472b6): Starting (Phyrexian).
-- **Signal Emerald** (#34d399): Complete.
-- **Signal Slate** (#6b7280): Initializing.
+- **Signal Cyan** (#67e8f9): Exited, the agent process ended (Phyrexian).
+- **Signal Gold** (#eab308): Idle, including a finished turn not yet looked at.
+- **Signal Pink** (#f472b6): Starting, including worktree preparation (Phyrexian).
+- **Signal Sky** (#22d3ee): Monitoring, a turn ended while background tasks still run.
+- **Signal Emerald** (#34d399): Success: a clean exit's completion flash, merged branches, passing checks.
+- **Signal Slate** (#6b7280): No status uses it since worktree setup displays as Starting.
 
 ### Named Rules
 **The One Voice Rule.** Iridescent Orchid is the only accent, used on roughly 10% of any screen or less. Its rarity is the point. Never introduce a second decorative hue.
@@ -188,7 +190,7 @@ Shadows and glows exist for exactly two jobs: lifting true overlays (dialogs, me
 - **shadow-md** (`0 4px 12px` violet-tinted): raised controls.
 - **shadow-lg** (`0 8px 24px` violet-tinted): menus, tooltips, status popovers.
 - **shadow-xl** (`0 8px 24px` denser violet-tinted): modal dialogs.
-- **State glows**: rings and blooms mixed from a state color (for example the WAITING card's amber ring and outer bloom, the COMPLETE/FAILED completion flash, the connected dot's green glow). These are inset or tight outer shadows, always a response to state.
+- **State glows**: rings and blooms mixed from a state color (for example the WAITING card's amber ring and outer bloom, the DONE/FAILED completion flash, the connected dot's green glow). These are inset or tight outer shadows, always a response to state.
 
 ### Named Rules
 **The Flat-By-Default Rule.** Surfaces are flat at rest. A shadow or glow appears only as a response to state (hover, focus, elevation off the plane, or a live status). If a card has a resting drop shadow, it is wrong.
@@ -215,14 +217,14 @@ Every interactive element ships default, hover, focus-visible, active, and disab
 - **Corner style:** 5px radius (the large step).
 - **Background:** Ink Violet on the Near-Black Violet canvas.
 - **Border:** 1px Violet Border at rest, shifting to Lifted Violet Border on hover. No resting shadow.
-- **State:** session cards drive their entire treatment from a `data-state` attribute, layering state-colored border and glow (RUNNING, WAITING, COMPLETE, FAILED, etc.). Never nest a card inside a card.
+- **State:** session cards drive their entire treatment from a `data-state` attribute, layering state-colored border and glow (RUNNING, WAITING, IDLE, FAILED, etc.). Never nest a card inside a card.
 - **Internal padding:** 20px to 28px on large panels; the session-card header and terminal pane carry their own rhythm.
 
 ### Navigation
 - **Primary view tabs:** mono 13px, 0.04em tracking, Muted Lavender at rest to Bright Lavender White when selected. The active tab draws a 2px orchid underline that animates in via `transform: scaleX` (ease-out-quart), never a layout shift. An optional activity dot shows steady orchid when a tab has something new; it never pulses, because a tab dot that animates for minutes reads as noise.
 
 ### State Badge (signature)
-- Uppercase mono, 11px, 700, 0.08em tracking, colored by `data-state` and always preceded by a state icon. The icon plus the color plus the shape make state legible without relying on hue, satisfying the color-blind commitment. Starting spins and Working pulses.
+- Uppercase mono, 11px, 700, 0.08em tracking, colored by `data-state` and always preceded by a status icon: a bare SVG mark, never a symbol cut out of a filled circle, because the shape alone must name the status at 12px. Every surface, the site legend and the tab favicon draw it from `shared/state-icons.ts`, so no view keeps its own copy. Starting spins and Working pulses.
 
 ### Terminal Pane (signature, the product)
 - An xterm.js surface filling each card on the Ink Violet background. The server is a dumb pipe; xterm renders all ANSI. The terminal theme is derived from the active CSS-variable palette at runtime, so it stays in lockstep with the chrome. Chrome around it must never compete with it for contrast or color.
@@ -252,10 +254,10 @@ A primary view with a 220px sidebar of nine theme-first sections and one scrolli
 
 ### Do:
 - **Do** keep Iridescent Orchid (#c084fc) to ~10% of any screen. One voice, used rarely (the One Voice Rule).
-- **Do** carry state with a glyph plus shape plus color, never hue alone. State must read for a color-blind operator.
+- **Do** carry state with an icon plus shape plus color, never hue alone. State must read for a color-blind operator.
 - **Do** speak in monospace (CommitMono) for all UI text, and build hierarchy from weight, tracking, color, and case rather than size.
 - **Do** keep surfaces flat at rest; convey depth with the canvas/card/surface tonal ramp and 1px borders.
-- **Do** reserve glow and motion for genuine state changes (running, waiting, complete, failed, connecting).
+- **Do** reserve glow and motion for genuine state changes (running, waiting, failed, connecting).
 - **Do** tint every neutral toward violet; use Bright Lavender White (#e8e0ff), never #fff, and Near-Black Violet (#0a0810), never #000.
 - **Do** give every interactive element a visible 2px orchid focus ring with offset; the tool is keyboard-first.
 - **Do** let the terminal output be the loudest thing on screen. Chrome recedes.
