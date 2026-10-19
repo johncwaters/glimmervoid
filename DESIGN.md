@@ -258,7 +258,6 @@ A primary view with a 220px sidebar of nine theme-first sections and one scrolli
 - **Do** reserve glow and motion for genuine state changes (running, waiting, complete, failed, connecting).
 - **Do** tint every neutral toward violet; use Bright Lavender White (#e8e0ff), never #fff, and Near-Black Violet (#0a0810), never #000.
 - **Do** give every interactive element a visible 2px orchid focus ring with offset; the tool is keyboard-first.
-- **Do** honor `prefers-reduced-motion` strictly: no animation runs without the operator opting in.
 - **Do** let the terminal output be the loudest thing on screen. Chrome recedes.
 
 ### Don't:
@@ -271,4 +270,19 @@ A primary view with a 220px sidebar of nine theme-first sections and one scrolli
 - **Don't** apply a side-stripe accent (`border-left`/`border-right` > 1px as a colored stripe). Use full borders, background tints, or a leading glyph.
 - **Don't** give resting surfaces a drop shadow, and never a raw rgba(0,0,0) shadow. Shadows are violet-tinted and state- or overlay-driven only.
 - **Don't** add a second decorative accent hue, or spend a state color on anything that is not that state.
-- **Don't** reach for a modal when an inline or progressive disclosure will do.
+
+## 7. States
+
+Process (motion, inline feedback, failure and empty states) comes from the `design` skill; this section names the one pattern each situation uses here.
+
+| Situation | Pattern |
+|---|---|
+| Empty panel | `.usage-empty` (`public/usage/usage-panel.ts`); other panels' `*-empty` classes converge on it |
+| Error inside a dialog or form | `.dialog-error`, or `settings-view-field-error` on a field, beside the cause |
+| Error with no local home | an inline line in the panel or card that owns the failed work |
+| Limit or budget | `.usage-warning` with the count and the reset time |
+| Loading | a status line in the region that is loading; never a message that also means empty or failed |
+| Destructive confirm | `openConfirmDialog` (`public/session-card/modal.ts`) |
+| Success | the changed thing shows its new state in place, as settings rows show "saved" |
+
+No toasts: transient corner notices are not used in new UI. The existing `showErrorToast` notice region is legacy, kept until its call sites move inline.
