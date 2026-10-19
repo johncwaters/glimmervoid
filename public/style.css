@@ -223,30 +223,6 @@ body {
   cursor: default;
 }
 
-.header-aggregate {
-  display: inline-flex;
-  flex: 1 1 0;
-  align-items: center;
-  justify-content: flex-end;
-  min-width: 0;
-  cursor: default;
-}
-
-.header-aggregate:empty {
-  display: none;
-}
-
-.aggregate-glyph {
-  display: inline-grid;
-  width: 11px;
-  height: 11px;
-  flex-shrink: 0;
-}
-
-.header-aggregate[data-state="WAITING"] { color: var(--state-waiting); }
-.header-aggregate[data-state="FAILED"] { color: var(--state-failed); }
-.header-aggregate[data-state="COMPLETE"] { color: var(--state-complete); }
-
 .header-connection {
   display: inline-flex;
   align-items: center;

@@ -99,4 +99,3 @@ export function findSessionUi(value: unknown): SessionUi | undefined {
 }
 
 export const container = document.getElementById('sessions-container');
-export const aggregateEl = document.getElementById('aggregate-status');

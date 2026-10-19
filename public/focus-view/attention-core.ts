@@ -134,13 +134,6 @@ export function titleAlertCount({ waitingCount, failedCount }: AttentionCounts) 
   return waitingCount + failedCount;
 }
 
-export function headerAttentionState({ waitingCount, failedCount, finishedCount }: AttentionCounts): SessionState | null {
-  if (waitingCount > 0) return STATES.WAITING;
-  if (failedCount > 0) return STATES.FAILED;
-  if (finishedCount > 0) return STATES.COMPLETE;
-  return null;
-}
-
 export function hasAnyAttention(counts: AttentionCounts) {
   return jumpTargetCount(counts) > 0;
 }

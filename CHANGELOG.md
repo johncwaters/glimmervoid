@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Finished sessions are green again**: a session that finished a turn you have not looked at shows as Complete with a green check and a green row highlight, instead of looking the same as an Idle session. Once you look at it, it turns Idle. The browser tab icon shows the same green check while a finished turn is waiting for you.
 - **The needs-you readout stays visible when all is clear**: the box at the top of the rail keeps its full size, outline and bright ALL CLEAR text when nothing needs you, and shows the `Cmd+J` hint dimmed, so it never shrinks into the background.
+- **No more unexplained icon in the header**: the status icon next to the trophy, which repeated the rail's needs-you count only on hover, is gone. The rail box, the browser tab icon and the tab title still carry the count.
 
 ## [0.40.0] - 2026-10-19
 
