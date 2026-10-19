@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Finished sessions are green again**: a session that finished a turn you have not looked at shows as Complete with a green check and a green row highlight, instead of looking the same as an Idle session. Once you look at it, it turns Idle. The browser tab icon shows the same green check while a finished turn is waiting for you.
+- **The needs-you readout stays visible when all is clear**: the box at the top of the rail keeps its full size, outline and bright ALL CLEAR text when nothing needs you, and shows the `Cmd+J` hint dimmed, so it never shrinks into the background.
 
 ## [0.40.0] - 2026-10-19
 

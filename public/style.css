@@ -5820,12 +5820,11 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   font-family: var(--font-mono);
 }
 .attention-banner[data-empty] {
-  min-height: 0;
-  padding: 7px 10px;
-  background: var(--bg-header);
-  border-color: var(--border);
+  background: color-mix(in oklch, var(--accent) 6%, var(--bg-header));
+  border-color: color-mix(in oklch, var(--accent) 45%, var(--border));
 }
-.attention-banner:not([data-jumpable]) .attention-banner-jump { display: none; }
+.attention-banner:not([data-jumpable]) .attention-banner-jump { opacity: 0.45; }
+html[data-layout="phone"] .attention-banner:not([data-jumpable]) .attention-banner-jump { display: none; }
 .attention-banner-count {
   font-size: 11px;
   font-weight: 700;
@@ -5833,7 +5832,7 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   text-transform: uppercase;
   color: var(--accent);
 }
-.attention-banner[data-empty] .attention-banner-count { color: var(--text-dim); }
+.attention-banner[data-empty] .attention-banner-count { color: var(--text-head); }
 
 .session-group-header {
   display: flex;
