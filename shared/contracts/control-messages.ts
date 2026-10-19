@@ -21,6 +21,7 @@ import { SessionSetup } from './session-setup.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus, hasRequiredActionHead } from './team-review.ts';
 import { LinkedPr, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus, SessionPrLinks } from './my-prs.ts';
+import { GithubPrsFrame } from './github-prs.ts';
 import { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } from './benchmark.ts';
 
 const requestId = z.string().nullable().optional();
@@ -610,6 +611,7 @@ const serverVariants = [
   TeamReviewStatus,
   BenchmarkStatus,
   MyPrsStatus,
+  GithubPrsFrame,
   IssuesStatus,
 
   loose('usage-sessions', {

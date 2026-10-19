@@ -9,6 +9,7 @@ interface ControlSendDecision {
 }
 
 const REFRESHABLE_TYPES = new Set([
+  'github-prs',
   'health-snapshot',
   'usage-sessions',
   'plan-limits',

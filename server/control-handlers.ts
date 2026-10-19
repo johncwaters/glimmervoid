@@ -3,7 +3,8 @@ import { isSameDirectoryPath } from '../shared/canonical-paths.ts';
 import { createKeyedSerialQueue } from './spawn-gate.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
-import type { GithubPollingRefreshResult } from '../shared/contracts/github-polling.ts';
+import type { GithubPollingRefreshResult, GithubPrsFreshness } from '../shared/contracts/github-polling.ts';
+import type { GithubPrsFrame } from '../shared/contracts/github-prs.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -127,6 +128,7 @@ interface ControlHandlerDeps {
   getTeamReviewStatus?: (() => TeamReviewStatus | null) | null;
   getMyPrsStatus?: (() => MyPrsStatus | null) | null;
   getIssuesStatus?: (() => IssuesStatus | null) | null;
+  githubStore?: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness } | null;
   issues?: { refresh: () => Promise<GithubPollingRefreshResult>; getLinkedSessionId?: (issueKey: string) => Promise<string | null>; linkSession?: (issueKey: string, sessionId: string) => Promise<void> } | null;
   teamReview?: TeamReviewActionControl | null;
   myPrs?: MyPrMergeControl | null;
@@ -367,6 +369,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     getTeamReviewStatus = null,
     getMyPrsStatus = null,
     getIssuesStatus = null,
+    githubStore = null,
     issues = null,
     teamReview = null,
     myPrs = null,
@@ -1148,7 +1151,11 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       replyTo(ws, msg, 'github-polling-refresh-result', { ok: false, error: 'Reviews polling is not running.' });
       return;
     }
-    replyTo(ws, msg, 'github-polling-refresh-result', await lane.refresh());
+    const refreshOutcome = await lane.refresh();
+    replyTo(ws, msg, 'github-polling-refresh-result', {
+      ...refreshOutcome,
+      ...(githubStore ? { freshness: githubStore.getFreshness() } : {}),
+    });
   }
 
   async function handleMyPrMerge(msg: ClientMessageOf<'my-pr-merge'>, ws: ControlSocket): Promise<void> {
@@ -1613,6 +1620,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }
 
     const teamReviewStatus = typeof getTeamReviewStatus === 'function' ? getTeamReviewStatus() : null;
+    if (githubStore) ws.send(JSON.stringify(githubStore.snapshotMessage()));
     if (teamReviewStatus) ws.send(JSON.stringify(teamReviewStatus));
     const myPrsStatus = typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null;
     if (myPrsStatus) ws.send(JSON.stringify(myPrsStatus));

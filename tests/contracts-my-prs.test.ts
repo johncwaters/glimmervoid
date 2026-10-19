@@ -108,7 +108,7 @@ test('canonical GitHub PR frames fail closed on malformed snapshots and PR field
     { type: 'my-prs-status' }, { ts: Infinity }, { ts: '1234' }, { prs: [] }, { prs: { 'acme/app#8': pr } },
     { prs: { 'Acme/app#7': pr } }, { freshness: undefined }, { freshness: { lastRefreshedAt: 1234 } },
     { freshness: { lastRefreshedAt: -1, error: null } }, { freshness: { lastRefreshedAt: Infinity, error: null } },
-    { freshness: { lastRefreshedAt: null, error: 7 } }, { freshness: { ...frame.freshness, extra: true } }, { extra: true },
+    { freshness: { lastRefreshedAt: null, error: 7 } }, { freshness: { ...frame.freshness, extra: true } },
   ]) {
     assert.equal(GithubPrsFrame.safeParse({ ...frame, ...overrides }).success, false);
   }

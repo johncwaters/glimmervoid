@@ -33,7 +33,7 @@ const unresolvedThread: MyPrThreadNode = {
   lastComment: { nodes: [{ author: { login: 'bob' }, createdAt: '2026-10-19T11:00:00Z' }] },
 };
 
-function storeHarness() {
+function storeHarness(ghCallDurationMs = 0) {
   let timestamp = FIRST_TICK_AT;
   let isDashboardConnected = true;
   let isExclusive = false;
@@ -53,6 +53,7 @@ function storeHarness() {
     async searchPrsLight(qualifiers) {
       assert.equal(isExclusive, true);
       searches.push(qualifiers);
+      timestamp += ghCallDurationMs;
       return { ok: true, items: nodes.map((node) => GithubPrLightSearchNode.parse(node)), isComplete: true, error: '' };
     },
     async prDetails(references) {
@@ -73,6 +74,7 @@ function storeHarness() {
     async notificationsSince(lastModified) {
       assert.equal(isExclusive, true);
       notificationCalls.push(lastModified);
+      timestamp += ghCallDurationMs;
       return notificationResponse;
     },
     async rateLimitWaitMs() {
@@ -244,4 +246,16 @@ test('a watched key GitHub cannot resolve is dropped without failing the tick or
   assert.deepEqual(await harness.poller.tick(), { failed: false });
   assert.equal(harness.detailCalls.length, 1);
   assert.equal(harness.poller.getSnapshot().freshness.error, null);
+});
+
+test('slow gh calls keep the connected light and notification polls on every one-minute clock tick', async (context) => {
+  const harness = storeHarness(700);
+  context.after(harness.cleanup);
+  harness.poller.registerWatch({ name: 'my-prs', qualifiers: 'author:@me', needsDetail: true });
+  for (let clockTick = 0; clockTick < 5; clockTick += 1) {
+    assert.deepEqual(await harness.poller.tick(), { failed: false });
+    harness.advance(60_000 - 1_400);
+  }
+  assert.equal(harness.searches.length, 5);
+  assert.equal(harness.notificationCalls.length, 5);
 });

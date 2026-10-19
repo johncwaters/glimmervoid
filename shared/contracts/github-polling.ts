@@ -11,7 +11,13 @@ export const githubPollingShape = {
   refreshNotice: z.string().nullable().optional(),
 };
 
+export const GithubPrsFreshness = z.strictObject({ lastRefreshedAt: z.number().finite().nonnegative().nullable(), error: z.string().nullable() });
+export type GithubPrsFreshness = z.infer<typeof GithubPrsFreshness>;
+
 export const GithubPollingRefreshRequest = z.object({ lane: z.enum(['my-prs', 'team-review', 'issues']) });
 export type GithubPollingRefreshRequest = z.infer<typeof GithubPollingRefreshRequest>;
-export const GithubPollingRefreshResult = z.object({ ok: z.boolean(), error: z.string().optional() });
+export const GithubPollingRefreshResult = z.object({
+  ok: z.boolean(), error: z.string().optional(),
+  freshness: GithubPrsFreshness.optional(),
+});
 export type GithubPollingRefreshResult = z.infer<typeof GithubPollingRefreshResult>;

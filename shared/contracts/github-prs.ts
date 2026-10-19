@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GithubPrsFreshness } from './github-polling.ts';
 import { MyPr, MyPrSearchNode, pullRequestKeyFormat } from './my-prs.ts';
 import { WorkflowPr, WorkflowSearchNode } from './workflows.ts';
 
@@ -48,10 +49,10 @@ export const GithubPr = z.strictObject({
 }).refine((pr) => pr.key === comparablePrKey(pr));
 export type GithubPr = z.infer<typeof GithubPr>;
 
-export const GithubPrsFrame = z.strictObject({
+export const GithubPrsFrame = z.looseObject({
   type: z.literal('github-prs'),
   ts: z.number().finite().nonnegative(),
   prs: z.record(GithubPrKey, GithubPr).refine((prs) => Object.entries(prs).every(([key, pr]) => key === pr.key)),
-  freshness: z.strictObject({ lastRefreshedAt: z.number().finite().nonnegative().nullable(), error: z.string().nullable() }),
+  freshness: GithubPrsFreshness,
 });
 export type GithubPrsFrame = z.infer<typeof GithubPrsFrame>;

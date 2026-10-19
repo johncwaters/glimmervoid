@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { GITHUB_CLOCK_INTERVAL_MINUTES, runsEveryTicks } from '../server/github/core/github-clock-core.ts';
 import { POLL_INTERVAL_MINUTES as MY_PRS_POLL_INTERVAL_MINUTES } from '../server/github/core/my-prs-core.ts';
 import { POLL_INTERVAL_MINUTES as TEAM_REVIEW_POLL_INTERVAL_MINUTES } from '../server/github/core/team-review-core.ts';
+import { POLL_INTERVAL_MINUTES as ISSUES_POLL_INTERVAL_MINUTES } from '../server/github/core/issues-core.ts';
+import { WORKFLOWS_POLL_INTERVAL_MINUTES } from '../server/core/workflows-core.ts';
 import { createGithubClock } from '../server/github/github-clock.ts';
 import { createTickLoop } from '../server/lanes/lane-runner.ts';
 
@@ -33,11 +35,12 @@ test('a lane runs on every Nth clock tick, rounded, and never less than every ti
 
 test('every subscriber shares one interval timer that stops when the last one leaves', () => {
   const timer = manualTimer();
-  const clock = createGithubClock({ baseIntervalMs: FIVE_MINUTES_MS, ...timer, log: { warn() {} } });
+  const baseIntervalMs = GITHUB_CLOCK_INTERVAL_MINUTES * 60000;
+  const clock = createGithubClock({ baseIntervalMs, ...timer, log: { warn() {} } });
   const leaveFirst = clock.schedule(async () => {}, FIVE_MINUTES_MS);
   const leaveSecond = clock.schedule(async () => {}, 15 * 60000);
   assert.equal(timer.timers.length, 1);
-  assert.equal(timer.timers[0]?.ms, FIVE_MINUTES_MS);
+  assert.equal(timer.timers[0]?.ms, 60000);
   leaveFirst();
   assert.equal(timer.timers[0]?.isCleared, false);
   leaveSecond();
@@ -46,10 +49,10 @@ test('every subscriber shares one interval timer that stops when the last one le
 
 test('a sweep runs due lanes in order and runs a slower lane only on its own ticks', async () => {
   const runs: string[] = [];
-  const clock = createGithubClock({ baseIntervalMs: FIVE_MINUTES_MS, ...manualTimer(), log: { warn() {} } });
+  const clock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, ...manualTimer(), log: { warn() {} } });
   clock.schedule(async () => { runs.push('my-prs'); }, FIVE_MINUTES_MS);
   clock.schedule(async () => { runs.push('team-review'); }, 15 * 60000);
-  for (let sweepCount = 0; sweepCount < 6; sweepCount += 1) await clock.sweep();
+  for (let sweepCount = 0; sweepCount < 30; sweepCount += 1) await clock.sweep();
   assert.deepEqual(runs, ['my-prs', 'my-prs', 'my-prs', 'team-review', 'my-prs', 'my-prs', 'my-prs', 'team-review']);
 });
 
@@ -101,10 +104,11 @@ test('a tick loop given a shared clock registers with it instead of its own time
   assert.equal(isUnscheduled, true);
 });
 
-test('both GitHub lane intervals are exact positive multiples of the clock tick', () => {
-  for (const laneIntervalMinutes of [MY_PRS_POLL_INTERVAL_MINUTES, TEAM_REVIEW_POLL_INTERVAL_MINUTES]) {
+test('all GitHub lane intervals are exact positive multiples of the clock tick', () => {
+  for (const laneIntervalMinutes of [MY_PRS_POLL_INTERVAL_MINUTES, TEAM_REVIEW_POLL_INTERVAL_MINUTES, ISSUES_POLL_INTERVAL_MINUTES, WORKFLOWS_POLL_INTERVAL_MINUTES]) {
     assert.ok(laneIntervalMinutes >= GITHUB_CLOCK_INTERVAL_MINUTES);
     assert.equal(laneIntervalMinutes % GITHUB_CLOCK_INTERVAL_MINUTES, 0);
+    assert.equal(runsEveryTicks(laneIntervalMinutes * 60000, GITHUB_CLOCK_INTERVAL_MINUTES * 60000) * GITHUB_CLOCK_INTERVAL_MINUTES, laneIntervalMinutes);
   }
 });
 

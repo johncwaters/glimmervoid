@@ -34,6 +34,7 @@ import { keepMergeableTimeoutSeconds } from '../github/core/my-prs-core.ts';
 import { createSessionPrLinkWiring } from '../github/session-pr-link-wiring.ts';
 import { createWorkflowSpawn, createWorkflowsWiring } from '../workflows-wiring.ts';
 import { createGithubClock } from '../github/github-clock.ts';
+import { createGithubStoreWiring } from '../github/github-store-wiring.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from '../github/core/github-clock-core.ts';
 import { createUsageWiring, resolveUsageConfig } from '../usage/usage-wiring.ts';
 import { createLaneLedger } from '../usage/usage-lane-ledger.ts';
@@ -152,10 +153,19 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   });
   const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger });
   const glimmervoidHome = glimmervoidHomeDir();
+  const github = createPrGh(glimmervoidHome);
+  const githubStore = createGithubStoreWiring({
+    github,
+    clock: githubClock,
+    isDashboardConnected: () => [...controlWss.clients].some((client) => client.readyState === 1),
+    broadcast: broadcastControl,
+    log: logger,
+  });
   const sharedRepoCacheRoot = path.join(glimmervoidHome, 'team-review-repos');
   const sharedRepoCache = createRepoCache({ rootDir: sharedRepoCacheRoot });
   const teamReview = createTeamReviewWiring({
     config,
+    github,
     reviewSessions,
     closeSessionDataClients,
     hookRouter,
@@ -173,7 +183,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const sessionPrLink = createSessionPrLinkWiring({ git: gitWorkspace, log: logger });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
-    config, log: logger, clock: githubClock,
+    config, github, log: logger, clock: githubClock,
     broadcast: (status) => {
       broadcastControl(status);
       void sessionPrLink.onMyPrsStatus(status);
@@ -191,10 +201,10 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       }),
     }),
   });
-  const issues = createIssuesWiring({ config, gitWorkspace, broadcast: broadcastControl, hasSession: (id) => sessions.has(id), log: logger, clock: githubClock });
+  const issues = createIssuesWiring({ config, github, gitWorkspace, broadcast: broadcastControl, hasSession: (id) => sessions.has(id), log: logger, clock: githubClock });
   const workflowsWorkRoot = path.join(glimmervoidHome, 'workflows-work');
   const workflows = createWorkflowsWiring({
-    config, notificationManager, log: logger, clock: githubClock,
+    config, github, notificationManager, log: logger, clock: githubClock,
     sweepLeftovers: () => sweepLeftoverCheckouts({ worktreeRoot: workflowsWorkRoot, workRoot: workflowsWorkRoot, keepPaths: new Set(), repoCache: sharedRepoCache, gitWorkspace, log: logger }),
     spawnSession: createWorkflowSpawn({
       workRoot: workflowsWorkRoot,
@@ -216,7 +226,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     runsRoot: path.join(glimmervoidHome, 'benchmark-runs'),
     isEnabled: () => configStore.config.benchmarks?.enabled === true,
     broadcast: broadcastControl,
-    github: createPrGh(glimmervoidHome),
+    github,
     repoCache: sharedRepoCache,
     repoCacheRoot: sharedRepoCacheRoot,
     gitWorkspace,
@@ -496,6 +506,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     changeMapSessions,
     gitWorkspace,
     gitWorkspaceSync,
+    githubStore,
     investigationSessions,
     planReview,
     posthog,

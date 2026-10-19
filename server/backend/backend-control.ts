@@ -1,5 +1,6 @@
 import type { IssuesStatus } from '../../shared/contracts/issues.ts';
-import type { GithubPollingRefreshResult } from '../../shared/contracts/github-polling.ts';
+import type { GithubPollingRefreshResult, GithubPrsFreshness } from '../../shared/contracts/github-polling.ts';
+import type { GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
@@ -28,6 +29,7 @@ interface SnapshotLane {
 }
 
 interface LaneReader {
+  githubStore: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness };
   currentIngest: () => SnapshotLane | null;
   currentVisions: () => SnapshotLane | null;
 }
@@ -151,6 +153,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     teamReview,
     myPrs,
     issues,
+    githubStore: laneAssembly.githubStore,
     serverBuild: dependencies.serverBuild,
     telemetry: dependencies.telemetry,
     getUsageSessions: () => usage.getSessionsMessage(),

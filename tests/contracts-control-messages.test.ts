@@ -242,6 +242,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     url: 'https://github.com/PostHog/wizard/pull/1352', author: 'teammate', requestSource: 'team',
   }] },
   { type: 'my-prs-status', ts: NOW, configured: true, viewer: 'alice', prs: [], error: null },
+  { type: 'github-prs', ts: NOW, prs: {}, freshness: { lastRefreshedAt: null, error: null } },
   { type: 'usage-sessions', ts: NOW, pricingSource: 'bundled', sessions: [{ id: 'session-1', tokens: 123, costUSD: 0.5, officialCostUSD: null }] },
   { type: 'usage-report', requestId: 'usage-1', ts: NOW, tz: 'UTC', blockHours: 5, totals: {}, daily: [], models: [], sessions: [], blocks: [], activeBlock: null, anomaly: null, byLane: {}, budget: {}, savings: {}, tokenLimit: null, pricing: {}, scan: {}, warning: null, error: null },
   { type: 'plan-limits', ts: NOW, fiveHour: { pct: 10, resetsAtMs: NOW + 1000 }, sevenDay: null, source: 'statusline' },

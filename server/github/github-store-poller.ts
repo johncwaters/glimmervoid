@@ -138,7 +138,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     return { details, nodes, missingKeys };
   }
 
-  async function pollLight() {
+  async function pollLight(tickStartedAt: number) {
     const watchResults: { watch: WatchState; nodes: readonly GithubPrLightSearchNode[] }[] = [];
     for (const watch of watches.values()) {
       const search = await github.searchPrsLight(watch.qualifiers);
@@ -170,14 +170,14 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     for (const node of nodes) lightByKey.set(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), node);
     const removedKeys = [...new Set([...changes.removedKeys, ...missingKeys.filter((key) => prs[key])])];
     prs = applyGithubPrDetails(prs, details, removedKeys);
-    lastLightPolledAt = now();
+    lastLightPolledAt = tickStartedAt;
     lastRefreshedAt = now();
     return { details, removedKeys };
   }
 
-  async function pollNotifications(): Promise<void> {
+  async function pollNotifications(tickStartedAt: number): Promise<void> {
     const notifications = await github.notificationsSince(notificationsLastModified);
-    lastNotificationsPolledAt = now();
+    lastNotificationsPolledAt = tickStartedAt;
     if (notifications.kind === 'forbidden') {
       isNotificationsDisabled = true;
       log.warn(`[github-store] notifications disabled until restart: ${notifications.message}`);
@@ -192,21 +192,22 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
 
   function tick(): Promise<TickOutcome> {
     return exclusive(async () => {
-      if (shouldSkipTick({ now: now(), backoffUntil })) return { failed: false };
+      const tickStartedAt = now();
+      if (shouldSkipTick({ now: tickStartedAt, backoffUntil })) return { failed: false };
       const previousError = pollingError;
       let details: GithubPr[] = [];
       let removedKeys: string[] = [];
       try {
-        const isLightDue = isGithubStorePollDue(lastLightPolledAt, now(), githubStoreLightIntervalMs(isDashboardConnected()));
-        const isNotificationsDue = !isNotificationsDisabled && isGithubStorePollDue(lastNotificationsPolledAt, now(), notificationsIntervalMs);
+        const isLightDue = isGithubStorePollDue(lastLightPolledAt, tickStartedAt, githubStoreLightIntervalMs(isDashboardConnected()));
+        const isNotificationsDue = !isNotificationsDisabled && isGithubStorePollDue(lastNotificationsPolledAt, tickStartedAt, notificationsIntervalMs);
         if (!isLightDue && !isNotificationsDue) return { failed: false };
         const rateLimitWaitMs = await github.rateLimitWaitMs(now(), RATE_LIMIT_RESOURCES);
         if (rateLimitWaitMs !== null && rateLimitWaitMs > 0) {
           backoffUntil = now() + rateLimitWaitMs;
           return { failed: true, retryAfterMs: rateLimitWaitMs };
         }
-        if (isLightDue) ({ details, removedKeys } = await pollLight());
-        if (isNotificationsDue) await pollNotifications();
+        if (isLightDue) ({ details, removedKeys } = await pollLight(tickStartedAt));
+        if (isNotificationsDue) await pollNotifications(tickStartedAt);
         recordSuccess();
         return { failed: false };
       } catch (error: unknown) {
