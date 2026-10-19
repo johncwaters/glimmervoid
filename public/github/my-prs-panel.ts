@@ -3,7 +3,8 @@ import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import type { GithubPollingRefreshRequest } from '#shared/contracts/github-polling.ts';
 import type { LinkedPr, MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { STATES } from '#shared/states.ts';
-import { errorMessage } from '#shared/text.ts';
+import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
+import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden, query } from '../dom-helpers.ts';
 import { buildSessionRow, paintSessionRowStatus } from '../session-row.ts';
 import { formatAgo } from '../poll-ago.ts';
@@ -41,7 +42,7 @@ interface PrToggle {
 const keepMergeableToggle: PrToggle = {
   label: 'Keep mergeable', pendingKeys: new Set(), errorsByKey: new Map(), controlState: (pr, isPending, errorText, isFeatureEnabled) => keepMergeableControlState(pr, isPending, errorText, isFeatureEnabled, formatAgo(pr.keepMergeableAttempt?.at)), isFeatureEnabled: isKeepMergeableFeatureEnabled,
   save: async (pr, isTurningOn) => {
-    const response = await sendControlRequest('my-pr-keep-mergeable', { repo: pr.repo, number: pr.number, keepMergeable: isTurningOn });
+    const response = await sendControlRequest('my-pr-keep-mergeable', { repo: pr.repo, number: pr.number, keepMergeable: isTurningOn }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
     if (response.type !== 'my-pr-keep-mergeable-result' || response.key !== pr.key) throw new Error('Unexpected keep mergeable reply.');
     return response.ok ? null : response.error ?? 'Could not save Keep mergeable.';
   },
@@ -50,13 +51,15 @@ const keepMergeableToggle: PrToggle = {
 const mergeWhenReadyToggle: PrToggle = {
   label: 'Merge when ready', pendingKeys: new Set(), errorsByKey: new Map(), controlState: mergeWhenReadyControlState, isFeatureEnabled: isMergeQueueFeatureEnabled,
   save: async (pr, isTurningOn) => {
-    const response = await sendControlRequest('my-pr-merge-when-ready', { repo: pr.repo, number: pr.number, mergeWhenReady: isTurningOn });
+    const response = await sendControlRequest('my-pr-merge-when-ready', { repo: pr.repo, number: pr.number, mergeWhenReady: isTurningOn }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
     if (response.type !== 'my-pr-merge-when-ready-result' || response.key !== pr.key) throw new Error('Unexpected merge when ready reply.');
     return response.ok ? null : response.error ?? 'Could not save Merge when ready.';
   },
 };
 const MERGE_REPLY_TIMEOUT_MS = 60000;
-const MERGE_NO_REPLY_TEXT = 'No reply from the server. Check GitHub before trying again.';
+const GITHUB_REFRESH_REPLY_TIMEOUT_MS = 60000;
+const MERGE_NO_REPLY_TEXT = `The server did not answer within ${MERGE_REPLY_TIMEOUT_MS / 1000} s. Check GitHub before trying again.`;
+const MERGE_DISCONNECTED_TEXT = `${NOT_CONNECTED_TEXT} Check GitHub before trying again.`;
 
 export function createGithubPollingControls(lane: GithubPollingRefreshRequest['lane'], panel: HTMLElement) {
   const control = el('div', 'reviews-refresh-control');
@@ -97,10 +100,10 @@ export function createGithubPollingControls(lane: GithubPollingRefreshRequest['l
     outcomeText = '';
     update(currentStatus);
     try {
-      const response = await sendControlRequest('github-polling-refresh', { lane });
+      const response = await sendControlRequest('github-polling-refresh', { lane }, { timeoutMs: GITHUB_REFRESH_REPLY_TIMEOUT_MS });
       if (response.type === 'github-polling-refresh-result') outcomeText = response.ok ? 'Refreshed.' : response.error ?? 'Could not refresh from GitHub.';
     } catch (error: unknown) {
-      outcomeText = errorMessage(error);
+      outcomeText = requestFailureText(error, GITHUB_REFRESH_REPLY_TIMEOUT_MS);
     } finally {
       isPending = false;
       update(currentStatus);
@@ -123,7 +126,7 @@ function sendMerge(pr: MyPr): void {
   const requestId = nextRequestId('my-pr-merge');
   const isSent = sendControlMsg({ type: 'my-pr-merge', requestId, repo: pr.repo, number: pr.number, headRefOid: pr.headRefOid });
   if (!isSent) {
-    settleMerge(pr.key, pr.headRefOid, 'failed', 'Not connected to the server.');
+    settleMerge(pr.key, pr.headRefOid, 'failed', NOT_CONNECTED_TEXT);
     return;
   }
   const timer = window.setTimeout(() => {
@@ -173,7 +176,7 @@ function createToggleControl(pr: MyPr, toggle: PrToggle): HTMLElement | null {
       const errorText = await toggle.save(pr, !state.isPressed);
       if (errorText) toggle.errorsByKey.set(pr.key, errorText);
     } catch (error: unknown) {
-      toggle.errorsByKey.set(pr.key, errorMessage(error));
+      toggle.errorsByKey.set(pr.key, requestFailureText(error, DEFAULT_REPLY_TIMEOUT_MS));
     } finally {
       toggle.pendingKeys.delete(pr.key);
       render();
@@ -455,6 +458,17 @@ function queueMergedPrCelebrations(mergedPrs: readonly MyPr[]): void {
   if (uncelebratedPrs.length === 0) return;
   for (const pr of uncelebratedPrs) celebratedMergeKeys.add(pr.key);
   queueMergeCelebration(mergeCelebrationText(uncelebratedPrs));
+}
+
+export function applyMyPrsConnectionState(isConnected: boolean): void {
+  if (isConnected) return;
+  for (const [key, pending] of pendingMergeRequests) {
+    window.clearTimeout(pending.timer);
+    mergeAttempts.set(key, { head: pending.head, phase: 'failed', text: MERGE_DISCONNECTED_TEXT });
+  }
+  if (pendingMergeRequests.size === 0) return;
+  pendingMergeRequests.clear();
+  render();
 }
 
 export function applyMyPrMergeResult(message: unknown): void {

@@ -2,6 +2,7 @@ import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { IssuesStatus } from '#shared/contracts/issues.ts';
 import { STATES } from '#shared/states.ts';
 import { nextRequestId } from '../control-ws.ts';
+import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink, isPanelHidden, stateChip } from '../dom-helpers.ts';
 import { createGithubPollingControls } from './my-prs-panel.ts';
 import { createPrQueueFoot, createPrQueueHead } from './pr-queue-columns.ts';
@@ -24,6 +25,8 @@ interface PendingDetailRequest {
 }
 
 const ISSUES_REQUEST_TIMEOUT_MS = 45000;
+const ISSUES_NO_REPLY_TEXT = `The server did not answer within ${ISSUES_REQUEST_TIMEOUT_MS / 1000} s.`;
+const RELOAD_DESCRIPTION_HINT = 'Select the issue to load its description.';
 const scopes: { id: IssueScope; label: string }[] = [
   { id: 'all', label: 'All' }, { id: 'me', label: 'Mine' }, { id: 'team', label: 'Team' }, { id: 'project', label: 'Projects' },
 ];
@@ -88,7 +91,7 @@ function abandonOpenRequest(requestId: string): void {
   const request = openRequestById.get(requestId);
   if (!request) return;
   openRequestById.delete(requestId);
-  openOutcomeByIssue.set(request.issueKey, 'No reply from the server.');
+  openOutcomeByIssue.set(request.issueKey, ISSUES_NO_REPLY_TEXT);
   renderDetail();
 }
 
@@ -106,14 +109,14 @@ function requestIssueBody(issue: IssueRow): void {
   const requestId = nextRequestId('issue-detail');
   bodyErrorByCacheKey.delete(cacheKey);
   if (!requestSender?.({ type: 'issue-detail', requestId, repo: issue.repo, issueNumber: issue.number })) {
-    bodyErrorByCacheKey.set(cacheKey, 'Not connected. Select the issue to load its description.');
+    bodyErrorByCacheKey.set(cacheKey, `${NOT_CONNECTED_TEXT} ${RELOAD_DESCRIPTION_HINT}`);
     return;
   }
   detailRequestById.set(requestId, {
     cacheKey,
     timeoutHandle: setTimeout(() => {
       detailRequestById.delete(requestId);
-      bodyErrorByCacheKey.set(cacheKey, 'No reply from the server. Select the issue to load its description.');
+      bodyErrorByCacheKey.set(cacheKey, `${ISSUES_NO_REPLY_TEXT} ${RELOAD_DESCRIPTION_HINT}`);
       renderDetail();
     }, ISSUES_REQUEST_TIMEOUT_MS),
   });
@@ -124,7 +127,7 @@ function openIssueSession(issue: IssueRow): void {
   if (!projectId || liveIssueSession(issue) || isOpeningIssue(issue)) return;
   const requestId = nextRequestId('open-issue-session');
   if (!requestSender?.({ type: 'open-issue-session', requestId, projectId, repo: issue.repo, issueNumber: issue.number })) {
-    openOutcomeByIssue.set(issue.key, 'Not connected.');
+    openOutcomeByIssue.set(issue.key, NOT_CONNECTED_TEXT);
     renderDetail();
     return;
   }
@@ -452,12 +455,12 @@ export function applyIssuesConnectionState(connected: boolean): void {
   if (connected) return;
   for (const request of openRequestById.values()) {
     clearTimeout(request.timeoutHandle);
-    openOutcomeByIssue.set(request.issueKey, 'Connection lost.');
+    openOutcomeByIssue.set(request.issueKey, NOT_CONNECTED_TEXT);
   }
   openRequestById.clear();
   for (const request of detailRequestById.values()) {
     clearTimeout(request.timeoutHandle);
-    bodyErrorByCacheKey.set(request.cacheKey, 'Connection lost. Select the issue to load its description.');
+    bodyErrorByCacheKey.set(request.cacheKey, `${NOT_CONNECTED_TEXT} ${RELOAD_DESCRIPTION_HINT}`);
   }
   detailRequestById.clear();
   render();

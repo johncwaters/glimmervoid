@@ -1,4 +1,6 @@
+import { createActionStatus } from '../action-status.ts';
 import { el, isPanelHidden } from '../dom-helpers.ts';
+import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAttentionAck } from '../attention-ack-core.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import { getVisionsAttentionAck, setVisionsAttentionAck } from '../ui-prefs.ts';
@@ -283,10 +285,20 @@ export function setVisionsActivityCallback(callback: (level: string | null) => v
   refreshActivity();
 }
 
+const _connectionStatus = createActionStatus('visions-connection-status');
+
+export function applyVisionsConnectionState(isConnected: boolean) {
+  if (isConnected) {
+    _connectionStatus.clear();
+    return;
+  }
+  _connectionStatus.show('error', `${NOT_CONNECTED_TEXT} What you see below is from before the connection dropped.`);
+}
+
 export function mountVisionsView(parent: HTMLElement) {
   if (_root) return _root;
   const root = el('div', 'visions-content');
-  root.append(buildIntentBlock());
+  root.append(_connectionStatus.element, buildIntentBlock());
   const feed = el('div', 'visions-feed');
   root.append(feed);
   root.append(buildFixesBlock());

@@ -21,6 +21,6 @@ export function githubPollingErrorNotice(status: GithubPollingStatus | null, now
 
 export function githubPollingRefreshText(status: GithubPollingStatus | null, isPending: boolean, outcomeText: string): string {
   if (status?.refreshNotice && status.isRefreshing) return status.refreshNotice;
-  if (isPending || status?.isRefreshing) return 'Refreshing.';
+  if (isPending || status?.isRefreshing) return 'Refreshing';
   return outcomeText || status?.refreshNotice || '';
 }

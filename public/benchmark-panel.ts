@@ -1,5 +1,6 @@
 import { nextRequestId } from './control-ws.ts';
 import { buildPanelSection, buildStatChip, el } from './dom-helpers.ts';
+import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 import type { BenchmarkAction, BenchmarkArmScore, BenchmarkReport, BenchmarkStatus, BenchmarkSuiteSummary } from '#shared/contracts/benchmark.ts';
 
 type BenchmarkRequestSender = (message: Record<string, unknown>) => boolean;
@@ -10,6 +11,7 @@ const ACTION_PENDING_TEXT: Readonly<Record<BenchmarkAction, string>> = { mine: '
 let root: HTMLDivElement | null = null;
 let status: BenchmarkStatus | null = null;
 let requestSender: BenchmarkRequestSender | null = null;
+let isServerConnected = true;
 const pendingActionBySuite = new Map<string, BenchmarkAction>();
 const outcomeBySuite = new Map<string, string>();
 
@@ -27,7 +29,7 @@ function signedPoints(delta: number | null): string {
 function sendAction(suiteId: string, action: BenchmarkAction): void {
   const sent = requestSender?.({ type: 'benchmark-action', requestId: nextRequestId('benchmark'), suiteId, action }) === true;
   if (!sent) {
-    outcomeBySuite.set(suiteId, 'Not connected.');
+    outcomeBySuite.set(suiteId, NOT_CONNECTED_TEXT);
     render();
     return;
   }
@@ -87,7 +89,7 @@ function buildSuite(suite: BenchmarkSuiteSummary): HTMLElement {
   const card = el('div', 'bench-suite');
   const isThisSuiteRunning = status?.inFlight?.suiteId === suite.id;
   const isAnotherSuiteRunning = Boolean(status?.inFlight) && !isThisSuiteRunning;
-  const isPending = pendingActionBySuite.has(suite.id);
+  const isPending = pendingActionBySuite.has(suite.id) || !isServerConnected;
   const summary = el('div', 'bench-summary');
   summary.append(
     el('span', 'bench-suite-title', suite.title),
@@ -103,7 +105,8 @@ function buildSuite(suite: BenchmarkSuiteSummary): HTMLElement {
     buildActionButton(suite, 'run', !isConfigured || isPending || isThisSuiteRunning || isAnotherSuiteRunning || suite.caseCount === 0),
     buildActionButton(suite, 'cancel', isPending || !isThisSuiteRunning),
   );
-  const statusText = el('span', 'bench-status', inFlightText(suite) || outcomeBySuite.get(suite.id) || '');
+  const offlineText = isServerConnected ? '' : NOT_CONNECTED_TEXT;
+  const statusText = el('span', 'bench-status', offlineText || inFlightText(suite) || outcomeBySuite.get(suite.id) || '');
   statusText.setAttribute('role', 'status');
   controls.append(statusText);
   card.append(controls);
@@ -154,9 +157,11 @@ export function mountBenchmarkView(parent: HTMLElement): HTMLDivElement {
 }
 
 export function applyBenchmarkConnectionState(connected: boolean): void {
-  if (connected || pendingActionBySuite.size === 0) return;
-  for (const suiteId of pendingActionBySuite.keys()) outcomeBySuite.set(suiteId, 'Connection lost.');
-  pendingActionBySuite.clear();
+  isServerConnected = connected;
+  if (!connected) {
+    for (const suiteId of pendingActionBySuite.keys()) outcomeBySuite.delete(suiteId);
+    pendingActionBySuite.clear();
+  }
   render();
 }
 

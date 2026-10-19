@@ -34,8 +34,8 @@ test('a countdown is active only until the retry deadline while an error exists'
 });
 
 test('refresh progress, refusals and outcomes are copy beside the stable button label', () => {
-  assert.equal(githubPollingRefreshText(failingStatus, true, ''), 'Refreshing.');
-  assert.equal(githubPollingRefreshText({ ...failingStatus, isRefreshing: true }, false, ''), 'Refreshing.');
+  assert.equal(githubPollingRefreshText(failingStatus, true, ''), 'Refreshing');
+  assert.equal(githubPollingRefreshText({ ...failingStatus, isRefreshing: true }, false, ''), 'Refreshing');
   assert.equal(githubPollingRefreshText({ ...failingStatus, isRefreshing: true, refreshNotice: 'A refresh is already running.' }, false, ''), 'A refresh is already running.');
   assert.equal(githubPollingRefreshText({ ...failingStatus, refreshNotice: 'GitHub rate limit asks to wait before refreshing.' }, false, ''), 'GitHub rate limit asks to wait before refreshing.');
   assert.equal(githubPollingRefreshText(null, false, 'Not connected'), 'Not connected');

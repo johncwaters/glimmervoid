@@ -90,6 +90,7 @@ function replaceControlSocket() {
   const abandonedSocket = controlWs;
   controlWs = null;
   rejectPendingRequests(NOT_CONNECTED_TEXT);
+  if (_connectionStateCallback) _connectionStateCallback('disconnected', 'Reconnecting');
   abandonedSocket?.close();
   controlRetryAttempt = 0;
   connectControl();

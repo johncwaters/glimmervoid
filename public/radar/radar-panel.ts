@@ -3,7 +3,9 @@ import { createAttentionAck } from '../attention-ack-core.ts';
 import { buildPanelSection, buildStatChip, el, externalLink, isPanelHidden, projectsOf } from '../dom-helpers.ts';
 import { createInvestigationDialog, createRadarReportDialog } from '../dialogs.ts';
 import type { InvestigationDialog } from '../dialogs.ts';
+import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
+import { openConfirmDialog } from '../session-card/modal.ts';
 import { createPollAgoTicker, formatAgo, formatDuration } from '../poll-ago.ts';
 import { createRenderHold } from './radar-hold-core.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
@@ -111,6 +113,8 @@ const ISSUE_PHONE_GRID_TEMPLATE = ISSUE_COLUMNS.filter((column) => !column.isMag
 
 const ISSUE_ACTIONS_START_LINE = ISSUE_COLUMNS.findIndex((column) => column.startsActionCluster) + 1;
 
+const RADAR_ACTION_REPLY_TIMEOUT_MS = 30000;
+
 function buildIssueGridContainer(className: string) {
   const container = el('div', className);
   container.style.setProperty('--radar-issue-grid', ISSUE_GRID_TEMPLATE);
@@ -198,7 +202,7 @@ function refreshOpenInvestigation() {
 function openIssueReport(issue: { issueId?: unknown; title?: unknown }) {
   const issueId = issueReportId(issue);
   if (!issueId) return;
-  sendControlRequest('get-radar-report', { issueId })
+  sendControlRequest('get-radar-report', { issueId }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
     .then((msg) => {
       if (!msg.ok) {
         createRadarReportDialog({ issueId, issueTitle: String(issue.title ?? ''), error: String(msg.error || 'Could not read report') });
@@ -211,7 +215,7 @@ function openIssueReport(issue: { issueId?: unknown; title?: unknown }) {
       createRadarReportDialog({ issueId, issueTitle: String(issue.title ?? ''), format: String(msg.format ?? ''), content: String(msg.content || '') });
     })
     .catch((err: unknown) => {
-      createRadarReportDialog({ issueId, issueTitle: String(issue.title ?? ''), error: String((err as Error | null)?.message || 'Could not read report') });
+      createRadarReportDialog({ issueId, issueTitle: String(issue.title ?? ''), error: requestFailureText(err, DEFAULT_REPLY_TIMEOUT_MS) });
     });
 }
 
@@ -279,9 +283,9 @@ function createActionCluster() {
       settle('ok', describe(msg));
       if (onOk) onOk(msg);
     };
-    sendControlRequest(type, payload)
+    sendControlRequest(type, payload, { timeoutMs: RADAR_ACTION_REPLY_TIMEOUT_MS })
       .then(resolved)
-      .catch((err: unknown) => settle('error', String((err as Error | null)?.message || 'Request failed')));
+      .catch((err: unknown) => settle('error', requestFailureText(err, RADAR_ACTION_REPLY_TIMEOUT_MS)));
   };
 
   return { addButton, request, showFollowUp, wrap };
@@ -342,7 +346,13 @@ function buildIssueActions(issue: RadarIssue, projectId: unknown, projectLabel: 
     requestIssueAction('radar-issue-action', { action: 'resolve' }, 'Resolving in PostHog', () => 'Marked resolved');
   });
   addButton('Suppress', 'Suppress this issue in PostHog', () => {
-    requestIssueAction('radar-issue-action', { action: 'suppress' }, 'Suppressing in PostHog', () => 'Marked suppressed');
+    openConfirmDialog({
+      title: 'Suppress issue',
+      message: 'This marks the issue suppressed in PostHog for everyone on the project.',
+      confirmLabel: 'Suppress',
+      danger: true,
+      onConfirm: () => requestIssueAction('radar-issue-action', { action: 'suppress' }, 'Suppressing in PostHog', () => 'Marked suppressed'),
+    });
   });
 
   return wrap;

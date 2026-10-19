@@ -4,14 +4,15 @@ import { activateFocusView, deactivateFocusView, mountFocusView } from './focus-
 import { applyBenchmarkConnectionState, mountBenchmarkView } from './benchmark-panel.ts';
 import { mountHooksView, refreshHooksView, requestHooksReport } from './hooks-panel.ts';
 import { applyIssuesConnectionState, mountIssuesView, refreshIssuesViewOnShow } from './github/issues-panel.ts';
+import { applyMyPrsConnectionState } from './github/my-prs-panel.ts';
 import { acknowledgePrsViewAttention, mountPrsView } from './github/prs-view.ts';
 import { acknowledgeRadarAttention, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar/radar-panel.ts';
 import { onDebugModeChanged } from './session-card/card-dom.ts';
 import { mountSettingsView } from './settings/settings-panel.ts';
-import { setTeamReviewActivityCallback } from './github/team-review-panel.ts';
+import { applyTeamReviewConnectionState, setTeamReviewActivityCallback } from './github/team-review-panel.ts';
 import { applyTraceConnectionState, mountTraceView, openTraceForSession, refreshTraceView } from './trace-panel.ts';
 import { acknowledgeUsageAttention, applyUsageConnectionState, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback } from './usage/usage-panel.ts';
-import { acknowledgeVisionsAttention, mountVisionsView, refreshVisionsView, setVisionsActivityCallback } from './visions/visions-panel.ts';
+import { acknowledgeVisionsAttention, applyVisionsConnectionState, mountVisionsView, refreshVisionsView, setVisionsActivityCallback } from './visions/visions-panel.ts';
 import { viewAttentionState } from './view-registry-core.ts';
 import type { PrimaryView, PrimaryViewDefinition, ViewAttention } from './view-registry-core.ts';
 
@@ -29,14 +30,17 @@ export interface DashboardView extends PrimaryView<HTMLElement> {
 export function createDashboardViews(actions: ViewRegistryActions): DashboardView[] {
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
     { view: 'focus', label: 'Focus', panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView },
-    { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, mount: (panel) => mountPrsView(panel, { openTerminal: actions.openTerminal }), attention: { subscribe: setTeamReviewActivityCallback, acknowledge: acknowledgePrsViewAttention } },
+    { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, mount: (panel) => mountPrsView(panel, { openTerminal: actions.openTerminal }), attention: { subscribe: setTeamReviewActivityCallback, acknowledge: acknowledgePrsViewAttention }, onConnectionChange: (isConnected) => {
+      applyMyPrsConnectionState(isConnected);
+      applyTeamReviewConnectionState(isConnected);
+    } },
     { view: 'issues', label: 'Issues', glyph: '#', panelClass: 'issues-view', mount: mountIssuesView, refreshOn: ['shown'], refresh: refreshIssuesViewOnShow, onConnectionChange: applyIssuesConnectionState },
     { view: 'usage', label: 'Usage', glyph: '\u25d4', panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, mount: mountUsageView, attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, onConnectionChange: applyUsageConnectionState, refreshOn: ['shown', 'connected', 'usage-sessions'], refresh: (reason) => {
       if (reason === 'shown') refreshUsageView();
       requestUsageReport();
     } },
     { view: 'radar', label: 'Radar', glyph: '\u25ce', panelClass: 'radar-view', gate: { fromSettings: FEATURE_SURFACE_RULES.posthog }, mount: mountRadarView, attention: { subscribe: setRadarActivityCallback, acknowledge: acknowledgeRadarAttention } },
-    { view: 'visions', label: 'Visions', glyph: '\u25c7', panelClass: 'visions-view', gate: { fromSettings: FEATURE_SURFACE_RULES.visions }, mount: mountVisionsView, attention: { subscribe: setVisionsActivityCallback, acknowledge: () => { acknowledgeVisionsAttention(); refreshVisionsView(); } } },
+    { view: 'visions', label: 'Visions', glyph: '\u25c7', panelClass: 'visions-view', gate: { fromSettings: FEATURE_SURFACE_RULES.visions }, mount: mountVisionsView, attention: { subscribe: setVisionsActivityCallback, acknowledge: () => { acknowledgeVisionsAttention(); refreshVisionsView(); } }, onConnectionChange: applyVisionsConnectionState },
     { view: 'hooks', label: 'Hooks', glyph: '\u25c8', panelClass: 'hooks-view', mount: mountHooksView, refreshOn: ['shown', 'connected', 'hooks-updated'], refresh: (reason) => {
       if (reason === 'shown') refreshHooksView();
       requestHooksReport();

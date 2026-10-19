@@ -559,7 +559,7 @@ function requestBranchSyncAction(id: string) {
 }
 
 function resyncStatusLine(id: string, resyncing: boolean) {
-  if (resyncing) return { text: 'Resyncing...', loading: true, error: false };
+  if (resyncing) return { text: 'Resyncing', loading: true, error: false };
   if (resyncResult && resyncResult.forId === id) return { text: resyncResult.text, loading: false, error: resyncResult.isError };
   return null;
 }

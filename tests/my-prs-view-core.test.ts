@@ -19,7 +19,7 @@ const userRequest = { name: 'bob', isTeam: false, avatarUrl: null };
 test('keep mergeable exposes pressed state and separate save status for open and saved PRs', () => {
   assert.deepEqual(keepMergeableControlState(base, false), { isVisible: true, isPressed: false, isDisabled: false, statusText: 'Off' });
   assert.deepEqual(keepMergeableControlState({ ...base, keepMergeable: true }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'On' });
-  assert.deepEqual(keepMergeableControlState(base, true), { isVisible: true, isPressed: false, isDisabled: true, statusText: 'Saving...' });
+  assert.deepEqual(keepMergeableControlState(base, true), { isVisible: true, isPressed: false, isDisabled: true, statusText: 'Saving' });
   assert.equal(keepMergeableControlState(base, false, 'Cannot save').statusText, 'Cannot save');
   assert.equal(keepMergeableControlState({ ...base, state: 'MERGED' }, false).isVisible, false);
   assert.equal(keepMergeableControlState({ ...base, state: 'MERGED', keepMergeable: true }, false).isVisible, true);
@@ -31,7 +31,7 @@ test('merge when ready exposes queued state through aria-pressed and the queue p
   assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1 }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'Queued, 1st in line for this repository' });
   const positionTexts = [2, 3, 4, 11, 12, 13, 21, 22, 23].map((position) => mergeWhenReadyControlState({ ...base, mergeQueuePosition: position }, false).statusText);
   assert.deepEqual(positionTexts, ['2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '23rd'].map((place) => `Queued, ${place} in line for this repository`));
-  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 2 }, true), { isVisible: true, isPressed: true, isDisabled: true, statusText: 'Saving...' });
+  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 2 }, true), { isVisible: true, isPressed: true, isDisabled: true, statusText: 'Saving' });
   assert.equal(mergeWhenReadyControlState(base, false, 'Cannot save').statusText, 'Cannot save');
   assert.equal(mergeWhenReadyControlState({ ...base, state: 'MERGED' }, false).isVisible, false);
   assert.equal(mergeWhenReadyControlState({ ...base, state: 'CLOSED', mergeQueuePosition: 1 }, false).isVisible, true);
@@ -321,7 +321,7 @@ test('keep mergeable shows failure reasons and age beside the constant control l
     assert.equal(keepMergeableControlState(failedPr, false, '', true, '2m ago').statusText, 'Keep mergeable failed: Could not fetch the base (2m ago)');
     assert.equal(keepMergeableControlState(failedPr, false).statusText, 'Keep mergeable failed: Could not fetch the base');
     assert.equal(keepMergeableControlState({ ...failedPr, isKeepMergeableFixInFlight: true }, false).statusText, 'Keep mergeable is running');
-    assert.equal(keepMergeableControlState(failedPr, true).statusText, 'Saving...');
+    assert.equal(keepMergeableControlState(failedPr, true).statusText, 'Saving');
     assert.equal(keepMergeableControlState(failedPr, false, 'Could not save').statusText, 'Could not save');
     assert.equal(keepMergeableControlState({ ...failedPr, keepMergeable: false }, false).statusText, 'Off');
     assert.equal(keepMergeableControlState(failedPr, false, '', false).isVisible, false);

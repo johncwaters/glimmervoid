@@ -22,7 +22,7 @@ export const DEFAULT_REPLY_TIMEOUT_MS = 15000;
 const STREAMER_HIDDEN_ERROR_TEXT = 'Something went wrong. Details are hidden in streamer mode.';
 
 function streamerSafeText(tone: ActionStatusTone, text: string): string {
-  if (tone !== 'error' || text === NOT_CONNECTED_TEXT) return text;
+  if (tone !== 'error' || text.startsWith(NOT_CONNECTED_TEXT)) return text;
   return document.documentElement.hasAttribute('data-streamer') ? STREAMER_HIDDEN_ERROR_TEXT : text;
 }
 

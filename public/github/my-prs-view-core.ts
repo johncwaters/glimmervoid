@@ -20,7 +20,7 @@ function toggleControlState(pr: MyPr, isOn: boolean, isPending: boolean, errorTe
     isVisible: isFeatureEnabled && (pr.state === 'OPEN' || isOn),
     isPressed: isOn,
     isDisabled: isPending,
-    statusText: errorText || (isPending ? 'Saving...' : settledText),
+    statusText: errorText || (isPending ? 'Saving' : settledText),
   };
 }
 

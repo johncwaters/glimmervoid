@@ -5,6 +5,7 @@ import type { DraftComment, FindingSeverity, InFlightReview, QueuedReview, Revie
 import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { createAttentionAck } from '../attention-ack-core.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
+import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from '../dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from '../poll-ago.ts';
 import { createPrQueueColumns, createPrQueueFoot, createPrQueueHead } from './pr-queue-columns.ts';
@@ -24,6 +25,8 @@ import { getPrsAttentionAck, setPrsAttentionAck } from '../ui-prefs.ts';
 import { isStreamerMode, onStreamerModeChanged } from '../streamer-mode.ts';
 
 const ACTION_REPLY_TIMEOUT_MS = 120000;
+const ACTION_NO_REPLY_TEXT = `The server did not answer within ${ACTION_REPLY_TIMEOUT_MS / 1000} s. Check GitHub before trying again.`;
+const ACTION_DISCONNECTED_TEXT = `${NOT_CONNECTED_TEXT} Check GitHub before trying again.`;
 const SHARD_PATH = 'M4.5 0.5L8.5 5.5L4.5 10.5L0.5 5.5Z';
 const STREAMER_GITHUB_REVIEW_TITLE = 'GitHub review';
 
@@ -384,10 +387,10 @@ function openReviewSession(key: string, button: HTMLButtonElement, status: HTMLE
   const requestId = nextRequestId('open-team-review-session');
   if (!sendControlMsg({ type: 'open-team-review-session', requestId, key })) {
     status.dataset.tone = 'error';
-    status.textContent = 'Not connected to the server.';
+    status.textContent = NOT_CONNECTED_TEXT;
     return;
   }
-  const timer = window.setTimeout(() => settleSessionOpen(key, 'No reply from the server.'), ACTION_REPLY_TIMEOUT_MS);
+  const timer = window.setTimeout(() => settleSessionOpen(key, `The server did not answer within ${ACTION_REPLY_TIMEOUT_MS / 1000} s.`), ACTION_REPLY_TIMEOUT_MS);
   _sessionOpenByKey.set(key, { requestId, timer, text: SESSION_OPEN_BUSY_TEXT, tone: 'busy' });
   button.disabled = true;
   status.dataset.tone = 'busy';
@@ -599,7 +602,7 @@ function sendAction(origin: DetailOrigin, review: Pick<ReviewDraft, 'key' | 'rep
   if (!isSent) return false;
   const timer = window.setTimeout(() => {
     _pendingActions.delete(review.key);
-    settle(false, 'No reply from the server. Check GitHub before trying again.');
+    settle(false, ACTION_NO_REPLY_TEXT);
   }, ACTION_REPLY_TIMEOUT_MS);
   _pendingActions.set(review.key, { requestId, action: request.action, origin, capturedOrder, pullRequest: pullRequestLabel(review.repo, review.number), timer, settle });
   return true;
@@ -613,7 +616,7 @@ function createNotMineFooter(review: QueuedReview | InFlightReview): HTMLElement
     status.dataset.tone = 'busy';
     status.textContent = actionProgressText('discard');
     if (sendAction('other', review, buildNotMineRequest(review.key), settle)) return;
-    settle(false, 'Not connected to the server.');
+    settle(false, NOT_CONNECTED_TEXT);
   });
   const isPending = _pendingActions.has(review.key);
   button.disabled = isPending;
@@ -773,7 +776,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     status.textContent = actionProgressText(action);
     const comments = draft.comments.filter((_comment, index) => includedIndexes.has(index));
     if (sendAction('ready', draft, buildActionRequest(draft, action, withReviewerNote(noteInput.value, bodyInput.value), comments), settle)) return;
-    settle(false, 'Not connected to the server.');
+    settle(false, NOT_CONNECTED_TEXT);
   };
   const layout = detailActionLayout(draft);
   const footerButtons = layout.footer.map((action) => createFooterButton(action, runAction));
@@ -898,7 +901,7 @@ function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
       button.disabled = true;
       status.textContent = actionProgressText('resolve-thread');
       if (sendAction('other', draft, buildActionRequest(draft, 'resolve-thread', '', [], item.thread.id), settle)) return;
-      settle(false, 'Not connected to the server.');
+      settle(false, NOT_CONNECTED_TEXT);
     });
     row.append(reply);
     if (item.thread.lastReplyBody) row.append(createThreadBody(item.thread.lastReplyBody, false, item.thread.lastReplyTruncated === true, item.thread.url));
@@ -938,7 +941,7 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
     status.dataset.tone = 'busy';
     status.textContent = actionProgressText(action);
     if (sendAction('other', draft, buildActionRequest(draft, action, '', []), settle)) return;
-    settle(false, 'Not connected to the server.');
+    settle(false, NOT_CONNECTED_TEXT);
   };
   const footerButtons = layout.footer.map((action) => createFooterButton(action, runAction));
   buttons.push(...footerButtons);
@@ -1201,6 +1204,19 @@ export function applyOpenTeamReviewSessionResult(message: ServerMessageOf<'open-
   _sessionOpenByKey.delete(key);
   showSettledSessionOpen(key, '', null);
   _openTerminal?.(message.sessionId);
+}
+
+export function applyTeamReviewConnectionState(isConnected: boolean): void {
+  if (isConnected) return;
+  for (const [key, opening] of _sessionOpenByKey) {
+    if (opening.requestId) settleSessionOpen(key, NOT_CONNECTED_TEXT);
+  }
+  const pendingActions = [..._pendingActions.values()];
+  _pendingActions.clear();
+  for (const pending of pendingActions) {
+    window.clearTimeout(pending.timer);
+    pending.settle?.(false, ACTION_DISCONNECTED_TEXT);
+  }
 }
 
 export function applyTeamReviewActionResult(message: unknown): void {
