@@ -12,6 +12,7 @@ export const PrDetail = z.object({
   body: z.string(),
   url: z.string(),
   author: z.object({ login: z.string(), is_bot: z.boolean().optional() }).passthrough(),
+  state: z.enum(['OPEN', 'CLOSED', 'MERGED']).optional(),
   isDraft: z.boolean(),
   isCrossRepository: z.boolean(),
   baseRefName: z.string(),
@@ -322,6 +323,7 @@ export const TeamReviewStateEntry = z.object({
   requeuedHead: CommitSha.optional(),
   priorReview: PriorReview.optional(),
   discardedReviewHead: CommitSha.optional(),
+  requestedAt: z.number().finite().optional(),
   updatedAt: z.number().finite(),
 });
 export type TeamReviewStateEntry = z.infer<typeof TeamReviewStateEntry>;

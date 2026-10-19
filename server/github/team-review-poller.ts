@@ -1,4 +1,5 @@
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
+import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
 import { githubStoreRateLimitedError } from './github-store-poller.ts';
 import type { GithubStoreRead } from './github-store-poller.ts';
@@ -46,6 +47,11 @@ type ReviewOutcome = ReviewDraftType | { kind: 'stopped'; resumable: ResumableRe
 type DraftPatch = Partial<Omit<ReviewDraftType, 'key' | 'repo' | 'number'>>;
 
 type NotMineOutcome = { ok: true } | { ok: false; error: string };
+
+type ReviewRequestOutcome = { ok: true; key: string; status: 'queued' | 'running' } | { ok: false; error: string };
+
+const ASKED_FOR_WATCH_OWNER = 'team-review-asked-for';
+const REQUEUE_REFUSAL = 'only a failed, ready, stale, discarded or posted review can be queued again';
 
 interface DraftExpectation {
   reviewedHead: ReviewDraftType['reviewedHead'];
@@ -107,6 +113,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   let hasLoadedState = false;
   let lastRebuildQueueSignature: string | null = null;
   let tickRateLimitWaitMs: number | null = null;
+  let teamCandidateKeys = new Set<string>();
 
   const loop = createTickLoop({
     tag: core.TEAM_REVIEW_LANE_ID, intervalMs: (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000,
@@ -566,8 +573,32 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     for (const [name, watch] of nextWatches) watches.set(name, watch);
   }
 
+  function askedForKeys(): string[] {
+    return Object.keys(state).filter((key) => state[key]?.requestedAt !== undefined);
+  }
+
+  function isTeamCandidate(key: string): boolean {
+    return teamCandidateKeys.has(key.toLowerCase());
+  }
+
+  function askedForSlotsInUse(): number {
+    return askedForKeys().filter((key) => state[key]?.draft?.status !== 'posted' && !isTeamCandidate(key)).length;
+  }
+
+  function watchAskedFor(): void {
+    store.setWatchedKeys(ASKED_FOR_WATCH_OWNER, askedForKeys());
+  }
+
   function candidatesFromSnapshot(viewer: string): { candidates: TeamReviewCandidate[]; isComplete: boolean } {
     const snapshot = store.getSnapshot();
+    let isAskedForComplete = true;
+    const askedFor = askedForKeys().flatMap((key) => {
+      const pr = snapshot.prs[key.toLowerCase()];
+      if (pr) return [pr];
+      const requestedAt = state[key]?.requestedAt ?? 0;
+      if (now() - requestedAt < core.ASKED_FOR_FETCH_GRACE_MS) isAskedForComplete = false;
+      return [];
+    });
     const prsBySource: Record<'direct' | 'team' | 'authored', (typeof snapshot.prs)[string][]> = { direct: [], team: [], authored: [] };
     let isComplete = true;
     for (const [name, { source }] of watches) {
@@ -582,7 +613,12 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         prsBySource[source].push(pr);
       }
     }
-    return { candidates: core.selectCandidates(prsBySource.direct, prsBySource.team, prsBySource.authored, { self: viewer, nowMs: now(), skipIdleAfterMs }), isComplete };
+    const teamCandidates = core.selectCandidates(prsBySource.direct, prsBySource.team, prsBySource.authored, { self: viewer, nowMs: now(), skipIdleAfterMs });
+    teamCandidateKeys = new Set(teamCandidates.map((candidate) => candidate.key.toLowerCase()));
+    return {
+      candidates: core.selectCandidates(prsBySource.direct, prsBySource.team, prsBySource.authored, { self: viewer, nowMs: now(), skipIdleAfterMs, askedFor }),
+      isComplete: isComplete && isAskedForComplete,
+    };
   }
 
   function rebuild(): void {
@@ -636,6 +672,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       return { failed: true, retryAfterMs: rateLimitWaitMs };
     }
     const isPruned = isComplete ? await pruneDeparted(new Set(candidates.map((candidate) => candidate.key))) : false;
+    if (isPruned) watchAskedFor();
     const planned = headsToReview(candidates);
     const isStarted = await startReviewsUnlessGuardrailsRefused(planned.queue);
     const areThreadsChanged = tickRateLimitWaitMs === null ? await handleAnsweredThreads(candidates) : false;
@@ -733,6 +770,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
 
   async function settleNotMine(key: string, entry: TeamReviewStateEntry): Promise<NotMineOutcome> {
     delete entry.requeuedHead;
+    delete entry.requestedAt;
+    watchAskedFor();
     entry.updatedAt = now();
     waitingForSlot = waitingForSlot.filter((queued) => queued.key !== key);
     const abandonedResumable = entry.resumable;
@@ -743,6 +782,64 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     await persist();
     emitStatus();
     return { ok: true };
+  }
+
+  async function markAskedFor(key: string, entry: TeamReviewStateEntry): Promise<void> {
+    if (!isTeamCandidate(key)) entry.requestedAt ??= now();
+    entry.updatedAt = now();
+    watchAskedFor();
+    await persist();
+    emitStatus();
+    loop.tickSoon();
+  }
+
+  async function requestKnownReview(key: string, entry: TeamReviewStateEntry): Promise<ReviewRequestOutcome> {
+    if (entry.inFlight) return { ok: true, key, status: 'running' };
+    if (entry.skipReason && entry.reviewedHead !== null && entry.reviewedHead === entry.liveHead) {
+      return { ok: false, error: `team review skips this pull request: ${entry.skipReason}` };
+    }
+    if (entry.draft && !isThreadPlaceholderDraft(entry.draft)) {
+      if (!await requeue(key, entry.draft.reviewedHead)) return { ok: false, error: REQUEUE_REFUSAL };
+      await markAskedFor(key, entry);
+      return { ok: true, key, status: 'queued' };
+    }
+    if (entry.reviewedHead !== null) {
+      entry.reviewedHead = null;
+      entry.reviewAttempts = 0;
+      if (entry.liveHead) entry.requeuedHead = entry.liveHead;
+    }
+    await markAskedFor(key, entry);
+    return { ok: true, key, status: 'queued' };
+  }
+
+  async function requestReview(reference: { repo: string; number: number }): Promise<ReviewRequestOutcome> {
+    if (loop.isStopped() || !hasLoadedState) return { ok: false, error: 'Team review is not running' };
+    const findKnownKey = () => Object.keys(state).find((key) => key.toLowerCase() === comparablePrKey(reference));
+    const knownKey = findKnownKey();
+    const knownEntry = knownKey === undefined ? undefined : state[knownKey];
+    if (knownKey !== undefined && knownEntry) return requestKnownReview(knownKey, knownEntry);
+    if (!isTeamCandidate(comparablePrKey(reference)) && askedForSlotsInUse() >= core.MAX_ASKED_FOR_REVIEWS) {
+      return { ok: false, error: `at most ${core.MAX_ASKED_FOR_REVIEWS} pull requests outside your teams can wait for a review at once, and one frees when its review is posted or the operator marks it Not mine in the Reviews tab` };
+    }
+    const label = core.prKey(reference.repo, reference.number);
+    const headRead = await store.requestPrHead(reference.repo, reference.number, 'no-wait');
+    if (headRead.isRateLimited) return { ok: false, error: githubStoreRateLimitedError(headRead.waitMs) };
+    if (headRead.value === null) return { ok: false, error: `could not read ${label} from GitHub` };
+    const detailRead = await store.requestPrView(reference.repo, reference.number, headRead.value, 'no-wait');
+    if (detailRead.isRateLimited) return { ok: false, error: githubStoreRateLimitedError(detailRead.waitMs) };
+    const detail = detailRead.value;
+    if (!detail) return { ok: false, error: `could not read ${label} from GitHub` };
+    const refusal = core.askedForRefusal(detail, self);
+    if (refusal) return { ok: false, error: `${label} cannot be reviewed: ${refusal}` };
+    const raceKey = findKnownKey();
+    const raceEntry = raceKey === undefined ? undefined : state[raceKey];
+    if (raceKey !== undefined && raceEntry) return requestKnownReview(raceKey, raceEntry);
+    const key = pullRequestKeyFromReference(detail.url) ?? label;
+    const entry = entryFor(key);
+    entry.liveHead = detail.headRefOid;
+    entry.requeuedHead = detail.headRefOid;
+    await markAskedFor(key, entry);
+    return { ok: true, key, status: 'queued' };
   }
 
   async function start(): Promise<void> {
@@ -759,6 +856,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       }
       await beforeStart(keepPaths);
       hasLoadedState = true;
+      watchAskedFor();
     });
   }
 
@@ -766,6 +864,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     for (const name of watches.keys()) store.unregisterWatch(name);
     watches.clear();
     store.setWatchedKeys('team-review-departed', []);
+    store.setWatchedKeys(ASKED_FOR_WATCH_OWNER, []);
   }
 
   async function refresh() {
@@ -785,7 +884,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     cancelPendingProgressEmit();
   }
 
-  return { start, stop, tick: loop.tick, refresh, rebuild, getDraft, updateDraft, updateThread, requeue, markNotMine, _state: () => state };
+  return { start, stop, tick: loop.tick, refresh, rebuild, getDraft, updateDraft, updateThread, requeue, requestReview, markNotMine, _state: () => state };
 }
 
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;

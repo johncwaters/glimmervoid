@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 
 import { isRecord } from '../shared/coerce.ts';
 import { BrowserConfig } from '../shared/contracts/config.ts';
-import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
+import { AGENT_URL_ENV, AgentSettingsReply, AgentSettingsRequest } from '../shared/contracts/session.ts';
 import {
   SETTINGS_INDEX, cloneValue, deleteValueAtPath, displayText, hasScaledUnit, parsePosthogProjectSelection, scoreSettingsSearch,
   setValueAtPath, settingsGroupOf, settingsOf, valueAtPath,
@@ -363,8 +363,12 @@ function openConfigFile(): Outcome<ConfigFileView> {
   if (!decided.path) return fail(`no config.json at ${decided.homePath}. Start Glimmervoid once to create it; glimmervoid settings schema needs no config file`);
   const loaded = readConfigFile(decided.path, homeDir);
   if (!loaded.ok) return fail(loaded.message);
+  return succeed(configFileViewOf(decided.path, loaded.value, env));
+}
+
+export function configFileViewOf(configPath: string, config: GlimmervoidConfig, env: NodeJS.ProcessEnv = process.env): ConfigFileView {
   const secretSources = Object.fromEntries(readEnvSecrets(env).map((secret) => [`${secret.blockName}.${secret.secretKey}`, secret.environmentVariable]));
-  return succeed({ configPath: decided.path, config: loaded.value, secretSources });
+  return { configPath, config, secretSources };
 }
 
 function print(context: CommandContext, jsonValue: unknown, text: string): number {
@@ -404,25 +408,46 @@ function requireWritableSetting(context: CommandContext, view: ConfigFileView): 
   return setting;
 }
 
+interface SettingsReport {
+  readout: unknown;
+  text: string;
+}
+
+function listSettings(view: ConfigFileView): SettingsReport {
+  const settings = ALL_SETTINGS.filter(isConfigFileSetting);
+  const readouts = settings.map((setting) => readSetting(setting, view));
+  const readoutById = new Map(readouts.map((readout) => [readout.id, readout]));
+  const rowOf = (setting: SettingsSetting): string[] => {
+    const readout = readoutById.get(setting.id);
+    if (!readout) return [setting.path, '', ''];
+    return [setting.path, fitColumn(valueText(readout, setting)), readout.source];
+  };
+  return { readout: readouts, text: renderSectionTables(settings, ['Setting', 'Value', 'Source'], rowOf) };
+}
+
+function getSetting(view: ConfigFileView, setting: SettingsSetting): SettingsReport {
+  const readout = readSetting(setting, view);
+  const sourceNote = readout.secret && !readout.configured ? '' : ` (${readout.source})`;
+  return { readout, text: `${setting.path} = ${valueText(readout, setting)}${sourceNote}` };
+}
+
+export function readSettingsForAgent({ command, path }: AgentSettingsRequest, view: ConfigFileView): AgentSettingsReply {
+  if (command === 'list') return { ok: true, ...listSettings(view) };
+  if (path === undefined) return { ok: false, error: 'get needs a setting path or id, such as posthog.trafficSpikeEnabled' };
+  const resolved = requireConfigFileSetting(path, view.configPath);
+  if (!resolved.ok) return { ok: false, error: resolved.message };
+  return { ok: true, ...getSetting(view, resolved.value) };
+}
+
 const commands: Record<string, (context: CommandContext) => number> = {
   list: (context) => {
-    const view = requireView();
-    const settings = ALL_SETTINGS.filter(isConfigFileSetting);
-    const readouts = settings.map((setting) => readSetting(setting, view));
-    const readoutById = new Map(readouts.map((readout) => [readout.id, readout]));
-    const rowOf = (setting: SettingsSetting): string[] => {
-      const readout = readoutById.get(setting.id);
-      if (!readout) return [setting.path, '', ''];
-      return [setting.path, fitColumn(valueText(readout, setting)), readout.source];
-    };
-    return print(context, readouts, renderSectionTables(settings, ['Setting', 'Value', 'Source'], rowOf));
+    const report = listSettings(requireView());
+    return print(context, report.readout, report.text);
   },
   get: (context) => {
     const view = requireView();
-    const setting = requireSetting(context, view);
-    const readout = readSetting(setting, view);
-    const sourceNote = readout.secret && !readout.configured ? '' : ` (${readout.source})`;
-    return print(context, readout, `${setting.path} = ${valueText(readout, setting)}${sourceNote}`);
+    const report = getSetting(view, requireSetting(context, view));
+    return print(context, report.readout, report.text);
   },
   set: (context) => {
     const view = requireView();
@@ -499,11 +524,37 @@ function runCommandLine(commandArguments: string[], io: SettingsCliIo): number {
   return command({ positionals, isJson: values.json, writeOutput: io.writeOutput });
 }
 
+function settingsRequestForServer(commandArguments: readonly string[]): AgentSettingsRequest | null {
+  if (!process.env[AGENT_URL_ENV]) return null;
+  const { values, positionals } = parseArgs({ args: [...commandArguments], allowPositionals: true, strict: false });
+  if (values.help) return null;
+  const parsed = AgentSettingsRequest.safeParse({ command: positionals[0], ...(positionals[1] === undefined ? {} : { path: positionals[1] }) });
+  return parsed.success ? parsed.data : null;
+}
+
 function processIo(): SettingsCliIo {
   return {
     writeOutput: (text) => process.stdout.write(text),
     writeError: (text) => process.stderr.write(text),
   };
+}
+
+export async function runSettingsCli(commandArguments: string[], io: SettingsCliIo = processIo()): Promise<number> {
+  const serverRequest = settingsRequestForServer(commandArguments);
+  if (!serverRequest) return runSettingsCommand(commandArguments, io);
+  const { askAgentApi } = await import('./agent-api-cli.ts');
+  const reply = AgentSettingsReply.safeParse(await askAgentApi('settings', serverRequest).catch((error: unknown) => ({ ok: false, error: errorMessage(error) })));
+  if (!reply.success) {
+    io.writeError('settings: Glimmervoid sent a reply this command cannot read\n');
+    return 1;
+  }
+  if (!reply.data.ok) {
+    io.writeError(`settings: ${reply.data.error}\n`);
+    return 1;
+  }
+  const isJson = commandArguments.includes('--json');
+  io.writeOutput(`${isJson ? JSON.stringify(reply.data.readout, null, 2) : reply.data.text}\n`);
+  return 0;
 }
 
 export function runSettingsCommand(commandArguments: string[], io: SettingsCliIo = processIo()): number {

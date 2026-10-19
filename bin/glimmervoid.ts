@@ -49,6 +49,11 @@ Inside a Glimmervoid session:
   board               List the live sessions
   push                Land this session's commits on the integration branch and push it
   edit <path>         Open a text file for the operator to edit in the dashboard
+  review <pr>         Queue a team review of a pull request; the draft waits in the Reviews tab for the operator to post
+  reviews             List the Reviews tab: reviews running, queued and drafted
+  prs                 List the operator's open pull requests with their checks, reviews and merge state
+  link-pr <pr>        Link a pull request to this session's card
+  settings list|get   Read Glimmervoid's settings; a secret shows only as configured or not
   limits              List which of these commands answer here and what the guardrails block
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
 
@@ -98,8 +103,8 @@ const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
     return runAgentSetupCli(subcommandArgs);
   }],
   ['settings', async (subcommandArgs) => {
-    const { runSettingsCommand } = await import('../server/settings-cli.ts');
-    return runSettingsCommand(subcommandArgs);
+    const { runSettingsCli } = await import('../server/settings-cli.ts');
+    return runSettingsCli(subcommandArgs);
   }],
   ['visions', async (subcommandArgs) => {
     const { runVisionsCli } = await import('../server/visions/visions-cli.ts');
@@ -109,7 +114,7 @@ const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');
     return runSshSignCli(subcommandArgs);
   }],
-  ...AGENT_API_VERBS.map((verb): [string, SubcommandRunner] => [verb, async (subcommandArgs, subcommandName) => {
+  ...AGENT_API_VERBS.filter((verb) => verb !== 'settings').map((verb): [string, SubcommandRunner] => [verb, async (subcommandArgs, subcommandName) => {
     const { runAgentApiCli } = await import('../server/agent-api-cli.ts');
     return runAgentApiCli([subcommandName, ...subcommandArgs]);
   }]),

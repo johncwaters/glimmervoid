@@ -1063,6 +1063,12 @@ function createTeamReviewWiring({
     return (await runner.getPoller()?.requeue(key, head)) ?? false;
   }
 
+  async function requestReview(reference: { repo: string; number: number }) {
+    const poller = runner.getPoller();
+    if (!poller) return { ok: false as const, error: 'team review is off, and the operator turns it on in the dashboard settings' };
+    return poller.requestReview(reference);
+  }
+
   async function markNotMineForPoller(key: string): Promise<NotMineOutcome> {
     return (await runner.getPoller()?.markNotMine(key)) ?? { ok: false, error: 'Team review is not running' };
   }
@@ -1127,6 +1133,7 @@ function createTeamReviewWiring({
     getStatus,
     refresh,
     isRunning,
+    requestReview,
     submitAction: actions.submitAction,
     preparePrSession,
   };

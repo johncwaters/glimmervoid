@@ -603,12 +603,15 @@ test('limits tells a session which commands answer, and a guarded operator sessi
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'attention', 'board', 'edit'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings'].map((name) => ({ name, answers: true })),
     ]);
     assert.equal(operatorLimits.guarded, true);
     assert.deepEqual(operatorLimits.deadEnds.map(({ route }) => route), ['flag the operator with glimmervoid attention']);
     const laneLimits = await limitsOf(guardedLane);
-    assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [['push', false], ['spawn', false], ['attention', false], ['board', true], ['edit', false]]);
+    assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
+      ['push', false], ['spawn', false], ['attention', false], ['board', true], ['edit', false],
+      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false],
+    ]);
     assert.deepEqual([laneLimits.guarded, laneLimits.deadEnds], [true, []]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],
@@ -616,6 +619,10 @@ test('limits tells a session which commands answer, and a guarded operator sessi
       [guardedLane, laneLimits, 'spawn', { prompt: 'help me' }],
       [guardedLane, laneLimits, 'attention', { note: 'look' }],
       [guardedLane, laneLimits, 'edit', { path: 'notes.md' }],
+      [guardedLane, laneLimits, 'review', { pr: 'acme/app#12' }],
+      [guardedLane, laneLimits, 'reviews', {}],
+      [guardedLane, laneLimits, 'link-pr', { pr: 'acme/app#12' }],
+      [guardedLane, laneLimits, 'settings', { command: 'list' }],
     ];
     for (const [session, limits, command, payload] of refusedCalls) {
       const refusal = await fixture.wiring.handle(session, command, payload);

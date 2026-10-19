@@ -903,7 +903,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 
     async viewPr(repo, number) {
       if (!repoParts(repo) || !isPrNumber(number)) return null;
-      const response = await runGh(['pr', 'view', String(number), '-R', repo, '--json', 'number,title,body,url,author,isDraft,isCrossRepository,baseRefName,baseRefOid,headRefName,headRefOid,additions,deletions,files']);
+      const response = await runGh(['pr', 'view', String(number), '-R', repo, '--json', 'number,title,body,url,state,author,isDraft,isCrossRepository,baseRefName,baseRefOid,headRefName,headRefOid,additions,deletions,files']);
       if (!response.ok) return null;
       const parsed = PrDetail.safeParse(parseJsonOrNull(response.out));
       return parsed.success ? parsed.data : null;

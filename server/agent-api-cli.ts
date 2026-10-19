@@ -18,6 +18,11 @@ const HELP_LIMITS_UNKNOWN_LINE = 'This session: Glimmervoid did not report its l
 
 type BodyBuilder = (rest: string[]) => Record<string, unknown> | null;
 
+function pullRequestBody(rest: string[]): Record<string, unknown> | null {
+  const pullRequest = rest.join(' ').trim();
+  return pullRequest ? { pr: pullRequest } : null;
+}
+
 const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   spawn: (rest) => {
     const prompt = rest.join(' ').trim();
@@ -34,7 +39,18 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     return docPath ? { path: path.resolve(docPath) } : null;
   },
   limits: () => ({}),
+  review: pullRequestBody,
+  reviews: () => ({}),
+  prs: () => ({}),
+  'link-pr': pullRequestBody,
+  settings: ([command, settingPath]) => ({ command, ...(settingPath === undefined ? {} : { path: settingPath }) }),
 };
+
+const MISSING_ARGUMENT_HINTS: Readonly<Partial<Record<AgentApiVerb, string>>> = Object.freeze({
+  edit: 'glimmervoid edit: this command needs a file path, for example "glimmervoid edit drafts/post.md"',
+  review: 'glimmervoid review: this command needs a pull request, for example "glimmervoid review https://github.com/acme/app/pull/12" or "glimmervoid review acme/app#12"',
+  'link-pr': 'glimmervoid link-pr: this command needs a pull request, for example "glimmervoid link-pr acme/app#12"',
+});
 
 function bodySaysOk(text: string): boolean {
   try {
@@ -157,21 +173,12 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   }
   const body = BODY_BUILDERS[verb](args.slice(1));
   if (!body) {
-    if (verb === 'edit') {
-      console.error('glimmervoid edit: this command needs a file path, for example "glimmervoid edit drafts/post.md"');
-      return 1;
-    }
-    console.error(`glimmervoid ${verb}: this command needs text, for example "glimmervoid ${verb} check the failing test"`);
+    console.error(MISSING_ARGUMENT_HINTS[verb] ?? `glimmervoid ${verb}: this command needs text, for example "glimmervoid ${verb} check the failing test"`);
     return 1;
   }
-  const rawUrl = process.env[AGENT_URL_ENV];
-  if (!rawUrl) {
-    console.error(`glimmervoid: ${AGENT_URL_ENV} is not set, so this is not a Glimmervoid session`);
-    return 1;
-  }
-  const target = verbEndpoint(rawUrl, verb);
+  const target = sessionEndpoint(verb);
   if (!target.ok) {
-    console.error(`glimmervoid: ${AGENT_URL_ENV} must be a loopback http url under ${AGENT_PATH_PREFIX}, so nothing was sent`);
+    console.error(target.error);
     return 1;
   }
   const reply = await postToAgentIngress({ endpoint: target.endpoint, token: target.token, body });
@@ -179,4 +186,19 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   return reply.hasSuccessStatus && bodySaysOk(reply.text) ? 0 : 1;
 }
 
-export { postToAgentIngress, runAgentApiCli, sessionLimitsHelpLines };
+function sessionEndpoint(verb: AgentApiVerb): { ok: true; endpoint: URL; token: string } | { ok: false; error: string } {
+  const rawUrl = process.env[AGENT_URL_ENV];
+  if (!rawUrl) return { ok: false, error: `glimmervoid: ${AGENT_URL_ENV} is not set, so this is not a Glimmervoid session` };
+  const target = verbEndpoint(rawUrl, verb);
+  if (!target.ok) return { ok: false, error: `glimmervoid: ${AGENT_URL_ENV} must be a loopback http url under ${AGENT_PATH_PREFIX}, so nothing was sent` };
+  return target;
+}
+
+async function askAgentApi(verb: AgentApiVerb, body: Record<string, unknown>): Promise<unknown> {
+  const target = sessionEndpoint(verb);
+  if (!target.ok) return { ok: false, error: target.error };
+  const reply = await postToAgentIngress({ endpoint: target.endpoint, token: target.token, body });
+  return parseJsonOrNull(reply.text);
+}
+
+export { askAgentApi, postToAgentIngress, runAgentApiCli, sessionLimitsHelpLines };

@@ -1,4 +1,4 @@
-import { SESSION_PR_LINKS_MAX } from '../../shared/contracts/my-prs.ts';
+import { LinkedPr as LinkedPrSchema, SESSION_PR_LINKS_MAX } from '../../shared/contracts/my-prs.ts';
 import type { LinkedPr, SessionPrLinks } from '../../shared/contracts/my-prs.ts';
 
 function comparableLinkKey(link: Pick<LinkedPr, 'repo' | 'number'>): string {
@@ -38,4 +38,17 @@ function withoutPrLink(current: SessionPrLinks, pullRequestKey: string): Session
   return { links, unlinkedKeys: isAlreadyUnlinked ? current.unlinkedKeys : [...current.unlinkedKeys, pullRequestKey] };
 }
 
-export { mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink };
+type KnownPr = Pick<LinkedPr, 'repo' | 'number' | 'url'> & { key: string };
+
+function manualPrLink(pullRequestKey: string, knownPrs: readonly KnownPr[], nowMs: number): LinkedPr | null {
+  const separatorIndex = pullRequestKey.lastIndexOf('#');
+  const repo = pullRequestKey.slice(0, separatorIndex);
+  const number = Number(pullRequestKey.slice(separatorIndex + 1));
+  const comparableKey = pullRequestKey.toLowerCase();
+  const knownPr = knownPrs.find((pr) => pr.key.toLowerCase() === comparableKey);
+  const canonicalPr = knownPr ?? { repo, number, url: `https://github.com/${repo}/pull/${number}` };
+  const parsed = LinkedPrSchema.safeParse({ repo: canonicalPr.repo, number: canonicalPr.number, url: canonicalPr.url, source: 'manual', linkedAt: nowMs });
+  return parsed.success ? parsed.data : null;
+}
+
+export { manualPrLink, mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink };

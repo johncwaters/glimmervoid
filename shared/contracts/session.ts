@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { STATES } from '../states.ts';
-import { LinkedPr } from './my-prs.ts';
+import { LinkedPr, MyPr } from './my-prs.ts';
+import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 
 export const TASK_TITLE_MAX_LENGTH = 120;
 export const SESSION_NAME_PATTERN = /^[a-zA-Z0-9_\-. ()]{1,64}$/;
@@ -121,7 +122,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'push', 'edit', 'limits'] as const;
+export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'push', 'edit', 'limits', 'review', 'reviews', 'prs', 'link-pr', 'settings'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
 
@@ -153,6 +154,50 @@ export const AgentBoardRow = z.object({
   ephemeral: SessionSnapshot.shape.ephemeral,
 }).strict();
 
+export const AgentPullRequestRequest = z.object({
+  pr: z.string({ error: 'pr must be a string' }).min(1, { error: 'pr must not be empty' }).max(300, { error: 'pr must be at most 300 characters' }),
+}).strict();
+
+const AGENT_SETTINGS_COMMANDS = ['list', 'get'] as const;
+
+export const AgentSettingsRequest = z.object({
+  command: z.enum(AGENT_SETTINGS_COMMANDS, { error: 'command must be list or get' }),
+  path: z.string({ error: 'path must be a string' }).min(1, { error: 'path must not be empty' }).max(200, { error: 'path must be at most 200 characters' }).optional(),
+}).strict();
+
+export const AgentSettingsReply = z.union([
+  z.object({ ok: z.literal(true), text: z.string(), readout: z.unknown() }).strict(),
+  z.object({ ok: z.literal(false), error: z.string() }).strict(),
+]);
+
+const PullRequestIdentity = QueuedReview.pick({ key: true, title: true, url: true, author: true });
+
+export const AgentReviewsReply = z.object({
+  ok: z.literal(true),
+  configured: z.boolean(),
+  reason: z.string().nullable(),
+  reviewing: z.array(PullRequestIdentity.extend({ phase: InFlightReview.shape.phase })),
+  queued: z.array(PullRequestIdentity),
+  drafts: z.array(PullRequestIdentity.extend({
+    status: ReviewDraft.shape.status,
+    verdict: z.string(),
+    summary: ReviewDraft.shape.summary,
+    comments: z.number().int().nonnegative(),
+    isOutOfDate: z.boolean(),
+  })),
+}).strict();
+
+export const AgentPrsReply = z.object({
+  ok: z.literal(true),
+  configured: z.boolean(),
+  prs: z.array(z.object({
+    key: MyPr.shape.key, title: MyPr.shape.title, url: MyPr.shape.url, state: MyPr.shape.state, isDraft: MyPr.shape.isDraft,
+    stage: MyPr.shape.stage, reviewDecision: MyPr.shape.reviewDecision, approvals: MyPr.shape.approvals,
+    unresolvedThreads: MyPr.shape.unresolvedThreads, behindBy: MyPr.shape.behindBy, mergeable: MyPr.shape.mergeable,
+    isInMergeQueue: MyPr.shape.isInMergeQueue, checks: MyPr.shape.checks.pick({ state: true, failing: true }),
+  }).strict()),
+}).strict();
+
 export const SESSION_DOC_BODY_CAP_BYTES = 256 * 1024;
 export const SESSION_DOC_PATH_MAX_CHARS = 4096;
 export const SESSION_DOCS_MAX = 20;
@@ -172,7 +217,7 @@ export const SessionDoc = z.object({
 export type AgentEditRequest = z.infer<typeof AgentEditRequest>;
 export type SessionDoc = z.infer<typeof SessionDoc>;
 
-export const SESSION_COMMANDS = ['push', 'spawn', 'attention', 'board', 'edit'] as const;
+export const SESSION_COMMANDS = ['push', 'spawn', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings'] as const;
 
 export const SessionLimits = z.object({
   commands: z.array(z.object({
@@ -193,3 +238,8 @@ export type AgentLimitsReply = z.infer<typeof AgentLimitsReply>;
 export type AgentAttentionRequest = z.infer<typeof AgentAttentionRequest>;
 export type AgentAttentionReply = z.infer<typeof AgentAttentionReply>;
 export type AgentBoardRow = z.infer<typeof AgentBoardRow>;
+export type AgentPullRequestRequest = z.infer<typeof AgentPullRequestRequest>;
+export type AgentSettingsRequest = z.infer<typeof AgentSettingsRequest>;
+export type AgentSettingsReply = z.infer<typeof AgentSettingsReply>;
+export type AgentReviewsReply = z.infer<typeof AgentReviewsReply>;
+export type AgentPrsReply = z.infer<typeof AgentPrsReply>;

@@ -6,13 +6,16 @@ import { describeSessionLimits } from '../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../session/core/session-routes.ts';
 import type { Session } from '../session/sessions.ts';
 import type {
-  AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentLimitsReply, AgentSpawnRequest,
+  AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentLimitsReply, AgentSettingsReply, AgentSettingsRequest, AgentSpawnRequest,
 } from '../shared/contracts/session.ts';
+import type { MyPrsSnapshot } from '../shared/contracts/my-prs.ts';
+import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import { manualPrLink } from '../session/core/session-pr-links-core.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
-  decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding,
-  describePushRouteRefusal, parseAgentVerb,
+  decideAttentionAllowance, decideEditAllowance, decideLinkPrAllowance, decideOperatorStateAllowance, decideSpawnAllowance,
+  deriveChildSessionName, describePushLanding, describePushRouteRefusal, parseAgentVerb, projectMyPrs, projectReviews,
 } from './core/agent-api-core.ts';
 import { isGuardedSessionVendor } from './guardrails/core/guardrails-roles-core.ts';
 import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
@@ -32,6 +35,15 @@ type MakeSession = (
   overrides?: SessionSpawnOverrides,
 ) => Session;
 
+type ReviewRequestReply = { ok: true; key: string; status: 'queued' | 'running' } | { ok: false; error: string };
+
+interface AgentOperatorStatePort {
+  requestReview(reference: { repo: string; number: number }): Promise<ReviewRequestReply>;
+  teamReviewStatus(): TeamReviewStatus;
+  myPrsStatus(): MyPrsSnapshot | null;
+  readSettings(request: AgentSettingsRequest): AgentSettingsReply;
+}
+
 interface AgentApiWiringOptions {
   config: GlimmervoidConfig;
   agentSessions: Map<string, Session>;
@@ -45,6 +57,7 @@ interface AgentApiWiringOptions {
   recordLane?: RecordLane | null;
   sessionDocs: SessionDocsPort;
   memoryAdmission?: Pick<MemoryAdmission, 'describeShortfallNow'> | null;
+  operatorState?: AgentOperatorStatePort | null;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -66,6 +79,7 @@ function createAgentApiWiring({
   broadcastControl, spawnGate, sessionDocs,
   recordLane = null,
   memoryAdmission = null,
+  operatorState = null,
   logger = console,
 }: AgentApiWiringOptions): AgentApiPort {
   async function describeMemoryShortfall(): Promise<string | null> {
@@ -194,9 +208,48 @@ function createAgentApiWiring({
     return describePushLanding(await session.mergeAndContinue({ force: true }));
   }
 
+  function refusal(status: number, error: string): AgentApiReply {
+    return { status, body: { ok: false, error } };
+  }
+
+  async function review(pullRequestKey: string): Promise<AgentApiReply> {
+    if (!operatorState) return refusal(503, 'team review is not available in this Glimmervoid');
+    const separatorIndex = pullRequestKey.lastIndexOf('#');
+    const outcome = await operatorState.requestReview({ repo: pullRequestKey.slice(0, separatorIndex), number: Number(pullRequestKey.slice(separatorIndex + 1)) });
+    if (!outcome.ok) return refusal(409, outcome.error);
+    return { status: 200, body: { ...outcome, note: 'the review lands as a draft in the Reviews tab, and only the operator can post it' } };
+  }
+
+  function linkPr(session: Session, pullRequestKey: string): AgentApiReply {
+    const allowance = decideLinkPrAllowance(roleFactsOf(session));
+    if (!allowance.ok) return refusal(allowance.status, allowance.reason);
+    const link = manualPrLink(pullRequestKey, operatorState?.myPrsStatus()?.prs ?? [], Date.now());
+    if (!link) return refusal(400, `not a GitHub pull request: ${pullRequestKey}`);
+    session.linkPrManually(link);
+    return { status: 200, body: { ok: true, key: `${link.repo}#${link.number}`, url: link.url } };
+  }
+
+  function settings(request: AgentSettingsRequest): AgentApiReply {
+    if (!operatorState) return refusal(503, 'settings are not available in this Glimmervoid');
+    const reply = operatorState.readSettings(request);
+    return { status: reply.ok ? 200 : 400, body: reply };
+  }
+
+  async function handleOperatorState(session: Session, parsed: Extract<ReturnType<typeof parseAgentVerb>, { verb: 'review' | 'reviews' | 'prs' | 'settings' }>): Promise<AgentApiReply> {
+    const allowance = decideOperatorStateAllowance(roleFactsOf(session));
+    if (!allowance.ok) return refusal(allowance.status, allowance.reason);
+    if (parsed.verb === 'review') return review(parsed.pullRequestKey);
+    if (parsed.verb === 'settings') return settings(parsed.request);
+    if (!operatorState) return refusal(503, 'GitHub lanes are not available in this Glimmervoid');
+    if (parsed.verb === 'reviews') return { status: 200, body: projectReviews(operatorState.teamReviewStatus()) };
+    return { status: 200, body: projectMyPrs(operatorState.myPrsStatus()) };
+  }
+
   async function handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply> {
     const parsed = parseAgentVerb(verb, payload);
     if (!parsed.ok) return { status: parsed.status, body: { ok: false, error: parsed.error } };
+    if (parsed.verb === 'review' || parsed.verb === 'reviews' || parsed.verb === 'prs' || parsed.verb === 'settings') return handleOperatorState(session, parsed);
+    if (parsed.verb === 'link-pr') return linkPr(session, parsed.pullRequestKey);
     if (parsed.verb === 'board') return { status: 200, body: { ok: true, sessions: board() } };
     if (parsed.verb === 'push') return push(session);
     if (parsed.verb === 'limits') return { status: 200, body: limits(session) };

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Agents can ask for reviews and read your GitHub state**: inside a session, `glimmervoid review <pr>` queues a team review of any open pull request, including one outside your teams. It lands as a draft in the Reviews tab, and only you can post it. `glimmervoid reviews` lists what is reviewing, queued and drafted, `glimmervoid prs` lists your open pull requests with their checks and merge state, `glimmervoid link-pr <pr>` links a pull request to the session's card, and `glimmervoid settings list` or `get` reads your settings, with secrets shown only as configured or not. Agents still cannot post, approve or merge anything, and review lanes cannot use any of these commands.
+
 ### Fixed
 
 - The startup screen's "server is not answering" hint is now a short centered note under "Reconnecting to server..." instead of one long run-on line that ran edge to edge on a phone.

@@ -85,12 +85,27 @@ function editRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot surface a file, because it has no card for the operator to open the file from' };
 }
 
+function operatorStateRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: "a lane session cannot read or queue the operator's reviews, pull requests or settings, because a lane runs on input the operator has not vetted" };
+}
+
+function linkPrRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot link a pull request, because it has no card to show the link on' };
+}
+
 const COMMAND_ROUTES: Readonly<Record<SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
   attention: attentionRoute,
   board: () => ANSWERS,
   edit: editRoute,
+  review: operatorStateRoute,
+  reviews: operatorStateRoute,
+  prs: operatorStateRoute,
+  'link-pr': linkPrRoute,
+  settings: operatorStateRoute,
 });
 
 function commandLimit(name: SessionCommand, facts: SessionRoleFacts): SessionCommandLimit {
@@ -130,5 +145,5 @@ function formatSessionLimits({ commands, guarded, deadEnds }: SessionLimits): st
   ];
 }
 
-export { supervisionLine, permitsHelpCommand, pushRoute, spawnRoute, attentionRoute, editRoute, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
+export { supervisionLine, permitsHelpCommand, pushRoute, spawnRoute, attentionRoute, editRoute, linkPrRoute, operatorStateRoute, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
 export type { SessionRoleFacts, RouteVerdict };

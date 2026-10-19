@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import { threadNode, THREAD_BASE } from './helpers/team-review-thread-fixture.ts';
 import { THREAD_PLACEHOLDER_ERROR } from '../server/github/core/team-review-threads-core.ts';
-import { DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, MAX_REVIEW_ATTEMPTS, POSTED_RETENTION_MS, errorDraft, readyDraft } from '../server/github/core/team-review-core.ts';
+import { DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, MAX_ASKED_FOR_REVIEWS, MAX_REVIEW_ATTEMPTS, POSTED_RETENTION_MS, errorDraft, readyDraft } from '../server/github/core/team-review-core.ts';
 import { createTeamReviewPoller as createLanePoller } from '../server/github/team-review-poller.ts';
 import type { reviewSnapshotFromGithubPr } from '../server/github/core/team-review-core.ts';
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
@@ -244,6 +244,47 @@ test('requested and authored PRs are deduped and self, bots and drafts never rea
   assert.deepEqual(latest?.drafts.map((draft) => [draft.key, draft.status]), [[`${REPO}#1`, 'ready']]);
   assert.deepEqual(latest?.inFlight, []);
   for (const status of statuses) assert.equal(TeamReviewStatus.safeParse(status).success, true);
+  await poller.stop();
+});
+
+test('a pull request outside every team search that an agent asks for is reviewed and stays a draft for the operator', async () => {
+  const { poller, github, spawned } = setup();
+  github.heads.set(9, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 0);
+  assert.deepEqual(await poller.requestReview({ repo: REPO.toLowerCase(), number: 9 }), { ok: true, key: `${REPO}#9`, status: 'queued' });
+  await poller.tick();
+  await settle();
+  assert.deepEqual(spawned.map((args) => args.candidate.key), [`${REPO}#9`]);
+  assert.equal(poller.getDraft(`${REPO}#9`)?.status, 'ready');
+  await poller.tick();
+  await settle();
+  assert.equal(poller.getDraft(`${REPO}#9`)?.status, 'ready', 'a later tick keeps the asked-for draft instead of pruning it');
+  assert.equal(spawned.length, 1);
+  await poller.stop();
+});
+
+test('a posted asked-for review and a requeued team pull request leave the asked-for cap free', async () => {
+  const { poller, github } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  github.heads.set(9, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(poller.getDraft(`${REPO}#1`)?.status, 'ready');
+  assert.deepEqual(await poller.requestReview({ repo: REPO, number: 1 }), { ok: true, key: `${REPO}#1`, status: 'queued' });
+  assert.equal(poller._state()[`${REPO}#1`]?.requestedAt, undefined);
+  await poller.requestReview({ repo: REPO, number: 9 });
+  await poller.tick();
+  await settle();
+  assert.ok(await poller.updateDraft(`${REPO}#9`, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' }));
+  for (let number = 10; number < 10 + MAX_ASKED_FOR_REVIEWS; number += 1) {
+    github.heads.set(number, HEAD_ONE);
+    assert.deepEqual(await poller.requestReview({ repo: REPO, number }), { ok: true, key: `${REPO}#${number}`, status: 'queued' });
+  }
+  github.heads.set(99, HEAD_ONE);
+  assert.equal((await poller.requestReview({ repo: REPO, number: 99 })).ok, false);
   await poller.stop();
 });
 

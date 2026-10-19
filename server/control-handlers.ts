@@ -56,8 +56,9 @@ import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import { BenchmarkActionRequest } from '../shared/contracts/benchmark.ts';
 import type { BenchmarkActionResult, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
 import type { TeamReviewActionResult, TeamReviewStatus } from '../shared/contracts/team-review.ts';
-import { LinkedPr, MyPrKeepMergeableRequest, MyPrMergeRequest, MyPrMergeWhenReadyRequest } from '../shared/contracts/my-prs.ts';
+import { MyPrKeepMergeableRequest, MyPrMergeRequest, MyPrMergeWhenReadyRequest } from '../shared/contracts/my-prs.ts';
 import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsSnapshot } from '../shared/contracts/my-prs.ts';
+import { manualPrLink } from '../session/core/session-pr-links-core.ts';
 import type { UpdateStatus } from './backend/backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
@@ -261,17 +262,6 @@ function sendError(ws: ControlSocket, message: string, { type = 'error', request
     message,
   };
   ws.send(JSON.stringify(payload));
-}
-
-function manualPrLink(pullRequestKey: string, myPrsStatus: MyPrsSnapshot | null, nowMs: number): LinkedPr | null {
-  const separatorIndex = pullRequestKey.lastIndexOf('#');
-  const repo = pullRequestKey.slice(0, separatorIndex);
-  const number = Number(pullRequestKey.slice(separatorIndex + 1));
-  const comparableKey = pullRequestKey.toLowerCase();
-  const knownPr = myPrsStatus?.prs.find((pr) => pr.key.toLowerCase() === comparableKey);
-  const canonicalPr = knownPr ?? { repo, number, url: `https://github.com/${repo}/pull/${number}` };
-  const parsed = LinkedPr.safeParse({ repo: canonicalPr.repo, number: canonicalPr.number, url: canonicalPr.url, source: 'manual', linkedAt: nowMs });
-  return parsed.success ? parsed.data : null;
 }
 
 function myPrMergeKey(msg: Record<string, unknown> | null | undefined): string {
@@ -694,7 +684,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       sendError(ws, 'Session not found', { id: msg.id });
       return;
     }
-    const link = manualPrLink(msg.key, typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null, Date.now());
+    const link = manualPrLink(msg.key, (typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null)?.prs ?? [], Date.now());
     if (!link) {
       sendError(ws, `Not a GitHub pull request: ${msg.key}`, { id: msg.id });
       return;
@@ -1085,7 +1075,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (!created.ok) { reply({ error: created.error }); return; }
       const session = sessions.get(created.project.id);
       if (!session) { reply({ error: `Session "${created.project.name}" is not loaded` }); return; }
-      const link = manualPrLink(msg.key, typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null, Date.now());
+      const link = manualPrLink(msg.key, (typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null)?.prs ?? [], Date.now());
       if (link) session.linkPrManually(link);
       const pasted = session.pasteTextWhenReady(prSessionPrompt({ repo: checkout.repo, detail: checkout.detail, draft: checkout.draft }));
       if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }

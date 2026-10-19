@@ -14,4 +14,5 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - The wrap still runs PR code (linked `node_modules`, tests, lint) as the operator, and the linked clone's `.env` deny is root-level only. `api.github.com` stays reachable because Codex stalls at startup without it; no GitHub credential is readable inside.
 - PR text is untrusted data, fenced in the prompt (`tests/team-review-core.test.ts`).
 - Thread resolution also acts under the operator's name: only answered nit threads resolve without a click and each at most once, a judge failure never resolves, and the judge reading untrusted replies gets only Read and Write (`tests/team-review-poller.test.ts`, `tests/team-review-thread-judge.test.ts`).
+- An agent's `glimmervoid review` only queues a draft, never posts, and a lane session cannot ask at all, since a lane runs on unvetted input that could steer reviews (`tests/agent-api-http.test.ts`, `tests/team-review-poller.test.ts`).
 - Review dirs are deleted on every exit and swept at start, bar a shutdown's resume record (`tests/team-review-wiring.test.ts`).

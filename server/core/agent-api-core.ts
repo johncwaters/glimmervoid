@@ -1,8 +1,11 @@
 import crypto from 'node:crypto';
 
-import { AGENT_API_VERBS, AgentAttentionRequest, AgentEditRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
-import type { AgentApiVerb } from '../../shared/contracts/session.ts';
-import { attentionRoute, editRoute, NO_OWN_WORKTREE_REASON, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
+import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
+import { AGENT_API_VERBS, AgentAttentionRequest, AgentEditRequest, AgentPullRequestRequest, AgentSettingsRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
+import type { AgentApiVerb, AgentPrsReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
+import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
+import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
+import { attentionRoute, editRoute, linkPrRoute, NO_OWN_WORKTREE_REASON, operatorStateRoute, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
 import type { RouteVerdict, SessionRoleFacts } from '../../session/core/session-routes.ts';
 
 const MAX_LIVE_CHILDREN = 3;
@@ -37,6 +40,11 @@ type AgentVerbRequest =
   | { ok: true; verb: 'attention'; request: AgentAttentionRequest }
   | { ok: true; verb: 'edit'; request: AgentEditRequest }
   | { ok: true; verb: 'spawn'; request: AgentSpawnRequest }
+  | { ok: true; verb: 'reviews' }
+  | { ok: true; verb: 'prs' }
+  | { ok: true; verb: 'review'; pullRequestKey: string }
+  | { ok: true; verb: 'link-pr'; pullRequestKey: string }
+  | { ok: true; verb: 'settings'; request: AgentSettingsRequest }
   | { ok: false; status: number; error: string };
 
 const INVALID_BODY_STATUS = 400;
@@ -118,6 +126,14 @@ function decideEditAllowance(caller: SessionRoleFacts): AgentVerdict {
   return refuseByRole(editRoute(caller));
 }
 
+function decideOperatorStateAllowance(caller: SessionRoleFacts): AgentVerdict {
+  return refuseByRole(operatorStateRoute(caller));
+}
+
+function decideLinkPrAllowance(caller: SessionRoleFacts): AgentVerdict {
+  return refuseByRole(linkPrRoute(caller));
+}
+
 function describePushRouteRefusal(caller: SessionRoleFacts): AgentPushReply | null {
   const route = pushRoute(caller);
   if (route.answers) return null;
@@ -132,9 +148,23 @@ function refuseInvalidBody(issues: readonly { message?: string }[]): AgentVerbRe
   return { ok: false, status: INVALID_BODY_STATUS, error: issues[0]?.message || 'invalid request' };
 }
 
+function parsePullRequestVerb(verb: 'review' | 'link-pr', payload: Record<string, unknown>): AgentVerbRequest {
+  const parsed = AgentPullRequestRequest.safeParse(payload);
+  if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
+  const pullRequestKey = pullRequestKeyFromReference(parsed.data.pr);
+  if (!pullRequestKey) return { ok: false, status: INVALID_BODY_STATUS, error: 'pr must be a GitHub pull request url or owner/repo#number' };
+  return { ok: true, verb, pullRequestKey };
+}
+
 function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVerbRequest {
   if (!isAgentApiVerb(verb)) return { ok: false, status: REFUSAL_STATUS, error: REFUSAL_REASON };
-  if (verb === 'board' || verb === 'push' || verb === 'limits') return { ok: true, verb };
+  if (verb === 'board' || verb === 'push' || verb === 'limits' || verb === 'reviews' || verb === 'prs') return { ok: true, verb };
+  if (verb === 'review' || verb === 'link-pr') return parsePullRequestVerb(verb, payload);
+  if (verb === 'settings') {
+    const parsed = AgentSettingsRequest.safeParse(payload);
+    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
+    return { ok: true, verb, request: parsed.data };
+  }
   if (verb === 'attention') {
     const parsed = AgentAttentionRequest.safeParse(payload);
     if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
@@ -163,6 +193,38 @@ function describePushLanding(landing: PushLanding): AgentPushReply {
   };
 }
 
+function projectReviews({ configured, reason, inFlight, queued, drafts }: TeamReviewStatus): AgentReviewsReply {
+  const identity = ({ key, title, url, author }: { key: string; title: string; url: string; author: string }) => ({ key, title, url, author });
+  return {
+    ok: true,
+    configured,
+    reason: reason ?? null,
+    reviewing: inFlight.map((review) => ({ ...identity(review), phase: review.phase })),
+    queued: queued.map(identity),
+    drafts: drafts.map((draft) => ({
+      ...identity(draft),
+      status: draft.status,
+      verdict: draft.verdict,
+      summary: draft.summary,
+      comments: draft.comments.length,
+      isOutOfDate: draft.liveHead !== undefined && draft.liveHead !== draft.reviewedHead,
+    })),
+  };
+}
+
+function projectMyPrs(snapshot: MyPrsSnapshot | null): AgentPrsReply {
+  if (!snapshot) return { ok: true, configured: false, prs: [] };
+  return {
+    ok: true,
+    configured: snapshot.configured,
+    prs: snapshot.prs.map((pr) => ({
+      key: pr.key, title: pr.title, url: pr.url, state: pr.state, isDraft: pr.isDraft, stage: pr.stage, reviewDecision: pr.reviewDecision,
+      approvals: pr.approvals, unresolvedThreads: pr.unresolvedThreads, behindBy: pr.behindBy, mergeable: pr.mergeable,
+      isInMergeQueue: pr.isInMergeQueue, checks: { state: pr.checks.state, failing: pr.checks.failing },
+    })),
+  };
+}
+
 function deriveChildSessionName(parentName: string, existingNames: readonly string[]): string {
   const base = `${String(parentName || '').trim() || 'session'} agent`;
   const taken = new Set(existingNames);
@@ -177,7 +239,7 @@ function deriveChildSessionName(parentName: string, existingNames: readonly stri
 
 
 export {
-  decideAgentRequest, decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding,
-  describePushRouteRefusal, isAgentApiVerb, parseAgentVerb, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
+  decideAgentRequest, decideAttentionAllowance, decideEditAllowance, decideLinkPrAllowance, decideOperatorStateAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding,
+  describePushRouteRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviews, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
   REFUSAL_REASON, REFUSAL_STATUS,
 };

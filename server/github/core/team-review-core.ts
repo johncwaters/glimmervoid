@@ -17,6 +17,8 @@ const FULL_MODEL = 'opus';
 const STAMP_MAX_LINES = 200;
 const STAMP_MAX_FILES = 10;
 const MAX_CONCURRENT_REVIEWS = 2;
+const MAX_ASKED_FOR_REVIEWS = 20;
+const ASKED_FOR_FETCH_GRACE_MS = 60 * 60 * 1000;
 const MAX_REVIEW_ATTEMPTS = 3;
 const REVIEW_TIMEOUT_SECONDS = 2400;
 
@@ -141,27 +143,36 @@ function remoteMatchesGithubRepo(remoteUrl: string, repo: string): boolean {
   return githubRepoSlugFromRemote(remoteUrl)?.toLowerCase() === repo.toLowerCase();
 }
 
-function selectCandidates(directRequested: readonly GithubPr[], teamRequested: readonly GithubPr[], authored: readonly GithubPr[], { self, nowMs, skipIdleAfterMs }: { self: string; nowMs: number; skipIdleAfterMs: number }): TeamReviewCandidate[] {
+function selectCandidates(directRequested: readonly GithubPr[], teamRequested: readonly GithubPr[], authored: readonly GithubPr[], { self, nowMs, skipIdleAfterMs, askedFor = [] }: { self: string; nowMs: number; skipIdleAfterMs: number; askedFor?: readonly GithubPr[] }): TeamReviewCandidate[] {
   const candidates: TeamReviewCandidate[] = [];
   const seenKeys = new Set<string>();
   const requests = [
-    ...directRequested.map((pr) => ({ pr, requestSource: 'direct' as const })),
-    ...teamRequested.map((pr) => ({ pr, requestSource: 'team' as const })),
-    ...authored.map((pr) => ({ pr, requestSource: 'team' as const })),
+    ...askedFor.map((pr) => ({ pr, requestSource: 'direct' as const, isAskedFor: true })),
+    ...directRequested.map((pr) => ({ pr, requestSource: 'direct' as const, isAskedFor: false })),
+    ...teamRequested.map((pr) => ({ pr, requestSource: 'team' as const, isAskedFor: false })),
+    ...authored.map((pr) => ({ pr, requestSource: 'team' as const, isAskedFor: false })),
   ];
-  for (const { pr, requestSource } of requests) {
+  for (const { pr, requestSource, isAskedFor } of requests) {
     if (pr.state !== 'OPEN' || pr.author === null) continue;
     if (pr.author.toLowerCase() === self.toLowerCase()) continue;
     if (pr.isDraft) continue;
     if (pr.isAuthorBot) continue;
     const updatedAtMs = pr.updatedAt ? Date.parse(pr.updatedAt) : Number.NaN;
-    if (Number.isFinite(updatedAtMs) && nowMs - updatedAtMs > skipIdleAfterMs) continue;
+    if (!isAskedFor && Number.isFinite(updatedAtMs) && nowMs - updatedAtMs > skipIdleAfterMs) continue;
     const key = prKey(pr.repo, pr.number);
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
     candidates.push({ key, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url, author: pr.author, requestSource, ...(pr.createdAt ? { prCreatedAt: pr.createdAt } : {}) });
   }
   return candidates;
+}
+
+function askedForRefusal(detail: Pick<PrDetail, 'state' | 'isDraft' | 'author'>, viewer: string | null): string | null {
+  if (detail.state !== undefined && detail.state !== 'OPEN') return `it is ${detail.state.toLowerCase()}`;
+  if (detail.isDraft) return 'it is a draft, and team review only reviews a pull request that is ready for review';
+  if (detail.author.is_bot) return 'a bot opened it, and team review skips bot pull requests';
+  if (viewer !== null && detail.author.login.toLowerCase() === viewer.toLowerCase()) return 'you opened it, and team review never reviews your own pull request';
+  return null;
 }
 
 function reviewSnapshotFromGithubPr(pr: GithubPr) {
@@ -1111,5 +1122,5 @@ function absolutePathReadRule(absolutePath: string): string {
   return `Read(/${posixPath}/**)`;
 }
 
-export { reviewSnapshotFromGithubPr, STAMP_MODEL, FULL_MODEL, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS, advanceAwakeElapsed, handReviewRows, REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, HAND_APPROVAL_LINE, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, isSameQueuedReview, isSettledAtHead, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
+export { reviewSnapshotFromGithubPr, STAMP_MODEL, FULL_MODEL, MAX_CONCURRENT_REVIEWS, MAX_ASKED_FOR_REVIEWS, ASKED_FOR_FETCH_GRACE_MS, askedForRefusal, MAX_REVIEW_ATTEMPTS, advanceAwakeElapsed, handReviewRows, REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, HAND_APPROVAL_LINE, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, isSameQueuedReview, isSettledAtHead, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
 export type { CommentableLines, NewWorkPointer, NewWorkRange, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };
