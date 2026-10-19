@@ -1,14 +1,10 @@
 import { SessionPrLinks } from '#shared/contracts/my-prs.ts';
-import type { LinkedPr, MyPr, MyPrStage, MyPrsStatus } from '#shared/contracts/my-prs.ts';
-import { attentionSignature, createAttentionAck } from '../attention-ack-core.ts';
+import type { LinkedPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { el } from '../dom-helpers.ts';
 import { openExternalUrl } from '../external-link.ts';
-import { setSessionPrAttention } from '../session-card/lifecycle.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { sendForSession } from '../session-actions.ts';
-import { uiState } from '../ui-state-core.ts';
 import { latestMyPrsStatus, setMyPrsSessionLinks } from './my-prs-panel.ts';
-import { comparablePrKey } from './my-prs-view-core.ts';
 import { repaintSessionRowSignals } from '../session-row.ts';
 import { createSignal, paintSignalLine } from '../signal.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
@@ -16,73 +12,9 @@ import type { ActivatableSignal } from '../signal.ts';
 import { nextMyPrsByKey, sessionPrSignals } from './session-pr-chips-core.ts';
 import type { MyPrsByKey, SessionPrChip } from './session-pr-chips-core.ts';
 
-const ATTENTION_STAGES: ReadonlySet<MyPrStage> = new Set<MyPrStage>(['checks-failing', 'changes-requested', 'unresolved-threads', 'conflicts', 'merged']);
-
 const linksBySessionId = new Map<string, readonly LinkedPr[]>();
-const acknowledgedSignatureBySessionId = new Map<string, string>();
-const prAttentionBySessionId = new Map<string, ReturnType<typeof createAttentionAck>>();
 let prsByKey: MyPrsByKey = new Map();
 let indexedStatus: MyPrsStatus | null = null;
-let hasStageBaseline = false;
-
-function attentionPrsFor(sessionId: string): MyPr[] {
-  const attentionPrs: MyPr[] = [];
-  for (const link of linksBySessionId.get(sessionId) ?? []) {
-    const pr = prsByKey.get(comparablePrKey(link));
-    if (pr && ATTENTION_STAGES.has(pr.stage)) attentionPrs.push(pr);
-  }
-  return attentionPrs;
-}
-
-function prAttentionSignatureFor(sessionId: string): string {
-  return attentionSignature(attentionPrsFor(sessionId).map((pr) => `${pr.key}@${pr.stage}`));
-}
-
-function isSessionFocused(sessionId: string): boolean {
-  const { focusedSessionId, selectedSessionId } = uiState.snapshot();
-  return focusedSessionId === sessionId || selectedSessionId === sessionId;
-}
-
-function prAttentionFor(sessionId: string): ReturnType<typeof createAttentionAck> {
-  const existing = prAttentionBySessionId.get(sessionId);
-  if (existing) return existing;
-  const created = createAttentionAck({
-    getAck: () => acknowledgedSignatureBySessionId.get(sessionId) ?? '',
-    setAck: (next) => acknowledgedSignatureBySessionId.set(sessionId, next),
-    signature: () => prAttentionSignatureFor(sessionId),
-    isLooking: () => isSessionFocused(sessionId),
-  });
-  prAttentionBySessionId.set(sessionId, created);
-  return created;
-}
-
-function refreshPrAttention(sessionId: string): void {
-  if (!hasStageBaseline) return;
-  setSessionPrAttention(sessionId, prAttentionFor(sessionId).refresh());
-}
-
-function acknowledgeStagesBroughtByLinks(sessionId: string, signatureBeforeLinkChange: string): void {
-  if (!hasStageBaseline) return;
-  const acknowledgedBeforeLinkChange = acknowledgedSignatureBySessionId.get(sessionId);
-  const wasBadged = acknowledgedBeforeLinkChange !== undefined && acknowledgedBeforeLinkChange !== signatureBeforeLinkChange;
-  if (wasBadged) return;
-  const existingAttention = prAttentionBySessionId.get(sessionId);
-  if (existingAttention) { existingAttention.acknowledge(); return; }
-  acknowledgedSignatureBySessionId.set(sessionId, prAttentionSignatureFor(sessionId));
-}
-
-function seedStageBaseline(status: MyPrsStatus | null): void {
-  if (hasStageBaseline || !status?.configured || status.error) return;
-  hasStageBaseline = true;
-  for (const sessionId of linksBySessionId.keys()) acknowledgedSignatureBySessionId.set(sessionId, prAttentionSignatureFor(sessionId));
-}
-
-uiState.subscribe((state, changedKeys) => {
-  if (!changedKeys.includes('focusedSessionId') && !changedKeys.includes('selectedSessionId')) return;
-  for (const sessionId of new Set([state.focusedSessionId, state.selectedSessionId])) {
-    if (sessionId && prAttentionBySessionId.has(sessionId)) refreshPrAttention(sessionId);
-  }
-});
 
 function slotsFor(sessionId: string): NodeListOf<HTMLElement> {
   return document.querySelectorAll<HTMLElement>(`[data-pr-chips-for="${CSS.escape(sessionId)}"]`);
@@ -137,18 +69,13 @@ function repaintSlots(slots: Iterable<HTMLElement>): void {
 
 export function setSessionLinkedPrs(sessionId: string, linkedPrs: unknown): void {
   const parsedLinks = SessionPrLinks.shape.links.safeParse(linkedPrs ?? []);
-  const signatureBeforeLinkChange = prAttentionSignatureFor(sessionId);
   linksBySessionId.set(sessionId, parsedLinks.success ? parsedLinks.data : []);
-  acknowledgeStagesBroughtByLinks(sessionId, signatureBeforeLinkChange);
   repaintSlots(slotsFor(sessionId));
   setMyPrsSessionLinks(linksBySessionId);
-  refreshPrAttention(sessionId);
 }
 
 export function forgetSessionLinkedPrs(sessionId: string): void {
   linksBySessionId.delete(sessionId);
-  acknowledgedSignatureBySessionId.delete(sessionId);
-  prAttentionBySessionId.delete(sessionId);
   setMyPrsSessionLinks(linksBySessionId);
 }
 
@@ -160,6 +87,4 @@ export function refreshSessionPrChipStages(): void {
   if (nextPrsByKey === prsByKey) return;
   prsByKey = nextPrsByKey;
   repaintSlots(document.querySelectorAll<HTMLElement>('[data-pr-chips-for]'));
-  seedStageBaseline(status);
-  for (const sessionId of linksBySessionId.keys()) refreshPrAttention(sessionId);
 }

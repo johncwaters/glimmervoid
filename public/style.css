@@ -390,15 +390,6 @@ body {
   }
 }
 
-.session-card .card-elapsed {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--st, var(--text-muted));
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-}
-.card-elapsed:empty { display: none; }
-
 .session-card.completion-flash[data-state="DONE"] {
   animation: completion-glow 900ms ease-out;
 }
@@ -635,8 +626,6 @@ body {
   background: color-mix(in oklab, var(--accent) 14%, transparent);
 }
 
-.session-card-glyph:empty { display: none; }
-
 .session-card-header {
   display: flex;
   align-items: center;
@@ -721,15 +710,7 @@ body {
   min-width: 0;
 }
 .session-pr-chips[hidden] { display: none; }
-.session-card[data-pr-attention] .session-card-prs::after {
-  content: "";
-  flex: 0 0 auto;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--perms-warn);
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--perms-warn) 30%, transparent);
-}
+.dialog-linked-prs { flex-wrap: wrap; margin-bottom: 10px; }
 .session-pr-chip {
   display: inline-flex;
   align-items: center;
@@ -6470,7 +6451,7 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-:is(.session-row-glyph, .session-card-glyph) { flex: 0 0 12px; text-align: center; font-size: 12px; line-height: 1; color: var(--st, var(--text-muted)); }
+.session-row-glyph { flex: 0 0 12px; text-align: center; font-size: 12px; line-height: 1; color: var(--st, var(--text-muted)); }
 .session-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .session-row-name {
   font-size: 12px;
@@ -6642,10 +6623,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   font-weight: 700;
   color: var(--text-head);
   letter-spacing: 0.03em;
-}
-
-.focus-center .session-card.focus-centered .card-elapsed {
-  font-size: 12px;
 }
 
 .focus-center .session-card.focus-centered .session-task-title {

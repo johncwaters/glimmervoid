@@ -11,10 +11,6 @@ export function sessionElapsedText(ui: SessionUi) {
   return showsElapsed(ui.currentState) ? clockDurationText(Date.now() - (ui.stateSince || Date.now()), { rounding: 'floor', showsHours: true }) : '';
 }
 
-export function refreshElapsed(ui: SessionUi) {
-  if (ui.elapsedEl) ui.elapsedEl.textContent = sessionElapsedText(ui);
-}
-
 const tickSubscribers = new Set<() => void>();
 
 export function onSessionTick(notify: () => void) {
@@ -23,10 +19,7 @@ export function onSessionTick(notify: () => void) {
 }
 
 function runSessionTick() {
-  for (const [, ui] of sessionUIs) {
-    refreshElapsed(ui);
-    refreshSessionActivity(ui);
-  }
+  for (const [, ui] of sessionUIs) refreshSessionActivity(ui);
   for (const notify of tickSubscribers) {
     try { notify(); } catch {  }
   }

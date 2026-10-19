@@ -10,7 +10,7 @@ import { KILLABLE_STATES, RESTARTABLE_STATES, STATE_GLYPHS, STATES } from '#shar
 import { playAlertSound } from '../alert-sound.ts';
 import { hasSessionDocs, openDocEditor } from '../doc-editor.ts';
 import { sendControlMsg } from '../control-ws.ts';
-import { el, isMonitoringState, stateChip } from '../dom-helpers.ts';
+import { el, isMonitoringState } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { setHealthMonitorDebugMode } from '../health-monitor.ts';
 import { createPlanFace, dropPlanBodyCache } from '../plan/plan-face.ts';
@@ -44,7 +44,6 @@ import { reportUnsourcedError } from '../action-status.ts';
 import { needsAttention } from '../focus-view/attention-core.ts';
 import { closeSessionNotifications } from '../notifications.ts';
 
-import { refreshElapsed } from './session-tick.ts';
 import {
   closeDataWs,
   ensureTerminalReady,
@@ -424,8 +423,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     taskTitleEl: dom.taskTitleEl,
     taskTitle: options.taskTitle ?? null,
     taskTitleIsCustom: options.taskTitleIsCustom ?? false,
-    glyphEl: dom.glyphEl,
-    elapsedEl: dom.elapsedEl,
 
     path: asText(options.path),
 
@@ -618,12 +615,6 @@ function paintCardBadge(ui: SessionUi, selector: string, datasetKey: string, bad
   if (!badge) return;
   if (text !== undefined) badge.textContent = text;
   if (title !== undefined) badge.title = title;
-}
-
-export function setSessionPrAttention(sessionId: unknown, isShown: boolean) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-  paintCardBadge(ui, '.session-card-prs', 'prAttention', { on: isShown });
 }
 
 export function setSessionAgents(sessionId: unknown, activeAgents: unknown, awaitingBackgroundTasks: unknown = false) {
@@ -849,7 +840,6 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
 
   ui.card.dataset.state = state;
   ui.card.toggleAttribute('data-monitoring', isMonitoringState(state, ui.awaitingBackgroundTasks));
-  ui.glyphEl.textContent = stateChip(state, ui.awaitingBackgroundTasks).glyph;
 
   updateButtonVisibility(ui);
 
@@ -882,6 +872,4 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
   }
 
   updateAggregateStatus();
-
-  refreshElapsed(ui);
 }

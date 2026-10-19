@@ -25,8 +25,6 @@ export interface SessionUi {
   taskTitle: string | null;
   taskTitleIsCustom: boolean;
   titleTargetEl?: HTMLElement | null;
-  glyphEl: HTMLSpanElement;
-  elapsedEl: HTMLSpanElement;
   path: string;
   stateSince: number;
   sessionMenu: HTMLDivElement;

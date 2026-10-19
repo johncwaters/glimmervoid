@@ -40,7 +40,7 @@ import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, a
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from './radar/radar-core.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from './radar/radar-panel.ts';
-import { handleDebugStateRefresh, handleDebugStateResponse, setCardCoherenceJournal, setCardPrChipsPainter, setCardSessionSetup, setSessionSaneYolo } from './session-card/card-dom.ts';
+import { handleDebugStateRefresh, handleDebugStateResponse, setCardCoherenceJournal, setLinkedPrsPainter, setCardSessionSetup, setSessionSaneYolo } from './session-card/card-dom.ts';
 import { applySessionSetupResponse, openSessionSetup } from './session-setup/setup-dialog.ts';
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
@@ -380,7 +380,7 @@ setHooksRequestSender(sendControlMsg);
 setTraceRequestSender(sendControlMsg);
 setIssuesRequestSender(sendControlMsg);
 setBenchmarkRequestSender(sendControlMsg);
-setCardPrChipsPainter(paintSessionPrChips);
+setLinkedPrsPainter(paintSessionPrChips);
 addSessionRowSignalSource(sessionRowCoherenceSignals);
 addSessionRowSignalSource(sessionRowPrSignals);
 setCardCoherenceJournal({ isReadable: isSessionJournalReadable, open: openCoherenceJournal });

@@ -97,8 +97,6 @@ test('the borrowed card swaps to plan and release restores the terminal face thr
     taskTitleEl: document.createElement('span'),
     taskTitle: null,
     taskTitleIsCustom: false,
-    glyphEl: document.createElement('span'),
-    elapsedEl: document.createElement('span'),
     path: '',
     stateSince: 0,
     sessionMenu: document.createElement('div'),

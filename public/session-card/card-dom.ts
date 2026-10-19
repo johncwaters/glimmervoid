@@ -7,7 +7,7 @@ import { createActionStatus, sendOrReport } from '../action-status.ts';
 import type { ActionStatus } from '../action-status.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { escapeMarkup } from '#shared/escape-markup.ts';
-import { el, stateChip } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
 import { CLOSE_ICON_PATH, createLineIcon, MORE_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH } from '../svg-dom.ts';
 import type { CardOptions } from './card-options-core.ts';
@@ -52,11 +52,11 @@ export function isDebugModeEnabled() {
   return _debugMode;
 }
 
-type PrChipsPainter = (slot: HTMLElement, sessionId: string) => void;
-let paintCardPrChips: PrChipsPainter | null = null;
+type LinkedPrsPainter = (slot: HTMLElement, sessionId: string) => void;
+let paintLinkedPrs: LinkedPrsPainter | null = null;
 
-export function setCardPrChipsPainter(painter: PrChipsPainter) {
-  paintCardPrChips = painter;
+export function setLinkedPrsPainter(painter: LinkedPrsPainter) {
+  paintLinkedPrs = painter;
 }
 
 interface CardCoherenceJournal {
@@ -147,14 +147,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   if (permsBadge) paintPermsBadge(permsBadge, options.saneYolo === true);
   const taskTitleEl = el('span', 'session-task-title');
   paintTaskTitle(taskTitleEl, options.taskTitle);
-  const prChipsEl = el('span', 'session-pr-chips session-card-prs');
-  prChipsEl.hidden = true;
-  paintCardPrChips?.(prChipsEl, sessionId);
-
-  const glyphEl = el('span', 'session-card-glyph', stateChip(state).glyph);
-  glyphEl.setAttribute('aria-hidden', 'true');
-  const elapsedEl = el('span', 'card-elapsed');
-  elapsedEl.setAttribute('aria-hidden', 'true');
 
   const actions = el('div', 'session-actions');
 
@@ -175,7 +167,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const btnRestartFresh = buildMenuItem('Restart fresh', 'Ends this conversation and starts a new one', 'overflow-restart-fresh');
   const btnResume = buildMenuItem('Resume conversation...', 'Pick an earlier conversation', 'overflow-resume');
   const btnWorkspaceRepos = buildMenuItem('Edit repositories...', 'Add or remove repositories in this workspace', 'overflow-workspace-repos');
-  const btnLinkPr = buildMenuItem('Link pull request...', 'Show a pull request on this card', 'overflow-link-pr visible');
+  const btnLinkPr = buildMenuItem('Link pull request...', 'Link or unlink pull requests for this session', 'overflow-link-pr visible');
   const btnConversationView = buildMenuItem('Conversation view', 'Show this session as messages (experimental)', 'overflow-conversation-view');
   btnConversationView.setAttribute('role', 'menuitemcheckbox');
   btnConversationView.setAttribute('aria-checked', 'false');
@@ -237,13 +229,13 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec));
   if (permsBadge) tagChildren.push(permsBadge);
   tags.append(...tagChildren);
-  header.append(glyphEl, nameEl, elapsedEl, taskTitleEl, prChipsEl, tags, actions);
+  header.append(nameEl, taskTitleEl, tags, actions);
 
   const termWrap = el('div', 'terminal-wrap');
 
   card.append(header, termWrap);
 
-  return { card, header, glyphEl, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnSessionMenu, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, sessionMenu, termWrap };
+  return { card, header, nameEl, taskTitleEl, btnRestart, btnRestartFresh, btnSessionMenu, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, sessionMenu, termWrap };
 }
 
 export function paintGuardrailsMenuItem(button: HTMLButtonElement, card: HTMLElement) {
@@ -264,10 +256,13 @@ function openLinkPullRequestDialog(sessionId: string) {
   input.setAttribute('aria-label', 'Pull request URL or owner/repo#number');
   const errorEl = el('div', 'dialog-error');
   errorEl.setAttribute('role', 'alert');
+  const linkedPrsEl = el('div', 'session-pr-chips dialog-linked-prs');
+  linkedPrsEl.hidden = true;
+  paintLinkedPrs?.(linkedPrsEl, sessionId);
   const btnLink = el('button', 'btn-dialog btn-dialog-confirm', 'Link');
   btnLink.type = 'button';
   actions.append(btnLink);
-  dialog.append(hint, input, errorEl, actions);
+  dialog.append(linkedPrsEl, hint, input, errorEl, actions);
 
   function submitLink() {
     const pullRequestKey = pullRequestKeyFromReference(input.value);
