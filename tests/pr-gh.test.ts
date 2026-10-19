@@ -8,6 +8,43 @@ import type { MyPrMergeKind } from '../shared/contracts/my-prs.ts';
 
 const HEAD_SHA = 'a'.repeat(40);
 
+test('conditional GET treats gh exit 1 with an HTTP 304 status line as unchanged', async () => {
+  const calls: string[][] = [];
+  const lastModified = 'Mon, 19 Oct 2026 12:00:00 GMT';
+  const gh = createPrGh('/repo', async (_command, args, _cwd, _input, preserveOutput) => {
+    calls.push(args);
+    assert.equal(preserveOutput, true);
+    return { ok: false, out: 'HTTP/2.0 304 Not Modified\r\nX-Poll-Interval: 60\r\n\r\n', err: 'gh: HTTP 304' };
+  });
+  assert.deepEqual(await gh.conditionalGet('notifications', { etag: '"saved"', lastModified }), { kind: 'unchanged', pollIntervalSeconds: 60 });
+  assert.deepEqual(await gh.notificationsSince(lastModified), { kind: 'unchanged', pollIntervalSeconds: 60 });
+  assert.deepEqual(calls, [
+    ['api', '-i', '-X', 'GET', '-H', 'If-None-Match: "saved"', '-H', `If-Modified-Since: ${lastModified}`, 'notifications'],
+    ['api', '-i', '-X', 'GET', '-H', `If-Modified-Since: ${lastModified}`, 'notifications'],
+  ]);
+});
+
+test('conditional GET and notifications distinguish a forbidden token from transient errors', async () => {
+  const message = 'gh: Resource not accessible by personal access token (HTTP 403)';
+  const gh = createPrGh('/repo', async () => ({
+    ok: false, out: 'HTTP/2.0 403 Forbidden\nContent-Type: application/json\n\n{"message":"Resource not accessible by personal access token"}', err: message,
+  }));
+  assert.deepEqual(await gh.conditionalGet('notifications'), { kind: 'forbidden', message });
+  assert.deepEqual(await gh.notificationsSince(), { kind: 'forbidden', message });
+});
+
+test('notifications map PullRequest subjects to comparable keys and ignore Issue subjects', async () => {
+  const lastModified = 'Mon, 19 Oct 2026 12:00:00 GMT';
+  const notifications = [
+    { subject: { type: 'PullRequest', url: 'https://api.github.com/repos/Acme/App/pulls/123' } },
+    { subject: { type: 'Issue', url: 'https://api.github.com/repos/Acme/App/issues/456' } },
+  ];
+  const gh = createPrGh('/repo', async () => ({
+    ok: true, out: `HTTP/2.0 200 OK\r\neTaG: "current"\r\nlast-modified: ${lastModified}\r\nx-poll-interval: 60\r\n\r\n${JSON.stringify(notifications)}`, err: '',
+  }));
+  assert.deepEqual(await gh.notificationsSince(), { kind: 'ok', prKeys: ['acme/app#123'], lastModified, pollIntervalSeconds: 60 });
+});
+
 function searchItem(number: number) {
   return {
     number, title: `PR ${number}`, html_url: `https://github.com/Acme/repo/pull/${number}`,

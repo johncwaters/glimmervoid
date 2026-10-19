@@ -9,7 +9,7 @@ export type MyPrStage = z.infer<typeof MyPrStage>;
 const nonnegativeInteger = z.number().int().nonnegative();
 export const repositoryName = z.string().regex(REPO_SLUG_RE);
 const pullRequestNumberText = z.string().regex(/^[1-9][0-9]*$/);
-const pullRequestKeyFormat = z.templateLiteral([repositoryName, '#', pullRequestNumberText]);
+export const pullRequestKeyFormat = z.templateLiteral([repositoryName, '#', pullRequestNumberText]);
 const keepMergeableAttemptKeyFormat = z.templateLiteral([pullRequestKeyFormat, '@', CommitSha]);
 const pullRequestKey = z.string().refine((value) => pullRequestKeyFormat.safeParse(value).success);
 const keepMergeableAttemptKey = z.string().refine((value) => keepMergeableAttemptKeyFormat.safeParse(value).success);

@@ -1,9 +1,12 @@
 import { GithubIssueResponse, GithubIssuePullRequestsRepository, IssueKey, IssueUpdate, IssuesSearchResponse } from '../../shared/contracts/issues.ts';
 import type { IssuePullRequest, IssuesFetchResult } from '../../shared/contracts/issues.ts';
+import { comparablePrKey, GithubPrDetailNode, GithubPrLightSearchNode } from '../../shared/contracts/github-prs.ts';
+import type { GithubPrDetailNode as GithubPrDetailNodeType, GithubPrLightSearchNode as GithubPrLightSearchNodeType } from '../../shared/contracts/github-prs.ts';
 import { runCommand } from '../git/git-exec.ts';
 import type { CommandResult } from '../git/git-exec.ts';
 import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../../shared/contracts/github-ids.ts';
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
+import { secondaryRateLimitWaitMs } from '../lanes/core/lane-backoff.ts';
 import { z } from 'zod';
 import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, GithubReviewDecision, decisionAsIfApprovalRequired, PrDetail, ReviewChecksState, ReviewComment, SearchedPr } from '../../shared/contracts/team-review.ts';
 import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../../shared/contracts/benchmark.ts';
@@ -17,6 +20,7 @@ import type { GithubReviewDecision as GithubReviewDecisionType, PostedReviewEven
 import type { TeamReviewThreadNode as ThreadNode, TeamReviewCompareFiles as CompareFiles } from '../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
+import { notificationSubjectPrKey } from './core/github-store-core.ts';
 
 type GhMergeFlag = '--merge' | '--squash' | '--rebase';
 
@@ -89,7 +93,25 @@ interface RepoPrSearch {
   error: string;
 }
 
+interface RestValidators {
+  etag?: string;
+  lastModified?: string;
+}
+
+type RestMetadata = RestValidators & { pollIntervalSeconds?: number };
+type ConditionalGetResult =
+  | ({ kind: 'unchanged' } & RestMetadata)
+  | ({ kind: 'ok'; body: unknown } & RestMetadata)
+  | { kind: 'forbidden'; message: string }
+  | { kind: 'error'; message: string };
+type NotificationsSinceResult = Exclude<ConditionalGetResult, { kind: 'ok' }>
+  | { kind: 'ok'; prKeys: string[]; lastModified?: string; pollIntervalSeconds?: number };
+
 interface PrGh {
+  conditionalGet(path: string, validators?: RestValidators): Promise<ConditionalGetResult>;
+  searchPrsLight(qualifiers: string): Promise<{ ok: boolean; items: GithubPrLightSearchNodeType[]; isComplete: boolean; error: string }>;
+  prDetails(prs: readonly PrReference[]): Promise<Map<string, GithubPrDetailNodeType>>;
+  notificationsSince(lastModified?: string): Promise<NotificationsSinceResult>;
   searchRepoPrs(repo: string, mergedSince: string): Promise<RepoPrSearch>;
   addPrLabel(label: { repo: string; number: number; name: string }): Promise<{ ok: boolean; err: string }>;
   commentOnPr(comment: { repo: string; number: number; body: string }): Promise<{ ok: boolean; err: string }>;
@@ -170,12 +192,47 @@ const WORKFLOW_PR_FIELDS_FRAGMENT = `fragment workflowPrFields on PullRequest {
   author { login } labels(first: 50) { nodes { name } } comments { totalCount }
 }`;
 
+function prSearchConnection(nodeFields: string, queryVariable: string, cursorVariable?: string): string {
+  const paginationArgument = cursorVariable ? `, after: $${cursorVariable}` : '';
+  const pageInfo = cursorVariable ? 'pageInfo { hasNextPage endCursor } ' : '';
+  return `search(type: ISSUE, first: 50, query: $${queryVariable}${paginationArgument}) { issueCount ${pageInfo}nodes { ${nodeFields} } }`;
+}
+
 function openAndMergedSearchQuery(nodeFields: string, fragments: string): string {
   return `query($openQuery: String!, $mergedQuery: String!) {
-  open: search(type: ISSUE, first: 50, query: $openQuery) { issueCount nodes { ${nodeFields} } }
-  merged: search(type: ISSUE, first: 50, query: $mergedQuery) { issueCount nodes { ${nodeFields} } }
+  open: ${prSearchConnection(nodeFields, 'openQuery')}
+  merged: ${prSearchConnection(nodeFields, 'mergedQuery')}
 }
 ${fragments}`;
+}
+
+function paginatedPrSearchQuery(nodeFields: string, fragments: string): string {
+  return `query($searchQuery: String!, $cursor: String) {
+  ${prSearchConnection(nodeFields, 'searchQuery', 'cursor')}
+}
+${fragments}`;
+}
+
+const GITHUB_PRS_LIGHT_QUERY = paginatedPrSearchQuery(`... on PullRequest {
+  repository { nameWithOwner } number updatedAt headRefOid state
+  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+  reviewDecision mergeStateStatus
+}`, '');
+const GITHUB_PRS_LIGHT_RESPONSE = z.object({ data: z.object({ search: z.object({
+  issueCount: z.number().int().nonnegative(),
+  pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
+  nodes: z.array(GithubPrLightSearchNode),
+}) }), errors: z.array(z.unknown()).optional() });
+const GITHUB_PR_DETAIL_REPOSITORY = z.object({ pullRequest: GithubPrDetailNode.nullable() }).nullable();
+const GITHUB_NOTIFICATIONS = z.array(z.object({ subject: z.object({ type: z.string(), url: z.string().nullable() }) }));
+const MAX_GITHUB_PR_SEARCH_PAGES = 20;
+
+function githubPrDetailsQuery(prs: readonly PrReference[]): string {
+  const fields = prs.map((pr, index) => {
+    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { ...myPrFields ...workflowPrFields } }`;
+  });
+  return `query { ${fields.join(' ')} }\n${MY_PR_FIELDS_FRAGMENT}\n${WORKFLOW_PR_FIELDS_FRAGMENT}`;
 }
 
 const MY_PRS_QUERY = openAndMergedSearchQuery('...myPrFields', MY_PR_FIELDS_FRAGMENT);
@@ -383,6 +440,41 @@ function normalizeIssue(row: GithubIssueRow): GithubIssue | null {
   };
 }
 
+function conditionalGetResult(response: CommandResult): ConditionalGetResult {
+  const statusLine = /^HTTP\/\d+(?:\.\d+)?\s+(\d{3})(?:\s|$)/.exec(response.out);
+  if (!statusLine) return { kind: 'error', message: response.err.trim() || 'invalid gh HTTP response' };
+  const status = Number(statusLine[1]);
+  const headerBoundary = /\r?\n\r?\n/.exec(response.out);
+  const headerText = headerBoundary ? response.out.slice(0, headerBoundary.index) : response.out;
+  const headers = new Map<string, string>();
+  for (const line of headerText.split(/\r?\n/).slice(1)) {
+    const colonIndex = line.indexOf(':');
+    if (colonIndex < 1) continue;
+    headers.set(line.slice(0, colonIndex).trim().toLowerCase(), line.slice(colonIndex + 1).trim());
+  }
+  const etag = headers.get('etag');
+  const lastModified = headers.get('last-modified');
+  const pollInterval = headers.get('x-poll-interval');
+  const pollIntervalSeconds = pollInterval && /^\d+$/.test(pollInterval) ? Number(pollInterval) : NaN;
+  const metadata: RestMetadata = {
+    ...(etag === undefined ? {} : { etag }),
+    ...(lastModified === undefined ? {} : { lastModified }),
+    ...(Number.isSafeInteger(pollIntervalSeconds) ? { pollIntervalSeconds } : {}),
+  };
+  if (status === 304) return { kind: 'unchanged', ...metadata };
+  const message = response.err.trim() || `gh HTTP ${status}`;
+  const isRateLimited = headers.get('x-ratelimit-remaining') === '0' || headers.has('retry-after') || secondaryRateLimitWaitMs(message) !== null;
+  if (status === 401 || (status === 403 && !isRateLimited)) return { kind: 'forbidden', message };
+  if (status !== 200 || !response.ok) return { kind: 'error', message };
+  if (!headerBoundary) return { kind: 'error', message: 'invalid gh HTTP response' };
+  try {
+    const body: unknown = JSON.parse(response.out.slice(headerBoundary.index + headerBoundary[0].length));
+    return { kind: 'ok', body, ...metadata };
+  } catch (error) {
+    return { kind: 'error', message: errorMessage(error) };
+  }
+}
+
 function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
   async function runGh(args: string[], input?: string, preserveOutput = false): Promise<CommandResult> {
     try {
@@ -390,6 +482,14 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     } catch (error) {
       return { ok: false, out: '', err: errorMessage(error) };
     }
+  }
+
+  async function conditionalGet(path: string, validators: RestValidators = {}): Promise<ConditionalGetResult> {
+    const args = ['api', '-i', '-X', 'GET'];
+    if (validators.etag !== undefined) args.push('-H', `If-None-Match: ${validators.etag}`);
+    if (validators.lastModified !== undefined) args.push('-H', `If-Modified-Since: ${validators.lastModified}`);
+    const response = await runGh([...args, path], undefined, true);
+    return conditionalGetResult(response);
   }
 
   async function forEachAliasedPr<Pr extends PrReference>(prs: readonly Pr[], buildQuery: (batch: readonly Pr[]) => string, visit: (pr: Pr, aliasValue: unknown) => void, batchSize = REVIEW_SNAPSHOT_BATCH_SIZE, requireComplete = false): Promise<void> {
@@ -515,6 +615,60 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
   }
 
   return {
+    conditionalGet,
+
+    async searchPrsLight(qualifiers) {
+      const items: GithubPrLightSearchNodeType[] = [];
+      let cursor: string | null = null;
+      for (let page = 1; page <= MAX_GITHUB_PR_SEARCH_PAGES; page += 1) {
+        const cursorArgs = cursor === null ? [] : ['-f', `cursor=${cursor}`];
+        const response = await runGh(['api', 'graphql', '-f', `query=${GITHUB_PRS_LIGHT_QUERY}`, '-f', `searchQuery=is:pr ${qualifiers}`, ...cursorArgs]);
+        if (!response.ok) return { ok: false, items, isComplete: false, error: response.err.trim() || 'gh graphql search failed' };
+        const parsed = GITHUB_PRS_LIGHT_RESPONSE.safeParse(parseJsonOrNull(response.out));
+        if (!parsed.success) return { ok: false, items, isComplete: false, error: 'invalid gh graphql response' };
+        if (parsed.data.errors?.length) return { ok: false, items, isComplete: false, error: 'gh graphql returned errors' };
+        const search = parsed.data.data.search;
+        items.push(...search.nodes);
+        if (!search.pageInfo.hasNextPage) {
+          const isComplete = items.length >= search.issueCount;
+          return { ok: true, items, isComplete, error: isComplete ? '' : 'GitHub PR search returned incomplete results.' };
+        }
+        if (!search.pageInfo.endCursor || search.pageInfo.endCursor === cursor) break;
+        cursor = search.pageInfo.endCursor;
+      }
+      return { ok: true, items, isComplete: false, error: 'GitHub PR search reached its pagination limit.' };
+    },
+
+    async prDetails(prs) {
+      const detailsByKey = new Map<string, GithubPrDetailNodeType>();
+      const referencesByKey = new Map(uniqueValidPrs(prs).map((pr) => [comparablePrKey(pr), pr]));
+      await forEachAliasedPr([...referencesByKey.values()], githubPrDetailsQuery, (pr, repository) => {
+        const parsed = GITHUB_PR_DETAIL_REPOSITORY.safeParse(repository);
+        const node = parsed.success ? parsed.data?.pullRequest : null;
+        if (!node) return;
+        detailsByKey.set(comparablePrKey(pr), node);
+      }, REVIEW_SNAPSHOT_BATCH_SIZE, true);
+      return detailsByKey;
+    },
+
+    async notificationsSince(lastModified) {
+      const response = await conditionalGet('notifications', lastModified === undefined ? {} : { lastModified });
+      if (response.kind !== 'ok') return response;
+      const parsed = GITHUB_NOTIFICATIONS.safeParse(response.body);
+      if (!parsed.success) return { kind: 'error', message: 'invalid gh notifications response' };
+      const prKeys = new Set<string>();
+      for (const { subject } of parsed.data) {
+        if (subject.type !== 'PullRequest' || !subject.url) continue;
+        const key = notificationSubjectPrKey(subject.url);
+        if (key) prKeys.add(key);
+      }
+      return {
+        kind: 'ok', prKeys: [...prKeys],
+        ...(response.lastModified === undefined ? {} : { lastModified: response.lastModified }),
+        ...(response.pollIntervalSeconds === undefined ? {} : { pollIntervalSeconds: response.pollIntervalSeconds }),
+      };
+    },
+
     async searchMyPrs(org, mergedSince) {
       if (!GH_SEGMENT.test(org) || !MERGED_SINCE_DATE.test(mergedSince)) return { ok: false, items: [], totalCount: 0, error: 'invalid organization or date' };
       const response = await runGh(['api', 'graphql', '-H', 'Accept: application/vnd.github.merge-info-preview+json', '-f', `query=${MY_PRS_QUERY}`, '-f', `openQuery=is:pr is:open author:@me org:${org} sort:updated-desc`, '-f', `mergedQuery=is:pr is:merged author:@me org:${org} merged:>=${mergedSince} sort:updated-desc`]);
