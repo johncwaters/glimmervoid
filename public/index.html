@@ -58,6 +58,17 @@
       letter-spacing: 0.04em;
     }
 
+    .loading-detail {
+      max-width: min(34ch, calc(100vw - 32px));
+      margin-top: -8px;
+      font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #5e5584;
+      text-align: center;
+      text-wrap: balance;
+    }
+
     .loading-spinner {
       width: 28px;
       height: 28px;
@@ -123,6 +134,7 @@
     <div class="loading-title">Glimmervoid</div>
     <div class="loading-spinner"></div>
     <div class="loading-status" id="loading-status">Connecting to server...</div>
+    <div class="loading-detail" id="loading-detail" hidden></div>
   </div>
 
   <div class="shutdown-screen" id="shutdown-screen">

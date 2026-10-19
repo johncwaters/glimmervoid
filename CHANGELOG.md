@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The startup screen's "server is not answering" hint is now a short centered note under "Reconnecting to server..." instead of one long run-on line that ran edge to edge on a phone.
+
 ## [0.39.0] - 2026-10-19
 
 ### Added

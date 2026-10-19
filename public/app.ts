@@ -87,6 +87,7 @@ const connectionLabel = queryTag(connectionEl, '.connection-label', 'span');
 
 const loadingScreen = queryTag(document, '#loading-screen', 'div');
 const loadingStatus = queryTag(document, '#loading-status', 'div');
+const loadingDetail = queryTag(document, '#loading-detail', 'div');
 const shutdownScreen = queryTag(document, '#shutdown-screen', 'div');
 const shutdownStatus = queryTag(document, '#shutdown-status', 'div');
 let appRevealed = false;
@@ -157,18 +158,21 @@ function showLivenessProbeState(state: string, label: string) {
 
 const SERVER_UNREACHABLE_HINT_DELAY_MS = 10000;
 const SERVER_UNREACHABLE_TEXT = 'The server is not answering. Check the terminal running Glimmervoid for errors, or start it again with glimmervoid. This page reconnects on its own.';
+const SERVER_UNREACHABLE_LOADING_DETAIL = 'Server not answering. Check the Glimmervoid terminal for errors, or run glimmervoid. This page retries on its own.';
 let serverUnreachableHintTimer: number | null = null;
 let isServerUnreachableHintShown = false;
 
-function reconnectingLoadingText() {
-  return isServerUnreachableHintShown ? `Reconnecting to server... ${SERVER_UNREACHABLE_TEXT}` : 'Reconnecting to server...';
+function showReconnectingLoadingStatus() {
+  loadingStatus.textContent = 'Reconnecting to server...';
+  loadingDetail.textContent = SERVER_UNREACHABLE_LOADING_DETAIL;
+  loadingDetail.hidden = !isServerUnreachableHintShown;
 }
 
 function showServerUnreachableHint() {
   serverUnreachableHintTimer = null;
   isServerUnreachableHintShown = true;
   if (!appRevealed) {
-    loadingStatus.textContent = reconnectingLoadingText();
+    showReconnectingLoadingStatus();
     return;
   }
   reportUnsourcedError(SERVER_UNREACHABLE_TEXT, { hidesInStreamerMode: false });
@@ -183,6 +187,7 @@ function clearServerUnreachableHint() {
   if (serverUnreachableHintTimer !== null) window.clearTimeout(serverUnreachableHintTimer);
   serverUnreachableHintTimer = null;
   isServerUnreachableHintShown = false;
+  loadingDetail.hidden = true;
   clearUnsourcedError(SERVER_UNREACHABLE_TEXT);
 }
 
@@ -227,7 +232,7 @@ setConnectionStateCallback((state, label) => {
     return;
   }
   scheduleServerUnreachableHint();
-  if (!appRevealed) loadingStatus.textContent = reconnectingLoadingText();
+  if (!appRevealed) showReconnectingLoadingStatus();
 });
 
 function refreshAttentionSurfaces() {
