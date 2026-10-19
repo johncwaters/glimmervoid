@@ -54,7 +54,7 @@ function agentStepBody(): HTMLElement[] {
   rescanButton.addEventListener('click', () => { void loadFirstRunState({ rescanAgents: true }); });
   actions.append(rescanButton, el('span', 'first-run-step-hint', 'Any other terminal agent can be added under customAgents.'));
   return [
-    el('p', 'first-run-step-text', 'No supported agent is on PATH. Install Claude Code, Codex or Grok, then rescan.'),
+    el('p', 'first-run-step-text', 'No supported agent is on PATH. Install Claude Code, Codex or Grok, then rescan. Rescan still finding nothing means the CLI went into a folder the server cannot see: restart Glimmervoid from a terminal where the command runs.'),
     el('code', 'first-run-command', AGENT_INSTALL_COMMAND),
     actions,
   ];

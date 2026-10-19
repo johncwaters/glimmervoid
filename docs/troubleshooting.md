@@ -81,9 +81,9 @@ A failed attempt can leave a partial `glimmervoid` directory under the global pr
 Remove-Item -Recurse -Force "$(npm root -g)\glimmervoid"
 ```
 
-## Another Glimmervoid is already running
+## Port already in use
 
-The server exits with `Another Glimmervoid is already running on port <port>` when the port is taken. Stop the other instance, or start this one with `glimmervoid --port <other>`.
+The server exits with `Port <port> is already in use` when the port is taken, by another Glimmervoid or another server such as a dev server. Stop that process, or start this one with `glimmervoid --port <other>`.
 
 ## Refusing to bind a non-loopback host
 

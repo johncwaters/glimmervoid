@@ -168,7 +168,7 @@ function resolveConfigPath(): string {
   }, (candidate: string) => fs.existsSync(candidate));
   if (decided.path) return decided.path;
   if (decided.source === 'env') {
-    console.error(`Config file not found: ${decided.envPath}`);
+    console.error(`Config file not found: ${decided.envPath}, the path GLIMMERVOID_CONFIG names. Create that file, or unset GLIMMERVOID_CONFIG to use ${decided.homePath}.`);
     process.exit(1);
   }
 
@@ -304,12 +304,16 @@ function isSuspectedExternalWipe(candidate: GlimmervoidConfig, currentConfig: Gl
   return topLevelKeyCount(resolvedCandidate) * 2 < currentKeyCount;
 }
 
-function warnInvalidConfig(action: string, validation: { errors: string[] }): void {
-  console.warn(`[config] Refusing to ${action}; validation failed: ${validation.errors.join('; ')}. Recovery sources: config.json.bak and config.json.boot.bak.`);
+function invalidConfigWarning(action: string, validation: { errors: string[] }): string {
+  return `[config] Refusing to ${action}; validation failed: ${validation.errors.join('; ')}. Recovery sources: config.json.bak and config.json.boot.bak.`;
+}
+
+function suspectedWipeWarning(action: string): string {
+  return `[config] Refusing to ${action}; config.json has fewer than half the top-level keys of the in-memory config. This looks like an external wipe. Recovery sources: config.json.bak and config.json.boot.bak.`;
 }
 
 function warnSuspectedWipe(action: string): void {
-  console.warn(`[config] Refusing to ${action}; config.json has fewer than half the top-level keys of the in-memory config. This looks like an external wipe. Recovery sources: config.json.bak and config.json.boot.bak.`);
+  console.warn(suspectedWipeWarning(action));
 }
 
 function ensureProjectIds(projects: { id?: string }[]): boolean {
@@ -400,38 +404,34 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
   let lastSynchronousContent: string | null = null;
   let pendingSaves: Promise<unknown> = Promise.resolve();
 
+  let lastSaveFailureReason: string | null = null;
+
+  function refuseSave(warning: string, operatorReason = warning.replace(/^\[config\] /, '')): null {
+    console.warn(warning);
+    lastSaveFailureReason = operatorReason;
+    return null;
+  }
+
   function prepareSave(freshConfig: GlimmervoidConfig, mutatorFn: (config: GlimmervoidConfig) => unknown): GlimmervoidConfig | null {
     const freshValidation = validateConfig(freshConfig);
-    if (!freshValidation.ok) {
-      warnInvalidConfig('save config.json', freshValidation);
-      return null;
-    }
-    if (isSuspectedExternalWipe(freshConfig, config)) {
-      warnSuspectedWipe('save config.json');
-      return null;
-    }
+    if (!freshValidation.ok) return refuseSave(invalidConfigWarning('save config.json', freshValidation));
+    if (isSuspectedExternalWipe(freshConfig, config)) return refuseSave(suspectedWipeWarning('save config.json'));
     if (mutatorFn(freshConfig) === ABORT_CONFIG_SAVE) return null;
     const effectiveConfig = withEnvSecrets(freshConfig, envSecrets);
     const mutatedValidation = validateConfig(effectiveConfig);
-    if (!mutatedValidation.ok) {
-      warnInvalidConfig('save config.json', mutatedValidation);
-      return null;
-    }
+    if (!mutatedValidation.ok) return refuseSave(invalidConfigWarning('save config.json', mutatedValidation));
     return mutatedValidation.config;
   }
 
   function save(mutatorFn: (config: GlimmervoidConfig) => unknown): GlimmervoidConfig | null {
+    lastSaveFailureReason = null;
     let loaded: LoadedConfig | FailedConfigLoad;
     try {
       loaded = loadConfigFile(configPath, { exitOnError: false });
     } catch (err) {
-      console.warn('[config] Failed to read config.json for save:', errorLabel(err));
-      return null;
+      return refuseSave(`[config] Failed to read config.json for save: ${errorLabel(err)}`);
     }
-    if ('error' in loaded) {
-      console.warn(loaded.message);
-      return null;
-    }
+    if ('error' in loaded) return refuseSave(loaded.message, `${configPath} could not be read as a config file. The broken file was copied to ${loaded.invalidBackupPath} when possible. Fix it, or restore from ${configPath}.bak, then save again.`);
     const freshConfig = loaded.config;
     const freshContent = loaded.loadedContent;
     const effectiveConfig = prepareSave(freshConfig, mutatorFn);
@@ -448,8 +448,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       lastSynchronousContent = nextContent;
       synchronousWriteRevision++;
     } catch (err) {
-      console.warn('[config] Failed to write config.json:', errorLabel(err));
-      return null;
+      return refuseSave(`[config] Failed to write config.json: ${errorLabel(err)}`);
     }
     return effectiveConfig;
   }
@@ -684,6 +683,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     configPath,
     save,
     saveAsync,
+    lastSaveFailureReason: () => lastSaveFailureReason,
     idle: () => pendingSaves,
     getSettings,
     applySettings,

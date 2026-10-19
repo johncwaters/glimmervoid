@@ -223,7 +223,12 @@ function scanRepoRoots(roots: string[] | undefined): { root: string; projects: {
   return results;
 }
 
-const SETTINGS_NOT_SAVED_MESSAGE = 'Settings were not saved: the config file could not be read, validated or written. The server log names the cause.';
+const SETTINGS_NOT_SAVED_MESSAGE = 'Settings were not saved: the config file could not be read, validated or written.';
+
+function settingsNotSavedText(failureReason: string | null): string {
+  if (failureReason === null) return SETTINGS_NOT_SAVED_MESSAGE;
+  return `Settings were not saved. ${failureReason}`;
+}
 const WORKFLOWS_SETTINGS_KEY = 'workflows';
 
 type IncomingSettingsBlock = readonly [key: string, block: Record<string, unknown>];
@@ -847,7 +852,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       return;
     }
     if (!freshConfig) {
-      sendError(ws, SETTINGS_NOT_SAVED_MESSAGE, { type: 'settings-error', requestId: msg.requestId || null });
+      sendError(ws, settingsNotSavedText(configStore.lastSaveFailureReason()), { type: 'settings-error', requestId: msg.requestId || null });
       return;
     }
     applySettingsReload(freshConfig);

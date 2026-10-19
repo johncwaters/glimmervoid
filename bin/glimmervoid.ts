@@ -137,6 +137,17 @@ const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
   }]),
 ]);
 
+const AGENT_INSTALL_COMMAND_BY_ID: Readonly<Record<string, string>> = {
+  'claude-code': 'npm install -g @anthropic-ai/claude-code',
+  codex: 'npm install -g @openai/codex',
+};
+
+function missingAgentText(agentId: string): string {
+  const installCommand = AGENT_INSTALL_COMMAND_BY_ID[agentId];
+  if (!installCommand) return 'not found on PATH';
+  return `not found on PATH; install with: ${installCommand}`;
+}
+
 async function printSessionLimits(): Promise<void> {
   if (!process.env[AGENT_URL_ENV]) return;
   const { sessionLimitsHelpLines } = await import('../server/agent-api-cli.ts');
@@ -261,7 +272,7 @@ async function runDoctor(): Promise<void> {
     setCustomAgents(declaredCustomAgents.declared);
     for (const id of listAgentIds()) {
       const { label, path: resolvedPath } = describeAgentResolvability(id);
-      line(`${id} (${label})`, resolvedPath ?? 'not found on PATH');
+      line(`${id} (${label})`, resolvedPath ?? missingAgentText(id));
     }
     const { inspectGrokAgentSetup } = await import('../server/agent-setup-cli.ts');
     const grokSetup = inspectGrokAgentSetup();

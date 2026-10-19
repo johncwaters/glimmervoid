@@ -98,7 +98,7 @@ async function printStartupBanner(boundPort: number): Promise<void> {
 
 server.on('error', (err) => {
   if (isPortInUse(err)) {
-    console.error(`Another Glimmervoid is already running on port ${port} - exiting.`);
+    console.error(`Port ${port} is already in use, by another Glimmervoid or another server such as a dev server. Stop that process, or start Glimmervoid with --port <number>.`);
     process.exit(1);
   }
   throw err;
@@ -123,7 +123,7 @@ if (backend.remote.enabled) {
   backend.remote.attach(remoteServer);
   remoteServer.on('error', (err) => {
     if (isPortInUse(err)) {
-      console.error(`Remote listener port ${backend.remote.port} is already in use - exiting.`);
+      console.error(`Remote listener port ${backend.remote.port} is already in use. Stop the process holding it, or set a free port in remote.port in config.json.`);
       process.exit(1);
     }
     throw err;
