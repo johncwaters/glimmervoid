@@ -11,7 +11,7 @@ import { z } from 'zod';
 import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, GithubReviewDecision, decisionAsIfApprovalRequired, PrDetail, ReviewChecksState, ReviewComment, SearchedPr } from '../../shared/contracts/team-review.ts';
 import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../../shared/contracts/benchmark.ts';
 import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../../shared/contracts/benchmark.ts';
-import { MyPrCheckContext, MyPrCheckContextsResponse, MyPrMergeMethod, MyPrMergeStateResponse, MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
+import { MyPrCheckContext, MyPrCheckContextsResponse, MyPrMergeMethod, MyPrMergeStateResponse, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../../shared/contracts/my-prs.ts';
 import { WorkflowCommentBody, WorkflowLabelName, WorkflowSearchNode } from '../../shared/contracts/workflows.ts';
 import type { WorkflowSearchNode as WorkflowSearchNodeType } from '../../shared/contracts/workflows.ts';
@@ -109,13 +109,12 @@ type NotificationsSinceResult = Exclude<ConditionalGetResult, { kind: 'ok' }>
 
 interface PrGh {
   conditionalGet(path: string, validators?: RestValidators): Promise<ConditionalGetResult>;
-  searchPrsLight(qualifiers: string): Promise<{ ok: boolean; items: GithubPrLightSearchNodeType[]; isComplete: boolean; error: string }>;
+  searchPrsLight(qualifiers: string): Promise<{ ok: boolean; items: GithubPrLightSearchNodeType[]; isComplete: boolean; totalCount?: number; error: string }>;
   prDetails(prs: readonly PrReference[]): Promise<Map<string, GithubPrDetailNodeType>>;
   notificationsSince(lastModified?: string): Promise<NotificationsSinceResult>;
   searchRepoPrs(repo: string, mergedSince: string): Promise<RepoPrSearch>;
   addPrLabel(label: { repo: string; number: number; name: string }): Promise<{ ok: boolean; err: string }>;
   commentOnPr(comment: { repo: string; number: number; body: string }): Promise<{ ok: boolean; err: string }>;
-  searchMyPrs(org: string, mergedSince: string): Promise<{ ok: boolean; items: MyPrSearchNodeType[]; totalCount: number; error: string }>;
   behindCounts(prs: readonly PrHeadReference[]): Promise<Map<string, number>>;
   rebasePr(pullRequestId: string, expectedHeadSha: string): Promise<{ ok: boolean; err: string }>;
   mergePr(merge: { repo: string; number: number; headSha: string; method: MyPrMergeMethodType }): Promise<{ ok: true; kind: MyPrMergeKind } | { ok: false; err: string }>;
@@ -235,7 +234,6 @@ function githubPrDetailsQuery(prs: readonly PrReference[]): string {
   return `query { ${fields.join(' ')} }\n${MY_PR_FIELDS_FRAGMENT}\n${WORKFLOW_PR_FIELDS_FRAGMENT}`;
 }
 
-const MY_PRS_QUERY = openAndMergedSearchQuery('...myPrFields', MY_PR_FIELDS_FRAGMENT);
 const WORKFLOW_PRS_QUERY = openAndMergedSearchQuery('...myPrFields ...workflowPrFields', `${MY_PR_FIELDS_FRAGMENT}\n${WORKFLOW_PR_FIELDS_FRAGMENT}`);
 const REBASE_PR_MUTATION = `mutation($id: ID!, $head: GitObjectID!) {
   updatePullRequestBranch(input: { pullRequestId: $id, expectedHeadOid: $head, updateMethod: REBASE }) { pullRequest { headRefOid } }
@@ -620,6 +618,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     async searchPrsLight(qualifiers) {
       const items: GithubPrLightSearchNodeType[] = [];
       let cursor: string | null = null;
+      let totalCount = 0;
       for (let page = 1; page <= MAX_GITHUB_PR_SEARCH_PAGES; page += 1) {
         const cursorArgs = cursor === null ? [] : ['-f', `cursor=${cursor}`];
         const response = await runGh(['api', 'graphql', '-f', `query=${GITHUB_PRS_LIGHT_QUERY}`, '-f', `searchQuery=is:pr ${qualifiers}`, ...cursorArgs]);
@@ -628,15 +627,16 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         if (!parsed.success) return { ok: false, items, isComplete: false, error: 'invalid gh graphql response' };
         if (parsed.data.errors?.length) return { ok: false, items, isComplete: false, error: 'gh graphql returned errors' };
         const search = parsed.data.data.search;
+        totalCount = search.issueCount;
         items.push(...search.nodes);
         if (!search.pageInfo.hasNextPage) {
           const isComplete = items.length >= search.issueCount;
-          return { ok: true, items, isComplete, error: isComplete ? '' : 'GitHub PR search returned incomplete results.' };
+          return { ok: true, items, isComplete, totalCount, error: isComplete ? '' : 'GitHub PR search returned incomplete results.' };
         }
         if (!search.pageInfo.endCursor || search.pageInfo.endCursor === cursor) break;
         cursor = search.pageInfo.endCursor;
       }
-      return { ok: true, items, isComplete: false, error: 'GitHub PR search reached its pagination limit.' };
+      return { ok: true, items, isComplete: false, totalCount, error: 'GitHub PR search reached its pagination limit.' };
     },
 
     async prDetails(prs) {
@@ -648,6 +648,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         if (!node) return;
         detailsByKey.set(comparablePrKey(pr), node);
       }, REVIEW_SNAPSHOT_BATCH_SIZE, true);
+      for (const node of detailsByKey.values()) await completeCheckContexts(node);
       return detailsByKey;
     },
 
@@ -667,22 +668,6 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         ...(response.lastModified === undefined ? {} : { lastModified: response.lastModified }),
         ...(response.pollIntervalSeconds === undefined ? {} : { pollIntervalSeconds: response.pollIntervalSeconds }),
       };
-    },
-
-    async searchMyPrs(org, mergedSince) {
-      if (!GH_SEGMENT.test(org) || !MERGED_SINCE_DATE.test(mergedSince)) return { ok: false, items: [], totalCount: 0, error: 'invalid organization or date' };
-      const response = await runGh(['api', 'graphql', '-H', 'Accept: application/vnd.github.merge-info-preview+json', '-f', `query=${MY_PRS_QUERY}`, '-f', `openQuery=is:pr is:open author:@me org:${org} sort:updated-desc`, '-f', `mergedQuery=is:pr is:merged author:@me org:${org} merged:>=${mergedSince} sort:updated-desc`]);
-      if (!response.ok) return { ok: false, items: [], totalCount: 0, error: response.err.trim() || 'gh graphql search failed' };
-      const parsed = MyPrSearchResponse.safeParse(parseJsonOrNull(response.out));
-      if (!parsed.success) return { ok: false, items: [], totalCount: 0, error: 'invalid gh graphql response' };
-      if (parsed.data.errors?.length) return { ok: false, items: [], totalCount: 0, error: 'gh graphql returned errors' };
-      const items = [...parsed.data.data.open.nodes, ...parsed.data.data.merged.nodes].flatMap((node) => {
-        const valid = MyPrSearchNode.safeParse(node);
-        return valid.success ? [valid.data] : [];
-      });
-      for (const item of items) await completeCheckContexts(item);
-      const { open, merged } = parsed.data.data;
-      return { ok: true, items, totalCount: open.issueCount + merged.issueCount, error: '' };
     },
 
     async searchRepoPrs(repo, mergedSince) {

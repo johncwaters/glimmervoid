@@ -42,7 +42,7 @@ export const GithubPr = z.strictObject({
   headRefName: MyPr.shape.headRefName, headRefOid: MyPr.shape.headRefOid,
   isCrossRepository: MyPr.shape.isCrossRepository, isInMergeQueue: MyPr.shape.isInMergeQueue,
   mergeMethod: MyPr.shape.mergeMethod, mergeable: MyPr.shape.mergeable, mergeStateStatus: MyPr.shape.mergeStateStatus,
-  reviewDecision: MyPr.shape.reviewDecision, checks: MyPr.shape.checks.strict(),
+  reviewDecision: MyPr.shape.reviewDecision, checks: MyPr.shape.checks.strict(), rollupState: MyPr.shape.checks.shape.state,
   unresolvedThreads: MyPr.shape.unresolvedThreads, threads: z.array(MyPr.shape.threads.element.strict()),
   behindBy: MyPr.shape.behindBy, reviewRequests: z.array(MyPr.shape.reviewRequests.element.strict()),
   approvals: MyPr.shape.approvals, reviews: z.array(MyPr.shape.reviews.element.strict()),

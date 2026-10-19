@@ -1,3 +1,4 @@
+import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
 import type { MyPr, MyPrAutoRebase, MyPrCheckContext, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
 import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../../lanes/core/lane-permissions-core.ts';
 import { GUARDRAILS_PLACEHOLDER_NAMES } from '../../guardrails/core/guardrails-policy-core.ts';
@@ -8,7 +9,7 @@ import { isCredentialLikePath, isGithubDirectoryPath } from '../../git/core/git-
 import { myPrMergeBlocker } from '../../../shared/my-pr-merge.ts';
 import { REPO_SLUG_RE } from '../../../shared/contracts/github-ids.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
-import { MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrsState } from '../../../shared/contracts/my-prs.ts';
+import { MyPr as MyPrSchema, MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrsState } from '../../../shared/contracts/my-prs.ts';
 import { z } from 'zod';
 
 const FailedAutoRebaseRecord = z.strictObject({ attemptKey: MyPrsState.shape.keepMergeableAttemptKeys.element, autoRebase: MyPrAutoRebaseSchema });
@@ -25,8 +26,8 @@ export function isFailedAttemptRetryDue(failedAt: number, nowMs: number): boolea
   return nowMs - failedAt >= FAILED_GITHUB_ACTION_RETRY_MS;
 }
 
-export function prunedFailedAutoRebaseAttempts(attemptKeys: ReadonlySet<string>, nodes: readonly MyPrSearchNode[], failureByAttemptKey: ReadonlyMap<string, MyPrAutoRebase>, nowMs: number): Set<string> {
-  const currentAttemptByPrKey = new Map(nodes.map((node) => [prKey(node.repository.nameWithOwner, node.number), autoRebaseAttemptKey(node)]));
+export function prunedFailedAutoRebaseAttempts(attemptKeys: ReadonlySet<string>, nodes: readonly MyPr[], failureByAttemptKey: ReadonlyMap<string, MyPrAutoRebase>, nowMs: number): Set<string> {
+  const currentAttemptByPrKey = new Map(nodes.map((node) => [node.key, autoRebaseAttemptKey(node)]));
   return new Set([...attemptKeys].filter((attemptKey) => {
     const failure = failureByAttemptKey.get(attemptKey);
     if (!failure || isFailedAttemptRetryDue(failure.at, nowMs)) return false;
@@ -273,24 +274,25 @@ export function keepMergeableHandoff({ headSha, resultSha, isResultOnTopOfHead, 
   return { push: true };
 }
 
-export function autoRebaseAttemptKey(node: Pick<MyPrSearchNode, 'repository' | 'number' | 'headRefOid'>): string {
-  return `${node.repository.nameWithOwner}#${node.number}@${node.headRefOid}`;
+export function autoRebaseAttemptKey(node: Pick<MyPr, 'key' | 'headRefOid'>): string {
+  return `${node.key}@${node.headRefOid}`;
 }
 
-export function shouldAutoRebase(node: MyPrSearchNode, behindBy: number | null, failedAttemptKeys: ReadonlySet<string>): boolean {
+type RebaseCandidate = MyPr & Pick<GithubPr, 'rollupState'>;
+
+export function shouldAutoRebase(node: RebaseCandidate, behindBy: number | null, failedAttemptKeys: ReadonlySet<string>): boolean {
   if (node.state !== 'OPEN' || node.isDraft) return false;
   if (node.isInMergeQueue) return false;
   if (behindBy === null || behindBy === 0) return false;
   if (node.mergeable === 'CONFLICTING' || node.mergeStateStatus === 'DIRTY') return false;
-  const checksState = node.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null;
-  if (checksState !== null && CHECKS_STILL_RUNNING.has(checksState)) return false;
+  if (node.rollupState !== null && CHECKS_STILL_RUNNING.has(node.rollupState)) return false;
   return !failedAttemptKeys.has(autoRebaseAttemptKey(node));
 }
 
-export function shouldRebaseMyPr(node: MyPrSearchNode, behindBy: number | null, failedAttemptKeys: ReadonlySet<string>, { isAutoRebaseOn, mergeQueueKeys, keepMergeablePushedHeadKeys }: {
+export function shouldRebaseMyPr(node: RebaseCandidate, behindBy: number | null, failedAttemptKeys: ReadonlySet<string>, { isAutoRebaseOn, mergeQueueKeys, keepMergeablePushedHeadKeys }: {
   isAutoRebaseOn: boolean; mergeQueueKeys: ReadonlySet<string>; keepMergeablePushedHeadKeys: ReadonlySet<string>;
 }): boolean {
-  const pullRequest = { key: prKey(node.repository.nameWithOwner, node.number), headRefOid: node.headRefOid };
+  const pullRequest = node;
   if (isHeadPushedByKeepMergeable(pullRequest, keepMergeablePushedHeadKeys)) return false;
   if (mergeQueueKeys.has(pullRequest.key)) return node.mergeStateStatus === 'BEHIND' && shouldAutoRebase(node, behindBy, failedAttemptKeys);
   if (!isAutoRebaseOn) return false;
@@ -401,6 +403,11 @@ export function toMyPr(node: MyPrSearchNode, behindBy: number | null, threadNode
   };
   pr.stage = deriveStage(pr);
   return pr;
+}
+
+export function myPrFromGithubPr(pr: GithubPr): MyPr {
+  const myPr = MyPrSchema.parse({ ...pr, key: prKey(pr.repo, pr.number), stage: 'unknown' });
+  return { ...myPr, stage: deriveStage(myPr) };
 }
 
 export function sortedMyPrs(prs: MyPr[], nowMs: number): MyPr[] {

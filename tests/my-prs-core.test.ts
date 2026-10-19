@@ -1,9 +1,11 @@
+import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
 import test from 'node:test';
 import { FAILED_GITHUB_ACTION_RETRY_MS, MyPrsLaneState, prunedFailedAutoRebaseAttempts } from '../server/github/core/my-prs-core.ts';
 import assert from 'node:assert/strict';
-import { autoRebaseRecord, consecutiveKeepMergeableAttempts, currentKeepMergeableAttempt, deriveStage, hasUnresolvedThreads, isHeadPushedByKeepMergeable, isMovedBranchPushRejection, pushFailureReason, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, mergeAttemptKey, mergeQueuePositions, mergeQueuePrsToMerge, prunedMergeQueueKeys, shouldFixMergeability, shouldAutoRebase, shouldRebaseMyPr, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/github/core/my-prs-core.ts';
+import { autoRebaseRecord, consecutiveKeepMergeableAttempts, currentKeepMergeableAttempt, deriveStage, hasUnresolvedThreads, isHeadPushedByKeepMergeable, isMovedBranchPushRejection, pushFailureReason, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, mergeAttemptKey, mergeQueuePositions, mergeQueuePrsToMerge, prunedMergeQueueKeys, shouldFixMergeability, shouldAutoRebase, shouldRebaseMyPr, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, myPrFromGithubPr, toMyPrThreads, truncatedSearchNote } from '../server/github/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode, MyPrKeepMergeableAttemptRecord } from '../shared/contracts/my-prs.ts';
+import type { GithubPr } from '../shared/contracts/github-prs.ts';
 
 const NOW = Date.parse('2026-09-28T12:00:00Z');
 const SHA = 'a'.repeat(40);
@@ -17,6 +19,11 @@ function searchNode(): MyPrSearchNodeType {
     latestReviews: { nodes: [{ state: 'APPROVED', submittedAt: '2026-09-28T10:00:00Z', author: { login: 'bob' } }] },
   };
 }
+function toMyPr(node: MyPrSearchNodeType, behindBy: number | null, threads: readonly MyPrThreadNode[] = []): MyPr & Pick<GithubPr, 'rollupState'> {
+  const githubPr = normalizeGithubPr({ ...node, author: { login: 'alice' }, labels: { nodes: [] }, comments: { totalCount: 0 } }, behindBy, threads);
+  return { ...myPrFromGithubPr(githubPr), rollupState: githubPr.rollupState };
+}
+
 function readyPr(): MyPr { return toMyPr(searchNode(), 0); }
 
 test('failed auto-rebase persistence accepts old state and validates head keys', () => {
@@ -38,7 +45,7 @@ test('failed auto-rebase suppression clears for a listed PR whose head changed, 
   const attempts = new Set([sameHeadKey, olderHeadKey, unlistedKey]);
   const failure = { outcome: 'failed' as const, at: NOW, message: 'Rebase refused' };
   const failures = new Map([...attempts].map((attemptKey) => [attemptKey, failure]));
-  assert.deepEqual([...prunedFailedAutoRebaseAttempts(attempts, [searchNode()], failures, NOW)], [sameHeadKey, unlistedKey]);
+  assert.deepEqual([...prunedFailedAutoRebaseAttempts(attempts, [toMyPr(searchNode(), 0)], failures, NOW)], [sameHeadKey, unlistedKey]);
   assert.deepEqual(prunedFailedAutoRebaseAttempts(attempts, [], failures, NOW), attempts);
   assert.deepEqual([...prunedFailedAutoRebaseAttempts(attempts, [], failures, NOW + FAILED_GITHUB_ACTION_RETRY_MS)], []);
   assert.deepEqual([...prunedFailedAutoRebaseAttempts(attempts, [], new Map(), NOW)], []);
@@ -215,39 +222,39 @@ test('a queued PR GitHub reports BEHIND is rebased even with auto-rebase off, an
   const noFailures = new Set<string>();
   const queued = { isAutoRebaseOn: false, mergeQueueKeys: new Set(['Acme/app#7']), keepMergeablePushedHeadKeys: new Set<string>() };
   const behindNode = { ...searchNode(), mergeStateStatus: 'BEHIND' };
-  assert.equal(shouldRebaseMyPr(behindNode, 3, noFailures, queued), true);
-  assert.equal(shouldRebaseMyPr(behindNode, 3, noFailures, { ...queued, mergeQueueKeys: new Set() }), false);
-  assert.equal(shouldRebaseMyPr(searchNode(), 3, noFailures, { ...queued, isAutoRebaseOn: true, mergeQueueKeys: new Set() }), true);
-  assert.equal(shouldRebaseMyPr(behindNode, 0, noFailures, queued), false);
-  assert.equal(shouldRebaseMyPr({ ...behindNode, mergeable: 'CONFLICTING' }, 3, noFailures, queued), false);
-  assert.equal(shouldRebaseMyPr(behindNode, 3, new Set([`Acme/app#7@${SHA}`]), queued), false);
+  assert.equal(shouldRebaseMyPr(toMyPr(behindNode, 0), 3, noFailures, queued), true);
+  assert.equal(shouldRebaseMyPr(toMyPr(behindNode, 0), 3, noFailures, { ...queued, mergeQueueKeys: new Set() }), false);
+  assert.equal(shouldRebaseMyPr(toMyPr(searchNode(), 0), 3, noFailures, { ...queued, isAutoRebaseOn: true, mergeQueueKeys: new Set() }), true);
+  assert.equal(shouldRebaseMyPr(toMyPr(behindNode, 0), 0, noFailures, queued), false);
+  assert.equal(shouldRebaseMyPr(toMyPr({ ...behindNode, mergeable: 'CONFLICTING' }, 0), 3, noFailures, queued), false);
+  assert.equal(shouldRebaseMyPr(toMyPr(behindNode, 0), 3, new Set([`Acme/app#7@${SHA}`]), queued), false);
 });
 
 test('a queued PR GitHub would merge while behind is not force-rebased with auto-rebase off', () => {
   const queued = { isAutoRebaseOn: false, mergeQueueKeys: new Set(['Acme/app#7']), keepMergeablePushedHeadKeys: new Set<string>() };
-  assert.equal(shouldRebaseMyPr(searchNode(), 3, new Set(), queued), false);
-  assert.equal(shouldRebaseMyPr({ ...searchNode(), mergeStateStatus: 'UNSTABLE' }, 3, new Set(), queued), false);
+  assert.equal(shouldRebaseMyPr(toMyPr(searchNode(), 0), 3, new Set(), queued), false);
+  assert.equal(shouldRebaseMyPr(toMyPr({ ...searchNode(), mergeStateStatus: 'UNSTABLE' }, 0), 3, new Set(), queued), false);
 });
 
 test('a queued PR GitHub would merge while behind goes to merge, not rebase, even with global auto-rebase on', () => {
   const queuedWithAutoRebaseOn = { isAutoRebaseOn: true, mergeQueueKeys: new Set(['Acme/app#7']), keepMergeablePushedHeadKeys: new Set<string>() };
-  assert.equal(shouldRebaseMyPr({ ...searchNode(), mergeStateStatus: 'CLEAN' }, 3, new Set(), queuedWithAutoRebaseOn), false);
-  assert.equal(shouldRebaseMyPr({ ...searchNode(), mergeStateStatus: 'BEHIND' }, 3, new Set(), queuedWithAutoRebaseOn), true);
-  assert.equal(shouldRebaseMyPr({ ...searchNode(), mergeStateStatus: 'CLEAN' }, 3, new Set(), { ...queuedWithAutoRebaseOn, mergeQueueKeys: new Set() }), true);
+  assert.equal(shouldRebaseMyPr(toMyPr({ ...searchNode(), mergeStateStatus: 'CLEAN' }, 0), 3, new Set(), queuedWithAutoRebaseOn), false);
+  assert.equal(shouldRebaseMyPr(toMyPr({ ...searchNode(), mergeStateStatus: 'BEHIND' }, 0), 3, new Set(), queuedWithAutoRebaseOn), true);
+  assert.equal(shouldRebaseMyPr(toMyPr({ ...searchNode(), mergeStateStatus: 'CLEAN' }, 0), 3, new Set(), { ...queuedWithAutoRebaseOn, mergeQueueKeys: new Set() }), true);
 });
 
 test('the queue never force-rebases a queued head Keep mergeable pushed', () => {
   const behindNode = { ...searchNode(), mergeStateStatus: 'BEHIND' };
   const pushedHeads = new Set([keepMergeableAttemptKey({ key: 'Acme/app#7', headRefOid: SHA })]);
-  assert.equal(shouldRebaseMyPr(behindNode, 3, new Set(), { isAutoRebaseOn: false, mergeQueueKeys: new Set(['Acme/app#7']), keepMergeablePushedHeadKeys: pushedHeads }), false);
+  assert.equal(shouldRebaseMyPr(toMyPr(behindNode, 0), 3, new Set(), { isAutoRebaseOn: false, mergeQueueKeys: new Set(['Acme/app#7']), keepMergeablePushedHeadKeys: pushedHeads }), false);
 });
 
 test('global auto-rebase never rebases a head Keep mergeable pushed, and rebases again once the operator pushes a new head', () => {
   const behindNode = { ...searchNode(), mergeStateStatus: 'BEHIND' };
   const autoRebaseOn = { isAutoRebaseOn: true, mergeQueueKeys: new Set(['Acme/app#7']), keepMergeablePushedHeadKeys: new Set([keepMergeableAttemptKey({ key: 'Acme/app#7', headRefOid: SHA })]) };
-  assert.equal(shouldRebaseMyPr(behindNode, 3, new Set(), autoRebaseOn), false);
-  assert.equal(shouldRebaseMyPr(behindNode, 3, new Set(), { ...autoRebaseOn, mergeQueueKeys: new Set() }), false);
-  assert.equal(shouldRebaseMyPr({ ...behindNode, headRefOid: 'd'.repeat(40) }, 3, new Set(), autoRebaseOn), true);
+  assert.equal(shouldRebaseMyPr(toMyPr(behindNode, 0), 3, new Set(), autoRebaseOn), false);
+  assert.equal(shouldRebaseMyPr(toMyPr(behindNode, 0), 3, new Set(), { ...autoRebaseOn, mergeQueueKeys: new Set() }), false);
+  assert.equal(shouldRebaseMyPr(toMyPr({ ...behindNode, headRefOid: 'd'.repeat(40) }, 0), 3, new Set(), autoRebaseOn), true);
 });
 
 test('merge queue skips a PR rebased this tick without holding up the rest of its repo', () => {
@@ -574,25 +581,32 @@ test('hasUnresolvedThreads asks for detail when the first page is all resolved b
 
 test('auto-rebase picks only an open, ready, behind pull request without conflicts, running checks or a failed attempt at its head', () => {
   const noFailures = new Set<string>();
-  assert.equal(shouldAutoRebase(searchNode(), 3, noFailures), true);
-  assert.equal(shouldAutoRebase(searchNode(), 0, noFailures), false);
-  assert.equal(shouldAutoRebase(searchNode(), null, noFailures), false);
-  assert.equal(shouldAutoRebase({ ...searchNode(), isDraft: true }, 3, noFailures), false);
-  assert.equal(shouldAutoRebase({ ...searchNode(), state: 'MERGED' }, 3, noFailures), false);
-  assert.equal(shouldAutoRebase({ ...searchNode(), isInMergeQueue: true }, 3, noFailures), false);
-  assert.equal(shouldAutoRebase({ ...searchNode(), mergeable: 'CONFLICTING' }, 3, noFailures), false);
-  assert.equal(shouldAutoRebase({ ...searchNode(), mergeStateStatus: 'DIRTY' }, 3, noFailures), false);
+  assert.equal(shouldAutoRebase(toMyPr(searchNode(), 0), 3, noFailures), true);
+  assert.equal(shouldAutoRebase(toMyPr(searchNode(), 0), 0, noFailures), false);
+  assert.equal(shouldAutoRebase(toMyPr(searchNode(), 0), null, noFailures), false);
+  assert.equal(shouldAutoRebase(toMyPr({ ...searchNode(), isDraft: true }, 0), 3, noFailures), false);
+  assert.equal(shouldAutoRebase(toMyPr({ ...searchNode(), state: 'MERGED' }, 0), 3, noFailures), false);
+  assert.equal(shouldAutoRebase(toMyPr({ ...searchNode(), isInMergeQueue: true }, 0), 3, noFailures), false);
+  assert.equal(shouldAutoRebase(toMyPr({ ...searchNode(), mergeable: 'CONFLICTING' }, 0), 3, noFailures), false);
+  assert.equal(shouldAutoRebase(toMyPr({ ...searchNode(), mergeStateStatus: 'DIRTY' }, 0), 3, noFailures), false);
   for (const state of ['PENDING', 'EXPECTED'] as const) {
     const running = searchNode();
     running.commits.nodes[0].commit.statusCheckRollup = { state, contexts: { nodes: [] } };
-    assert.equal(shouldAutoRebase(running, 3, noFailures), false, state);
+    assert.equal(shouldAutoRebase(toMyPr(running, 0), 3, noFailures), false, state);
   }
+  const olderRunStillInProgress = searchNode();
+  olderRunStillInProgress.commits.nodes[0].commit.statusCheckRollup = { state: 'PENDING', contexts: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [
+    { __typename: 'CheckRun', name: 'deploy-preview', conclusion: 'SUCCESS', status: 'COMPLETED', startedAt: '2026-09-28T11:05:00Z' },
+    { __typename: 'CheckRun', name: 'deploy-preview', conclusion: null, status: 'IN_PROGRESS', startedAt: '2026-09-28T11:00:00Z' },
+  ] } };
+  assert.equal(toMyPr(olderRunStillInProgress, 0).checks.state, 'SUCCESS');
+  assert.equal(shouldAutoRebase(toMyPr(olderRunStillInProgress, 0), 3, noFailures), false);
   const failing = searchNode();
   failing.commits.nodes[0].commit.statusCheckRollup = { state: 'FAILURE', contexts: { nodes: [] } };
-  assert.equal(shouldAutoRebase(failing, 3, noFailures), true);
-  assert.equal(shouldAutoRebase({ ...searchNode(), commits: { nodes: [] } }, 3, noFailures), true);
-  assert.equal(shouldAutoRebase(searchNode(), 3, new Set([`Acme/app#7@${SHA}`])), false);
-  assert.equal(shouldAutoRebase(searchNode(), 3, new Set([`Acme/app#7@${'b'.repeat(40)}`])), true);
+  assert.equal(shouldAutoRebase(toMyPr(failing, 0), 3, noFailures), true);
+  assert.equal(shouldAutoRebase(toMyPr({ ...searchNode(), commits: { nodes: [] } }, 0), 3, noFailures), true);
+  assert.equal(shouldAutoRebase(toMyPr(searchNode(), 0), 3, new Set([`Acme/app#7@${SHA}`])), false);
+  assert.equal(shouldAutoRebase(toMyPr(searchNode(), 0), 3, new Set([`Acme/app#7@${'b'.repeat(40)}`])), true);
 });
 
 test('auto-rebase records name the base on success and the first error line on failure', () => {

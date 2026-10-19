@@ -371,29 +371,6 @@ function myPrNode(number: number) {
   };
 }
 
-test('my PR search uses one GraphQL call and drops invalid nodes', async () => {
-  const calls: string[][] = [];
-  const gh = createPrGh('/repo', async (_command, args) => {
-    calls.push(args);
-    return { ok: true, out: JSON.stringify({ data: { open: { issueCount: 70, nodes: [myPrNode(1), { number: 2 }] }, merged: { issueCount: 3, nodes: [myPrNode(3)] } } }), err: '' };
-  });
-  const searched = await gh.searchMyPrs('Acme', '2026-09-27');
-  assert.equal(searched.ok, true);
-  assert.deepEqual(searched.items.map((item) => item.number), [1, 3]);
-  assert.equal(searched.totalCount, 73);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0][0], 'api');
-  assert.equal(calls[0][1], 'graphql');
-  assert.ok(calls[0].includes('openQuery=is:pr is:open author:@me org:Acme sort:updated-desc'));
-  assert.ok(calls[0].includes('mergedQuery=is:pr is:merged author:@me org:Acme merged:>=2026-09-27 sort:updated-desc'));
-  assert.equal(calls[0].find((arg) => arg.startsWith('query='))?.match(/issueCount/g)?.length, 2);
-  assert.match(calls[0].find((arg) => arg.startsWith('query=')) ?? '', /\.\.\. on Team \{ slug avatarUrl organization \{ login \} \}/);
-  assert.match(calls[0].find((arg) => arg.startsWith('query=')) ?? '', /repository \{ nameWithOwner viewerDefaultMergeMethod \}/);
-  assert.match(calls[0].find((argument) => argument.startsWith('query=')) ?? '', /baseRefName baseRefOid headRefName isCrossRepository headRefOid/);
-  assert.equal(searched.items[0]?.headRefName, 'feature');
-  assert.equal(searched.items[0]?.isCrossRepository, false);
-  assert.equal(searched.items[0]?.repository.viewerDefaultMergeMethod, 'SQUASH');
-});
 
 function mergeGh(prStateAfterMerge: CommandResult) {
   const calls: string[][] = [];
@@ -456,25 +433,7 @@ test('mergePr refuses invalid input without calling gh and reports gh failures',
   assert.equal(calls, 1);
 });
 
-test('my PR search rejects invalid input and malformed whole responses', async () => {
-  let calls = 0;
-  const gh = createPrGh('/repo', async () => {
-    calls += 1;
-    return { ok: true, out: '{"data":{"open":{"nodes":[]}}}', err: '' };
-  });
-  assert.equal((await gh.searchMyPrs('Acme evil', '2026-09-27')).ok, false);
-  assert.equal((await gh.searchMyPrs('Acme', 'yesterday')).ok, false);
-  assert.equal(calls, 0);
-  assert.equal((await gh.searchMyPrs('Acme', '2026-09-27')).ok, false);
-  assert.equal(calls, 1);
-});
 
-test('my PR search refuses partial GraphQL data with errors', async () => {
-  const gh = createPrGh('/repo', async () => ({
-    ok: true, out: JSON.stringify({ data: { open: { issueCount: 1, nodes: [myPrNode(1)] }, merged: { issueCount: 0, nodes: [] } }, errors: [{ message: 'denied' }] }), err: '',
-  }));
-  assert.deepEqual(await gh.searchMyPrs('Acme', '2026-09-27'), { ok: false, items: [], totalCount: 0, error: 'gh graphql returned errors' });
-});
 
 test('reviewThreads queries one pull request and drops malformed threads', async () => {
   const calls: string[][] = [];

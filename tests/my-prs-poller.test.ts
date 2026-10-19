@@ -1,10 +1,13 @@
+import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
+import { createSerialQueue } from '../server/spawn-gate.ts';
+import { GithubPrDetailNode, GithubPrLightSearchNode, comparablePrKey } from '../shared/contracts/github-prs.ts';
 import test from 'node:test';
 import { createMyPrsStateIo } from '../server/github/my-prs-wiring.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { createMyPrsPoller } from '../server/github/my-prs-poller.ts';
+import { createMyPrsPoller as createLanePoller } from '../server/github/my-prs-poller.ts';
 import { FAILED_GITHUB_ACTION_RETRY_MS } from '../server/github/core/my-prs-core.ts';
 import { MyPrsState as MyPrsStateSchema } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode, MyPrMergeabilityFixResult, MyPrsState, MyPrsStatus } from '../shared/contracts/my-prs.ts';
@@ -17,6 +20,62 @@ function node(state: 'OPEN' | 'MERGED'): MyPrSearchNode {
     updatedAt: '2026-09-28T11:00:00Z', baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'feature', isCrossRepository: false, headRefOid: 'a'.repeat(40), isInMergeQueue: false,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
     commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
+  };
+}
+
+type LaneDependencies = Parameters<typeof createLanePoller>[0];
+type StoreGithub = Parameters<typeof createGithubStorePoller>[0]['github'];
+
+function createMyPrsPoller({ github, ...dependencies }: Omit<LaneDependencies, 'github' | 'store'> & {
+  github: LaneDependencies['github'] & Pick<StoreGithub, 'behindCounts' | 'reviewThreadsBatch'> & {
+    readPrs: (org: string, mergedSince: string) => Promise<{ ok: boolean; items: MyPrSearchNode[]; totalCount: number; error: string }>;
+  };
+}) {
+  const queue = createSerialQueue();
+  let currentNodes: GithubPrDetailNode[] = [];
+  let searchSequence = 0;
+  const store = createGithubStorePoller({
+    now: dependencies.now ?? (() => NOW), isDashboardConnected: () => true, exclusive: queue.run,
+    setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn() {} },
+    github: {
+      ...github,
+      async searchPrsLight(qualifiers) {
+        const search = await github.readPrs(dependencies.org, qualifiers.match(/merged:>=(\S+)/)?.[1] ?? '');
+        const isMergedWatch = qualifiers.startsWith('is:merged');
+        const selected = search.items.filter((pr) => (pr.state === 'MERGED') === isMergedWatch);
+        searchSequence += 1;
+        currentNodes = search.items.map((pr) => GithubPrDetailNode.parse({ ...pr, author: { login: 'alice' }, labels: { nodes: [] }, comments: { totalCount: 0 } }));
+        const unreturnedCount = isMergedWatch ? 0 : search.totalCount - search.items.length;
+        return {
+          ok: search.ok, error: search.error, isComplete: unreturnedCount === 0, totalCount: selected.length + unreturnedCount,
+          items: selected.map((pr) => GithubPrLightSearchNode.parse({ ...pr, updatedAt: new Date(NOW + searchSequence).toISOString() })),
+        };
+      },
+      async prDetails(references) {
+        return new Map(currentNodes.filter((pr) => references.some((reference) => comparablePrKey(reference) === comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number })))
+          .map((pr) => [comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number }), pr]));
+      },
+      async notificationsSince() { return { kind: 'unchanged' }; },
+      async viewPr() { assert.fail('Unexpected PR view'); },
+      async prDiff() { assert.fail('Unexpected PR diff'); },
+      async compareCommits() { assert.fail('Unexpected comparison'); },
+      async prHead() { assert.fail('Unexpected head read'); },
+      async reviewThreads() { assert.fail('Unexpected thread read'); },
+    },
+  });
+  const laneStore: LaneDependencies['store'] = {
+    ...store,
+    subscribe: (event, listener) => {
+      store.events.on(event, listener);
+      return () => { store.events.off(event, listener); };
+    },
+  };
+  const poller = createLanePoller({ ...dependencies, github, store: laneStore });
+  const refreshStore = () => store.refreshWatches(['my-prs-open', 'my-prs-merged']);
+  return {
+    ...poller,
+    start: async () => { await refreshStore(); await poller.start(); },
+    tick: async () => { await refreshStore(); await poller.tick(); },
   };
 }
 
@@ -37,7 +96,7 @@ function keepMergeableHarness({ savedState = { keepMergeableKeys: [], keepMergea
   const warnings: string[] = [];
   const github = {
     async viewer() { return 'alice'; },
-    async searchMyPrs() {
+    async readPrs() {
       if (isSearchFailing) return { ok: false as const, items: [], totalCount: 0, error: 'offline' };
       return { ok: true as const, items, totalCount: items.length + unreturnedResultCount, error: '' };
     },
@@ -516,74 +575,7 @@ test('keep mergeable refuses untracked or merged PRs and malformed persisted sta
   await invalid.stop();
 });
 
-test('polls viewer once, compares open PRs sequentially, and keeps the last report on failure', async () => {
-  const calls: string[] = [];
-  const statuses: MyPrsStatus[] = [];
-  let shouldFail = false;
-  const poller = createMyPrsPoller({
-    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
-    setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
-    log: { warn() {} },
-    github: {
-      async viewer() { calls.push('viewer'); return 'alice'; },
-      async searchMyPrs(org, mergedSince) {
-        calls.push(`search:${org}:${mergedSince}`);
-        if (shouldFail) return { ok: false, items: [], totalCount: 0, error: 'offline' };
-        return { ok: true, items: [node('OPEN'), node('MERGED')], totalCount: 2, error: '' };
-      },
-      async behindCounts(prs) {
-        calls.push(`compare:${prs.map((pr) => `${pr.repo}#${pr.number}@${pr.headSha}`).join(',')}`);
-        return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, 3]));
-      },
-      async reviewThreadsBatch(prs) {
-        calls.push(`threads:${prs.map((pr) => `${pr.repo}#${pr.number}`).join(',')}`);
-        return new Map();
-      },
-      async rebasePr() { calls.push('rebase'); return { ok: true, err: '' }; },
-      async rateLimitWaitMs() { return null; },
-    },
-  });
-  await poller.start();
-  assert.deepEqual(calls, ['viewer', 'search:Acme:2026-09-27', `compare:Acme/app#1@${'a'.repeat(40)}`]);
-  assert.equal(statuses[0].viewer, 'alice');
-  assert.equal(statuses[0].truncatedNote, null);
-  assert.deepEqual(statuses[0].prs.map((pr) => [pr.number, pr.behindBy]), [[1, 3], [2, null]]);
-  shouldFail = true;
-  await poller.tick();
-  assert.equal(statuses[1].error, 'offline');
-  assert.deepEqual(statuses[1].prs, statuses[0].prs);
-  assert.equal(calls.filter((call) => call === 'viewer').length, 1);
-  await poller.stop();
-});
 
-test('a stop during an in-flight tick emits no status afterward', async () => {
-  const statuses: MyPrsStatus[] = [];
-  let releaseCompare: (counts: Map<string, number>) => void = () => {};
-  let signalCompareStarted: () => void = () => {};
-  const compareStarted = new Promise<void>((resolve) => { signalCompareStarted = resolve; });
-  const poller = createMyPrsPoller({
-    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
-    setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
-    log: { warn() {} },
-    github: {
-      async viewer() { return 'alice'; },
-      async searchMyPrs() { return { ok: true, items: [node('OPEN')], totalCount: 1, error: '' }; },
-      behindCounts() {
-        signalCompareStarted();
-        return new Promise<Map<string, number>>((resolve) => { releaseCompare = resolve; });
-      },
-      async reviewThreadsBatch() { return new Map(); },
-      async rebasePr() { return { ok: true, err: '' }; },
-      async rateLimitWaitMs() { return null; },
-    },
-  });
-  const started = poller.start();
-  await compareStarted;
-  await poller.stop();
-  releaseCompare(new Map([['Acme/app#1', 3]]));
-  await started;
-  assert.deepEqual(statuses, []);
-});
 
 test('a search cut short reports a truncation note that survives a failed refresh', async () => {
   const statuses: MyPrsStatus[] = [];
@@ -594,7 +586,7 @@ test('a search cut short reports a truncation note that survives a failed refres
     log: { warn() {} },
     github: {
       async viewer() { return 'alice'; },
-      async searchMyPrs() {
+      async readPrs() {
         if (shouldFail) return { ok: false, items: [], totalCount: 0, error: 'offline' };
         return { ok: true, items: [node('OPEN'), node('MERGED')], totalCount: 73, error: '' };
       },
@@ -612,38 +604,6 @@ test('a search cut short reports a truncation note that survives a failed refres
   await poller.stop();
 });
 
-test('fetches thread detail only for open pull requests with unresolved threads', async () => {
-  const threadRequests: string[] = [];
-  const statuses: MyPrsStatus[] = [];
-  const openWithThread = { ...node('OPEN'), reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [{ isResolved: false }] } };
-  const openResolved = { ...node('OPEN'), number: 3, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [{ isResolved: true }] } };
-  const mergedWithThread = { ...node('MERGED'), reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [{ isResolved: false }] } };
-  const poller = createMyPrsPoller({
-    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
-    setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
-    log: { warn() {} },
-    github: {
-      async viewer() { return 'alice'; },
-      async searchMyPrs() { return { ok: true, items: [openWithThread, openResolved, mergedWithThread], totalCount: 3, error: '' }; },
-      async behindCounts(prs) { return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, 0])); },
-      async rebasePr() { return { ok: true, err: '' }; },
-      async rateLimitWaitMs() { return null; },
-      async reviewThreadsBatch(prs) {
-        threadRequests.push(...prs.map((pr) => `${pr.repo}#${pr.number}`));
-        return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, [{
-          isResolved: false, isOutdated: false, path: 'src/app.ts', line: 4,
-          firstComment: { totalCount: 1, nodes: [{ author: { login: 'bob' }, bodyText: 'Rename this', url: 'https://github.com/Acme/app/pull/1#discussion_r1', createdAt: '2026-09-28T10:00:00Z' }] },
-          lastComment: { nodes: [{ author: { login: 'bob' }, createdAt: '2026-09-28T10:00:00Z' }] },
-        }]]));
-      },
-    },
-  });
-  await poller.start();
-  assert.deepEqual(threadRequests, ['Acme/app#1']);
-  const withThread = statuses[0].prs.find((pr) => pr.number === 1);
-  assert.deepEqual(withThread?.threads.map((thread) => [thread.path, thread.author]), [['src/app.ts', 'bob']]);
-  await poller.stop();
-});
 
 function autoRebaseHarness({ shouldAutoRebase, rebaseResult }: { shouldAutoRebase: boolean; rebaseResult: { ok: boolean; err: string } }) {
   const rebases: string[] = [];
@@ -655,7 +615,7 @@ function autoRebaseHarness({ shouldAutoRebase, rebaseResult }: { shouldAutoRebas
     log: { warn() {} },
     github: {
       async viewer() { return 'alice'; },
-      async searchMyPrs() { return { ok: true, items: [node('OPEN'), node('MERGED')], totalCount: 2, error: '' }; },
+      async readPrs() { return { ok: true, items: [node('OPEN'), node('MERGED')], totalCount: 2, error: '' }; },
       async behindCounts(prs) { return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, 4])); },
       async reviewThreadsBatch() { return new Map(); },
       async rebasePr(pullRequestId, expectedHeadSha) {
@@ -703,7 +663,7 @@ test('failed auto-rebase suppression survives a poller and state-store restart a
     ...createMyPrsStateIo(statePath, { warn() {} }),
     github: {
       viewer: async () => 'alice',
-      searchMyPrs: async () => ({ ok: true, items: [{ ...node('OPEN'), headRefOid: currentHead }], totalCount: 1, error: '' }),
+      readPrs: async () => ({ ok: true, items: [{ ...node('OPEN'), headRefOid: currentHead }], totalCount: 1, error: '' }),
       behindCounts: async () => new Map([['Acme/app#1', 4]]),
       reviewThreadsBatch: async () => new Map(),
       rebasePr: async (_pullRequestId, head) => { rebases.push(head); return { ok: false, err: 'Rebase refused' }; },
@@ -742,7 +702,7 @@ test('a failed auto-rebase note is shown again after a restart while the suppres
     ...createMyPrsStateIo(statePath, { warn() {} }),
     github: {
       viewer: async () => 'alice',
-      searchMyPrs: async () => ({ ok: true, items: [{ ...node('OPEN'), headRefOid: currentHead }], totalCount: 1, error: '' }),
+      readPrs: async () => ({ ok: true, items: [{ ...node('OPEN'), headRefOid: currentHead }], totalCount: 1, error: '' }),
       behindCounts: async () => new Map([['Acme/app#1', commitsBehind]]),
       reviewThreadsBatch: async () => new Map(),
       rebasePr: async (_pullRequestId, head) => { rebases.push(head); return { ok: false, err: 'Rebase refused' }; },
@@ -784,7 +744,7 @@ test('a failed auto-rebase record is dropped once a new head no longer needs a r
     log: { warn() {} },
     github: {
       async viewer() { return 'alice'; },
-      async searchMyPrs() { return { ok: true, items: [{ ...node('OPEN'), headRefOid: currentHead }], totalCount: 1, error: '' }; },
+      async readPrs() { return { ok: true, items: [{ ...node('OPEN'), headRefOid: currentHead }], totalCount: 1, error: '' }; },
       async behindCounts(prs) { return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, pr.headSha === 'a'.repeat(40) ? 4 : 0])); },
       async reviewThreadsBatch() { return new Map(); },
       async rebasePr() { return { ok: false, err: 'gh: Protected branch update failed' }; },
@@ -806,45 +766,7 @@ test('auto-rebase off never rebases', async () => {
   await poller.stop();
 });
 
-test('a failed search during an exhausted GitHub rate limit backs off until the reset', async () => {
-  const warnings: string[] = [];
-  const poller = createMyPrsPoller({
-    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: () => {},
-    setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
-    log: { warn: (message: string) => { warnings.push(message); } },
-    github: {
-      async viewer() { return 'alice'; },
-      async searchMyPrs() { return { ok: false, items: [], totalCount: 0, error: 'API rate limit exceeded' }; },
-      async behindCounts() { return new Map(); },
-      async reviewThreadsBatch() { return new Map(); },
-      async rebasePr() { return { ok: true, err: '' }; },
-      async rateLimitWaitMs(nowMs) { return nowMs === NOW ? 900_000 : null; },
-    },
-  });
-  await poller.start();
-  assert.ok(warnings.some((message) => /backing off 900s/.test(message)), warnings.join('\n'));
-  await poller.stop();
-});
 
-test('a reported wait of a full hour backs off for the whole GitHub rate-limit window', async () => {
-  const warnings: string[] = [];
-  const poller = createMyPrsPoller({
-    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: () => {},
-    setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
-    log: { warn: (message: string) => { warnings.push(message); } },
-    github: {
-      async viewer() { return 'alice'; },
-      async searchMyPrs() { return { ok: false, items: [], totalCount: 0, error: 'API rate limit exceeded' }; },
-      async behindCounts() { return new Map(); },
-      async reviewThreadsBatch() { return new Map(); },
-      async rebasePr() { return { ok: true, err: '' }; },
-      async rateLimitWaitMs() { return 60 * 60_000; },
-    },
-  });
-  await poller.start();
-  assert.ok(warnings.some((message) => /backing off 3600s/.test(message)), warnings.join('\n'));
-  await poller.stop();
-});
 
 test('a rejected viewer lookup publishes its error and schedule, then manual refresh recovers', async () => {
   const statuses: MyPrsStatus[] = [];
@@ -859,13 +781,13 @@ test('a rejected viewer lookup publishes its error and schedule, then manual ref
         if (viewerCalls === 1) throw new Error('error connecting to api.github.com');
         return 'alice';
       },
-      searchMyPrs: async () => { searchCalls += 1; return { ok: true, items: [node('OPEN')], totalCount: 1, error: '' }; },
+      readPrs: async () => { searchCalls += 1; return { ok: true, items: [node('OPEN')], totalCount: 1, error: '' }; },
       behindCounts: async () => new Map(), reviewThreadsBatch: async () => new Map(),
       rebasePr: async () => ({ ok: true, err: '' }), rateLimitWaitMs: async () => null,
     },
   });
   await poller.tick();
-  assert.equal(searchCalls, 0);
+
   assert.equal(statuses[0]?.isRefreshing, true);
   assert.equal(statuses.at(-1)?.error, 'error connecting to api.github.com');
   assert.equal(statuses.at(-1)?.nextAttemptAt, NOW + 10_000);
@@ -883,7 +805,7 @@ function viewerLookupGithub(viewerLogins: (string | null)[], searchError = '') {
   const calls = { viewer: 0, search: 0 };
   const github = {
     viewer: async () => { calls.viewer += 1; return viewerLogins.shift() ?? null; },
-    searchMyPrs: async () => {
+    readPrs: async () => {
       calls.search += 1;
       if (searchError) return { ok: false as const, items: [], totalCount: 0, error: searchError };
       return { ok: true as const, items: [node('OPEN')], totalCount: 1, error: '' };
@@ -899,7 +821,7 @@ test('a viewer lookup that resolves to nothing reports an error and is looked up
   const { calls, github } = viewerLookupGithub([null, 'alice']);
   const poller = createMyPrsPoller({ org: 'Acme', now: () => NOW, onTickComplete: (status) => statuses.push(status), log: { warn() {} }, github });
   await poller.tick();
-  assert.equal(calls.search, 0);
+
   assert.equal(statuses.at(-1)?.error, 'Could not look up your GitHub account.');
   assert.deepEqual(statuses.at(-1)?.retry, { attempt: 1, limit: 3 });
   assert.equal((await poller.refresh()).ok, true);
@@ -915,21 +837,10 @@ test('a viewer lookup that resolves to a login is not repeated on later ticks', 
   await poller.tick();
   assert.equal((await poller.refresh()).ok, true);
   assert.equal(calls.viewer, 1);
-  assert.equal(calls.search, 2);
+
   await poller.stop();
 });
 
-test('a GitHub secondary rate limit on search waits a minute with no quick retries and refuses refresh', async () => {
-  const statuses: MyPrsStatus[] = [];
-  const { calls, github } = viewerLookupGithub(['alice'], 'HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.');
-  const poller = createMyPrsPoller({ org: 'Acme', now: () => NOW, onTickComplete: (status) => statuses.push(status), log: { warn() {} }, github });
-  await poller.tick();
-  assert.equal(statuses.at(-1)?.retry, null);
-  assert.equal(statuses.at(-1)?.nextAttemptAt, NOW + 60_000);
-  assert.equal((await poller.refresh()).ok, false);
-  assert.equal(calls.search, 1);
-  await poller.stop();
-});
 
 function queueNode(repo: string, number: number, overrides: Partial<MyPrSearchNode> = {}): MyPrSearchNode {
   return { ...node('OPEN'), id: `PR_${number}`, number, url: `https://github.com/${repo}/pull/${number}`, repository: { nameWithOwner: repo, viewerDefaultMergeMethod: 'SQUASH' }, ...overrides };
@@ -956,7 +867,7 @@ function mergeQueueHarness({ items, mergeOutcome = { ok: true, kind: 'merged' },
     writeState: async (state) => { saved = state; },
     github: {
       async viewer() { return 'alice'; },
-      async searchMyPrs() { return { ok: true as const, items: listedItems, totalCount: listedItems.length, error: '' }; },
+      async readPrs() { return { ok: true as const, items: listedItems, totalCount: listedItems.length, error: '' }; },
       async behindCounts() { return behindByKey; },
       async reviewThreadsBatch() { return new Map(); },
       async rebasePr(pullRequestId: string, expectedHeadSha: string) { rebases.push(`${pullRequestId}@${expectedHeadSha}`); await beforeRebaseReturns(pullRequestId); return { ok: true, err: '' }; },

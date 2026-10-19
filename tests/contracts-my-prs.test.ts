@@ -84,7 +84,7 @@ test('canonical GitHub PR frames fail closed on malformed snapshots and PR field
     isDraft: false, state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z',
     baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'feature', headRefOid: 'a'.repeat(40),
     isCrossRepository: false, isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
-    reviewDecision: null, checks: { state: 'SUCCESS', failing: [], pendingCount: 0 },
+    reviewDecision: null, checks: { state: 'SUCCESS', failing: [], pendingCount: 0 }, rollupState: 'SUCCESS',
     unresolvedThreads: 0, threads: [], behindBy: null,
     reviewRequests: [{ name: 'Acme/docs', isTeam: true, avatarUrl: null }], approvals: 0, reviews: [],
   };

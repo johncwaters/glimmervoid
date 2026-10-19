@@ -12,7 +12,7 @@ import { createLaneRunner } from '../lanes/lane-runner.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import { createMyPrsPoller } from './my-prs-poller.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
-import { createPrGh } from './pr-gh.ts';
+import type { GithubLaneStore } from './github-store-wiring.ts';
 import type { PrGh } from './pr-gh.ts';
 import { prBaseRef, prKey, readTeamReviewSettings } from './core/team-review-core.ts';
 import type { TeamReviewSettingsSource } from './core/team-review-core.ts';
@@ -369,7 +369,8 @@ interface MyPrsWiringOptions {
   config: TeamReviewSettingsSource;
   broadcast: (status: MyPrsStatusType) => void;
   log?: Pick<Console, 'warn'>;
-  github?: MyPrsPollerDependencies['github'] & Pick<PrGh, 'mergePr'>;
+  github: MyPrsPollerDependencies['github'] & Pick<PrGh, 'mergePr'>;
+  store: GithubLaneStore;
   createPoller?: (dependencies: MyPrsPollerDependencies) => MyPrsPoller;
   clock?: SharedClock;
   homeDir?: string;
@@ -377,7 +378,7 @@ interface MyPrsWiringOptions {
   sweepLeftovers?: MyPrsPollerDependencies['beforeStart'];
 }
 
-export function createMyPrsWiring({ config, broadcast, log = console, homeDir = glimmervoidHomeDir(), github = createPrGh(homeDir), createPoller = createMyPrsPoller, clock, fixMergeability, sweepLeftovers }: MyPrsWiringOptions) {
+export function createMyPrsWiring({ config, broadcast, log = console, homeDir = glimmervoidHomeDir(), github, store, createPoller = createMyPrsPoller, clock, fixMergeability, sweepLeftovers }: MyPrsWiringOptions) {
   const stateIo = createMyPrsStateIo(path.join(homeDir, core.MY_PRS_STATE_FILENAME), log);
   const settings = () => readTeamReviewSettings(config);
   const features = () => core.readMyPrsFeatureSettings(config);
@@ -400,11 +401,13 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
     },
     createPoller: ({ onTickComplete }) => createPoller({
       org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs,
-      isKeepMergeableEnabled: features().isKeepMergeableEnabled, isMergeQueueEnabled: features().isMergeQueueEnabled, github, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay,
+      isKeepMergeableEnabled: features().isKeepMergeableEnabled, isMergeQueueEnabled: features().isMergeQueueEnabled, github, store, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay,
       readState: stateIo.readState, writeState: stateIo.writeState, fixMergeability, beforeStart: sweepLeftovers,
       mergePr: (queuedPr) => mergeTrackedPr(queuedPr.key, queuedPr, queuedPr.headRefOid),
     }),
   });
+  const unsubscribe = store.subscribe('snapshot-changed', () => runner.getPoller()?.rebuild());
+
   function getStatus(): MyPrsStatusType {
     const parsed = MyPrsStatus.safeParse(runner.getStatus());
     return parsed.success ? parsed.data : emptyStatus();
@@ -455,8 +458,13 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
       log.warn(`[${core.MY_PRS_LANE_ID}] merge of ${key} failed: ${merged.error}`);
       return merged;
     }
-    poller.tick().catch((error: unknown) => log.warn(`[${core.MY_PRS_LANE_ID}] refresh after merging ${key} failed: ${errorMessage(error)}`));
+    poller.refresh().catch((error: unknown) => log.warn(`[${core.MY_PRS_LANE_ID}] refresh after merging ${key} failed: ${errorMessage(error)}`));
     return merged;
   }
-  return { startPoller: runner.startPoller, stopPoller: runner.stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged, getStatus, mergePr, refresh, setKeepMergeable, setMergeWhenReady };
+  async function stopPoller(): Promise<void> {
+    unsubscribe();
+    await runner.stopPoller();
+  }
+
+  return { startPoller: runner.startPoller, stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged, getStatus, mergePr, refresh, setKeepMergeable, setMergeWhenReady };
 }

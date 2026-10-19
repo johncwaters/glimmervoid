@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { GithubPr, GithubPrLightSearchNode, GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
+import type { GithubPollingRefreshResult } from '../../shared/contracts/github-polling.ts';
 import type { MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import type { PrGh } from './pr-gh.ts';
@@ -7,7 +8,7 @@ import type { SharedClock, TickOutcome } from '../lanes/lane-runner.ts';
 import { nextRetrySchedule, secondaryRateLimitWaitMs, shouldSkipTick } from '../lanes/core/lane-backoff.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import { hasUnresolvedThreads } from './core/my-prs-core.ts';
-import { applyGithubPrDetails, githubPrChangeSet, githubStoreCacheEvictionKey, githubStoreLightIntervalMs, githubStorePrReference, githubStoreWatchNodes, githubStoreWatchUnion, isGithubStorePollDue, normalizeGithubPr } from './core/github-store-core.ts';
+import { applyGithubPrDetails, GITHUB_STORE_BEHIND_INTERVAL_MS, githubPrChangeSet, githubPrsWithChangedBehindCounts, githubStoreCacheEvictionKey, githubStoreLightIntervalMs, githubStorePrReference, githubStoreWatchNodes, githubStoreWatchUnion, isGithubStorePollDue, normalizeGithubPr } from './core/github-store-core.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 import { errorMessage } from '../../shared/text.ts';
 
@@ -28,7 +29,7 @@ interface GithubStoreDependencies {
 }
 
 type GithubStoreSnapshot = Pick<GithubPrsFrame, 'prs' | 'freshness'>;
-type WatchState = GithubStoreWatch & { nodes: readonly GithubPrLightSearchNode[] };
+type WatchState = GithubStoreWatch & { nodes: readonly GithubPrLightSearchNode[]; returnedKeys: readonly string[]; returnedCount: number; totalCount: number; isComplete: boolean; isLoaded: boolean };
 
 const REFRESH_DEBOUNCE_MS = 5_000;
 const DEFAULT_NOTIFICATIONS_INTERVAL_MS = 60_000;
@@ -37,7 +38,7 @@ const RATE_LIMIT_RESOURCES = ['graphql', 'core'] as const;
 export function createGithubStorePoller({ github, now, isDashboardConnected, exclusive, setTimeoutFn, clearTimeoutFn, log }: GithubStoreDependencies) {
   const events = new EventEmitter<{
     change: [key: string, pr: GithubPr | null];
-    'snapshot-changed': [snapshot: GithubStoreSnapshot];
+    'snapshot-changed': [snapshot: ReturnType<typeof getSnapshot>];
   }>();
   const watches = new Map<string, WatchState>();
   const watchedKeysByOwner = new Map<string, Set<string>>();
@@ -49,6 +50,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   let lightByKey = new Map<string, GithubPrLightSearchNode>();
   let lastLightPolledAt: number | null = null;
   let lastNotificationsPolledAt: number | null = null;
+  let lastBehindPolledAt: number | null = null;
   let notificationsIntervalMs = DEFAULT_NOTIFICATIONS_INTERVAL_MS;
   let notificationsLastModified: string | undefined;
   let isNotificationsDisabled = false;
@@ -58,13 +60,18 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   let failureStreak = 0;
   const unavailableKeys = new Set<string>();
 
-  function getSnapshot(): GithubStoreSnapshot {
-    return { prs, freshness: { lastRefreshedAt, error: pollingError } };
+  function getSnapshot() {
+    const watchSnapshots = Object.fromEntries([...watches].map(([name, watch]) => [name, {
+      keys: watch.returnedKeys,
+      returnedCount: watch.returnedCount, totalCount: watch.totalCount, isComplete: watch.isComplete, isLoaded: watch.isLoaded,
+    }]));
+    return { prs, freshness: { lastRefreshedAt, error: pollingError }, watches: watchSnapshots };
   }
 
   function registerWatch(watch: GithubStoreWatch): void {
     const previous = watches.get(watch.name);
-    watches.set(watch.name, { ...watch, nodes: previous?.qualifiers === watch.qualifiers ? previous.nodes : [] });
+    if (previous?.qualifiers === watch.qualifiers && previous.needsDetail === watch.needsDetail) return;
+    watches.set(watch.name, { ...watch, nodes: [], returnedKeys: [], returnedCount: 0, totalCount: 0, isComplete: false, isLoaded: false });
     lastLightPolledAt = null;
   }
 
@@ -84,8 +91,8 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     lastLightPolledAt = null;
   }
 
-  function publishChanges(details: readonly GithubPr[], removedKeys: readonly string[], previousError: string | null): void {
-    if (details.length === 0 && removedKeys.length === 0 && pollingError === previousError) return;
+  function publishChanges(details: readonly GithubPr[], removedKeys: readonly string[], previousError: string | null, hasWatchChanges = false): void {
+    if (details.length === 0 && removedKeys.length === 0 && pollingError === previousError && !hasWatchChanges) return;
     for (const key of removedKeys) events.emit('change', key, null);
     for (const pr of details) events.emit('change', pr.key, pr);
     events.emit('snapshot-changed', getSnapshot());
@@ -138,15 +145,28 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     return { details, nodes, missingKeys };
   }
 
-  async function pollLight(tickStartedAt: number) {
-    const watchResults: { watch: WatchState; nodes: readonly GithubPrLightSearchNode[] }[] = [];
+  async function pollLight(tickStartedAt: number, watchNames?: ReadonlySet<string>) {
+    const watchResults: { watch: WatchState; nodes: readonly GithubPrLightSearchNode[]; returnedKeys: readonly string[]; returnedCount: number; totalCount: number; isComplete: boolean }[] = [];
+    let hasWatchChanges = false;
     for (const watch of watches.values()) {
+      if (watchNames && !watchNames.has(watch.name)) continue;
       const search = await github.searchPrsLight(watch.qualifiers);
       if (!search.ok) throw new Error(search.error);
-      watchResults.push({ watch, nodes: githubStoreWatchNodes(watch.nodes, search.items, search.isComplete) });
+      const nodes = githubStoreWatchNodes(watch.nodes, search.items, search.isComplete);
+      const returnedKeys = search.items.map((node) => comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }));
+      const returnedCount = search.items.length;
+      const totalCount = search.totalCount ?? returnedCount + Number(!search.isComplete);
+      hasWatchChanges ||= !watch.isLoaded || watch.returnedCount !== returnedCount || watch.totalCount !== totalCount || watch.isComplete !== search.isComplete
+        || watch.returnedKeys.length !== returnedKeys.length || watch.returnedKeys.some((key, index) => key !== returnedKeys[index]);
+      watchResults.push({ watch, nodes, returnedKeys, returnedCount, totalCount, isComplete: search.isComplete });
     }
     const watchedKeys = new Set([...watchedKeysByOwner.values()].flatMap((keys) => [...keys]));
-    const unionWatches = watchResults.map(({ watch, nodes }) => ({ nodes, needsDetail: watch.needsDetail }));
+    const refreshedByName = new Map(watchResults.map((refreshed) => [refreshed.watch.name, refreshed]));
+    const unchangedWatches = [...watches.values()].filter((watch) => !refreshedByName.has(watch.name));
+    const unionWatches = [
+      ...unchangedWatches,
+      ...watchResults.map(({ watch, nodes }) => ({ nodes, needsDetail: watch.needsDetail })),
+    ];
     const returnedKeys = new Set(unionWatches.flatMap((watch) => watch.nodes.map((node) => comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }))));
     const union = githubStoreWatchUnion(unionWatches, watchedKeys, lightByKey);
     for (const key of watchedKeys) {
@@ -165,14 +185,28 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     }
     const detailKeys = [...union.detailKeys].filter((key) => changedKeys.has(key) || (!prs[key] && !unavailableKeys.has(key)));
     const { details, nodes, missingKeys } = await fetchDetails(detailKeys);
-    for (const { watch, nodes } of watchResults) watch.nodes = nodes;
+    for (const refreshed of watchResults) {
+      if (watches.get(refreshed.watch.name) !== refreshed.watch) continue;
+      Object.assign(refreshed.watch, { nodes: refreshed.nodes, returnedKeys: refreshed.returnedKeys, returnedCount: refreshed.returnedCount, totalCount: refreshed.totalCount, isComplete: refreshed.isComplete, isLoaded: true });
+    }
     lightByKey = changes.lightByKey;
     for (const node of nodes) lightByKey.set(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), node);
     const removedKeys = [...new Set([...changes.removedKeys, ...missingKeys.filter((key) => prs[key])])];
     prs = applyGithubPrDetails(prs, details, removedKeys);
-    lastLightPolledAt = tickStartedAt;
+    if (!watchNames) lastLightPolledAt = tickStartedAt;
     lastRefreshedAt = now();
-    return { details, removedKeys };
+    return { details, removedKeys, hasWatchChanges };
+  }
+
+  async function pollBehindCounts(tickStartedAt: number, refreshedKeys: ReadonlySet<string>): Promise<GithubPr[]> {
+    const detailWatchKeys = new Set([...watches.values()].filter((watch) => watch.needsDetail)
+      .flatMap((watch) => watch.nodes.map((node) => comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }))));
+    const openPrs = Object.values(prs).filter((pr) => pr.state === 'OPEN' && detailWatchKeys.has(pr.key) && !refreshedKeys.has(pr.key));
+    const behindCounts = openPrs.length === 0 ? new Map<string, number>() : await github.behindCounts(openPrs.map((pr) => ({ repo: pr.repo, number: pr.number, headSha: pr.headRefOid })));
+    const changedPrs = githubPrsWithChangedBehindCounts(openPrs, new Map([...behindCounts].map(([key, count]) => [key.toLowerCase(), count])));
+    prs = applyGithubPrDetails(prs, changedPrs, []);
+    lastBehindPolledAt = tickStartedAt;
+    return changedPrs;
   }
 
   async function pollNotifications(tickStartedAt: number): Promise<void> {
@@ -190,32 +224,42 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     for (const key of notifications.prKeys) requestRefresh(key);
   }
 
-  function tick(): Promise<TickOutcome> {
+  function tick(watchNames?: readonly string[]): Promise<TickOutcome> {
     return exclusive(async () => {
       const tickStartedAt = now();
-      if (shouldSkipTick({ now: tickStartedAt, backoffUntil })) return { failed: false };
+      if (shouldSkipTick({ now: tickStartedAt, backoffUntil })) return { failed: watchNames !== undefined, retryAfterMs: backoffUntil - tickStartedAt };
       const previousError = pollingError;
       let details: GithubPr[] = [];
       let removedKeys: string[] = [];
+      let hasWatchChanges = false;
+      let behindChangedPrs: GithubPr[] = [];
       try {
-        const isLightDue = isGithubStorePollDue(lastLightPolledAt, tickStartedAt, githubStoreLightIntervalMs(isDashboardConnected()));
-        const isNotificationsDue = !isNotificationsDisabled && isGithubStorePollDue(lastNotificationsPolledAt, tickStartedAt, notificationsIntervalMs);
-        if (!isLightDue && !isNotificationsDue) return { failed: false };
+        const isLightDue = watchNames !== undefined || isGithubStorePollDue(lastLightPolledAt, tickStartedAt, githubStoreLightIntervalMs(isDashboardConnected()));
+        const isNotificationsDue = watchNames === undefined && !isNotificationsDisabled && isGithubStorePollDue(lastNotificationsPolledAt, tickStartedAt, notificationsIntervalMs);
+        const isBehindDue = watchNames === undefined && isGithubStorePollDue(lastBehindPolledAt, tickStartedAt, GITHUB_STORE_BEHIND_INTERVAL_MS);
+        if (!isLightDue && !isNotificationsDue && !isBehindDue) return { failed: false };
         const rateLimitWaitMs = await github.rateLimitWaitMs(now(), RATE_LIMIT_RESOURCES);
         if (rateLimitWaitMs !== null && rateLimitWaitMs > 0) {
           backoffUntil = now() + rateLimitWaitMs;
           return { failed: true, retryAfterMs: rateLimitWaitMs };
         }
-        if (isLightDue) ({ details, removedKeys } = await pollLight(tickStartedAt));
+        if (isLightDue) ({ details, removedKeys, hasWatchChanges } = await pollLight(tickStartedAt, watchNames ? new Set(watchNames) : undefined));
+        if (isBehindDue) behindChangedPrs = await pollBehindCounts(tickStartedAt, new Set(details.map((pr) => pr.key)));
         if (isNotificationsDue) await pollNotifications(tickStartedAt);
         recordSuccess();
         return { failed: false };
       } catch (error: unknown) {
         return recordFailure(error);
       } finally {
-        publishChanges(details, removedKeys, previousError);
+        publishChanges([...details, ...behindChangedPrs], removedKeys, previousError, hasWatchChanges);
       }
     });
+  }
+
+  async function refreshWatches(names: readonly string[]): Promise<GithubPollingRefreshResult> {
+    const outcome = await tick(names);
+    if (outcome.failed) return { ok: false, error: pollingError ?? 'GitHub rate limit asks to wait before refreshing.' };
+    return { ok: true };
   }
 
   async function readWaitMs(): Promise<number> {
@@ -298,7 +342,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   }
 
   return {
-    events, registerWatch, unregisterWatch, setWatchedKeys, tick, requestRefresh, getSnapshot,
+    events, registerWatch, unregisterWatch, setWatchedKeys, tick, requestRefresh, refreshWatches, getSnapshot,
     requestPrView, requestPrDiff, requestCompare,
     requestPrHead: (repo: string, number: number) => requestRead(() => github.prHead(repo, number), null),
     requestReviewThreads: (repo: string, number: number) => requestRead(() => github.reviewThreads(repo, number), []),

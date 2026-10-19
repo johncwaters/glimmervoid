@@ -38,6 +38,7 @@ function storeHarness(ghCallDurationMs = 0) {
   let isDashboardConnected = true;
   let isExclusive = false;
   let nodes = [detailNode(1), detailNode(2)];
+  let behindBy = 2;
   let notificationResponse: Awaited<ReturnType<PrGh['notificationsSince']>> = { kind: 'unchanged' };
   const queue = createSerialQueue();
   const timers = manualTimers();
@@ -64,7 +65,7 @@ function storeHarness(ghCallDurationMs = 0) {
     async behindCounts(references) {
       assert.equal(isExclusive, true);
       behindCalls.push(references.map(comparablePrKey));
-      return new Map(references.map((reference) => [`Acme/app#${reference.number}`, 2]));
+      return new Map(references.map((reference) => [`Acme/app#${reference.number}`, behindBy]));
     },
     async reviewThreadsBatch(references) {
       assert.equal(isExclusive, true);
@@ -118,6 +119,7 @@ function storeHarness(ghCallDurationMs = 0) {
     advance: (milliseconds: number) => { timestamp += milliseconds; },
     setConnected: (connected: boolean) => { isDashboardConnected = connected; },
     setNodes: (nextNodes: GithubPrDetailNode[]) => { nodes = nextNodes; },
+    setBehindBy: (count: number) => { behindBy = count; },
     setNotifications: (response: Awaited<ReturnType<PrGh['notificationsSince']>>) => { notificationResponse = response; },
     cleanup: () => { for (const timer of timers.pending) timers.clearTimeoutFn(timer.handle); },
   };
@@ -166,11 +168,43 @@ test('a rollup change without an updatedAt change fetches only that PR and emits
   await poller.tick();
   assert.equal(harness.searches.length, 6);
   assert.equal(harness.detailCalls.length, 2);
+  harness.setNodes([detailNode(1), detailNode(2)]);
+  const searchCountBeforeRefresh = harness.searches.length;
+  assert.deepEqual(await poller.refreshWatches(['my-prs']), { ok: true });
+  assert.deepEqual(harness.searches.slice(searchCountBeforeRefresh), ['author:@me']);
+  assert.equal(poller.getSnapshot().prs['acme/app#1'].checks.state, 'PENDING');
+  assert.deepEqual(poller.getSnapshot().watches['my-prs'].keys, ['acme/app#1', 'acme/app#2']);
   poller.unregisterWatch('my-prs');
   poller.unregisterWatch('workflow');
   poller.setWatchedKeys('session', []);
   await poller.tick();
   assert.deepEqual(poller.getSnapshot().prs, {});
+});
+
+test('a base branch moving with no light change refreshes behind counts every five minutes without refetching details', async (context) => {
+  const harness = storeHarness();
+  context.after(harness.cleanup);
+  const { poller } = harness;
+  const changedKeys: string[] = [];
+  let snapshotCount = 0;
+  poller.events.on('change', (key) => { changedKeys.push(key); });
+  poller.events.on('snapshot-changed', () => { snapshotCount += 1; });
+  poller.registerWatch({ name: 'my-prs', qualifiers: 'author:@me', needsDetail: true });
+  await poller.tick();
+  assert.equal(harness.behindCalls.length, 1);
+  changedKeys.length = 0;
+  snapshotCount = 0;
+  harness.setBehindBy(5);
+  harness.advance(299_999);
+  await poller.tick();
+  assert.equal(harness.behindCalls.length, 1);
+  harness.advance(1);
+  await poller.tick();
+  assert.equal(harness.detailCalls.length, 1);
+  assert.deepEqual(harness.behindCalls.at(-1), ['acme/app#1', 'acme/app#2']);
+  assert.deepEqual(changedKeys, ['acme/app#1', 'acme/app#2']);
+  assert.equal(snapshotCount, 1);
+  assert.equal(poller.getSnapshot().prs['acme/app#1'].behindBy, 5);
 });
 
 test('forbidden notifications disable once while light polling continues and 304 preserves health and poll spacing', async (context) => {

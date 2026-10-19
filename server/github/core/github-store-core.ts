@@ -17,7 +17,7 @@ export function normalizeGithubPr(node: GithubPrDetailNode, behindBy: number | n
     headRefName: myPr.headRefName, headRefOid: myPr.headRefOid,
     isCrossRepository: myPr.isCrossRepository, isInMergeQueue: myPr.isInMergeQueue,
     mergeMethod: myPr.mergeMethod, mergeable: myPr.mergeable, mergeStateStatus: myPr.mergeStateStatus,
-    reviewDecision: node.reviewDecision, checks: myPr.checks,
+    reviewDecision: node.reviewDecision, checks: myPr.checks, rollupState: node.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null,
     unresolvedThreads: myPr.unresolvedThreads, threads: myPr.threads, behindBy: myPr.behindBy,
     reviewRequests: myPr.reviewRequests, approvals: myPr.approvals, reviews: myPr.reviews,
   };
@@ -69,6 +69,16 @@ export function notificationSubjectPrKey(subjectUrl: string): string | null {
 }
 
 const GITHUB_STORE_CACHE_CAP = 128;
+
+export const GITHUB_STORE_BEHIND_INTERVAL_MS = 300_000;
+
+export function githubPrsWithChangedBehindCounts(prs: readonly GithubPr[], behindCountsByKey: ReadonlyMap<string, number>): GithubPr[] {
+  return prs.flatMap((pr) => {
+    const behindBy = behindCountsByKey.get(pr.key);
+    if (behindBy === undefined || behindBy === pr.behindBy) return [];
+    return [{ ...pr, behindBy }];
+  });
+}
 
 export function githubStoreLightIntervalMs(isDashboardConnected: boolean): number {
   return isDashboardConnected ? 60_000 : 300_000;

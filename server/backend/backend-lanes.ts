@@ -183,7 +183,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const sessionPrLink = createSessionPrLinkWiring({ git: gitWorkspace, log: logger });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
-    config, github, log: logger, clock: githubClock,
+    config, github, store: githubStore.laneStore, log: logger, clock: githubClock,
     broadcast: (status) => {
       broadcastControl(status);
       void sessionPrLink.onMyPrsStatus(status);
