@@ -262,6 +262,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'toggle', keywords: ['experimental', 'transcript', 'chat', 'codex', 'claude'], defaultValue: false, ...MACHINE_NOW,
       },
       {
+        id: 'zen-view', path: 'zenView', title: 'Zen view (experimental)',
+        description: 'Add a Zen tab that shows no terminal until a session needs you, then shows only that session and what it needs.',
+        control: 'toggle', keywords: ['experimental', 'calm', 'focus', 'attention', 'needs you'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
         id: 'streamer-mode', path: 'streamerMode', title: 'Streamer mode',
         description: 'Hide sensitive details in the dashboard while screen sharing or streaming.',
         control: 'toggle', keywords: ['streaming', 'screen share', 'privacy'], defaultValue: false, ...MACHINE_NOW,

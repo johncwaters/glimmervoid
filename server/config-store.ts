@@ -38,6 +38,7 @@ const DEFAULT_CONFIG = {
   debugMode: false,
   conversationView: false,
   streamerMode: false,
+  zenView: false,
 
   detectBackgroundAgents: true,
 
@@ -516,6 +517,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       debugMode: config.debugMode ?? effectiveDefaults.debugMode,
       conversationView: config.conversationView ?? effectiveDefaults.conversationView,
       streamerMode: config.streamerMode ?? effectiveDefaults.streamerMode,
+      zenView: config.zenView ?? effectiveDefaults.zenView,
       detectBackgroundAgents: config.detectBackgroundAgents ?? effectiveDefaults.detectBackgroundAgents,
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,
       trace: pickBlock('trace', { ...DEFAULT_CONFIG.trace, ...config.trace }),
