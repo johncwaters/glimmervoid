@@ -29,7 +29,7 @@ test('a stylesheet without the flying animals block is refused', () => {
 const SITE_VISUAL_TOKENS = [
   '--bg', '--bg-card', '--bg-header', '--bg-surface', '--border', '--border-dim',
   '--text', '--text-dim', '--text-head', '--accent', '--accent-dim',
-  '--state-running', '--state-waiting', '--state-failed', '--state-complete', '--state-starting',
+  '--state-running', '--state-waiting', '--state-failed', '--state-complete', '--state-starting', '--state-idle',
 ];
 
 test('the dashboard stylesheet still yields its root token block with every token the site uses', () => {

@@ -249,8 +249,9 @@ body {
 }
 
 .aggregate-glyph {
-  font-size: 11px;
-  line-height: 1;
+  display: inline-grid;
+  width: 11px;
+  height: 11px;
   flex-shrink: 0;
 }
 
@@ -454,21 +455,16 @@ body {
   border-color: color-mix(in oklab, var(--accent) 20%, transparent);
 }
 
-.session-card[data-state="STARTING"] {
+.session-card:is([data-state="STARTING"], [data-state="INITIALIZING"]) {
   border-color: color-mix(in oklab, var(--state-starting) 20%, transparent);
 }
 
-.session-card[data-state="IDLE"] {
+.session-card:is([data-state="IDLE"], [data-state="COMPLETE"]) {
   border-color: color-mix(in oklab, var(--state-idle) 15%, transparent);
 }
 
 .session-card[data-state="DORMANT"] {
   border-color: color-mix(in oklab, var(--state-dormant) 30%, transparent);
-}
-
-.session-card[data-state="COMPLETE"] {
-  border-color: color-mix(in oklab, var(--state-complete) 30%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--state-complete) 15%, transparent), 0 0 16px color-mix(in oklab, var(--state-complete) 8%, transparent);
 }
 
 @keyframes waiting-pulse {
@@ -1895,7 +1891,7 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   color: var(--st, var(--text-dim));
 }
 
-.status-legend-glyph { font-size: 12px; line-height: 1; }
+.status-legend-glyph { display: inline-grid; width: 12px; height: 12px; }
 
 .status-legend-name {
   font-size: 10px;
@@ -3767,15 +3763,16 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .my-pr-session
 .issues-row-labels { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
 .issues-why { color: var(--accent); font-weight: 700; }
 .issues-row-pr { color: var(--text-head); }
-.issues-state { color: var(--issue-state-color, var(--text-muted)); font-weight: 700; }
+.issues-state { display: inline-flex; align-items: center; gap: 6px; color: var(--issue-state-color, var(--text-muted)); font-weight: 700; }
+.issues-state-icon { display: inline-grid; width: 11px; height: 11px; flex: 0 0 auto; }
 .issues-state[data-state="RUNNING"] { --issue-state-color: var(--state-running); }
 .issues-state[data-state="WAITING"] { --issue-state-color: var(--state-waiting); }
 .issues-state[data-state="IDLE"] { --issue-state-color: var(--state-idle); }
-.issues-state[data-state="COMPLETE"] { --issue-state-color: var(--state-complete); }
+.issues-state[data-state="COMPLETE"] { --issue-state-color: var(--state-idle); }
 .issues-state[data-state="FAILED"] { --issue-state-color: var(--state-failed); }
 .issues-state[data-state="DONE"] { --issue-state-color: var(--state-done); }
 .issues-state[data-state="STARTING"] { --issue-state-color: var(--state-starting); }
-.issues-state[data-state="INITIALIZING"] { --issue-state-color: var(--state-initializing); }
+.issues-state[data-state="INITIALIZING"] { --issue-state-color: var(--state-starting); }
 .issues-content .pr-queue-glyph { width: 16px; height: 16px; font-size: 11px; }
 .issues-content .pr-queue-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; padding: 8px 10px 8px 14px; }
 .issues-sync { flex: 1 1 160px; color: var(--text-muted); font-size: 11px; }
@@ -6459,7 +6456,16 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.session-row-glyph { flex: 0 0 12px; text-align: center; font-size: 12px; line-height: 1; color: var(--st, var(--text-muted)); }
+.session-row-glyph { flex: 0 0 12px; display: grid; place-items: center; width: 12px; height: 12px; color: var(--st, var(--text-muted)); }
+.status-icon { display: block; width: 100%; height: 100%; overflow: visible; }
+.status-icon-spin, .status-icon-ping { transform-box: view-box; transform-origin: 8px 8px; }
+.status-icon-ping { opacity: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .status-icon-spin { animation: status-icon-spin 1s linear infinite; }
+  .status-icon-ping { animation: status-icon-ping 1.6s ease-out infinite; }
+}
+@keyframes status-icon-spin { to { transform: rotate(360deg); } }
+@keyframes status-icon-ping { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(1.9); opacity: 0; } }
 .session-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .session-row-name {
   font-size: 12px;
@@ -6552,24 +6558,14 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="DONE"] { --st: var(--state-done); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="IDLE"] { --st: var(--state-idle); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="STARTING"] { --st: var(--state-starting); }
-:is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="COMPLETE"] { --st: var(--state-complete); }
-:is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="INITIALIZING"] { --st: var(--state-initializing); }
+:is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="COMPLETE"] { --st: var(--state-idle); }
+:is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="INITIALIZING"] { --st: var(--state-starting); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="DORMANT"] { --st: var(--text-muted); }
 .session-row[data-merge="parked"] { --st: var(--state-failed); }
-.session-row:is([data-state="WAITING"], [data-state="FAILED"], [data-state="COMPLETE"], [data-merge="parked"]) {
+.session-row:is([data-state="WAITING"], [data-state="FAILED"], [data-merge="parked"]) {
   --tint: color-mix(in oklch, var(--st) 12%, transparent);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .session-row[data-state="COMPLETE"]::before {
-    animation: complete-flash 1.2s cubic-bezier(0.22, 1, 0.36, 1) 1;
-  }
-}
-@keyframes complete-flash {
-  0%   { box-shadow: inset 0 0 0 0 transparent; }
-  30%  { box-shadow: inset 0 0 0 3px color-mix(in oklch, var(--st) 42%, transparent); }
-  100% { box-shadow: inset 0 0 0 0 transparent; }
-}
 
 .focus-center {
   flex: 1 1 auto;

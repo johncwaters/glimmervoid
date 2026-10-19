@@ -10,7 +10,8 @@ TypeScript ESM modules used by BOTH the server and the browser bundle. Single so
 
 | File | Description |
 |------|-------------|
-| `states.ts` | Session states: DORMANT, INITIALIZING, STARTING, RUNNING, WAITING, IDLE, COMPLETE, DONE, FAILED; plus BADGE_LABELS, STATE_GLYPHS, and the KILLABLE / RESTARTABLE / MERGEABLE_LIVE state sets |
+| `state-icons.ts` | The status icon each state shows and its SVG shapes, shared by the dashboard and the site |
+| `states.ts` | Session states: DORMANT, INITIALIZING, STARTING, RUNNING, WAITING, IDLE, COMPLETE, DONE, FAILED; plus BADGE_LABELS and the KILLABLE / RESTARTABLE / MERGEABLE_LIVE state sets |
 | `notification-states.ts` | Notification lifecycle states (IDLE, PENDING, DELIVERED, ...) for `notification-manager.ts`, table-driven like the session machine |
 | `paths.ts` | Pure path helpers, safe for cores: `safePathSegment` (the Windows-legal single path segment a session id or name is sanitized into) |
 | `session-naming.ts` | Pure auto-name rules shared by the dashboard and the task title refiner: `nextSuggestedName`, `countAutoNames`, `isAutoNameOf` |

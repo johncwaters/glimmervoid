@@ -14,29 +14,15 @@ export type SessionState = (typeof STATES)[keyof typeof STATES];
 
 export const BADGE_LABELS: Readonly<Record<SessionState, string>> = Object.freeze({
   [STATES.DORMANT]:      'Dormant',
-  [STATES.INITIALIZING]: 'Preparing',
+  [STATES.INITIALIZING]: 'Starting',
   [STATES.STARTING]:     'Starting',
   [STATES.RUNNING]:      'Working',
   [STATES.WAITING]:      'Needs Input',
   [STATES.IDLE]:         'Idle',
-  [STATES.COMPLETE]:     'Complete',
+  [STATES.COMPLETE]:     'Idle',
   [STATES.DONE]:         'Exited',
   [STATES.FAILED]:       'Failed',
 });
-
-export const STATE_GLYPHS: Readonly<Record<SessionState, string>> = Object.freeze({
-  [STATES.DORMANT]:      '\u23fe',
-  [STATES.INITIALIZING]: '\u22ef',
-  [STATES.STARTING]:     '\u23fb',
-  [STATES.RUNNING]:      '\u25cf',
-  [STATES.WAITING]:      '\u25c6',
-  [STATES.IDLE]:         '\u279c',
-  [STATES.FAILED]:       '\u25b2',
-  [STATES.DONE]:         '\u25a0',
-  [STATES.COMPLETE]:     '\u2713',
-});
-
-export const MONITORING_GLYPH = '\u224b';
 
 export const KILLABLE_STATES: readonly SessionState[] = Object.freeze([
   STATES.INITIALIZING,

@@ -52,6 +52,10 @@
     {
       "name": "operator config",
       "definition": "Glimmervoid's own settings file, config.json under the operator's glimmervoid home, whose shape is the config schema in shared/contracts/config.ts"
+    },
+    {
+      "name": "monitoring",
+      "definition": "The status the dashboard shows for a working session whose turn has ended while its background tasks or sub-agents are still running"
     }
   ]
 }

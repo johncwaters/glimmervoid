@@ -5,6 +5,7 @@ import { STATES } from '#shared/states.ts';
 import { nextRequestId } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink, isPanelHidden, stateChip } from '../dom-helpers.ts';
+import { paintStatusIcon } from '../status-icon.ts';
 import { createGithubPollingControls } from './my-prs-panel.ts';
 import { createPrQueueFoot, createPrQueueHead } from './pr-queue-columns.ts';
 import { issuePullRequestState, filterIssues, groupIssuesByRepo, issueFilterOptions, issueFilterSummary, issueAgo, issueRelativeAge, issueScopeCounts, issuesPlaceholder } from './issues-view-core.ts';
@@ -65,12 +66,16 @@ function syncIssueState(glyph: HTMLElement, issue: IssueRow, hasLabel: boolean):
   const state = session?.currentState ?? STATES.DORMANT;
   const chip = stateChip(state, session?.awaitingBackgroundTasks);
   const title = session ? `Session: ${chip.label}` : 'No session yet';
-  const text = hasLabel ? `${chip.glyph} ${chip.label}` : chip.glyph;
-  if (glyph.dataset.state === state && glyph.title === title && glyph.textContent === text) return;
+  const text = hasLabel ? chip.label : '';
+  if (glyph.dataset.state === state && glyph.title === title && glyph.dataset.icon === chip.icon && glyph.textContent === text) return;
   glyph.dataset.state = state;
+  glyph.dataset.icon = chip.icon;
   glyph.title = title;
   glyph.setAttribute('aria-label', title);
-  glyph.textContent = text;
+  const icon = el('span', 'issues-state-icon');
+  paintStatusIcon(icon, chip.icon);
+  glyph.replaceChildren(icon);
+  if (hasLabel) glyph.append(text);
 }
 
 function createIssueState(issue: IssueRow, hasLabel = false): HTMLElement {

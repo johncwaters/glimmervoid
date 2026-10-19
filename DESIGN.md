@@ -222,7 +222,7 @@ Every interactive element ships default, hover, focus-visible, active, and disab
 - **Primary view tabs:** mono 13px, 0.04em tracking, Muted Lavender at rest to Bright Lavender White when selected. The active tab draws a 2px orchid underline that animates in via `transform: scaleX` (ease-out-quart), never a layout shift. An optional activity dot shows steady orchid when a tab has something new; it never pulses, because a tab dot that animates for minutes reads as noise.
 
 ### State Badge (signature)
-- Uppercase mono, 11px, 700, 0.08em tracking, colored by `data-state` and always preceded by a state glyph. The glyph plus the color plus the shape make state legible without relying on hue, satisfying the color-blind commitment. STARTING pulses.
+- Uppercase mono, 11px, 700, 0.08em tracking, colored by `data-state` and always preceded by a state icon. The icon plus the color plus the shape make state legible without relying on hue, satisfying the color-blind commitment. Starting spins and Working pulses.
 
 ### Terminal Pane (signature, the product)
 - An xterm.js surface filling each card on the Ink Violet background. The server is a dumb pipe; xterm renders all ANSI. The terminal theme is derived from the active CSS-variable palette at runtime, so it stays in lockstep with the chrome. Chrome around it must never compete with it for contrast or color.

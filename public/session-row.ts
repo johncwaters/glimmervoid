@@ -1,4 +1,5 @@
 import { el, query, stateChip } from './dom-helpers.ts';
+import { paintStatusIcon } from './status-icon.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionElapsedText } from './session-card/session-tick.ts';
 import { SIGNAL_TIER } from './signal-core.ts';
@@ -85,10 +86,10 @@ export function paintSessionRowStatus(
 ) {
   row.dataset.state = state;
   row.dataset.prompt = pendingPromptKind ?? '';
-  const { glyph, label, isMonitoring } = stateChip(state, awaitingBackgroundTasks);
+  const { icon, label, isMonitoring } = stateChip(state, awaitingBackgroundTasks);
   const statusLabel = pendingPromptKind === PLAN_PROMPT_KIND ? 'Plan ready' : label;
   row.toggleAttribute('data-monitoring', isMonitoring);
-  refs.glyph.textContent = glyph;
+  paintStatusIcon(refs.glyph, icon);
   refs.label.textContent = statusLabel;
   return statusLabel;
 }

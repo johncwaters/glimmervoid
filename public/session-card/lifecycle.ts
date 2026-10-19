@@ -6,11 +6,14 @@ import type { ConversationApproval } from '#shared/contracts/session.ts';
 import { isConversationAgent } from '../conversation/conversation-core.ts';
 import { createConversationFace } from '../conversation/conversation-face.ts';
 import type { SessionState } from '#shared/states.ts';
-import { KILLABLE_STATES, RESTARTABLE_STATES, STATE_GLYPHS, STATES } from '#shared/states.ts';
+import type { StatusIcon } from '#shared/state-icons.ts';
+import { STATE_ICONS } from '#shared/state-icons.ts';
+import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
 import { playAlertSound } from '../alert-sound.ts';
 import { hasSessionDocs, openDocEditor } from '../doc-editor.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el, isMonitoringState } from '../dom-helpers.ts';
+import { paintStatusIcon } from '../status-icon.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { setHealthMonitorDebugMode } from '../health-monitor.ts';
 import { createPlanFace, dropPlanBodyCache } from '../plan/plan-face.ts';
@@ -57,11 +60,11 @@ import { currentTerminalFontFamily } from '../mono-font.ts';
 import { applyTerminalFontFamily } from '../mono-font-core.ts';
 import { focusAdjacentMenuItem, isMenuArrowKey } from '../menu.ts';
 
-const AGGREGATE_GLYPHS: Record<string, string> = {
-  critical: STATE_GLYPHS[STATES.FAILED],
-  warning:  STATE_GLYPHS[STATES.WAITING],
-  done:     STATE_GLYPHS[STATES.DONE],
-  '':       STATE_GLYPHS[STATES.DORMANT],
+const AGGREGATE_ICONS: Record<string, StatusIcon> = {
+  critical: STATE_ICONS[STATES.FAILED],
+  warning:  STATE_ICONS[STATES.WAITING],
+  done:     STATE_ICONS[STATES.DONE],
+  '':       STATE_ICONS[STATES.DORMANT],
 };
 
 let _lastAggregateText: string | null = null;
@@ -364,8 +367,9 @@ export function updateAggregateStatus() {
     aggregateEl.textContent = '';
     aggregateEl.title = text;
     if (text) {
-      const glyph = el('span', 'aggregate-glyph', AGGREGATE_GLYPHS[severity] ?? AGGREGATE_GLYPHS['']);
+      const glyph = el('span', 'aggregate-glyph');
       glyph.setAttribute('aria-hidden', 'true');
+      paintStatusIcon(glyph, AGGREGATE_ICONS[severity] ?? AGGREGATE_ICONS['']);
       aggregateEl.append(glyph, el('span', 'aggregate-text', text));
     }
   }

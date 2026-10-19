@@ -3,7 +3,7 @@ import type { Page } from 'playwright-core';
 import { IssuesStatus } from '../../shared/contracts/issues.ts';
 import type { IssueRow } from '../../shared/contracts/issues.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
-import { STATE_GLYPHS } from '../../shared/states.ts';
+import { STATE_ICONS } from '../../shared/state-icons.ts';
 import type { Layout } from './cases-core.ts';
 
 type CapturedRequest = { type: string; requestId: string; repo: string; issueNumber: number };
@@ -87,9 +87,9 @@ export async function verifyIssues(page: Page, layout: Layout, sessionId: string
   assert.equal(await panel.getByRole('tab', { name: 'All', exact: true }).textContent(), 'All');
   assert.equal(await panel.locator('[data-scope-count="all"]').textContent(), '3');
   assert.equal(await unassignedRow.locator('.issues-state').getAttribute('title'), 'No session yet');
-  assert.equal(await unassignedRow.locator('.issues-state').textContent(), STATE_GLYPHS.DORMANT);
+  assert.equal(await unassignedRow.locator('.issues-state').getAttribute('data-icon'), STATE_ICONS.DORMANT);
   await emitStateChange(page, sessionId, 'RUNNING');
-  assert.equal(await linkedRow.locator('.issues-state').textContent(), STATE_GLYPHS.RUNNING);
+  assert.equal(await linkedRow.locator('.issues-state').getAttribute('data-icon'), STATE_ICONS.RUNNING);
   await panel.getByRole('tab', { name: 'Mine', exact: true }).click();
   assert.equal(await panel.locator('.issue-row').count(), 1);
   await panel.getByRole('tab', { name: 'Team', exact: true }).click();
@@ -135,7 +135,7 @@ export async function verifyIssues(page: Page, layout: Layout, sessionId: string
   await githubLink.focus();
   await emitStateChange(page, sessionId, 'WAITING');
   assert.equal(await githubLink.evaluate((element) => element === document.activeElement), true);
-  assert.equal(await linkedRow.locator('.issues-state').textContent(), STATE_GLYPHS.WAITING);
+  assert.equal(await linkedRow.locator('.issues-state').getAttribute('data-icon'), STATE_ICONS.WAITING);
   assert.match(await panel.locator('.issues-facts .issues-state').textContent() ?? '', /NEEDS INPUT/);
   for (const selector of ['.pr-queue-title', '.issues-row-labels', '.issue-body', '.pr-detail-title h2']) {
     assert.ok(await panel.locator(selector).first().evaluate((element) => element.scrollWidth <= element.clientWidth), selector);

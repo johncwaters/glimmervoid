@@ -1,5 +1,6 @@
 import type { SessionState } from '#shared/states.ts';
-import { BADGE_LABELS, MONITORING_GLYPH, STATE_GLYPHS, STATES } from '#shared/states.ts';
+import { MONITORING_ICON, STATE_ICONS } from '#shared/state-icons.ts';
+import { BADGE_LABELS, STATES } from '#shared/states.ts';
 import { avatarUrlForLogin, monogramFor } from './avatar-core.ts';
 import type { StateTone } from './state-tone-core.ts';
 
@@ -102,8 +103,8 @@ export function stateChip(state: string, awaitingBackgroundTasks = false) {
   const knownState = state as SessionState;
   const isMonitoring = isMonitoringState(state, awaitingBackgroundTasks);
   const label = isMonitoring ? 'Monitoring' : BADGE_LABELS[knownState] || state;
-  const glyph = isMonitoring ? MONITORING_GLYPH : STATE_GLYPHS[knownState] || '';
-  return { glyph, label: label.toUpperCase(), isMonitoring };
+  const icon = isMonitoring ? MONITORING_ICON : STATE_ICONS[knownState] ?? STATE_ICONS[STATES.DORMANT];
+  return { icon, label: label.toUpperCase(), isMonitoring };
 }
 
 export function observeHeaderHeight(barEl: HTMLElement | null | undefined) {

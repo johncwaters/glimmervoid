@@ -1,7 +1,8 @@
 ---
-import { BADGE_LABELS, STATE_GLYPHS, STATES } from '../../../shared/states.ts';
+import { STATE_ICONS, STATUS_ICON_SHAPES } from '../../../shared/state-icons.ts';
+import { BADGE_LABELS, STATES } from '../../../shared/states.ts';
 
-const LEGEND_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.FAILED];
+const LEGEND_STATES = [STATES.RUNNING, STATES.WAITING, STATES.IDLE, STATES.FAILED];
 ---
 <section id="signals">
   <div class="section-head reveal">
@@ -52,7 +53,7 @@ const LEGEND_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.F
     </svg>
   </div>
   <div class="legend-row reveal">
-    {LEGEND_STATES.map((state) => <span><b data-state={state}>{STATE_GLYPHS[state]}</b> {BADGE_LABELS[state]}</span>)}
+    {LEGEND_STATES.map((state) => <span><b data-state={state}><svg class="legend-icon" viewBox="0 0 16 16" aria-hidden="true">{STATUS_ICON_SHAPES[STATE_ICONS[state]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg></b> {BADGE_LABELS[state]}</span>)}
     <span>Glyph plus color, readable without color vision.</span>
   </div>
 </section>
@@ -71,12 +72,13 @@ const LEGEND_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.F
   .state-chip text { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; }
   .legend-row { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 18px; font-size: 13px; color: var(--text-dim); }
   .legend-row b { font-weight: 400; }
+  .legend-icon { width: 12px; height: 12px; vertical-align: -1px; }
   .board-row { fill: var(--border); }
   .diagram-compact .node .t { font-size: 14px; }
   .diagram-compact .node .d, .diagram-compact .caption { font-size: 12px; }
   [data-state="RUNNING"] { color: var(--state-running); fill: var(--state-running); }
   [data-state="WAITING"] { color: var(--state-waiting); fill: var(--state-waiting); }
-  [data-state="COMPLETE"] { color: var(--state-complete); fill: var(--state-complete); }
+  [data-state="IDLE"] { color: var(--state-idle); fill: var(--state-idle); }
   [data-state="FAILED"] { color: var(--state-failed); fill: var(--state-failed); }
 </style>
 
