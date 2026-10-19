@@ -1,25 +1,20 @@
 import { el, query } from './dom-helpers.ts';
-import { attentionSummaryText } from './focus-view/attention-core.ts';
+import type { AttentionCounts } from './focus-view/attention-core.ts';
+import { attentionSummaryText, hasAnyAttention, jumpTargetCount } from './focus-view/attention-core.ts';
 
-type AttentionCounts = Parameters<typeof attentionSummaryText>[0];
+const NO_ATTENTION: AttentionCounts = { waitingCount: 0, finishedCount: 0, failedCount: 0 };
 
-export function buildAttentionBanner(onActivate: () => void, ...trailing: HTMLElement[]) {
-  const banner = el('button', 'attention-banner');
-  banner.type = 'button';
-  banner.append(el('span', 'attention-banner-count'), ...trailing);
-  banner.addEventListener('click', onActivate);
-  paintAttentionBanner(banner, { waitingCount: 0, finishedCount: 0 });
+export function buildAttentionBanner(jumpAffordance: HTMLElement) {
+  const banner = el('div', 'attention-banner');
+  banner.setAttribute('role', 'status');
+  jumpAffordance.classList.add('attention-banner-jump');
+  banner.append(el('span', 'attention-banner-count'), jumpAffordance);
+  paintAttentionBanner(banner, NO_ATTENTION);
   return banner;
 }
 
-export function paintAttentionBanner(banner: HTMLButtonElement, counts: AttentionCounts) {
-  const hasAttention = counts.waitingCount + counts.finishedCount > 0;
+export function paintAttentionBanner(banner: HTMLElement, counts: AttentionCounts) {
   query(banner, '.attention-banner-count').textContent = attentionSummaryText(counts);
-  banner.disabled = !hasAttention;
-  banner.toggleAttribute('data-empty', !hasAttention);
-  if (hasAttention) {
-    banner.removeAttribute('aria-hidden');
-    return;
-  }
-  banner.setAttribute('aria-hidden', 'true');
+  banner.toggleAttribute('data-empty', !hasAnyAttention(counts));
+  banner.toggleAttribute('data-jumpable', jumpTargetCount(counts) > 0);
 }

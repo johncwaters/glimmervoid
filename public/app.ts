@@ -19,7 +19,7 @@ import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
 import type { FeatureSurfaceSettings } from './feature-surfaces-core.ts';
 import { refreshFavicon } from './favicon.ts';
-import { centerSessionQuietly, focusAdjacentInRail, focusNextAttention, focusNthInRail, getFocusedSessionId, isFocusActive, openPlanInFocus, refreshFocusRoster, restoreFocusedSession, setFocusMergeStatus } from './focus-view/focus-view.ts';
+import { activateFocusOnNextAttention, centerSessionQuietly, focusAdjacentInRail, focusNextAttention, focusNthInRail, getFocusedSessionId, isFocusActive, openPlanInFocus, refreshFocusRoster, restoreFocusedSession, setFocusMergeStatus } from './focus-view/focus-view.ts';
 import { initFormFactor, isPhoneLayout, onLayoutChange } from './form-factor.ts';
 import type { HealthSnapshot } from './health-monitor.ts';
 import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
@@ -993,8 +993,12 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
       document.getElementById('btn-add-session-header')?.click();
       return true;
     case 'next-attention':
-      if (!isFocusActive()) return false;
-      focusNextAttention();
+      if (isPhoneLayout()) return false;
+      if (isFocusActive()) {
+        focusNextAttention();
+        return true;
+      }
+      activateFocusOnNextAttention(() => activateView('focus'));
       return true;
     case 'rail-step':
       if (!isFocusActive()) return false;

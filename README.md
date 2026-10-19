@@ -76,7 +76,7 @@ Declare another agent under `customAgents` in `config.json` with an `id`, `label
 
 ## Features
 
-- **Focus view.** A rail of every session on the left, the selected session's live terminal in the middle, its changes on the right.
+- **Focus view.** A rail of every session on the left, the selected session's live terminal in the middle, its changes on the right. The top of the rail counts what needs you, and `Cmd/Alt+J` jumps straight to the next one from any tab.
 - **A worktree per agent.** Every session in a git repo gets its own worktree, so agents never step on your checkout or each other. Review the diff and merge with one click while the agent keeps working. A conflicted merge parks, and **Resolve in session** hands it back to the agent that wrote it.
 - **Exact status.** Hooks report every state change and the terminal title fills the gaps. The screen is never scraped ([how](#how-status-detection-works)).
 - **Notifications.** Browser notifications when a session needs input, finishes or fails, with your own alert sounds if you like (drop `.ogg`, `.mp3`, `.wav`, `.m4a` or `.webm` files into `~/.glimmervoid/sounds/`). Telegram covers you when no dashboard is open.

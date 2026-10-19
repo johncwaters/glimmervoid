@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { attentionRank, attentionSummaryText, countAttentionByKind, needsAttention, orderAttentionQueue, orderRoster, pickAdjacent, pickNextAttention, pickStrongestAttention } from '../public/focus-view/attention-core.ts';
+import { attentionRank, attentionSummaryText, countAttentionByKind, headerAttentionState, needsAttention, orderAttentionQueue, orderRoster, pickAdjacent, pickNextAttention, pickStrongestAttention, titleAlertCount } from '../public/focus-view/attention-core.ts';
 
 test('orderRoster: non-dormant before dormant, add order within each group', () => {
   const out = orderRoster([
@@ -91,25 +91,32 @@ test('needsAttention: no other state qualifies', () => {
   assert.equal(needsAttention(), false);
 });
 
-test('countAttentionByKind: counts exactly the rows needsAttention accepts', () => {
+test('countAttentionByKind: counts the rows needsAttention accepts, plus failed sessions', () => {
   assert.deepEqual(countAttentionByKind([
     attentionRow('a', 'WAITING'),
     attentionRow('b', 'FAILED'),
     attentionRow('c', 'COMPLETE'),
     attentionRow('e', 'RUNNING'),
     attentionRow('f', 'IDLE'),
-  ]), { waitingCount: 1, finishedCount: 1 });
-  const noAttention = { waitingCount: 0, finishedCount: 0 };
+  ]), { waitingCount: 1, finishedCount: 1, failedCount: 1 });
+  const noAttention = { waitingCount: 0, finishedCount: 0, failedCount: 0 };
   assert.deepEqual(countAttentionByKind([attentionRow('a', 'RUNNING'), attentionRow('b', 'DORMANT')]), noAttention);
   assert.deepEqual(countAttentionByKind([]), noAttention);
   assert.deepEqual(countAttentionByKind(undefined), noAttention);
   assert.deepEqual(countAttentionByKind([null, undefined]), noAttention);
+  assert.equal(headerAttentionState(noAttention), null);
+  assert.equal(titleAlertCount(noAttention), 0);
+  assert.equal(headerAttentionState({ waitingCount: 1, finishedCount: 1, failedCount: 1 }), 'WAITING');
+  assert.equal(headerAttentionState({ waitingCount: 0, finishedCount: 1, failedCount: 1 }), 'FAILED');
+  assert.equal(headerAttentionState({ waitingCount: 0, finishedCount: 1, failedCount: 0 }), 'COMPLETE');
+  assert.equal(titleAlertCount({ waitingCount: 2, finishedCount: 5, failedCount: 3 }), 5);
 });
 
 test('attentionSummaryText: resting reads as a sentence, never an empty slot', () => {
-  assert.equal(attentionSummaryText({ waitingCount: 0, finishedCount: 0 }), 'ALL CLEAR');
-  assert.equal(attentionSummaryText({ waitingCount: 1, finishedCount: 0 }), '1 NEEDS YOU');
-  assert.equal(attentionSummaryText({ waitingCount: 4, finishedCount: 0 }), '4 NEED YOU');
+  assert.equal(attentionSummaryText({ waitingCount: 0, finishedCount: 0, failedCount: 0 }), 'ALL CLEAR');
+  assert.equal(attentionSummaryText({ waitingCount: 1, finishedCount: 0, failedCount: 0 }), '1 NEEDS YOU');
+  assert.equal(attentionSummaryText({ waitingCount: 4, finishedCount: 0, failedCount: 0 }), '4 NEED YOU');
+  assert.equal(attentionSummaryText({ waitingCount: 1, finishedCount: 2, failedCount: 1 }), '1 NEEDS YOU, 1 FAILED, 2 FINISHED');
 });
 
 test('orderAttentionQueue: the jump queue puts waiting sessions before finished ones and keeps roster order within each', () => {
@@ -119,9 +126,9 @@ test('orderAttentionQueue: the jump queue puts waiting sessions before finished 
 
 test('attentionSummaryText: a finished session never reads as a session waiting on you', () => {
   const counts = countAttentionByKind([attentionRow('a', 'COMPLETE'), attentionRow('b', 'WAITING'), attentionRow('c', 'COMPLETE')]);
-  assert.deepEqual(counts, { waitingCount: 1, finishedCount: 2 });
+  assert.deepEqual(counts, { waitingCount: 1, finishedCount: 2, failedCount: 0 });
   assert.equal(attentionSummaryText(counts), '1 NEEDS YOU, 2 FINISHED');
-  assert.equal(attentionSummaryText({ waitingCount: 0, finishedCount: 1 }), '1 FINISHED');
+  assert.equal(attentionSummaryText({ waitingCount: 0, finishedCount: 1, failedCount: 0 }), '1 FINISHED');
 });
 
 test('pickStrongestAttention: a raised hand outranks an arrival dot whatever the order', () => {

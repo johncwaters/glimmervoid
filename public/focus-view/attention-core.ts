@@ -86,14 +86,19 @@ export function orderAttentionQueue<Row extends SessionAttentionRow & { id: stri
 
 type AttentionCountRow = SessionAttentionRow | null | undefined;
 
-interface AttentionCounts {
+export interface AttentionCounts {
   waitingCount: number;
   finishedCount: number;
+  failedCount: number;
 }
 
 export function countAttentionByKind(rows: readonly AttentionCountRow[] | null | undefined): AttentionCounts {
-  const counts = { waitingCount: 0, finishedCount: 0 };
+  const counts = { waitingCount: 0, finishedCount: 0, failedCount: 0 };
   for (const row of (rows || [])) {
+    if (row?.state === STATES.FAILED) {
+      counts.failedCount++;
+      continue;
+    }
     if (!needsAttention(row || {})) continue;
     if (row?.state === STATES.COMPLETE) {
       counts.finishedCount++;
@@ -104,10 +109,30 @@ export function countAttentionByKind(rows: readonly AttentionCountRow[] | null |
   return counts;
 }
 
-export function attentionSummaryText({ waitingCount, finishedCount }: AttentionCounts) {
+export function jumpTargetCount({ waitingCount, finishedCount }: AttentionCounts) {
+  return waitingCount + finishedCount;
+}
+
+export function titleAlertCount({ waitingCount, failedCount }: AttentionCounts) {
+  return waitingCount + failedCount;
+}
+
+export function headerAttentionState({ waitingCount, failedCount, finishedCount }: AttentionCounts): SessionState | null {
+  if (waitingCount > 0) return STATES.WAITING;
+  if (failedCount > 0) return STATES.FAILED;
+  if (finishedCount > 0) return STATES.COMPLETE;
+  return null;
+}
+
+export function hasAnyAttention({ waitingCount, finishedCount, failedCount }: AttentionCounts) {
+  return waitingCount + finishedCount + failedCount > 0;
+}
+
+export function attentionSummaryText({ waitingCount, finishedCount, failedCount }: AttentionCounts) {
   const parts: string[] = [];
   if (waitingCount === 1) parts.push('1 NEEDS YOU');
   if (waitingCount > 1) parts.push(`${waitingCount} NEED YOU`);
+  if (failedCount > 0) parts.push(`${failedCount} FAILED`);
   if (finishedCount > 0) parts.push(`${finishedCount} FINISHED`);
   if (parts.length === 0) return 'ALL CLEAR';
   return parts.join(', ');

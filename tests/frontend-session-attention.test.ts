@@ -24,10 +24,10 @@ test('every built-in session state has one attention tier shared by the rail, th
   }
 });
 
-test('FAILED stays out of the shared readout and favicon', () => {
+test('FAILED shows in the readout but stays out of the jump queue and favicon', () => {
   const failed = { id: 'failed', name: 'Failed session', state: STATES.FAILED };
   assert.equal(needsAttention(failed), false);
-  assert.deepEqual(countAttentionByKind([failed]), { waitingCount: 0, finishedCount: 0 });
+  assert.deepEqual(countAttentionByKind([failed]), { waitingCount: 0, finishedCount: 0, failedCount: 1 });
   assert.equal(decideFaviconVariant([failed]), 'idle');
 });
 

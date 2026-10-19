@@ -4,6 +4,8 @@ import { createAddSessionDialog } from '../dialogs.ts';
 import { el } from '../dom-helpers.ts';
 import { createNotificationPermissionControl } from '../notifications.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
+import { buildShortcutKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { shortcutChord } from '../shortcuts-core.ts';
 import { agentSummaryText, decideFirstRunSteps, UPCOMING_STEPS } from './first-run-checklist-core.ts';
 import type { FirstRunStepState, FirstRunSteps } from './first-run-checklist-core.ts';
 import { createRepoRootsAdder } from './repo-roots-adder.ts';
@@ -81,8 +83,11 @@ function firstSessionStepBody(): HTMLElement[] {
   const hint = el('span', 'first-run-step-hint', 'Folders and agents can change later in ');
   hint.append(createSettingsLink('machine-sessions', 'repository-roots', 'Settings > Sessions'), '.');
   actions.append(addSessionButton, hint);
+  const jumpHint = el('p', 'first-run-step-text', 'Run a few at once. When one needs you, ');
+  jumpHint.append(buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)), ' jumps straight to it from any tab.');
   return [
     el('p', 'first-run-step-text', 'Pick a project and an agent. The session runs in its own git worktree, so your checkout is never touched.'),
+    jumpHint,
     actions,
   ];
 }

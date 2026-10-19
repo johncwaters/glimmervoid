@@ -11,8 +11,7 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 | File | Description |
 |------|-------------|
 | `card-registry.ts` | Shared state owner: `sessionUIs` Map + 2 DOM singletons |
-| `lifecycle.ts` | `createSessionCard`, `removeSessionCard`, `applyState`, aggregate status wiring |
-| `aggregate-core.ts` | Pure `computeAggregate` (used by lifecycle) |
+| `lifecycle.ts` | `createSessionCard`, `removeSessionCard`, `applyState`, the header attention glyph over `focus-view/attention-core.ts` counts |
 | `agent-core.ts` | Pure `agentBadgeText(agent)`: which agent adapter id earns a card chip (never the default one) |
 | `card-dom.ts` | Card builder, badge, inline rename, confirm dialog, debug overlay |
 | `terminal.ts` | xterm.js setup, data WebSocket, OSC-52 clipboard, key handling (consults `../shortcuts-core.ts` for which shortcuts bubble), phone soft-keyboard input takeover |
@@ -39,7 +38,7 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 - State is applied via `applyState` + `[data-state]` CSS; do not hand-toggle state classes.
 
 ### Testing Requirements
-- Pure cores tested in `tests/frontend-naming.test.ts`, `frontend-webgl-pool.test.ts`, `frontend-aggregate-status.test.ts`, `frontend-ime-core.test.ts`; terminal/DOM behavior verified via `npm run dev`.
+- Pure cores tested in `tests/frontend-naming.test.ts`, `frontend-webgl-pool.test.ts`, `frontend-ime-core.test.ts`; terminal/DOM behavior verified via `npm run dev`.
 
 ## Dependencies
 

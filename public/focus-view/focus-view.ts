@@ -36,7 +36,7 @@ type GroupList = HTMLDivElement & { _lastOrderKey?: string };
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
 let railEl: HTMLElement | null = null;
-let railHeadEl: HTMLButtonElement | null = null;
+let railHeadEl: HTMLElement | null = null;
 let centerEl: HTMLElement | null = null;
 let cardSlotEl: HTMLElement | null = null;
 let emptyEl: HTMLElement | null = null;
@@ -45,6 +45,7 @@ let emptyDescEl: HTMLElement | null = null;
 
 let active = false;
 let attnCursorId: string | null = null;
+let isAttentionJumpActivating = false;
 const mergeStatusById = new Map<string, string>();
 const pillById = new Map<string, FocusPill>();
 
@@ -112,7 +113,7 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   mountedRail.removeAttribute('aria-label');
   mountedRail.setAttribute('aria-keyshortcuts', railAriaKeyShortcuts(SHORTCUT_PLATFORM));
 
-  railHeadEl = buildAttentionBanner(focusNextAttention, buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)));
+  railHeadEl = buildAttentionBanner(buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)));
 
   const statusKey = el('details', 'rail-status-key');
   statusKey.append(el('summary', 'rail-status-key-summary', 'Status key'), renderStatusLegend());
@@ -441,7 +442,20 @@ export function activateFocusView() {
   releaseCenter();
   railTabStopId = null;
   refreshFocusRoster();
+  if (isAttentionJumpActivating && attentionIds().length > 0) {
+    focusNextAttention();
+    return;
+  }
   restoreFocusedSession();
+}
+
+export function activateFocusOnNextAttention(activateFocus: () => void) {
+  isAttentionJumpActivating = true;
+  try {
+    activateFocus();
+  } finally {
+    isAttentionJumpActivating = false;
+  }
 }
 
 export function restoreFocusedSession() {
