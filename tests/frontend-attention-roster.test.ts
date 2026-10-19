@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { attentionRank, attentionSummaryText, countAttentionByKind, needsAttention, orderAttentionQueue, orderRoster, pickAdjacent, pickNextAttention, pickStrongestAttention } from '../public/focus-view/attention-core.ts';
 
-test('orderRoster: non-dormant before dormant, alphabetical within each group', () => {
+test('orderRoster: non-dormant before dormant, add order within each group', () => {
   const out = orderRoster([
     { id: '1', name: 'zebra', isDormant: false },
     { id: '2', name: 'alpha', isDormant: true },
@@ -11,27 +11,7 @@ test('orderRoster: non-dormant before dormant, alphabetical within each group', 
     { id: '4', name: 'bravo', isDormant: true },
   ]).map((s) => s.id);
 
-  assert.deepEqual(out, ['3', '1', '2', '4']);
-});
-
-test('orderRoster: numeric, case-insensitive name order', () => {
-  const out = orderRoster([
-    { id: 'a', name: 'Session 10', isDormant: false },
-    { id: 'b', name: 'session 2', isDormant: false },
-  ]).map((s) => s.id);
-  assert.deepEqual(out, ['b', 'a']);
-});
-
-test('orderRoster: stable under input permutation and ignores status fields', () => {
-  const base = [
-    { id: '1', name: 'alpha', isDormant: false, state: 'RUNNING' },
-    { id: '2', name: 'bravo', isDormant: false, state: 'WAITING' },
-    { id: '3', name: 'charlie', isDormant: false, state: 'COMPLETE' },
-  ];
-  const a = orderRoster(base).map((s) => s.id);
-  const b = orderRoster([base[2], base[0], base[1]]).map((s) => s.id);
-  assert.deepEqual(a, ['1', '2', '3']);
-  assert.deepEqual(b, ['1', '2', '3']);
+  assert.deepEqual(out, ['1', '3', '2', '4']);
 });
 
 test('orderRoster: does not mutate its input', () => {

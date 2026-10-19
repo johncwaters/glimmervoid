@@ -35,7 +35,6 @@ function sessionAttentionRank(row: SessionAttentionRow): number {
 
 interface RosterEntry {
   isDormant?: boolean;
-  name?: unknown;
 }
 
 export interface SessionRow<Session, Name = string> extends RosterEntry {
@@ -57,9 +56,7 @@ export function buildSessionRows<Session extends SessionStateSource, Name>(
 }
 
 export function orderRoster<Row extends RosterEntry>(list: readonly Row[]): Row[] {
-  return [...list].sort((a, b) =>
-    (a.isDormant === b.isDormant ? 0 : a.isDormant ? 1 : -1)
-    || String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }));
+  return [...list].sort((a, b) => Number(a.isDormant === true) - Number(b.isDormant === true));
 }
 
 export function pickNextAttention(orderedIds: readonly string[], currentId: string | null | undefined) {
