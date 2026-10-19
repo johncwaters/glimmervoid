@@ -38,7 +38,7 @@
       "definition": "The one carbon unit who runs glimmervoid and its dashboard and answers its sessions"
     },
     {
-      "name": "adapter",
+      "name": "agent adapter",
       "definition": "The per-agent module (Claude Code, Codex, Grok, custom CLI) that tells glimmervoid how to spawn, resume and read the status of one agent kind"
     },
     {
@@ -48,6 +48,10 @@
     {
       "name": "radar",
       "definition": "The PostHog auto-fix lane that investigates PostHog errors in a session and writes an HTML report"
+    },
+    {
+      "name": "operator config",
+      "definition": "Glimmervoid's own settings file, config.json under the operator's glimmervoid home, whose shape is the config schema in shared/contracts/config.ts"
     }
   ]
 }
