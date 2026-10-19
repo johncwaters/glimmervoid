@@ -30,7 +30,7 @@ test('the phone shell names no desktop view: its More screens come from the desk
   const viewTabsSource = registrySource.slice(registrySource.indexOf('const definitions:'), registrySource.indexOf('const main ='));
   const registeredViews = [...viewTabsSource.matchAll(/\{ view: '([a-z]+)',/g)].map((match) => match[1]);
 
-  assert.deepEqual(registeredViews, ['focus', 'prs', 'issues', 'usage', 'radar', 'visions', 'hooks', 'trace', 'benchmarks', 'settings']);
+  assert.deepEqual(registeredViews, ['focus', 'zen', 'prs', 'issues', 'usage', 'radar', 'visions', 'hooks', 'trace', 'benchmarks', 'settings']);
   assert.match(htmlSource, /id="header-tabs" role="tablist" aria-label="Primary views"/);
   assert.doesNotMatch(htmlSource, /class="header-tab"/);
   assert.match(registrySource, /const views = definitions\.map\(\(definition\) =>/);

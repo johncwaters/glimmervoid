@@ -8,7 +8,7 @@ import type { SessionUi } from './card-registry.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
-import { resolveDashboardShortcut } from '../shortcuts-core.ts';
+import { escapesFocusedTerminal, resolveDashboardShortcut } from '../shortcuts-core.ts';
 import { nextReconnectDelayMs } from '../reconnect-backoff.ts';
 import { renderScheduler } from '../render-scheduler.ts';
 import { getTerminalTheme } from '../theme.ts';
@@ -33,6 +33,11 @@ import { wireTouchScroll } from './touch-scroll.ts';
 import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from '../flying-animal-preview.ts';
 
+function isDashboardShortcutInActiveView(ev: KeyboardEvent) {
+  const shortcut = resolveDashboardShortcut(ev, SHORTCUT_PLATFORM, { isTerminalFocused: true });
+  if (!shortcut) return false;
+  return escapesFocusedTerminal(shortcut, document.body.dataset.activeView);
+}
 
 const INPUT_QUEUE_MAX = 1024;
 const GRID_SETTLE_MS = 250;
@@ -649,7 +654,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
 
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== 'keydown') return true;
-    if (document.body.dataset.activeView === 'focus' && resolveDashboardShortcut(ev, SHORTCUT_PLATFORM, { isTerminalFocused: true })) return false;
+    if (isDashboardShortcutInActiveView(ev)) return false;
     const ctrl = ev.ctrlKey || ev.metaKey;
     if (ctrl && ev.key === 'c' && term.hasSelection()) {
       const selection = term.getSelection();

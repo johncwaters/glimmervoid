@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { attentionRank, attentionSummaryText, countAttentionByKind, headerAttentionState, needsAttention, orderAttentionQueue, orderRoster, pickAdjacent, pickNextAttention, pickStrongestAttention, titleAlertCount } from '../public/focus-view/attention-core.ts';
+import { attentionRank, attentionSummaryText, countAttentionByKind, headerAttentionState, needsAttention, orderAttentionQueue, orderRoster, pickAdjacent, pickNextAttention, pickStagedSession, pickStrongestAttention, stageNeedWords, titleAlertCount } from '../public/focus-view/attention-core.ts';
 
 test('orderRoster: non-dormant before dormant, add order within each group', () => {
   const out = orderRoster([
@@ -122,6 +122,13 @@ test('attentionSummaryText: resting reads as a sentence, never an empty slot', (
 test('orderAttentionQueue: the jump queue puts waiting, then failed, then finished sessions, keeping roster order within each', () => {
   const rosterOrderedRows = [attentionRow('alpha', 'COMPLETE'), attentionRow('bravo', 'RUNNING'), attentionRow('charlie', 'WAITING'), attentionRow('delta', 'FAILED'), attentionRow('echo', 'WAITING'), attentionRow('foxtrot', 'IDLE')];
   assert.deepEqual(orderAttentionQueue(rosterOrderedRows), ['charlie', 'echo', 'delta', 'alpha']);
+});
+
+test('pickStagedSession: a staged session keeps the stage while it stays queued, even when a higher-ranked one arrives', () => {
+  assert.equal(pickStagedSession(['charlie', 'echo', 'alpha'], 'alpha'), 'alpha');
+  assert.equal(pickStagedSession(['charlie', 'echo'], 'alpha'), 'charlie');
+  assert.equal(pickStagedSession([], 'alpha'), null);
+  assert.equal(stageNeedWords('COMPLETE', 'permission'), 'Finished');
 });
 
 test('attentionSummaryText: a finished session never reads as a session waiting on you', () => {

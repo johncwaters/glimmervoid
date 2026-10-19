@@ -1,6 +1,7 @@
 import { el, queryTag } from './dom-helpers.ts';
 import { FEATURE_SURFACE_RULES } from './feature-surfaces-core.ts';
 import { activateFocusView, deactivateFocusView, mountFocusView } from './focus-view/focus-view.ts';
+import { activateZenView, deactivateZenView, mountZenView } from './zen-view/zen-view.ts';
 import { applyBenchmarkConnectionState, mountBenchmarkView } from './benchmark-panel.ts';
 import { mountHooksView, refreshHooksView, requestHooksReport } from './hooks-panel.ts';
 import { applyIssuesConnectionState, mountIssuesView, refreshIssuesViewOnShow } from './github/issues-panel.ts';
@@ -30,6 +31,7 @@ export interface DashboardView extends PrimaryView<HTMLElement> {
 export function createDashboardViews(actions: ViewRegistryActions): DashboardView[] {
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
     { view: 'focus', label: 'Focus', panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView },
+    { view: 'zen', label: 'Zen', panelClass: 'zen-view', hasOwnPhoneScreen: true, hasPanelChrome: false, gate: { fromSettings: FEATURE_SURFACE_RULES.zenView }, mount: mountZenView, activate: activateZenView, deactivate: deactivateZenView },
     { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, mount: (panel) => mountPrsView(panel, { openTerminal: actions.openTerminal }), attention: { subscribe: setTeamReviewActivityCallback, acknowledge: acknowledgePrsViewAttention }, onConnectionChange: (isConnected) => {
       applyMyPrsConnectionState(isConnected);
       applyTeamReviewConnectionState(isConnected);

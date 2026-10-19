@@ -1,6 +1,7 @@
 import type { SessionState } from '#shared/states.ts';
 import { STATES } from '#shared/states.ts';
 import type { SessionStateSource } from '../session-actions-core.ts';
+import { promptKindNeedWords } from '../session-card/face-core.ts';
 
 export type SessionAttentionTier = 'now' | 'later' | 'resting';
 interface SessionAttentionRow {
@@ -55,6 +56,20 @@ export function pickNextAttention(orderedIds: readonly string[], currentId: stri
   if (!orderedIds.length) return null;
   const i = currentId == null ? -1 : orderedIds.indexOf(currentId);
   return orderedIds[(i + 1) % orderedIds.length];
+}
+
+export function pickStagedSession(queuedIds: readonly string[], stagedId: string | null) {
+  if (stagedId !== null && queuedIds.includes(stagedId)) return stagedId;
+  return queuedIds[0] ?? null;
+}
+
+const STAGE_NEED_WORDS_BY_STATE: ReadonlyMap<string, string> = new Map([
+  [STATES.FAILED, 'Failed'],
+  [STATES.COMPLETE, 'Finished'],
+]);
+
+export function stageNeedWords(state: string, pendingPromptKind: string | null) {
+  return STAGE_NEED_WORDS_BY_STATE.get(state) ?? promptKindNeedWords(pendingPromptKind ?? '');
 }
 
 export function pickAdjacent(orderedIds: readonly string[], currentId: string | null | undefined, dir: number) {

@@ -1,6 +1,6 @@
 import type { BrowserConfig } from '#shared/contracts/browser-config.ts';
 
-export type FeatureSurfaceSettings = Partial<Pick<BrowserConfig, 'teamReview' | 'benchmarks' | 'posthog' | 'visions' | 'usage'>> | null | undefined;
+export type FeatureSurfaceSettings = Partial<Pick<BrowserConfig, 'teamReview' | 'benchmarks' | 'posthog' | 'visions' | 'usage' | 'zenView'>> | null | undefined;
 
 export type FeatureSurfaceRule = (settings: FeatureSurfaceSettings) => boolean;
 
@@ -10,6 +10,7 @@ export const FEATURE_SURFACE_RULES = {
   visions: (settings) => settings?.visions?.enabled === true,
   usage: (settings) => settings?.usage?.enabled !== false,
   benchmarks: (settings) => settings?.benchmarks?.enabled === true,
+  zenView: (settings) => settings?.zenView === true,
 } satisfies Record<string, FeatureSurfaceRule>;
 
 interface OptionalFeatureSurface {
@@ -24,4 +25,5 @@ export const OPTIONAL_FEATURE_SURFACES: readonly OptionalFeatureSurface[] = [
   { rule: 'posthog', sectionId: 'lanes-posthog', settingId: 'posthog-enabled' },
   { rule: 'visions', sectionId: 'lanes-visions', settingId: 'visions-enabled' },
   { rule: 'benchmarks', sectionId: 'lanes-benchmarks', settingId: 'benchmarks-enabled' },
+  { rule: 'zenView', sectionId: 'machine-sessions', settingId: 'zen-view' },
 ];

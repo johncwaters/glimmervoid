@@ -95,6 +95,11 @@ export function resolveDashboardShortcut(event: ShortcutKeyEvent, platform: Shor
   return null;
 }
 
+export function escapesFocusedTerminal(shortcut: ResolvedDashboardShortcut, activeView: string | undefined) {
+  if (activeView === 'focus') return true;
+  return activeView === 'zen' && shortcut.action === 'next-attention';
+}
+
 function shortcutModifierCaption(platform: ShortcutPlatform, shortcut?: DashboardShortcut) {
   if (platform !== 'mac') return 'Alt';
   return shortcut?.needsMacOption ? `${MAC_COMMAND}${MAC_OPTION}` : MAC_COMMAND;
