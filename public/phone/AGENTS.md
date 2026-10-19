@@ -16,7 +16,7 @@ The job it serves is triage, per `PRODUCT.md`: scan the board, find the session 
 | `phone-panels-core.ts` | Pure derivation of the More screens from the desktop tabs; Focus is left out because Board and Terminal serve it |
 | `board-screen.ts` | The default screen: name-ordered project groups under the shared Needs you banner + the phone top bar (which adopts the desktop header's connection chip, "+ Session", help, and hamburger) |
 | `terminal-screen.ts` | One session's full-bleed terminal: back control, name, state badge, the card's adopted action cluster, and the touch key strip |
-| `mobile-key-strip.ts` | Esc / Tab / arrows / Paste / Image / File, the keys and uploads a soft keyboard cannot produce (catalog in `../mobile-keys.ts`) |
+| `mobile-key-strip.ts` | Sticky Ctrl / Esc / Tab / arrows / Paste / Attach, the keys and uploads a soft keyboard cannot produce (catalog in `../mobile-keys.ts`); shown whenever the Terminal screen is |
 
 Review and the More screens have no phone-only module: each screen is a mount container that re-parents the real desktop panel in.
 
@@ -40,6 +40,6 @@ Review and the More screens have no phone-only module: each screen is a mount co
 
 ### Internal
 - `../form-factor.ts`, `../card-host.ts`, `../dom-helpers.ts`
-- `../project-registry.ts`, `../session-actions.ts`, `../session-card/` (registry, tick, terminal input, toast), `../sidebar/review-sidebar.ts` + `selection.ts`, `../focus-view/attention-core.ts` (the alphabetical order, shared with the rail), `../focus-view/roster-group-header.ts` and `../attention-banner.ts` (the project header and Needs you banner, shared with the rail), `../ui-prefs.ts`, `../control-ws.ts`
+- `../project-registry.ts`, `../session-actions.ts`, `../session-card/` (registry, tick, terminal input), `../sidebar/review-sidebar.ts` + `selection.ts`, `../focus-view/attention-core.ts` (the alphabetical order, shared with the rail), `../focus-view/roster-group-header.ts` and `../attention-banner.ts` (the project header and Needs you banner, shared with the rail), `../ui-prefs.ts`, `../control-ws.ts`
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

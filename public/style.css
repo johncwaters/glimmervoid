@@ -1444,97 +1444,6 @@ body {
   letter-spacing: 0.02em;
 }
 
-.notice-region {
-  position: fixed;
-  top: calc(var(--header-h) + 12px);
-  right: 16px;
-  z-index: 300;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: min(360px, calc(100vw - 32px));
-  max-height: calc(100vh - var(--header-h) - 32px);
-  overflow-y: auto;
-
-  pointer-events: none;
-}
-
-.notice {
-  pointer-events: auto;
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  align-items: start;
-  gap: 8px;
-  padding: 10px 12px;
-
-  background: color-mix(in oklab, var(--state-failed) 8%, var(--bg-card));
-  border: 1px solid color-mix(in oklab, var(--state-failed) 45%, var(--border));
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
-  color: var(--text-head);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.notice.is-leaving { opacity: 0; }
-
-@media (prefers-reduced-motion: no-preference) {
-  .notice {
-    opacity: 0;
-    transform: translateX(8px);
-    transition: opacity var(--transition-med), transform var(--transition-med);
-  }
-  .notice.is-visible { opacity: 1; transform: none; }
-  .notice.is-leaving { transform: translateX(8px); }
-}
-
-.notice.is-persistent {
-  border-color: color-mix(in oklab, var(--state-failed) 60%, var(--border));
-}
-
-.notice-glyph {
-  width: 14px;
-  text-align: center;
-  color: var(--state-failed);
-  font-weight: 700;
-}
-
-.notice-msg {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: var(--text-head);
-}
-
-.notice-count {
-  align-self: center;
-  color: var(--state-failed);
-  font-weight: 700;
-  font-size: 11px;
-}
-
-.notice-close {
-  align-self: start;
-  appearance: none;
-  background: transparent;
-  border: none;
-  padding: 0 2px;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: 14px;
-  line-height: 1.2;
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .notice-close:hover { color: var(--text-head); }
-}
-.notice-close:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
-
 .header-menu {
   position: relative;
 }
@@ -8319,14 +8228,6 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   .popup-menu-item { min-height: 44px; }
   .btn-action { width: 36px; }
 
-  .notice-close {
-    align-self: center;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 44px;
-    min-height: 44px;
-  }
 
   .session-group-add,
   .session-group-forget { position: relative; }
@@ -8531,14 +8432,13 @@ html[data-layout="phone"] .session-row-remove { flex-basis: 44px; min-width: 44p
   background: var(--bg-surface);
   border-top: 1px solid var(--border-dim);
 }
-html[data-layout="phone"] .phone-shell:not([data-keyboard="open"]) .phone-key-strip {
-  display: none;
-}
-html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-key-strip:not([hidden]) {
-  display: flex;
-}
 html[data-layout="phone"] .phone-terminal:has(.session-card:is([data-face="plan"], [data-face="conversation"])) .phone-key-strip { display: none; }
 .phone-key-strip[hidden] { display: none; }
+.phone-key[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+}
 .phone-key {
   flex: 1 1 auto;
   min-width: 0;

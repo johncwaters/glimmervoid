@@ -22,7 +22,6 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 | `session-tick.ts` | Shared 1s tick: elapsed clock + working-heartbeat poll (`refreshElapsed`); no per-session timers |
 | `naming.ts` / `naming-core.ts` | Session name suggestion; pure core: `nextSuggestedName`, `countAutoNames`, `isAutoNameOf` |
 | `webgl-pool.ts` / `webgl-core.ts` | WebGL context pool with LRU cap; pure core: `pickEvictionVictims` |
-| `toast.ts` | `showErrorToast` - leaf, no local deps |
 | `modal.ts` | Shared modal overlay scaffold (overlay, Escape-to-close, backdrop click, opener refocus) plus `openConfirmDialog`, THE confirm prompt every destructive action uses. It lives here, not in `dialogs.ts`, because `card-dom.ts` may not import that file; before the fold both sides carried their own copy of the same builder |
 
 ## For AI Agents

@@ -285,4 +285,4 @@ Process (motion, inline feedback, failure and empty states) comes from the `desi
 | Destructive confirm | `openConfirmDialog` (`public/session-card/modal.ts`) |
 | Success | the changed thing shows its new state in place, as settings rows show "saved" |
 
-No toasts: transient corner notices are not used in new UI. The existing `showErrorToast` notice region is legacy, kept until its call sites move inline.
+No toasts: transient corner notices are not used anywhere; an outcome with no local home goes to the header status line (`reportUnsourcedError` in `public/action-status.ts`).

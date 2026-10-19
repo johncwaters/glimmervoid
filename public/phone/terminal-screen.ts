@@ -10,7 +10,7 @@ import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.
 import { sendTerminalInput, setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { paintSessionRowStatus } from '../session-row.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
-import { createMobileKeyStrip } from './mobile-key-strip.ts';
+import { controlBytesForCharacter, createMobileKeyStrip } from './mobile-key-strip.ts';
 
 const BACK_GLYPH = String.fromCharCode(0x2039);
 
@@ -25,8 +25,8 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
 
   const identity = el('div', 'phone-terminal-identity');
   const nameEl = el('span', 'phone-terminal-name');
-  nameEl.title = 'Tap to rename';
-  nameEl.addEventListener('click', () => renameShownSession());
+  nameEl.title = 'Double-tap to rename';
+  nameEl.addEventListener('dblclick', () => renameShownSession());
   const taskTitleEl = el('span', 'session-task-title phone-terminal-title');
   makeTitleEditable(taskTitleEl, () => editShownTitle());
   const badgeEl = el('span', 'phone-terminal-badge');
@@ -49,9 +49,12 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   emptyEl.innerHTML = '<p class="phone-empty-title">No session selected</p>'
     + '<p class="phone-empty-desc">Select a session from the board to watch it here.</p>';
 
-  const keyStrip = createMobileKeyStrip({ send: sendToShownTerminal, getSessionId: () => shownId });
-
   const keyStatus = createActionStatus('phone-key-status m-0 px-3 py-1');
+  const { element: keyStrip, takeHeldControl } = createMobileKeyStrip({
+    send: sendToShownTerminal,
+    getSessionId: () => shownId,
+    reportProblem: (text) => keyStatus.show('error', text),
+  });
   screen.append(topBar, cardSlot, emptyEl, keyStatus.element, keyStrip);
 
   let shownId: string | null = null;
@@ -73,6 +76,28 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   }
 
   cardSlot.addEventListener('click', focusShownTerminal);
+
+  function sendHeldControlChord(typedCharacter: string) {
+    const controlBytes = controlBytesForCharacter(typedCharacter);
+    if (!controlBytes || !takeHeldControl()) return false;
+    sendToShownTerminal(controlBytes);
+    return true;
+  }
+
+  cardSlot.addEventListener('keydown', (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!sendHeldControlChord(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+
+  cardSlot.addEventListener('input', (event) => {
+    if (!(event instanceof InputEvent) || !event.data) return;
+    if (!sendHeldControlChord(event.data.slice(-1))) return;
+    event.stopPropagation();
+    const ui = shownId ? sessionUIs.get(shownId) : null;
+    ui?._resetSoftKeyboardBuffer?.();
+  }, true);
 
   function renameShownSession() {
     const ui = shownId ? sessionUIs.get(shownId) : null;
