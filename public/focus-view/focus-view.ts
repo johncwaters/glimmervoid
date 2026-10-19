@@ -4,7 +4,7 @@ import { el } from '../dom-helpers.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { getRestorableSessionId, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession } from '../session-actions.ts';
-import { showSessionPlanFace } from '../session-card/lifecycle.ts';
+import { markSessionSeen, showSessionPlanFace } from '../session-card/lifecycle.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { addActivityRenderer, pulseActivityGlyph } from '../session-card/activity.ts';
 import { buildShortcutKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
@@ -16,14 +16,13 @@ import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { getRailWidth, setRailWidth } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
 import type { SessionRow } from './attention-core.ts';
-import { countAttentionByKind, needsAttention, orderRoster, pickAdjacent, pickNextAttention } from './attention-core.ts';
+import { countAttentionByKind, orderAttentionQueue, orderRoster, pickAdjacent, pickNextAttention } from './attention-core.ts';
 import type { RosterGroup } from './roster-groups-core.ts';
 import { groupRoster, visibleOrder } from './roster-groups-core.ts';
 import type { SessionGroupHeader } from './roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group-header.ts';
 import { buildAttentionBanner, paintAttentionBanner } from '../attention-banner.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
-import { createUnseenCompleteTracker } from './unseen-complete-core.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
 
@@ -47,7 +46,6 @@ let active = false;
 let attnCursorId: string | null = null;
 const mergeStatusById = new Map<string, string>();
 const pillById = new Map<string, FocusPill>();
-const unseenCompleteTracker = createUnseenCompleteTracker();
 
 const groupListById = new Map<string, GroupList>();
 const groupHeaderById = new Map<string, SessionGroupHeader>();
@@ -165,9 +163,8 @@ function onRailKeydown(e: KeyboardEvent) {
   pillById.get(id)?.focus();
 }
 
-function orderedSessions(sessionRows: RosterRow[] = readSessionRows(sessionName)) {
-  for (const row of sessionRows) row.unseen = unseenCompleteTracker.isUnseen(row.id);
-  return orderRoster(sessionRows);
+function orderedSessions() {
+  return orderRoster(readSessionRows(sessionName));
 }
 
 function sessionName(ui: SessionUi): string | null {
@@ -194,9 +191,9 @@ function onPillActivate(id: string) {
   focusTerminalAfterSettle(ui, id);
 }
 
-function paintPill(pill: FocusPill, { id, ui, state, name, unseen }: RosterRow) {
+function paintPill(pill: FocusPill, { id, ui, state, name }: RosterRow) {
   const mergeStatus = mergeStatusById.get(id) || 'none';
-  paintSessionRow(pill, pill._refs, { ui, state, name: name ?? '', unseen, mergeStatus: mergeStatus === 'none' ? '' : mergeStatus });
+  paintSessionRow(pill, pill._refs, { ui, state, name: name ?? '', mergeStatus: mergeStatus === 'none' ? '' : mergeStatus });
   pill.classList.toggle('focused', id === getFocusedSessionId());
   const isTabStop = id === railTabStopId;
   pill.setAttribute('aria-selected', String(isTabStop));
@@ -228,9 +225,7 @@ export function refreshFocusRoster() {
   if (!active) return;
   const mountedRail = railEl;
   if (!mountedRail) return;
-  const sessionRows = readSessionRows(sessionName);
-  unseenCompleteTracker.noteStates(sessionRows);
-  const order = orderedSessions(sessionRows);
+  const order = orderedSessions();
   const groups = groupsOf(order);
   const seen = new Set<string>();
 
@@ -312,7 +307,7 @@ function pickNeighborOfRemoved(previousRailOrder: readonly string[], removedId: 
 }
 
 function attentionIds() {
-  return orderedSessions().filter(needsAttention).map(({ id }) => id);
+  return orderAttentionQueue(orderedSessions());
 }
 
 function updateRailHead() {
@@ -376,13 +371,12 @@ function releaseCenter() {
 }
 
 function focusSession(id: string) {
-  if (!active || !sessionUIs.has(id) || id === getFocusedSessionId()) return;
+  if (!active || !sessionUIs.has(id)) return;
+  markSessionSeen(id);
+  if (id === getFocusedSessionId()) return;
   releaseCenter();
   uiState.dispatch('focusSession', id);
   railTabStopId = id;
-
-  unseenCompleteTracker.acknowledge(id);
-
   selectSession(id);
   refreshFocusRoster();
 }
@@ -431,6 +425,11 @@ export function focusAdjacentInRail(dir: number) {
   onPillActivate(id);
   pillById.get(id)?.scrollIntoView({ block: 'nearest' });
 }
+
+window.addEventListener('focus', () => {
+  const centeredId = getFocusedSessionId();
+  if (active && centeredId) markSessionSeen(centeredId);
+});
 
 export function activateFocusView() {
   if (!railEl) return;

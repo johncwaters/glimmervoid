@@ -73,6 +73,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     getConfig: () => config,
     getConnectionCount: () => clientPresence.connectionCount(),
     getActiveAgentCount: (sessionId: string) => sessions.get(sessionId)?.toSnapshot().activeAgents || 0,
+    getSessionName: (sessionId: string) => sessions.get(sessionId)?.name,
     outbox: telegramDigest,
   });
   const telegramChannel = createTelegramCompletionDefer({

@@ -1,6 +1,8 @@
+import { reportUnsourcedError } from './action-status.ts';
 import { desktopNotificationOptions } from './desktop-notification-core.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { createPlanHash } from './plan/plan-link.ts';
+import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { isNotificationsEnabled } from './ui-prefs.ts';
 
 function getNotificationApi() {
@@ -37,6 +39,31 @@ export function initNotifications() {
   }
 }
 
+const BLOCKED_NOTIFICATIONS_TEXT = 'Desktop notifications are blocked by the browser, so alerts show only in this tab. Allow notifications for this site to get them again.';
+
+const shownNotificationsBySession = new Map<string, Set<Notification>>();
+let hasReportedBlockedNotifications = false;
+
+function reportBlockedNotificationsOnce() {
+  if (hasReportedBlockedNotifications) return;
+  hasReportedBlockedNotifications = true;
+  reportUnsourcedError(BLOCKED_NOTIFICATIONS_TEXT, { hidesInStreamerMode: false });
+}
+
+function rememberShownNotification(sessionId: string, notification: Notification) {
+  const shownForSession = shownNotificationsBySession.get(sessionId) ?? new Set<Notification>();
+  shownForSession.add(notification);
+  shownNotificationsBySession.set(sessionId, shownForSession);
+  notification.addEventListener('close', () => shownForSession.delete(notification));
+}
+
+export function closeSessionNotifications(sessionId: string) {
+  const shownForSession = shownNotificationsBySession.get(sessionId);
+  if (!shownForSession) return;
+  shownNotificationsBySession.delete(sessionId);
+  for (const notification of shownForSession) notification.close();
+}
+
 export function showDesktopNotification({
   session,
   category,
@@ -46,21 +73,25 @@ export function showDesktopNotification({
 }: { session?: unknown; category?: unknown; message?: unknown; kind?: unknown; ignoreFocus?: unknown; [key: string]: unknown } = {}) {
   const notificationApi = getNotificationApi();
   if (!notificationApi || !isNotificationsEnabled()) return;
-  if (notificationApi.permission !== 'granted') return;
   if (document.documentElement.hasAttribute('data-streamer')) return;
-
   if (!ignoreFocus && typeof document !== 'undefined' && typeof document.hasFocus === 'function' && document.hasFocus()) return;
+  if (notificationApi.permission === 'denied') reportBlockedNotificationsOnce();
+  if (notificationApi.permission !== 'granted') return;
 
   if (!claimNotification(window.localStorage, claimKey(session, category), Date.now())) return;
+  const sessionId = typeof session === 'string' ? session : '';
+  const sessionUi = sessionUIs.get(sessionId);
+  const shownSessionName = sessionUi ? sessionName(sessionUi) : '';
   try {
-    const n = new notificationApi('Glimmervoid', desktopNotificationOptions(session, category, message));
-    n.onclick = () => {
+    const notification = new notificationApi(shownSessionName || 'Glimmervoid', desktopNotificationOptions(session, category, message));
+    notification.onclick = () => {
       window.focus();
-      if (kind === 'plan' && typeof session === 'string') {
-        window.location.hash = createPlanHash(session);
+      if (kind === 'plan' && sessionId) {
+        window.location.hash = createPlanHash(sessionId);
       }
-      n.close();
+      notification.close();
     };
+    if (sessionUi) rememberShownNotification(sessionId, notification);
   } catch {
   }
 }

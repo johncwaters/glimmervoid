@@ -41,6 +41,8 @@ import { requestSessionRemoval } from '../session-actions.ts';
 import { openResumeDialog } from './resume-dialog.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { reportUnsourcedError } from '../action-status.ts';
+import { needsAttention } from '../focus-view/attention-core.ts';
+import { closeSessionNotifications } from '../notifications.ts';
 
 import { refreshElapsed } from './session-tick.ts';
 import {
@@ -289,12 +291,6 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     const clicked = event.target instanceof Node ? event.target : null;
     if (!ui.sessionMenu.contains(clicked) && clicked !== ui.btnSessionMenu) closeSessionMenu(ui);
   }, { signal: ui.abortController.signal });
-
-  ui.termWrap.addEventListener('mousedown', () => {
-    if (ui.currentState === STATES.WAITING || ui.currentState === STATES.COMPLETE) {
-      sendControlMsg({ type: 'dismiss', id: sessionId });
-    }
-  });
 
   ui.btnDebug.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -809,6 +805,13 @@ function _handleRestartTransition(ui: SessionUi, prevState: string) {
   }
 }
 
+export function markSessionSeen(sessionId: string) {
+  const ui = sessionUIs.get(sessionId);
+  if (!ui || !needsAttention({ state: ui.currentState })) return;
+  if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
+  sendControlMsg({ type: 'dismiss', id: sessionId, expectedState: ui.currentState });
+}
+
 function isCompletionWatchedAt(ui: SessionUi, previousState: string, nextState: string) {
   const activeElement = document.activeElement;
   return isCompletionWatchedByOperator({
@@ -840,6 +843,8 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
   if (prevState === STATES.DORMANT && state !== STATES.DORMANT) {
     ensureTerminalSetup(ui, sessionIdOf(sessionId));
   }
+
+  if (!needsAttention({ state })) closeSessionNotifications(sessionIdOf(sessionId));
 
   ui.card.dataset.state = state;
   ui.card.toggleAttribute('data-monitoring', isMonitoringState(state, ui.awaitingBackgroundTasks));

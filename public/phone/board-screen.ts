@@ -1,9 +1,8 @@
-import { createUnseenCompleteTracker } from '../focus-view/unseen-complete-core.ts';
 import { el, observeHeaderHeight } from '../dom-helpers.ts';
 import type { SessionRowRefs } from '../session-row.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import type { SessionRow } from '../focus-view/attention-core.ts';
-import { countAttentionByKind, needsAttention, orderRoster, pickNextAttention } from '../focus-view/attention-core.ts';
+import { countAttentionByKind, orderAttentionQueue, orderRoster, pickNextAttention } from '../focus-view/attention-core.ts';
 import { buildAttentionBanner, paintAttentionBanner } from '../attention-banner.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { groupRoster, visibleOrder } from '../focus-view/roster-groups-core.ts';
@@ -33,7 +32,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
 
   let attentionCursorId: string | null = null;
   const attentionEl = buildAttentionBanner(() => {
-    const attentionIds = currentOrderedRows().filter(needsAttention).map((entry) => entry.id);
+    const attentionIds = orderAttentionQueue(currentOrderedRows());
     const nextId = pickNextAttention(attentionIds, attentionCursorId);
     if (!nextId) return;
     attentionCursorId = nextId;
@@ -88,8 +87,8 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
   function paintRow(row: HTMLButtonElement, entry: BoardRow) {
     const rowDetails = rowState.get(row);
     if (!rowDetails) return;
-    const { ui, state, unseen, name } = entry;
-    paintSessionRow(row, rowDetails.refs, { ui, state, name, unseen, mergeStatus: ui.card?.dataset.merge || '' });
+    const { ui, state, name } = entry;
+    paintSessionRow(row, rowDetails.refs, { ui, state, name, mergeStatus: ui.card?.dataset.merge || '' });
   }
 
   function paintGroup(section: HTMLElement, group: RosterGroup<BoardRow>) {
@@ -99,13 +98,8 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     refs.rows.setAttribute('aria-label', `${group.label} sessions`);
   }
 
-  const { noteStates, acknowledge, isUnseen } = createUnseenCompleteTracker();
-
   function currentOrderedRows() {
-    const entries = readSessionRows();
-    noteStates(entries);
-    for (const entry of entries) entry.unseen = isUnseen(entry.id);
-    return orderRoster(entries);
+    return orderRoster(readSessionRows());
   }
 
   function refresh() {
@@ -191,7 +185,6 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     el: screen,
     topBarEl: topBar,
     refresh,
-    acknowledge,
     renderActivity,
     getAttentionCount: () => attentionCount,
   };

@@ -58,6 +58,7 @@ function makeChannel(config: ReturnType<TelegramChannelDeps['getConfig']>, conne
   const channel = createTelegramChannel({
     getConfig: () => config,
     getConnectionCount: () => connectionCount,
+    getSessionName: (sessionId) => (sessionId === 'sess-id' ? 'api' : undefined),
     send: (payload) => { sent.push(payload); },
   });
   return { channel, sent };
@@ -74,6 +75,8 @@ test('the channel sends with the shared credentials when the gate opens', () => 
     text: 'api finished working',
     tag: 'channel:telegram',
   });
+  channel('sess-id', 'waiting', '', { escalationCount: 0 });
+  assert.equal(sent[1].text, 'api needs attention');
 });
 
 test('the channel is silent with a dashboard open, and speaks again once it closes', () => {

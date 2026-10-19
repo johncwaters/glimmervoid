@@ -6369,12 +6369,12 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="INITIALIZING"] { --st: var(--state-initializing); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="DORMANT"] { --st: var(--text-muted); }
 .session-row[data-merge="parked"] { --st: var(--state-failed); }
-.session-row:is([data-state="WAITING"], [data-state="FAILED"], [data-state="COMPLETE"][data-unseen], [data-merge="parked"]) {
+.session-row:is([data-state="WAITING"], [data-state="FAILED"], [data-state="COMPLETE"], [data-merge="parked"]) {
   --tint: color-mix(in oklch, var(--st) 12%, transparent);
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .session-row[data-state="COMPLETE"][data-unseen]::before {
+  .session-row[data-state="COMPLETE"]::before {
     animation: complete-flash 1.2s cubic-bezier(0.22, 1, 0.36, 1) 1;
   }
 }

@@ -2,53 +2,44 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { STATES } from '../shared/states.ts';
 import { buildSessionRows, countAttentionByKind, needsAttention, sessionAttentionTier } from '../public/focus-view/attention-core.ts';
-import type { SessionAttentionOption, SessionAttentionTier } from '../public/focus-view/attention-core.ts';
+import type { SessionAttentionTier } from '../public/focus-view/attention-core.ts';
 import { decideFaviconVariant } from '../public/favicon-core.ts';
 
-const currentTiersByState: Record<string, readonly SessionAttentionTier[]> = {
-  WAITING: ['now', 'now'],
-  FAILED: ['resting', 'resting'],
-  COMPLETE: ['resting', 'later'],
-  IDLE: ['resting', 'resting'],
-  RUNNING: ['resting', 'resting'],
-  STARTING: ['resting', 'resting'],
-  INITIALIZING: ['resting', 'resting'],
-  DORMANT: ['resting', 'resting'],
-  DONE: ['resting', 'resting'],
+const currentTierByState: Record<string, SessionAttentionTier> = {
+  WAITING: 'now',
+  FAILED: 'resting',
+  COMPLETE: 'later',
+  IDLE: 'resting',
+  RUNNING: 'resting',
+  STARTING: 'resting',
+  INITIALIZING: 'resting',
+  DORMANT: 'resting',
+  DONE: 'resting',
 };
-const attentionOptions: readonly SessionAttentionOption[] = ['needs-you', 'favicon'];
 
-test('named attention options preserve each surface choice for every built-in session state', () => {
-  assert.deepEqual(Object.keys(currentTiersByState).sort(), Object.values(STATES).sort());
+test('every built-in session state has one attention tier shared by the rail, the Board and the favicon', () => {
+  assert.deepEqual(Object.keys(currentTierByState).sort(), Object.values(STATES).sort());
   for (const state of Object.values(STATES)) {
-    assert.deepEqual(attentionOptions.map((option) => sessionAttentionTier({ state }, option)), currentTiersByState[state], state);
+    assert.equal(sessionAttentionTier({ state }), currentTierByState[state], state);
   }
 });
 
 test('FAILED stays out of the shared readout and favicon', () => {
-  const failed = { id: 'failed', name: 'Failed session', state: STATES.FAILED, unseen: true };
+  const failed = { id: 'failed', name: 'Failed session', state: STATES.FAILED };
   assert.equal(needsAttention(failed), false);
   assert.deepEqual(countAttentionByKind([failed]), { waitingCount: 0, finishedCount: 0 });
   assert.equal(decideFaviconVariant([failed]), 'idle');
 });
 
-test('COMPLETE needs an unseen flag only in the readout while the favicon retains completion', () => {
-  for (const unseen of [undefined, false, true]) {
-    const completed = { id: 'completed', name: 'Completed session', state: STATES.COMPLETE, unseen };
-    assert.equal(needsAttention(completed), unseen === true);
-    assert.equal(sessionAttentionTier(completed, 'needs-you'), unseen === true ? 'later' : 'resting');
-    assert.equal(decideFaviconVariant([completed]), 'complete');
-  }
+test('COMPLETE counts in the readout and the favicon alike until the operator sees it', () => {
+  const completed = { id: 'completed', name: 'Completed session', state: STATES.COMPLETE };
+  assert.equal(needsAttention(completed), true);
+  assert.equal(decideFaviconVariant([completed]), 'complete');
 });
 
-test('attention conditions require true flags and unfamiliar states stay resting under every option', () => {
-  for (const flag of [undefined, null, false, 1, 'true']) {
-    assert.equal(sessionAttentionTier({ state: STATES.COMPLETE, unseen: flag }, 'needs-you'), 'resting');
-  }
+test('unfamiliar states stay resting', () => {
   for (const state of [undefined, null, '', 'UNKNOWN', 42, {}]) {
-    for (const option of attentionOptions) {
-      assert.equal(sessionAttentionTier({ state, unseen: true }, option), 'resting');
-    }
+    assert.equal(sessionAttentionTier({ state }), 'resting');
   }
 });
 
@@ -67,16 +58,16 @@ test('row snapshots preserve stable ids, source references and layout-specific n
   const railRows = buildSessionRows(sessions, (session) => session.railName);
   const boardRows = buildSessionRows(sessions, (session) => session.cardName);
   assert.deepEqual(railRows, [
-    { id: 'first-id', ui: firstSession, name: 'Session 10', isDormant: false, state: STATES.RUNNING, unseen: false },
-    { id: 'second-id', ui: secondSession, name: null, isDormant: true, state: STATES.DORMANT, unseen: false },
+    { id: 'first-id', ui: firstSession, name: 'Session 10', isDormant: false, state: STATES.RUNNING },
+    { id: 'second-id', ui: secondSession, name: null, isDormant: true, state: STATES.DORMANT },
   ]);
   assert.deepEqual(boardRows.map(({ id, name }) => ({ id, name })), [
     { id: 'first-id', name: 'Renamed card' }, { id: 'second-id', name: '' },
   ]);
   assert.equal(railRows[0].ui, firstSession);
   assert.equal(boardRows[1].ui, secondSession);
-  railRows[0].unseen = true;
-  assert.equal(boardRows[0].unseen, false);
+  railRows[0].name = 'Mutated';
+  assert.equal(boardRows[0].name, 'Renamed card');
   assert.deepEqual([...sessions.keys()], ['first-id', 'second-id']);
   assert.deepEqual(firstSession, { currentState: STATES.RUNNING, railName: 'Session 10', cardName: 'Renamed card' });
 });
@@ -86,7 +77,6 @@ test('row snapshots default absent states to dormant while retaining unknown and
     const rows = buildSessionRows([['id', { currentState }]], () => 'Session');
     assert.equal(rows[0].state, currentState || STATES.DORMANT);
     assert.equal(rows[0].isDormant, !currentState || currentState === STATES.DORMANT);
-    assert.equal(rows[0].unseen, false);
   }
   assert.deepEqual(buildSessionRows([], () => 'Session'), []);
 });

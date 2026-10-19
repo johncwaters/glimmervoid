@@ -217,7 +217,6 @@ function openSession(sessionId: string) {
   if (!sessionUIs.has(sessionId)) return;
   if (!boardScreen || !terminalScreen) throw new Error('Phone shell is not built');
   requestSessionOpen(sessionId, 'dormant-fallback');
-  boardScreen.acknowledge(sessionId);
   selectSession(sessionId);
   terminalScreen.show(sessionId);
   showScreen('terminal');

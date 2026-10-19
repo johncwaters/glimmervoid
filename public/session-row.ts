@@ -94,9 +94,8 @@ export function paintSessionRowStatus(
 export function paintSessionRow(
   row: HTMLElement,
   refs: SessionRowRefs,
-  { ui, state, name, unseen, mergeStatus }: { ui: SessionUi; state: string; name: string; unseen: boolean; mergeStatus: string },
+  { ui, state, name, mergeStatus }: { ui: SessionUi; state: string; name: string; mergeStatus: string },
 ) {
-  row.toggleAttribute('data-unseen', unseen);
   const statusLabel = paintSessionRowStatus(row, refs, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
   refs.name.textContent = ui.taskTitle || name;
   row.dataset.merge = mergeStatus;

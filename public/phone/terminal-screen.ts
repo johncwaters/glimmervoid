@@ -5,6 +5,7 @@ import { adoptElement, el, queryTag, releaseElement } from '../dom-helpers.ts';
 import { isRenameInProgress, makeTitleEditable, paintTaskTitle, startInlineRename, startInlineTitleEdit } from '../session-card/card-dom.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
+import { markSessionSeen } from '../session-card/lifecycle.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { sendTerminalInput, setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { paintSessionRowStatus } from '../session-row.ts';
@@ -183,6 +184,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     const ui = sessionUIs.get(currentId);
     if (!ui) return;
     setTerminalActiveViewer(ui, currentId, true);
+    markSessionSeen(currentId);
   }
 
   onSessionTick(() => {

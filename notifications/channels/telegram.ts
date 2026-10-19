@@ -47,6 +47,7 @@ export interface TelegramChannelDeps {
 
   getConnectionCount: () => number;
   getActiveAgentCount?: (sessionId: string) => number;
+  getSessionName?: (sessionId: string) => string | undefined;
 
   outbox?: { deliver: (text: string) => Promise<void> } | null;
 
@@ -57,6 +58,7 @@ function createTelegramChannel({
   getConfig,
   getConnectionCount,
   getActiveAgentCount = () => 0,
+  getSessionName = () => undefined,
   outbox = null,
   send = sendTelegramMessage,
 }: TelegramChannelDeps): (sessionName: string, category: string, message: string, context?: Partial<NotificationContext>) => TelegramDecision {
@@ -77,7 +79,7 @@ function createTelegramChannel({
     });
     if (!decision.send) return decision;
     if (!botToken || !chatId) return decision;
-    const text = formatTelegramText(sessionId, message);
+    const text = formatTelegramText(getSessionName(sessionId) || sessionId, message);
 
     if (outbox) {
       void outbox.deliver(text);

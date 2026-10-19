@@ -12,7 +12,7 @@ export function decideFaviconVariant(sessions: unknown): FaviconVariant {
   const rows: { state?: string }[] = Array.isArray(sessions) ? sessions : [];
   let hasCompleteSession = false;
   for (const session of rows) {
-    const tier = sessionAttentionTier(session || {}, 'favicon');
+    const tier = sessionAttentionTier(session || {});
     if (tier === 'now') return 'waiting';
     if (tier === 'later') hasCompleteSession = true;
   }

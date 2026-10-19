@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { attentionRank, attentionSummaryText, countAttentionByKind, needsAttention, orderRoster, pickAdjacent, pickNextAttention, pickStrongestAttention } from '../public/focus-view/attention-core.ts';
+import { attentionRank, attentionSummaryText, countAttentionByKind, needsAttention, orderAttentionQueue, orderRoster, pickAdjacent, pickNextAttention, pickStrongestAttention } from '../public/focus-view/attention-core.ts';
 
 test('orderRoster: non-dormant before dormant, alphabetical within each group', () => {
   const out = orderRoster([
@@ -94,27 +94,18 @@ test('pickAdjacent: single-element list stays put either direction', () => {
 interface AttentionRow {
   id: string;
   state: string;
-  unseen?: boolean;
 }
 
-const attentionRow = (id: string, state: string, unseen?: boolean): AttentionRow => ({ id, state, unseen });
+const attentionRow = (id: string, state: string): AttentionRow => ({ id, state });
 
-test('needsAttention: WAITING always qualifies, regardless of the unseen flag', () => {
+test('needsAttention: WAITING and COMPLETE qualify until the operator sees them', () => {
   assert.equal(needsAttention({ state: 'WAITING' }), true);
-  assert.equal(needsAttention({ state: 'WAITING', unseen: false }), true);
+  assert.equal(needsAttention({ state: 'COMPLETE' }), true);
 });
 
-test('needsAttention: COMPLETE qualifies only while it is unseen', () => {
-  assert.equal(needsAttention({ state: 'COMPLETE', unseen: true }), true);
-  assert.equal(needsAttention({ state: 'COMPLETE', unseen: false }), false);
-
-  assert.equal(needsAttention({ state: 'COMPLETE' }), false);
-});
-
-test('needsAttention: no other state qualifies, and the unseen flag cannot promote one', () => {
+test('needsAttention: no other state qualifies', () => {
   for (const state of ['RUNNING', 'FAILED', 'IDLE', 'DONE', 'DORMANT', 'STARTING', 'INITIALIZING']) {
     assert.equal(needsAttention({ state }), false, `${state} must not qualify`);
-    assert.equal(needsAttention({ state, unseen: true }), false, `${state} must not qualify when unseen`);
   }
   assert.equal(needsAttention({}), false);
   assert.equal(needsAttention(), false);
@@ -124,8 +115,7 @@ test('countAttentionByKind: counts exactly the rows needsAttention accepts', () 
   assert.deepEqual(countAttentionByKind([
     attentionRow('a', 'WAITING'),
     attentionRow('b', 'FAILED'),
-    attentionRow('c', 'COMPLETE', true),
-    attentionRow('d', 'COMPLETE', false),
+    attentionRow('c', 'COMPLETE'),
     attentionRow('e', 'RUNNING'),
     attentionRow('f', 'IDLE'),
   ]), { waitingCount: 1, finishedCount: 1 });
@@ -142,8 +132,13 @@ test('attentionSummaryText: resting reads as a sentence, never an empty slot', (
   assert.equal(attentionSummaryText({ waitingCount: 4, finishedCount: 0 }), '4 NEED YOU');
 });
 
-test('attentionSummaryText: an unseen finish never reads as a session waiting on you', () => {
-  const counts = countAttentionByKind([attentionRow('a', 'COMPLETE', true), attentionRow('b', 'WAITING'), attentionRow('c', 'COMPLETE', true)]);
+test('orderAttentionQueue: the jump queue puts waiting sessions before finished ones and keeps roster order within each', () => {
+  const rosterOrderedRows = [attentionRow('alpha', 'COMPLETE'), attentionRow('bravo', 'RUNNING'), attentionRow('charlie', 'WAITING'), attentionRow('delta', 'COMPLETE'), attentionRow('echo', 'WAITING')];
+  assert.deepEqual(orderAttentionQueue(rosterOrderedRows), ['charlie', 'echo', 'alpha', 'delta']);
+});
+
+test('attentionSummaryText: a finished session never reads as a session waiting on you', () => {
+  const counts = countAttentionByKind([attentionRow('a', 'COMPLETE'), attentionRow('b', 'WAITING'), attentionRow('c', 'COMPLETE')]);
   assert.deepEqual(counts, { waitingCount: 1, finishedCount: 2 });
   assert.equal(attentionSummaryText(counts), '1 NEEDS YOU, 2 FINISHED');
   assert.equal(attentionSummaryText({ waitingCount: 0, finishedCount: 1 }), '1 FINISHED');

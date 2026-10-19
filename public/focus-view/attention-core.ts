@@ -2,45 +2,35 @@ import type { SessionState } from '#shared/states.ts';
 import { STATES } from '#shared/states.ts';
 import type { SessionStateSource } from '../session-actions-core.ts';
 
-export type SessionAttentionTier = 'now' | 'next' | 'later' | 'ready' | 'working' | 'resting';
-export type SessionAttentionOption = 'needs-you' | 'favicon';
-
+export type SessionAttentionTier = 'now' | 'later' | 'resting';
 interface SessionAttentionRow {
   state?: unknown;
-  unseen?: unknown;
 }
-
-type AttentionCondition = 'always' | 'unseen' | 'never';
-type StateAttentionRule = { tier: SessionAttentionTier } & Record<SessionAttentionOption, AttentionCondition>;
 
 const SESSION_ATTENTION_RANK_BY_TIER: Readonly<Record<SessionAttentionTier, number>> = Object.freeze({
-  now: 0, next: 1, later: 2, ready: 3, working: 4, resting: 5,
+  now: 0, later: 1, resting: 2,
 });
 
-const SESSION_ATTENTION_RULES: Readonly<Record<SessionState, StateAttentionRule>> = {
-  WAITING: { tier: 'now', 'needs-you': 'always', favicon: 'always' },
-  FAILED: { tier: 'next', 'needs-you': 'never', favicon: 'never' },
-  COMPLETE: { tier: 'later', 'needs-you': 'unseen', favicon: 'always' },
-  IDLE: { tier: 'ready', 'needs-you': 'never', favicon: 'never' },
-  RUNNING: { tier: 'working', 'needs-you': 'never', favicon: 'never' },
-  STARTING: { tier: 'working', 'needs-you': 'never', favicon: 'never' },
-  INITIALIZING: { tier: 'working', 'needs-you': 'never', favicon: 'never' },
-  DORMANT: { tier: 'resting', 'needs-you': 'never', favicon: 'never' },
-  DONE: { tier: 'resting', 'needs-you': 'never', favicon: 'never' },
+const SESSION_ATTENTION_TIER_BY_STATE: Readonly<Record<SessionState, SessionAttentionTier>> = {
+  WAITING: 'now',
+  COMPLETE: 'later',
+  FAILED: 'resting',
+  IDLE: 'resting',
+  RUNNING: 'resting',
+  STARTING: 'resting',
+  INITIALIZING: 'resting',
+  DORMANT: 'resting',
+  DONE: 'resting',
 };
-const attentionRuleByState: ReadonlyMap<string, StateAttentionRule> = new Map(Object.entries(SESSION_ATTENTION_RULES));
+const attentionTierByState: ReadonlyMap<string, SessionAttentionTier> = new Map(Object.entries(SESSION_ATTENTION_TIER_BY_STATE));
 
-export function sessionAttentionTier(row: SessionAttentionRow, option: SessionAttentionOption): SessionAttentionTier {
-  const rule = typeof row.state === 'string' ? attentionRuleByState.get(row.state) : undefined;
-  if (!rule) return 'resting';
-  const condition = rule[option];
-  if (condition === 'never') return 'resting';
-  if (condition === 'unseen' && row.unseen !== true) return 'resting';
-  return rule.tier;
+export function sessionAttentionTier(row: SessionAttentionRow): SessionAttentionTier {
+  const tier = typeof row.state === 'string' ? attentionTierByState.get(row.state) : undefined;
+  return tier ?? 'resting';
 }
 
-function sessionAttentionRank(row: SessionAttentionRow, option: SessionAttentionOption): number {
-  return SESSION_ATTENTION_RANK_BY_TIER[sessionAttentionTier(row, option)];
+function sessionAttentionRank(row: SessionAttentionRow): number {
+  return SESSION_ATTENTION_RANK_BY_TIER[sessionAttentionTier(row)];
 }
 
 interface RosterEntry {
@@ -54,7 +44,6 @@ export interface SessionRow<Session, Name = string> extends RosterEntry {
   name: Name;
   isDormant: boolean;
   state: string;
-  unseen: boolean;
 }
 
 export function buildSessionRows<Session extends SessionStateSource, Name>(
@@ -63,7 +52,7 @@ export function buildSessionRows<Session extends SessionStateSource, Name>(
 ): SessionRow<Session, Name>[] {
   return [...sessions].map(([id, ui]) => {
     const state = ui.currentState || STATES.DORMANT;
-    return { id, ui, name: nameOf(ui), isDormant: state === STATES.DORMANT, state, unseen: false };
+    return { id, ui, name: nameOf(ui), isDormant: state === STATES.DORMANT, state };
   });
 }
 
@@ -87,11 +76,18 @@ export function pickAdjacent(orderedIds: readonly string[], currentId: string | 
   return orderedIds[(start + step + orderedIds.length) % orderedIds.length];
 }
 
-export function needsAttention({ state, unseen }: { state?: unknown; unseen?: unknown } = {}) {
-  return sessionAttentionRank({ state, unseen }, 'needs-you') < SESSION_ATTENTION_RANK_BY_TIER.ready;
+export function needsAttention({ state }: SessionAttentionRow = {}) {
+  return sessionAttentionTier({ state }) !== 'resting';
 }
 
-type AttentionCountRow = { state?: unknown; unseen?: unknown } | null | undefined;
+export function orderAttentionQueue<Row extends SessionAttentionRow & { id: string }>(rosterOrderedRows: readonly Row[]): string[] {
+  return rosterOrderedRows
+    .filter(needsAttention)
+    .sort((first, second) => sessionAttentionRank(first) - sessionAttentionRank(second))
+    .map(({ id }) => id);
+}
+
+type AttentionCountRow = SessionAttentionRow | null | undefined;
 
 interface AttentionCounts {
   waitingCount: number;
