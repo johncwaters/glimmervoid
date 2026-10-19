@@ -10,6 +10,11 @@ import { createWorkflowSpawn, createWorkflowsWiring } from '../server/workflows-
 import type { WorkflowsPollerDependencies } from '../server/workflows-poller.ts';
 import type { WorkflowPr } from '../shared/contracts/workflows.ts';
 
+const store: WorkflowsPollerDependencies['store'] = {
+  registerWatch: () => {}, unregisterWatch: () => {},
+  getSnapshot: () => ({ prs: {}, freshness: { lastRefreshedAt: null, error: null }, watches: {} }),
+};
+
 const OPENED_PR: WorkflowPr = {
   repo: 'Acme/app', number: 7, title: 'Fix', url: 'https://github.com/Acme/app/pull/7', author: 'alice', state: 'OPEN',
   createdAt: '2026-10-04T12:00:00Z', mergedAt: null, isDraft: false, isCrossRepository: false, baseRefName: 'main', headRefName: 'fix', headRefOid: 'a'.repeat(40), labels: [], commentCount: 0, reviewRequests: [], checksState: null, reviewDecision: null,
@@ -88,6 +93,7 @@ test('the lane starts only with an enabled rule and passes only enabled rules an
     };
     const triggered: string[] = [];
     const wiring = createWorkflowsWiring({
+      store,
       config, homeDir, log: { warn: () => {} },
       notificationManager: { trigger: (sessionName, category, message) => { triggered.push(`${sessionName} ${category} ${message}`); } },
       spawnSession: async () => {},
@@ -126,6 +132,7 @@ test('workflows.enabled false keeps the lane from polling, and the per-poll acti
     const rule = { id: 'on', name: 'On', enabled: true, repos: ['Acme/app'], trigger: 'merged', actions: [{ type: 'notify' }] };
     const config: { workflows?: unknown; teamReview?: Record<string, unknown> | null } = { workflows: { enabled: false, maxActionsPerPoll: 7, rules: [rule] } };
     const wiring = createWorkflowsWiring({
+      store,
       config, homeDir, log: { warn: () => {} },
       notificationManager: { trigger: () => {} },
       spawnSession: async () => {},
@@ -159,6 +166,7 @@ test('turning the master switch off aborts active workflow sessions and clears q
   const signals: AbortSignal[] = [];
   const config: { workflows?: unknown } = { workflows: { maxConcurrentSessions: 1, rules: [enabledRule('triage')] } };
   const wiring = createWorkflowsWiring({
+      store,
     config, homeDir, log: { warn: () => {} }, notificationManager: { trigger: () => {} },
     spawnSession: ({ event }, signal) => new Promise<void>((resolve) => {
       started.push(event.pr.number);
@@ -208,6 +216,7 @@ test('a rule edit restart keeps running workflow sessions and queued spawns and 
     let sweeps = 0;
     const config: { workflows?: unknown; teamReview?: Record<string, unknown> | null } = { workflows: { rules: [enabledRule('triage')] } };
     const wiring = createWorkflowsWiring({
+      store,
       config, homeDir, log: { warn: () => {} },
       notificationManager: { trigger: () => {} },
       sweepLeftovers: async () => { sweeps += 1; },
@@ -255,6 +264,7 @@ test('queued workflow spawns launch only while workflows and their rule stay on,
     const warnings: string[] = [];
     const config: { workflows?: unknown; teamReview?: Record<string, unknown> | null } = { workflows: { maxConcurrentSessions: 1, rules: [enabledRule('triage')] } };
     const wiring = createWorkflowsWiring({
+      store,
       config, homeDir, log: { warn: (message) => { warnings.push(message); } },
       notificationManager: { trigger: () => {} },
       spawnSession: ({ event }, signal) => new Promise<void>((resolve) => {

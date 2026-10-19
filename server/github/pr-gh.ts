@@ -11,10 +11,9 @@ import { z } from 'zod';
 import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, PrDetail, ReviewComment } from '../../shared/contracts/team-review.ts';
 import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../../shared/contracts/benchmark.ts';
 import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../../shared/contracts/benchmark.ts';
-import { MyPrCheckContext, MyPrCheckContextsResponse, MyPrMergeMethod, MyPrMergeStateResponse, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
+import { MyPrCheckContext, MyPrCheckContextsResponse, MyPrMergeMethod, MyPrMergeStateResponse, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../../shared/contracts/my-prs.ts';
-import { WorkflowCommentBody, WorkflowLabelName, WorkflowSearchNode } from '../../shared/contracts/workflows.ts';
-import type { WorkflowSearchNode as WorkflowSearchNodeType } from '../../shared/contracts/workflows.ts';
+import { WorkflowCommentBody, WorkflowLabelName } from '../../shared/contracts/workflows.ts';
 import type { PostedReviewEvent, PrDetail as PrDetailType, ReviewComment as ReviewCommentType, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 
 import type { TeamReviewThreadNode as ThreadNode, TeamReviewCompareFiles as CompareFiles } from '../../shared/contracts/team-review.ts';
@@ -72,13 +71,6 @@ interface GithubIssueDetail {
   error: string;
 }
 
-interface RepoPrSearch {
-  ok: boolean;
-  items: WorkflowSearchNodeType[];
-  isComplete: boolean;
-  error: string;
-}
-
 interface RestValidators {
   etag?: string;
   lastModified?: string;
@@ -95,11 +87,10 @@ type NotificationsSinceResult = Exclude<ConditionalGetResult, { kind: 'ok' }>
 
 interface PrGh {
   conditionalGet(path: string, validators?: RestValidators): Promise<ConditionalGetResult>;
-  searchPrsLight(qualifiers: string): Promise<{ ok: boolean; items: GithubPrLightSearchNodeType[]; isComplete: boolean; totalCount?: number; error: string }>;
+  searchPrsLight(qualifiers: string, maxMembers?: number): Promise<{ ok: boolean; items: GithubPrLightSearchNodeType[]; isComplete: boolean; totalCount?: number; error: string }>;
   prsLightByKey(prs: readonly PrReference[]): Promise<Map<string, GithubPrLightSearchNodeType>>;
   prDetails(prs: readonly PrReference[]): Promise<Map<string, GithubPrDetailNodeType>>;
   notificationsSince(lastModified?: string): Promise<NotificationsSinceResult>;
-  searchRepoPrs(repo: string, mergedSince: string): Promise<RepoPrSearch>;
   addPrLabel(label: { repo: string; number: number; name: string }): Promise<{ ok: boolean; err: string }>;
   commentOnPr(comment: { repo: string; number: number; body: string }): Promise<{ ok: boolean; err: string }>;
   behindCounts(prs: readonly PrHeadReference[]): Promise<Map<string, number>>;
@@ -157,7 +148,6 @@ function mergeKindFromPrState(prStateJson: string): MyPrMergeKind {
 }
 
 const HEX_LABEL_COLOR = /^[0-9a-f]{6}$/i;
-const MERGED_SINCE_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const CHECK_CONTEXT_FIELDS = '__typename ... on CheckRun { name conclusion status startedAt checkSuite { app { databaseId } workflowRun { workflow { databaseId } } } } ... on StatusContext { context state }';
 const MY_PR_CHECK_CONTEXTS_QUERY = `query($id: ID!, $cursor: String!) { node(id: $id) { ... on StatusCheckRollup { contexts(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { ${CHECK_CONTEXT_FIELDS} } } } } }`;
 const MAX_CHECK_CONTEXT_PAGES = 10;
@@ -174,32 +164,15 @@ const WORKFLOW_PR_FIELDS_FRAGMENT = `fragment workflowPrFields on PullRequest {
   author { login } labels(first: 50) { nodes { name } } comments { totalCount }
 }`;
 
-function prSearchConnection(nodeFields: string, queryVariable: string, cursorVariable?: string): string {
-  const paginationArgument = cursorVariable ? `, after: $${cursorVariable}` : '';
-  const pageInfo = cursorVariable ? 'pageInfo { hasNextPage endCursor } ' : '';
-  return `search(type: ISSUE, first: 50, query: $${queryVariable}${paginationArgument}) { issueCount ${pageInfo}nodes { ${nodeFields} } }`;
-}
-
-function openAndMergedSearchQuery(nodeFields: string, fragments: string): string {
-  return `query($openQuery: String!, $mergedQuery: String!) {
-  open: ${prSearchConnection(nodeFields, 'openQuery')}
-  merged: ${prSearchConnection(nodeFields, 'mergedQuery')}
-}
-${fragments}`;
-}
-
-function paginatedPrSearchQuery(nodeFields: string, fragments: string): string {
-  return `query($searchQuery: String!, $cursor: String) {
-  ${prSearchConnection(nodeFields, 'searchQuery', 'cursor')}
-}
-${fragments}`;
-}
-
 const GITHUB_PR_LIGHT_FIELDS = `
   repository { nameWithOwner } number updatedAt headRefOid state
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
   reviewDecision mergeable`;
-const GITHUB_PRS_LIGHT_QUERY = paginatedPrSearchQuery(`... on PullRequest { ${GITHUB_PR_LIGHT_FIELDS} }`, '');
+function githubPrsLightSearchQuery(maxMembers = 50): string {
+  return `query($searchQuery: String!, $cursor: String) {
+  search(type: ISSUE, first: ${maxMembers}, query: $searchQuery, after: $cursor) { issueCount pageInfo { hasNextPage endCursor } nodes { ... on PullRequest { ${GITHUB_PR_LIGHT_FIELDS} } } }
+}`;
+}
 const GITHUB_PR_LIGHT_REPOSITORY = z.object({ pullRequest: GithubPrLightSearchNode.nullable() }).nullable();
 const GITHUB_PRS_LIGHT_RESPONSE = z.object({ data: z.object({ search: z.object({
   issueCount: z.number().int().nonnegative(),
@@ -229,7 +202,6 @@ function githubPrDetailsQuery(prs: readonly PrReference[]): string {
   return `query { ${fields.join(' ')} }\n${MY_PR_FIELDS_FRAGMENT}\n${WORKFLOW_PR_FIELDS_FRAGMENT}`;
 }
 
-const WORKFLOW_PRS_QUERY = openAndMergedSearchQuery('...myPrFields ...workflowPrFields', `${MY_PR_FIELDS_FRAGMENT}\n${WORKFLOW_PR_FIELDS_FRAGMENT}`);
 const REBASE_PR_MUTATION = `mutation($id: ID!, $head: GitObjectID!) {
   updatePullRequestBranch(input: { pullRequestId: $id, expectedHeadOid: $head, updateMethod: REBASE }) { pullRequest { headRefOid } }
 }`;
@@ -558,13 +530,14 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
   return {
     conditionalGet,
 
-    async searchPrsLight(qualifiers) {
+    async searchPrsLight(qualifiers, maxMembers) {
+      if (maxMembers !== undefined && (!Number.isInteger(maxMembers) || maxMembers < 1 || maxMembers > 100)) return { ok: false, items: [], isComplete: false, error: 'invalid PR membership cap' };
       const items: GithubPrLightSearchNodeType[] = [];
       let cursor: string | null = null;
       let totalCount = 0;
-      for (let page = 1; page <= MAX_GITHUB_PR_SEARCH_PAGES; page += 1) {
+      for (let page = 1; page <= (maxMembers === undefined ? MAX_GITHUB_PR_SEARCH_PAGES : 1); page += 1) {
         const cursorArgs = cursor === null ? [] : ['-f', `cursor=${cursor}`];
-        const response = await runGh(['api', 'graphql', '-f', `query=${GITHUB_PRS_LIGHT_QUERY}`, '-f', `searchQuery=is:pr ${qualifiers}`, ...cursorArgs]);
+        const response = await runGh(['api', 'graphql', '-f', `query=${githubPrsLightSearchQuery(maxMembers)}`, '-f', `searchQuery=is:pr ${qualifiers}`, ...cursorArgs]);
         if (!response.ok) return { ok: false, items, isComplete: false, error: response.err.trim() || 'gh graphql search failed' };
         const parsed = GITHUB_PRS_LIGHT_RESPONSE.safeParse(parseJsonOrNull(response.out));
         if (!parsed.success) return { ok: false, items, isComplete: false, error: 'invalid gh graphql response' };
@@ -624,23 +597,6 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         ...(response.lastModified === undefined ? {} : { lastModified: response.lastModified }),
         ...(response.pollIntervalSeconds === undefined ? {} : { pollIntervalSeconds: response.pollIntervalSeconds }),
       };
-    },
-
-    async searchRepoPrs(repo, mergedSince) {
-      if (!repoParts(repo) || !MERGED_SINCE_DATE.test(mergedSince)) return { ok: false, items: [], isComplete: false, error: 'invalid repository or date' };
-      const response = await runGh(['api', 'graphql', '-H', 'Accept: application/vnd.github.merge-info-preview+json', '-f', `query=${WORKFLOW_PRS_QUERY}`, '-f', `openQuery=is:pr is:open repo:${repo} sort:updated-desc`, '-f', `mergedQuery=is:pr is:merged repo:${repo} merged:>=${mergedSince} sort:updated-desc`]);
-      if (!response.ok) return { ok: false, items: [], isComplete: false, error: response.err.trim() || 'gh graphql search failed' };
-      const parsed = MyPrSearchResponse.safeParse(parseJsonOrNull(response.out));
-      if (!parsed.success) return { ok: false, items: [], isComplete: false, error: 'invalid gh graphql response' };
-      if (parsed.data.errors?.length) return { ok: false, items: [], isComplete: false, error: 'gh graphql returned errors' };
-      const { open, merged } = parsed.data.data;
-      const nodes = [...open.nodes, ...merged.nodes];
-      const items = nodes.flatMap((node) => {
-        const valid = WorkflowSearchNode.safeParse(node);
-        return valid.success ? [valid.data] : [];
-      });
-      const isComplete = items.length === nodes.length && open.issueCount <= open.nodes.length && merged.issueCount <= merged.nodes.length;
-      return { ok: true, items, isComplete, error: '' };
     },
 
     async addPrLabel({ repo, number, name }) {

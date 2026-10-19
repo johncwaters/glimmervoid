@@ -50,6 +50,7 @@ function storeHarness(ghCallDurationMs = 0) {
   const queue = createSerialQueue();
   const timers = manualTimers();
   const searches: string[] = [];
+  const membershipCaps: (number | undefined)[] = [];
   const lightCalls: string[][] = [];
   const detailCalls: string[][] = [];
   const behindCalls: string[][] = [];
@@ -59,11 +60,13 @@ function storeHarness(ghCallDurationMs = 0) {
   const rateLimitCalls: number[] = [];
   const warnings: string[] = [];
   const github: Parameters<typeof createGithubStorePoller>[0]['github'] = {
-    async searchPrsLight(qualifiers) {
+    async searchPrsLight(qualifiers, maxMembers) {
       assert.equal(isExclusive, true);
       searches.push(qualifiers);
+      membershipCaps.push(maxMembers);
       timestamp += ghCallDurationMs;
-      return { ok: true, items: nodes.filter((node) => !searchNodeNumbers || searchNodeNumbers.has(node.number)).map((node) => GithubPrLightSearchNode.parse(node)), isComplete: true, error: '' };
+      const matchingNodes = nodes.filter((node) => !searchNodeNumbers || searchNodeNumbers.has(node.number));
+      return { ok: true, items: matchingNodes.slice(0, maxMembers).map((node) => GithubPrLightSearchNode.parse(node)), totalCount: matchingNodes.length, isComplete: maxMembers === undefined || matchingNodes.length <= maxMembers, error: '' };
     },
     async prsLightByKey(references) {
       assert.equal(isExclusive, true);
@@ -126,7 +129,7 @@ function storeHarness(ghCallDurationMs = 0) {
     log: { warn: (warning: string) => { warnings.push(warning); } },
   });
   return {
-    poller, timers, searches, lightCalls, detailCalls, behindCalls, threadCalls, notificationCalls, diffCalls, rateLimitCalls, warnings,
+    poller, timers, searches, membershipCaps, lightCalls, detailCalls, behindCalls, threadCalls, notificationCalls, diffCalls, rateLimitCalls, warnings,
     idle: queue.idle,
     advance: (milliseconds: number) => { timestamp += milliseconds; },
     setConnected: (connected: boolean) => { isDashboardConnected = connected; },
@@ -417,4 +420,56 @@ test('membership searches and batched state reads stay within the viewed and unv
   assert.deepEqual(await poller.tick(), { failed: false });
   assert.equal(harness.searches.length, searchesBeforeDetailChange);
   assert.deepEqual(poller.getSnapshot().watches.direct.keys, previousWatchKeys);
+});
+
+
+test('capped workflow watches keep exclusive keys on their fixed cadence while shared keys follow default watches and explicit owners', async (context) => {
+  const harness = storeHarness();
+  context.after(harness.cleanup);
+  const { poller } = harness;
+  harness.setNodes(Array.from({ length: 51 }, (_, index) => detailNode(index + 1)));
+  poller.registerWatch({ name: 'workflows-open:acme/app', qualifiers: 'is:open repo:Acme/app', needsDetail: true, maxMembers: 50, intervalMs: 300_000 });
+  await poller.tick();
+  assert.deepEqual(harness.membershipCaps, [50]);
+  assert.equal(poller.getSnapshot().watches['workflows-open:acme/app'].isComplete, false);
+  assert.equal(harness.lightCalls[0].length, 50);
+  const firstPrs = poller.getSnapshot().prs;
+  harness.advance(60_000);
+  await poller.tick();
+  assert.equal(harness.searches.length, 1);
+  assert.equal(harness.lightCalls.length, 1);
+  assert.equal(poller.getSnapshot().prs, firstPrs);
+  harness.advance(240_000);
+  await poller.tick();
+  assert.deepEqual(harness.membershipCaps, [50, 50]);
+  assert.equal(harness.lightCalls.length, 2);
+  assert.equal(harness.lightCalls[1].length, 50);
+  harness.setSearchNodeNumbers([1]);
+  poller.registerWatch({ name: 'my-prs', qualifiers: 'author:@me', needsDetail: true });
+  await poller.tick();
+  assert.deepEqual(harness.lightCalls.at(-1), ['acme/app#1']);
+  harness.advance(60_000);
+  await poller.tick();
+  assert.deepEqual(harness.lightCalls.at(-1), ['acme/app#1']);
+  poller.setWatchedKeys('session', ['acme/app#2']);
+  await poller.tick();
+  assert.deepEqual(new Set(harness.lightCalls.at(-1)), new Set(['acme/app#1', 'acme/app#2']));
+  poller.unregisterWatch('my-prs');
+  poller.setWatchedKeys('session', []);
+  harness.setConnected(false);
+  harness.setSearchNodeNumbers(Array.from({ length: 50 }, (_, index) => index + 2));
+  harness.setNodes(Array.from({ length: 51 }, (_, index) => detailNode(index + 1, index === 1 ? 'SUCCESS' : 'PENDING')));
+  harness.advance(240_000);
+  await poller.tick();
+  assert.equal(harness.searches.at(-1), 'is:open repo:Acme/app');
+  assert.equal(harness.membershipCaps.at(-1), 50);
+  assert.equal(poller.getSnapshot().watches['workflows-open:acme/app'].keys.length, 50);
+  assert.equal(poller.getSnapshot().prs['acme/app#1'], undefined);
+  assert.equal(harness.lightCalls.at(-1)?.includes('acme/app#51'), true);
+  assert.equal(harness.lightCalls.at(-1)?.includes('acme/app#2'), false);
+  assert.equal(poller.getSnapshot().prs['acme/app#2'].checks.state, 'SUCCESS');
+  const lightCallCount = harness.lightCalls.length;
+  harness.advance(60_000);
+  await poller.tick();
+  assert.equal(harness.lightCalls.length, lightCallCount);
 });

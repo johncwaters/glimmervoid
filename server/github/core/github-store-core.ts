@@ -3,7 +3,6 @@ import { comparablePrKey, GithubPrKey } from '../../../shared/contracts/github-p
 import type { GithubPr, GithubPrDetailNode, GithubPrLightSearchNode } from '../../../shared/contracts/github-prs.ts';
 import type { MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
 import { toMyPr } from './my-prs-core.ts';
-import { toWorkflowPr } from '../../core/workflows-core.ts';
 
 export function isBotAuthor(author: { __typename?: string; login: string } | null | undefined): boolean {
   if (!author) return false;
@@ -12,11 +11,10 @@ export function isBotAuthor(author: { __typename?: string; login: string } | nul
 
 export function normalizeGithubPr(node: GithubPrDetailNode, behindBy: number | null = null, threadNodes: readonly MyPrThreadNode[] = []): GithubPr {
   const myPr = toMyPr(node, behindBy, threadNodes);
-  const workflowPr = toWorkflowPr(node);
   return {
     key: comparablePrKey(myPr), id: node.id,
     repo: myPr.repo, number: myPr.number, title: myPr.title, url: myPr.url,
-    author: workflowPr.author, isAuthorBot: isBotAuthor(node.author), labels: workflowPr.labels, commentCount: workflowPr.commentCount,
+    author: node.author?.login ?? null, isAuthorBot: isBotAuthor(node.author), labels: node.labels.nodes.map((label) => label.name), commentCount: node.comments.totalCount,
     isDraft: myPr.isDraft, state: myPr.state,
     createdAt: myPr.createdAt, mergedAt: myPr.mergedAt, updatedAt: myPr.updatedAt,
     baseRefName: myPr.baseRefName, baseRefOid: myPr.baseRefOid,
@@ -92,12 +90,35 @@ export function githubStoreLightIntervalMs(isDashboardConnected: boolean): numbe
   return isDashboardConnected ? 60_000 : 300_000;
 }
 
-export function isGithubStoreMembershipDue(lastPolledAt: number | null, nowMs: number, isDashboardConnected: boolean): boolean {
-  return isGithubStorePollDue(lastPolledAt, nowMs, isDashboardConnected ? 300_000 : 900_000);
+export function isGithubStoreMembershipDue(lastPolledAt: number | null, nowMs: number, isDashboardConnected: boolean, intervalMs?: number): boolean {
+  return isGithubStorePollDue(lastPolledAt, nowMs, intervalMs ?? (isDashboardConnected ? 300_000 : 900_000));
 }
 
 export function isGithubStorePollDue(lastPolledAt: number | null, nowMs: number, intervalMs: number): boolean {
   return lastPolledAt === null || nowMs - lastPolledAt >= intervalMs;
+}
+
+export function githubStoreFixedLightIntervalMsByKey(watches: Iterable<{ nodes: readonly GithubPrLightSearchNode[]; intervalMs?: number }>, watchedKeys: ReadonlySet<string>): ReadonlyMap<string, number> {
+  const fixedIntervalMsByKey = new Map<string, number>();
+  const defaultIntervalKeys = new Set<string>();
+  for (const watch of watches) {
+    for (const node of watch.nodes) {
+      const key = comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number });
+      if (watchedKeys.has(key)) continue;
+      if (watch.intervalMs === undefined) {
+        defaultIntervalKeys.add(key);
+        continue;
+      }
+      fixedIntervalMsByKey.set(key, Math.min(fixedIntervalMsByKey.get(key) ?? Infinity, watch.intervalMs));
+    }
+  }
+  for (const key of defaultIntervalKeys) fixedIntervalMsByKey.delete(key);
+  return fixedIntervalMsByKey;
+}
+
+export function isGithubStoreFixedLightDue(key: string, fixedIntervalMsByKey: ReadonlyMap<string, number>, lastLightPolledAtByKey: ReadonlyMap<string, number>, nowMs: number): boolean {
+  const fixedIntervalMs = fixedIntervalMsByKey.get(key);
+  return fixedIntervalMs !== undefined && isGithubStorePollDue(lastLightPolledAtByKey.get(key) ?? null, nowMs, fixedIntervalMs);
 }
 
 export function githubStoreWatchUnion(watches: Iterable<{ nodes: readonly GithubPrLightSearchNode[]; needsDetail: boolean }>, watchedKeys: ReadonlySet<string>, previousLightByKey: ReadonlyMap<string, GithubPrLightSearchNode>) {

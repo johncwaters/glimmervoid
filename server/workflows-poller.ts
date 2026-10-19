@@ -7,6 +7,7 @@ import { firstLine } from './lanes/ephemeral-session.ts';
 import { createTickLoop } from './lanes/lane-runner.ts';
 import type { LaneStatusRecord, SharedClock } from './lanes/lane-runner.ts';
 import type { PrGh } from './github/pr-gh.ts';
+import type { GithubLaneStore } from './github/github-store-wiring.ts';
 import { WorkflowsState } from '../shared/contracts/workflows.ts';
 import type { WorkflowRule, WorkflowsState as WorkflowsStateType } from '../shared/contracts/workflows.ts';
 import { errorMessage } from '../shared/text.ts';
@@ -85,7 +86,8 @@ interface WorkflowsPollerDependencies {
   areActionsEnabled?: () => boolean;
   teamName: string | null;
   maxActionsPerPoll?: number;
-  github: Pick<PrGh, 'viewer' | 'searchRepoPrs' | 'addPrLabel' | 'commentOnPr' | 'rateLimitWaitMs'>;
+  github: Pick<PrGh, 'viewer' | 'addPrLabel' | 'commentOnPr' | 'rateLimitWaitMs'>;
+  store: Pick<GithubLaneStore, 'registerWatch' | 'unregisterWatch' | 'getSnapshot'>;
   readState: () => Promise<WorkflowsStateType | null>;
   writeState: (state: WorkflowsStateType) => Promise<void>;
   notify: (notification: { sessionName: string; message: string }) => void;
@@ -104,13 +106,33 @@ interface WorkflowsPollerDependencies {
 }
 
 export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies) {
-  const { rules, teamName, maxActionsPerPoll = core.DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, github, notify, startSession, onTickComplete, now = Date.now, intervalMinutes = core.WORKFLOWS_POLL_INTERVAL_MINUTES, log = console } = dependencies;
+  const { rules, teamName, maxActionsPerPoll = core.DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, github, store, notify, startSession, onTickComplete, now = Date.now, intervalMinutes = core.WORKFLOWS_POLL_INTERVAL_MINUTES, log = console } = dependencies;
   let snapshot: WorkflowsStateType = core.emptyWorkflowsState();
   let stateLoad: Promise<void> | null = null;
   let viewer: string | null = null;
   let hasLookedUpViewer = false;
   let pollingError: string | null = null;
+  const watches = new Map<string, string>();
   const isViewerNeeded = rules.some((rule) => rule.enabled && rule.filters.mine === true);
+
+  function registerWatches(polledAtMs: number): void {
+    const mergedSince = mergedSinceDate(polledAtMs);
+    const nextWatches = new Map<string, string>();
+    for (const repo of core.watchedWorkflowRepos(rules)) {
+      const { openWatchName, mergedWatchName } = core.workflowRepoWatchNames(repo);
+      nextWatches.set(openWatchName, `is:open repo:${repo} sort:updated-desc`);
+      nextWatches.set(mergedWatchName, `is:merged repo:${repo} merged:>=${mergedSince} sort:updated-desc`);
+    }
+    for (const name of watches.keys()) {
+      if (!nextWatches.has(name)) store.unregisterWatch(name);
+    }
+    for (const [name, qualifiers] of nextWatches) {
+      if (watches.get(name) === qualifiers) continue;
+      store.registerWatch({ name, qualifiers, needsDetail: true, maxMembers: 50, intervalMs: core.WORKFLOWS_POLL_INTERVAL_MINUTES * 60_000 });
+    }
+    watches.clear();
+    for (const [name, qualifiers] of nextWatches) watches.set(name, qualifiers);
+  }
 
   function loadState(): Promise<void> {
     stateLoad ??= dependencies.readState().then((state) => { snapshot = state ?? core.emptyWorkflowsState(); });
@@ -176,21 +198,31 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
     }
     if (loop.isStopped()) return { failed: false };
     const polledAtMs = now();
-    const mergedSince = mergedSinceDate(polledAtMs);
+    registerWatches(polledAtMs);
+    const githubSnapshot = store.getSnapshot();
     const nextRepos: WorkflowsStateType['repos'] = {};
     const searchErrors: string[] = [];
     const watchedRepos = core.watchedWorkflowRepos(rules);
     for (const repo of watchedRepos) {
       const repoKey = core.workflowRepoKey(repo);
       const previousRepo = snapshot.repos[repoKey];
-      const search = await github.searchRepoPrs(repo, mergedSince);
-      if (loop.isStopped()) return { failed: false };
-      if (!search.ok) {
-        searchErrors.push(`${repo}: ${search.error}`);
+      const { openWatchName, mergedWatchName } = core.workflowRepoWatchNames(repo);
+      const openWatch = githubSnapshot.watches[openWatchName];
+      const mergedWatch = githubSnapshot.watches[mergedWatchName];
+      const keys = new Set([...(openWatch?.keys ?? []), ...(mergedWatch?.keys ?? [])]);
+      const isRepoLoaded = openWatch?.isLoaded === true && mergedWatch?.isLoaded === true;
+      if (githubSnapshot.freshness.error !== null) searchErrors.push(`${repo}: ${githubSnapshot.freshness.error}`);
+      if (githubSnapshot.freshness.error !== null || !isRepoLoaded) {
         if (previousRepo) nextRepos[repoKey] = previousRepo;
         continue;
       }
-      nextRepos[repoKey] = core.nextRepoSnapshot(previousRepo, search.items.map(core.toWorkflowPr), search.isComplete, polledAtMs);
+      const prs = [...keys].flatMap((key) => {
+        const pr = githubSnapshot.prs[key];
+        return pr ? [core.workflowPrFromGithubPr(pr)] : [];
+      });
+      const hasEveryPr = prs.length === keys.size;
+      const isComplete = openWatch?.isComplete === true && mergedWatch?.isComplete === true && hasEveryPr;
+      nextRepos[repoKey] = core.nextRepoSnapshot(previousRepo, prs, isComplete, polledAtMs);
     }
     const events = core.diffPrEvents(snapshot.repos, nextRepos);
     const { planned, droppedCount, refusedSpawnCount } = core.matchRules(events, rules, { viewer, teamName }, maxActionsPerPoll);
@@ -209,12 +241,16 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
     return { failed: false };
   }
 
+  registerWatches(now());
+
   return {
     async start(): Promise<void> {
       await loop.start(dependencies.beforeStart ?? null);
     },
     async stop(): Promise<void> {
       await loop.stop();
+      for (const name of watches.keys()) store.unregisterWatch(name);
+      watches.clear();
     },
     tick: loop.tick,
   };

@@ -223,16 +223,6 @@ test('viewIssue refuses a payload without a usable issue number', async () => {
   assert.deepEqual(await gh.viewIssue(17), { ok: false, issue: null, error: 'gh issue view returned no issue' });
 });
 
-function myPrNode(number: number) {
-  return {
-    __typename: 'PullRequest', id: `PR_node${number}`, number, title: 'Fix', url: `https://github.com/Acme/app/pull/${number}`, isDraft: false,
-    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'feature', isCrossRepository: false, headRefOid: HEAD_SHA, isInMergeQueue: false,
-    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
-    commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
-  };
-}
-
-
 function mergeGh(prStateAfterMerge: CommandResult) {
   const calls: string[][] = [];
   const gh = createPrGh('/repo', async (command, args) => {
@@ -527,51 +517,6 @@ test('compareCommits asks for the merge base and file names and flags a capped f
   assert.equal((await gh.compareCommits('Acme/repo', base, HEAD_SHA))?.isFileListComplete, false);
   assert.equal(await gh.compareCommits('Acme/repo', 'main', HEAD_SHA), null);
   assert.equal(calls.length, 2);
-});
-
-function workflowNode(number: number) {
-  return { ...myPrNode(number), author: { login: 'alice' }, labels: { nodes: [{ name: 'bug' }] }, comments: { totalCount: 2 } };
-}
-
-test('repo PR search asks one GraphQL call for open and recently merged pull requests with the workflow fields', async () => {
-  const calls: string[][] = [];
-  const gh = createPrGh('/repo', async (_command, args) => {
-    calls.push(args);
-    return { ok: true, out: JSON.stringify({ data: { open: { issueCount: 1, nodes: [workflowNode(1)] }, merged: { issueCount: 1, nodes: [workflowNode(3)] } } }), err: '' };
-  });
-  const searched = await gh.searchRepoPrs('Acme/app', '2026-09-27');
-  assert.deepEqual({ ok: searched.ok, isComplete: searched.isComplete, numbers: searched.items.map((item) => item.number) }, { ok: true, isComplete: true, numbers: [1, 3] });
-  assert.equal(searched.items[0]?.author?.login, 'alice');
-  assert.equal(calls.length, 1);
-  assert.ok(calls[0].includes('openQuery=is:pr is:open repo:Acme/app sort:updated-desc'));
-  assert.ok(calls[0].includes('mergedQuery=is:pr is:merged repo:Acme/app merged:>=2026-09-27 sort:updated-desc'));
-  const query = calls[0].find((argument) => argument.startsWith('query=')) ?? '';
-  assert.match(query, /nodes \{ \.\.\.myPrFields \.\.\.workflowPrFields \}/);
-  assert.match(query, /fragment workflowPrFields on PullRequest \{\n\s+author \{ login \} labels\(first: 50\) \{ nodes \{ name \} \} comments \{ totalCount \}/);
-  assert.match(query, /fragment myPrFields on PullRequest \{/);
-});
-
-test('repo PR search reports itself incomplete when a cap truncates it or a node is malformed', async () => {
-  const truncated = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { open: { issueCount: 80, nodes: [workflowNode(1)] }, merged: { issueCount: 0, nodes: [] } } }), err: '' }));
-  assert.equal((await truncated.searchRepoPrs('Acme/app', '2026-09-27')).isComplete, false);
-  const malformed = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { open: { issueCount: 2, nodes: [workflowNode(1), myPrNode(2)] }, merged: { issueCount: 0, nodes: [] } } }), err: '' }));
-  const searched = await malformed.searchRepoPrs('Acme/app', '2026-09-27');
-  assert.deepEqual([searched.ok, searched.isComplete, searched.items.length], [true, false, 1]);
-});
-
-test('repo PR search refuses bad input without calling gh and fails closed on bad responses', async () => {
-  let calls = 0;
-  const gh = createPrGh('/repo', async () => {
-    calls += 1;
-    return { ok: true, out: JSON.stringify({ data: { open: { issueCount: 0, nodes: [] }, merged: { issueCount: 0, nodes: [] } }, errors: [{ message: 'x' }] }), err: '' };
-  });
-  assert.equal((await gh.searchRepoPrs('Acme', '2026-09-27')).ok, false);
-  assert.equal((await gh.searchRepoPrs('Acme/app repo:Other/secret', '2026-09-27')).ok, false);
-  assert.equal((await gh.searchRepoPrs('Acme/app', 'today')).ok, false);
-  assert.equal(calls, 0);
-  assert.deepEqual(await gh.searchRepoPrs('Acme/app', '2026-09-27'), { ok: false, items: [], isComplete: false, error: 'gh graphql returned errors' });
-  const failed = createPrGh('/repo', async () => ({ ok: false, out: '', err: 'rate limited\n' }));
-  assert.equal((await failed.searchRepoPrs('Acme/app', '2026-09-27')).error, 'rate limited');
 });
 
 test('addPrLabel runs gh pr edit with the label as one argument after its flag', async () => {
@@ -900,6 +845,14 @@ test('light PR reads share search fields and batch fifty comparable keys without
   const callCount = queries.length;
   assert.equal((await github.prsLightByKey([])).size, 0);
   assert.equal(queries.length, callCount);
+  let cappedCalls = 0;
+  const capped = createPrGh('/repo', async (_command, args) => {
+    cappedCalls += 1;
+    assert.match(args.find((argument) => argument.startsWith('query=')) ?? '', /first: 17,/);
+    return { ok: true, err: '', out: JSON.stringify({ data: { search: { issueCount: 100, pageInfo: { hasNextPage: true, endCursor: 'next' }, nodes: [node(1, 'Acme/app')] } } }) };
+  });
+  assert.equal((await capped.searchPrsLight('repo:Acme/app', 17)).isComplete, false);
+  assert.equal(cappedCalls, 1);
 });
 
 test('failed or malformed light batches reject rather than reporting inaccessible PRs', async () => {

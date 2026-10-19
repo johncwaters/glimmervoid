@@ -87,13 +87,14 @@ interface WorkflowsWiringOptions {
   log?: Pick<Console, 'warn'>;
   homeDir?: string;
   github?: WorkflowsPollerDependencies['github'];
+  store: WorkflowsPollerDependencies['store'];
   clock?: SharedClock;
   sweepLeftovers?: () => Promise<void>;
   createPoller?: (dependencies: WorkflowsPollerDependencies) => WorkflowsPoller;
 }
 
 export function createWorkflowsWiring({
-  config, notificationManager, spawnSession, log = console, homeDir = glimmervoidHomeDir(), github = createPrGh(homeDir), clock, sweepLeftovers, createPoller = createWorkflowsPoller,
+  config, notificationManager, spawnSession, log = console, homeDir = glimmervoidHomeDir(), github = createPrGh(homeDir), store, clock, sweepLeftovers, createPoller = createWorkflowsPoller,
 }: WorkflowsWiringOptions) {
   const stateIo = createWorkflowsStateIo(path.join(homeDir, core.WORKFLOWS_STATE_FILENAME), log);
   const settings = () => core.resolveWorkflowsSettings(config.workflows);
@@ -122,7 +123,7 @@ export function createWorkflowsWiring({
         areActionsEnabled: () => core.areWorkflowActionsEnabled(settings()),
         maxActionsPerPoll: resolved.ok ? resolved.maxActionsPerPoll : core.DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL,
         teamName: teamName(),
-        github, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay, beforeStart: sweepLeftoversBeforeFirstStart,
+        github, store, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay, beforeStart: sweepLeftoversBeforeFirstStart,
         readState: stateIo.readState, writeState: stateIo.writeState,
         notify: ({ sessionName, message }) => { notificationManager.trigger(sessionName, core.WORKFLOW_NOTIFY_CATEGORY, message); },
         startSession: sessions.enqueue,

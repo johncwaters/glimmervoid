@@ -3,13 +3,15 @@ import { areWorkflowActionsEnabled } from '../server/core/workflows-core.ts';
 import assert from 'node:assert/strict';
 
 import {
-  DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, diffPrEvents, fillPromptTemplate, matchRules, mergeWorkflowsUpdateOverStored, nextRepoSnapshot, resolveWorkflowsSettings, toWorkflowPr,
+  DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, diffPrEvents, fillPromptTemplate, matchRules, mergeWorkflowsUpdateOverStored, nextRepoSnapshot, resolveWorkflowsSettings, workflowPrFromGithubPr,
   watchedWorkflowRepos, withOwnPostedComment, WORKFLOW_SEARCH_LAG_GRACE_MS, workflowNotification, workflowSpawnPrompt, workflowSessionLimit, workflowSpawnQueueKey, workflowsShouldStart, workflowTeamName,
 } from '../server/core/workflows-core.ts';
 import { MERGED_RETENTION_MS } from '../server/github/core/my-prs-core.ts';
 import type { WorkflowEvent } from '../server/core/workflows-core.ts';
 import { WorkflowRule } from '../shared/contracts/workflows.ts';
-import type { WorkflowPr, WorkflowRepoSnapshot, WorkflowSearchNode, WorkflowTrigger } from '../shared/contracts/workflows.ts';
+import type { WorkflowPr, WorkflowRepoSnapshot, WorkflowTrigger } from '../shared/contracts/workflows.ts';
+import type { GithubPrDetailNode } from '../shared/contracts/github-prs.ts';
+import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
 
 const LAST_POLL_MS = Date.parse('2026-10-04T12:00:00Z');
 const BEFORE_LAST_POLL = '2026-10-01T09:00:00Z';
@@ -284,7 +286,7 @@ test('the team name uses the first configured team', () => {
 });
 
 test('a search node becomes a snapshot entry with user and team review requests', () => {
-  const node: WorkflowSearchNode = {
+  const node: GithubPrDetailNode = {
     __typename: 'PullRequest', id: 'PR_1', number: 7, title: 'Fix', url: 'https://github.com/Acme/app/pull/7', isDraft: true, state: 'OPEN',
     createdAt: '2026-10-04T11:00:00Z', mergedAt: null, updatedAt: '', baseRefName: 'main', baseRefOid: 'c'.repeat(40), headRefName: 'fix', isCrossRepository: true, headRefOid: 'b'.repeat(40),
     isInMergeQueue: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED',
@@ -300,12 +302,12 @@ test('a search node becomes a snapshot entry with user and team review requests'
     latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
     author: { login: 'alice' }, labels: { nodes: [{ name: 'bug' }] }, comments: { totalCount: 3 },
   };
-  assert.deepEqual(toWorkflowPr(node), {
+  assert.deepEqual(workflowPrFromGithubPr(normalizeGithubPr(node)), {
     repo: 'Acme/app', number: 7, title: 'Fix', url: 'https://github.com/Acme/app/pull/7', author: 'alice', state: 'OPEN',
     createdAt: '2026-10-04T11:00:00Z', mergedAt: null, isDraft: true, isCrossRepository: true, baseRefName: 'main', headRefName: 'fix', headRefOid: 'b'.repeat(40), labels: ['bug'], commentCount: 3, reviewRequests: ['bob', 'Acme/core'],
     checksState: 'FAILURE', reviewDecision: 'APPROVED',
   });
-  assert.equal(toWorkflowPr({ ...node, author: null, commits: { nodes: [] } }).checksState, null);
+  assert.equal(workflowPrFromGithubPr(normalizeGithubPr({ ...node, author: null, commits: { nodes: [] } })).checksState, null);
 });
 
 test('prompt templates fill known placeholders, quote untrusted text and leave unknown ones alone', () => {

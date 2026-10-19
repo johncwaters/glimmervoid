@@ -5,6 +5,8 @@ import { DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS, MAX_DEFERRED_WORKFLOW_SPAWNS 
 import { createWorkflowSessionQueue, createWorkflowsPoller } from '../server/workflows-poller.ts';
 import type { SpawnPlannedAction, SpawnSession } from '../server/workflows-poller.ts';
 import { createWorkflowsStateIo } from '../server/workflows-wiring.ts';
+import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
+import { GithubPrDetailNode, GithubPrLightSearchNode, comparablePrKey } from '../shared/contracts/github-prs.ts';
 import { WorkflowRule } from '../shared/contracts/workflows.ts';
 import type { WorkflowSearchNode, WorkflowsState } from '../shared/contracts/workflows.ts';
 import fs from 'node:fs/promises';
@@ -39,20 +41,17 @@ function harness({ savedState = null, actions = ALL_ACTIONS, filters = {}, trigg
 } = {}) {
   let items: WorkflowSearchNode[] = [searchNode(1)];
   let isSearchFailing = false;
+  let snapshotRevision = 0;
+  let timestamp = NOW;
   let saved = savedState;
   const steps: string[] = [];
   const warnings: string[] = [];
-  const searchedRepos: string[] = [];
+  const registeredWatches: Parameters<ReturnType<typeof createGithubStorePoller>['registerWatch']>[0][] = [];
   let viewerLookups = 0;
   const github = {
     async viewer() {
       viewerLookups += 1;
       return 'alice';
-    },
-    async searchRepoPrs(repo: string, mergedSince: string) {
-      searchedRepos.push(`${repo} ${mergedSince}`);
-      if (isSearchFailing) return { ok: false, items: [], isComplete: false, error: 'offline' };
-      return { ok: true, items, isComplete: true, error: '' };
     },
     async addPrLabel(label: { repo: string; number: number; name: string }) {
       steps.push(`label ${label.repo}#${label.number} ${label.name}`);
@@ -65,11 +64,49 @@ function harness({ savedState = null, actions = ALL_ACTIONS, filters = {}, trigg
     },
     async rateLimitWaitMs() { return null; },
   };
+  const storePoller = createGithubStorePoller({
+    now: () => timestamp, isDashboardConnected: () => true, exclusive: async (work) => work(),
+    setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn: () => {} },
+    github: {
+      ...github,
+      async searchPrsLight(qualifiers, maxMembers) {
+        if (isSearchFailing) return { ok: false, items: [], isComplete: false, error: 'offline' };
+        const matchingItems = items.filter((node) => qualifiers.includes(`repo:${node.repository.nameWithOwner.toLowerCase()} `)
+          && node.state === (qualifiers.startsWith('is:open') ? 'OPEN' : 'MERGED'));
+        return { ok: true, items: matchingItems.slice(0, maxMembers).map((node) => GithubPrLightSearchNode.parse(node)), isComplete: maxMembers === undefined || matchingItems.length <= maxMembers, error: '' };
+      },
+      async prsLightByKey(references) {
+        const keys = new Set(references.map(comparablePrKey));
+        return new Map(items.filter((node) => keys.has(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number })))
+          .map((node) => [comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), GithubPrLightSearchNode.parse(node)]));
+      },
+      async prDetails(references) {
+        const keys = new Set(references.map(comparablePrKey));
+        return new Map(items.filter((node) => keys.has(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number })))
+          .map((node) => [comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), GithubPrDetailNode.parse(node)]));
+      },
+      async notificationsSince() { return { kind: 'unchanged' }; },
+      async behindCounts() { return new Map(); },
+      async reviewThreadsBatch() { return new Map(); },
+      async viewPr() { assert.fail('Unexpected workflow PR view'); },
+      async prDiff() { assert.fail('Unexpected workflow PR diff'); },
+      async prHead() { assert.fail('Unexpected workflow PR head'); },
+    },
+  });
+  const store = {
+    ...storePoller,
+    registerWatch: (watch: Parameters<typeof storePoller.registerWatch>[0]) => {
+      registeredWatches.push(watch);
+      storePoller.registerWatch(watch);
+    },
+  };
   const rules = [WorkflowRule.parse({ id: 'greet', name: 'Greet', enabled: true, repos: ['acme/app'], trigger, filters, actions })];
   const log = { warn: (message: string) => { warnings.push(message); } };
   const sessions = createWorkflowSessionQueue({ spawnSession: spawnSession ?? (async ({ event }) => { steps.push(`spawn ${event.pr.repo}#${event.pr.number}`); }), log });
   const poller = createWorkflowsPoller({
-    rules, teamName: null, github, now: () => NOW, areActionsEnabled,
+    rules, teamName: null, github, store,
+    clock: { exclusive: async (work) => { await store.refreshWatches(Object.keys(store.getSnapshot().watches)); return work(); }, schedule: () => () => {} },
+    now: () => timestamp, areActionsEnabled,
     readState: async () => saved,
     writeState: async (state) => {
       steps.push('save');
@@ -82,19 +119,52 @@ function harness({ savedState = null, actions = ALL_ACTIONS, filters = {}, trigg
     log,
   });
   return {
-    poller, sessions, steps, warnings, searchedRepos, savedState: () => saved, viewerLookups: () => viewerLookups,
-    setItems: (nextItems: WorkflowSearchNode[]) => { items = nextItems; },
+    poller, store, rules, sessions, steps, warnings, registeredWatches,
+    setNow: (nextTimestamp: number) => { timestamp = nextTimestamp; }, savedState: () => saved, viewerLookups: () => viewerLookups,
+    setItems: (nextItems: WorkflowSearchNode[]) => {
+      snapshotRevision += 1;
+      items = nextItems.map((node) => ({ ...node, updatedAt: new Date(NOW + snapshotRevision).toISOString() }));
+    },
     failSearch: () => { isSearchFailing = true; },
   };
 }
 
 test('the first poll of a repo seeds the snapshot and fires nothing', async () => {
   const lane = harness();
+  lane.setItems([searchNode(1, {
+    author: { login: 'alice' }, labels: { nodes: [{ name: 'bug' }] }, comments: { totalCount: 2 }, reviewDecision: 'APPROVED',
+    reviewRequests: { nodes: [{ requestedReviewer: { __typename: 'Team', slug: 'docs', avatarUrl: null, organization: { login: 'Acme' } } }] },
+    commits: { nodes: [{ commit: { statusCheckRollup: { state: 'FAILURE', contexts: { nodes: [] } } } }] },
+  })]);
   await lane.poller.tick();
   assert.deepEqual(lane.steps, ['save']);
   assert.deepEqual(lane.savedState()?.repos['acme/app']?.prs.map((pr) => pr.number), [1]);
-  assert.deepEqual(lane.searchedRepos, ['acme/app 2026-10-03']);
+  assert.deepEqual(lane.registeredWatches, [
+    { name: 'workflows-open:acme/app', qualifiers: 'is:open repo:acme/app sort:updated-desc', needsDetail: true, maxMembers: 50, intervalMs: 300_000 },
+    { name: 'workflows-merged:acme/app', qualifiers: 'is:merged repo:acme/app merged:>=2026-10-03 sort:updated-desc', needsDetail: true, maxMembers: 50, intervalMs: 300_000 },
+  ]);
   assert.equal(lane.savedState()?.repos['acme/app']?.polledAtMs, NOW);
+  const seededPr = lane.savedState()?.repos['acme/app']?.prs[0];
+  assert.equal(seededPr?.author, 'alice');
+  assert.deepEqual(seededPr?.labels, ['bug']);
+  assert.equal(seededPr?.commentCount, 2);
+  assert.deepEqual(seededPr?.reviewRequests, ['Acme/docs']);
+  assert.equal(seededPr?.checksState, 'FAILURE');
+  assert.equal(seededPr?.reviewDecision, 'APPROVED');
+  lane.setNow(NOW + 86_400_000);
+  lane.setItems([searchNode(1), searchNode(2, { createdAt: '2026-10-05T12:01:00Z' }), searchNode(3, { state: 'MERGED', mergedAt: '2026-10-05T12:01:00Z' })]);
+  await lane.poller.tick();
+  assert.equal(lane.store.getSnapshot().watches['workflows-merged:acme/app'].isLoaded, false);
+  assert.deepEqual(lane.savedState()?.repos['acme/app']?.prs, [seededPr]);
+  assert.deepEqual(lane.steps, ['save', 'save']);
+  lane.setNow(NOW + 86_460_000);
+  await lane.store.refreshWatches(Object.keys(lane.store.getSnapshot().watches));
+  await lane.poller.tick();
+  assert.deepEqual(lane.savedState()?.repos['acme/app']?.prs.map((pr) => pr.number), [1, 2, 3]);
+  assert.equal(lane.store.getSnapshot().watches['workflows-merged:acme/app'].isLoaded, true);
+  lane.rules[0].enabled = false;
+  await lane.poller.tick();
+  assert.deepEqual(lane.store.getSnapshot().watches, {});
   await lane.poller.stop();
 });
 

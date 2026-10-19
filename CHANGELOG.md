@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Workflows reads the same PR status as My PRs**: workflow rules now see pull requests from the same GitHub data as My PRs, Reviews and the session chips, so a rule fires on the same checks, reviews and labels those views show. Each watched repository still checks its 50 most recently updated open pull requests every five minutes.
 - **PR status updates right after you act**: when a session pushes or runs a `gh pr` command, or you merge, post a review or add a label from the dashboard, that pull request's status refreshes within seconds instead of on the next poll. A pull request linked to a session now shows its stage on the session chip even when someone else opened it.
 - **Session PR chips match My PRs**: a session's PR chip and its My PRs row now always show the same stage, and both update together when a check run finishes.
 - **My PRs keeps up with GitHub**: while a dashboard is open, My PRs picks up a finished check run, a new review or a push within about a minute instead of up to five, without pressing Refresh. With no dashboard open it checks every five minutes as before. Refresh now updates My PRs straight from GitHub.

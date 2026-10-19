@@ -8,7 +8,7 @@ import type { SharedClock, TickOutcome } from '../lanes/lane-runner.ts';
 import { nextRetrySchedule, secondaryRateLimitWaitMs, shouldSkipTick } from '../lanes/core/lane-backoff.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import { hasUnresolvedThreads } from './core/my-prs-core.ts';
-import { applyGithubPrDetails, GITHUB_STORE_BEHIND_INTERVAL_MS, githubPrChangeSet, githubPrsWithChangedBehindCounts, githubStoreCacheEvictionKey, githubStoreLightIntervalMs, githubStorePrReference, githubStoreWatchNodes, githubStoreWatchUnion, isGithubStoreMembershipDue, isGithubStorePollDue, normalizeGithubPr } from './core/github-store-core.ts';
+import { applyGithubPrDetails, GITHUB_STORE_BEHIND_INTERVAL_MS, githubPrChangeSet, githubPrsWithChangedBehindCounts, githubStoreCacheEvictionKey, githubStoreFixedLightIntervalMsByKey, githubStoreLightIntervalMs, githubStorePrReference, githubStoreWatchNodes, githubStoreWatchUnion, isGithubStoreFixedLightDue, isGithubStoreMembershipDue, isGithubStorePollDue, normalizeGithubPr } from './core/github-store-core.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 import { errorMessage } from '../../shared/text.ts';
 
@@ -16,6 +16,8 @@ interface GithubStoreWatch {
   name: string;
   qualifiers: string;
   needsDetail: boolean;
+  maxMembers?: number;
+  intervalMs?: number;
 }
 
 interface GithubStoreDependencies {
@@ -56,6 +58,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   let lightByKey = new Map<string, GithubPrLightSearchNode>();
   let membershipRevision = 0;
   let lastLightPolledAt: number | null = null;
+  const lastLightPolledAtByKey = new Map<string, number>();
   let lastNotificationsPolledAt: number | null = null;
   let lastBehindPolledAt: number | null = null;
   let notificationsIntervalMs = DEFAULT_NOTIFICATIONS_INTERVAL_MS;
@@ -77,7 +80,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
 
   function registerWatch(watch: GithubStoreWatch): void {
     const previous = watches.get(watch.name);
-    if (previous?.qualifiers === watch.qualifiers) {
+    if (previous?.qualifiers === watch.qualifiers && previous.maxMembers === watch.maxMembers && previous.intervalMs === watch.intervalMs) {
       if (previous.needsDetail === watch.needsDetail) return;
       previous.needsDetail = watch.needsDetail;
       lastLightPolledAt = null;
@@ -160,38 +163,65 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     return { details, nodes, missingKeys };
   }
 
+  function watchedKeys(): Set<string> {
+    return new Set([...watchedKeysByOwner.values()].flatMap((keys) => [...keys]));
+  }
+
+  function isWatchMembershipDue(watch: WatchState, tickStartedAt: number): boolean {
+    if (watch.intervalMs === undefined && watch.membershipRevision !== membershipRevision) return true;
+    return isGithubStoreMembershipDue(watch.lastMembershipPolledAt, tickStartedAt, isDashboardConnected(), watch.intervalMs);
+  }
+
   async function pollLight(tickStartedAt: number, watchNames?: ReadonlySet<string>) {
-    const watchResults: { watch: WatchState; nodes: readonly GithubPrLightSearchNode[]; returnedKeys: readonly string[]; returnedCount: number; totalCount: number; isComplete: boolean }[] = [];
+    const watchResults: { watch: WatchState; nodes: readonly GithubPrLightSearchNode[]; returnedNodes: readonly GithubPrLightSearchNode[]; returnedKeys: readonly string[]; returnedCount: number; totalCount: number; isComplete: boolean }[] = [];
     let hasWatchChanges = false;
     const pollMembershipRevision = membershipRevision;
     for (const watch of watches.values()) {
       if (watchNames && !watchNames.has(watch.name)) continue;
-      if (!watchNames && watch.membershipRevision === pollMembershipRevision && !isGithubStoreMembershipDue(watch.lastMembershipPolledAt, tickStartedAt, isDashboardConnected())) continue;
-      const search = await github.searchPrsLight(watch.qualifiers);
+      if (!watchNames && !isWatchMembershipDue(watch, tickStartedAt)) continue;
+      const search = await github.searchPrsLight(watch.qualifiers, watch.maxMembers);
       if (!search.ok) throw new Error(search.error);
-      const nodes = githubStoreWatchNodes(watch.nodes, search.items, search.isComplete);
+      const nodes = watch.maxMembers === undefined ? githubStoreWatchNodes(watch.nodes, search.items, search.isComplete) : search.items;
       const returnedKeys = search.items.map((node) => comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }));
       const returnedCount = search.items.length;
       const totalCount = search.totalCount ?? returnedCount + Number(!search.isComplete);
       hasWatchChanges ||= !watch.isLoaded || watch.returnedCount !== returnedCount || watch.totalCount !== totalCount || watch.isComplete !== search.isComplete
         || watch.returnedKeys.length !== returnedKeys.length || watch.returnedKeys.some((key, index) => key !== returnedKeys[index]);
-      watchResults.push({ watch, nodes, returnedKeys, returnedCount, totalCount, isComplete: search.isComplete });
+      watchResults.push({ watch, nodes, returnedNodes: search.items, returnedKeys, returnedCount, totalCount, isComplete: search.isComplete });
     }
-    const watchedKeys = new Set([...watchedKeysByOwner.values()].flatMap((keys) => [...keys]));
+    const explicitlyWatchedKeys = watchedKeys();
     const refreshedByName = new Map(watchResults.map((refreshed) => [refreshed.watch.name, refreshed]));
     const unchangedWatches = [...watches.values()].filter((watch) => !refreshedByName.has(watch.name));
     const unionWatches = [
       ...unchangedWatches,
-      ...watchResults.map(({ watch, nodes }) => ({ nodes, needsDetail: watch.needsDetail })),
+      ...watchResults.map(({ watch, nodes }) => ({ ...watch, nodes })),
     ];
-    const union = githubStoreWatchUnion(unionWatches, watchedKeys, lightByKey);
-    const knownKeys = new Set([...union.lightByKey.keys(), ...watchedKeys]);
-    const references = [...knownKeys].flatMap((key) => {
+    const union = githubStoreWatchUnion(unionWatches, explicitlyWatchedKeys, lightByKey);
+    const knownKeys = new Set([...union.lightByKey.keys(), ...explicitlyWatchedKeys]);
+    const isDefaultLightDue = isGithubStorePollDue(lastLightPolledAt, tickStartedAt, githubStoreLightIntervalMs(isDashboardConnected()));
+    const fixedIntervalMsByKey = githubStoreFixedLightIntervalMsByKey(unionWatches, explicitlyWatchedKeys);
+    const keysToRead = [...knownKeys].filter((key) => {
+      if (watchNames && unionWatches.some((watch) => watchNames.has(watch.name) && watch.nodes.some((node) => comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }) === key))) return true;
+      if (fixedIntervalMsByKey.has(key)) return isGithubStoreFixedLightDue(key, fixedIntervalMsByKey, lastLightPolledAtByKey, tickStartedAt);
+      return watchNames !== undefined || isDefaultLightDue || !lightByKey.has(key);
+    });
+    const references = keysToRead.flatMap((key) => {
       const reference = githubStorePrReference(key);
       return reference ? [reference] : [];
     });
-    const currentLightByKey = await github.prsLightByKey(references);
-    const missingLightKeys = [...knownKeys].filter((key) => !currentLightByKey.has(key));
+    const refreshedLightByKey = references.length > 0 ? await github.prsLightByKey(references) : new Map<string, GithubPrLightSearchNode>();
+    const missingLightKeys = keysToRead.filter((key) => !refreshedLightByKey.has(key));
+    const readKeys = new Set(keysToRead);
+    const currentLightByKey = new Map([...lightByKey].filter(([key]) => knownKeys.has(key) && !readKeys.has(key)));
+    const membershipLightKeys = new Set<string>();
+    for (const refreshed of watchResults) {
+      for (const node of refreshed.returnedNodes) {
+        const key = comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number });
+        membershipLightKeys.add(key);
+        if (!readKeys.has(key)) currentLightByKey.set(key, node);
+      }
+    }
+    for (const [key, node] of refreshedLightByKey) currentLightByKey.set(key, node);
     const changes = githubPrChangeSet(lightByKey, [...currentLightByKey.values()]);
     const changedKeys = new Set(changes.detailKeys);
     for (const key of unavailableKeys) {
@@ -208,7 +238,11 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     for (const key of missingLightKeys) unavailableKeys.add(key);
     const removedKeys = [...new Set([...changes.removedKeys, ...missingLightKeys.filter((key) => prs[key]), ...missingKeys.filter((key) => prs[key])])];
     prs = applyGithubPrDetails(prs, details, removedKeys);
-    if (!watchNames) lastLightPolledAt = tickStartedAt;
+    for (const key of [...keysToRead, ...membershipLightKeys]) lastLightPolledAtByKey.set(key, tickStartedAt);
+    for (const key of lastLightPolledAtByKey.keys()) {
+      if (!knownKeys.has(key)) lastLightPolledAtByKey.delete(key);
+    }
+    if (!watchNames && isDefaultLightDue) lastLightPolledAt = tickStartedAt;
     lastRefreshedAt = now();
     return { details, removedKeys, hasWatchChanges };
   }
@@ -253,7 +287,10 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
       let hasWatchChanges = false;
       let behindChangedPrs: GithubPr[] = [];
       try {
-        const isLightDue = watchNames !== undefined || isGithubStorePollDue(lastLightPolledAt, tickStartedAt, githubStoreLightIntervalMs(isDashboardConnected()));
+        const fixedIntervalMsByKey = githubStoreFixedLightIntervalMsByKey(watches.values(), watchedKeys());
+        const isFixedLightDue = [...lightByKey.keys()].some((key) => isGithubStoreFixedLightDue(key, fixedIntervalMsByKey, lastLightPolledAtByKey, tickStartedAt));
+        const isLightDue = watchNames !== undefined || isGithubStorePollDue(lastLightPolledAt, tickStartedAt, githubStoreLightIntervalMs(isDashboardConnected()))
+          || [...watches.values()].some((watch) => isWatchMembershipDue(watch, tickStartedAt)) || isFixedLightDue;
         const isNotificationsDue = watchNames === undefined && !isNotificationsDisabled && isGithubStorePollDue(lastNotificationsPolledAt, tickStartedAt, notificationsIntervalMs);
         const isBehindDue = watchNames === undefined && isGithubStorePollDue(lastBehindPolledAt, tickStartedAt, GITHUB_STORE_BEHIND_INTERVAL_MS);
         if (!isLightDue && !isNotificationsDue && !isBehindDue) return { failed: false };

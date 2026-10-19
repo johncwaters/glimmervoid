@@ -1,6 +1,7 @@
+import type { GithubPr } from '../../shared/contracts/github-prs.ts';
 import { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS, WorkflowsSettings } from '../../shared/contracts/workflows.ts';
 import type {
-  WorkflowAction, WorkflowPr, WorkflowRepoSnapshot, WorkflowRule, WorkflowSearchNode, WorkflowsSettings as WorkflowsSettingsType, WorkflowsSettingsUpdate, WorkflowsState, WorkflowTrigger,
+  WorkflowAction, WorkflowPr, WorkflowRepoSnapshot, WorkflowRule, WorkflowsSettings as WorkflowsSettingsType, WorkflowsSettingsUpdate, WorkflowsState, WorkflowTrigger,
 } from '../../shared/contracts/workflows.ts';
 import { MERGED_RETENTION_MS } from '../github/core/my-prs-core.ts';
 import { prKey } from '../github/core/team-review-core.ts';
@@ -96,6 +97,11 @@ export function workflowRepoKey(repo: string): string {
   return repo.toLowerCase();
 }
 
+export function workflowRepoWatchNames(repo: string): { openWatchName: string; mergedWatchName: string } {
+  const repoKey = workflowRepoKey(repo);
+  return { openWatchName: `workflows-open:${repoKey}`, mergedWatchName: `workflows-merged:${repoKey}` };
+}
+
 export function watchedWorkflowRepos(rules: readonly WorkflowRule[]): string[] {
   const reposByKey = new Map<string, string>();
   for (const rule of enabledWorkflowRules(rules)) {
@@ -112,31 +118,14 @@ export function workflowTeamName(settings: Pick<TeamReviewSettings, 'teams'>): s
   return `${firstTeam.org}/${firstTeam.slug}`;
 }
 
-export function toWorkflowPr(node: WorkflowSearchNode): WorkflowPr {
-  const reviewRequests = node.reviewRequests.nodes.flatMap(({ requestedReviewer }) => {
-    if (requestedReviewer?.__typename === 'User') return [requestedReviewer.login];
-    if (requestedReviewer?.__typename === 'Team') return [`${requestedReviewer.organization.login}/${requestedReviewer.slug}`];
-    return [];
-  });
+export function workflowPrFromGithubPr(pr: GithubPr): WorkflowPr {
   return {
-    repo: node.repository.nameWithOwner,
-    number: node.number,
-    title: node.title,
-    url: node.url,
-    author: node.author?.login ?? null,
-    state: node.state,
-    createdAt: node.createdAt,
-    mergedAt: node.mergedAt,
-    isDraft: node.isDraft,
-    isCrossRepository: node.isCrossRepository,
-    baseRefName: node.baseRefName,
-    headRefName: node.headRefName,
-    headRefOid: node.headRefOid,
-    labels: node.labels.nodes.map((label) => label.name),
-    commentCount: node.comments.totalCount,
-    reviewRequests,
-    checksState: node.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null,
-    reviewDecision: node.reviewDecision,
+    repo: pr.repo, number: pr.number, title: pr.title, url: pr.url, author: pr.author,
+    state: pr.state, createdAt: pr.createdAt, mergedAt: pr.mergedAt, isDraft: pr.isDraft,
+    isCrossRepository: pr.isCrossRepository, baseRefName: pr.baseRefName, headRefName: pr.headRefName,
+    headRefOid: pr.headRefOid, labels: pr.labels, commentCount: pr.commentCount,
+    reviewRequests: pr.reviewRequests.map((request) => request.name),
+    checksState: pr.rollupState, reviewDecision: pr.reviewDecision,
   };
 }
 
