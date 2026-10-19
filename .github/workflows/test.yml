@@ -29,6 +29,13 @@ jobs:
       # npm ci already built dist/ through `prepare`; this step is here so a broken build fails under
       # its own name instead of surfacing as a mystery in the packaging job below.
       - run: npm run build
+      # The Coherence adopt test resolves its lockfile offline, and npm ci caches tarballs but not the registry metadata that needs.
+      - name: warm npm metadata for Coherence adopt
+        run: |
+          COHERENCE_VERSION=$(node -p "require('./node_modules/@danilocampos/coherence/package.json').version")
+          cd "$(mktemp -d)"
+          npm init -y > /dev/null
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund "@danilocampos/coherence@$COHERENCE_VERSION"
       - run: npm test
       # npm ci blocks node-pty's install scripts (npm 11.17+ default), so only this leg tests the documented global install where they run and the native module compiles.
       - name: packaged global install
