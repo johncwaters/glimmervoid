@@ -21,7 +21,7 @@ interface GithubStoreWatch {
 }
 
 interface GithubStoreDependencies {
-  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads'>>;
+  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads' | 'listRepoIssues' | 'searchIssues' | 'issueLinkedPullRequests'>>;
   now: () => number;
   isDashboardConnected: () => boolean;
   exclusive: SharedClock['exclusive'];
@@ -318,15 +318,15 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     return { ok: true };
   }
 
-  async function readWaitMs(): Promise<number> {
-    const rateLimitWaitMs = await github.rateLimitWaitMs(now(), RATE_LIMIT_RESOURCES);
+  async function readWaitMs(resources: readonly string[]): Promise<number> {
+    const rateLimitWaitMs = await github.rateLimitWaitMs(now(), resources);
     return Math.max(backoffUntil - now(), rateLimitWaitMs ?? 0);
   }
 
-  async function readWhenAllowed<Value>(read: () => Promise<Value>, canSkipWait: () => boolean = () => false, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Value>> {
+  async function readWhenAllowed<Value>(read: () => Promise<Value>, canSkipWait: () => boolean = () => false, mode: GithubStoreReadMode = 'wait', resources: readonly string[] = RATE_LIMIT_RESOURCES): Promise<GithubStoreRead<Value>> {
     while (true) {
       const attempt = await exclusive(async (): Promise<{ isReady: true; value: Value } | { isReady: false; waitMs: number }> => {
-        const waitMs = canSkipWait() ? 0 : await readWaitMs();
+        const waitMs = canSkipWait() ? 0 : await readWaitMs(resources);
         if (waitMs > 0) return { isReady: false, waitMs };
         return { isReady: true, value: await read() };
       });
@@ -367,9 +367,9 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     }, REFRESH_DEBOUNCE_MS));
   }
 
-  async function requestRead<Value>(read: () => Promise<Value>, fallback: Value, hasCachedValue: () => boolean = () => false, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Value>> {
+  async function requestRead<Value>(read: () => Promise<Value>, fallback: Value, hasCachedValue: () => boolean = () => false, mode: GithubStoreReadMode = 'wait', resources: readonly string[] = RATE_LIMIT_RESOURCES): Promise<GithubStoreRead<Value>> {
     try {
-      return await readWhenAllowed(read, hasCachedValue, mode);
+      return await readWhenAllowed(read, hasCachedValue, mode, resources);
     } catch (error: unknown) {
       recordReadFailure(error);
       return { isRateLimited: false, value: fallback };
@@ -427,9 +427,24 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     return requestRead(() => github.teamReviewThreads?.(prs) ?? Promise.resolve(new Map()), new Map(), () => false, mode);
   }
 
+  function requestRepoIssues(repo: string, since: string | null, maxIssues: number, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['listRepoIssues']>>>> {
+    const fallback = { ok: false, items: [], isComplete: false, error: 'Issue listing failed.' };
+    return requestRead(() => github.listRepoIssues?.(repo, since, maxIssues) ?? Promise.resolve(fallback), fallback, () => false, mode, ['core', 'search']);
+  }
+
+  function requestIssueSearch(query: string, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['searchIssues']>>>> {
+    const fallback = { ok: false, items: [], isComplete: false, error: 'Issue search failed.' };
+    return requestRead(() => github.searchIssues?.(query) ?? Promise.resolve(fallback), fallback, () => false, mode, ['core', 'search']);
+  }
+
+  function requestIssueLinkedPullRequests(issueKeys: readonly string[], mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['issueLinkedPullRequests']>>>> {
+    return requestRead(() => github.issueLinkedPullRequests?.(issueKeys) ?? Promise.resolve(new Map()), new Map(), () => false, mode, ['graphql', 'core', 'search']);
+  }
+
   return {
     events, registerWatch, unregisterWatch, setWatchedKeys, tick, requestRefresh, refreshWatches, getSnapshot,
     requestPrView, requestPrDiff, requestTeamReviewCompare, requestTeamReviewThreads,
+    requestRepoIssues, requestIssueSearch, requestIssueLinkedPullRequests,
     requestPrHead: (repo: string, number: number, mode: GithubStoreReadMode = 'wait') => requestRead(() => github.prHead(repo, number), null, () => false, mode),
   };
 }

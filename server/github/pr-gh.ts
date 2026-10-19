@@ -1,4 +1,4 @@
-import { GithubIssueResponse, GithubIssuePullRequestsRepository, IssueKey, IssueUpdate, IssuesSearchResponse } from '../../shared/contracts/issues.ts';
+import { GithubIssueResponse, GithubIssuePullRequestsRepository, IssueKey, IssueUpdate, IssuesSearchResponse, issuePullRequestStateFromGithub } from '../../shared/contracts/issues.ts';
 import type { IssuePullRequest, IssuesFetchResult } from '../../shared/contracts/issues.ts';
 import { comparablePrKey, GithubPrDetailNode, GithubPrLightSearchNode } from '../../shared/contracts/github-prs.ts';
 import type { GithubPrDetailNode as GithubPrDetailNodeType, GithubPrLightSearchNode as GithubPrLightSearchNodeType } from '../../shared/contracts/github-prs.ts';
@@ -805,9 +805,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         const pullRequests = connection.nodes.flatMap((pullRequest): IssuePullRequest[] => {
           if (!pullRequest) return [];
           const { isDraft, state, ...fields } = pullRequest;
-          if (state === 'OPEN') return [{ ...fields, state: isDraft ? 'draft' : 'open' }];
-          if (state === 'MERGED') return [{ ...fields, state: 'merged' }];
-          return [{ ...fields, state: 'closed' }];
+          return [{ ...fields, state: issuePullRequestStateFromGithub({ state, isDraft }) }];
         });
         pullRequestsByIssue.set(reviewSnapshotKey(issue.repo, issue.number), pullRequests);
       }, 50, true);

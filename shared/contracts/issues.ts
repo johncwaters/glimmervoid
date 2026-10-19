@@ -15,6 +15,11 @@ export const GithubIssuePullRequestsRepository = z.object({
     state: z.enum(['OPEN', 'MERGED', 'CLOSED']), isDraft: z.boolean(),
   }).nullable()).max(5) }) }).nullable(),
 });
+export function issuePullRequestStateFromGithub({ state, isDraft }: { state: 'OPEN' | 'MERGED' | 'CLOSED'; isDraft: boolean }): IssuePullRequest['state'] {
+  if (state === 'OPEN') return isDraft ? 'draft' : 'open';
+  if (state === 'MERGED') return 'merged';
+  return 'closed';
+}
 const issueFields = {
   key: z.string(), repo: IssueRepoSlug, number: z.number().int().positive(), title: z.string(), url: z.string().url(),
   labels: z.array(z.string()), assignees: z.array(z.string()), author: z.string(), comments: z.number().int().nonnegative(),

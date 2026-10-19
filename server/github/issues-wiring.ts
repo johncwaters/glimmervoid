@@ -13,6 +13,7 @@ import { createJsonStateStore } from '../json-file.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
+import type { GithubLaneStore } from './github-store-wiring.ts';
 import type { createGitWorkspace } from '../git/git-workspace.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
@@ -42,13 +43,14 @@ interface IssuesWiringOptions {
   gitWorkspace: Pick<ReturnType<typeof createGitWorkspace>, 'originUrl'>;
   broadcast: (status: IssuesStatusType) => void;
   hasSession: (id: string) => boolean;
-  github?: Pick<PrGh, 'viewer' | 'searchIssues' | 'listRepoIssues' | 'issueLinkedPullRequests' | 'rateLimitWaitMs'>;
+  github?: Pick<PrGh, 'viewer' | 'rateLimitWaitMs'>;
+  store: Pick<GithubLaneStore, 'requestRepoIssues' | 'requestIssueSearch' | 'requestIssueLinkedPullRequests' | 'setWatchedKeys'>;
   homeDir?: string;
   clock?: SharedClock;
   log?: Pick<Console, 'warn'>;
 }
 
-export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession, homeDir = glimmervoidHomeDir(), github = createPrGh(homeDir), clock, log = console }: IssuesWiringOptions) {
+export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession, store, homeDir = glimmervoidHomeDir(), github = createPrGh(homeDir), clock, log = console }: IssuesWiringOptions) {
   const stateIo = createIssuesStateIo(path.join(homeDir, core.ISSUES_STATE_FILENAME), log);
   const teams = () => readGithubTeams(config).map((team) => `${team.org}/${team.slug}`);
   let cachedState = core.emptyIssuesState();
@@ -116,7 +118,7 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
     cfgKey: () => JSON.stringify({ projects: config.projects.map((project) => ({ id: project.id, path: project.path, repos: project.repos })), teams: teams() }),
     emptyStatus, broadcast: () => broadcast(currentStatus()),
     createPoller: ({ onTickComplete }) => createIssuesPoller({
-      teams: teams(), resolveProjects, github, clock, log, firstTickDelayMs: bootStaggerDelay,
+      teams: teams(), resolveProjects, github, store, clock, log, firstTickDelayMs: bootStaggerDelay,
       onTickComplete: (status) => { pollerStatus = status; onTickComplete(status); },
       getSessionLinks: pruneSessionLinks,
       readState: async () => { await loadState(); return cachedState; }, writeState,

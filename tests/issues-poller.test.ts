@@ -6,6 +6,9 @@ import path from 'node:path';
 import { createIssuesPoller } from '../server/github/issues-poller.ts';
 import { createIssuesStateIo, createIssuesWiring } from '../server/github/issues-wiring.ts';
 import { emptyIssuesState } from '../server/github/core/issues-core.ts';
+import { createGithubClock } from '../server/github/github-clock.ts';
+import { createGithubStoreWiring } from '../server/github/github-store-wiring.ts';
+import { createPrGh } from '../server/github/pr-gh.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
 import type { CachedIssueRow, IssuePullRequest, IssueUpdate, IssuesFetchResult, IssuesState, IssuesStatus } from '../shared/contracts/issues.ts';
 
@@ -32,6 +35,8 @@ function harness(savedState: IssuesState = emptyIssuesState()) {
   const pullRequestCalls: string[][] = [];
   let pullRequestsByIssue: Map<string, IssuePullRequest[]> | null = new Map();
   let hasPullRequestFailure = false;
+  let rateLimitedRead: 'repo' | 'search' | 'linked' | null = null;
+  const watchedKeys: { owner: string; keys: readonly string[] }[] = [];
   const poller = createIssuesPoller({
     teams: ['acme/core'], now: () => timestamp,
     resolveProjects: async () => [{ repo: 'acme/app', projectId: 'project-1' }],
@@ -45,23 +50,38 @@ function harness(savedState: IssuesState = emptyIssuesState()) {
         return 'alice';
       },
       rateLimitWaitMs: async () => null,
-      issueLinkedPullRequests: async (keys) => {
+    },
+    store: {
+      setWatchedKeys: (owner, keys) => { watchedKeys.push({ owner, keys }); },
+      requestIssueLinkedPullRequests: async (keys, mode) => {
+        assert.equal(mode, 'no-wait');
+        if (rateLimitedRead === 'linked') return { isRateLimited: true, waitMs: 120000 };
         pullRequestCalls.push([...keys]);
         if (hasPullRequestFailure) throw new Error('PR fetch offline');
-        if (!pullRequestsByIssue) return new Map();
+        if (!pullRequestsByIssue) return { isRateLimited: false, value: new Map() };
         const cachedPullRequests = pullRequestsByIssue;
-        return new Map(keys.map((key) => [key, cachedPullRequests.get(key) ?? []]));
+        return { isRateLimited: false, value: new Map(keys.map((key) => [key, cachedPullRequests.get(key) ?? []])) };
       },
-      listRepoIssues: async (_repo, since) => { repoCalls.push(since); return repoResponse; },
-      searchIssues: async (query) => {
+      requestRepoIssues: async (_repo, since, maxIssues, mode) => {
+        assert.equal(mode, 'no-wait');
+        assert.equal(maxIssues, 300);
+        repoCalls.push(since);
+        if (rateLimitedRead === 'repo') return { isRateLimited: true, waitMs: 120000 };
+        return { isRateLimited: false, value: repoResponse };
+      },
+      requestIssueSearch: async (query, mode) => {
+        assert.equal(mode, 'no-wait');
         queries.push(query);
-        if (query.includes('team:') && teamFailure) return { ok: false, items: [], isComplete: false, error: 'team offline' };
-        return query.includes('team:') ? teamResponse : complete();
+        if (rateLimitedRead === 'search') return { isRateLimited: true, waitMs: 120000 };
+        if (query.includes('team:') && teamFailure) return { isRateLimited: false, value: { ok: false, items: [], isComplete: false, error: 'team offline' } };
+        return { isRateLimited: false, value: query.includes('team:') ? teamResponse : complete() };
       },
     },
   });
   return {
-    poller, statuses, repoCalls, queries, pullRequestCalls, saved: () => saved,
+    poller, statuses, repoCalls, queries, pullRequestCalls, watchedKeys,
+    limitRead: (read: typeof rateLimitedRead) => { rateLimitedRead = read; },
+    saved: () => saved,
     setPullRequests: (pullRequests: Map<string, IssuePullRequest[]> | null) => { pullRequestsByIssue = pullRequests; },
     failPullRequests: (shouldFail: boolean) => { hasPullRequestFailure = shouldFail; },
     advance: () => { timestamp += 5 * 60000; },
@@ -108,6 +128,21 @@ test('repo checkpoints drive incremental closes, sixth-tick reconciliation and a
     assert.equal(tested.repoCalls.at(-1), null);
     assert.ok(tested.queries.includes('is:issue is:open assignee:@me archived:false'));
     assert.ok(tested.queries.includes('is:issue is:open team:acme/core archived:false'));
+    for (const read of ['repo', 'search', 'linked'] as const) {
+      const savedBeforeLimit = structuredClone(tested.saved());
+      tested.setRepoResponse(complete([{ ...issue, updatedAt: new Date((savedBeforeLimit.lastSyncAt ?? NOW) + 1000).toISOString() }]));
+      tested.limitRead(read);
+      assert.deepEqual(await tested.poller.refresh(), { ok: false, error: 'Could not refresh from GitHub.' });
+      const limitedStatus = tested.statuses.at(-1);
+      assert.ok(limitedStatus);
+      assert.equal(limitedStatus.nextAttemptAt, limitedStatus.ts + 120000);
+      assert.deepEqual(tested.saved(), savedBeforeLimit);
+      tested.limitRead(null);
+      tested.advance();
+      assert.deepEqual(await tested.poller.refresh(), { ok: true });
+      assert.equal(tested.repoCalls.at(-1), null);
+    }
+
   } finally {
     await tested.poller.stop();
   }
@@ -120,8 +155,16 @@ test('linked PR enrichment fetches only changed issues, retains failures, resume
   tested.setRepoResponse(complete([issue, secondIssue]));
   tested.setPullRequests(new Map([[issue.key, [pullRequest]]]));
   try {
+    const crossRepoOpen: IssuePullRequest = { ...pullRequest, number: 10, url: 'https://github.com/Other/Library/pull/10', state: 'open' };
+    tested.setPullRequests(new Map([[issue.key, [pullRequest]], [secondIssue.key, [
+      crossRepoOpen,
+      { ...pullRequest, number: 11, url: 'https://github.com/acme/app/pull/11', state: 'merged' },
+      { ...pullRequest, number: 12, url: 'https://github.com/acme/app/pull/12', state: 'closed' },
+      { ...pullRequest, url: 'https://example.com/acme/app/pull/9' },
+    ]]]));
     await tested.poller.tick();
     await tested.poller.tick();
+    assert.deepEqual(tested.watchedKeys.at(-1), { owner: 'issues-linked-prs', keys: ['acme/app#9', 'other/library#10'] });
     assert.deepEqual(tested.pullRequestCalls, [[issue.key, secondIssue.key]]);
     const changed = { ...issue, updatedAt: '2026-10-10T01:00:00Z' };
     tested.setRepoResponse(complete([changed, secondIssue]));
@@ -150,7 +193,7 @@ test('linked PR enrichment fetches only changed issues, retains failures, resume
     } finally {
       await restarted.poller.stop();
     }
-    const savedWithDraft = { ...tested.saved(), issues: tested.saved().issues.map((row) => (row.key === issue.key ? { ...row, pullRequests: [pullRequest] } : row)) };
+    const savedWithDraft = { ...tested.saved(), issues: tested.saved().issues.map((row) => ({ ...row, pullRequests: row.key === issue.key ? [pullRequest] : [] })) };
     const reconciled = harness(savedWithDraft);
     reconciled.setRepoResponse(complete([changed, secondIssue]));
     try {
@@ -218,11 +261,12 @@ test('issues wiring resolves workspace members without enabling review lanes and
     config, hasSession: (id) => sessionIds.has(id),
     homeDir: directory, broadcast: (status) => { statuses.push(status); },
     gitWorkspace: { originUrl: async ({ projectPath }) => { resolvedPaths.push(projectPath); return `git@github.com:acme/${path.basename(projectPath)}.git`; } },
-    github: {
-      viewer: async () => viewer, rateLimitWaitMs: async () => null,
-      issueLinkedPullRequests: async (keys) => new Map(keys.map((key) => [key, []])),
-      listRepoIssues: async (repo) => { fetchedRepos.push(repo); return complete(repo === 'acme/app' ? [issue] : []); },
-      searchIssues: async () => complete(),
+    github: { viewer: async () => viewer, rateLimitWaitMs: async () => null },
+    store: {
+      setWatchedKeys: () => {},
+      requestIssueLinkedPullRequests: async (keys) => ({ isRateLimited: false, value: new Map(keys.map((key) => [key, []])) }),
+      requestRepoIssues: async (repo) => { fetchedRepos.push(repo); return { isRateLimited: false, value: complete(repo === 'acme/app' ? [issue] : []) }; },
+      requestIssueSearch: async () => ({ isRateLimited: false, value: complete() }),
     },
   });
   try {
@@ -271,9 +315,12 @@ test('issues wiring retries an unreadable cache and keeps links made while it wa
   const wiring = createIssuesWiring({
     config: { projects: [] }, homeDir: directory, hasSession: () => true, broadcast: () => {},
     gitWorkspace: { originUrl: async () => null }, log: { warn() {} },
-    github: {
-      viewer: async () => null, rateLimitWaitMs: async () => null,
-      issueLinkedPullRequests: async () => new Map(), listRepoIssues: async () => complete(), searchIssues: async () => complete(),
+    github: { viewer: async () => null, rateLimitWaitMs: async () => null },
+    store: {
+      setWatchedKeys: () => {},
+      requestIssueLinkedPullRequests: async () => ({ isRateLimited: false, value: new Map() }),
+      requestRepoIssues: async () => ({ isRateLimited: false, value: complete() }),
+      requestIssueSearch: async () => ({ isRateLimited: false, value: complete() }),
     },
   });
   try {
@@ -289,5 +336,33 @@ test('issues wiring retries an unreadable cache and keeps links made while it wa
   } finally {
     await wiring.stopPoller();
     await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('a tick on the shared GitHub clock reads through the gated store without deadlocking the clock', async () => {
+  const listedRepos: string[] = [];
+  const github = {
+    ...createPrGh(os.tmpdir(), async () => ({ ok: false, out: '', err: 'unexpected gh call' })),
+    viewer: async () => 'alice', rateLimitWaitMs: async () => null,
+    listRepoIssues: async (repo: string) => { listedRepos.push(repo); return complete([issue]); },
+    searchIssues: async () => complete(), issueLinkedPullRequests: async () => new Map<string, IssuePullRequest[]>(),
+  };
+  const clock = createGithubClock({ baseIntervalMs: 60000, setIntervalFn: timer, clearIntervalFn: () => {}, log: { warn() {} } });
+  const githubStore = createGithubStoreWiring({ github, clock, isDashboardConnected: () => false, broadcast: () => {}, log: { warn() {} } });
+  const poller = createIssuesPoller({
+    teams: [], resolveProjects: async () => [{ repo: 'acme/app', projectId: 'project-1' }], github, store: githubStore.laneStore, clock,
+    readState: async () => emptyIssuesState(), writeState: async () => {}, onTickComplete: () => {},
+    setIntervalFn: timer, clearIntervalFn: () => {}, setTimeoutFn: timer, clearTimeoutFn: () => {}, log: { warn() {} },
+  });
+  const deadlockTimeoutMs = 2000;
+  let deadlockTimer: NodeJS.Timeout | undefined;
+  const deadlocked = new Promise<string>((resolve) => { deadlockTimer = setTimeout(() => resolve('deadlocked'), deadlockTimeoutMs); });
+  try {
+    assert.equal(await Promise.race([poller.tick().then(() => 'resolved'), deadlocked]), 'resolved');
+    assert.equal(await Promise.race([clock.exclusive(async () => 'resolved'), deadlocked]), 'resolved');
+    assert.deepEqual(listedRepos, ['acme/app']);
+  } finally {
+    clearTimeout(deadlockTimer);
+    await poller.stop();
   }
 });

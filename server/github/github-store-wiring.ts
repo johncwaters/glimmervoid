@@ -48,6 +48,9 @@ export function createGithubStoreWiring({ github, clock, now = Date.now, isDashb
     requestPrView: poller.requestPrView,
     requestPrDiff: poller.requestPrDiff,
     requestPrHead: poller.requestPrHead,
+    requestRepoIssues: poller.requestRepoIssues,
+    requestIssueSearch: poller.requestIssueSearch,
+    requestIssueLinkedPullRequests: poller.requestIssueLinkedPullRequests,
     requestTeamReviewCompare: poller.requestTeamReviewCompare,
     requestTeamReviewThreads: poller.requestTeamReviewThreads,
     subscribe: <Event extends 'snapshot-changed' | 'change'>(event: Event, listener: Parameters<typeof poller.events.on<Event>>[1]) => {

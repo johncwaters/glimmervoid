@@ -1,3 +1,4 @@
+import { pullRequestKeyFromReference } from '../../../shared/contracts/control-messages.ts';
 import { IssuesStatus } from '../../../shared/contracts/issues.ts';
 import type { CachedIssueRow, IssueSource, IssuesFetchResult, IssuesState, IssuesStatus as IssuesStatusType } from '../../../shared/contracts/issues.ts';
 import { githubRepoSlugFromRemote } from './team-review-core.ts';
@@ -126,4 +127,12 @@ export function pruneIssueSessionLinks(sessionLinks: Readonly<Record<string, str
 export function issuesStatus({ ts, configured, reason = null, issues = [], lastSyncAt = null, sessionLinks = {}, ...polling }: Omit<IssuesStatusType, 'type' | 'reason' | 'issues' | 'lastSyncAt'> & { reason?: string | null; issues?: readonly CachedIssueRow[]; lastSyncAt?: number | null; sessionLinks?: Readonly<Record<string, string>> }): IssuesStatusType {
   const rows = issues.map((issue) => ({ ...issue, sessionId: sessionLinks[issue.key.toLowerCase()] ?? null }));
   return IssuesStatus.parse({ type: 'issues-status', ts, configured, reason, issues: rows, lastSyncAt, ...polling });
+}
+
+export function issuesLinkedPrKeys(issues: readonly CachedIssueRow[]): string[] {
+  return [...new Set(issues.flatMap((issue) => issue.pullRequests.flatMap((pullRequest) => {
+    if (pullRequest.state !== 'open' && pullRequest.state !== 'draft') return [];
+    const key = pullRequestKeyFromReference(pullRequest.url);
+    return key ? [key.toLowerCase()] : [];
+  })))];
 }

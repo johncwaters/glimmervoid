@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Issue pull request status matches My PRs**: an issue's linked pull request now shows the same status as My PRs and updates when that pull request changes, without waiting for the issue to change.
 - **Workflows reads the same PR status as My PRs**: workflow rules now see pull requests from the same GitHub data as My PRs, Reviews and the session chips, so a rule fires on the same checks, reviews and labels those views show. Each watched repository still checks its 50 most recently updated open pull requests every five minutes.
 - **Every session status has its own shape**: status icons no longer share a family, so Needs Input and Idle, Working and Monitoring, or Needs Input and Complete can no longer be mistaken for each other at a glance. Dormant is a moon, Preparing is a row of dots, Starting is a power symbol, Working stays a filled dot, Monitoring is a wave, Needs Input stays a diamond, Idle is an arrow, Complete is a check, Exited stays a square and Failed stays a triangle.
 - **PR status updates right after you act**: when a session pushes or runs a `gh pr` command, or you merge, post a review or add a label from the dashboard, that pull request's status refreshes within seconds instead of on the next poll. A pull request linked to a session now shows its stage on the session chip even when someone else opened it.

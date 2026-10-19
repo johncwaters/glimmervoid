@@ -1,4 +1,7 @@
-import type { IssueRow, IssuesStatus } from '#shared/contracts/issues.ts';
+import { pullRequestKeyFromReference } from '#shared/contracts/control-messages.ts';
+import type { GithubPr } from '#shared/contracts/github-prs.ts';
+import { issuePullRequestStateFromGithub } from '#shared/contracts/issues.ts';
+import type { IssuePullRequest, IssueRow, IssuesStatus } from '#shared/contracts/issues.ts';
 
 export type { IssueRow };
 export type IssueScope = 'all' | 'me' | 'team' | 'project';
@@ -97,4 +100,11 @@ export function issueAgo(timestamp: string | number, nowMs: number): string {
   if (age === 'now') return 'just now';
   if (age === 'unknown') return 'at an unknown time';
   return `${age} ago`;
+}
+
+export function issuePullRequestState(pullRequest: IssuePullRequest, githubPrByKey: (key: string) => GithubPr | undefined): IssuePullRequest['state'] {
+  const key = pullRequestKeyFromReference(pullRequest.url);
+  const pr = key ? githubPrByKey(key.toLowerCase()) : undefined;
+  if (!pr) return pullRequest.state;
+  return issuePullRequestStateFromGithub(pr);
 }

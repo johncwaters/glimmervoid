@@ -59,7 +59,33 @@ function storeHarness(ghCallDurationMs = 0) {
   const diffCalls: string[] = [];
   const rateLimitCalls: number[] = [];
   const warnings: string[] = [];
+  const rateLimitResources: (readonly string[])[] = [];
+  let rateLimitedResource: string | null = null;
+  const repoIssueCalls: Parameters<PrGh['listRepoIssues']>[] = [];
+  const issueSearchCalls: string[] = [];
+  const issueLinkedPrCalls: (readonly string[])[] = [];
+  let hasIssueReadFailure = false;
+  const issueFetch = { ok: true, items: [], isComplete: true, error: '' };
+
   const github: Parameters<typeof createGithubStorePoller>[0]['github'] = {
+    async listRepoIssues(...args) {
+      assert.equal(isExclusive, true);
+      repoIssueCalls.push(args);
+      if (hasIssueReadFailure) throw new Error('Issue read offline');
+      return issueFetch;
+    },
+    async searchIssues(query) {
+      assert.equal(isExclusive, true);
+      issueSearchCalls.push(query);
+      if (hasIssueReadFailure) throw new Error('Issue read offline');
+      return issueFetch;
+    },
+    async issueLinkedPullRequests(keys) {
+      assert.equal(isExclusive, true);
+      issueLinkedPrCalls.push(keys);
+      if (hasIssueReadFailure) throw new Error('Issue read offline');
+      return new Map(keys.map((key) => [key, [{ number: 12, url: 'https://github.com/other/lib/pull/12', title: 'Fix', state: 'open' as const }]]));
+    },
     async searchPrsLight(qualifiers, maxMembers) {
       assert.equal(isExclusive, true);
       searches.push(qualifiers);
@@ -98,10 +124,11 @@ function storeHarness(ghCallDurationMs = 0) {
       timestamp += ghCallDurationMs;
       return notificationResponse;
     },
-    async rateLimitWaitMs() {
+    async rateLimitWaitMs(_now, resources) {
       assert.equal(isExclusive, true);
       rateLimitCalls.push(timestamp);
-      return null;
+      rateLimitResources.push(resources);
+      return rateLimitedResource && resources.includes(rateLimitedResource) ? 120000 : null;
     },
     async viewPr() { assert.fail('This scenario does not request a PR view'); },
     async prDiff(repo, number) {
@@ -130,6 +157,9 @@ function storeHarness(ghCallDurationMs = 0) {
   });
   return {
     poller, timers, searches, membershipCaps, lightCalls, detailCalls, behindCalls, threadCalls, notificationCalls, diffCalls, rateLimitCalls, warnings,
+    rateLimitResources, repoIssueCalls, issueSearchCalls, issueLinkedPrCalls, issueFetch,
+    limitResource: (resource: string | null) => { rateLimitedResource = resource; },
+    failIssueReads: () => { hasIssueReadFailure = true; },
     idle: queue.idle,
     advance: (milliseconds: number) => { timestamp += milliseconds; },
     setConnected: (connected: boolean) => { isDashboardConnected = connected; },
@@ -472,4 +502,49 @@ test('capped workflow watches keep exclusive keys on their fixed cadence while s
   harness.advance(60_000);
   await poller.tick();
   assert.equal(harness.lightCalls.length, lightCallCount);
+});
+
+test('issue reads share the store gate, honor search and GraphQL limits and retain failed-read fallbacks', async (context) => {
+  const harness = storeHarness();
+  context.after(harness.cleanup);
+  const { poller } = harness;
+  const since = '2026-10-19T12:00:00Z';
+  const query = 'is:issue is:open assignee:@me';
+  for (const resource of ['core', 'search']) {
+    harness.limitResource(resource);
+    assert.deepEqual(await poller.requestRepoIssues('acme/app', since, 300, 'no-wait'), { isRateLimited: true, waitMs: 120000 });
+    assert.deepEqual(await poller.requestIssueSearch(query, 'no-wait'), { isRateLimited: true, waitMs: 120000 });
+    assert.deepEqual(await poller.requestIssueLinkedPullRequests(['acme/app#1'], 'no-wait'), { isRateLimited: true, waitMs: 120000 });
+  }
+  harness.limitResource('graphql');
+  assert.deepEqual(await poller.requestIssueLinkedPullRequests(['acme/app#1'], 'no-wait'), { isRateLimited: true, waitMs: 120000 });
+  assert.deepEqual(harness.repoIssueCalls, []);
+  assert.deepEqual(harness.issueSearchCalls, []);
+  assert.deepEqual(harness.issueLinkedPrCalls, []);
+  assert.equal(harness.timers.pending.length, 0);
+  assert.deepEqual(await poller.requestRepoIssues('acme/app', since, 300, 'no-wait'), { isRateLimited: false, value: harness.issueFetch });
+  assert.deepEqual(await poller.requestIssueSearch(query, 'no-wait'), { isRateLimited: false, value: harness.issueFetch });
+  harness.limitResource(null);
+  const linked = await poller.requestIssueLinkedPullRequests(['acme/app#1'], 'no-wait');
+  assert.equal(linked.isRateLimited, false);
+  if (linked.isRateLimited) assert.fail('Linked pull requests should be available');
+  assert.equal(linked.value.get('acme/app#1')?.[0].state, 'open');
+  assert.deepEqual(harness.repoIssueCalls, [['acme/app', since, 300]]);
+  assert.deepEqual(harness.issueSearchCalls, [query]);
+  assert.deepEqual(harness.issueLinkedPrCalls, [['acme/app#1']]);
+  assert.deepEqual(harness.rateLimitResources.slice(-3), [['core', 'search'], ['core', 'search'], ['graphql', 'core', 'search']]);
+  harness.limitResource('search');
+  const waiting = poller.requestIssueSearch(query);
+  await harness.idle();
+  assert.equal(harness.timers.pending.at(-1)?.ms, 120000);
+  assert.equal(harness.issueSearchCalls.length, 1);
+  harness.limitResource(null);
+  harness.timers.fireAll();
+  assert.deepEqual(await waiting, { isRateLimited: false, value: harness.issueFetch });
+  assert.equal(harness.issueSearchCalls.length, 2);
+  harness.failIssueReads();
+  assert.deepEqual(await poller.requestRepoIssues('acme/app', null, 300), { isRateLimited: false, value: { ok: false, items: [], isComplete: false, error: 'Issue listing failed.' } });
+  assert.deepEqual(await poller.requestIssueSearch(query), { isRateLimited: false, value: { ok: false, items: [], isComplete: false, error: 'Issue search failed.' } });
+  assert.deepEqual(await poller.requestIssueLinkedPullRequests(['acme/app#1']), { isRateLimited: false, value: new Map() });
+  assert.equal(harness.warnings.filter((warning) => warning.includes('Issue read offline')).length, 3);
 });

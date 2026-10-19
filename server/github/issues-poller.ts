@@ -3,6 +3,7 @@ import { IssuesState } from '../../shared/contracts/issues.ts';
 import type { CachedIssueRow, IssuePullRequest, IssuesState as IssuesStateType, IssuesStatus } from '../../shared/contracts/issues.ts';
 import type { GithubPollingRefreshResult } from '../../shared/contracts/github-polling.ts';
 import type { PrGh } from './pr-gh.ts';
+import type { GithubLaneStore } from './github-store-wiring.ts';
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
@@ -13,7 +14,8 @@ import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } fro
 interface IssuesPollerDependencies {
   teams: string[];
   resolveProjects: (cachedIssues: readonly CachedIssueRow[]) => Promise<core.IssuesProjectRepo[]>;
-  github: Pick<PrGh, 'viewer' | 'searchIssues' | 'listRepoIssues' | 'issueLinkedPullRequests' | 'rateLimitWaitMs'>;
+  github: Pick<PrGh, 'viewer' | 'rateLimitWaitMs'>;
+  store: Pick<GithubLaneStore, 'requestRepoIssues' | 'requestIssueSearch' | 'requestIssueLinkedPullRequests' | 'setWatchedKeys'>;
   getSessionLinks?: () => Record<string, string>;
   readState: () => Promise<unknown>;
   writeState: (state: IssuesStateType) => Promise<void>;
@@ -29,7 +31,7 @@ interface IssuesPollerDependencies {
 }
 
 export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
-  const { teams, github, onTickComplete, now = Date.now, log = console } = dependencies;
+  const { teams, github, store, onTickComplete, now = Date.now, log = console } = dependencies;
   let state = core.emptyIssuesState();
   let projects: core.IssuesProjectRepo[] = [];
   let viewer: string | null = null;
@@ -70,9 +72,7 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     hasResolvedSources = true;
     const timestamp = now();
     const isFullRefresh = shouldReconcile;
-    shouldReconcile = false;
-    laneTickCount += 1;
-    const isLaneReconcileTick = laneTickCount % 6 === 0;
+    const isLaneReconcileTick = (laneTickCount + 1) % 6 === 0;
     const batches: core.IssuesSourceBatch[] = [];
     const failures: string[] = [];
     const perRepoSync = { ...state.perRepoSync };
@@ -82,8 +82,10 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
       const isReconcile = isFullRefresh || ((sync?.ticks ?? 0) + 1) % 6 === 0;
       if (isReconcile) reconciledRepos.add(project.repo.toLowerCase());
       const isFull = isReconcile || !sync?.lastSyncAt || sync.needsFullReconcile;
-      const fetched = await github.listRepoIssues(project.repo, isFull ? null : new Date(sync.lastSyncAt ?? timestamp).toISOString(), core.MAX_REPO_ISSUES);
+      const response = await store.requestRepoIssues(project.repo, isFull ? null : new Date(sync.lastSyncAt ?? timestamp).toISOString(), core.MAX_REPO_ISSUES, 'no-wait');
       if (loop.isStopped()) return { failed: false };
+      if (response.isRateLimited) return { failed: true, retryAfterMs: response.waitMs };
+      const fetched = response.value;
       batches.push({ source: 'project', repo: project.repo, isIncremental: !isFull, fetched });
       const isSuccessful = fetched.ok && fetched.isComplete;
       perRepoSync[project.repo] = {
@@ -95,8 +97,10 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     }
     const searchedSources = [{ source: 'me' as const, query: 'is:issue is:open assignee:@me archived:false' }, ...teams.map((team) => ({ source: 'team' as const, team, query: `is:issue is:open team:${team} archived:false` }))];
     for (const searched of searchedSources) {
-      const fetched = await github.searchIssues(searched.query);
+      const response = await store.requestIssueSearch(searched.query, 'no-wait');
       if (loop.isStopped()) return { failed: false };
+      if (response.isRateLimited) return { failed: true, retryAfterMs: response.waitMs };
+      const fetched = response.value;
       batches.push({ ...searched, fetched });
       if (!fetched.ok) failures.push(`${'team' in searched ? searched.team : 'Assigned to you'}: ${fetched.error || 'Issue search failed.'}`);
     }
@@ -110,7 +114,10 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     let pullRequestsByIssue = new Map<string, IssuePullRequest[]>();
     if (changedIssues.length > 0) {
       try {
-        pullRequestsByIssue = await github.issueLinkedPullRequests(changedIssues.map((issue) => issue.key.toLowerCase()));
+        const response = await store.requestIssueLinkedPullRequests(changedIssues.map((issue) => issue.key.toLowerCase()), 'no-wait');
+        if (loop.isStopped()) return { failed: false };
+        if (response.isRateLimited) return { failed: true, retryAfterMs: response.waitMs };
+        pullRequestsByIssue = response.value;
       } catch (error: unknown) {
         log.warn(`[issues] linked pull requests fetch failed: ${errorMessage(error)}`);
       }
@@ -129,6 +136,8 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
       lastSyncAt: failures.length === 0 ? timestamp : state.lastSyncAt,
       perRepoSync: Object.fromEntries(Object.entries(perRepoSync).filter(([repo]) => activeRepos.has(repo))),
     };
+    shouldReconcile = false;
+    laneTickCount += 1;
     pollingError = failures.length > 0 ? failures.join(' ') : null;
     await loop.persist();
     if (pollingError) return failedOutcome(pollingError);
@@ -137,7 +146,7 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
 
   const loop = createTickLoop({
     tag: core.ISSUES_LANE_ID, intervalMs: core.POLL_INTERVAL_MINUTES * 60000, quickRetries: true,
-    now, clock: dependencies.clock, firstTickDelayMs: dependencies.firstTickDelayMs,
+    now, clock: dependencies.clock ? { schedule: dependencies.clock.schedule, exclusive: async (work) => work() } : undefined, firstTickDelayMs: dependencies.firstTickDelayMs,
     setIntervalFn: dependencies.setIntervalFn, clearIntervalFn: dependencies.clearIntervalFn,
     setTimeoutFn: dependencies.setTimeoutFn, clearTimeoutFn: dependencies.clearTimeoutFn,
     log, backoffMaxMs: GITHUB_RATE_LIMIT_WINDOW_MS, rateLimitWaitMs,
@@ -145,6 +154,8 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     tick: () => loop.track(runTick().catch((error: unknown) => {
       pollingError = errorMessage(error);
       return failedOutcome(pollingError);
+    }).finally(() => {
+      if (!loop.isStopped()) store.setWatchedKeys('issues-linked-prs', core.issuesLinkedPrKeys(state.issues));
     })),
   });
 

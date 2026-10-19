@@ -70,6 +70,12 @@ function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket',
   const issues = createIssuesWiring({
     config, homeDir: path.join(issuesHome, String(harnessCount)), hasSession: (id) => sessions.has(id),
     broadcast: () => {}, gitWorkspace: { originUrl: async () => null },
+    store: {
+      setWatchedKeys: () => {},
+      requestRepoIssues: async () => ({ isRateLimited: false, value: { ok: true, items: [], isComplete: true, error: '' } }),
+      requestIssueSearch: async () => ({ isRateLimited: false, value: { ok: true, items: [], isComplete: true, error: '' } }),
+      requestIssueLinkedPullRequests: async () => ({ isRateLimited: false, value: new Map() }),
+    },
   });
 
   const configStore = testConfigStore(config, { onSave: () => {} });

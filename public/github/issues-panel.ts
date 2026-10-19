@@ -1,12 +1,13 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { IssuesStatus } from '#shared/contracts/issues.ts';
+import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { STATES } from '#shared/states.ts';
 import { nextRequestId } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink, isPanelHidden, stateChip } from '../dom-helpers.ts';
 import { createGithubPollingControls } from './my-prs-panel.ts';
 import { createPrQueueFoot, createPrQueueHead } from './pr-queue-columns.ts';
-import { filterIssues, groupIssuesByRepo, issueFilterOptions, issueFilterSummary, issueAgo, issueRelativeAge, issueScopeCounts, issuesPlaceholder } from './issues-view-core.ts';
+import { issuePullRequestState, filterIssues, groupIssuesByRepo, issueFilterOptions, issueFilterSummary, issueAgo, issueRelativeAge, issueScopeCounts, issuesPlaceholder } from './issues-view-core.ts';
 import type { IssueFilters, IssueRow, IssueScope, IssueSort } from './issues-view-core.ts';
 import { selectSession } from '../session-actions.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
@@ -150,7 +151,12 @@ function buildIssueRow(issue: IssueRow): HTMLButtonElement {
   const bottom = el('span', 'pr-queue-bottom');
   if (issue.sources.includes('me')) bottom.append(el('span', 'issues-why', 'you'));
   bottom.append(el('span', 'issues-row-labels', issue.labels.join(', ')));
-  for (const pullRequest of issue.pullRequests) bottom.append(el('span', 'issues-row-pr', `PR #${pullRequest.number}`));
+  for (const pullRequest of issue.pullRequests) {
+    const state = issuePullRequestState(pullRequest, githubPrByKey);
+    const badge = el('span', 'issues-row-pr', `PR #${pullRequest.number} ${state}`);
+    badge.dataset.prState = state;
+    bottom.append(badge);
+  }
   const age = el('span', 'pr-queue-elapsed', issueRelativeAge(issue.updatedAt, Date.now()));
   age.dataset.issueAge = issue.updatedAt;
   bottom.append(age);
@@ -253,8 +259,9 @@ function renderDetail(): void {
   article.dataset.hasLiveSession = String(Boolean(liveIssueSession(issue)));
   buildFact(facts, 'Session', [createIssueState(issue, true), el('span', 'issues-session-name', issueSessionLabel(issue))]);
   const pullRequests = issue.pullRequests.flatMap((pullRequest) => {
-    const state = el('span', 'issues-pr-state', pullRequest.state);
-    state.dataset.prState = pullRequest.state;
+    const prState = issuePullRequestState(pullRequest, githubPrByKey);
+    const state = el('span', 'issues-pr-state', prState);
+    state.dataset.prState = prState;
     return [state, externalLink('issues-inline-link', `#${pullRequest.number} ${pullRequest.title}`, pullRequest.url)];
   });
   buildFact(facts, 'Pull request', pullRequests.length > 0 ? pullRequests : ['none linked']);
@@ -504,3 +511,5 @@ export function applyOpenIssueSessionResult(message: Record<string, unknown>): v
   openOutcomeByIssue.set(key, error);
   renderDetail();
 }
+
+subscribeGithubPrs(render);

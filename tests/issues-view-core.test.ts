@@ -1,7 +1,8 @@
+import { GithubPr } from '../shared/contracts/github-prs.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { IssueFilters, IssueRow } from '../public/github/issues-view-core.ts';
-import { filterIssues, groupIssuesByRepo, issueFilterOptions, issueFilterSummary, issueAgo, issueRelativeAge, issueScopeCounts, matchesIssueScope, issuesPlaceholder, summarizeIssues } from '../public/github/issues-view-core.ts';
+import { issuePullRequestState, filterIssues, groupIssuesByRepo, issueFilterOptions, issueFilterSummary, issueAgo, issueRelativeAge, issueScopeCounts, matchesIssueScope, issuesPlaceholder, summarizeIssues } from '../public/github/issues-view-core.ts';
 
 const issueWithLabels = (number: number, labels: string[]): IssueRow => ({
   key: `acme/app#${number}`, repo: 'acme/app', number, title: 'Issue', labels,
@@ -71,4 +72,29 @@ test('filter summary exposes active constraints and relative ages handle future 
   assert.equal(issueRelativeAge('invalid', nowMs), 'unknown');
   assert.equal(issueAgo(nowMs, nowMs), 'just now');
   assert.equal(issueAgo(nowMs - 3600000, nowMs), '1h ago');
+});
+
+test('linked pull request status follows the canonical cross-repository PR and falls back to the issue lane', () => {
+  const pullRequest = { number: 12, url: 'https://github.com/Other/Library/pull/12', title: 'Fix', state: 'open' as const };
+  const pr = GithubPr.parse({
+    key: 'other/library#12', repo: 'Other/Library', number: 12, id: 'PR_12', title: 'Fix', url: pullRequest.url,
+    state: 'MERGED', isDraft: false, headRefOid: 'a'.repeat(40), baseRefOid: 'b'.repeat(40),
+    baseRefName: 'main', headRefName: 'fix', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-02T00:00:00Z',
+    mergedAt: '2026-10-02T00:00:00Z', author: 'alice', isAuthorBot: false, labels: [], commentCount: 0,
+    isCrossRepository: false, isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'MERGEABLE',
+    mergeStateStatus: 'CLEAN', reviewDecision: null, checks: { state: null, failing: [], pendingCount: 0 },
+    rollupState: null, reviewRequests: [], behindBy: null, threads: [], unresolvedThreads: 0,
+    approvals: 0, reviews: [], opinionatedWriterReviewStates: [],
+  });
+  const prsByKey = new Map([[pr.key, pr]]);
+  const lookup = (key: string) => prsByKey.get(key);
+  assert.equal(issuePullRequestState(pullRequest, lookup), 'merged');
+  prsByKey.set(pr.key, { ...pr, state: 'OPEN', isDraft: true });
+  assert.equal(issuePullRequestState(pullRequest, lookup), 'draft');
+  prsByKey.set(pr.key, { ...pr, state: 'OPEN' });
+  assert.equal(issuePullRequestState(pullRequest, lookup), 'open');
+  prsByKey.set(pr.key, { ...pr, state: 'CLOSED' });
+  assert.equal(issuePullRequestState(pullRequest, lookup), 'closed');
+  prsByKey.clear();
+  assert.equal(issuePullRequestState(pullRequest, lookup), 'open');
 });
