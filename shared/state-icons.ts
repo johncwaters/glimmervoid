@@ -42,11 +42,8 @@ export const STATUS_ICON_SHAPES: Readonly<Record<StatusIcon, readonly StatusIcon
     { tag: 'circle', attributes: { cx: '8', cy: '8', r: '2.2', ...fill } },
   ],
   'needs-input': [
-    { tag: 'rect', attributes: { x: '3.5', y: '1.4', width: '1.9', height: '9.9', rx: '.95', transform: 'rotate(-10 4.45 10.8)', ...fill } },
-    { tag: 'rect', attributes: { x: '6.5', y: '0', width: '1.9', height: '11.3', rx: '.95', transform: 'rotate(-3 7.45 10.8)', ...fill } },
-    { tag: 'rect', attributes: { x: '9.5', y: '.3', width: '1.9', height: '11', rx: '.95', transform: 'rotate(4 10.45 10.8)', ...fill } },
-    { tag: 'rect', attributes: { x: '12.5', y: '2.2', width: '1.9', height: '9.1', rx: '.95', transform: 'rotate(11 13.45 10.8)', ...fill } },
-    { tag: 'path', attributes: { d: 'M3.5 9.8H14.4V11.8A3.6 3.6 0 0 1 10.8 15.4H8A4.4 4.4 0 0 1 4.6 13.8L.4 10A1.15 1.15 0 0 1 2.1 8.4L3.5 11.2Z', ...fill } },
+    { tag: 'path', attributes: { d: 'M4.6 5.2a3.4 3.4 0 1 1 4.9 3.05c-1 .5-1.5 1.1-1.5 2.05v.6', ...stroke('2.5') } },
+    { tag: 'circle', attributes: { cx: '8', cy: '14', r: '1.55', ...fill } },
   ],
   idle: [
     { tag: 'rect', attributes: { x: '3.6', y: '2.8', width: '3', height: '10.4', rx: '.8', ...fill } },
