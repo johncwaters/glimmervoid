@@ -22,8 +22,8 @@ One bot shared by session, PR review and PostHog notifications.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `telegram.botToken` | Bot token | `""` | Credential used by the shared Telegram bot. When GLIMMERVOID_TELEGRAM_BOT_TOKEN supplies it, this field is read-only. |
-| `telegram.chatId` | Chat id | `""` | Destination chat for enabled Telegram lanes. |
+| `telegram.botToken` | Bot token | `""` | Credential used by the shared Telegram bot. Create a bot by messaging @BotFather in Telegram and sending /newbot; it replies with this token. When GLIMMERVOID_TELEGRAM_BOT_TOKEN supplies it, this field is read-only. |
+| `telegram.chatId` | Chat id | `""` | Destination chat for enabled Telegram lanes. Send your bot any message, then open https://api.telegram.org/bot<token>/getUpdates in a browser and copy the number under message.chat.id. |
 | `telegramNotifications` | Send session notifications | `false` | Send session completion, input and failure alerts when no dashboard is open. Unacknowledged alerts also escalate after the phone escalation delay while a dashboard remains open. |
 
 ### Sessions

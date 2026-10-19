@@ -24,6 +24,7 @@ import type { ControlSocket } from './backend/backend-websockets.ts';
 import { glimmervoidHomeDir, ABORT_CONFIG_SAVE } from './config-store.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord, ReplayLog } from './core/control-replay-core.ts';
+import type { TelegramDeliveryControl } from './core/telegram-delivery-core.ts';
 import { normalizeClientTrust } from './core/request-trust.ts';
 import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from './core/settings-block-core.ts';
 import { readPosthogReport } from './radar/radar-report.ts';
@@ -155,6 +156,7 @@ interface ControlHandlerDeps {
   changeMapNarrator?: ChangeMapNarrator | null;
   controlReplayLog?: ReplayLog | null;
   getRtkInstallStatus?: () => Record<string, unknown> | null;
+  telegramDelivery?: TelegramDeliveryControl | null;
   resolveRtkPath?: () => string | null;
   conversationFs?: typeof fs;
   conversationGit?: (args: string[], cwd: string) => Promise<string>;
@@ -306,6 +308,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'open-team-review-session': () => ({ type: 'open-team-review-session-result', requestId, ok: false, error: message }),
     'radar-issue-action': () => ({ type: 'radar-issue-action-result', requestId, ok: false, error: message }),
     'radar-archive-investigation': () => ({ type: 'radar-archive-investigation-result', requestId, ok: false, error: message }),
+    'telegram-test': () => ({ type: 'telegram-test-result', requestId, ok: false, error: message, telegramDelivery: null }),
     'team-review-action': () => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
     'github-polling-refresh': () => ({ type: 'github-polling-refresh-result', requestId, ok: false, error: message }),
     'my-pr-merge': () => ({ type: 'my-pr-merge-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
@@ -408,6 +411,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     controlReplayLog = null,
 
     getRtkInstallStatus = (): Record<string, unknown> | null => null,
+    telegramDelivery = null,
 
     resolveRtkPath = () => getRtkPath(),
     conversationFs = fs,
@@ -440,7 +444,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
   function buildSettingsPayload() {
-    return buildSettingsPayloadFrom({ configStore, rtkInstallStatus: getRtkInstallStatus() });
+    return buildSettingsPayloadFrom({ configStore, rtkInstallStatus: getRtkInstallStatus(), telegramDelivery: telegramDelivery?.status() ?? null });
   }
 
   function findSession(msg: Pick<ClientMessageOf<'kill'>, 'id'>): Session | null {
@@ -1242,6 +1246,15 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     replyTo(ws, msg, 'benchmark-action-result', await benchmarks.submitAction(parsed.data));
   }
 
+  async function handleTelegramTest(msg: ClientMessageOf<'telegram-test'>, ws: ControlSocket): Promise<void> {
+    if (!telegramDelivery) {
+      replyTo(ws, msg, 'telegram-test-result', { ok: false, error: 'Telegram is not running on this server.', telegramDelivery: null });
+      return;
+    }
+    const sendResult = await telegramDelivery.sendTest();
+    replyTo(ws, msg, 'telegram-test-result', { ok: sendResult.ok, error: sendResult.error, telegramDelivery: telegramDelivery.status() });
+  }
+
   async function handleRadarArchiveInvestigation(msg: ClientMessageOf<'radar-archive-investigation'>, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'radar-archive-investigation-result', { ok: false, error: null, ...payload });
     const ref = radarLaneCore.validateInvestigationId(msg.id);
@@ -1409,6 +1422,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'open-issue-session': (msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket) => issueOpenQueue.run(`${msg.repo.toLowerCase()}#${msg.issueNumber}`, () => handleOpenIssueSession(msg, ws)),
     'radar-issue-action': handleRadarIssueAction,
     'radar-archive-investigation': handleRadarArchiveInvestigation,
+    'telegram-test': handleTelegramTest,
     'team-review-action': handleTeamReviewAction,
     'my-pr-merge': handleMyPrMerge,
     'my-pr-keep-mergeable': handleMyPrKeepMergeable,

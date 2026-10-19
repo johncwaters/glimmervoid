@@ -6,6 +6,7 @@ import {
 } from '../notifications/channels/telegram.ts';
 import { createTelegramCompletionDefer } from '../notifications/telegram-completion-defer.ts';
 import { sendTelegramMessage } from '../server/telegram-transport.ts';
+import { telegramSetupWarning, telegramTestRefusal } from '../server/core/telegram-delivery-core.ts';
 import type { TelegramChannelDeps } from '../notifications/channels/telegram.ts';
 
 const CONFIGURED = { enabled: true, botToken: 'TOK', chatId: '123', connectionCount: 0 };
@@ -184,4 +185,13 @@ test('the shared transport posts the Telegram sendMessage shape', async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'https://api.telegram.org/botTOK/sendMessage');
   assert.deepEqual(calls[0].body, { chat_id: '123', text: 'hello' });
+});
+
+test('notifications switched on with a blank token or chat id say nothing is sent, and a test send names the blank fields', () => {
+  assert.equal(telegramSetupWarning({ isEnabled: false, botToken: '', chatId: '' }), null);
+  assert.equal(telegramSetupWarning({ isEnabled: true, botToken: 'TOK', chatId: '123' }), null);
+  assert.equal(telegramSetupWarning({ isEnabled: true, botToken: ' ', chatId: '123' }), 'Session notifications are on, but the bot token is blank, so nothing is sent.');
+  assert.equal(telegramSetupWarning({ isEnabled: true, botToken: 'TOK', chatId: '' }), 'Session notifications are on, but the chat id is blank, so nothing is sent.');
+  assert.equal(telegramTestRefusal({ botToken: '', chatId: '' }), 'The bot token and chat id are blank. Fill them in first.');
+  assert.equal(telegramTestRefusal({ botToken: 'TOK', chatId: '123' }), null);
 });

@@ -31,6 +31,26 @@ interface SendTelegramResult {
   error: string | null;
 }
 
+function telegramRefusalText(statusCode: number, responseText: string): string {
+  const description = telegramErrorDescription(responseText);
+  return description ? `Telegram answered ${statusCode}: ${description}` : `Telegram answered ${statusCode}`;
+}
+
+function telegramErrorDescription(responseText: string): string {
+  try {
+    const parsed: unknown = JSON.parse(responseText);
+    if (typeof parsed !== 'object' || parsed === null || !('description' in parsed)) return '';
+    return typeof parsed.description === 'string' ? parsed.description.slice(0, 200) : '';
+  } catch {
+    return '';
+  }
+}
+
+function noAnswerText(timeoutMs: number): string {
+  const waited = timeoutMs >= 1000 ? `${Math.round(timeoutMs / 1000)} s` : `${timeoutMs} ms`;
+  return `Telegram did not answer within ${waited}`;
+}
+
 function defaultTransport(url: string, bodyObject: TelegramBody, options?: TelegramSendBounds): Promise<void> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(bodyObject);
@@ -44,20 +64,21 @@ function defaultTransport(url: string, bodyObject: TelegramBody, options?: Teleg
         },
       },
       (res) => {
-        res.resume();
+        const responseChunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => { responseChunks.push(chunk); });
         res.on('end', () => {
           const statusCode = res.statusCode ?? 0;
           if (statusCode >= 200 && statusCode < 300) {
             resolve();
             return;
           }
-          reject(new Error(`non-2xx status ${statusCode}`));
+          reject(new Error(telegramRefusalText(statusCode, Buffer.concat(responseChunks).toString('utf8'))));
         });
       },
     );
     req.on('error', reject);
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    if (timeoutMs > 0) req.setTimeout(timeoutMs, () => { req.destroy(new Error('timeout')); });
+    if (timeoutMs > 0) req.setTimeout(timeoutMs, () => { req.destroy(new Error(noAnswerText(timeoutMs))); });
     req.write(body);
     req.end();
   });
@@ -68,7 +89,7 @@ async function withinTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T>
   void work.catch(() => {});
   let expiryTimer: NodeJS.Timeout | undefined;
   const expiry = new Promise<never>((_resolve, rejectOnExpiry) => {
-    expiryTimer = setTimeout(() => rejectOnExpiry(new Error('timeout')), timeoutMs);
+    expiryTimer = setTimeout(() => rejectOnExpiry(new Error(noAnswerText(timeoutMs))), timeoutMs);
   });
   try {
     return await Promise.race([work, expiry]);

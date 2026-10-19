@@ -2,6 +2,8 @@ import { renderFlyingAnimalsGallery } from '../flying-animals-gallery.ts';
 import { isPhoneLayout, onLayoutChange } from '../form-factor.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';
 import type { CustomAgentSummaryRow } from '#shared/contracts/control-messages.ts';
+import { TelegramDeliveryStatus } from '#shared/contracts/control-messages.ts';
+import { createActionStatus, requestWithStatus } from '../action-status.ts';
 import type { UpdateJournal } from '#shared/contracts/update-journal.ts';
 import { REPO_SLUG } from '#shared/repo.ts';
 import { loadCustomSounds, playAlertSound, resolveSoundId, soundOptions } from '../alert-sound.ts';
@@ -964,9 +966,49 @@ function buildStatusSlot(setting: SettingsSetting) {
     return block;
   }
   if (setting.id === 'desktop-notifications') return buildNotificationPermissionSlot(setting);
+  if (setting.status === 'telegram-delivery') return buildTelegramDeliverySlot();
   const status = statusText(setting);
   if (!status) return null;
   return el('div', 'settings-view-warning settings-view-status-slot', status);
+}
+
+function telegramDeliveryLines(): string[] {
+  const parsedDelivery = TelegramDeliveryStatus.safeParse(settingsPayload.telegramDelivery);
+  if (!parsedDelivery.success) return [];
+  const { setupWarning, lastFailure } = parsedDelivery.data;
+  const lines = setupWarning ? [setupWarning] : [];
+  if (lastFailure) lines.push(`The last Telegram send failed at ${new Date(lastFailure.failedAt).toLocaleString()}: ${lastFailure.message}`);
+  return lines;
+}
+
+function renderTelegramDeliveryLines(container: HTMLElement) {
+  container.replaceChildren(...telegramDeliveryLines().map((line) => el('p', 'settings-view-warning', line)));
+}
+
+function buildTelegramDeliverySlot() {
+  const slot = el('div', 'settings-view-status-slot settings-telegram-delivery');
+  const deliveryLines = el('div', 'settings-telegram-delivery-lines');
+  renderTelegramDeliveryLines(deliveryLines);
+  const testButton = el('button', 'btn-dialog btn-dialog-cancel', 'Send test message');
+  testButton.type = 'button';
+  const testStatus = createActionStatus('settings-telegram-test-status');
+  testButton.addEventListener('click', async () => {
+    testButton.disabled = true;
+    const reply = await requestWithStatus('telegram-test', {}, testStatus, { busyText: 'Sending a test message to Telegram.' });
+    testButton.disabled = false;
+    if (reply?.type !== 'telegram-test-result') return;
+    settingsPayload = { ...settingsPayload, telegramDelivery: reply.telegramDelivery };
+    renderTelegramDeliveryLines(deliveryLines);
+    if (reply.ok) {
+      testStatus.show('ok', 'Sent. Check the Telegram chat for the test message.');
+      return;
+    }
+    testStatus.show('error', `Not sent: ${reply.error ?? 'Telegram refused the message.'}`);
+  });
+  const testRow = el('div', 'settings-telegram-test');
+  testRow.append(testButton, testStatus.element);
+  slot.append(deliveryLines, testRow);
+  return slot;
 }
 
 function buildNotificationPermissionSlot(setting: SettingsSetting) {

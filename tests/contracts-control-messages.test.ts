@@ -217,6 +217,8 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'settings', requestId: 'settings-1', settings: { cursorBlink: false } },
   { type: 'settings-error', requestId: 'settings-1', message: 'invalid' },
   { type: 'settings-updated', requestId: 'settings-1', settings: { cursorBlink: true } },
+  { type: 'telegram-test-result', requestId: 'telegram-test-1', ok: false, error: 'Telegram answered 401: Unauthorized', telegramDelivery: { setupWarning: null, lastFailure: { message: 'Telegram answered 401: Unauthorized', failedAt: NOW } } },
+  { type: 'telegram-test-result', requestId: 'telegram-test-2', ok: false, error: 'Telegram is not running on this server.', telegramDelivery: null },
   { type: 'pong', requestId: 'ping-1' },
   { type: 'agents-listed', requestId: 'agents-1', agents: [{ id: 'claude-code', label: 'Claude Code', resolvable: true }] },
   { type: 'repo-roots-scanned', requestId: 'roots-1', directories: [{ root: '/repo', projects: [{ name: 'glimmervoid', path: '/repo/glimmervoid' }] }] },

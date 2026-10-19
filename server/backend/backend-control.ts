@@ -9,6 +9,7 @@ import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-sto
 import { registerControlHandlers } from '../control-handlers.ts';
 import type { FactoryControl, BenchmarkControl, MyPrMergeControl, TeamReviewActionControl } from '../control-handlers.ts';
 import type { ReplayLog } from '../core/control-replay-core.ts';
+import type { TelegramDeliveryControl } from '../core/telegram-delivery-core.ts';
 import type { PlanDecision } from '../../shared/contracts/plan-review.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type { MyPrsStatus } from '../../shared/contracts/my-prs.ts';
@@ -61,6 +62,7 @@ interface BackendControlDependencies {
   broadcastControl: ControlBroadcast;
   controlReplayLog: ReplayLog;
   getRtkInstallStatus: () => Record<string, unknown> | null;
+  telegramDelivery: TelegramDeliveryControl;
   generateProjectId: () => string;
   makeSession: (project: ProjectEntry, config: GlimmervoidConfig) => Session;
   wireSessionEvents: (session: Session) => void;
@@ -128,6 +130,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     broadcastControl,
     controlReplayLog,
     getRtkInstallStatus: dependencies.getRtkInstallStatus,
+    telegramDelivery: dependencies.telegramDelivery,
     generateProjectId: dependencies.generateProjectId,
     makeSession: dependencies.makeSession,
     wireSessionEvents: dependencies.wireSessionEvents,

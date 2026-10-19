@@ -516,7 +516,7 @@ test('a Telegram send that never answers times out inside the transport, leaving
     assert.equal(sendAttempts, 1);
     assert.equal(h.alerts().length, 1);
     assert.equal((await readState(h.statePath)).fired.daily[TODAY], undefined);
-    assert.deepEqual(h.warnings, [`[usage] budget telegram failed scope=daily period=${TODAY} error=timeout`]);
+    assert.deepEqual(h.warnings, [`[usage] budget telegram failed scope=daily period=${TODAY} error="Telegram did not answer within 5 ms"`]);
 
     await h.wiring.requestReport({ force: true });
     assert.equal(sendAttempts, 2, 'an undelivered threshold is retried on the next pass');
@@ -524,7 +524,7 @@ test('a Telegram send that never answers times out inside the transport, leaving
   } finally {
     console.warn = originalWarn;
   }
-  assert.deepEqual(transportWarnings, ['[telegram] timeout', '[telegram] timeout']);
+  assert.deepEqual(transportWarnings, ['[telegram] Telegram did not answer within 5 ms', '[telegram] Telegram did not answer within 5 ms']);
 });
 
 test('a declined Telegram send logs the transport error', async () => {

@@ -9752,6 +9752,18 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
   margin: 14px 0 0;
 }
 
+.settings-telegram-test {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.settings-telegram-test .settings-telegram-test-status {
+  margin: 0;
+}
+
 .repo-roots-adder {
   display: flex;
   flex-direction: column;

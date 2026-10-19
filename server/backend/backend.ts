@@ -541,6 +541,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastControl,
     controlReplayLog,
     getRtkInstallStatus: () => rtkInstall.getStatus(),
+    telegramDelivery: notifications.telegramDelivery,
     generateProjectId,
     makeSession,
     wireSessionEvents,

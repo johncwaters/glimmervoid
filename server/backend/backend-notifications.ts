@@ -11,10 +11,13 @@ import { createClientPresence } from '../core/client-presence.ts';
 import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
+import { telegramSetupWarning, telegramTestRefusal } from '../core/telegram-delivery-core.ts';
+import type { TelegramDeliveryStatus } from '../../shared/contracts/control-messages.ts';
 import { createHeartbeat } from '../ws-heartbeat.ts';
 
 const ESCALATION_INTERVAL_MS = 300000;
 const DEFAULT_PHONE_ESCALATION_MS = 300000;
+const TELEGRAM_TEST_TEXT = 'Glimmervoid test message. Session notifications reach this chat.';
 
 interface NotificationConfig {
   phoneEscalationMs?: number;
@@ -52,21 +55,33 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
   const notificationManager = new NotificationManager({ ...notificationTimings(), recordOutcome });
   notificationManager.registerChannel('web', createWebNotificationChannel(broadcastControl));
 
+  let lastTelegramFailure: TelegramDeliveryStatus['lastFailure'] = null;
+
+  async function sendAndRecordTelegram(text: string): Promise<{ ok: boolean; error: string | null }> {
+    const botToken = config.telegram?.botToken ?? '';
+    const chatId = config.telegram?.chatId ?? '';
+    const refusal = telegramTestRefusal({ botToken, chatId });
+    if (refusal) return { ok: false, error: refusal };
+    const sendResult = await sendTelegramMessage({ botToken, chatId, text, tag: 'channel:telegram' });
+    lastTelegramFailure = sendResult.ok ? null : { message: sendResult.error ?? 'The send failed.', failedAt: Date.now() };
+    return sendResult;
+  }
+
+  function telegramDeliveryStatus(): TelegramDeliveryStatus {
+    return {
+      setupWarning: telegramSetupWarning({
+        isEnabled: config.telegramNotifications === true,
+        botToken: config.telegram?.botToken,
+        chatId: config.telegram?.chatId,
+      }),
+      lastFailure: lastTelegramFailure,
+    };
+  }
+
   const telegramOutbox = createTelegramOutbox({
     filePath: configSiblingPath(configStore.configPath, 'telegram-outbox.json'),
     recordOutcome,
-    send: (entry) => {
-      const telegram = config.telegram || {};
-      const botToken = telegram.botToken;
-      const chatId = telegram.chatId;
-      if (!botToken || !chatId) return Promise.resolve({ ok: false });
-      return sendTelegramMessage({
-        botToken,
-        chatId,
-        text: entry.text,
-        tag: 'channel:telegram',
-      });
-    },
+    send: (entry) => sendAndRecordTelegram(entry.text),
   });
   const telegramDigest = createTelegramDigest({ deliver: telegramOutbox.deliver });
   const sendTelegramNotification = createTelegramChannel({
@@ -137,6 +152,10 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     notificationManager,
     reviewSessions,
     telegramChannel,
+    telegramDelivery: {
+      status: telegramDeliveryStatus,
+      sendTest: () => sendAndRecordTelegram(TELEGRAM_TEST_TEXT),
+    },
     telegramOutbox: {
       ...telegramOutbox,
       idle: () => {

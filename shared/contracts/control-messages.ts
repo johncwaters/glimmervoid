@@ -67,6 +67,11 @@ export const CustomAgentSummaryRow = z.object({
   resolvable: z.boolean().nullable(),
 }).strict();
 export type CustomAgentSummaryRow = z.infer<typeof CustomAgentSummaryRow>;
+export const TelegramDeliveryStatus = z.object({
+  setupWarning: nullableString,
+  lastFailure: z.object({ message: z.string(), failedAt: timestamp }).nullable(),
+});
+export type TelegramDeliveryStatus = z.infer<typeof TelegramDeliveryStatus>;
 
 export const SessionCardFields = z.object({
   id: sessionId,
@@ -203,6 +208,7 @@ const clientVariants = [
   loose('my-pr-merge-when-ready', { ...MyPrMergeWhenReadyRequest.shape, requestId }),
   loose('github-polling-refresh', { ...GithubPollingRefreshRequest.shape, requestId }),
   loose('radar-archive-investigation', { id: z.unknown().optional(), requestId }),
+  loose('telegram-test', { requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
   loose('request-hooks-report', { requestId }),
   loose('send-diff-annotations', {
@@ -619,6 +625,7 @@ const serverVariants = [
   loose('my-pr-merge-when-ready-result', { ...MyPrMergeWhenReadyResult.shape, requestId }),
   loose('github-polling-refresh-result', { ...GithubPollingRefreshResult.shape, requestId }),
   loose('radar-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
+  loose('telegram-test-result', { requestId, ok: z.boolean(), error: optionalError, telegramDelivery: TelegramDeliveryStatus.nullable() }),
   TeamReviewStatus,
   BenchmarkStatus,
   loose('factory-state', FactoryState.shape),

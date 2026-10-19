@@ -230,18 +230,18 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     settings: [
       {
         id: 'telegram-bot-token', path: 'telegram.botToken', title: 'Bot token',
-        description: 'Credential used by the shared Telegram bot. When GLIMMERVOID_TELEGRAM_BOT_TOKEN supplies it, this field is read-only.',
+        description: 'Credential used by the shared Telegram bot. Create a bot by messaging @BotFather in Telegram and sending /newbot; it replies with this token. When GLIMMERVOID_TELEGRAM_BOT_TOKEN supplies it, this field is read-only.',
         control: 'password', keywords: ['credential', 'api'], defaultValue: '', ...MACHINE_NOW,
       },
       {
         id: 'telegram-chat-id', path: 'telegram.chatId', title: 'Chat id',
-        description: 'Destination chat for enabled Telegram lanes.',
+        description: 'Destination chat for enabled Telegram lanes. Send your bot any message, then open https://api.telegram.org/bot<token>/getUpdates in a browser and copy the number under message.chat.id.',
         control: 'text', keywords: ['destination', 'channel'], defaultValue: '', ...MACHINE_NOW,
       },
       {
         id: 'telegram-session-notifications', path: 'telegramNotifications', title: 'Send session notifications',
         description: 'Send session completion, input and failure alerts when no dashboard is open. Unacknowledged alerts also escalate after the phone escalation delay while a dashboard remains open.',
-        control: 'toggle', keywords: ['phone', 'off dashboard'], defaultValue: false, ...MACHINE_NOW,
+        control: 'toggle', keywords: ['phone', 'off dashboard', 'test'], defaultValue: false, status: 'telegram-delivery', ...MACHINE_NOW,
       },
     ],
   },
