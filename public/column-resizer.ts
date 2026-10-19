@@ -10,9 +10,11 @@ interface ColumnResizerOptions {
   keyStepPx: number;
   getStoredWidth: () => number | null;
   setStoredWidth: (px: number | null) => void;
+  growsLeftward?: boolean;
 }
 
-export function wireColumnResizer({ resizer, column, widthHost, widthProperty, bounds, keyStepPx, getStoredWidth, setStoredWidth }: ColumnResizerOptions): void {
+export function wireColumnResizer({ resizer, column, widthHost, widthProperty, bounds, keyStepPx, getStoredWidth, setStoredWidth, growsLeftward = false }: ColumnResizerOptions): void {
+  const growthDirection = growsLeftward ? -1 : 1;
   resizer.setAttribute('aria-valuemin', String(bounds.minPx));
   resizer.setAttribute('aria-valuemax', String(bounds.maxPx));
 
@@ -39,7 +41,7 @@ export function wireColumnResizer({ resizer, column, widthHost, widthProperty, b
   });
   resizer.addEventListener('pointermove', (event) => {
     if (!resizer.hasPointerCapture(event.pointerId)) return;
-    applyWidth(dragStartWidth + (event.clientX - dragStartX));
+    applyWidth(dragStartWidth + growthDirection * (event.clientX - dragStartX));
   });
   const releaseDrag = (event: PointerEvent) => {
     resizer.releasePointerCapture(event.pointerId);
@@ -48,7 +50,7 @@ export function wireColumnResizer({ resizer, column, widthHost, widthProperty, b
   resizer.addEventListener('pointerup', (event) => {
     if (!resizer.hasPointerCapture(event.pointerId)) return;
     releaseDrag(event);
-    setStoredWidth(applyWidth(dragStartWidth + (event.clientX - dragStartX)));
+    setStoredWidth(applyWidth(dragStartWidth + growthDirection * (event.clientX - dragStartX)));
   });
   resizer.addEventListener('pointercancel', (event) => {
     if (!resizer.hasPointerCapture(event.pointerId)) return;
@@ -64,7 +66,7 @@ export function wireColumnResizer({ resizer, column, widthHost, widthProperty, b
     const delta = keyboardWidthDelta(event.key, keyStepPx);
     if (delta === null) return;
     event.preventDefault();
-    const width = applyWidth(column.getBoundingClientRect().width + delta);
+    const width = applyWidth(column.getBoundingClientRect().width + growthDirection * delta);
     if (width !== null) setStoredWidth(width);
   });
 }

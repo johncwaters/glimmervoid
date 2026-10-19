@@ -54,7 +54,7 @@ import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalL
 import { showErrorToast } from './session-card/toast.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, clearSettingsUpdateRequest, onPhoneSettingsScreenChanged, refreshSettingsStatus, resolveSettingsTarget, returnToSettingsList } from './settings/settings-panel.ts';
-import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
+import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
 import { SHORTCUT_PLATFORM } from './shortcuts.ts';
@@ -432,7 +432,7 @@ const messageHandlers = {
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
   'post-turn-leftovers': (msg) => showPostTurnLeftoversBanner(msg),
   'error':              (msg) => { clearSettingsUpdateRequest(); applyTraceError(msg); applyConversationTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
-  'session-error':      (msg) => { applySessionPlanError(msg); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
+  'session-error':      (msg) => { applySessionPlanError(msg); releaseReviewMergeRequest(msg.id); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
   'settings-updated':   (msg) => {
     if (msg.settings) applyDashboardSettings(msg.settings);
     refreshFirstRunChecklist();
@@ -906,7 +906,7 @@ function confirmServerPowerAction({ type, title, confirmLabel, danger, idleMessa
   const count = getSessionCount();
   const suffix = count > 1 ? 's' : '';
   const message = count > 0 ? `Kill ${count} session${suffix} and ${actionAfterKillingSessions}?` : idleMessage;
-  openConfirmDialog({ title, message, confirmLabel, danger, onConfirm: () => sendControlMsg({ type }) });
+  openConfirmDialog({ title, message, confirmLabel, danger: danger || count > 0, onConfirm: () => sendControlMsg({ type }) });
 }
 
 function confirmServerRestart() {

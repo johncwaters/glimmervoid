@@ -6544,7 +6544,9 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   z-index: 10;
   transition: background var(--transition-fast);
 }
-.review-resize-handle:hover { background: color-mix(in oklab, var(--accent) 15%, transparent); }
+.review-resize-handle:hover,
+.review-resize-handle[data-dragging] { background: color-mix(in oklab, var(--accent) 15%, transparent); }
+.review-resize-handle:focus-visible { outline: none; background: color-mix(in oklch, var(--accent) 40%, transparent); }
 
 .review-sidebar-head {
   display: flex;
@@ -6562,8 +6564,22 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
 }
+.review-sidebar-session {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+.review-sidebar-session[hidden] { display: none; }
 .review-header-tabs { display: flex; flex: 0 0 auto; margin-left: auto; align-items: center; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .review-header-tab { width: calc(5ch + 12px); padding: 0; text-align: center; border: 0; background: transparent; color: var(--text-muted); font: 700 11px var(--font-mono); cursor: pointer; }
 .review-header-tab + .review-header-tab { border-left: 1px solid var(--border); }

@@ -3,6 +3,7 @@ import { ChangeMap } from '#shared/contracts/change-map.ts';
 import { DIFF_ANNOTATION_NOTE_MAX_CHARS, DIFF_ANNOTATIONS_MAX } from '#shared/contracts/control-messages.ts';
 import type { SessionState } from '#shared/states.ts';
 import { MERGEABLE_LIVE_STATES, STATES } from '#shared/states.ts';
+import { wireColumnResizer } from '../column-resizer.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
@@ -50,8 +51,9 @@ const REVIEWABLE = new Set(['pending-review', 'parked']);
 const MAX_FILE_LINES = 600;
 const mergeShortcutHint = shortcutHint('merge', SHORTCUT_PLATFORM);
 const resolveShortcutHint = shortcutHint('resolve-or-resync', SHORTCUT_PLATFORM);
-const SIDEBAR_MIN = 260;
-const SIDEBAR_MAX = 700;
+const SIDEBAR_BOUNDS = { minPx: 260, maxPx: 700 };
+const SIDEBAR_KEY_STEP_PX = 16;
+const TRANSIENT_STATUS_MS = 5000;
 
 const statusById = new Map<string, string>();
 const reasonById = new Map<string, string | null>();
@@ -77,10 +79,13 @@ let railLabelEl: HTMLElement | null = null;
 let railStatusEl: HTMLElement | null = null;
 let railAddedEl: HTMLElement | null = null;
 let railRemovedEl: HTMLElement | null = null;
+let sessionNameEl: HTMLElement | null = null;
 let isMoreMenuOpen = false;
-let resolveJustSent = false;
-let resolveJustSentFor: string | null = null;
-let resolveSentTimer: ReturnType<typeof setTimeout> | null = null;
+let resolveOutcome: { forId: string; text: string; isError: boolean } | null = null;
+let resolveOutcomeTimer: ReturnType<typeof setTimeout> | null = null;
+let shortcutRefusal: { forId: string | null; text: string } | null = null;
+let shortcutRefusalTimer: ReturnType<typeof setTimeout> | null = null;
+const mergeRequestedFromStatusById = new Map<string, string>();
 
 let resyncResult: { forId: string; text: string; isError: boolean } | null = null;
 let resyncResultTimer: ReturnType<typeof setTimeout> | null = null;
@@ -99,6 +104,8 @@ let notesStatusEl: HTMLElement | null = null;
 let notesOutcomeEl: HTMLElement | null = null;
 let notesListEl: HTMLElement | null = null;
 const draftNoteByKey = new Map<string, DiffAnnotation>();
+const orphanedNoteByKey = new Map<string, DiffAnnotation>();
+let nextOrphanedNoteSequence = 0;
 let openEditorKey: string | null = null;
 let notesSendInFlight = false;
 let notesOutcome: string | null = null;
@@ -125,6 +132,8 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
 
   const head = el('div', 'review-sidebar-head');
   const title = el('span', 'review-sidebar-title', 'Review');
+  sessionNameEl = el('span', 'review-sidebar-session');
+  title.append(sessionNameEl);
   const applyCollapsed = (isCollapsed: boolean) => {
     mountedPanel.toggleAttribute('data-collapsed', isCollapsed);
     setReviewSidebarExpanded(!isCollapsed);
@@ -174,7 +183,10 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
   notesOutcomeEl.setAttribute('role', 'status');
 
   const handle = el('div', 'review-resize-handle');
-  handle.setAttribute('aria-hidden', 'true');
+  handle.setAttribute('role', 'separator');
+  handle.setAttribute('aria-orientation', 'vertical');
+  handle.setAttribute('aria-label', 'Resize review sidebar');
+  handle.tabIndex = 0;
   mountedPanel.append(rail, head, controlsEl, bodyEl, notesOutcomeEl, notesEl, handle);
   mountedPanel.toggleAttribute('data-collapsed', !isReviewSidebarExpanded());
 
@@ -190,52 +202,21 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
     closeMoreMenu();
   });
 
-  let dragStartX = 0, dragStartWidth = 0;
-
-  const applyWidth = (px: number) => {
-    const w = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, px));
-    if (!Number.isFinite(w)) return null;
-    mountedPanel.style.setProperty('--sidebar-width', `${w}px`);
-    return w;
-  };
-
-  const onDrag = (e: PointerEvent) => {
-    if (!handle.hasPointerCapture(e.pointerId)) return;
-    applyWidth(dragStartWidth + (dragStartX - e.clientX));
-  };
-
-  let dragging = false;
-  const stopDrag = (e: PointerEvent) => {
-    if (!dragging) return;
-    dragging = false;
-    if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
-    document.documentElement.style.cursor = '';
-    document.documentElement.style.userSelect = '';
-    const w = mountedPanel.style.getPropertyValue('--sidebar-width');
-    if (w) setSidebarWidth(parseInt(w, 10));
-  };
-
-  handle.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    dragStartX = e.clientX;
-    dragStartWidth = mountedPanel.getBoundingClientRect().width;
-    handle.setPointerCapture(e.pointerId);
-    dragging = true;
-    document.documentElement.style.cursor = 'col-resize';
-    document.documentElement.style.userSelect = 'none';
+  wireColumnResizer({
+    resizer: handle,
+    column: mountedPanel,
+    widthHost: mountedPanel,
+    widthProperty: '--sidebar-width',
+    bounds: SIDEBAR_BOUNDS,
+    keyStepPx: SIDEBAR_KEY_STEP_PX,
+    getStoredWidth: getSidebarWidth,
+    setStoredWidth: setSidebarWidth,
+    growsLeftward: true,
   });
-  handle.addEventListener('pointermove', onDrag);
-  handle.addEventListener('pointerup', stopDrag);
-  handle.addEventListener('pointercancel', stopDrag);
-  handle.addEventListener('lostpointercapture', stopDrag);
-
-  const storedWidth = getSidebarWidth();
-  if (storedWidth !== null) applyWidth(storedWidth);
 
   onSelectionChange((id) => {
-
     isMoreMenuOpen = false;
+    shortcutRefusal = null;
     openFiles.clear();
     expanded.clear();
     pendingOpenFilePath = null;
@@ -270,20 +251,22 @@ function applyStatus(id: string, next: string) {
 }
 
 export function setReviewMergeStatus(id: string, mergeStatus: string, reason: string | null = null) {
-  const prev = statusById.get(id) || 'none';
   const next = mergeStatus || 'none';
   reasonById.set(id, reason);
+  const requestedFrom = mergeRequestedFromStatusById.get(id);
+  if (requestedFrom !== undefined && requestedFrom !== next) mergeRequestedFromStatusById.delete(id);
   applyStatus(id, next);
+}
 
-  if (REVIEWABLE.has(next) && !REVIEWABLE.has(prev)) {
-    const sel = getSelectedId();
-    const selReviewable = sel ? REVIEWABLE.has(statusById.get(sel) || 'none') : false;
-    if (!sel || !sessionUIs.has(sel) || !selReviewable) setSelectedId(id);
-  }
+export function releaseReviewMergeRequest(id: unknown) {
+  const key = sessionIdOf(id);
+  if (!key || !mergeRequestedFromStatusById.delete(key)) return;
+  if (key === getSelectedId()) render();
 }
 
 export function seedReviewMergeStatus(id: string, mergeStatus: string, reason: string | null = null) {
   reasonById.set(id, reason);
+  mergeRequestedFromStatusById.delete(id);
   applyStatus(id, mergeStatus || 'none');
 }
 
@@ -319,13 +302,34 @@ function sectionDiffText(payload: SessionDiffPayload | null): SectionDiffText {
 }
 
 function dropDraftsForChangedSections(previous: SessionDiffPayload | null, next: SessionDiffPayload | null) {
-  if (draftNoteByKey.size === 0) return;
   if (!previous) return;
-  const stale = staleDraftKeys(sectionDiffText(previous), sectionDiffText(next), draftNoteByKey.keys());
-  if (stale.length === 0) return;
-  for (const key of stale) draftNoteByKey.delete(key);
-  if (openEditorKey !== null && stale.includes(openEditorKey)) openEditorKey = null;
-  notesOutcome = `${stale.length} note${stale.length === 1 ? '' : 's'} dropped because the diff changed.`;
+  const candidateKeys = openEditorKey === null ? [...draftNoteByKey.keys()] : [...draftNoteByKey.keys(), openEditorKey];
+  if (candidateKeys.length === 0) return;
+  const stale = new Set(staleDraftKeys(sectionDiffText(previous), sectionDiffText(next), candidateKeys));
+  if (stale.size === 0) return;
+  if (openEditorKey !== null && stale.has(openEditorKey)) orphanOpenEditorText(openEditorKey);
+  for (const key of stale) {
+    const draft = draftNoteByKey.get(key);
+    if (draft) keepOrphanedNote(draft);
+    draftNoteByKey.delete(key);
+  }
+  const keptCount = orphanedNoteByKey.size;
+  notesOutcome = keptCount === 0
+    ? null
+    : `The diff changed under ${keptCount} note${keptCount === 1 ? '' : 's'}. ${keptCount === 1 ? 'It is' : 'They are'} kept under Notes as no longer attached and will not be sent.`;
+}
+
+function orphanOpenEditorText(noteKey: string) {
+  openEditorKey = null;
+  const annotated = annotatedLineByNoteKey.get(noteKey);
+  const unsavedText = bodyEl?.querySelector<HTMLInputElement>(`[data-editor-for="${CSS.escape(noteKey)}"] input`)?.value.trim() ?? '';
+  if (!annotated || !unsavedText || draftNoteByKey.get(noteKey)?.note === unsavedText) return;
+  keepOrphanedNote({ ...annotated.target, section: annotated.section, note: unsavedText });
+}
+
+function keepOrphanedNote(note: DiffAnnotation) {
+  orphanedNoteByKey.set(`orphan:${nextOrphanedNoteSequence}`, note);
+  nextOrphanedNoteSequence += 1;
 }
 
 export function setReviewBranchSync(id: string, payload: BranchSync | null) {
@@ -386,9 +390,10 @@ export function forgetReviewSession(id: unknown) {
 
 export function mergeSelectedSession() {
   const id = getSelectedId();
-  if (!id || isWorkspaceSession(id)) return false;
-  const ui = sessionUIs.get(id);
-  if (!ui) return false;
+  const ui = id ? sessionUIs.get(id) : null;
+  if (!id || !ui) return refuseShortcut(null, 'No session is open to merge.');
+  if (isWorkspaceSession(id)) return refuseShortcut(id, 'A workspace session has no worktree to merge.');
+  if (mergeRequestedFromStatusById.has(id)) return refuseShortcut(id, `Merge is already on its way for "${sessionName(ui, id)}".`);
   const curStatus = statusById.get(id) || 'none';
   const payload = diffById.get(id);
   const hasCommits = !!(payload?.hasCommits);
@@ -404,9 +409,23 @@ export function mergeSelectedSession() {
     isMergeRendered: mergeAction.isRendered,
     hasChanges: sessionHasChanges(id),
   });
-  if (primaryAction !== 'merge' || !mergeAction.isEnabled) return false;
+  if (primaryAction !== 'merge' || !mergeAction.isEnabled) {
+    const disabledReason = mergeDisabledReason({ status: curStatus, hasCommits, live: isLive(ui.currentState), state: ui.currentState });
+    return refuseShortcut(id, disabledReason ?? `Nothing to merge in "${sessionName(ui, id)}" right now.`);
+  }
   sendMergeContinue(id, ui.currentState);
   return true;
+}
+
+function refuseShortcut(id: string | null, text: string) {
+  shortcutRefusal = { forId: id, text };
+  clearTimeout(shortcutRefusalTimer ?? undefined);
+  shortcutRefusalTimer = setTimeout(() => {
+    shortcutRefusal = null;
+    render();
+  }, TRANSIENT_STATUS_MS);
+  render();
+  return false;
 }
 
 export function resolveSelectedSession() {
@@ -423,9 +442,26 @@ export function resolveSelectedSession() {
     isMergeRendered: decideMergeAction(status, mergeReason, false).isRendered,
     hasChanges: sessionHasChanges(id),
   });
-  if (primaryAction !== 'resolve') return false;
-  sendControlMsg({ type: 'resolve-session-merge', id });
+  if (primaryAction !== 'resolve' || isResolveAwaiting(id)) return false;
+  sendResolvePrompt(id);
   return true;
+}
+
+function isResolveAwaiting(id: string) {
+  return resolveOutcome?.forId === id && !resolveOutcome.isError;
+}
+
+function sendResolvePrompt(id: string) {
+  const wasSent = sendControlMsg({ type: 'resolve-session-merge', id });
+  resolveOutcome = wasSent
+    ? { forId: id, text: 'Resolve prompt sent', isError: false }
+    : { forId: id, text: 'Not connected. The resolve prompt was not sent.', isError: true };
+  clearTimeout(resolveOutcomeTimer ?? undefined);
+  resolveOutcomeTimer = setTimeout(() => {
+    resolveOutcome = null;
+    render();
+  }, wasSent ? 3000 : TRANSIENT_STATUS_MS);
+  render();
 }
 
 export function resyncSelectedSession() {
@@ -455,15 +491,26 @@ function isMergeableLive(state: string, hasCommits: boolean) {
 
 function sendMergeContinue(id: string, state: string) {
   if (state !== STATES.RUNNING) {
-    sendControlMsg({ type: 'merge-continue-session', id });
+    requestMerge(id, false);
     return;
   }
   openConfirmDialog({
     title: 'Merge while working',
     message: 'This session still looks like it is working. Merging rebases its worktree under it. Merge anyway?',
     confirmLabel: 'Merge anyway',
-    onConfirm: () => sendControlMsg({ type: 'merge-continue-session', id, force: true }),
+    onConfirm: () => requestMerge(id, true),
   });
+}
+
+function requestMerge(id: string, force: boolean) {
+  if (mergeRequestedFromStatusById.has(id)) return;
+  const wasSent = sendControlMsg(force ? { type: 'merge-continue-session', id, force: true } : { type: 'merge-continue-session', id });
+  if (!wasSent) {
+    refuseShortcut(id, 'Not connected. The merge was not sent.');
+    return;
+  }
+  mergeRequestedFromStatusById.set(id, statusById.get(id) || 'none');
+  if (id === getSelectedId()) render();
 }
 
 function isLive(state: string) {
@@ -523,6 +570,7 @@ function sessionName(ui: SessionUi | null | undefined, id: string) {
 
 function clearDraftAnnotations() {
   draftNoteByKey.clear();
+  orphanedNoteByKey.clear();
   openEditorKey = null;
   notesOutcome = null;
   notesSendInFlight = false;
@@ -536,15 +584,16 @@ function notesStatusText() {
   return `${draftNoteByKey.size} note${draftNoteByKey.size === 1 ? '' : 's'} drafted`;
 }
 
-function draftListEntry(noteKey: string, draft: DiffAnnotation) {
+function draftListEntry(noteKey: string, draft: DiffAnnotation, isOrphaned: boolean) {
   const entry = el('div', 'review-notes-entry');
   const sideMarker = draft.side === 'old' ? ' (removed line)' : '';
-  entry.append(el('span', 'review-notes-entry-where', `${draft.section} ${draft.path}:${draft.line}${sideMarker}`));
+  const orphanMarker = isOrphaned ? ', no longer attached: the diff changed, not sent' : '';
+  entry.append(el('span', 'review-notes-entry-where', `${draft.section} ${draft.path}:${draft.line}${sideMarker}${orphanMarker}`));
   entry.append(el('span', 'review-notes-entry-note', draft.note));
   const remove = el('button', 'review-note-remove', 'Remove');
   remove.type = 'button';
   remove.title = 'Drop this note';
-  remove.addEventListener('click', () => removeDraftNote(noteKey));
+  remove.addEventListener('click', () => (isOrphaned ? removeOrphanedNote(noteKey) : removeDraftNote(noteKey)));
   entry.append(remove);
   return entry;
 }
@@ -552,8 +601,9 @@ function draftListEntry(noteKey: string, draft: DiffAnnotation) {
 function renderDraftList() {
   if (!notesListEl) return;
   notesListEl.replaceChildren();
-  notesListEl.hidden = draftNoteByKey.size === 0;
-  for (const [noteKey, draft] of draftNoteByKey) notesListEl.append(draftListEntry(noteKey, draft));
+  notesListEl.hidden = draftNoteByKey.size === 0 && orphanedNoteByKey.size === 0;
+  for (const [noteKey, draft] of draftNoteByKey) notesListEl.append(draftListEntry(noteKey, draft, false));
+  for (const [noteKey, draft] of orphanedNoteByKey) notesListEl.append(draftListEntry(noteKey, draft, true));
 }
 
 function updateNotesBar() {
@@ -579,7 +629,7 @@ function updateNotesBar() {
 function renderNotesView() {
   if (!bodyEl || !notesListEl) return;
   bodyEl.replaceChildren();
-  if (draftNoteByKey.size === 0) {
+  if (draftNoteByKey.size === 0 && orphanedNoteByKey.size === 0) {
     renderEmpty('No notes yet', 'Open the Diff tab and press note on a line to draft one.');
     return;
   }
@@ -732,6 +782,12 @@ function saveDraftNote(noteKey: string, raw: string) {
   updateNotesBar();
 }
 
+function removeOrphanedNote(noteKey: string) {
+  orphanedNoteByKey.delete(noteKey);
+  notesOutcome = null;
+  updateNotesBar();
+}
+
 function removeDraftNote(noteKey: string) {
   draftNoteByKey.delete(noteKey);
   notesOutcome = null;
@@ -776,7 +832,40 @@ function openFileFromMap(path: string) {
   scrollToPendingFile();
 }
 
+interface OpenEditorSnapshot {
+  noteKey: string;
+  text: string;
+  selectionStart: number | null;
+  selectionEnd: number | null;
+  hadFocus: boolean;
+}
+
+function captureOpenEditor(): OpenEditorSnapshot | null {
+  if (openEditorKey === null || !bodyEl) return null;
+  const input = bodyEl.querySelector<HTMLInputElement>(`[data-editor-for="${CSS.escape(openEditorKey)}"] input`);
+  if (!input) return null;
+  return { noteKey: openEditorKey, text: input.value, selectionStart: input.selectionStart, selectionEnd: input.selectionEnd, hadFocus: document.activeElement === input };
+}
+
+function restoreOpenEditor(snapshot: OpenEditorSnapshot | null) {
+  if (!snapshot || snapshot.noteKey !== openEditorKey || !bodyEl) return;
+  const input = bodyEl.querySelector<HTMLInputElement>(`[data-editor-for="${CSS.escape(snapshot.noteKey)}"] input`);
+  if (!input) return;
+  input.value = snapshot.text;
+  if (!snapshot.hadFocus) return;
+  input.focus({ preventScroll: true });
+  input.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+}
+
 function render() {
+  const openEditor = captureOpenEditor();
+  const bodyScrollTop = bodyEl?.scrollTop ?? 0;
+  renderSidebar();
+  restoreOpenEditor(openEditor);
+  if (bodyEl) bodyEl.scrollTop = bodyScrollTop;
+}
+
+function renderSidebar() {
   if (!controlsEl || !bodyEl) return;
   controlsEl.replaceChildren();
   bodyEl.replaceChildren();
@@ -788,7 +877,9 @@ function render() {
 
   const id = getSelectedId();
   const ui = id ? sessionUIs.get(id) : null;
+  renderSessionName(id, ui);
   if (!id || !ui) {
+    if (shortcutRefusal) controlsEl.append(statusNote(shortcutRefusal.text, true));
     renderEmpty('No session selected', 'Click a session name to review its changes here.');
     return;
   }
@@ -887,9 +978,8 @@ function render() {
     controlsEl.querySelector('.review-branch-sync-text, .review-branch-sync-refresh')?.setAttribute('aria-describedby', resyncReasonLine.id);
   }
 
-  if (resolveJustSent && resolveJustSentFor === id) {
-    controlsEl.append(el('div', 'review-resolve-sent', 'Resolve prompt sent'));
-  }
+  if (resolveOutcome?.forId === id) controlsEl.append(statusNote(resolveOutcome.text, resolveOutcome.isError));
+  if (shortcutRefusal && (shortcutRefusal.forId === id || shortcutRefusal.forId === null)) controlsEl.append(statusNote(shortcutRefusal.text, true));
 
   if (selectedView === 'notes') return;
 
@@ -909,6 +999,20 @@ function render() {
   }
   if (committedFiles.length > 0) bodyEl.append(renderSection('committed', 'Committed', committedMergeTargetText(headline, effectiveBase), committedFiles));
   if (uncommittedFiles.length > 0) bodyEl.append(renderSection('uncommitted', 'Uncommitted', null, uncommittedFiles));
+}
+
+function statusNote(text: string, isError: boolean) {
+  const note = el('div', isError ? 'review-control-reason review-control-reason-error' : 'review-resolve-sent', text);
+  note.setAttribute('role', 'status');
+  return note;
+}
+
+function renderSessionName(id: string | null, ui: SessionUi | null | undefined) {
+  if (!sessionNameEl) return;
+  const name = id && ui ? sessionName(ui, id) : '';
+  sessionNameEl.textContent = name;
+  sessionNameEl.hidden = !name;
+  sessionNameEl.title = name;
 }
 
 function renderEmpty(title: string, desc: string) {
@@ -1081,7 +1185,7 @@ function renderActions(id: string, {
       label: 'Merge',
       shortcut: mergeShortcutHint,
       title: mergeActionTitle(effectiveBase, mergeShortcutHint),
-      disabled: !mergeAction.isEnabled,
+      disabled: !mergeAction.isEnabled || mergeRequestedFromStatusById.has(id),
       onClick: () => sendMergeContinue(id, state),
     }));
   }
@@ -1091,14 +1195,8 @@ function renderActions(id: string, {
       label: 'Resolve',
       shortcut: resolveShortcutHint,
       title: `Paste a resolve prompt into this session so the agent can finish the merge (${resolveShortcutHint})`,
-      onClick: () => {
-        sendControlMsg({ type: 'resolve-session-merge', id });
-        resolveJustSent = true;
-        resolveJustSentFor = id;
-        clearTimeout(resolveSentTimer ?? undefined);
-        resolveSentTimer = setTimeout(() => { resolveJustSent = false; resolveJustSentFor = null; render(); }, 3000);
-        render();
-      },
+      disabled: isResolveAwaiting(id),
+      onClick: () => sendResolvePrompt(id),
     }));
   }
 
@@ -1138,6 +1236,7 @@ function renderActions(id: string, {
           title: 'Discard worktree',
           message: `Throw away the worktree changes for "${nm}"? This cannot be undone.`,
           confirmLabel: 'Discard',
+          danger: true,
           onConfirm: () => sendControlMsg({ type: 'discard-session-worktree', id }),
         });
       },
