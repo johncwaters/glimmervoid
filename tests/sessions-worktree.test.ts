@@ -366,7 +366,40 @@ test('concurrent start() calls are single-flight: one worktree, one PTY, no bran
   }
 });
 
-test('start() BLOCKS when the integration branch is missing - stays DORMANT, no spawn, notice set', async () => {
+test('killSession() during worktree provisioning leaves the session DONE with no PTY spawned', async () => {
+  const wt = realWorktreeDir();
+  const spawned: PtySpawnOptions[] = [];
+  let releaseProvisioning: () => void = () => {};
+  const provisioningGate = new Promise<void>((resolve) => { releaseProvisioning = resolve; });
+  const gw = {
+    async create(args: CallArgs): Promise<Workspace> {
+      await provisioningGate;
+      return { cwd: wt, isGit: true, branch: `glimmervoid/session/${args.label}`, base: String(args.baseBranch), baseSha: 'basesha' };
+    },
+    populate() {}, hasUnmergedWork() { return false; }, async rebaseOnly() { return { ok: true, upToDate: true }; },
+    mergeBack() { return { merged: true }; }, mergeKeep() { return { merged: true }; }, discard() {},
+  };
+  const s = makeSession({
+    gitWorkspace: gw, integrationBranch: 'develop',
+    ptySpawn: (_file, _args, optsArg) => { spawned.push(optsArg); return fakePty(); },
+  });
+  try {
+    const starting = s.start();
+    await new Promise((r) => setImmediate(r));
+    assert.equal(s.state, STATES.INITIALIZING);
+    assert.equal(s.killSession(), true);
+    releaseProvisioning();
+    await starting;
+    assert.equal(spawned.length, 0);
+    assert.equal(s.ptyProcess, null);
+    assert.equal(s.state, STATES.DONE);
+  } finally {
+    s.destroy();
+    fs.rmSync(wt, { recursive: true, force: true });
+  }
+});
+
+test('start() BLOCKS when the integration branch is missing - preparing, then back to DORMANT, no spawn, notice set', async () => {
   const gw = fakeGitWorkspace({ createResult: { cwd: process.cwd(), isGit: false, reason: 'no-base-branch' } });
   const spawned: PtySpawnOptions[] = [];
   const events: { blocked: CallArgs | null } = { blocked: null };
@@ -374,11 +407,14 @@ test('start() BLOCKS when the integration branch is missing - stays DORMANT, no 
     gitWorkspace: gw, integrationBranch: 'develop',
     ptySpawn: (_file, _args, optsArg) => { spawned.push(optsArg); return fakePty(); },
   });
+  const statesSeen: string[] = [];
+  s.on('state-change', ({ to }) => { statesSeen.push(`${to}@${gw.calls.create.length}`); });
   s.on('worktree-blocked', (e) => { events.blocked = e; });
   try {
     await s.start();
     assert.equal(spawned.length, 0, 'PTY never spawned (never ran in the real tree)');
-    assert.equal(s.state, STATES.DORMANT, 'stays DORMANT');
+    assert.deepEqual(statesSeen, [`${STATES.INITIALIZING}@0`, `${STATES.DORMANT}@1`], 'shows preparing before the worktree is created');
+    assert.equal(s.state, STATES.DORMANT, 'back to DORMANT');
     assert.ok(s.worktreeNotice && /not found/i.test(s.worktreeNotice), 'actionable notice set');
     assert.ok(events.blocked && events.blocked.branch === 'develop', 'worktree-blocked event emitted');
     assert.equal(s.toSnapshot().worktreeNotice, s.worktreeNotice);

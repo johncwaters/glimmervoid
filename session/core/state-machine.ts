@@ -28,6 +28,7 @@ const TRANSITIONS: TransitionTable = Object.freeze({
   [STATES.INITIALIZING]: {
     spawn_success: STATES.STARTING,
     spawn_fail: STATES.FAILED,
+    provision_blocked: STATES.DORMANT,
     user_kill: STATES.DONE,
   },
   [STATES.STARTING]: {

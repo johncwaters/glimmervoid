@@ -34,6 +34,7 @@ test('TRANSITIONS matrix is frozen and matches the lifecycle shape', () => {
     [STATES.INITIALIZING]: {
       spawn_success: STATES.STARTING,
       spawn_fail: STATES.FAILED,
+      provision_blocked: STATES.DORMANT,
       user_kill: STATES.DONE,
     },
     [STATES.STARTING]: {

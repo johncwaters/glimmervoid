@@ -1473,18 +1473,28 @@ class Session extends EventEmitter {
     if (pendingReaps) await pendingReaps;
     if (this._destroyed) return;
 
-    if (!(await this._provisionWorktree({ fresh }))) return;
+    if (this.state === STATES.DORMANT) {
+      this.transition("user_start");
+    }
+    const preparingState = this.state;
+    const isStartSuperseded = () => this._destroyed || this.state !== preparingState;
+
+    if (!(await this._provisionWorktree({ fresh }))) {
+      if (!isStartSuperseded()) this.transition("provision_blocked");
+      return;
+    }
+    if (isStartSuperseded()) return;
     if (this._requiresWorktree && !this.worktreeDir) {
+      this.transition("provision_blocked");
       this.emit('error', new Error('This session requires its own git worktree'));
       return;
     }
 
-    if (this._destroyed) return;
     if (this._prepareCoherence) {
       this._coherenceHooksGeneration += 1;
       this.coherenceAttachment = await this._prepareCoherence(this.effectiveCwd());
       this.coherenceHooks = this.coherenceAttachment?.hooks ?? null;
-      if (this._destroyed) return;
+      if (isStartSuperseded()) return;
       this.emit('coherence-hooks-change', this.coherenceHooks);
     }
 
@@ -1492,9 +1502,6 @@ class Session extends EventEmitter {
       this.worktreeLifecycle.startWatching();
 
       if (this.mergeStatus === "pending-review") this.worktreeLifecycle.scheduleCheck();
-    }
-    if (this.state === STATES.DORMANT) {
-      this.transition("user_start");
     }
     this._receivedFirstOutput = false;
 
@@ -1562,7 +1569,8 @@ class Session extends EventEmitter {
     });
 
     const bridgedLaunch = await this._startConversationBridge(settingsArgs, agentArgs, env);
-    if (this._destroyed) {
+    if (isStartSuperseded()) {
+      this._hooks.cleanup();
       await this._stopConversationBridge();
       return;
     }
@@ -1573,6 +1581,12 @@ class Session extends EventEmitter {
       agentArgs: bridgedLaunch?.tuiArgs ?? agentArgs,
     }), launchSession?.agentSessionId ?? null);
     if (!spawnCommand) {
+      await this._stopConversationBridge();
+      return;
+    }
+    if (isStartSuperseded()) {
+      this._hooks.cleanup();
+      this._disposeGuardrailsLaunch(this._guardrailsLaunch);
       await this._stopConversationBridge();
       return;
     }
