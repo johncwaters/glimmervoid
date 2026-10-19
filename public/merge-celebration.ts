@@ -40,12 +40,12 @@ function createTitle(titleText: string): HTMLElement {
   return title;
 }
 
-function exposeTitleLayout(stage: HTMLElement, title: HTMLElement): void {
+function exposeTitleLayout(stage: HTMLElement, title: HTMLElement, sceneSlot: HTMLElement): void {
   const firstLetter = title.firstElementChild;
   const lastLetter = title.lastElementChild;
   if (!(firstLetter instanceof HTMLElement) || !(lastLetter instanceof HTMLElement)) return;
   stage.style.setProperty('--celebration-title-width', `${lastLetter.offsetLeft + lastLetter.offsetWidth - firstLetter.offsetLeft}px`);
-  stage.style.setProperty('--celebration-title-center-y', `${title.offsetTop + title.offsetHeight / 2}px`);
+  stage.style.setProperty('--celebration-title-center-y', `${title.offsetTop + title.offsetHeight / 2 - sceneSlot.offsetTop}px`);
 }
 
 function createSceneSlot(scene: MergeCelebrationScene): HTMLElement {
@@ -81,14 +81,15 @@ function playCelebration(text: MergeCelebrationText, scene: MergeCelebrationScen
   const card = el('div', 'merge-celebration-card');
   const stage = el('div', 'merge-celebration-stage');
   const title = createTitle(scene.title);
-  stage.append(title, el('p', 'merge-celebration-message', text.message), createDetailList(text.detailLines), createSceneSlot(scene));
+  const sceneSlot = createSceneSlot(scene);
+  stage.append(title, el('p', 'merge-celebration-message', text.message), createDetailList(text.detailLines), sceneSlot);
   const burst = el('div', 'merge-confetti');
   burst.style.setProperty('--confetti-scale', String(confettiScaleFor(positionInPlayThrough)));
   for (let index = 0; index < CONFETTI_PIECE_COUNT; index += 1) burst.append(createConfettiPiece(index));
   card.append(burst, stage);
   overlay.append(card);
   document.body.append(overlay);
-  exposeTitleLayout(stage, title);
+  exposeTitleLayout(stage, title, sceneSlot);
   activeCelebration = overlay;
   window.setTimeout(() => {
     overlay.remove();
