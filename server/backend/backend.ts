@@ -13,7 +13,7 @@ import { createAgentIngressApp, createBackendHttpApp } from './backend-http.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
 import { createAgentApiWiring } from '../agent-api-wiring.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
-import { configFileViewOf, readSettingsForAgent } from '../settings-cli.ts';
+import { configFileViewOf, readSettingsForAgent } from '../core/settings-readout-core.ts';
 import { createBackendWebSockets } from './backend-websockets.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import { createBackendShutdown } from './backend-shutdown.ts';
@@ -301,7 +301,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       requestReview: (reference) => teamReview.requestReview(reference),
       teamReviewStatus: () => teamReview.getStatus(),
       myPrsStatus: () => myPrs.getStatus(),
-      readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config)),
+      readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config, process.env)),
     },
     logger: console,
   });
