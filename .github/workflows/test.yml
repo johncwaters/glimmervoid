@@ -17,6 +17,12 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      # The Coherence tests launch hooks and readings inside guardrails: sandbox-runtime needs these binaries, and Ubuntu 24.04's AppArmor otherwise denies bwrap its user namespace.
+      - name: guardrails dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
