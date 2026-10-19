@@ -195,7 +195,7 @@ test('a rollup change without an updatedAt change fetches only that PR and emits
   assert.deepEqual(poller.getSnapshot().prs, {});
 });
 
-test('a base branch moving with no light change refreshes behind counts every five minutes without refetching details', async (context) => {
+test('a base branch moving with no light change refreshes behind counts every five minutes and refetches details of PRs whose count changed', async (context) => {
   const harness = storeHarness();
   context.after(harness.cleanup);
   const { poller } = harness;
@@ -209,16 +209,18 @@ test('a base branch moving with no light change refreshes behind counts every fi
   changedKeys.length = 0;
   snapshotCount = 0;
   harness.setBehindBy(5);
+  harness.setNodes([{ ...detailNode(1), mergeStateStatus: 'BEHIND' }, { ...detailNode(2), mergeStateStatus: 'BEHIND' }]);
   harness.advance(299_999);
   await poller.tick();
   assert.equal(harness.behindCalls.length, 1);
   harness.advance(1);
   await poller.tick();
-  assert.equal(harness.detailCalls.length, 1);
+  assert.deepEqual(harness.detailCalls.at(-1), ['acme/app#1', 'acme/app#2']);
   assert.deepEqual(harness.behindCalls.at(-1), ['acme/app#1', 'acme/app#2']);
   assert.deepEqual(changedKeys, ['acme/app#1', 'acme/app#2']);
   assert.equal(snapshotCount, 1);
   assert.equal(poller.getSnapshot().prs['acme/app#1'].behindBy, 5);
+  assert.equal(poller.getSnapshot().prs['acme/app#1'].mergeStateStatus, 'BEHIND');
 });
 
 test('forbidden notifications disable once while light polling continues and 304 preserves health and poll spacing', async (context) => {

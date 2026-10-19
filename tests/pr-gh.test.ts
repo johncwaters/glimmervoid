@@ -874,7 +874,7 @@ test('light PR reads share search fields and batch fifty comparable keys without
   const references = Array.from({ length: 51 }, (_, index) => ({ repo: index % 2 === 0 ? 'Acme/app' : 'Acme/docs', number: index + 1 }));
   const node = (number: number, repo: string) => ({
     repository: { nameWithOwner: repo }, number, updatedAt: '2026-10-19T12:00:00Z', headRefOid: HEAD_SHA,
-    state: 'OPEN', commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] }, reviewDecision: null, mergeStateStatus: 'CLEAN',
+    state: 'OPEN', commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] }, reviewDecision: null, mergeable: 'MERGEABLE',
   });
   const github = createPrGh('/repo', async (_command, args) => {
     const query = args.find((argument) => argument.startsWith('query=')) ?? '';
@@ -896,7 +896,7 @@ test('light PR reads share search fields and batch fifty comparable keys without
   const searchFields = queries[0].match(/\.\.\. on PullRequest \{ ([\s\S]+) \}/)?.[1];
   assert.ok(searchFields);
   assert.ok(queries.slice(1).every((query) => query.includes(searchFields)));
-  assert.ok(queries.every((query) => !query.includes('contexts') && !query.includes('latestReviews')));
+  assert.ok(queries.every((query) => !query.includes('contexts') && !query.includes('latestReviews') && !query.includes('mergeStateStatus')));
   const callCount = queries.length;
   assert.equal((await github.prsLightByKey([])).size, 0);
   assert.equal(queries.length, callCount);

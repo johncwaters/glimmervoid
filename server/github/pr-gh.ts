@@ -198,7 +198,7 @@ ${fragments}`;
 const GITHUB_PR_LIGHT_FIELDS = `
   repository { nameWithOwner } number updatedAt headRefOid state
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
-  reviewDecision mergeStateStatus`;
+  reviewDecision mergeable`;
 const GITHUB_PRS_LIGHT_QUERY = paginatedPrSearchQuery(`... on PullRequest { ${GITHUB_PR_LIGHT_FIELDS} }`, '');
 const GITHUB_PR_LIGHT_REPOSITORY = z.object({ pullRequest: GithubPrLightSearchNode.nullable() }).nullable();
 const GITHUB_PRS_LIGHT_RESPONSE = z.object({ data: z.object({ search: z.object({

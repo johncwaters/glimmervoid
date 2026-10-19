@@ -219,9 +219,13 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     const openPrs = Object.values(prs).filter((pr) => pr.state === 'OPEN' && detailWatchKeys.has(pr.key) && !refreshedKeys.has(pr.key));
     const behindCounts = openPrs.length === 0 ? new Map<string, number>() : await github.behindCounts(openPrs.map((pr) => ({ repo: pr.repo, number: pr.number, headSha: pr.headRefOid })));
     const changedPrs = githubPrsWithChangedBehindCounts(openPrs, new Map([...behindCounts].map(([key, count]) => [key.toLowerCase(), count])));
-    prs = applyGithubPrDetails(prs, changedPrs, []);
+    const { details, nodes } = await fetchDetails(changedPrs.map((pr) => pr.key));
+    for (const node of nodes) lightByKey.set(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), node);
+    const refetchedKeys = new Set(details.map((pr) => pr.key));
+    const refreshedPrs = [...details, ...changedPrs.filter((pr) => !refetchedKeys.has(pr.key))];
+    prs = applyGithubPrDetails(prs, refreshedPrs, []);
     lastBehindPolledAt = tickStartedAt;
-    return changedPrs;
+    return refreshedPrs;
   }
 
   async function pollNotifications(tickStartedAt: number): Promise<void> {

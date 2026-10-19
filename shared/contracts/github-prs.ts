@@ -22,7 +22,7 @@ export const GithubPrLightSearchNode = z.object({
     statusCheckRollup: z.object({ state: MyPr.shape.checks.shape.state }).nullable(),
   }) })) }),
   reviewDecision: MyPrSearchNode.shape.reviewDecision,
-  mergeStateStatus: MyPrSearchNode.shape.mergeStateStatus,
+  mergeable: MyPrSearchNode.shape.mergeable,
 });
 export type GithubPrLightSearchNode = z.infer<typeof GithubPrLightSearchNode>;
 

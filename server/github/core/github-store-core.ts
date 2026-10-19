@@ -42,7 +42,7 @@ function hasLightChanged(previous: GithubPrLightSearchNode, current: GithubPrLig
     || previous.headRefOid !== current.headRefOid
     || previous.state !== current.state
     || previous.reviewDecision !== current.reviewDecision
-    || previous.mergeStateStatus !== current.mergeStateStatus
+    || previous.mergeable !== current.mergeable
     || (previous.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null)
       !== (current.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null);
 }
