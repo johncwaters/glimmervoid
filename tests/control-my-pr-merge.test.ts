@@ -280,12 +280,13 @@ test('merge when ready control reaches the real lane and persists the queue', as
 async function harness({ trackedPrs = [toMyPr(readyNode(), 0)], ghOutcome = { ok: true, out: '', err: '' }, prStateAfterMerge = MERGED_STATE }: { trackedPrs?: MyPr[]; ghOutcome?: CommandResult; prStateAfterMerge?: CommandResult } = {}) {
   const ghCalls: { command: string; args: string[] }[] = [];
   let refreshCount = 0;
+  const requestedPrRefreshes: string[] = [];
   const github = createPrGh('/home', async (command, args) => {
     ghCalls.push({ command, args });
     return args[1] === 'graphql' ? prStateAfterMerge : ghOutcome;
   });
   const myPrs = createMyPrsWiring({
-    store: createTestStore(github),
+    store: { ...createTestStore(github), requestRefresh: (key: string) => { requestedPrRefreshes.push(key); } },
     config: { teamReview: { enabled: true, org: 'Acme' } },
     broadcast: () => {},
     log: { warn() {} },
@@ -311,6 +312,7 @@ async function harness({ trackedPrs = [toMyPr(readyNode(), 0)], ghOutcome = { ok
     })),
     results: () => connection.sent.filter((frame) => frame.type === 'my-pr-merge-result'),
     ghCalls,
+    requestedPrRefreshes,
     refreshCount: () => refreshCount,
   };
 }
@@ -321,6 +323,7 @@ test('a ready pull request at the seen head is merged with the repository defaul
   assert.deepEqual(h.ghCalls[0], { command: 'gh', args: ['pr', 'merge', '7', '--repo', 'Acme/app', '--squash', '--match-head-commit', SEEN_HEAD] });
   assert.deepEqual(h.results(), [{ type: 'my-pr-merge-result', requestId: 'merge-1', key: KEY, ok: true, kind: 'merged' }]);
   assert.equal(h.refreshCount(), 1);
+  assert.deepEqual(h.requestedPrRefreshes, ['acme/app#7']);
 });
 
 test('a merge that GitHub only queues is reported as queued, not merged', async () => {
@@ -369,6 +372,7 @@ test('a refused gh merge replies with its first error line and skips the refresh
   assert.equal(h.ghCalls.length, 1);
   assert.deepEqual(h.results(), [{ type: 'my-pr-merge-result', requestId: 'merge-1', key: KEY, ok: false, error: 'X Pull request Acme/app#7 is not mergeable: the head commit changed.' }]);
   assert.equal(h.refreshCount(), 0);
+  assert.deepEqual(h.requestedPrRefreshes, []);
 });
 
 function queueMergeHarness(trackedPr: MyPr) {
@@ -383,7 +387,7 @@ function queueMergeHarness(trackedPr: MyPr) {
     return { ok: true, out: '', err: '' };
   });
   const myPrs = createMyPrsWiring({
-    store: createTestStore(github),
+    store: { ...createTestStore(github), requestRefresh: () => {} },
     config: { teamReview: { enabled: true, org: 'Acme' } }, broadcast: () => {}, log: { warn() {} }, github,
     createPoller: ({ onTickComplete, mergePr }) => {
       queueMerge = mergePr;

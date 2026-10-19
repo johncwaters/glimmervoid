@@ -1689,7 +1689,9 @@ function actionHarness(options: ActionHarnessOptions = {}) {
   const patches: DraftPatch[] = [];
   const requeues: string[] = [];
   const notMineKeys: string[] = [];
+  const requestedPrRefreshes: string[] = [];
   const actions = createTeamReviewActions({
+    requestPrRefresh: (key) => { requestedPrRefreshes.push(key); },
     drafts: {
       getDraft: (key) => (key === draft.key ? draft : null),
       updateDraft: async (key, expected, patch) => {
@@ -1733,7 +1735,7 @@ function actionHarness(options: ActionHarnessOptions = {}) {
     key: ACTION_KEY, head: HEAD, body: 'LGTM', comments: [], ...overrides,
   });
   return {
-    submit, posted, dismissed, patches, requeues, notMineKeys, headLookups, diffLookups,
+    submit, posted, dismissed, patches, requeues, notMineKeys, headLookups, diffLookups, requestedPrRefreshes,
     currentDraft: () => draft,
     replaceDraft: (next: ReviewDraftType) => { draft = next; },
   };
@@ -1750,6 +1752,7 @@ test('approve posts one APPROVE review carrying the hand-approval line, the body
   assert.equal(h.currentDraft().body, `Ship it\n\n${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`);
   assert.deepEqual(h.currentDraft().comments, [COMMENT_ON_ADDED_LINE]);
   assert.deepEqual(h.dismissed, []);
+  assert.deepEqual(h.requestedPrRefreshes, ['acme/app#7']);
 });
 
 test('approve-only ignores supplied body and comments and records only the hand approval', async () => {
@@ -1959,6 +1962,7 @@ test('an approval whose pull request moved during the post is dismissed and the 
   assert.deepEqual([dismissal?.repo, dismissal?.number, dismissal?.reviewId], ['Acme/app', 7, 99]);
   assert.match(String(dismissal?.message), /moved while this approval was posting/);
   assert.equal(h.currentDraft().status, 'stale');
+  assert.deepEqual(h.requestedPrRefreshes, ['acme/app#7', 'acme/app#7']);
 });
 
 test('a failed dismissal of a moved approval tells the operator the approval still stands', async () => {
@@ -1967,6 +1971,7 @@ test('a failed dismissal of a moved approval tells the operator the approval sti
   assert.equal(outcome.ok, false);
   assert.match(String(outcome.error), /dismissing the approval failed \(HTTP 403\), so it still stands/);
   assert.equal(h.currentDraft().status, 'stale');
+  assert.deepEqual(h.requestedPrRefreshes, ['acme/app#7']);
 });
 
 test('a moved approval without a review id is reported rather than dismissed blindly', async () => {

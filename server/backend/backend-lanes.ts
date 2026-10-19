@@ -5,6 +5,7 @@ import type { HookRouter } from '../../detection/hook-source.ts';
 import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import { comparableDirectoryPath } from '../../shared/canonical-paths.ts';
+import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import { createBenchmarkWiring } from '../benchmark-wiring.ts';
 import { STATES } from '../../shared/states.ts';
 import { createCoderActivityWiring } from '../coder-activity-wiring.ts';
@@ -166,6 +167,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const teamReview = createTeamReviewWiring({
     config,
     github,
+    requestPrRefresh: githubStore.laneStore.requestRefresh,
     reviewSessions,
     closeSessionDataClients,
     hookRouter,
@@ -180,16 +182,14 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     repoCache: sharedRepoCache,
     guardrailsRefusal,
   });
-  const sessionPrLink = createSessionPrLinkWiring({ git: gitWorkspace, log: logger });
+  const sessionPrLink = createSessionPrLinkWiring({ store: githubStore.laneStore, git: gitWorkspace, log: logger });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
     config, github, store: githubStore.laneStore, log: logger, clock: githubClock,
-    broadcast: (status) => {
-      broadcastControl(status);
-      void sessionPrLink.onMyPrsStatus(status);
-    },
+    broadcast: broadcastControl,
     sweepLeftovers: () => sweepKeepMergeableLeftovers({ workRoot: myPrsWorkRoot, repoCache: sharedRepoCache, gitWorkspace, log: logger }),
     fixMergeability: createMyPrMergeabilityFix({
+      requestPrRefresh: githubStore.laneStore.requestRefresh,
       workRoot: myPrsWorkRoot,
       timeoutSeconds: () => keepMergeableTimeoutSeconds(config),
       repoCache: sharedRepoCache,
@@ -204,7 +204,15 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const issues = createIssuesWiring({ config, github, gitWorkspace, broadcast: broadcastControl, hasSession: (id) => sessions.has(id), log: logger, clock: githubClock });
   const workflowsWorkRoot = path.join(glimmervoidHome, 'workflows-work');
   const workflows = createWorkflowsWiring({
-    config, github, notificationManager, log: logger, clock: githubClock,
+    config, notificationManager, log: logger, clock: githubClock,
+    github: {
+      ...github,
+      addPrLabel: async (action) => {
+        const applied = await github.addPrLabel(action);
+        if (applied.ok) githubStore.laneStore.requestRefresh(comparablePrKey(action));
+        return applied;
+      },
+    },
     sweepLeftovers: () => sweepLeftoverCheckouts({ worktreeRoot: workflowsWorkRoot, workRoot: workflowsWorkRoot, keepPaths: new Set(), repoCache: sharedRepoCache, gitWorkspace, log: logger }),
     spawnSession: createWorkflowSpawn({
       workRoot: workflowsWorkRoot,

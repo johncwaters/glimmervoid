@@ -1,6 +1,6 @@
 import { isRecord } from '../../shared/coerce.ts';
 import { LinkedPr } from '../../shared/contracts/my-prs.ts';
-import type { MyPr, MyPrsStatus } from '../../shared/contracts/my-prs.ts';
+import type { GithubPr } from '../../shared/contracts/github-prs.ts';
 
 const PR_LINK_HOOK_EVENT = 'posttooluse';
 const PR_LINK_TOOL_NAME = 'Bash';
@@ -68,6 +68,13 @@ function hookPrLink(event: string, payload: Record<string, unknown>, nowMs: numb
   return parsed.success ? parsed.data : null;
 }
 
+function shouldRefreshHookPrs(event: string, payload: Record<string, unknown>): boolean {
+  if (event.toLowerCase() !== PR_LINK_HOOK_EVENT || payload.tool_name !== PR_LINK_TOOL_NAME) return false;
+  const toolInput = payload.tool_input;
+  if (!isRecord(toolInput) || typeof toolInput.command !== 'string') return false;
+  return /(?:^|[\s;&|()])(?:git\s+push|gh\s+pr)(?=\s|[;&|)]|$)/.test(toolInput.command);
+}
+
 const SAFE_BASE_REF_NAME_RE = /^(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]+(?<![./])$/;
 
 interface ShaJoinCandidate {
@@ -88,11 +95,7 @@ interface ShaJoinPartition {
   unmatched: ShaJoinCandidate[];
 }
 
-function isUsableMyPrsStatus(status: Pick<MyPrsStatus, 'configured' | 'error'>): boolean {
-  return status.configured && !status.error;
-}
-
-function openPrCandidatesByRepo(prs: readonly MyPr[]): Map<string, ShaJoinCandidate[]> {
+function openPrCandidatesByRepo(prs: readonly GithubPr[]): Map<string, ShaJoinCandidate[]> {
   const candidatesByRepo = new Map<string, ShaJoinCandidate[]>();
   for (const pr of prs) {
     if (pr.state !== 'OPEN' || !SAFE_BASE_REF_NAME_RE.test(pr.baseRefName)) continue;
@@ -138,7 +141,7 @@ function shaPrLink(candidate: ShaJoinCandidate, nowMs: number): LinkedPr | null 
 }
 
 export {
-  candidatesForRepo, commitsAheadArgs, distinctBaseRefNames, hookPrLink, isUsableMyPrsStatus, openPrCandidatesByRepo,
-  parseRevListShas, partitionByCommitsAhead, shaPrLink, shouldLinkSession,
+  candidatesForRepo, commitsAheadArgs, distinctBaseRefNames, hookPrLink, openPrCandidatesByRepo,
+  parseRevListShas, partitionByCommitsAhead, shaPrLink, shouldLinkSession, shouldRefreshHookPrs,
 };
 export type { CommitsAheadOfBase, PrLinkSession, ShaJoinCandidate };

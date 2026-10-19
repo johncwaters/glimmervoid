@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { MyPrKeepMergeableRequest, MyPrMergeWhenReadyRequest, MyPrsStatus } from '../../shared/contracts/my-prs.ts';
+import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import type { MyPr, MyPrKeepMergeableResult, MyPrMergeabilityFixResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsStatus as MyPrsStatusType } from '../../shared/contracts/my-prs.ts';
 import { myPrMergeRefusal } from '../../shared/my-pr-merge.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
@@ -225,12 +226,14 @@ export function createMyPrMergeabilityFix({
   spawnSession, repoCache, workRoot, makeWorkDir = makeTeamReviewWorkDir, runGit = runTrustedGit, log = console,
   timeoutSeconds = defaultSessionTimeoutSeconds, setTimeoutFn, clearTimeoutFn, guardrailsRefusal = allowGuardedSpawn,
   signingAgentEnv = (projectPath: string, signal: AbortSignal) => forwardedSigningAgentEnv(projectPath, runGit, signal),
+  requestPrRefresh,
 }: GuardedPrStagingOptions & {
   workRoot: string;
   guardrailsRefusal?: GuardrailsSpawnRefusal;
   signingAgentEnv?: (projectPath: string, signal: AbortSignal) => Promise<Record<string, string>>;
   makeWorkDir?: typeof makeTeamReviewWorkDir;
   log?: Pick<Console, 'log' | 'warn'>;
+  requestPrRefresh?: (key: string) => void;
 }) {
   const warn = (pr: MyPr, message: string) => log.warn(`[${core.MY_PRS_LANE_ID}] keep mergeable for ${pr.key}: ${firstLine(message)}`);
   const stopped: MyPrMergeabilityFixResult = { outcome: 'stopped', reason: 'The repair was stopped' };
@@ -317,6 +320,7 @@ export function createMyPrMergeabilityFix({
     if (signal.aborted) return stopped;
     if (holdFailure) return holdFailure;
     const pushed = await runGit(core.keepMergeablePushArgs(target.url, target.branch, pr.headRefOid, repairSha), staged.projectPath, signal);
+    if (pushed.ok) requestPrRefresh?.(comparablePrKey(pr));
     if (signal.aborted) return stopped;
     if (!pushed.ok && core.isMovedBranchPushRejection(pushed.err)) return reportRepairFailure(pr, `not pushed: ${target.branch} moved since the repair was staged, so the push was rejected and is not retried`);
     if (!pushed.ok) return reportRepairFailure(pr, `pushing the repair to ${target.branch} failed: ${core.pushFailureReason(pushed.stderr ?? '', pushed.err)}`);
@@ -443,6 +447,7 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
     try {
       const merged = await github.mergePr({ repo: tracked.repo, number: tracked.number, headSha: tracked.headRefOid, method: tracked.mergeMethod });
       if (!merged.ok) return { ok: false, error: firstErrorLine(merged.err) };
+      store.requestRefresh(comparablePrKey(tracked));
       return { ok: true, kind: merged.kind };
     } finally {
       mergesInFlight.delete(key);

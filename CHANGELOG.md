@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **PR status updates right after you act**: when a session pushes or runs a `gh pr` command, or you merge, post a review or add a label from the dashboard, that pull request's status refreshes within seconds instead of on the next poll. A pull request linked to a session now shows its stage on the session chip even when someone else opened it.
 - **Session PR chips match My PRs**: a session's PR chip and its My PRs row now always show the same stage, and both update together when a check run finishes.
 - **My PRs keeps up with GitHub**: while a dashboard is open, My PRs picks up a finished check run, a new review or a push within about a minute instead of up to five, without pressing Refresh. With no dashboard open it checks every five minutes as before. Refresh now updates My PRs straight from GitHub.
 - **View investigation shows what the agent found, not its commands**: the investigation view now lists the agent's own progress notes as it works, such as what the issue turned out to be and what it is checking next, and folds each run of tool calls into one quiet line with a step count. The issue row shows the latest note while the investigation runs.

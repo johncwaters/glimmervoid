@@ -1,4 +1,5 @@
 import { TeamReviewStateEntry, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
+import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -179,6 +180,7 @@ interface TeamReviewWiringOptions {
   reapProcesses?: TeamReviewReap;
   guardrailsRefusal?: GuardrailsSpawnRefusal;
   clock?: SharedClock;
+  requestPrRefresh?: (key: string) => void;
 }
 
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
@@ -197,6 +199,7 @@ interface TeamReviewActionOptions {
   drafts: TeamReviewDraftStore;
   github: TeamReviewActionGithub;
   log?: Pick<Console, 'warn'>;
+  requestPrRefresh?: (key: string) => void;
 }
 
 function teamReviewShouldStart(config: TeamReviewWiringConfig): LaneRunnerGate {
@@ -779,7 +782,7 @@ function describeInvalidComments(comments: readonly ReviewComment[]): string {
   return `These inline comments are not on lines in the diff, remove them and retry: ${locations}`;
 }
 
-function createTeamReviewActions({ drafts, github, log = console }: TeamReviewActionOptions) {
+function createTeamReviewActions({ drafts, github, log = console, requestPrRefresh }: TeamReviewActionOptions) {
   const actionsInFlight = new Set<string>();
 
   async function markDraft(key: string, draft: ReviewDraft, patch: DraftPatch): Promise<ReviewDraft | null> {
@@ -808,6 +811,7 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
     if (reviewId === null) return { ok: false, error: `${moved}, and GitHub did not return the review id, so the approval still stands. Dismiss it on GitHub` };
     const dismissal = await github.dismissReview({ repo: draft.repo, number: draft.number, reviewId, message: STALE_APPROVAL_DISMISSAL });
     if (!dismissal.ok) return { ok: false, error: `${moved}, and dismissing the approval failed (${firstLine(dismissal.err)}), so it still stands. Dismiss it on GitHub` };
+    requestPrRefresh?.(comparablePrKey(draft));
     const nextStep = draft.status === 'posted' ? 'Queue a review to look at the new commits' : 'It will be reviewed again';
     return { ok: false, error: `${moved}, so the approval was dismissed. ${nextStep}` };
   }
@@ -837,6 +841,7 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
       repo: draft.repo, number: draft.number, commitId: draft.reviewedHead, event, body: postedBody, comments,
     });
     if (!posted.ok) return { ok: false, error: posted.err || 'GitHub refused the review' };
+    requestPrRefresh?.(comparablePrKey(draft));
     const headAfterPost = event === 'APPROVE' ? await github.prHead(draft.repo, draft.number) : draft.reviewedHead;
     if (headAfterPost !== null && headAfterPost !== draft.reviewedHead) return retractApproval(key, draft, headAfterPost, posted.reviewId);
     const postedPatch: DraftPatch = isFollowUpApproval ? { status: 'posted', postedEvent: event } : { status: 'posted', postedEvent: event, body: postedBody, comments };
@@ -946,6 +951,7 @@ function createTeamReviewWiring({
   reapProcesses = reapTeamReviewProcesses,
   guardrailsRefusal = allowGuardedSpawn,
   clock,
+  requestPrRefresh,
 }: TeamReviewWiringOptions) {
   const stateIo = createTeamReviewStateIo(path.join(homeDir, core.TEAM_REVIEW_STATE_FILENAME), log);
   const worktreeRoot = path.join(homeDir, 'team-review-worktrees');
@@ -1078,6 +1084,7 @@ function createTeamReviewWiring({
   }
 
   const actions = createTeamReviewActions({
+    requestPrRefresh,
     drafts: { getDraft, updateDraft, updateThread, requeue, markNotMine: markNotMineForPoller },
     github: {
       teamReviewThreads: github.teamReviewThreads?.bind(github),
