@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-10-19
+
 ### Added
 
 - **Zen view (experimental)**: turn on Settings > Sessions > Zen view to get a Zen tab on desktop that shows no terminal while your sessions work, only ALL CLEAR with the working count and the list of working sessions. The moment a session needs you, Zen shows that one session alone, with a line saying its name, project and what it needs (Needs permission, Plan ready, Needs input, Failed or Finished) and how many more are waiting, and puts your keyboard in its terminal. A newcomer never replaces the session on screen. Once you answer, the next one appears at once, or the calm view returns. A finished session waits its turn behind blocked ones and stays until you press `Cmd+J` (Alt+J off a Mac), which moves on to the next.
