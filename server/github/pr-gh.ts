@@ -100,12 +100,10 @@ interface PrGh {
   teamReviewThreads(prs: readonly PrReference[]): Promise<Map<string, ThreadNode[]>>;
   resolveReviewThread(threadId: string): Promise<{ ok: boolean; err: string }>;
   teamReviewCompare(repo: string, base: string, head: string): Promise<{ ok: true; comparison: CompareFiles | null } | { ok: false; err: string }>;
-  reviewThreads(repo: string, number: number): Promise<MyPrThreadNodeType[]>;
   reviewThreadsBatch(prs: readonly PrReference[]): Promise<Map<string, MyPrThreadNodeType[]>>;
   listMergedPrs(repo: string, limit: number): Promise<{ ok: true; prs: MergedPrListingType[] } | { ok: false; reason: string }>;
   benchmarkReviewData(repo: string, numbers: readonly number[]): Promise<Map<number, MinedPrReviewDataType>>;
   compareCommits(repo: string, base: string, head: string): Promise<CommitComparisonType | null>;
-  repoSlug(): Promise<string | null>;
   searchIssues(query: string): Promise<IssuesFetchResult>;
   listRepoIssues(repo: string, since: string | null, maxIssues: number): Promise<IssuesFetchResult>;
   issueLinkedPullRequests(keys: readonly string[]): Promise<Map<string, IssuePullRequest[]>>;
@@ -673,10 +671,6 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       return { ok: true, comparison: parsed.data.merge_base_commit.sha === base ? parsed.data : null };
     },
 
-    reviewThreads(repo, number) {
-      return pagedReviewThreads(repo, number);
-    },
-
     async reviewThreadsBatch(prs) {
       const threadsByPr = new Map<string, MyPrThreadNodeType[]>();
       const morePages: PrReference[] = [];
@@ -780,11 +774,6 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const prState = await runGh(['api', 'graphql', '-f', `query=${MY_PR_MERGE_STATE_QUERY}`, '-f', `owner=${parts[0]}`, '-f', `name=${parts[1]}`, '-F', `number=${number}`]);
       return { ok: true, kind: prState.ok ? mergeKindFromPrState(prState.out) : 'unconfirmed' };
     },
-    async repoSlug() {
-      const r = await commandRunner('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], cwd);
-      return r.ok ? r.out : null;
-    },
-
     async searchIssues(query) {
       return searchIssuePages(query, MAX_SEARCH_PAGES);
     },

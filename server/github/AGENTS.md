@@ -1,10 +1,14 @@
 # server/github
 
-GitHub lanes: issue and pull request polling, and the opt-in team PR review that acts under the operator's name.
+Shared GitHub store and lanes: issue and pull request polling, and the opt-in team PR review that acts under the operator's name.
 
 ## Invariants
 
 Each entry is a rule, its why, and where it is pinned. Mechanism lives in the code.
+
+### Shared GitHub Store
+
+- Only the store modules read GitHub; lanes and handlers hold the gh client for writes only, because one reader keeps every view's PR status the same and one rate-limit budget (`tests/github-store-boundary.test.ts`).
 
 ### Team PR Review (opt-in)
 
