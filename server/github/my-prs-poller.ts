@@ -8,6 +8,7 @@ import type { SharedClock } from '../lanes/lane-runner.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
 import type { PrGh } from './pr-gh.ts';
 import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeQueueFailure, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus } from '../../shared/contracts/my-prs.ts';
+import { myPrFromGithubPr } from '../../shared/my-pr-merge.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
@@ -92,7 +93,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     registerWatches();
     const snapshot = readStore();
     if (snapshot.isLoaded) {
-      previousPrs = withOperatorFlags(core.sortedMyPrs(snapshot.items.map((pr) => core.withAutoRebase(core.myPrFromGithubPr(pr), autoRebaseByKey.get(prKey(pr.repo, pr.number)))), now()));
+      previousPrs = withOperatorFlags(core.sortedMyPrs(snapshot.items.map((pr) => core.withAutoRebase(myPrFromGithubPr(pr), autoRebaseByKey.get(prKey(pr.repo, pr.number)))), now()));
       previousTruncatedNote = core.truncatedSearchNote(snapshot.returnedCount, snapshot.totalCount);
     }
     publishStatus();
@@ -165,7 +166,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     const snapshot = readStore();
     if (snapshot.error) return failedOutcome(snapshot.error);
     if (!snapshot.isLoaded) return { failed: false };
-    const items = snapshot.items.map(core.myPrFromGithubPr);
+    const items = snapshot.items.map(myPrFromGithubPr);
     const prs: MyPr[] = [];
     failedAutoRebaseAttempts = core.prunedFailedAutoRebaseAttempts(failedAutoRebaseAttempts, items, failedAutoRebaseRecordsByAttemptKey, timestamp);
     for (const attemptKey of [...failedAutoRebaseRecordsByAttemptKey.keys()]) {
@@ -173,7 +174,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     }
     const rebasedThisTickKeys = new Set<string>();
     for (const canonicalPr of snapshot.items) {
-      const node = core.myPrFromGithubPr(canonicalPr);
+      const node = myPrFromGithubPr(canonicalPr);
       const key = node.key;
       const behindBy = node.behindBy;
       const attemptKey = core.autoRebaseAttemptKey(node);

@@ -1,3 +1,4 @@
+import { applyGithubPrsFrame } from './github/github-prs-store.ts';
 import './tailwind.css';
 
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
@@ -481,6 +482,7 @@ const messageHandlers = {
   'radar-investigation-activity': (msg) => applyInvestigationActivity(msg),
   'radar-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
+  'github-prs': (msg) => applyGithubPrsFrame(msg),
   'my-prs-status': (msg) => { applyMyPrsStatus(msg); refreshSessionPrChipStages(); },
   'benchmark-status': (msg) => applyBenchmarkStatus(msg),
   'benchmark-action-result': (msg) => applyBenchmarkActionResult(msg),

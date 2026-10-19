@@ -1,8 +1,10 @@
+import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
+import { applyGithubPrsFrame, githubPrByKey } from '../public/github/github-prs-store.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nextMyPrsByKey, sessionPrSignals } from '../public/github/session-pr-chips-core.ts';
 import { rankSignals, SIGNAL_TIER } from '../public/signal-core.ts';
-import { parseMyPrsStatus } from '../public/github/my-prs-view-core.ts';
+import { myPrWithGithubPr, parseMyPrsStatus, stageIcon, stageLabel, stageTone } from '../public/github/my-prs-view-core.ts';
 import { toMyPr } from '../server/github/core/my-prs-core.ts';
 import type { LinkedPr, MyPr, MyPrSearchNode, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 
@@ -49,4 +51,22 @@ test('a failed poll keeps the stages from the last good status', () => {
   const good = nextMyPrsByKey(new Map(), status({ prs: [myPr(3, 'OPEN', 'ready')] }));
   const afterFailure = nextMyPrsByKey(good, status({ error: 'rate limited', prs: [] }));
   assert.equal(sessionPrSignals([link(3, 1)], afterFailure)[0]?.look?.icon, 'ready');
+});
+
+test('canonical PR updates give the My PRs row and linked session chip the same stage', () => {
+  const canonicalPr = normalizeGithubPr({ ...node, author: { login: 'alice' }, labels: { nodes: [] }, comments: { totalCount: 0 } });
+  const lanePr = { ...myPr(1, 'OPEN', 'draft'), keepMergeable: true, mergeQueuePosition: 2 };
+  const fallbackPrs = nextMyPrsByKey(new Map(), status({ prs: [lanePr] }));
+  for (const checksState of ['PENDING', 'FAILURE', 'SUCCESS'] as const) {
+    const updatedPr = { ...canonicalPr, checks: { state: checksState, failing: [], pendingCount: 0 } };
+    applyGithubPrsFrame({ type: 'github-prs', ts: 1, prs: { [updatedPr.key]: updatedPr }, freshness: { lastRefreshedAt: 1, error: null } });
+    const rowPr = myPrWithGithubPr(lanePr, githubPrByKey('ACME/APP#1'));
+    assert.equal(rowPr.stage, { PENDING: 'checks-pending', FAILURE: 'checks-failing', SUCCESS: 'ready' }[checksState]);
+    const chip = sessionPrSignals([link(1, 1)], fallbackPrs, githubPrByKey)[0];
+    assert.equal(chip?.look?.icon, stageIcon(rowPr.stage));
+    assert.equal(chip?.look?.tone, stageTone(rowPr.stage));
+    assert.equal(chip?.hoverText, `Acme/app: ${rowPr.title} (${stageLabel(rowPr.stage)})`);
+    assert.equal(rowPr.keepMergeable, true);
+    assert.equal(rowPr.mergeQueuePosition, 2);
+  }
 });

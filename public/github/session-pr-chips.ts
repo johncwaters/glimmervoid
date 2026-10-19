@@ -1,3 +1,4 @@
+import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { SessionPrLinks } from '#shared/contracts/my-prs.ts';
 import type { LinkedPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { el } from '../dom-helpers.ts';
@@ -23,7 +24,7 @@ function slotsFor(sessionId: string): NodeListOf<HTMLElement> {
 type PrSignal = SessionPrChip & ActivatableSignal;
 
 export function sessionRowPrSignals(sessionId: string): PrSignal[] {
-  return sessionPrSignals(linksBySessionId.get(sessionId) ?? [], prsByKey).map((chip) => ({
+  return sessionPrSignals(linksBySessionId.get(sessionId) ?? [], prsByKey, githubPrByKey).map((chip) => ({
     ...chip,
     className: 'session-pr-chip',
     onActivate: () => openExternalUrl(chip.url),
@@ -88,3 +89,5 @@ export function refreshSessionPrChipStages(): void {
   prsByKey = nextPrsByKey;
   repaintSlots(document.querySelectorAll<HTMLElement>('[data-pr-chips-for]'));
 }
+
+subscribeGithubPrs(() => repaintSlots(document.querySelectorAll<HTMLElement>('[data-pr-chips-for]')));

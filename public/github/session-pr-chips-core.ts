@@ -1,7 +1,10 @@
+import { comparablePrKey } from '#shared/contracts/github-prs.ts';
+import type { GithubPr } from '#shared/contracts/github-prs.ts';
 import type { LinkedPr, MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { tierForTone } from '../signal-core.ts';
 import type { Signal } from '../signal-core.ts';
-import { comparablePrKey, stageIcon, stageLabel, stageTone } from './my-prs-view-core.ts';
+import { myPrFromGithubPr } from '#shared/my-pr-merge.ts';
+import { stageIcon, stageLabel, stageTone } from './my-prs-view-core.ts';
 
 export type MyPrsByKey = ReadonlyMap<string, MyPr>;
 
@@ -20,11 +23,11 @@ export function nextMyPrsByKey(previous: MyPrsByKey, status: MyPrsStatus | null)
   return new Map(status.prs.map((pr) => [comparablePrKey(pr), pr]));
 }
 
-function stateRank(pr: MyPr | undefined): number {
+function stateRank(pr: Pick<MyPr, 'state'> | undefined): number {
   return pr ? STATE_RANK[pr.state] : STATE_RANK.OPEN;
 }
 
-function toChip(link: LinkedPr, pr: MyPr | undefined): SessionPrChip {
+function toChip(link: LinkedPr, pr: Pick<MyPr, 'state' | 'stage' | 'url' | 'title'> | undefined): SessionPrChip {
   const key = `${link.repo}#${link.number}`;
   const text = `#${link.number}`;
   if (!pr) return { key, text, url: link.url, hoverText: link.repo, look: null, tier: tierForTone(undefined) };
@@ -39,8 +42,13 @@ function toChip(link: LinkedPr, pr: MyPr | undefined): SessionPrChip {
   };
 }
 
-export function sessionPrSignals(links: readonly LinkedPr[], prsByKey: MyPrsByKey): SessionPrChip[] {
-  const linkedPrs = links.map((link) => ({ link, pr: prsByKey.get(comparablePrKey(link)) }));
+export function sessionPrSignals(links: readonly LinkedPr[], prsByKey: MyPrsByKey, findGithubPr?: (key: string) => GithubPr | undefined): SessionPrChip[] {
+  const linkedPrs = links.map((link) => {
+    const key = comparablePrKey(link);
+    const canonicalPr = findGithubPr?.(key);
+    const pr = canonicalPr ? myPrFromGithubPr(canonicalPr) : prsByKey.get(key);
+    return { link, pr };
+  });
   linkedPrs.sort((left, right) => stateRank(left.pr) - stateRank(right.pr) || right.link.linkedAt - left.link.linkedAt);
   return linkedPrs.map(({ link, pr }) => toChip(link, pr));
 }

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright-core';
+import { GithubPr, GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
+import type { ServerMessage } from '../../shared/contracts/control-messages.ts';
 import { MyPrsStatus } from '../../shared/contracts/my-prs.ts';
 
 async function applyStatus(page: Page, status: MyPrsStatus): Promise<void> {
@@ -58,6 +60,7 @@ export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
   assert.equal(await control.textContent(), 'Keep mergeable');
   await applyStatus(page, status);
   await verifyRefreshStatusKeepsLayout(page, status);
+  await verifyCanonicalPrStages(page, status);
 }
 
 async function verifyRefreshStatusKeepsLayout(page: Page, status: MyPrsStatus): Promise<void> {
@@ -74,4 +77,87 @@ async function verifyRefreshStatusKeepsLayout(page: Page, status: MyPrsStatus): 
   assert.equal(await queueTop(), idleQueueTop);
   assert.ok(await refreshStatus.evaluate((element) => element.scrollWidth >= element.clientWidth));
   await applyStatus(page, status);
+}
+
+async function emitControlMessages(page: Page, messages: ServerMessage[]): Promise<void> {
+  await page.evaluate(async (frames) => {
+    const controlUrl = '/control-ws.ts';
+    const control: { sendControlMsg(message: Record<string, unknown>): boolean } = await import(controlUrl);
+    const originalSend = WebSocket.prototype.send;
+    WebSocket.prototype.send = function(message) {
+      if (typeof message === 'string' && JSON.parse(message).requestId === 'my-prs-frame-probe') {
+        for (const frame of frames) this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(frame) }));
+        return;
+      }
+      originalSend.call(this, message);
+    };
+    try {
+      if (!control.sendControlMsg({ type: 'ping', requestId: 'my-prs-frame-probe' })) throw new Error('Control socket is not connected');
+    } finally {
+      WebSocket.prototype.send = originalSend;
+    }
+  }, messages);
+}
+
+async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus): Promise<void> {
+  const sessionId = await page.evaluate(async () => {
+    const registryUrl = '/session-card/card-registry.ts';
+    const registry: { sessionUIs: Map<string, { name: string }> } = await import(registryUrl);
+    const id = registry.sessionUIs.keys().next().value;
+    if (!id) throw new Error('No session is available for linked PR chips');
+    return id;
+  });
+  const { stage: _stage, keepMergeable: _keepMergeable, keepMergeableAttempt: _keepMergeableAttempt, ...prFields } = status.prs[0];
+  const canonicalPr = GithubPr.parse({
+    ...prFields, key: 'acme/app#1322', id: 'PR_browser', author: 'me', labels: [], commentCount: 0, rollupState: 'PENDING',
+    title: 'Canonical PR title', headRefOid: 'c'.repeat(40), mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', behindBy: 0,
+    checks: { state: 'PENDING', failing: [], pendingCount: 1 },
+  });
+  const teammatePr = GithubPr.parse({
+    ...canonicalPr, key: 'acme/app#1323', id: 'PR_teammate', number: 1323, author: 'teammate',
+    title: 'Teammate PR', url: 'https://github.com/Acme/app/pull/1323', isDraft: true,
+  });
+  await emitControlMessages(page, [{
+    type: 'session-prs', id: sessionId,
+    linkedPrs: [canonicalPr, teammatePr].map((pr) => ({ repo: 'ACME/app', number: pr.number, url: pr.url, source: 'manual', linkedAt: status.ts })),
+  }]);
+  const panel = page.locator('.pr-mode-root:not([hidden])');
+  const row = panel.locator('.pr-queue-row[data-pr-key="Acme/app#1322"]');
+  const sessionPill = panel.locator(`.my-pr-session-pill[data-session-id="${sessionId}"]`);
+  for (const checksState of ['PENDING', 'FAILURE', 'SUCCESS'] as const) {
+    const updatedPr = { ...canonicalPr, rollupState: checksState, checks: { state: checksState, failing: checksState === 'FAILURE' ? ['build'] : [], pendingCount: checksState === 'PENDING' ? 1 : 0 } };
+    const frame = GithubPrsFrame.parse({
+      type: 'github-prs', ts: status.ts, prs: { [updatedPr.key]: updatedPr, [teammatePr.key]: teammatePr },
+      freshness: { lastRefreshedAt: status.ts, error: null },
+    });
+    await emitControlMessages(page, [frame]);
+    const expectedStage = { PENDING: 'Checks running', FAILURE: 'Checks failing', SUCCESS: 'Ready to merge' }[checksState];
+    await row.locator('.my-pr-stage').first().filter({ hasText: expectedStage }).waitFor();
+    assert.equal(await row.locator('.pr-queue-title').textContent(), canonicalPr.title);
+    assert.equal(await row.getAttribute('title'), `Acme/app#1322: ${expectedStage}`);
+    assert.equal(await panel.locator('.pr-queue-row').count(), 1);
+    assert.equal(await panel.getByRole('button', { name: 'Keep mergeable', exact: true }).getAttribute('aria-pressed'), 'true');
+    const isPhone = await page.locator('html').getAttribute('data-layout') === 'phone';
+    if (isPhone) await page.getByRole('button', { name: 'Board', exact: true }).click();
+    if (!isPhone) {
+      await sessionPill.click();
+      await page.waitForFunction(() => document.body.dataset.activeView === 'focus');
+    }
+    const sessionRows = isPhone ? 'section.phone-screen[data-screen="board"]' : '#focus-rail';
+    const chips = page.locator(`${sessionRows} .session-row[data-id="${sessionId}"] .session-pr-chip`);
+    const ownChip = chips.filter({ hasText: '#1322' });
+    await ownChip.waitFor({ state: 'visible' });
+    assert.equal(await ownChip.getAttribute('title'), `ACME/app: ${canonicalPr.title} (${expectedStage})`);
+    const teammateChip = chips.filter({ hasText: '#1323' });
+    await teammateChip.waitFor({ state: 'visible' });
+    assert.equal(await teammateChip.getAttribute('title'), 'ACME/app: Teammate PR (Draft)');
+    if (isPhone) {
+      await page.getByRole('button', { name: 'More', exact: true }).click();
+      await page.getByRole('button', { name: 'Reviews', exact: true }).click();
+    }
+    if (!isPhone) await page.locator('#tab-prs').click();
+  }
+  await emitControlMessages(page, [{ type: 'github-prs', ts: status.ts, prs: {}, freshness: { lastRefreshedAt: status.ts, error: null } }]);
+  await row.locator('.my-pr-stage').first().filter({ hasText: 'Merge conflicts' }).waitFor();
+  assert.equal(await row.locator('.pr-queue-title').textContent(), status.prs[0].title);
 }

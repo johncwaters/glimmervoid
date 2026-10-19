@@ -6,10 +6,10 @@ import { prKey } from './team-review-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
 import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../../shared/settings-ranges.ts';
 import { isCredentialLikePath, isGithubDirectoryPath } from '../../git/core/git-changed-paths-core.ts';
-import { myPrMergeBlocker } from '../../../shared/my-pr-merge.ts';
+import { deriveStage, myPrMergeBlocker } from '../../../shared/my-pr-merge.ts';
 import { REPO_SLUG_RE } from '../../../shared/contracts/github-ids.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
-import { MyPr as MyPrSchema, MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrsState } from '../../../shared/contracts/my-prs.ts';
+import { MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrsState } from '../../../shared/contracts/my-prs.ts';
 import { z } from 'zod';
 
 const FailedAutoRebaseRecord = z.strictObject({ attemptKey: MyPrsState.shape.keepMergeableAttemptKeys.element, autoRebase: MyPrAutoRebaseSchema });
@@ -67,20 +67,6 @@ const FAILING_CONCLUSIONS = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTIO
 
 export function mergedSinceDate(nowMs: number): string {
   return new Date(nowMs - MERGED_RETENTION_MS).toISOString().slice(0, 10);
-}
-
-export function deriveStage(pr: MyPr): MyPrStage {
-  if (pr.state === 'MERGED') return 'merged';
-  if (pr.isDraft) return 'draft';
-  if (pr.mergeable === 'CONFLICTING' || pr.mergeStateStatus === 'DIRTY') return 'conflicts';
-  if (pr.mergeStateStatus === 'BEHIND') return 'behind';
-  if (pr.checks.state === 'FAILURE' || pr.checks.state === 'ERROR') return 'checks-failing';
-  if (pr.reviewDecision === 'CHANGES_REQUESTED') return 'changes-requested';
-  if (pr.unresolvedThreads > 0) return 'unresolved-threads';
-  if (pr.checks.state === 'PENDING' || pr.checks.state === 'EXPECTED') return 'checks-pending';
-  if (pr.reviewDecision === 'REVIEW_REQUIRED' || pr.mergeStateStatus === 'BLOCKED') return 'needs-approval';
-  if (pr.mergeable === 'MERGEABLE' && ['CLEAN', 'HAS_HOOKS', 'UNSTABLE'].includes(pr.mergeStateStatus)) return 'ready';
-  return 'unknown';
 }
 
 const CHECKS_STILL_RUNNING = new Set(['PENDING', 'EXPECTED']);
@@ -403,11 +389,6 @@ export function toMyPr(node: MyPrSearchNode, behindBy: number | null, threadNode
   };
   pr.stage = deriveStage(pr);
   return pr;
-}
-
-export function myPrFromGithubPr(pr: GithubPr): MyPr {
-  const myPr = MyPrSchema.parse({ ...pr, key: prKey(pr.repo, pr.number), stage: 'unknown' });
-  return { ...myPr, stage: deriveStage(myPr) };
 }
 
 export function sortedMyPrs(prs: MyPr[], nowMs: number): MyPr[] {

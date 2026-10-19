@@ -1,3 +1,4 @@
+import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { hasGithubPollingCountdown, githubPollingErrorNotice, githubPollingRefreshText } from './github-polling-retry-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import type { GithubPollingRefreshRequest } from '#shared/contracts/github-polling.ts';
@@ -14,7 +15,7 @@ import { nextRequestId, sendControlMsg, sendControlRequest } from '../control-ws
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { queueMergeCelebration } from '../merge-celebration.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
-import { chooseSelectedKey, comparablePrKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, liveSessionsByPrKey, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import { chooseSelectedKey, comparablePrKey, myPrWithGithubPr, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, liveSessionsByPrKey, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { LinkedLiveSession, LiveSessionLinks, MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
@@ -370,7 +371,7 @@ export function setMyPrsSessionLinks(linksBySessionId: ReadonlyMap<string, reado
 function render(): void {
   createShell();
   if (!queue) return;
-  const prs = latest?.prs ?? [];
+  const prs = (latest?.prs ?? []).map((pr) => myPrWithGithubPr(pr, githubPrByKey(comparablePrKey(pr))));
   const sections = sectionStackedMyPrs(prs);
   selectedKey = chooseSelectedKey(sections, selectedKey);
   const focusedKey = document.activeElement instanceof HTMLElement && queue.contains(document.activeElement) ? document.activeElement.dataset.prKey : null;
@@ -487,3 +488,5 @@ export function applyMyPrMergeResult(message: unknown): void {
   const mergedPr = latest?.prs.find((pr) => pr.key === mergeResult.key);
   if (mergedPr) queueMergedPrCelebrations([mergedPr]);
 }
+
+subscribeGithubPrs(queueRender);
