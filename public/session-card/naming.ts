@@ -1,5 +1,5 @@
 import { sessionUIs } from './card-registry.ts';
-import { countAutoNames, nextSuggestedName } from './naming-core.ts';
+import { countAutoNames, nextSuggestedName } from '#shared/session-naming.ts';
 
 function currentSessionNames() {
   const names: string[] = [];

@@ -78,6 +78,7 @@ interface BackendLaneDependencies {
   notificationManager: { trigger(sessionName: string, category: string, message: string): unknown };
   telemetry: Telemetry;
   logger: Console;
+  renameSessionFromTaskTitle?: (session: Session, proposedName: string) => void;
 }
 
 function createBackendLanes(dependencies: BackendLaneDependencies) {
@@ -314,6 +315,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const taskTitleRefiner = createTaskTitleRefiner({
     getConfig: () => configStore.config,
     logger,
+    renameSession: dependencies.renameSessionFromTaskTitle,
     spawnLane: createLaneSpawn({
       sessions: taskTitleSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
       replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, guardrailsRefusal,

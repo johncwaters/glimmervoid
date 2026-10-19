@@ -20,7 +20,7 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 | `ime-core.ts` | Pure soft-keyboard edit to terminal bytes: shared-prefix diff of xterm's helper textarea, plus the inputType/keydown predicates the takeover in `terminal.ts` gates on |
 | `activity.ts` | Working-session heartbeat from output ARRIVAL timing only (no content reads); paints liveness/quiet on the Focus rail pill |
 | `session-tick.ts` | Shared 1s tick: working-heartbeat poll and tick subscribers (rail and phone elapsed clocks); no per-session timers |
-| `naming.ts` / `naming-core.ts` | Session name suggestion; pure core: `nextSuggestedName`, `countAutoNames`, `isAutoNameOf` |
+| `naming.ts` | Session name suggestion over `shared/session-naming.ts` |
 | `webgl-pool.ts` / `webgl-core.ts` | WebGL context pool with LRU cap; pure core: `pickEvictionVictims` |
 | `modal.ts` | Shared modal overlay scaffold (overlay, Escape-to-close, backdrop click, opener refocus) plus `openConfirmDialog`, THE confirm prompt every destructive action uses. It lives here, not in `dialogs.ts`, because `card-dom.ts` may not import that file; before the fold both sides carried their own copy of the same builder |
 

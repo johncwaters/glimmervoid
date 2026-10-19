@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { countAutoNames, isAutoNameOf, nextSuggestedName } from '../public/session-card/naming-core.ts';
+import { countAutoNames, isAutoNameOf, nextSuggestedName } from '../shared/session-naming.ts';
 
 test('isAutoNameOf: exact match, numbered suffix, and non-matches', () => {
   assert.equal(isAutoNameOf('Foo', 'Foo'), true);

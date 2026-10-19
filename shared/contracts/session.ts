@@ -8,7 +8,7 @@ export const SESSION_NAME_PATTERN = /^[a-zA-Z0-9_\-. ()]{1,64}$/;
 export const SESSION_NAME_RULE_TEXT = 'Session name may only contain letters, numbers, spaces, dashes, dots, underscores, and parentheses (max 64 chars)';
 export const TASK_TITLE_CONTROL_CHARACTERS = /[\x00-\x1f\x7f-\x9f]/;
 export const TaskTitle = z.string().refine((title) => !TASK_TITLE_CONTROL_CHARACTERS.test(title)).trim().max(TASK_TITLE_MAX_LENGTH);
-export const RefinedTaskTitle = z.object({ title: z.string().nullable() }).strict();
+export const RefinedTaskTitle = z.object({ title: z.string().nullable(), name: z.string().nullable().optional() }).strict();
 export const SessionState = z.enum(STATES);
 export const PendingWakeup = z.object({
   at: z.number().finite().nullable(),
@@ -96,6 +96,7 @@ export const SessionSnapshot = z.object({
   auditLog: z.array(z.unknown()),
 }).passthrough();
 
+export type RefinedTaskTitle = z.infer<typeof RefinedTaskTitle>;
 export type SessionState = z.infer<typeof SessionState>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type CoherenceHooksState = z.infer<typeof CoherenceHooksState>;

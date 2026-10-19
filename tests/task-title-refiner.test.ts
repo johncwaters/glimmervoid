@@ -606,3 +606,36 @@ test('a restart in the middle of a turn restores the refined title instead of pi
     restoredSession?.destroy();
   }
 });
+
+test('a refinement renames an auto-named session once and leaves a chosen name alone', async () => {
+  const autoNamed = new Session({ id: 'auto', name: 'project (2)', path: '/project', initialPrompt: 'Original task title' });
+  const chosenName = new Session({ id: 'chosen', name: 'Docs work', path: '/project', initialPrompt: 'Original task title' });
+  const prompts: string[] = [];
+  const renames: [string, string][] = [];
+  const refiner = createTaskTitleRefiner({
+    getConfig: () => ({}),
+    renameSession: (session, proposedName) => {
+      renames.push([session.id, proposedName]);
+      session.name = proposedName;
+    },
+    spawnLane: async (request) => {
+      prompts.push(await fs.readFile(path.join(request.cwd, 'task-title-prompt.txt'), 'utf8'));
+      await fs.writeFile(path.join(request.cwd, 'task-title-result.json'), JSON.stringify({ title: 'Rename sessions from titles', name: 'Session rename (refiner)' }));
+    },
+  });
+  try {
+    for (const session of [autoNamed, chosenName]) {
+      refiner.attachSession(session);
+      submitPrompt(session, 'Rename the session from the refined title');
+      endTurn(session, refiner);
+      await waitFor(() => session.taskTitle === 'Rename sessions from titles');
+    }
+    assert.deepEqual(renames, [['auto', 'Session rename refiner']]);
+    assert.match(prompts[0], /"name": string/);
+    assert.doesNotMatch(prompts[1], /"name"/);
+  } finally {
+    await refiner.stop();
+    autoNamed.destroy();
+    chosenName.destroy();
+  }
+});

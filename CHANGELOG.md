@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sessions name themselves after their task**: a session still called by its folder name, such as `glimmervoid (2)`, is renamed once to a short name for what it is working on, from the same Haiku call that refines the task title. A name you chose yourself is never changed. Turning off `taskTitle.refiner.enabled` turns this off too.
 - **Agents can ask for reviews and read your GitHub state**: inside a session, `glimmervoid review <pr>` queues a team review of any open pull request, including one outside your teams. It lands as a draft in the Reviews tab, and only you can post it. `glimmervoid reviews` lists what is reviewing, queued and drafted, `glimmervoid prs` lists your open pull requests with their checks and merge state, `glimmervoid link-pr <pr>` links a pull request to the session's card, and `glimmervoid settings list` or `get` reads your settings, with secrets shown only as configured or not. Agents still cannot post, approve or merge anything, and review lanes cannot use any of these commands.
 
 ### Fixed

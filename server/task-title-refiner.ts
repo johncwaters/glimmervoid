@@ -3,11 +3,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  buildTaskTitleRefinementPrompt, decideTaskTitleRefinement, parseRefinedTaskTitle,
+  buildTaskTitleRefinementPrompt, decideTaskTitleRefinement, parseRefinedSessionName, parseRefinedTaskTitle,
 } from '../session/core/task-title-core.ts';
 import type { TaskTitleRefinementResult } from '../session/core/task-title-core.ts';
 import type { Session } from '../session/sessions.ts';
 import { BrowserConfig } from '../shared/contracts/config.ts';
+import { isAutoNameOf } from '../shared/session-naming.ts';
 import { STATES } from '../shared/states.ts';
 import { readLaneResultFile } from './lanes/lane-spawn.ts';
 import type { LaneSpawn } from './lanes/lane-spawn.ts';
@@ -22,6 +23,7 @@ const DEFAULT_REFINER_SETTINGS = Object.freeze({ enabled: true, model: 'haiku', 
 interface TaskTitleRefinerOptions {
   getConfig: () => { taskTitle?: unknown };
   spawnLane: LaneSpawn;
+  renameSession?: (session: Session, proposedName: string) => void;
   nowFn?: () => number;
   logger?: Pick<Console, 'warn'>;
 }
@@ -31,6 +33,12 @@ interface RefinementRequest {
   revision: number;
   currentTitle: string | null;
   recentPrompts: readonly string[];
+  wantsSessionName: boolean;
+}
+
+interface RefinementOutcome {
+  refinement: TaskTitleRefinementResult;
+  proposedSessionName: string | null;
 }
 
 interface SessionRefinementState {
@@ -47,26 +55,36 @@ interface ActiveRefinement {
   settled: Promise<void>;
 }
 
-async function refineTaskTitle(request: RefinementRequest, model: string, spawnLane: LaneSpawn, signal: AbortSignal): Promise<TaskTitleRefinementResult> {
+const INVALID_OUTCOME: RefinementOutcome = { refinement: { action: 'invalid' }, proposedSessionName: null };
+
+function hasAutoSessionName(session: Session): boolean {
+  return isAutoNameOf(session.name, path.basename(session.path));
+}
+
+async function refineTaskTitle(request: RefinementRequest, model: string, spawnLane: LaneSpawn, signal: AbortSignal): Promise<RefinementOutcome> {
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-task-title-'));
   const resultPath = path.join(workDir, RESULT_FILE);
   try {
     await fs.writeFile(path.join(workDir, PROMPT_FILE), buildTaskTitleRefinementPrompt({
-      currentTitle: request.currentTitle, recentPrompts: request.recentPrompts, resultPath,
+      currentTitle: request.currentTitle, recentPrompts: request.recentPrompts, resultPath, wantsSessionName: request.wantsSessionName,
     }), 'utf8');
-    if (signal.aborted) return { action: 'invalid' };
+    if (signal.aborted) return INVALID_OUTCOME;
     await spawnLane({
       id: `task-title:${crypto.randomUUID()}`, name: 'Task title refinement',
       cwd: workDir, prompt: BOOTSTRAP_PROMPT, agent: 'claude-code', model, signal,
     });
-    if (signal.aborted) return { action: 'invalid' };
-    return parseRefinedTaskTitle(await readLaneResultFile(resultPath));
+    if (signal.aborted) return INVALID_OUTCOME;
+    const laneResult = await readLaneResultFile(resultPath);
+    return {
+      refinement: parseRefinedTaskTitle(laneResult),
+      proposedSessionName: request.wantsSessionName ? parseRefinedSessionName(laneResult) : null,
+    };
   } finally {
     await fs.rm(workDir, { recursive: true, force: true });
   }
 }
 
-function createTaskTitleRefiner({ getConfig, spawnLane, nowFn = () => Date.now(), logger = console }: TaskTitleRefinerOptions) {
+function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, nowFn = () => Date.now(), logger = console }: TaskTitleRefinerOptions) {
   const statesBySession = new Map<Session, SessionRefinementState>();
   const queuedBySession = new Map<Session, RefinementRequest>();
   let active: ActiveRefinement | null = null;
@@ -154,20 +172,20 @@ function createTaskTitleRefiner({ getConfig, spawnLane, nowFn = () => Date.now()
     }, timeoutSeconds * 1000);
     timeout.unref();
     const settled = Promise.resolve().then(() => refineTaskTitle(request, model, spawnLane, controller.signal)).then(
-      (refinement) => {
+      (outcome) => {
         if (hasTimedOut) logger.warn(`[task-title] refinement timed out after ${timeoutSeconds}s`);
-        if (!controller.signal.aborted && refinement.action === 'invalid') logger.warn('[task-title] refinement returned no usable title');
-        finish(request, refinement);
+        if (!controller.signal.aborted && outcome.refinement.action === 'invalid') logger.warn('[task-title] refinement returned no usable title');
+        finish(request, outcome);
       },
       (error: unknown) => {
         logger.warn(`[task-title] refinement failed: ${errorMessage(error)}`);
-        finish(request, { action: 'invalid' });
+        finish(request, INVALID_OUTCOME);
       },
     ).finally(() => clearTimeout(timeout));
     active = { request, controller, promptsCountedAtStart, settled };
   }
 
-  function finish(request: RefinementRequest, refinement: TaskTitleRefinementResult): void {
+  function finish(request: RefinementRequest, { refinement, proposedSessionName }: RefinementOutcome): void {
     if (active?.request !== request) return;
     const wasAborted = active.controller.signal.aborted;
     const { promptsCountedAtStart } = active;
@@ -178,6 +196,7 @@ function createTaskTitleRefiner({ getConfig, spawnLane, nowFn = () => Date.now()
       const state = statesBySession.get(request.session);
       if (refinementToApply.action === 'invalid' && isApplicable && state) state.substantivePromptsSinceRefinement += promptsCountedAtStart;
       request.session.applyTaskTitleRefinement(refinementToApply);
+      if (!wasAborted && isApplicable && proposedSessionName) renameSession?.(request.session, proposedSessionName);
     }
     startNext();
   }
@@ -197,6 +216,7 @@ function createTaskTitleRefiner({ getConfig, spawnLane, nowFn = () => Date.now()
     }
     const request: RefinementRequest = {
       session, revision: session.taskTitlePromptRevision, currentTitle: session.refinedTaskTitle, recentPrompts: session.recentTaskPrompts,
+      wantsSessionName: Boolean(renameSession) && hasAutoSessionName(session),
     };
     queuedBySession.set(session, request);
     startNext();

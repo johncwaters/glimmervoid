@@ -46,6 +46,7 @@ import { cleanPostTurnLeftovers, recheckRepositoriesTrackingReports } from '../p
 import { trackedReportCleanupCommands } from '../../shared/post-turn-leftovers.ts';
 import type { RepositoryTrackingReports } from '../../shared/post-turn-leftovers.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts';
 import { bundled, packageRoot } from '../runtime-paths.ts';
 import { createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
@@ -259,6 +260,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     notificationManager,
     telemetry,
     logger: console,
+    renameSessionFromTaskTitle,
   });
   const {
     allLiveSessions,
@@ -362,6 +364,21 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   function applyConfigReload(newConfig: GlimmervoidConfig): void {
     applyCustomAgents(newConfig);
     reconcileProjectsOnReload(newConfig);
+  }
+
+  function renameSessionFromTaskTitle(session: Session, proposedName: string): void {
+    if (sessions.get(session.id) !== session) return;
+    const sessionName = chooseRefinedSessionName({
+      currentName: session.name, projectFolderName: path.basename(session.path), proposedName,
+      takenNames: [...sessions.values()].map((other) => other.name),
+    });
+    if (!sessionName || sessionName === session.name) return;
+    const checkedAutoName = session.name;
+    const freshConfig = configStore.save((savedConfig) => {
+      const project = savedConfig.projects.find((candidate) => candidate.id === session.id);
+      if (project?.name === checkedAutoName) project.name = sessionName;
+    });
+    if (freshConfig) applyConfigReload(freshConfig);
   }
 
   function applySettingsReload(newConfig: GlimmervoidConfig): void {
