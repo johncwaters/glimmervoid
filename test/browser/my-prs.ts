@@ -17,12 +17,12 @@ export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
   const timestamp = Date.now();
   const canonicalPr = GithubPr.parse({
     key: 'acme/app#1322', id: 'PR_browser', repo: 'Acme/app', number: 1322, title: 'Repair merge conflicts', url: 'https://github.com/Acme/app/pull/1322',
-    author: 'me', labels: [], commentCount: 0, rollupState: 'SUCCESS',
+    author: 'me', isAuthorBot: false, labels: [], commentCount: 0, rollupState: 'SUCCESS',
     isDraft: false, state: 'OPEN', createdAt: new Date(timestamp - 86400000).toISOString(), mergedAt: null, updatedAt: new Date(timestamp).toISOString(),
     baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'fix/conflicts', headRefOid: 'a'.repeat(40), isCrossRepository: false,
     isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY', reviewDecision: null,
     checks: { state: 'SUCCESS', failing: [], pendingCount: 0 }, unresolvedThreads: 0, threads: [], behindBy: 22,
-    reviewRequests: [], approvals: 0, reviews: [],
+    reviewRequests: [], approvals: 0, reviews: [], opinionatedWriterReviewStates: [],
   });
   const status = MyPrsStatus.parse({
     type: 'my-prs-status', ts: timestamp, configured: true, viewer: 'me',

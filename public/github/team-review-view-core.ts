@@ -1,4 +1,7 @@
-import { canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
+import type { GithubPr } from '#shared/contracts/github-prs.ts';
+import type { MyPrStage } from '#shared/contracts/my-prs.ts';
+import { myPrFromGithubPr } from '#shared/my-pr-merge.ts';
+import { canApproveAfterComment, decisionAsIfApprovalRequired, DECIDING_REVIEW_STATES, FindingSeverity, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
 import type {
   DraftComment, EarlierReview, GithubReview, GithubReviewState, InFlightReview, PostedReviewEvent, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread, ViewerThreadTally,
 } from '#shared/contracts/team-review.ts';
@@ -6,8 +9,34 @@ import { shortSha } from '#shared/git-text.ts';
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { attentionSignature } from '../attention-ack-core.ts';
 import { formatClockOffset } from '../radar/radar-core.ts';
+import { stageIcon, stageLabel, stageTone } from './my-prs-view-core.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
+
+type TeamReviewPrView<Review> = Review & { prStage?: MyPrStage };
+
+export function joinTeamReviews(status: TeamReviewStatus | null, findGithubPr: (key: string) => GithubPr | undefined) {
+  if (!status) return null;
+  const joinReview = <Review extends ReviewDraft | InFlightReview | QueuedReview>(review: Review) => {
+    const pr = findGithubPr(review.key);
+    if (!pr) return review;
+    return {
+      ...review,
+      checksState: pr.rollupState,
+      reviewDecision: decisionAsIfApprovalRequired(pr.reviewDecision, pr.opinionatedWriterReviewStates),
+      isDraft: pr.isDraft,
+      liveHead: pr.headRefOid,
+      prStage: myPrFromGithubPr(pr).stage,
+    };
+  };
+  return {
+    ...status,
+    drafts: status.drafts.map(joinReview),
+    inFlight: status.inFlight.map(joinReview),
+    queued: status.queued.map(joinReview),
+    handReview: status.handReview.map(joinReview),
+  };
+}
 
 export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded' | 'handReview';
 
@@ -106,7 +135,8 @@ function isViewerOutcomeCurrent(draft: ReviewDraft): boolean {
 
 const COMMENTS_RESOLVED_GLYPH: QueueRowGlyph = { tone: 'warn', icon: 'your-turn', meaning: 'Comments resolved' };
 
-export function queueRowGlyph(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): QueueRowGlyph {
+export function queueRowGlyph(review: TeamReviewPrView<ReviewDraft | InFlightReview | QueuedReview>, kind: QueueRowKind): QueueRowGlyph {
+  if (review.prStage) return { tone: stageTone(review.prStage), icon: stageIcon(review.prStage), meaning: stageLabel(review.prStage) };
   const fixedGlyph = FIXED_ROW_GLYPHS[kind];
   if (fixedGlyph) return fixedGlyph;
   if (kind === 'inReview') return { tone: 'wait', icon: 'running', meaning: withExceptionReason('In review', review) };

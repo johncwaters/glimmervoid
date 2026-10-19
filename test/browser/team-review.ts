@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright-core';
+import { GithubPr, GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
+import type { ServerMessage } from '../../shared/contracts/control-messages.ts';
+import { MyPrsStatus } from '../../shared/contracts/my-prs.ts';
 import { ReviewDraft, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type { TeamReviewAction, TeamReviewThread } from '../../shared/contracts/team-review.ts';
 import type { Layout } from './cases-core.ts';
@@ -119,6 +122,100 @@ async function verifyLayout(page: Page): Promise<void> {
   assert.ok(layout.bottom.y >= layout.top.bottom);
   assert.ok(layout.bottom.right <= layout.row.right);
   assert.ok(layout.age.right <= layout.row.right);
+}
+
+async function emitTeamReviewFrames(page: Page, messages: ServerMessage[]): Promise<void> {
+  await page.evaluate(async (frames) => {
+    const controlUrl = '/control-ws.ts';
+    const control: { sendControlMsg(message: Record<string, unknown>): boolean } = await import(controlUrl);
+    const originalSend = WebSocket.prototype.send;
+    WebSocket.prototype.send = function(message) {
+      if (typeof message === 'string' && JSON.parse(message).requestId === 'team-review-frame-probe') {
+        for (const frame of frames) this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(frame) }));
+        return;
+      }
+      originalSend.call(this, message);
+    };
+    try {
+      if (!control.sendControlMsg({ type: 'ping', requestId: 'team-review-frame-probe' })) throw new Error('Control socket is not connected');
+    } finally {
+      WebSocket.prototype.send = originalSend;
+    }
+  }, messages);
+}
+
+async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot: TeamReviewStatus, sessionId: string): Promise<void> {
+  const timestamp = Date.now();
+  const canonicalPr = GithubPr.parse({
+    key: 'acme/app#1', id: 'PR_team_browser', repo: 'Acme/app', number: 1, title: 'Canonical team PR', url: 'https://github.com/Acme/app/pull/1',
+    author: 'teammate', isAuthorBot: false, labels: [], commentCount: 0,
+    isDraft: false, state: 'OPEN', createdAt: new Date(timestamp - 86400000).toISOString(), mergedAt: null, updatedAt: new Date(timestamp).toISOString(),
+    baseRefName: 'main', baseRefOid: PREVIOUS_HEAD, headRefName: 'feature', headRefOid: REVIEWED_HEAD, isCrossRepository: false,
+    isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
+    checks: { state: 'SUCCESS', failing: [], pendingCount: 0 }, rollupState: 'SUCCESS', unresolvedThreads: 0, threads: [], behindBy: 0,
+    reviewRequests: [], approvals: 0, reviews: [], opinionatedWriterReviewStates: [],
+  });
+  const frameFor = (pr?: GithubPr): GithubPrsFrame => GithubPrsFrame.parse({
+    type: 'github-prs', ts: timestamp, prs: pr ? { [pr.key]: pr } : {}, freshness: { lastRefreshedAt: timestamp, error: null },
+  });
+  const laneSnapshot = {
+    ...snapshot,
+    drafts: [createDraft(1, { requestSource: 'direct', reviewDecision: 'REVIEW_REQUIRED', checksState: 'SUCCESS', liveHead: REVIEWED_HEAD }), createDraft(2)],
+    inFlight: [], queued: [], handReview: [],
+  };
+  await applyStatus(page, laneSnapshot);
+  await emitTeamReviewFrames(page, [MyPrsStatus.parse({
+    type: 'my-prs-status', ts: timestamp, configured: true, viewer: 'me', prs: [{ key: 'Acme/app#1' }],
+  }), {
+    type: 'session-prs', id: sessionId, linkedPrs: [{ repo: 'ACME/app', number: 1, url: canonicalPr.url, source: 'manual', linkedAt: timestamp }],
+  }]);
+  const teamRow = page.locator('.pr-queue-row[data-review-key="Acme/app#1"]');
+  const fallbackRow = page.locator('.pr-queue-row[data-review-key="Acme/app#2"]');
+  const mineRow = page.locator('.pr-queue-row[data-pr-key="Acme/app#1"]');
+  const root = page.locator('.pr-mode-root:not([hidden])');
+  assert.equal(await teamRow.locator('.pr-queue-state').textContent(), 'Waits on you');
+  const updates: { pr: GithubPr; stage: string; firstKey: string }[] = [
+    { pr: { ...canonicalPr, rollupState: 'PENDING', checks: { state: 'PENDING', failing: [], pendingCount: 1 } }, stage: 'Checks running', firstKey: 'Acme/app#2' },
+    { pr: { ...canonicalPr, rollupState: 'FAILURE', checks: { state: 'FAILURE', failing: ['build'], pendingCount: 0 }, reviewDecision: 'CHANGES_REQUESTED' }, stage: 'Checks failing', firstKey: 'Acme/app#2' },
+    { pr: { ...canonicalPr, isDraft: true }, stage: 'Draft', firstKey: 'Acme/app#2' },
+    { pr: { ...canonicalPr, opinionatedWriterReviewStates: ['CHANGES_REQUESTED'] }, stage: 'Ready to merge', firstKey: 'Acme/app#2' },
+    { pr: canonicalPr, stage: 'Ready to merge', firstKey: 'Acme/app#1' },
+  ];
+  for (const { pr, stage, firstKey } of updates) {
+    await emitTeamReviewFrames(page, [frameFor(pr)]);
+    assert.equal(await teamRow.locator('.pr-queue-state').textContent(), stage);
+    assert.equal(await root.locator('.pr-queue-row').first().getAttribute('data-review-key'), firstKey);
+    assert.equal(await fallbackRow.locator('.pr-queue-state').textContent(), 'Waits on you');
+    const teamGlyph = await teamRow.locator('.pr-queue-glyph').innerHTML();
+    const unchangedTeamRow = await teamRow.elementHandle();
+    assert.ok(unchangedTeamRow);
+    await emitTeamReviewFrames(page, [frameFor({ ...pr, commentCount: pr.commentCount + 1 })]);
+    assert.equal(await unchangedTeamRow.evaluate((row) => row.isConnected), true);
+    await root.getByRole('tab', { name: 'Mine', exact: true }).click();
+    assert.equal(await mineRow.locator('.my-pr-stage').first().textContent(), stage);
+    assert.equal(await mineRow.locator('.pr-queue-glyph').innerHTML(), teamGlyph);
+    if (layout === 'phone') await page.getByRole('button', { name: 'Board', exact: true }).click();
+    if (layout === 'desktop') {
+      await root.locator(`.my-pr-session-pill[data-session-id="${sessionId}"]`).click();
+      await page.waitForFunction(() => document.body.dataset.activeView === 'focus');
+    }
+    const sessionRows = layout === 'phone' ? 'section.phone-screen[data-screen="board"]' : '#focus-rail';
+    const chip = page.locator(`${sessionRows} .session-row[data-id="${sessionId}"] .session-pr-chip`).filter({ hasText: '#1' });
+    await chip.waitFor({ state: 'visible' });
+    assert.equal(await chip.getAttribute('title'), `ACME/app: ${canonicalPr.title} (${stage})`);
+    assert.equal(await chip.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML), await teamRow.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML));
+    await openReviewsView(page, layout);
+    await root.getByRole('tab', { name: 'Team', exact: true }).click();
+  }
+  await teamRow.click();
+  await applyStatus(page, { ...laneSnapshot, drafts: [createDraft(1, { status: 'stale', liveHead: REVIEWED_HEAD }), createDraft(2)] });
+  const movedHead = 'c'.repeat(40);
+  await emitTeamReviewFrames(page, [frameFor({ ...canonicalPr, headRefOid: movedHead })]);
+  assert.equal(await page.locator('.pr-detail .pr-changed-since-link').getAttribute('href'), `https://github.com/Acme/app/compare/${REVIEWED_HEAD}...${movedHead}`);
+  await emitTeamReviewFrames(page, [frameFor()]);
+  assert.equal(await page.locator('.pr-detail .pr-changed-since').count(), 0);
+  assert.equal(await teamRow.locator('.pr-queue-state').textContent(), 'Out of date');
+  await applyStatus(page, snapshot);
 }
 
 async function verifyCollapsedRailShowsNumbers(page: Page): Promise<void> {
@@ -357,8 +454,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
       assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
       await replyToCapturedAction(page, true);
       assert.equal(await reviewRow(2).getAttribute('aria-current'), 'true');
-      assert.match(await actionNotice.textContent() ?? '', /^Acme\/app#1: /);
-      assert.equal(await actionNotice.isVisible(), true);
+      assert.equal(await actionNotice.isVisible(), false);
     }
     await reviewRow(3).click();
     assert.equal(await actionNotice.isVisible(), false);
@@ -390,13 +486,13 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await clickReviewAction(page, 'approve');
     await replyToCapturedAction(page, false);
     assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
-    assert.equal(await page.locator('.pr-detail .pr-action-status').textContent(), 'Action rejected');
+    assert.equal(await page.locator('.pr-detail .pr-footer > .pr-action-status').textContent(), 'Action rejected');
     await clickReviewAction(page, 'approve');
     await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2, { status: 'discarded' })]));
     await replyToCapturedAction(page, true);
     assert.equal(await page.locator('.pr-queue-row[aria-current="true"]').count(), 0);
     assert.equal(await caughtUpTitle.textContent(), 'All caught up');
-    assert.equal(await actionNotice.textContent(), 'Acme/app#1: Approved on GitHub.');
+    assert.equal(await actionNotice.isVisible(), false);
     await applyStatus(page, { ...withDrafts([createDraft(1, { status: 'posted' }), createDraft(2, { status: 'discarded' })]), handReview: [createDraft(12)] });
     assert.equal(await caughtUpTitle.textContent(), 'Drafts all handled');
     assert.equal(await caughtUpDetailText.textContent(), '1 pull request needs review by hand.');
@@ -531,6 +627,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   await verifyViewerThreadCounts(page, status);
   await verifyAnsweredThreadConversation(page, status);
   await verifyOpenInSession(page, layout, status, sessionId);
+  await verifyCanonicalTeamPrFields(page, layout, status, sessionId);
   await verifyActionAdvancement(page, status);
   await verifyMyPrKeepMergeable(page);
 }
