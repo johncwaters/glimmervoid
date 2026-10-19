@@ -1,7 +1,7 @@
 import type { SessionState } from './states.ts';
 import { STATES } from './states.ts';
 
-export type StatusIcon = 'not-started' | 'starting' | 'working' | 'monitoring' | 'needs-input' | 'idle' | 'exited' | 'failed';
+export type StatusIcon = 'not-started' | 'starting' | 'working' | 'monitoring' | 'needs-input' | 'idle' | 'complete' | 'exited' | 'failed';
 
 interface StatusIconShape {
   tag: 'circle' | 'path' | 'rect';
@@ -15,7 +15,7 @@ export const STATE_ICONS: Readonly<Record<SessionState, StatusIcon>> = Object.fr
   [STATES.RUNNING]:      'working',
   [STATES.WAITING]:      'needs-input',
   [STATES.IDLE]:         'idle',
-  [STATES.COMPLETE]:     'idle',
+  [STATES.COMPLETE]:     'complete',
   [STATES.DONE]:         'exited',
   [STATES.FAILED]:       'failed',
 });
@@ -48,6 +48,9 @@ export const STATUS_ICON_SHAPES: Readonly<Record<StatusIcon, readonly StatusIcon
   idle: [
     { tag: 'rect', attributes: { x: '3.6', y: '2.8', width: '3', height: '10.4', rx: '.8', ...fill } },
     { tag: 'rect', attributes: { x: '9.4', y: '2.8', width: '3', height: '10.4', rx: '.8', ...fill } },
+  ],
+  complete: [
+    { tag: 'path', attributes: { d: 'M2.8 8.4l3.4 3.4 7-7.4', ...stroke('2.2') } },
   ],
   exited: [
     { tag: 'rect', attributes: { x: '3', y: '3', width: '10', height: '10', rx: '1.6', ...fill } },

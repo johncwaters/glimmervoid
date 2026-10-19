@@ -144,10 +144,10 @@ Always paired with a status icon; never carried by hue alone.
 - **Signal Amber** (#f59e0b): Needs Input / needs attention / setup-required.
 - **Signal Red** (#ef4444): Failed, disconnected, destructive.
 - **Signal Cyan** (#67e8f9): Exited, the agent process ended (Phyrexian).
-- **Signal Gold** (#eab308): Idle, including a finished turn not yet looked at.
+- **Signal Gold** (#eab308): Idle.
 - **Signal Pink** (#f472b6): Starting, including worktree preparation (Phyrexian).
 - **Signal Sky** (#22d3ee): Monitoring, a turn ended while background tasks still run.
-- **Signal Emerald** (#34d399): Success: a clean exit's completion flash, merged branches, passing checks.
+- **Signal Emerald** (#34d399): Complete, a finished turn not yet looked at; also success: merged branches, passing checks.
 - **Signal Slate** (#6b7280): No status uses it since worktree setup displays as Starting.
 
 ### Named Rules
@@ -217,7 +217,7 @@ Every interactive element ships default, hover, focus-visible, active, and disab
 - **Corner style:** 5px radius (the large step).
 - **Background:** Ink Violet on the Near-Black Violet canvas.
 - **Border:** 1px Violet Border at rest, shifting to Lifted Violet Border on hover. No resting shadow.
-- **State:** session cards drive their entire treatment from a `data-state` attribute, layering state-colored border and glow (RUNNING, WAITING, IDLE, FAILED, etc.). Never nest a card inside a card.
+- **State:** session cards drive their entire treatment from a `data-state` attribute, layering state-colored border and glow (RUNNING, WAITING, COMPLETE, FAILED, etc.). Never nest a card inside a card.
 - **Internal padding:** 20px to 28px on large panels; the session-card header and terminal pane carry their own rhythm.
 
 ### Navigation

@@ -6,6 +6,6 @@ import { STATES } from '../shared/states.ts';
 test('state chip shows Monitoring only for a running session awaiting background tasks', () => {
   assert.equal(stateChip(STATES.RUNNING, true).label, 'MONITORING');
   assert.equal(stateChip(STATES.RUNNING, false).label, 'WORKING');
-  assert.equal(stateChip(STATES.COMPLETE, true).label, 'IDLE');
+  assert.equal(stateChip(STATES.COMPLETE, true).label, 'COMPLETE');
   assert.notEqual(stateChip(STATES.RUNNING, true).icon, stateChip(STATES.RUNNING).icon);
 });

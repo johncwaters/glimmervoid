@@ -19,7 +19,7 @@ export const BADGE_LABELS: Readonly<Record<SessionState, string>> = Object.freez
   [STATES.RUNNING]:      'Working',
   [STATES.WAITING]:      'Needs Input',
   [STATES.IDLE]:         'Idle',
-  [STATES.COMPLETE]:     'Idle',
+  [STATES.COMPLETE]:     'Complete',
   [STATES.DONE]:         'Exited',
   [STATES.FAILED]:       'Failed',
 });

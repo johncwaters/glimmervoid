@@ -9,7 +9,7 @@ type AttentionVariant = Exclude<FaviconVariant, 'idle'>;
 const BRAND_COLOR = '#c084fc';
 
 const STATUS_BY_VARIANT: Readonly<Record<AttentionVariant, { icon: StatusIcon; color: string }>> = Object.freeze({
-  complete: { icon: STATE_ICONS[STATES.COMPLETE], color: '#eab308' },
+  complete: { icon: STATE_ICONS[STATES.COMPLETE], color: '#34d399' },
   waiting: { icon: STATE_ICONS[STATES.WAITING], color: '#f59e0b' },
 });
 
