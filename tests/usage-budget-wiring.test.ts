@@ -44,7 +44,6 @@ function fakeScanner(
     }),
     sessionTotals: () => new Map(),
     stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: outcome, isHistoryCaughtUp: outcome === 'complete', resolutionError: null }),
-    laneUsageSince: () => [],
     budgetSpend: spend,
     buildReport: () => ({
       ts: 0,
@@ -712,34 +711,3 @@ test('concurrent callers sharing one scan pass hand its generation rollup to tel
   await wiring.stop();
   assert.deepEqual(capturedRollups, [generationRollup]);
 });
-
-for (const [outcome, status] of [['byte-limited', 'catching-up'], ['io-failed', 'read-failing']] as const) {
-  test(`lane spend is ${status} after a first ${outcome} scan pass so a factory budget cannot read an undercount`, async () => {
-    const root = await makeTempRoot();
-    const h = harness({ root, outcome });
-    await h.wiring.start();
-    assert.deepEqual(h.wiring.laneSpendSince('factory', 0), { status });
-    await h.wiring.stop();
-  });
-}
-
-test('lane spend is known after a complete scan pass', async () => {
-  const root = await makeTempRoot();
-  const h = harness({ root, outcome: 'complete' });
-  await h.wiring.start();
-  assert.deepEqual(h.wiring.laneSpendSince('factory', 0), { status: 'known', amountUsd: 0 });
-  await h.wiring.stop();
-});
-
-for (const outcome of ['byte-limited', 'io-failed'] as const) {
-  test(`lane spend after catch-up stays known for byte limits and fails closed for ${outcome}`, async () => {
-    const root = await makeTempRoot();
-    const h = harness({ root });
-    await h.wiring.start();
-    h.scanner.stats = () => ({ dirs: [], files: 1, entries: 1, lastScanMs: 0,
-      lastOutcome: outcome, isHistoryCaughtUp: true, resolutionError: null });
-    h.scanner.laneUsageSince = () => [{ lane: 'factory', costUSD: 4.2, tokens: 1000, sessions: 1 }];
-    assert.deepEqual(h.wiring.laneSpendSince('factory', 0), outcome === 'byte-limited' ? { status: 'known', amountUsd: 4.2 } : { status: 'read-failing' });
-    await h.wiring.stop();
-  });
-}

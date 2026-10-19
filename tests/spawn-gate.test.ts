@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createMemoryAdmission, createSpawnGate, isQueueAdmissionAbandoned, isQueueAdmissionTimeout } from '../server/spawn-gate.ts';
+import { createMemoryAdmission, createSpawnGate, isQueueAdmissionTimeout } from '../server/spawn-gate.ts';
 import { waitFor } from './helpers/wait-for.ts';
 
 function deferredResolve(): { promise: Promise<void>; resolve: () => void } {
@@ -110,7 +110,7 @@ test('a queued start whose signal aborts while the head is held for memory leave
     sleep: () => new Promise(() => {}),
     warn: () => {},
   });
-  const gate = createSpawnGate({ memoryAdmission, kind: 'checkRun' });
+  const gate = createSpawnGate({ memoryAdmission, kind: 'session' });
   const memoryWaits: boolean[] = [];
   let abandonedWorkRan = false;
   void gate.run(() => 'held');
@@ -118,7 +118,7 @@ test('a queued start whose signal aborts while the head is held for memory leave
   const queued = gate.run(() => { abandonedWorkRan = true; }, { signal: queuedController.signal, onMemoryWait: (isWaiting) => memoryWaits.push(isWaiting) });
   await waitFor(() => memoryWaits.length === 1, 'the queued start is flagged as waiting for memory');
   queuedController.abort();
-  await assert.rejects(queued, (error: unknown) => isQueueAdmissionAbandoned(error));
+  await assert.rejects(queued, { message: 'serial-queue-admission-abandoned' });
   assert.deepEqual(memoryWaits, [true, false]);
   assert.equal(abandonedWorkRan, false);
 });

@@ -1060,7 +1060,6 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     sessionTotals,
     stats,
     budgetSpend,
-    laneUsageSince: (sinceMs: number) => laneRollupSince(entries, getRecordedLanes(), sinceMs),
     _entriesForTest: () => entries.map((entry) => entry),
   };
   Object.defineProperty(api, '_entriesForTest', { enumerable: false });

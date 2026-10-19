@@ -38,7 +38,6 @@ How sessions start, where projects are found, and what the dashboard shows for t
 | `repoRoots` | Repository roots | `[]` | Directories scanned for projects when adding sessions. |
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
 | `sessionMemoryReserveMB` | Session memory reserve | `600` | Free memory an automatic session start waits for; 0 starts sessions without checking. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `checkMemoryReserveMB` | Check run memory reserve | `1500` | Free memory a factory check run waits for; 0 runs checks without checking. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ### Guardrails and unattended
 
@@ -163,22 +162,6 @@ Rules that act on pull request events in the repositories you choose.
 | `workflows.maxActionsPerPoll` | Actions per poll | `20` | Most actions run in one poll. The rest are dropped and logged. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `workflows.rules` | Workflow rule definitions | `[]` | The rules the Workflows section switches on and off: each names its repositories, one pull request event, its filters and its actions. **File-only.** Rule definitions are written in config.json; the Workflows section only switches each rule on or off. |
 
-### Factory
-
-Read Coherence reports from repositories whose integration branch holds a coherence.config.json and show their status in the Factory tab.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `factory.enabled` | Enable the factory | `false` | Enable Coherence status polling and show the Factory tab. Off by default. |
-| `factory.maxRisk` | Worker risk ceiling | `"medium"` | Highest risk admitted for a ticket. |
-| `factory.maxLiveWorkers` | Live worker cap | `2` | Most live workers per factory project. |
-| `factory.checks` | Worker checks | `["npm run typecheck","npm run lint","npm test"]` | Commands glimmervoid runs before merging worker commits. |
-| `factory.protectedPaths` | Protected paths | `["coherence.config.json",".coherence/","package.json","package-lock.json","**/AGENTS.md","**/CLAUDE.md","**/CLAUDE.local.md",".claude/",".github/"]` | Repo-relative files, directory prefixes ending in /, or **/NAME basenames workers cannot change. |
-| `factory.reviewerModel` | Reviewer model | `null` | Claude model for independent worker review. Blank uses the CLI default. |
-| `factory.dailyBudgetUsd` | Factory daily budget | `null` | Factory lane spend ceiling. Blank means no ceiling. Needs usage tracking: with it off, dispatch refuses. |
-| `factory.verifierModel` | Verifier model | `null` | Claude model for independent intent verification. Blank uses the CLI default. |
-| `factory.mirrorHarnessRuns` | Mirror harness runs | `true` | Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after. Needs factory.enabled on. The harness turns it off on the instance it boots. |
-
 ### Benchmarks
 
 Compare agent setups on frozen cases from the suites in the benchmarks folder of the Glimmervoid home.
@@ -187,21 +170,13 @@ Compare agent setups on frozen cases from the suites in the benchmarks folder of
 |-----|---------|---------|-------|
 | `benchmarks.enabled` | Enable benchmarks | `false` | Show the Bench tab. Nothing runs until you choose Mine or Run there. |
 
-### Knowledge graph (experimental)
-
-A typed local graph of projects, tasks, notes, references and questions, driven from the glimmervoid kg command. Its SQLite database defaults to the Glimmervoid home; --db selects another path.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `knowledgeGraph.enabled` | Enable the knowledge graph | `false` | Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents' tickets disagree, without modifying those ledgers. Graph writes go to the selected SQLite database, which can be inside a repository when --db names that path. Off by default. |
-
 ### Coherence (experimental)
 
 Coherence decision journals, hooks and repository trends for agent sessions and review lanes.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `coherence.enabled` | Use Coherence in every session | `false` | When on, Claude Code and Codex sessions use the Coherence hooks the repository installed itself: a native install (coherence.config.json plus the files npx coherence hooks install commits) is required, and Glimmervoid never adds hooks of its own. Their decision journal lands in .coherence in the worktree to commit with the work. Factory sessions always use Coherence and need the native Claude install. Off by default. |
+| `coherence.enabled` | Use Coherence in every session | `false` | When on, Claude Code and Codex sessions use the Coherence hooks the repository installed itself: a native install (coherence.config.json plus the files npx coherence hooks install commits) is required, and Glimmervoid never adds hooks of its own. Their decision journal lands in .coherence in the worktree to commit with the work. Off by default. |
 
 ### Change map
 
@@ -220,7 +195,7 @@ What Glimmervoid sends about itself.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `telemetry.enabled` | Send anonymous usage and error data | `true` | Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated costs from the usage scan, and factory outcomes as the kind of decision, how it came out, its duration and attempt number, under a random install id. Never error messages, paths, repository or branch names, prompts, objectives or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless. |
+| `telemetry.enabled` | Send anonymous usage and error data | `true` | Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated costs from the usage scan, under a random install id. Never error messages, paths, repository or branch names, prompts, objectives or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless. |
 
 ### Terminal
 
@@ -286,18 +261,7 @@ Edit these in `config.json` unless the note names another dashboard surface.
 | `planReview` | `{"enabled":true}` | Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`). |
 | `hooks` |  | Operator-defined hooks per project, managed from the dashboard Hooks panel. |
 | `remote` | `{"enabled":false,"port":null,"publicHost":"","allowedOrigins":[]}` | Opt-in remote listener: `enabled`, `port` (required when enabled, must differ from the local port), `publicHost`, `allowedOrigins` and `ownerLogin` (when set, only that Tailscale login is answered; trustworthy only when the remote port is reached solely through HTTP-mode `tailscale serve`, since any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, lets a client send its own `Tailscale-User-Login`). Needs a server restart. See [Remote access](../README.md#remote-access). |
-| `projects` | `[]` | Projects shown in the dashboard, added from the Add Session dialog. Each entry has `path` (required), optional `name`, `repos` (two or more member repositories for a workspace session), `baseBranch` (the branch sessions of this project start from and merge back into, set by Open in session on a team review pull request), `agent` (an agent id, see `customAgents`), `codexBypassHookTrust` (file-only, default off), `conversationView` (set from the card menu while the Conversation view setting is on, default off) and `factoryProfile`. Every factory profile field is optional: unset fields inherit the global `factory` settings, arrays replace global arrays, and explicit null model or budget values override the global value. Unproven fields remain unset. |
-| `projects[].factoryProfile.enabled` | Inherits `factory.enabled` | Enable Coherence status polling and show the Factory tab. Off by default. |
-| `projects[].factoryProfile.maxRisk` | Inherits `factory.maxRisk` | Highest risk admitted for a ticket. |
-| `projects[].factoryProfile.maxLiveWorkers` | Inherits `factory.maxLiveWorkers` | Most live workers per factory project. |
-| `projects[].factoryProfile.checks` | Inherits `factory.checks` | Commands glimmervoid runs before merging worker commits. |
-| `projects[].factoryProfile.protectedPaths` | Inherits `factory.protectedPaths` | Repo-relative files, directory prefixes ending in /, or **/NAME basenames workers cannot change. |
-| `projects[].factoryProfile.reviewerModel` | Inherits `factory.reviewerModel` | Claude model for independent worker review. Blank uses the CLI default. |
-| `projects[].factoryProfile.dailyBudgetUsd` | Inherits `factory.dailyBudgetUsd` | Factory lane spend ceiling. Blank means no ceiling. Needs usage tracking: with it off, dispatch refuses. |
-| `projects[].factoryProfile.verifierModel` | Inherits `factory.verifierModel` | Claude model for independent intent verification. Blank uses the CLI default. |
-| `projects[].factoryProfile.mirrorHarnessRuns` | Inherits `factory.mirrorHarnessRuns` | Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after. Needs factory.enabled on. The harness turns it off on the instance it boots. |
-| `projects[].factoryProfile.focusedTestCommand` |  | Command prefix that runs the test files passed after it. |
-| `projects[].factoryProfile.widenableScopes` | `["tests/","test/","__tests__/","**/*.test.*","**/*.spec.*"]` | Path patterns a replacement ticket may widen into. |
+| `projects` | `[]` | Projects shown in the dashboard, added from the Add Session dialog. Each entry has `path` (required), optional `name`, `repos` (two or more member repositories for a workspace session), `baseBranch` (the branch sessions of this project start from and merge back into, set by Open in session on a team review pull request), `agent` (an agent id, see `customAgents`), `codexBypassHookTrust` (file-only, default off), `conversationView` (set from the card menu while the Conversation view setting is on, default off). |
 
 ## Environment variables
 
@@ -340,7 +304,6 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `session_ended` | `adapter`, `exit_kind`, `duration_seconds` | A session exited: how it exited and how long it ran, in whole seconds. |
 | `$exception` | `$exception_list`, `$exception_level` | An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start. |
 | `$ai_generation` | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`, `$ai_total_cost_usd`, `agent_adapter` | Per agent session and model, after each usage scan, for usage recorded in the last 24 hours: token counts, the model name and estimated cost, under a one-way hash of the session. A model name outside the shipped pricing table is sent as unknown. No prompts or output. |
-| `factory_decision` | `kind`, `outcome`, `failure_class`, `duration_ms`, `attempt` | Each time the factory decides something (a dispatch, a close-out attempt, a merge, a watch or verification result, an exception, a landing, a Claude Code folder trust grant): which kind of decision, how it came out, the class of failure when it failed, how long it took and which attempt it was. Never the objective, the reason, check output, a path or a repository name. |
 
 ## Browser preferences
 

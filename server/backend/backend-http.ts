@@ -12,11 +12,9 @@ import { parseJsonRecord } from '../core/json-core.ts';
 import type { Session } from '../../session/sessions.ts';
 import { refocusReplyFor } from '../../session/core/refocus-core.ts';
 import type { RefocusContext } from '../../session/core/refocus-core.ts';
-import type { FactoryDispatchResult } from '../../shared/contracts/factory.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
-import { decideAgentRequest, isOrchestratorAgentVerb, REFUSAL_REASON, REFUSAL_STATUS } from '../core/agent-api-core.ts';
-import { AgentTicketRequest, SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../../shared/contracts/session.ts';
-import type { AgentTicketReply, OrchestratorAgentVerb, TicketAgentVerb } from '../../shared/contracts/session.ts';
+import { decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from '../core/agent-api-core.ts';
+import { SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../../shared/contracts/session.ts';
 import { decideHostAllowed } from '../core/host-policy.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { isSignableGitObject, parseSshPublicKey } from '../core/ssh-signing-core.ts';
@@ -107,15 +105,6 @@ function parseJsonBody(body: string): Record<string, unknown> {
   return parseJsonRecord(body, { admitArrays: true }) ?? {};
 }
 
-type TicketVerbHandler = (sessionId: string, request: AgentTicketRequest) => Promise<AgentTicketReply>;
-
-interface FactoryAgentPort {
-  getLiveOrchestrator: (sessionId: string) => { projectId: string; intentId: string } | null;
-  dispatch: (sessionId: string, payload: Record<string, unknown>) => Promise<FactoryDispatchResult>;
-  reopen?: TicketVerbHandler;
-  cancel?: TicketVerbHandler;
-}
-
 interface HookRouterOutput {
   status: number;
   reason: string;
@@ -153,7 +142,6 @@ interface BackendHttpDependencies {
   getUsage: () => { ingestStatusline: (payload: object) => void };
   getPlanReview?: () => PlanReviewHookPort | null;
   refocusContextFor?: (glimmervoidId: string) => RefocusContext;
-  getFactory?: () => FactoryAgentPort | null;
   getAgentApi?: () => AgentApiPort | null;
   sshSigner?: Pick<SshSigner, 'signWithAgent'> | null;
   recordOutcome?: OutcomeRecorder;
@@ -245,46 +233,6 @@ function refuseAgentRequest(res: Response): void {
   res.status(REFUSAL_STATUS).json({ ok: false, error: REFUSAL_REASON });
 }
 
-function answerTicketVerb({ res, factory, sessionId, verb, payload }: {
-  res: Response;
-  factory: FactoryAgentPort;
-  sessionId: string;
-  verb: TicketAgentVerb;
-  payload: Record<string, unknown>;
-}): void {
-  const handler = factory[verb];
-  if (!handler) {
-    res.status(501).json({ ok: false, reason: `this Glimmervoid cannot ${verb} tickets` });
-    return;
-  }
-  const request = AgentTicketRequest.safeParse(payload);
-  if (!request.success) {
-    res.status(400).json({ ok: false, reason: request.error.issues[0]?.message || 'invalid request' });
-    return;
-  }
-  void handler(sessionId, request.data).then(
-    (reply) => { res.status(200).json(reply); },
-    () => { res.status(500).json({ ok: false, reason: `could not ${verb} the ticket` }); },
-  );
-}
-
-function answerOrchestratorVerb({ res, factory, sessionId, verb, payload }: {
-  res: Response;
-  factory: FactoryAgentPort;
-  sessionId: string;
-  verb: OrchestratorAgentVerb;
-  payload: Record<string, unknown>;
-}): void {
-  if (verb !== 'dispatch') {
-    answerTicketVerb({ res, factory, sessionId, verb, payload });
-    return;
-  }
-  void factory.dispatch(sessionId, payload).then(
-    (reply) => { res.status(200).json(reply); },
-    () => { res.status(500).json({ ok: false, reason: 'could not dispatch the ticket' }); },
-  );
-}
-
 function answerAgentVerb({ res, agentApi, session, verb, payload }: {
   res: Response;
   agentApi: AgentApiPort;
@@ -334,7 +282,7 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
 }
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
-  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'getFactory' | 'getAgentApi' | 'sshSigner' | 'recordOutcome' | 'logger'>;
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'getAgentApi' | 'sshSigner' | 'recordOutcome' | 'logger'>;
 
 function mountHostAllowList(app: Express, allowedHosts: string[]): void {
   app.use((req, res, next) => {
@@ -354,7 +302,6 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     getPlanReview = () => null,
     refocusContextFor = () => ({ taskTitle: null, latestPlanTitle: null }),
     getAgentApi = () => null,
-    getFactory = () => null,
     recordOutcome = () => {},
     logger = console,
   } = dependencies;
@@ -421,10 +368,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
   app.post('/agent/:glimmervoidId/:verb', (req, res) => {
     const agentApi = getAgentApi();
     const session = getSession(req.params.glimmervoidId);
-    const factory = getFactory();
-    const isOrchestrator = factory?.getLiveOrchestrator(req.params.glimmervoidId) != null;
     const verb = req.params.verb;
-    const isOrchestratorVerb = isOrchestratorAgentVerb(verb);
     const verdict = decideAgentRequest({
       sessionId: req.params.glimmervoidId,
       presentedToken: presentedToken(req),
@@ -438,18 +382,6 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       if (body === null) return;
       if (!verdict.ok || !session) {
         refuseAgentRequest(res);
-        return;
-      }
-      if (session.factoryRole === 'orchestrator' && !isOrchestratorVerb) {
-        res.status(403).json({ ok: false, reason: 'only live factory orchestrators may dispatch, reopen or cancel, and they may do nothing else' });
-        return;
-      }
-      if (isOrchestratorVerb !== isOrchestrator) {
-        res.status(403).json({ ok: false, reason: 'only live factory orchestrators may dispatch, reopen or cancel, and they may do nothing else' });
-        return;
-      }
-      if (isOrchestratorAgentVerb(verb) && factory) {
-        answerOrchestratorVerb({ res, factory, sessionId: session.id, verb, payload: parseJsonBody(body) });
         return;
       }
       if (!agentApi) { refuseAgentRequest(res); return; }

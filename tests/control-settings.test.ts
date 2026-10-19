@@ -290,10 +290,10 @@ test('a usage save carrying one budget leaf leaves the other budget leaf and the
 });
 
 test('a list value is one leaf: a saved list replaces the stored list whole and leaves sibling lists alone', () => {
-  const h = harness({ projects: [], factory: { enabled: true, checks: ['npm test', 'npm run lint'], protectedPaths: ['.github/'] } });
-  h.send({ type: 'update-settings', settings: { factory: { checks: ['npm run typecheck'] } } });
+  const h = harness({ projects: [], guardrails: { unguardedRepos: ['/repo-a', '/repo-b'], blockedPaths: ['/secrets'] } });
+  h.send({ type: 'update-settings', settings: { guardrails: { unguardedRepos: ['/repo-c'] } } });
   assert.equal(errorFrom(h), undefined);
-  assert.deepEqual(h.cfg.factory, { enabled: true, checks: ['npm run typecheck'], protectedPaths: ['.github/'] });
+  assert.deepEqual(h.cfg.guardrails, { unguardedRepos: ['/repo-c'], blockedPaths: ['/secrets'] });
 });
 
 test('a leaf the registry does not list is refused by name even where the schema lets the block pass through', () => {
@@ -470,26 +470,6 @@ test('benchmark settings persist, echo, and reject a non-boolean enabled', () =>
   invalid.send({ type: 'update-settings', settings: { benchmarks: { enabled: 'yes' } } });
   assert.match(String(errorFrom(invalid)?.message ?? ''), /benchmarks.enabled must be a boolean/);
   assert.equal(invalid.cfg.benchmarks, undefined);
-});
-
-test('factory settings save to disk, hot-apply, echo, and reload through get-settings', () => {
-  withRealStore({ projects: [] }, undefined, (settings, store, readDisk) => {
-    assert.equal(store.getSettings().factory, null);
-    for (const enabled of [true, false]) {
-      settings.sent.length = 0;
-      settings.send({ type: 'update-settings', settings: { factory: { enabled, ignored: true } } });
-      assert.equal(errorFrom(settings), undefined);
-      assert.deepEqual(readDisk().factory, { enabled });
-      assert.deepEqual(store.config.factory, { enabled });
-      assert.deepEqual(updatedFrom(settings)?.settings?.factory, { enabled });
-      settings.send({ type: 'get-settings' });
-      assert.deepEqual(settings.sent.find((frame) => frame.type === 'settings')?.settings?.factory, { enabled });
-    }
-    settings.sent.length = 0;
-    settings.send({ type: 'update-settings', settings: { factory: { enabled: 'yes' } } });
-    assert.match(String(errorFrom(settings)?.message ?? ''), /factory.enabled must be a boolean/);
-    assert.deepEqual(readDisk().factory, { enabled: false });
-  });
 });
 
 function posthogPayload(over: Record<string, unknown> = {}): Record<string, unknown> {

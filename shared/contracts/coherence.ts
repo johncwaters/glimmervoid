@@ -1,9 +1,5 @@
 import { z } from 'zod';
 
-export const CoherenceRisk = z.enum(['low', 'medium', 'high', 'critical']);
-export const CoherenceWorkState = z.enum(['open', 'active', 'blocked', 'completed', 'cancelled']);
-export const CoherenceReadiness = z.enum(['ready', 'waiting', 'active', 'blocked', 'done']);
-
 const CoherenceWorkStats = z.looseObject({
   total: z.number().int().nonnegative(),
   roots: z.number().int().nonnegative(),
@@ -67,63 +63,7 @@ export const CoherenceOrient = z.looseObject({
   }).nullable(),
 });
 
-export const CoherenceWorkInspect = z.looseObject({
-  work: z.array(z.looseObject({
-    work: z.string(),
-    state: CoherenceWorkState,
-    readiness: CoherenceReadiness,
-    owner: z.looseObject({
-      session: z.string(),
-      agent: z.string(),
-    }),
-    last: z.looseObject({
-      event: z.string(),
-      at: z.string(),
-      session: z.string(),
-      reason: z.string().optional(),
-    }).nullable(),
-    opened: z.looseObject({
-      at: z.iso.datetime(),
-      objective: z.string(),
-      authority: z.looseObject({ boundary: z.string() }),
-      criteria: z.array(z.string()),
-      risk: CoherenceRisk,
-      parent: z.string().nullable(),
-      dependsOn: z.array(z.string()),
-      readScopes: z.array(z.string()),
-      writeScopes: z.array(z.string()),
-    }),
-  })),
-  scopeConflicts: z.array(z.looseObject({
-    left: z.string(),
-    right: z.string(),
-    leftScope: z.string(),
-    rightScope: z.string(),
-    status: z.string(),
-  })),
-});
-
 export type CoherenceOrient = z.infer<typeof CoherenceOrient>;
-export type CoherenceWorkInspect = z.infer<typeof CoherenceWorkInspect>;
-export type CoherenceRisk = z.infer<typeof CoherenceRisk>;
-
-export const CoherenceWorkCreated = z.looseObject({
-  version: z.literal(1),
-  event: z.literal('opened'),
-  at: z.iso.datetime(),
-  session: z.literal('glimmervoid-factory'),
-  work: z.string().regex(/^wrk-[a-f0-9]{16}$/),
-  id: z.string().regex(/^wev-[a-f0-9]{16}$/),
-  parent: z.null(),
-  objective: z.string(),
-  criteria: z.array(z.string()),
-  risk: CoherenceRisk,
-  state: z.literal('open'),
-  authority: z.object({ kind: z.literal('user-directed'), grantedBy: z.literal('operator'), boundary: z.string() }),
-  writeScopes: z.array(z.string()),
-});
-
-export const CoherenceTicketCreated = CoherenceWorkCreated.extend({ parent: z.string().regex(/^wrk-[a-f0-9]{16}$/) });
 
 export const COHERENCE_JOURNAL_TEXT_MAX_CHARS = 280;
 export const COHERENCE_JOURNAL_DRAWER_MAX_ROWS = 200;

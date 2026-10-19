@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const ROOT = path.join(import.meta.dirname, '..');
-const EXPORTING_ROOTS = new Set(['server', 'session', 'detection', 'notifications', 'shared', 'public', 'knowledge-graph']);
+const EXPORTING_ROOTS = new Set(['server', 'session', 'detection', 'notifications', 'shared', 'public',]);
 const SOURCE_FILE = /\.(?:[cm]?[jt]sx?|astro|html)$/;
 const MODULE_FILE = /\.(?:[cm]?[jt]s)$/;
 const IDENTIFIER = /[A-Za-z_$][\w$]*/g;

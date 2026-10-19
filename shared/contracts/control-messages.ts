@@ -1,7 +1,6 @@
 import { IssueRepoSlug, IssuesStatus } from './issues.ts';
 import { GithubPollingRefreshRequest, GithubPollingRefreshResult } from './github-polling.ts';
 import { z } from 'zod';
-import { FactoryControlRequest, FactoryControlResult, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from './factory.ts';
 import {
   PLAN_BODY_CAP_BYTES,
   PLAN_COMMENTS_MAX,
@@ -90,7 +89,6 @@ export const SessionCardFields = z.object({
   guardrailsReleased: z.boolean().optional(),
   resumeSessionId: nullableString,
   ephemeral: z.boolean().optional(),
-  isFactory: z.boolean().optional(),
   linkedPrs: z.array(LinkedPr).optional(),
 });
 export type SessionCardFields = z.infer<typeof SessionCardFields>;
@@ -200,8 +198,6 @@ const clientVariants = [
   loose('radar-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
   loose('open-team-review-session', { requestId, key: PullRequestKey }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }).refine(hasRequiredActionHead, { message: 'only discard may omit head', path: ['head'] }),
-  loose('factory-queue-intent', { ...FactoryQueueIntentRequest.shape, requestId }),
-  loose('factory-control', { ...FactoryControlRequest.shape, requestId }),
   loose('benchmark-action', { ...BenchmarkActionRequest.shape, requestId }),
   loose('my-pr-merge', { ...MyPrMergeRequest.shape, requestId }),
   loose('my-pr-keep-mergeable', { ...MyPrKeepMergeableRequest.shape, requestId }),
@@ -332,8 +328,6 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'radar-issue-action-result',
   'team-review-action-result',
   'benchmark-action-result',
-  'factory-queue-intent-result',
-  'factory-control-result',
   'my-pr-merge-result',
   'my-pr-keep-mergeable-result',
   'my-pr-merge-when-ready-result',
@@ -341,7 +335,6 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'radar-archive-investigation-result',
   'team-review-status',
   'benchmark-status',
-  'factory-state',
   'my-prs-status',
   'issues-status',
   'usage-sessions',
@@ -617,8 +610,6 @@ const serverVariants = [
     status: nullableString.optional(),
   }),
   loose('team-review-action-result', { ...TeamReviewActionResult.shape, requestId }),
-  loose('factory-queue-intent-result', { ...FactoryQueueIntentResult.shape, requestId }),
-  loose('factory-control-result', { ...FactoryControlResult.shape, requestId }),
   loose('benchmark-action-result', { ...BenchmarkActionResult.shape, requestId }),
   loose('my-pr-merge-result', { ...MyPrMergeResult.shape, requestId }),
   loose('my-pr-keep-mergeable-result', { ...MyPrKeepMergeableResult.shape, requestId }),
@@ -628,7 +619,6 @@ const serverVariants = [
   loose('telegram-test-result', { requestId, ok: z.boolean(), error: optionalError, telegramDelivery: TelegramDeliveryStatus.nullable() }),
   TeamReviewStatus,
   BenchmarkStatus,
-  loose('factory-state', FactoryState.shape),
   MyPrsStatus,
   IssuesStatus,
 

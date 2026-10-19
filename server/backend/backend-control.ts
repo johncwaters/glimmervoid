@@ -1,13 +1,12 @@
 import type { IssuesStatus } from '../../shared/contracts/issues.ts';
 import type { GithubPollingRefreshResult } from '../../shared/contracts/github-polling.ts';
-import type { FactoryState } from '../../shared/contracts/factory.ts';
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
 import type { ChangeMapNarrator } from '../change-map/change-map-wiring.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
-import type { FactoryControl, BenchmarkControl, MyPrMergeControl, TeamReviewActionControl } from '../control-handlers.ts';
+import type { BenchmarkControl, MyPrMergeControl, TeamReviewActionControl } from '../control-handlers.ts';
 import type { ReplayLog } from '../core/control-replay-core.ts';
 import type { TelegramDeliveryControl } from '../core/telegram-delivery-core.ts';
 import type { PlanDecision } from '../../shared/contracts/plan-review.ts';
@@ -85,7 +84,6 @@ interface BackendControlDependencies {
   myPrs: MyPrMergeControl & { getStatus: () => MyPrsStatus };
   issues: { getStatus: () => IssuesStatus; refresh: () => Promise<GithubPollingRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]>; getLinkedSessionId: (issueKey: string) => Promise<string | null>; linkSession: (issueKey: string, sessionId: string) => Promise<void> };
   benchmarks: BenchmarkControl;
-  factory?: FactoryControl & { getState: () => FactoryState | null };
   usage: UsageControl;
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   readPlanRevision: ((
@@ -155,8 +153,6 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     getIssuesStatus: () => issues.getStatus(),
     issueProjectRepos: (projectId) => issues.projectRepoSlugs(projectId),
     getBenchmarkStatus: () => benchmarks.getStatus(),
-    getFactoryState: () => dependencies.factory?.getState() ?? null,
-    factory: dependencies.factory,
     benchmarks,
     teamReview,
     myPrs,

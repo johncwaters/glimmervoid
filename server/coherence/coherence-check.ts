@@ -16,7 +16,7 @@ import type { CoherenceCheckOutcome } from './core/coherence-check-core.ts';
 import { judgeCoherenceConfig } from './core/coherence-config-core.ts';
 import type { CoherenceHost } from './core/coherence-session-core.ts';
 import { firstLine } from '../core/text-core.ts';
-import { factoryGitEnvironment } from '../git/git-workspace.ts';
+import { checkGitEnvironment } from '../git/git-workspace.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import type { CoherenceNativeHooks } from './coherence-native-hooks.ts';
 import type { CoherenceReadings } from './coherence-readings.ts';
@@ -42,7 +42,7 @@ interface CoherenceCheckSession {
 
 interface CoherenceCheckOptions {
   listProjects: () => CoherenceCheckProject[];
-  readSettings: () => { isFactoryEnabled: boolean; isSettingOn: boolean };
+  readSettings: () => { isSettingOn: boolean };
   readIntegrationTip: (projectPath: string) => Promise<string | null>;
   nativeHooks: Pick<CoherenceNativeHooks, 'prepare'>;
   readings: Pick<CoherenceReadings, 'readTrend'>;
@@ -258,7 +258,7 @@ function createCoherenceCheck({
     const scratch = await makeHostScratchDirectory('coherence-check-');
     const stages: CoherenceCheckStage[] = [];
     try {
-      const run: CheckRun = { project, scratch, deadlineMs, env: coherenceEnv(await factoryGitEnvironment(project.path)), tipSha: null, snapshot: null, linkedNodeModules: null, probeSessionId: null, probeSession: null };
+      const run: CheckRun = { project, scratch, deadlineMs, env: coherenceEnv(await checkGitEnvironment(project.path)), tipSha: null, snapshot: null, linkedNodeModules: null, probeSessionId: null, probeSession: null };
       for (const id of COHERENCE_CHECK_STAGE_IDS) stages.push(await runStage(id, run, stages));
       return summarizeCoherenceCheck(project.id, stages);
     } finally {

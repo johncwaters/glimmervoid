@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { CoherenceRisk } from './coherence.ts';
 import { POSTHOG_WHOLE_NUMBER_ROUNDING } from './config-numbers-core.ts';
 import * as ranges from '../settings-ranges.ts';
 import type { SettingsRange } from '../settings-ranges.ts';
@@ -122,26 +121,6 @@ const BenchmarksSettings = optionalObject('benchmarks', {
   enabled: optionalBoolean('benchmarks.enabled'),
 });
 
-export const DEFAULT_FACTORY_CHECKS = ['npm run typecheck', 'npm run lint', 'npm test'];
-
-export const DEFAULT_FACTORY_PROTECTED_PATHS = ['coherence.config.json', '.coherence/', 'package.json', 'package-lock.json', '**/AGENTS.md', '**/CLAUDE.md', '**/CLAUDE.local.md', '.claude/', '.github/'];
-
-export const FactorySettings = z.object({
-  enabled: optionalBoolean('factory.enabled'),
-  maxRisk: CoherenceRisk.optional(),
-  maxLiveWorkers: z.number().int().min(ranges.FACTORY_MAX_LIVE_WORKERS_RANGE.min).optional(),
-  checks: z.array(z.string().trim().min(1)).optional(),
-  protectedPaths: z.array(z.string().trim().min(1)).optional(),
-  reviewerModel: z.string().trim().min(1).nullable().optional(),
-  dailyBudgetUsd: z.number().finite().nonnegative().nullable().optional(),
-  verifierModel: z.string().trim().min(1).nullable().optional(),
-  mirrorHarnessRuns: optionalBoolean('factory.mirrorHarnessRuns'),
-}).nullable().optional();
-
-const KnowledgeGraphSettings = optionalObject('knowledgeGraph', {
-  enabled: optionalBoolean('knowledgeGraph.enabled'),
-});
-
 const CoherenceSettings = optionalObject('coherence', {
   enabled: optionalBoolean('coherence.enabled'),
 });
@@ -258,7 +237,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   phoneEscalationMs: z.number().finite().nonnegative().optional(),
   replayBufferKB: optionalWholeNumber('replayBufferKB', ranges.REPLAY_BUFFER_KB_RANGE),
   sessionMemoryReserveMB: optionalWholeNumber('sessionMemoryReserveMB', ranges.MEMORY_RESERVE_MB_RANGE),
-  checkMemoryReserveMB: optionalWholeNumber('checkMemoryReserveMB', ranges.MEMORY_RESERVE_MB_RANGE),
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
   conversationView: optionalBoolean('conversationView'),
@@ -284,8 +262,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   github: GithubSettings,
   teamReview: TeamReviewSettings,
   benchmarks: BenchmarksSettings,
-  factory: FactorySettings,
-  knowledgeGraph: KnowledgeGraphSettings,
   coherence: CoherenceSettings,
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),

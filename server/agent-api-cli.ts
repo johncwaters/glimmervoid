@@ -1,16 +1,15 @@
-import { readFileSync } from 'node:fs';
+
 import http from 'node:http';
 import path from 'node:path';
 
 import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
-import { AgentDispatchRequest, AgentFactoryRetryRequest, AgentFactoryStatusRequest, AgentLimitsReply, AgentTicketRequest, AGENT_URL_ENV } from '../shared/contracts/session.ts';
+import { AgentLimitsReply, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { errorCode } from '../shared/text.ts';
 import { decideGuardrailsProxy } from '../session/core/guardrails-proxy-core.ts';
 import type { GuardrailsProxy } from '../session/core/guardrails-proxy-core.ts';
-import { isAgentApiVerb, isOrchestratorAgentVerb } from './core/agent-api-core.ts';
-import { isRecord } from '../shared/coerce.ts';
+import { isAgentApiVerb } from './core/agent-api-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
 import { ProjectCoherenceCheckResult } from '../shared/contracts/coherence.ts';
 import { renderCoherenceCheckText } from './coherence/core/coherence-check-core.ts';
@@ -20,11 +19,6 @@ const HELP_LIMITS_TIMEOUT_MS = 2000;
 const HELP_LIMITS_UNKNOWN_LINE = 'This session: Glimmervoid did not report its limits, so run glimmervoid limits to see why';
 
 type BodyBuilder = (rest: string[]) => Record<string, unknown> | null;
-
-function ticketBody(rest: string[]): Record<string, unknown> | null {
-  const parsed = AgentTicketRequest.safeParse({ workId: rest[0] });
-  return parsed.success ? parsed.data : null;
-}
 
 const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   spawn: (rest) => {
@@ -42,44 +36,8 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     return docPath ? { path: path.resolve(docPath) } : null;
   },
   limits: () => ({}),
-  dispatch: (rest) => {
-    const parsed = AgentDispatchRequest.safeParse(rest[0] === '--ready' ? { readyIntent: rest[1] } : { workId: rest[0] });
-    return parsed.success ? parsed.data : null;
-  },
-  reopen: (rest) => ticketBody(rest),
-  cancel: (rest) => ticketBody(rest),
-  'factory-status': (rest) => {
-    if (rest.length === 0) return {};
-    if (rest.length !== 2 || rest[0] !== '--project') return null;
-    const parsed = AgentFactoryStatusRequest.safeParse({ projectId: rest[1] });
-    return parsed.success ? parsed.data : null;
-  },
-  'factory-retry': (rest) => {
-    if (rest.length !== 1) return null;
-    const parsed = AgentFactoryRetryRequest.safeParse({ intentId: rest[0] });
-    return parsed.success ? parsed.data : null;
-  },
-  'factory-setup': (rest) => rest.length === 0 ? {} : null,
   'coherence-check': (rest) => rest.length === 0 ? {} : null,
-  'factory-queue': (rest) => {
-    if (rest.length !== 1) return null;
-    const intent = parseJsonOrNull(readFileSync(rest[0], 'utf8'));
-    if (!isRecord(intent)) return null;
-    const { name: _name, type: _type, requestId: _requestId, projectId: _projectId, ...request } = intent;
-    return request;
-  },
 };
-
-const FACTORY_USAGE: Readonly<Record<string, string>> = Object.freeze({
-  'factory-status': 'status [--project <projectId>]',
-  'factory-retry': 'retry <intentId>',
-  'factory-setup': 'setup',
-  'factory-queue': 'queue <intent.json>',
-});
-
-function isFactoryVerb(verb: AgentApiVerb): boolean {
-  return verb in FACTORY_USAGE;
-}
 
 function bodySaysOk(text: string): boolean {
   try {
@@ -97,13 +55,6 @@ function limitsLines(replyText: string): string[] | null {
 }
 
 function printableReply(verb: AgentApiVerb, replyText: string): string {
-  if (isFactoryVerb(verb)) {
-    const reply = parseJsonOrNull(replyText);
-    if (typeof reply !== 'object' || reply === null) return replyText;
-    if ('text' in reply && typeof reply.text === 'string') return reply.text;
-    if ('error' in reply && typeof reply.error === 'string') return reply.error;
-    return replyText;
-  }
   if (verb === 'coherence-check') {
     const result = ProjectCoherenceCheckResult.safeParse(parseJsonOrNull(replyText));
     return result.success ? renderCoherenceCheckText(result.data) : replyText;
@@ -206,13 +157,6 @@ async function sessionLimitsHelpLines({ timeoutMs = HELP_LIMITS_TIMEOUT_MS }: { 
 }
 
 async function runAgentApiCli(args: string[]): Promise<number> {
-  if (args[0] === 'factory') {
-    if (!(`factory-${args[1]}` in FACTORY_USAGE)) {
-      console.error(`glimmervoid factory: expected ${Object.values(FACTORY_USAGE).join(', or ')}`);
-      return 1;
-    }
-    return runAgentApiCli([`factory-${args[1]}`, ...args.slice(2)]);
-  }
   const verb = args[0];
   if (!verb || !isAgentApiVerb(verb)) {
     console.error(`glimmervoid: ${verb || 'that'} is not an agent command`);
@@ -220,14 +164,6 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   }
   const body = BODY_BUILDERS[verb](args.slice(1));
   if (!body) {
-    if (isFactoryVerb(verb)) {
-      console.error(`glimmervoid factory: expected ${FACTORY_USAGE[verb]}`);
-      return 1;
-    }
-    if (isOrchestratorAgentVerb(verb)) {
-      console.error(`glimmervoid ${verb}: expected a work id matching wrk-[0-9a-f]{16}`);
-      return 1;
-    }
     if (verb === 'edit') {
       console.error('glimmervoid edit: this command needs a file path, for example "glimmervoid edit drafts/post.md"');
       return 1;

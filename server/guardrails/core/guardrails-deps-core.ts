@@ -3,7 +3,7 @@ const NO_GUARDRAILS_BINARIES: readonly string[] = Object.freeze([]);
 
 const GUARDRAILS_INSTALL_HINT = 'Install bubblewrap, socat and ripgrep, for example: sudo apt install bubblewrap socat ripgrep';
 
-const GUARDED_WORK = 'guarded sessions and factory checks';
+const GUARDED_WORK = 'guarded sessions';
 
 interface GuardrailsDependencyReport {
   platform: NodeJS.Platform;

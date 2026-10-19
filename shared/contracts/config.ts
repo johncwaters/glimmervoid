@@ -2,8 +2,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { TaskTitle } from './session.ts';
 import { SessionPrLinks } from './my-prs.ts';
-import {
-  FactorySettings, BranchGcControlSettings, ChangeMapSettings, GithubSettings,
+import { BranchGcControlSettings, ChangeMapSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject,
   PlanReviewSettings, GuardrailsFileSettings, TelemetryFileSettings, TraceSettings,
 } from './browser-config.ts';
@@ -120,10 +119,6 @@ export const ProjectConfig = z.object({
   conversationView: z.boolean({ error: 'projects[].conversationView must be a boolean' }).optional(),
   dangerouslySkipPermissions: z.boolean({ error: 'projects[].dangerouslySkipPermissions must be a boolean' }).optional(),
   unguarded: z.boolean({ error: 'projects[].unguarded must be a boolean' }).optional(),
-  factoryProfile: FactorySettings.unwrap().unwrap().extend({
-    focusedTestCommand: z.string().trim().min(1).optional(),
-    widenableScopes: z.array(z.string().trim().min(1)).optional(),
-  }).optional(),
 }).passthrough();
 const FILE_CONFIG_SHAPE = {
   ...BROWSER_CONFIG_SHAPE,
@@ -134,8 +129,6 @@ const FILE_CONFIG_SHAPE = {
   github: GithubSettings,
   teamReview: optionalLooseObject('teamReview'),
   benchmarks: optionalLooseObject('benchmarks'),
-  factory: FactorySettings,
-  knowledgeGraph: optionalLooseObject('knowledgeGraph'),
   coherence: optionalLooseObject('coherence'),
   posthog: optionalLooseObject('posthog'),
   usage: optionalLooseObject('usage'),
@@ -181,7 +174,7 @@ export const Config = z.object({
 });
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
-  'changeMap', 'taskTitle', 'branchGc', 'postTurnChecks', 'visions', 'github', 'teamReview', 'benchmarks', 'factory', 'knowledgeGraph', 'coherence', 'posthog', 'usage', 'telegram', 'ingest',
+  'changeMap', 'taskTitle', 'branchGc', 'postTurnChecks', 'visions', 'github', 'teamReview', 'benchmarks', 'coherence', 'posthog', 'usage', 'telegram', 'ingest',
   'guardrails', 'telemetry', 'workflows', 'coder',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Removed the Factory tab, factory lanes, `glimmervoid factory` and `dispatch` commands, the experimental `glimmervoid kg` knowledge graph, and their settings.
+
 ### Added
 
 - **See what a session loaded**: Session setup in a card's session menu lists the Claude Code session's model, plugins with their skills and agents, MCP servers, hooks with how often each ran, and its other skills and agents, read from the session's own transcript. Use it to check, for example, whether a plugin is active in that session.

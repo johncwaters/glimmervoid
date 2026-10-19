@@ -73,8 +73,7 @@ function summarizeCoherenceCheck(projectId: string, stages: readonly CoherenceCh
   return { projectId, ok: !stages.some((stage) => stage.status === 'fail'), stages: [...stages] };
 }
 
-function judgeCoherenceSetting({ isFactoryEnabled, isSettingOn }: { isFactoryEnabled: boolean; isSettingOn: boolean }): CoherenceCheckOutcome {
-  if (isFactoryEnabled) return passed('Factory always uses Coherence');
+function judgeCoherenceSetting({ isSettingOn }: { isSettingOn: boolean }): CoherenceCheckOutcome {
   if (isSettingOn) return passed('Settings > Lanes > Coherence is on');
   return failed('Settings > Lanes > Coherence is off');
 }

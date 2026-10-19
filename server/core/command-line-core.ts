@@ -15,7 +15,7 @@ type ScanState = GlobalOptions & { wantsHelp: boolean; wantsVersion: boolean; wa
 
 const SUBCOMMANDS_HONORING_TRAILING_GLOBAL_OPTIONS: ReadonlySet<string> = new Set(['doctor', 'pair', 'visions']);
 
-const SUBCOMMANDS_HONORING_A_LEADING_HELP_OR_VERSION: ReadonlySet<string> = new Set([...AGENT_API_VERBS, 'factory']);
+const SUBCOMMANDS_HONORING_A_LEADING_HELP_OR_VERSION: ReadonlySet<string> = new Set(AGENT_API_VERBS);
 
 const OPTIONS_TAKING_A_VALUE: Record<string, 'configPath' | 'port'> = { '--config': 'configPath', '--port': 'port' };
 

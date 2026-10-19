@@ -13,7 +13,7 @@ import type { CoherenceReadingVerb, CoherenceVerbReadings } from './core/coheren
 import { coherenceJournalStoreKey } from './core/coherence-session-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { firstLine } from '../core/text-core.ts';
-import { factoryGitEnvironment } from '../git/git-workspace.ts';
+import { checkGitEnvironment } from '../git/git-workspace.ts';
 import type { GitWorkspaceInstance } from '../git/git-workspace.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { writeTextAtomic } from '../json-file.ts';
@@ -48,7 +48,7 @@ type VerbOutput = { ok: true; stdout: string } | { ok: false; reason: string };
 interface CoherenceReadingsOptions {
   seriesRoot: string;
   listProjects: () => ReadingsProject[];
-  readSettings: () => { isFactoryEnabled: boolean; isSettingOn: boolean };
+  readSettings: () => { isSettingOn: boolean };
   readIntegrationTip: (projectPath: string) => Promise<string | null>;
   fetchOrigin: GitWorkspaceInstance['fetchOrigin'];
   hasNativeControlAt: (projectPath: string, sha: string) => Promise<boolean>;
@@ -154,7 +154,7 @@ function createCoherenceReadings({
   }
 
   async function readingsInSnapshot(projectPath: string, sha: string, resolvedCliPath: string, scratch: string): Promise<CoherenceVerbReadings> {
-    const env = coherenceEnv(await factoryGitEnvironment(projectPath));
+    const env = coherenceEnv(await checkGitEnvironment(projectPath));
     const snapshot = await snapshotCheckout({ cwd: projectPath, snapshotRoot: path.join(scratch, 'snapshot'), env, source: { kind: 'commit', sha } });
     if (!snapshot.ok) return unavailableEverywhere(COHERENCE_READING_UNAVAILABLE.snapshotFailed);
     const configEntry = await readCoherenceConfigEntry(snapshot.cwd);

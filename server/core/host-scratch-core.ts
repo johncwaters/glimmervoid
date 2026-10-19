@@ -5,9 +5,6 @@ export const HOST_SCRATCH_PREFIXES = [
   'coherence-readings-',
   'coherence-regulate-',
   'check-',
-  'glimmervoid-factory-review-',
-  'glimmervoid-factory-index-',
-  'glimmervoid-factory-rehearsal-',
   'glimmervoid-lane-settings-',
   'glimmervoid-lane-coherence-bin-',
 ] as const;

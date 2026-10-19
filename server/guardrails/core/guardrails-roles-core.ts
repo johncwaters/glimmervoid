@@ -43,8 +43,6 @@ const LANE_CREDENTIAL_ENV: Readonly<Record<string, string>> = Object.freeze({
   GH_TOKEN: '', GITHUB_TOKEN: '', GH_ENTERPRISE_TOKEN: '', GITHUB_ENTERPRISE_TOKEN: '',
 });
 
-const LANE_READABLE_HOME_FOLDERS: readonly string[] = Object.freeze(['bin', path.join('factory', 'bin')]);
-
 function judgeRole({ vendor, cwd, hookPort, readablePaths, agentSessionId }: JudgeRoleFacts): GuardrailsRole {
   return {
     vendors: [vendor],
@@ -122,16 +120,11 @@ function isSessionGuarded({ usageVendor, isMarkedUnguarded, sessionFolders, ungu
   return !sessionFolders.some((folder) => unguardedRepos.some((repo) => isPathInside(repo, folder)));
 }
 
-function parseGitdirPointer(gitFileText: string): string | null {
-  const gitdir = /^gitdir:\s*(.+)$/m.exec(gitFileText)?.[1]?.trim();
-  return gitdir && path.isAbsolute(gitdir) ? path.resolve(gitdir) : null;
-}
-
 function isWorktreeAdminDirOf({ adminDir, commonGitDir }: { adminDir: string; commonGitDir: string }): boolean {
   return path.dirname(path.resolve(adminDir)) === path.resolve(commonGitDir, 'worktrees');
 }
 
 export {
-  isGuardedSessionVendor, isSessionGuarded, isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, mainCheckoutWriteBlocks, parseGitdirPointer, sessionRole,
+  isGuardedSessionVendor, isSessionGuarded, isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, mainCheckoutWriteBlocks, sessionRole,
   workRole,
 };

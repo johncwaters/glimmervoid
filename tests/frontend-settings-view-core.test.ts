@@ -173,8 +173,6 @@ test('every setting resets to its registry default, and a stored secret resets t
   assert.equal(resetValueOf(settingById('telegram-bot-token')), '');
   assert.equal(isAtDefault(settingById('telegram-bot-token'), STORED_SECRET_MASK), false);
   assert.equal(isAtDefault(settingById('telegram-bot-token'), ''), true);
-  assert.deepEqual(resetValueOf(settingById('factory-checks')), ['npm run typecheck', 'npm run lint', 'npm test']);
-  assert.equal(isAtDefault(settingById('factory-reviewer-model'), null), true);
   assert.equal(isAtDefault(settingById('usage-retain-days'), 90), true);
 });
 

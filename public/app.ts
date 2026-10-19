@@ -14,8 +14,6 @@ import { createAddSessionDialog } from './dialogs.ts';
 import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, forgetSessionCoherence, isSessionJournalReadable, openCoherenceJournal, sessionRowCoherenceSignals, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
-import { applyProjectCoherenceTrend, applyProjectCoherenceTrendSnapshot, forgetCoherenceTrendProject, noteCoherenceTrendProject, setCoherenceTrendProjects } from './coherence/trend-chip.ts';
-import { applyProjectCoherenceStatus, setCoherenceAdoptFactoryProjects, setProjectCoherenceAdoptEnabled, setProjectCoherenceAdoptRefresh } from './coherence/adopt-action.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
 import type { FeatureSurfaceSettings } from './feature-surfaces-core.ts';
@@ -37,7 +35,6 @@ import { forgetSessionLinkedPrs, paintSessionPrChips, refreshSessionPrChipStages
 import { addSessionRowSignalSource } from './session-row.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
-import { applyFactoryControlResult, applyFactoryState, refreshFactoryCoherenceTrends, setFactoryRequestSender } from './factory/factory-view.ts';
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-panel.ts';
 import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './github/issues-panel.ts';
 
@@ -254,8 +251,7 @@ function noteServerBuild(serverBuild: unknown) {
 }
 
 function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
-  setCoherenceTrendProjects(rows);
-  refreshFactoryCoherenceTrends();
+
   setVisionsProjectNames(new Map(rows.filter((s) => !s.ephemeral).map((s): [string, string] => [s.id, s.name])));
   applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
     id: session.id,
@@ -331,7 +327,7 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
 
     const path = card ? card.dataset.path : undefined;
     removeSessionCard(msg.id);
-    createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, guarded: card?.dataset.guarded !== undefined, guardrailsReleased: card?.dataset.guardrailsReleased !== undefined, ephemeral: card?.dataset.ephemeral !== undefined, isFactory: card?.dataset.factory !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
+    createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, guarded: card?.dataset.guarded !== undefined, guardrailsReleased: card?.dataset.guardrailsReleased !== undefined, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
     setSessionAgent(msg.id, previousUi?.agent);
     carryOverClientSessionFields(msg.id, previousUi);
     refreshRosterAndAttentionSurfaces();
@@ -385,13 +381,11 @@ setHooksRequestSender(sendControlMsg);
 setTraceRequestSender(sendControlMsg);
 setIssuesRequestSender(sendControlMsg);
 setBenchmarkRequestSender(sendControlMsg);
-setFactoryRequestSender(sendControlMsg);
 setCardPrChipsPainter(paintSessionPrChips);
 addSessionRowSignalSource(sessionRowCoherenceSignals);
 addSessionRowSignalSource(sessionRowPrSignals);
 setCardCoherenceJournal({ isReadable: isSessionJournalReadable, open: openCoherenceJournal });
 setCardSessionSetup(openSessionSetup);
-setProjectCoherenceAdoptRefresh(refreshFactoryCoherenceTrends);
 
 function refreshViewsIfVisible(reason: ViewRefreshReason) {
   refreshVisibleViews(VIEW_TABS, { isPhoneShellActive: isPhoneShellActive(), activeView: getActiveView(), phoneScreen: uiState.snapshot().phoneScreen }, reason);
@@ -407,13 +401,12 @@ const messageHandlers = {
   'delete-hook-result': (msg) => applyDeleteHookResult(msg),
 
   'state-change':       (msg) => handleStateChange(msg),
-  'session-added':      (msg) => { noteCoherenceTrendProject(msg); if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); refreshFactoryCoherenceTrends(); syncTraceSessionsFromCards(); },
-  'session-removed':    (msg) => { forgetCoherenceTrendProject(msg.id); removeSessionCard(msg.id); forgetSessionCoherence(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); refreshFactoryCoherenceTrends(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-removed':    (msg) => { removeSessionCard(msg.id); forgetSessionCoherence(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
   'session-prs': (msg) => setSessionLinkedPrs(msg.id, msg.linkedPrs),
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
-    noteCoherenceTrendProject(msg);
     if (!msg.ephemeral) noteKnownProjectPath(msg.path);
 
     const previousUi = sessionUIs.get(String(msg.id));
@@ -455,9 +448,6 @@ const messageHandlers = {
   'session-coherence-hooks': (msg) => { setSessionCoherenceHooks(msg.id, msg.coherenceHooks); refreshRosterAndAttentionSurfaces(); },
   'session-coherence': (msg) => { applySessionCoherence(msg); refreshRosterAndAttentionSurfaces(); },
   'session-coherence-snapshot': (msg) => { applySessionCoherenceSnapshot(msg); refreshRosterAndAttentionSurfaces(); },
-  'project-coherence-trend': (msg) => { applyProjectCoherenceTrend(msg); refreshRosterAndAttentionSurfaces(); refreshFactoryCoherenceTrends(); },
-  'project-coherence-trend-snapshot': (msg) => { applyProjectCoherenceTrendSnapshot(msg); refreshRosterAndAttentionSurfaces(); refreshFactoryCoherenceTrends(); },
-  'project-coherence-status': (msg) => applyProjectCoherenceStatus(msg),
   'session-coherence-journal-response': (msg) => applyCoherenceJournalResponse(msg),
   'session-setup-response': (msg) => applySessionSetupResponse(msg),
 
@@ -477,8 +467,6 @@ const messageHandlers = {
   'radar-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
   'my-prs-status': (msg) => { applyMyPrsStatus(msg); refreshSessionPrChipStages(); },
-  'factory-state': (msg) => { setCoherenceAdoptFactoryProjects(msg.projects); applyFactoryState(msg); },
-  'factory-control-result': (msg) => applyFactoryControlResult(msg),
   'benchmark-status': (msg) => applyBenchmarkStatus(msg),
   'benchmark-action-result': (msg) => applyBenchmarkActionResult(msg),
   'my-pr-merge-result': (msg) => applyMyPrMergeResult(msg),
@@ -816,7 +804,6 @@ function applyDashboardSettings(settings: FeatureSurfaceSettings & Pick<BrowserC
   syncTelemetryBanner(settings);
   setStreamerMode(settings.streamerMode === true);
   setConversationViewEnabled(settings.conversationView === true);
-  setProjectCoherenceAdoptEnabled(settings.coherence?.enabled === true);
 }
 
 for (const viewTab of VIEW_TABS) {

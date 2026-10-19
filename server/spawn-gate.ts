@@ -25,10 +25,6 @@ function isQueueAdmissionTimeout(error: unknown): boolean {
   return error instanceof Error && error.message === QUEUE_ADMISSION_TIMED_OUT;
 }
 
-function isQueueAdmissionAbandoned(error: unknown): boolean {
-  return error instanceof Error && error.message === QUEUE_ADMISSION_ABANDONED;
-}
-
 function createSerialQueue(): SerialQueue {
   let tail: Promise<void> = Promise.resolve();
 
@@ -240,5 +236,5 @@ function createSpawnGate({ memoryAdmission = null, kind = 'session' }: { memoryA
   return { run, idle: queue.idle };
 }
 
-export { createKeyedSerialQueue, createMemoryAdmission, createSerialQueue, createSpawnGate, isQueueAdmissionAbandoned, isQueueAdmissionTimeout };
-export type { MemoryAdmission, MemoryGateStatus, SerialQueue };
+export { createKeyedSerialQueue, createMemoryAdmission, createSerialQueue, createSpawnGate, isQueueAdmissionTimeout };
+export type { MemoryAdmission, MemoryGateStatus };

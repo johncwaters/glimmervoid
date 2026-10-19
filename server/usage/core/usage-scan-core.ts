@@ -4,7 +4,7 @@ import { rawTextOr } from '../../../shared/coerce.ts';
 
 export type PassOutcome = 'complete' | 'byte-limited' | 'io-failed';
 
-export type LaneSpend =
+type LaneSpend =
   | { status: 'tracking-off' }
   | { status: 'scanner-missing' }
   | { status: 'catching-up' }

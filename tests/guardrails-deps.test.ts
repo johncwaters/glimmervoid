@@ -61,7 +61,7 @@ test('linux missing every binary names them all in the boot warning', () => {
   assert.deepEqual(report.missingBinaries, ['bwrap', 'socat', 'rg']);
   assert.equal(
     guardrailsBootWarning(report),
-    `[guardrails] bwrap, socat and rg are not on PATH, so guarded sessions and factory checks will refuse to start. ${GUARDRAILS_INSTALL_HINT}`,
+    `[guardrails] bwrap, socat and rg are not on PATH, so guarded sessions will refuse to start. ${GUARDRAILS_INSTALL_HINT}`,
   );
   assert.match(String(guardrailsInstallNotice(report)), /bwrap, socat and rg are not on PATH.*sudo apt install bubblewrap socat ripgrep$/);
 });
@@ -97,7 +97,7 @@ test('the boot check probes once, warns once, and every spawn reads the cached r
   assert.equal(refusal(), refusal());
   assert.equal(probes, 1);
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0] ?? '', /guarded sessions and factory checks will refuse to start/);
+  assert.match(warnings[0] ?? '', /guarded sessions will refuse to start/);
 });
 
 test('a boot check that finds everything warns nothing and refuses nothing', () => {
@@ -143,7 +143,7 @@ test('postinstall prints one guardrails hint line when a binary is missing and s
     const missing = runWithPath(['scripts/postinstall-path-check.ts'], missingPathDir);
     assert.equal(missing.status, 0, missing.stderr);
     const hintLines = missing.stdout.split('\n').filter((outputLine) => outputLine.includes('sudo apt install bubblewrap socat'));
-    assert.deepEqual(hintLines, [`glimmervoid: socat is not on PATH; guarded sessions and factory checks need bwrap, socat and rg. ${GUARDRAILS_INSTALL_HINT}`]);
+    assert.deepEqual(hintLines, [`glimmervoid: socat is not on PATH; guarded sessions need bwrap, socat and rg. ${GUARDRAILS_INSTALL_HINT}`]);
     const found = runWithPath(['scripts/postinstall-path-check.ts'], foundPathDir);
     assert.equal(found.status, 0, found.stderr);
     assert.doesNotMatch(found.stdout, /bubblewrap/);

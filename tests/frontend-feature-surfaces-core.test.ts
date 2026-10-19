@@ -9,10 +9,10 @@ import type { FeatureSurfaceSettings } from '../public/feature-surfaces-core.ts'
 const availableSurfacesFromSettings = (settings: FeatureSurfaceSettings) => Object.fromEntries(Object.entries(FEATURE_SURFACE_RULES).map(([setting, isAvailable]) => [setting, isAvailable(settings)]));
 
 test('feature surfaces are null-safe and use the default availability for Usage', () => {
-  const expected = { teamReview: false, posthog: false, visions: false, usage: true, benchmarks: false, factory: false };
+  const expected = { teamReview: false, posthog: false, visions: false, usage: true, benchmarks: false };
   assert.deepEqual(availableSurfacesFromSettings(null), expected);
   assert.deepEqual(availableSurfacesFromSettings(undefined), expected);
-  assert.deepEqual(availableSurfacesFromSettings({ teamReview: null, posthog: null, visions: null, usage: null, benchmarks: null, factory: null }), expected);
+  assert.deepEqual(availableSurfacesFromSettings({ teamReview: null, posthog: null, visions: null, usage: null, benchmarks: null }), expected);
 });
 
 test('feature surfaces follow their respective settings fields', () => {
@@ -22,16 +22,14 @@ test('feature surfaces follow their respective settings fields', () => {
     visions: { enabled: true },
     usage: { enabled: false },
     benchmarks: { enabled: true },
-    factory: { enabled: true },
-  }), { teamReview: true, posthog: true, visions: true, usage: false, benchmarks: true, factory: true });
+  }), { teamReview: true, posthog: true, visions: true, usage: false, benchmarks: true });
   assert.deepEqual(availableSurfacesFromSettings({
     teamReview: { enabled: false },
     posthog: { enabled: false },
     visions: { enabled: false },
     usage: { enabled: true },
     benchmarks: { enabled: false },
-    factory: { enabled: false },
-  }), { teamReview: false, posthog: false, visions: false, usage: true, benchmarks: false, factory: false });
+  }), { teamReview: false, posthog: false, visions: false, usage: true, benchmarks: false });
 });
 
 test('every optional tab is listed in Settings Features and links to an existing enable toggle', () => {

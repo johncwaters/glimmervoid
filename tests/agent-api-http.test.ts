@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { factoryRepoId } from '../server/factory/core/factory-repos-core.ts';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -18,12 +17,10 @@ import { memoryReserveBytes } from '../server/core/memory-admission-core.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
-import { decideTicketAction, describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
+import { describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { AgentLimitsReply } from '../shared/contracts/session.ts';
 import { ProjectCoherenceCheckRequest } from '../shared/contracts/coherence.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
-import type { FactoryProjectState, FactoryQueueIntentRequest } from '../shared/contracts/factory.ts';
-import type { AgentTicketRequest } from '../shared/contracts/session.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
@@ -194,7 +191,6 @@ test('attention raises the normal waiting notification path with an agent prompt
 });
 
 interface WiringFixtureOptions {
-  factory?: Parameters<typeof createAgentApiWiring>[0]['factory'];
   coherenceCheck?: Parameters<typeof createAgentApiWiring>[0]['coherenceCheck'];
   parentSkipsPermissions?: boolean;
   spawnFails?: boolean;
@@ -207,7 +203,7 @@ interface WiringFixtureOptions {
 
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
-  holdSpawnGate = false, parentIsGuarded = false, factory, coherenceCheck, headroomBytes = 64 * 1024 * 1024 * 1024,
+  holdSpawnGate = false, parentIsGuarded = false, coherenceCheck, headroomBytes = 64 * 1024 * 1024 * 1024,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -251,7 +247,6 @@ function wiringFixture({
   };
   const wiring = createAgentApiWiring({
     config,
-    factory,
     coherenceCheck,
     agentSessions,
     listAllSessions: () => [parent, ...laneSessions, ...agentSessions.values()],
@@ -283,41 +278,7 @@ function wiringFixture({
   };
 }
 
-test('factory and coherence check CLI and HTTP verbs reach the injected deps only from sessions without a factory role, on the session project', async (context) => {
-  const projectPath = process.cwd();
-  const factoryProjectId = factoryRepoId(projectPath);
-  const intent: FactoryProjectState['orders'][number] = {
-    id: 'intent', objective: 'Finish overnight', openedAt: '2026-10-15T00:00:00Z', criteria: [], boundary: 'src/', risk: 'low',
-    state: 'open', readiness: 'ready', parent: null, dependsOn: [], writeScopes: ['src/'], owner: null, lastEvent: null,
-  };
-  const project: FactoryProjectState = {
-    projectId: factoryProjectId, projectName: path.basename(projectPath), projectPath, headSha: null, paused: false, orchestrator: null, error: null,
-    heading: { action: 'steady', reasons: [] }, conflicts: [], unverifiedCompletedWork: [], partialIntentIds: ['intent'],
-    confirmedFlakesByIntent: { intent: ['tests/check.test.ts: timeout'] },
-    orders: [intent, { ...intent, id: 'merged', parent: 'intent', state: 'completed' },
-      { ...intent, id: 'parked', parent: 'intent', state: 'blocked', parked: true, blockReason: 'Needs write scope: src/entry.ts' }],
-  };
-  let projects: FactoryProjectState[] | null = [project, { ...project, projectId: 'other', projectName: 'Other repository', orders: [{ ...intent, id: 'other-intent' }] }];
-  let retryError: string | null = null;
-  const retryCalls: { projectId: string; intentId: string }[] = [];
-  const factory = {
-    getState: () => projects === null ? null : { type: 'factory-state' as const, ts: 0, projects },
-    retryParked: async (projectId: string, intentId: string) => {
-      retryCalls.push({ projectId, intentId });
-      if (retryError) return { ok: false as const, error: retryError };
-      return { ok: true as const, reopenedWorkIds: ['parked'] };
-    },
-    rerunSetup: async (projectId: string) => {
-      setupCalls.push(projectId);
-      return { ok: true as const, profile: { checks: ['npm test'], widenableScopes: ['tests/'], focusedTestCommand: 'node --test' } };
-    },
-    queueIntent: async (request: FactoryQueueIntentRequest) => {
-      queueCalls.push(request);
-      return { projectId: request.projectId, ok: true, workId: 'wrk-queued' };
-    },
-  };
-  const setupCalls: string[] = [];
-  const queueCalls: FactoryQueueIntentRequest[] = [];
+test('coherence check CLI and HTTP verbs reach the injected deps only from operator sessions on the session project', async (context) => {
   const checkedProjectIds: string[] = [];
   const coherenceCheck = {
     check: async (request: unknown) => {
@@ -326,32 +287,24 @@ test('factory and coherence check CLI and HTTP verbs reach the injected deps onl
       return { projectId, ok: false, stages: [{ id: 'setting' as const, status: 'fail' as const, detail: 'the Coherence setting is off' }] };
     },
   };
-  const fixture = wiringFixture({ factory, coherenceCheck });
+  const fixture = wiringFixture({ coherenceCheck });
   fixture.parent._hooks.inject();
   const token = fixture.parent.agentToken;
   assert.ok(token);
-  const orchestrator = new Session({ id: 'orchestrator', name: 'Orchestrator', path: process.cwd(), factoryRole: 'orchestrator', ptySpawn: () => fakePty() });
-  orchestrator._hooks.inject();
-  const worker = new Session({ id: 'worker', name: 'Worker', path: process.cwd(), factoryRole: 'worker', ephemeral: true, ptySpawn: () => fakePty() });
-  worker._hooks.inject();
   const reviewerLane = new Session({ id: 'reviewer-lane', name: 'Reviewer lane', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty() });
   reviewerLane._hooks.inject();
-  let isLiveOrchestrator = true;
   const app = createBackendHttpApp({
-    staticDir: null, configStore: { configPath: path.join(os.tmpdir(), 'factory-agent-config.json') },
+    staticDir: null, configStore: { configPath: path.join(os.tmpdir(), 'coherence-agent-config.json') },
     remote: { allowedOrigins: [] }, remoteAuth: null, allowedHosts: [], listenerPortsFor: () => [], pageToken: 'page',
     hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) },
-    getSession: (id) => [fixture.parent, orchestrator, worker, reviewerLane].find((session) => session.id === id) ?? null,
+    getSession: (id) => [fixture.parent, reviewerLane].find((session) => session.id === id) ?? null,
     getUsage: () => ({ ingestStatusline: () => {} }), getAgentApi: () => fixture.wiring,
-    getFactory: () => ({
-      getLiveOrchestrator: (id) => id === 'orchestrator' && isLiveOrchestrator ? { projectId: factoryProjectId, intentId: 'intent' } : null,
-      dispatch: async () => ({ ok: true, sessionId: 'worker' }),
-    }),
+
   });
   const server = http.createServer(app);
   await listenOnLoopback(server);
   context.after(async () => {
-    fixture.destroyAll(); orchestrator.destroy(); worker.destroy(); reviewerLane.destroy();
+    fixture.destroyAll(); reviewerLane.destroy();
     server.closeAllConnections(); await closeServer(server);
   });
   const base = `http://127.0.0.1:${boundPort(server)}`;
@@ -361,76 +314,13 @@ test('factory and coherence check CLI and HTTP verbs reach the injected deps onl
   const runCommand = async (args: string[]) => promisify(execFile)(process.execPath, ['bin/glimmervoid.ts', ...args], {
     cwd: path.join(import.meta.dirname, '..'), env: { ...process.env, [AGENT_URL_ENV]: `${base}/agent/parent?t=${token}` },
   }).then(({ stdout, stderr }) => ({ code: 0, stdout, stderr }), (failure: { code: number; stdout: string; stderr: string }) => ({ code: failure.code, stdout: failure.stdout, stderr: failure.stderr }));
-  const runCli = (args: string[]) => runCommand(['factory', ...args]);
-  const status = await send('factory-status', {});
-  assert.equal(status.status, 200);
-  const digest = await status.json();
-  assert.equal(digest.ok, true);
-  assert.match(digest.text, /Intent intent: Finish overnight\nOutcome: partial; merged: 1; parked: 1/);
-  assert.match(digest.text, /parked \| state: parked \| blocks: 0 \| last reason: Needs write scope: src\/entry.ts/);
-  assert.match(digest.text, /tests\/check.test.ts: timeout/);
-  assert.match(digest.text, /Intent other-intent/);
-  const filtered = await runCli(['status', '--project', factoryProjectId]);
-  assert.match(filtered.stdout, /glimmervoid factory retry intent/);
-  assert.doesNotMatch(filtered.stdout, /Other repository/);
-  assert.equal(filtered.stderr, '');
-  assert.equal((await send('factory-status', {}, worker)).status, 403);
-  const intentFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'factory-intent-')), 'intent.json');
-  fs.writeFileSync(intentFile, JSON.stringify({ name: 'parser-spec', projectId: 'seed', objective: 'Build the parser', criteria: ['Parser tests pass'], risk: 'low', boundary: 'src/', writeScopes: ['src/'] }));
-  const unregistered = await send('factory-setup', {});
-  assert.equal(unregistered.status, 404);
-  assert.match((await unregistered.json()).error, /add this repository as a project/);
   fixture.config.projects = [{ id: 'other', name: 'Other', path: path.join(process.cwd(), 'elsewhere') }, { id: 'repo', name: 'Repository', path: process.cwd() }];
   assert.deepEqual(await runCommand(['coherence', 'check']), { code: 1, stdout: 'FAIL  setting        the Coherence setting is off\n1 failed\n', stderr: '' });
   const namedProject = await runCommand(['coherence', 'check', '--project', 'other']);
   assert.deepEqual([namedProject.code, namedProject.stderr], [1, "glimmervoid coherence check: inside a Glimmervoid session the check runs on this session's own project only, so drop --project\n"]);
   assert.equal((await send('coherence-check', { projectId: 'other' })).status, 400);
-  assert.equal((await send('coherence-check', {}, worker)).status, 403);
   assert.equal((await send('coherence-check', {}, reviewerLane)).status, 403);
   assert.deepEqual(checkedProjectIds, ['repo']);
-  assert.equal((await runCli(['setup'])).stdout.trim(), 'Factory checks: npm test\nFocused test command: node --test\nNext: glimmervoid factory queue <intent.json>, with an intent cut by the spec skill or written in the Factory tab request shape');
-  assert.equal((await runCli(['queue', intentFile])).stdout.trim(), `Queued wrk-queued on ${factoryProjectId}. Follow it with glimmervoid factory status --project ${factoryProjectId}`);
-  assert.deepEqual([setupCalls, queueCalls.map((request) => [request.projectId, request.objective])], [[factoryProjectId], [[factoryProjectId, 'Build the parser']]]);
-  const queueRequest = { objective: 'x', criteria: ['y'], risk: 'low', boundary: 'z', writeScopes: ['src/'] };
-  assert.equal((await send('factory-queue', { ...queueRequest, projectId: 'other' })).status, 400);
-  assert.equal((await send('factory-queue', { ...queueRequest, floorAllowances: ['**/package.json'] })).status, 400);
-  assert.equal(queueCalls.length, 1);
-  fixture.config.projects = [{ id: 'fresh', name: 'Fresh', path: process.cwd() }];
-  projects = projects.filter((candidate) => candidate.projectId !== factoryProjectId);
-  const notFactoryYet = await send('factory-queue', queueRequest);
-  assert.equal(notFactoryYet.status, 409);
-  assert.match((await notFactoryYet.json()).error, /adopt Coherence at the repository root/);
-  assert.equal((await send('factory-queue', { objective: 'x' })).status, 400);
-  assert.equal((await send('factory-setup', {}, worker)).status, 403);
-  assert.equal((await send('factory-queue', queueRequest, reviewerLane)).status, 403);
-  projects = [project];
-  const retried = await runCli(['retry', 'intent']);
-  assert.equal(retried.stdout.trim(), 'Reopened parked tickets: parked');
-  assert.equal((await send('factory-retry', { intentId: 'intent' }, worker)).status, 403);
-  assert.equal((await send('factory-retry', { intentId: 'intent' }, reviewerLane)).status, 403);
-  for (const sessionIsLive of [true, false]) {
-    isLiveOrchestrator = sessionIsLive;
-    assert.equal((await send('factory-status', {}, orchestrator)).status, 403);
-    assert.equal((await send('factory-retry', { intentId: 'intent' }, orchestrator)).status, 403);
-  }
-  assert.equal((await send('factory-status', { projectId: 'missing' })).status, 404);
-  assert.equal((await send('factory-retry', { intentId: 'missing' })).status, 404);
-  assert.equal((await send('factory-retry', { intentId: 'parked' })).status, 404);
-  assert.equal((await send('factory-retry', {})).status, 400);
-  assert.equal((await send('factory-status', { projectId: '' })).status, 400);
-  assert.deepEqual(retryCalls, [{ projectId: factoryProjectId, intentId: 'intent' }]);
-  retryError = 'Intent is not partial';
-  const refusedRetry = await send('factory-retry', { intentId: 'intent' });
-  assert.equal(refusedRetry.status, 409);
-  assert.deepEqual(await refusedRetry.json(), { ok: false, error: 'Intent is not partial' });
-  projects = [{ ...project, orders: [], error: 'ledger read failed', heading: { action: 'refuse', reasons: ['ledger read failed'] } }];
-  assert.deepEqual(await (await send('factory-retry', { intentId: 'intent' })).json(), { ok: false, error: `Factory state for ${factoryProjectId} is unavailable: ledger read failed` });
-  projects = null;
-  for (const verb of ['factory-status', 'factory-retry', 'factory-setup']) {
-    const unavailable = await send(verb, verb === 'factory-retry' ? { intentId: 'intent' } : {});
-    assert.equal(unavailable.status, 409);
-    assert.deepEqual(await unavailable.json(), { ok: false, error: 'Factory is not running' });
-  }
 });
 
 test('a valid spawn creates exactly one sibling that may not spawn again', async () => {
@@ -458,7 +348,7 @@ test('a valid spawn creates exactly one sibling that may not spawn again', async
 
 test('push lands only an operator session or its spawned child, and a refusal tells the agent why', async () => {
   const fixture = wiringFixture();
-  const laneSession = new Session({ id: 'factory-work-12345678', name: 'factory worker', path: fixture.parent.path, ephemeral: true });
+  const laneSession = new Session({ id: 'review-lane-12345678', name: 'review lane', path: fixture.parent.path, ephemeral: true });
   try {
     const withoutWorktree = await fixture.wiring.handle(fixture.parent, 'push', {});
     assert.equal(withoutWorktree.status, 409);
@@ -714,22 +604,6 @@ test('a child exiting tells the dashboard its card is gone', async () => {
       { type: 'session-removed', id: reply.body.sessionId, session: reply.body.name },
     ]);
   } finally {
-    fixture.destroyAll();
-  }
-});
-
-test('a factory worker is refused a spawn with the reason, and still reads the board and flags the operator', async () => {
-  const fixture = wiringFixture();
-  const worker = new Session({ id: 'factory-worker', name: 'worker', path: process.cwd(), factoryRole: 'worker', ptySpawn: () => fakePty() });
-  try {
-    const refused = await fixture.spawn(worker, { prompt: 'help me' });
-    assert.equal(refused.status, 403);
-    assert.deepEqual(refused.body, { ok: false, error: 'the factory starts and counts its workers, so a worker may not spawn a session' });
-    assert.deepEqual(fixture.created, [], 'no child was built');
-    assert.equal((await fixture.wiring.handle(worker, 'board', {})).status, 200);
-    assert.equal((await fixture.wiring.handle(worker, 'attention', { note: 'blocked on a decision' })).body.ok, true);
-  } finally {
-    worker.destroy();
     fixture.destroyAll();
   }
 });
@@ -1174,81 +1048,4 @@ test('a held attention note is dropped when the session exits before it can fire
   } finally {
     session.destroy();
   }
-});
-
-test('reopen and cancel are refused for a session that is not a live orchestrator, even with agentApi on', async () => {
-  const { base, token } = enabledBackend();
-  for (const verb of ['reopen', 'cancel']) {
-    const response = await post(base, verb, { workId: 'wrk-0123456789abcdef' }, token);
-    assert.equal(response.status, 403, verb);
-  }
-});
-
-const TICKET_ID = 'wrk-0123456789abcdef';
-
-async function orchestratorIngress(context: test.TestContext, withTicketVerbs: boolean) {
-  const session = new Session({ id: 'orchestrator', name: 'Master', path: os.tmpdir(), ptySpawn: () => fakePty() });
-  session._hooks.inject();
-  const token = session.agentToken;
-  assert.ok(token);
-  const calls: { verb: string; sessionId: string; request: AgentTicketRequest }[] = [];
-  const state = { isOrchestrator: true };
-  const ticketVerbs = withTicketVerbs ? {
-    reopen: async (sessionId: string, request: AgentTicketRequest) => { calls.push({ verb: 'reopen', sessionId, request }); return { ok: true as const, workId: request.workId, state: 'open' as const }; },
-    cancel: async (sessionId: string, request: AgentTicketRequest) => { calls.push({ verb: 'cancel', sessionId, request }); return { ok: true as const, workId: request.workId, state: 'cancelled' as const }; },
-  } : {};
-  const app = createBackendHttpApp({ staticDir: null, configStore: { configPath: path.join(os.tmpdir(), 'ticket-verb-config.json') },
-    remote: { allowedOrigins: [] }, remoteAuth: null, allowedHosts: [], listenerPortsFor: () => [], pageToken: 'page',
-    hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) }, getSession: () => session, getUsage: () => ({ ingestStatusline: () => {} }),
-    getAgentApi: () => ({ handle: async () => ({ status: 200, body: { ok: true } }) }),
-    getFactory: () => ({
-      getLiveOrchestrator: () => state.isOrchestrator ? { projectId: 'repo', intentId: 'intent' } : null,
-      dispatch: async () => ({ ok: true, sessionId: 'worker' }),
-      ...ticketVerbs,
-    }),
-  });
-  const server = http.createServer(app);
-  await listenOnLoopback(server);
-  context.after(async () => { session.destroy(); server.closeAllConnections(); await closeServer(server); });
-  const send = (verb: string, body: unknown, presented = token) => fetch(`http://127.0.0.1:${boundPort(server)}/agent/orchestrator/${verb}`, {
-    method: 'POST', headers: { authorization: `Bearer ${presented}` }, body: JSON.stringify(body),
-  });
-  return { calls, state, send };
-}
-
-test('a live orchestrator reopens and cancels through the factory with its validated work id', async (context) => {
-  const { calls, state, send } = await orchestratorIngress(context, true);
-  assert.equal((await send('reopen', { workId: TICKET_ID }, 'wrong')).status, 404);
-  const reopened = await send('reopen', { workId: TICKET_ID });
-  assert.equal(reopened.status, 200);
-  assert.deepEqual(await reopened.json(), { ok: true, workId: TICKET_ID, state: 'open' });
-  const cancelled = await send('cancel', { workId: TICKET_ID });
-  assert.equal(cancelled.status, 200);
-  assert.deepEqual(await cancelled.json(), { ok: true, workId: TICKET_ID, state: 'cancelled' });
-  for (const body of [{}, { workId: 'wrk-nothex' }, { workId: TICKET_ID, extra: true }]) {
-    assert.equal((await send('reopen', body)).status, 400, JSON.stringify(body));
-  }
-  state.isOrchestrator = false;
-  assert.equal((await send('cancel', { workId: TICKET_ID })).status, 403);
-  assert.deepEqual(calls, [
-    { verb: 'reopen', sessionId: 'orchestrator', request: { workId: TICKET_ID } },
-    { verb: 'cancel', sessionId: 'orchestrator', request: { workId: TICKET_ID } },
-  ]);
-});
-
-test('a factory without ticket verbs answers reopen and cancel as unavailable', async (context) => {
-  const { send } = await orchestratorIngress(context, false);
-  for (const verb of ['reopen', 'cancel']) assert.equal((await send(verb, { workId: TICKET_ID })).status, 501, verb);
-});
-
-test('a ticket action needs a child of the active intent in a state that verb allows', () => {
-  const child = (state: string) => ({ parent: 'wrk-intent', state });
-  assert.deepEqual(decideTicketAction({ verb: 'reopen', intentId: 'wrk-intent', ticket: child('blocked') }), { ok: true, kind: 'transition', to: 'open' });
-  assert.deepEqual(decideTicketAction({ verb: 'cancel', intentId: 'wrk-intent', ticket: child('blocked') }), { ok: true, kind: 'close', outcome: 'cancelled' });
-  assert.deepEqual(decideTicketAction({ verb: 'cancel', intentId: 'wrk-intent', ticket: child('open') }), { ok: true, kind: 'close', outcome: 'cancelled' });
-  for (const state of ['open', 'active', 'closed']) assert.equal(decideTicketAction({ verb: 'reopen', intentId: 'wrk-intent', ticket: child(state) }).ok, false, state);
-  for (const state of ['active', 'closed']) assert.equal(decideTicketAction({ verb: 'cancel', intentId: 'wrk-intent', ticket: child(state) }).ok, false, state);
-  assert.equal(decideTicketAction({ verb: 'reopen', intentId: 'wrk-intent', ticket: { parent: 'wrk-other', state: 'blocked' } }).ok, false);
-  assert.equal(decideTicketAction({ verb: 'reopen', intentId: 'wrk-intent', ticket: { parent: null, state: 'blocked' } }).ok, false);
-  assert.equal(decideTicketAction({ verb: 'cancel', intentId: 'wrk-intent', ticket: null }).ok, false);
 });

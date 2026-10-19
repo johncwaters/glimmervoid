@@ -16,8 +16,6 @@ Design documents, postmortems, and operator guides. Background reading for why t
 | `testing-cli.md` | Manual CLI checks to run before a release (`--help`, `--version`, `--port`, `--config`, `doctor`, `pair`, tarball, global install); its `--help` block and every command it names are pinned by `tests/cli-docs.test.ts` |
 | `configuration.md` | GENERATED config and environment reference (`npm run docs:config`, `scripts/generate-config-docs.ts`); never edit by hand, `tests/config-docs.test.ts` fails on drift |
 | `website/plan.md` | Public website plan and handoff: operator decisions, the Astro site in `site/`, the real-UI capture tool, open launch issues |
-| `factory/plan.md` | Factory lane plan and handoff: operator decisions, landed state, how to run a guardrails gate, the gated self-host clone, remaining work in order, Claude Code facts the lane depends on |
-| `knowledge-graph.md` | Intent of the experimental knowledge graph: why typed and local first, and how it coexists with Coherence ledgers without conflict |
 | `troubleshooting.md` | Install and startup failures: PATH, node-pty under npm 12's install-script policy, port and bind refusals, the legacy `github:` install |
 
 ## For AI Agents

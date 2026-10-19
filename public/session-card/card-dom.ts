@@ -136,7 +136,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   if (options.guarded) card.dataset.guarded = '';
   if (options.guardrailsReleased) card.dataset.guardrailsReleased = '';
   if (options.ephemeral) card.dataset.ephemeral = '';
-  if (options.isFactory) card.dataset.factory = '';
   if (options.path) card.dataset.path = String(options.path);
 
   const header = el('div', 'session-card-header');

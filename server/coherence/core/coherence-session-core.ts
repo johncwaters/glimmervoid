@@ -1,18 +1,17 @@
 import { z } from 'zod';
 import { COHERENCE_HOOKS_INACTIVE, type CoherenceHooksState } from '../../../shared/contracts/session.ts';
 import type { UserHook } from '../../../session/core/user-hooks-core.ts';
-import type { SessionSpawnOverrides } from '../../session/session-factory.ts';
 
 export const COHERENCE_HOOK_EVENTS = ['SubagentStart', 'SessionStart', 'SubagentStop', 'Stop', 'PostToolUse'] as const;
 export const COHERENCE_POST_TOOL_USE_MATCHER = 'Read|Grep|Glob|Write|Edit|MultiEdit|NotebookEdit';
 
 const claudeSessionIdSchema = z.uuid();
 
-export type CoherenceSessionKind = 'factory' | 'writer' | 'review';
+export type CoherenceSessionKind = 'writer' | 'review';
 export type CoherenceHost = 'claude' | 'codex';
 
-export function decideCoherenceAttachment({ sessionKind, isSettingOn }: { sessionKind: CoherenceSessionKind; isSettingOn: boolean }): boolean {
-  return sessionKind === 'factory' || isSettingOn;
+export function decideCoherenceAttachment({ isSettingOn }: { sessionKind: CoherenceSessionKind; isSettingOn: boolean }): boolean {
+  return isSettingOn;
 }
 
 export const COHERENCE_NATIVE_CONTROL_FILES: Readonly<Record<CoherenceHost, readonly string[]>> = Object.freeze({
@@ -88,14 +87,6 @@ export function buildCoherenceUserHooks({ nodePath, hookCliPath }: { nodePath: s
 function claudeSessionIdArgs(claudeSessionId: string): string[] {
   if (!claudeSessionIdSchema.safeParse(claudeSessionId).success) throw new Error('Coherence Claude session id must be a UUID');
   return ['--session-id', claudeSessionId];
-}
-
-export function buildCoherenceSessionOverrides({ claudeSessionId, shimDir }: { claudeSessionId: string; shimDir: string }) {
-  return {
-    extraClaudeArgs: claudeSessionIdArgs(claudeSessionId),
-    extraUserHooks: [{ ...COHERENCE_CLI_ON_PATH_HOOK }],
-    prependPathDirs: [shimDir],
-  } satisfies SessionSpawnOverrides;
 }
 
 const COHERENCE_DECIDE_ALLOW_RULE = 'Bash(coherence decide:*)';

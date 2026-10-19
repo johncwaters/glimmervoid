@@ -22,7 +22,7 @@ import type { SessionGuardrails } from '../guardrails/session-guardrails.ts';
 import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
-  'requireWorktree' | 'gitWorkspace' | 'gitIsolation' | 'settingsPermissions' | 'settingsGuardrails' | 'prepareGuardrails' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'factoryRole' | 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
+  'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'settingsGuardrails' | 'prepareGuardrails' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };
@@ -85,7 +85,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
   ): Session {
     const skipPermissions = projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
     const originalHookTools = dependencies.resolveHookTools(config, { skipPermissions });
-    const sessionKind: CoherenceSessionKind = overrides.factoryRole ? 'factory' : 'writer';
+    const sessionKind: CoherenceSessionKind = 'writer';
     const coherenceNativeHooks = dependencies.coherenceNativeHooks;
     const coherenceHost = getAdapter(overrides.agent ?? project.agent)?.usageVendor;
     const prepareCoherenceHooks = coherenceNativeHooks && (coherenceHost === 'claude' || coherenceHost === 'codex')

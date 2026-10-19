@@ -50,7 +50,7 @@ test('each integration tip move records one sandboxed reading row and pushes the
   const readings = createCoherenceReadings({
     seriesRoot,
     listProjects: () => [{ id: 'project-1', path: repo }],
-    readSettings: () => ({ isFactoryEnabled: false, isSettingOn: true }),
+    readSettings: () => ({ isSettingOn: true }),
     readIntegrationTip: integrationTipReader(createGitWorkspace(), () => ({})),
     fetchOrigin: createGitWorkspace().fetchOrigin,
     hasNativeControlAt: runtime.hasNativeControlAt,
@@ -146,7 +146,7 @@ test('a push to origin made outside Glimmervoid reaches the readings within one 
   const readings = createCoherenceReadings({
     seriesRoot: path.join(workRoot, 'series'),
     listProjects: () => [{ id: 'project-1', path: pushed.repo }],
-    readSettings: () => ({ isFactoryEnabled: false, isSettingOn: true }),
+    readSettings: () => ({ isSettingOn: true }),
     readIntegrationTip: integrationTipReader(gitWorkspace, () => ({})),
     fetchOrigin: gitWorkspace.fetchOrigin,
     hasNativeControlAt: runtime.hasNativeControlAt,
@@ -324,7 +324,7 @@ test('the Coherence check walks every stage of a native install inside guardrail
   const readingsOptions = {
     seriesRoot: path.join(workRoot, 'series'),
     listProjects: () => projects,
-    readSettings: () => ({ isFactoryEnabled: false, isSettingOn: true }),
+    readSettings: () => ({ isSettingOn: true }),
     readIntegrationTip,
     fetchOrigin: gitWorkspace.fetchOrigin,
     hasNativeControlAt: runtime.hasNativeControlAt,
@@ -338,7 +338,7 @@ test('the Coherence check walks every stage of a native install inside guardrail
   const codexEnv = { ...process.env, CODEX_HOME: codexHome };
   const checkOptions: Parameters<typeof createCoherenceCheck>[0] = {
     listProjects: () => projects,
-    readSettings: () => ({ isFactoryEnabled: false, isSettingOn: true }),
+    readSettings: () => ({ isSettingOn: true }),
     readIntegrationTip,
     nativeHooks: createCoherenceNativeHooks({ runtime, codexEnv, log: { warn: () => {} } }),
     readings,

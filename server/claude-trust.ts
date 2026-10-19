@@ -81,4 +81,3 @@ function createClaudeFolderTrust({ env = process.env, homeDir = os.homedir(), no
 }
 
 export { createClaudeFolderTrust };
-export type { FolderTrustOutcome };

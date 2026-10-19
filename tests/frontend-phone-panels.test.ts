@@ -9,12 +9,10 @@ test('every desktop view but Focus becomes a phone More screen, in desktop order
   const panels = phonePanelsFromDesktopViews([
     { view: 'focus', label: 'Focus', el: 'focus-panel', hasOwnPhoneScreen: true },
     { view: 'prs', label: 'Reviews', glyph: '#', el: 'prs-panel' },
-    { view: 'factory', label: 'Factory', el: 'factory-panel' },
   ]);
 
   assert.deepEqual(panels, [
     { id: 'prs', label: 'Reviews', glyph: '#', el: 'prs-panel' },
-    { id: 'factory', label: 'Factory', glyph: 'F', el: 'factory-panel' },
   ]);
 });
 
@@ -32,7 +30,7 @@ test('the phone shell names no desktop view: its More screens come from the desk
   const viewTabsSource = registrySource.slice(registrySource.indexOf('const definitions:'), registrySource.indexOf('const main ='));
   const registeredViews = [...viewTabsSource.matchAll(/\{ view: '([a-z]+)',/g)].map((match) => match[1]);
 
-  assert.deepEqual(registeredViews, ['focus', 'prs', 'issues', 'usage', 'radar', 'visions', 'hooks', 'trace', 'benchmarks', 'factory', 'settings']);
+  assert.deepEqual(registeredViews, ['focus', 'prs', 'issues', 'usage', 'radar', 'visions', 'hooks', 'trace', 'benchmarks', 'settings']);
   assert.match(htmlSource, /id="header-tabs" role="tablist" aria-label="Primary views"/);
   assert.doesNotMatch(htmlSource, /class="header-tab"/);
   assert.match(registrySource, /const views = definitions\.map\(\(definition\) =>/);

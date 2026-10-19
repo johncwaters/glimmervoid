@@ -11,24 +11,6 @@ const LANE_ENVIRONMENT_ARGS: readonly string[] = Object.freeze([
   '--setting-sources', 'project,local',
 ]);
 
-function absolutePathEditRule(absolutePath: string): string {
-  const posixPath = absolutePath
-    .replace(/\\/g, '/')
-    .replace(/^([A-Za-z]):/, (_drive, driveLetter: string) => `/${driveLetter.toLowerCase()}`)
-    .replace(/\/+$/, '');
-  return `Edit(/${posixPath}/**)`;
-}
-
-function buildShellLanePermissions({ editableRoots, allowCommands, extraDeny }: {
-  editableRoots: readonly string[]; allowCommands: readonly string[]; extraDeny: readonly string[];
-}): { defaultMode: 'dontAsk'; allow: string[]; deny: string[] } {
-  return {
-    defaultMode: 'dontAsk',
-    allow: [...editableRoots.map(absolutePathEditRule), ...allowCommands.map((prefix) => `Bash(${prefix}:*)`)],
-    deny: [...new Set([...extraDeny, ...LANE_CONFIG_EDIT_DENY_RULES])],
-  };
-}
-
 interface LanePermissions {
   permissions: { deny: string[]; defaultMode: string };
   args: string[];
@@ -44,4 +26,4 @@ function buildLanePermissions({
   return { permissions: { deny: [...denyTools], defaultMode: ACCEPT_EDITS_MODE }, args };
 }
 
-export { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS, absolutePathEditRule, buildLanePermissions, buildShellLanePermissions };
+export { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS, buildLanePermissions };

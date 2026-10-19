@@ -1,6 +1,6 @@
 import { CHANGE_MAP_NARRATOR_ENGINES, POST_TURN_CHECK_MODES, UPDATE_CHANNELS } from '../contracts/browser-config.ts';
 import {
-  CHANGE_MAP_NARRATOR_TIMEOUT_RANGE, FACTORY_MAX_LIVE_WORKERS_RANGE, FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_GAP_RANGE,
+  CHANGE_MAP_NARRATOR_TIMEOUT_RANGE, FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_GAP_RANGE,
   FLYING_ANIMALS_SCALE_RANGE, KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, NON_NEGATIVE_NUMBER_RANGE, PORT_RANGE, POSITIVE_NUMBER_RANGE,
   POSTHOG_FIX_TIMEOUT_RANGE, POSTHOG_TRAFFIC_BASELINE_RANGE, POSTHOG_TRAFFIC_MIN_USERS_RANGE, POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
   MEMORY_RESERVE_MB_RANGE, REPLAY_BUFFER_KB_RANGE, TASK_TITLE_TIMEOUT_RANGE, USAGE_BUDGET_RANGE, USAGE_INTEGER_RANGES, USAGE_RETAIN_DAYS_RANGE, USAGE_SCAN_INTERVAL_RANGE,
@@ -100,7 +100,6 @@ const MS_PER_DAY = MS_PER_HOUR * 24;
 
 const INVESTIGATIONS: SettingsUnit = { label: 'investigations', storedPerDisplay: 1 };
 const SESSIONS: SettingsUnit = { label: 'sessions', storedPerDisplay: 1 };
-const WORKERS: SettingsUnit = { label: 'workers', storedPerDisplay: 1 };
 const RECURRENCES: SettingsUnit = { label: 'recurrences', storedPerDisplay: 1 };
 const ACTIONS: SettingsUnit = { label: 'actions', storedPerDisplay: 1 };
 const SECONDS: SettingsUnit = { label: 'seconds', storedPerDisplay: 1 };
@@ -579,61 +578,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     ],
   },
   {
-    id: 'lanes-factory',
-    level: 'lanes',
-    title: 'Factory',
-    description: 'Read Coherence reports from repositories whose integration branch holds a coherence.config.json and show their status in the Factory tab.',
-    legacyIds: ['factory'],
-    settings: [
-      {
-        id: 'factory-enabled', path: 'factory.enabled', title: 'Enable the factory',
-        description: 'Enable Coherence status polling and show the Factory tab. Off by default.',
-        control: 'toggle', keywords: ['orchestrator', 'intents', 'queue', 'coherence', 'guardrails'], defaultValue: false, ...MACHINE_NOW,
-      },
-      {
-        id: 'factory-max-risk', path: 'factory.maxRisk', title: 'Worker risk ceiling',
-        description: 'Highest risk admitted for a ticket.', control: 'select', defaultValue: 'medium',
-        options: ['low', 'medium', 'high', 'critical'].map((value) => ({ value, label: value })), keywords: ['risk', 'admission'], ...MACHINE_NOW,
-      },
-      {
-        id: 'factory-max-live-workers', path: 'factory.maxLiveWorkers', title: 'Live worker cap',
-        description: 'Most live workers per factory project.', control: 'number', range: FACTORY_MAX_LIVE_WORKERS_RANGE, unit: WORKERS, defaultValue: 2, keywords: ['workers', 'parallel'], ...MACHINE_NOW,
-      },
-      {
-        id: 'factory-checks', path: 'factory.checks', title: 'Worker checks',
-        description: 'Commands glimmervoid runs before merging worker commits.', control: 'list',
-        defaultValue: ['npm run typecheck', 'npm run lint', 'npm test'], keywords: ['tests', 'checks'],
-        listPlaceholder: 'npm test', listEmptyText: 'No checks run before a merge.', ...MACHINE_NOW,
-      },
-      {
-        id: 'factory-protected-paths', path: 'factory.protectedPaths', title: 'Protected paths',
-        description: 'Repo-relative files, directory prefixes ending in /, or **/NAME basenames workers cannot change.', control: 'list',
-        defaultValue: ['coherence.config.json', '.coherence/', 'package.json', 'package-lock.json', '**/AGENTS.md', '**/CLAUDE.md', '**/CLAUDE.local.md', '.claude/', '.github/'], keywords: ['fence', 'scope'],
-        listPlaceholder: 'path, prefix/ or **/NAME', listEmptyText: 'Workers may change any path.', ...MACHINE_NOW,
-      },
-      {
-        id: 'factory-reviewer-model', path: 'factory.reviewerModel', title: 'Reviewer model',
-        description: 'Claude model for independent worker review. Blank uses the CLI default.', control: 'text',
-        defaultValue: null, nullable: true, keywords: ['claude', 'review'], ...MACHINE_NOW,
-      },
-      {
-        id: 'factory-daily-budget', path: 'factory.dailyBudgetUsd', title: 'Factory daily budget',
-        description: 'Factory lane spend ceiling. Blank means no ceiling. Needs usage tracking: with it off, dispatch refuses.', control: 'number', range: NON_NEGATIVE_NUMBER_RANGE, unit: USD,
-        integer: false, nullable: true, step: 0.01, defaultValue: null, keywords: ['spend', 'budget'], ...MACHINE_NOW,
-      },
-      {
-        id: 'factory-verifier-model', path: 'factory.verifierModel', title: 'Verifier model',
-        description: 'Claude model for independent intent verification. Blank uses the CLI default.', control: 'text',
-        nullable: true, defaultValue: null, keywords: ['claude', 'verification'], ...MACHINE_NOW,
-      },
-      {
-        id: 'factory-mirror-harness-runs', path: 'factory.mirrorHarnessRuns', title: 'Mirror harness runs',
-        description: 'Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after. Needs factory.enabled on. The harness turns it off on the instance it boots.',
-        control: 'toggle', defaultValue: true, keywords: ['harness', 'test', 'read-only'], ...MACHINE_NOW,
-      },
-    ],
-  },
-  {
     id: 'lanes-benchmarks',
     level: 'lanes',
     title: 'Benchmarks',
@@ -648,20 +592,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     ],
   },
   {
-    id: 'lanes-knowledge-graph',
-    level: 'lanes',
-    title: 'Knowledge graph (experimental)',
-    description: 'A typed local graph of projects, tasks, notes, references and questions, driven from the glimmervoid kg command. Its SQLite database defaults to the Glimmervoid home; --db selects another path.',
-    legacyIds: ['knowledge-graph'],
-    settings: [
-      {
-        id: 'knowledge-graph-enabled', path: 'knowledgeGraph.enabled', title: 'Enable the knowledge graph',
-        description: 'Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents\' tickets disagree, without modifying those ledgers. Graph writes go to the selected SQLite database, which can be inside a repository when --db names that path. Off by default.',
-        control: 'toggle', keywords: ['experimental', 'kg', 'tasks', 'notes', 'references', 'coherence'], defaultValue: false, ...MACHINE_NOW,
-      },
-    ],
-  },
-  {
     id: 'lanes-coherence',
     level: 'lanes',
     title: 'Coherence (experimental)',
@@ -669,7 +599,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     settings: [
       {
         id: 'coherence-enabled', path: 'coherence.enabled', title: 'Use Coherence in every session',
-        description: 'When on, Claude Code and Codex sessions use the Coherence hooks the repository installed itself: a native install (coherence.config.json plus the files npx coherence hooks install commits) is required, and Glimmervoid never adds hooks of its own. Their decision journal lands in .coherence in the worktree to commit with the work. Factory sessions always use Coherence and need the native Claude install. Off by default.',
+        description: 'When on, Claude Code and Codex sessions use the Coherence hooks the repository installed itself: a native install (coherence.config.json plus the files npx coherence hooks install commits) is required, and Glimmervoid never adds hooks of its own. Their decision journal lands in .coherence in the worktree to commit with the work. Off by default.',
         control: 'toggle', keywords: ['experimental', 'coherence', 'journal', 'decisions'], defaultValue: false, ...MACHINE_NOW,
       },
     ],
@@ -708,7 +638,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     settings: [
       {
         id: 'telemetry-enabled', path: 'telemetry.enabled', title: 'Send anonymous usage and error data',
-        description: 'Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated costs from the usage scan, and factory outcomes as the kind of decision, how it came out, its duration and attempt number, under a random install id. Never error messages, paths, repository or branch names, prompts, objectives or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless.',
+        description: 'Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated costs from the usage scan, under a random install id. Never error messages, paths, repository or branch names, prompts, objectives or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless.',
         control: 'toggle', keywords: ['telemetry', 'analytics', 'tracking', 'opt out'], defaultValue: true, ...MACHINE_NOW,
       },
     ],
@@ -739,12 +669,6 @@ const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'file-session-memory-reserve', path: 'sessionMemoryReserveMB', title: 'Session memory reserve', group: 'machine-sessions',
     description: 'Free memory an automatic session start waits for; 0 starts sessions without checking.',
     control: 'number', range: MEMORY_RESERVE_MB_RANGE, unit: { label: 'MB', storedPerDisplay: 1 }, keywords: ['memory', 'headroom'], defaultValue: 600,
-    takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-check-memory-reserve', path: 'checkMemoryReserveMB', title: 'Check run memory reserve', group: 'machine-sessions',
-    description: 'Free memory a factory check run waits for; 0 runs checks without checking.',
-    control: 'number', range: MEMORY_RESERVE_MB_RANGE, unit: { label: 'MB', storedPerDisplay: 1 }, keywords: ['memory', 'factory'], defaultValue: 1500,
     takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {

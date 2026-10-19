@@ -5,8 +5,7 @@ import path from 'node:path';
 import { FILE_ONLY_GROUPS, SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
 import type { SettingsEffect, SettingsRegistry, SettingsSection, SettingsSetting } from '../shared/settings/registry.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
-import { Config, ProjectConfig } from '../shared/contracts/config.ts';
-import { DEFAULT_WIDENABLE_SCOPES } from '../server/factory/core/factory-profile-core.ts';
+import { Config } from '../shared/contracts/config.ts';
 import {
   TELEMETRY_BASE_PROPERTY_KEYS, TELEMETRY_EVENT_SCHEMAS, TELEMETRY_EVENTS, TELEMETRY_KILL_SWITCH_FLAG, TELEMETRY_OPTIONAL_BASE_PROPERTY_KEYS,
 } from '../shared/contracts/telemetry.ts';
@@ -42,7 +41,7 @@ export const ENVIRONMENT_VARIABLES: readonly EnvironmentVariable[] = Object.free
 
 export const UNLISTED_KEY_NOTES: Readonly<Record<string, string>> = Object.freeze({
   coder: 'Set `coder.appSlug` to an existing `coder_app` slug on the workspace agent to prevent Coder autostop while Glimmervoid sessions are running. Requires `CODER_AGENT_URL` and `CODER_AGENT_TOKEN` (or `CODER_AGENT_TOKEN_FILE`) in the environment; Coder supplies them when started from a workspace terminal or startup script.',
-  projects: 'Projects shown in the dashboard, added from the Add Session dialog. Each entry has `path` (required), optional `name`, `repos` (two or more member repositories for a workspace session), `baseBranch` (the branch sessions of this project start from and merge back into, set by Open in session on a team review pull request), `agent` (an agent id, see `customAgents`), `codexBypassHookTrust` (file-only, default off), `conversationView` (set from the card menu while the Conversation view setting is on, default off) and `factoryProfile`. Every factory profile field is optional: unset fields inherit the global `factory` settings, arrays replace global arrays, and explicit null model or budget values override the global value. Unproven fields remain unset.',
+  projects: 'Projects shown in the dashboard, added from the Add Session dialog. Each entry has `path` (required), optional `name`, `repos` (two or more member repositories for a workspace session), `baseBranch` (the branch sessions of this project start from and merge back into, set by Open in session on a team review pull request), `agent` (an agent id, see `customAgents`), `codexBypassHookTrust` (file-only, default off), `conversationView` (set from the card menu while the Conversation view setting is on, default off).',
   remote: 'Opt-in remote listener: `enabled`, `port` (required when enabled, must differ from the local port), `publicHost`, `allowedOrigins` and `ownerLogin` (when set, only that Tailscale login is answered; trustworthy only when the remote port is reached solely through HTTP-mode `tailscale serve`, since any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, lets a client send its own `Tailscale-User-Login`). Needs a server restart. See [Remote access](../README.md#remote-access).',
   hooks: 'Operator-defined hooks per project, managed from the dashboard Hooks panel.',
   planReview: 'Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`).',
@@ -154,20 +153,6 @@ export function unlistedConfigKeys(registry: SettingsRegistry = SETTINGS_REGISTR
 
 function unlistedKeysMarkdown(registry: SettingsRegistry): string[] {
   const rows = unlistedConfigKeys(registry).map((key) => `| \`${key}\` | ${formatDefault(defaultAtPath(key))} | ${escapeCell(UNLISTED_KEY_NOTES[key] ?? '')} |`);
-  const factorySettingsByPath = new Map(registry.sections.flatMap(configRowsOf).map((setting) => [setting.path, setting]));
-  const profileOnlyFields: Readonly<Record<string, { defaultValue?: unknown; description: string }>> = {
-    focusedTestCommand: { description: 'Command prefix that runs the test files passed after it.' },
-    widenableScopes: { defaultValue: DEFAULT_WIDENABLE_SCOPES, description: 'Path patterns a replacement ticket may widen into.' },
-  };
-  const factoryProfileRows = Object.keys(ProjectConfig.shape.factoryProfile.unwrap().shape).map((field) => {
-    const profileKey = `projects[].factoryProfile.${field}`;
-    const globalKey = `factory.${field}`;
-    const globalSetting = factorySettingsByPath.get(globalKey);
-    if (globalSetting) return `| \`${profileKey}\` | Inherits \`${globalKey}\` | ${escapeCell(globalSetting.description)} |`;
-    const profileField = profileOnlyFields[field];
-    if (!profileField) throw new Error(`Missing factory profile documentation for ${profileKey}`);
-    return `| \`${profileKey}\` | ${formatDefault(profileField.defaultValue)} | ${escapeCell(profileField.description)} |`;
-  });
   return [
     '## Keys outside the Settings view',
     '',
@@ -176,7 +161,6 @@ function unlistedKeysMarkdown(registry: SettingsRegistry): string[] {
     '| Key | Default | Notes |',
     '|-----|---------|-------|',
     ...rows,
-    ...factoryProfileRows,
     '',
   ];
 }

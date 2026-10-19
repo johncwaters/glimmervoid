@@ -2,7 +2,6 @@ import { el, queryTag } from './dom-helpers.ts';
 import { FEATURE_SURFACE_RULES } from './feature-surfaces-core.ts';
 import { activateFocusView, deactivateFocusView, mountFocusView } from './focus-view/focus-view.ts';
 import { applyBenchmarkConnectionState, mountBenchmarkView } from './benchmark-panel.ts';
-import { applyFactoryConnectionState, mountFactoryView } from './factory/factory-view.ts';
 import { mountHooksView, refreshHooksView, requestHooksReport } from './hooks-panel.ts';
 import { applyIssuesConnectionState, mountIssuesView, refreshIssuesViewOnShow } from './github/issues-panel.ts';
 import { acknowledgePrsViewAttention, mountPrsView } from './github/prs-view.ts';
@@ -44,7 +43,6 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     } },
     { view: 'trace', label: 'Trace', panelClass: 'trace-view', gate: { subscribe: onDebugModeChanged }, mount: mountTraceView, refreshOn: ['shown'], refresh: refreshTraceView, onAvailabilityChange: (isAvailable) => setRadarTraceOpener(isAvailable ? openTraceForSession : null), onConnectionChange: applyTraceConnectionState },
     { view: 'benchmarks', label: 'Bench', panelClass: 'bench-view', gate: { fromSettings: FEATURE_SURFACE_RULES.benchmarks }, mount: mountBenchmarkView, onConnectionChange: applyBenchmarkConnectionState },
-    { view: 'factory', label: 'Factory', panelClass: 'factory-floor', gate: { fromSettings: FEATURE_SURFACE_RULES.factory }, mount: (panel) => mountFactoryView(panel, { openTerminal: actions.openTerminal }), onConnectionChange: applyFactoryConnectionState },
     { view: 'settings', label: 'Settings', glyph: '@', panelClass: 'settings-view', hasPanelChrome: false, mount: (panel) => mountSettingsView(panel, { onRestart: actions.onRestart }) },
   ];
 

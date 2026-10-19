@@ -1,16 +1,16 @@
+import { buildAllowlistedChildEnv } from '../server/git/core/git-invocation-core.ts';
 import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { execFileAsync } from '../server/child-process-safe.ts';
-import { buildFactoryCheckEnv, factoryWrittenRecordId, findForbiddenLedgerWrites } from '../server/factory/core/factory-core.ts';
 import { buildHardenedGitInvocation, gitInvocationEnvironment, parseFilterDriverNames } from '../server/git/core/git-invocation-core.ts';
 import { createGitWorkspace, runHardenedGit } from '../server/git/git-workspace.ts';
 
 const REAL_PROCESS_DEADLINE_MS = 30_000;
 
-const invocationOptions = { baseEnv: { PATH: '/bin', HOME: '/home/test', FACTORY_PROBE_TOKEN: 'secret', GIT_CONFIG_COUNT: '1',
+const invocationOptions = { baseEnv: { PATH: '/bin', HOME: '/home/test', CHECK_PROBE_TOKEN: 'secret', GIT_CONFIG_COUNT: '1',
   GIT_CONFIG_KEY_0: 'core.fsmonitor', GIT_CONFIG_VALUE_0: 'malicious', GIT_EXTERNAL_DIFF: 'malicious' }, platform: 'linux', devNullPath: '/dev/null' };
 
 function scopedListing(entries: [scope: string, key: string, value: string | null][]): string {
@@ -28,7 +28,7 @@ test('hardened git invocation suppresses hooks, fsmonitor, external diff, textco
   for (const override of ['core.hooksPath=/dev/null', 'core.fsmonitor=false', 'diff.external=', 'filter.payload.clean=', 'core.editor=true', 'sequence.editor=true',
     'filter.payload.smudge=', 'filter.payload.process=', 'filter.payload.required=false', 'merge.payload.driver=false']) assert.ok(invocation.args.includes(override), override);
   assert.deepEqual(invocation.args.slice(-4), ['diff', '--no-ext-diff', '--no-textconv', 'HEAD']);
-  assert.equal(invocation.env.FACTORY_PROBE_TOKEN, undefined);
+  assert.equal(invocation.env.CHECK_PROBE_TOKEN, undefined);
   assert.equal(invocation.env.GIT_EXTERNAL_DIFF, undefined);
   assert.equal(invocation.env.GIT_CONFIG_COUNT, undefined);
   assert.equal(invocation.env.GIT_CONFIG_KEY_0, undefined);
@@ -44,17 +44,17 @@ test('hardened git invocation keeps admin-owned system config and passes git tra
   assert.equal(invocation.env.GIT_CONFIG_NOSYSTEM, undefined);
   assert.equal(invocation.env.GIT_CONFIG_SYSTEM, undefined);
   for (const [key, value] of Object.entries(transportEnv)) assert.equal(invocation.env[key], value, key);
-  const checkEnv = buildFactoryCheckEnv(baseEnv, 'linux');
+  const checkEnv = buildAllowlistedChildEnv(baseEnv, 'linux');
   for (const key of Object.keys(transportEnv)) assert.equal(checkEnv[key], undefined, key);
 });
 
 test('hardened git invocation takes transport env from the server env when a scrubbed base env lacks it, and a base env value wins', () => {
-  const transportSourceEnv = { SSH_AUTH_SOCK: '/server-agent.sock', GIT_SSH_COMMAND: 'ssh -i server-key', HTTPS_PROXY: 'http://server-proxy', FACTORY_PROBE_TOKEN: 'server-secret' };
+  const transportSourceEnv = { SSH_AUTH_SOCK: '/server-agent.sock', GIT_SSH_COMMAND: 'ssh -i server-key', HTTPS_PROXY: 'http://server-proxy', CHECK_PROBE_TOKEN: 'server-secret' };
   const scrubbed = buildHardenedGitInvocation(['fetch', 'origin'], { ...invocationOptions, transportSourceEnv });
   assert.equal(scrubbed.env.SSH_AUTH_SOCK, '/server-agent.sock');
   assert.equal(scrubbed.env.GIT_SSH_COMMAND, 'ssh -i server-key');
   assert.equal(scrubbed.env.HTTPS_PROXY, 'http://server-proxy');
-  assert.equal(scrubbed.env.FACTORY_PROBE_TOKEN, undefined);
+  assert.equal(scrubbed.env.CHECK_PROBE_TOKEN, undefined);
   const explicit = buildHardenedGitInvocation(['fetch', 'origin'], { ...invocationOptions,
     baseEnv: { ...invocationOptions.baseEnv, SSH_AUTH_SOCK: '/caller-agent.sock' }, transportSourceEnv });
   assert.equal(explicit.env.SSH_AUTH_SOCK, '/caller-agent.sock');
@@ -97,48 +97,13 @@ test('filter driver names come only from attributes that name a driver', () => {
   assert.deepEqual(parseFilterDriverNames(''), []);
 });
 
-test('factory write ids come from JSON writer output or the defect command receipt', () => {
-  assert.equal(factoryWrittenRecordId('{"id":"write-1"}'), 'write-1');
-  assert.equal(factoryWrittenRecordId('defect-1  agent-assessed defect recorded by glimmervoid-factory\n'), 'defect-1');
-  assert.equal(factoryWrittenRecordId('{"id":42}'), null);
-  assert.equal(factoryWrittenRecordId('anything'), null);
-});
-
-test('ledger validation refuses factory session records without a declared write in every ledger directory', () => {
-  for (const directory of ['work', 'consequences', 'defects', 'decisions', 'activity']) {
-    const recordPath = `.coherence/${directory}/s-factory.jsonl`;
-    const line = JSON.stringify({ id: 'forged', session: 'glimmervoid-factory' });
-    const changes = [{ path: recordPath, previousText: null, currentText: `${line}\n` }];
-    assert.equal(findForbiddenLedgerWrites(changes, { declaredFactoryRecords: new Map([['written', { path: recordPath, line }]]) }).length, 1);
-    assert.deepEqual(findForbiddenLedgerWrites(changes, { declaredFactoryRecords: new Map([['forged', { path: recordPath, line }]]) }), []);
-    assert.equal(findForbiddenLedgerWrites([{ path: recordPath, previousText: `${line}\n`, currentText: `${line}\n${line}\n` }],
-      { declaredFactoryRecords: new Map([['forged', { path: recordPath, line }]]) }).length, 1);
-  }
-});
-
-test('ledger validation holds undeclared work records to the child-of-active-intent rule', () => {
-  const recordPath = '.coherence/work/s-orchestrator.jsonl';
-  const workChange = (record: Record<string, unknown>) => [{ path: recordPath, previousText: null, currentText: `${JSON.stringify(record)}\n` }];
-  const declaredAs = (record: Record<string, unknown>) => new Map([[String(record.id), { path: recordPath, line: JSON.stringify(record) }]]);
-  const racedRecord = { id: 'raced', session: 'orchestrator', event: 'opened', parent: null };
-  const declaredRecord = { id: 'declared', session: 'glimmervoid-factory', event: 'opened', parent: null };
-  const topLevel = workChange(racedRecord);
-  assert.deepEqual(findForbiddenLedgerWrites(topLevel, { intentId: 'intent', declaredFactoryRecords: declaredAs(declaredRecord) }),
-    ['.coherence/work/s-orchestrator.jsonl opened work that is not a child of the active intent']);
-  assert.equal(findForbiddenLedgerWrites(topLevel, { intentId: null, declaredFactoryRecords: declaredAs(racedRecord) }).length, 1);
-  assert.deepEqual(findForbiddenLedgerWrites(workChange({ id: 'child', session: 'orchestrator', event: 'opened', parent: 'intent' }),
-    { intentId: 'intent', declaredFactoryRecords: new Map() }), []);
-  assert.deepEqual(findForbiddenLedgerWrites(workChange(declaredRecord),
-    { intentId: null, declaredFactoryRecords: declaredAs(declaredRecord) }), []);
-});
-
-test('nested factory git commands receive numbered config overrides without inherited config or secrets', () => {
+test('nested check git commands receive numbered config overrides without inherited config or secrets', () => {
   const gitEnvironment = gitInvocationEnvironment(buildHardenedGitInvocation([], { ...invocationOptions, configListing: scopedListing([['local', 'filter.probe.process', 'x']]) }));
   const settings = Array.from({ length: Number(gitEnvironment.GIT_CONFIG_COUNT) }, (_, index) =>
     `${gitEnvironment[`GIT_CONFIG_KEY_${index}`]}=${gitEnvironment[`GIT_CONFIG_VALUE_${index}`]}`);
   assert.ok(settings.includes('core.fsmonitor=false'));
   assert.ok(settings.includes('filter.probe.process='));
-  assert.equal(gitEnvironment.FACTORY_PROBE_TOKEN, undefined);
+  assert.equal(gitEnvironment.CHECK_PROBE_TOKEN, undefined);
   assert.equal(gitEnvironment.GIT_CONFIG_PARAMETERS, undefined);
 });
 
@@ -150,8 +115,8 @@ async function createRepository(context: test.TestContext, prefix: string) {
   const git = async (args: string[], cwd = repository, env?: NodeJS.ProcessEnv) =>
     (await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: REAL_PROCESS_DEADLINE_MS, ...(env ? { env } : {}) })).stdout.trim();
   await git(['init', '-b', 'main']);
-  await git(['config', 'user.email', 'factory@example.test']);
-  await git(['config', 'user.name', 'Factory test']);
+  await git(['config', 'user.email', 'check@example.test']);
+  await git(['config', 'user.name', 'Check test']);
   await git(['config', 'commit.gpgsign', 'false']);
   await writeFile(path.join(repository, 'shared.txt'), 'base\n');
   await git(['add', '.']);
@@ -159,8 +124,8 @@ async function createRepository(context: test.TestContext, prefix: string) {
   return { directory, repository, git };
 }
 
-test('factory git runs operator credential helpers but never a repository-local one', { skip: process.platform === 'win32' }, async (context) => {
-  const { directory, repository, git } = await createRepository(context, 'factory-credential-');
+test('check git runs operator credential helpers but never a repository-local one', { skip: process.platform === 'win32' }, async (context) => {
+  const { directory, repository, git } = await createRepository(context, 'check-credential-');
   const homeDir = path.join(directory, 'home');
   await mkdir(homeDir);
   const helperScript = (markerPath: string) => `!${process.execPath} -e "require('node:fs').writeFileSync(process.argv[1], 'ran')" ${markerPath}`;
@@ -176,7 +141,7 @@ test('factory git runs operator credential helpers but never a repository-local 
 });
 
 test('the isolated git workspace runner keeps a caller env value across a rerere-replayed rebase continue', { skip: process.platform === 'win32' }, async (context) => {
-  const { directory, repository, git } = await createRepository(context, 'factory-isolated-runner-');
+  const { directory, repository, git } = await createRepository(context, 'check-isolated-runner-');
   const origin = path.join(directory, 'origin.git');
   await git(['init', '--bare', origin]);
   await git(['remote', 'add', 'origin', origin]);
@@ -210,8 +175,8 @@ test('the isolated git workspace runner keeps a caller env value across a rerere
   assert.equal(await git(['rev-parse', 'main'], origin), await git(['rev-parse', 'main']));
 });
 
-test('factory git pipes a tracked path list larger than the pipe buffer through check-attr without the config probe failing', async (context) => {
-  const { repository } = await createRepository(context, 'factory-large-input-');
+test('check git pipes a tracked path list larger than the pipe buffer through check-attr without the config probe failing', async (context) => {
+  const { repository } = await createRepository(context, 'check-large-input-');
   const longPathList = Array.from({ length: 4000 }, (_, index) => `${'directory-'.repeat(4)}/tracked-file-${index}.txt`).join('\0');
   assert.ok(Buffer.byteLength(longPathList) > 128 * 1024);
   const { stdout } = await runHardenedGit(['check-attr', '--stdin', '-z', 'filter'], { cwd: repository, encoding: 'utf8',
@@ -220,7 +185,7 @@ test('factory git pipes a tracked path list larger than the pipe buffer through 
 });
 
 test('the isolated git workspace runner hands git the server transport env when the caller replace env was scrubbed of it', { skip: process.platform === 'win32' }, async (context) => {
-  const { directory, repository, git } = await createRepository(context, 'factory-transport-env-');
+  const { directory, repository, git } = await createRepository(context, 'check-transport-env-');
   const origin = path.join(directory, 'origin.git');
   await git(['init', '--bare', origin]);
   await git(['remote', 'add', 'origin', origin]);
@@ -235,7 +200,7 @@ test('the isolated git workspace runner hands git the server transport env when 
     if (previousAgentSocket === undefined) delete process.env.SSH_AUTH_SOCK;
     if (previousAgentSocket !== undefined) process.env.SSH_AUTH_SOCK = previousAgentSocket;
   });
-  const scrubbedReplaceEnv = buildFactoryCheckEnv(process.env, process.platform);
+  const scrubbedReplaceEnv = buildAllowlistedChildEnv(process.env, process.platform);
   assert.equal(scrubbedReplaceEnv.GIT_SSH_COMMAND, undefined);
   assert.equal(scrubbedReplaceEnv.SSH_AUTH_SOCK, undefined);
   const invocations: { args: string[]; env: Record<string, string> | undefined }[] = [];

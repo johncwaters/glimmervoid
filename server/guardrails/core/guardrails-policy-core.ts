@@ -146,7 +146,7 @@ const GLIMMERVOID_CONFIG_SIBLING_ENTRIES: readonly string[] = Object.freeze([
   'visions-intent.json',
 ]);
 const GLIMMERVOID_HOME_STATE_ENTRIES: readonly string[] = Object.freeze([
-  'benchmark-runs', 'benchmarks', 'config.json', 'factory', 'issues-cache.json', 'knowledge-graph', 'litellm-pricing.json', 'my-prs-state.json', 'my-prs-work', 'posthog-reports',
+  'benchmark-runs', 'benchmarks', 'config.json', 'issues-cache.json', 'litellm-pricing.json', 'my-prs-state.json', 'my-prs-work', 'posthog-reports',
   'posthog-state.json', 'posthog-work', 'recordings', 'guardrails-homes', 'guardrails-policies', 'sane-yolo', 'scratch', 'sounds', 'team-review-repos', 'team-review-state.json',
   'team-review-work', 'team-review-worktrees', 'telemetry-pending-crash.json', 'telemetry.json', 'tmp', 'update-check.json', 'update-journal.json', 'workflows-state.json',
   'workflows-work',

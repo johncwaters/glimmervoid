@@ -31,7 +31,6 @@ interface BackendShutdownDependencies {
   benchmarkSessions?: Map<string, ShutdownSession>;
   branchGc: Stoppable;
   coderActivity: Stoppable;
-  factory?: Stoppable;
   posthog: { stopPoller: () => unknown };
   teamReview?: { stopPoller: () => unknown } | null;
   myPrs?: { stopPoller: () => unknown } | null;
@@ -92,7 +91,6 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     if (dependencies.taskTitleRefiner) stoppers.add('task-title', () => dependencies.taskTitleRefiner?.stop());
     stoppers.add('branch-gc', () => dependencies.branchGc.stop());
     stoppers.add('coder-activity', () => dependencies.coderActivity.stop());
-    if (dependencies.factory) stoppers.add('factory', () => dependencies.factory?.stop());
     destroySessions([dependencies.agentSessions, dependencies.reviewSessions], pendingReaps);
     stoppers.add('posthog', () => dependencies.posthog.stopPoller());
     const teamReview = dependencies.teamReview;

@@ -175,7 +175,7 @@ async function prepareHardenedGitInvocation(args: string[], baseEnv: Readonly<Re
   return buildHardenedGitInvocation(args, { ...invocationOptions, configListing });
 }
 
-export async function factoryGitEnvironment(cwd: string): Promise<Record<string, string>> {
+export async function checkGitEnvironment(cwd: string): Promise<Record<string, string>> {
   const invocation = await prepareHardenedGitInvocation([], process.env,
     async (probeArgs, probeEnv) => (await execFileAsync('git', probeArgs, { cwd, env: probeEnv, encoding: 'utf8', timeout: 30_000 })).stdout);
   return gitInvocationEnvironment(invocation);
@@ -183,7 +183,7 @@ export async function factoryGitEnvironment(cwd: string): Promise<Record<string,
 
 type HardenedGitOptions = { cwd: string; timeout?: number; maxBuffer?: number; encoding?: 'utf8'; env?: Record<string, string | undefined>; indexFile?: string };
 
-export async function prepareHardenedGitCommand(args: string[], options: HardenedGitOptions) {
+async function prepareHardenedGitCommand(args: string[], options: HardenedGitOptions) {
   const { indexFile, ...processOptions } = options;
   const invocation = await prepareHardenedGitInvocation(args, options.env ?? process.env,
     async (probeArgs, probeEnv) => (await execFileAsync('git', probeArgs, { ...processOptions, env: probeEnv, encoding: 'utf8' })).stdout);
@@ -1560,18 +1560,6 @@ function createGitWorkspace(opts: {
     listWorktreeBranches, detectDefaultBranch,
     listRemoteBranches, listIntegrationTips, isAncestor, resolveMergeProbeEnv, writeMergedTree, treeOid,
   };
-}
-
-export function isolateGitWorkspace<Workspace extends { withGitIsolation?: GitWorkspaceInstance['withGitIsolation'] }>(workspace: Workspace, isolation: GitIsolationOptions): Workspace {
-  const isolate = workspace.withGitIsolation;
-  if (!isolate) throw new Error('Factory Git workspace requires isolation support');
-  return new Proxy(workspace, {
-    get(target, property) {
-      const operation: unknown = Reflect.get(target, property);
-      if (typeof operation !== 'function' || property === 'withGitIsolation') return operation;
-      return (...args: unknown[]) => isolate(isolation, () => Reflect.apply(operation, target, args));
-    },
-  });
 }
 
 function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => string; glimmervoidHome?: string } = {}) {

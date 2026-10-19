@@ -10,7 +10,6 @@ import { settingsBlockSpec, settingsOf } from '../shared/settings/registry-core.
 
 const POSTHOG_SPEC = settingsBlockSpecFor('posthog');
 const TELEGRAM_SPEC = settingsBlockSpecFor('telegram');
-const FACTORY_SPEC = settingsBlockSpecFor('factory');
 const POST_TURN_SPEC = settingsBlockSpecFor('postTurnChecks');
 
 test('an absent block is valid, so an untouched tab writes nothing', () => {
@@ -95,9 +94,6 @@ test('the registry build widens a block to every leaf kind its entries name', ()
   assert.deepEqual(POSTHOG_SPEC.values?.intervalMinutes, { control: 'number', nullable: false });
   assert.deepEqual(POSTHOG_SPEC.values?.projects, { control: 'list', nullable: false, valueKind: 'posthog-projects' });
   assert.deepEqual(POSTHOG_SPEC.values?.projectMap, { control: 'json', nullable: false });
-  assert.deepEqual(FACTORY_SPEC.values?.reviewerModel, { control: 'text', nullable: true });
-  assert.deepEqual(FACTORY_SPEC.values?.dailyBudgetUsd, { control: 'number', nullable: true });
-  assert.deepEqual(FACTORY_SPEC.values?.checks, { control: 'list', nullable: false });
   assert.deepEqual(settingsBlockSpecFor('visions').blocks.dispatch.values?.model, { control: 'text', nullable: false });
   assert.deepEqual(settingsBlockSpecFor('usage').blocks.budget.values?.dailyUsd, { control: 'number', nullable: true });
 });
@@ -146,10 +142,6 @@ test('a pick never carries a password leaf, only its presence flag', () => {
 });
 
 test('a pick carries a stored null for a nullable leaf and copies lists and objects', () => {
-  const stored = { reviewerModel: null, dailyBudgetUsd: 12.5, checks: ['npm test'], enabled: false };
-  const picked = pickSettingsBlock(stored, FACTORY_SPEC);
-  assert.deepEqual(picked, stored);
-  assert.notEqual(picked?.checks, stored.checks);
   assert.deepEqual(pickSettingsBlock({ projectMap: { 7: '/repo' } }, POSTHOG_SPEC), { projectMap: { 7: '/repo' }, apiKeyConfigured: false });
 });
 
@@ -162,24 +154,12 @@ test('validation checks each leaf kind and honours nullable', () => {
   assert.equal(validateSettingsBlock({ projectMap: 'x' }, POSTHOG_SPEC), 'posthog.projectMap must be an object');
   assert.equal(validateSettingsBlock({ host: null }, POSTHOG_SPEC), 'posthog.host must not be null');
   assert.equal(validateSettingsBlock({ projects: [1, 2] }, POSTHOG_SPEC), null, 'a leaf with a value kind is shaped by its contract');
-  assert.equal(validateSettingsBlock({ checks: ['npm test'], reviewerModel: null, dailyBudgetUsd: null }, FACTORY_SPEC), null);
-  assert.equal(validateSettingsBlock({ checks: 'npm test' }, FACTORY_SPEC), 'factory.checks must be an array of strings');
-  assert.equal(validateSettingsBlock({ checks: [1] }, FACTORY_SPEC), 'factory.checks must be an array of strings');
-  assert.equal(validateSettingsBlock({ maxRisk: 'high' }, FACTORY_SPEC), null);
-  assert.equal(validateSettingsBlock({ maxRisk: true }, FACTORY_SPEC), 'factory.maxRisk must be a string');
 });
 
 test('a merge writes every leaf kind, clears a nullable leaf or a nested block with null and ignores null elsewhere', () => {
   const stored = { enabled: true, apiKey: 'old', host: 'https://old.test', futureKnob: 1 };
   const merged = mergeSettingsBlock(stored, { apiKey: 'new', host: null, intervalMinutes: 3, projects: [4], enabled: null }, POSTHOG_SPEC);
   assert.deepEqual(merged, { enabled: true, apiKey: 'new', host: 'https://old.test', futureKnob: 1, intervalMinutes: 3, projects: [4] });
-  assert.deepEqual(
-    mergeSettingsBlock({ reviewerModel: 'opus', checks: ['a'] }, { reviewerModel: null, checks: ['b'] }, FACTORY_SPEC),
-    { reviewerModel: null, checks: ['b'] },
-  );
-  const incomingChecks = ['c'];
-  const copied = mergeSettingsBlock(undefined, { checks: incomingChecks }, FACTORY_SPEC);
-  assert.notEqual(copied.checks, incomingChecks, 'the merge copies rather than aliases the incoming value');
   assert.deepEqual(
     mergeSettingsBlock({ refiner: { enabled: false, model: 'opus' } }, { refiner: null }, settingsBlockSpecFor('taskTitle')),
     { refiner: null },

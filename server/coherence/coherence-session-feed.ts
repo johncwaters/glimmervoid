@@ -11,7 +11,7 @@ import {
 } from './core/coherence-feed-core.ts';
 import type { JournalSource } from './core/coherence-feed-core.ts';
 import { firstLine } from '../core/text-core.ts';
-import { factoryGitEnvironment } from '../git/git-workspace.ts';
+import { checkGitEnvironment } from '../git/git-workspace.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { createCoherenceRuntime } from './coherence-runtime.ts';
 import {
@@ -167,7 +167,7 @@ function createCoherenceSessionFeed({
   async function regulateInSnapshot(
     session: CoherenceFeedSession, state: SessionFeedState | null, cwd: string, host: 'claude' | 'codex', resolvedCliPath: string, scratch: string,
   ): Promise<CoherenceRegulationReading> {
-    const env = coherenceEnv(await factoryGitEnvironment(cwd));
+    const env = coherenceEnv(await checkGitEnvironment(cwd));
     const snapshot = await snapshotFor(session, cwd, path.join(scratch, 'snapshot'), env);
     if (!snapshot.ok) return snapshot;
     const configRefusal = regulationFromConfig(await readCoherenceConfigEntry(snapshot.cwd));

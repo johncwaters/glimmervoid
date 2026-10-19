@@ -159,7 +159,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       latestPlanTitle: laneAssembly.planReview?.latestPlanTitle(glimmervoidId) ?? null,
     }),
     getAgentApi: () => agentApi,
-    getFactory: () => factory,
     sshSigner,
     recordOutcome,
     logger: console,
@@ -249,9 +248,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   const laneAssembly = createBackendLanes({
     config,
-    makeSession,
     guardrailsRefusal,
-    wireSessionEvents: (session: Session) => wireSessionEvents(session),
     configStore,
     sessions,
     agentSessions,
@@ -272,7 +269,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     allLiveSessions,
     branchGc,
     coderActivity,
-    factory,
     changeMapSessions,
     gitWorkspace: assembledGitWorkspace,
     gitWorkspaceSync,
@@ -293,7 +289,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   gitWorkspace = assembledGitWorkspace;
   const coherenceRuntime = createCoherenceRuntime();
   const listCoherenceProjects = () => (configStore.config.projects ?? []).flatMap(({ id, path: projectPath }) => (id && projectPath ? [{ id, path: projectPath }] : []));
-  const readCoherenceSettings = () => ({ isFactoryEnabled: configStore.config.factory?.enabled === true, isSettingOn: configStore.config.coherence?.enabled === true });
+  const readCoherenceSettings = () => ({ isSettingOn: configStore.config.coherence?.enabled === true });
   const coherenceReadings = createCoherenceReadings({
     seriesRoot: configSiblingPath(configStore.configPath, 'coherence-readings'),
     listProjects: listCoherenceProjects,
@@ -326,7 +322,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   });
   agentApi = createAgentApiWiring({
     config,
-    factory,
     agentSessions,
     listAllSessions: () => allLiveSessions(),
     listBoardSessions: () => [...sessions.values(), ...agentSessions.values()],
@@ -501,7 +496,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     benchmarkSessions: laneAssembly.benchmarkSessions,
     branchGc,
     coderActivity,
-    factory,
     posthog,
     teamReview,
     myPrs,
@@ -567,7 +561,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     myPrs,
     issues,
     benchmarks: laneAssembly.benchmarks,
-    factory,
     usage,
     readTracePage: traceWiring?.readTracePage ?? null,
     readPlanRevision: laneAssembly.planReview?.readPlanRevision ?? null,

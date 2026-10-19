@@ -225,8 +225,8 @@ function parseReadingSeries(text: string): CoherenceReadingRow[] {
   return text.split('\n').flatMap(parseReadingRowLine).slice(-COHERENCE_READING_SERIES_MAX_ROWS);
 }
 
-function isProjectWatched({ isFactoryEnabled, isSettingOn }: { isFactoryEnabled: boolean; isSettingOn: boolean }): boolean {
-  return decideCoherenceAttachment({ sessionKind: isFactoryEnabled ? 'factory' : 'writer', isSettingOn });
+function isProjectWatched({ isSettingOn }: { isSettingOn: boolean }): boolean {
+  return decideCoherenceAttachment({ sessionKind: 'writer', isSettingOn });
 }
 
 export {

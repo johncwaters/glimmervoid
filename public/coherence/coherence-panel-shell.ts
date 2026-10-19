@@ -2,7 +2,7 @@ import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { applyDialogAria, createModalOverlay } from '../session-card/modal.ts';
 
-export function openCoherencePanelShell({ dialogClass, titleText, titleId, body, onCloseRequest }: {
+function openCoherencePanelShell({ dialogClass, titleText, titleId, body, onCloseRequest }: {
   dialogClass: string;
   titleText: string;
   titleId: string;

@@ -1,8 +1,6 @@
 import type { IssuesStatus } from '../shared/contracts/issues.ts';
 import { isSameDirectoryPath } from '../shared/canonical-paths.ts';
 import { createKeyedSerialQueue } from './spawn-gate.ts';
-import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest } from '../shared/contracts/factory.ts';
-import type { FactoryControlResult, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from '../shared/contracts/factory.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 import type { GithubPollingRefreshResult } from '../shared/contracts/github-polling.ts';
@@ -29,7 +27,6 @@ import { normalizeClientTrust } from './core/request-trust.ts';
 import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from './core/settings-block-core.ts';
 import { readPosthogReport } from './radar/radar-report.ts';
 import { willSessionRunGuarded } from './session/session-factory.ts';
-import { findFactoryRepo, findFactoryRepoByPath } from './factory/core/factory-repos-core.ts';
 import * as radarLaneCore from './radar/core/radar-lane-core.ts';
 import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './github/core/github-issues-core.ts';
@@ -99,11 +96,6 @@ interface MyPrMergeControl {
   setMergeWhenReady?: (request: MyPrMergeWhenReadyRequest) => Promise<Omit<MyPrMergeWhenReadyResult, 'key'>>;
 }
 
-interface FactoryControl {
-  queueIntent(request: FactoryQueueIntentRequest): Promise<FactoryQueueIntentResult>;
-  control(request: FactoryControlRequest): Promise<FactoryControlResult>;
-}
-
 interface BenchmarkControl {
   getStatus(): BenchmarkStatus;
   submitAction(request: BenchmarkActionRequest): Promise<BenchmarkActionResult>;
@@ -142,10 +134,8 @@ interface ControlHandlerDeps {
   issues?: { refresh: () => Promise<GithubPollingRefreshResult>; getLinkedSessionId?: (issueKey: string) => Promise<string | null>; linkSession?: (issueKey: string, sessionId: string) => Promise<void> } | null;
   teamReview?: TeamReviewActionControl | null;
   myPrs?: MyPrMergeControl | null;
-  getFactoryState?: (() => FactoryState | null) | null;
   getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
   benchmarks?: BenchmarkControl | null;
-  factory?: FactoryControl | null;
   createGithubClient?: (cwd: string) => Pick<PrGh, 'viewIssue'>;
   issueProjectRepos?: ((projectId: string) => Promise<string[]>) | null;
   serverBuild?: () => string | null;
@@ -314,8 +304,6 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'my-pr-merge': () => ({ type: 'my-pr-merge-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'my-pr-keep-mergeable': () => ({ type: 'my-pr-keep-mergeable-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'my-pr-merge-when-ready': () => ({ type: 'my-pr-merge-when-ready-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
-    'factory-queue-intent': () => ({ type: 'factory-queue-intent-result', requestId, projectId: typeof msg?.projectId === 'string' ? msg.projectId.slice(0, 128) : '', ok: false, error: message.slice(0, FACTORY_ERROR_MAX_CHARS) }),
-    'factory-control': () => ({ type: 'factory-control-result', requestId, projectId: typeof msg?.projectId === 'string' ? msg.projectId.slice(0, 128) : '', action: FactoryControlRequest.shape.action.safeParse(msg?.action).data ?? 'pause', ok: false, error: message.slice(0, FACTORY_ERROR_MAX_CHARS) }),
     'benchmark-action': () => ({ type: 'benchmark-action-result', requestId, suiteId: typeof msg?.suiteId === 'string' ? msg.suiteId : '', action: typeof msg?.action === 'string' ? msg.action : 'run', ok: false, error: message }),
     'request-usage-report': () => ({ type: 'usage-report', requestId, error: message }),
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
@@ -394,9 +382,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     teamReview = null,
     myPrs = null,
     getBenchmarkStatus = null,
-    getFactoryState = null,
     benchmarks = null,
-    factory = null,
 
     createGithubClient = createPrGh,
     issueProjectRepos = null,
@@ -974,8 +960,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (unguarded) project.unguarded = true;
     if (agent) project.agent = agent;
     const freshConfig = configStore.save(cfg => {
-      const repoFactoryProfile = project.repos ? undefined : findFactoryRepoByPath(cfg, project.path)?.factoryProfile;
-      if (repoFactoryProfile) project.factoryProfile = repoFactoryProfile;
       cfg.projects.push(project);
     });
     if (!freshConfig) return { ok: false, error: `Could not save session "${name}"` };
@@ -1204,35 +1188,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply(await myPrs.setMergeWhenReady(parsed.data));
   }
 
-  function factoryRequestError(projectId: string): string | null {
-    if (!findFactoryRepo(config, projectId)) return 'Unknown factory project';
-    if (!factory || config.factory?.enabled !== true) return 'Factory is not running';
-    return null;
-  }
-
-  async function handleFactoryQueueIntent(msg: ClientMessageOf<'factory-queue-intent'>, ws: ControlSocket): Promise<void> {
-    const error = factoryRequestError(msg.projectId);
-    if (error || !factory) {
-      replyTo(ws, msg, 'factory-queue-intent-result', { projectId: msg.projectId, ok: false, error });
-      return;
-    }
-    replyTo(ws, msg, 'factory-queue-intent-result', await factory.queueIntent(msg));
-  }
-
-  async function handleFactoryControl(msg: ClientMessageOf<'factory-control'>, ws: ControlSocket): Promise<void> {
-    const parsed = FactoryControlRequest.safeParse(msg);
-    if (!parsed.success) {
-      replyTo(ws, msg, 'factory-control-result', { projectId: msg.projectId, action: msg.action, ok: false, error: configIssueMessage(parsed.error).slice(0, FACTORY_ERROR_MAX_CHARS) });
-      return;
-    }
-    const error = factoryRequestError(msg.projectId);
-    if (error || !factory) {
-      replyTo(ws, msg, 'factory-control-result', { projectId: msg.projectId, action: msg.action, ok: false, error });
-      return;
-    }
-    replyTo(ws, msg, 'factory-control-result', await factory.control(parsed.data));
-  }
-
   async function handleBenchmarkAction(msg: ClientMessageOf<'benchmark-action'>, ws: ControlSocket): Promise<void> {
     const parsed = BenchmarkActionRequest.safeParse(msg);
     if (!parsed.success) {
@@ -1429,8 +1384,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'my-pr-merge-when-ready': handleMyPrMergeWhenReady,
     'github-polling-refresh': handleGithubPollingRefresh,
     'benchmark-action': handleBenchmarkAction,
-    'factory-queue-intent': handleFactoryQueueIntent,
-    'factory-control': handleFactoryControl,
     'request-usage-report': handleRequestUsageReport,
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
@@ -1688,8 +1641,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (issuesStatus) ws.send(JSON.stringify(issuesStatus));
     const benchmarkStatus = typeof getBenchmarkStatus === 'function' ? getBenchmarkStatus() : null;
     if (benchmarkStatus) ws.send(JSON.stringify(benchmarkStatus));
-    const factoryState = getFactoryState?.() ?? null;
-    if (factoryState) ws.send(JSON.stringify(factoryState));
 
     const usageSessions = typeof getUsageSessions === 'function' ? getUsageSessions() : null;
     if (usageSessions) {
@@ -1749,4 +1700,4 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 export {
   registerControlHandlers,
 };
-export type { FactoryControl, BenchmarkControl, ControlHandlerDeps, MyPrMergeControl, TeamReviewActionControl };
+export type { BenchmarkControl, ControlHandlerDeps, MyPrMergeControl, TeamReviewActionControl };

@@ -1,11 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { errorCode, errorMessage, isMissingFileError } from '../../shared/text.ts';
-import { decideCoherenceAttachment } from './core/coherence-session-core.ts';
-import { FACTORY_WORKER_JOURNAL_MAX_BYTES, isJournalProjectionTrusted, isValidWorkerJournal, listWorkerJournalPaths } from '../factory/core/factory-journal-core.ts';
-import { prepareCoherenceJournal } from '../lanes/lane-spawn.ts';
-import type { CoherenceJournal, LaneCoherenceCli } from '../lanes/lane-spawn.ts';
+import { buildCoherenceJournalLaneOverrides, buildCoherenceShims, decideCoherenceAttachment } from './core/coherence-session-core.ts';
+import { COHERENCE_JOURNAL_MAX_BYTES, isJournalProjectionTrusted, isValidWorkerJournal, listWorkerJournalPaths } from './core/coherence-journal-core.ts';
+import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
 
 type RunCoherence = (request: { cwd: string; args: string[] }) => Promise<string>;
@@ -14,6 +14,42 @@ type LaneJournalRead = { outcome: 'absent' } | { outcome: 'rejected'; reason: st
 
 const LOCAL_STORE_LABEL = 'local Coherence store';
 const LOCAL_STORE_CONFIG_FILENAME = 'coherence.config.json';
+const COHERENCE_SHIM_DIR_PREFIX = 'glimmervoid-lane-coherence-bin-';
+
+type LaneCoherenceCli = { nodePath: string; cliPath: string; hookCliPath: string };
+
+export type CoherenceJournal = ReturnType<typeof buildCoherenceJournalLaneOverrides> & LaneCoherenceJournalLaunch;
+
+interface LaneCoherenceJournalLaunch {
+  shimDir: string;
+  claudeSessionId: string;
+}
+
+async function prepareCoherenceJournal({ laneCwd, coherenceCli, isCodex, laneName, resumedClaudeSessionId = null }: {
+  laneCwd: string; coherenceCli: LaneCoherenceCli | null | undefined; isCodex: boolean; laneName: string; resumedClaudeSessionId?: string | null;
+}): Promise<CoherenceJournal> {
+  if (isCodex) throw new Error(`${laneName} lane journals into Coherence only on Claude Code`);
+  if (!coherenceCli) throw new Error(`${laneName} lane cannot journal into Coherence: the Coherence CLI is unavailable`);
+  const shimDir = await makeHostScratchDirectory(COHERENCE_SHIM_DIR_PREFIX);
+  try {
+    for (const shim of buildCoherenceShims({ nodePath: coherenceCli.nodePath, cliPath: coherenceCli.cliPath })) {
+      await writeFile(path.join(shimDir, shim.fileName), shim.text, { mode: shim.mode, flag: 'wx' });
+    }
+  } catch (error) {
+    await rm(shimDir, { recursive: true, force: true });
+    throw error;
+  }
+  const claudeSessionId = resumedClaudeSessionId ?? randomUUID();
+  try {
+    const journalOverrides = buildCoherenceJournalLaneOverrides({
+      claudeSessionId, nodePath: coherenceCli.nodePath, hookCliPath: coherenceCli.hookCliPath, shimDir, laneCwd, isResumed: resumedClaudeSessionId !== null,
+    });
+    return { ...journalOverrides, shimDir, claudeSessionId };
+  } catch (error) {
+    await rm(shimDir, { recursive: true, force: true });
+    throw error;
+  }
+}
 
 async function readLaneJournalFile(realLaneCwd: string, journalPath: string, claudeSessionId: string): Promise<LaneJournalRead> {
   const sourcePath = path.join(realLaneCwd, journalPath);
@@ -24,7 +60,7 @@ async function readLaneJournalFile(realLaneCwd: string, journalPath: string, cla
   if (sourceStats === null) return { outcome: 'absent' };
   if (!sourceStats.isFile()) return { outcome: 'rejected', reason: 'it is not a regular file' };
   if (await realpath(sourcePath) !== sourcePath) return { outcome: 'rejected', reason: 'it resolves outside the lane folder' };
-  if (sourceStats.size > FACTORY_WORKER_JOURNAL_MAX_BYTES) return { outcome: 'rejected', reason: 'it is over 1 MiB' };
+  if (sourceStats.size > COHERENCE_JOURNAL_MAX_BYTES) return { outcome: 'rejected', reason: 'it is over 1 MiB' };
   const journalFile = await open(sourcePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   const bytes = await journalFile.readFile().finally(() => journalFile.close());
   if (!isValidWorkerJournal({ relativePath: journalPath, bytes, claudeSessionId })) return { outcome: 'rejected', reason: "it is not a canonical JSONL journal of the lane's own session" };
@@ -44,7 +80,7 @@ async function writeNewJournal(realDestinationCwd: string, destinationLabel: str
   }
 }
 
-export async function copyLaneJournal({ laneCwd, claudeSessionId, destinationCwd, destinationLabel, runCoherence, onRejected, onUntrusted }: {
+async function copyLaneJournal({ laneCwd, claudeSessionId, destinationCwd, destinationLabel, runCoherence, onRejected, onUntrusted }: {
   laneCwd: string; claudeSessionId: string; destinationCwd: string; destinationLabel: string; runCoherence: RunCoherence;
   onRejected: (journalPath: string, reason: string) => void; onUntrusted: (journalPaths: readonly string[]) => void;
 }): Promise<void> {

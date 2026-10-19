@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  buildCoherenceSessionOverrides,
   buildCoherenceShims,
   buildCoherenceUserHooks,
   COHERENCE_HOOK_EVENTS,
@@ -22,12 +21,9 @@ import { ServerMessage } from '../shared/contracts/control-messages.ts';
 
 const nodePath = '/Program Files/node/node';
 const hookCliPath = '/installed packages/coherence/hook.js';
-const claudeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
 
-test('coherence attachment always includes Factory and gates writers and reviews on the setting', () => {
+test('coherence attachment gates writers and reviews on the setting', () => {
   const cases = [
-    ['factory', false, true],
-    ['factory', true, true],
     ['writer', false, false],
     ['writer', true, true],
     ['review', false, false],
@@ -76,21 +72,6 @@ test('coherence hook commands quote Windows paths without changing backslashes',
 test('coherence hook commands reject a double quote in either path', () => {
   assert.throws(() => buildCoherenceUserHooks({ nodePath: '/bad"node', hookCliPath }), /double quotes/);
   assert.throws(() => buildCoherenceUserHooks({ nodePath, hookCliPath: '/bad"hook.js' }), /double quotes/);
-});
-
-test('coherence Factory overrides preassign the conversation and carry only the PATH note and shim, never a hook bundle', () => {
-  const shimDir = '/glimmervoid home/factory/bin';
-  assert.deepEqual(buildCoherenceSessionOverrides({ claudeSessionId, shimDir }), {
-    extraClaudeArgs: ['--session-id', claudeSessionId],
-    extraUserHooks: buildCoherenceUserHooks({ nodePath, hookCliPath }).filter((hook) => hook.id === 'coherence-cli-on-path'),
-    prependPathDirs: [shimDir],
-  });
-});
-
-test('coherence session overrides reject non-UUID conversation ids', () => {
-  for (const invalidId of ['', 'not-a-uuid', '--resume', `${claudeSessionId}extra`, ` ${claudeSessionId}`]) {
-    assert.throws(() => buildCoherenceSessionOverrides({ claudeSessionId: invalidId, shimDir: '/bin' }), /UUID/);
-  }
 });
 
 test('coherence shims quote paths, forward arguments and use platform-specific modes and newlines', () => {

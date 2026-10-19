@@ -14,13 +14,12 @@ import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import grok from '../session/adapters/grok.ts';
 import { renderGrokHooksFile } from '../session/core/grok-hooks-file-core.ts';
 import { saneYoloHomeDir } from '../server/hook-tools.ts';
-import { buildCoherenceSessionOverrides } from '../server/coherence/core/coherence-session-core.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
 import { createCoherenceNativeHooks } from '../server/coherence/coherence-native-hooks.ts';
 import { codexHookHashes } from '../server/coherence/core/coherence-codex-trust-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { resolvePackageBin } from '../server/runtime-paths.ts';
-import type { HooksBlock, UserHook } from '../session/core/user-hooks-core.ts';
+import type { HooksBlock } from '../session/core/user-hooks-core.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import type { SpawnCall } from './helpers/fake-pty.ts';
 
@@ -69,65 +68,6 @@ test('every agent spawns with an agent API url on the loopback listener', async 
       }
     });
   }
-});
-
-test('factory overrides reach Claude argv and env with only the coherence PATH note after fresh project hooks', async () => {
-  await withTempDir(async (directory) => {
-    const projectHooks: UserHook[] = [{
-      id: 'project-session-start', name: 'Project session start', event: 'SessionStart', type: 'command', command: 'project-start', enabled: true,
-    }];
-    const makeSession = createSessionFactory({
-      configStore: { configPath: path.join(directory, 'config.json') },
-      hookRouter: new HookRouter(),
-      getHookPort: () => PORT,
-      getGitWorkspace: () => null,
-      getPlanReviewPort: () => null,
-      resolveHookTools: () => [{ id: 'rtk', binPath: path.join(directory, 'rtk', 'rtk') }],
-      getUserHooks: () => projectHooks,
-    });
-    const overrides = buildCoherenceSessionOverrides({
-      claudeSessionId: '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5',
-      shimDir: path.join(directory, 'factory', 'bin'),
-    });
-    const session = makeSession({ id: 'coherence-session', name: 'Coherence', path: directory },
-      { projects: [], recordSignals: false }, overrides);
-    session._spawnCommand = { path: process.execPath, kind: 'exe' };
-    const calls: SpawnCall[] = [];
-    session._ptySpawn = (file, args, opts) => {
-      calls.push({ file, args, opts: opts as SpawnCall['opts'] });
-      return fakePty();
-    };
-    try {
-      await session.start();
-      const readSettings = () => {
-        const settingsIndex = calls.at(-1)?.args.indexOf('--settings') ?? -1;
-        assert.ok(settingsIndex >= 0);
-        const settingsPath = calls.at(-1)?.args[settingsIndex + 1];
-        assert.ok(settingsPath);
-        return JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as { hooks: HooksBlock };
-      };
-      assert.deepEqual(calls[0].args.slice(-2), overrides.extraClaudeArgs);
-      assert.equal('COHERENCE_HOOK_HOST' in calls[0].opts.env, false);
-      assert.equal('COHERENCE_PROJECT_ROOT' in calls[0].opts.env, false);
-      assert.deepEqual(String(calls[0].opts.env.PATH ?? calls[0].opts.env.Path).split(path.delimiter).slice(0, 2),
-        [overrides.prependPathDirs[0], path.join(directory, 'rtk')]);
-      const pathNote = overrides.extraUserHooks[0];
-      assert.deepEqual(readSettings().hooks.SessionStart.slice(-2), [
-        { hooks: [{ type: 'command', command: 'project-start' }] },
-        { hooks: [{ type: 'command', command: pathNote.command }] },
-      ]);
-      projectHooks[0].command = 'updated-project-start';
-      session._hooks.inject();
-      assert.deepEqual(readSettings().hooks.SessionStart.slice(-2), [
-        { hooks: [{ type: 'command', command: 'updated-project-start' }] },
-        { hooks: [{ type: 'command', command: pathNote.command }] },
-      ]);
-      assert.equal(Object.values(readSettings().hooks).flat().some((entry) => entry.hooks.some((hook) => hook.command?.includes('coherence-hook'))), false);
-      assert.equal(overrides.extraUserHooks.length, 1);
-    } finally {
-      session.destroy();
-    }
-  });
 });
 
 test('extra hooks reach settings when no project hook callback is configured', async () => {

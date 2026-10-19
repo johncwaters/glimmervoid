@@ -1,10 +1,8 @@
+import type { GitIsolationOptions } from '../server/git/core/git-invocation-core.ts';
 import { gitCommandFailure, runGit } from "../server/git/git-exec.ts";
 import type { RunGitOptions } from "../server/git/git-exec.ts";
 import { errorMessage } from "../shared/text.ts";
 import fs from "node:fs";
-import os from "node:os";
-import { isolateGitWorkspace, runHardenedGit } from "../server/git/git-workspace.ts";
-import { buildHardenedGitInvocation } from "../server/git/core/git-invocation-core.ts";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "../server/child-process-safe.ts";
@@ -33,7 +31,6 @@ import {
   buildResyncCommand,
   firstGitErrorLine,
 } from "../server/core/branch-sync-core.ts";
-import type { GitIsolationOptions } from "../server/git/core/git-invocation-core.ts";
 import type { WorktreeArgs } from "../server/git/git-workspace.ts";
 import type { GitWorkspaceInstance } from "../server/git/git-workspace.ts";
 import { planWorkspaceMembers } from "./core/workspace-core.ts";
@@ -144,7 +141,6 @@ interface WorktreeLifecycleOptions {
   projectPath: string;
   integrationBranch?: string | null;
   gitWorkspace?: GitWorkspace | null;
-  gitIsolation?: GitIsolationOptions;
   autoRebase?: boolean;
   syncOnStart?: boolean;
   liveWorktreeReview?: boolean;
@@ -282,7 +278,6 @@ function createSessionWorktreeLifecycle({
   projectPath,
   integrationBranch = null,
   gitWorkspace = null,
-  gitIsolation,
   autoRebase = true,
   syncOnStart = true,
   liveWorktreeReview = true,
@@ -292,19 +287,9 @@ function createSessionWorktreeLifecycle({
   sessionName = id,
   port,
 }: WorktreeLifecycleOptions) {
-  if (gitIsolation && gitWorkspace) gitWorkspace = isolateGitWorkspace(gitWorkspace, gitIsolation);
   const currentProjectPath = (): string => port.projectPath ? port.projectPath() : projectPath;
-  async function runSessionGit(args: string[], options: RunGitOptions): Promise<string> {
-    return (await runHardenedGit(args, {
-      cwd: options.cwd ?? currentProjectPath(),
-      timeout: options.timeoutMs ?? 30_000,
-      maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
-      env: gitIsolation?.replaceEnv,
-    })).stdout;
-  }
   function gitOut(args: string[], options: RunGitOptions): Promise<string> {
-    if (!gitIsolation?.disableRepoCommands) return readGitStrict(args, options);
-    return runSessionGit(args, options);
+    return readGitStrict(args, options);
   }
   function gitLookup(args: string[], options: RunGitOptions): Promise<string | null> {
     return gitOut(args, options).catch((error: unknown) => {
@@ -404,9 +389,7 @@ function createSessionWorktreeLifecycle({
   function resolveCommonGitDir(): string | null {
     if (!lifecycleState.worktreeDir) return null;
     try {
-      const invocation = gitIsolation?.disableRepoCommands ? buildHardenedGitInvocation(['rev-parse', '--git-common-dir'], {
-        baseEnv: gitIsolation.replaceEnv ?? process.env, platform: process.platform, devNullPath: os.devNull,
-      }) : { args: ['rev-parse', '--git-common-dir'], env: process.env };
+      const invocation = { args: ['rev-parse', '--git-common-dir'], env: process.env };
       const commonDir = execFileSync("git", invocation.args, {
         env: invocation.env,
         cwd: lifecycleState.worktreeDir,
@@ -1143,7 +1126,7 @@ function createSessionWorktreeLifecycle({
         workspace,
         targetBranch: effectiveIntegrationBranch(),
       });
-      if (isolation && !workspaceApi.withGitIsolation) throw new Error("Factory merge requires Git isolation");
+      if (isolation && !workspaceApi.withGitIsolation) throw new Error("Merge requires Git isolation");
       const mergeResult = await (isolation && workspaceApi.withGitIsolation ? workspaceApi.withGitIsolation(isolation, merge) : merge());
       if (mergeResult.warning) port.emit("worktree-warning", { id, branch: effectiveIntegrationBranch(), notice: mergeResult.warning });
       return { result: mergeResult };

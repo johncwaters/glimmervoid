@@ -54,7 +54,6 @@
   ],
   "scripts": {
     "start": "node dist/server/index.js",
-    "factory:run": "node test/factory/run.ts",
     "lint": "biome check . --max-diagnostics=none",
     "test": "node --import ./tests/helpers/isolate-home.ts --test \"tests/**/*.test.ts\"",
     "test:files": "node --import ./tests/helpers/isolate-home.ts --test",

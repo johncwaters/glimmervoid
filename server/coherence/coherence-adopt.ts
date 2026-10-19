@@ -15,9 +15,9 @@ import type { CoherenceAdoptStep } from './core/coherence-adopt-core.ts';
 import { isCompletedCommandFailure } from '../core/command-failure-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { firstLine } from '../core/text-core.ts';
-import { buildFactoryCheckEnv } from '../factory/core/factory-core.ts';
+import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { runCommand } from '../git/git-exec.ts';
-import { factoryGitEnvironment, runHardenedGit } from '../git/git-workspace.ts';
+import { checkGitEnvironment, runHardenedGit } from '../git/git-workspace.ts';
 import type { GitWorkspaceInstance } from '../git/git-workspace.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { integrationTipReader } from './coherence-readings.ts';
@@ -148,7 +148,7 @@ function createCoherenceAdopt({
 
   function npmEnv(): Record<string, string> {
     const passedThrough = Object.entries(baseEnv).filter((entry): entry is [string, string] => entry[1] !== undefined && NPM_PASSTHROUGH_ENV.test(entry[0]));
-    return { ...buildFactoryCheckEnv(baseEnv, process.platform), ...Object.fromEntries(passedThrough) };
+    return { ...buildAllowlistedChildEnv(baseEnv, process.platform), ...Object.fromEntries(passedThrough) };
   }
 
   async function resolveIntegrationBranch(projectPath: string): Promise<AdoptOutcome<string>> {
@@ -208,7 +208,7 @@ function createCoherenceAdopt({
     try {
       await mkdir(path.dirname(placeholderPath), { recursive: true });
       await writeFile(placeholderPath, COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER.text, { flag: 'wx', mode: COHERENCE_ADOPT_HOOK_TARGET_PLACEHOLDER.mode });
-      const hooksEnv = coherenceEnv(await factoryGitEnvironment(checkout));
+      const hooksEnv = coherenceEnv(await checkGitEnvironment(checkout));
       for (const host of COHERENCE_ADOPT_HOSTS) {
         const hooksFailure = await runStep('hooks-install', process.execPath, [shippedCliPath, ...coherenceHooksInstallArgs(host)], {
           cwd: checkout, timeoutMs: COHERENCE_ADOPT_TIMEOUT_MS.hooksInstall, env: hooksEnv,

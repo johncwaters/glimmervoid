@@ -3,9 +3,8 @@ const BYTES_PER_MEGABYTE = 1024 * 1024;
 export const MEMORY_RECHECK_MS = 5_000;
 const MEMORY_RESERVATION_SETTLE_MS = 30_000;
 export const DEFAULT_SESSION_MEMORY_RESERVE_MB = 600;
-export const DEFAULT_CHECK_MEMORY_RESERVE_MB = 1500;
 
-export type MemoryStartKind = 'session' | 'checkRun';
+export type MemoryStartKind = 'session';
 
 export type MemoryReading =
   | { ok: true; headroomBytes: number }
@@ -23,13 +22,10 @@ export interface CgroupLevel {
 
 interface MemoryReserveConfig {
   sessionMemoryReserveMB?: number;
-  checkMemoryReserveMB?: number;
 }
 
-export function memoryReserveBytes(config: MemoryReserveConfig, kind: MemoryStartKind): number {
-  const reserveMegabytes = kind === 'session'
-    ? config.sessionMemoryReserveMB ?? DEFAULT_SESSION_MEMORY_RESERVE_MB
-    : config.checkMemoryReserveMB ?? DEFAULT_CHECK_MEMORY_RESERVE_MB;
+export function memoryReserveBytes(config: MemoryReserveConfig, _kind: MemoryStartKind): number {
+  const reserveMegabytes = config.sessionMemoryReserveMB ?? DEFAULT_SESSION_MEMORY_RESERVE_MB;
   return reserveMegabytes * BYTES_PER_MEGABYTE;
 }
 

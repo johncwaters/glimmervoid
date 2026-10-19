@@ -12,7 +12,6 @@ const NO_OWN_WORKTREE_REASON = 'this session has no worktree of its own, so ther
 interface SessionRoleFacts {
   isEphemeral: boolean;
   isSpawnedChild: boolean;
-  factoryRole: 'orchestrator' | 'worker' | null;
   hasOwnWorktree: boolean;
 }
 
@@ -63,8 +62,7 @@ function pushRoute({ isEphemeral, isSpawnedChild, hasOwnWorktree }: SessionRoleF
   return ANSWERS;
 }
 
-function spawnRoute({ isEphemeral, isSpawnedChild, factoryRole }: SessionKindFacts): RouteVerdict {
-  if (factoryRole === 'worker') return { answers: false, reason: 'the factory starts and counts its workers, so a worker may not spawn a session' };
+function spawnRoute({ isEphemeral, isSpawnedChild }: SessionKindFacts): RouteVerdict {
   if (isSpawnedChild) return { answers: false, reason: 'a spawned session may not spawn another' };
   if (isEphemeral) {
     return { answers: false, reason: "only an operator session may spawn a session, because the new session gets an operator session's guardrails, which can be wider than this one's" };
@@ -72,9 +70,8 @@ function spawnRoute({ isEphemeral, isSpawnedChild, factoryRole }: SessionKindFac
   return ANSWERS;
 }
 
-function hasOperatorCard({ isEphemeral, isSpawnedChild, factoryRole }: SessionKindFacts): boolean {
+function hasOperatorCard({ isEphemeral, isSpawnedChild }: SessionKindFacts): boolean {
   if (!isEphemeral) return true;
-  if (factoryRole !== null) return true;
   return isSpawnedChild;
 }
 
@@ -88,9 +85,9 @@ function editRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot surface a file, because it has no card for the operator to open the file from' };
 }
 
-function coherenceCheckRoute({ isEphemeral, isSpawnedChild, factoryRole }: SessionKindFacts): RouteVerdict {
-  if (factoryRole === null && (!isEphemeral || isSpawnedChild)) return ANSWERS;
-  return { answers: false, reason: 'only an operator session or a session it spawned may run the Coherence check, so factory and lane sessions stay on their own task' };
+function coherenceCheckRoute({ isEphemeral, isSpawnedChild }: SessionKindFacts): RouteVerdict {
+  if (!isEphemeral || isSpawnedChild) return ANSWERS;
+  return { answers: false, reason: 'only an operator session or a session it spawned may run the Coherence check, so lane sessions stay on their own task' };
 }
 
 const COMMAND_ROUTES: Readonly<Record<SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({

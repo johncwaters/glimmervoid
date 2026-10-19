@@ -1,3 +1,4 @@
+import type { GitIsolationOptions } from '../server/git/core/git-invocation-core.ts';
 import { awaitBounded } from "../server/core/shutdown-core.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
 import { randomUUID } from "node:crypto";
@@ -68,7 +69,6 @@ import type { HookRouterPort } from "./session-hook-lifecycle.ts";
 import type { GuardrailsLaunch, GuardrailsLaunchResult } from "../server/guardrails/guardrails-launch.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
 import { signalWindowChangeBelow } from "./window-change-signal.ts";
-import type { GitIsolationOptions } from "../server/git/core/git-invocation-core.ts";
 import type { GitWorkspace } from "./session-worktree-lifecycle.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
@@ -248,7 +248,6 @@ interface SessionOptions {
   signalProc?: SignalProc | null;
   platform?: NodeJS.Platform;
   gitWorkspace?: GitWorkspace | null;
-  gitIsolation?: GitIsolationOptions;
   requireWorktree?: boolean;
   integrationBranch?: string | null;
   autoRebase?: boolean;
@@ -259,7 +258,6 @@ interface SessionOptions {
   workspaceRepos?: string[];
   agentDepth?: number;
   commitSigningProgram?: string | null;
-  factoryRole?: 'orchestrator' | 'worker' | null;
 }
 
 interface ClaudeSessionIdEvent {
@@ -352,7 +350,6 @@ class Session extends EventEmitter {
   _agentToken: string | null;
   _commitSigningProgram: string | null;
   _commitSigningToken: string | null;
-  _factoryRole: 'orchestrator' | 'worker' | null;
   _canRunHelpCommand: boolean;
   _agentLiveChildren: number;
   _agentLifetimeSpawns: number;
@@ -451,7 +448,6 @@ class Session extends EventEmitter {
     platform = process.platform,
 
     gitWorkspace = null,
-    gitIsolation,
     integrationBranch = null,
 
     autoRebase = true,
@@ -465,7 +461,6 @@ class Session extends EventEmitter {
 
     agentDepth = 0,
     commitSigningProgram = null,
-    factoryRole = null,
   }: SessionOptions) {
     super();
     this.id = id;
@@ -619,7 +614,6 @@ class Session extends EventEmitter {
     this._agentToken = generateToken();
     this._commitSigningProgram = commitSigningProgram;
     this._commitSigningToken = commitSigningProgram === null ? null : generateToken();
-    this._factoryRole = factoryRole;
     this._canRunHelpCommand = permitsHelpCommand(settingsPermissions);
     this._agentLiveChildren = 0;
     this._agentLifetimeSpawns = 0;
@@ -642,7 +636,6 @@ class Session extends EventEmitter {
       projectPath: this.path,
       integrationBranch,
       gitWorkspace,
-      gitIsolation,
       autoRebase,
       syncOnStart,
       liveWorktreeReview,
@@ -1094,10 +1087,6 @@ class Session extends EventEmitter {
     return this._agentToken;
   }
 
-  get factoryRole(): 'orchestrator' | 'worker' | null {
-    return this._factoryRole;
-  }
-
   _agentApiEnv(): Record<string, string> {
     if (!this._agentToken) return {};
     const port = this._hooks.listenerPort();
@@ -1336,7 +1325,6 @@ class Session extends EventEmitter {
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       saneYolo: this.saneYolo,
       ephemeral: this.ephemeral,
-      factoryRole: this._factoryRole,
       isWorktree: this.isWorktree,
       isWorkspace: this.isWorkspace,
       isGuarded: this.isGuarded,

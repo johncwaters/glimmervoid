@@ -10,7 +10,7 @@ import type { CoherenceHost, CoherenceTargetBinName } from './core/coherence-ses
 import { areCodexHooksTrusted, codexHookHashes, trustedCodexHookHashes } from './core/coherence-codex-trust-core.ts';
 import { COHERENCE_CONFIG_FILENAME, judgeCoherenceConfig } from './core/coherence-config-core.ts';
 import { isCompletedCommandFailure } from '../core/command-failure-core.ts';
-import { factoryGitEnvironment, runHardenedGit } from '../git/git-workspace.ts';
+import { checkGitEnvironment, runHardenedGit } from '../git/git-workspace.ts';
 import { getAdapter } from '../../session/adapters/index.ts';
 import type { SpawnEnv } from '../../session/core/spawn-env.ts';
 import { createCoherenceRuntime } from './coherence-runtime.ts';
@@ -180,7 +180,7 @@ export function createCoherenceNativeHooks({
 
   async function runHooksCheck(root: string, host: CoherenceHost, checkCodexTrust: boolean): Promise<CoherenceHooksState> {
     try {
-      await runtime.run({ cwd: root, args: ['hooks', '--check', '--host', host], env: scrubbedCheckEnv(await factoryGitEnvironment(root)), timeoutMs: HOOKS_CHECK_TIMEOUT_MS });
+      await runtime.run({ cwd: root, args: ['hooks', '--check', '--host', host], env: scrubbedCheckEnv(await checkGitEnvironment(root)), timeoutMs: HOOKS_CHECK_TIMEOUT_MS });
     } catch (error) {
       return coherenceHooksStateFromCheck(isCompletedCommandFailure(error) ? error.code : null);
     }

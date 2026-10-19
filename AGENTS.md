@@ -29,7 +29,6 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `site/` | Public Astro website, its own npm package; reads dashboard sprites from `public/` at build time |
 | `scripts/`, `tests/`, `test/` | Release scripts and tests |
 | `tools/`, `assets/`, `dist/` | Dev tools, static assets and generated build output |
-| `knowledge-graph/` | Experimental typed knowledge graph, isolated behind `server/knowledge-graph-cli.ts` (`knowledge-graph/AGENTS.md`) |
 
 ## For AI Agents
 
@@ -103,7 +102,7 @@ Windows 11, Linux and macOS. Node floor and module split are stated under Workin
 
 Runtime: `express`, `ws` (no Socket.IO and no abstraction over WebSockets, ever), `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`.
 
-`@xterm/headless` with `@xterm/addon-serialize` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `@anthropic-ai/sandbox-runtime` (Seatbelt on macOS, bubblewrap on Linux) and `cc-safety-net` back the session guardrails. `@danilocampos/coherence` reads the Coherence work ledgers for the factory and the knowledge graph.
+`@xterm/headless` with `@xterm/addon-serialize` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `@anthropic-ai/sandbox-runtime` (Seatbelt on macOS, bubblewrap on Linux) and `cc-safety-net` back the session guardrails. `@danilocampos/coherence` reads Coherence journals and repository readings.
 
 `@parcel/watcher` backs the fs ingest source only, chosen because it applies ignores BEFORE watch registration, which keeps a `node_modules` tree from exhausting `inotify.max_user_watches` on Linux. A load failure disables that one source and nothing else.
 

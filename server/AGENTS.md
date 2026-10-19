@@ -9,7 +9,6 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 
 | File | Description |
 |------|-------------|
-| `factory/` | Factory orchestrator, dispatch, verifier, ledger and decision log; the decision line contract is `../shared/contracts/factory-decision-log.ts` |
 | `backend/` | Express + WebSocket server factory and its wiring, one concern per file |
 | `session/` | Session construction, config reconciliation, one-time event wiring, docs and trace |
 | `control-handlers.ts` | Control-WebSocket message handlers (kill, restart, rename, settings) |
@@ -29,7 +28,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `guardrails/session-guardrails.ts` | Ordinary session guardrails: the session role, rebuilt from the live checkout at every spawn; the session factory's default |
 | `benchmark-wiring.ts` | Benchmark lane: suites under `~/.glimmervoid/benchmarks`, mining, one serial run (pure rules in `core/benchmark-core.ts`, `core/benchmark-mining-core.ts`) |
 | `claude-credentials.ts` | The operator's Claude Code access token for benchmark arms (decisions in `core/claude-credentials-core.ts`) |
-| `claude-trust.ts` | Grants Claude Code folder trust plus external CLAUDE.md import approval (never over a recorded decline) for a session, lane or factory folder under Claude Code's own config lock (decisions in `core/claude-trust-core.ts`) |
+| `claude-trust.ts` | Grants Claude Code folder trust plus external CLAUDE.md import approval (never over a recorded decline) for a session or lane folder under Claude Code's own config lock (decisions in `core/claude-trust-core.ts`) |
 | `github/core/team-review-core.ts` | Pure team review decisions |
 | `core/branch-sync-core.ts` | Pure ahead/behind decisions for the branch-sync indicator |
 | `core/restart-strategy.ts` | Pure restart strategy, keyed on systemd's `INVOCATION_ID` |
@@ -85,8 +84,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Port-exact Origin, the port read from the socket so nothing a client sends decides it; a mismatch falls THROUGH to the allow-list. Browser channels demand an Origin, non-browser ingresses do not.
 - A per-process page token guards local control and data upgrades, riding the query string since a browser cannot set a WS handshake header. `GET /control-token` refuses a disallowed Origin outright.
 - Trust is the LISTENER PORT, never a header or IP: a reverse proxy makes remote traffic look loopback, so an IP or `X-Forwarded-For` rule would hand every visitor local trust (`tests/request-trust.test.ts`).
-- An ordinary Claude Code session is wrapped by default in `session/session-factory.ts`. A caller that sets `prepareGuardrails`, even to null, owns its own confinement, and only operator config opts a session out (`projects[].unguarded`, `guardrails.unguardedRepos`), never the agent API: a child is unguarded only when its parent is (`tests/factory-dispatch.test.ts`).
-- `glimmervoid factory queue` targets only the caller's own project and refuses `projectId` and `floorAllowances`, because a spawned child would otherwise queue paid builds on another repository or open the protected floor without the operator (`tests/agent-api-http.test.ts`).
+- An ordinary Claude Code session is wrapped by default in `session/session-factory.ts`. A caller that sets `prepareGuardrails`, even to null, owns its own confinement, and only operator config opts a session out (`projects[].unguarded`, `guardrails.unguardedRepos`), never the agent API: a child is unguarded only when its parent is (`tests/agent-api-http.test.ts`).
 - The ordinary session wrap starts in a scratch folder and enters the checkout inside the guardrails, because the sandbox runtime plants protected-name placeholders in its working folder and a session that commits everything would commit them (`session` role in `scripts/probe-guardrails-roles.ts`).
 - Sessions reach `/hook` and `/agent` on their OWN loopback listener, never the dashboard port: a lane guardrails allowlists one exact host and port (enforced on Linux, macOS unverified), and that port must not also serve `GET /control-token` or the control WS (`tests/backend-auto-resume.test.ts`).
 - A pairing cookie is RCE as the server account, the control WS accepting any project path plus `dangerouslySkipPermissions`. Pairing URLs are single-use, short-TTL, never logged or stored in plaintext; the store fails CLOSED on corruption.

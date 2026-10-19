@@ -5,8 +5,6 @@ import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { describeSessionLimits } from '../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../session/core/session-routes.ts';
 import type { Session } from '../session/sessions.ts';
-import type { AgentFactoryQueueRequest, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from '../shared/contracts/factory.ts';
-import type { FactorySetupResult } from './factory/core/factory-setup-core.ts';
 import type { CoherenceCheck } from './coherence/coherence-check.ts';
 import type {
   AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentLimitsReply, AgentSpawnRequest,
@@ -14,11 +12,9 @@ import type {
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
-  decideAttentionAllowance, decideCoherenceCheckAllowance, decideEditAllowance, decideFactoryControlAllowance, decideSpawnAllowance, deriveChildSessionName, describeFactorySetupProfile, describePushLanding,
-  describePushRouteRefusal, describeUnavailableFactoryState, FACTORY_ADOPTION_STEP, findSessionProjectId, formatFactoryStatus, parseAgentVerb,
+  decideAttentionAllowance, decideCoherenceCheckAllowance, decideEditAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding,
+  describePushRouteRefusal, findSessionProjectId, parseAgentVerb,
 } from './core/agent-api-core.ts';
-import { buildFactoryIntentDigest } from './factory/core/factory-core.ts';
-import { findFactoryRepoByPath } from './factory/core/factory-repos-core.ts';
 import { isGuardedSessionVendor } from './guardrails/core/guardrails-roles-core.ts';
 import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
@@ -49,12 +45,6 @@ interface AgentApiWiringOptions {
   spawnGate: SpawnGate;
   recordLane?: RecordLane | null;
   sessionDocs: SessionDocsPort;
-  factory?: {
-    getState: () => FactoryState | null;
-    retryParked: (projectId: string, intentId: string) => Promise<{ ok: true; reopenedWorkIds: string[] } | { ok: false; error: string }>;
-    rerunSetup: (projectId: string) => Promise<FactorySetupResult>;
-    queueIntent: (request: FactoryQueueIntentRequest) => Promise<FactoryQueueIntentResult>;
-  };
   coherenceCheck?: Pick<CoherenceCheck, 'check'> | null;
   memoryAdmission?: Pick<MemoryAdmission, 'describeShortfallNow'> | null;
   logger?: Pick<Console, 'warn'>;
@@ -75,7 +65,7 @@ interface AgentApiPort {
 
 function createAgentApiWiring({
   config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-  broadcastControl, spawnGate, sessionDocs, factory,
+  broadcastControl, spawnGate, sessionDocs,
   coherenceCheck = null,
   recordLane = null,
   memoryAdmission = null,
@@ -94,7 +84,7 @@ function createAgentApiWiring({
   }
 
   function refuseByBudget(parent: Session): SpawnOutcome | null {
-    const allowance = decideSpawnAllowance({ ...parent.agentSpawnBudget(), isFactoryWorker: parent.factoryRole === 'worker', isEphemeral: parent.ephemeral });
+    const allowance = decideSpawnAllowance({ ...parent.agentSpawnBudget(), isEphemeral: parent.ephemeral });
     if (allowance.ok) return null;
     return { ok: false, status: allowance.status, error: allowance.reason };
   }
@@ -176,7 +166,6 @@ function createAgentApiWiring({
     return {
       isEphemeral: session.ephemeral,
       isSpawnedChild: agentSessions.has(session.id) && session.id.startsWith(`${AGENT_LANE_TAG}-`),
-      factoryRole: session.factoryRole,
       hasOwnWorktree: session.hasOwnWorktree,
     };
   }
@@ -208,29 +197,6 @@ function createAgentApiWiring({
     return describePushLanding(await session.mergeAndContinue({ force: true }));
   }
 
-  async function setUpFactoryProject(
-    session: Session, factoryPort: NonNullable<AgentApiWiringOptions['factory']>, projects: FactoryState['projects'],
-  ): Promise<AgentApiReply> {
-    const projectId = findFactoryRepoByPath(config, session.path)?.id;
-    if (!projectId) return { status: 404, body: { ok: false, error: `no configured project has the path ${session.path}, so the operator has to add this repository as a project first` } };
-    const outcome = await factoryPort.rerunSetup(projectId);
-    if (!outcome.ok) return { status: 409, body: { ok: false, error: outcome.reason } };
-    return { status: 200, body: { ok: true, projectId, profile: outcome.profile, text: describeFactorySetupProfile(outcome.profile, projects.some((project) => project.projectId === projectId)) } };
-  }
-
-  async function queueFactoryIntent(
-    session: Session, factoryPort: NonNullable<AgentApiWiringOptions['factory']>, projects: FactoryState['projects'], request: AgentFactoryQueueRequest,
-  ): Promise<AgentApiReply> {
-    const projectId = findFactoryRepoByPath(config, session.path)?.id;
-    if (!projectId) return { status: 404, body: { ok: false, error: `no configured project has the path ${session.path}, so the operator has to add this repository as a project first` } };
-    if (!projects.some((project) => project.projectId === projectId)) {
-      return { status: 409, body: { ok: false, error: `${projectId} is not a factory project yet: ${FACTORY_ADOPTION_STEP}, then queue again` } };
-    }
-    const outcome = await factoryPort.queueIntent({ ...request, projectId });
-    if (!outcome.ok) return { status: 409, body: { ok: false, error: outcome.error ?? 'the factory refused the intent' } };
-    return { status: 200, body: { ok: true, projectId, workId: outcome.workId, text: `Queued ${outcome.workId ?? 'the intent'} on ${projectId}. Follow it with glimmervoid factory status --project ${projectId}` } };
-  }
-
   async function checkOwnProjectCoherence(session: Session): Promise<AgentApiReply> {
     const allowance = decideCoherenceCheckAllowance(roleFactsOf(session));
     if (!allowance.ok) return { status: allowance.status, body: { ok: false, error: allowance.reason } };
@@ -243,31 +209,6 @@ function createAgentApiWiring({
   async function handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply> {
     const parsed = parseAgentVerb(verb, payload);
     if (!parsed.ok) return { status: parsed.status, body: { ok: false, error: parsed.error } };
-    if (parsed.verb === 'factory-status' || parsed.verb === 'factory-retry' || parsed.verb === 'factory-setup' || parsed.verb === 'factory-queue') {
-      const allowance = decideFactoryControlAllowance(roleFactsOf(session));
-      if (!allowance.ok) return { status: allowance.status, body: { ok: false, error: allowance.reason } };
-      const projects = factory?.getState()?.projects;
-      if (!projects || !factory) return { status: 409, body: { ok: false, error: 'Factory is not running' } };
-      if (parsed.verb === 'factory-setup') return setUpFactoryProject(session, factory, projects);
-      if (parsed.verb === 'factory-queue') return queueFactoryIntent(session, factory, projects, parsed.request);
-      if (parsed.verb === 'factory-status') {
-        const selectedProjects = parsed.request.projectId === undefined ? projects : projects.filter((project) => project.projectId === parsed.request.projectId);
-        if (parsed.request.projectId !== undefined && selectedProjects.length === 0) {
-          return { status: 404, body: { ok: false, error: `Unknown factory project: ${parsed.request.projectId}` } };
-        }
-        return { status: 200, body: { ok: true, text: formatFactoryStatus(selectedProjects, buildFactoryIntentDigest) } };
-      }
-      const intentId = parsed.request.intentId;
-      const project = projects.find((project) => project.orders.some((order) => order.parent === null && order.id === intentId));
-      if (!project) {
-        const unavailableState = describeUnavailableFactoryState(projects);
-        if (unavailableState !== null) return { status: 503, body: { ok: false, error: unavailableState } };
-        return { status: 404, body: { ok: false, error: `Unknown factory intent: ${intentId}` } };
-      }
-      const reply = await factory.retryParked(project.projectId, intentId);
-      if (!reply.ok) return { status: 409, body: reply };
-      return { status: 200, body: { ...reply, text: `Reopened parked tickets: ${reply.reopenedWorkIds.join(', ') || 'none'}` } };
-    }
     if (parsed.verb === 'coherence-check') return checkOwnProjectCoherence(session);
     if (parsed.verb === 'board') return { status: 200, body: { ok: true, sessions: board() } };
     if (parsed.verb === 'push') return push(session);

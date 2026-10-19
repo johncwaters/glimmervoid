@@ -73,7 +73,6 @@ export const SessionSnapshot = z.object({
   dangerouslySkipPermissions: z.boolean(),
   saneYolo: z.boolean().default(false),
   ephemeral: z.boolean(),
-  isFactory: z.boolean().default(false),
   isWorktree: z.boolean(),
   isWorkspace: z.boolean().default(false),
   isGuarded: z.boolean().default(false),
@@ -125,24 +124,8 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch', 'reopen', 'cancel', 'push', 'edit', 'limits', 'factory-status', 'factory-retry', 'factory-setup', 'factory-queue', 'coherence-check'] as const;
+export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'push', 'edit', 'limits', 'coherence-check'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
-export const ORCHESTRATOR_AGENT_VERBS = ['dispatch', 'reopen', 'cancel'] as const satisfies readonly AgentApiVerb[];
-export type OrchestratorAgentVerb = (typeof ORCHESTRATOR_AGENT_VERBS)[number];
-export type TicketAgentVerb = Exclude<OrchestratorAgentVerb, 'dispatch'>;
-
-export const AgentFactoryStatusRequest = z.object({
-  projectId: z.string().trim().min(1).max(128).optional(),
-}).strict();
-export type AgentFactoryStatusRequest = z.infer<typeof AgentFactoryStatusRequest>;
-
-export const AgentFactoryRetryRequest = z.object({
-  intentId: z.string().trim().min(1).max(128),
-}).strict();
-export type AgentFactoryRetryRequest = z.infer<typeof AgentFactoryRetryRequest>;
-
-export const AgentFactorySetupRequest = z.object({}).strict();
-export type AgentFactorySetupRequest = z.infer<typeof AgentFactorySetupRequest>;
 
 export const AgentCoherenceCheckRequest = z.object({}).strict();
 export type AgentCoherenceCheckRequest = z.infer<typeof AgentCoherenceCheckRequest>;
@@ -215,20 +198,3 @@ export type AgentLimitsReply = z.infer<typeof AgentLimitsReply>;
 export type AgentAttentionRequest = z.infer<typeof AgentAttentionRequest>;
 export type AgentAttentionReply = z.infer<typeof AgentAttentionReply>;
 export type AgentBoardRow = z.infer<typeof AgentBoardRow>;
-
-export const AgentDispatchRequest = z.object({
-  workId: z.string().regex(/^wrk-[0-9a-f]{16}$/).optional(),
-  readyIntent: z.string().regex(/^wrk-[0-9a-f]{16}$/).optional(),
-}).strict().refine((request) => Boolean(request.workId) !== Boolean(request.readyIntent), 'Expected exactly one work id or ready intent');
-export type AgentDispatchRequest = z.infer<typeof AgentDispatchRequest>;
-
-export const AgentTicketRequest = z.object({
-  workId: z.string({ error: 'workId must be a string' }).regex(/^wrk-[0-9a-f]{16}$/, { error: 'workId must match wrk-[0-9a-f]{16}' }),
-}).strict();
-export type AgentTicketRequest = z.infer<typeof AgentTicketRequest>;
-
-export const AgentTicketReply = z.discriminatedUnion('ok', [
-  z.object({ ok: z.literal(true), workId: z.string(), state: z.enum(['open', 'cancelled']) }),
-  z.object({ ok: z.literal(false), reason: z.string() }),
-]);
-export type AgentTicketReply = z.infer<typeof AgentTicketReply>;

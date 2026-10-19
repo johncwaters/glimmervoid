@@ -2,12 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  POSTHOG_PROJECT_TOKEN, adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, buildFactoryDecisionEvent,
+  POSTHOG_PROJECT_TOKEN, adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties,
   classifySessionExit, decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames,
   parsePosthogReleaseId, resolveProjectToken, scrubLocalPath, urlPathOnly,
 } from '../server/core/telemetry-core.ts';
 import { AiGenerationProperties, TELEMETRY_EVENT_SCHEMAS, TELEMETRY_EVENTS } from '../shared/contracts/telemetry.ts';
-import { FactoryDecisionLogLine } from '../shared/contracts/factory-decision-log.ts';
 import type { UsageGenerationRollupRow } from '../server/usage/core/usage-entry-core.ts';
 import type { TelemetryEventName } from '../shared/contracts/telemetry.ts';
 
@@ -143,14 +142,7 @@ test('every event schema refuses a property outside its allowlist', () => {
       $ai_trace_id: 'a'.repeat(64), $ai_provider: 'anthropic', $ai_model: 'claude-opus-5-5',
       $ai_input_tokens: 10, $ai_output_tokens: 5, $ai_total_cost_usd: 0.01, agent_adapter: 'claude-code',
     },
-    factory_decision: buildFactoryDecisionEvent(FactoryDecisionLogLine.parse({
-      timestamp: '2026-10-11T12:00:00.000Z', projectId: 'project-1', kind: 'closeout', outcome: 'retry', failureClass: 'check',
-      workId: 'wrk-0123456789abcdef', intentId: 'wrk-fedcba9876543210', sessionId: 'session-1', attempt: 2, durationMs: 4200,
-      reason: 'npm test failed in /home/alice/repo', fence: { ok: true }, review: null,
-      checks: [{ command: 'npm test', pass: false, output: 'FAIL /home/alice/repo/tests/retry.test.ts' }],
-    })),
   };
-  assert.deepEqual(validByEvent.factory_decision, { kind: 'closeout', outcome: 'retry', failure_class: 'check', duration_ms: 4200, attempt: 2 });
   const everyEventName: TelemetryEventName[] = TELEMETRY_EVENTS.map(({ name }) => name);
   for (const name of everyEventName) {
     const schema = TELEMETRY_EVENT_SCHEMAS[name];

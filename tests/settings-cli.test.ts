@@ -160,9 +160,6 @@ test('a wrong value exits 1 with the schema message and writes nothing', () => {
   const looseBlockRange = run(['set', 'visions.dispatch.maxPerHour', '0']);
   assert.equal(looseBlockRange.exitCode, 1);
   assert.match(looseBlockRange.stderr, /visions\.dispatch\.maxPerHour must be a positive number/);
-  const badOption = run(['set', 'factory.maxRisk', 'extreme']);
-  assert.equal(badOption.exitCode, 1);
-  assert.match(badOption.stderr, /factory\.maxRisk/);
   const badJson = run(['set', 'customAgents', '{not json']);
   assert.equal(badJson.exitCode, 1);
   assert.match(badJson.stderr, /customAgents must be JSON/);
@@ -216,14 +213,12 @@ test('set parses numbers, lists, nullable text and structured JSON per the regis
   const homeDirectory = isolatedGlimmervoidHome(baseConfig());
   assert.equal(run(['set', 'usage.retainDays', '30']).exitCode, 0);
   assert.equal(run(['set', 'repoRoots', `${homeDirectory}, ${os.tmpdir()}`]).exitCode, 0);
-  assert.equal(run(['set', 'factory.checks', '["npm test"]']).exitCode, 0);
   assert.equal(run(['set', 'integrationBranch', 'main']).exitCode, 0);
   assert.equal(run(['set', 'posthog.projects', '12, 34']).exitCode, 0);
   assert.equal(run(['set', 'customAgents', '[{"id":"my-agent","label":"Mine","command":"my-agent"}]']).exitCode, 0);
   const written = readConfig(homeDirectory);
   assert.equal((written.usage as Record<string, unknown>).retainDays, 30);
   assert.deepEqual(written.repoRoots, [homeDirectory, os.tmpdir()]);
-  assert.deepEqual((written.factory as Record<string, unknown>).checks, ['npm test']);
   assert.equal(written.integrationBranch, 'main');
   assert.deepEqual((written.posthog as Record<string, unknown>).projects, [12, 34]);
   assert.equal((written.customAgents as Record<string, unknown>[])[0].id, 'my-agent');

@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../shared/contracts/browser-config.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -20,7 +19,7 @@ import { errorLabel, errorMessage } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { normalizeLegacyConfigNumbers } from '../shared/contracts/config-numbers-core.ts';
 import { assetForPlatform } from './core/rtk-install-core.ts';
-import { DEFAULT_CHECK_MEMORY_RESERVE_MB, DEFAULT_SESSION_MEMORY_RESERVE_MB } from './core/memory-admission-core.ts';
+import { DEFAULT_SESSION_MEMORY_RESERVE_MB } from './core/memory-admission-core.ts';
 
 type ProjectEntry = Config['projects'][number] & { id: string; name: string };
 interface GlimmervoidConfig extends Config {
@@ -48,8 +47,6 @@ const DEFAULT_CONFIG = {
 
   sessionMemoryReserveMB: DEFAULT_SESSION_MEMORY_RESERVE_MB,
 
-  checkMemoryReserveMB: DEFAULT_CHECK_MEMORY_RESERVE_MB,
-
   recordSignals: true,
 
   trace: {
@@ -66,8 +63,6 @@ const DEFAULT_CONFIG = {
   changeMap: {
     narrator: { enabled: false, engine: 'claude', model: '', timeoutSeconds: 90 },
   },
-
-  factory: { enabled: false, maxRisk: 'medium' as const, maxLiveWorkers: 2, checks: DEFAULT_FACTORY_CHECKS, protectedPaths: DEFAULT_FACTORY_PROTECTED_PATHS, reviewerModel: null, dailyBudgetUsd: null, verifierModel: null, mirrorHarnessRuns: true },
 
   guardrails: {
     unguardedRepos: [] as string[],
@@ -549,8 +544,6 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       github: pickBlock('github', config.github),
       teamReview: pickBlock('teamReview', config.teamReview),
       benchmarks: pickBlock('benchmarks', config.benchmarks),
-      factory: pickBlock('factory', config.factory),
-      knowledgeGraph: pickBlock('knowledgeGraph', config.knowledgeGraph),
       coherence: pickBlock('coherence', config.coherence),
       workflows: config.workflows ?? null,
 
@@ -601,8 +594,6 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.github != null) config.github = newConfig.github;
     if (newConfig.teamReview != null) config.teamReview = newConfig.teamReview;
     if (newConfig.benchmarks != null) config.benchmarks = newConfig.benchmarks;
-    if (newConfig.factory != null) config.factory = newConfig.factory;
-    if (newConfig.knowledgeGraph != null) config.knowledgeGraph = newConfig.knowledgeGraph;
     if (newConfig.coherence != null) config.coherence = newConfig.coherence;
     if (newConfig.posthog != null) config.posthog = newConfig.posthog;
     if (newConfig.usage != null) config.usage = newConfig.usage;

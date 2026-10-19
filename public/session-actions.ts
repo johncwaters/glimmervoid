@@ -34,7 +34,7 @@ export function getRestorableSessionId() {
 export function readSessionRows(): SessionRow<SessionUi>[];
 export function readSessionRows<Name extends string | null>(nameOf: (ui: SessionUi) => Name): SessionRow<SessionUi, Name>[];
 export function readSessionRows(nameOf: (ui: SessionUi) => string | null = sessionName) {
-  const operatorSessions = [...sessionUIs].filter(([, ui]) => ui.card.dataset.factory === undefined);
+  const operatorSessions = [...sessionUIs];
   return buildSessionRows(operatorSessions, nameOf);
 }
 

@@ -1,4 +1,20 @@
-import { buildFactoryCheckEnv } from '../../factory/core/factory-core.ts';
+const CHECK_ENV_KEYS = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'TERM', 'TMPDIR', 'TMP', 'TEMP', 'TZ', 'NODE_ENV'];
+const CHECK_WINDOWS_ENV_KEYS = ['SYSTEMROOT', 'COMSPEC', 'PATHEXT', 'APPDATA', 'LOCALAPPDATA', 'USERPROFILE'];
+
+export function buildAllowlistedChildEnv(baseEnv: Readonly<Record<string, string | undefined>>, platform: string): Record<string, string> {
+  const isWindows = platform === 'win32';
+  const allowedKeys = new Set(isWindows ? [...CHECK_ENV_KEYS, ...CHECK_WINDOWS_ENV_KEYS] : CHECK_ENV_KEYS);
+  const checkEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(baseEnv)) {
+    if (value === undefined) continue;
+    const comparableKey = isWindows ? key.toUpperCase() : key;
+    if (!allowedKeys.has(comparableKey) && !comparableKey.startsWith('LC_')) continue;
+    checkEnv[key] = value;
+  }
+  return { ...checkEnv, CI: '1' };
+}
+
+
 
 export type GitIsolationOptions = { disableHooks?: boolean; disableRepoCommands?: boolean; replaceEnv?: Record<string, string> };
 
@@ -86,7 +102,7 @@ export function buildHardenedGitInvocation(args: string[], { baseEnv, transportS
   if (command === 'diff' || command === 'show' || command === 'log') commandArgs.splice(commandIndex + 1, 0, '--no-ext-diff', '--no-textconv');
   return {
     args: [...overrides.flatMap((override) => ['-c', override]), ...commandArgs],
-    env: { ...buildFactoryCheckEnv(baseEnv, platform), ...transportEnv(transportSourceEnv), ...transportEnv(baseEnv), GIT_TERMINAL_PROMPT: '0' },
+    env: { ...buildAllowlistedChildEnv(baseEnv, platform), ...transportEnv(transportSourceEnv), ...transportEnv(baseEnv), GIT_TERMINAL_PROMPT: '0' },
   };
 }
 
