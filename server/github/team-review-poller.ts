@@ -113,7 +113,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   let hasLoadedState = false;
   let lastRebuildQueueSignature: string | null = null;
   let tickRateLimitWaitMs: number | null = null;
-  let teamCandidateKeys = new Set<string>();
+  let teamCandidateKeys: ReadonlySet<string> = new Set<string>();
 
   const loop = createTickLoop({
     tag: core.TEAM_REVIEW_LANE_ID, intervalMs: (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000,
@@ -548,7 +548,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const searchPlans = core.orgSearchPlans(org, teams, fetchedMemberLists, viewer);
     registerWatches(searchPlans);
     const collected = candidatesFromSnapshot(viewer);
-    return { ...collected, isComplete: isMembershipComplete && collected.isComplete };
+    teamCandidateKeys = collected.teamCandidateKeys;
+    return { candidates: collected.candidates, isComplete: isMembershipComplete && collected.isComplete };
   }
 
   function registerWatches(searchPlans: ReturnType<typeof core.orgSearchPlans>): void {
@@ -589,7 +590,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     store.setWatchedKeys(ASKED_FOR_WATCH_OWNER, askedForKeys());
   }
 
-  function candidatesFromSnapshot(viewer: string): { candidates: TeamReviewCandidate[]; isComplete: boolean } {
+  function candidatesFromSnapshot(viewer: string): { candidates: TeamReviewCandidate[]; teamCandidateKeys: ReadonlySet<string>; isComplete: boolean } {
     const snapshot = store.getSnapshot();
     let isAskedForComplete = true;
     const askedFor = askedForKeys().flatMap((key) => {
@@ -613,17 +614,15 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         prsBySource[source].push(pr);
       }
     }
-    const teamCandidates = core.selectCandidates(prsBySource.direct, prsBySource.team, prsBySource.authored, { self: viewer, nowMs: now(), skipIdleAfterMs });
-    teamCandidateKeys = new Set(teamCandidates.map((candidate) => candidate.key.toLowerCase()));
-    return {
-      candidates: core.selectCandidates(prsBySource.direct, prsBySource.team, prsBySource.authored, { self: viewer, nowMs: now(), skipIdleAfterMs, askedFor }),
-      isComplete: isComplete && isAskedForComplete,
-    };
+    const selected = core.selectCandidates(prsBySource.direct, prsBySource.team, prsBySource.authored, { self: viewer, nowMs: now(), skipIdleAfterMs, askedFor });
+    return { ...selected, isComplete: isComplete && isAskedForComplete };
   }
 
   function rebuild(): void {
     if (!hasLoadedState || loop.isStopped() || self === null) return;
-    const { candidates } = candidatesFromSnapshot(self);
+    const collected = candidatesFromSnapshot(self);
+    teamCandidateKeys = collected.teamCandidateKeys;
+    const { candidates } = collected;
     const planned = headsToReview(candidates);
     if (planned.isDirty) loop.track(persist());
     emitStatus();

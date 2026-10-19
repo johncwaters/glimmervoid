@@ -107,13 +107,13 @@ test('search candidates union requested and authored PRs once, excluding self, d
     githubPr('PostHog/wizard', 1354, { login: 'machine', __typename: 'Bot' }),
     githubPr('PostHog/context-mill', 405, 'colleague'),
   ];
-  assert.deepEqual(selectCandidates([], requested, authored, { self: 'operator', nowMs: 1000, skipIdleAfterMs: 14 * 86400000 }), [
+  assert.deepEqual(selectCandidates([], requested, authored, { self: 'operator', nowMs: 1000, skipIdleAfterMs: 14 * 86400000 }).candidates, [
     { key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', requestSource: 'team', prCreatedAt: '2026-09-26T12:00:00Z' },
     { key: 'PostHog/context-mill#405', repo: 'PostHog/context-mill', number: 405, title: 'PR 405', url: 'https://github.com/PostHog/context-mill/pull/405', author: 'colleague', requestSource: 'team' },
   ]);
 });
 
-test('search candidates keep recent, missing and unparseable activity while dropping idle PRs', () => {
+test('search candidates keep recent, missing and unparseable activity while dropping idle PRs, and an idle asked-for PR is no team candidate', () => {
   const nowMs = Date.parse('2026-09-25T00:00:00Z');
   const skipIdleAfterMs = DEFAULT_SKIP_IDLE_AFTER_DAYS * 86400000;
   const requested = [
@@ -122,7 +122,10 @@ test('search candidates keep recent, missing and unparseable activity while drop
     githubPr('PostHog/wizard', 3, 'teammate'),
     githubPr('PostHog/wizard', 4, 'teammate', { updatedAt: 'unparseable' }),
   ];
-  assert.deepEqual(selectCandidates([], requested, [], { self: 'operator', nowMs, skipIdleAfterMs }).map((candidate) => candidate.number), [1, 3, 4]);
+  assert.deepEqual(selectCandidates([], requested, [], { self: 'operator', nowMs, skipIdleAfterMs }).candidates.map((candidate) => candidate.number), [1, 3, 4]);
+  const askedForIdle = selectCandidates([], requested, [], { self: 'operator', nowMs, skipIdleAfterMs, askedFor: [requested[1], requested[2]].filter((pr) => pr !== undefined) });
+  assert.deepEqual(askedForIdle.candidates.map((candidate) => candidate.number), [2, 3, 1, 4]);
+  assert.deepEqual([...askedForIdle.teamCandidateKeys].sort(), ['posthog/wizard#1', 'posthog/wizard#3', 'posthog/wizard#4']);
 });
 
 test('triage uses sensitive paths and counted source size', () => {
@@ -1303,7 +1306,7 @@ test('direct review requests win deduplication over team and teammate searches',
   const sharedRequest = githubPr('Acme/app', 1, 'teammate');
   const directRequest = githubPr('Acme/app', 2, 'outside-team');
   const teamRequest = githubPr('Acme/app', 3, 'teammate');
-  const candidates = selectCandidates([sharedRequest, directRequest], [teamRequest, sharedRequest], [sharedRequest], { self: 'operator', nowMs: 1000, skipIdleAfterMs: 86400000 });
+  const { candidates } = selectCandidates([sharedRequest, directRequest], [teamRequest, sharedRequest], [sharedRequest], { self: 'operator', nowMs: 1000, skipIdleAfterMs: 86400000 });
   assert.deepEqual(candidates.map(({ number, requestSource }) => [number, requestSource]), [[1, 'direct'], [2, 'direct'], [3, 'team']]);
 });
 

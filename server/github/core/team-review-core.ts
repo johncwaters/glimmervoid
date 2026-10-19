@@ -143,7 +143,23 @@ function remoteMatchesGithubRepo(remoteUrl: string, repo: string): boolean {
   return githubRepoSlugFromRemote(remoteUrl)?.toLowerCase() === repo.toLowerCase();
 }
 
-function selectCandidates(directRequested: readonly GithubPr[], teamRequested: readonly GithubPr[], authored: readonly GithubPr[], { self, nowMs, skipIdleAfterMs, askedFor = [] }: { self: string; nowMs: number; skipIdleAfterMs: number; askedFor?: readonly GithubPr[] }): TeamReviewCandidate[] {
+function isReviewableFor(pr: GithubPr, self: string): pr is GithubPr & { author: string } {
+  if (pr.state !== 'OPEN' || pr.author === null) return false;
+  if (pr.author.toLowerCase() === self.toLowerCase()) return false;
+  return !pr.isDraft && !pr.isAuthorBot;
+}
+
+function isIdlePast(pr: GithubPr, nowMs: number, skipIdleAfterMs: number): boolean {
+  const updatedAtMs = pr.updatedAt ? Date.parse(pr.updatedAt) : Number.NaN;
+  return Number.isFinite(updatedAtMs) && nowMs - updatedAtMs > skipIdleAfterMs;
+}
+
+function selectCandidates(directRequested: readonly GithubPr[], teamRequested: readonly GithubPr[], authored: readonly GithubPr[], { self, nowMs, skipIdleAfterMs, askedFor = [] }: { self: string; nowMs: number; skipIdleAfterMs: number; askedFor?: readonly GithubPr[] }): { candidates: TeamReviewCandidate[]; teamCandidateKeys: ReadonlySet<string> } {
+  const teamCandidateKeys = new Set(
+    [...directRequested, ...teamRequested, ...authored]
+      .filter((pr) => isReviewableFor(pr, self) && !isIdlePast(pr, nowMs, skipIdleAfterMs))
+      .map((pr) => prKey(pr.repo, pr.number).toLowerCase()),
+  );
   const candidates: TeamReviewCandidate[] = [];
   const seenKeys = new Set<string>();
   const requests = [
@@ -153,18 +169,14 @@ function selectCandidates(directRequested: readonly GithubPr[], teamRequested: r
     ...authored.map((pr) => ({ pr, requestSource: 'team' as const, isAskedFor: false })),
   ];
   for (const { pr, requestSource, isAskedFor } of requests) {
-    if (pr.state !== 'OPEN' || pr.author === null) continue;
-    if (pr.author.toLowerCase() === self.toLowerCase()) continue;
-    if (pr.isDraft) continue;
-    if (pr.isAuthorBot) continue;
-    const updatedAtMs = pr.updatedAt ? Date.parse(pr.updatedAt) : Number.NaN;
-    if (!isAskedFor && Number.isFinite(updatedAtMs) && nowMs - updatedAtMs > skipIdleAfterMs) continue;
+    if (!isReviewableFor(pr, self)) continue;
+    if (!isAskedFor && isIdlePast(pr, nowMs, skipIdleAfterMs)) continue;
     const key = prKey(pr.repo, pr.number);
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
     candidates.push({ key, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url, author: pr.author, requestSource, ...(pr.createdAt ? { prCreatedAt: pr.createdAt } : {}) });
   }
-  return candidates;
+  return { candidates, teamCandidateKeys };
 }
 
 function askedForRefusal(detail: Pick<PrDetail, 'state' | 'isDraft' | 'author'>, viewer: string | null): string | null {
