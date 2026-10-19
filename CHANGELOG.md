@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.1] - 2026-10-19
+
 ### Fixed
 
 - **Finished sessions are green again**: a session that finished a turn you have not looked at shows as Complete with a green check and a green row highlight, instead of looking the same as an Idle session. Once you look at it, it turns Idle.
@@ -16,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Session names update in the sidebar**: when a session is renamed, by you or by naming itself after its task, the desktop sidebar shows the new name at once instead of keeping the old one until the session next changes status.
 - **Merge celebrations play in the middle of the card**: the bowling, basketball, darts, headshot and royal flush animations stay centered in the celebration card instead of sinking to its bottom edge when the card lists the merged pull request's details.
 - **No more unexplained icon in the header**: the status icon next to the trophy, which repeated the rail's needs-you count only on hover, is gone. The rail box still carries the count.
+
+### Changed
+
+- **Session pull requests open in Reviews**: click a session's pull request chip or press Enter or Space to select it in Mine, or Team when it is not in Mine. Pull requests outside the queues still open on GitHub. Cmd/Ctrl-click, Shift-click and middle-click keep opening GitHub.
+- **Linked sessions belong to their pull request**: in Reviews > Mine, a pull request and its linked session pills share one hover and selection highlight, with a thin tree connector showing the link, including stacked pull requests.
 
 ## [0.40.0] - 2026-10-19
 
@@ -33,8 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Session pull requests open in Reviews**: click a session's pull request chip or press Enter or Space to select it in Mine, or Team when it is not in Mine. Pull requests outside the queues still open on GitHub. Cmd/Ctrl-click, Shift-click and middle-click keep opening GitHub.
-- **Linked sessions belong to their pull request**: in Reviews > Mine, a pull request and its linked session pills share one hover and selection highlight, with a thin tree connector showing the link, including stacked pull requests.
 - **`Cmd+J` reaches failed sessions**: the jump to the next session that needs you now goes to waiting sessions first, then failed ones, then finished ones, and the rail count's key hint and the phone's Next button count failed sessions too. The prompt badge on a card now reads Needs permission or Needs input in full.
 - **Remaining GitHub reads share the rate limit**: opening an issue, mining benchmark cases and looking up your GitHub account now take their turn with the other reads and say at once when GitHub asks to wait, instead of failing or hanging.
 - **One place says what needs you**: the top of the rail is now the single count of sessions that need you, larger and highlighted whenever anything is waiting, and it now counts failed sessions too, for example "1 NEEDS YOU, 1 FAILED, 2 FINISHED". The header's "1 session needs input" text is gone; a status glyph in its place carries the same count on hover. `Cmd+J` (Alt+J off a Mac) jumps to the next session that needs you from any tab, not only Focus, and the first-run checklist now mentions it. On a phone, a Next button beside the count does the same. The count is no longer clickable on desktop.
