@@ -7,10 +7,6 @@ interface SessionAttentionRow {
   state?: unknown;
 }
 
-const SESSION_ATTENTION_RANK_BY_TIER: Readonly<Record<SessionAttentionTier, number>> = Object.freeze({
-  now: 0, later: 1, resting: 2,
-});
-
 const SESSION_ATTENTION_TIER_BY_STATE: Readonly<Record<SessionState, SessionAttentionTier>> = {
   WAITING: 'now',
   COMPLETE: 'later',
@@ -27,10 +23,6 @@ const attentionTierByState: ReadonlyMap<string, SessionAttentionTier> = new Map(
 export function sessionAttentionTier(row: SessionAttentionRow): SessionAttentionTier {
   const tier = typeof row.state === 'string' ? attentionTierByState.get(row.state) : undefined;
   return tier ?? 'resting';
-}
-
-function sessionAttentionRank(row: SessionAttentionRow): number {
-  return SESSION_ATTENTION_RANK_BY_TIER[sessionAttentionTier(row)];
 }
 
 interface RosterEntry {
@@ -77,10 +69,20 @@ export function needsAttention({ state }: SessionAttentionRow = {}) {
   return sessionAttentionTier({ state }) !== 'resting';
 }
 
+const JUMP_RANK_BY_STATE: ReadonlyMap<string, number> = new Map([
+  [STATES.WAITING, 0],
+  [STATES.FAILED, 1],
+  [STATES.COMPLETE, 2],
+]);
+
+function jumpRankOf({ state }: SessionAttentionRow): number | undefined {
+  return typeof state === 'string' ? JUMP_RANK_BY_STATE.get(state) : undefined;
+}
+
 export function orderAttentionQueue<Row extends SessionAttentionRow & { id: string }>(rosterOrderedRows: readonly Row[]): string[] {
   return rosterOrderedRows
-    .filter(needsAttention)
-    .sort((first, second) => sessionAttentionRank(first) - sessionAttentionRank(second))
+    .filter((row) => jumpRankOf(row) !== undefined)
+    .sort((first, second) => (jumpRankOf(first) ?? 0) - (jumpRankOf(second) ?? 0))
     .map(({ id }) => id);
 }
 
@@ -109,8 +111,8 @@ export function countAttentionByKind(rows: readonly AttentionCountRow[] | null |
   return counts;
 }
 
-export function jumpTargetCount({ waitingCount, finishedCount }: AttentionCounts) {
-  return waitingCount + finishedCount;
+export function jumpTargetCount({ waitingCount, finishedCount, failedCount }: AttentionCounts) {
+  return waitingCount + failedCount + finishedCount;
 }
 
 export function titleAlertCount({ waitingCount, failedCount }: AttentionCounts) {
@@ -124,8 +126,8 @@ export function headerAttentionState({ waitingCount, failedCount, finishedCount 
   return null;
 }
 
-export function hasAnyAttention({ waitingCount, finishedCount, failedCount }: AttentionCounts) {
-  return waitingCount + finishedCount + failedCount > 0;
+export function hasAnyAttention(counts: AttentionCounts) {
+  return jumpTargetCount(counts) > 0;
 }
 
 export function attentionSummaryText({ waitingCount, finishedCount, failedCount }: AttentionCounts) {

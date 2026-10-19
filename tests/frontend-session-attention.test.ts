@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { STATES } from '../shared/states.ts';
-import { buildSessionRows, countAttentionByKind, needsAttention, sessionAttentionTier } from '../public/focus-view/attention-core.ts';
+import { buildSessionRows, countAttentionByKind, needsAttention, orderAttentionQueue, sessionAttentionTier } from '../public/focus-view/attention-core.ts';
 import type { SessionAttentionTier } from '../public/focus-view/attention-core.ts';
 import { decideFaviconVariant } from '../public/favicon-core.ts';
 
@@ -24,9 +24,10 @@ test('every built-in session state has one attention tier shared by the rail, th
   }
 });
 
-test('FAILED shows in the readout but stays out of the jump queue and favicon', () => {
+test('FAILED joins the jump queue but is never dismissed on view and stays out of the favicon', () => {
   const failed = { id: 'failed', name: 'Failed session', state: STATES.FAILED };
   assert.equal(needsAttention(failed), false);
+  assert.deepEqual(orderAttentionQueue([failed]), ['failed']);
   assert.deepEqual(countAttentionByKind([failed]), { waitingCount: 0, finishedCount: 0, failedCount: 1 });
   assert.equal(decideFaviconVariant([failed]), 'idle');
 });
