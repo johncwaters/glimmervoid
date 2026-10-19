@@ -5,9 +5,11 @@ import { orderAttentionQueue, orderRoster, pickNextAttention, pickStagedSession,
 import { basename } from '../focus-view/roster-groups-core.ts';
 import { readSessionRows } from '../session-actions.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
-import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
+import { sessionUIs } from '../session-card/card-registry.ts';
 import { markSessionSeen } from '../session-card/lifecycle.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
+import { buildShortcutKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { shortcutChord } from '../shortcuts-core.ts';
 
 const WORKING_STATES: ReadonlySet<string> = new Set([STATES.RUNNING, STATES.STARTING, STATES.INITIALIZING]);
 
@@ -16,8 +18,6 @@ interface ZenElements {
   workingCount: HTMLElement;
   workingList: HTMLUListElement;
   stage: HTMLElement;
-  stagedName: HTMLElement;
-  stagedProject: HTMLElement;
   stagedNeed: HTMLElement;
   queuedBehind: HTMLElement;
   cardSlot: HTMLElement;
@@ -40,17 +40,20 @@ export function mountZenView(panel: HTMLElement) {
   const stage = el('div', 'zen-stage');
   const reasonLine = el('div', 'zen-reason-line');
   reasonLine.setAttribute('role', 'status');
-  const stagedName = el('span', 'zen-staged-name');
-  const stagedProject = el('span', 'zen-staged-project');
   const stagedNeed = el('span', 'zen-staged-need');
   const queuedBehind = el('span', 'zen-queued-behind');
-  reasonLine.append(stagedName, stagedProject, stagedNeed, queuedBehind);
+  reasonLine.append(stagedNeed, queuedBehind);
+  const nextButton = el('button', 'btn-dialog', 'Next');
+  nextButton.type = 'button';
+  nextButton.addEventListener('click', stageNextAttention);
+  const stageBar = el('div', 'zen-stage-bar');
+  stageBar.append(reasonLine, nextButton, buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)));
   const cardSlot = el('div', 'zen-card-slot');
-  stage.append(reasonLine, cardSlot);
+  stage.append(stageBar, cardSlot);
   stage.hidden = true;
 
   panel.append(calm, stage);
-  zenElements = { calm, workingCount, workingList, stage, stagedName, stagedProject, stagedNeed, queuedBehind, cardSlot };
+  zenElements = { calm, workingCount, workingList, stage, stagedNeed, queuedBehind, cardSlot };
 }
 
 export function isZenActive() { return isActive; }
@@ -112,8 +115,6 @@ function releaseStage() {
 }
 
 function paintReasonLine(elements: ZenElements, ui: SessionUi, queuedBehindCount: number) {
-  elements.stagedName.textContent = sessionName(ui);
-  elements.stagedProject.textContent = basename(ui.path);
   elements.stagedNeed.textContent = stageNeedWords(ui.currentState, ui.pendingPromptKind);
   elements.stagedNeed.dataset.state = ui.currentState;
   elements.queuedBehind.textContent = `${queuedBehindCount} more waiting`;
