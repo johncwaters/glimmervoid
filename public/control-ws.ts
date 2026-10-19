@@ -3,6 +3,7 @@ import { decideLivenessAction } from './connection-liveness-core.ts';
 import { buildWebSocketUrl } from './ws-url-core.ts';
 import { clearPageToken, loadPageToken, pageToken, withPageToken } from './ws-token.ts';
 import { ServerMessage } from '#shared/contracts/control-messages.ts';
+import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 
 type ControlMessageHandler = (message: ServerMessage) => void;
 type ConnectionStateCallback = (state: string, label: string) => void;
@@ -59,11 +60,22 @@ export function sendControlRequest(type: string, payload?: Record<string, unknow
     if (controlWs?.readyState !== WebSocket.OPEN) {
       clearTimeout(timer);
       pendingRequests.delete(requestId);
-      reject(new Error('Not connected'));
+      reject(new Error(NOT_CONNECTED_TEXT));
       return;
     }
     controlWs.send(JSON.stringify({ type, requestId, ...payload }));
   });
+}
+
+function rejectUnreadableReply(rawMessage: unknown) {
+  if (typeof rawMessage !== 'object' || rawMessage === null || !('requestId' in rawMessage)) return;
+  const requestId = rawMessage.requestId;
+  if (typeof requestId !== 'string') return;
+  const pending = pendingRequests.get(requestId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingRequests.delete(requestId);
+  pending.reject(new Error('The server sent a reply this dashboard could not read. Reload the page to pick up the current version.'));
 }
 
 function rejectPendingRequests(reason: string) {
@@ -77,7 +89,7 @@ function rejectPendingRequests(reason: string) {
 function replaceControlSocket() {
   const abandonedSocket = controlWs;
   controlWs = null;
-  rejectPendingRequests('Connection replaced');
+  rejectPendingRequests(NOT_CONNECTED_TEXT);
   abandonedSocket?.close();
   controlRetryAttempt = 0;
   connectControl();
@@ -124,6 +136,7 @@ export function connectControl() {
     const parsedMessage = ServerMessage.safeParse(rawMessage);
     if (!parsedMessage.success) {
       console.warn(`[control] Dropped invalid server message: ${parsedMessage.error.issues[0]?.message || 'invalid payload'}`);
+      rejectUnreadableReply(rawMessage);
       return;
     }
     const msg = parsedMessage.data;
@@ -150,7 +163,7 @@ export function connectControl() {
   ws.addEventListener('close', () => {
     if (controlWs !== ws) return;
     controlWs = null;
-    rejectPendingRequests('Connection closed');
+    rejectPendingRequests(NOT_CONNECTED_TEXT);
 
     if (!hasEverOpened) clearPageToken();
     if (_connectionStateCallback) _connectionStateCallback('disconnected', 'Reconnecting');
