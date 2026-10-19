@@ -48,14 +48,14 @@ test('radarPlaceholder: waits for an initial server status', () => {
 test('radarPlaceholder: reports a misconfigured lane with the reason', () => {
   assert.equal(
     radarPlaceholder({ configured: false, reason: 'apiKey missing' }),
-    'PostHog monitoring is misconfigured: apiKey missing. Open Settings and its PostHog tab.',
+    'PostHog monitoring is misconfigured: apiKey missing.',
   );
 });
 
 test('radarPlaceholder: reports a disabled lane without a reason', () => {
   assert.equal(
     radarPlaceholder({ configured: false, reason: '' }),
-    'PostHog monitoring is off. Open Settings and its PostHog tab to switch it on.',
+    'PostHog monitoring is off.',
   );
 });
 

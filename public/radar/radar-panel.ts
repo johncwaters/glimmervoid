@@ -572,6 +572,12 @@ function buildIssueSkeleton() {
   return list;
 }
 
+function radarSettingsLeadIn(status: RadarSnapshot | null) {
+  if (status?.configured !== false) return '';
+  const hasReason = typeof status.reason === 'string' && status.reason.trim() !== '';
+  return hasReason ? 'Fix it in' : 'Switch it on in';
+}
+
 function buildErrorsSection(projects: RadarProject[], loadPhase: RadarLoadPhase = 'ready') {
   const section = buildSection('Errors');
   if (loadPhase === 'pending') {
@@ -581,7 +587,8 @@ function buildErrorsSection(projects: RadarProject[], loadPhase: RadarLoadPhase 
   if (loadPhase === 'placeholder' || projects.length === 0) {
     const placeholder = el('p', 'radar-unconfigured', radarPlaceholder(_latest));
     const link = createSettingsLink('lanes-posthog', 'posthog-enabled', 'PostHog settings');
-    placeholder.append(document.createTextNode(' '), link);
+    const settingsLeadIn = radarSettingsLeadIn(_latest);
+    placeholder.append(document.createTextNode(settingsLeadIn ? ` ${settingsLeadIn} ` : ' '), link);
     section.append(placeholder);
     return section;
   }

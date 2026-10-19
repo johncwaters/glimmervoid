@@ -15,6 +15,7 @@ import {
 } from '../shared/settings/registry-core.ts';
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../public/radar/radar-core.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } from '../public/github/team-review-view-core.ts';
+import { OPTIONAL_FEATURE_SURFACES } from '../public/feature-surfaces-core.ts';
 import { settableFromDashboard, specAllows } from './helpers/settings-allow-list.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
@@ -325,6 +326,16 @@ function browserSourceFiles(directory: string): string[] {
   });
 }
 
+const KNOWN_LINK_ID_PAIRS: Readonly<Record<string, readonly (readonly [string, string])[]>> = Object.freeze({
+  'surface.sectionId,surface.settingId': OPTIONAL_FEATURE_SURFACES.map((surface) => [surface.sectionId, surface.settingId] as const),
+});
+
+function linkIdPairs(rawSectionId: string, rawSettingId: string, file: string): readonly (readonly [string, string])[] {
+  const knownPairs = KNOWN_LINK_ID_PAIRS[`${rawSectionId},${rawSettingId}`];
+  if (knownPairs) return knownPairs;
+  return [[linkArgument(rawSectionId, file), linkArgument(rawSettingId, file)]];
+}
+
 function linkArgument(raw: string, file: string): string {
   const literal = /^['"]([^'"]+)['"]$/.exec(raw);
   if (literal) return literal[1];
@@ -345,9 +356,9 @@ test('every createSettingsLink call and #settings/ literal in public/ names a li
     const relative = path.relative(ROOT, file);
     for (const match of source.matchAll(/(?<!function )createSettingsLink\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*,/g)) {
       linkCount += 1;
-      const sectionId = linkArgument(match[1], relative);
-      const settingId = linkArgument(match[2], relative);
-      assert.ok(resolvesToLiveIds(sectionId, settingId), `${relative}: #settings/${sectionId}/${settingId} names a missing id`);
+      for (const [sectionId, settingId] of linkIdPairs(match[1], match[2], relative)) {
+        assert.ok(resolvesToLiveIds(sectionId, settingId), `${relative}: #settings/${sectionId}/${settingId} names a missing id`);
+      }
     }
     for (const match of source.matchAll(/['"`]#settings\/([^'"`$]+)['"`]/g)) {
       linkCount += 1;

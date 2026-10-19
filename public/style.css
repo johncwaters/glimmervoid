@@ -7225,6 +7225,34 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   color: var(--text-dim);
 }
 
+.settings-features {
+  list-style: none;
+  margin-block: 0;
+  padding: 0;
+}
+
+.settings-feature {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.settings-feature-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-feature-name {
+  font-weight: 700;
+}
+
+.settings-view-chip[data-chip="feature"] {
+  color: var(--text-dim);
+}
+
 .settings-view-control-foot {
   display: flex;
   min-height: 18px;
@@ -9716,6 +9744,11 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
 }
 
 .first-run-footer {
+  margin: 14px 0 0;
+}
+
+.first-run-load-status,
+.first-run-checklist .notification-permission {
   margin: 14px 0 0;
 }
 

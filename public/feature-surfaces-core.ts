@@ -12,3 +12,18 @@ export const FEATURE_SURFACE_RULES = {
   benchmarks: (settings) => settings?.benchmarks?.enabled === true,
   factory: (settings) => settings?.factory?.enabled === true,
 } satisfies Record<string, FeatureSurfaceRule>;
+
+interface OptionalFeatureSurface {
+  rule: keyof typeof FEATURE_SURFACE_RULES;
+  sectionId: string;
+  settingId: string;
+}
+
+export const OPTIONAL_FEATURE_SURFACES: readonly OptionalFeatureSurface[] = [
+  { rule: 'teamReview', sectionId: 'lanes-team-review', settingId: 'team-review-enabled' },
+  { rule: 'usage', sectionId: 'machine-usage', settingId: 'usage-enabled' },
+  { rule: 'posthog', sectionId: 'lanes-posthog', settingId: 'posthog-enabled' },
+  { rule: 'visions', sectionId: 'lanes-visions', settingId: 'visions-enabled' },
+  { rule: 'benchmarks', sectionId: 'lanes-benchmarks', settingId: 'benchmarks-enabled' },
+  { rule: 'factory', sectionId: 'lanes-factory', settingId: 'factory-enabled' },
+];

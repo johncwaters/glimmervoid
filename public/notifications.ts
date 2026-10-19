@@ -1,5 +1,6 @@
 import { reportUnsourcedError } from './action-status.ts';
 import { desktopNotificationOptions } from './desktop-notification-core.ts';
+import { el } from './dom-helpers.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { createPlanHash } from './plan/plan-link.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
@@ -14,7 +15,7 @@ export function notificationsSupported() {
   return getNotificationApi() !== null;
 }
 
-export function notificationPermission() {
+function notificationPermission() {
   const notificationApi = getNotificationApi();
   if (!notificationApi) return 'unavailable';
   return notificationApi.permission;
@@ -31,12 +32,40 @@ export async function ensureNotificationPermission(): Promise<NotificationPermis
   }
 }
 
-export function initNotifications() {
-  const notificationApi = getNotificationApi();
-  if (!notificationApi || !isNotificationsEnabled()) return;
-  if (notificationApi.permission === 'default') {
-    ensureNotificationPermission();
-  }
+function notificationPermissionHint(): string | null {
+  if (!notificationsSupported() && !window.isSecureContext) return 'Browsers allow desktop notifications only over HTTPS or on localhost, and this page is plain HTTP on another address. Open the dashboard on localhost, or use Telegram.';
+  if (!notificationsSupported()) return 'This browser does not support desktop notifications.';
+  if (notificationPermission() === 'denied' && isNotificationsEnabled()) return 'Blocked by the browser. Allow notifications for this site in its site settings.';
+  return null;
+}
+
+function canAskNotificationPermission() {
+  return isNotificationsEnabled() && notificationPermission() === 'default';
+}
+
+export function createNotificationPermissionControl(onAnswered: () => void = () => {}) {
+  const control = el('div', 'notification-permission');
+  const render = () => {
+    const hint = notificationPermissionHint();
+    control.replaceChildren();
+    control.hidden = !hint && !canAskNotificationPermission();
+    if (hint) {
+      control.append(el('p', 'notification-permission-hint text-xs text-text-muted', hint));
+      return;
+    }
+    const button = el('button', 'btn-dialog btn-dialog-cancel', 'Enable desktop notifications');
+    button.type = 'button';
+    button.addEventListener('click', () => {
+      button.disabled = true;
+      void ensureNotificationPermission().then(() => {
+        render();
+        onAnswered();
+      });
+    });
+    control.append(button);
+  };
+  render();
+  return { element: control, refresh: render };
 }
 
 const BLOCKED_NOTIFICATIONS_TEXT = 'Desktop notifications are blocked by the browser, so alerts show only in this tab. Allow notifications for this site to get them again.';

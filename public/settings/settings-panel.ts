@@ -7,7 +7,7 @@ import { REPO_SLUG } from '#shared/repo.ts';
 import { loadCustomSounds, playAlertSound, resolveSoundId, soundOptions } from '../alert-sound.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
-import { ensureNotificationPermission, notificationPermission, notificationsSupported } from '../notifications.ts';
+import { createNotificationPermissionControl, ensureNotificationPermission, notificationsSupported } from '../notifications.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -45,7 +45,10 @@ import {
   workflowRuleToggleRows,
 } from './settings-view-core.ts';
 import type { ControlDraft, SettingsPayload, SettingsValues, WorkflowRuleToggleRow } from './settings-view-core.ts';
-import { settingsHash, settingsSearchHash } from './settings-link.ts';
+import { createSettingsLink, settingsHash, settingsSearchHash } from './settings-link.ts';
+import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../feature-surfaces-core.ts';
+import type { FeatureSurfaceRule } from '../feature-surfaces-core.ts';
+import type { PrimaryViewDefinition } from '../view-registry-core.ts';
 import { projectSelectionChoices } from './settings-projects-core.ts';
 import { appendShortcutChord, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { isStreamerMode, onStreamerModeChanged, saveStreamerMode } from '../streamer-mode.ts';
@@ -110,6 +113,14 @@ const SAVED_STATUS_MS = 2200;
 const COPY_STATUS_MS = 1600;
 const APPEARANCE_PAGE_ID = 'browser-appearance';
 const SHORTCUTS_PAGE_ID = 'browser-shortcuts';
+const FEATURES_PAGE_ID = 'lanes-features';
+const FEATURES_SECTION: SettingsSection = Object.freeze({
+  id: FEATURES_PAGE_ID,
+  level: 'lanes',
+  title: 'Features',
+  description: 'Optional tabs, each hidden until its own toggle is on.',
+  settings: [],
+});
 const FLYING_ANIMALS_SETTING_ID = 'flying-animals';
 const SEGMENT_STEP_BY_KEY: Readonly<Record<string, number>> = Object.freeze({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 });
 
@@ -123,10 +134,12 @@ function resolveSettingOptions(setting: SettingsSetting): SettingsSetting {
 }
 
 function buildSettingsViewMap(): readonly SettingsSection[] {
-  return Object.freeze(SETTINGS_REGISTRY.sections.map((section) => ({
+  const sections = SETTINGS_REGISTRY.sections.map((section) => ({
     ...section,
     settings: section.settings.map(resolveSettingOptions),
-  })));
+  }));
+  const firstLaneIndex = sections.findIndex((section) => section.level === 'lanes');
+  return Object.freeze([...sections.slice(0, firstLaneIndex), FEATURES_SECTION, ...sections.slice(firstLaneIndex)]);
 }
 
 let SETTINGS_VIEW_MAP = buildSettingsViewMap();
@@ -233,6 +246,35 @@ function renderShortcutGroups(container: HTMLElement) {
     groupEl.appendChild(rows);
     container.appendChild(groupEl);
   }
+}
+
+type FeatureTabView = Pick<PrimaryViewDefinition<unknown>, 'label' | 'gate'>;
+
+let featureTabViews: readonly FeatureTabView[] = [];
+
+export function setFeatureTabViews(views: readonly FeatureTabView[]) {
+  featureTabViews = views;
+}
+
+function featureTabLabel(rule: FeatureSurfaceRule) {
+  return featureTabViews.find((view) => view.gate !== undefined && 'fromSettings' in view.gate && view.gate.fromSettings === rule)?.label;
+}
+
+function renderFeatureList(container: HTMLElement) {
+  const list = el('ul', 'settings-view-stack settings-features');
+  for (const surface of OPTIONAL_FEATURE_SURFACES) {
+    const section = SETTINGS_VIEW_MAP.find((entry) => entry.id === surface.sectionId);
+    const enableSetting = settingById(surface.settingId);
+    const tabLabel = featureTabLabel(FEATURE_SURFACE_RULES[surface.rule]);
+    if (!section || !enableSetting || !tabLabel) continue;
+    const isOn = storedValue(enableSetting) === true;
+    const item = el('li', 'settings-feature');
+    const head = el('div', 'settings-feature-head');
+    head.append(el('span', 'settings-feature-name', tabLabel), buildChip('feature', isOn ? 'On' : 'Off'));
+    item.append(head, el('p', 'settings-view-section-description', section.description), createSettingsLink(surface.sectionId, surface.settingId, enableSetting.title));
+    list.appendChild(item);
+  }
+  container.appendChild(list);
 }
 
 function renderAbout(container: HTMLElement) {
@@ -910,12 +952,6 @@ function renderControl(setting: SettingsSetting) {
 function statusText(setting: SettingsSetting) {
   const environmentSource = secretEnvironmentSource(setting, settingsPayload);
   if (environmentSource) return `Supplied by ${environmentSource}. Change the server environment and restart to replace this credential.`;
-  if (setting.id === 'desktop-notifications' && !notificationsSupported()) {
-    return 'Desktop notifications are unavailable for this page.';
-  }
-  if (setting.id === 'desktop-notifications' && storedValue(setting) === true && notificationPermission() === 'denied') {
-    return 'Blocked by the browser. Allow notifications for this site to enable them.';
-  }
   if (setting.status !== 'rtk-install' || storedValue(setting) !== true || settingsPayload.rtkAvailable) return '';
   return rtkInstallStatusText(settingsPayload);
 }
@@ -927,9 +963,17 @@ function buildStatusSlot(setting: SettingsSetting) {
     block.classList.add('settings-view-status-slot');
     return block;
   }
+  if (setting.id === 'desktop-notifications') return buildNotificationPermissionSlot(setting);
   const status = statusText(setting);
   if (!status) return null;
   return el('div', 'settings-view-warning settings-view-status-slot', status);
+}
+
+function buildNotificationPermissionSlot(setting: SettingsSetting) {
+  const permissionControl = createNotificationPermissionControl(() => refreshRow(setting, { force: true }));
+  if (permissionControl.element.hidden) return null;
+  permissionControl.element.classList.add('settings-view-status-slot');
+  return permissionControl.element;
 }
 
 function buildChip(kind: string, text: string) {
@@ -1212,6 +1256,11 @@ function renderContent() {
     contentEl.appendChild(renderStatusLegend());
     contentEl.appendChild(renderPrStatusLegend());
     renderAbout(contentEl);
+    return;
+  }
+
+  if (selectedPage.id === FEATURES_PAGE_ID) {
+    renderFeatureList(contentEl);
     return;
   }
 

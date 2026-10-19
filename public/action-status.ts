@@ -87,6 +87,12 @@ export function reportUnsourcedError(message: string, { hidesInStreamerMode = tr
   parts.line.hidden = false;
 }
 
+export function clearUnsourcedError(message: string) {
+  const parts = headerStatusParts();
+  if (!parts || parts.text.textContent !== message) return;
+  dismissHeaderStatus();
+}
+
 function dismissHeaderStatus() {
   const parts = headerStatusParts();
   if (!parts) return;

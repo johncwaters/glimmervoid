@@ -244,7 +244,7 @@ export function trailStatusText(view: InvestigationView, startedAgoText: string)
 }
 
 export function radarPlaceholder(status: RadarSnapshot | null | undefined) {
-  return lanePlaceholder(status, { label: 'PostHog monitoring', tab: 'PostHog' });
+  return lanePlaceholder(status, { label: 'PostHog monitoring' });
 }
 
 function isCompletedTickSnapshot(snapshot: RadarSnapshot) {

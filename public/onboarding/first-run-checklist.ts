@@ -1,6 +1,8 @@
+import { createActionStatus, requestFailureText, DEFAULT_REPLY_TIMEOUT_MS } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { createAddSessionDialog } from '../dialogs.ts';
 import { el } from '../dom-helpers.ts';
+import { createNotificationPermissionControl } from '../notifications.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import { agentSummaryText, decideFirstRunSteps, UPCOMING_STEPS } from './first-run-checklist-core.ts';
 import type { FirstRunStepState, FirstRunSteps } from './first-run-checklist-core.ts';
@@ -22,6 +24,8 @@ let rescanButton: HTMLButtonElement | null = null;
 let repoRootsAdder: ReturnType<typeof createRepoRootsAdder> | null = null;
 let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', repoRoots: [] };
 let loadSequence = 0;
+const loadStatus = createActionStatus('first-run-load-status');
+const notificationPermissionControl = createNotificationPermissionControl();
 
 function buildStep({ title, state, summary, badge, body }: {
   title: string;
@@ -99,17 +103,20 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
   if (rescanButton) rescanButton.disabled = true;
   try {
     const [agentListing, rootsScan] = await Promise.all([
-      sendControlRequest('list-agents', rescanAgents ? { rescan: true } : {}),
-      sendControlRequest('scan-repo-roots', { includeSuggestions: true }),
+      sendControlRequest('list-agents', rescanAgents ? { rescan: true } : {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS }),
+      sendControlRequest('scan-repo-roots', { includeSuggestions: true }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS }),
     ]);
     if (sequenceAtStart !== loadSequence) return;
     const isRootsScan = rootsScan.type === 'repo-roots-scanned';
     const repoRoots = isRootsScan ? rootsScan.directories.map((directory) => directory.root) : [];
     currentState = { steps: decideFirstRunSteps({ agentListing, repoRoots }), agentSummary: agentSummaryText(agentListing), repoRoots };
+    loadStatus.clear();
     renderSteps();
     repoRootsAdder?.setSuggestions(isRootsScan ? rootsScan.suggestions ?? [] : []);
-  } catch {
+  } catch (reason) {
     if (rescanButton) rescanButton.disabled = false;
+    if (sequenceAtStart !== loadSequence) return;
+    loadStatus.show('error', `The checklist could not load: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)} It loads again once the server answers. If it stays like this, check the terminal running Glimmervoid, or run glimmervoid doctor.`);
   }
 }
 
@@ -127,6 +134,8 @@ function ensureChecklist(): HTMLElement {
     heading,
     el('p', 'first-run-intro', 'Glimmervoid runs the agent CLIs you already have, inside the repositories you point it at. Two checks, then start.'),
     stepsEl,
+    loadStatus.element,
+    notificationPermissionControl.element,
     footer,
   );
   checklistEl = checklist;
@@ -143,6 +152,7 @@ export function showFirstRunChecklist(host: HTMLElement, isShown: boolean) {
   const wasShownHere = !checklist.hidden && checklist.parentElement === host;
   if (checklist.parentElement !== host) host.append(checklist);
   checklist.hidden = false;
+  notificationPermissionControl.refresh();
   if (!wasShownHere) void loadFirstRunState({ rescanAgents: false });
 }
 

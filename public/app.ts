@@ -26,7 +26,8 @@ import type { HealthSnapshot } from './health-monitor.ts';
 import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
 import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, setVisionsProjectNames } from './visions/visions-panel.ts';
 import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, setHooksRequestSender } from './hooks-panel.ts';
-import { initNotifications, showDesktopNotification } from './notifications.ts';
+import { showDesktopNotification } from './notifications.ts';
+import { clearUnsourcedError, reportUnsourcedError } from './action-status.ts';
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession, syncPhoneHistory } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
@@ -53,7 +54,7 @@ import { openConfirmDialog } from './session-card/modal.ts';
 import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
 import { showErrorToast } from './session-card/toast.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
-import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, clearSettingsUpdateRequest, onPhoneSettingsScreenChanged, refreshSettingsStatus, resolveSettingsTarget, returnToSettingsList } from './settings/settings-panel.ts';
+import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, clearSettingsUpdateRequest, onPhoneSettingsScreenChanged, refreshSettingsStatus, resolveSettingsTarget, returnToSettingsList, setFeatureTabViews } from './settings/settings-panel.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
@@ -158,6 +159,37 @@ function showLivenessProbeState(state: string, label: string) {
   renderConnectionHeader(headerState, label, false);
 }
 
+const SERVER_UNREACHABLE_HINT_DELAY_MS = 10000;
+const SERVER_UNREACHABLE_TEXT = 'The server is not answering. Check the terminal running Glimmervoid for errors, or start it again with glimmervoid. This page reconnects on its own.';
+let serverUnreachableHintTimer: number | null = null;
+let isServerUnreachableHintShown = false;
+
+function reconnectingLoadingText() {
+  return isServerUnreachableHintShown ? `Reconnecting to server... ${SERVER_UNREACHABLE_TEXT}` : 'Reconnecting to server...';
+}
+
+function showServerUnreachableHint() {
+  serverUnreachableHintTimer = null;
+  isServerUnreachableHintShown = true;
+  if (!appRevealed) {
+    loadingStatus.textContent = reconnectingLoadingText();
+    return;
+  }
+  reportUnsourcedError(SERVER_UNREACHABLE_TEXT, { hidesInStreamerMode: false });
+}
+
+function scheduleServerUnreachableHint() {
+  if (serverUnreachableHintTimer !== null || isServerUnreachableHintShown) return;
+  serverUnreachableHintTimer = window.setTimeout(showServerUnreachableHint, SERVER_UNREACHABLE_HINT_DELAY_MS);
+}
+
+function clearServerUnreachableHint() {
+  if (serverUnreachableHintTimer !== null) window.clearTimeout(serverUnreachableHintTimer);
+  serverUnreachableHintTimer = null;
+  isServerUnreachableHintShown = false;
+  clearUnsourcedError(SERVER_UNREACHABLE_TEXT);
+}
+
 setConnectionStateCallback((state, label) => {
   if (state === 'connecting' || state === 'verified') {
     showLivenessProbeState(state, label);
@@ -168,6 +200,7 @@ setConnectionStateCallback((state, label) => {
   for (const viewTab of VIEW_TABS) viewTab.onConnectionChange?.(state === 'connected');
 
   if (state === 'connected') {
+    clearServerUnreachableHint();
     if (shutdownScreen.classList.contains('active')) {
       location.reload();
       return;
@@ -197,7 +230,8 @@ setConnectionStateCallback((state, label) => {
     shutdownStatus.textContent = 'Waiting for server...';
     return;
   }
-  if (!appRevealed) loadingStatus.textContent = 'Reconnecting to server...';
+  scheduleServerUnreachableHint();
+  if (!appRevealed) loadingStatus.textContent = reconnectingLoadingText();
 });
 
 function refreshAttentionSurfaces() {
@@ -702,6 +736,7 @@ const VIEW_TABS = createDashboardViews({
   setPhoneAttention: setPhoneScreenAttention,
 });
 
+setFeatureTabViews(VIEW_TABS);
 mountReviewSidebar({ panel: document.getElementById('review-sidebar') });
 for (const viewTab of VIEW_TABS) viewTab.mount(viewTab.el);
 
@@ -1048,8 +1083,7 @@ window.addEventListener('pageshow', (event) => {
 
 mountHealthMonitor(queryTag(document, '#health-footer-mount', 'div'));
 
-initNotifications();
-
 whenBundledMonoFontLoads(refreshTerminalFonts);
 
+scheduleServerUnreachableHint();
 connectControl();
