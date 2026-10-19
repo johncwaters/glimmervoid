@@ -110,11 +110,6 @@ function storeHarness(ghCallDurationMs = 0) {
       assert.equal(isExclusive, true);
       return nodes[0].headRefOid;
     },
-    async reviewThreads() {
-      assert.equal(isExclusive, true);
-      return [unresolvedThread];
-    },
-    async compareCommits() { assert.fail('This scenario does not request a comparison'); },
   };
   const poller = createGithubStorePoller({
     github, now: () => timestamp, isDashboardConnected: () => isDashboardConnected,
@@ -283,12 +278,12 @@ test('one-shot diff reads cache by PR and head SHA without a second gh call', as
   context.after(harness.cleanup);
   const firstDiff = await harness.poller.requestPrDiff('Acme/app', 1, HEAD_SHA);
   const rateLimitCallCount = harness.rateLimitCalls.length;
-  assert.equal(await harness.poller.requestPrDiff('acme/app', 1, HEAD_SHA), firstDiff);
+  assert.deepEqual(await harness.poller.requestPrDiff('acme/app', 1, HEAD_SHA), firstDiff);
   assert.equal(harness.diffCalls.length, 1);
   assert.equal(harness.rateLimitCalls.length, rateLimitCallCount);
   const nextHeadSha = 'c'.repeat(40);
   harness.setNodes([{ ...detailNode(1), headRefOid: nextHeadSha }]);
-  assert.equal(await harness.poller.requestPrDiff('Acme/app', 1, nextHeadSha), firstDiff);
+  assert.deepEqual(await harness.poller.requestPrDiff('Acme/app', 1, nextHeadSha), firstDiff);
   assert.equal(harness.diffCalls.length, 2);
 });
 

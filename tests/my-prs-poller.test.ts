@@ -63,9 +63,7 @@ function createMyPrsPoller({ github, ...dependencies }: Omit<LaneDependencies, '
       async notificationsSince() { return { kind: 'unchanged' }; },
       async viewPr() { assert.fail('Unexpected PR view'); },
       async prDiff() { assert.fail('Unexpected PR diff'); },
-      async compareCommits() { assert.fail('Unexpected comparison'); },
       async prHead() { assert.fail('Unexpected head read'); },
-      async reviewThreads() { assert.fail('Unexpected thread read'); },
     },
   });
   const laneStore: LaneDependencies['store'] = {

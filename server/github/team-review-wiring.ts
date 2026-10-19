@@ -1,4 +1,5 @@
 import type { GithubLaneStore } from './github-store-wiring.ts';
+import { githubStoreRateLimitedError } from './github-store-poller.ts';
 import { TeamReviewStateEntry, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import { randomBytes } from 'node:crypto';
@@ -141,7 +142,7 @@ type TeamReviewSpawn = (options: TeamReviewConfinement & {
 type TeamReviewReap = (options: Required<TeamReviewReapOptions>) => Promise<void>;
 
 interface TeamReviewDispatchOptions {
-  github: { prDiff(repo: string, number: number): Promise<string | null> };
+  store: Pick<GithubLaneStore, 'requestPrDiff'>;
   repoCache: TeamReviewRepoCache;
   gitWorkspace: TeamReviewGitWorkspace;
   spawnSession: TeamReviewSpawn;
@@ -175,7 +176,7 @@ interface TeamReviewWiringOptions {
   log?: Pick<Console, 'warn'>;
   homeDir?: string;
   repoCacheRoot?: string;
-  github?: TeamReviewGithub & Pick<PrGh, 'prDiff'> & Partial<Pick<PrGh, 'postReview' | 'dismissReview'>>;
+  github?: TeamReviewGithub & Partial<Pick<PrGh, 'postReview' | 'dismissReview'>>;
   repoCache?: TeamReviewRepoCache;
   spawnSession?: TeamReviewSpawn;
   createPoller?: typeof createTeamReviewPoller;
@@ -195,11 +196,12 @@ interface TeamReviewDraftStore {
   updateThread?: (key: string, threadId: string, patch: { isResolved?: boolean; resolveError?: string }) => Promise<boolean>;
 }
 
-type TeamReviewActionGithub = Pick<PrGh, 'prHead' | 'prDiff' | 'postReview' | 'dismissReview'> & Partial<Pick<PrGh, 'teamReviewThreads' | 'resolveReviewThread'>>;
+type TeamReviewActionGithub = Pick<PrGh, 'postReview' | 'dismissReview'> & Partial<Pick<PrGh, 'resolveReviewThread'>>;
 
 interface TeamReviewActionOptions {
   drafts: TeamReviewDraftStore;
   github: TeamReviewActionGithub;
+  store: Pick<GithubLaneStore, 'requestPrHead' | 'requestPrDiff' | 'requestTeamReviewThreads'>;
   log?: Pick<Console, 'warn'>;
   requestPrRefresh?: (key: string) => void;
 }
@@ -458,7 +460,7 @@ async function sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoC
 }
 
 function createTeamReviewDispatcher({
-  github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, repoCacheRoot = null,
+  store, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, repoCacheRoot = null,
   timeoutSeconds = core.REVIEW_TIMEOUT_SECONDS,
   makeWorkDir = makeTeamReviewWorkDir,
   clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
@@ -613,7 +615,8 @@ function createTeamReviewDispatcher({
             resources.workDirHandle = { dir: resumedWorkDir, cleanup: () => deleteDirectory(resumedWorkDir, log) };
             resources.checkout = { projectPath, worktreePath: args.resume.worktreePath };
             await reapProcesses({ ownedDirectories: [resumedWorkDir, args.resume.worktreePath], reviewRoots: [workRoot, worktreeRoot], scope: 'run', log }).catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] process reap failed: ${errorMessage(error)}`));
-            const diff = await github.prDiff(candidate.repo, detail.number);
+            const diffRead = await store.requestPrDiff(candidate.repo, detail.number, detail.headRefOid);
+            const diff = diffRead.isRateLimited ? null : diffRead.value;
             reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds: timeoutBudgetMs / 1000 });
             resources.awakeStopwatch = startAwakeStopwatch({ now });
             return spawnWithTimeout({
@@ -640,7 +643,8 @@ function createTeamReviewDispatcher({
       const workDir = resources.workDirHandle.dir;
       const reportPath = path.join(workDir, core.REVIEW_REPORT_FILENAME);
       const postingPath = path.join(workDir, core.REVIEW_POSTING_FILENAME);
-      const diff = await github.prDiff(candidate.repo, detail.number);
+      const diffRead = await store.requestPrDiff(candidate.repo, detail.number, detail.headRefOid);
+      const diff = diffRead.isRateLimited ? null : diffRead.value;
       reportProgress({ kind: 'phase', phase: 'checkout', tier, reasons });
       const staged = await stageCheckout(candidate, detail);
       if ('error' in staged) return failed(staged.error);
@@ -784,7 +788,7 @@ function describeInvalidComments(comments: readonly ReviewComment[]): string {
   return `These inline comments are not on lines in the diff, remove them and retry: ${locations}`;
 }
 
-function createTeamReviewActions({ drafts, github, log = console, requestPrRefresh }: TeamReviewActionOptions) {
+function createTeamReviewActions({ drafts, github, store, log = console, requestPrRefresh }: TeamReviewActionOptions) {
   const actionsInFlight = new Set<string>();
 
   async function markDraft(key: string, draft: ReviewDraft, patch: DraftPatch): Promise<ReviewDraft | null> {
@@ -801,7 +805,9 @@ function createTeamReviewActions({ drafts, github, log = console, requestPrRefre
 
   async function misplacedCommentsError(draft: ReviewDraft, comments: readonly ReviewComment[]): Promise<string | null> {
     if (comments.length === 0) return null;
-    const diff = await github.prDiff(draft.repo, draft.number);
+    const diffRead = await store.requestPrDiff(draft.repo, draft.number, draft.reviewedHead, 'no-wait');
+    if (diffRead.isRateLimited) return githubStoreRateLimitedError(diffRead.waitMs);
+    const diff = diffRead.value;
     if (diff === null) return 'Could not fetch the diff to check the inline comments. Remove them to post without them';
     const misplaced = core.invalidComments(comments, core.commentableLines(diff));
     return misplaced.length > 0 ? describeInvalidComments(misplaced) : null;
@@ -829,7 +835,9 @@ function createTeamReviewActions({ drafts, github, log = console, requestPrRefre
     if (event === 'COMMENT' && !body.trim() && comments.length === 0) {
       return { ok: false, error: 'A comment review needs a body or an inline comment' };
     }
-    const liveHead = await github.prHead(draft.repo, draft.number);
+    const liveHeadRead = await store.requestPrHead(draft.repo, draft.number, 'no-wait');
+    if (liveHeadRead.isRateLimited) return { ok: false, error: githubStoreRateLimitedError(liveHeadRead.waitMs) };
+    const liveHead = liveHeadRead.value;
     if (!liveHead) return { ok: false, error: 'Could not read the pull request head from GitHub' };
     if (!core.canPost(draft, draft.reviewedHead, liveHead, event)) {
       if (isFollowUpApproval) return { ok: false, error: `The pull request moved to ${shortSha(liveHead)} after the comments were posted, so nothing was approved. Queue a review to look at the new commits` };
@@ -844,7 +852,8 @@ function createTeamReviewActions({ drafts, github, log = console, requestPrRefre
     });
     if (!posted.ok) return { ok: false, error: posted.err || 'GitHub refused the review' };
     requestPrRefresh?.(comparablePrKey(draft));
-    const headAfterPost = event === 'APPROVE' ? await github.prHead(draft.repo, draft.number) : draft.reviewedHead;
+    const headAfterPostRead = event === 'APPROVE' ? await store.requestPrHead(draft.repo, draft.number, 'no-wait') : { isRateLimited: false as const, value: draft.reviewedHead };
+    const headAfterPost = headAfterPostRead.isRateLimited ? null : headAfterPostRead.value;
     if (headAfterPost !== null && headAfterPost !== draft.reviewedHead) return retractApproval(key, draft, headAfterPost, posted.reviewId);
     const postedPatch: DraftPatch = isFollowUpApproval ? { status: 'posted', postedEvent: event } : { status: 'posted', postedEvent: event, body: postedBody, comments };
     const marked = await markDraft(key, draft, postedPatch);
@@ -856,12 +865,14 @@ function createTeamReviewActions({ drafts, github, log = console, requestPrRefre
   }
 
   async function resolveThread(draft: ReviewDraft, request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome> {
-    if (!request.threadId || !github.teamReviewThreads || !github.resolveReviewThread || !drafts.updateThread) return { ok: false, error: 'Thread resolution is unavailable' };
+    if (!request.threadId || !github.resolveReviewThread || !drafts.updateThread) return { ok: false, error: 'Thread resolution is unavailable' };
     const stored = draft.threads?.find((thread) => thread.id === request.threadId);
     if (!stored) return { ok: false, error: 'That answered thread no longer exists' };
     if (stored.isResolved) return { ok: false, error: 'That thread is already resolved' };
     if (stored.isNit && stored.resolveError === undefined) return { ok: false, error: 'That nit is resolved automatically' };
-    const fetched = await github.teamReviewThreads([{ repo: draft.repo, number: draft.number }]);
+    const fetchedRead = await store.requestTeamReviewThreads([{ repo: draft.repo, number: draft.number }], 'no-wait');
+    if (fetchedRead.isRateLimited) return { ok: false, error: githubStoreRateLimitedError(fetchedRead.waitMs) };
+    const fetched = fetchedRead.value;
     const thread = fetched.get(draft.key)?.find((thread) => thread.id === request.threadId);
     if (!thread) return { ok: false, error: 'That thread is no longer on the pull request' };
     if (thread.isResolved) return { ok: false, error: 'That thread is already resolved on GitHub' };
@@ -961,7 +972,7 @@ function createTeamReviewWiring({
   const shutdownController = new AbortController();
   const inFlightReviews = new Set<Promise<ReviewOutcome>>();
   const reviewPullRequest = createTeamReviewDispatcher({
-    github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, repoCacheRoot, shutdownSignal: shutdownController.signal, reapProcesses, log,
+    store, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, repoCacheRoot, shutdownSignal: shutdownController.signal, reapProcesses, log,
     readReviewSkill: () => core.readTeamReviewSettings(config).skill,
     readLocalCheckoutConfig: () => ({ projects: config.projects, repoRoots: config.repoRoots }),
   });
@@ -1070,7 +1081,11 @@ function createTeamReviewWiring({
     const separatorIndex = key.lastIndexOf('#');
     const repo = key.slice(0, separatorIndex);
     const number = Number(key.slice(separatorIndex + 1));
-    const detail = await github.viewPr(repo, number).catch(() => null);
+    const headRead = await store.requestPrHead(repo, number, 'no-wait');
+    if (headRead.isRateLimited) return { ok: false, error: githubStoreRateLimitedError(headRead.waitMs) };
+    const detailRead = headRead.value ? await store.requestPrView(repo, number, headRead.value, 'no-wait') : { isRateLimited: false as const, value: null };
+    if (detailRead.isRateLimited) return { ok: false, error: githubStoreRateLimitedError(detailRead.waitMs) };
+    const detail = detailRead.value;
     if (!detail) return { ok: false, error: `Could not read ${key} from GitHub` };
     if (detail.isCrossRepository || !detail.headRefName) return { ok: false, error: 'This pull request comes from a fork, so its branch is not in the repository' };
     const configuredCheckout = await findConfiguredCheckout(repo, projectPaths);
@@ -1089,13 +1104,10 @@ function createTeamReviewWiring({
   }
 
   const actions = createTeamReviewActions({
-    requestPrRefresh,
+    requestPrRefresh, store,
     drafts: { getDraft, updateDraft, updateThread, requeue, markNotMine: markNotMineForPoller },
     github: {
-      teamReviewThreads: github.teamReviewThreads?.bind(github),
       resolveReviewThread: github.resolveReviewThread?.bind(github),
-      prHead: (repo, number) => github.prHead(repo, number),
-      prDiff: (repo, number) => github.prDiff(repo, number),
       postReview: async (review) => {
         if (!github.postReview) return { ok: false, err: 'this GitHub client cannot post reviews', reviewId: null };
         return github.postReview(review);

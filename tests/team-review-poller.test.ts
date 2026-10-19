@@ -61,7 +61,7 @@ function draftFor({ candidate, detail, tier, reasons }: SpawnReviewArgs): Review
   });
 }
 
-interface FakeGithub extends TeamReviewGithub, Pick<Parameters<typeof createGithubStorePoller>[0]['github'], 'searchPrsLight' | 'prsLightByKey' | 'prDetails'> {
+interface FakeGithub extends TeamReviewGithub, Pick<Parameters<typeof createGithubStorePoller>[0]['github'], 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'viewPr' | 'prHead'>, Partial<Pick<Parameters<typeof createGithubStorePoller>[0]['github'], 'teamReviewThreads' | 'teamReviewCompare'>> {
   readTeamRequested(org: string, team: string): Promise<{ items: SearchedPr[]; complete: boolean }>;
   readDirectRequested(org: string): Promise<{ items: SearchedPr[]; complete: boolean }>;
   readAuthoredBy(org: string, logins: string[]): Promise<{ items: SearchedPr[]; complete: boolean }>;
@@ -183,11 +183,11 @@ function setup(overrides: Partial<Omit<TeamReviewPollerDependencies, 'github' | 
       async notificationsSince() { return { kind: 'unchanged' }; },
       async behindCounts() { return new Map(); },
       async reviewThreadsBatch() { return new Map(); },
-      async viewPr() { assert.fail('Unexpected store PR view'); },
+      viewPr: (repo, number) => github.viewPr(repo, number),
       async prDiff() { assert.fail('Unexpected store PR diff'); },
-      async compareCommits() { assert.fail('Unexpected store comparison'); },
-      async prHead() { assert.fail('Unexpected store head read'); },
-      async reviewThreads() { assert.fail('Unexpected store thread read'); },
+      prHead: (repo, number) => github.prHead(repo, number),
+      teamReviewThreads: (prs) => github.teamReviewThreads?.(prs) ?? Promise.resolve(new Map()),
+      teamReviewCompare: (repo, base, head) => github.teamReviewCompare?.(repo, base, head) ?? Promise.resolve({ ok: true, comparison: null }),
     },
   });
   const registeredWatches: Parameters<typeof storePoller.registerWatch>[0][] = [];
@@ -1217,8 +1217,8 @@ test('a fork head change refreshes its hand review row and a non-fork head clear
   assert.equal(statuses.at(-1)?.handReview[0]?.title, 'Updated fork');
   assert.equal(poller._state()[key]?.reviewedHead, HEAD_TWO);
   assert.equal(spawned.length, 0);
-  github.heads.set(5, HEAD_ONE);
-  github.viewPr = async (_repo, number) => prDetail(number, HEAD_ONE);
+  github.heads.set(5, '3'.repeat(40));
+  github.viewPr = async (_repo, number) => prDetail(number, '3'.repeat(40));
   await poller.tick();
   await settle();
   assert.equal(spawned.length, 1);

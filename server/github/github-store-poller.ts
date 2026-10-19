@@ -19,7 +19,7 @@ interface GithubStoreWatch {
 }
 
 interface GithubStoreDependencies {
-  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'compareCommits' | 'prHead' | 'reviewThreads'>;
+  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads'>>;
   now: () => number;
   isDashboardConnected: () => boolean;
   exclusive: SharedClock['exclusive'];
@@ -29,11 +29,17 @@ interface GithubStoreDependencies {
 }
 
 type GithubStoreSnapshot = Pick<GithubPrsFrame, 'prs' | 'freshness'>;
+type GithubStoreReadMode = 'wait' | 'no-wait';
+export type GithubStoreRead<Value> = { isRateLimited: false; value: Value } | { isRateLimited: true; waitMs: number };
 type WatchState = GithubStoreWatch & { nodes: readonly GithubPrLightSearchNode[]; returnedKeys: readonly string[]; returnedCount: number; totalCount: number; isComplete: boolean; isLoaded: boolean; lastMembershipPolledAt: number | null; membershipRevision: number };
 
 const REFRESH_DEBOUNCE_MS = 5_000;
 const DEFAULT_NOTIFICATIONS_INTERVAL_MS = 60_000;
 const RATE_LIMIT_RESOURCES = ['graphql', 'core'] as const;
+
+export function githubStoreRateLimitedError(waitMs: number): string {
+  return `GitHub rate limit asks to wait about ${Math.max(1, Math.ceil(waitMs / 60_000))} min before reading the pull request. Try again then`;
+}
 
 export function createGithubStorePoller({ github, now, isDashboardConnected, exclusive, setTimeoutFn, clearTimeoutFn, log }: GithubStoreDependencies) {
   const events = new EventEmitter<{
@@ -45,7 +51,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   const refreshTimersByKey = new Map<string, TimerHandle>();
   const prViewsByHead = new Map<string, NonNullable<Awaited<ReturnType<PrGh['viewPr']>>>>();
   const diffsByHead = new Map<string, string>();
-  const comparisonsByHeads = new Map<string, NonNullable<Awaited<ReturnType<PrGh['compareCommits']>>>>();
+  const teamReviewComparisonsByHeads = new Map<string, Extract<Awaited<ReturnType<PrGh['teamReviewCompare']>>, { ok: true }>>();
   let prs: GithubStoreSnapshot['prs'] = {};
   let lightByKey = new Map<string, GithubPrLightSearchNode>();
   let membershipRevision = 0;
@@ -276,14 +282,15 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     return Math.max(backoffUntil - now(), rateLimitWaitMs ?? 0);
   }
 
-  async function readWhenAllowed<Value>(read: () => Promise<Value>, canSkipWait: () => boolean = () => false): Promise<Value> {
+  async function readWhenAllowed<Value>(read: () => Promise<Value>, canSkipWait: () => boolean = () => false, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Value>> {
     while (true) {
       const attempt = await exclusive(async (): Promise<{ isReady: true; value: Value } | { isReady: false; waitMs: number }> => {
         const waitMs = canSkipWait() ? 0 : await readWaitMs();
         if (waitMs > 0) return { isReady: false, waitMs };
         return { isReady: true, value: await read() };
       });
-      if (attempt.isReady) return attempt.value;
+      if (attempt.isReady) return { isRateLimited: false, value: attempt.value };
+      if (mode === 'no-wait') return { isRateLimited: true, waitMs: attempt.waitMs };
       await new Promise<void>((resolve) => setTimeoutFn(resolve, attempt.waitMs));
     }
   }
@@ -319,16 +326,16 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     }, REFRESH_DEBOUNCE_MS));
   }
 
-  async function requestRead<Value>(read: () => Promise<Value>, fallback: Value, hasCachedValue: () => boolean = () => false): Promise<Value> {
+  async function requestRead<Value>(read: () => Promise<Value>, fallback: Value, hasCachedValue: () => boolean = () => false, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Value>> {
     try {
-      return await readWhenAllowed(read, hasCachedValue);
+      return await readWhenAllowed(read, hasCachedValue, mode);
     } catch (error: unknown) {
       recordReadFailure(error);
-      return fallback;
+      return { isRateLimited: false, value: fallback };
     }
   }
 
-  function requestCached<Value>(cache: Map<string, Value>, key: string, read: () => Promise<Value | null>): Promise<Value | null> {
+  function requestCached<Value>(cache: Map<string, Value>, key: string, read: () => Promise<Value | null>, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Value | null>> {
     return requestRead<Value | null>(async () => {
       if (cache.has(key)) return cache.get(key) ?? null;
       const value = await read();
@@ -337,33 +344,51 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
       if (evictionKey !== null) cache.delete(evictionKey);
       cache.set(key, value);
       return value;
-    }, null, () => cache.has(key));
+    }, null, () => cache.has(key), mode);
   }
 
-  function requestPrView(repo: string, number: number, headSha: string) {
+  function requestPrView(repo: string, number: number, headSha: string, mode: GithubStoreReadMode = 'wait') {
     return requestCached(prViewsByHead, `${comparablePrKey({ repo, number })}@${headSha}`, async () => {
       const pr = await github.viewPr(repo, number);
       return pr?.headRefOid === headSha ? pr : null;
-    });
+    }, mode);
   }
 
-  function requestPrDiff(repo: string, number: number, headSha: string) {
+  function requestPrDiff(repo: string, number: number, headSha: string, mode: GithubStoreReadMode = 'wait') {
     return requestCached(diffsByHead, `${comparablePrKey({ repo, number })}@${headSha}`, async () => {
       if (await github.prHead(repo, number) !== headSha) return null;
       const diff = await github.prDiff(repo, number);
       if (await github.prHead(repo, number) !== headSha) return null;
       return diff;
-    });
+    }, mode);
   }
 
-  function requestCompare(repo: string, baseSha: string, headSha: string) {
-    return requestCached(comparisonsByHeads, `${repo.toLowerCase()}@${baseSha}...${headSha}`, () => github.compareCommits(repo, baseSha, headSha));
+  function requestTeamReviewCompare(repo: string, baseSha: string, headSha: string, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['teamReviewCompare']>>>> {
+    const key = `${repo.toLowerCase()}@${baseSha}...${headSha}`;
+    return requestRead(async () => {
+      const cached = teamReviewComparisonsByHeads.get(key);
+      if (cached) {
+        teamReviewComparisonsByHeads.delete(key);
+        teamReviewComparisonsByHeads.set(key, cached);
+        return cached;
+      }
+      if (!github.teamReviewCompare) return { ok: false as const, err: 'GitHub compare failed' };
+      const comparison = await github.teamReviewCompare(repo, baseSha, headSha).catch((error: unknown) => ({ ok: false as const, err: errorMessage(error) }));
+      if (!comparison.ok) return comparison;
+      const evictionKey = githubStoreCacheEvictionKey(teamReviewComparisonsByHeads, key);
+      if (evictionKey !== null) teamReviewComparisonsByHeads.delete(evictionKey);
+      teamReviewComparisonsByHeads.set(key, comparison);
+      return comparison;
+    }, { ok: false, err: 'GitHub compare failed' }, () => teamReviewComparisonsByHeads.has(key), mode);
+  }
+
+  function requestTeamReviewThreads(prs: Parameters<PrGh['teamReviewThreads']>[0], mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['teamReviewThreads']>>>> {
+    return requestRead(() => github.teamReviewThreads?.(prs) ?? Promise.resolve(new Map()), new Map(), () => false, mode);
   }
 
   return {
     events, registerWatch, unregisterWatch, setWatchedKeys, tick, requestRefresh, refreshWatches, getSnapshot,
-    requestPrView, requestPrDiff, requestCompare,
-    requestPrHead: (repo: string, number: number) => requestRead(() => github.prHead(repo, number), null),
-    requestReviewThreads: (repo: string, number: number) => requestRead(() => github.reviewThreads(repo, number), []),
+    requestPrView, requestPrDiff, requestTeamReviewCompare, requestTeamReviewThreads,
+    requestPrHead: (repo: string, number: number, mode: GithubStoreReadMode = 'wait') => requestRead(() => github.prHead(repo, number), null, () => false, mode),
   };
 }

@@ -88,7 +88,7 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
   const spawns: SpawnCall[] = [];
   const writeReport = overrides.writeReport ?? ((workDir: string) => fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), reportText()));
   const options: TeamReviewDispatchOptions = {
-    github: { prDiff: async () => (overrides.diff === undefined ? DIFF : overrides.diff) },
+    store: { requestPrDiff: async () => ({ isRateLimited: false, value: overrides.diff === undefined ? DIFF : overrides.diff }) },
     repoCache: {
       listRepos: async () => [],
       ensureRepo: async () => CACHED_CLONE,
@@ -1504,7 +1504,7 @@ test('discarding a saved review reaps its processes before removing its director
     },
     github: {
       viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [],
-      viewPr: async () => null, prHead: async () => null, rateLimitWaitMs: async () => null, prDiff: async () => null,
+      rateLimitWaitMs: async () => null,
     },
     repoCache: {
       listRepos: async () => [], ensureRepo: async () => null,
@@ -1568,7 +1568,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
     log: { warn: () => {} },
     github: {
       viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [],
-      viewPr: async () => null, prHead: async () => null, rateLimitWaitMs: async () => null, prDiff: async () => 'diff\n',
+      rateLimitWaitMs: async () => null,
     },
     repoCache: {
       listRepos: async () => [],
@@ -1712,15 +1712,18 @@ function actionHarness(options: ActionHarnessOptions = {}) {
         return key === draft.key && head === draft.reviewedHead && (draft.status === 'error' || draft.status === 'ready' || draft.status === 'stale' || draft.status === 'discarded' || draft.status === 'posted');
       },
     },
-    github: {
-      prHead: async (repo, number) => {
+    store: {
+      requestTeamReviewThreads: async () => ({ isRateLimited: false, value: new Map() }),
+      requestPrHead: async (repo, number) => {
         headLookups.push(`${repo}#${number}`);
-        return headReads.length > 0 ? (headReads.shift() ?? null) : HEAD;
+        return { isRateLimited: false, value: headReads.length > 0 ? (headReads.shift() ?? null) : HEAD };
       },
-      prDiff: async (repo, number) => {
+      requestPrDiff: async (repo, number) => {
         diffLookups.push(`${repo}#${number}`);
-        return options.diff === undefined ? ACTION_DIFF : options.diff;
+        return { isRateLimited: false, value: options.diff === undefined ? ACTION_DIFF : options.diff };
       },
+    },
+    github: {
       postReview: async (review) => {
         posted.push(review);
         if (options.holdPost) await options.holdPost;
@@ -2174,7 +2177,7 @@ test('the wiring hands its cached guardrails refusal to the poller, whose status
     guardrailsRefusal: () => refusal,
     github: {
       viewer: async () => 'operator', teamProfile: async () => null, teamMembers: async () => ['operator', 'teammate'],
-      viewPr: async () => null, prHead: async () => null, rateLimitWaitMs: async () => null, prDiff: async () => null,
+      rateLimitWaitMs: async () => null,
     },
     repoCache: {
       listRepos: async () => [], ensureRepo: async () => null,
@@ -2230,12 +2233,13 @@ test('resolve action rechecks permissions and reply before mutating, and needs n
     if (scenario === 'no-judgement') delete draft.threads?.[0].judgement;
     const actions = createTeamReviewActions({
       drafts: { getDraft: () => draft, updateDraft: async () => draft, requeue: async () => false, markNotMine: async () => ({ ok: false, error: 'must not mark not mine' }), updateThread: async (_key, _id, patch) => { patches.push(patch); return true; } },
-      github: {
+      store: emptyGithubStore({
+        teamReviewThreads: async () => new Map([[draft.key, [node]]]),
         prHead: async () => scenario === 'head' ? OTHER_HEAD : HEAD,
-        prDiff: async () => null,
+      }),
+      github: {
         postReview: async () => { throw new Error('must not post a review'); },
         dismissReview: async () => { throw new Error('must not dismiss a review'); },
-        teamReviewThreads: async () => new Map([[draft.key, [node]]]),
         resolveReviewThread: async () => { mutations += 1; return { ok: scenario !== 'failure', err: scenario === 'failure' ? 'denied' : '' }; },
       },
     });
@@ -2271,12 +2275,12 @@ test('a nit whose automatic resolve failed resolves by hand, and each refusal na
     let mutations = 0;
     const actions = createTeamReviewActions({
       drafts: { getDraft: () => draft, updateDraft: async () => draft, requeue: async () => false, markNotMine: async () => ({ ok: false, error: 'must not mark not mine' }), updateThread: async (_key, _id, patch) => { patches.push(patch); return true; } },
+      store: emptyGithubStore({
+        teamReviewThreads: async () => new Map([[draft.key, scenario === 'missing-remote' ? [] : [node]]]),
+      }),
       github: {
-        prHead: async () => HEAD,
-        prDiff: async () => null,
         postReview: async () => { throw new Error('must not post a review'); },
         dismissReview: async () => { throw new Error('must not dismiss a review'); },
-        teamReviewThreads: async () => new Map([[draft.key, scenario === 'missing-remote' ? [] : [node]]]),
         resolveReviewThread: async () => { mutations += 1; return { ok: true, err: '' }; },
       },
     });
@@ -2287,7 +2291,7 @@ test('a nit whose automatic resolve failed resolves by hand, and each refusal na
   }
 });
 
-function emptyGithubStore() {
+function emptyGithubStore(github: Partial<Parameters<typeof createGithubStorePoller>[0]['github']> = {}) {
   const searches: string[] = [];
   const poller = createGithubStorePoller({
     now: Date.now, isDashboardConnected: () => true, exclusive: async (work) => work(),
@@ -2302,9 +2306,8 @@ function emptyGithubStore() {
       async rateLimitWaitMs() { return null; },
       async viewPr() { return null; },
       async prDiff() { return null; },
-      async compareCommits() { return null; },
       async prHead() { return null; },
-      async reviewThreads() { return []; },
+      ...github,
     },
   });
   return {
