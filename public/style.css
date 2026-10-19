@@ -9953,7 +9953,10 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
 
 .zen-working-project { color: var(--text-muted); }
 
-.zen-stage { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.zen-stage { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; min-height: 0; padding: 24px; }
+
+.zen-stage-bar,
+.zen-card-slot { width: 100%; max-width: 1120px; }
 
 .zen-stage-bar {
   display: flex;
@@ -9961,7 +9964,8 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
   gap: 12px;
   padding: 8px 14px;
   background: var(--bg-header);
-  border-bottom: 1px solid var(--border-dim);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 
 .zen-reason-line {
@@ -9986,9 +9990,13 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
   width: 100%;
   height: 100%;
   margin: 0;
-  border: 0;
-  border-radius: 0;
+  border: 1px solid var(--border-dim);
+  border-top: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
   box-shadow: none;
+  overflow: hidden;
 }
 
 .zen-card-slot .session-card.zen-staged::after { display: none; }
+
+.zen-card-slot .session-card.zen-staged .terminal-wrap .xterm { padding: 8px 12px; }
