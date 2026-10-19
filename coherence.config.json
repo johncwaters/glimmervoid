@@ -1,0 +1,9 @@
+{
+  "name": "glimmervoid",
+  "language": "typescript",
+  "ignore": ["dist", "site", "assets", "node_modules", "tests/fixtures"],
+  "wellKnown": ["glimmervoid", "telegram", "posthog", "codex", "claude", "grok", "github", "xterm", "vite", "tailwind", "coherence", "astro", "netlify", "biome"],
+  "test": "node --import ./tests/helpers/isolate-home.ts --test --test-reporter=tap --test-name-pattern {filter} tests/no-direct-child-process.test.ts tests/no-direct-git-worktree.test.ts tests/backend-hook-route.test.ts tests/backend-remote-disabled.test.ts tests/coherence-boundary.test.ts tests/config-store.test.ts",
+  "testMatch": "^ok [0-9]+ - (?!tests/)",
+  "testJson": "node --import ./tests/helpers/isolate-home.ts --test --test-reporter=junit --test-reporter-destination={out} --test-name-pattern {filter} tests/no-direct-child-process.test.ts tests/no-direct-git-worktree.test.ts tests/backend-hook-route.test.ts tests/backend-remote-disabled.test.ts tests/coherence-boundary.test.ts tests/config-store.test.ts"
+}

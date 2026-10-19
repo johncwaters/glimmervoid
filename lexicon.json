@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "concepts": [
+    {
+      "name": "session",
+      "definition": "One supervised agent process (Claude Code, Codex, Grok or a custom CLI) that glimmervoid spawns in a PTY, keyed by a stable UUID and shown on the dashboard"
+    },
+    {
+      "name": "worktree",
+      "definition": "The git worktree glimmervoid creates for one session from the integration branch, so concurrent sessions never share a working tree"
+    },
+    {
+      "name": "lane",
+      "definition": "A background job glimmervoid runs beside operator sessions on its own schedule (team review, Radar, Visions, benchmarks, usage), built as a pure core, an IO-free poller and a thin wiring shell"
+    },
+    {
+      "name": "view",
+      "definition": "A primary dashboard surface the operator switches between (Focus, Board, Settings, Trace and the lane tabs), or one session's rendering inside it (Terminal, Conversation)"
+    },
+    {
+      "name": "team",
+      "definition": "The operator's GitHub team, whose open pull requests the team review lane reviews and lists in Reviews, Team"
+    },
+    {
+      "name": "attention",
+      "definition": "Which sessions need the operator now, ranked from their status, and the surfaces that show it (the Board attention row, the rail readout, notifications)"
+    },
+    {
+      "name": "waiting",
+      "definition": "The session status meaning the agent stopped and needs the operator, derived from hook events or the OSC-0 title"
+    },
+    {
+      "name": "guardrails",
+      "definition": "The protection each guarded session runs inside (sandbox-runtime plus Safety Net), meant to stop accidents, not a hostile agent"
+    },
+    {
+      "name": "operator",
+      "definition": "The one carbon unit who runs glimmervoid and its dashboard and answers its sessions"
+    },
+    {
+      "name": "adapter",
+      "definition": "The per-agent module (Claude Code, Codex, Grok, custom CLI) that tells glimmervoid how to spawn, resume and read the status of one agent kind"
+    },
+    {
+      "name": "visions",
+      "definition": "The editor lane that dispatches a model over the documents open in the VS Code extension and returns its comments and intent over LSP"
+    },
+    {
+      "name": "radar",
+      "definition": "The PostHog auto-fix lane that investigates PostHog errors in a session and writes an HTML report"
+    }
+  ]
+}
