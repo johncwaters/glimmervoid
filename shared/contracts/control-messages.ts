@@ -56,7 +56,10 @@ const opaqueObject = openObject();
 const opaqueArray = z.array(z.unknown());
 const planRevisionNumber = z.number().int().positive();
 const sessionDocPath = z.string().min(1).max(SESSION_DOC_PATH_MAX_CHARS);
-const trailSteps = z.array(openObject({ at: timestamp, tool: z.string(), detail: z.string() }));
+const trailSteps = z.array(z.union([
+  openObject({ at: timestamp, tool: z.string(), detail: z.string() }),
+  openObject({ at: timestamp, note: z.string() }),
+]));
 export const CustomAgentSummaryRow = z.object({
   id: z.string(),
   label: z.string(),

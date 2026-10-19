@@ -10,7 +10,7 @@ import { DEFAULT_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './
 import { countSessionsByName, suggestSessionName } from './session-card/naming.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
 import { formatAgo } from './poll-ago.ts';
-import { formatTrailOffset, trailContentKey, trailStatusText } from './radar/radar-core.ts';
+import { formatTrailOffset, trailContentKey, trailStatusText, trailTimelineRows } from './radar/radar-core.ts';
 import type { InvestigationView } from './radar/radar-core.ts';
 
 interface OptionSettings {
@@ -356,12 +356,12 @@ export function createInvestigationDialog({ issueTitle, projectLabel, onOpenRepo
     const key = trailContentKey(view);
     if (renderedKey !== key) {
       listEl.textContent = '';
-      for (const step of view.steps) {
-        const item = el('li', 'dialog-trail-step');
+      for (const row of trailTimelineRows(view.steps)) {
+        const item = el('li', `dialog-trail-step dialog-trail-${row.kind}`);
+        const text = row.kind === 'note' ? row.text : `${row.stepCount} ${row.stepCount === 1 ? 'step' : 'steps'}`;
         item.append(
-          el('span', 'dialog-trail-at', formatTrailOffset(view.startedAt, step.at)),
-          el('span', 'dialog-trail-tool', step.tool),
-          el('span', 'dialog-trail-detail', step.detail),
+          el('span', 'dialog-trail-at', formatTrailOffset(view.startedAt, row.at)),
+          el('span', 'dialog-trail-detail', text),
         );
         listEl.append(item);
       }

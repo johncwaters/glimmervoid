@@ -214,8 +214,14 @@ test('posthogCfgKey: a reordered posthog block with a changed host is still a la
   assert.notEqual(posthogCfgKey(base), posthogCfgKey(changed));
 });
 
-test('an investigation session reports its tool trail from routed hooks, pretooluse only, newest last', async () => {
+test('an investigation session reports its tool trail and the agent narration before each tool, pretooluse only, newest last', async () => {
   const hooksBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-ph-hooks-'));
+  const claudeConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-ph-claude-'));
+  const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
+  const transcriptPath = path.join(claudeConfigDir, 'projects', 'repo', 'run.jsonl');
+  fs.mkdirSync(path.dirname(transcriptPath), { recursive: true });
+  const appendAssistantText = (text: string) => fs.appendFileSync(transcriptPath, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } })}\n`);
   const hookRouter = new HookRouter();
   const created: Session[] = [];
   const makeSession = (options: SessionOptions): Session => {
@@ -256,16 +262,44 @@ test('an investigation session reports its tool trail from routed hooks, pretool
     assert.match(String(settings.hooks.PreToolUse[0].hooks[0].url), /\/hook\/posthog%3A1%23iss-9\/pretooluse\?t=/, 'the trail only exists because the session subscribes to PreToolUse');
     const token = session._hooks.token();
     const post = (event: string, payload: Record<string, unknown>) => hookRouter.handle({ glimmervoidId: 'posthog:1#iss-9', event, token, payload });
+    const reportCount = async (count: number) => {
+      const deadline = Date.now() + 5000;
+      while (trails.length < count && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+    };
     post('pretooluse', { tool_name: 'Grep', tool_input: { pattern: 'TypeError' } });
     post('posttooluse', { tool_name: 'Grep', tool_input: { pattern: 'TypeError' } });
-    post('pretooluse', { tool_name: 'Bash', tool_input: { command: 'npm test' } });
+    await reportCount(2);
+    appendAssistantText('Issue fetched; running the suite.');
+    post('pretooluse', { tool_name: 'Bash', tool_input: { command: 'npm test' }, transcript_path: transcriptPath });
+    post('pretooluse', { tool_name: 'Bash', tool_input: { command: 'cat /etc/passwd' }, transcript_path: '/etc/passwd' });
+    await reportCount(4);
     const latest = trails.at(-1);
-    assert.deepEqual(latest?.steps.map((step) => [step.tool, step.detail]), [['Grep', 'TypeError'], ['Bash', 'npm test']]);
-    assert.equal(trails.length, 3, 'one report per pretooluse; posttooluse adds nothing');
+    assert.deepEqual(latest?.steps.map((step) => ('note' in step ? ['note', step.note] : [step.tool, step.detail])), [
+      ['Grep', 'TypeError'],
+      ['note', 'Issue fetched; running the suite.'],
+      ['Bash', 'npm test'],
+      ['Bash', 'cat /etc/passwd'],
+    ], 'a transcript outside the Claude projects root yields no narration');
+    assert.equal(trails.length, 4, 'one report per pretooluse; posttooluse adds nothing');
     assert.equal(latest?.startedAt, trails[0]?.startedAt);
+    const laterRecord = `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Written in two flushes.' }] } })}\n`;
+    fs.appendFileSync(transcriptPath, laterRecord.slice(0, 20));
+    post('pretooluse', { tool_name: 'Read', tool_input: { file_path: 'a.ts' }, transcript_path: transcriptPath });
+    await reportCount(5);
+    fs.appendFileSync(transcriptPath, laterRecord.slice(20));
+    post('pretooluse', { tool_name: 'Read', tool_input: { file_path: 'b.ts' }, transcript_path: transcriptPath });
+    await reportCount(6);
+    assert.deepEqual(trails.at(-1)?.steps.slice(4).map((step) => ('note' in step ? ['note', step.note] : [step.tool, step.detail])), [
+      ['Read', 'a.ts'],
+      ['note', 'Written in two flushes.'],
+      ['Read', 'b.ts'],
+    ], 'a record still being written at EOF is read whole once completed');
   } finally {
     for (const session of created) session.destroy();
+    if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    if (previousClaudeConfigDir !== undefined) process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
     fs.rmSync(hooksBaseDir, { recursive: true, force: true });
+    fs.rmSync(claudeConfigDir, { recursive: true, force: true });
   }
 });
 

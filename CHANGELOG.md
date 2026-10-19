@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The startup screen's "server is not answering" hint is now a short centered note under "Reconnecting to server..." instead of one long run-on line that ran edge to edge on a phone.
 - **Pasting a screenshot no longer covers the prompt**: pasting or dropping a file on a terminal no longer pops a notice over the bottom of the terminal. The file's path appearing at the prompt is the confirmation, and a failed upload says why in the header status line.
 
+### Changed
+
+- **View investigation shows what the agent found, not its commands**: the investigation view now lists the agent's own progress notes as it works, such as what the issue turned out to be and what it is checking next, and folds each run of tool calls into one quiet line with a step count. The issue row shows the latest note while the investigation runs.
+
 ## [0.39.0] - 2026-10-19
 
 ### Added
