@@ -3,6 +3,7 @@ const DOWN = String.fromCharCode(0x2193);
 const LEFT = String.fromCharCode(0x2190);
 const RIGHT = String.fromCharCode(0x2192);
 const MAC_COMMAND = String.fromCharCode(0x2318);
+const MAC_OPTION = String.fromCharCode(0x2325);
 
 export type ShortcutPlatform = 'mac' | 'other';
 
@@ -36,6 +37,12 @@ interface DashboardShortcut {
   label: string;
   stepByCode: ReadonlyMap<string, number>;
   unavailablePlatform?: ShortcutPlatform;
+  isShellChord?: boolean;
+  needsMacOption?: boolean;
+}
+
+interface ShortcutFocusContext {
+  isTerminalFocused: boolean;
 }
 
 const SESSION_DIGIT_STEPS = Array.from({ length: 9 }, (_, index) => [`Digit${index + 1}`, index + 1] as const);
@@ -45,11 +52,11 @@ const DASHBOARD_SHORTCUTS: readonly DashboardShortcut[] = [
   { action: 'rail-step', keyCaptions: [UP, DOWN], label: 'Previous / next session in the rail', stepByCode: new Map([['ArrowUp', -1], ['ArrowDown', 1]]) },
   { action: 'view-step', keyCaptions: [LEFT, RIGHT], label: 'Previous / next view tab', stepByCode: new Map([['ArrowLeft', -1], ['ArrowRight', 1]]), unavailablePlatform: 'other' },
   { action: 'view-step', keyCaptions: ['PgUp', 'PgDn'], label: 'Previous / next view tab', stepByCode: new Map([['PageUp', -1], ['PageDown', 1]]), unavailablePlatform: 'mac' },
-  { action: 'session-nth', keyCaptions: ['1..9'], label: 'Jump to session 1 to 9', stepByCode: new Map(SESSION_DIGIT_STEPS) },
-  { action: 'new-session', keyCaptions: ['0'], label: 'Add a session', stepByCode: new Map([['Digit0', 0]]) },
+  { action: 'session-nth', keyCaptions: ['1..9'], label: 'Jump to session 1 to 9', stepByCode: new Map(SESSION_DIGIT_STEPS), isShellChord: true, needsMacOption: true },
+  { action: 'new-session', keyCaptions: ['0'], label: 'Add a session', stepByCode: new Map([['Digit0', 0]]), isShellChord: true },
   { action: 'merge', keyCaptions: ['I'], label: 'Merge the selected session', stepByCode: new Map([['KeyI', 0]]) },
-  { action: 'resolve-or-resync', keyCaptions: ['U'], label: 'Resolve a parked merge, or resync the base branch', stepByCode: new Map([['KeyU', 0]]) },
-  { action: 'streamer-mode', keyCaptions: ['\\'], label: 'Turn streamer mode on or off', stepByCode: new Map([['Backslash', 0]]) },
+  { action: 'resolve-or-resync', keyCaptions: ['U'], label: 'Resolve a parked merge, or resync the base branch', stepByCode: new Map([['KeyU', 0]]), isShellChord: true },
+  { action: 'streamer-mode', keyCaptions: ['\\'], label: 'Turn streamer mode on or off', stepByCode: new Map([['Backslash', 0]]), isShellChord: true },
 ];
 
 function shortcutsOn(platform: ShortcutPlatform) {
@@ -60,10 +67,14 @@ export function shortcutPlatformFor(userAgent: string): ShortcutPlatform {
   return /Mac|iPhone|iPad/.test(userAgent) ? 'mac' : 'other';
 }
 
-function holdsOnlyShortcutModifier(event: ShortcutKeyEvent, platform: ShortcutPlatform) {
+function holdsOnlyShortcutModifier(event: ShortcutKeyEvent, platform: ShortcutPlatform, shortcut: DashboardShortcut) {
   if (event.ctrlKey || event.shiftKey) return false;
-  if (platform === 'mac') return event.metaKey && !event.altKey;
+  if (platform === 'mac') return event.metaKey && event.altKey === Boolean(shortcut.needsMacOption);
   return event.altKey && !event.metaKey;
+}
+
+function yieldsToShell(shortcut: DashboardShortcut, platform: ShortcutPlatform, focus: ShortcutFocusContext) {
+  return focus.isTerminalFocused && platform !== 'mac' && Boolean(shortcut.isShellChord);
 }
 
 const NAVIGATION_KEYS: ReadonlySet<string> = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown']);
@@ -72,18 +83,21 @@ function catalogCodeOf(event: ShortcutKeyEvent) {
   return NAVIGATION_KEYS.has(event.key) ? event.key : event.code;
 }
 
-export function resolveDashboardShortcut(event: ShortcutKeyEvent, platform: ShortcutPlatform): ResolvedDashboardShortcut | null {
-  if (!holdsOnlyShortcutModifier(event, platform)) return null;
+export function resolveDashboardShortcut(event: ShortcutKeyEvent, platform: ShortcutPlatform, focus: ShortcutFocusContext = { isTerminalFocused: false }): ResolvedDashboardShortcut | null {
   const catalogCode = catalogCodeOf(event);
   for (const shortcut of shortcutsOn(platform)) {
     const step = shortcut.stepByCode.get(catalogCode);
-    if (step !== undefined) return { action: shortcut.action, step };
+    if (step === undefined) continue;
+    if (!holdsOnlyShortcutModifier(event, platform, shortcut)) return null;
+    if (yieldsToShell(shortcut, platform, focus)) return null;
+    return { action: shortcut.action, step };
   }
   return null;
 }
 
-function shortcutModifierCaption(platform: ShortcutPlatform) {
-  return platform === 'mac' ? MAC_COMMAND : 'Alt';
+function shortcutModifierCaption(platform: ShortcutPlatform, shortcut?: DashboardShortcut) {
+  if (platform !== 'mac') return 'Alt';
+  return shortcut?.needsMacOption ? `${MAC_COMMAND}${MAC_OPTION}` : MAC_COMMAND;
 }
 
 function findShortcut(action: DashboardShortcutAction, platform: ShortcutPlatform) {
@@ -93,7 +107,8 @@ function findShortcut(action: DashboardShortcutAction, platform: ShortcutPlatfor
 }
 
 export function shortcutChord(action: DashboardShortcutAction, platform: ShortcutPlatform): string[] {
-  return [shortcutModifierCaption(platform), findShortcut(action, platform).keyCaptions.join(' ')];
+  const shortcut = findShortcut(action, platform);
+  return [shortcutModifierCaption(platform, shortcut), shortcut.keyCaptions.join(' ')];
 }
 
 export function shortcutHint(action: DashboardShortcutAction, platform: ShortcutPlatform) {
@@ -107,13 +122,12 @@ export function railAriaKeyShortcuts(platform: ShortcutPlatform) {
 }
 
 export function shortcutGroupsFor(platform: ShortcutPlatform) {
-  const modifier = shortcutModifierCaption(platform);
   const terminalEditModifier = platform === 'mac' ? MAC_COMMAND : 'Ctrl';
   return [
     {
       title: 'Dashboard',
       items: shortcutsOn(platform).map((shortcut) => ({
-        combos: shortcut.keyCaptions.map((key) => [modifier, key]),
+        combos: shortcut.keyCaptions.map((key) => [shortcutModifierCaption(platform, shortcut), key]),
         label: shortcut.label,
       })),
     },

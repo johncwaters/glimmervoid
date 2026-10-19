@@ -5806,6 +5806,11 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   border-right: 1px solid var(--border);
 }
 .focus-rail-list { display: flex; flex-direction: column; }
+.rail-status-key { order: 1; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border-dim); }
+.rail-status-key-summary { cursor: pointer; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
+.rail-status-key .status-legend { margin-top: 8px; }
+.rail-status-key .status-legend-title { display: none; }
+.rail-status-key .status-legend-row { grid-template-columns: 1fr; gap: 2px; }
 
 .focus-rail-resizer {
   flex: 0 0 7px;
@@ -6475,6 +6480,14 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   text-overflow: ellipsis;
 }
 .session-row[data-state="DORMANT"] .session-row-name { color: var(--text-dim); }
+.session-row-task {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-row-task[hidden] { display: none; }
 .session-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .session-row-label {
   font-size: 10px;

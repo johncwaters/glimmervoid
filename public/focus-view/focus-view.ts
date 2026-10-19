@@ -1,6 +1,7 @@
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { el } from '../dom-helpers.ts';
+import { renderStatusLegend } from '../status-legend.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { getRestorableSessionId, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession } from '../session-actions.ts';
@@ -113,7 +114,9 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
 
   railHeadEl = buildAttentionBanner(focusNextAttention, buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)));
 
-  mountedRail.append(railHeadEl);
+  const statusKey = el('details', 'rail-status-key');
+  statusKey.append(el('summary', 'rail-status-key-summary', 'Status key'), renderStatusLegend());
+  mountedRail.append(railHeadEl, statusKey);
 
   emptyEl = el('div', 'focus-empty');
   emptyEl.innerHTML = '<p class="focus-empty-title"></p>'

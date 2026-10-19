@@ -1010,7 +1010,8 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
 document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   if (isRealInputOwningKey(e)) return;
-  const shortcut = resolveDashboardShortcut(e, SHORTCUT_PLATFORM);
+  const isTerminalFocused = document.activeElement?.classList.contains('xterm-helper-textarea') ?? false;
+  const shortcut = resolveDashboardShortcut(e, SHORTCUT_PLATFORM, { isTerminalFocused });
   if (!shortcut) return;
   if (runDashboardShortcut(shortcut)) e.preventDefault();
 });

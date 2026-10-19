@@ -39,8 +39,9 @@ test('each dashboard action resolves from its physical key under the platform mo
     assert.deepEqual(resolveDashboardShortcut(keyEvent('KeyJ', held), platform), { action: 'next-attention', step: 0 });
     assert.deepEqual(resolveDashboardShortcut(keyEvent('ArrowUp', held), platform), { action: 'rail-step', step: -1 });
     assert.deepEqual(resolveDashboardShortcut(keyEvent('ArrowDown', held), platform), { action: 'rail-step', step: 1 });
-    assert.deepEqual(resolveDashboardShortcut(keyEvent('Digit1', held), platform), { action: 'session-nth', step: 1 });
-    assert.deepEqual(resolveDashboardShortcut(keyEvent('Digit9', held), platform), { action: 'session-nth', step: 9 });
+    const sessionDigitHeld = platform === 'mac' ? { ...held, altKey: true } : held;
+    assert.deepEqual(resolveDashboardShortcut(keyEvent('Digit1', sessionDigitHeld), platform), { action: 'session-nth', step: 1 });
+    assert.deepEqual(resolveDashboardShortcut(keyEvent('Digit9', sessionDigitHeld), platform), { action: 'session-nth', step: 9 });
     assert.deepEqual(resolveDashboardShortcut(keyEvent('Digit0', held), platform), { action: 'new-session', step: 0 });
     assert.deepEqual(resolveDashboardShortcut(keyEvent('KeyI', held), platform), { action: 'merge', step: 0 });
     assert.deepEqual(resolveDashboardShortcut(keyEvent('KeyU', held), platform), { action: 'resolve-or-resync', step: 0 });
@@ -100,7 +101,8 @@ test('hints and help chords name the platform modifier', () => {
   assert.equal(railAriaKeyShortcuts('other'), 'ArrowUp ArrowDown Alt+ArrowUp Alt+ArrowDown');
   const dashboardChords = shortcutGroupsFor('mac')[0].items.flatMap((item) => item.combos.map((chord) => chord.join('+')));
   assert.ok(dashboardChords.includes(`${MAC_COMMAND}+J`));
-  assert.ok(dashboardChords.every((chord) => chord.startsWith(`${MAC_COMMAND}+`)));
+  assert.ok(dashboardChords.every((chord) => chord.startsWith(MAC_COMMAND)));
+  assert.ok(dashboardChords.includes(`${MAC_COMMAND}${String.fromCharCode(0x2325)}+1..9`));
   const macChords = shortcutGroupsFor('mac').flatMap((group) => group.items.flatMap((item) => item.combos.map((chord) => chord.join('+'))));
   assert.ok(macChords.includes(`${MAC_COMMAND}+C`) && !macChords.includes('Ctrl+C'));
 });
@@ -129,4 +131,20 @@ test('help captions carry no banned dash or ellipsis literals', () => {
       for (const glyph of banned) assert.ok(!caption.includes(glyph), `"${caption}" must not contain a banned glyph`);
     }
   }
+});
+
+test('with the terminal focused, Alt chords readline owns reach the shell while navigation chords stay global', () => {
+  const held = shortcutModifierHeld('other');
+  const terminalFocused = { isTerminalFocused: true };
+  for (const shellCode of ['Digit1', 'Digit0', 'KeyU', 'Backslash']) {
+    assert.equal(resolveDashboardShortcut(keyEvent(shellCode, held), 'other', terminalFocused), null, shellCode);
+  }
+  assert.deepEqual(resolveDashboardShortcut(keyEvent('KeyJ', held), 'other', terminalFocused), { action: 'next-attention', step: 0 });
+  assert.deepEqual(resolveDashboardShortcut(keyEvent('ArrowDown', held), 'other', terminalFocused), { action: 'rail-step', step: 1 });
+});
+
+test('on a Mac, session digits take Command plus Option so Command plus a digit stays with the browser tabs', () => {
+  assert.equal(resolveDashboardShortcut(keyEvent('Digit2', { metaKey: true }), 'mac'), null);
+  assert.deepEqual(resolveDashboardShortcut(keyEvent('Digit2', { metaKey: true, altKey: true }), 'mac', { isTerminalFocused: true }), { action: 'session-nth', step: 2 });
+  assert.equal(shortcutHint('session-nth', 'mac'), `${MAC_COMMAND}${String.fromCharCode(0x2325)}1..9`);
 });

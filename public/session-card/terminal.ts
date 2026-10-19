@@ -649,7 +649,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
 
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== 'keydown') return true;
-    if (document.body.dataset.activeView === 'focus' && resolveDashboardShortcut(ev, SHORTCUT_PLATFORM)) return false;
+    if (document.body.dataset.activeView === 'focus' && resolveDashboardShortcut(ev, SHORTCUT_PLATFORM, { isTerminalFocused: true })) return false;
     const ctrl = ev.ctrlKey || ev.metaKey;
     if (ctrl && ev.key === 'c' && term.hasSelection()) {
       const selection = term.getSelection();

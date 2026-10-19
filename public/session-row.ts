@@ -44,6 +44,7 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
   row.innerHTML = '<span class="session-row-glyph" aria-hidden="true"></span>'
     + '<span class="session-row-main">'
     + '<span class="session-row-name"></span>'
+    + '<span class="session-row-task" hidden></span>'
     + '<span class="session-row-meta">'
     + '<span class="session-row-label"></span>'
     + '<span class="session-row-signals" hidden></span>'
@@ -53,6 +54,7 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
     glyph: query(row, '.session-row-glyph'),
     label: query(row, '.session-row-label'),
     name: query(row, '.session-row-name'),
+    task: query(row, '.session-row-task'),
     signals: query(row, '.session-row-signals'),
     elapsed: query(row, '.session-row-elapsed'),
   };
@@ -97,7 +99,9 @@ export function paintSessionRow(
   { ui, state, name, mergeStatus }: { ui: SessionUi; state: string; name: string; mergeStatus: string },
 ) {
   const statusLabel = paintSessionRowStatus(row, refs, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
-  refs.name.textContent = ui.taskTitle || name;
+  refs.name.textContent = name;
+  refs.task.textContent = ui.taskTitle;
+  refs.task.hidden = !ui.taskTitle || ui.taskTitle === name;
   row.dataset.merge = mergeStatus;
   paintSessionRowSignals(refs.signals);
   row.dataset.activity = ui._activity || '';
