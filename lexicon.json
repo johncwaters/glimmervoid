@@ -60,6 +60,10 @@
     {
       "name": "starting",
       "definition": "The status the dashboard shows while a session sets up its worktree and boots its agent, until the agent's first turn begins"
+    },
+    {
+      "name": "failed",
+      "definition": "A session state: the agent process exited with an error, so the session needs the operator to restart or close it before it can continue."
     }
   ]
 }
