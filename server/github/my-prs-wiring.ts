@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { MyPrKeepMergeableRequest, MyPrMergeWhenReadyRequest, MyPrsStatus } from '../../shared/contracts/my-prs.ts';
+import { MyPrKeepMergeableRequest, MyPrMergeWhenReadyRequest, MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import type { MyPr, MyPrKeepMergeableResult, MyPrMergeabilityFixResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsStatus as MyPrsStatusType } from '../../shared/contracts/my-prs.ts';
 import { myPrMergeRefusal } from '../../shared/my-pr-merge.ts';
@@ -400,8 +400,8 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
     }),
     emptyStatus,
     broadcast: (status) => {
-      const parsed = MyPrsStatus.safeParse(status);
-      if (parsed.success) broadcast(parsed.data);
+      const parsed = MyPrsSnapshot.safeParse(status);
+      if (parsed.success) broadcast(core.toMyPrsWireStatus(parsed.data));
     },
     createPoller: ({ onTickComplete }) => createPoller({
       org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs,
@@ -412,8 +412,8 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
   });
   const unsubscribe = store.subscribe('snapshot-changed', () => runner.getPoller()?.rebuild());
 
-  function getStatus(): MyPrsStatusType {
-    const parsed = MyPrsStatus.safeParse(runner.getStatus());
+  function getStatus(): MyPrsSnapshot {
+    const parsed = MyPrsSnapshot.safeParse(runner.getStatus());
     return parsed.success ? parsed.data : emptyStatus();
   }
   async function refresh() {

@@ -32,7 +32,7 @@ import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShe
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-panel.ts';
-import { forgetSessionLinkedPrs, paintSessionPrChips, refreshSessionPrChipStages, sessionRowPrSignals, setSessionLinkedPrs } from './github/session-pr-chips.ts';
+import { forgetSessionLinkedPrs, paintSessionPrChips, sessionRowPrSignals, setSessionLinkedPrs } from './github/session-pr-chips.ts';
 import { addSessionRowSignalSource } from './session-row.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
@@ -483,7 +483,7 @@ const messageHandlers = {
   'radar-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
   'github-prs': (msg) => applyGithubPrsFrame(msg),
-  'my-prs-status': (msg) => { applyMyPrsStatus(msg); refreshSessionPrChipStages(); },
+  'my-prs-status': applyMyPrsStatus,
   'benchmark-status': (msg) => applyBenchmarkStatus(msg),
   'benchmark-action-result': (msg) => applyBenchmarkActionResult(msg),
   'my-pr-merge-result': (msg) => applyMyPrMergeResult(msg),

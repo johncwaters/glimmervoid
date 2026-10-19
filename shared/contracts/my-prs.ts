@@ -95,13 +95,25 @@ export const MyPr = z.object({
 }).refine((pr) => pr.key === `${pr.repo}#${pr.number}`);
 export type MyPr = z.infer<typeof MyPr>;
 
+export const MyPrLaneEntry = z.strictObject({
+  key: pullRequestKey,
+  autoRebase: MyPr.shape.autoRebase, keepMergeable: MyPr.shape.keepMergeable,
+  keepMergeableAttempt: MyPr.shape.keepMergeableAttempt, isKeepMergeableFixInFlight: MyPr.shape.isKeepMergeableFixInFlight,
+  mergeQueuePosition: MyPr.shape.mergeQueuePosition, isMergeQueueHeldForRepairPush: MyPr.shape.isMergeQueueHeldForRepairPush,
+  mergeQueueFailure: MyPr.shape.mergeQueueFailure,
+});
+export type MyPrLaneEntry = z.infer<typeof MyPrLaneEntry>;
+
 export const MyPrsStatus = z.object({
   ...githubPollingShape,
   type: z.literal('my-prs-status'), ts: z.number().finite(), configured: z.boolean(), reason: z.string().nullable().optional(),
-  viewer: z.string().nullable(), prs: z.array(MyPr), truncatedNote: z.string().nullable().optional(),
+  viewer: z.string().nullable(), prs: z.array(MyPrLaneEntry), truncatedNote: z.string().nullable().optional(),
   isKeepMergeableEnabled: z.boolean().optional(), isMergeQueueEnabled: z.boolean().optional(),
 }).passthrough();
 export type MyPrsStatus = z.infer<typeof MyPrsStatus>;
+
+export const MyPrsSnapshot = MyPrsStatus.extend({ prs: z.array(MyPr) });
+export type MyPrsSnapshot = z.infer<typeof MyPrsSnapshot>;
 
 export const MyPrMergeRequest = z.object({ repo: repositoryName, number: z.number().int().positive(), headRefOid: CommitSha });
 export type MyPrMergeRequest = z.infer<typeof MyPrMergeRequest>;

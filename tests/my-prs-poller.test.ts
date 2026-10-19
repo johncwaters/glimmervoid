@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { createMyPrsPoller as createLanePoller } from '../server/github/my-prs-poller.ts';
 import { FAILED_GITHUB_ACTION_RETRY_MS } from '../server/github/core/my-prs-core.ts';
 import { MyPrsState as MyPrsStateSchema } from '../shared/contracts/my-prs.ts';
-import type { MyPr, MyPrSearchNode, MyPrMergeabilityFixResult, MyPrsState, MyPrsStatus } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrSearchNode, MyPrMergeabilityFixResult, MyPrsSnapshot, MyPrsState } from '../shared/contracts/my-prs.ts';
 
 const NOW = Date.parse('2026-09-28T12:00:00Z');
 function node(state: 'OPEN' | 'MERGED'): MyPrSearchNode {
@@ -91,7 +91,7 @@ function keepMergeableHarness({ savedState = { keepMergeableKeys: [], keepMergea
   let isSearchFailing = false;
   let unreturnedResultCount = 0;
   let saved = savedState;
-  const statuses: MyPrsStatus[] = [];
+  const statuses: MyPrsSnapshot[] = [];
   const fixes: string[] = [];
   const warnings: string[] = [];
   const github = {
@@ -578,7 +578,7 @@ test('keep mergeable refuses untracked or merged PRs and malformed persisted sta
 
 
 test('a search cut short reports a truncation note that survives a failed refresh', async () => {
-  const statuses: MyPrsStatus[] = [];
+  const statuses: MyPrsSnapshot[] = [];
   let shouldFail = false;
   const poller = createMyPrsPoller({
     org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
@@ -607,7 +607,7 @@ test('a search cut short reports a truncation note that survives a failed refres
 
 function autoRebaseHarness({ shouldAutoRebase, rebaseResult }: { shouldAutoRebase: boolean; rebaseResult: { ok: boolean; err: string } }) {
   const rebases: string[] = [];
-  const statuses: MyPrsStatus[] = [];
+  const statuses: MyPrsSnapshot[] = [];
   let nowMs = NOW;
   const poller = createMyPrsPoller({
     org: 'Acme', shouldAutoRebase, now: () => nowMs, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
@@ -694,7 +694,7 @@ test('a failed auto-rebase note is shown again after a restart while the suppres
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-rebase-note-restart-'));
   const statePath = path.join(homeDir, 'my-prs-state.json');
   const rebases: string[] = [];
-  const statuses: MyPrsStatus[] = [];
+  const statuses: MyPrsSnapshot[] = [];
   let currentHead = 'a'.repeat(40);
   let commitsBehind = 4;
   const makePoller = () => createMyPrsPoller({
@@ -736,7 +736,7 @@ test('a failed auto-rebase note is shown again after a restart while the suppres
 });
 
 test('a failed auto-rebase record is dropped once a new head no longer needs a rebase', async () => {
-  const statuses: MyPrsStatus[] = [];
+  const statuses: MyPrsSnapshot[] = [];
   let currentHead = 'a'.repeat(40);
   const poller = createMyPrsPoller({
     org: 'Acme', shouldAutoRebase: true, now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
@@ -769,7 +769,7 @@ test('auto-rebase off never rebases', async () => {
 
 
 test('a rejected viewer lookup publishes its error and schedule, then manual refresh recovers', async () => {
-  const statuses: MyPrsStatus[] = [];
+  const statuses: MyPrsSnapshot[] = [];
   let viewerCalls = 0;
   let searchCalls = 0;
   const poller = createMyPrsPoller({
@@ -817,7 +817,7 @@ function viewerLookupGithub(viewerLogins: (string | null)[], searchError = '') {
 }
 
 test('a viewer lookup that resolves to nothing reports an error and is looked up again on refresh', async () => {
-  const statuses: MyPrsStatus[] = [];
+  const statuses: MyPrsSnapshot[] = [];
   const { calls, github } = viewerLookupGithub([null, 'alice']);
   const poller = createMyPrsPoller({ org: 'Acme', now: () => NOW, onTickComplete: (status) => statuses.push(status), log: { warn() {} }, github });
   await poller.tick();
@@ -855,7 +855,7 @@ function mergeQueueHarness({ items, mergeOutcome = { ok: true, kind: 'merged' },
   let nowMs = NOW;
   let currentMergeOutcome = mergeOutcome;
   let saved: MyPrsState = { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: savedQueue, keepMergeablePushedHeadKeys: savedPushedHeadKeys, keepMergeableAttempts: [] };
-  const statuses: MyPrsStatus[] = [];
+  const statuses: MyPrsSnapshot[] = [];
   const merges: string[] = [];
   const rebases: string[] = [];
   const warnings: string[] = [];
@@ -885,7 +885,7 @@ function mergeQueueHarness({ items, mergeOutcome = { ok: true, kind: 'merged' },
   };
 }
 
-function queuePositions(status: MyPrsStatus | undefined): Record<string, number | null | undefined> {
+function queuePositions(status: MyPrsSnapshot | undefined): Record<string, number | null | undefined> {
   return Object.fromEntries((status?.prs ?? []).map((pr) => [pr.key, pr.mergeQueuePosition]));
 }
 

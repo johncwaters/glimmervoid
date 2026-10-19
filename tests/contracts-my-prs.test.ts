@@ -49,6 +49,18 @@ test('my PR contract parses requested reviewers with avatar metadata', () => {
     reviewRequests: [{ name: 'Acme/docs', isTeam: true, avatarUrl: 'https://github.com/Acme.png' }, { name: 'ana', isTeam: false, avatarUrl: null }],
     approvals: 0, reviews: [], stage: 'ready',
   };
+  const entry = {
+    key: pr.key, autoRebase: { outcome: 'failed', at: 1, message: 'Could not rebase' }, keepMergeable: true,
+    keepMergeableAttempt: { outcome: 'pushed', at: 2 }, isKeepMergeableFixInFlight: false,
+    mergeQueuePosition: 1, isMergeQueueHeldForRepairPush: false, mergeQueueFailure: { at: 3, message: 'Merge refused' },
+  };
+  const status = { type: 'my-prs-status', ts: 1, configured: true, viewer: 'alice', prs: [entry] };
+  assert.deepEqual(MyPrsStatus.parse(status), status);
+  assert.deepEqual(MyPrsStatus.parse({ ...status, prs: [{ key: pr.key }] }).prs, [{ key: pr.key }]);
+  for (const invalidEntry of [pr, {}, { ...entry, key: 'app#1' }, { ...entry, key: 'Acme/app#0' }, { ...entry, extra: true }, { ...entry, stage: 'ready' }, { ...entry, keepMergeable: 'true' }, { ...entry, mergeQueuePosition: 0 }, { ...entry, keepMergeableAttempt: { outcome: 'invalid', at: 2 } }]) {
+    assert.equal(MyPrsStatus.safeParse({ ...status, prs: [invalidEntry] }).success, false);
+    assert.equal(ServerMessage.safeParse({ ...status, prs: [invalidEntry] }).success, false);
+  }
   assert.equal(MyPr.parse(pr).baseRefOid, 'b'.repeat(40));
   assert.equal(MyPr.safeParse({ ...pr, baseRefOid: undefined }).success, false);
   assert.equal(MyPr.safeParse({ ...pr, baseRefOid: 'bad' }).success, false);

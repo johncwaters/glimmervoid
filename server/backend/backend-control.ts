@@ -12,7 +12,7 @@ import type { ReplayLog } from '../core/control-replay-core.ts';
 import type { TelegramDeliveryControl } from '../core/telegram-delivery-core.ts';
 import type { PlanDecision } from '../../shared/contracts/plan-review.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
-import type { MyPrsStatus } from '../../shared/contracts/my-prs.ts';
+import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import type { UpdateJournal } from '../../shared/contracts/update-journal.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { UpdateApplyOutcome } from '../update-apply.ts';
@@ -80,7 +80,7 @@ interface BackendControlDependencies {
   laneAssembly: LaneReader;
   posthog: RadarControl;
   teamReview: TeamReviewControl;
-  myPrs: MyPrMergeControl & { getStatus: () => MyPrsStatus };
+  myPrs: MyPrMergeControl & { getStatus: () => MyPrsSnapshot };
   issues: { getStatus: () => IssuesStatus; refresh: () => Promise<GithubPollingRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]>; getLinkedSessionId: (issueKey: string) => Promise<string | null>; linkSession: (issueKey: string, sessionId: string) => Promise<void> };
   benchmarks: BenchmarkControl;
   usage: UsageControl;

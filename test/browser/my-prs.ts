@@ -15,18 +15,23 @@ async function applyStatus(page: Page, status: MyPrsStatus): Promise<void> {
 export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
   await page.locator('.pr-mode-root:not([hidden])').getByRole('tab', { name: 'Mine', exact: true }).click();
   const timestamp = Date.now();
+  const canonicalPr = GithubPr.parse({
+    key: 'acme/app#1322', id: 'PR_browser', repo: 'Acme/app', number: 1322, title: 'Repair merge conflicts', url: 'https://github.com/Acme/app/pull/1322',
+    author: 'me', labels: [], commentCount: 0, rollupState: 'SUCCESS',
+    isDraft: false, state: 'OPEN', createdAt: new Date(timestamp - 86400000).toISOString(), mergedAt: null, updatedAt: new Date(timestamp).toISOString(),
+    baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'fix/conflicts', headRefOid: 'a'.repeat(40), isCrossRepository: false,
+    isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY', reviewDecision: null,
+    checks: { state: 'SUCCESS', failing: [], pendingCount: 0 }, unresolvedThreads: 0, threads: [], behindBy: 22,
+    reviewRequests: [], approvals: 0, reviews: [],
+  });
   const status = MyPrsStatus.parse({
     type: 'my-prs-status', ts: timestamp, configured: true, viewer: 'me',
     prs: [{
-      key: 'Acme/app#1322', repo: 'Acme/app', number: 1322, title: 'Repair merge conflicts', url: 'https://github.com/Acme/app/pull/1322',
-      isDraft: false, state: 'OPEN', createdAt: new Date(timestamp - 86400000).toISOString(), mergedAt: null, updatedAt: new Date(timestamp).toISOString(),
-      baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'fix/conflicts', headRefOid: 'a'.repeat(40), isCrossRepository: false,
-      isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY', reviewDecision: null,
-      checks: { state: 'SUCCESS', failing: [], pendingCount: 0 }, unresolvedThreads: 0, threads: [], behindBy: 22,
-      reviewRequests: [], approvals: 0, reviews: [], stage: 'conflicts', keepMergeable: true,
+      key: 'Acme/app#1322', keepMergeable: true,
       keepMergeableAttempt: { outcome: 'failed', reason: 'not started: could not fetch the base <blocked>', at: timestamp - 120000 },
     }],
   });
+  await emitControlMessages(page, [{ type: 'github-prs', ts: timestamp, prs: { [canonicalPr.key]: canonicalPr }, freshness: { lastRefreshedAt: timestamp, error: null } }]);
   const panel = page.locator('.pr-mode-root:not([hidden])');
   const control = panel.getByRole('button', { name: 'Keep mergeable', exact: true });
   const detailStatus = panel.locator('.pr-detail .my-pr-merge').first().locator('.pr-action-status');
@@ -60,7 +65,7 @@ export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
   assert.equal(await control.textContent(), 'Keep mergeable');
   await applyStatus(page, status);
   await verifyRefreshStatusKeepsLayout(page, status);
-  await verifyCanonicalPrStages(page, status);
+  await verifyCanonicalPrStages(page, status, canonicalPr);
 }
 
 async function verifyRefreshStatusKeepsLayout(page: Page, status: MyPrsStatus): Promise<void> {
@@ -99,7 +104,7 @@ async function emitControlMessages(page: Page, messages: ServerMessage[]): Promi
   }, messages);
 }
 
-async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus): Promise<void> {
+async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus, initialPr: GithubPr): Promise<void> {
   const sessionId = await page.evaluate(async () => {
     const registryUrl = '/session-card/card-registry.ts';
     const registry: { sessionUIs: Map<string, { name: string }> } = await import(registryUrl);
@@ -107,9 +112,8 @@ async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus): Promise
     if (!id) throw new Error('No session is available for linked PR chips');
     return id;
   });
-  const { stage: _stage, keepMergeable: _keepMergeable, keepMergeableAttempt: _keepMergeableAttempt, ...prFields } = status.prs[0];
   const canonicalPr = GithubPr.parse({
-    ...prFields, key: 'acme/app#1322', id: 'PR_browser', author: 'me', labels: [], commentCount: 0, rollupState: 'PENDING',
+    ...initialPr, key: 'acme/app#1322', id: 'PR_browser', author: 'me', labels: [], commentCount: 0, rollupState: 'PENDING',
     title: 'Canonical PR title', headRefOid: 'c'.repeat(40), mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', behindBy: 0,
     checks: { state: 'PENDING', failing: [], pendingCount: 1 },
   });
@@ -158,6 +162,8 @@ async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus): Promise
     if (!isPhone) await page.locator('#tab-prs').click();
   }
   await emitControlMessages(page, [{ type: 'github-prs', ts: status.ts, prs: {}, freshness: { lastRefreshedAt: status.ts, error: null } }]);
+  await row.waitFor({ state: 'detached' });
+  await emitControlMessages(page, [{ type: 'github-prs', ts: status.ts, prs: { [initialPr.key]: initialPr }, freshness: { lastRefreshedAt: status.ts, error: null } }]);
   await row.locator('.my-pr-stage').first().filter({ hasText: 'Merge conflicts' }).waitFor();
-  assert.equal(await row.locator('.pr-queue-title').textContent(), status.prs[0].title);
+  assert.equal(await row.locator('.pr-queue-title').textContent(), initialPr.title);
 }

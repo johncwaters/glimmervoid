@@ -7,7 +7,7 @@ import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
 import type { PrGh } from './pr-gh.ts';
-import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeQueueFailure, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus } from '../../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrAutoRebase, MyPrsSnapshot, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeQueueFailure, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult } from '../../shared/contracts/my-prs.ts';
 import { myPrFromGithubPr } from '../../shared/my-pr-merge.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
@@ -26,7 +26,7 @@ interface MyPrsPollerDependencies {
   github: Pick<PrGh, 'viewer' | 'rebasePr' | 'rateLimitWaitMs'>;
   store: GithubLaneStore;
   mergePr?: (pr: MyPr) => Promise<Omit<MyPrMergeResult, 'key'>>;
-  onTickComplete: (status: MyPrsStatus) => void;
+  onTickComplete: (status: MyPrsSnapshot) => void;
   now?: () => number;
   intervalMinutes?: number;
   setIntervalFn?: SetIntervalFn;

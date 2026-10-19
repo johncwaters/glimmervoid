@@ -1,5 +1,5 @@
 import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
-import type { MyPr, MyPrAutoRebase, MyPrCheckContext, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrAutoRebase, MyPrCheckContext, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsSnapshot, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
 import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../../lanes/core/lane-permissions-core.ts';
 import { GUARDRAILS_PLACEHOLDER_NAMES } from '../../guardrails/core/guardrails-policy-core.ts';
 import { prKey } from './team-review-core.ts';
@@ -9,7 +9,7 @@ import { isCredentialLikePath, isGithubDirectoryPath } from '../../git/core/git-
 import { deriveStage, myPrMergeBlocker } from '../../../shared/my-pr-merge.ts';
 import { REPO_SLUG_RE } from '../../../shared/contracts/github-ids.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
-import { MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrsState } from '../../../shared/contracts/my-prs.ts';
+import { MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrLaneEntry, MyPrsState } from '../../../shared/contracts/my-prs.ts';
 import { z } from 'zod';
 
 const FailedAutoRebaseRecord = z.strictObject({ attemptKey: MyPrsState.shape.keepMergeableAttemptKeys.element, autoRebase: MyPrAutoRebaseSchema });
@@ -413,10 +413,22 @@ export function truncatedSearchNote(returnedCount: number, totalCount: number): 
   return `Showing the ${returnedCount} most recently updated of ${totalCount} pull requests.`;
 }
 
+const MyPrLaneEntryProjection = z.object(MyPrLaneEntry.shape);
+
+export function toMyPrsWireStatus(snapshot: MyPrsSnapshot): MyPrsStatus {
+  return {
+    ...snapshot,
+    prs: snapshot.prs.flatMap((pr) => {
+      const projected = MyPrLaneEntryProjection.safeParse(pr);
+      return projected.success ? [projected.data] : [];
+    }),
+  };
+}
+
 export function myPrsStatus({ ts, configured, reason = null, viewer = null, prs = [], error = null, truncatedNote = null, isKeepMergeableEnabled = true, isMergeQueueEnabled = true }: {
   ts: number; configured: boolean; reason?: string | null; viewer?: string | null; prs?: MyPr[]; error?: string | null; truncatedNote?: string | null;
   isKeepMergeableEnabled?: boolean; isMergeQueueEnabled?: boolean;
-}): MyPrsStatus {
+}): MyPrsSnapshot {
   return { type: 'my-prs-status', ts, configured, reason, viewer, prs, error, truncatedNote, isKeepMergeableEnabled, isMergeQueueEnabled };
 }
 

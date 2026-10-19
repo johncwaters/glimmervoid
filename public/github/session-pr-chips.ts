@@ -1,21 +1,19 @@
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { SessionPrLinks } from '#shared/contracts/my-prs.ts';
-import type { LinkedPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
+import type { LinkedPr } from '#shared/contracts/my-prs.ts';
 import { el } from '../dom-helpers.ts';
 import { openExternalUrl } from '../external-link.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { sendForSession } from '../session-actions.ts';
-import { latestMyPrsStatus, setMyPrsSessionLinks } from './my-prs-panel.ts';
+import { setMyPrsSessionLinks } from './my-prs-panel.ts';
 import { repaintSessionRowSignals } from '../session-row.ts';
 import { createSignal, paintSignalLine } from '../signal.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import type { ActivatableSignal } from '../signal.ts';
-import { nextMyPrsByKey, sessionPrSignals } from './session-pr-chips-core.ts';
-import type { MyPrsByKey, SessionPrChip } from './session-pr-chips-core.ts';
+import { sessionPrSignals } from './session-pr-chips-core.ts';
+import type { SessionPrChip } from './session-pr-chips-core.ts';
 
 const linksBySessionId = new Map<string, readonly LinkedPr[]>();
-let prsByKey: MyPrsByKey = new Map();
-let indexedStatus: MyPrsStatus | null = null;
 
 function slotsFor(sessionId: string): NodeListOf<HTMLElement> {
   return document.querySelectorAll<HTMLElement>(`[data-pr-chips-for="${CSS.escape(sessionId)}"]`);
@@ -24,7 +22,7 @@ function slotsFor(sessionId: string): NodeListOf<HTMLElement> {
 type PrSignal = SessionPrChip & ActivatableSignal;
 
 export function sessionRowPrSignals(sessionId: string): PrSignal[] {
-  return sessionPrSignals(linksBySessionId.get(sessionId) ?? [], prsByKey, githubPrByKey).map((chip) => ({
+  return sessionPrSignals(linksBySessionId.get(sessionId) ?? [], githubPrByKey).map((chip) => ({
     ...chip,
     className: 'session-pr-chip',
     onActivate: () => openExternalUrl(chip.url),
@@ -78,16 +76,6 @@ export function setSessionLinkedPrs(sessionId: string, linkedPrs: unknown): void
 export function forgetSessionLinkedPrs(sessionId: string): void {
   linksBySessionId.delete(sessionId);
   setMyPrsSessionLinks(linksBySessionId);
-}
-
-export function refreshSessionPrChipStages(): void {
-  const status = latestMyPrsStatus();
-  if (status === indexedStatus) return;
-  indexedStatus = status;
-  const nextPrsByKey = nextMyPrsByKey(prsByKey, status);
-  if (nextPrsByKey === prsByKey) return;
-  prsByKey = nextPrsByKey;
-  repaintSlots(document.querySelectorAll<HTMLElement>('[data-pr-chips-for]'));
 }
 
 subscribeGithubPrs(() => repaintSlots(document.querySelectorAll<HTMLElement>('[data-pr-chips-for]')));

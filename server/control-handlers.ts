@@ -1,3 +1,4 @@
+import { toMyPrsWireStatus } from './github/core/my-prs-core.ts';
 import type { IssuesStatus } from '../shared/contracts/issues.ts';
 import { isSameDirectoryPath } from '../shared/canonical-paths.ts';
 import { createKeyedSerialQueue } from './spawn-gate.ts';
@@ -56,7 +57,7 @@ import { BenchmarkActionRequest } from '../shared/contracts/benchmark.ts';
 import type { BenchmarkActionResult, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
 import type { TeamReviewActionResult, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import { LinkedPr, MyPrKeepMergeableRequest, MyPrMergeRequest, MyPrMergeWhenReadyRequest } from '../shared/contracts/my-prs.ts';
-import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsStatus } from '../shared/contracts/my-prs.ts';
+import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsSnapshot } from '../shared/contracts/my-prs.ts';
 import type { UpdateStatus } from './backend/backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
@@ -126,7 +127,7 @@ interface ControlHandlerDeps {
   posthogSetIssueStatus?: ((args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>) | null;
   radarArchiveInvestigation?: ((args: { id: string }) => Promise<Record<string, unknown>>) | null;
   getTeamReviewStatus?: (() => TeamReviewStatus | null) | null;
-  getMyPrsStatus?: (() => MyPrsStatus | null) | null;
+  getMyPrsStatus?: (() => MyPrsSnapshot | null) | null;
   getIssuesStatus?: (() => IssuesStatus | null) | null;
   githubStore?: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness } | null;
   issues?: { refresh: () => Promise<GithubPollingRefreshResult>; getLinkedSessionId?: (issueKey: string) => Promise<string | null>; linkSession?: (issueKey: string, sessionId: string) => Promise<void> } | null;
@@ -262,7 +263,7 @@ function sendError(ws: ControlSocket, message: string, { type = 'error', request
   ws.send(JSON.stringify(payload));
 }
 
-function manualPrLink(pullRequestKey: string, myPrsStatus: MyPrsStatus | null, nowMs: number): LinkedPr | null {
+function manualPrLink(pullRequestKey: string, myPrsStatus: MyPrsSnapshot | null, nowMs: number): LinkedPr | null {
   const separatorIndex = pullRequestKey.lastIndexOf('#');
   const repo = pullRequestKey.slice(0, separatorIndex);
   const number = Number(pullRequestKey.slice(separatorIndex + 1));
@@ -1623,7 +1624,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (githubStore) ws.send(JSON.stringify(githubStore.snapshotMessage()));
     if (teamReviewStatus) ws.send(JSON.stringify(teamReviewStatus));
     const myPrsStatus = typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null;
-    if (myPrsStatus) ws.send(JSON.stringify(myPrsStatus));
+    if (myPrsStatus) ws.send(JSON.stringify(toMyPrsWireStatus(myPrsStatus)));
     const issuesStatus = getIssuesStatus?.();
     if (issuesStatus) ws.send(JSON.stringify(issuesStatus));
     const benchmarkStatus = typeof getBenchmarkStatus === 'function' ? getBenchmarkStatus() : null;

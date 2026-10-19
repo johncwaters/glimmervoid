@@ -1,3 +1,4 @@
+import { myPrsStatus } from '../server/github/core/my-prs-core.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -351,14 +352,19 @@ test('a manual link resolves against my PRs, and an unlink removes it and blocks
       checks: { state: null, failing: [], pendingCount: 0 }, unresolvedThreads: 0, threads: [], behindBy: null,
       reviewRequests: [], approvals: 0, reviews: [], stage: 'merged',
     });
-    const myPrsStatus = MyPrsStatus.parse({ type: 'my-prs-status', ts: NOW, configured: true, viewer: 'octo', prs: [knownPr] });
+    const snapshot = myPrsStatus({ ts: NOW, configured: true, viewer: 'octo', prs: [knownPr] });
     const broadcasts: unknown[] = [];
     session.on('pr-links-change', (prLinks) => broadcasts.push(prLinks));
     const server = createControlServer(controlDeps({ projects: [] }, {
       sessions: new Map([['s1', session]]),
-      getMyPrsStatus: () => myPrsStatus,
+      getMyPrsStatus: () => snapshot,
     }));
     const connection = connectControl<ServerPayload>(server);
+    const connectedStatus = MyPrsStatus.parse(connection.sent.find((frame) => frame.type === 'my-prs-status'));
+    assert.deepEqual(connectedStatus.prs, [{ key: knownPr.key }]);
+    assert.equal(connectedStatus.viewer, snapshot.viewer);
+    assert.equal(connectedStatus.configured, snapshot.configured);
+    assert.equal(snapshot.prs[0].url, knownPrUrl);
     connection.send({ type: 'link-session-pr', id: 's1', key: 'PostHog/glimmervoid#42' });
     connection.send({ type: 'link-session-pr', id: 's1', key: 'PostHog/glimmervoid#7' });
     assert.deepEqual(session.linkedPrs.map((link) => [link.number, link.url, link.source]).sort(), [

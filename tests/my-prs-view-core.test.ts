@@ -71,7 +71,7 @@ test('labels, tones and empty messages reflect status', () => {
   assert.match(emptyStateText(status), /No open/);
   assert.match(emptyStateText({ ...status, configured: false }), /Team review/);
   assert.equal(emptyStateText({ ...status, error: 'connection refused' }), 'Pull requests will show here once GitHub answers.');
-  assert.match(emptyStateText({ ...status, error: 'connection refused', prs: [base] }), /No open/);
+  assert.match(emptyStateText({ ...status, error: 'connection refused', prs: [{ key: base.key }] }), /No open/);
   assert.equal(parseMyPrsStatus({ type: 'my-prs-status', ts: 1, configured: true, viewer: null, prs: [{}] }), null);
 });
 
@@ -119,7 +119,7 @@ test('readiness rows cover review, threads, conflicts and base outcomes', () => 
 });
 
 test('queue notices list the refresh error before the truncation note', () => {
-  const status = parseMyPrsStatus({ type: 'my-prs-status', ts: 1, configured: true, viewer: 'alice', prs: [base] });
+  const status = parseMyPrsStatus({ type: 'my-prs-status', ts: 1, configured: true, viewer: 'alice', prs: [{ key: base.key }] });
   assert.ok(status);
   const truncatedNote = 'Showing the 50 most recently updated of 73 pull requests.';
   assert.deepEqual(queueNotices(null), []);

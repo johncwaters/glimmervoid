@@ -4,7 +4,7 @@ export { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import { githubPollingErrorNotice } from './github-polling-retry-core.ts';
 import { MyPrMergeResult, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { mergeMethodLabel, myPrFromGithubPr, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
-import type { LinkedPr, MyPr, MyPrMergeKind, MyPrStage, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
+import type { LinkedPr, MyPr, MyPrLaneEntry, MyPrMergeKind, MyPrStage, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 
@@ -309,9 +309,13 @@ export function queueNotices(status: MyPrsStatusType | null, nowMs = 0): QueueNo
 export interface LiveSessionLinks { id: string; title: string; links: readonly Pick<LinkedPr, 'repo' | 'number'>[] }
 export interface LinkedLiveSession { id: string; title: string }
 
-export function myPrWithGithubPr(pr: MyPr, canonicalPr: GithubPr | undefined): MyPr {
-  if (!canonicalPr) return pr;
-  return { ...pr, ...myPrFromGithubPr({ ...canonicalPr, repo: pr.repo }) };
+export function joinMyPrs(entries: readonly MyPrLaneEntry[], findGithubPr: (key: string) => GithubPr | undefined): MyPr[] {
+  return entries.flatMap((entry) => {
+    const canonicalPr = findGithubPr(entry.key);
+    if (!canonicalPr) return [];
+    const repo = entry.key.slice(0, entry.key.lastIndexOf('#'));
+    return [{ ...myPrFromGithubPr({ ...canonicalPr, repo }), ...entry }];
+  });
 }
 
 export function liveSessionsByPrKey(sessions: Iterable<LiveSessionLinks>): Map<string, LinkedLiveSession[]> {

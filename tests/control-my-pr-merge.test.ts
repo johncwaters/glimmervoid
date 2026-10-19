@@ -15,6 +15,7 @@ import { createMyPrsPoller } from '../server/github/my-prs-poller.ts';
 import { createPrGh } from '../server/github/pr-gh.ts';
 import type { CommandResult } from '../server/github/pr-gh.ts';
 import { myPrsStatus, toMyPr } from '../server/github/core/my-prs-core.ts';
+import { MyPrsStatus } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 
@@ -84,7 +85,7 @@ test('a store rollup change broadcasts my-prs status without a lane tick and Ref
   let checksState: 'PENDING' | 'SUCCESS' = 'PENDING';
   let laneTicks = 0;
   const searches: string[] = [];
-  const statuses: ReturnType<typeof myPrsStatus>[] = [];
+  const statuses: MyPrsStatus[] = [];
   const reads = storeReads(() => [readyNode({ commits: { nodes: [{ commit: { statusCheckRollup: { state: checksState, contexts: { nodes: [] } } } }] } })]);
   const github = {
     ...createPrGh(homeDir), ...reads,
@@ -117,17 +118,25 @@ test('a store rollup change broadcasts my-prs status without a lane tick and Ref
     await new Promise<void>((resolve) => setImmediate(resolve));
     await storeTick();
     await firstStatus;
-    assert.equal(statuses.at(-1)?.prs[0]?.stage, 'checks-pending');
-    const updatedAt = statuses.at(-1)?.prs[0]?.updatedAt;
+    assert.equal(statuses.at(-1)?.prs[0]?.key, KEY);
+    assert.equal(wiring.getStatus().prs[0]?.stage, 'checks-pending');
+    assert.equal(store.getSnapshot().prs[KEY.toLowerCase()]?.checks.state, 'PENDING');
+    const updatedAt = wiring.getStatus().prs[0]?.updatedAt;
     checksState = 'SUCCESS';
     nowMs += 60_000;
     const broadcastCount = statuses.length;
     await storeTick();
     assert.equal(laneTicks, 0);
     assert.equal(statuses.length, broadcastCount + 1);
-    assert.equal(statuses.at(-1)?.prs[0]?.checks.state, 'SUCCESS');
-    assert.equal(statuses.at(-1)?.prs[0]?.stage, 'ready');
-    assert.equal(statuses.at(-1)?.prs[0]?.updatedAt, updatedAt);
+    const broadcastEntry = MyPrsStatus.parse(statuses.at(-1)).prs[0];
+    assert.ok(broadcastEntry);
+    assert.equal(broadcastEntry.key, KEY);
+    assert.equal('stage' in broadcastEntry, false);
+    assert.equal('checks' in broadcastEntry, false);
+    assert.equal('updatedAt' in broadcastEntry, false);
+    assert.equal(store.getSnapshot().prs[KEY.toLowerCase()]?.checks.state, 'SUCCESS');
+    assert.equal(wiring.getStatus().prs[0]?.stage, 'ready');
+    assert.equal(wiring.getStatus().prs[0]?.updatedAt, updatedAt);
     assert.deepEqual(searches.slice(0, 2), [
       'is:open author:@me org:Acme sort:updated-desc',
       `is:merged author:@me org:Acme merged:>=${new Date(Date.now() - 86400000).toISOString().slice(0, 10)} sort:updated-desc`,
@@ -149,7 +158,7 @@ test('a store rollup change broadcasts my-prs status without a lane tick and Ref
 test('keep mergeable control reaches the real lane, persists across restarts, and does not dispatch the same head again', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-keep-mergeable-'));
   const fixes: string[] = [];
-  const statuses: ReturnType<typeof myPrsStatus>[] = [];
+  const statuses: MyPrsStatus[] = [];
   let markRepairFinished = () => {};
   const repairFinished = new Promise<void>((resolve) => { markRepairFinished = resolve; });
   const github = {
@@ -245,7 +254,7 @@ test('merge when ready control reaches the real lane and persists the queue', as
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-merge-when-ready-'));
   let markPolled: () => void = () => {};
   const firstPoll = new Promise<void>((resolve) => { markPolled = resolve; });
-  const statuses: ReturnType<typeof myPrsStatus>[] = [];
+  const statuses: MyPrsStatus[] = [];
   const github = {
     ...createPrGh(homeDir),
     viewer: async () => 'me',
