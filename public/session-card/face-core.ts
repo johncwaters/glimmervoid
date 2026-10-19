@@ -1,5 +1,14 @@
 export type SessionCardFace = 'terminal' | 'plan' | 'conversation';
 
+const NEED_WORDS_BY_PROMPT_KIND: ReadonlyMap<string, string> = new Map([
+  ['plan', 'Plan ready'],
+  ['permission', 'Needs permission'],
+]);
+
+export function promptKindNeedWords(pendingPromptKind: string): string {
+  return NEED_WORDS_BY_PROMPT_KIND.get(pendingPromptKind) ?? 'Needs input';
+}
+
 export function preferredBorrowedFace({
   hasPlan,
   pendingPromptKind,

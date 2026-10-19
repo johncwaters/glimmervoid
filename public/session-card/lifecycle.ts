@@ -33,7 +33,7 @@ import type { CardOptions } from './card-dom.ts';
 import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintGuardrailsMenuItem, paintTaskTitle, sendSessionAction, sessionActionStatus, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
 import { aggregateEl, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
-import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';
+import { decidePlanHeaderAction, preferredBorrowedFace, promptKindNeedWords } from './face-core.ts';
 import { runRestartChoice } from './restart-menu-core.ts';
 import type { RestartChoice } from './restart-menu-core.ts';
 import type { SessionCardFace } from './face-core.ts';
@@ -637,7 +637,7 @@ function promptBadgeState(kind: unknown, isCompacting: boolean, isWaitingForMemo
       on: true,
       value: asText(kind),
       title: 'Waiting on a permission or input prompt',
-      text: kind === 'plan' ? 'Plan ready' : kind === 'permission' ? 'permission' : 'input',
+      text: promptKindNeedWords(asText(kind)),
     };
   }
   if (isWaitingForMemory) return { on: true, value: 'memory', title: 'Held until Glimmervoid has enough free memory to start it', text: 'Waiting for memory' };
