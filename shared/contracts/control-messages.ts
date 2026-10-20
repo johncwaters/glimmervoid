@@ -196,7 +196,7 @@ export type OperatorAction = { [Surface in OperatorSurface]: (typeof OPERATOR_AC
 export type OperatorActionOf<Surface extends OperatorSurface> = (typeof OPERATOR_ACTIONS_BY_SURFACE)[Surface][number];
 
 const idOnlyClientTypes = [
-  'remove-session', 'kill', 'start-session', 'restart', 'force-restart',
+  'kill', 'start-session', 'restart', 'force-restart',
   'merge-session', 'finish-session', 'merge-continue-session', 'discard-session-worktree',
   'resolve-session-merge', 'request-session-diff', 'request-change-map', 'request-branch-sync', 'resync-branch', 'debug-state',
 ] as const;
@@ -221,6 +221,7 @@ const clientVariants = [
     environment: z.string().optional(),
     requestId,
   }),
+  loose('remove-session', { id: sessionId, force: z.unknown().optional(), discardRemoteWork: z.boolean().optional(), requestId }),
   loose('list-conversations', { id: sessionId, requestId }),
   loose('resume-conversation', { id: sessionId, conversationId: z.string() }),
   loose('rename-session', { id: sessionId, newName: z.string() }),
@@ -300,6 +301,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'hooks-report',
   'save-hook-result',
   'add-session-result',
+  'remove-session-result',
   'agent-logins',
   'delete-hook-result',
   'workspace-repos',
@@ -412,6 +414,7 @@ const serverVariants = [
   }),
   loose('save-hook-result', { requestId, ok: z.boolean(), error: optionalError, hook: opaqueObject.optional() }),
   loose('add-session-result', { requestId, ok: z.boolean(), error: optionalError, reason: z.enum(['not-git']).optional() }),
+  loose('remove-session-result', { requestId, ok: z.boolean(), error: optionalError, canDiscardRemoteWork: z.boolean().optional() }),
   loose('agent-logins', { requestId, logins: AgentLoginStatuses, error: optionalError }),
   loose('delete-hook-result', { requestId, ok: z.boolean(), error: optionalError, id: z.string().optional() }),
   loose('workspace-repos', { requestId, id: sessionId, ok: z.boolean(), repos: z.array(z.string()), error: optionalError }),

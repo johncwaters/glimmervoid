@@ -66,11 +66,34 @@ export function quickAddSession(path: string | null | undefined, label: string |
   void requestQuickAdd(path, label);
 }
 
+const REMOTE_REMOVAL_TIMEOUT_MS = 65 * 60_000;
+
+async function requestRemoteSessionRemoval(ui: SessionUi, id: string, discardRemoteWork: boolean) {
+  try {
+    const reply = await sendControlRequest('remove-session', { id, discardRemoteWork }, { timeoutMs: REMOTE_REMOVAL_TIMEOUT_MS });
+    if (reply.type !== 'remove-session-result' || reply.ok) return;
+    if (!reply.canDiscardRemoteWork) {
+      reportUnsourcedError(`The session was not removed: ${reply.error ?? 'unknown error'}`);
+      return;
+    }
+    openConfirmDialog({
+      title: 'Remote work not saved',
+      message: `${reply.error}. Removing "${sessionName(ui)}" deletes its Coder workspace and that work with it. Push it from the session first to keep it.`,
+      confirmLabel: 'Discard remote work',
+      danger: true,
+      onConfirm: () => { void requestRemoteSessionRemoval(ui, id, true); },
+    });
+  } catch (reason) {
+    reportUnsourcedError(`The session was not removed: ${requestFailureText(reason, REMOTE_REMOVAL_TIMEOUT_MS)}`);
+  }
+}
+
 export function requestSessionRemoval(id: string, mergeStatus?: string) {
   const ui = sessionUIs.get(id);
   if (!ui) return;
   const currentMergeStatus = mergeStatus || ui.card?.dataset.merge || 'none';
   const hasUnmergedWork = currentMergeStatus === 'pending-review' || currentMergeStatus === 'parked';
+  const isRemote = Boolean(ui.card?.dataset.remoteWorkspace);
   openConfirmDialog({
     title: 'Remove Session',
     message: hasUnmergedWork
@@ -78,6 +101,12 @@ export function requestSessionRemoval(id: string, mergeStatus?: string) {
       : `Remove session "${sessionName(ui)}"?`,
     confirmLabel: hasUnmergedWork ? 'Discard & Remove' : 'Remove',
     danger: true,
-    onConfirm: () => { sendSessionAction(ui, { type: 'remove-session', id }); },
+    onConfirm: () => {
+      if (isRemote) {
+        void requestRemoteSessionRemoval(ui, id, false);
+        return;
+      }
+      sendSessionAction(ui, { type: 'remove-session', id });
+    },
   });
 }

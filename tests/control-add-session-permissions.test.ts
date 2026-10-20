@@ -10,6 +10,8 @@ import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 import { git } from './helpers/git-fixture.ts';
 import { ClientMessage } from '../shared/contracts/control-messages.ts';
+import type { Session } from '../session/sessions.ts';
+import { plainSession } from './helpers/fake-session.ts';
 
 function addSessionUnder(skipPermissionsByDefault: boolean | undefined, requestedSkip: unknown) {
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-add-session-perms-'));
@@ -100,6 +102,7 @@ function remoteAddSession(reserveResult: Awaited<ReturnType<CoderEnvPort['reserv
       provisionCalls.push(request);
       return { ok: true, mapping: request.mapping };
     },
+    settleRemoval: async () => ({ ok: true }),
   };
   const server = createControlServer(controlDeps(config, { coderEnv, remoteRepoGit: createGitWorkspace() }));
   const connection = connectControl<{ type: string; ok?: boolean; error?: string | null }>(server);
@@ -131,4 +134,29 @@ test('the add-session contract accepts an environment name and rejects a non-str
   const base = { type: 'add-session', name: 'repo', path: '/srv/repo' };
   assert.equal(ClientMessage.safeParse({ ...base, environment: 'remote' }).success, true);
   assert.equal(ClientMessage.safeParse({ ...base, environment: 3 }).success, false);
+});
+
+test('removing a remote session stops its agent before the remote work check and keeps the project when the check refuses', async (context) => {
+  const mapping = { name: 'remote', workspace: 'gv-0123456789ab', remotePort: 40_001, branch: 'feature' };
+  const config: GlimmervoidConfig = { projects: [{ id: 'p-remote', name: 'repo', path: '/repo', environment: mapping }] };
+  const steps: string[] = [];
+  const session = plainSession('p-remote');
+  context.after(() => session.destroy());
+  session.killSession = () => { steps.push('stop agent'); return true; };
+  const reason = `Branch feature in Coder workspace ${mapping.workspace} has uncommitted changes`;
+  const coderEnv: CoderEnvPort = {
+    availableEnvironments: () => [],
+    reserve: async () => ({ ok: false, reason: 'unused' }),
+    provision: async () => ({ ok: false, reason: 'unused' }),
+    settleRemoval: async () => {
+      steps.push('check remote work');
+      return { ok: false, reason, canDiscardRemoteWork: true };
+    },
+  };
+  const server = createControlServer(controlDeps(config, { coderEnv, sessions: new Map<string, Session>([[session.id, session]]) }));
+  const connection = connectControl<{ type: string }>(server);
+  await connection.send({ type: 'remove-session', requestId: 'remove-1', id: session.id });
+  assert.deepEqual(steps, ['stop agent', 'check remote work']);
+  assert.deepEqual(connection.sent.at(-1), { type: 'remove-session-result', requestId: 'remove-1', ok: false, error: reason, canDiscardRemoteWork: true });
+  assert.deepEqual(config.projects.map((project) => project.id), ['p-remote']);
 });

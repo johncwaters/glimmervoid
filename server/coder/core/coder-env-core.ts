@@ -209,12 +209,25 @@ function isCoderSignedOutError(stderr: unknown): boolean {
   return typeof stderr === 'string' && stderr.includes('You are signed out or your session has expired');
 }
 
+function remoteWorkRefusal({ uncommittedStatus, unpushedLog, stashList, branch, workspace }: {
+  uncommittedStatus: string;
+  unpushedLog: string;
+  stashList: string;
+  branch: string;
+  workspace: string;
+}): string | null {
+  if (uncommittedStatus.trim()) return `Branch ${branch} in Coder workspace ${workspace} has uncommitted changes`;
+  if (unpushedLog.trim()) return `Branch ${branch} in Coder workspace ${workspace} has commits that are not pushed`;
+  if (stashList.trim()) return `Branch ${branch} in Coder workspace ${workspace} has stashed changes`;
+  return null;
+}
+
 function coderNotSignedInReason(failure: string): string {
   return `The coder CLI on this host is not signed in. Run coder login, then try again. (${failure})`;
 }
 
 export {
-  coderErrorDetail, isCoderSignedOutError, coderNotSignedInReason, remoteCheckoutDirectory, CODER_ENV_READY_POLL_MS, CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_IDLE_TICK_MS, resolveCoderEnvironment, parseGlimmervoidWorkspaces, decideReadiness, shouldIdleStop, planReconcile,
+  coderErrorDetail, isCoderSignedOutError, remoteWorkRefusal, coderNotSignedInReason, remoteCheckoutDirectory, CODER_ENV_READY_POLL_MS, CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_IDLE_TICK_MS, resolveCoderEnvironment, parseGlimmervoidWorkspaces, decideReadiness, shouldIdleStop, planReconcile,
   retainedOwnedWorkspaces, failedProvisionCleanup, sharingRefusal, liveLimitRefusal,
 };
 export type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ReconcilePlan, ResolvedCoderEnvironment, WorkspaceMapping };

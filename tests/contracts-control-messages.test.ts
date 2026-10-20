@@ -274,6 +274,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   },
   { type: 'save-hook-result', requestId: 'r2', ok: true, error: null, hook: { id: 'h1' } },
   { type: 'add-session-result', requestId: 'r6', ok: false, error: '/repos/notes is not a git repository', reason: 'not-git' },
+  { type: 'remove-session-result', requestId: 'r7', ok: false, error: 'Branch feature in Coder workspace gv-0123456789ab has commits that are not pushed', canDiscardRemoteWork: true },
   { type: 'delete-hook-result', requestId: 'r3', ok: false, error: 'Unknown hook' },
   { type: 'workspace-repos', requestId: 'r4', id: 'session-1', ok: true, repos: ['/repos/one', '/repos/two'], error: null },
   { type: 'set-workspace-repos-result', requestId: 'r5', id: 'session-1', ok: false, error: 'two has uncommitted changes. Commit or discard them before removing it from the workspace.' },

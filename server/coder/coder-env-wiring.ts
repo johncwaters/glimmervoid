@@ -10,7 +10,7 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { createCoderEnvPoller } from './coder-env-poller.ts';
 import type { CoderEnvPollerDeps } from './coder-env-poller.ts';
 import {
-  CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_READY_POLL_MS, coderErrorDetail, coderNotSignedInReason, decideReadiness, failedProvisionCleanup, isCoderSignedOutError, liveLimitRefusal, parseGlimmervoidWorkspaces, remoteCheckoutDirectory, resolveCoderEnvironment, retainedOwnedWorkspaces, sharingRefusal,
+  CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_READY_POLL_MS, coderErrorDetail, coderNotSignedInReason, decideReadiness, failedProvisionCleanup, isCoderSignedOutError, liveLimitRefusal, parseGlimmervoidWorkspaces, remoteCheckoutDirectory, remoteWorkRefusal, resolveCoderEnvironment, retainedOwnedWorkspaces, sharingRefusal,
 } from './core/coder-env-core.ts';
 import type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ResolvedCoderEnvironment, WorkspaceMapping } from './core/coder-env-core.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
@@ -19,6 +19,7 @@ const CODER_UNAVAILABLE_REASON = 'Coder environments are unavailable on this hos
 
 type ProjectEnvironment = NonNullable<Config['projects'][number]['environment']>;
 type CoderEnvResult = { ok: true; mapping: ProjectEnvironment } | { ok: false; reason: string };
+type RemovalSettlement = { ok: true } | { ok: false; reason: string; canDiscardRemoteWork: boolean };
 
 interface RunCoderOptions {
   timeoutMs: number;
@@ -428,6 +429,40 @@ function createCoderEnvWiring({
     });
   }
 
+  async function uncheckedRemoteWorkReason(mapping: ProjectEnvironment): Promise<string | null> {
+    const environment = resolveEnvironment(mapping.name);
+    if (!environment) throw new Error(`Unknown Coder environment: ${mapping.name}`);
+    if (!await ensureAvailable()) throw new Error(unavailableReason);
+    const status = (await listWorkspaces()).find((candidate) => candidate.name === mapping.workspace)?.status ?? 'gone';
+    if (status === 'gone') return null;
+    if (status !== 'running') throw new Error(`Coder workspace ${mapping.workspace} is ${status}`);
+    const checkoutDirectory = remoteCheckoutDirectory({ checkoutRoot: environment.checkoutRoot, workspace: mapping.workspace });
+    const uncommittedStatus = (await command(['ssh', mapping.workspace, '--', remoteCommand(['git', '--no-optional-locks', '-C', checkoutDirectory, 'status', '--porcelain'])])).stdout;
+    const unpushedLog = (await command(['ssh', mapping.workspace, '--', remoteCommand(['git', '-C', checkoutDirectory, 'log', '--branches', 'HEAD', '--not', '--remotes', '--oneline'])])).stdout;
+    const stashList = (await command(['ssh', mapping.workspace, '--', remoteCommand(['git', '-C', checkoutDirectory, 'stash', 'list'])])).stdout;
+    return remoteWorkRefusal({ uncommittedStatus, unpushedLog, stashList, branch: mapping.branch, workspace: mapping.workspace });
+  }
+
+  async function remoteWorkReason(mapping: ProjectEnvironment): Promise<string | null> {
+    try {
+      return await whileWorkspaceBusy(mapping.workspace, () => uncheckedRemoteWorkReason(mapping));
+    } catch (error) {
+      return `Could not check remote work on ${mapping.branch} in Coder workspace ${mapping.workspace}: ${errorMessage(error)}`;
+    }
+  }
+
+  async function settleRemoval({ projectId, discardRemoteWork }: { projectId: string; discardRemoteWork: boolean }): Promise<RemovalSettlement> {
+    await provisionByProject.get(projectId);
+    const mapping = config.projects.find((project) => project.id === projectId)?.environment;
+    if (!mapping) return { ok: true };
+    const keptWorkReason = discardRemoteWork ? null : await remoteWorkReason(mapping);
+    if (keptWorkReason) return { ok: false, reason: keptWorkReason, canDiscardRemoteWork: true };
+    void release({ projectId }).then((released) => {
+      if (!released.ok) log.warn(`[coder-env] ${released.reason}; the orphan sweep will stop ${mapping.workspace}`);
+    });
+    return { ok: true };
+  }
+
   async function uploadFile({ workspace, remotePath, contents, mode }: { workspace: string; remotePath: string; contents: string; mode: number | string }): Promise<void> {
     if (workspaceNameFromHex(workspace.slice(3)) !== workspace) throw new Error('Invalid Coder workspace name');
     const fileMode = typeof mode === 'number' ? mode.toString(8) : mode;
@@ -438,7 +473,7 @@ function createCoderEnvWiring({
     await runCoder(['ssh', workspace, '--', remoteCommand(['sh', '-c', script, 'sh', remotePath])], { timeoutMs: 30_000, input: contents });
   }
 
-  return { start, stop: runner.stopPoller, restartIfConfigChanged, availableEnvironments, reserve, provision, resume, release, uploadFile, workspaceStatus };
+  return { start, stop: runner.stopPoller, restartIfConfigChanged, availableEnvironments, reserve, provision, resume, release, settleRemoval, uploadFile, workspaceStatus };
 }
 
 export { createCoderEnvWiring };

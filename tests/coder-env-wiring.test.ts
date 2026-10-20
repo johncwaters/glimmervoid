@@ -48,6 +48,7 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
   const savedOwnedWorkspaces: string[][] = [];
   const listings = { current: listing([MAPPED_WORKSPACE]) };
   const signIn = { isSignedOut: false };
+  const remoteGit = { uncommittedStatus: '', unpushedLog: '', stashList: '' };
   let nowMs = 120_000;
   let remainingFailedListings = 0;
   const wiring = createCoderEnvWiring({
@@ -89,6 +90,9 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
         if (createStderrAfterBuild !== null) throw Object.assign(new Error('Command failed: coder create'), { stderr: createStderrAfterBuild });
       }
       if (args[0] === 'sharing') return { stdout: sharingStatus };
+      if (args[0] === 'ssh' && args[3]?.includes('--porcelain')) return { stdout: remoteGit.uncommittedStatus };
+      if (args[0] === 'ssh' && args[3]?.includes('--not')) return { stdout: remoteGit.unpushedLog };
+      if (args[0] === 'ssh' && args[3]?.includes('stash')) return { stdout: remoteGit.stashList };
       if (args[0] === 'ssh') return { stdout: 'v24.0.0\n' };
       return { stdout: '' };
     },
@@ -119,7 +123,7 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
     assert.ok(reserved.ok);
     return wiring.provision({ projectId: 'project', mapping: reserved.mapping, repoRemoteUrl: 'git@example.com:org/repo.git', baseBranch: 'main' });
   }
-  return { wiring, signIn, start, tick, config, commands, events, plans, warnings, listings, timers, savedOwnedWorkspaces, reserveAndSave, provisionReserved };
+  return { wiring, signIn, remoteGit, start, tick, config, commands, events, plans, warnings, listings, timers, savedOwnedWorkspaces, reserveAndSave, provisionReserved };
 }
 
 test('reconcile stops owned unmapped running gv workspaces on every tick, deletes only an owned one stopped past deleteAfterStoppedDays, and never touches another host\'s', async (context) => {
@@ -296,4 +300,35 @@ test('a signed-out coder CLI refuses a new workspace with a coder login hint unt
   assert.deepEqual(await harness.wiring.reserve({ projectId: 'project', environmentName: 'remote', branch: 'feature', liveCount: 0 }), refused);
   harness.signIn.isSignedOut = false;
   assert.equal((await harness.wiring.reserve({ projectId: 'project', environmentName: 'remote', branch: 'feature', liveCount: 0 })).ok, true);
+});
+
+test('removing a remote session deletes a clean workspace but refuses one with unsaved remote work or that cannot be checked until discarded', async (context) => {
+  const harness = createHarness();
+  context.after(harness.wiring.stop);
+  const deletes = () => harness.commands.filter(({ args }) => args[0] === 'delete').map(({ args }) => args[1]);
+  const settle = (discardRemoteWork = false) => harness.wiring.settleRemoval({ projectId: 'project', discardRemoteWork });
+  harness.remoteGit.uncommittedStatus = ' M src/app.ts\n';
+  assert.deepEqual(await settle(), { ok: false, reason: `Branch feature in Coder workspace ${MAPPED_WORKSPACE} has uncommitted changes`, canDiscardRemoteWork: true });
+  harness.remoteGit.uncommittedStatus = '';
+  harness.remoteGit.unpushedLog = 'abc1234 wip\n';
+  assert.deepEqual(await settle(), { ok: false, reason: `Branch feature in Coder workspace ${MAPPED_WORKSPACE} has commits that are not pushed`, canDiscardRemoteWork: true });
+  harness.remoteGit.unpushedLog = '';
+  harness.remoteGit.stashList = 'stash@{0}: WIP on feature: abc1234 wip\n';
+  assert.deepEqual(await settle(), { ok: false, reason: `Branch feature in Coder workspace ${MAPPED_WORKSPACE} has stashed changes`, canDiscardRemoteWork: true });
+  assert.ok(harness.commands.some(({ args }) => args[0] === 'ssh' && args[3]?.includes("'--branches' 'HEAD' '--not'")), 'the unpushed check covers a detached HEAD');
+  harness.listings.current = listing([MAPPED_WORKSPACE], { [MAPPED_WORKSPACE]: 0 });
+  assert.deepEqual(await settle(), { ok: false, reason: `Could not check remote work on feature in Coder workspace ${MAPPED_WORKSPACE}: Coder workspace ${MAPPED_WORKSPACE} is stopped`, canDiscardRemoteWork: true });
+  assert.deepEqual(deletes(), []);
+  assert.deepEqual(await settle(true), { ok: true });
+  await waitFor(() => harness.config.projects[0].environment === undefined, 'the discarded workspace is deleted in the background');
+  assert.deepEqual(deletes(), [MAPPED_WORKSPACE]);
+});
+
+test('removing a remote session whose checkout is clean deletes its workspace', async (context) => {
+  const harness = createHarness();
+  context.after(harness.wiring.stop);
+  assert.deepEqual(await harness.wiring.settleRemoval({ projectId: 'project', discardRemoteWork: false }), { ok: true });
+  await waitFor(() => harness.config.projects[0].environment === undefined, 'the clean workspace is deleted in the background');
+  assert.deepEqual(harness.commands.filter(({ args }) => args[0] === 'delete').map(({ args }) => args), [['delete', MAPPED_WORKSPACE, '--yes']]);
+  assert.equal(harness.config.projects[0].environment, undefined);
 });

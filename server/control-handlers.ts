@@ -163,7 +163,7 @@ interface ControlHandlerDeps {
   sessionDocs?: SessionDocsPort | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture'>>) | null;
-  coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'availableEnvironments'> | null;
+  coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'availableEnvironments' | 'settleRemoval'> | null;
   agentConnect?: Pick<ReturnType<typeof createAgentConnect>, 'logins' | 'refresh' | 'start' | 'cancel' | 'submitCode'> | null;
   remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
 }
@@ -308,6 +308,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
     'save-hook': () => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
     'add-session': () => ({ type: 'add-session-result', requestId, ok: false, error: message }),
+    'remove-session': () => ({ type: 'remove-session-result', requestId, ok: false, error: message }),
     'delete-hook': () => ({ type: 'delete-hook-result', requestId, ok: false, error: message }),
     'send-diff-annotations': () => ({ type: 'send-diff-annotations-result', requestId, ok: false, error: message }),
     'session-doc-read': () => ({ type: 'session-doc-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
@@ -610,17 +611,21 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     sess.start();
   }
 
-  function handleRemoveSession(msg: ClientMessageOf<'remove-session'>, ws: ControlSocket): void {
+  async function removeSession(msg: ClientMessageOf<'remove-session'>): Promise<{ ok: true } | { ok: false; error: string; canDiscardRemoteWork?: boolean }> {
     const sess = findSession(msg);
-    if (!sess) {
-      sendError(ws, 'Session not found');
-      return;
-    }
+    if (!sess) return { ok: false, error: 'Session not found' };
 
     if (agentSessions.get(sess.id) === sess) {
       sess.destroy();
       console.log(`[control] Removed spawned session via UI: ${sess.name}`);
-      return;
+      return { ok: true };
+    }
+
+    const hasRemoteWorkspace = config.projects.some((project) => project.id === sess.id && project.environment);
+    if (hasRemoteWorkspace && coderEnv) {
+      sess.killSession();
+      const settlement = await coderEnv.settleRemoval({ projectId: sess.id, discardRemoteWork: msg.discardRemoteWork === true });
+      if (!settlement.ok) return { ok: false, error: settlement.reason, canDiscardRemoteWork: settlement.canDiscardRemoteWork };
     }
 
     const freshConfig = configStore.save(cfg => {
@@ -628,6 +633,16 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     });
     if (freshConfig) applyConfigReload(freshConfig);
     console.log(`[control] Removed session via UI: ${sess.name}`);
+    return { ok: true };
+  }
+
+  async function handleRemoveSession(msg: ClientMessageOf<'remove-session'>, ws: ControlSocket): Promise<void> {
+    const removal = await removeSession(msg);
+    if (msg.requestId) {
+      replyTo(ws, msg, 'remove-session-result', removal.ok ? { ok: true, error: null } : removal);
+      return;
+    }
+    if (!removal.ok) sendError(ws, removal.error);
   }
 
   function handleRenameSession(msg: ClientMessageOf<'rename-session'>, ws: ControlSocket): void {
