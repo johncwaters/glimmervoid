@@ -185,9 +185,11 @@ function remoteCheckoutDirectory({ checkoutRoot, workspace }: { checkoutRoot: st
 
 function coderErrorDetail(stderr: unknown): string | null {
   if (typeof stderr !== 'string') return null;
-  const errorLine = stderr.split('\n').map((line) => line.trim()).findLast((line) => line.startsWith('error:'));
-  if (!errorLine) return null;
-  return errorLine.slice('error:'.length).trim().slice(0, CODER_ERROR_DETAIL_LIMIT) || null;
+  const lines = stderr.split('\n').map((line) => line.trim());
+  const errorLineIndex = lines.findLastIndex((line) => line.startsWith('error:'));
+  if (errorLineIndex === -1) return null;
+  const errorWithCause = lines.slice(errorLineIndex).filter(Boolean).join(' ');
+  return errorWithCause.slice('error:'.length).trim().slice(0, CODER_ERROR_DETAIL_LIMIT) || null;
 }
 
 export {

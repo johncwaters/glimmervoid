@@ -21,9 +21,10 @@ function listing(names: string[], stoppedAtMsByName: Record<string, number> = {}
   }));
 }
 
-function createHarness({ hasMapping = true, sharingStatus = '', idleState = STATES.RUNNING, createReleased = Promise.resolve(), createStderr = null }: {
+function createHarness({ hasMapping = true, sharingStatus = '', idleState = STATES.RUNNING, createReleased = Promise.resolve(), createStderr = null, createStderrAfterBuild = null }: {
   hasMapping?: boolean;
   createStderr?: string | null;
+  createStderrAfterBuild?: string | null;
   sharingStatus?: string;
   idleState?: (typeof STATES)[keyof typeof STATES];
   createReleased?: Promise<void>;
@@ -65,6 +66,7 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
         assert.equal(config.projects[0].environment?.workspace, args[1]);
         await createReleased;
         listings.current = listing([args[1]]);
+        if (createStderrAfterBuild !== null) throw Object.assign(new Error('Command failed: coder create'), { stderr: createStderrAfterBuild });
       }
       if (args[0] === 'sharing') return { stdout: sharingStatus };
       if (args[0] === 'ssh') return { stdout: 'v24.0.0\n' };
@@ -201,4 +203,18 @@ test('a create the template refuses before any workspace exists reports the code
   const provisioned = await harness.provisionReserved();
   assert.deepEqual(provisioned, { ok: false, reason: 'Coder create failed: prepare build: EOF' });
   assert.ok(harness.commands.find(({ args }) => args[0] === 'create')?.args.includes('--use-parameter-defaults'));
+});
+
+test('a create whose build log stream drops after the workspace exists still provisions it', async (context) => {
+  const harness = createHarness({ hasMapping: false, createStderrAfterBuild: 'Encountered an error running "coder create"\nerror: watch build:\n    websocket: close 1006 (abnormal closure)\n' });
+  context.after(harness.wiring.stop);
+  const provisioned = await harness.provisionReserved();
+  assert.equal(provisioned.ok, true);
+  assert.ok(!harness.events.includes('delete'));
+});
+
+test('a coder error keeps the cause printed on the lines after error:', async (context) => {
+  const harness = createHarness({ hasMapping: false, createStderr: 'Encountered an error running "coder create"\nerror: watch build:\n    websocket: close 1006 (abnormal closure)\n' });
+  context.after(harness.wiring.stop);
+  assert.deepEqual(await harness.provisionReserved(), { ok: false, reason: 'Coder create failed: watch build: websocket: close 1006 (abnormal closure)' });
 });

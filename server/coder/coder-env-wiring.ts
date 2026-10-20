@@ -229,7 +229,7 @@ function createCoderEnvWiring({
     const reasons = [reason];
     if (cleanup) {
       try {
-        await command([cleanup, workspace, '--yes']);
+        await command([cleanup, workspace, '--yes'], 20 * 60_000);
       } catch {
         if (await isWorkspaceListed(workspace)) reasons.push(`Coder cleanup ${cleanup} failed for ${workspace}`);
       }
@@ -288,7 +288,10 @@ function createCoderEnvWiring({
       if (createArgs === null) throw new Error('Invalid Coder create parameters');
       const checkoutDirectory = remoteCheckoutDirectory({ checkoutRoot: environment.checkoutRoot, workspace });
       didCreate = true;
-      await command(createArgs, 20 * 60_000);
+      await command(createArgs, 20 * 60_000).catch(async (createError: unknown) => {
+        const workspaces = await listWorkspaces().catch(() => []);
+        if (!workspaces.some((candidate) => candidate.name === workspace)) throw createError;
+      });
       await waitForReady(workspace, environment);
       await checkSharing(workspace);
       const nodeVersion = await command(['ssh', workspace, '--', remoteCommand([environment.nodePath, '--version'])])
