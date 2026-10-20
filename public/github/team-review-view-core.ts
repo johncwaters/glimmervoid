@@ -169,6 +169,7 @@ function isAwaitingViewerAfterResolvedComments(draft: ReviewDraft): boolean {
   if (!hasAllViewerThreadsResolved(draft)) return false;
   if (hasStandingViewerApproval(draft)) return false;
   const head = currentHead(draft);
+  if (draft.status === 'posted' && draft.postedEvent === 'APPROVE' && draft.reviewedHead === head) return false;
   return !(draft.githubReviews ?? []).some((review) => review.isViewer && review.state === 'APPROVED' && review.commit === head);
 }
 

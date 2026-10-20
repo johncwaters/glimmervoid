@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Task titles ignore background task notifications**: when a Claude Code background task or subagent finishes, the `<task-notification>` it injects no longer becomes a session's task title or feeds the title and name refiner, so titles stay on what you actually asked for.
+- **Reviews leave the queue once merged or approved**: a review of a pull request that GitHub reports merged or closed now leaves the Reviews tab within about a minute, from Ready and from Waiting on author alike. Before, it could sit there for hours whenever one of the team searches came back incomplete. Approving a review whose comments were all resolved now moves it out of Ready right away, instead of waiting for GitHub to report the approval back.
 
 ## [0.41.0] - 2026-10-20
 
