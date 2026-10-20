@@ -350,13 +350,18 @@ function createHandReviewSection(reviews: QueuedReview[], hasMultipleRepos: bool
   return section;
 }
 
-function createCaughtUpBanner({ title, detail }: CaughtUpSelectionView): HTMLElement {
+function createCaughtUpBanner({ title, detail }: { title: string; detail: string }): HTMLElement {
   const banner = el('section', 'pr-caught-up');
   banner.setAttribute('role', 'status');
   const heading = el('strong', 'pr-caught-up-title');
   heading.append(createPrStatusIcon('ready', 'ok'), el('span', null, title));
   banner.append(heading, el('p', 'pr-caught-up-detail', detail));
   return banner;
+}
+
+function createCaughtUpSelection(view: CaughtUpSelectionView, sections: TeamReviewSections): HTMLElement[] {
+  if (view.kind === 'banner') return [createCaughtUpBanner(view)];
+  return [el('p', 'my-pr-note', view.detail), createHandReviewSection(sections.handReview, hasMultipleQueueRepos(sections))];
 }
 
 function showActionNotice(notice: ActionReplyNotice | null): void {
@@ -1028,14 +1033,10 @@ function renderSelectedDetail(sections: TeamReviewSections): void {
   if (!_detail) return;
   _selectedKey = chooseSelectedReviewKey(sections, _selectedKey, _caughtUpSelection !== null);
   if (!_selectedKey) {
-    if (_caughtUpSelection !== null) {
-      const actedKey = _caughtUpSelection.actedKey;
-      if (actedKey && ![...sections.ready, ...sections.attention].some((review) => review.key === actedKey)) _caughtUpSelection = { actedKey: null };
-      _detail.replaceChildren(createCaughtUpBanner(caughtUpSelectionView(sections, _caughtUpSelection.actedKey)));
-      _renderedDetailSignature = null;
-      return;
-    }
-    _detail.replaceChildren();
+    const actedKey = _caughtUpSelection?.actedKey ?? null;
+    const waitingActedKey = actedKey && [...sections.ready, ...sections.attention].some((review) => review.key === actedKey) ? actedKey : null;
+    if (_caughtUpSelection) _caughtUpSelection = { actedKey: waitingActedKey };
+    _detail.replaceChildren(...createCaughtUpSelection(caughtUpSelectionView(sections, waitingActedKey), sections));
     _renderedDetailSignature = null;
     return;
   }

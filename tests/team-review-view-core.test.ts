@@ -1008,21 +1008,21 @@ test('caught-up selection survives posted rows and background arrivals until a r
 });
 
 test('caught-up selection prompts a pick when new attention arrives but ignores the acted review', () => {
-  const pickPrompt = { title: 'New pull requests need you', detail: 'Pick one from the queue.' };
+  const pickPrompt = { kind: 'banner', title: 'New pull requests need you', detail: 'Pick one from the queue.' };
   assert.deepEqual(caughtUpSelectionView(groupDrafts(status([draft(1, { status: 'posted' }), draft(2)])), null), pickPrompt);
   assert.deepEqual(caughtUpSelectionView(groupDrafts(status([draft(2, { status: 'error' })])), null), pickPrompt);
-  assert.deepEqual(caughtUpSelectionView(groupDrafts(status([draft(1)])), 'Acme/app#1'), { title: 'All caught up', detail: 'Nothing needs you right now.' });
+  assert.deepEqual(caughtUpSelectionView(groupDrafts(status([draft(1)])), 'Acme/app#1'), { kind: 'banner', title: 'All caught up', detail: 'Nothing needs you right now.' });
 });
 
-test('caught-up selection names the pull requests left to review by hand', () => {
+test('caught-up selection explains review by hand and counts reviews still running', () => {
   const oneByHand = groupDrafts(TeamReviewStatus.parse({ ...status([draft(1, { status: 'posted' })]), handReview: [draft(3)] }));
-  assert.deepEqual(caughtUpSelectionView(oneByHand, null), { title: 'Drafts all handled', detail: '1 pull request needs review by hand.' });
-  const twoByHand = groupDrafts(TeamReviewStatus.parse({ ...status([]), handReview: [draft(3), draft(4)] }));
-  assert.equal(caughtUpSelectionView(twoByHand, null).detail, '2 pull requests need review by hand.');
+  assert.deepEqual(caughtUpSelectionView(oneByHand, null), { kind: 'handReview', detail: 'From a fork, so the agent cannot check out its branch. Review on GitHub.' });
+  const byHandWhileRunning = groupDrafts(TeamReviewStatus.parse({ ...status([], [inFlightReview(2), inFlightReview(5)]), handReview: [draft(3)] }));
+  assert.equal(caughtUpSelectionView(byHandWhileRunning, null).detail, 'From a fork, so the agent cannot check out its branch. Review on GitHub. 2 reviews are still running.');
 });
 
 test('caught-up selection counts reviews still running when nothing needs the operator', () => {
-  assert.deepEqual(caughtUpSelectionView(groupDrafts(status([], [inFlightReview(2)])), null), { title: 'All caught up', detail: 'Nothing needs you right now. 1 review is still running.' });
+  assert.deepEqual(caughtUpSelectionView(groupDrafts(status([], [inFlightReview(2)])), null), { kind: 'banner', title: 'All caught up', detail: 'Nothing needs you right now. 1 review is still running.' });
 });
 
 test('an ok action reply advances the selected review without carrying its outcome onto the next one', () => {

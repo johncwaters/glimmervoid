@@ -215,24 +215,24 @@ export interface TeamReviewSections {
   discarded: ReviewDraft[];
 }
 
-export function caughtUpDetail(sections: TeamReviewSections): string | null {
-  if (sections.ready.length + sections.attention.length + sections.handReview.length > 0) return null;
+function runningReviewsText(sections: TeamReviewSections): string {
   const runningCount = sections.inReview.length + sections.queued.length;
-  if (runningCount === 0) return 'Nothing needs you right now.';
-  return `Nothing needs you right now. ${runningCount} ${runningCount === 1 ? 'review is' : 'reviews are'} still running.`;
+  if (runningCount === 0) return '';
+  return ` ${runningCount} ${runningCount === 1 ? 'review is' : 'reviews are'} still running.`;
 }
 
-export interface CaughtUpSelectionView {
-  title: string;
-  detail: string;
+export function caughtUpDetail(sections: TeamReviewSections): string | null {
+  if (sections.ready.length + sections.attention.length + sections.handReview.length > 0) return null;
+  return `Nothing needs you right now.${runningReviewsText(sections)}`;
 }
+
+export type CaughtUpSelectionView = { kind: 'banner'; title: string; detail: string } | { kind: 'handReview'; detail: string };
 
 export function caughtUpSelectionView(sections: TeamReviewSections, actedKey: string | null): CaughtUpSelectionView {
   const waitingCount = [...sections.ready, ...sections.attention].filter((review) => review.key !== actedKey).length;
-  if (waitingCount > 0) return { title: 'New pull requests need you', detail: 'Pick one from the queue.' };
-  const handReviewCount = sections.handReview.length;
-  if (handReviewCount > 0) return { title: 'Drafts all handled', detail: `${handReviewCount} ${handReviewCount === 1 ? 'pull request needs' : 'pull requests need'} review by hand.` };
-  return { title: 'All caught up', detail: caughtUpDetail({ ...sections, ready: [], attention: [] }) ?? '' };
+  if (waitingCount > 0) return { kind: 'banner', title: 'New pull requests need you', detail: 'Pick one from the queue.' };
+  if (sections.handReview.length > 0) return { kind: 'handReview', detail: `From a fork, so the agent cannot check out its branch. Review on GitHub.${runningReviewsText(sections)}` };
+  return { kind: 'banner', title: 'All caught up', detail: caughtUpDetail({ ...sections, ready: [], attention: [] }) ?? '' };
 }
 
 export interface ActionReplyNotice {

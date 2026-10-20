@@ -494,8 +494,8 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     assert.equal(await caughtUpTitle.textContent(), 'All caught up');
     assert.equal(await actionNotice.isVisible(), false);
     await applyStatus(page, { ...withDrafts([createDraft(1, { status: 'posted' }), createDraft(2, { status: 'discarded' })]), handReview: [createDraft(12)] });
-    assert.equal(await caughtUpTitle.textContent(), 'Drafts all handled');
-    assert.equal(await caughtUpDetailText.textContent(), '1 pull request needs review by hand.');
+    assert.equal(await page.locator('.pr-detail-host .my-pr-note').textContent(), 'From a fork, so the agent cannot check out its branch. Review on GitHub.');
+    assert.equal(await page.locator('.pr-detail-host a.pr-queue-row').getAttribute('href'), 'https://github.com/Acme/app/pull/12');
     await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2)]));
     assert.equal(await page.locator('.pr-queue-row[aria-current="true"]').count(), 0);
     assert.equal(await caughtUpTitle.textContent(), 'New pull requests need you');

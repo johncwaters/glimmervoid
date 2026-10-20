@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Reviews says what to do with pull requests left for you to review by hand**: when no review is selected, the Reviews pane used to say only "Drafts all handled" and a count. It now lists each pull request from a fork as a link to GitHub, says the agent cannot review it because it cannot check out a fork's branch, and says how many agent reviews are still running. A queue holding only fork pull requests no longer leaves the pane blank.
 - **Sessions get their refined task title and name again**: Claude Code sessions never told the title refiner about your prompts, so it never ran. A card kept a "glimmervoid (2)" style name, and its description was Claude Code's own terminal title. Now, after a turn ends, an auto-named session gets a short name and a task title from your recent prompts. Claude Code's own conversation title is read at turn end again too.
 - **Adding a session to a folder that is not a git repository**: the + on a sidebar group for such a folder now opens Add Session with the folder filled in and the "Run in this folder, no worktree" choice shown, instead of printing an error in the header. You no longer have to remove the folder and add it again.
 - **Header errors no longer push the header onto two rows**: a long error message stays on one line and is cut short, with the full text on hover.
