@@ -2,6 +2,7 @@ import { randomBytes, randomInt } from 'node:crypto';
 import path from 'node:path';
 import type { Config } from '../../shared/contracts/config.ts';
 import type { CoderEnvironmentOffer } from '../../shared/contracts/control-messages.ts';
+import { errorMessage } from '../../shared/text.ts';
 import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
 import { coderCreateArgs, remoteShellCommand, workspaceNameFromHex } from '../../session/core/remote-launch-core.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
@@ -9,9 +10,9 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { createCoderEnvPoller } from './coder-env-poller.ts';
 import type { CoderEnvPollerDeps } from './coder-env-poller.ts';
 import {
-  CODER_ENV_READY_POLL_MS, coderErrorDetail, decideReadiness, failedProvisionCleanup, liveLimitRefusal, parseGlimmervoidWorkspaces, remoteCheckoutDirectory, resolveCoderEnvironment, sharingRefusal,
+  CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_READY_POLL_MS, coderErrorDetail, decideReadiness, failedProvisionCleanup, liveLimitRefusal, parseGlimmervoidWorkspaces, remoteCheckoutDirectory, resolveCoderEnvironment, retainedOwnedWorkspaces, sharingRefusal,
 } from './core/coder-env-core.ts';
-import type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ResolvedCoderEnvironment } from './core/coder-env-core.ts';
+import type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ResolvedCoderEnvironment, WorkspaceMapping } from './core/coder-env-core.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
 
 type ProjectEnvironment = NonNullable<Config['projects'][number]['environment']>;
@@ -23,10 +24,12 @@ interface RunCoderOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-interface CoderEnvWiringOptions extends Omit<CoderEnvPollerDeps, 'listWorkspaces' | 'stopWorkspace' | 'deleteWorkspace' | 'mappings' | 'busyWorkspaces' | 'isReconcilePending' | 'deleteAfterStoppedDays' | 'onReconciled'> {
+interface CoderEnvWiringOptions extends Omit<CoderEnvPollerDeps, 'listWorkspaces' | 'stopWorkspace' | 'deleteWorkspace' | 'mappings' | 'busyWorkspaces' | 'ownedWorkspaces' | 'isReconcilePending' | 'deleteAfterStoppedDays' | 'onReconciled'> {
   config: Pick<Config, 'coder' | 'projects' | 'remoteSessions'>;
   persistMapping: (projectId: string, mapping: ProjectEnvironment | undefined) => void | Promise<void>;
   onReconciled?: CoderEnvPollerDeps['onReconciled'];
+  loadOwnedWorkspaces: () => string[];
+  saveOwnedWorkspaces: (workspaces: string[]) => Promise<void>;
   runCoder?: (args: string[], options: RunCoderOptions) => Promise<{ stdout: string }>;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
@@ -35,7 +38,7 @@ interface CoderEnvWiringOptions extends Omit<CoderEnvPollerDeps, 'listWorkspaces
 }
 
 function createCoderEnvWiring({
-  config, persistMapping, onReconciled = () => {}, runCoder: executeCoder, env = process.env, platform = process.platform,
+  config, persistMapping, onReconciled = () => {}, loadOwnedWorkspaces, saveOwnedWorkspaces, runCoder: executeCoder, env = process.env, platform = process.platform,
   fetch: fetchReady = globalThis.fetch, createPoller = createCoderEnvPoller, now = Date.now, log = console,
   ...pollerDeps
 }: CoderEnvWiringOptions) {
@@ -47,6 +50,35 @@ function createCoderEnvWiring({
   const provisionByProject = new Map<string, Promise<CoderEnvResult>>();
   const failedProvisionByProject = new Map<string, { ok: false; reason: string }>();
   const setTimeoutFn = pollerDeps.setTimeoutFn ?? DEFAULT_TIMER_FNS.setTimeoutFn;
+  let ownedWorkspaces = new Set([...loadOwnedWorkspaces(), ...currentMappings().map((mapping) => mapping.workspace)]);
+  let ownedSaveChain: Promise<void> = Promise.resolve();
+
+  function currentMappings(): WorkspaceMapping[] {
+    return config.projects.flatMap((project) => project.id && project.environment
+      ? [{ projectId: project.id, workspace: project.environment.workspace, wasActive: project.wasActive === true }]
+      : []);
+  }
+
+  function busyWorkspaces(): Set<string> {
+    return new Set(operationCountByWorkspace.keys());
+  }
+
+  function saveOwned(): Promise<void> {
+    const save = ownedSaveChain.then(() => saveOwnedWorkspaces([...ownedWorkspaces]));
+    ownedSaveChain = save.catch(() => {});
+    return save;
+  }
+
+  async function pruneOwned(workspaces: readonly CoderWorkspace[]): Promise<void> {
+    const retained = retainedOwnedWorkspaces({ ownedWorkspaces, workspaces, mappings: currentMappings(), busyWorkspaces: busyWorkspaces() });
+    if (retained.size === ownedWorkspaces.size) return;
+    ownedWorkspaces = retained;
+    try {
+      await saveOwned();
+    } catch (error) {
+      log.warn(`[coder-env] could not save owned Coder workspaces: ${errorMessage(error)}`);
+    }
+  }
 
   async function runCoder(args: string[], { timeoutMs, input = '', env: commandEnv }: RunCoderOptions): Promise<{ stdout: string }> {
     try {
@@ -73,7 +105,8 @@ function createCoderEnvWiring({
 
   async function readWorkspaceListing(): Promise<string> {
     const listingJson = (await command(['list', '-o', 'json'])).stdout;
-    recordListing(listingJson);
+    const workspaces = recordListing(listingJson);
+    if (workspaces !== null) await pruneOwned(workspaces);
     return listingJson;
   }
 
@@ -132,10 +165,9 @@ function createCoderEnvWiring({
       listWorkspaces: readWorkspaceListing,
       stopWorkspace: async (workspace) => { await command(['stop', workspace, '--yes']); },
       deleteWorkspace: async (workspace) => { await command(['delete', workspace, '--yes']); },
-      mappings: () => config.projects.flatMap((project) => project.id && project.environment
-        ? [{ projectId: project.id, workspace: project.environment.workspace, wasActive: project.wasActive === true }]
-        : []),
-      busyWorkspaces: () => new Set(operationCountByWorkspace.keys()),
+      mappings: currentMappings,
+      busyWorkspaces,
+      ownedWorkspaces: () => ownedWorkspaces,
       isReconcilePending: () => !hasReconciled,
       deleteAfterStoppedDays: () => Math.max(...(config.coder?.environments ?? []).map((environment) => resolveCoderEnvironment(environment).deleteAfterStoppedDays)),
       onReconciled: async (plan) => {
@@ -188,8 +220,16 @@ function createCoderEnvWiring({
 
   async function waitForReady(workspaceName: string, environment: ResolvedCoderEnvironment): Promise<void> {
     const startedAtMs = now();
+    let consecutiveListFailures = 0;
     for (;;) {
-      const workspaces = await listWorkspaces();
+      const workspaces = await listWorkspaces().then((listed) => {
+        consecutiveListFailures = 0;
+        return listed;
+      }, (listError: unknown) => {
+        consecutiveListFailures += 1;
+        if (consecutiveListFailures >= CODER_ENV_READY_LIST_FAILURE_LIMIT) throw listError;
+        return [];
+      });
       const workspace = workspaces.find((candidate) => candidate.name === workspaceName);
       let isReadyUrlUp: boolean | null = null;
       if (environment.readyUrl) {
@@ -287,6 +327,8 @@ function createCoderEnvWiring({
       const createArgs = coderCreateArgs({ workspace, template: environment.template, stopAfter: environment.stopAfter, parameters: environment.parameters });
       if (createArgs === null) throw new Error('Invalid Coder create parameters');
       const checkoutDirectory = remoteCheckoutDirectory({ checkoutRoot: environment.checkoutRoot, workspace });
+      ownedWorkspaces.add(workspace);
+      await saveOwned().catch((saveError: unknown) => { throw new Error(`Could not record Coder workspace ${workspace} as owned by this host: ${errorMessage(saveError)}`); });
       didCreate = true;
       await command(createArgs, 20 * 60_000).catch(async (createError: unknown) => {
         const workspaces = await listWorkspaces().catch(() => []);

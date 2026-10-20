@@ -20,16 +20,25 @@ type CoderEnvPollerDeps = Pick<TickLoopOptions, 'now' | 'setIntervalFn' | 'clear
   sessionsForIdleCheck: () => RemoteIdleSession[];
   mappings: () => WorkspaceMapping[];
   busyWorkspaces: () => ReadonlySet<string>;
+  ownedWorkspaces: () => ReadonlySet<string>;
   isReconcilePending: () => boolean;
   deleteAfterStoppedDays: () => number;
   onReconciled: (plan: ReconcilePlan) => void | Promise<void>;
 };
 
 function createCoderEnvPoller({
-  listWorkspaces, stopWorkspace, deleteWorkspace, sessionsForIdleCheck, mappings, busyWorkspaces, isReconcilePending, deleteAfterStoppedDays, onReconciled,
+  listWorkspaces, stopWorkspace, deleteWorkspace, sessionsForIdleCheck, mappings, busyWorkspaces, ownedWorkspaces, isReconcilePending, deleteAfterStoppedDays, onReconciled,
   now = Date.now, log = console, ...loopOptions
 }: CoderEnvPollerDeps) {
   const stoppedIdlePeriods = new Map<string, number>();
+
+  async function mutateUnmappedWorkspace(mutate: (workspace: string) => Promise<void>, workspace: string): Promise<void> {
+    try {
+      await mutate(workspace);
+    } catch (error) {
+      log.warn(`[coder-env] ${errorMessage(error)}; skipping ${workspace}`);
+    }
+  }
 
   async function runTick(): Promise<TickOutcome | undefined> {
     try {
@@ -38,16 +47,17 @@ function createCoderEnvPoller({
       if (loop.isStopped()) return;
       const workspaceByName = new Map<string, CoderWorkspace>(workspaces.map((workspace) => [workspace.name, workspace]));
       const stoppedThisTick = new Set<string>();
+      const plan = planReconcile({ workspaces, mappings: mappings(), busyWorkspaces: busyWorkspaces(), ownedWorkspaces: ownedWorkspaces(), nowMs: now(), deleteAfterStoppedDays: deleteAfterStoppedDays() });
+      for (const workspace of plan.delete) {
+        if (loop.isStopped()) return;
+        await mutateUnmappedWorkspace(deleteWorkspace, workspace);
+      }
+      for (const workspace of plan.stopUnmapped) {
+        if (loop.isStopped()) return;
+        log.warn(`[coder-env] stopping unmapped workspace ${workspace}`);
+        await mutateUnmappedWorkspace(stopWorkspace, workspace);
+      }
       if (isReconcilePending()) {
-        const staleAfterDays = deleteAfterStoppedDays();
-        const plan = planReconcile({ workspaces, mappings: mappings(), busyWorkspaces: busyWorkspaces(), nowMs: now(), deleteAfterStoppedDays: staleAfterDays });
-        if (plan.keptUnmapped.length > 0) {
-          log.warn(`[coder-env] keeping unmapped workspaces until stopped for ${staleAfterDays} days: ${plan.keptUnmapped.join(', ')}`);
-        }
-        for (const workspace of plan.delete) {
-          if (loop.isStopped()) return;
-          await deleteWorkspace(workspace);
-        }
         for (const mapping of plan.stop) {
           if (loop.isStopped()) return;
           const status = workspaceByName.get(mapping.workspace)?.status;

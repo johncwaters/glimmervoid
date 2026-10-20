@@ -4,7 +4,7 @@ import type { Config } from '../shared/contracts/config.ts';
 import { STATES } from '../shared/states.ts';
 import { createCoderEnvPoller } from '../server/coder/coder-env-poller.ts';
 import { createCoderEnvWiring } from '../server/coder/coder-env-wiring.ts';
-import { CODER_ENV_IDLE_TICK_MS, sharingRefusal } from '../server/coder/core/coder-env-core.ts';
+import { CODER_ENV_IDLE_TICK_MS, CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_READY_POLL_MS, sharingRefusal } from '../server/coder/core/coder-env-core.ts';
 import type { ReconcilePlan } from '../server/coder/core/coder-env-core.ts';
 import { manualTimers } from './helpers/manual-timers.ts';
 import { waitFor } from './helpers/wait-for.ts';
@@ -21,8 +21,11 @@ function listing(names: string[], stoppedAtMsByName: Record<string, number> = {}
   }));
 }
 
-function createHarness({ hasMapping = true, sharingStatus = '', idleState = STATES.RUNNING, createReleased = Promise.resolve(), createStderr = null, createStderrAfterBuild = null }: {
+function createHarness({ hasMapping = true, sharingStatus = '', idleState = STATES.RUNNING, createReleased = Promise.resolve(), createStderr = null, createStderrAfterBuild = null, failedListingsAfterCreate = 0, failingStopWorkspace = null, ownedWorkspaces = [] }: {
   hasMapping?: boolean;
+  ownedWorkspaces?: string[];
+  failingStopWorkspace?: string | null;
+  failedListingsAfterCreate?: number;
   createStderr?: string | null;
   createStderrAfterBuild?: string | null;
   sharingStatus?: string;
@@ -42,8 +45,10 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
   const pollers: ReturnType<typeof createCoderEnvPoller>[] = [];
   const plans: ReconcilePlan[] = [];
   const warnings: string[] = [];
+  const savedOwnedWorkspaces: string[][] = [];
   const listings = { current: listing([MAPPED_WORKSPACE]) };
   let nowMs = 120_000;
+  let remainingFailedListings = 0;
   const wiring = createCoderEnvWiring({
     ...timers, setIntervalFn: timers.setTimeoutFn, clearIntervalFn: timers.clearTimeoutFn,
     config, platform: 'linux', now: () => nowMs, firstTickDelayMs: () => 0,
@@ -56,16 +61,27 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
       project.environment = mapping;
     },
     onReconciled: (plan) => { plans.push(plan); },
+    loadOwnedWorkspaces: () => [...ownedWorkspaces],
+    saveOwnedWorkspaces: async (workspaces) => {
+      events.push('save-owned');
+      savedOwnedWorkspaces.push([...workspaces]);
+    },
     runCoder: async (args, options) => {
       events.push(args[0]);
       commands.push({ args: [...args], input: options.input, env: options.env });
+      if (args[0] === 'list' && remainingFailedListings > 0) {
+        remainingFailedListings -= 1;
+        throw Object.assign(new Error('Command failed: coder list'), { stderr: 'error: list workspaces: connection reset by peer\n' });
+      }
       if (args[0] === 'list') return { stdout: listings.current };
+      if (args[0] === 'stop' && args[1] === failingStopWorkspace) throw Object.assign(new Error('Command failed: coder stop'), { stderr: 'error: stop workspace: forbidden\n' });
       if (args[0] === 'create' && createStderr !== null) throw Object.assign(new Error('Command failed: coder create'), { stderr: createStderr });
       if (args[0] === 'delete' && !listings.current.includes(args[1])) throw Object.assign(new Error('Command failed: coder delete'), { stderr: 'error: workspace not found\n' });
       if (args[0] === 'create') {
         assert.equal(config.projects[0].environment?.workspace, args[1]);
         await createReleased;
         listings.current = listing([args[1]]);
+        remainingFailedListings = failedListingsAfterCreate;
         if (createStderrAfterBuild !== null) throw Object.assign(new Error('Command failed: coder create'), { stderr: createStderrAfterBuild });
       }
       if (args[0] === 'sharing') return { stdout: sharingStatus };
@@ -99,22 +115,39 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
     assert.ok(reserved.ok);
     return wiring.provision({ projectId: 'project', mapping: reserved.mapping, repoRemoteUrl: 'git@example.com:org/repo.git', baseBranch: 'main' });
   }
-  return { wiring, start, tick, config, commands, events, plans, warnings, listings, timers, reserveAndSave, provisionReserved };
+  return { wiring, start, tick, config, commands, events, plans, warnings, listings, timers, savedOwnedWorkspaces, reserveAndSave, provisionReserved };
 }
 
-test('boot reconcile deletes only an unmapped gv workspace stopped past deleteAfterStoppedDays and leaves live or recent ones alone', async (context) => {
-  const harness = createHarness();
+test('reconcile stops owned unmapped running gv workspaces on every tick, deletes only an owned one stopped past deleteAfterStoppedDays, and never touches another host\'s', async (context) => {
+  const harness = createHarness({ ownedWorkspaces: ['gv-aaaaaaaaaaaa', 'gv-bbbbbbbbbbbb', 'gv-cccccccccccc'] });
   context.after(harness.wiring.stop);
-  harness.listings.current = listing([MAPPED_WORKSPACE, 'gv-aaaaaaaaaaaa', 'gv-bbbbbbbbbbbb', 'gv-cccccccccccc', 'devbox-main'], {
+  harness.listings.current = listing([MAPPED_WORKSPACE, 'gv-aaaaaaaaaaaa', 'gv-bbbbbbbbbbbb', 'gv-cccccccccccc', 'gv-eeeeeeeeeeee', 'gv-ffffffffffff', 'devbox-main'], {
     'gv-bbbbbbbbbbbb': 120_000 - 4 * DAY_MS,
     'gv-cccccccccccc': 120_000 - DAY_MS,
+    'gv-ffffffffffff': 120_000 - 4 * DAY_MS,
   });
   await harness.start();
   const mutations = harness.commands.filter(({ args }) => args[0] === 'delete' || args[0] === 'stop').map(({ args }) => args);
-  assert.deepEqual(mutations, [['delete', 'gv-bbbbbbbbbbbb', '--yes']]);
-  assert.deepEqual(harness.plans[0].keptUnmapped, ['gv-aaaaaaaaaaaa', 'gv-cccccccccccc']);
+  assert.deepEqual(mutations, [['delete', 'gv-bbbbbbbbbbbb', '--yes'], ['stop', 'gv-aaaaaaaaaaaa', '--yes']]);
   assert.equal(harness.config.projects[0].environment?.workspace, MAPPED_WORKSPACE);
   assert.deepEqual(harness.plans[0].resume.map((mapping) => mapping.workspace), [MAPPED_WORKSPACE]);
+  harness.listings.current = listing([MAPPED_WORKSPACE, 'gv-aaaaaaaaaaaa', 'gv-eeeeeeeeeeee']);
+  await harness.tick();
+  assert.deepEqual(harness.commands.at(-1)?.args, ['stop', 'gv-aaaaaaaaaaaa', '--yes']);
+  assert.ok(harness.commands.every(({ args }) => args[1] !== 'gv-eeeeeeeeeeee' && args[1] !== 'gv-ffffffffffff'));
+  assert.deepEqual(harness.savedOwnedWorkspaces.at(-1), ['gv-aaaaaaaaaaaa', MAPPED_WORKSPACE]);
+  assert.equal(harness.plans.length, 1);
+});
+
+test('an unmapped workspace whose stop keeps failing still lets boot reconcile and idle stop run', async (context) => {
+  const harness = createHarness({ idleState: STATES.IDLE, failingStopWorkspace: 'gv-aaaaaaaaaaaa', ownedWorkspaces: ['gv-aaaaaaaaaaaa'] });
+  context.after(harness.wiring.stop);
+  harness.listings.current = listing([MAPPED_WORKSPACE, 'gv-aaaaaaaaaaaa']);
+  await harness.start();
+  await harness.tick();
+  const stops = harness.commands.filter(({ args }) => args[0] === 'stop').map(({ args }) => args[1]);
+  assert.deepEqual(stops, ['gv-aaaaaaaaaaaa', MAPPED_WORKSPACE, 'gv-aaaaaaaaaaaa']);
+  assert.ok(harness.warnings.includes('[coder-env] Coder stop failed: stop workspace: forbidden; skipping gv-aaaaaaaaaaaa'));
 });
 
 test('boot reconcile keeps the mapping of a project whose workspace no longer exists', async (context) => {
@@ -135,6 +168,8 @@ test('a shared provision deletes its workspace and keeps its mapping after persi
   const createdWorkspace = harness.commands.find(({ args }) => args[0] === 'create')?.args[1];
   assert.deepEqual(provision, { ok: false, reason: sharingRefusal(sharingStatus) });
   assert.ok(createdWorkspace && harness.events.indexOf('persist') < harness.events.indexOf('create'));
+  assert.ok(harness.events.indexOf('save-owned') < harness.events.indexOf('create'));
+  assert.deepEqual(harness.savedOwnedWorkspaces[0], [createdWorkspace]);
   assert.deepEqual(harness.commands.at(-1)?.args, ['delete', createdWorkspace, '--yes']);
   assert.equal(harness.config.projects[0].environment?.workspace, createdWorkspace);
   assert.ok(!harness.events.includes('clear'));
@@ -159,15 +194,17 @@ test('a reconcile tick during a provision between persist and create neither for
   assert.ok(!harness.events.includes('clear'));
 });
 
-test('an idle remote session past its idle limit stops once during that idle period', async (context) => {
-  const harness = createHarness({ idleState: STATES.IDLE });
-  context.after(harness.wiring.stop);
-  await harness.start();
-  await harness.tick();
-  await harness.tick();
-  assert.deepEqual(harness.commands.filter(({ args }) => args[0] === 'stop').map(({ args }) => args), [['stop', MAPPED_WORKSPACE, '--yes']]);
-  assert.equal(harness.timers.pending[0]?.ms, CODER_ENV_IDLE_TICK_MS);
-});
+for (const idleState of [STATES.IDLE, STATES.FAILED, STATES.DONE]) {
+  test(`a ${idleState} remote session past its idle limit stops once during that idle period`, async (context) => {
+    const harness = createHarness({ idleState });
+    context.after(harness.wiring.stop);
+    await harness.start();
+    await harness.tick();
+    await harness.tick();
+    assert.deepEqual(harness.commands.filter(({ args }) => args[0] === 'stop').map(({ args }) => args), [['stop', MAPPED_WORKSPACE, '--yes']]);
+    assert.equal(harness.timers.pending[0]?.ms, CODER_ENV_IDLE_TICK_MS);
+  });
+}
 
 test('maxLive and a switched-off Remote Coder sessions setting both refuse a new workspace without running a coder command', async (context) => {
   const harness = createHarness({ hasMapping: false });
@@ -217,4 +254,25 @@ test('a coder error keeps the cause printed on the lines after error:', async (c
   const harness = createHarness({ hasMapping: false, createStderr: 'Encountered an error running "coder create"\nerror: watch build:\n    websocket: close 1006 (abnormal closure)\n' });
   context.after(harness.wiring.stop);
   assert.deepEqual(await harness.provisionReserved(), { ok: false, reason: 'Coder create failed: watch build: websocket: close 1006 (abnormal closure)' });
+});
+
+test('a coder list that fails while a new workspace comes up neither aborts nor deletes the provision', async (context) => {
+  const harness = createHarness({ hasMapping: false, failedListingsAfterCreate: 1 });
+  context.after(harness.wiring.stop);
+  const provision = harness.provisionReserved();
+  await waitFor(() => harness.timers.pending.some((timer) => !timer.cleared), 'ready wait sleeps after the failed listing');
+  harness.timers.fireAll();
+  assert.equal((await provision).ok, true);
+  assert.ok(!harness.events.includes('delete'));
+});
+
+test('a coder list that keeps failing while a new workspace comes up fails the provision with the list error', async (context) => {
+  const harness = createHarness({ hasMapping: false, failedListingsAfterCreate: CODER_ENV_READY_LIST_FAILURE_LIMIT });
+  context.after(harness.wiring.stop);
+  const provision = harness.provisionReserved();
+  for (let sleepCount = 1; sleepCount < CODER_ENV_READY_LIST_FAILURE_LIMIT; sleepCount += 1) {
+    await waitFor(() => harness.timers.pending.filter((timer) => timer.ms === CODER_ENV_READY_POLL_MS).length === sleepCount, 'ready wait sleeps after each failed listing');
+    harness.timers.fireAll();
+  }
+  assert.deepEqual(await provision, { ok: false, reason: 'Coder list failed: list workspaces: connection reset by peer' });
 });

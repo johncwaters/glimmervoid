@@ -4,10 +4,11 @@ import { STATES } from '../../../shared/states.ts';
 import type { SessionState } from '../../../shared/states.ts';
 
 const CODER_ENV_READY_POLL_MS = 3_000;
+const CODER_ENV_READY_LIST_FAILURE_LIMIT = 3;
 const CODER_ENV_READY_CEILING_MS = 960_000;
 const CODER_ENV_IDLE_TICK_MS = 60_000;
 const GLIMMERVOID_WORKSPACE_RE = /^gv-[0-9a-f]{12}$/;
-const IDLE_STOP_STATES: ReadonlySet<SessionState> = new Set([STATES.IDLE, STATES.COMPLETE, STATES.DORMANT]);
+const IDLE_STOP_STATES: ReadonlySet<SessionState> = new Set([STATES.IDLE, STATES.COMPLETE, STATES.DORMANT, STATES.FAILED, STATES.DONE]);
 
 const CODER_ENVIRONMENT_DEFAULTS: Readonly<{ idleStopMinutes: number; stopAfter: string; maxLive: number; deleteAfterStoppedDays: number }> = Object.freeze({
   idleStopMinutes: 30,
@@ -63,7 +64,7 @@ interface ReconcilePlan {
   resume: WorkspaceMapping[];
   stop: WorkspaceMapping[];
   delete: string[];
-  keptUnmapped: string[];
+  stopUnmapped: string[];
 }
 
 type ReadinessVerdict = { kind: 'ready' } | { kind: 'waiting' } | { kind: 'failed'; reason: string };
@@ -139,10 +140,11 @@ function shouldIdleStop({ sessionState, idleSinceMs, nowMs, idleStopMinutes }: {
   return nowMs - idleSinceMs >= idleStopMinutes * 60_000;
 }
 
-function planReconcile({ workspaces, mappings, busyWorkspaces, nowMs, deleteAfterStoppedDays }: {
+function planReconcile({ workspaces, mappings, busyWorkspaces, ownedWorkspaces, nowMs, deleteAfterStoppedDays }: {
   workspaces: readonly CoderWorkspace[];
   mappings: readonly WorkspaceMapping[];
   busyWorkspaces: ReadonlySet<string>;
+  ownedWorkspaces: ReadonlySet<string>;
   nowMs: number;
   deleteAfterStoppedDays: number;
 }): ReconcilePlan {
@@ -150,14 +152,25 @@ function planReconcile({ workspaces, mappings, busyWorkspaces, nowMs, deleteAfte
   const listedNames = new Set(workspaces.map((workspace) => workspace.name));
   const idleMappings = mappings.filter((mapping) => !busyWorkspaces.has(mapping.workspace));
   const presentMappings = idleMappings.filter((mapping) => listedNames.has(mapping.workspace));
-  const unmapped = workspaces.filter((workspace) => !mappedNames.has(workspace.name) && !busyWorkspaces.has(workspace.name) && workspace.status !== 'deleting');
+  const unmapped = workspaces.filter((workspace) => !mappedNames.has(workspace.name) && !busyWorkspaces.has(workspace.name) && workspace.status !== 'deleting' && ownedWorkspaces.has(workspace.name));
   const isStale = (workspace: CoderWorkspace) => workspace.stoppedAtMs !== null && nowMs - workspace.stoppedAtMs >= deleteAfterStoppedDays * DAY_MS;
   return {
     resume: presentMappings.filter((mapping) => mapping.wasActive),
     stop: presentMappings.filter((mapping) => !mapping.wasActive),
     delete: unmapped.filter(isStale).map((workspace) => workspace.name),
-    keptUnmapped: unmapped.filter((workspace) => !isStale(workspace)).map((workspace) => workspace.name),
+    stopUnmapped: unmapped.filter((workspace) => workspace.status === 'running').map((workspace) => workspace.name),
   };
+}
+
+function retainedOwnedWorkspaces({ ownedWorkspaces, workspaces, mappings, busyWorkspaces }: {
+  ownedWorkspaces: ReadonlySet<string>;
+  workspaces: readonly CoderWorkspace[];
+  mappings: readonly WorkspaceMapping[];
+  busyWorkspaces: ReadonlySet<string>;
+}): Set<string> {
+  const listedNames = new Set(workspaces.map((workspace) => workspace.name));
+  const mappedNames = new Set(mappings.map((mapping) => mapping.workspace));
+  return new Set([...ownedWorkspaces].filter((workspace) => listedNames.has(workspace) || mappedNames.has(workspace) || busyWorkspaces.has(workspace)));
 }
 
 function failedProvisionCleanup({ didCreate, didStart }: { didCreate: boolean; didStart: boolean }): 'delete' | 'stop' | null {
@@ -193,7 +206,7 @@ function coderErrorDetail(stderr: unknown): string | null {
 }
 
 export {
-  coderErrorDetail, remoteCheckoutDirectory, CODER_ENV_READY_POLL_MS, CODER_ENV_IDLE_TICK_MS, resolveCoderEnvironment, parseGlimmervoidWorkspaces, decideReadiness, shouldIdleStop, planReconcile,
-  failedProvisionCleanup, sharingRefusal, liveLimitRefusal,
+  coderErrorDetail, remoteCheckoutDirectory, CODER_ENV_READY_POLL_MS, CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_IDLE_TICK_MS, resolveCoderEnvironment, parseGlimmervoidWorkspaces, decideReadiness, shouldIdleStop, planReconcile,
+  retainedOwnedWorkspaces, failedProvisionCleanup, sharingRefusal, liveLimitRefusal,
 };
 export type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ReconcilePlan, ResolvedCoderEnvironment, WorkspaceMapping };

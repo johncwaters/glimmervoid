@@ -17,6 +17,9 @@ import type { createClaudeCredentials } from '../claude-credentials.ts';
 import { DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 import { configSiblingPath } from '../pairings-store.ts';
+import fs from 'node:fs';
+import { jsonStateLoadError, loadJsonStateFileSync, writeJsonAtomic } from '../json-file.ts';
+import { CoderOwnedWorkspaces } from '../../shared/contracts/coder-owned-workspaces.ts';
 import { createGitWorkspace, createGitWorkspaceSync } from '../git/git-workspace.ts';
 import { createIngestLane } from '../ingest/ingest-wiring.ts';
 import { createChangeNarrator } from '../change-map/change-narrator.ts';
@@ -148,8 +151,23 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     log: logger,
   });
   const laneTelemetry: Pick<Telemetry, 'capture'> = telemetry;
+  const coderOwnedWorkspacesPath = path.join(glimmervoidHomeDir(), 'coder-owned-workspaces.json');
   const coderEnv = createCoderEnvWiring({
     config,
+    loadOwnedWorkspaces: () => {
+      const outcome = loadJsonStateFileSync({
+        filePath: coderOwnedWorkspacesPath,
+        fsSync: fs,
+        parse: (raw) => CoderOwnedWorkspaces.safeParse(raw).data?.workspaces ?? null,
+        quarantine: false,
+        includeNotDir: false,
+      });
+      if (outcome.status === 'loaded') return outcome.value;
+      if (outcome.status === 'missing') return [];
+      logger.warn(`[coder-env] ignoring ${coderOwnedWorkspacesPath}: ${errorMessage(jsonStateLoadError(outcome))}`);
+      return [];
+    },
+    saveOwnedWorkspaces: (workspaces) => writeJsonAtomic(coderOwnedWorkspacesPath, { version: 1, workspaces } satisfies CoderOwnedWorkspaces, { mode: 0o600, mkdir: true }),
     persistMapping: (projectId, mapping) => persistSessionField(configStore, config, projectId, 'environment', mapping),
     sessionsForIdleCheck: () => {
       const environmentsByName = new Map((config.coder?.environments ?? []).map((environment) => [environment.name, resolveCoderEnvironment(environment)]));
