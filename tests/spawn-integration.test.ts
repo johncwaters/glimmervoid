@@ -60,7 +60,7 @@ test('start() routes a .cmd shim command through cmd.exe /c claude', { skip: pro
   }
 });
 
-test('start() announces the Coherence hooks state it records, a turn end re-prepares inactive hooks so installed hooks take effect mid-session, and a refresh outlived by a restart never overwrites the restart verdict', async () => {
+test('start() announces the Coherence hooks state it records, a turn end rechecks hooks so installed or stale hooks take effect mid-session, and a refresh outlived by a restart never overwrites the restart verdict', async () => {
   const announced: unknown[] = [];
   let preparedHooks: CoherenceHooksState = { active: false, reason: 'check failed with exit code 1' };
   let prepareCount = 0;
@@ -83,6 +83,7 @@ test('start() announces the Coherence hooks state it records, a turn end re-prep
           prepareCount += 1;
           return deferredPrepare ?? preparedHooks;
         },
+        healHooks: async () => ({ status: 'not-needed' as const }),
         readJournal: async () => ({ branch: null, escalations: [], records: [], citedBy: {}, damaged: [] }),
       };
     },
@@ -98,7 +99,7 @@ test('start() announces the Coherence hooks state it records, a turn end re-prep
     await s.refreshCoherenceHooks();
     await s.refreshCoherenceHooks();
     assert.deepEqual(announced, [{ active: false, reason: 'check failed with exit code 1' }, { active: true }]);
-    assert.equal(prepareCount, 3);
+    assert.equal(prepareCount, 4);
 
     preparedHooks = { active: false, reason: 'check failed with exit code 1' };
     firePtyExit();

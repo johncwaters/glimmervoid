@@ -5,13 +5,16 @@ import { COHERENCE_HOOKS_INACTIVE, type CoherenceHooksState } from '../../shared
 import { execFileAsync } from '../child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { checkCoherenceNativeHooks } from './coherence-native-hooks.ts';
-import { isTimedOutCommand } from './core/coherence-session-core.ts';
+import { coherenceHealFailureReason, coherenceInstallFailureReason, isTimedOutCommand, shouldInstallCoherenceHooks } from './core/coherence-session-core.ts';
 import { judgeCoherenceSupport, readCoherenceBinScript } from './core/coherence-support-core.ts';
+
+type CoherenceHealOutcome = { status: 'not-needed' | 'healed' } | { status: 'failed'; reason: string };
 
 export interface CoherenceAttachment {
   hooks: CoherenceHooksState;
   version: string | null;
   refreshHooks(): Promise<CoherenceHooksState>;
+  healHooks(): Promise<CoherenceHealOutcome>;
   readJournal(sessionId: string): Promise<CoherenceJournalOutput>;
 }
 
@@ -65,17 +68,35 @@ export async function resolveCoherence({ worktree, host, isSettingOn, codexEnv =
     unavailable = judged.unavailable;
   }
   const coherenceHost = host;
+  let lastCheckExitCode: number | null = null;
   async function refreshHooks(): Promise<CoherenceHooksState> {
     if (installationProbe) await installationProbe;
     if (!cliScript || unavailable) {
       installationProbe ??= probeInstallation().finally(() => { installationProbe = null; });
       await installationProbe;
     }
+    lastCheckExitCode = null;
     if (unavailable) return unavailable;
-    return checkCoherenceNativeHooks({ worktree, host: coherenceHost, run, codexEnv });
+    const checked = await checkCoherenceNativeHooks({ worktree, host: coherenceHost, run, codexEnv });
+    lastCheckExitCode = checked.checkExitCode;
+    return checked.hooks;
+  }
+  async function isRepositoryConfigured(): Promise<boolean> {
+    return stat(path.join(worktree, 'coherence.config.json')).then((entry) => entry.isFile(), () => false);
+  }
+  async function healHooks(): Promise<CoherenceHealOutcome> {
+    if (installationProbe) await installationProbe;
+    if (unavailable || !shouldInstallCoherenceHooks({ isRepositoryConfigured: await isRepositoryConfigured(), checkExitCode: lastCheckExitCode })) return { status: 'not-needed' };
+    try {
+      await run(['hooks', 'install', '--host', coherenceHost]);
+    } catch (error) {
+      return { status: 'failed', reason: coherenceInstallFailureReason(error) };
+    }
+    const failureReason = coherenceHealFailureReason(await refreshHooks());
+    return failureReason === null ? { status: 'healed' } : { status: 'failed', reason: failureReason };
   }
   return {
-    hooks: await refreshHooks(), get version() { return version; }, refreshHooks,
+    hooks: await refreshHooks(), get version() { return version; }, refreshHooks, healHooks,
     async readJournal(sessionId) {
       if (installationProbe) await installationProbe;
       if (unavailable) throw new Error('Coherence is unavailable');

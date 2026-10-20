@@ -25,15 +25,16 @@ async function areProjectCodexHooksTrusted(worktree: string, codexEnv: NodeJS.Pr
 
 export async function checkCoherenceNativeHooks({ worktree, host, run, codexEnv }: {
   worktree: string; host: CoherenceHost; run: (args: string[]) => Promise<string>; codexEnv: NodeJS.ProcessEnv;
-}): Promise<CoherenceHooksState> {
+}): Promise<{ hooks: CoherenceHooksState; checkExitCode: number | null }> {
   try {
     await run(['hooks', '--check', '--host', host]);
     if (host === 'codex' && !await areProjectCodexHooksTrusted(worktree, codexEnv)) {
-      return { active: false, reason: COHERENCE_HOOKS_INACTIVE.codexHooksUntrusted };
+      return { hooks: { active: false, reason: COHERENCE_HOOKS_INACTIVE.codexHooksUntrusted }, checkExitCode: 0 };
     }
-    return coherenceHooksStateFromCheck(0);
+    return { hooks: coherenceHooksStateFromCheck(0), checkExitCode: 0 };
   } catch (error) {
-    if (isTimedOutCommand(error)) return { active: false, reason: 'hooks check timed out' };
-    return coherenceHooksStateFromCheck(isCompletedCommandFailure(error) ? error.code : null);
+    if (isTimedOutCommand(error)) return { hooks: { active: false, reason: 'hooks check timed out' }, checkExitCode: null };
+    const checkExitCode = isCompletedCommandFailure(error) ? error.code : null;
+    return { hooks: coherenceHooksStateFromCheck(checkExitCode), checkExitCode };
   }
 }

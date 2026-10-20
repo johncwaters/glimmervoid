@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Coherence keeps its own hooks wired**: in a repository with a `coherence.config.json`, a session whose Coherence hooks are missing or out of date gets them installed at the end of a turn, with no action from you. Hooks are rechecked after every turn, so ones that went stale mid-session heal too. The installed settings file stays in the session's worktree for the agent to commit with its work. If an install fails, the session asks for your attention with one line saying why. Codex hook trust stays yours to grant in `/hooks`. A healthy session's card looks the same as before.
+
 ## [0.40.1] - 2026-10-19
 
 ### Fixed

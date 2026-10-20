@@ -5,7 +5,7 @@ import type { CoherenceJournalEntry, CoherenceJournalReading, SessionCoherence }
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import { appendJournalWindow, journalEntries, selectLatestShownEntry } from './core/coherence-feed-core.ts';
 
-type CoherenceFeedSession = Pick<Session, 'id' | 'resumeSessionId' | 'coherenceHooks' | 'coherenceAttachment'> & {
+type CoherenceFeedSession = Pick<Session, 'id' | 'resumeSessionId' | 'coherenceHooks' | 'coherenceAttachment' | 'refreshCoherenceHooks' | 'noteAttention'> & {
   on(event: 'exit', listener: () => void): unknown;
 };
 
@@ -60,7 +60,19 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
     }
   }
 
+  async function healHooks(session: CoherenceFeedSession, state: SessionFeedState): Promise<void> {
+    if (!session.coherenceAttachment || state.isClosed) return;
+    const outcome = await session.coherenceAttachment.healHooks();
+    if (state.isClosed || outcome.status === 'not-needed') return;
+    if (outcome.status === 'failed') {
+      session.noteAttention(`Coherence hooks could not be installed: ${outcome.reason}`);
+      return;
+    }
+    await session.refreshCoherenceHooks();
+  }
+
   async function refreshOnce(session: CoherenceFeedSession, state: SessionFeedState): Promise<void> {
+    await healHooks(session, state);
     if (session.coherenceHooks?.active !== true || state.isClosed) return;
     const journal = await journalReadingFor(state, session);
     if (state.isClosed) return;

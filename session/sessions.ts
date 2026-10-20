@@ -1449,7 +1449,7 @@ class Session extends EventEmitter {
   }
 
   async _refreshCoherenceHooksBody(): Promise<void> {
-    if (!this.coherenceAttachment || this.coherenceHooks?.active === true || this._destroyed) return;
+    if (!this.coherenceAttachment || this._destroyed) return;
     const generationAtRefresh = this._coherenceHooksGeneration;
     const refreshedHooks = await this.coherenceAttachment.refreshHooks();
     if (this._destroyed || generationAtRefresh !== this._coherenceHooksGeneration || JSON.stringify(refreshedHooks) === JSON.stringify(this.coherenceHooks)) return;
