@@ -13,6 +13,7 @@ import codex from '../session/adapters/codex.ts';
 import claudeCode from '../session/adapters/claude-code.ts';
 import * as adapters from '../session/adapters/index.ts';
 import { buildHookCommand } from '../session/core/hook-command-core.ts';
+import { codexHookPlanFor, parseCodexVersion } from '../session/core/codex-version-core.ts';
 import { MAX_PROJECT_CONFIG_DEPTH } from '../session/session-hook-lifecycle.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import type { SessionOptions } from '../session/sessions.ts';
@@ -166,6 +167,22 @@ test('hook args subscribe exactly five events as TOML literal strings, and the t
   assert.equal(args.filter((a) => a === '-c').length, 5);
 });
 
+test('a codex below the extended-hooks floor, or one whose version is unreadable, gets only the five legacy events', () => {
+  const relayPath = '/opt/glimmervoid/session/hook-relay.ts';
+  const eventsOf = (args: string[] | null) => (args ?? []).filter((argument) => argument.startsWith('hooks.')).map((argument) => argument.slice('hooks.'.length, argument.indexOf('=')));
+  const legacy = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'PermissionRequest'];
+  assert.equal(parseCodexVersion('codex-cli 0.163.0\n'), '0.163.0');
+  assert.equal(parseCodexVersion('codex-cli 0.163.0-alpha.1\n'), '0.163.0-alpha.1');
+  for (const version of ['0.162.9', '0.163.0-alpha.1', null, parseCodexVersion('not codex')]) {
+    assert.deepEqual(eventsOf(codex.buildHookArgs({ relayPath, ...codexHookPlanFor(version) })), legacy, String(version));
+  }
+  assert.deepEqual(codexHookPlanFor('0.164.0-alpha.1'), codexHookPlanFor('0.163.0'));
+  const extended = codex.buildHookArgs({ relayPath, ...codexHookPlanFor('0.163.0') }) ?? [];
+  assert.deepEqual(eventsOf(extended), [...legacy, 'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop', 'PostToolUse', 'PreToolUse']);
+  assert.ok(extended.includes(`hooks.PostToolUse=[{matcher='Bash',hooks=[{type='command',command='node ${relayPath} PostToolUse'}]}]`));
+  assert.ok(extended.includes(`hooks.PreToolUse=[{matcher='request_user_input',hooks=[{type='command',command='node ${relayPath} PreToolUse'}]}]`));
+});
+
 test('command hooks merge per event with matchers while empty hooks preserve the relay argv', (context) => {
   const relayPath = '/opt/glimmervoid/session/hook-relay.ts';
   const plain = codex.buildHookArgs({ relayPath });
@@ -311,6 +328,12 @@ test('the hook table maps the five subscribed events and ignores everything else
   assert.equal(codex.hooks.mapConfidence('Stop', {}), null);
 });
 
+function installedRelayHookArgCount(): number {
+  const injection = codex.hooks.injection;
+  assert.equal(injection.kind, 'argv-config');
+  return (injection.buildHookArgs() ?? []).filter((argument) => argument.startsWith('hooks.')).length;
+}
+
 test('a codex spawn carries the hook argv and the ingress URL in the env, never on the command line', async () => {
   const { hookRouter, getHookPort } = hookRouterFor(4321);
   const { session, calls } = makeCodexSession({ hookRouter, getHookPort });
@@ -324,7 +347,7 @@ test('a codex spawn carries the hook argv and the ingress URL in the env, never 
   assert.match(hookUrl, /^http:\/\/127\.0\.0\.1:4321\/hook\/codex-session\?t=[0-9a-f]{64}$/);
   assert.equal(hookUrl.includes(String(session._hooks.token())), true);
   assert.equal(args.some((a) => a.includes(String(session._hooks.token()))), false, 'the token stays off the argv');
-  assert.equal(args.filter((a) => a.includes('hook-relay.ts')).length, 5);
+  assert.equal(args.filter((a) => a.includes('hook-relay.ts')).length, installedRelayHookArgCount());
   session.destroy();
 });
 
@@ -346,7 +369,7 @@ test('an rtk-enabled codex spawn carries the rewrite hook on argv and the binary
 
     const withoutRtk = makeCodexSession({ id: 'codex-rtk-off', hookRouter, getHookPort });
     await withoutRtk.session.start();
-    assert.equal(withoutRtk.calls[0].args.some((a) => a.startsWith('hooks.PreToolUse')), false);
+    assert.equal(withoutRtk.calls[0].args.some((a) => a.startsWith('hooks.PreToolUse') && a.includes('hook-tool-relay')), false);
     assert.equal('GLIMMERVOID_RTK_PATH' in withoutRtk.calls[0].env, false);
     withoutRtk.session.destroy();
   } finally {
@@ -405,7 +428,7 @@ test('the trust bypass is off by default and rides the argv only when the projec
   const optedOut = makeCodexSession({ id: 'codex-noopt', hookRouter, getHookPort });
   await optedOut.session.start();
   assert.equal(optedOut.calls[0].args.includes('--dangerously-bypass-hook-trust'), false);
-  assert.equal(optedOut.calls[0].args.filter((a) => a.startsWith('hooks.')).length, 5,
+  assert.equal(optedOut.calls[0].args.filter((a) => a.startsWith('hooks.')).length, installedRelayHookArgCount(),
     'the hooks are still declared: an operator-seeded trusted_hash is a deliberate path to running them');
   optedOut.session.destroy();
 
@@ -453,7 +476,7 @@ for (const [label, relPath, contents] of [
         const { session, calls } = makeCodexSession({ id, path: cwd, hookRouter, getHookPort, bypassHookTrust: true });
         await session.start();
         assert.equal(calls[0].args.includes('--dangerously-bypass-hook-trust'), false, `${label} (${suffix})`);
-        assert.equal(calls[0].args.filter((a) => a.startsWith('hooks.')).length, 5, 'the hooks are still declared');
+        assert.equal(calls[0].args.filter((a) => a.startsWith('hooks.')).length, installedRelayHookArgCount(), 'the hooks are still declared');
         session.destroy();
       }
     } finally {

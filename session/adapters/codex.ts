@@ -14,6 +14,8 @@ import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-e
 import { buildHookCommand } from "../core/hook-command-core.ts";
 import { supervisionLine } from "../core/session-routes.ts";
 import { codexHomes } from "../../server/usage/core/usage-scan-core.ts";
+import { codexHookPlanFor, LEGACY_HOOK_EVENTS, parseCodexVersion } from "../core/codex-version-core.ts";
+import type { CodexHookPlan, MatchedRelayHook } from "../core/codex-version-core.ts";
 import type {
   AgentAdapterShape,
   AgentArgsOptions,
@@ -29,7 +31,7 @@ const COMMAND_NAME = "codex";
 const RELAY_PATH = relayPath("hook-relay");
 const HOOK_TOOL_RELAY_PATH = relayPath("hook-tool-relay");
 
-const HOOK_EVENTS = ["SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "PermissionRequest"];
+const HOOK_EVENTS = LEGACY_HOOK_EVENTS;
 
 const envProfile: AgentEnvProfile = { scrub: [], set: {} };
 
@@ -106,6 +108,7 @@ const TOML_LITERAL_STRING_FORBIDDEN = /[\x00-\x08\x0a-\x1f\x27\x7f]/;
 function buildHookArgs({
   relayPath = RELAY_PATH,
   events = HOOK_EVENTS,
+  matchedRelayHooks = [],
   bypassHookTrust = false,
   hookTools = [],
   hookToolRelayPath = HOOK_TOOL_RELAY_PATH,
@@ -113,6 +116,7 @@ function buildHookArgs({
 }: {
   relayPath?: string;
   events?: string[];
+  matchedRelayHooks?: readonly MatchedRelayHook[];
   bypassHookTrust?: boolean;
   hookTools?: ResolvedHookTool[];
   hookToolRelayPath?: string;
@@ -129,6 +133,16 @@ function buildHookArgs({
       continue;
     }
     groupsByEvent.set(event, [`{hooks=[{type='command',command='${command}'}]}`]);
+  }
+  for (const { event, matcher } of matchedRelayHooks) {
+    const command = buildHookCommand(relayPath, event);
+    if (!command) return null;
+    const group = `{matcher='${matcher}',hooks=[{type='command',command='${command}'}]}`;
+    if (event === "PreToolUse") {
+      preToolUseGroups.push(group);
+      continue;
+    }
+    groupsByEvent.set(event, [...(groupsByEvent.get(event) ?? []), group]);
   }
   const groups = hookTools.flatMap((tool) => {
     const group = HOOK_TOOLS[tool.id].codexGroup(tool, hookToolRelayPath);
@@ -158,6 +172,26 @@ function buildHookArgs({
   return args;
 }
 
+let installedHookPlan: CodexHookPlan | null = null;
+
+function probeInstalledCodexVersion(): string | null {
+  const versionCommand = buildSpawnCommand({ platform: process.platform, resolved: resolveCommand(), agentArgs: ["--version"] });
+  try {
+    return parseCodexVersion(execFileSync(versionCommand.file, versionCommand.args, { encoding: "utf8", timeout: 3000, windowsHide: true }));
+  } catch {
+    return null;
+  }
+}
+
+function hookPlanForInstalledCodex(): CodexHookPlan {
+  installedHookPlan ??= codexHookPlanFor(probeInstalledCodexVersion());
+  return installedHookPlan;
+}
+
+function buildInstalledHookArgs(options: Parameters<typeof buildHookArgs>[0] = {}): string[] | null {
+  return buildHookArgs({ ...hookPlanForInstalledCodex(), ...options });
+}
+
 const hooks: AgentHookProfile = {
   mapSignal: mapHookToSignal,
   mapConfidence: mapHookConfidence,
@@ -166,7 +200,7 @@ const hooks: AgentHookProfile = {
     kind: "argv-config",
     relayPath: RELAY_PATH,
     events: HOOK_EVENTS,
-    buildHookArgs,
+    buildHookArgs: buildInstalledHookArgs,
     projectConfigCandidates: PROJECT_CONFIG_CANDIDATES,
     userConfigFolders,
     mayContributeHooks,
