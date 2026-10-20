@@ -836,7 +836,8 @@ class Session extends EventEmitter {
         sessionIdOf(raw.payload), raw.payload.source, raw.payload.transcript_path, raw.signal, raw.confidence);
     }
 
-    if (String(raw.event || "").toLowerCase() === "stop") this._observeCompaction("stop");
+    const hookEvent = String(raw.event || "").toLowerCase();
+    if (hookEvent === "stop") this._observeCompaction("stop");
     if (raw.signal === "compaction-start") {
       this._observeCompaction(raw.signal);
       this._statusSource.reset();
@@ -848,7 +849,7 @@ class Session extends EventEmitter {
       return;
     }
 
-    if (raw.event === "UserPromptSubmit") {
+    if (hookEvent === "userpromptsubmit") {
       const prompt = raw.payload?.prompt;
       if (!this._taskTitleSources.promptTitle) {
         this._taskTitleSources.promptTitle = extractPromptTaskTitle(prompt);
@@ -861,7 +862,7 @@ class Session extends EventEmitter {
         this.emit("task-prompt", { prompt: cleanedPrompt });
       }
     }
-    if (raw.event === "Stop" && (this.state === STATES.IDLE || this.state === STATES.COMPLETE)) {
+    if (hookEvent === "stop" && (this.state === STATES.IDLE || this.state === STATES.COMPLETE)) {
       void this._refreshTranscriptTaskTitle();
     }
 

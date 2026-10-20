@@ -160,15 +160,15 @@ test('Claude /clear drops automatic titles so the next prompt titles the new con
   }
 });
 
-test('sessions retain and emit only the last five cleaned substantive prompts', () => {
+test('sessions retain and emit only the last five cleaned substantive prompts from the lowercased hook route event', () => {
   const session = new Session({ id: 's1', name: 'project', path: '/project' });
   try {
     const emittedPrompts: string[] = [];
     session.on('task-prompt', ({ prompt }: { prompt: string }) => emittedPrompts.push(prompt));
     for (let index = 0; index < 7; index++) {
-      session.ingestHookSignal({ event: 'UserPromptSubmit', signal: 'resume', source: 'hook', ts: index, payload: { prompt: `<pasted_content id="x">Hidden</pasted_content> Implement task number ${index}` } });
+      session.ingestHookSignal({ event: 'userpromptsubmit', signal: 'resume', source: 'hook', ts: index, payload: { prompt: `<pasted_content id="x">Hidden</pasted_content> Implement task number ${index}` } });
     }
-    session.ingestHookSignal({ event: 'UserPromptSubmit', signal: 'resume', source: 'hook', ts: 8, payload: { prompt: 'yes please continue' } });
+    session.ingestHookSignal({ event: 'userpromptsubmit', signal: 'resume', source: 'hook', ts: 8, payload: { prompt: 'yes please continue' } });
     assert.equal(emittedPrompts.length, 7);
     assert.deepEqual(session.recentTaskPrompts, emittedPrompts.slice(-5));
     assert.equal(session.taskTitle, 'Implement task number 0');
