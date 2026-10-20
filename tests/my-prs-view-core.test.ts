@@ -25,12 +25,11 @@ test('keep mergeable exposes pressed state and separate save status for open and
   assert.equal(keepMergeableControlState({ ...base, state: 'MERGED', keepMergeable: true }, false).isVisible, true);
 });
 
-test('merge when ready exposes queued state through aria-pressed and the queue position in a separate status line', () => {
+test('merge when ready exposes queued state through aria-pressed and a status line that claims no place in line', () => {
   assert.deepEqual(mergeWhenReadyControlState(base, false), { isVisible: true, isPressed: false, isDisabled: false, statusText: 'Not queued' });
   assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: null }, false), { isVisible: true, isPressed: false, isDisabled: false, statusText: 'Not queued' });
-  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1 }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'Queued, 1st in line for this repository' });
-  const positionTexts = [2, 3, 4, 11, 12, 13, 21, 22, 23].map((position) => mergeWhenReadyControlState({ ...base, mergeQueuePosition: position }, false).statusText);
-  assert.deepEqual(positionTexts, ['2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '23rd'].map((place) => `Queued, ${place} in line for this repository`));
+  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1 }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'On, merges as soon as it is ready' });
+  assert.equal(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 3 }, false).statusText, 'On, merges as soon as it is ready');
   assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 2 }, true), { isVisible: true, isPressed: true, isDisabled: true, statusText: 'Saving' });
   assert.equal(mergeWhenReadyControlState(base, false, 'Cannot save').statusText, 'Cannot save');
   assert.equal(mergeWhenReadyControlState({ ...base, state: 'MERGED' }, false).isVisible, false);
@@ -39,7 +38,7 @@ test('merge when ready exposes queued state through aria-pressed and the queue p
 
 test('merge when ready shows a queued head Keep mergeable pushed as held for the operator', () => {
   assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1, isMergeQueueHeldForRepairPush: true }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'Repair pushed, waiting for you' });
-  assert.equal(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1, isMergeQueueHeldForRepairPush: false }, false).statusText, 'Queued, 1st in line for this repository');
+  assert.equal(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1, isMergeQueueHeldForRepairPush: false }, false).statusText, 'On, merges as soon as it is ready');
 });
 
 test('a feature turned off in Settings hides its toggle even for a PR it still holds, and a status without the flags keeps both shown', () => {
@@ -183,7 +182,7 @@ test('an auto-rebase outcome adds its own readiness row, a failure blocking only
 test('a failed merge when ready shows as a readiness row and in the queue status', () => {
   const failedMerge = { ...toMyPr(node, 0), mergeQueuePosition: 1, mergeQueueFailure: { at: 1, message: 'GraphQL: Resource not accessible by integration (mergePullRequest)' } };
   assert.deepEqual(readinessRows(failedMerge).at(-1), { label: 'Merge when ready', tone: 'danger', icon: 'failed', text: 'Merge failed: GraphQL: Resource not accessible by integration (mergePullRequest)' });
-  assert.equal(mergeWhenReadyControlState(failedMerge, false).statusText, 'Queued, the last merge failed and retries an hour later once it is ready');
+  assert.equal(mergeWhenReadyControlState(failedMerge, false).statusText, 'On, the last merge failed and retries an hour later once it is ready');
 });
 
 test('the merge control is hidden once merged and disabled with the blocking reason beside it', () => {

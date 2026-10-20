@@ -55,23 +55,16 @@ export function isMergeQueueFeatureEnabled(status: MyPrsStatusType | null): bool
   return status?.isMergeQueueEnabled !== false;
 }
 
-const ORDINAL_SUFFIXES: Readonly<Record<string, string>> = { one: 'st', two: 'nd', few: 'rd', other: 'th' };
-const ordinalRules = new Intl.PluralRules('en-US', { type: 'ordinal' });
-
-function ordinal(count: number): string {
-  return `${count}${ORDINAL_SUFFIXES[ordinalRules.select(count)] ?? 'th'}`;
-}
-
-function mergeQueueStatusText(position: number | null, isHeldForRepairPush: boolean, hasMergeFailed: boolean): string {
-  if (position === null) return 'Not queued';
+function mergeQueueStatusText(isQueued: boolean, isHeldForRepairPush: boolean, hasMergeFailed: boolean): string {
+  if (!isQueued) return 'Not queued';
   if (isHeldForRepairPush) return 'Repair pushed, waiting for you';
-  if (hasMergeFailed) return 'Queued, the last merge failed and retries an hour later once it is ready';
-  return `Queued, ${ordinal(position)} in line for this repository`;
+  if (hasMergeFailed) return 'On, the last merge failed and retries an hour later once it is ready';
+  return 'On, merges as soon as it is ready';
 }
 
 export function mergeWhenReadyControlState(pr: MyPr, isPending: boolean, errorText = '', isFeatureEnabled = true): ToggleControlState {
-  const position = pr.mergeQueuePosition ?? null;
-  return toggleControlState(pr, position !== null, isPending, errorText, mergeQueueStatusText(position, !!pr.isMergeQueueHeldForRepairPush, !!pr.mergeQueueFailure), isFeatureEnabled);
+  const isQueued = pr.mergeQueuePosition !== null && pr.mergeQueuePosition !== undefined;
+  return toggleControlState(pr, isQueued, isPending, errorText, mergeQueueStatusText(isQueued, !!pr.isMergeQueueHeldForRepairPush, !!pr.mergeQueueFailure), isFeatureEnabled);
 }
 
 const SECTION_TITLES_BY_URGENCY = ['Needs you', 'Waiting', 'Ready to merge', 'Drafts', 'Merged today'] as const;
