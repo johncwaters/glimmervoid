@@ -1,8 +1,11 @@
 import { z } from 'zod';
 import { BUILTIN_AGENT_IDS } from './config.ts';
+import { DASHBOARD_VIEWS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES } from './control-messages.ts';
+import type { OperatorAction, OperatorSurface } from './control-messages.ts';
 
 const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
 const SESSION_EXIT_KINDS = Object.freeze(['clean', 'error', 'signal', 'no_output'] as const);
+const OPERATOR_ACTIONS = Object.freeze([...new Set(Object.values(OPERATOR_ACTIONS_BY_SURFACE).flat())] as [OperatorAction, ...OperatorAction[]]);
 
 export const MAX_EXCEPTION_FRAMES = 64;
 export const MAX_TEXT_LENGTH = 512;
@@ -27,6 +30,25 @@ const SessionEndedProperties = z.object({
   exit_kind: z.enum(SESSION_EXIT_KINDS),
   duration_seconds: nonNegativeInteger,
 }).strict();
+
+const ViewShownProperties = z.object({
+  view: z.enum(DASHBOARD_VIEWS),
+}).strict();
+
+function isActionOfSurface({ surface, action }: { surface: OperatorSurface; action: OperatorAction }): boolean {
+  const surfaceActions: readonly OperatorAction[] = OPERATOR_ACTIONS_BY_SURFACE[surface];
+  return surfaceActions.includes(action);
+}
+
+const OperatorActionProperties = z.object({
+  surface: z.enum(OPERATOR_SURFACES),
+  action: z.enum(OPERATOR_ACTIONS),
+}).strict().refine(isActionOfSurface, { message: 'action does not belong to its surface' });
+
+export const DashboardTelemetryReport = z.discriminatedUnion('event', [
+  z.object({ event: z.literal('view_shown'), properties: ViewShownProperties }),
+  z.object({ event: z.literal('operator_action'), properties: OperatorActionProperties }),
+]);
 
 export const ExceptionFrame = z.object({
   platform: z.enum(['node:javascript', 'web:javascript']),
@@ -73,6 +95,8 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   session_ended: SessionEndedProperties,
   $exception: ExceptionProperties,
   $ai_generation: AiGenerationProperties,
+  view_shown: ViewShownProperties,
+  operator_action: OperatorActionProperties,
 });
 
 export type TelemetryEventName = keyof typeof TELEMETRY_EVENT_SCHEMAS;
@@ -85,6 +109,8 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'session_ended', description: 'A session exited: how it exited and how long it ran, in whole seconds.' },
   { name: '$exception', description: 'An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start.' },
   { name: '$ai_generation', description: 'Per agent session and model, after each usage scan, for usage recorded in the last 24 hours: token counts, the model name and estimated cost, under a one-way hash of the session. A model name outside the shipped pricing table is sent as unknown. No prompts or output.' },
+  { name: 'view_shown', description: 'A dashboard tab opened, on desktop or phone, with which tab. Sent on every open.' },
+  { name: 'operator_action', description: 'An action taken in the Usage, Issues, Radar or Reviews tab: which tab and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on.' },
 ]);
 
 export const TELEMETRY_BASE_PROPERTY_KEYS = Object.freeze([

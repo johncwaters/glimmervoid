@@ -305,6 +305,8 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `session_ended` | `adapter`, `exit_kind`, `duration_seconds` | A session exited: how it exited and how long it ran, in whole seconds. |
 | `$exception` | `$exception_list`, `$exception_level` | An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start. |
 | `$ai_generation` | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`, `$ai_total_cost_usd`, `agent_adapter` | Per agent session and model, after each usage scan, for usage recorded in the last 24 hours: token counts, the model name and estimated cost, under a one-way hash of the session. A model name outside the shipped pricing table is sent as unknown. No prompts or output. |
+| `view_shown` | `view` | A dashboard tab opened, on desktop or phone, with which tab. Sent on every open. |
+| `operator_action` | `surface`, `action` | An action taken in the Usage, Issues, Radar or Reviews tab: which tab and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on. |
 
 ## Browser preferences
 

@@ -1,4 +1,4 @@
-import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import type { OperatorActionOf, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { IssuesStatus } from '#shared/contracts/issues.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { STATES } from '#shared/states.ts';
@@ -167,6 +167,7 @@ function buildIssueRow(issue: IssueRow): HTMLButtonElement {
   bottom.append(age);
   row.append(createIssueState(issue), top, bottom);
   row.addEventListener('click', () => {
+    reportIssuesAction('select');
     selectedKey = issue.key;
     if (root) root.dataset.detailOpen = 'true';
     requestIssueBody(issue);
@@ -189,7 +190,10 @@ function buildDetailFooter(issue: IssueRow): HTMLElement {
     const sessionId = issue.sessionId;
     const button = el('button', 'pr-action', 'Go to session');
     button.type = 'button';
-    button.addEventListener('click', () => selectSession(sessionId));
+    button.addEventListener('click', () => {
+      reportIssuesAction('go-to-session');
+      selectSession(sessionId);
+    });
     footer.append(button);
   }
   if (issue.projectId && !session) {
@@ -241,6 +245,7 @@ function renderDetail(): void {
   const back = el('button', 'pr-action pr-action-ghost issues-back', 'Back to issues');
   back.type = 'button';
   back.addEventListener('click', () => {
+    reportIssuesAction('back');
     if (root) root.dataset.detailOpen = 'false';
     [...queue?.querySelectorAll<HTMLButtonElement>('[data-issue-key]') ?? []].find((row) => row.dataset.issueKey === selectedKey)?.focus({ preventScroll: true });
   });
@@ -340,6 +345,7 @@ function createFilters(): HTMLElement {
   search.autocomplete = 'off';
   search.setAttribute('aria-label', 'Search issues');
   search.addEventListener('input', () => { filters.query = search.value; render(); });
+  search.addEventListener('change', () => reportIssuesAction('search'));
   const toggle = el('button', 'pr-action pr-action-ghost', 'Filters');
   toggle.type = 'button';
   toggle.setAttribute('aria-expanded', 'false');
@@ -348,6 +354,7 @@ function createFilters(): HTMLElement {
   panel.id = 'issues-filters-panel';
   panel.hidden = true;
   toggle.addEventListener('click', () => {
+    reportIssuesAction('filters-toggle');
     panel.hidden = !panel.hidden;
     toggle.setAttribute('aria-expanded', String(!panel.hidden));
   });
@@ -360,22 +367,22 @@ function createFilters(): HTMLElement {
     return select;
   }
   repoSelect = createSelect('Repository');
-  repoSelect.addEventListener('change', () => { filters.repo = repoSelect?.value ?? ''; render(); });
+  repoSelect.addEventListener('change', () => { reportIssuesAction('filter'); filters.repo = repoSelect?.value ?? ''; render(); });
   labelSelect = createSelect('Label');
-  labelSelect.addEventListener('change', () => { filters.label = labelSelect?.value ?? ''; render(); });
+  labelSelect.addEventListener('change', () => { reportIssuesAction('filter'); filters.label = labelSelect?.value ?? ''; render(); });
   const sortSelect = createSelect('Sort');
   for (const [value, label] of [['updated', 'Updated'], ['created', 'Newest'], ['comments', 'Most discussed']]) {
     const option = el('option', null, label);
     option.value = value ?? '';
     sortSelect.append(option);
   }
-  sortSelect.addEventListener('change', () => { filters.sort = sortSelect.value as IssueSort; render(); });
+  sortSelect.addEventListener('change', () => { reportIssuesAction('filter'); filters.sort = sortSelect.value as IssueSort; render(); });
   const toggles = el('div', 'issues-filter-row');
   for (const [field, label] of [['hasSession', 'Has session'], ['hasPr', 'Has PR'], ['isUnassignedOnly', 'Unassigned']] as const) {
     const wrapper = el('label', 'issues-toggle');
     const checkbox = el('input');
     checkbox.type = 'checkbox';
-    checkbox.addEventListener('change', () => { filters[field] = checkbox.checked; render(); });
+    checkbox.addEventListener('change', () => { reportIssuesAction('filter'); filters[field] = checkbox.checked; render(); });
     wrapper.append(checkbox, ` ${label}`);
     toggles.append(wrapper);
   }
@@ -392,6 +399,10 @@ function updateAges(): void {
   if (syncStatus) syncStatus.textContent = latestStatus?.lastSyncAt ? `Synced ${issueAgo(latestStatus.lastSyncAt, nowMs)}.` : 'Not synced yet.';
   for (const age of root.querySelectorAll<HTMLElement>('[data-issue-age]')) age.textContent = issueRelativeAge(age.dataset.issueAge ?? '', nowMs);
   for (const age of root.querySelectorAll<HTMLElement>('[data-issue-ago]')) age.textContent = issueAgo(age.dataset.issueAgo ?? '', nowMs);
+}
+
+function reportIssuesAction(action: OperatorActionOf<'issues'>): void {
+  requestSender?.({ type: 'dashboard-telemetry', event: 'operator_action', properties: { surface: 'issues', action } });
 }
 
 export function setIssuesRequestSender(sender: IssuesRequestSender): void {
@@ -417,7 +428,7 @@ export function mountIssuesView(parent: HTMLElement): HTMLDivElement {
     tab.type = 'button';
     tab.dataset.scope = scope.id;
     tab.setAttribute('role', 'tab');
-    tab.addEventListener('click', () => { filters.scope = scope.id; render(); });
+    tab.addEventListener('click', () => { reportIssuesAction('scope'); filters.scope = scope.id; render(); });
     const count = el('span', 'issues-scope-count');
     count.dataset.scopeCount = scope.id;
     wrapper.append(tab, count);

@@ -157,6 +157,19 @@ export const ClientErrorReport = z.object({
 }).strict();
 export type ClientErrorReport = z.infer<typeof ClientErrorReport>;
 
+const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action'] as const);
+export const DASHBOARD_VIEWS = Object.freeze(['focus', 'zen', 'prs', 'issues', 'usage', 'radar', 'visions', 'hooks', 'trace', 'benchmarks', 'settings'] as const);
+export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
+  usage: ['sort', 'range', 'period', 'expand', 'refresh'],
+  issues: ['scope', 'filter', 'search', 'filters-toggle', 'select', 'back', 'go-to-session', 'open-session', 'refresh'],
+  radar: ['report', 'open-session', 'resolve', 'suppress', 'archive-investigation'],
+  reviews: ['open-session', 'approve', 'approve-only', 'comment', 'discard', 'requeue', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh'],
+} as const);
+export const OPERATOR_SURFACES = Object.freeze(['usage', 'issues', 'radar', 'reviews'] as const);
+export type OperatorSurface = (typeof OPERATOR_SURFACES)[number];
+export type OperatorAction = { [Surface in OperatorSurface]: (typeof OPERATOR_ACTIONS_BY_SURFACE)[Surface][number] }[OperatorSurface];
+export type OperatorActionOf<Surface extends OperatorSurface> = (typeof OPERATOR_ACTIONS_BY_SURFACE)[Surface][number];
+
 const idOnlyClientTypes = [
   'remove-session', 'kill', 'start-session', 'restart', 'force-restart',
   'merge-session', 'finish-session', 'merge-continue-session', 'discard-session-worktree',
@@ -246,6 +259,7 @@ const clientVariants = [
   loose('session-coherence-journal', { id: sessionId, requestId }),
   loose('session-setup', { id: sessionId, requestId }),
   loose('client-error', ClientErrorReport.shape),
+  loose('dashboard-telemetry', { event: z.enum(DASHBOARD_TELEMETRY_EVENTS), properties: z.record(z.string(), z.unknown()) }),
   loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
   ...idOnlyClientVariants,
 ] as const;

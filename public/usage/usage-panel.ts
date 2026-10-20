@@ -1,4 +1,4 @@
-import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import type { OperatorActionOf, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { createAttentionAck } from '../attention-ack-core.ts';
 import { nextRequestId } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
@@ -221,7 +221,7 @@ function buildTable(headings: TableHeading[], sort: SortState | null, onSort: (k
     button.type = 'button';
     button.dataset.sortKey = sortKey;
     button.addEventListener('click', () => {
-
+      reportUsageAction('sort');
       _focusAfterRender = { kind: 'sort', table: tableId, key: sortKey };
       onSort(sortKey);
     });
@@ -298,6 +298,7 @@ function buildControls() {
   }
   select.value = _rangeValue;
   select.addEventListener('change', () => {
+    reportUsageAction('range');
     _rangeValue = select.value;
     requestUsageReport();
   });
@@ -306,7 +307,10 @@ function buildControls() {
   const button = el('button', 'usage-refresh', 'Refresh');
   button.type = 'button';
   button.title = 'Re-read every transcript from the start';
-  button.addEventListener('click', () => requestUsageReport({ force: true }));
+  button.addEventListener('click', () => {
+    reportUsageAction('refresh');
+    requestUsageReport({ force: true });
+  });
 
   const status = el('span', 'usage-refresh-status', '');
   _refreshButtonEl = button;
@@ -692,6 +696,7 @@ function buildPeriodSwitch() {
     button.setAttribute('aria-pressed', view.value === _periodView ? 'true' : 'false');
     button.addEventListener('click', () => {
       if (_periodView === view.value) return;
+      reportUsageAction('period');
       _periodView = view.value;
       _focusAfterRender = { kind: 'period', view: view.value };
       render();
@@ -738,6 +743,7 @@ function buildBreakdownToggle(expandKey: string, modelCount: number) {
   button.dataset.usageDay = expandKey;
   button.setAttribute('aria-expanded', _expandedDays.has(expandKey) ? 'true' : 'false');
   button.addEventListener('click', () => {
+    reportUsageAction('expand');
     _focusAfterRender = { kind: 'day', day: expandKey };
     if (_expandedDays.has(expandKey)) {
       _expandedDays.delete(expandKey);
@@ -875,6 +881,7 @@ function buildSessionsOverflow(hiddenCount: number) {
   button.dataset.usageSessionsToggle = 'true';
   button.setAttribute('aria-expanded', _sessionsExpanded ? 'true' : 'false');
   button.addEventListener('click', () => {
+    reportUsageAction('expand');
     _focusAfterRender = { kind: 'sessions-toggle' };
     _sessionsExpanded = !_sessionsExpanded;
     render();
@@ -1023,6 +1030,10 @@ function setRefreshPending(pending: boolean) {
 export function setUsageActivityCallback(callback: (isActive: boolean) => void) {
   _activityCallback = callback;
   refreshActivity();
+}
+
+function reportUsageAction(action: OperatorActionOf<'usage'>) {
+  _sendRequest?.({ type: 'dashboard-telemetry', event: 'operator_action', properties: { surface: 'usage', action } });
 }
 
 export function setUsageRequestSender(send: (message: Record<string, unknown>) => boolean) {

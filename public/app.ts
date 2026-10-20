@@ -204,6 +204,7 @@ setConnectionStateCallback((state, label) => {
 
   if (state === 'connected') {
     clearServerUnreachableHint();
+    if (unsentShownView) reportViewShown(unsentShownView);
     if (shutdownScreen.classList.contains('active')) {
       location.reload();
       return;
@@ -778,8 +779,17 @@ function acknowledgeViewAttention(view: string) {
   findViewTab(view)?.attention?.acknowledge();
 }
 
+let unsentShownView: string | null = null;
+
+function reportViewShown(view: string) {
+  const isSent = sendControlMsg({ type: 'dashboard-telemetry', event: 'view_shown', properties: { view } });
+  unsentShownView = isSent ? null : view;
+}
+
 function refreshViewOnShow(view: string) {
-  refreshViewOnReason(findViewTab(view), 'shown');
+  const viewTab = findViewTab(view);
+  refreshViewOnReason(viewTab, 'shown');
+  if (viewTab) reportViewShown(view);
 }
 
 interface ActivateViewOptions {

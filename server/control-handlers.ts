@@ -13,7 +13,7 @@ import path from 'node:path';
 import type { WebSocket, WebSocketServer } from 'ws';
 import {
   ClientMessage, RUNTIME_CONFIG_SCALAR_KEYS, ConfigUpdate, configIssueMessage,
-  type ClientMessageOf, type ServerMessageOf,
+  type ClientMessageOf, type OperatorActionOf, type OperatorSurface, type ServerMessageOf,
 } from '../shared/contracts/index.ts';
 import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH, TaskTitle } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
@@ -68,6 +68,7 @@ import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import { createChangeMapService } from './change-map/change-map-wiring.ts';
 import type { ChangeMapNarrator } from './change-map/change-map-wiring.ts';
 import type { Telemetry } from './telemetry.ts';
+import { DashboardTelemetryReport } from '../shared/contracts/telemetry.ts';
 import { errorCode, errorMessage, isMissingFileError } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
 
@@ -156,7 +157,7 @@ interface ControlHandlerDeps {
   decidePlanReview?: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs?: SessionDocsPort | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
-  telemetry?: Pick<Telemetry, 'captureException' | 'captureClientError'> | null;
+  telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture'>>) | null;
 }
 
 type ScannedProject = { name: string; path: string; isGit: boolean };
@@ -866,7 +867,18 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }));
   }
 
+  function captureOperatorAction<Surface extends OperatorSurface>(surface: Surface, action: OperatorActionOf<Surface>): void {
+    deps.telemetry?.capture?.('operator_action', { surface, action });
+  }
+
+  function captureDashboardTelemetry(msg: ClientMessageOf<'dashboard-telemetry'>): void {
+    const report = DashboardTelemetryReport.safeParse(msg);
+    if (!report.success) return;
+    deps.telemetry?.capture?.(report.data.event, report.data.properties);
+  }
+
   async function handleGetRadarReport(msg: ClientMessageOf<'get-radar-report'>, ws: ControlSocket): Promise<void> {
+    captureOperatorAction('radar', 'report');
     const result = await readPosthogReport(msg.issueId, { reportDir: posthogReportsDir || undefined });
     ws.send(JSON.stringify({
       type: 'radar-report',
@@ -1005,6 +1017,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'open-issue-session-result', { ok: false, error: null, ...payload });
     const project = findConfiguredProject(msg.projectId);
     if (!project) { reply({ error: 'Project not found' }); return; }
+    captureOperatorAction('issues', 'open-session');
     const issueNumber = msg.issueNumber ?? 0;
     const repo = msg.repo;
     try {
@@ -1060,6 +1073,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   async function handleOpenTeamReviewSession(msg: ClientMessageOf<'open-team-review-session'>, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'open-team-review-session-result', { ok: false, error: null, key: msg.key, ...payload });
+    captureOperatorAction('reviews', 'open-session');
     try {
       const linkedSession = sessionLinkedToPr(msg.key);
       if (linkedSession) {
@@ -1097,6 +1111,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'radar-open-session-result', { ok: false, error: null, ...payload });
     const ref = radarLaneCore.validateIssueRef(msg);
     if (!ref.ok) { reply({ error: ref.error }); return; }
+    captureOperatorAction('radar', 'open-session');
     const found = findPosthogIssue(ref.projectId, ref.issueId);
     if (!found) { reply({ error: 'That issue is not in the latest PostHog poll' }); return; }
     const project = radarLaneCore.resolveIssueProject(config.posthog, config.projects, ref.projectId)
@@ -1127,6 +1142,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (!found) { reply({ error: 'That issue is not in the latest PostHog poll' }); return; }
     const decision = radarLaneCore.decideIssueAction(msg.action);
     if (!decision.ok) { reply({ error: decision.error }); return; }
+    captureOperatorAction('radar', decision.status === 'resolved' ? 'resolve' : 'suppress');
     if (!posthogSetIssueStatus) { reply({ error: 'PostHog monitoring is not running' }); return; }
     const res = await posthogSetIssueStatus({
       projectId: ref.projectId, issueId: ref.issueId, action: String(msg.action),
@@ -1139,11 +1155,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const reply = (outcome: TeamReviewActionOutcome) => replyTo(ws, msg, 'team-review-action-result', { key: requestedKey, ...outcome });
     const parsed = TeamReviewActionRequest.safeParse(msg);
     if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    captureOperatorAction('reviews', parsed.data.action);
     if (!teamReview?.isRunning()) { reply({ ok: false, error: 'Team review is not running' }); return; }
     reply(await teamReview.submitAction(parsed.data));
   }
 
   async function handleGithubPollingRefresh(msg: ClientMessageOf<'github-polling-refresh'>, ws: ControlSocket): Promise<void> {
+    captureOperatorAction(msg.lane === 'issues' ? 'issues' : 'reviews', 'refresh');
     const lane = { 'my-prs': myPrs, 'team-review': teamReview, issues }[msg.lane];
     if (!lane?.refresh) {
       replyTo(ws, msg, 'github-polling-refresh-result', { ok: false, error: 'Reviews polling is not running.' });
@@ -1160,6 +1178,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const reply = (outcome: Omit<MyPrMergeResult, 'key'>) => replyTo(ws, msg, 'my-pr-merge-result', { key: myPrMergeKey(msg), ...outcome });
     const parsed = MyPrMergeRequest.safeParse(msg);
     if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    captureOperatorAction('reviews', 'merge');
     if (!myPrs) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
     reply(await myPrs.mergePr(parsed.data));
   }
@@ -1168,6 +1187,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const reply = (outcome: Omit<MyPrKeepMergeableResult, 'key'>) => replyTo(ws, msg, 'my-pr-keep-mergeable-result', { key: myPrMergeKey(msg), ...outcome });
     const parsed = MyPrKeepMergeableRequest.safeParse(msg);
     if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    captureOperatorAction('reviews', 'keep-mergeable');
     if (!myPrs?.setKeepMergeable) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
     reply(await myPrs.setKeepMergeable(parsed.data));
   }
@@ -1176,6 +1196,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const reply = (outcome: Omit<MyPrMergeWhenReadyResult, 'key'>) => replyTo(ws, msg, 'my-pr-merge-when-ready-result', { key: myPrMergeKey(msg), ...outcome });
     const parsed = MyPrMergeWhenReadyRequest.safeParse(msg);
     if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    captureOperatorAction('reviews', 'merge-when-ready');
     if (!myPrs?.setMergeWhenReady) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
     reply(await myPrs.setMergeWhenReady(parsed.data));
   }
@@ -1206,6 +1227,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'radar-archive-investigation-result', { ok: false, error: null, ...payload });
     const ref = radarLaneCore.validateInvestigationId(msg.id);
     if (!ref.ok) { reply({ error: ref.error }); return; }
+    captureOperatorAction('radar', 'archive-investigation');
     if (!radarArchiveInvestigation) { reply({ error: 'PostHog monitoring is not running' }); return; }
     const res = await radarArchiveInvestigation({ id: ref.id });
     reply({ ok: res.ok === true, error: res.error || null });
@@ -1580,6 +1602,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (typeof msg.name !== 'string' || typeof msg.stack !== 'string') return;
       deps.telemetry?.captureClientError({ name: msg.name, stack: msg.stack });
     },
+    'dashboard-telemetry': captureDashboardTelemetry,
     'request-health-snapshot': (_msg: ClientMessageOf<'request-health-snapshot'>, ws: ControlSocket) => {
       if (!buildHealthSnapshot) return;
       ws.send(JSON.stringify({ type: 'health-snapshot', stats: buildHealthSnapshot() }));

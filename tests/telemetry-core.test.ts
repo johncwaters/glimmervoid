@@ -142,6 +142,8 @@ test('every event schema refuses a property outside its allowlist', () => {
       $ai_trace_id: 'a'.repeat(64), $ai_provider: 'anthropic', $ai_model: 'claude-opus-5-5',
       $ai_input_tokens: 10, $ai_output_tokens: 5, $ai_total_cost_usd: 0.01, agent_adapter: 'claude-code',
     },
+    view_shown: { view: 'usage' },
+    operator_action: { surface: 'radar', action: 'resolve' },
   };
   const everyEventName: TelemetryEventName[] = TELEMETRY_EVENTS.map(({ name }) => name);
   for (const name of everyEventName) {
@@ -150,6 +152,8 @@ test('every event schema refuses a property outside its allowlist', () => {
     assert.equal(schema.safeParse({ ...validByEvent[name], cwd: '/home/alice/repo' }).success, false, `${name} refuses an extra property`);
   }
   assert.equal(TELEMETRY_EVENT_SCHEMAS.session_started.safeParse({ adapter: 'my-agent' }).success, false);
+  assert.equal(TELEMETRY_EVENT_SCHEMAS.view_shown.safeParse({ view: 'acme/private-repo' }).success, false);
+  assert.equal(TELEMETRY_EVENT_SCHEMAS.operator_action.safeParse({ surface: 'usage', action: 'resolve' }).success, false);
 });
 
 test('a custom agent id is reported only as custom', () => {

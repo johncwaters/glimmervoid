@@ -95,7 +95,7 @@ interface BackendControlDependencies {
   coherenceFeed: CoherenceSessionFeed;
   changeMapNarrator: ChangeMapNarrator | null;
   serverBuild: () => string;
-  telemetry: Pick<Telemetry, 'captureException' | 'captureClientError'>;
+  telemetry: Pick<Telemetry, 'capture' | 'captureException' | 'captureClientError'>;
   logger: Pick<Console, 'warn'>;
 }
 
