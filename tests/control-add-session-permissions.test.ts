@@ -12,6 +12,7 @@ import { git } from './helpers/git-fixture.ts';
 import { ClientMessage } from '../shared/contracts/control-messages.ts';
 import type { Session } from '../session/sessions.ts';
 import { plainSession } from './helpers/fake-session.ts';
+import { STATES } from '../shared/states.ts';
 
 function addSessionUnder(skipPermissionsByDefault: boolean | undefined, requestedSkip: unknown) {
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-add-session-perms-'));
@@ -102,6 +103,7 @@ function remoteAddSession(reserveResult: Awaited<ReturnType<CoderEnvPort['reserv
       provisionCalls.push(request);
       return { ok: true, mapping: request.mapping };
     },
+    renew: async () => ({ ok: true, renewed: false }),
     settleRemoval: async () => ({ ok: true }),
   };
   const server = createControlServer(controlDeps(config, { coderEnv, remoteRepoGit: createGitWorkspace() }));
@@ -148,6 +150,7 @@ test('removing a remote session stops its agent before the remote work check and
     availableEnvironments: () => [],
     reserve: async () => ({ ok: false, reason: 'unused' }),
     provision: async () => ({ ok: false, reason: 'unused' }),
+    renew: async () => ({ ok: true, renewed: false }),
     settleRemoval: async () => {
       steps.push('check remote work');
       return { ok: false, reason, canDiscardRemoteWork: true };
@@ -159,4 +162,37 @@ test('removing a remote session stops its agent before the remote work check and
   assert.deepEqual(steps, ['stop agent', 'check remote work']);
   assert.deepEqual(connection.sent.at(-1), { type: 'remove-session-result', requestId: 'remove-1', ok: false, error: reason, canDiscardRemoteWork: true });
   assert.deepEqual(config.projects.map((project) => project.id), ['p-remote']);
+});
+
+test('restarting a failed remote session renews its workspace from the checkout origin before restarting, and a refused renewal does not restart', async (context) => {
+  const { checkoutPath, originPath } = checkoutWithOrigin(context);
+  const mapping = { name: 'remote', workspace: 'gv-0123456789ab', remotePort: 40_001, branch: 'feature' };
+  const config: GlimmervoidConfig = { projects: [{ id: 'p-remote', name: 'repo', path: checkoutPath, environment: mapping }] };
+  const steps: string[] = [];
+  const renewCalls: Parameters<CoderEnvPort['renew']>[0][] = [];
+  let renewResult: Awaited<ReturnType<CoderEnvPort['renew']>> = { ok: true, renewed: true };
+  const session = plainSession('p-remote');
+  context.after(() => session.destroy());
+  session.state = STATES.FAILED;
+  session.restart = () => { steps.push('restart'); return true; };
+  const coderEnv: CoderEnvPort = {
+    availableEnvironments: () => [],
+    reserve: async () => ({ ok: false, reason: 'unused' }),
+    provision: async () => ({ ok: false, reason: 'unused' }),
+    renew: async (request) => {
+      steps.push('renew');
+      renewCalls.push(request);
+      return renewResult;
+    },
+    settleRemoval: async () => ({ ok: true }),
+  };
+  const server = createControlServer(controlDeps(config, { coderEnv, remoteRepoGit: createGitWorkspace(), sessions: new Map<string, Session>([[session.id, session]]) }));
+  const connection = connectControl<{ type: string; message?: string }>(server);
+  await connection.send({ type: 'restart', id: session.id });
+  assert.deepEqual(steps, ['renew', 'restart']);
+  assert.deepEqual(renewCalls, [{ projectId: 'p-remote', repoRemoteUrl: originPath, baseBranch: 'main', liveCount: 0 }]);
+  renewResult = { ok: false, reason: 'remote already has 2 of 2 live workspaces; close one first' };
+  await connection.send({ type: 'restart', id: session.id });
+  assert.deepEqual(steps, ['renew', 'restart', 'renew']);
+  assert.deepEqual(connection.sent.at(-1), { type: 'error', id: session.id, message: 'remote already has 2 of 2 live workspaces; close one first' });
 });

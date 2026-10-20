@@ -163,7 +163,7 @@ interface ControlHandlerDeps {
   sessionDocs?: SessionDocsPort | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture'>>) | null;
-  coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'availableEnvironments' | 'settleRemoval'> | null;
+  coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'renew' | 'availableEnvironments' | 'settleRemoval'> | null;
   agentConnect?: Pick<ReturnType<typeof createAgentConnect>, 'logins' | 'refresh' | 'start' | 'cancel' | 'submitCode'> | null;
   remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
 }
@@ -525,9 +525,45 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return created.project;
   }
 
-  function liveWorkspaceCount(environmentName: string): number {
+  async function remoteRepoSource(projectPath: string): Promise<{ ok: true; repoRemoteUrl: string; baseBranch: string } | { ok: false; error: string }> {
+    if (!remoteRepoGit) return { ok: false, error: 'Coder environments are unavailable on this host' };
+    const repoRemoteUrl = await remoteRepoGit.originUrl({ projectPath });
+    if (!repoRemoteUrl) return { ok: false, error: `${projectPath} has no origin remote, so a Coder workspace cannot clone it.` };
+    const baseBranch = configuredIntegrationBranch(config) ?? await remoteRepoGit.detectDefaultBranch({ projectPath });
+    if (!baseBranch) return { ok: false, error: `Could not find the default branch of ${projectPath} on origin.` };
+    return { ok: true, repoRemoteUrl, baseBranch };
+  }
+
+  async function restartSession(msg: ClientMessageOf<'restart'> | ClientMessageOf<'force-restart'>, ws: ControlSocket, restart: (session: Session) => void): Promise<void> {
+    const sess = findSession(msg);
+    if (!sess) return;
+    const project = config.projects.find((candidate) => candidate.id === sess.id);
+    if (sess.state !== STATES.FAILED || !project?.environment || !coderEnv) {
+      restart(sess);
+      return;
+    }
+    const source = await remoteRepoSource(project.path);
+    if (!source.ok) {
+      sendError(ws, source.error, { id: sess.id });
+      return;
+    }
+    const renewal = await coderEnv.renew({
+      projectId: project.id,
+      repoRemoteUrl: source.repoRemoteUrl,
+      baseBranch: source.baseBranch,
+      liveCount: liveWorkspaceCount(project.environment.name, project.id),
+    });
+    if (!renewal.ok) {
+      sendError(ws, renewal.reason, { id: sess.id });
+      return;
+    }
+    restart(sess);
+  }
+
+  function liveWorkspaceCount(environmentName: string, excludedProjectId?: string): number {
     return config.projects.filter((project) => {
       if (project.environment?.name !== environmentName) return false;
+      if (project.id === excludedProjectId) return false;
       const session = sessions.get(project.id);
       return session !== undefined && session.state !== STATES.DORMANT;
     }).length;
@@ -549,17 +585,12 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       refuseAddSession(msg, ws, { error: 'Coder environments are unavailable on this host' });
       return;
     }
-    const projectPath = path.resolve((msg.path || '').trim());
-    const repoRemoteUrl = await remoteRepoGit.originUrl({ projectPath });
-    if (!repoRemoteUrl) {
-      refuseAddSession(msg, ws, { error: `${projectPath} has no origin remote, so a Coder workspace cannot clone it.` });
+    const source = await remoteRepoSource(path.resolve((msg.path || '').trim()));
+    if (!source.ok) {
+      refuseAddSession(msg, ws, { error: source.error });
       return;
     }
-    const baseBranch = configuredIntegrationBranch(config) ?? await remoteRepoGit.detectDefaultBranch({ projectPath });
-    if (!baseBranch) {
-      refuseAddSession(msg, ws, { error: `Could not find the default branch of ${projectPath} on origin.` });
-      return;
-    }
+    const { repoRemoteUrl, baseBranch } = source;
     const id = generateProjectId();
     const reserved = await coderEnv.reserve({
       projectId: id,
@@ -1530,8 +1561,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'send-diff-annotations': handleSendDiffAnnotations,
     'kill':             (msg: ClientMessageOf<'kill'>) => { const s = findSession(msg); if (s) s.killSession(); },
     'start-session':    handleStartSession,
-    'restart':          (msg: ClientMessageOf<'restart'>) => { const s = findSession(msg); if (s) s.restart({ fresh: msg.fresh === true }); },
-    'force-restart':    (msg: ClientMessageOf<'force-restart'>) => { const s = findSession(msg); if (s) s.forceRestart({ fresh: msg.fresh === true }); },
+    'restart':          (msg: ClientMessageOf<'restart'>, ws: ControlSocket) => restartSession(msg, ws, (s) => { s.restart({ fresh: msg.fresh === true }); }),
+    'force-restart':    (msg: ClientMessageOf<'force-restart'>, ws: ControlSocket) => restartSession(msg, ws, (s) => { s.forceRestart({ fresh: msg.fresh === true }); }),
     'dismiss':          (msg: ClientMessageOf<'dismiss'>) => {
       const session = findSession(msg);
       if (!session) return;

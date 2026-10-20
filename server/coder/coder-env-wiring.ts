@@ -16,9 +16,11 @@ import type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, Resolv
 import { createLaneRunner } from '../lanes/lane-runner.ts';
 
 const CODER_UNAVAILABLE_REASON = 'Coder environments are unavailable on this host';
+const REMOTE_SESSIONS_OFF_REFUSAL = { ok: false, reason: 'Remote Coder sessions are off. Turn on Remote Coder sessions (experimental) in Settings.' } as const;
 
 type ProjectEnvironment = NonNullable<Config['projects'][number]['environment']>;
 type CoderEnvResult = { ok: true; mapping: ProjectEnvironment } | { ok: false; reason: string };
+type RenewalResult = { ok: true; renewed: boolean } | { ok: false; reason: string };
 type RemovalSettlement = { ok: true } | { ok: false; reason: string; canDiscardRemoteWork: boolean };
 
 interface RunCoderOptions {
@@ -54,6 +56,7 @@ function createCoderEnvWiring({
   const lastSeenStatusByWorkspace = new Map<string, CoderWorkspace['status']>();
   const provisionByProject = new Map<string, Promise<CoderEnvResult>>();
   const failedProvisionByProject = new Map<string, { ok: false; reason: string }>();
+  const renewalByProject = new Map<string, Promise<RenewalResult>>();
   const setTimeoutFn = pollerDeps.setTimeoutFn ?? DEFAULT_TIMER_FNS.setTimeoutFn;
   let ownedWorkspaces = new Set([...loadOwnedWorkspaces(), ...currentMappings().map((mapping) => mapping.workspace)]);
   let ownedSaveChain: Promise<void> = Promise.resolve();
@@ -308,16 +311,65 @@ function createCoderEnvWiring({
     branch: string;
     liveCount: number;
   }): Promise<CoderEnvResult> {
-    if (config.remoteSessions !== true) return { ok: false, reason: 'Remote Coder sessions are off. Turn on Remote Coder sessions (experimental) in Settings.' };
+    if (config.remoteSessions !== true) return REMOTE_SESSIONS_OFF_REFUSAL;
     const environment = resolveEnvironment(environmentName);
     if (!environment) return { ok: false, reason: `Unknown Coder environment: ${environmentName}` };
     const limitReason = liveLimitRefusal({ liveCount, maxLive: environment.maxLive, environmentName });
     if (limitReason) return { ok: false, reason: limitReason };
     if (config.projects.some((candidate) => candidate.id === projectId && candidate.environment)) return { ok: false, reason: 'Project already has a Coder workspace mapping' };
     if (!await ensureAvailable()) return { ok: false, reason: unavailableReason };
+    return freshMapping({ environmentName, branch });
+  }
+
+  function freshMapping({ environmentName, branch }: { environmentName: string; branch: string }): CoderEnvResult {
     const workspace = workspaceNameFromHex(randomBytes(6).toString('hex'));
     if (workspace === null) return { ok: false, reason: 'Invalid generated Coder workspace name' };
     return { ok: true, mapping: { name: environmentName, workspace, remotePort: randomInt(40_000, 50_000), branch } };
+  }
+
+  function renew(request: {
+    projectId: string;
+    repoRemoteUrl: string;
+    baseBranch: string;
+    liveCount: number;
+  }): Promise<RenewalResult> {
+    if (config.remoteSessions !== true) return Promise.resolve(REMOTE_SESSIONS_OFF_REFUSAL);
+    const inFlightRenewal = renewalByProject.get(request.projectId);
+    if (inFlightRenewal) return inFlightRenewal;
+    const renewal = renewUnclaimed(request);
+    renewalByProject.set(request.projectId, renewal);
+    void renewal.finally(() => renewalByProject.delete(request.projectId));
+    return renewal;
+  }
+
+  async function renewUnclaimed({ projectId, repoRemoteUrl, baseBranch, liveCount }: {
+    projectId: string;
+    repoRemoteUrl: string;
+    baseBranch: string;
+    liveCount: number;
+  }): Promise<RenewalResult> {
+    if (provisionByProject.has(projectId)) return { ok: true, renewed: false };
+    const mapping = config.projects.find((project) => project.id === projectId)?.environment;
+    if (!mapping) return { ok: false, reason: `Project ${projectId} has no Coder workspace mapping` };
+    const isWorkspaceUsable = !failedProvisionByProject.has(projectId) && await isWorkspaceListed(mapping.workspace);
+    if (isWorkspaceUsable) return { ok: true, renewed: false };
+    const environment = resolveEnvironment(mapping.name);
+    if (!environment) return { ok: false, reason: `Unknown Coder environment: ${mapping.name}` };
+    const limitReason = liveLimitRefusal({ liveCount, maxLive: environment.maxLive, environmentName: mapping.name });
+    if (limitReason) return { ok: false, reason: limitReason };
+    if (!await ensureAvailable()) return { ok: false, reason: unavailableReason };
+    const fresh = freshMapping({ environmentName: mapping.name, branch: mapping.branch });
+    if (!fresh.ok) return fresh;
+    try {
+      await saveMapping(projectId, fresh.mapping);
+    } catch (error) {
+      return { ok: false, reason: `Could not save the new Coder workspace mapping: ${errorMessage(error)}` };
+    }
+    failedProvisionByProject.delete(projectId);
+    void provision({ projectId, mapping: fresh.mapping, repoRemoteUrl, baseBranch }).then((provisioned) => {
+      if (!provisioned.ok) log.warn(`[coder-env] fresh Coder workspace for project ${projectId} failed: ${provisioned.reason}`);
+    });
+    return { ok: true, renewed: true };
   }
 
   function provision({ projectId, mapping, repoRemoteUrl, baseBranch }: {
@@ -473,7 +525,7 @@ function createCoderEnvWiring({
     await runCoder(['ssh', workspace, '--', remoteCommand(['sh', '-c', script, 'sh', remotePath])], { timeoutMs: 30_000, input: contents });
   }
 
-  return { start, stop: runner.stopPoller, restartIfConfigChanged, availableEnvironments, reserve, provision, resume, release, settleRemoval, uploadFile, workspaceStatus };
+  return { start, stop: runner.stopPoller, restartIfConfigChanged, availableEnvironments, reserve, provision, renew, resume, release, settleRemoval, uploadFile, workspaceStatus };
 }
 
 export { createCoderEnvWiring };

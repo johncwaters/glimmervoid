@@ -158,7 +158,7 @@ test('an unmapped workspace whose stop keeps failing still lets boot reconcile a
   assert.ok(harness.warnings.includes('[coder-env] Coder stop failed: stop workspace: forbidden; skipping gv-aaaaaaaaaaaa'));
 });
 
-test('boot reconcile keeps the mapping of a project whose workspace no longer exists', async (context) => {
+test('boot reconcile keeps the mapping of a project whose workspace no longer exists, and renewing it provisions a fresh workspace that resume then starts', async (context) => {
   const harness = createHarness();
   context.after(harness.wiring.stop);
   harness.listings.current = listing([]);
@@ -166,6 +166,37 @@ test('boot reconcile keeps the mapping of a project whose workspace no longer ex
   assert.equal(harness.config.projects[0].environment?.workspace, MAPPED_WORKSPACE);
   assert.ok(!harness.events.includes('clear'));
   assert.deepEqual(await harness.wiring.resume({ projectId: 'project' }), { ok: false, reason: `Coder workspace ${MAPPED_WORKSPACE} no longer exists; close this session and start a new one` });
+  const renewal = { projectId: 'project', repoRemoteUrl: 'git@example.com:org/repo.git', baseBranch: 'main', liveCount: 0 };
+  const persistsBeforeRenewal = harness.events.filter((event) => event === 'persist').length;
+  assert.deepEqual(await Promise.all([harness.wiring.renew(renewal), harness.wiring.renew(renewal)]), [{ ok: true, renewed: true }, { ok: true, renewed: true }]);
+  assert.equal(harness.events.filter((event) => event === 'persist').length - persistsBeforeRenewal, 1);
+  const freshMapping = harness.config.projects[0].environment;
+  assert.ok(freshMapping && freshMapping.workspace !== MAPPED_WORKSPACE);
+  assert.equal(freshMapping.branch, 'feature');
+  assert.deepEqual(await harness.wiring.resume({ projectId: 'project' }), { ok: true, mapping: freshMapping });
+  assert.deepEqual(harness.commands.filter((command) => command.args[0] === 'create').map((command) => command.args[1]), [freshMapping.workspace]);
+  assert.deepEqual(await harness.wiring.renew(renewal), { ok: true, renewed: false });
+});
+
+test('renewing a project whose provision failed provisions a fresh workspace in place of the cached failure', async (context) => {
+  const harness = createHarness({ hasMapping: false, createStderr: 'error: template refused\n' });
+  context.after(harness.wiring.stop);
+  const failed = await harness.provisionReserved();
+  assert.equal(failed.ok, false);
+  assert.deepEqual(await harness.wiring.resume({ projectId: 'project' }), failed);
+  const failedWorkspace = harness.config.projects[0].environment?.workspace;
+  harness.config.remoteSessions = false;
+  const commandCountWhileOff = harness.commands.length;
+  assert.deepEqual(await harness.wiring.renew({ projectId: 'project', repoRemoteUrl: 'git@example.com:org/repo.git', baseBranch: 'main', liveCount: 0 }), { ok: false, reason: 'Remote Coder sessions are off. Turn on Remote Coder sessions (experimental) in Settings.' });
+  assert.equal(harness.commands.length, commandCountWhileOff);
+  assert.equal(harness.config.projects[0].environment?.workspace, failedWorkspace);
+  harness.config.remoteSessions = true;
+  assert.deepEqual(await harness.wiring.renew({ projectId: 'project', repoRemoteUrl: 'git@example.com:org/repo.git', baseBranch: 'main', liveCount: 2 }), { ok: false, reason: 'remote already has 2 of 2 live workspaces; close one first' });
+  assert.deepEqual(await harness.wiring.renew({ projectId: 'project', repoRemoteUrl: 'git@example.com:org/repo.git', baseBranch: 'main', liveCount: 0 }), { ok: true, renewed: true });
+  const freshWorkspace = harness.config.projects[0].environment?.workspace;
+  assert.notEqual(freshWorkspace, failedWorkspace);
+  await harness.wiring.resume({ projectId: 'project' });
+  assert.deepEqual(harness.commands.filter((command) => command.args[0] === 'create').map((command) => command.args[1]), [failedWorkspace, freshWorkspace]);
 });
 
 test('a shared provision deletes its workspace and keeps its mapping after persisting before create without token argv', async (context) => {

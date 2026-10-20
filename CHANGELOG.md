@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Restarting a failed remote session gets it a fresh workspace**: a remote session whose Coder workspace failed to come up, or was deleted outside Glimmervoid, used to fail again with the same reason on every restart, so the only way out was to close it and start a new one. Now Restart provisions a fresh workspace for that session and starts it there, keeping its branch name. The old workspace, if Coder still lists it, is stopped and later deleted like any other workspace this host no longer uses. If the environment is already at its live workspace limit, Restart says so instead.
 - **Removing a remote session deletes its Coder workspace**: removing a remote session used to leave its workspace running and billing. Now Glimmervoid checks the workspace's checkout first. If nothing is uncommitted, stashed or unpushed, the session is stopped and the workspace is deleted with it. If there is unsaved work, or the check cannot run because the workspace is stopped or unreachable, the removal is refused with the branch and workspace named, and the dialog offers Discard remote work to delete it anyway. Removing a session while its workspace is still being created waits for that first.
 
 ## [0.42.0] - 2026-10-20
