@@ -1983,6 +1983,10 @@ class Session extends EventEmitter {
     }
   }
 
+  noteOperatorDraft(): void {
+    this.emit("operator-input");
+  }
+
   noteOperatorInput(input: string): void {
     if (isOperatorKeystroke(input)) this.emit("operator-input");
     const decision = decideWaitingInput({

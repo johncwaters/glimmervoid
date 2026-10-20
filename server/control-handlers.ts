@@ -1130,6 +1130,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     });
     const res = sess.pasteTextWhenReady(prompt);
     if (!res.ok) { reply({ error: `Could not write to "${sess.name}" (${res.reason})` }); return; }
+    sess.noteOperatorDraft();
     reply({ ok: true, sessionId: sess.id, sessionName: sess.name, pending: res.deferred === true });
     console.log(`[control] posthog-open-session: issue=${ref.issueId} -> session=${sess.name}`);
   }
@@ -1241,6 +1242,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (!text) { reply({ error: 'No review notes to send' }); return; }
     const pasted = session.pasteTextWhenReady(text);
     if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
+    session.noteOperatorDraft();
     reply({ ok: true, pending: pasted.deferred === true });
   }
 

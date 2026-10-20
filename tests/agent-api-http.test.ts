@@ -24,6 +24,7 @@ import { SessionCardFields } from '../shared/contracts/index.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
 import { STATES } from '../shared/states.ts';
+import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../shared/timer-deps.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import { plainSession } from './helpers/fake-session.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
@@ -194,11 +195,44 @@ interface WiringFixtureOptions {
   parentIsGuarded?: boolean;
   headroomBytes?: number;
   holdFirstHeadroomRead?: boolean;
+  clock?: ManualClock;
+}
+
+interface ManualClock {
+  now: () => number;
+  setTimeoutFn: SetTimeoutFn;
+  clearTimeoutFn: ClearTimeoutFn;
+}
+
+function manualClock() {
+  let nowMs = 1_000_000;
+  const tasks: { handle: TimerHandle; dueAt: number; run: () => void }[] = [];
+  const clock: ManualClock = {
+    now: () => nowMs,
+    setTimeoutFn: (run, ms) => {
+      const handle = setTimeout(() => {}, 0);
+      tasks.push({ handle, dueAt: nowMs + ms, run });
+      return handle;
+    },
+    clearTimeoutFn: (handle) => {
+      const index = tasks.findIndex((task) => task.handle === handle);
+      if (index >= 0) tasks.splice(index, 1);
+    },
+  };
+  const advanceBy = (ms: number) => {
+    nowMs += ms;
+    for (const task of tasks.filter(({ dueAt }) => dueAt <= nowMs)) {
+      tasks.splice(tasks.indexOf(task), 1);
+      task.run();
+    }
+  };
+  return { clock, advanceBy };
 }
 
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
   holdSpawnGate = false, parentIsGuarded = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
+  clock,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -262,6 +296,7 @@ function wiringFixture({
     sessionDocs: createSessionDocsWiring({ broadcastControl: (message) => { broadcasts.push(message); } }),
     memoryAdmission,
     logger: { warn: () => {} },
+    ...clock,
   });
   const releaseSpawnGate = () => {
     for (const admit of heldGateTasks.splice(0)) admit();
@@ -702,6 +737,83 @@ test('a parent and the child it spawned message each other through their own cha
     assert.equal((await fixture.wiring.handle(fixture.parent, 'send', { words: [childId, 'still', 'there?'] })).status, 409);
   } finally {
     stranger.destroy();
+    fixture.destroyAll();
+  }
+});
+
+test('a spawned child that stops wakes its idle parent with one submitted line, up to the cap, then again once the operator has typed', async () => {
+  const { clock, advanceBy } = manualClock();
+  const fixture = wiringFixture({ clock });
+  const pasted: string[] = [];
+  const written: string[] = [];
+  const attentionNotes: string[] = [];
+  fixture.parent.pasteText = (text) => { pasted.push(text); return { ok: true }; };
+  fixture.parent.write = (text) => { written.push(text); };
+  fixture.parent.noteAttention = (note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
+  try {
+    const spawned = await fixture.spawn(fixture.parent, { prompt: 'build U2' });
+    const childId = String(spawned.body.sessionId);
+    const child = fixture.created[0];
+    fixture.parent.transition('user_start');
+    fixture.parent.transition('spawn_success', { spawnCwdExists: true });
+    fixture.parent.transition('first_output');
+    assert.equal(fixture.parent.state, STATES.IDLE);
+    const endChildTurn = () => {
+      child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
+      advanceBy(1000);
+    };
+
+    child.emit('hook-event', { event: 'Stop', payload: { last_assistant_message: 'held U2 over a HIGH finding' } });
+    endChildTurn();
+    assert.deepEqual(pasted, [`Glimmervoid: ${String(spawned.body.name)}, the session you spawned, has news. Run glimmervoid read ${childId} and act on it.`]);
+    assert.deepEqual(written, ['\r']);
+    const notes = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', {})).body).channels[0]?.entries ?? [];
+    assert.deepEqual(notes.map(({ from }) => from), ['glimmervoid']);
+    assert.match(notes[0]?.text ?? '', /finished a turn and is Idle\. Its last message:\nheld U2 over a HIGH finding$/);
+
+    for (let turn = 0; turn < 10; turn += 1) endChildTurn();
+    assert.deepEqual([pasted.length, written.length, attentionNotes.length], [10, 10, 1], 'the eleventh wake flags the operator instead of typing');
+
+    fixture.parent.emit('operator-input');
+    endChildTurn();
+    assert.equal(pasted.length, 10, 'no wake while the operator typed in the last 30 seconds');
+    advanceBy(30_000);
+    advanceBy(1000);
+    assert.deepEqual([pasted.length, written.length], [11, 11], 'operator input resets the cap and the held wake fires after the hold-off');
+
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
+    advanceBy(50);
+    fixture.parent.noteOperatorInput('r');
+    advanceBy(1000);
+    assert.deepEqual([pasted.length, written.length], [12, 11], 'a keystroke between the paste and the Enter leaves the wake line unsubmitted');
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('review notes the operator stages at an idle parent hold off the wake so a stopping child never submits them', async () => {
+  const { clock, advanceBy } = manualClock();
+  const fixture = wiringFixture({ clock });
+  const wakePastes: string[] = [];
+  const written: string[] = [];
+  fixture.parent.pasteText = (text) => { wakePastes.push(text); return { ok: true }; };
+  fixture.parent.write = (text) => { written.push(text); };
+  try {
+    await fixture.spawn(fixture.parent, { prompt: 'build U2' });
+    const child = fixture.created[0];
+    await fixture.parent.start();
+    fixture.parent.transition('first_output');
+    assert.equal(fixture.parent.state, STATES.IDLE);
+    const server = createControlServer(controlDeps({ projects: [] }, { sessions: new Map([['parent', fixture.parent]]) }));
+    const connection = connectControl<{ ok?: boolean }>(server);
+    await connection.send({ type: 'send-diff-annotations', id: 'parent', annotations: [{ section: 'uncommitted', path: 'server/index.ts', line: 1, side: 'new', note: 'half done' }] });
+    advanceBy(1000);
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
+    advanceBy(1000);
+    assert.equal(connection.sent.at(-1)?.ok, true);
+    assert.match(written.join(''), /^\x1b\[200~Operator review notes/);
+    assert.deepEqual([wakePastes.length, written.filter((text) => text === '\r').length], [0, 0]);
+  } finally {
     fixture.destroyAll();
   }
 });

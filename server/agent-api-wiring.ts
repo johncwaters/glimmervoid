@@ -18,7 +18,10 @@ import {
   decideSpawnAllowance, deriveChildSessionName, describePushLanding, describeRoleRefusal, parseAgentVerb, projectMyPrs, projectReviews,
 } from './core/agent-api-core.ts';
 import type { AgentRequestOf } from './core/agent-api-core.ts';
-import { drainChannel, findOwnedChild, openChannel, postToChannel } from './core/child-channel-core.ts';
+import {
+  canSubmitWake, decideWake, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, openChannel, postToChannel,
+  readLastAssistantMessage, shouldPostStopNote,
+} from './core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelSide } from './core/child-channel-core.ts';
 import { isGuardedSessionVendor } from './guardrails/core/guardrails-roles-core.ts';
 import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
@@ -27,11 +30,15 @@ import type { SessionSpawnOverrides } from './session/session-factory.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import type { MemoryAdmission } from './spawn-gate.ts';
 import { errorMessage } from '../shared/text.ts';
+import type { SessionState } from '../shared/states.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../shared/timer-deps.ts';
 
 const AGENT_LANE_TAG = 'agent-spawn';
 const SPAWN_FAILED_MESSAGE = 'could not spawn the session';
 const PARENT_ENDED_MESSAGE = 'this session ended before its child could start, so nothing was spawned';
 const BYTES_PER_MEGABYTE = 1024 * 1024;
+const WAKE_SUBMIT_DELAY_MS = 150;
 
 type MakeSession = (
   project: ProjectEntry,
@@ -63,6 +70,29 @@ interface AgentApiWiringOptions {
   memoryAdmission?: Pick<MemoryAdmission, 'describeShortfallNow'> | null;
   operatorState?: AgentOperatorStatePort | null;
   logger?: Pick<Console, 'warn'>;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
+  now?: () => number;
+}
+
+interface ChannelLink {
+  parent: Session;
+  child: Session;
+  lastChildMessage: string | null;
+  wakesSinceOperatorInput: number;
+  isOperatorFlagged: boolean;
+  pendingWakeSides: Set<ChannelSide>;
+  retryTimersBySide: Map<ChannelSide, TimerHandle>;
+}
+
+interface StateChange {
+  from: SessionState;
+  to: SessionState;
+}
+
+interface HookEvent {
+  event: string;
+  payload: Record<string, unknown>;
 }
 
 type SpawnOutcome =
@@ -87,25 +117,135 @@ function createAgentApiWiring({
   memoryAdmission = null,
   operatorState = null,
   logger = console,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
+  now = Date.now,
 }: AgentApiWiringOptions): AgentApiPort {
   const channelsByChildId = new Map<string, AgentChannel>();
+  const linksByChildId = new Map<string, ChannelLink>();
   const parentsWithChannelCleanup = new WeakSet<Session>();
+  const sessionsWithOperatorWatch = new WeakSet<Session>();
+  const lastOperatorInputAtBySession = new WeakMap<Session, number>();
+
+  function forgetLink(childId: string): void {
+    const link = linksByChildId.get(childId);
+    if (link) for (const timer of link.retryTimersBySide.values()) clearTimeoutFn(timer);
+    linksByChildId.delete(childId);
+    channelsByChildId.delete(childId);
+  }
 
   function forgetChannelsOf(parent: Session): void {
     for (const [childId, channel] of channelsByChildId) {
-      if (channel.parentId === parent.id) channelsByChildId.delete(childId);
+      if (channel.parentId === parent.id) forgetLink(childId);
     }
+  }
+
+  function recipientOf(link: ChannelLink, side: ChannelSide): Session {
+    return side === 'toParent' ? link.parent : link.child;
+  }
+
+  function scheduleWakeRetry(childId: string, link: ChannelLink, side: ChannelSide, retryInMs: number): void {
+    const earlierTimer = link.retryTimersBySide.get(side);
+    if (earlierTimer) clearTimeoutFn(earlierTimer);
+    link.retryTimersBySide.set(side, unrefTimer(setTimeoutFn(() => {
+      link.retryTimersBySide.delete(side);
+      wakeRecipient(childId, side);
+    }, retryInMs)));
+  }
+
+  function typeWakeLine(link: ChannelLink, channel: AgentChannel, side: ChannelSide, recipient: Session): void {
+    if (!recipient.pasteText(describeWakeLine(channel, side)).ok) return;
+    const pastedAt = now();
+    link.pendingWakeSides.add(side);
+    unrefTimer(setTimeoutFn(() => {
+      link.pendingWakeSides.delete(side);
+      if (recipient._destroyed) return;
+      const lastOperatorInputAt = lastOperatorInputAtBySession.get(recipient) ?? Number.NEGATIVE_INFINITY;
+      if (!canSubmitWake({ recipientState: recipient.state, pastedAt, lastOperatorInputAt })) return;
+      recipient.write('\r');
+      link.wakesSinceOperatorInput += 1;
+    }, WAKE_SUBMIT_DELAY_MS));
+  }
+
+  function wakeRecipient(childId: string, side: ChannelSide): void {
+    const link = linksByChildId.get(childId);
+    const channel = channelsByChildId.get(childId);
+    if (!link || !channel) return;
+    const recipient = recipientOf(link, side);
+    if (recipient._destroyed) return;
+    const decision = decideWake({
+      recipientState: recipient.state,
+      hasUnread: channel[side].unread.length > 0,
+      isWakePending: link.pendingWakeSides.has(side),
+      isOperatorFlagged: link.isOperatorFlagged,
+      wakesSinceOperatorInput: link.wakesSinceOperatorInput,
+      msSinceOperatorInput: now() - (lastOperatorInputAtBySession.get(recipient) ?? Number.NEGATIVE_INFINITY),
+    });
+    switch (decision.kind) {
+      case 'none':
+        return;
+      case 'hold':
+        scheduleWakeRetry(childId, link, side, decision.retryInMs);
+        return;
+      case 'flag-operator':
+        link.isOperatorFlagged = true;
+        recipient.noteAttention(describeWakeCapNote(channel));
+        return;
+      case 'wake':
+        typeWakeLine(link, channel, side, recipient);
+        return;
+    }
+  }
+
+  function linksOf(session: Session): ChannelLink[] {
+    return [...linksByChildId.values()].filter((link) => link.parent === session || link.child === session);
+  }
+
+  function watchOperatorInput(session: Session): void {
+    if (sessionsWithOperatorWatch.has(session)) return;
+    sessionsWithOperatorWatch.add(session);
+    session.on('operator-input', () => {
+      lastOperatorInputAtBySession.set(session, now());
+      for (const link of linksOf(session)) {
+        link.wakesSinceOperatorInput = 0;
+        link.isOperatorFlagged = false;
+      }
+    });
+  }
+
+  function watchChild(link: ChannelLink, childId: string): void {
+    link.child.on('hook-event', ({ event, payload }: HookEvent) => {
+      if (event.toLowerCase() !== 'stop') return;
+      link.lastChildMessage = readLastAssistantMessage(payload);
+    });
+    link.child.on('state-change', ({ from, to }: StateChange) => {
+      if (shouldPostStopNote(from, to)) {
+        post(childId, 'toParent', { author: 'glimmervoid', text: describeStopNote({ childName: link.child.name, state: to, lastMessage: link.lastChildMessage }), at: now() });
+        link.lastChildMessage = null;
+      }
+      wakeRecipient(childId, 'toParent');
+      wakeRecipient(childId, 'toChild');
+    });
   }
 
   function openChildChannel(parent: Session, child: Session, childName: string): () => void {
     channelsByChildId.set(child.id, openChannel({ parentId: parent.id, childId: child.id, childName }));
+    const link: ChannelLink = {
+      parent, child, lastChildMessage: null, wakesSinceOperatorInput: 0, isOperatorFlagged: false, pendingWakeSides: new Set(), retryTimersBySide: new Map(),
+    };
+    linksByChildId.set(child.id, link);
+    watchChild(link, child.id);
+    watchOperatorInput(parent);
+    watchOperatorInput(child);
     if (!parentsWithChannelCleanup.has(parent)) {
       parentsWithChannelCleanup.add(parent);
       parent.once('teardown', () => forgetChannelsOf(parent));
     }
     const closeChildWithParent = () => child.destroy();
+    const wakeParent = () => wakeRecipient(child.id, 'toParent');
     parent.on('exit', closeChildWithParent);
     parent.on('teardown', closeChildWithParent);
+    parent.on('state-change', wakeParent);
     return () => {
       parent.off('exit', closeChildWithParent);
       parent.off('teardown', closeChildWithParent);
@@ -116,6 +256,7 @@ function createAgentApiWiring({
     const channel = channelsByChildId.get(childId);
     if (!channel) return;
     channelsByChildId.set(childId, postToChannel(channel, side, entry));
+    wakeRecipient(childId, side);
   }
 
   function drain(childId: string, side: ChannelSide): AgentReadReply['channels'][number] | null {
@@ -214,7 +355,7 @@ function createAgentApiWiring({
       logger.warn(`[${AGENT_LANE_TAG} ${name}] ${reason}`);
       child?.destroy();
       releaseChildSlot();
-      channelsByChildId.delete(id);
+      forgetLink(id);
       return { ok: false, status: 500, error: SPAWN_FAILED_MESSAGE };
     };
 

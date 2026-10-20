@@ -224,6 +224,7 @@ function receiveUpload({ req, res, sess, dir, filename, savedPath }: {
       return;
     }
     sess.write(framePathPaste(savedPath));
+    sess.noteOperatorDraft();
     answer(200, { ok: true, path: savedPath });
     void sweepSessionUploads(dir, filename);
   });
