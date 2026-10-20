@@ -8,7 +8,7 @@ import type { CompactionTracking } from "./core/compaction-core.ts";
 import { HOOK_TOOLS } from './core/hook-tools.ts';
 import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
-import { buildPersistedTaskTitle, cleanTaskPrompt, extractOscTaskTitle, extractPromptTaskTitle, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle, seedTaskTitleSources } from "./core/task-title-core.ts";
+import { buildPersistedTaskTitle, cleanTaskPrompt, extractOscTaskTitle, extractPromptTaskTitle, isSelfWakePrompt, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle, seedTaskTitleSources } from "./core/task-title-core.ts";
 import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
 import type { LinkedPr, SessionPrLinks } from "../shared/contracts/my-prs.ts";
 import { mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink } from "./core/session-pr-links-core.ts";
@@ -913,7 +913,7 @@ class Session extends EventEmitter {
       this.backgroundTracking.resetTurnEvidence();
       this.backgroundTracking.clearBgDeclared();
 
-      this.emit("user-prompt", { state: this.state, stateSince: this.stateSince, ts: Date.now() });
+      this.emit("user-prompt", { state: this.state, stateSince: this.stateSince, ts: Date.now(), isSelfWake: isSelfWakePrompt(raw.payload?.prompt) });
     }
 
     if (raw && raw.signal === "ready" && raw.source === "hook") {

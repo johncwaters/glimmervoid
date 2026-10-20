@@ -324,10 +324,10 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('agent-attention', ({ note }: { note: string }) => {
       pendingAgentNote = pendingAgentNote === null ? note : `${pendingAgentNote}${AGENT_ATTENTION_NOTE_SEPARATOR}${note}`;
     });
-    session.on('user-prompt', () => {
+    session.on('user-prompt', ({ isSelfWake }: { isSelfWake: boolean }) => {
       markTurnWorking();
       pendingAgentNote = null;
-      notifyGate.reset();
+      if (!isSelfWake) notifyGate.reset();
       releaseDeferredAcknowledge();
     });
     session.on('waiting-input-acknowledged', () => dependencies.notificationManager.acknowledge(session.id));

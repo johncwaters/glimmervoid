@@ -119,12 +119,12 @@ test('RUNNING self-wake (signal: working, hookSeen: true) does not reset: the sp
   assert.equal(decideNotification(STATES.COMPLETE, gate), null, 'complete was not re-armed by the self-wake');
 });
 
-test('RUNNING via an authoritative resume signal resets: complete notifies again', () => {
+test('RUNNING via a resume signal alone does not reset, since a task-notification wake also resumes', () => {
   const gate = createNotifyGate();
   assert.equal(decideNotification(STATES.RUNNING, gate), null);
   assert.equal(decideNotification(STATES.COMPLETE, gate), 'complete');
   decideNotification(STATES.RUNNING, gate, undefined, { signal: 'resume', hookSeen: true });
-  assert.equal(decideNotification(STATES.COMPLETE, gate), 'complete', 'an authoritative UserPromptSubmit re-arms the cycle');
+  assert.equal(decideNotification(STATES.COMPLETE, gate), null);
 });
 
 test('RUNNING via event user_input resets, even with a self-wake-looking signal', () => {
@@ -175,10 +175,6 @@ test('explainNotification reports the reset reason for INITIALIZING and a user-d
   assert.deepEqual(explainNotification(STATES.INITIALIZING, gate), { category: null, reason: 'cycle-reset-restart' });
   assert.deepEqual(
     explainNotification(STATES.RUNNING, gate, 'user_input', { signal: 'working', hookSeen: true }),
-    { category: null, reason: 'cycle-reset-user-driven' },
-  );
-  assert.deepEqual(
-    explainNotification(STATES.RUNNING, gate, undefined, { signal: 'resume', hookSeen: true }),
     { category: null, reason: 'cycle-reset-user-driven' },
   );
 });

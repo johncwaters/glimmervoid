@@ -687,6 +687,8 @@ test('a codex work cycle notifies once, and the next prompt re-arms it', () => {
   assert.equal(explainNotification(STATES.COMPLETE, gate, 'task_complete', opts).category, 'complete');
   assert.equal(explainNotification(STATES.COMPLETE, gate, 'task_complete', opts).category, null);
   assert.equal(explainNotification(STATES.RUNNING, gate, 'new_output', opts).category, null);
+  assert.equal(explainNotification(STATES.COMPLETE, gate, 'task_complete', opts).category, null);
+  gate.reset();
   assert.equal(explainNotification(STATES.COMPLETE, gate, 'task_complete', opts).category, 'complete');
 });
 

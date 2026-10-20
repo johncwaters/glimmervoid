@@ -45,9 +45,7 @@ function explainNotification(
     return { category: null, reason: 'cycle-reset-restart' };
   }
   if (to === STATES.RUNNING) {
-    const userDriven = event === 'user_input'
-      || Boolean(opts && opts.signal === 'resume')
-      || !opts || !opts.hookSeen;
+    const userDriven = event === 'user_input' || !opts || !opts.hookSeen;
     if (userDriven) {
       gate.reset();
       return { category: null, reason: 'cycle-reset-user-driven' };

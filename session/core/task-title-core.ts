@@ -98,7 +98,9 @@ export function seedTaskTitleSources({ persistedTitle, resumeSessionId, customTi
   return { ...parsed.data.sources, pendingPromptTitle: null, customTitle };
 }
 
-const PROMPT_ENVELOPE_PATTERNS = ['pasted_content', 'system-reminder', 'task-notification'].map((tag) => new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}\\s*>`, 'gi'));
+const envelopePattern = (tag: string) => new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}\\s*>`, 'gi');
+const TASK_NOTIFICATION_ENVELOPE_PATTERN = envelopePattern('task-notification');
+const PROMPT_ENVELOPE_PATTERNS = [envelopePattern('pasted_content'), envelopePattern('system-reminder'), TASK_NOTIFICATION_ENVELOPE_PATTERN];
 const MIN_SUBSTANTIVE_WORDS = 3;
 const CONTINUATION_PROMPTS = new Set([
   'yes please continue', 'please go ahead', 'go ahead please', 'keep going please',
@@ -113,6 +115,11 @@ export function cleanTaskPrompt(prompt: string): string {
   let cleanedPrompt = prompt;
   for (const pattern of PROMPT_ENVELOPE_PATTERNS) cleanedPrompt = cleanedPrompt.replace(pattern, ' ');
   return cleanedPrompt.replace(/\s+/g, ' ').trim();
+}
+
+export function isSelfWakePrompt(prompt: unknown): boolean {
+  if (typeof prompt !== 'string') return false;
+  return prompt.replace(TASK_NOTIFICATION_ENVELOPE_PATTERN, ' ').trim() === '' && prompt.trim() !== '';
 }
 
 export function isSubstantivePrompt(prompt: unknown): boolean {

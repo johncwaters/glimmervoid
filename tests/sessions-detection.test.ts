@@ -59,12 +59,15 @@ test('resume (hook) from COMPLETE -> RUNNING', () => {
   s.destroy();
 });
 
-test('a hook resume signal emits "user-prompt" (authoritative UserPromptSubmit)', () => {
+test('a hook resume signal emits "user-prompt", marking a task-notification-only prompt as a self-wake', () => {
   const s = makeSession(STATES.IDLE);
   const seen: unknown[] = [];
-  s.on('user-prompt', () => seen.push('user-prompt'));
-  hook(s, 'resume');
-  assert.deepEqual(seen, ['user-prompt']);
+  s.on('user-prompt', ({ isSelfWake }: { isSelfWake: boolean }) => seen.push(isSelfWake));
+  hook(s, 'resume', { payload: { prompt: 'fix the flaky test' } });
+  hook(s, 'resume', { payload: { prompt: '<task-notification>\n<task-id>b1</task-id>\n</task-notification>' } });
+  hook(s, 'resume', { payload: { prompt: '<task-notification><task-id>b1</task-id></task-notification> and also check the logs' } });
+  hook(s, 'resume', { payload: { prompt: '<pasted_content>a stack trace</pasted_content>' } });
+  assert.deepEqual(seen, [false, true, false, false]);
   s.destroy();
 });
 
