@@ -177,12 +177,21 @@ function liveLimitRefusal({ liveCount, maxLive, environmentName }: { liveCount: 
   return `${environmentName} already has ${liveCount} of ${maxLive} live workspaces; close one first`;
 }
 
+const CODER_ERROR_DETAIL_LIMIT = 200;
+
 function remoteCheckoutDirectory({ checkoutRoot, workspace }: { checkoutRoot: string; workspace: string }): string {
   return path.posix.join(checkoutRoot, workspace);
 }
 
+function coderErrorDetail(stderr: unknown): string | null {
+  if (typeof stderr !== 'string') return null;
+  const errorLine = stderr.split('\n').map((line) => line.trim()).findLast((line) => line.startsWith('error:'));
+  if (!errorLine) return null;
+  return errorLine.slice('error:'.length).trim().slice(0, CODER_ERROR_DETAIL_LIMIT) || null;
+}
+
 export {
-  remoteCheckoutDirectory, CODER_ENV_READY_POLL_MS, CODER_ENV_IDLE_TICK_MS, resolveCoderEnvironment, parseGlimmervoidWorkspaces, decideReadiness, shouldIdleStop, planReconcile,
+  coderErrorDetail, remoteCheckoutDirectory, CODER_ENV_READY_POLL_MS, CODER_ENV_IDLE_TICK_MS, resolveCoderEnvironment, parseGlimmervoidWorkspaces, decideReadiness, shouldIdleStop, planReconcile,
   failedProvisionCleanup, sharingRefusal, liveLimitRefusal,
 };
 export type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ReconcilePlan, ResolvedCoderEnvironment, WorkspaceMapping };
