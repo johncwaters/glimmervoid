@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-10-20
+
 ### Added
 
 - **A session owns the sessions it spawns**: a session that runs `glimmervoid spawn` now gets a channel to that child. `glimmervoid send <child> <text>` steers the child, `glimmervoid read [<child>]` reads what it sent back, and `glimmervoid close <child>` ends it once the task is done. Inside the child, `glimmervoid send <text>` reaches its parent and `glimmervoid read` reads the parent's messages. Only a parent and its own children can reach each other; no session can message, read or close one it did not spawn. When the parent exits or its card is removed, its children end too.
