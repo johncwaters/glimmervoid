@@ -29,11 +29,11 @@ test('an unrecognised client hint falls back to the user agent string', () => {
   assert.equal(detectInstallPlatform({ userAgentDataPlatform: 'Unknown', userAgent: 'Mozilla/5.0 (X11; FreeBSD amd64) AppleWebKit/537.36' }), 'linux');
 });
 
-test('linux shows the linux command and the build note', () => {
-  assert.deepEqual(installPlatformView('linux'), { visibleCommand: 'linux', pressedPlatform: 'linux', isBuildNoteShown: true });
+test('linux shows the linux command', () => {
+  assert.deepEqual(installPlatformView('linux'), { visibleCommand: 'linux', pressedPlatform: 'linux' });
 });
 
-test('macos and windows show the default command without the build note', () => {
-  assert.deepEqual(installPlatformView('macos'), { visibleCommand: 'default', pressedPlatform: 'macos', isBuildNoteShown: false });
-  assert.deepEqual(installPlatformView('windows'), { visibleCommand: 'default', pressedPlatform: 'windows', isBuildNoteShown: false });
+test('macos and windows show the default command', () => {
+  assert.deepEqual(installPlatformView('macos'), { visibleCommand: 'default', pressedPlatform: 'macos' });
+  assert.deepEqual(installPlatformView('windows'), { visibleCommand: 'default', pressedPlatform: 'windows' });
 });

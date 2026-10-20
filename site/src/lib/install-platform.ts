@@ -30,10 +30,9 @@ export function detectInstallPlatform({ userAgentDataPlatform, userAgent }: { us
 export interface InstallPlatformView {
   visibleCommand: 'default' | 'linux';
   pressedPlatform: InstallPlatform;
-  isBuildNoteShown: boolean;
 }
 
 export function installPlatformView(platform: InstallPlatform): InstallPlatformView {
   const isLinux = platform === 'linux';
-  return { visibleCommand: isLinux ? 'linux' : 'default', pressedPlatform: platform, isBuildNoteShown: isLinux };
+  return { visibleCommand: isLinux ? 'linux' : 'default', pressedPlatform: platform };
 }

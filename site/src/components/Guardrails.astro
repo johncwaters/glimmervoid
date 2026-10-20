@@ -1,56 +1,11 @@
 ---
-import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, SANE_YOLO_AGENT_LABELS, UNREADABLE_PATHS_KEY } from '../lib/product-facts.ts';
+import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, UNREADABLE_PATHS_KEY } from '../lib/product-facts.ts';
 ---
 <section id="guardrails">
-  <div class="section-head reveal">
-    <p class="eyebrow">Guardrails</p>
-    <h2>Agents move fast. Mistakes stay small.</h2>
-    <p>Risk reduction, not a security boundary. Your {GUARDED_AGENT_LABELS} sessions on macOS and Linux can do anything except touch a short list of protected paths. Automated lanes that read outside input, like pull requests and error reports, can do only what they are given.</p>
-  </div>
-  <div class="ledger diagram reveal">
-    <table aria-label="What your sessions and automated lanes can and cannot do">
-      <thead>
-        <tr>
-          <td></td>
-          <th scope="col" class="yes"><span class="column-name">Your sessions</span><span class="posture">Allowed unless blocked</span></th>
-          <th scope="col" class="no"><span class="column-name">Automated lanes</span><span class="posture">Blocked unless allowed</span></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <th scope="row" class="aspect">Writes</th>
-          <td class="yes"><span class="verdict">Anywhere</span><span class="detail">Except credentials, Glimmervoid's own files and your <code>{BLOCKED_PATHS_KEY}</code></span></td>
-          <td class="no"><span class="verdict">Their own folder</span><span class="detail">Not even git hooks</span></td>
-        </tr>
-        <tr>
-          <th scope="row" class="aspect">Reads</th>
-          <td class="yes"><span class="verdict">Everywhere</span><span class="detail">Except credentials, Glimmervoid's own files and your <code>{UNREADABLE_PATHS_KEY}</code></span></td>
-          <td class="no"><span class="verdict">No credentials</span><span class="detail">Nor Glimmervoid's own files</span></td>
-        </tr>
-        <tr>
-          <th scope="row" class="aspect">Network</th>
-          <td class="yes"><span class="verdict">Open</span></td>
-          <td class="no"><span class="verdict">Approved hosts only</span><span class="detail">Open for lanes that push a fix</span></td>
-        </tr>
-        <tr>
-          <th scope="row" class="aspect">Tools</th>
-          <td class="yes"><span class="verdict">Everything</span></td>
-          <td class="no"><span class="verdict">Their own terminal</span></td>
-        </tr>
-        <tr>
-          <th scope="row" class="aspect">Turn off</th>
-          <td class="yes"><span class="verdict">Per project</span></td>
-          <td class="no"><span class="verdict">Never</span></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  <p class="built-on reveal">Built on <a href="https://github.com/anthropics/sandbox-runtime">Anthropic's sandbox-runtime</a> (Seatbelt on macOS, bubblewrap on Linux) and <a href="https://ccsafetynet.com">CC Safety Net</a>.</p>
   <div class="yolo reveal">
     <div class="yolo-copy">
-      <p class="eyebrow">Sane YOLO</p>
-      <h3>You only live once.<br>Your repo gets a net.</h3>
-      <p>Skip the permission prompts and let {SANE_YOLO_AGENT_LABELS} run. Every command is checked before it runs: the everyday ones go straight through, the ones that eat your work land in the net. On by default.</p>
+      <h2>You only live once.<br>Your repo gets a net.</h2>
+      <p>Skip the permission prompts. Safe commands run. Destructive ones land in the net.</p>
     </div>
     <figure class="yolo-drop" aria-label="Safe commands run; git reset --hard, git push --force and an unverifiable rm -rf are caught by CC Safety Net">
       <ul class="yolo-ran">
@@ -78,6 +33,48 @@ import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, SANE_YOLO_AGENT_LABELS, UNREAD
       <figcaption>Caught by CC Safety Net</figcaption>
     </figure>
   </div>
+  <details class="ledger-details reveal">
+    <summary>See exactly what is blocked</summary>
+    <p class="ledger-intro">Accident protection, not a security boundary. Applies to {GUARDED_AGENT_LABELS} on macOS and Linux. Lanes are the automated sessions that read pull requests and error reports.</p>
+    <div class="ledger diagram reveal">
+      <table aria-label="What your sessions and automated lanes can and cannot do">
+        <thead>
+          <tr>
+            <td></td>
+            <th scope="col" class="yes"><span class="column-name">Your sessions</span><span class="posture">Allowed unless blocked</span></th>
+            <th scope="col" class="no"><span class="column-name">Automated lanes</span><span class="posture">Blocked unless allowed</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row" class="aspect">Writes</th>
+            <td class="yes"><span class="verdict">Anywhere</span><span class="detail">Except credentials, Glimmervoid's own files and your <code>{BLOCKED_PATHS_KEY}</code></span></td>
+            <td class="no"><span class="verdict">Their own folder</span><span class="detail">Not even git hooks</span></td>
+          </tr>
+          <tr>
+            <th scope="row" class="aspect">Reads</th>
+            <td class="yes"><span class="verdict">Everywhere</span><span class="detail">Except credentials, Glimmervoid's own files and your <code>{UNREADABLE_PATHS_KEY}</code></span></td>
+            <td class="no"><span class="verdict">No credentials</span><span class="detail">Nor Glimmervoid's own files</span></td>
+          </tr>
+          <tr>
+            <th scope="row" class="aspect">Network</th>
+            <td class="yes"><span class="verdict">Open</span></td>
+            <td class="no"><span class="verdict">Approved hosts only</span><span class="detail">Open for lanes that push a fix</span></td>
+          </tr>
+          <tr>
+            <th scope="row" class="aspect">Tools</th>
+            <td class="yes"><span class="verdict">Everything</span></td>
+            <td class="no"><span class="verdict">Their own terminal</span></td>
+          </tr>
+          <tr>
+            <th scope="row" class="aspect">Turn off</th>
+            <td class="yes"><span class="verdict">Per project</span></td>
+            <td class="no"><span class="verdict">Never</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
 </section>
 
 <style>
@@ -91,7 +88,7 @@ import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, SANE_YOLO_AGENT_LABELS, UNREAD
   .ledger thead th { padding-block: 16px; }
   .ledger .column-name, .ledger .posture, .ledger .verdict, .ledger .detail { display: block; }
   .ledger .posture { margin-top: 4px; }
-  .ledger .column-name, .ledger .aspect { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: var(--text-dim); }
+  .ledger .column-name, .ledger .aspect { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: var(--text-dim); }
   .ledger thead .yes .column-name { color: var(--accent); }
   .ledger thead .no .column-name { color: var(--text-head); }
   .ledger .posture, .ledger .verdict { font-weight: 700; color: var(--text-head); }
@@ -100,26 +97,30 @@ import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, SANE_YOLO_AGENT_LABELS, UNREAD
   .ledger .verdict::before { display: inline-block; width: 1.4em; text-indent: 0; }
   .ledger .yes .verdict::before { content: '\2713'; color: var(--state-running); }
   .ledger .no .verdict::before { content: '\2715'; color: var(--text-dim); }
-  .ledger .detail, .built-on, .yolo-copy p { font-size: 13px; color: var(--text-dim); }
+  .ledger .detail { font-size: 15px; color: var(--text-dim); }
   .ledger .detail { margin-top: 2px; padding-left: 1.4em; }
   .ledger code, .yolo-copy code { font-size: inherit; overflow-wrap: anywhere; }
-  .built-on { margin-top: 14px; }
-  .yolo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: center; margin-top: 56px; }
-  .yolo-copy { display: flex; flex-direction: column; gap: 10px; max-width: 60ch; }
-  .yolo-copy h3 { font-size: clamp(22px, 3vw, 28px); line-height: 1.2; color: var(--text-head); }
-  .yolo-drop { container-type: inline-size; margin: 0; min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 18px 18px 14px; font-family: var(--font-mono); font-size: 13px; }
+  .yolo-copy p { color: var(--text-dim); font-size: 17px; }
+  .ledger-details { margin-top: 40px; }
+  .ledger-details summary { cursor: pointer; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--accent); }
+  .ledger-details summary::after { content: '+'; }
+  .ledger-details[open] summary::after { content: '-'; }
+  .ledger-intro { margin: 8px 0 20px; max-width: 70ch; color: var(--text-dim); }
+  .yolo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: center; margin-top: 0; }
+  .yolo-copy { display: flex; flex-direction: column; gap: 14px; max-width: 60ch; }
+  .yolo-drop { container-type: inline-size; margin: 0; min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 18px 18px 14px; font-family: var(--font-mono); font-size: 15px; }
   .yolo-ran { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text-dim); }
   .yolo-ran li::before { content: '\2713  '; white-space: pre; color: var(--state-running); }
   .yolo-catch { position: relative; }
   .yolo-caught { position: relative; z-index: 1; list-style: none; margin: 0; padding: 0 0 30px; display: flex; justify-content: center; align-items: flex-start; }
-  .yolo-caught li { display: flex; flex-direction: column; gap: 2px; margin-inline: 1px; border: 1px solid var(--state-waiting); border-radius: 4px; background: var(--bg); padding: 6px 9px; font-size: 12px; white-space: nowrap; rotate: var(--tilt); animation: yolo-fall linear both; animation-timeline: view(); animation-range: entry 20% cover 45%; }
+  .yolo-caught li { display: flex; flex-direction: column; gap: 2px; margin-inline: 1px; border: 1px solid var(--state-waiting); border-radius: 4px; background: var(--bg); padding: 6px 9px; font-size: 14px; white-space: nowrap; rotate: var(--tilt); animation: yolo-fall linear both; animation-timeline: view(); animation-range: entry 20% cover 45%; }
   .yolo-caught li:nth-child(1) { --tilt: 6deg; }
   .yolo-caught li:nth-child(2) { --tilt: -2deg; z-index: 1; margin-top: 18px; animation-range: entry 30% cover 50%; }
   .yolo-caught li:nth-child(3) { --tilt: -6deg; animation-range: entry 25% cover 48%; }
   .yolo-caught code { font-size: inherit; color: var(--text-head); }
-  .yolo-caught span { font-size: 11px; color: var(--state-waiting); }
+  .yolo-caught span { font-size: 14px; color: var(--state-waiting); }
   .yolo-net { position: absolute; left: 0; bottom: 0; width: 100%; height: 72%; color: var(--accent-dim); }
-  .yolo-drop figcaption { margin-top: 8px; text-align: center; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
+  .yolo-drop figcaption { margin-top: 8px; text-align: center; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
   @keyframes yolo-fall {
     from { translate: 0 -120px; opacity: 0; }
     75% { translate: 0 8px; opacity: 1; }
@@ -129,7 +130,7 @@ import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, SANE_YOLO_AGENT_LABELS, UNREAD
     .yolo-caught li { animation: none; }
   }
   @media (max-width: 820px) { .yolo { grid-template-columns: minmax(0, 1fr); } }
-  @container (max-width: 520px) {
+  @container (max-width: 600px) {
     .yolo-caught { flex-direction: column; align-items: center; }
     .yolo-caught li { margin: 0; }
     .yolo-caught li:nth-child(1) { --tilt: -4deg; margin-left: -48px; }
@@ -144,7 +145,7 @@ import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, SANE_YOLO_AGENT_LABELS, UNREAD
     .ledger th, .ledger td { padding: 10px 12px; min-width: 0; }
     .ledger .aspect { grid-column: 1 / -1; padding: 12px 12px 0; }
     .ledger tbody td.yes { border-left: 0; }
-    .ledger .posture, .ledger .verdict { font-size: 13px; }
-    .ledger .detail { font-size: 12px; }
+    .ledger .posture, .ledger .verdict { font-size: 15px; }
+    .ledger .detail { font-size: 14px; }
   }
 </style>

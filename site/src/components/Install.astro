@@ -5,7 +5,6 @@ import { DEFAULT_PORT, MINIMUM_NODE_VERSION } from '../lib/product-facts.ts';
 ---
 <section id="install">
   <div class="section-head reveal">
-    <p class="eyebrow">Install</p>
     <h2>Up in a minute.</h2>
   </div>
   <div class="install-grid reveal">
@@ -15,13 +14,14 @@ import { DEFAULT_PORT, MINIMUM_NODE_VERSION } from '../lib/product-facts.ts';
 <span class="cmd">sudo apt install <span class="unbroken">build-essential</span> python3</span>
 <InstallCommand class="cmd" command={LINUX_INSTALL_COMMAND} /></pre>
   </div>
-  <p style="margin-top:14px;font-size:14px;color:var(--text-dim)">Open <code>localhost:{DEFAULT_PORT}</code> and add your repositories folder in Settings. Needs Node {MINIMUM_NODE_VERSION} and an agent CLI.</p>
+  <p class="install-next">Then open <code>localhost:{DEFAULT_PORT}</code>. Needs Node {MINIMUM_NODE_VERSION}.</p>
 </section>
 
 <style>
   .install-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
-  pre.term-block { margin: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 16px 18px; overflow-x: auto; color: var(--text-head); font-family: inherit; font-size: 13px; line-height: 1.8; }
+  pre.term-block { margin: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 16px 18px; overflow-x: auto; color: var(--text-head); font-family: inherit; font-size: 15px; line-height: 1.8; }
   pre.term-block .c { color: var(--text-dim); }
+  .install-next { margin-top: 18px; color: var(--text-dim); }
   @media (max-width: 820px) { .install-grid { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 640px) {
     pre.term-block { white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; }

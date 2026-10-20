@@ -4,62 +4,58 @@ const DEMO_PAIRING_TOKEN = 'q8Vf2LkT0xRw7mZc4NsY1bHd9GpJa6UeKo3iXt5WvQn';
 ---
 <section id="remote">
   <div class="section-head reveal">
-    <p class="eyebrow">Remote access</p>
-    <h2>Your agents, from anywhere.</h2>
-    <p>Agents keep running on your machine. Pair your phone or another laptop once, then answer prompts, approve plans and merge from wherever you are.</p>
+    <h2>Your agents, from your phone.</h2>
+    <p>Pair once. Answer, approve and merge from anywhere. No cloud, no account.</p>
   </div>
   <div class="remote-route reveal" role="img" aria-label="Glimmervoid and its agents run on your machine. Your own HTTPS proxy, such as Tailscale, carries the dashboard to paired devices.">
     <div class="route-node">
       <span class="route-label">Your machine</span>
-      <span class="route-detail">Glimmervoid and every agent</span>
+      <span class="route-detail">Glimmervoid and agents</span>
     </div>
     <span class="route-link" aria-hidden="true"></span>
     <div class="route-node">
       <span class="route-label">Your proxy</span>
-      <span class="route-detail">Tailscale or any HTTPS proxy</span>
+      <span class="route-detail">Tailscale or any HTTPS</span>
     </div>
     <span class="route-link" aria-hidden="true"></span>
     <div class="route-node paired">
-      <span class="route-label">Paired devices</span>
-      <span class="route-detail">Phone, tablet, laptop</span>
+      <span class="route-label">Your phone</span>
+      <span class="route-detail">Or any paired device</span>
     </div>
   </div>
   <div class="remote-setup">
     <ol class="remote-steps reveal">
-      <li><h3>Turn it on</h3><p>Add a <code>remote</code> block with its own port to <code>~/.glimmervoid/config.json</code>.</p></li>
-      <li><h3>Put a proxy in front</h3><p>Glimmervoid only listens on localhost. Tailscale gives you HTTPS in one command.</p></li>
-      <li><h3>Pair a device</h3><p>Open the one-time link on your phone. Revoke any device later with <code>glimmervoid pair --revoke &lt;id&gt;</code>, no restart; find the id with <code>glimmervoid pair --list</code>.</p></li>
+      <li><h3>Turn on remote</h3><p>Add a <code>remote</code> block to your config.</p></li>
+      <li><h3>Add HTTPS</h3><p>Run <code>tailscale serve</code>.</p></li>
+      <li><h3>Pair your phone</h3><p>Open the one-time link.</p></li>
     </ol>
     <figure class="reveal" aria-label="Setting up remote access in a terminal"><pre class="remote-term"><span class="prompt">$</span> tailscale serve --bg 3456
 <span class="prompt">$</span> glimmervoid pair --name phone
 
   <span class="pair-url">https://{DEMO_HOST}/pair/{DEMO_PAIRING_TOKEN}</span>
 
-<span class="dim">Treat this link like a password.
-It works once and expires in 10 minutes.</span></pre></figure>
+<span class="dim">Works once. Expires in 10 minutes.</span></pre></figure>
   </div>
-  <p class="remote-trust reveal">No cloud relay and no account. Only paired devices get in, and behind Tailscale you can also limit it to your own login.</p>
 </section>
 
 <style>
   .remote-route { display: grid; grid-template-columns: minmax(0, 1fr) 48px minmax(0, 1fr) 48px minmax(0, 1fr); align-items: center; margin-bottom: 40px; }
   .route-node { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 16px 18px; min-width: 0; }
   .route-node.paired { border-color: var(--accent-dim); }
-  .route-label { color: var(--text-head); font-weight: 700; font-size: 14px; }
-  .route-detail { color: var(--text-dim); font-size: 13px; }
+  .route-label { color: var(--text-head); font-weight: 700; font-size: 16px; }
+  .route-detail { color: var(--text-dim); font-size: 14px; }
   .route-link { height: 1px; background: repeating-linear-gradient(to right, var(--accent-dim) 0 6px, transparent 6px 10px); background-size: 20px 1px; animation: route-flow 1.2s linear infinite; }
   @keyframes route-flow { to { background-position: 20px 0; } }
   .remote-setup { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
   .remote-steps { margin: 0; padding: 0; list-style: none; counter-reset: remote-step; display: flex; flex-direction: column; }
   .remote-steps li { counter-increment: remote-step; display: grid; grid-template-columns: 32px minmax(0, 1fr); column-gap: 8px; padding-block: 14px; border-bottom: 1px solid var(--border-dim); }
-  .remote-steps li::before { content: counter(remote-step, decimal-leading-zero); grid-row: span 2; color: var(--accent); font-size: 13px; font-weight: 700; line-height: 1.6; }
-  .remote-steps p { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+  .remote-steps li::before { content: counter(remote-step, decimal-leading-zero); grid-row: span 2; color: var(--accent); font-size: 15px; font-weight: 700; line-height: 1.6; }
+  .remote-steps p { color: var(--text-dim); font-size: 15px; margin-top: 4px; }
   .remote-steps code { font-size: inherit; overflow-wrap: anywhere; }
   .remote-setup figure { margin: 0; min-width: 0; }
-  .remote-term { margin: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 18px; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .remote-term { margin: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 18px; font-family: var(--font-mono); font-size: 14px; line-height: 1.6; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
   .remote-term .pair-url { color: var(--accent); word-break: break-all; }
   .remote-term .prompt, .remote-term .dim { color: var(--text-dim); }
-  .remote-trust { margin-top: 28px; color: var(--text-dim); font-size: 13px; }
   @media (max-width: 820px) {
     .remote-route { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 28px auto 28px auto; }
     .route-link { width: 1px; height: 100%; justify-self: center; background: repeating-linear-gradient(to bottom, var(--accent-dim) 0 6px, transparent 6px 10px); background-size: 1px 20px; animation-name: route-flow-down; }

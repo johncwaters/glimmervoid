@@ -1,0 +1,35 @@
+---
+import { STATE_ICONS, STATUS_ICON_SHAPES } from '../../../shared/state-icons.ts';
+import { BADGE_LABELS, STATES } from '../../../shared/states.ts';
+import { AGENT_CARDS } from '../lib/product-facts.ts';
+
+const SHOWN_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.FAILED];
+---
+<section id="status">
+  <div class="section-head reveal">
+    <h2>Built into your agents. Not wrapped around them.</h2>
+    <p>Live state straight from Claude Code and Codex hooks. Agents run unmodified, in real terminals.</p>
+  </div>
+  <ul class="state-row reveal" aria-label="Session states">
+    {SHOWN_STATES.map((state) => (
+      <li data-state={state}><svg viewBox="0 0 16 16" aria-hidden="true">{STATUS_ICON_SHAPES[STATE_ICONS[state]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>{BADGE_LABELS[state]}</li>
+    ))}
+  </ul>
+  <ul class="agent-list reveal" aria-label="Supported agents">
+    {AGENT_CARDS.map(({ label, support }) => <li><span class="agent-name">{label}</span><span class="agent-support">{support}</span></li>)}
+  </ul>
+</section>
+
+<style>
+  .state-row { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 12px; }
+  .state-row li { display: inline-flex; align-items: center; gap: 10px; padding: 12px 18px; border: 1px solid currentColor; border-radius: 6px; background: color-mix(in srgb, currentColor 8%, transparent); font-size: 17px; font-weight: 700; }
+  .state-row svg { width: 18px; height: 18px; }
+  .agent-list { list-style: none; margin: 32px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 12px 40px; }
+  .agent-list li { display: flex; flex-direction: column; }
+  .agent-name { color: var(--text-head); font-weight: 700; }
+  .agent-support { color: var(--text-dim); font-size: 15px; }
+  [data-state="RUNNING"] { color: var(--state-running); }
+  [data-state="WAITING"] { color: var(--state-waiting); }
+  [data-state="COMPLETE"] { color: var(--state-complete); }
+  [data-state="FAILED"] { color: var(--state-failed); }
+</style>

@@ -1,8 +1,10 @@
-<section id="celebrations">
+---
+import Animals from './Animals.astro';
+---
+<section id="fun">
   <div class="section-head reveal">
-    <p class="eyebrow">Celebrations</p>
-    <h2>Every merge gets a moment.</h2>
-    <p>Merged pull requests wait in the trophy tray, so none go off while you are away. Click it to play each one, with a jingle that climbs as the streak grows.</p>
+    <h2>Just for fun.</h2>
+    <p>Merges wait in the trophy tray until you are back.</p>
   </div>
   <div class="celebration-demo">
     <div class="trophy-stage">
@@ -14,9 +16,9 @@
     </div>
     <div class="queue-row">
       <button class="queue-merge" id="queue-merge" type="button">Queue a merge</button>
-      <span class="celebration-demo-hint">Adds another one to the tray.</span>
     </div>
   </div>
+  <Animals />
 </section>
 
 <script>
@@ -44,20 +46,19 @@
 </script>
 
 <style>
-  .celebration-demo { display: flex; flex-direction: column; gap: 18px; width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 22px 22px 16px; }
+  .celebration-demo { margin-bottom: 48px; display: flex; flex-direction: column; gap: 18px; width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 22px 22px 16px; }
   .trophy-stage { display: flex; align-items: center; gap: 18px; }
   .celebration-demo .celebration-tray .btn-celebrations { width: 64px; height: 64px; border-radius: 10px; border-width: 2px; }
   .celebration-demo .celebration-tray .btn-celebrations-icon { width: 30px; height: 30px; }
   .celebration-demo .celebration-tray .celebration-tray-count { top: -9px; right: -9px; min-width: 22px; height: 22px; border-radius: 11px; font-size: 12px; line-height: 22px; }
   .celebration-demo .celebration-tray[data-state="queued"] .btn-celebrations { background: color-mix(in srgb, var(--state-complete) 12%, transparent); animation: trophy-pulse 1.6s ease-out infinite; }
   .celebration-demo .celebration-tray[data-state="queued"] .btn-celebrations-icon { animation: trophy-wiggle 1.6s ease-in-out infinite; }
-  .trophy-callout { margin: 0; font-size: 14px; font-weight: 700; color: var(--state-complete); transition: opacity var(--transition-fast); }
+  .trophy-callout { margin: 0; font-size: 16px; font-weight: 700; color: var(--state-complete); transition: opacity var(--transition-fast); }
   .trophy-arrow { display: inline-block; animation: trophy-nudge 0.8s ease-in-out infinite alternate; }
   .celebration-demo:has(.celebration-tray:not([data-state="queued"])) .trophy-callout { opacity: 0; }
   .queue-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border-dim); }
-  .queue-merge { height: var(--header-control-height); border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: 12px; padding: 0 12px; cursor: pointer; }
+  .queue-merge { height: var(--header-control-height); border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; padding: 0 14px; min-height: 40px; cursor: pointer; }
   .queue-merge:hover { border-color: var(--accent); color: var(--text-head); }
-  .celebration-demo-hint { font-size: 12px; color: var(--text-dim); }
   @keyframes trophy-pulse {
     from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--state-complete) 55%, transparent); }
     to { box-shadow: 0 0 0 16px transparent; }

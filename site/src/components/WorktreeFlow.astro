@@ -1,8 +1,7 @@
 <section id="worktrees">
   <div class="section-head reveal">
-    <p class="eyebrow">Review and merge</p>
-    <h2>Every agent gets its own worktree.</h2>
-    <p>Review each diff. Merge in one click. Conflicts go back to the agent that wrote them.</p>
+    <h2>One worktree per agent.</h2>
+    <p>No collisions. Merge in one click. Conflicts go back to the agent that caused them.</p>
   </div>
   <div class="diagram git reveal">
     <svg class="diagram-wide" viewBox="0 0 860 250" role="img" aria-label="Three agent branches fork from main, add commits and merge back. The third branch hits a conflict, parks, is resolved in its session, then merges.">
@@ -58,11 +57,11 @@
   .git .dot { opacity: 0; transition: opacity 300ms; }
   .git .dot.on { opacity: 1; }
   .git .commit-dot { fill: var(--bg-card); stroke-width: 2.5; }
-  .git .lbl { font-size: 11px; fill: var(--text-dim); }
-  .git .lbl-main { font-size: 12px; fill: var(--text-head); font-weight: 700; }
+  .git .lbl { font-size: 12px; fill: var(--text-dim); }
+  .git .lbl-main { font-size: 13px; fill: var(--text-head); font-weight: 700; }
   .git .parked { fill: var(--state-waiting); }
   .git .merged { fill: var(--state-complete); }
-  .git .note { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
+  .git .note { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
   .git .parked-note { fill: var(--state-waiting); }
   .git .resolved-note { fill: var(--accent); }
   .git .diagram-compact .lbl, .git .diagram-compact .lbl-main { font-size: 13px; }

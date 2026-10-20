@@ -1,14 +1,20 @@
+---
+import { sitePath } from '../lib/site-path.ts';
+---
 <footer>
   <span>MIT. Built inside Glimmervoid.</span>
   <ul>
     <li><a href="https://github.com/johncwaters/glimmervoid">GitHub</a></li>
     <li><a href="https://www.npmjs.com/package/glimmervoid">npm</a></li>
     <li><a href="https://github.com/johncwaters/glimmervoid/blob/main/CHANGELOG.md">Changelog</a></li>
+    <li><a href={sitePath('blog/')}>Blog</a></li>
   </ul>
+  <p class="credits">Guardrails built on <a href="https://github.com/anthropics/sandbox-runtime">Anthropic's sandbox-runtime</a> and <a href="https://ccsafetynet.com">CC Safety Net</a>.</p>
 </footer>
 
 <style>
-  footer { border-top: 1px solid var(--border-dim); padding-block: 28px 0; display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: space-between; font-size: 12px; color: var(--text-dim); }
+  footer { border-top: 1px solid var(--border-dim); padding-block: 28px 0; display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: space-between; font-size: 14px; color: var(--text-dim); }
+  .credits { flex-basis: 100%; }
   footer ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
   footer a { color: var(--text-dim); }
   @media (pointer: coarse), (max-width: 640px) {
