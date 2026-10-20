@@ -130,7 +130,9 @@ const VENDOR_PROFILES: Readonly<Record<GuardrailsVendor, VendorProfile>> = Objec
 
 const GUARDRAILS_VENDORS: readonly GuardrailsVendor[] = Object.freeze(['claude', 'codex']);
 const UNWRAPPED_VENDOR_HOME_ENTRIES: readonly string[] = Object.freeze(['.grok']);
-const CREDENTIAL_HOME_ENTRIES: readonly string[] = Object.freeze(['.ssh', '.config/gh', 'Library/Keychains', '.git-credentials']);
+const CREDENTIAL_HOME_ENTRIES: readonly string[] = Object.freeze([
+  '.ssh', '.config/gh', '.config/coderv2', 'Library/Application Support/coderv2', 'Library/Keychains', '.git-credentials',
+]);
 const CLOUD_CREDENTIAL_HOME_ENTRIES: readonly string[] = Object.freeze(['.aws', '.azure', '.config/gcloud', '.kube', '.docker', '.gnupg', '.netrc', '.npmrc']);
 const STANDARD_LEVEL_USABLE_CREDENTIAL_ENTRIES: readonly string[] = Object.freeze(['Library/Keychains']);
 const XDG_CONFIG_DEFAULT_HOME_PREFIX = '.config/';

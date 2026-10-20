@@ -131,7 +131,7 @@ test('an ordinary Claude session is guarded unless it or a folder above it is ma
   const role = sessionRole({ writableRoots: [hookScratch], readDenied: [listedSecret], readablePaths: [githubLogin], blockedPaths: [listedBlocked] });
   const blocked = standardWriteBlockCandidates(role, hostPaths);
   assert.equal(blocked.includes(listedBlocked), true);
-  for (const blockedPath of ['.ssh', '.config/gh', '.aws', '.git-credentials', '.glimmervoid/config.json', '.glimmervoid/bin', '.glimmervoid/guardrails-policies']) {
+  for (const blockedPath of ['.ssh', '.config/gh', '.config/coderv2', '.aws', '.git-credentials', '.glimmervoid/config.json', '.glimmervoid/bin', '.glimmervoid/guardrails-policies']) {
     assert.equal(blocked.includes(path.join(homeDir, blockedPath)), true, blockedPath);
   }
   for (const writablePath of ['.claude', '.claude/hooks', '.zshrc', '.gitconfig', 'Library/Keychains', '.glimmervoid/guardrails-temp', '.glimmervoid/scratch']) {
@@ -202,7 +202,7 @@ test('vendor homes: a lane writes only its own transcript folder, session env fo
   assert.equal(codexLanePlan.launchHomeLinks.some((link) => link.targetPath === path.join(codexHome, 'config.toml') && !link.isLogin), true);
   assert.deepEqual(planFor(roleWith({ vendors: ['codex'] }), { ...hostPaths, existingPaths: new Set() }).launchHomeLinks, []);
   const laneDenied = entryPaths(lanePolicy.denyRead);
-  for (const unreadable of ['.codex', '.grok', '.ssh', '.config/gh', '.git-credentials', '.aws', '.npmrc', '.glimmervoid']) {
+  for (const unreadable of ['.codex', '.grok', '.ssh', '.config/gh', '.config/coderv2', 'Library/Application Support/coderv2', '.git-credentials', '.aws', '.npmrc', '.glimmervoid']) {
     assert.equal(laneDenied.includes(path.join(homeDir, unreadable)), true, unreadable);
   }
   assert.equal(laneDenied.includes(path.join(homeDir, '.claude')), false);
@@ -220,7 +220,7 @@ test('vendor homes: a lane writes only its own transcript folder, session env fo
   assert.equal(checkDenied.includes(path.join(homeDir, 'Projects')), false);
 });
 
-test('a relocated vendor home is unreadable to other roles and holds its own role state, and relocated gh and gcloud folders are unreadable', () => {
+test('a relocated vendor home is unreadable to other roles and holds its own role state, and relocated gh, coderv2 and gcloud folders are unreadable', () => {
   const claudeHome = path.resolve('/srv/claude-home');
   const codexHome = path.resolve('/srv/codex-home');
   const xdgConfigHome = path.resolve('/srv/xdg');
@@ -237,7 +237,7 @@ test('a relocated vendor home is unreadable to other roles and holds its own rol
   const role = roleWith({ vendorHome: { scope: 'state' } });
   const plan = planFor(role, { ...relocatedPaths, existingPaths: new Set(guardrailsPolicyProbePaths(role, relocatedPaths)) });
   const { denyRead, allowWrite, denyWrite } = plan.policy.filesystem;
-  for (const unreadable of [codexHome, path.join(homeDir, '.codex'), path.join(xdgConfigHome, 'gh'), path.join(xdgConfigHome, 'gcloud'), path.join(homeDir, '.config', 'gh')]) {
+  for (const unreadable of [codexHome, path.join(homeDir, '.codex'), path.join(xdgConfigHome, 'gh'), path.join(xdgConfigHome, 'coderv2'), path.join(xdgConfigHome, 'gcloud'), path.join(homeDir, '.config', 'gh')]) {
     assert.equal(entryPaths(denyRead).includes(unreadable), true, unreadable);
   }
   assert.equal(entryPaths(allowWrite).includes(claudeHome), true);

@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sessions get their refined task title and name again**: Claude Code sessions never told the title refiner about your prompts, so it never ran. A card kept a "glimmervoid (2)" style name, and its description was Claude Code's own terminal title. Now, after a turn ends, an auto-named session gets a short name and a task title from your recent prompts. Claude Code's own conversation title is read at turn end again too.
 - **Adding a session to a folder that is not a git repository**: the + on a sidebar group for such a folder now opens Add Session with the folder filled in and the "Run in this folder, no worktree" choice shown, instead of printing an error in the header. You no longer have to remove the folder and add it again.
 - **Header errors no longer push the header onto two rows**: a long error message stays on one line and is cut short, with the full text on hover.
+- **Guarded sessions can no longer reach the Coder CLI login**: the Coder CLI config folders (`~/.config/coderv2`, `$XDG_CONFIG_HOME/coderv2` and `~/Library/Application Support/coderv2`), which hold its session token, are now blocked from reads and writes in guarded sessions.
 
 ## [0.40.1] - 2026-10-19
 
