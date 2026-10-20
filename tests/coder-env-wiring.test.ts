@@ -47,6 +47,7 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
   const warnings: string[] = [];
   const savedOwnedWorkspaces: string[][] = [];
   const listings = { current: listing([MAPPED_WORKSPACE]) };
+  const signIn = { isSignedOut: false };
   let nowMs = 120_000;
   let remainingFailedListings = 0;
   const wiring = createCoderEnvWiring({
@@ -69,6 +70,9 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
     runCoder: async (args, options) => {
       events.push(args[0]);
       commands.push({ args: [...args], input: options.input, env: options.env });
+      if (args[0] !== 'version' && signIn.isSignedOut) {
+        throw Object.assign(new Error(`Command failed: coder ${args[0]}`), { stderr: "error: You are signed out or your session has expired. Please sign in again to continue.\nSuggestion: Try logging in using 'coder login'.\n" });
+      }
       if (args[0] === 'list' && remainingFailedListings > 0) {
         remainingFailedListings -= 1;
         throw Object.assign(new Error('Command failed: coder list'), { stderr: 'error: list workspaces: connection reset by peer\n' });
@@ -115,7 +119,7 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
     assert.ok(reserved.ok);
     return wiring.provision({ projectId: 'project', mapping: reserved.mapping, repoRemoteUrl: 'git@example.com:org/repo.git', baseBranch: 'main' });
   }
-  return { wiring, start, tick, config, commands, events, plans, warnings, listings, timers, savedOwnedWorkspaces, reserveAndSave, provisionReserved };
+  return { wiring, signIn, start, tick, config, commands, events, plans, warnings, listings, timers, savedOwnedWorkspaces, reserveAndSave, provisionReserved };
 }
 
 test('reconcile stops owned unmapped running gv workspaces on every tick, deletes only an owned one stopped past deleteAfterStoppedDays, and never touches another host\'s', async (context) => {
@@ -275,4 +279,21 @@ test('a coder list that keeps failing while a new workspace comes up fails the p
     harness.timers.fireAll();
   }
   assert.deepEqual(await provision, { ok: false, reason: 'Coder list failed: list workspaces: connection reset by peer' });
+});
+
+test('a signed-out coder CLI refuses a new workspace with a coder login hint until it is signed in again', async (context) => {
+  const harness = createHarness({ hasMapping: false });
+  context.after(harness.wiring.stop);
+  harness.signIn.isSignedOut = true;
+  const refused = await harness.wiring.reserve({ projectId: 'project', environmentName: 'remote', branch: 'feature', liveCount: 0 });
+  assert.deepEqual(refused, { ok: false, reason: "The coder CLI on this host is not signed in. Run coder login, then try again. (Coder whoami failed: You are signed out or your session has expired. Please sign in again to continue. Suggestion: Try logging in using 'coder login'.)" });
+  assert.equal(harness.wiring.availableEnvironments(), null);
+  harness.signIn.isSignedOut = false;
+  assert.equal((await harness.wiring.reserve({ projectId: 'project', environmentName: 'remote', branch: 'feature', liveCount: 0 })).ok, true);
+  harness.signIn.isSignedOut = true;
+  await assert.rejects(harness.wiring.uploadFile({ workspace: MAPPED_WORKSPACE, remotePath: '/srv/agent/.env', contents: 'secret', mode: 0o600 }), { message: "The coder CLI on this host is not signed in. Run coder login, then try again. (Coder ssh failed: You are signed out or your session has expired. Please sign in again to continue. Suggestion: Try logging in using 'coder login'.)" });
+  assert.equal(harness.wiring.availableEnvironments(), null);
+  assert.deepEqual(await harness.wiring.reserve({ projectId: 'project', environmentName: 'remote', branch: 'feature', liveCount: 0 }), refused);
+  harness.signIn.isSignedOut = false;
+  assert.equal((await harness.wiring.reserve({ projectId: 'project', environmentName: 'remote', branch: 'feature', liveCount: 0 })).ok, true);
 });

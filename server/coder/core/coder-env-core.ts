@@ -205,8 +205,16 @@ function coderErrorDetail(stderr: unknown): string | null {
   return errorWithCause.slice('error:'.length).trim().slice(0, CODER_ERROR_DETAIL_LIMIT) || null;
 }
 
+function isCoderSignedOutError(stderr: unknown): boolean {
+  return typeof stderr === 'string' && stderr.includes('You are signed out or your session has expired');
+}
+
+function coderNotSignedInReason(failure: string): string {
+  return `The coder CLI on this host is not signed in. Run coder login, then try again. (${failure})`;
+}
+
 export {
-  coderErrorDetail, remoteCheckoutDirectory, CODER_ENV_READY_POLL_MS, CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_IDLE_TICK_MS, resolveCoderEnvironment, parseGlimmervoidWorkspaces, decideReadiness, shouldIdleStop, planReconcile,
+  coderErrorDetail, isCoderSignedOutError, coderNotSignedInReason, remoteCheckoutDirectory, CODER_ENV_READY_POLL_MS, CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_IDLE_TICK_MS, resolveCoderEnvironment, parseGlimmervoidWorkspaces, decideReadiness, shouldIdleStop, planReconcile,
   retainedOwnedWorkspaces, failedProvisionCleanup, sharingRefusal, liveLimitRefusal,
 };
 export type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ReconcilePlan, ResolvedCoderEnvironment, WorkspaceMapping };

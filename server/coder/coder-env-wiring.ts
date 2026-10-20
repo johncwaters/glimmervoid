@@ -10,10 +10,12 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { createCoderEnvPoller } from './coder-env-poller.ts';
 import type { CoderEnvPollerDeps } from './coder-env-poller.ts';
 import {
-  CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_READY_POLL_MS, coderErrorDetail, decideReadiness, failedProvisionCleanup, liveLimitRefusal, parseGlimmervoidWorkspaces, remoteCheckoutDirectory, resolveCoderEnvironment, retainedOwnedWorkspaces, sharingRefusal,
+  CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_READY_POLL_MS, coderErrorDetail, coderNotSignedInReason, decideReadiness, failedProvisionCleanup, isCoderSignedOutError, liveLimitRefusal, parseGlimmervoidWorkspaces, remoteCheckoutDirectory, resolveCoderEnvironment, retainedOwnedWorkspaces, sharingRefusal,
 } from './core/coder-env-core.ts';
 import type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ResolvedCoderEnvironment, WorkspaceMapping } from './core/coder-env-core.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
+
+const CODER_UNAVAILABLE_REASON = 'Coder environments are unavailable on this host';
 
 type ProjectEnvironment = NonNullable<Config['projects'][number]['environment']>;
 type CoderEnvResult = { ok: true; mapping: ProjectEnvironment } | { ok: false; reason: string };
@@ -44,6 +46,8 @@ function createCoderEnvWiring({
 }: CoderEnvWiringOptions) {
   let binaryProbe: Promise<boolean> | null = null;
   let isCoderAvailable = false;
+  let unavailableReason = CODER_UNAVAILABLE_REASON;
+  const signedOutErrors = new WeakSet<Error>();
   let hasReconciled = false;
   const operationCountByWorkspace = new Map<string, number>();
   const lastSeenStatusByWorkspace = new Map<string, CoderWorkspace['status']>();
@@ -86,9 +90,21 @@ function createCoderEnvWiring({
       if (executeCoder) return await executeCoder(args, options);
       return await execFileAsync('coder', args, { timeout: timeoutMs, input, env: options.env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
     } catch (error) {
-      const detail = coderErrorDetail(error instanceof Error && 'stderr' in error ? error.stderr : null);
-      throw new Error(detail ? `Coder ${args[0]} failed: ${detail}` : `Coder ${args[0]} failed`);
+      const stderr = error instanceof Error && 'stderr' in error ? error.stderr : null;
+      const detail = coderErrorDetail(stderr);
+      const failure = detail ? `Coder ${args[0]} failed: ${detail}` : `Coder ${args[0]} failed`;
+      if (!isCoderSignedOutError(stderr)) throw new Error(failure);
+      throw markSignedOut(failure);
     }
+  }
+
+  function markSignedOut(failure: string): Error {
+    binaryProbe = null;
+    isCoderAvailable = false;
+    unavailableReason = coderNotSignedInReason(failure);
+    const signedOutError = new Error(unavailableReason);
+    signedOutErrors.add(signedOutError);
+    return signedOutError;
   }
 
   function command(args: string[], timeoutMs = 30_000): Promise<{ stdout: string }> {
@@ -127,12 +143,20 @@ function createCoderEnvWiring({
   async function probeBinary(): Promise<boolean> {
     try {
       await command(['version'], 5_000);
-      isCoderAvailable = true;
-      return true;
     } catch {
+      unavailableReason = CODER_UNAVAILABLE_REASON;
       log.warn('[coder-env] coder binary is unavailable');
       return false;
     }
+    try {
+      await command(['whoami'], 15_000);
+    } catch (error) {
+      if (!(error instanceof Error && signedOutErrors.has(error))) unavailableReason = `${CODER_UNAVAILABLE_REASON}: ${errorMessage(error)}`;
+      log.warn(`[coder-env] ${errorMessage(error)}`);
+      return false;
+    }
+    isCoderAvailable = true;
+    return true;
   }
 
   async function ensureAvailable(): Promise<boolean> {
@@ -289,7 +313,7 @@ function createCoderEnvWiring({
     const limitReason = liveLimitRefusal({ liveCount, maxLive: environment.maxLive, environmentName });
     if (limitReason) return { ok: false, reason: limitReason };
     if (config.projects.some((candidate) => candidate.id === projectId && candidate.environment)) return { ok: false, reason: 'Project already has a Coder workspace mapping' };
-    if (!await ensureAvailable()) return { ok: false, reason: 'Coder environments are unavailable on this host' };
+    if (!await ensureAvailable()) return { ok: false, reason: unavailableReason };
     const workspace = workspaceNameFromHex(randomBytes(6).toString('hex'));
     if (workspace === null) return { ok: false, reason: 'Invalid generated Coder workspace name' };
     return { ok: true, mapping: { name: environmentName, workspace, remotePort: randomInt(40_000, 50_000), branch } };
@@ -323,7 +347,7 @@ function createCoderEnvWiring({
     try {
       const environment = resolveEnvironment(mapping.name);
       if (!environment) throw new Error(`Unknown Coder environment: ${mapping.name}`);
-      if (!await ensureAvailable()) throw new Error('Coder environments are unavailable on this host');
+      if (!await ensureAvailable()) throw new Error(unavailableReason);
       const createArgs = coderCreateArgs({ workspace, template: environment.template, stopAfter: environment.stopAfter, parameters: environment.parameters });
       if (createArgs === null) throw new Error('Invalid Coder create parameters');
       const checkoutDirectory = remoteCheckoutDirectory({ checkoutRoot: environment.checkoutRoot, workspace });
@@ -363,7 +387,7 @@ function createCoderEnvWiring({
     if (!mapping) return { ok: false, reason: `Project ${projectId} has no Coder workspace mapping` };
     const environment = resolveEnvironment(mapping.name);
     if (!environment) return { ok: false, reason: `Unknown Coder environment: ${mapping.name}` };
-    if (!await ensureAvailable()) return { ok: false, reason: 'Coder environments are unavailable on this host' };
+    if (!await ensureAvailable()) return { ok: false, reason: unavailableReason };
     return whileWorkspaceBusy(mapping.workspace, () => startWorkspace({ mapping, environment }));
   }
 
@@ -392,7 +416,7 @@ function createCoderEnvWiring({
     failedProvisionByProject.delete(projectId);
     const mapping = config.projects.find((project) => project.id === projectId)?.environment;
     if (!mapping) return { ok: true };
-    if (!await ensureAvailable()) return { ok: false, reason: 'Coder environments are unavailable on this host' };
+    if (!await ensureAvailable()) return { ok: false, reason: unavailableReason };
     return whileWorkspaceBusy(mapping.workspace, async () => {
       try {
         await command(['delete', mapping.workspace, '--yes'], 20 * 60_000);
@@ -409,7 +433,7 @@ function createCoderEnvWiring({
     const fileMode = typeof mode === 'number' ? mode.toString(8) : mode;
     if (!/^[0-7]{3,4}$/.test(fileMode)) throw new Error('Invalid remote file mode');
     if (!path.posix.isAbsolute(remotePath)) throw new Error('Remote upload path must be absolute');
-    if (!await ensureAvailable()) throw new Error('Coder environments are unavailable on this host');
+    if (!await ensureAvailable()) throw new Error(unavailableReason);
     const script = `umask 077; mkdir -p "$(dirname "$1")" && cat > "$1" && chmod ${fileMode} "$1"`;
     await runCoder(['ssh', workspace, '--', remoteCommand(['sh', '-c', script, 'sh', remotePath])], { timeoutMs: 30_000, input: contents });
   }
