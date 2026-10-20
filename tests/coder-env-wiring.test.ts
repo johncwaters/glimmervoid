@@ -21,8 +21,9 @@ function listing(names: string[], stoppedAtMsByName: Record<string, number> = {}
   }));
 }
 
-function createHarness({ hasMapping = true, sharingStatus = '', idleState = STATES.RUNNING, createReleased = Promise.resolve() }: {
+function createHarness({ hasMapping = true, sharingStatus = '', idleState = STATES.RUNNING, createReleased = Promise.resolve(), createStderr = null }: {
   hasMapping?: boolean;
+  createStderr?: string | null;
   sharingStatus?: string;
   idleState?: (typeof STATES)[keyof typeof STATES];
   createReleased?: Promise<void>;
@@ -58,6 +59,8 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
       events.push(args[0]);
       commands.push({ args: [...args], input: options.input, env: options.env });
       if (args[0] === 'list') return { stdout: listings.current };
+      if (args[0] === 'create' && createStderr !== null) throw Object.assign(new Error('Command failed: coder create'), { stderr: createStderr });
+      if (args[0] === 'delete' && !listings.current.includes(args[1])) throw Object.assign(new Error('Command failed: coder delete'), { stderr: 'error: workspace not found\n' });
       if (args[0] === 'create') {
         assert.equal(config.projects[0].environment?.workspace, args[1]);
         await createReleased;
@@ -190,4 +193,12 @@ test('a resume during or after a failed provision returns that provision\'s fail
   assert.deepEqual(resumeResult, provisionResult);
   assert.deepEqual(await harness.wiring.resume({ projectId: 'project' }), provisionResult);
   assert.ok(!harness.events.includes('start'));
+});
+
+test('a create the template refuses before any workspace exists reports the coder error and no cleanup failure', async (context) => {
+  const harness = createHarness({ hasMapping: false, createStderr: 'Dotfiles Branch\n> Enter a value: Encountered an error running "coder create"\nerror: prepare build: EOF\n' });
+  context.after(harness.wiring.stop);
+  const provisioned = await harness.provisionReserved();
+  assert.deepEqual(provisioned, { ok: false, reason: 'Coder create failed: prepare build: EOF' });
+  assert.ok(harness.commands.find(({ args }) => args[0] === 'create')?.args.includes('--use-parameter-defaults'));
 });

@@ -9,7 +9,7 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { createCoderEnvPoller } from './coder-env-poller.ts';
 import type { CoderEnvPollerDeps } from './coder-env-poller.ts';
 import {
-  CODER_ENV_READY_POLL_MS, decideReadiness, failedProvisionCleanup, liveLimitRefusal, parseGlimmervoidWorkspaces, remoteCheckoutDirectory, resolveCoderEnvironment, sharingRefusal,
+  CODER_ENV_READY_POLL_MS, coderErrorDetail, decideReadiness, failedProvisionCleanup, liveLimitRefusal, parseGlimmervoidWorkspaces, remoteCheckoutDirectory, resolveCoderEnvironment, sharingRefusal,
 } from './core/coder-env-core.ts';
 import type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ResolvedCoderEnvironment } from './core/coder-env-core.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
@@ -53,8 +53,9 @@ function createCoderEnvWiring({
       const options = { timeoutMs, input, env: { ...env, ...commandEnv } };
       if (executeCoder) return await executeCoder(args, options);
       return await execFileAsync('coder', args, { timeout: timeoutMs, input, env: options.env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-    } catch {
-      throw new Error(`Coder ${args[0]} failed`);
+    } catch (error) {
+      const detail = coderErrorDetail(error instanceof Error && 'stderr' in error ? error.stderr : null);
+      throw new Error(detail ? `Coder ${args[0]} failed: ${detail}` : `Coder ${args[0]} failed`);
     }
   }
 
@@ -213,6 +214,11 @@ function createCoderEnvWiring({
     if (reason) throw new Error(reason);
   }
 
+  async function isWorkspaceListed(workspace: string): Promise<boolean> {
+    const workspaces = await listWorkspaces().catch(() => null);
+    return workspaces?.some((candidate) => candidate.name === workspace) ?? true;
+  }
+
   async function failAttempt({ workspace, didCreate, didStart, reason }: {
     workspace: string;
     didCreate: boolean;
@@ -225,7 +231,7 @@ function createCoderEnvWiring({
       try {
         await command([cleanup, workspace, '--yes']);
       } catch {
-        reasons.push(`Coder cleanup ${cleanup} failed for ${workspace}`);
+        if (await isWorkspaceListed(workspace)) reasons.push(`Coder cleanup ${cleanup} failed for ${workspace}`);
       }
     }
     return { ok: false, reason: reasons.join('; ') };

@@ -114,5 +114,5 @@ export function coderCreateArgs({ workspace, template, stopAfter, parameters = {
     if (LINE_BREAK_RE.test(value) || NUL_RE.test(value)) return null;
     parameterArgs.push('--parameter', csvField(`${name}=${value}`));
   }
-  return ['create', workspace, '--template', template, '--preset', 'none', '--stop-after', stopAfter, ...parameterArgs, '--yes'];
+  return ['create', workspace, '--template', template, '--preset', 'none', '--stop-after', stopAfter, ...parameterArgs, '--use-parameter-defaults', '--yes'];
 }

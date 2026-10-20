@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Codex sessions get Claude Code's status detail**: on codex 0.163.0 or newer, a Codex card now stays working while a subagent it spawned is still running, shows compacting while Codex compacts its context instead of flashing complete, and moves to waiting when Codex asks you a question with request_user_input. A `git push` or `gh pr` command a Codex session runs refreshes its linked pull requests, and Team Review and Radar see each tool call a Codex session makes, as they do for Claude Code. Older Codex versions keep working as before.
 - **Codex plan limits in Usage**: the Plan limits section of the Usage tab now shows Codex's 5 hour and 7 day windows beside Claude Code's, read from the Codex session files on this machine, each with its own reset countdown and age. With only one agent reporting limits, the section looks as before.
 
+### Fixed
+
+- **Remote Coder sessions work with templates that ask for parameters**: a template with a parameter that has a default, such as a dotfiles branch, no longer fails every new remote session with "Coder create failed". Glimmervoid now takes each parameter's default unless your environment's `parameters` sets it. When a Coder command does fail, the card now shows Coder's own error, and it no longer reports a cleanup failure for a workspace that was never created.
+
 ## [0.41.0] - 2026-10-20
 
 ### Added

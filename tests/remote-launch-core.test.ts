@@ -48,6 +48,6 @@ test('coder argv refuses a workspace name outside gv-<12 hex> and never carries 
   ]);
   const createArgs = coderCreateArgs({ workspace: 'gv-0123456789ab', template: 'linux', stopAfter: '4h', parameters: { region: 'us,east' } });
   assert.deepEqual(createArgs, [
-    'create', 'gv-0123456789ab', '--template', 'linux', '--preset', 'none', '--stop-after', '4h', '--parameter', '"region=us,east"', '--yes',
+    'create', 'gv-0123456789ab', '--template', 'linux', '--preset', 'none', '--stop-after', '4h', '--parameter', '"region=us,east"', '--use-parameter-defaults', '--yes',
   ]);
 });
