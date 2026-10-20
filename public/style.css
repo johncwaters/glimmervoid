@@ -10058,7 +10058,7 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
 
 .zen-pet:not([data-mood="ambling"]) .zen-pet-walker,
 .zen-pet:not([data-mood="ambling"]) .zen-pet-facing,
-.zen-pet:not([data-mood="ambling"]) .nyan-sprite { animation-play-state: paused; }
+:root .zen-pet:not([data-mood="ambling"]) .zen-pet-sprite .nyan-sprite { animation-play-state: paused; }
 
 .zen-pet[data-mood="sitting"] .zen-pet-facing { animation: zen-pet-celebrate 0.6s ease-out 1; }
 
@@ -10124,7 +10124,7 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
 @media (prefers-reduced-motion: reduce) {
   .zen-pet-walker,
   .zen-pet-facing,
-  .zen-pet .nyan-sprite,
+  :root .zen-pet .zen-pet-sprite .nyan-sprite,
   .zen-pet-zzz,
   .zen-pet[data-mood="asleep"] .zen-pet-zzz,
   .zen-pet[data-mood="sitting"] .zen-pet-facing,
