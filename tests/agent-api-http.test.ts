@@ -480,7 +480,7 @@ test('the board carries the operator sessions only, never an internal lane sessi
   }
 });
 
-test('a spawned child reaches the dashboard as one session-added card', async () => {
+test('a spawned child reaches the dashboard as one session-added card naming its owner', async () => {
   const fixture = wiringFixture();
   try {
     const reply = await fixture.spawn(fixture.parent, { prompt: 'review the diff' });
@@ -503,8 +503,10 @@ test('a spawned child reaches the dashboard as one session-added card', async ()
       guarded: false,
       guardrailsReleased: false,
       resumeSessionId: null,
+      ownerId: 'parent',
       ephemeral: true,
     });
+    assert.equal(fixture.created[0].toSnapshot().ownerId, 'parent', 'a reconnecting dashboard learns the owner from the snapshot too');
   } finally {
     fixture.destroyAll();
   }

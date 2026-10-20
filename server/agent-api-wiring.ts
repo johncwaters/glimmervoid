@@ -364,6 +364,7 @@ function createAgentApiWiring({
       const spawned = makeSession(project, config, {
         agent: agentId,
         agentDepth: budget.depth + 1,
+        ownerId: parent.id,
         ephemeral: true,
         initialPrompt: request.prompt,
       });

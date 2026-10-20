@@ -229,7 +229,9 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec));
   if (permsBadge) tagChildren.push(permsBadge);
   tags.append(...tagChildren);
-  header.append(nameEl, taskTitleEl, tags, actions);
+  const ownershipEl = el('span', 'session-ownership');
+  ownershipEl.hidden = true;
+  header.append(nameEl, taskTitleEl, ownershipEl, tags, actions);
 
   const termWrap = el('div', 'terminal-wrap');
 
@@ -296,6 +298,13 @@ export function makeTitleEditable(titleEl: HTMLElement, onActivate: () => void) 
     event.preventDefault();
     onActivate();
   });
+}
+
+export function paintCardOwnership(card: HTMLElement, ownershipText: string | null) {
+  const ownershipEl = card.querySelector<HTMLElement>('.session-ownership');
+  if (!ownershipEl) return;
+  ownershipEl.textContent = ownershipText ?? '';
+  ownershipEl.hidden = ownershipText === null;
 }
 
 export function paintTaskTitle(titleEl: HTMLElement, taskTitle: string | null | undefined) {

@@ -59,8 +59,8 @@ test('row snapshots preserve stable ids, source references and layout-specific n
   const railRows = buildSessionRows(sessions, (session) => session.railName);
   const boardRows = buildSessionRows(sessions, (session) => session.cardName);
   assert.deepEqual(railRows, [
-    { id: 'first-id', ui: firstSession, name: 'Session 10', isDormant: false, state: STATES.RUNNING },
-    { id: 'second-id', ui: secondSession, name: null, isDormant: true, state: STATES.DORMANT },
+    { id: 'first-id', ui: firstSession, name: 'Session 10', isDormant: false, state: STATES.RUNNING, ownerId: null },
+    { id: 'second-id', ui: secondSession, name: null, isDormant: true, state: STATES.DORMANT, ownerId: null },
   ]);
   assert.deepEqual(boardRows.map(({ id, name }) => ({ id, name })), [
     { id: 'first-id', name: 'Renamed card' }, { id: 'second-id', name: '' },

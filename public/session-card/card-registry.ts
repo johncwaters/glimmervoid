@@ -26,6 +26,7 @@ export interface SessionUi {
   taskTitleIsCustom: boolean;
   titleTargetEl?: HTMLElement | null;
   path: string;
+  ownerId: string | null;
   stateSince: number;
   sessionMenu: HTMLDivElement;
   termWrap: HTMLDivElement;

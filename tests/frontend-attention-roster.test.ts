@@ -14,6 +14,18 @@ test('orderRoster: non-dormant before dormant, add order within each group', () 
   assert.deepEqual(out, ['1', '3', '2', '4']);
 });
 
+test('orderRoster: an owned session sits directly after its owner, and one whose owner is gone keeps its place', () => {
+  const out = orderRoster([
+    { id: 'child-a', isDormant: false, ownerId: 'parent' },
+    { id: 'other', isDormant: false },
+    { id: 'parent', isDormant: false },
+    { id: 'orphan', isDormant: false, ownerId: 'removed' },
+    { id: 'child-b', isDormant: false, ownerId: 'parent' },
+  ]).map((s) => s.id);
+
+  assert.deepEqual(out, ['other', 'parent', 'child-a', 'child-b', 'orphan']);
+});
+
 test('orderRoster: does not mutate its input', () => {
   const input = [
     { id: '1', name: 'zebra', isDormant: false },

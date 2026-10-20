@@ -258,6 +258,7 @@ interface SessionOptions {
   worktreeShare?: string[] | null;
   workspaceRepos?: string[];
   agentDepth?: number;
+  ownerId?: string | null;
   commitSigningProgram?: string | null;
 }
 
@@ -349,6 +350,7 @@ class Session extends EventEmitter {
   _coherenceHooksGeneration: number;
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
+  readonly ownerId: string | null;
   _agentToken: string | null;
   _commitSigningProgram: string | null;
   _commitSigningToken: string | null;
@@ -462,10 +464,12 @@ class Session extends EventEmitter {
     workspaceRepos = undefined,
 
     agentDepth = 0,
+    ownerId = null,
     commitSigningProgram = null,
   }: SessionOptions) {
     super();
     this.id = id;
+    this.ownerId = ownerId;
     this.name = name;
     this.customTitle = customTitle || null;
     this._taskTitleSources = seedTaskTitleSources({ persistedTitle: taskTitleState, resumeSessionId, customTitle: this.customTitle, initialPrompt });
@@ -1329,6 +1333,7 @@ class Session extends EventEmitter {
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       saneYolo: this.saneYolo,
       ephemeral: this.ephemeral,
+      ownerId: this.ownerId,
       isWorktree: this.isWorktree,
       isWorkspace: this.isWorkspace,
       isGuarded: this.isGuarded,

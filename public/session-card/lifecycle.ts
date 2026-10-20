@@ -389,6 +389,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     taskTitleIsCustom: options.taskTitleIsCustom ?? false,
 
     path: asText(options.path),
+    ownerId: options.ownerId ?? null,
 
     stateSince: typeof options.stateSince === 'number' && Number.isFinite(options.stateSince) ? options.stateSince : Date.now(),
     sessionMenu: dom.sessionMenu,

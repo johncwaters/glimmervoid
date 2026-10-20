@@ -27,7 +27,9 @@ export function sessionAttentionTier(row: SessionAttentionRow): SessionAttention
 }
 
 interface RosterEntry {
+  id: string;
   isDormant?: boolean;
+  ownerId?: string | null;
 }
 
 export interface SessionRow<Session, Name = string> extends RosterEntry {
@@ -36,20 +38,39 @@ export interface SessionRow<Session, Name = string> extends RosterEntry {
   name: Name;
   isDormant: boolean;
   state: string;
+  ownerId: string | null;
 }
 
-export function buildSessionRows<Session extends SessionStateSource, Name>(
+export function buildSessionRows<Session extends SessionStateSource & { ownerId?: string | null }, Name>(
   sessions: Iterable<readonly [string, Session]>,
   nameOf: (session: Session) => Name,
 ): SessionRow<Session, Name>[] {
   return [...sessions].map(([id, ui]) => {
     const state = ui.currentState || STATES.DORMANT;
-    return { id, ui, name: nameOf(ui), isDormant: state === STATES.DORMANT, state };
+    return { id, ui, name: nameOf(ui), isDormant: state === STATES.DORMANT, state, ownerId: ui.ownerId ?? null };
   });
 }
 
+function placeOwnedAfterOwners<Row extends RosterEntry>(rows: readonly Row[]): Row[] {
+  const presentIds = new Set(rows.map(({ id }) => id));
+  const presentOwnerIdOf = (row: Row) => (row.ownerId && presentIds.has(row.ownerId) ? row.ownerId : null);
+  const ownedRowsByOwnerId = new Map<string, Row[]>();
+  for (const row of rows) {
+    const ownerId = presentOwnerIdOf(row);
+    if (ownerId) ownedRowsByOwnerId.set(ownerId, [...(ownedRowsByOwnerId.get(ownerId) ?? []), row]);
+  }
+  return rows.flatMap((row) => (presentOwnerIdOf(row) ? [] : [row, ...(ownedRowsByOwnerId.get(row.id) ?? [])]));
+}
+
 export function orderRoster<Row extends RosterEntry>(list: readonly Row[]): Row[] {
-  return [...list].sort((a, b) => Number(a.isDormant === true) - Number(b.isDormant === true));
+  return placeOwnedAfterOwners([...list].sort((a, b) => Number(a.isDormant === true) - Number(b.isDormant === true)));
+}
+
+export function describeOwnership({ ownerName, ownedCount }: { ownerName: string | null; ownedCount: number }): string | null {
+  if (ownerName !== null) return `Owned by ${ownerName}`;
+  if (ownedCount === 1) return 'Owns 1 session';
+  if (ownedCount > 1) return `Owns ${ownedCount} sessions`;
+  return null;
 }
 
 export function pickNextAttention(orderedIds: readonly string[], currentId: string | null | undefined) {

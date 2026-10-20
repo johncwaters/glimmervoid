@@ -1,4 +1,7 @@
 import { el, query, stateChip } from './dom-helpers.ts';
+import { describeOwnership } from './focus-view/attention-core.ts';
+import { paintCardOwnership } from './session-card/card-dom.ts';
+import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionElapsedText } from './session-card/session-tick.ts';
@@ -46,6 +49,7 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
     + '<span class="session-row-main">'
     + '<span class="session-row-name"></span>'
     + '<span class="session-row-task" hidden></span>'
+    + '<span class="session-row-ownership" hidden></span>'
     + '<span class="session-row-meta">'
     + '<span class="session-row-label"></span>'
     + '<span class="session-row-signals" hidden></span>'
@@ -54,6 +58,7 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
   const refs = {
     glyph: query(row, '.session-row-glyph'),
     label: query(row, '.session-row-label'),
+    ownership: query(row, '.session-row-ownership'),
     name: query(row, '.session-row-name'),
     task: query(row, '.session-row-task'),
     signals: query(row, '.session-row-signals'),
@@ -94,6 +99,23 @@ export function paintSessionRowStatus(
   return statusLabel;
 }
 
+function describeSessionOwnership(ui: SessionUi): string | null {
+  const ownerUi = ui.ownerId ? sessionUIs.get(ui.ownerId) : undefined;
+  const ownerName = ownerUi ? sessionName(ownerUi) : null;
+  const sessionId = ui.card.dataset.id;
+  const ownedCount = [...sessionUIs.values()].filter((other) => other.ownerId === sessionId).length;
+  return describeOwnership({ ownerName, ownedCount });
+}
+
+function paintSessionRowOwnership(row: HTMLElement, refs: SessionRowRefs, ui: SessionUi) {
+  const ownershipText = describeSessionOwnership(ui);
+  refs.ownership.textContent = ownershipText ?? '';
+  refs.ownership.hidden = ownershipText === null;
+  row.closest<HTMLElement>('.session-row-item')?.toggleAttribute('data-owned', ui.ownerId !== null && sessionUIs.has(ui.ownerId));
+  paintCardOwnership(ui.card, ownershipText);
+  return ownershipText;
+}
+
 export function paintSessionRow(
   row: HTMLElement,
   refs: SessionRowRefs,
@@ -107,7 +129,8 @@ export function paintSessionRow(
   paintSessionRowSignals(refs.signals);
   row.dataset.activity = ui._activity || '';
   refs.elapsed.textContent = sessionElapsedText(ui);
-  const accessibleLabel = [name, ui.taskTitle, statusLabel].filter(Boolean).join(', ');
+  const ownershipText = paintSessionRowOwnership(row, refs, ui);
+  const accessibleLabel = [name, ui.taskTitle, statusLabel, ownershipText].filter(Boolean).join(', ');
   row.setAttribute('aria-label', accessibleLabel);
   row.title = accessibleLabel;
   return statusLabel;

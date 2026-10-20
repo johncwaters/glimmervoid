@@ -17,6 +17,7 @@ interface SessionCardSource {
   isGuardrailsReleased?: boolean;
   resumeSessionId?: string | null;
   ephemeral?: boolean;
+  ownerId?: string | null;
   linkedPrs?: LinkedPr[];
 }
 
@@ -46,6 +47,7 @@ function projectSessionCard(
     resumeSessionId: source.resumeSessionId || null,
     ...(source.isWorkspace ? { workspace: true } : {}),
     ...(source.linkedPrs?.length ? { linkedPrs: source.linkedPrs } : {}),
+    ...(source.ownerId ? { ownerId: source.ownerId } : {}),
   };
   if (source.ephemeral === undefined) return card;
   return { ...card, ephemeral: source.ephemeral };
@@ -63,6 +65,7 @@ interface SnapshotSource {
   dangerouslySkipPermissions: boolean;
   saneYolo?: boolean;
   ephemeral: boolean;
+  ownerId?: string | null;
   isWorktree: boolean;
   isWorkspace: boolean;
   isGuarded?: boolean;
@@ -103,6 +106,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     dangerouslySkipPermissions: source.dangerouslySkipPermissions,
     saneYolo: !!source.saneYolo,
     ephemeral: source.ephemeral,
+    ownerId: source.ownerId ?? null,
     isWorktree: source.isWorktree,
     isWorkspace: source.isWorkspace,
     isGuarded: source.isGuarded === true,

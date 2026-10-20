@@ -6470,6 +6470,11 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   text-overflow: ellipsis;
 }
 .session-row-task[hidden] { display: none; }
+.session-row-ownership { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.session-row-ownership[hidden] { display: none; }
+.session-row-item[data-owned] { padding-left: 20px; }
+.session-card-header .session-ownership { flex: none; padding: 0 6px; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.session-card-header .session-ownership[hidden] { display: none; }
 .session-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .session-row-label {
   font-size: 10px;

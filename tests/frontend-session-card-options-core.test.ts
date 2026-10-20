@@ -8,11 +8,11 @@ test('snapshot and session messages produce identical card options including wor
   const snapshotOptions = buildSessionCardOptions({ ...sharedFields, dangerouslySkipPermissions: true, isWorktree: true, isWorkspace: true, isGuarded: true, isGuardrailsReleased: true, ephemeral: true });
   const messageOptions = buildSessionCardOptions({ ...sharedFields, skipPerms: true, worktree: true, workspace: true, guarded: true, guardrailsReleased: true, ephemeral: true });
   assert.deepEqual(snapshotOptions, messageOptions);
-  assert.deepEqual(snapshotOptions, { ...sharedFields, skipPerms: true, worktree: true, workspace: true, guarded: true, guardrailsReleased: true, ephemeral: true });
+  assert.deepEqual(snapshotOptions, { ...sharedFields, skipPerms: true, worktree: true, workspace: true, guarded: true, guardrailsReleased: true, ephemeral: true, ownerId: null });
 });
 
 test('missing card fields keep the existing defaults and explicit message flags take precedence', () => {
-  assert.deepEqual(buildSessionCardOptions({}), { skipPerms: false, saneYolo: false, worktree: false, workspace: false, guarded: false, guardrailsReleased: false, ephemeral: false, path: undefined, stateSince: undefined, taskTitle: null, taskTitleIsCustom: false });
+  assert.deepEqual(buildSessionCardOptions({}), { skipPerms: false, saneYolo: false, worktree: false, workspace: false, guarded: false, guardrailsReleased: false, ephemeral: false, ownerId: null, path: undefined, stateSince: undefined, taskTitle: null, taskTitleIsCustom: false });
   const options = buildSessionCardOptions({ dangerouslySkipPermissions: true, isWorktree: true, isWorkspace: true, skipPerms: false, worktree: false, workspace: false, taskTitle: null });
   assert.equal(options.skipPerms, false);
   assert.equal(options.worktree, false);

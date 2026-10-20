@@ -71,6 +71,7 @@ export const SessionSnapshot = z.object({
   dangerouslySkipPermissions: z.boolean(),
   saneYolo: z.boolean().default(false),
   ephemeral: z.boolean(),
+  ownerId: z.string().nullable().optional(),
   isWorktree: z.boolean(),
   isWorkspace: z.boolean().default(false),
   isGuarded: z.boolean().default(false),
