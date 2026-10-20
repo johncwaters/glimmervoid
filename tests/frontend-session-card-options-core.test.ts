@@ -4,7 +4,7 @@ import test from 'node:test';
 import { buildSessionCardOptions } from '../public/session-card/card-options-core.ts';
 
 test('snapshot and session messages produce identical card options including workspace identity', () => {
-  const sharedFields = { saneYolo: true, path: '/repo/checkout', stateSince: 1234, taskTitle: 'Fix the dashboard', taskTitleIsCustom: true };
+  const sharedFields = { saneYolo: true, remoteWorkspace: 'gv-dev-1', path: '/repo/checkout', stateSince: 1234, taskTitle: 'Fix the dashboard', taskTitleIsCustom: true };
   const snapshotOptions = buildSessionCardOptions({ ...sharedFields, dangerouslySkipPermissions: true, isWorktree: true, isWorkspace: true, isGuarded: true, isGuardrailsReleased: true, ephemeral: true });
   const messageOptions = buildSessionCardOptions({ ...sharedFields, skipPerms: true, worktree: true, workspace: true, guarded: true, guardrailsReleased: true, ephemeral: true });
   assert.deepEqual(snapshotOptions, messageOptions);
@@ -12,7 +12,7 @@ test('snapshot and session messages produce identical card options including wor
 });
 
 test('missing card fields keep the existing defaults and explicit message flags take precedence', () => {
-  assert.deepEqual(buildSessionCardOptions({}), { skipPerms: false, saneYolo: false, worktree: false, workspace: false, guarded: false, guardrailsReleased: false, ephemeral: false, ownerId: null, path: undefined, stateSince: undefined, taskTitle: null, taskTitleIsCustom: false });
+  assert.deepEqual(buildSessionCardOptions({}), { skipPerms: false, saneYolo: false, worktree: false, workspace: false, guarded: false, guardrailsReleased: false, ephemeral: false, ownerId: null, remoteWorkspace: null, path: undefined, stateSince: undefined, taskTitle: null, taskTitleIsCustom: false });
   const options = buildSessionCardOptions({ dangerouslySkipPermissions: true, isWorktree: true, isWorkspace: true, skipPerms: false, worktree: false, workspace: false, taskTitle: null });
   assert.equal(options.skipPerms, false);
   assert.equal(options.worktree, false);
@@ -28,6 +28,7 @@ test('all five card creation paths use the builder and dormancy carries both ide
   const dormantSource = appSource.slice(appSource.indexOf('if (msg.to === STATES.DORMANT'), appSource.indexOf('  applyState(msg.id, msg.to'));
   assert.match(dormantSource, /worktree: card\?\.dataset\.worktree !== undefined/);
   assert.match(dormantSource, /workspace: card\?\.dataset\.workspace !== undefined/);
+  assert.match(dormantSource, /remoteWorkspace: card\?\.dataset\.remoteWorkspace \?\? null/);
   assert.match(dormantSource, /guarded: card\?\.dataset\.guarded !== undefined/);
   assert.match(dormantSource, /guardrailsReleased: card\?\.dataset\.guardrailsReleased !== undefined/);
   assert.match(dormantSource, /taskTitle: previousUi\?\.taskTitle, taskTitleIsCustom: previousUi\?\.taskTitleIsCustom/);

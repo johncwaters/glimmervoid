@@ -111,6 +111,7 @@ export const SessionCardFields = z.object({
   saneYolo: z.boolean(),
   worktree: z.boolean(),
   workspace: z.boolean().optional(),
+  remoteWorkspace: z.string().optional(),
   guarded: z.boolean().optional(),
   guardrailsReleased: z.boolean().optional(),
   resumeSessionId: nullableString,

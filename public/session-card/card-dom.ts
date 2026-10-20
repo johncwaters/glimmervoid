@@ -86,6 +86,7 @@ interface TagBadgeSpec {
 const TAG_BADGES: TagBadgeSpec[] = [
   { cls: 'agent-badge', title: 'Agent CLI this session supervises' },
   { cls: 'worktree-badge', text: 'worktree', title: 'Running in a linked git worktree', ariaLabel: 'Linked git worktree' },
+  { cls: 'cloud-badge', text: 'cloud', ariaLabel: 'Runs in a Coder workspace' },
   { cls: 'guardrails-badge', text: 'guardrails', title: 'Guardrails on: credentials, Glimmervoid state and blocked folders are off-limits to this session', ariaLabel: 'Guardrails on' },
   { cls: 'post-turn-badge', ariaHidden: true },
   { cls: 'usage-badge', title: 'Tokens and estimated API list-price cost for this conversation' },
@@ -102,6 +103,10 @@ function buildTagBadge({ cls, text = '', title, ariaLabel, ariaHidden }: TagBadg
 }
 
 export type { CardOptions };
+
+export function remoteWorkspaceHoverText(remoteWorkspace: string): string {
+  return `Runs in Coder workspace ${remoteWorkspace}`;
+}
 
 function paintPermsBadge(permsBadge: HTMLElement, saneYolo: boolean) {
   permsBadge.textContent = saneYolo ? 'SANE YOLO' : 'YOLO';
@@ -133,6 +138,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   if (options.saneYolo) card.dataset.saneYolo = '';
   if (options.worktree) card.dataset.worktree = '';
   if (options.workspace) card.dataset.workspace = '';
+  if (options.remoteWorkspace) card.dataset.remoteWorkspace = options.remoteWorkspace;
   if (options.guarded) card.dataset.guarded = '';
   if (options.guardrailsReleased) card.dataset.guardrailsReleased = '';
   if (options.ephemeral) card.dataset.ephemeral = '';
@@ -226,7 +232,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   actions.append(btnDocs, btnPlan, btnDebug, btnTrace, sessionMenuWrap, btnRemove);
   const tags = el('div', 'session-card-tags');
-  const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec));
+  const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec.cls === 'cloud-badge' && options.remoteWorkspace ? { ...spec, title: remoteWorkspaceHoverText(options.remoteWorkspace) } : spec));
   if (permsBadge) tagChildren.push(permsBadge);
   tags.append(...tagChildren);
   const ownershipEl = el('span', 'session-ownership');

@@ -108,7 +108,7 @@ const SESSION = {
   dangerouslySkipPermissions: true,
   saneYolo: true,
   ephemeral: false,
-  isWorktree: true, isWorkspace: false, isGuarded: true, isGuardrailsReleased: false,
+  isWorktree: true, isWorkspace: false, remoteWorkspace: 'gv-dev-1', isGuarded: true, isGuardrailsReleased: false,
   resumeSessionId: null,
   activeAgents: 0,
   awaitingBackgroundTasks: false,

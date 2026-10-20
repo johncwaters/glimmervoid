@@ -1,6 +1,6 @@
 import { el, query, stateChip } from './dom-helpers.ts';
 import { describeOwnership } from './focus-view/attention-core.ts';
-import { paintCardOwnership } from './session-card/card-dom.ts';
+import { paintCardOwnership, remoteWorkspaceHoverText } from './session-card/card-dom.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
@@ -8,7 +8,7 @@ import { sessionElapsedText } from './session-card/session-tick.ts';
 import { SIGNAL_TIER } from './signal-core.ts';
 import type { Signal } from './signal-core.ts';
 import { paintSignalLine } from './signal.ts';
-import { CLOSE_ICON_PATH, createLineIcon } from './svg-dom.ts';
+import { CLOSE_ICON_PATH, CLOUD_ICON_PATH, createLineIcon } from './svg-dom.ts';
 import type { ActivatableSignal } from './signal.ts';
 
 export type SessionRowRefs = ReturnType<typeof buildSessionRow>['refs'];
@@ -47,7 +47,7 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
   const row = el(tagName, `session-row ${extraClassName}`.trim());
   row.innerHTML = '<span class="session-row-glyph" aria-hidden="true"></span>'
     + '<span class="session-row-main">'
-    + '<span class="session-row-name"></span>'
+    + '<span class="session-row-title"><span class="session-row-name"></span><span class="session-row-cloud" hidden></span></span>'
     + '<span class="session-row-task" hidden></span>'
     + '<span class="session-row-ownership" hidden></span>'
     + '<span class="session-row-meta">'
@@ -60,6 +60,7 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
     label: query(row, '.session-row-label'),
     ownership: query(row, '.session-row-ownership'),
     name: query(row, '.session-row-name'),
+    cloud: query(row, '.session-row-cloud'),
     task: query(row, '.session-row-task'),
     signals: query(row, '.session-row-signals'),
     elapsed: query(row, '.session-row-elapsed'),
@@ -99,6 +100,14 @@ export function paintSessionRowStatus(
   return statusLabel;
 }
 
+function paintSessionRowCloud(cloud: HTMLElement, remoteWorkspace: string | undefined): string | null {
+  cloud.hidden = !remoteWorkspace;
+  if (!remoteWorkspace) return null;
+  cloud.title = remoteWorkspaceHoverText(remoteWorkspace);
+  if (!cloud.firstChild) cloud.append(createLineIcon(CLOUD_ICON_PATH));
+  return cloud.title;
+}
+
 function describeSessionOwnership(ui: SessionUi): string | null {
   const ownerUi = ui.ownerId ? sessionUIs.get(ui.ownerId) : undefined;
   const ownerName = ownerUi ? sessionName(ownerUi) : null;
@@ -123,6 +132,7 @@ export function paintSessionRow(
 ) {
   const statusLabel = paintSessionRowStatus(row, refs, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
   refs.name.textContent = name;
+  const cloudText = paintSessionRowCloud(refs.cloud, ui.card.dataset.remoteWorkspace);
   refs.task.textContent = ui.taskTitle;
   refs.task.hidden = !ui.taskTitle || ui.taskTitle === name;
   row.dataset.merge = mergeStatus;
@@ -130,7 +140,7 @@ export function paintSessionRow(
   row.dataset.activity = ui._activity || '';
   refs.elapsed.textContent = sessionElapsedText(ui);
   const ownershipText = paintSessionRowOwnership(row, refs, ui);
-  const accessibleLabel = [name, ui.taskTitle, statusLabel, ownershipText].filter(Boolean).join(', ');
+  const accessibleLabel = [name, cloudText, ui.taskTitle, statusLabel, ownershipText].filter(Boolean).join(', ');
   row.setAttribute('aria-label', accessibleLabel);
   row.title = accessibleLabel;
   return statusLabel;

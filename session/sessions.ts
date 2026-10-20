@@ -1251,6 +1251,7 @@ class Session extends EventEmitter {
 
   get isWorktree(): boolean { return this.worktreeLifecycle.snapshot().isWorktree; }
   get isWorkspace(): boolean { return this.worktreeLifecycle.snapshot().isWorkspace; }
+  get remoteWorkspace(): string | null { return this._getRemoteLaunch()?.workspace ?? null; }
 
   getWorktreeCarry() { return this.worktreeLifecycle.getCarry(); }
 
@@ -1363,6 +1364,7 @@ class Session extends EventEmitter {
       ownerId: this.ownerId,
       isWorktree: this.isWorktree,
       isWorkspace: this.isWorkspace,
+      remoteWorkspace: this.remoteWorkspace,
       isGuarded: this.isGuarded,
       isGuardrailsReleased: this.isGuardrailsReleased,
       resumeSessionId: this._resumeSessionId,

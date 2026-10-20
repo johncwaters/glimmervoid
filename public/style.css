@@ -462,6 +462,7 @@ body {
 .agent-badge,
 .worktree-badge,
 .guardrails-badge,
+.cloud-badge,
 .post-turn-badge,
 .usage-badge,
 .wakeup-badge,
@@ -504,6 +505,16 @@ body {
 }
 
 .session-card[data-guarded] .guardrails-badge {
+  display: inline-flex;
+}
+
+.cloud-badge {
+  display: none;
+  color: var(--accent);
+  border: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
+}
+
+.session-card[data-remote-workspace] .cloud-badge {
   display: inline-flex;
 }
 
@@ -6487,6 +6498,10 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   text-overflow: ellipsis;
 }
 .session-row[data-state="DORMANT"] .session-row-name { color: var(--text-dim); }
+.session-row-title { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.session-row-cloud { display: inline-flex; flex-shrink: 0; color: var(--accent); }
+.session-row-cloud[hidden] { display: none; }
+.session-row-cloud .line-icon { width: 12px; height: 12px; }
 .session-row-task {
   font-size: 11px;
   color: var(--text-dim);
@@ -6637,6 +6652,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .focus-center .session-card.focus-centered .agent-badge,
 .focus-center .session-card.focus-centered .worktree-badge,
 .focus-center .session-card.focus-centered .guardrails-badge,
+.focus-center .session-card.focus-centered .cloud-badge,
 .focus-center .session-card.focus-centered .usage-badge,
 .focus-center .session-card.focus-centered .wakeup-badge,
 .focus-center .session-card.focus-centered .prompt-badge,

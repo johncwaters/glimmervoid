@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Remote Coder sessions are marked cloud**: a session running in a Coder workspace now shows a cloud icon after its name in the session list, on desktop and phone, and a CLOUD tag on its card. Hovering either names the workspace, so a remote session no longer looks like a second local one.
+
 ### Fixed
 
 - **Spawned sessions no longer leave worktrees behind**: a session started with `glimmervoid spawn` used to keep its worktree and branch after `glimmervoid close` or after its parent ended, until Glimmervoid restarted. Now a clean worktree is removed however the child ends. A child holding work that is not on the integration branch is never thrown away silently: `glimmervoid close` refuses and names its branch and path, so the parent can have it run `glimmervoid push` first, or pass `--discard` to drop the work. If the child exits by itself, or its parent ends, with that work still in it, the worktree is kept and the parent's card asks for your attention with its branch and path. Removing the parent session removes its children's worktrees too, as removing a session already does with its own. The parent also gets a message on every child end saying whether the worktree was removed or kept.

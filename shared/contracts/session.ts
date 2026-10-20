@@ -74,6 +74,7 @@ export const SessionSnapshot = z.object({
   ownerId: z.string().nullable().optional(),
   isWorktree: z.boolean(),
   isWorkspace: z.boolean().default(false),
+  remoteWorkspace: z.string().nullable().default(null),
   isGuarded: z.boolean().default(false),
   isGuardrailsReleased: z.boolean().default(false),
   resumeSessionId: z.string().nullable(),

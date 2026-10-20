@@ -13,6 +13,7 @@ interface SessionCardSource {
   saneYolo?: boolean;
   isWorktree?: boolean;
   isWorkspace?: boolean;
+  remoteWorkspace?: string | null;
   isGuarded?: boolean;
   isGuardrailsReleased?: boolean;
   resumeSessionId?: string | null;
@@ -46,6 +47,7 @@ function projectSessionCard(
     guardrailsReleased: source.isGuardrailsReleased === true,
     resumeSessionId: source.resumeSessionId || null,
     ...(source.isWorkspace ? { workspace: true } : {}),
+    ...(source.remoteWorkspace ? { remoteWorkspace: source.remoteWorkspace } : {}),
     ...(source.linkedPrs?.length ? { linkedPrs: source.linkedPrs } : {}),
     ...(source.ownerId ? { ownerId: source.ownerId } : {}),
   };
@@ -68,6 +70,7 @@ interface SnapshotSource {
   ownerId?: string | null;
   isWorktree: boolean;
   isWorkspace: boolean;
+  remoteWorkspace?: string | null;
   isGuarded?: boolean;
   isGuardrailsReleased?: boolean;
   resumeSessionId: string | null;
@@ -109,6 +112,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     ownerId: source.ownerId ?? null,
     isWorktree: source.isWorktree,
     isWorkspace: source.isWorkspace,
+    remoteWorkspace: source.remoteWorkspace ?? null,
     isGuarded: source.isGuarded === true,
     isGuardrailsReleased: source.isGuardrailsReleased === true,
     resumeSessionId: source.resumeSessionId,

@@ -1,6 +1,6 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 
-type SnapshotCardFields = Pick<ServerMessageOf<'snapshot'>['sessions'][number], 'dangerouslySkipPermissions' | 'isWorktree' | 'isWorkspace' | 'isGuarded' | 'isGuardrailsReleased' | 'saneYolo' | 'path' | 'stateSince' | 'taskTitle' | 'taskTitleIsCustom'>;
+type SnapshotCardFields = Pick<ServerMessageOf<'snapshot'>['sessions'][number], 'dangerouslySkipPermissions' | 'isWorktree' | 'isWorkspace' | 'remoteWorkspace' | 'isGuarded' | 'isGuardrailsReleased' | 'saneYolo' | 'path' | 'stateSince' | 'taskTitle' | 'taskTitleIsCustom'>;
 type MessageCardFields = Pick<ServerMessageOf<'session-added'>, 'skipPerms' | 'worktree' | 'workspace' | 'guarded' | 'guardrailsReleased' | 'ephemeral'>;
 type SessionCardFields = Partial<SnapshotCardFields & MessageCardFields> & { ownerId?: string | null };
 
@@ -11,6 +11,7 @@ export interface CardOptions {
   saneYolo?: boolean;
   worktree?: boolean;
   workspace?: boolean;
+  remoteWorkspace?: string | null;
   guarded?: boolean;
   guardrailsReleased?: boolean;
   ephemeral?: boolean;
@@ -25,6 +26,7 @@ export function buildSessionCardOptions(session: SessionCardFields): CardOptions
     saneYolo: session.saneYolo === true,
     worktree: session.worktree ?? session.isWorktree ?? false,
     workspace: session.workspace ?? session.isWorkspace ?? false,
+    remoteWorkspace: session.remoteWorkspace ?? null,
     guarded: session.guarded ?? session.isGuarded ?? false,
     guardrailsReleased: session.guardrailsReleased ?? session.isGuardrailsReleased ?? false,
     ephemeral: session.ephemeral === true,
