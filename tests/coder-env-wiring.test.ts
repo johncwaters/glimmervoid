@@ -81,7 +81,19 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
     nowMs += CODER_ENV_IDLE_TICK_MS;
     await pollers[0]?.tick();
   }
-  return { wiring, start, tick, config, commands, events, plans, warnings, listings, timers };
+  async function reserveAndSave(liveCount = 0) {
+    const reserved = await wiring.reserve({ projectId: 'project', environmentName: 'remote', branch: 'feature', liveCount });
+    if (!reserved.ok) return reserved;
+    events.push('persist');
+    config.projects[0].environment = reserved.mapping;
+    return reserved;
+  }
+  async function provisionReserved() {
+    const reserved = await reserveAndSave();
+    assert.ok(reserved.ok);
+    return wiring.provision({ projectId: 'project', mapping: reserved.mapping, repoRemoteUrl: 'git@example.com:org/repo.git', baseBranch: 'main' });
+  }
+  return { wiring, start, tick, config, commands, events, plans, warnings, listings, timers, reserveAndSave, provisionReserved };
 }
 
 test('boot reconcile deletes only an unmapped gv workspace stopped past deleteAfterStoppedDays and leaves live or recent ones alone', async (context) => {
@@ -99,16 +111,27 @@ test('boot reconcile deletes only an unmapped gv workspace stopped past deleteAf
   assert.deepEqual(harness.plans[0].resume.map((mapping) => mapping.workspace), [MAPPED_WORKSPACE]);
 });
 
-test('a shared provision deletes its workspace and clears its mapping after persisting before create without token argv', async (context) => {
+test('boot reconcile keeps the mapping of a project whose workspace no longer exists', async (context) => {
+  const harness = createHarness();
+  context.after(harness.wiring.stop);
+  harness.listings.current = listing([]);
+  await harness.start();
+  assert.equal(harness.config.projects[0].environment?.workspace, MAPPED_WORKSPACE);
+  assert.ok(!harness.events.includes('clear'));
+  assert.deepEqual(await harness.wiring.resume({ projectId: 'project' }), { ok: false, reason: `Coder workspace ${MAPPED_WORKSPACE} no longer exists; close this session and start a new one` });
+});
+
+test('a shared provision deletes its workspace and keeps its mapping after persisting before create without token argv', async (context) => {
   const sharingStatus = 'other@example.com member';
   const harness = createHarness({ hasMapping: false, sharingStatus });
   context.after(harness.wiring.stop);
-  const provision = await harness.wiring.provision({ projectId: 'project', environmentName: 'remote', repoRemoteUrl: 'git@example.com:org/repo.git', baseBranch: 'main', branch: 'feature', liveCount: 0 });
+  const provision = await harness.provisionReserved();
   const createdWorkspace = harness.commands.find(({ args }) => args[0] === 'create')?.args[1];
   assert.deepEqual(provision, { ok: false, reason: sharingRefusal(sharingStatus) });
   assert.ok(createdWorkspace && harness.events.indexOf('persist') < harness.events.indexOf('create'));
   assert.deepEqual(harness.commands.at(-1)?.args, ['delete', createdWorkspace, '--yes']);
-  assert.equal(harness.config.projects[0].environment, undefined);
+  assert.equal(harness.config.projects[0].environment?.workspace, createdWorkspace);
+  assert.ok(!harness.events.includes('clear'));
   assert.ok(harness.commands.every(({ args, input, env }) => input === '' && env?.CODER_SESSION_TOKEN === 'coder-token-secret-0123456789abcdef' && args.every((argument) => !argument.includes('coder-token-secret-0123456789abcdef'))));
 });
 
@@ -117,7 +140,7 @@ test('a reconcile tick during a provision between persist and create neither for
   const harness = createHarness({ hasMapping: false, createReleased: new Promise<void>((resolve) => { releaseCreate = resolve; }) });
   context.after(harness.wiring.stop);
   harness.listings.current = listing([]);
-  const provision = harness.wiring.provision({ projectId: 'project', environmentName: 'remote', repoRemoteUrl: 'git@example.com:org/repo.git', baseBranch: 'main', branch: 'feature', liveCount: 0 });
+  const provision = harness.provisionReserved();
   await waitFor(() => harness.events.includes('create'), 'provision reaches create');
   const provisionedWorkspace = harness.config.projects[0].environment?.workspace;
   await harness.start();
@@ -143,7 +166,24 @@ test('an idle remote session past its idle limit stops once during that idle per
 test('maxLive refusal names the live count and runs no coder command', async (context) => {
   const harness = createHarness({ hasMapping: false });
   context.after(harness.wiring.stop);
-  const provision = await harness.wiring.provision({ projectId: 'project', environmentName: 'remote', repoRemoteUrl: 'git@example.com:org/repo.git', baseBranch: 'main', branch: 'feature', liveCount: 2 });
-  assert.deepEqual(provision, { ok: false, reason: 'remote already has 2 of 2 live workspaces; close one first' });
+  const reserved = await harness.reserveAndSave(2);
+  assert.deepEqual(reserved, { ok: false, reason: 'remote already has 2 of 2 live workspaces; close one first' });
   assert.deepEqual(harness.commands, []);
+  assert.equal(harness.config.projects[0].environment, undefined);
+});
+
+test('a resume during or after a failed provision returns that provision\'s failure reason', async (context) => {
+  let releaseCreate = () => {};
+  const sharingStatus = 'other@example.com member';
+  const harness = createHarness({ hasMapping: false, sharingStatus, createReleased: new Promise<void>((resolve) => { releaseCreate = resolve; }) });
+  context.after(harness.wiring.stop);
+  const provision = harness.provisionReserved();
+  await waitFor(() => harness.events.includes('create'), 'provision reaches create');
+  const resume = harness.wiring.resume({ projectId: 'project' });
+  releaseCreate();
+  const [provisionResult, resumeResult] = await Promise.all([provision, resume]);
+  assert.deepEqual(resumeResult, { ok: false, reason: sharingRefusal(sharingStatus) });
+  assert.deepEqual(resumeResult, provisionResult);
+  assert.deepEqual(await harness.wiring.resume({ projectId: 'project' }), provisionResult);
+  assert.ok(!harness.events.includes('start'));
 });

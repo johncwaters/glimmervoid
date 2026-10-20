@@ -75,7 +75,10 @@ const execFile: ExecFileFn = Object.assign(
       const child = cp.execFile(file, args, execOptions, callback);
       if (typeof input !== 'string') return;
       if (!child.stdin) return reject(new Error('execFile stdin unavailable'));
-      child.stdin.on('error', reject);
+      child.stdin.on('error', (error: NodeJS.ErrnoException) => {
+        if (error.code === 'EPIPE') return;
+        reject(error);
+      });
       child.stdin.end(input);
     }),
   },

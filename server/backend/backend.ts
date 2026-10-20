@@ -568,7 +568,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   stopConfigWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
-    broadcastControl({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, rtkInstallStatus: rtkInstall.getStatus() }) });
+    broadcastControl({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, rtkInstallStatus: rtkInstall.getStatus(), coderEnvironments: laneAssembly.coderEnv.availableEnvironments() }) });
   });
   updateCheck.start();
 

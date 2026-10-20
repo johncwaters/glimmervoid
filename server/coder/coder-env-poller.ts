@@ -23,11 +23,10 @@ type CoderEnvPollerDeps = Pick<TickLoopOptions, 'now' | 'setIntervalFn' | 'clear
   isReconcilePending: () => boolean;
   deleteAfterStoppedDays: () => number;
   onReconciled: (plan: ReconcilePlan) => void | Promise<void>;
-  forgetMapping: (projectId: string) => void | Promise<void>;
 };
 
 function createCoderEnvPoller({
-  listWorkspaces, stopWorkspace, deleteWorkspace, sessionsForIdleCheck, mappings, busyWorkspaces, isReconcilePending, deleteAfterStoppedDays, onReconciled, forgetMapping,
+  listWorkspaces, stopWorkspace, deleteWorkspace, sessionsForIdleCheck, mappings, busyWorkspaces, isReconcilePending, deleteAfterStoppedDays, onReconciled,
   now = Date.now, log = console, ...loopOptions
 }: CoderEnvPollerDeps) {
   const stoppedIdlePeriods = new Map<string, number>();
@@ -56,7 +55,6 @@ function createCoderEnvPoller({
           await stopWorkspace(mapping.workspace);
           stoppedThisTick.add(mapping.workspace);
         }
-        for (const mapping of plan.forget) await forgetMapping(mapping.projectId);
         await onReconciled(plan);
       }
       const idleSessions = sessionsForIdleCheck();

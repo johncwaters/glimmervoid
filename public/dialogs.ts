@@ -1,7 +1,8 @@
 import addSessionHTML from './components/add-session-dialog.html?raw';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
 import { sendControlRequest } from './control-ws.ts';
-import type { ServerMessage } from '#shared/contracts/control-messages.ts';
+import { CoderEnvironmentOffers } from '#shared/contracts/control-messages.ts';
+import type { CoderEnvironmentOffer, ServerMessage } from '#shared/contracts/control-messages.ts';
 import { el, query, queryTag } from './dom-helpers.ts';
 import { createRepoRootsAdder } from './onboarding/repo-roots-adder.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
@@ -30,6 +31,22 @@ function option(text: string, { value, disabled = false, selected = false }: Opt
 function skipsPermissionsByDefault(settings: unknown): boolean {
   if (typeof settings !== 'object' || settings === null) return false;
   return 'skipPermissionsByDefault' in settings && settings.skipPermissionsByDefault === true;
+}
+
+function offeredCoderEnvironments(settings: unknown): CoderEnvironmentOffer[] {
+  if (typeof settings !== 'object' || settings === null || !('coderEnvironments' in settings)) return [];
+  const parsed = CoderEnvironmentOffers.safeParse(settings.coderEnvironments);
+  return parsed.success && parsed.data ? parsed.data : [];
+}
+
+function coderEnvironmentHint(environment: CoderEnvironmentOffer): string {
+  const parameters = Object.entries(environment.parameters).map(([key, value]) => `${key}=${value}`).join(', ');
+  return [
+    `Template ${environment.template}.`,
+    parameters ? `Parameters: ${parameters}.` : '',
+    environment.hourlyCostUsd !== null ? `Costs $${environment.hourlyCostUsd.toFixed(2)} an hour.` : '',
+    `Stops after ${environment.idleStopMinutes} idle minutes.`,
+  ].filter(Boolean).join(' ');
 }
 
 export function addSessionRefusalText(reply: ServerMessage): string {
@@ -63,6 +80,9 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
   const workspaceModeButton = queryTag(dialog, '#add-session-workspace-mode', 'button');
   const agentLabelEl = query(dialog, '#add-session-agent-label');
   const agentSelectEl = queryTag(dialog, '#add-session-agent', 'select');
+  const environmentLabelEl = query(dialog, '#add-session-environment-label');
+  const environmentSelectEl = queryTag(dialog, '#add-session-environment', 'select');
+  const environmentHintEl = query(dialog, '#add-session-environment-hint');
   const repoRootsEl = query(dialog, '#add-session-repo-roots');
   const repoRootsTitleEl = query(dialog, '#add-session-repo-roots-title');
   const advancedToggle = queryTag(dialog, '#add-session-advanced-toggle', 'button');
@@ -78,6 +98,9 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
   const btnCancel = queryTag(dialog, '#add-session-cancel', 'button');
   const btnConfirm = queryTag(dialog, '#add-session-confirm', 'button');
   let isWorkspaceMode = false;
+  let coderEnvironments: CoderEnvironmentOffer[] = [];
+  let selectedEnvironment: CoderEnvironmentOffer | null = null;
+  let isRunInPlaceOffered = false;
 
   function setWorkspaceMode(enabled: boolean) {
     isWorkspaceMode = enabled;
@@ -214,15 +237,36 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
   sendControlRequest('get-settings', {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
     .then((message) => {
       if (message.type === 'settings-error') { showWarning(`Could not load your settings (${message.message}). Check Skip permissions yourself.`); return; }
+      showCoderEnvironments(offeredCoderEnvironments(message.settings));
       if (hasOperatorChosenPermissions) return;
       skipPermsCheckbox.checked = skipsPermissionsByDefault(message.settings);
     })
     .catch((reason) => { showWarning(`Could not load your settings (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}). Check Skip permissions yourself.`); });
 
   function showRunInPlaceChoice(isShown: boolean) {
-    runInPlaceLabelEl.hidden = !isShown;
+    isRunInPlaceOffered = isShown;
+    runInPlaceLabelEl.hidden = !isShown || selectedEnvironment !== null;
     runInPlaceCheckbox.checked = false;
   }
+
+  function showCoderEnvironments(environments: CoderEnvironmentOffer[]) {
+    if (environments.length === 0) return;
+    coderEnvironments = environments;
+    environmentSelectEl.textContent = '';
+    environmentSelectEl.appendChild(option('Local', { value: '', selected: true }));
+    for (const environment of environments) environmentSelectEl.appendChild(option(environment.name, { value: environment.name }));
+    environmentLabelEl.hidden = false;
+  }
+
+  environmentSelectEl.addEventListener('change', () => {
+    selectedEnvironment = coderEnvironments.find((environment) => environment.name === environmentSelectEl.value) ?? null;
+    workspaceModeButton.hidden = selectedEnvironment !== null;
+    environmentHintEl.hidden = selectedEnvironment === null;
+    environmentHintEl.textContent = selectedEnvironment ? coderEnvironmentHint(selectedEnvironment) : '';
+    showRunInPlaceChoice(isRunInPlaceOffered);
+    if (selectedEnvironment === null) return;
+    if (isWorkspaceMode) setWorkspaceMode(false);
+  });
 
   nameInput.addEventListener('input', () => { pickerEl.selectedIndex = 0; });
   pathInput.addEventListener('input', () => {
@@ -263,6 +307,7 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
       runInPlace: runInPlaceCheckbox.checked,
     };
     if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
+    if (selectedEnvironment) message.environment = selectedEnvironment.name;
     requestAddSession(message);
   }
 

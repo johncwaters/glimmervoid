@@ -8,7 +8,7 @@ import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
 import type { ChangeMapNarrator } from '../change-map/change-map-wiring.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
-import type { BenchmarkControl, MyPrMergeControl, TeamReviewActionControl } from '../control-handlers.ts';
+import type { BenchmarkControl, ControlHandlerDeps, MyPrMergeControl, TeamReviewActionControl } from '../control-handlers.ts';
 import type { ReplayLog } from '../core/control-replay-core.ts';
 import type { TelegramDeliveryControl } from '../core/telegram-delivery-core.ts';
 import type { PlanDecision } from '../../shared/contracts/plan-review.ts';
@@ -33,6 +33,8 @@ interface LaneReader {
   githubStore: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness; laneStore: Pick<GithubLaneStore, 'requestIssue'> };
   currentIngest: () => SnapshotLane | null;
   currentVisions: () => SnapshotLane | null;
+  coderEnv: NonNullable<ControlHandlerDeps['coderEnv']>;
+  gitWorkspace: NonNullable<ControlHandlerDeps['remoteRepoGit']>;
 }
 
 interface RadarControl {
@@ -168,6 +170,8 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     sessionDocs: dependencies.sessionDocs,
     coherenceFeed: dependencies.coherenceFeed,
     changeMapNarrator: dependencies.changeMapNarrator,
+    coderEnv: laneAssembly.coderEnv,
+    remoteRepoGit: laneAssembly.gitWorkspace,
   });
 
   const sendLaneSnapshotOnConnect = (

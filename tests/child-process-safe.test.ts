@@ -200,3 +200,10 @@ test('real end-to-end: execFileAsync writes input to stdin', async () => {
   });
   assert.equal(stdout, 'review payload');
 });
+
+test('real end-to-end: execFileAsync resolves when the command exits without reading the stdin it was given', async () => {
+  const { stdout } = await safe.execFileAsync(process.execPath, ['-e', 'process.stdout.write("done")'], {
+    encoding: 'utf8', input: 'x'.repeat(1 << 20),
+  });
+  assert.equal(stdout, 'done');
+});

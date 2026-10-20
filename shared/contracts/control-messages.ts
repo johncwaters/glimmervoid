@@ -69,6 +69,16 @@ export const CustomAgentSummaryRow = z.object({
   resolvable: z.boolean().nullable(),
 }).strict();
 export type CustomAgentSummaryRow = z.infer<typeof CustomAgentSummaryRow>;
+
+const CoderEnvironmentOffer = z.object({
+  name: z.string(),
+  template: z.string(),
+  parameters: z.record(z.string(), z.string()),
+  hourlyCostUsd: z.number().nullable(),
+  idleStopMinutes: z.number(),
+});
+export type CoderEnvironmentOffer = z.infer<typeof CoderEnvironmentOffer>;
+export const CoderEnvironmentOffers = z.array(CoderEnvironmentOffer).nullable();
 export const TelegramDeliveryStatus = z.object({
   setupWarning: nullableString,
   lastFailure: z.object({ message: z.string(), failedAt: timestamp }).nullable(),
@@ -194,6 +204,7 @@ const clientVariants = [
     dangerouslySkipPermissions: z.boolean().optional(),
     unguarded: z.boolean().optional(),
     runInPlace: z.boolean().optional(),
+    environment: z.string().optional(),
     requestId,
   }),
   loose('list-conversations', { id: sessionId, requestId }),

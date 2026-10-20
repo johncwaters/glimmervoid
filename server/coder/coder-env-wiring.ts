@@ -1,6 +1,7 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import path from 'node:path';
 import type { Config } from '../../shared/contracts/config.ts';
+import type { CoderEnvironmentOffer } from '../../shared/contracts/control-messages.ts';
 import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
 import { coderCreateArgs, remoteShellCommand, workspaceNameFromHex } from '../../session/core/remote-launch-core.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
@@ -22,7 +23,7 @@ interface RunCoderOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-interface CoderEnvWiringOptions extends Omit<CoderEnvPollerDeps, 'listWorkspaces' | 'stopWorkspace' | 'deleteWorkspace' | 'mappings' | 'busyWorkspaces' | 'isReconcilePending' | 'deleteAfterStoppedDays' | 'forgetMapping' | 'onReconciled'> {
+interface CoderEnvWiringOptions extends Omit<CoderEnvPollerDeps, 'listWorkspaces' | 'stopWorkspace' | 'deleteWorkspace' | 'mappings' | 'busyWorkspaces' | 'isReconcilePending' | 'deleteAfterStoppedDays' | 'onReconciled'> {
   config: Pick<Config, 'coder' | 'projects'>;
   persistMapping: (projectId: string, mapping: ProjectEnvironment | undefined) => void | Promise<void>;
   onReconciled?: CoderEnvPollerDeps['onReconciled'];
@@ -43,6 +44,8 @@ function createCoderEnvWiring({
   let hasReconciled = false;
   const operationCountByWorkspace = new Map<string, number>();
   const lastSeenStatusByWorkspace = new Map<string, CoderWorkspace['status']>();
+  const provisionByProject = new Map<string, Promise<CoderEnvResult>>();
+  const failedProvisionByProject = new Map<string, { ok: false; reason: string }>();
   const setTimeoutFn = pollerDeps.setTimeoutFn ?? DEFAULT_TIMER_FNS.setTimeoutFn;
 
   async function runCoder(args: string[], { timeoutMs, input = '', env: commandEnv }: RunCoderOptions): Promise<{ stdout: string }> {
@@ -134,7 +137,6 @@ function createCoderEnvWiring({
       busyWorkspaces: () => new Set(operationCountByWorkspace.keys()),
       isReconcilePending: () => !hasReconciled,
       deleteAfterStoppedDays: () => Math.max(...(config.coder?.environments ?? []).map((environment) => resolveCoderEnvironment(environment).deleteAfterStoppedDays)),
-      forgetMapping: (projectId) => saveMapping(projectId, undefined),
       onReconciled: async (plan) => {
         await onReconciled(plan);
         hasReconciled = true;
@@ -150,6 +152,20 @@ function createCoderEnvWiring({
   async function restartIfConfigChanged(): Promise<void> {
     await ensureAvailable();
     runner.restartIfConfigChanged();
+  }
+
+  function availableEnvironments(): CoderEnvironmentOffer[] | null {
+    if (!isConfigured() || !isCoderAvailable) return null;
+    return (config.coder?.environments ?? []).map((settings) => {
+      const environment = resolveCoderEnvironment(settings);
+      return {
+        name: environment.name,
+        template: environment.template,
+        parameters: { ...environment.parameters },
+        hourlyCostUsd: environment.hourlyCostUsd ?? null,
+        idleStopMinutes: environment.idleStopMinutes,
+      };
+    });
   }
 
   function resolveEnvironment(environmentName: string): ResolvedCoderEnvironment | null {
@@ -197,12 +213,10 @@ function createCoderEnvWiring({
     if (reason) throw new Error(reason);
   }
 
-  async function failAttempt({ projectId, workspace, didCreate, didStart, shouldClearMapping, reason }: {
-    projectId: string;
+  async function failAttempt({ workspace, didCreate, didStart, reason }: {
     workspace: string;
     didCreate: boolean;
     didStart: boolean;
-    shouldClearMapping: boolean;
     reason: string;
   }): Promise<{ ok: false; reason: string }> {
     const cleanup = failedProvisionCleanup({ didCreate, didStart });
@@ -214,21 +228,12 @@ function createCoderEnvWiring({
         reasons.push(`Coder cleanup ${cleanup} failed for ${workspace}`);
       }
     }
-    if (shouldClearMapping) {
-      try {
-        await saveMapping(projectId, undefined);
-      } catch {
-        reasons.push('Could not clear the persisted Coder mapping');
-      }
-    }
     return { ok: false, reason: reasons.join('; ') };
   }
 
-  async function provision({ projectId, environmentName, repoRemoteUrl, baseBranch, branch, liveCount }: {
+  async function reserve({ projectId, environmentName, branch, liveCount }: {
     projectId: string;
     environmentName: string;
-    repoRemoteUrl: string;
-    baseBranch: string;
     branch: string;
     liveCount: number;
   }): Promise<CoderEnvResult> {
@@ -236,33 +241,45 @@ function createCoderEnvWiring({
     if (!environment) return { ok: false, reason: `Unknown Coder environment: ${environmentName}` };
     const limitReason = liveLimitRefusal({ liveCount, maxLive: environment.maxLive, environmentName });
     if (limitReason) return { ok: false, reason: limitReason };
-    const project = config.projects.find((candidate) => candidate.id === projectId);
-    if (!project) return { ok: false, reason: `Unknown project: ${projectId}` };
-    if (project.environment) return { ok: false, reason: 'Project already has a Coder workspace mapping' };
+    if (config.projects.some((candidate) => candidate.id === projectId && candidate.environment)) return { ok: false, reason: 'Project already has a Coder workspace mapping' };
     if (!await ensureAvailable()) return { ok: false, reason: 'Coder environments are unavailable on this host' };
     const workspace = workspaceNameFromHex(randomBytes(6).toString('hex'));
     if (workspace === null) return { ok: false, reason: 'Invalid generated Coder workspace name' };
-    const mapping: ProjectEnvironment = { name: environmentName, workspace, remotePort: randomInt(40_000, 50_000), branch };
-    const createArgs = coderCreateArgs({ workspace, template: environment.template, stopAfter: environment.stopAfter, parameters: environment.parameters });
-    if (createArgs === null) return { ok: false, reason: 'Invalid Coder create parameters' };
-    const checkoutDirectory = remoteCheckoutDirectory({ checkoutRoot: environment.checkoutRoot, workspace });
-    return whileWorkspaceBusy(workspace, () => createWorkspace({ projectId, workspace, mapping, createArgs, environment, baseBranch, branch, repoRemoteUrl, checkoutDirectory }));
+    return { ok: true, mapping: { name: environmentName, workspace, remotePort: randomInt(40_000, 50_000), branch } };
   }
 
-  async function createWorkspace({ projectId, workspace, mapping, createArgs, environment, baseBranch, branch, repoRemoteUrl, checkoutDirectory }: {
+  function provision({ projectId, mapping, repoRemoteUrl, baseBranch }: {
     projectId: string;
-    workspace: string;
     mapping: ProjectEnvironment;
-    createArgs: string[];
-    environment: ResolvedCoderEnvironment;
-    baseBranch: string;
-    branch: string;
     repoRemoteUrl: string;
-    checkoutDirectory: string;
+    baseBranch: string;
   }): Promise<CoderEnvResult> {
+    const savedMapping = config.projects.find((candidate) => candidate.id === projectId)?.environment;
+    if (JSON.stringify(savedMapping) !== JSON.stringify(mapping)) return Promise.resolve({ ok: false, reason: `Project ${projectId} does not hold this Coder workspace mapping` });
+    if (provisionByProject.has(projectId)) return Promise.resolve({ ok: false, reason: `Project ${projectId} is already provisioning a Coder workspace` });
+    const attempt = whileWorkspaceBusy(mapping.workspace, () => createWorkspace({ mapping, repoRemoteUrl, baseBranch }));
+    provisionByProject.set(projectId, attempt);
+    void attempt.then((provisioned) => {
+      provisionByProject.delete(projectId);
+      if (!provisioned.ok) failedProvisionByProject.set(projectId, provisioned);
+    });
+    return attempt;
+  }
+
+  async function createWorkspace({ mapping, repoRemoteUrl, baseBranch }: {
+    mapping: ProjectEnvironment;
+    repoRemoteUrl: string;
+    baseBranch: string;
+  }): Promise<CoderEnvResult> {
+    const { workspace, branch } = mapping;
     let didCreate = false;
     try {
-      await saveMapping(projectId, mapping);
+      const environment = resolveEnvironment(mapping.name);
+      if (!environment) throw new Error(`Unknown Coder environment: ${mapping.name}`);
+      if (!await ensureAvailable()) throw new Error('Coder environments are unavailable on this host');
+      const createArgs = coderCreateArgs({ workspace, template: environment.template, stopAfter: environment.stopAfter, parameters: environment.parameters });
+      if (createArgs === null) throw new Error('Invalid Coder create parameters');
+      const checkoutDirectory = remoteCheckoutDirectory({ checkoutRoot: environment.checkoutRoot, workspace });
       didCreate = true;
       await command(createArgs, 20 * 60_000);
       await waitForReady(workspace, environment);
@@ -278,21 +295,27 @@ function createCoderEnvWiring({
       await command(['ssh', workspace, '--', checkoutCommand], 20 * 60_000);
       return { ok: true, mapping };
     } catch (error) {
-      return failAttempt({ projectId, workspace, didCreate, didStart: false, shouldClearMapping: true, reason: error instanceof Error ? error.message : 'Coder provision failed' });
+      return failAttempt({ workspace, didCreate, didStart: false, reason: error instanceof Error ? error.message : 'Coder provision failed' });
     }
   }
 
   async function resume({ projectId }: { projectId: string }): Promise<CoderEnvResult> {
+    const inFlightProvision = provisionByProject.get(projectId);
+    if (inFlightProvision) {
+      const provisioned = await inFlightProvision;
+      if (!provisioned.ok) return provisioned;
+    }
+    const failedProvision = failedProvisionByProject.get(projectId);
+    if (failedProvision) return failedProvision;
     const mapping = config.projects.find((project) => project.id === projectId)?.environment;
     if (!mapping) return { ok: false, reason: `Project ${projectId} has no Coder workspace mapping` };
     const environment = resolveEnvironment(mapping.name);
     if (!environment) return { ok: false, reason: `Unknown Coder environment: ${mapping.name}` };
     if (!await ensureAvailable()) return { ok: false, reason: 'Coder environments are unavailable on this host' };
-    return whileWorkspaceBusy(mapping.workspace, () => startWorkspace({ projectId, mapping, environment }));
+    return whileWorkspaceBusy(mapping.workspace, () => startWorkspace({ mapping, environment }));
   }
 
-  async function startWorkspace({ projectId, mapping, environment }: {
-    projectId: string;
+  async function startWorkspace({ mapping, environment }: {
     mapping: ProjectEnvironment;
     environment: ResolvedCoderEnvironment;
   }): Promise<CoderEnvResult> {
@@ -300,7 +323,7 @@ function createCoderEnvWiring({
     try {
       const workspaces = await listWorkspaces();
       const workspace = workspaces.find((candidate) => candidate.name === mapping.workspace);
-      if (!workspace) throw new Error(`Coder workspace ${mapping.workspace} no longer exists`);
+      if (!workspace) throw new Error(`Coder workspace ${mapping.workspace} no longer exists; close this session and start a new one`);
       if (workspace.status === 'stopped') {
         didStart = true;
         await command(['start', mapping.workspace, '--yes'], 20 * 60_000);
@@ -309,11 +332,12 @@ function createCoderEnvWiring({
       await checkSharing(mapping.workspace);
       return { ok: true, mapping };
     } catch (error) {
-      return failAttempt({ projectId, workspace: mapping.workspace, didCreate: false, didStart, shouldClearMapping: false, reason: error instanceof Error ? error.message : 'Coder resume failed' });
+      return failAttempt({ workspace: mapping.workspace, didCreate: false, didStart, reason: error instanceof Error ? error.message : 'Coder resume failed' });
     }
   }
 
   async function release({ projectId }: { projectId: string }): Promise<{ ok: true } | { ok: false; reason: string }> {
+    failedProvisionByProject.delete(projectId);
     const mapping = config.projects.find((project) => project.id === projectId)?.environment;
     if (!mapping) return { ok: true };
     if (!await ensureAvailable()) return { ok: false, reason: 'Coder environments are unavailable on this host' };
@@ -338,7 +362,7 @@ function createCoderEnvWiring({
     await runCoder(['ssh', workspace, '--', remoteCommand(['sh', '-c', script, 'sh', remotePath])], { timeoutMs: 30_000, input: contents });
   }
 
-  return { start, stop: runner.stopPoller, restartIfConfigChanged, provision, resume, release, uploadFile, workspaceStatus };
+  return { start, stop: runner.stopPoller, restartIfConfigChanged, availableEnvironments, reserve, provision, resume, release, uploadFile, workspaceStatus };
 }
 
 export { createCoderEnvWiring };

@@ -63,7 +63,6 @@ interface ReconcilePlan {
   resume: WorkspaceMapping[];
   stop: WorkspaceMapping[];
   delete: string[];
-  forget: WorkspaceMapping[];
   keptUnmapped: string[];
 }
 
@@ -157,7 +156,6 @@ function planReconcile({ workspaces, mappings, busyWorkspaces, nowMs, deleteAfte
     resume: presentMappings.filter((mapping) => mapping.wasActive),
     stop: presentMappings.filter((mapping) => !mapping.wasActive),
     delete: unmapped.filter(isStale).map((workspace) => workspace.name),
-    forget: idleMappings.filter((mapping) => !listedNames.has(mapping.workspace)),
     keptUnmapped: unmapped.filter((workspace) => !isStale(workspace)).map((workspace) => workspace.name),
   };
 }

@@ -5,7 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { GlimmervoidConfig } from '../server/config-store.ts';
+import type { ControlHandlerDeps } from '../server/control-handlers.ts';
+import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
+import { git } from './helpers/git-fixture.ts';
 import { ClientMessage } from '../shared/contracts/control-messages.ts';
 
 function addSessionUnder(skipPermissionsByDefault: boolean | undefined, requestedSkip: unknown) {
@@ -67,4 +70,65 @@ test('a dashboard save that flips the machine default reconciles sessions at onc
 
   connection.send({ type: 'update-settings', settings: { debugMode: true } });
   assert.equal(reloadedConfigs.length, 1);
+});
+
+type CoderEnvPort = NonNullable<ControlHandlerDeps['coderEnv']>;
+
+function checkoutWithOrigin(context: test.TestContext): { checkoutPath: string; originPath: string } {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-add-remote-session-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  const originPath = path.join(fixtureRoot, 'origin.git');
+  const checkoutPath = path.join(fixtureRoot, 'repo');
+  git(['init', '--bare', '-q', '-b', 'main', originPath]);
+  git(['init', '-q', '-b', 'main', checkoutPath]);
+  git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'first'], checkoutPath);
+  git(['remote', 'add', 'origin', originPath], checkoutPath);
+  return { checkoutPath, originPath };
+}
+
+function remoteAddSession(reserveResult: Awaited<ReturnType<CoderEnvPort['reserve']>>) {
+  const config: GlimmervoidConfig = { projects: [] };
+  const reserveCalls: Parameters<CoderEnvPort['reserve']>[0][] = [];
+  const provisionCalls: Parameters<CoderEnvPort['provision']>[0][] = [];
+  const coderEnv: CoderEnvPort = {
+    availableEnvironments: () => [],
+    reserve: async (request) => {
+      reserveCalls.push(request);
+      return reserveResult;
+    },
+    provision: async (request) => {
+      provisionCalls.push(request);
+      return { ok: true, mapping: request.mapping };
+    },
+  };
+  const server = createControlServer(controlDeps(config, { coderEnv, remoteRepoGit: createGitWorkspace() }));
+  const connection = connectControl<{ type: string; ok?: boolean; error?: string | null }>(server);
+  return { config, connection, reserveCalls, provisionCalls };
+}
+
+test('a remote pick saves the project with the reserved mapping and provisions that same mapping', async (context) => {
+  const { checkoutPath, originPath } = checkoutWithOrigin(context);
+  const mapping = { name: 'remote', workspace: 'gv-0123456789ab', remotePort: 40_001, branch: 'glimmervoid/session/p-test' };
+  const { config, connection, reserveCalls, provisionCalls } = remoteAddSession({ ok: true, mapping });
+  await connection.send({ type: 'add-session', requestId: 'remote-1', name: 'repo', path: checkoutPath, environment: 'remote' });
+  assert.deepEqual(connection.sent.at(-1), { type: 'add-session-result', requestId: 'remote-1', ok: true, error: null });
+  assert.deepEqual(reserveCalls, [{ projectId: 'p-test', environmentName: 'remote', branch: 'glimmervoid/session/p-test', liveCount: 0 }]);
+  assert.deepEqual(config.projects.map((project) => [project.id, project.environment]), [['p-test', mapping]]);
+  assert.deepEqual(provisionCalls, [{ projectId: 'p-test', mapping, repoRemoteUrl: originPath, baseBranch: 'main' }]);
+});
+
+test('a maxLive refusal from reserve replies with the reason naming the count and saves no project', async (context) => {
+  const { checkoutPath } = checkoutWithOrigin(context);
+  const reason = 'remote already has 2 of 2 live workspaces; close one first';
+  const { config, connection, provisionCalls } = remoteAddSession({ ok: false, reason });
+  await connection.send({ type: 'add-session', requestId: 'remote-2', name: 'repo', path: checkoutPath, environment: 'remote' });
+  assert.deepEqual(connection.sent.at(-1), { type: 'add-session-result', requestId: 'remote-2', ok: false, error: reason });
+  assert.deepEqual(config.projects, []);
+  assert.deepEqual(provisionCalls, []);
+});
+
+test('the add-session contract accepts an environment name and rejects a non-string environment', () => {
+  const base = { type: 'add-session', name: 'repo', path: '/srv/repo' };
+  assert.equal(ClientMessage.safeParse({ ...base, environment: 'remote' }).success, true);
+  assert.equal(ClientMessage.safeParse({ ...base, environment: 3 }).success, false);
 });

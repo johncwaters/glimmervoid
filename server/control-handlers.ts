@@ -71,6 +71,10 @@ import type { Telemetry } from './telemetry.ts';
 import { DashboardTelemetryReport } from '../shared/contracts/telemetry.ts';
 import { errorCode, errorMessage, isMissingFileError } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
+import { sanitizeWorktreeName } from '../shared/paths.ts';
+import type { createCoderEnvWiring } from './coder/coder-env-wiring.ts';
+import type { GitWorkspaceInstance } from './git/git-workspace.ts';
+import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 
 type ControlRequest = ClientMessage;
 type ControlHandler<Type extends ClientMessage['type']> = (msg: ClientMessageOf<Type>, ws: ControlSocket) => unknown;
@@ -158,6 +162,8 @@ interface ControlHandlerDeps {
   sessionDocs?: SessionDocsPort | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture'>>) | null;
+  coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'availableEnvironments'> | null;
+  remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
 }
 
 type ScannedProject = { name: string; path: string; isGit: boolean };
@@ -393,6 +399,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     sessionDocs = null,
     coherenceFeed = null,
     changeMapNarrator = null,
+    coderEnv = null,
+    remoteRepoGit = null,
   } = deps;
 
   const changeMaps = createChangeMapService({
@@ -412,7 +420,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
   function buildSettingsPayload() {
-    return buildSettingsPayloadFrom({ configStore, rtkInstallStatus: getRtkInstallStatus(), telegramDelivery: telegramDelivery?.status() ?? null });
+    return buildSettingsPayloadFrom({ configStore, rtkInstallStatus: getRtkInstallStatus(), telegramDelivery: telegramDelivery?.status() ?? null, coderEnvironments: coderEnv?.availableEnvironments() ?? null });
   }
 
   function findSession(msg: Pick<ClientMessageOf<'kill'>, 'id'>): Session | null {
@@ -456,6 +464,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       refuseAddSession(msg, ws, refusal);
       return undefined;
     }
+    const environmentName = typeof msg.environment === 'string' ? msg.environment.trim() : '';
+    if (environmentName) return createRemoteAddedSession(msg, ws, environmentName);
     if (!needsOwnWorktreeCheck(msg)) {
       createAddedSession(msg, ws);
       return undefined;
@@ -478,7 +488,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     createAddedSession(msg, ws);
   }
 
-  function createAddedSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket): void {
+  function createAddedSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket, remote?: { id: string; environment: NonNullable<ProjectEntry['environment']> }): ProjectEntry | null {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
     const repos = msg.repos;
@@ -489,6 +499,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       ? msg.dangerouslySkipPermissions
       : machineSkipsPermissionsByDefault(config);
     const created = createProjectSession({
+      id: remote?.id,
       name,
       path: projectPath,
       repos,
@@ -496,13 +507,68 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       dangerouslySkipPermissions: skipPerms,
       unguarded: msg.unguarded === true,
       requireExistingPath: !repos,
+      environment: remote?.environment,
     });
     if (!created.ok) {
       refuseAddSession(msg, ws, { error: created.error });
-      return;
+      return null;
     }
     if (msg.requestId) replyTo(ws, msg, 'add-session-result', { ok: true, error: null });
-    console.log(`[control] Added session via UI: ${name}${skipPerms ? ' (skip permissions)' : ' (permission prompts)'}`);
+    console.log(`[control] Added session via UI: ${name}${skipPerms ? ' (skip permissions)' : ' (permission prompts)'}${remote ? ` (Coder environment ${remote.environment.name})` : ''}`);
+    return created.project;
+  }
+
+  function liveWorkspaceCount(environmentName: string): number {
+    return config.projects.filter((project) => {
+      if (project.environment?.name !== environmentName) return false;
+      const session = sessions.get(project.id);
+      return session !== undefined && session.state !== STATES.DORMANT;
+    }).length;
+  }
+
+  function remoteAddSessionRefusal(msg: ClientMessageOf<'add-session'>): AddSessionRefusal | null {
+    if (msg.repos) return { error: 'A workspace session cannot run in a Coder environment. Pick a single repository.' };
+    if (msg.runInPlace === true) return { error: 'A session in a Coder environment always gets its own checkout, so it cannot run in this folder.' };
+    return null;
+  }
+
+  async function createRemoteAddedSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket, environmentName: string): Promise<void> {
+    const refusal = remoteAddSessionRefusal(msg);
+    if (refusal) {
+      refuseAddSession(msg, ws, refusal);
+      return;
+    }
+    if (!coderEnv || !remoteRepoGit) {
+      refuseAddSession(msg, ws, { error: 'Coder environments are unavailable on this host' });
+      return;
+    }
+    const projectPath = path.resolve((msg.path || '').trim());
+    const repoRemoteUrl = await remoteRepoGit.originUrl({ projectPath });
+    if (!repoRemoteUrl) {
+      refuseAddSession(msg, ws, { error: `${projectPath} has no origin remote, so a Coder workspace cannot clone it.` });
+      return;
+    }
+    const baseBranch = configuredIntegrationBranch(config) ?? await remoteRepoGit.detectDefaultBranch({ projectPath });
+    if (!baseBranch) {
+      refuseAddSession(msg, ws, { error: `Could not find the default branch of ${projectPath} on origin.` });
+      return;
+    }
+    const id = generateProjectId();
+    const reserved = await coderEnv.reserve({
+      projectId: id,
+      environmentName,
+      branch: `glimmervoid/session/${sanitizeWorktreeName(id)}`,
+      liveCount: liveWorkspaceCount(environmentName),
+    });
+    if (!reserved.ok) {
+      refuseAddSession(msg, ws, { error: reserved.reason });
+      return;
+    }
+    const project = createAddedSession(msg, ws, { id, environment: reserved.mapping });
+    if (!project) return;
+    void coderEnv.provision({ projectId: id, mapping: reserved.mapping, repoRemoteUrl, baseBranch }).then((provisioned) => {
+      if (!provisioned.ok) console.warn(`[control] Coder provision failed for ${project.name}: ${provisioned.reason}`);
+    });
   }
 
   function addSessionRefusal(msg: ClientMessageOf<'add-session'>): AddSessionRefusal | null {
@@ -928,12 +994,11 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return entries;
   }
 
-  function createProjectSession({ name, path: projectPath, repos, baseBranch, agent, dangerouslySkipPermissions, unguarded, requireExistingPath }: { name: string; path: string; repos?: string[]; baseBranch?: string; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; unguarded?: boolean; requireExistingPath?: boolean }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
+  function createProjectSession({ id = generateProjectId(), name, path: projectPath, repos, baseBranch, agent, dangerouslySkipPermissions, unguarded, requireExistingPath, environment }: { id?: string; name: string; path: string; repos?: string[]; baseBranch?: string; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; unguarded?: boolean; requireExistingPath?: boolean; environment?: ProjectEntry['environment'] }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
     for (const [, session] of sessions) {
       if (session.name !== name) continue;
       return { ok: false, error: `Session "${name}" already exists` };
     }
-    const id = generateProjectId();
     let resolvedPath = path.resolve(projectPath);
     let workspaceRepos: string[] | undefined;
     if (repos) {
@@ -952,6 +1017,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (typeof dangerouslySkipPermissions === 'boolean') project.dangerouslySkipPermissions = dangerouslySkipPermissions;
     if (unguarded) project.unguarded = true;
     if (agent) project.agent = agent;
+    if (environment) project.environment = environment;
     const freshConfig = configStore.save(cfg => {
       cfg.projects.push(project);
     });
