@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { z } from 'zod';
 import { STATES } from '../../../shared/states.ts';
 import type { SessionState } from '../../../shared/states.ts';
@@ -178,8 +179,12 @@ function liveLimitRefusal({ liveCount, maxLive, environmentName }: { liveCount: 
   return `${environmentName} already has ${liveCount} of ${maxLive} live workspaces; close one first`;
 }
 
+function remoteCheckoutDirectory({ checkoutRoot, workspace }: { checkoutRoot: string; workspace: string }): string {
+  return path.posix.join(checkoutRoot, workspace);
+}
+
 export {
-  CODER_ENV_READY_POLL_MS, CODER_ENV_IDLE_TICK_MS, resolveCoderEnvironment, parseGlimmervoidWorkspaces, decideReadiness, shouldIdleStop, planReconcile,
+  remoteCheckoutDirectory, CODER_ENV_READY_POLL_MS, CODER_ENV_IDLE_TICK_MS, resolveCoderEnvironment, parseGlimmervoidWorkspaces, decideReadiness, shouldIdleStop, planReconcile,
   failedProvisionCleanup, sharingRefusal, liveLimitRefusal,
 };
 export type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ReconcilePlan, ResolvedCoderEnvironment, WorkspaceMapping };

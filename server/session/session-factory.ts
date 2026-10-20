@@ -8,7 +8,7 @@ import type { UserHook } from '../../session/core/user-hooks-core.ts';
 import { createRecorder } from '../../session/session-recorder.ts';
 import type { GitWorkspace } from '../../session/session-worktree-lifecycle.ts';
 import { Session } from '../../session/sessions.ts';
-import type { SessionOptions, SessionPlanReviewPort } from '../../session/sessions.ts';
+import type { RemoteLaunch, SessionOptions, SessionPlanReviewPort } from '../../session/sessions.ts';
 import { getAdapter } from '../../session/adapters/index.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
@@ -16,6 +16,7 @@ import { configuredIntegrationBranch } from '../core/integration-branch-core.ts'
 import { isSessionGuarded } from '../guardrails/core/guardrails-roles-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
 import { expandTilde } from '../usage/core/usage-scan-core.ts';
+import { remoteCheckoutDirectory } from '../coder/core/coder-env-core.ts';
 import type { SessionGuardrails } from '../guardrails/session-guardrails.ts';
 import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 
@@ -34,6 +35,13 @@ interface SessionFactoryDependencies {
   sessionGuardrails?: SessionGuardrails;
   commitSigningProgram?: string | null;
   homeDir?: string;
+  getCoderEnv?: () => CoderWorkspacePort | null;
+  claudeToken?: () => ReturnType<RemoteLaunch['claudeToken']>;
+}
+
+interface CoderWorkspacePort {
+  resume: (request: { projectId: string }) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  uploadFile: (file: { workspace: string; remotePath: string; contents: string; mode: number }) => Promise<void>;
 }
 
 function isConversationViewOnFor(config: GlimmervoidConfig, projectId: string): boolean {
@@ -75,6 +83,30 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     return willSessionRunGuarded({ ...project, agent: overrides.agent ?? project.agent, unguarded: false }, config, dependencies.homeDir ?? null);
   }
 
+  function remoteLaunchFor(builtProject: ProjectEntry, builtMapping: NonNullable<ProjectEntry['environment']>, config: GlimmervoidConfig): RemoteLaunch {
+    const projectId = builtProject.id;
+    const liveMapping = config.projects.find((project) => project.id === projectId)?.environment;
+    const mapping = liveMapping ?? builtMapping;
+    const environment = config.coder?.environments?.find((candidate) => candidate.name === mapping.name);
+    const coderEnv = liveMapping && environment ? dependencies.getCoderEnv?.() ?? null : null;
+    const claudeToken = dependencies.claudeToken;
+    const refusal = liveMapping
+      ? { ok: false as const, reason: `Coder environment ${mapping.name} is not available` }
+      : { ok: false as const, reason: `Coder workspace mapping for ${builtProject.name} was removed; close this session and start a new one` };
+    return {
+      workspace: mapping.workspace,
+      remotePort: mapping.remotePort,
+      checkoutDirectory: remoteCheckoutDirectory({ checkoutRoot: environment?.checkoutRoot ?? '/', workspace: mapping.workspace }),
+      nodePath: environment?.nodePath ?? 'node',
+      ensureRunning: async () => (coderEnv ? coderEnv.resume({ projectId }) : refusal),
+      uploadFile: async (file) => {
+        if (!coderEnv) throw new Error(refusal.reason);
+        await coderEnv.uploadFile({ ...file, workspace: mapping.workspace });
+      },
+      claudeToken: async () => (claudeToken ? claudeToken() : { ok: false, reason: 'no Claude Code login source is wired for remote sessions' }),
+    };
+  }
+
   return function makeSession(
     project: ProjectEntry,
     config: GlimmervoidConfig,
@@ -86,6 +118,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       worktree: cwd, confine, host: getAdapter(overrides.agent ?? project.agent)?.usageVendor,
       isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true,
     });
+    const builtMapping = project.environment;
     const session = new Session({
       id: project.id,
       name: project.name,
@@ -121,6 +154,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       getUserHooks: () => dependencies.getUserHooks(project.id),
       prepareCoherence,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
+      getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config) : null,
       ...overrides,
       prepareGuardrails: 'prepareGuardrails' in overrides ? overrides.prepareGuardrails : defaultGuardrailsFor(project, config, overrides),
     });

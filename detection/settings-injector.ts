@@ -71,6 +71,7 @@ interface BuildHookSettingsOptions {
   commandHookRelayPath?: string;
   hookToolRelayPath?: string;
   userHooks?: UserHook[];
+  remoteNodePath?: string | null;
 }
 
 interface WriteSessionSettingsOptions extends Omit<BuildHookSettingsOptions, 'token'> {
@@ -91,7 +92,7 @@ function ensureOwnedDir(dir: string, mode: number): void {
   }
 }
 
-const HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'PreCompact', 'PostCompact'];
+const HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'PermissionRequest', 'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'PreCompact', 'PostCompact'];
 
 const WAKEUP_TOOL_MATCHER = 'ScheduleWakeup|CronCreate|CronDelete';
 const PLAN_TOOL_MATCHER = PLAN_TOOL_NAME;
@@ -154,7 +155,14 @@ function buildCommandHookCommand(
   return `node ${shellQuote(toForwardSlashes(relayPath))} ${shellQuote(postUrl)}`;
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, guardrails = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, conversationApprovals = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [] }: BuildHookSettingsOptions): HookSettings {
+function buildRemoteCommandHookCommand({ nodePath, postUrl }: { nodePath: string; postUrl: string }): string {
+  const inlineRelay = 'let body="";process.stdin.setEncoding("utf8").on("data",(chunk)=>{body+=chunk}).on("end",()=>{'
+    + 'fetch(process.argv[1],{method:"POST",headers:{"content-type":"application/json"},body,signal:AbortSignal.timeout(4000)})'
+    + '.then((response)=>response.ok?response.text():"").then((text)=>{if(text)process.stdout.write(text)}).catch(()=>{})})';
+  return `${shellQuote(nodePath)} -e ${shellQuote(inlineRelay)} ${shellQuote(postUrl)}`;
+}
+
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, guardrails = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, conversationApprovals = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -163,7 +171,9 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   const hooks: Record<string, SettingsHookEntry[]> = {
     SessionStart: [{ hooks: [{
       type: 'command',
-      command: buildCommandHookCommand({ relayPath: commandHookRelayPath, postUrl: hookUrl('SessionStart') }),
+      command: remoteNodePath === null
+        ? buildCommandHookCommand({ relayPath: commandHookRelayPath, postUrl: hookUrl('SessionStart') })
+        : buildRemoteCommandHookCommand({ nodePath: remoteNodePath, postUrl: hookUrl('SessionStart') }),
       timeout: timeoutSec,
     }] }],
   };

@@ -18,6 +18,9 @@ import { createSessionGuardrails } from '../guardrails/session-guardrails.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { cliPath } from '../runtime-paths.ts';
 import { createSshSigner, installCommitSigningShim } from '../ssh-signing.ts';
+import { createClaudeCredentials } from '../claude-credentials.ts';
+import { commandFor } from '../../session/adapters/index.ts';
+import type { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -28,7 +31,10 @@ interface BackendSessionRuntimeDependencies {
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
   guardrailsRefusal: GuardrailsSpawnRefusal;
+  getCoderEnv?: () => Pick<ReturnType<typeof createCoderEnvWiring>, 'resume' | 'uploadFile'> | null;
 }
+
+const REMOTE_SESSION_TOKEN_LIFETIME_SECONDS = 600;
 
 function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependencies) {
   const hookRouter = new HookRouter({ recordOutcome: dependencies.recordOutcome });
@@ -60,8 +66,12 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     log: dependencies.logger,
   });
   const sshSigner = commitSigningProgram ? createSshSigner() : null;
+  const claudeCommand = () => commandFor('claude-code').path;
+  const claudeCredentials = createClaudeCredentials({ claudeCommand });
   const makeSession = createSessionFactory({
     commitSigningProgram,
+    getCoderEnv: dependencies.getCoderEnv,
+    claudeToken: () => claudeCredentials.resolveArmToken(REMOTE_SESSION_TOKEN_LIFETIME_SECONDS),
     configStore: dependencies.configStore,
     getConfig: () => dependencies.configStore.config,
     hookRouter,
@@ -85,7 +95,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     }),
   });
 
-  return { agentIngressServer, getHookPort, hookRouter, makeSession, rtkInstall, sshSigner };
+  return { agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, rtkInstall, sshSigner };
 }
 
 export { createBackendSessionRuntime };

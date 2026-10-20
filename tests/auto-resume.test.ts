@@ -127,6 +127,15 @@ test('resolveResumeTarget keeps the id when the transcript sits under the realpa
   assert.deepEqual(resolvedIdAndPath(resumeTarget), { resumeSessionId: RESUME_SESSION_ID, transcriptPath: expectedTranscriptPath });
 });
 
+test('resolveResumeTarget keeps the id without probing the host when the transcript lives in a remote workspace', () => {
+  let probes = 0;
+  const target = resolveResumeTarget({
+    resumeSessionId: 'abc12345-remote', transcriptPath: null, projectsDirs: ['/host/.claude/projects'], cwds: ['/host/repo'], isTranscriptRemote: true,
+  }, () => { probes += 1; return false; });
+  assert.deepEqual(target, { resumeSessionId: 'abc12345-remote', transcriptPath: null, checkedTranscriptPaths: [] });
+  assert.equal(probes, 0);
+});
+
 test('resolveResumeTarget clears the id when no candidate transcript exists', () => {
   const probedPaths: string[] = [];
   const resumeTarget = resolveResumeTarget({

@@ -28,7 +28,7 @@ import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contrac
 import { commitSigningEnv } from "./core/commit-signing-env.ts";
 import { permitsHelpCommand } from "./core/session-routes.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply } from "../shared/contracts/session.ts";
-import { generateToken } from "../detection/settings-injector.ts";
+import { buildHookSettings, generateToken } from "../detection/settings-injector.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
@@ -57,7 +57,9 @@ import { decideExitTransition } from "./core/exit-transition.ts";
 import type { ExitSignal } from "./core/exit-transition.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
-import { resolveResumeTarget, shouldAdoptReportedResumeId, RESUME_ID_RE } from "./core/auto-resume.ts";
+import { resolveResumeTarget, shouldAdoptReportedResumeId, AUTO_CONTINUE_PROMPT, RESUME_ID_RE } from "./core/auto-resume.ts";
+import { CLAUDE_TOKEN_ALIAS_ENV, CLAUDE_TOKEN_ALIASES, CODER_SSH_ENV, coderSshArgs, encodeCoderSshEnv, remoteLaunchScript } from "./core/remote-launch-core.ts";
+import { safePathSegment } from "../shared/paths.ts";
 import { projectSessionSnapshots } from "./core/snapshot-projection.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
@@ -187,6 +189,18 @@ interface SessionGuardrailsFacts {
 
 type PrepareSessionGuardrails = (facts: SessionGuardrailsFacts) => Promise<GuardrailsLaunchResult>;
 
+type RemoteLaunchStep = { ok: true } | { ok: false; reason: string };
+
+interface RemoteLaunch {
+  workspace: string;
+  remotePort: number;
+  checkoutDirectory: string;
+  nodePath: string;
+  ensureRunning: () => Promise<RemoteLaunchStep>;
+  uploadFile: (file: { remotePath: string; contents: string; mode: number }) => Promise<void>;
+  claudeToken: () => Promise<{ ok: true; token: string } | { ok: false; reason: string }>;
+}
+
 interface SpawnCommand {
   file: string;
   args: string[];
@@ -233,6 +247,7 @@ interface SessionOptions {
   settingsPermissions?: Record<string, unknown> | null;
   settingsGuardrails?: Record<string, unknown> | null;
   prepareGuardrails?: PrepareSessionGuardrails | null;
+  getRemoteLaunch?: (() => RemoteLaunch | null) | null;
   spawnEnv?: Record<string, string> | null;
   prependPathDirs?: string[];
   enableProjectMcp?: boolean;
@@ -360,6 +375,8 @@ class Session extends EventEmitter {
   _agentSpawnsInFlight: number;
   _ptySpawn: PtySpawn;
   _prepareGuardrails: PrepareSessionGuardrails | null;
+  _getRemoteLaunch: () => RemoteLaunch | null;
+  _hasRespawnedForAuth: boolean;
   _guardrailsLaunch: GuardrailsLaunch | null;
   _requiresWorktree: boolean;
   _killProc: KillProc;
@@ -424,6 +441,7 @@ class Session extends EventEmitter {
     settingsPermissions = null,
     settingsGuardrails = null,
     prepareGuardrails = null,
+    getRemoteLaunch = null,
 
     spawnEnv = null,
     prependPathDirs = [],
@@ -630,6 +648,8 @@ class Session extends EventEmitter {
       return pty.spawn(file, args, opts);
     });
     this._prepareGuardrails = prepareGuardrails;
+    this._getRemoteLaunch = getRemoteLaunch ?? (() => null);
+    this._hasRespawnedForAuth = false;
     this._guardrailsLaunch = null;
 
     this._killProc = killProc || ((args, opts, cb) => execFile("taskkill", args, opts, cb));
@@ -812,6 +832,12 @@ class Session extends EventEmitter {
 
   ingestHookSignal(raw: HookSignal): void {
     if (this._destroyed) return;
+    if (raw?.signal === "auth-failed") {
+      if (this._respawnAfterAuthFailure()) return;
+      this.ingestHookSignal({ ...raw, signal: "awaiting-input" });
+      return;
+    }
+    if (raw?.signal === "ready" && String(raw.event || "").toLowerCase() === "stop") this._hasRespawnedForAuth = false;
     this._hookSeen = true;
     if (this._recorder && raw?.event) {
       this._recorder.writeHook(raw.event, raw.payload);
@@ -1108,6 +1134,7 @@ class Session extends EventEmitter {
   }
 
   _commitSigningEnv(): Record<string, string> {
+    if (this._getRemoteLaunch() !== null) return {};
     return commitSigningEnv({
       port: this._hooks.listenerPort(),
       sessionId: this.id,
@@ -1521,6 +1548,11 @@ class Session extends EventEmitter {
       const currentHookTools = this._getHookTools().filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
       this._hookTools.splice(0, this._hookTools.length, ...currentHookTools);
     }
+    const remoteLaunch = this._getRemoteLaunch();
+    if (remoteLaunch !== null && this.agentId !== DEFAULT_AGENT_ID) {
+      this._abandonSpawn(new Error("A Coder workspace session runs Claude Code only"));
+      return;
+    }
     const hookInjection = this._hooks.inject();
     this._isSaneYoloActive = hookInjection.isSaneYoloActive;
     if (this._hooks.isRequiredGuardrailsMissing()) {
@@ -1553,6 +1585,7 @@ class Session extends EventEmitter {
         transcriptPath: this._transcriptPath,
         projectsDirs: projectDirCandidates(env, [], os.homedir()),
         cwds: this._spawnCwdSpellings(),
+        isTranscriptRemote: remoteLaunch !== null,
       }, fs.existsSync);
       spawnResumeSessionId = resumeTarget.resumeSessionId;
       if (configuredResumeSessionId && !spawnResumeSessionId) {
@@ -1561,7 +1594,8 @@ class Session extends EventEmitter {
     }
 
     this._suppressResumeCapture = false;
-    const launchSession = this._prepareGuardrails
+    const isSpawnGuarded = remoteLaunch === null && this._prepareGuardrails !== null;
+    const launchSession = isSpawnGuarded
       ? this._adapter.launchSessionId?.({ resumeSessionId: spawnResumeSessionId, extraArgs: this._extraClaudeArgs, generatedId: randomUUID() }) ?? null
       : null;
     const agentArgs = this._adapter.buildArgs({
@@ -1569,7 +1603,7 @@ class Session extends EventEmitter {
       resumeSessionId: spawnResumeSessionId,
       extraArgs: launchSession?.extraArgs ?? this._extraClaudeArgs,
       initialPrompt: spawnResumeSessionId && resumePrompt ? resumePrompt : this._initialPrompt,
-      hasOuterGuardrails: this._prepareGuardrails !== null,
+      hasOuterGuardrails: isSpawnGuarded,
       hasOperatorInstructions: this._hasOperatorInstructions(env),
       canRunHelpCommand: this._canRunHelpCommand,
     });
@@ -1580,7 +1614,7 @@ class Session extends EventEmitter {
       await this._stopConversationBridge();
       return;
     }
-    const spawnCommand = await this._guardedSpawnCommand(this._adapter.buildSpawnCommand({
+    const spawnCommand = remoteLaunch !== null ? await this._remoteSpawnCommand(remoteLaunch, agentArgs) : await this._guardedSpawnCommand(this._adapter.buildSpawnCommand({
       platform: this._platform,
       resolved: this._spawnCommand || commandFor(this._adapter),
       settingsArgs: bridgedLaunch ? [] : settingsArgs,
@@ -1653,7 +1687,7 @@ class Session extends EventEmitter {
   }
 
   get isGuarded(): boolean {
-    return this._prepareGuardrails !== null;
+    return this._prepareGuardrails !== null && this._getRemoteLaunch() === null;
   }
 
   isConversationBridgeRefused(settingsArgs: readonly string[] = [], agentArgs: readonly string[] = this._extraClaudeArgs): boolean {
@@ -1788,6 +1822,48 @@ class Session extends EventEmitter {
     } catch (error) {
       return !isMissingFileError(error);
     }
+  }
+
+  async _remoteSpawnCommand(remote: RemoteLaunch, agentArgs: string[]): Promise<SpawnCommand | null> {
+    const prepared = await this._prepareRemoteSpawn(remote, agentArgs).catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
+    if (this._destroyed) {
+      this._hooks.cleanup();
+      return null;
+    }
+    if (!prepared.ok) {
+      this._abandonSpawn(new Error(`Coder workspace ${remote.workspace}: ${prepared.reason}`));
+      return null;
+    }
+    return prepared.spawnCommand;
+  }
+
+  async _prepareRemoteSpawn(remote: RemoteLaunch, agentArgs: string[]): Promise<{ ok: true; spawnCommand: SpawnCommand } | { ok: false; reason: string }> {
+    const hookToken = this._hooks.token();
+    const ingressPort = this._hooks.listenerPort();
+    if (hookToken === null || ingressPort === null) return { ok: false, reason: "hooks are unavailable, so the remote session could not report its status" };
+    const running = await remote.ensureRunning();
+    if (!running.ok) return running;
+    const login = await remote.claudeToken();
+    if (!login.ok) return login;
+    const settingsPath = path.posix.join(path.posix.dirname(remote.checkoutDirectory), ".glimmervoid-sessions", safePathSegment(this.id), "settings.json");
+    const settings = buildHookSettings({ port: remote.remotePort, glimmervoidId: this.id, token: hookToken, remoteNodePath: remote.nodePath });
+    await remote.uploadFile({ remotePath: settingsPath, contents: JSON.stringify(settings), mode: 0o600 });
+    const remoteCommand = remoteLaunchScript({
+      workingDirectory: remote.checkoutDirectory,
+      argv: ["claude", ...(this._adapter.settingsArgs?.(settingsPath) ?? []), ...agentArgs],
+      tokenAliases: CLAUDE_TOKEN_ALIASES,
+    });
+    const sshArgs = remoteCommand === null ? null : coderSshArgs({ workspace: remote.workspace, remotePort: remote.remotePort, ingressPort, remoteCommand });
+    const sshEnv = encodeCoderSshEnv({ [CLAUDE_TOKEN_ALIAS_ENV]: login.token });
+    if (sshArgs === null || sshEnv === null) return { ok: false, reason: "the remote launch command could not be built" };
+    return { ok: true, spawnCommand: { file: "coder", args: sshArgs, env: { [CODER_SSH_ENV]: sshEnv } } };
+  }
+
+  _respawnAfterAuthFailure(): boolean {
+    if (this._getRemoteLaunch() === null || this._hasRespawnedForAuth) return false;
+    this._hasRespawnedForAuth = true;
+    console.warn(`[session:${this.name}] the remote Claude token was refused; respawning once with a fresh token`);
+    return this.forceRestart({ resumePrompt: AUTO_CONTINUE_PROMPT });
   }
 
   async _guardedSpawnCommand(command: { file: string; args: string[] }, agentSessionId: string | null): Promise<SpawnCommand | null> {
@@ -2214,7 +2290,7 @@ class Session extends EventEmitter {
     return r;
   }
 
-  forceRestart(options: { fresh?: boolean } = {}): boolean {
+  forceRestart(options: { fresh?: boolean; resumePrompt?: string | null } = {}): boolean {
     if (this._destroyed) return false;
     if (this._teardownPending()) return false;
     if (KILLABLE_STATES.includes(this.state)) {
@@ -2226,7 +2302,7 @@ class Session extends EventEmitter {
         if (this._destroyed) return;
         if (!RESTARTABLE_STATES.includes(this.state)) return;
         this.transition("user_restart");
-        this.start({ fresh });
+        this.start({ fresh, resumePrompt: options.resumePrompt ?? null });
       });
       this.kill();
       this.transition("user_kill");
@@ -2280,4 +2356,4 @@ function claudeCommand(): ResolvedCommand {
 }
 
 export { GUARDRAILS_UNAPPLIED_ERROR, Session, claudeCommand };
-export type { ClaudeSessionIdEvent, PrepareSessionGuardrails, SessionOptions, SessionPlanReviewPort, SessionGuardrailsFacts };
+export type { ClaudeSessionIdEvent, PrepareSessionGuardrails, RemoteLaunch, SessionOptions, SessionPlanReviewPort, SessionGuardrailsFacts };

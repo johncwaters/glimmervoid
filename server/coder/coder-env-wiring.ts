@@ -8,7 +8,7 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { createCoderEnvPoller } from './coder-env-poller.ts';
 import type { CoderEnvPollerDeps } from './coder-env-poller.ts';
 import {
-  CODER_ENV_READY_POLL_MS, decideReadiness, failedProvisionCleanup, liveLimitRefusal, parseGlimmervoidWorkspaces, resolveCoderEnvironment, sharingRefusal,
+  CODER_ENV_READY_POLL_MS, decideReadiness, failedProvisionCleanup, liveLimitRefusal, parseGlimmervoidWorkspaces, remoteCheckoutDirectory, resolveCoderEnvironment, sharingRefusal,
 } from './core/coder-env-core.ts';
 import type { CoderEnvironmentSettings, ReadinessVerdict, ResolvedCoderEnvironment } from './core/coder-env-core.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
@@ -221,11 +221,7 @@ function createCoderEnvWiring({
     const mapping: ProjectEnvironment = { name: environmentName, workspace, remotePort: randomInt(40_000, 50_000), branch };
     const createArgs = coderCreateArgs({ workspace, template: environment.template, stopAfter: environment.stopAfter, parameters: environment.parameters });
     if (createArgs === null) return { ok: false, reason: 'Invalid Coder create parameters' };
-    const repositoryName = repoRemoteUrl.replace(/\/+$/, '').split(/[/:]/).at(-1)?.replace(/\.git$/, '');
-    if (!repositoryName || repositoryName === '.' || repositoryName === '..' || repositoryName.includes('\0')) {
-      return { ok: false, reason: 'Invalid repository remote URL' };
-    }
-    const checkoutDirectory = path.posix.join(environment.checkoutRoot, repositoryName);
+    const checkoutDirectory = remoteCheckoutDirectory({ checkoutRoot: environment.checkoutRoot, workspace });
     return whileWorkspaceBusy(workspace, () => createWorkspace({ projectId, workspace, mapping, createArgs, environment, baseBranch, branch, repoRemoteUrl, checkoutDirectory }));
   }
 

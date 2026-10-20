@@ -13,7 +13,7 @@ import { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
 import { resolveCoderEnvironment } from '../coder/core/coder-env-core.ts';
 import { persistSessionField } from '../session/session-event-wiring.ts';
 import { createBranchGcWiring } from '../branch-gc-wiring.ts';
-import { createClaudeCredentials } from '../claude-credentials.ts';
+import type { createClaudeCredentials } from '../claude-credentials.ts';
 import { DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -62,6 +62,7 @@ interface BackendLaneOptions {
 
 interface BackendLaneDependencies {
   config: GlimmervoidConfig;
+  claudeCredentials: ReturnType<typeof createClaudeCredentials>;
   configStore: ConfigStore;
   sessions: Map<string, Session>;
   agentSessions: Map<string, Session>;
@@ -86,6 +87,7 @@ interface BackendLaneDependencies {
 
 function createBackendLanes(dependencies: BackendLaneDependencies) {
   const {
+    claudeCredentials,
     config,
     configStore,
     sessions,
@@ -274,7 +276,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       sessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
       replayBufferKB: config.replayBufferKB, laneName: 'benchmark', guardrailsRefusal,
     }),
-    credentials: createClaudeCredentials({ claudeCommand }),
+    credentials: claudeCredentials,
     claudeCommand,
     guardrailsRefusal,
     log: logger,

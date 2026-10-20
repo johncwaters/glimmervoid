@@ -53,9 +53,9 @@ test('the trail hook and the rtk entry coexist, the trail first', () => {
 
 test('a carbon unit hook on an event Glimmervoid does not subscribe to creates that key', () => {
   const settings = buildHookSettings({ ...base, userHooks: [
-    { id: 'a', name: 'a', event: 'StopFailure', matcher: 'auto', type: 'http', url: 'http://127.0.0.1:1/x', timeout: 9, enabled: true },
+    { id: 'a', name: 'a', event: 'PermissionDenied', matcher: 'auto', type: 'http', url: 'http://127.0.0.1:1/x', timeout: 9, enabled: true },
   ] });
-  assert.deepEqual(settings.hooks.StopFailure, [{ matcher: 'auto', hooks: [{ type: 'http', url: 'http://127.0.0.1:1/x', timeout: 9 }] }]);
+  assert.deepEqual(settings.hooks.PermissionDenied, [{ matcher: 'auto', hooks: [{ type: 'http', url: 'http://127.0.0.1:1/x', timeout: 9 }] }]);
 });
 
 test('describeBuiltinHooks rows are exactly the entries buildHookSettings writes', () => {

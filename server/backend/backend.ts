@@ -135,6 +135,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     guardrailsRefusal,
     getGitWorkspace: () => gitWorkspace,
     getPlanReviewPort: () => laneAssembly.planReview?.port ?? null,
+    getCoderEnv: () => laneAssembly.coderEnv,
     getBroadcastControl: () => broadcastControl,
     recordOutcome,
     logger: console,
@@ -244,6 +245,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   const laneAssembly = createBackendLanes({
     config,
+    claudeCredentials: sessionRuntime.claudeCredentials,
     guardrailsRefusal,
     configStore,
     sessions,

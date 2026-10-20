@@ -11,6 +11,7 @@ interface ResumeTargetOptions {
   transcriptPath: string | null;
   projectsDirs: readonly string[];
   cwds: readonly string[];
+  isTranscriptRemote?: boolean;
 }
 
 interface ResumeTarget {
@@ -85,6 +86,9 @@ function resolveResumeTarget(
 ): ResumeTarget {
   if (!options.resumeSessionId) {
     return { resumeSessionId: null, transcriptPath: null, checkedTranscriptPaths: [] };
+  }
+  if (options.isTranscriptRemote === true) {
+    return { resumeSessionId: options.resumeSessionId, transcriptPath: null, checkedTranscriptPaths: [] };
   }
   const candidates = transcriptPathCandidates(options);
   const checkedTranscriptPaths: string[] = [];

@@ -16,7 +16,7 @@ import { validateConfig } from '../server/config-store.ts';
 import { BUILTIN_AGENT_IDS, CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { STATES } from '../shared/states.ts';
 import { execFileSync } from 'node:child_process';
-import { fakePty } from './helpers/fake-pty.ts';
+import { exitablePty, fakePty } from './helpers/fake-pty.ts';
 import type { HookSignal } from '../detection/hook-source.ts';
 import type { HookPayload } from '../shared/contracts/index.ts';
 
@@ -193,13 +193,67 @@ test('the settings file a session injects is byte-identical to the injector run 
     assert.equal(written, fs.readFileSync(expected.settingsPath, 'utf8'));
     const parsed = JSON.parse(written);
     assert.deepEqual(Object.keys(parsed.hooks), [
-      'SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest',
+      'SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'PermissionRequest',
       'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'PreCompact', 'PostCompact', 'PostToolUse',
     ]);
   } finally {
     session.destroy();
     fs.rmSync(hooksBaseDir, { recursive: true, force: true });
     fs.rmSync(expectedBaseDir, { recursive: true, force: true });
+  }
+});
+
+test('a Coder workspace session launches claude over coder ssh with the token only in env, and respawns once on a refused token', async () => {
+  const hooksBaseDir = tmpHooksDir();
+  const calls: AdapterSpawnCall[] = [];
+  const ptys: ReturnType<typeof exitablePty>[] = [];
+  const uploads: { remotePath: string; contents: string; mode: number }[] = [];
+  let tokenRequests = 0;
+  const session = new Session({
+    id: 'remote-session',
+    name: 'remote',
+    path: process.cwd(),
+    hookRouter: new HookRouter(),
+    getHookPort: () => 41234,
+    hooksBaseDir,
+    spawnCommand: { path: process.execPath, kind: 'exe' },
+    getRemoteLaunch: () => ({
+      workspace: 'gv-0123456789ab',
+      remotePort: 45000,
+      checkoutDirectory: '/srv/repos/gv-0123456789ab',
+      nodePath: '/opt/node/bin/node',
+      ensureRunning: async () => ({ ok: true }),
+      uploadFile: async (file) => { uploads.push(file); },
+      claudeToken: async () => { tokenRequests += 1; return { ok: true, token: `sk-ant-oat-secret-${tokenRequests}` }; },
+    }),
+    ptySpawn: (file, args, opts) => {
+      calls.push({ file, args, env: opts.env ?? {} });
+      const pty = exitablePty();
+      ptys.push(pty);
+      return pty;
+    },
+  });
+  try {
+    await session.start();
+    assert.equal(calls[0].file, 'coder');
+    assert.ok(calls[0].args.includes('gv-0123456789ab'));
+    assert.doesNotMatch(calls[0].args.join(' '), /sk-ant-oat-secret/);
+    assert.match(calls[0].env.CODER_SSH_ENV ?? '', /sk-ant-oat-secret-1/);
+    assert.equal(uploads[0].remotePath, '/srv/repos/.glimmervoid-sessions/remote-session/settings.json');
+    assert.equal(uploads[0].mode, 0o600);
+    assert.match(uploads[0].contents, /http:\/\/127\.0\.0\.1:45000\/hook\/remote-session\/stop\?t=/);
+    session.ingestHookSignal({ signal: 'auth-failed', event: 'stopfailure', source: 'hook', ts: Date.now() });
+    ptys[0].fireExit(1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(calls.length, 2);
+    assert.match(calls[1].env.CODER_SSH_ENV ?? '', /sk-ant-oat-secret-2/);
+    session.ingestHookSignal({ signal: 'auth-failed', event: 'stopfailure', source: 'hook', ts: Date.now() });
+    ptys[1].fireExit(1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(calls.length, 2);
+  } finally {
+    session.destroy();
+    fs.rmSync(hooksBaseDir, { recursive: true, force: true });
   }
 });
 
