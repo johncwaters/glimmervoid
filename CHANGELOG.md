@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Spawned sessions no longer leave worktrees behind**: a session started with `glimmervoid spawn` used to keep its worktree and branch after `glimmervoid close` or after its parent ended, until Glimmervoid restarted. Now a clean worktree is removed however the child ends. A child holding work that is not on the integration branch is never thrown away silently: `glimmervoid close` refuses and names its branch and path, so the parent can have it run `glimmervoid push` first, or pass `--discard` to drop the work. If the child exits by itself, or its parent ends, with that work still in it, the worktree is kept and the parent's card asks for your attention with its branch and path. Removing the parent session removes its children's worktrees too, as removing a session already does with its own. The parent also gets a message on every child end saying whether the worktree was removed or kept.
+- **Session titles no longer echo your last message**: while a turn ran, a session card's title showed the prompt you just sent until the turn ended. Now the card keeps its last refined title until a new one is ready. A new session, or one you just cleared, also gets its refined title within seconds of its first prompt, instead of after that first turn ends.
 
 ## [0.41.1] - 2026-10-20
 

@@ -105,10 +105,6 @@ function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, nowFn = (
     return !isStopped && !session._destroyed && !session.ephemeral && !session.customTitle && settings().enabled;
   }
 
-  function clearPending(session: Session): void {
-    session.setPendingTaskTitle(null);
-  }
-
   function clearRecheck(session: Session): void {
     const state = statesBySession.get(session);
     if (!state?.recheckTimer) return;
@@ -144,11 +140,8 @@ function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, nowFn = (
     for (const [session, request] of queuedBySession) {
       queuedBySession.delete(session);
       if (session.taskTitlePromptRevision !== request.revision) continue;
-      if (!canRefine(session)) {
-        clearPending(session);
-        continue;
-      }
-      if (session.state !== STATES.IDLE && session.state !== STATES.COMPLETE) {
+      if (!canRefine(session)) continue;
+      if (request.currentTitle !== null && session.state !== STATES.IDLE && session.state !== STATES.COMPLETE) {
         scheduleRecheck(session);
         continue;
       }
@@ -205,7 +198,6 @@ function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, nowFn = (
     clearRecheck(session);
     if (!canRefine(session)) {
       queuedBySession.delete(session);
-      clearPending(session);
       return;
     }
     const decision = decisionFor(session);
@@ -226,13 +218,9 @@ function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, nowFn = (
     if (statesBySession.has(session) || session._destroyed || session.ephemeral || isStopped) return;
     const state: SessionRefinementState = { substantivePromptsSinceRefinement: 0, lastRefinementAt: null, recheckTimer: null, detach };
     statesBySession.set(session, state);
-    function onPrompt({ prompt }: { prompt: string }): void {
+    function onPrompt(): void {
       state.substantivePromptsSinceRefinement++;
-      if (!canRefine(session)) {
-        clearPending(session);
-        return;
-      }
-      session.setPendingTaskTitle(prompt);
+      if (session.refinedTaskTitle === null) onTurnEnd(session);
     }
     function onReset(): void {
       clearRecheck(session);
@@ -246,7 +234,6 @@ function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, nowFn = (
       clearRecheck(session);
       queuedBySession.delete(session);
       if (active?.request.session === session) active.controller.abort();
-      clearPending(session);
     }
     function detach(): void {
       session.off('task-prompt', onPrompt);
@@ -266,10 +253,7 @@ function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, nowFn = (
 
   async function stop(): Promise<void> {
     isStopped = true;
-    for (const [session, state] of statesBySession) {
-      state.detach();
-      clearPending(session);
-    }
+    for (const state of statesBySession.values()) state.detach();
     queuedBySession.clear();
     active?.controller.abort();
     await active?.settled;

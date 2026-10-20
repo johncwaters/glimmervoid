@@ -763,14 +763,8 @@ class Session extends EventEmitter {
     return [...this._recentTaskPrompts];
   }
 
-  setPendingTaskTitle(prompt: string | null): void {
-    this._taskTitleSources.pendingPromptTitle = extractPromptTaskTitle(prompt);
-    this._updateTaskTitle();
-  }
-
   applyTaskTitleRefinement(refinement: TaskTitleRefinementResult): void {
     if (refinement.action === "replace") this._taskTitleSources.refinedTitle = refinement.title;
-    this._taskTitleSources.pendingPromptTitle = null;
     this._updateTaskTitle();
   }
 

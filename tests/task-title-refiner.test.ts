@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -52,7 +53,7 @@ test('task title settings validate across all boundaries and default to enabled 
   }
 });
 
-test('the lane shows an instant title and refines with Claude, a constant bootstrap and cleaned prompt file', async () => {
+test('the first prompt refines mid-turn with Claude, a constant bootstrap and cleaned prompt file, never echoing the prompt', async () => {
   const session = makeSession('first', { agent: 'grok' });
   const launched = deferred<LaneRequest>();
   const release = deferred<void>();
@@ -66,9 +67,9 @@ test('the lane shows an instant title and refines with Claude, a constant bootst
   });
   try {
     refiner.attachSession(session);
+    session.state = STATES.RUNNING;
     submitPrompt(session, '<pasted_content id="x">Hidden instructions</pasted_content> Improve the dashboard titles');
-    assert.equal(session.taskTitle, 'Improve the dashboard titles');
-    endTurn(session, refiner);
+    assert.equal(session.taskTitle, 'Original task title');
     const request = await launched.promise;
     assert.equal(request.agent, 'claude-code');
     assert.equal(request.model, 'haiku');
@@ -137,7 +138,7 @@ test('a single global flight queues only the latest request for each session', a
   }
 });
 
-test('ephemeral sessions, custom titles and disabled configuration never set pending or spawn', async () => {
+test('ephemeral sessions, custom titles and disabled configuration never spawn', async () => {
   const sessions = [makeSession('ephemeral', { ephemeral: true }), makeSession('custom', { customTitle: 'Custom' }), makeSession('disabled')];
   let spawns = 0;
   const refiner = createTaskTitleRefiner({
@@ -156,7 +157,6 @@ test('ephemeral sessions, custom titles and disabled configuration never set pen
     await nextTick();
     assert.equal(spawns, 0);
     assert.deepEqual(sessions.map((session) => session.taskTitle), ['Original task title', 'Custom', 'Original task title']);
-    assert.ok(sessions.every((session) => !session._taskTitleSources.pendingPromptTitle));
   } finally {
     await refiner.stop();
     await enabledRefiner.stop();
@@ -164,7 +164,7 @@ test('ephemeral sessions, custom titles and disabled configuration never set pen
   }
 });
 
-test('a timeout aborts the lane, clears pending and removes its work directory', async () => {
+test('a timeout aborts the lane and removes its work directory', async () => {
   const session = makeSession('timeout');
   const launched = deferred<LaneRequest>();
   const refiner = createTaskTitleRefiner({
@@ -182,11 +182,8 @@ test('a timeout aborts the lane, clears pending and removes its work directory',
     submitPrompt(session, 'Implement the timeout task');
     endTurn(session, refiner);
     const request = await launched.promise;
-    const changed = once(session, 'task-title-change');
-    await changed;
-    assert.equal(request.signal?.aborted, true);
+    await waitFor(() => request.signal?.aborted === true && !existsSync(request.cwd));
     assert.equal(session.taskTitle, 'Original task title');
-    assert.equal(await fs.stat(request.cwd).then(() => true, () => false), false);
   } finally {
     clearTimeout(keepAlive);
     await refiner.stop();
@@ -194,15 +191,14 @@ test('a timeout aborts the lane, clears pending and removes its work directory',
   }
 });
 
-test('failures and invalid or keep results restore the settled title without escaping the event loop', async () => {
-  for (const outcome of ['failure', 'invalid', 'keep'] as const) {
+test('failures and invalid results warn and keep the settled title without escaping the event loop', async () => {
+  for (const outcome of ['failure', 'invalid'] as const) {
     const session = makeSession(outcome);
     const warnings: string[] = [];
     const refiner = createTaskTitleRefiner({
       getConfig: () => ({}), logger: { warn: (message: string) => warnings.push(message) },
       spawnLane: async (request) => {
         if (outcome === 'failure') throw new Error('Lane failed');
-        if (outcome === 'keep') await writeTitle(request, null);
         if (outcome === 'invalid') await fs.writeFile(path.join(request.cwd, 'task-title-result.json'), '{broken');
       },
     });
@@ -210,8 +206,8 @@ test('failures and invalid or keep results restore the settled title without esc
       refiner.attachSession(session);
       submitPrompt(session, 'Implement the next task');
       endTurn(session, refiner);
-      await waitFor(() => session.taskTitle === 'Original task title');
-      assert.equal(warnings.length, outcome === 'keep' ? 0 : 1);
+      await waitFor(() => warnings.length === 1);
+      assert.equal(session.taskTitle, 'Original task title');
     } finally {
       await refiner.stop();
       session.destroy();
@@ -219,7 +215,7 @@ test('failures and invalid or keep results restore the settled title without esc
   }
 });
 
-test('new prompts and resets prevent old results from overwriting a newer conversation', async () => {
+test('new prompts and resets refine mid-turn and prevent old results from overwriting a newer conversation', async () => {
   for (const action of ['prompt', 'clear', 'fresh'] as const) {
     const session = makeSession(action);
     const launched = deferred<void>();
@@ -245,8 +241,8 @@ test('new prompts and resets prevent old results from overwriting a newer conver
       await launched.promise;
       if (action === 'clear') session._resetAutomaticTaskTitle();
       if (action === 'fresh') session._prepareRestart({ fresh: true });
+      session.state = STATES.RUNNING;
       submitPrompt(session, 'Implement the new task');
-      endTurn(session, refiner);
       release.resolve();
       await waitFor(() => session.taskTitle === 'Latest conversation title');
       assert.equal(calls, 2);
@@ -258,7 +254,7 @@ test('new prompts and resets prevent old results from overwriting a newer conver
   }
 });
 
-test('cooldown retains the latest prompt title until a later turn permits refinement', async () => {
+test('a later prompt keeps the refined title through cooldown until a later turn permits refinement', async () => {
   const session = makeSession('cooldown');
   let now = 0;
   let calls = 0;
@@ -275,7 +271,7 @@ test('cooldown retains the latest prompt title until a later turn permits refine
     submitPrompt(session, 'Implement the next task');
     endTurn(session, refiner);
     assert.equal(calls, 1);
-    assert.equal(session.taskTitle, 'Implement the next task');
+    assert.equal(session.taskTitle, 'Refined task title');
     now = 60000;
     endTurn(session, refiner);
     await waitFor(() => calls === 2);
@@ -346,8 +342,9 @@ for (const state of [STATES.IDLE, STATES.COMPLETE]) {
         logger: { error: () => {}, log: () => {}, warn: () => {} },
       })(session);
       assert.equal(session.listenerCount('state-change'), 1);
+      session.applyTaskTitleRefinement({ action: 'replace', title: 'Earlier refined title' });
       submitPrompt(session, 'Implement the wiring task');
-      assert.equal(session.taskTitle, 'Implement the wiring task');
+      assert.equal(session.taskTitle, 'Earlier refined title');
       assert.equal(calls, 0);
       session.state = state;
       session.emit('state-change', { from: STATES.RUNNING, to: state, event: 'task_complete', detail: null });
@@ -376,7 +373,6 @@ test('stopping detaches only the refiner listeners and a reset cannot revive the
     session._resetAutomaticTaskTitle();
     refiner.attachSession(session);
     submitPrompt(session, 'Implement a different task');
-    assert.equal(session._taskTitleSources.pendingPromptTitle ?? null, null);
     for (const event of events) assert.deepEqual(session.listeners(event), [externalListener], event);
   } finally {
     await refiner.stop();
@@ -384,7 +380,7 @@ test('stopping detaches only the refiner listeners and a reset cannot revive the
   }
 });
 
-test('a newer prompt keeps its pending title when an older flight ends during cooldown', async () => {
+test('an older flight ending during cooldown never overwrites the title after a newer prompt', async () => {
   const session = makeSession('flight-cooldown');
   const nextSession = makeSession('after-flight');
   const launched = deferred<void>();
@@ -406,49 +402,19 @@ test('a newer prompt keeps its pending title when an older flight ends during co
     await launched.promise;
     submitPrompt(session, 'Implement the latest task');
     endTurn(session, refiner);
-    assert.equal(session.taskTitle, 'Implement the latest task');
+    assert.equal(session.taskTitle, 'Original task title');
     refiner.attachSession(nextSession);
     submitPrompt(nextSession, 'Implement a separate task');
     endTurn(nextSession, refiner);
     release.resolve();
     await waitFor(() => nextSession.taskTitle === 'Obsolete task title');
-    assert.equal(session.taskTitle, 'Implement the latest task');
+    assert.equal(session.taskTitle, 'Original task title');
     assert.equal(calls, 2);
   } finally {
     release.resolve();
     await refiner.stop();
     session.destroy();
     nextSession.destroy();
-  }
-});
-
-test('keep clears the pending title without pinning it over a transcript title that arrives during refinement', async () => {
-  const session = makeSession('keep-snapshot');
-  const launched = deferred<void>();
-  const release = deferred<void>();
-  const refiner = createTaskTitleRefiner({
-    getConfig: () => ({}),
-    spawnLane: async (request) => {
-      launched.resolve();
-      await release.promise;
-      await writeTitle(request, null);
-    },
-  });
-  try {
-    refiner.attachSession(session);
-    submitPrompt(session, 'Continue implementing the original task');
-    endTurn(session, refiner);
-    await launched.promise;
-    session._taskTitleSources.aiTitle = 'Late transcript title';
-    session._updateTaskTitle();
-    release.resolve();
-    await waitFor(() => !session._taskTitleSources.pendingPromptTitle);
-    assert.equal(session._taskTitleSources.refinedTitle ?? null, null);
-    assert.equal(session.taskTitle, 'Late transcript title');
-  } finally {
-    release.resolve();
-    await refiner.stop();
-    session.destroy();
   }
 });
 
@@ -471,26 +437,8 @@ test('malformed refiner settings fail closed instead of enabling default refinem
   }
 });
 
-test('a keep result leaves later OSC titles visible for agents without transcript titles', async () => {
-  const session = makeSession('osc-keep', { agent: 'grok' });
-  const refiner = createTaskTitleRefiner({ getConfig: () => ({}), spawnLane: async (request) => { await writeTitle(request, null); } });
-  try {
-    refiner.attachSession(session);
-    session._titleSource.feed('\x1b]0;First OSC task - grok\x07');
-    submitPrompt(session, 'Implement the OSC titled task');
-    endTurn(session, refiner);
-    await waitFor(() => !session._taskTitleSources.pendingPromptTitle);
-    assert.equal(session.taskTitle, 'First OSC task');
-    session._titleSource.feed('\x1b]0;Second OSC task - grok\x07');
-    assert.equal(session.taskTitle, 'Second OSC task');
-  } finally {
-    await refiner.stop();
-    session.destroy();
-  }
-});
-
-test('a pending title left by a discarded flight during cooldown is refined once the cooldown ends', async () => {
-  const session = makeSession('stranded-pending');
+test('a prompt left unrefined by a discarded flight during cooldown is refined once the cooldown ends', async () => {
+  const session = makeSession('stranded-prompt');
   const launched = deferred<void>();
   const release = deferred<void>();
   let now = 0;
@@ -516,7 +464,7 @@ test('a pending title left by a discarded flight during cooldown is refined once
     submitPrompt(session, 'Implement the latest task');
     endTurn(session, refiner);
     release.resolve();
-    await waitFor(() => calls === 1 && session.taskTitle === 'Implement the latest task');
+    await waitFor(() => calls === 1 && session.taskTitle === 'Original task title');
     now = 1000;
     await waitFor(() => session.taskTitle === 'Recovered refined title');
     assert.equal(calls, 2);
@@ -565,8 +513,7 @@ test('an invalid result logs a warning and keeps the prompt eligible for the nex
     refiner.attachSession(session);
     submitPrompt(session, 'Implement the retried task');
     endTurn(session, refiner);
-    await waitFor(() => calls === 1 && !session._taskTitleSources.pendingPromptTitle);
-    assert.equal(warnings.length, 1);
+    await waitFor(() => calls === 1 && warnings.length === 1);
     endTurn(session, refiner);
     await waitFor(() => session.taskTitle === 'Retried refined title');
     assert.equal(calls, 2);
@@ -576,7 +523,7 @@ test('an invalid result logs a warning and keeps the prompt eligible for the nex
   }
 });
 
-test('a restart in the middle of a turn restores the refined title instead of pinning the pending prompt', async () => {
+test('a prompt in the middle of a turn keeps the refined title, and a restart restores it', async () => {
   const firstSession = makeSession('mid-turn-restart');
   const firstRefiner = createTaskTitleRefiner({
     getConfig: () => ({ taskTitle: { refiner: { minIntervalSeconds: 0 } } }),
@@ -591,7 +538,7 @@ test('a restart in the middle of a turn restores the refined title instead of pi
     await waitFor(() => firstSession.taskTitle === 'Refined task title');
     firstSession.state = STATES.RUNNING;
     submitPrompt(firstSession, 'Implement the interrupted follow up task');
-    assert.equal(firstSession.taskTitle, 'Implement the interrupted follow up task');
+    assert.equal(firstSession.taskTitle, 'Refined task title');
     const taskTitleState = firstSession.persistedTaskTitle;
     firstSession.destroy();
     restoredSession = new Session({ id: 'mid-turn-restart', name: 'mid-turn-restart', path: '/project', taskTitleState, resumeSessionId: 'conversation' });

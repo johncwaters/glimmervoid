@@ -164,7 +164,7 @@ test('a live id that is the resume target is written to config', () => {
 });
 
 
-for (const titleKind of ['automatic', 'pending', 'custom'] as const) {
+for (const titleKind of ['automatic', 'custom'] as const) {
   test(`session factory restart round trip preserves ${titleKind} titles and persists /clear`, async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-title-persistence-'));
     const configPath = path.join(directory, 'config.json');
@@ -195,7 +195,6 @@ for (const titleKind of ['automatic', 'pending', 'custom'] as const) {
         firstSession.setCustomTitle('Custom task');
         firstSession.applyTaskTitleRefinement({ action: 'replace', title: 'Hidden refined task' });
       }
-      if (titleKind === 'pending') firstSession.setPendingTaskTitle('Latest substantive task prompt');
       const expectedTitle = firstSession.persistedTaskTitle?.taskTitle;
       await firstStore.idle();
       firstSession.destroy();
