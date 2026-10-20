@@ -246,7 +246,7 @@ async function runGitForConversationHistory(args: string[], cwd: string): Promis
 }
 
 function notGitRepositoryError(folderPath: string): string {
-  return `${folderPath} is not a git repository, so the session cannot get its own worktree. Run git init in it and make a first commit, or tick "Run in this folder, no worktree" to let the agent change the folder itself.`;
+  return `${folderPath} is not a git repository with a commit, so the session cannot get its own worktree. Tick "Run in this folder, no worktree" to let the agent work in the folder directly, or run git init there and make a first commit.`;
 }
 
 function missingFolderError(folderPath: string): string {

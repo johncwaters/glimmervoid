@@ -38,7 +38,20 @@ export function addSessionRefusalText(reply: ServerMessage): string {
   return 'The session was not added.';
 }
 
+interface FolderWithoutWorktree {
+  name: string;
+  path: string;
+}
+
 export function createAddSessionDialog() {
+  buildAddSessionDialog(null);
+}
+
+export function openAddSessionDialogForFolderWithoutWorktree(folder: FolderWithoutWorktree) {
+  buildAddSessionDialog(folder);
+}
+
+function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | null) {
   const { dialog, close } = createModalOverlay();
   dialog.innerHTML = addSessionHTML;
   applyDialogAria(dialog, 'add-session-title');
@@ -279,7 +292,16 @@ export function createAddSessionDialog() {
   pathInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') submit();
   });
-  requestAnimationFrame(() => pickerEl.focus());
+  if (!folderWithoutWorktree) {
+    requestAnimationFrame(() => pickerEl.focus());
+    return;
+  }
+  advancedPanel.hidden = false;
+  advancedToggle.setAttribute('aria-expanded', 'true');
+  nameInput.value = folderWithoutWorktree.name;
+  pathInput.value = folderWithoutWorktree.path;
+  showRunInPlaceChoice(true);
+  requestAnimationFrame(() => runInPlaceCheckbox.focus());
 }
 
 export function createRadarReportDialog({

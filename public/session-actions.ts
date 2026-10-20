@@ -1,6 +1,6 @@
 import { DEFAULT_REPLY_TIMEOUT_MS, reportUnsourcedError, requestFailureText } from './action-status.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
-import { addSessionRefusalText } from './dialogs.ts';
+import { addSessionRefusalText, openAddSessionDialogForFolderWithoutWorktree } from './dialogs.ts';
 import type { SessionRow } from './focus-view/attention-core.ts';
 import { buildSessionRows } from './focus-view/attention-core.ts';
 import type { SessionOpenStatePolicy } from './session-actions-core.ts';
@@ -48,8 +48,13 @@ export function sendForSession(id: string, message: Record<string, unknown>): bo
 
 async function requestQuickAdd(path: string, label: string | null | undefined) {
   try {
-    const reply = await sendControlRequest('add-session', { name: suggestSessionName(label), path }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+    const name = suggestSessionName(label);
+    const reply = await sendControlRequest('add-session', { name, path }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
     if (reply.type === 'add-session-result' && reply.ok) return;
+    if (reply.type === 'add-session-result' && reply.reason === 'not-git') {
+      openAddSessionDialogForFolderWithoutWorktree({ name, path });
+      return;
+    }
     reportUnsourcedError(addSessionRefusalText(reply));
   } catch (reason) {
     reportUnsourcedError(`The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}`);

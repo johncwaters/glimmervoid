@@ -83,7 +83,9 @@ function headerStatusParts() {
 export function reportUnsourcedError(message: string, { hidesInStreamerMode = true }: { hidesInStreamerMode?: boolean } = {}) {
   const parts = headerStatusParts();
   if (!parts) return;
-  parts.text.textContent = hidesInStreamerMode ? streamerSafeText('error', message) : message;
+  const shownText = hidesInStreamerMode ? streamerSafeText('error', message) : message;
+  parts.text.textContent = shownText;
+  parts.text.title = shownText;
   parts.line.hidden = false;
 }
 
@@ -98,4 +100,5 @@ function dismissHeaderStatus() {
   if (!parts) return;
   parts.line.hidden = true;
   parts.text.textContent = '';
+  parts.text.title = '';
 }

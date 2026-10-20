@@ -176,6 +176,11 @@ body {
   :is(.header-brand, .phone-topbar):has(.header-connection[data-reconnected]) .header-title::before { animation: none; }
 }
 
+.header-status {
+  flex: 1 1 0;
+  justify-content: flex-end;
+}
+
 .header-right {
   display: flex;
   align-items: center;
