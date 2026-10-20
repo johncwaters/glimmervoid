@@ -54,6 +54,8 @@ import { shortSha } from '../../shared/git-text.ts';
 import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 import { isPathInside } from '../../shared/paths.ts';
+import { readGitDirsOfOwnCheckout } from '../lanes/work-lane.ts';
+import { repositoryRootOfCommonGitDir } from '../core/claude-trust-core.ts';
 
 const TEAM_REVIEW_DENY_RULES = Object.freeze([
   'Bash(gh:*)',
@@ -407,12 +409,39 @@ async function deleteDirectory(directory: string, log: Pick<Console, 'warn'>): P
     .catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not delete ${directory}: ${errorMessage(error)}`));
 }
 
-async function findLocalCheckout({ repo, config, excludedRoots, gitWorkspace, log }: {
+async function isDirectory(candidatePath: string): Promise<boolean> {
+  const stats = await fs.stat(candidatePath).catch(() => null);
+  return stats?.isDirectory() === true;
+}
+
+async function mainCheckoutOf(checkoutPath: string): Promise<string | null> {
+  const gitDirs = await readGitDirsOfOwnCheckout(checkoutPath).catch(() => null);
+  if (gitDirs === null) return null;
+  const isBareRepository = gitDirs.commonGitDir === checkoutPath;
+  if (isBareRepository) return null;
+  const isLinkedWorktree = gitDirs.worktreeAdminDir !== gitDirs.commonGitDir;
+  if (!isLinkedWorktree) return checkoutPath;
+  return repositoryRootOfCommonGitDir(gitDirs.commonGitDir);
+}
+
+async function configuredProjectPathsByRealPath(projects: readonly { path: string }[]): Promise<Map<string, string>> {
+  const configuredPathByRealPath = new Map<string, string>();
+  for (const project of projects) {
+    const projectRealPath = await fs.realpath(project.path).catch(() => null);
+    if (projectRealPath === null || configuredPathByRealPath.has(projectRealPath)) continue;
+    configuredPathByRealPath.set(projectRealPath, project.path);
+  }
+  return configuredPathByRealPath;
+}
+
+async function findLocalCheckout({ repo, config, excludedRoots, gitWorkspace, log, requireInstalledModules = true, resolveCheckout }: {
   repo: string;
   config: Pick<TeamReviewWiringConfig, 'projects' | 'repoRoots'>;
   excludedRoots: string[];
   gitWorkspace: Pick<TeamReviewGitWorkspace, 'originUrl'>;
   log: Pick<Console, 'warn'>;
+  requireInstalledModules?: boolean;
+  resolveCheckout?: (checkoutPath: string) => Promise<string | null>;
 }): Promise<string | null> {
   const resolvedExcludedRoots = await Promise.all(excludedRoots.map(async (root) => fs.realpath(root).catch(() => path.resolve(root))));
   const candidatePaths = (config.projects ?? []).map((project) => project.path);
@@ -433,10 +462,11 @@ async function findLocalCheckout({ repo, config, excludedRoots, gitWorkspace, lo
     if (!checkoutPath || seenPaths.has(checkoutPath)) continue;
     seenPaths.add(checkoutPath);
     if (resolvedExcludedRoots.some((root) => isPathInside(root, checkoutPath))) continue;
-    const modules = await fs.stat(path.join(checkoutPath, 'node_modules')).catch(() => null);
-    if (!modules?.isDirectory()) continue;
-    const origin = await gitWorkspace.originUrl({ projectPath: checkoutPath });
-    if (origin && core.remoteMatchesGithubRepo(origin, repo)) return checkoutPath;
+    if (requireInstalledModules && !(await isDirectory(path.join(checkoutPath, 'node_modules')))) continue;
+    const origin = await gitWorkspace.originUrl({ projectPath: checkoutPath }).catch(() => null);
+    if (!origin || !core.remoteMatchesGithubRepo(origin, repo)) continue;
+    const resolvedCheckout = resolveCheckout ? await resolveCheckout(checkoutPath) : checkoutPath;
+    if (resolvedCheckout !== null) return resolvedCheckout;
   }
   return null;
 }
@@ -1112,17 +1142,22 @@ function createTeamReviewWiring({
     return (await runner.getPoller()?.markNotMine(key)) ?? { ok: false, error: 'Team review is not running' };
   }
 
-  async function findConfiguredCheckout(repo: string, projectPaths: readonly string[]): Promise<string | null> {
+  async function findOperatorCheckout(repo: string): Promise<string | null> {
     const excludedRoots = [repoCacheRoot, worktreeRoot, workRoot];
-    for (const projectPath of projectPaths) {
-      if (excludedRoots.some((root) => isPathInside(root, path.resolve(projectPath)))) continue;
-      const origin = await gitWorkspace.originUrl({ projectPath }).catch(() => null);
-      if (origin && core.remoteMatchesGithubRepo(origin, repo)) return projectPath;
-    }
-    return null;
+    const resolvedExcludedRoots = await Promise.all(excludedRoots.map((root) => fs.realpath(root).catch(() => path.resolve(root))));
+    const configuredPathByRealPath = await configuredProjectPathsByRealPath(config.projects ?? []);
+    return findLocalCheckout({
+      repo, config: { projects: config.projects, repoRoots: config.repoRoots }, excludedRoots, gitWorkspace, log, requireInstalledModules: false,
+      resolveCheckout: async (checkoutPath) => {
+        const mainCheckout = await mainCheckoutOf(checkoutPath);
+        if (mainCheckout === null) return null;
+        if (resolvedExcludedRoots.some((root) => isPathInside(root, mainCheckout))) return null;
+        return configuredPathByRealPath.get(mainCheckout) ?? mainCheckout;
+      },
+    });
   }
 
-  async function preparePrSession(key: string, projectPaths: readonly string[]): Promise<PrSessionCheckout> {
+  async function preparePrSession(key: string): Promise<PrSessionCheckout> {
     const separatorIndex = key.lastIndexOf('#');
     const repo = key.slice(0, separatorIndex);
     const number = Number(key.slice(separatorIndex + 1));
@@ -1133,7 +1168,7 @@ function createTeamReviewWiring({
     const detail = detailRead.value;
     if (!detail) return { ok: false, error: `Could not read ${key} from GitHub` };
     if (detail.isCrossRepository || !detail.headRefName) return { ok: false, error: 'This pull request comes from a fork, so its branch is not in the repository' };
-    const configuredCheckout = await findConfiguredCheckout(repo, projectPaths);
+    const configuredCheckout = await findOperatorCheckout(repo);
     const checkoutPath = configuredCheckout ?? await repoCache.ensureRepo(repo).catch(() => null);
     if (!checkoutPath) return { ok: false, error: `Could not clone ${repo}` };
     if (!gitWorkspace.seedBranchFromOrigin) return { ok: false, error: 'This build cannot check out a pull request branch' };

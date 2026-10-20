@@ -2311,3 +2311,50 @@ function emptyGithubStore(github: Partial<Parameters<typeof createGithubStorePol
     },
   };
 }
+
+test('a pull request session starts from the main checkout under a repo root even when a linked worktree of it sorts first', { skip: !hasGit() }, async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-home-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-pr-roots-'));
+  const mainCheckout = path.join(root, 'app');
+  fs.mkdirSync(path.join(root, 'aaa-other'));
+  git(['init', '-q', '-b', 'main', mainCheckout]);
+  git(['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'seed'], mainCheckout);
+  git(['remote', 'add', 'origin', 'https://github.com/Acme/app'], mainCheckout);
+  git(['worktree', 'add', '-q', '-b', 'feature', path.join(root, 'a-app-feature')], mainCheckout);
+  const bareClone = path.join(root, '0-app.git');
+  const bareCloneWorktree = path.join(root, '0-app-feature');
+  git(['clone', '-q', '--bare', mainCheckout, bareClone]);
+  git(['remote', 'set-url', 'origin', 'https://github.com/Acme/app'], bareClone);
+  git(['worktree', 'add', '-q', bareCloneWorktree], bareClone);
+  const wiring = createTeamReviewWiring({
+    config: { teamReview: { enabled: true, org: 'Acme', team: 'core' }, projects: [{ path: bareCloneWorktree }], repoRoots: [root] },
+    store: {
+      ...emptyGithubStore(),
+      requestPrHead: async () => ({ isRateLimited: false, value: HEAD }),
+      requestPrView: async () => ({ isRateLimited: false, value: PrDetail.parse({ ...detail, headRefName: 'feature', headRefOid: HEAD }) }),
+    },
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
+    spawnGate: { run: async (task) => task() }, homeDir, log: { warn: () => {} }, reapProcesses: async () => {},
+    github: {},
+    repoCache: {
+      listRepos: async () => [], ensureRepo: async () => CACHED_CLONE,
+      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false, isolateNewWork: async () => ({ ok: false, reason: '' }),
+    },
+    gitWorkspace: {
+      stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),
+      pruneWorktrees: async () => ({ ok: true }),
+      originUrl: async ({ projectPath }) => git(['config', '--get', 'remote.origin.url'], projectPath).trim() || null,
+      populate: async () => {},
+      seedBranchFromOrigin: async () => ({ ok: true, out: HEAD, err: '' }),
+    },
+  });
+  try {
+    const checkout = await wiring.preparePrSession('Acme/app#7');
+    assert.equal(checkout.ok, true);
+    assert.equal(checkout.ok && checkout.checkoutPath, fs.realpathSync(mainCheckout));
+    assert.equal(checkout.ok && checkout.isConfiguredProject, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
