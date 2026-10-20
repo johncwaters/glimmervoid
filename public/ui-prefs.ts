@@ -28,6 +28,7 @@ export interface UiPrefs extends FlyingAnimalsOptions {
   telemetryNoticeDismissed: boolean;
   radarAttentionAck: string;
   prsAttentionAck: string;
+  prsUnseenRows: string;
   usageAttentionAck: string;
   visionsAttentionAck: string;
 }
@@ -71,6 +72,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   telemetryNoticeDismissed: asBoolean(false),
   radarAttentionAck: asString(''),
   prsAttentionAck: asString(''),
+  prsUnseenRows: asString(''),
   usageAttentionAck: asString(''),
   visionsAttentionAck: asString(''),
 };
@@ -151,6 +153,9 @@ export const setRadarAttentionAck = (signature: string) => write('radarAttention
 
 export const getPrsAttentionAck = () => read('prsAttentionAck');
 export const setPrsAttentionAck = (signature: string) => write('prsAttentionAck', signature);
+
+export const getPrsUnseenRows = () => read('prsUnseenRows');
+export const setPrsUnseenRows = (signature: string) => write('prsUnseenRows', signature);
 
 export const getUsageAttentionAck = () => read('usageAttentionAck');
 export const setUsageAttentionAck = (signature: string) => write('usageAttentionAck', signature);

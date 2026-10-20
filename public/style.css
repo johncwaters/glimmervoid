@@ -3126,7 +3126,7 @@ html[data-layout="phone"] .view-panel {
 .pr-team-chip > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-team-chip { display: none; }
 .pr-scope-tabs { display: flex; align-items: stretch; min-width: 0; }
-.pr-scope-tab { appearance: none; border: 0; background: transparent; padding: 0 16px; color: var(--text-dim); font: 12px var(--font-mono); letter-spacing: 0.04em; cursor: pointer; }
+.pr-scope-tab { position: relative; appearance: none; border: 0; background: transparent; padding: 0 16px; color: var(--text-dim); font: 12px var(--font-mono); letter-spacing: 0.04em; cursor: pointer; }
 .pr-scope-tab[aria-selected="true"] { color: var(--text-head); }
 @media (hover: hover) {
   .pr-scope-tab:hover { color: var(--text-head); }
@@ -3192,6 +3192,7 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-row-
 }
 
 .pr-queue-row {
+  position: relative;
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
   grid-template-rows: auto auto;
@@ -3210,6 +3211,7 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-row-
   text-align: left;
   cursor: pointer;
 }
+.pr-queue-row > .pr-queue-unseen { top: 4px; right: 4px; }
 .pr-queue-glyph { grid-column: 1; grid-row: 1 / -1; align-self: center; display: grid; place-items: center; }
 .pr-caught-up { display: flex; flex-direction: column; gap: 4px; margin: 4px 14px 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-surface); }
 .pr-caught-up-title { display: flex; align-items: center; gap: 8px; color: var(--state-complete); font-size: 12px; }

@@ -5,7 +5,7 @@ import { comparablePrKey } from './my-prs-view-core.ts';
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { DraftComment, EarlierReview, FindingSeverity, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
-import { createAttentionAck } from '../attention-ack-core.ts';
+import { attentionSignature } from '../attention-ack-core.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from '../dom-helpers.ts';
@@ -19,11 +19,11 @@ import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview,
   answeredNonNitThreads, changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionOrder, nextAttentionKey, buildActionRequest, buildNotMineRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, joinTeamReviews, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
+  parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionEntries, readyAttentionSignature, decideReadyAttention, readyRowSignature, detailHeadingSignature,
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, caughtUpSelectionView, planActionReply, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { ActionReplyNotice, CaughtUpSelectionView, QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
-import { getPrsAttentionAck, setPrsAttentionAck } from '../ui-prefs.ts';
+import { getPrsAttentionAck, setPrsAttentionAck, getPrsUnseenRows, setPrsUnseenRows } from '../ui-prefs.ts';
 import { isStreamerMode, onStreamerModeChanged } from '../streamer-mode.ts';
 
 const ACTION_REPLY_TIMEOUT_MS = 120000;
@@ -75,12 +75,9 @@ const _queueRowTitles = new WeakMap<HTMLElement, () => string>();
 const _readyDetails = new Map<string, ActionDetailHandle>();
 const _otherDetails = new Map<string, ActionDetailHandle>();
 const _pendingActions = new Map<string, PendingAction>();
-const _attention = createAttentionAck({
-  getAck: getPrsAttentionAck,
-  setAck: setPrsAttentionAck,
-  signature: () => readyAttentionSignature(_view),
-  isLooking: () => !isPanelHidden(_root),
-});
+let _acknowledged = getPrsAttentionAck();
+let _unseenSignature = getPrsUnseenRows();
+let _unseenEntries = new Set(_unseenSignature.split('|').filter(Boolean));
 
 function createSeverityMeter(severity: FindingSeverity): HTMLElement {
   const presentation = severityPresentation(severity);
@@ -148,7 +145,7 @@ function createAgeReadout(label: string, timestamp: number | string | null | und
 function paintQueueRowTitle(row: HTMLElement): void {
   const title = _queueRowTitles.get(row);
   if (!title) return;
-  row.title = title();
+  row.title = `${title()}${row.dataset.unseen ? '\nNew ready review' : ''}`;
   row.setAttribute('aria-label', row.title);
 }
 
@@ -233,6 +230,13 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   const row = el('button', 'pr-queue-row pr-queue-row-quiet');
   row.type = 'button';
   row.dataset.reviewKey = review.key;
+  const unseenEntry = kind === 'ready' && 'reviewedHead' in review ? `${review.key}@${review.reviewedHead}` : null;
+  if (unseenEntry && _unseenEntries.has(unseenEntry)) {
+    const activity = el('span', 'tab-activity active pr-queue-unseen');
+    activity.setAttribute('aria-hidden', 'true');
+    row.dataset.unseen = unseenEntry;
+    row.append(activity);
+  }
   row.setAttribute('aria-current', String(review.key === _selectedKey));
   const approvalContext = 'reviewedHead' in review ? viewerApprovalContext(review) : null;
   const title = () => isStreamerMode() ? streamerQueueRowTitle(review, kind) : queueRowTitle(review, kind, {
@@ -269,7 +273,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   if (kind === 'discarded') {
     row.classList.add('pr-queue-row-compact');
     row.append(top);
-    selectReviewOnClick(row, review.key);
+    selectReviewOnClick(row, review.key, unseenEntry);
     return row;
   }
   row.classList.remove('pr-queue-row-quiet');
@@ -287,12 +291,18 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   row.append(glyph, top, bottom);
   const githubSummary = kind === 'inReview' || kind === 'queued' ? null : createGithubReviewSummary(review as ReviewDraft, 'pr-queue-reviewers', 16, kind !== 'posted');
   if (githubSummary) bottom.append(githubSummary);
-  selectReviewOnClick(row, review.key);
+  selectReviewOnClick(row, review.key, unseenEntry);
   return row;
 }
 
-function selectReviewOnClick(row: HTMLButtonElement, reviewKey: string): void {
+function selectReviewOnClick(row: HTMLButtonElement, reviewKey: string, unseenEntry: string | null): void {
   row.addEventListener('click', () => {
+    if (unseenEntry && _unseenEntries.delete(unseenEntry)) {
+      storeUnseenRows(attentionSignature([..._unseenEntries]));
+      row.querySelector('.pr-queue-unseen')?.remove();
+      delete row.dataset.unseen;
+      paintQueueRowTitle(row);
+    }
     _selectedKey = reviewKey;
     _caughtUpSelection = null;
     showActionNotice(null);
@@ -1199,12 +1209,31 @@ function render(): void {
   trackAges(_root);
 }
 
+function storeAcknowledgedRows(signature: string): void {
+  if (signature === _acknowledged) return;
+  _acknowledged = signature;
+  setPrsAttentionAck(signature);
+}
+
+function storeUnseenRows(signature: string): void {
+  if (signature === _unseenSignature) return;
+  _unseenSignature = signature;
+  setPrsUnseenRows(signature);
+}
+
 function refreshActivity(): void {
-  if (_activityCallback) _activityCallback(_attention.refresh());
+  if (!_view) return;
+  const decision = decideReadyAttention({ readyEntries: readyAttentionEntries(_view), acknowledged: _acknowledged, unseen: _unseenSignature, isLooking: !isPanelHidden(_root) });
+  storeAcknowledgedRows(decision.acknowledged);
+  storeUnseenRows(decision.unseen);
+  _unseenEntries = new Set(decision.unseen.split('|').filter(Boolean));
+  _activityCallback?.(decision.isShown);
+  for (const activity of document.querySelectorAll('.pr-scope-tab[data-scope="team"] .tab-activity')) activity.classList.toggle('active', decision.isShown);
 }
 
 export function acknowledgeTeamReviewAttention(): void {
-  _attention.acknowledge();
+  if (!_view) return;
+  storeAcknowledgedRows(readyAttentionSignature(_view));
   refreshActivity();
 }
 
@@ -1233,9 +1262,9 @@ export function applyTeamReviewStatus(message: unknown): void {
   const previous = _view;
   _latest = parsed.data;
   _view = joinTeamReviews(_latest, githubPrByKey);
+  refreshActivity();
   if (_view && isInFlightProgressOnlyChange(previous, _view) && replaceInReviewSection()) return;
   render();
-  refreshActivity();
 }
 
 function replaceInReviewSection(): boolean {
@@ -1319,6 +1348,6 @@ export function applyTeamReviewActionResult(message: unknown): void {
 
 subscribeGithubPrs(() => {
   _view = joinTeamReviews(_latest, githubPrByKey);
-  render();
   refreshActivity();
+  render();
 });

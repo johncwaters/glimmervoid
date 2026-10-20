@@ -8,10 +8,17 @@ export function createPrScopeTabs(selectedMode: 'team' | 'mine', onSelectMode: (
     const tab = document.createElement('button');
     tab.className = 'pr-scope-tab';
     tab.type = 'button';
+    tab.dataset.scope = mode;
     tab.setAttribute('role', 'tab');
     tab.setAttribute('aria-selected', String(mode === selectedMode));
     tab.tabIndex = mode === selectedMode ? 0 : -1;
     tab.textContent = mode === 'team' ? 'Team' : 'Mine';
+    if (mode === 'team') {
+      const activity = document.createElement('span');
+      activity.className = 'tab-activity';
+      activity.setAttribute('aria-hidden', 'true');
+      tab.append(activity);
+    }
     tab.addEventListener('click', () => onSelectMode(mode, false));
     tab.addEventListener('keydown', (event) => {
       if (event.key === 'ArrowLeft') {

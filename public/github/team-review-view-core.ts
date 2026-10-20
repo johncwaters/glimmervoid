@@ -802,8 +802,22 @@ export function laneNotice(status: TeamReviewStatus | null | undefined): string 
   return status.reason || null;
 }
 
+export function readyAttentionEntries(status: TeamReviewStatus | null | undefined): string[] {
+  return groupDrafts(status).ready.map((draft) => `${draft.key}@${draft.reviewedHead}`);
+}
+
 export function readyAttentionSignature(status: TeamReviewStatus | null | undefined): string {
-  return attentionSignature(groupDrafts(status).ready.map((draft) => `${draft.key}@${draft.reviewedHead}`));
+  return attentionSignature(readyAttentionEntries(status));
+}
+
+export function decideReadyAttention({ readyEntries, acknowledged, unseen, isLooking }: { readyEntries: readonly string[]; acknowledged: string; unseen: string; isLooking: boolean }): { isShown: boolean; acknowledged: string; unseen: string } {
+  const readySet = new Set(readyEntries);
+  const acknowledgedSet = new Set(acknowledged.split('|').filter((entry) => readySet.has(entry)));
+  const unseenSet = new Set(unseen.split('|').filter((entry) => readySet.has(entry)));
+  const arrivals = [...readySet].filter((entry) => !acknowledgedSet.has(entry));
+  if (isLooking) return { isShown: false, acknowledged: attentionSignature([...readySet]), unseen: attentionSignature([...unseenSet]) };
+  for (const entry of arrivals) unseenSet.add(entry);
+  return { isShown: arrivals.length > 0, acknowledged: attentionSignature([...acknowledgedSet]), unseen: attentionSignature([...unseenSet]) };
 }
 
 export function readyRowSignature(draft: ReviewDraft): string {

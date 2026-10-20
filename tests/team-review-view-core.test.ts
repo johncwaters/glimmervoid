@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   attentionOrder, nextAttentionKey, caughtUpSelectionView, planActionReply, viewerThreadsText, detailThreadItems, caughtUpDetail, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseInlineSegments, parseReviewComment, reviewCommentPreview, queueRowTitle, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
+  parseInlineSegments, parseReviewComment, reviewCommentPreview, queueRowTitle, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyAttentionEntries, decideReadyAttention, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   threadBodyOverflowsPreview, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES,
   commentSeverity, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/github/team-review-view-core.ts';
@@ -238,6 +238,20 @@ test('the badge signature tracks ready drafts by key and head only', () => {
   assert.equal(readyAttentionSignature(status([draft(1, { status: 'posted' })])), '');
   assert.equal(readyAttentionSignature(status([draft(1, { status: 'discarded' })])), '');
   assert.equal(readyAttentionSignature(null), '');
+});
+
+test('ready attention marks arrivals without lighting for departures or marking arrivals while looking', () => {
+  const acknowledged = readyAttentionSignature(status([draft(1), draft(2)]));
+  const afterPosting = decideReadyAttention({ readyEntries: readyAttentionEntries(status([draft(1), draft(2, { status: 'posted' })])), acknowledged, unseen: acknowledged, isLooking: false });
+  assert.deepEqual(afterPosting, { isShown: false, acknowledged: `Acme/app#1@${HEAD}`, unseen: `Acme/app#1@${HEAD}` });
+  const afterArrival = decideReadyAttention({ readyEntries: readyAttentionEntries(status([draft(1), draft(3)])), acknowledged: afterPosting.acknowledged, unseen: '', isLooking: false });
+  assert.deepEqual(afterArrival, { isShown: true, acknowledged: afterPosting.acknowledged, unseen: `Acme/app#3@${HEAD}` });
+  const afterNewHead = decideReadyAttention({ readyEntries: readyAttentionEntries(status([draft(1, { reviewedHead: NEXT_HEAD }), draft(3)])), acknowledged: afterArrival.acknowledged, unseen: afterArrival.unseen, isLooking: false });
+  assert.deepEqual(afterNewHead, { isShown: true, acknowledged: '', unseen: `Acme/app#1@${NEXT_HEAD}|Acme/app#3@${HEAD}` });
+  const whileLooking = decideReadyAttention({ readyEntries: readyAttentionEntries(status([draft(1, { reviewedHead: NEXT_HEAD }), draft(3), draft(4)])), acknowledged: afterNewHead.acknowledged, unseen: afterNewHead.unseen, isLooking: true });
+  assert.deepEqual(whileLooking, { isShown: false, acknowledged: `Acme/app#1@${NEXT_HEAD}|Acme/app#3@${HEAD}|Acme/app#4@${HEAD}`, unseen: afterNewHead.unseen });
+  const firstArrival = decideReadyAttention({ readyEntries: readyAttentionEntries(status([draft(1)])), acknowledged: '', unseen: '', isLooking: false });
+  assert.deepEqual(firstArrival, { isShown: true, acknowledged: '', unseen: `Acme/app#1@${HEAD}` });
 });
 
 test('a ready row is rebuilt when its head or status changes', () => {
