@@ -123,7 +123,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-export const SESSION_COMMANDS = ['push', 'spawn', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings'] as const;
+export const SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings'] as const;
 export const AGENT_API_VERBS = [...SESSION_COMMANDS, 'limits'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
@@ -135,6 +135,38 @@ export const AgentSpawnRequest = z.object({
     .refine((prompt) => !prompt.trimStart().startsWith('-'), { message: 'prompt must not start with a dash, which the agent CLI would read as an option' }),
   name: z.string({ error: 'name must be a string' }).min(1, { error: 'name must not be empty' }).max(200, { error: 'name must be at most 200 characters' }).optional(),
   agent: z.string({ error: 'agent must be a string' }).min(1, { error: 'agent must not be empty' }).max(40, { error: 'agent must be at most 40 characters' }).optional(),
+}).strict();
+
+const SessionTarget = z.string({ error: 'the session must be a string' }).min(1, { error: 'the session must not be empty' }).max(300, { error: 'the session must be at most 300 characters' });
+
+export const AgentSendRequest = z.object({
+  words: z.array(z.string({ error: 'each word must be a string' }).max(20000, { error: 'each word must be at most 20000 characters' }), { error: 'words must be a list' })
+    .min(1, { error: 'send needs text' })
+    .max(5000, { error: 'send takes at most 5000 words' }),
+}).strict();
+
+export const AgentReadRequest = z.object({
+  child: SessionTarget.optional(),
+}).strict();
+
+export const AgentCloseRequest = z.object({
+  child: SessionTarget,
+}).strict();
+
+const AgentChannelEntry = z.object({
+  from: z.enum(['parent', 'child', 'glimmervoid']),
+  at: z.number().finite(),
+  text: z.string(),
+}).strict();
+
+export const AgentReadReply = z.object({
+  ok: z.literal(true),
+  channels: z.array(z.object({
+    sessionId: z.string(),
+    name: z.string(),
+    entries: z.array(AgentChannelEntry),
+    dropped: z.number().int().nonnegative(),
+  }).strict()),
 }).strict();
 
 export const AGENT_ATTENTION_NOTE_SEPARATOR = ' | ';
@@ -232,6 +264,10 @@ export const SessionLimits = z.object({
 export const AgentLimitsReply = SessionLimits.extend({ ok: z.literal(true) }).strict();
 
 export type AgentSpawnRequest = z.infer<typeof AgentSpawnRequest>;
+export type AgentSendRequest = z.infer<typeof AgentSendRequest>;
+export type AgentReadRequest = z.infer<typeof AgentReadRequest>;
+export type AgentCloseRequest = z.infer<typeof AgentCloseRequest>;
+export type AgentReadReply = z.infer<typeof AgentReadReply>;
 export type SessionCommand = (typeof SESSION_COMMANDS)[number];
 export type SessionLimits = z.infer<typeof SessionLimits>;
 export type AgentLimitsReply = z.infer<typeof AgentLimitsReply>;

@@ -89,6 +89,17 @@ function operatorStateRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: "a lane session cannot read or queue the operator's reviews, pull requests or settings, because a lane runs on input the operator has not vetted" };
 }
 
+function channelRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session has no parent or spawned sessions to message' };
+}
+
+function closeRoute({ isEphemeral, isSpawnedChild }: SessionKindFacts): RouteVerdict {
+  if (isSpawnedChild) return { answers: false, reason: 'a spawned session owns no sessions to close' };
+  if (isEphemeral) return { answers: false, reason: 'a lane session owns no sessions to close' };
+  return ANSWERS;
+}
+
 function linkPrRoute(caller: SessionKindFacts): RouteVerdict {
   if (hasOperatorCard(caller)) return ANSWERS;
   return { answers: false, reason: 'a lane session cannot link a pull request, because it has no card to show the link on' };
@@ -97,6 +108,9 @@ function linkPrRoute(caller: SessionKindFacts): RouteVerdict {
 const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
+  send: channelRoute,
+  read: channelRoute,
+  close: closeRoute,
   attention: attentionRoute,
   board: () => ANSWERS,
   edit: editRoute,

@@ -28,6 +28,15 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     const prompt = rest.join(' ').trim();
     return prompt ? { prompt } : null;
   },
+  send: (rest) => (rest.join(' ').trim() ? { words: rest } : null),
+  read: (rest) => {
+    const child = rest.join(' ').trim();
+    return child ? { child } : {};
+  },
+  close: (rest) => {
+    const child = rest.join(' ').trim();
+    return child ? { child } : null;
+  },
   attention: (rest) => {
     const note = rest.join(' ').trim();
     return note ? { note } : null;

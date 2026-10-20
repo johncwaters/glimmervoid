@@ -15,7 +15,7 @@ import { memoryReserveBytes } from '../server/core/memory-admission-core.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
-import { AgentLimitsReply } from '../shared/contracts/session.ts';
+import { AgentLimitsReply, AgentReadReply } from '../shared/contracts/session.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
@@ -193,11 +193,12 @@ interface WiringFixtureOptions {
   holdSpawnGate?: boolean;
   parentIsGuarded?: boolean;
   headroomBytes?: number;
+  holdFirstHeadroomRead?: boolean;
 }
 
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
-  holdSpawnGate = false, parentIsGuarded = false, headroomBytes = 64 * 1024 * 1024 * 1024,
+  holdSpawnGate = false, parentIsGuarded = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -214,8 +215,15 @@ function wiringFixture({
   const wired: Session[] = [];
   const broadcasts: Record<string, unknown>[] = [];
   const heldGateTasks: (() => void)[] = [];
+  const heldHeadroomReads: (() => void)[] = [];
+  let headroomReadCount = 0;
   const memoryAdmission = createMemoryAdmission({
-    readHeadroom: async () => ({ ok: true, headroomBytes }),
+    readHeadroom: () => {
+      headroomReadCount += 1;
+      const reading = { ok: true as const, headroomBytes };
+      if (!holdFirstHeadroomRead || headroomReadCount > 1) return Promise.resolve(reading);
+      return new Promise((resolve) => { heldHeadroomReads.push(() => resolve(reading)); });
+    },
     reserveBytesFor: (kind) => memoryReserveBytes(config, kind),
     warn: () => {},
   });
@@ -261,13 +269,19 @@ function wiringFixture({
   const untilSpawnGateHolds = async () => {
     while (heldGateTasks.length === 0) await new Promise((resolve) => setImmediate(resolve));
   };
+  const releaseHeadroomRead = () => {
+    for (const settle of heldHeadroomReads.splice(0)) settle();
+  };
+  const untilHeadroomReadHolds = async () => {
+    while (heldHeadroomReads.length === 0) await new Promise((resolve) => setImmediate(resolve));
+  };
   const spawn = (session: Session, request: Record<string, unknown>) => wiring.handle(session, 'spawn', request);
   const destroyAll = () => {
     for (const session of created) session.destroy();
     parent.destroy();
   };
   return {
-    wiring, config, spawn, parent, agentSessions, created, childProjects, wired, broadcasts, releaseSpawnGate, untilSpawnGateHolds, destroyAll,
+    wiring, config, spawn, parent, agentSessions, created, childProjects, wired, broadcasts, releaseSpawnGate, untilSpawnGateHolds, releaseHeadroomRead, untilHeadroomReadHolds, destroyAll,
   };
 }
 
@@ -509,6 +523,21 @@ test('a child destroyed while the gate holds it is never carded and is still cle
   }
 });
 
+test('a parent destroyed while its spawn reads memory headroom never gets an orphaned child', async () => {
+  const fixture = wiringFixture({ holdFirstHeadroomRead: true });
+  try {
+    const pending = fixture.spawn(fixture.parent, { prompt: 'review the diff' });
+    await fixture.untilHeadroomReadHolds();
+    fixture.parent.destroy();
+    fixture.releaseHeadroomRead();
+    const reply = await pending;
+    assert.equal(reply.status, 409);
+    assert.deepEqual([fixture.created.length, fixture.agentSessions.size], [0, 0], 'no child session was ever made');
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
 test('the shared session card projection carries exactly the session-added payload fields', () => {
   const source = {
     path: '/repo',
@@ -603,13 +632,13 @@ test('limits tells a session which commands answer, and a guarded operator sessi
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings'].map((name) => ({ name, answers: true })),
     ]);
     assert.equal(operatorLimits.guarded, true);
     assert.deepEqual(operatorLimits.deadEnds.map(({ route }) => route), ['flag the operator with glimmervoid attention']);
     const laneLimits = await limitsOf(guardedLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
-      ['push', false], ['spawn', false], ['attention', false], ['board', true], ['edit', false],
+      ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['board', true], ['edit', false],
       ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false],
     ]);
     assert.deepEqual([laneLimits.guarded, laneLimits.deadEnds], [true, []]);
@@ -617,6 +646,9 @@ test('limits tells a session which commands answer, and a guarded operator sessi
       [fixture.parent, operatorLimits, 'push', {}],
       [guardedLane, laneLimits, 'push', {}],
       [guardedLane, laneLimits, 'spawn', { prompt: 'help me' }],
+      [guardedLane, laneLimits, 'send', { words: ['hello'] }],
+      [guardedLane, laneLimits, 'read', {}],
+      [guardedLane, laneLimits, 'close', { child: 'anyone' }],
       [guardedLane, laneLimits, 'attention', { note: 'look' }],
       [guardedLane, laneLimits, 'edit', { path: 'notes.md' }],
       [guardedLane, laneLimits, 'review', { pr: 'acme/app#12' }],
@@ -633,6 +665,57 @@ test('limits tells a session which commands answer, and a guarded operator sessi
   } finally {
     guardedLane.destroy();
     unguarded.destroy();
+    fixture.destroyAll();
+  }
+});
+
+test('a parent and the child it spawned message each other through their own channel, and no other session can reach it', async () => {
+  const fixture = wiringFixture();
+  const stranger = new Session({ id: 'stranger', name: 'stranger', path: process.cwd(), ptySpawn: () => fakePty() });
+  try {
+    const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the slice' });
+    const childId = String(spawned.body.sessionId);
+    const child = fixture.created[0];
+    assert.match(String(spawned.body.note), /glimmervoid read/);
+
+    assert.equal((await fixture.wiring.handle(fixture.parent, 'send', { words: [childId, 'fix', 'the', 'HIGH', 'finding'] })).status, 200);
+    assert.equal((await fixture.wiring.handle(fixture.parent, 'send', { words: [String(spawned.body.name), 'then', 'push'] })).status, 200);
+    const readChannels = async (session: Session, request: Record<string, unknown>) => AgentReadReply.parse((await fixture.wiring.handle(session, 'read', request)).body).channels;
+    const childRead = await readChannels(child, {});
+    assert.deepEqual(childRead.map(({ sessionId, entries }) => [sessionId, entries.map(({ from, text }) => [from, text])]), [
+      ['parent', [['parent', 'fix the HIGH finding'], ['parent', 'then push']]],
+    ]);
+    assert.deepEqual((await readChannels(child, {}))[0]?.entries, [], 'a read drains what it returned');
+
+    assert.equal((await fixture.wiring.handle(child, 'send', { words: ['fixed', 'and', 'pushed'] })).status, 200);
+    const parentRead = await readChannels(fixture.parent, { child: childId });
+    assert.deepEqual(parentRead[0]?.entries.map(({ from, text }) => [from, text]), [['child', 'fixed and pushed']]);
+
+    assert.equal((await fixture.wiring.handle(stranger, 'send', { words: [childId, 'hijack'] })).status, 404);
+    assert.equal((await fixture.wiring.handle(stranger, 'read', { child: childId })).status, 404);
+    assert.equal((await fixture.wiring.handle(stranger, 'close', { child: childId })).status, 404);
+    assert.equal((await fixture.wiring.handle(child, 'close', { child: childId })).status, 403);
+    assert.equal(fixture.agentSessions.has(childId), true, 'no refused call touched the child');
+
+    assert.deepEqual([(await fixture.wiring.handle(fixture.parent, 'close', { child: childId })).status, fixture.agentSessions.has(childId)], [200, false]);
+    assert.equal(fixture.parent.agentSpawnBudget().liveChildren, 0, 'closing a child frees its slot');
+    assert.equal((await fixture.wiring.handle(fixture.parent, 'send', { words: [childId, 'still', 'there?'] })).status, 409);
+  } finally {
+    stranger.destroy();
+    fixture.destroyAll();
+  }
+});
+
+test('a parent exiting ends every child it spawned', async () => {
+  const fixture = wiringFixture();
+  try {
+    await fixture.spawn(fixture.parent, { prompt: 'slice one' });
+    await fixture.spawn(fixture.parent, { prompt: 'slice two' });
+    assert.equal(fixture.agentSessions.size, 2);
+    fixture.parent.emit('exit');
+    assert.equal(fixture.agentSessions.size, 0);
+    assert.deepEqual(fixture.created.map((child) => child._destroyed), [true, true]);
+  } finally {
     fixture.destroyAll();
   }
 });

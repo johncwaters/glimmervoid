@@ -3,7 +3,9 @@ import crypto from 'node:crypto';
 import type { z } from 'zod';
 
 import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
-import { AGENT_API_VERBS, AgentAttentionRequest, AgentEditRequest, AgentPullRequestRequest, AgentSettingsRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
+import {
+  AGENT_API_VERBS, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest,
+} from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, AgentPrsReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
@@ -40,6 +42,9 @@ interface PullRequestKeyRequest {
 
 interface AgentRequestByVerb {
   spawn: AgentSpawnRequest;
+  send: AgentSendRequest;
+  read: AgentReadRequest;
+  close: AgentCloseRequest;
   attention: AgentAttentionRequest;
   board: EmptyRequest;
   push: EmptyRequest;
@@ -162,6 +167,9 @@ const parsePullRequestBody: RequestParser<PullRequestKeyRequest> = (payload) => 
 
 const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentRequestOf<V>> } = Object.freeze({
   spawn: bodyParser(AgentSpawnRequest),
+  send: bodyParser(AgentSendRequest),
+  read: bodyParser(AgentReadRequest),
+  close: bodyParser(AgentCloseRequest),
   attention: bodyParser(AgentAttentionRequest),
   board: parseEmptyBody,
   push: parseEmptyBody,
@@ -250,8 +258,23 @@ interface AgentCommandHelp {
 const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = Object.freeze({
   spawn: {
     usage: 'spawn <prompt>',
-    summary: 'Start a sibling session on that prompt',
+    summary: 'Start a session on that prompt that this session owns until its task is done',
     missingArgumentHint: 'glimmervoid spawn: this command needs text, for example "glimmervoid spawn check the failing test"',
+  },
+  send: {
+    usage: 'send [child] <text>',
+    summary: 'Message a session this one spawned; a spawned session messages its parent with send <text>',
+    missingArgumentHint: 'glimmervoid send: this command needs text, for example "glimmervoid send the tests pass" or, to a spawned session, "glimmervoid send <child> fix the failing test"',
+  },
+  read: {
+    usage: 'read [child]',
+    summary: "Read what this session's spawned sessions sent; a spawned session reads its parent's messages",
+    missingArgumentHint: null,
+  },
+  close: {
+    usage: 'close <child>',
+    summary: 'End a session this one spawned, once its task is done',
+    missingArgumentHint: 'glimmervoid close: this command needs the spawned session, for example "glimmervoid close <child>"',
   },
   attention: {
     usage: 'attention <note>',
