@@ -1,6 +1,6 @@
 import { shellQuote } from './hook-command-core.ts';
 
-export const CLAUDE_TOKEN_ENV = 'CLAUDE_CODE_OAUTH_TOKEN';
+const CLAUDE_TOKEN_ENV = 'CLAUDE_CODE_OAUTH_TOKEN';
 export const CLAUDE_TOKEN_ALIAS_ENV = 'GV_CLAUDE_TOKEN';
 export const CODER_SSH_ENV = 'CODER_SSH_ENV';
 
@@ -45,11 +45,11 @@ export function workspaceNameFromHex(randomHex: string): string | null {
   return WORKSPACE_NAME_RE.test(candidate) ? candidate : null;
 }
 
-export function isGlimmervoidWorkspaceName(name: string): boolean {
+function isGlimmervoidWorkspaceName(name: string): boolean {
   return WORKSPACE_NAME_RE.test(name);
 }
 
-export function remoteShellCommand(argv: readonly string[]): string | null {
+function remoteShellCommand(argv: readonly string[]): string | null {
   if (argv.length === 0) return null;
   if (argv.some((argument) => NUL_RE.test(argument))) return null;
   return argv.map(shellQuote).join(' ');
@@ -106,4 +106,3 @@ export function coderCreateArgs({ workspace, template, stopAfter, parameters = {
   return ['create', workspace, '--template', template, '--preset', 'none', '--stop-after', stopAfter, ...parameterArgs, '--yes'];
 }
 
-export type { CoderCreateArgs, CoderSshArgs, RemoteLaunchScript, TokenAlias };
