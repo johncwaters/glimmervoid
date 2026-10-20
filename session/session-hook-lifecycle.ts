@@ -201,6 +201,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
       bypassHookTrust: isTrustBypassed,
       hookTools: options.hookTools,
       userHooks: glimmervoidSuppliedHooks(),
+      observeToolCalls: options.observeToolCalls,
     });
     if (!args) {
       console.warn(`[session:${options.name}] hook injection skipped: the relay path cannot be expressed for ${options.agentId} - falling back to OSC title only`);

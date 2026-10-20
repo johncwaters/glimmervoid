@@ -55,7 +55,13 @@ const titleProfile: AgentTitleProfile = {
   taskTitle: { readsTranscriptTitle: false, genericTitles: [ID], agentSuffix: ` - ${ID}` },
 };
 
-function mapHookToSignal(event: string): string | null {
+const REQUEST_USER_INPUT_TOOL_NAME = "request_user_input";
+
+function isRequestUserInput(event: string, payload?: HookPayload): boolean {
+  return event === "pretooluse" && payload?.tool_name === REQUEST_USER_INPUT_TOOL_NAME;
+}
+
+function mapHookToSignal(event: string, payload?: HookPayload): string | null {
   const e = String(event || "").toLowerCase();
   switch (e) {
     case "sessionstart":
@@ -68,6 +74,16 @@ function mapHookToSignal(event: string): string | null {
       return "ready";
     case "permissionrequest":
       return "awaiting-input";
+    case "precompact":
+      return "compaction-start";
+    case "postcompact":
+      return "compaction-end";
+    case "subagentstart":
+      return "subagent-start";
+    case "subagentstop":
+      return "subagent-stop";
+    case "pretooluse":
+      return isRequestUserInput(e, payload) ? "awaiting-input" : null;
     default:
       return null;
   }
@@ -77,8 +93,11 @@ function mapHookConfidence(): string | null {
   return null;
 }
 
-function mapHookPromptKind(event: string): string | null {
-  return String(event || "").toLowerCase() === "permissionrequest" ? "permission" : null;
+function mapHookPromptKind(event: string, payload?: HookPayload): string | null {
+  const e = String(event || "").toLowerCase();
+  if (e === "permissionrequest") return "permission";
+  if (isRequestUserInput(e, payload)) return "elicitation";
+  return null;
 }
 
 function sessionIdOf(payload: HookPayload): unknown {
@@ -113,6 +132,7 @@ function buildHookArgs({
   hookTools = [],
   hookToolRelayPath = HOOK_TOOL_RELAY_PATH,
   userHooks = [],
+  observeToolCalls = false,
 }: {
   relayPath?: string;
   events?: string[];
@@ -121,11 +141,14 @@ function buildHookArgs({
   hookTools?: ResolvedHookTool[];
   hookToolRelayPath?: string;
   userHooks?: readonly UserHook[];
+  observeToolCalls?: boolean;
 } = {}): string[] | null {
   const args = bypassHookTrust ? [TRUST_BYPASS_FLAG] : [];
   const preToolUseGroups: string[] = [];
   const groupsByEvent = new Map<string, string[]>();
-  for (const event of events) {
+  const relayedEvents = observeToolCalls && !events.includes("PreToolUse") ? [...events, "PreToolUse"] : events;
+  const relayedMatchedHooks = observeToolCalls ? matchedRelayHooks.filter(({ event }) => event !== "PreToolUse") : matchedRelayHooks;
+  for (const event of relayedEvents) {
     const command = buildHookCommand(relayPath, event);
     if (!command) return null;
     if (event === "PreToolUse") {
@@ -134,7 +157,7 @@ function buildHookArgs({
     }
     groupsByEvent.set(event, [`{hooks=[{type='command',command='${command}'}]}`]);
   }
-  for (const { event, matcher } of matchedRelayHooks) {
+  for (const { event, matcher } of relayedMatchedHooks) {
     const command = buildHookCommand(relayPath, event);
     if (!command) return null;
     const group = `{matcher='${matcher}',hooks=[{type='command',command='${command}'}]}`;
@@ -330,12 +353,12 @@ const codex = {
   capabilities: {
     hooks: true,
     awaitingInput: true,
-    backgroundAgents: false,
+    backgroundAgents: true,
     resume: true,
     statusLine: false,
     rtk: true,
     saneYolo: true,
-    compactQuiet: false,
+    compactQuiet: true,
     skipPermissionsFlag: true,
     headless: true,
   },

@@ -45,6 +45,7 @@ interface ArgvConfigInjection {
     hookTools?: ResolvedHookTool[];
     hookToolRelayPath?: string;
     userHooks?: readonly UserHook[];
+    observeToolCalls?: boolean;
   }): string[] | null;
   projectConfigCandidates: readonly ProjectConfigCandidate[];
   userConfigFolders(env: Record<string, string | undefined>): string[];

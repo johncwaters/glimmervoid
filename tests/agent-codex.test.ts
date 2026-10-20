@@ -15,6 +15,8 @@ import * as adapters from '../session/adapters/index.ts';
 import { buildHookCommand } from '../session/core/hook-command-core.ts';
 import { codexHookPlanFor, parseCodexVersion } from '../session/core/codex-version-core.ts';
 import { MAX_PROJECT_CONFIG_DEPTH } from '../session/session-hook-lifecycle.ts';
+import { shouldRefreshHookPrs } from '../server/core/session-pr-link-core.ts';
+import { trailStepFromHook } from '../server/core/investigation-trail-core.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import type { UserHook } from '../session/core/user-hooks-core.ts';
@@ -46,6 +48,27 @@ function hookRouterFor(port = 4321) {
   return { hookRouter: new HookRouter(), getHookPort: () => port };
 }
 
+interface CodexHookRecord {
+  event: string;
+  payload: Record<string, unknown>;
+}
+
+function loadCodexHookFixture(name: string): CodexHookRecord[] {
+  const fixturePath = path.join(import.meta.dirname, 'fixtures', `v2-codex-${name}.jsonl`);
+  return fs.readFileSync(fixturePath, 'utf8').split('\n').filter(Boolean)
+    .map((line) => JSON.parse(line))
+    .filter((record) => record.type === 'hook');
+}
+
+function routedCodexSession(options: Partial<SessionOptions> = {}) {
+  const hookRouter = new HookRouter();
+  const { session } = makeCodexSession({ hookRouter, statusConflictMs: 20, statusDedupMs: 10, gateReleaseSettleMs: 30, ...options });
+  session.state = STATES.RUNNING;
+  hookRouter.register('codex-session', { token: 'fixture-token', hooks: codex.hooks, onSignal: (signal) => session.ingestHookSignal(signal) });
+  const dispatch = (record: CodexHookRecord) => hookRouter.handle({ glimmervoidId: 'codex-session', token: 'fixture-token', event: record.event, payload: record.payload });
+  return { session, dispatch };
+}
+
 test('the registry serves codex and config accepts it as a project agent', () => {
   assert.equal(adapters.isKnownAgentId('codex'), true);
   assert.equal(adapters.getAdapter('codex'), codex);
@@ -57,12 +80,12 @@ test('capabilities claim only what a live probe verified', () => {
   assert.deepEqual(codex.capabilities, {
     hooks: true,
     awaitingInput: true,
-    backgroundAgents: false,
+    backgroundAgents: true,
     resume: true,
     statusLine: false,
     rtk: true,
     saneYolo: true,
-    compactQuiet: false,
+    compactQuiet: true,
     skipPermissionsFlag: true,
     headless: true,
   });
@@ -181,6 +204,12 @@ test('a codex below the extended-hooks floor, or one whose version is unreadable
   assert.deepEqual(eventsOf(extended), [...legacy, 'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop', 'PostToolUse', 'PreToolUse']);
   assert.ok(extended.includes(`hooks.PostToolUse=[{matcher='Bash',hooks=[{type='command',command='node ${relayPath} PostToolUse'}]}]`));
   assert.ok(extended.includes(`hooks.PreToolUse=[{matcher='request_user_input',hooks=[{type='command',command='node ${relayPath} PreToolUse'}]}]`));
+  const observed = codex.buildHookArgs({ relayPath, ...codexHookPlanFor('0.163.0'), observeToolCalls: true }) ?? [];
+  assert.deepEqual(
+    observed.filter((argument) => argument.startsWith('hooks.PreToolUse=')),
+    [`hooks.PreToolUse=[{hooks=[{type='command',command='node ${relayPath} PreToolUse'}]}]`],
+    'one unmatched group already relays request_user_input, so the matched one would double it',
+  );
 });
 
 test('command hooks merge per event with matchers while empty hooks preserve the relay argv', (context) => {
@@ -314,17 +343,23 @@ test('a title another program wrote cannot complete or park the card', () => {
   assert.equal(codex.classifyTitle('\u283b project', {}), 'working', 'the spinner needs no context');
 });
 
-test('the hook table maps the five subscribed events and ignores everything else', () => {
+test('the hook table maps every subscribed event and ignores everything else', () => {
   assert.equal(codex.hooks.mapSignal('SessionStart', {}), 'session-start');
   assert.equal(codex.hooks.mapSignal('sessionend', {}), 'session-end');
   assert.equal(codex.hooks.mapSignal('UserPromptSubmit', {}), 'resume');
   assert.equal(codex.hooks.mapSignal('Stop', {}), 'ready');
   assert.equal(codex.hooks.mapSignal('PermissionRequest', { tool_name: 'Bash' }), 'awaiting-input');
   assert.equal(codex.hooks.mapPromptKind('PermissionRequest'), 'permission');
+  assert.equal(codex.hooks.mapSignal('PreCompact', {}), 'compaction-start');
+  assert.equal(codex.hooks.mapSignal('PostCompact', {}), 'compaction-end');
+  assert.equal(codex.hooks.mapSignal('SubagentStart', { agent_id: 'a1' }), 'subagent-start');
+  assert.equal(codex.hooks.mapSignal('SubagentStop', { agent_id: 'a1' }), 'subagent-stop');
+  assert.equal(codex.hooks.mapSignal('PreToolUse', { tool_name: 'request_user_input' }), 'awaiting-input');
+  assert.equal(codex.hooks.mapPromptKind('PreToolUse', { tool_name: 'request_user_input' }), 'elicitation');
   assert.equal(codex.hooks.mapSignal('PreToolUse', { tool_name: 'Bash' }), null);
-  assert.equal(codex.hooks.mapSignal('PostToolUse', { tool_name: 'Read' }), null);
+  assert.equal(codex.hooks.mapPromptKind('PreToolUse', { tool_name: 'Bash' }), null);
+  assert.equal(codex.hooks.mapSignal('PostToolUse', { tool_name: 'Bash' }), null);
   assert.equal(codex.hooks.mapSignal('Notification', { notification_type: 'idle_prompt' }), null);
-  assert.equal(codex.hooks.mapSignal('SubagentStop', { agent_id: 'a1' }), null);
   assert.equal(codex.hooks.mapConfidence('Stop', {}), null);
 });
 
@@ -412,14 +447,66 @@ test('a forged hook payload cannot turn the next spawn into a permissionless one
   session.destroy();
 });
 
-test('the completion gate is off for codex: a would-be background signal changes nothing', async () => {
+test('the live subagent fixture keeps a codex card working past the main Stop until its SubagentStop', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const [prompt, subagentStart, subagentStop, mainStop] = loadCodexHookFixture('subagent');
+  assert.equal(subagentStart.payload.agent_id, subagentStop.payload.agent_id);
+  const { session, dispatch } = routedCodexSession({ detectBackgroundAgents: true });
+  dispatch(prompt);
+  dispatch(subagentStart);
+  assert.equal(session.toSnapshot().activeAgents, 1);
+  dispatch(mainStop);
+  t.mock.timers.tick(40);
+  assert.equal(session.state, STATES.RUNNING);
+  dispatch(subagentStop);
+  t.mock.timers.tick(40);
+  assert.equal(session.state, STATES.COMPLETE);
+  assert.equal(session.toSnapshot().activeAgents, 0);
+  session.destroy();
+});
+
+test('the live compaction and request_user_input fixtures show compacting, then waiting until the next prompt', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const [preCompact, postCompact] = loadCodexHookFixture('compaction');
+  const questionTurn = loadCodexHookFixture('request-user-input');
+  const prompt = questionTurn.find((record) => record.event === 'userpromptsubmit');
+  const question = questionTurn.find((record) => record.event === 'pretooluse');
+  assert.ok(prompt && question);
+  const { session, dispatch } = routedCodexSession();
+  dispatch(preCompact);
+  t.mock.timers.tick(40);
+  assert.equal(session.toSnapshot().isCompacting, true);
+  assert.notEqual(session.state, STATES.COMPLETE);
+  dispatch(postCompact);
+  t.mock.timers.tick(40);
+  assert.equal(session.toSnapshot().isCompacting, false);
+
+  dispatch(prompt);
+  dispatch(question);
+  t.mock.timers.tick(40);
+  assert.equal(session.state, STATES.WAITING);
+  assert.equal(session.toSnapshot().pendingPromptKind, 'elicitation');
+  dispatch(prompt);
+  t.mock.timers.tick(40);
+  assert.equal(session.state, STATES.RUNNING);
+  assert.equal(session.toSnapshot().pendingPromptKind, null);
+  session.destroy();
+});
+
+test('a codex session relays every tool call to an observing lane and a git push to the PR refresh', async () => {
   const { hookRouter, getHookPort } = hookRouterFor();
-  const { session } = makeCodexSession({ id: 'codex-gate', hookRouter, getHookPort, detectBackgroundAgents: true });
-  assert.equal(session._can('backgroundAgents'), false);
-  assert.equal(session.backgroundTracking.isBackgroundAgentDetectionEnabled(), false);
+  const { session, calls } = makeCodexSession({ id: 'codex-observed', hookRouter, getHookPort, observeToolCalls: true });
   await session.start();
-  hookRouter.handle({ glimmervoidId: 'codex-gate', event: 'subagentstart', token: session._hooks.token(), payload: { agent_id: 'a1' } });
-  assert.equal(session.toSnapshot().activeAgents, 0, 'codex declares no background work, so nothing may gate a Stop');
+  assert.ok(calls[0].args.some((argument) => argument.startsWith('hooks.PreToolUse=[{hooks=') && argument.includes('hook-relay.ts PreToolUse')));
+  const hookEvents: CodexHookRecord[] = [];
+  session.on('hook-event', (hookEvent: CodexHookRecord) => hookEvents.push(hookEvent));
+  const [bashResult] = loadCodexHookFixture('posttooluse-bash').filter((record) => record.event === 'posttooluse');
+  const pushInput = { command: 'git push origin HEAD' };
+  const post = (event: string, payload: Record<string, unknown>) => hookRouter.handle({ glimmervoidId: 'codex-observed', event, token: session._hooks.token(), payload });
+  post('pretooluse', { ...bashResult.payload, hook_event_name: 'PreToolUse', tool_input: pushInput });
+  post('posttooluse', { ...bashResult.payload, tool_input: pushInput });
+  assert.deepEqual(hookEvents.map(({ event, payload }) => trailStepFromHook(event, payload)?.tool ?? null), ['Bash', null]);
+  assert.deepEqual(hookEvents.map(({ event, payload }) => shouldRefreshHookPrs(event, payload)), [false, true]);
   session.destroy();
 });
 
