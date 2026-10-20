@@ -38,6 +38,7 @@ function status(overrides: UpdateStatusView = {}): UpdateStatusView {
     channel: 'release',
     behindCount: null,
     reason: null,
+    deprecation: null,
     journalSummary: null,
     applyRefusal: null,
     ...overrides,
@@ -138,13 +139,15 @@ test('reduceUpdateRequest reports an unsent request and clears it on the next fr
 });
 
 test('updateBanner prompts a restart once ready and keeps the command only where the install shape rules the dashboard out', () => {
-  assert.deepEqual(updateBanner(status()), { mode: 'link', text: 'Update available: v0.24.0 to v0.25.0' });
+  assert.deepEqual(updateBanner(status()), { mode: 'link', tone: 'update', text: 'Update available: v0.24.0 to v0.25.0' });
   assert.deepEqual(updateBanner(status({ journalSummary: { ...journal('running'), state: 'running' } })), {
     mode: 'link',
+    tone: 'update',
     text: 'Downloading v0.25.0 in the background.',
   });
   assert.deepEqual(updateBanner(status({ journalSummary: { ...journal('staged'), state: 'staged' } })), {
     mode: 'restart',
+    tone: 'update',
     text: 'v0.25.0 is ready. Restart to update, or it installs on the next start.',
   });
   assert.equal(updateBanner(status({
@@ -260,6 +263,25 @@ test('updateSummary names the running and target versions in one headline', () =
     headline: 'Running v0.24.0. The last check did not finish.',
   });
   assert.deepEqual(updateSummary(null, null), { tone: 'unknown', headline: 'No update check has run yet.' });
+});
+
+const SECURITY_NOTICE = 'Security notice: v0.24.0 is marked unsafe. Versions below 0.25.0 expose the hook endpoint.';
+
+test('a deprecated install shows the security notice with its update command even with no newer release', () => {
+  const deprecation = 'Versions below 0.25.0 expose the hook endpoint.';
+  assert.deepEqual(updateBanner(status({ deprecation })), { mode: 'command', tone: 'security', text: SECURITY_NOTICE });
+  assert.deepEqual(updateBanner(status({ deprecation, updateAvailable: false, latest: '0.24.0' })), {
+    mode: 'command',
+    tone: 'security',
+    text: SECURITY_NOTICE,
+  });
+  assert.deepEqual(updateBanner(status({ deprecation, journalSummary: { ...journal('staged'), state: 'staged' } })), {
+    mode: 'restart',
+    tone: 'security',
+    text: `${SECURITY_NOTICE} v0.25.0 is ready. Restart to update, or it installs on the next start.`,
+  });
+  assert.deepEqual(updateSummary(status({ deprecation, updateAvailable: false }), null), { tone: 'security', headline: SECURITY_NOTICE });
+  assert.equal(updateSummary(status({ deprecation }), journal('staged')).tone, 'staged');
 });
 
 test('updateSummary follows the update run over the last check', () => {

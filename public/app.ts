@@ -536,6 +536,7 @@ onControlMessage((msg) => {
 });
 
 let dismissedUpdateBannerIdentity: string | null | undefined;
+let dismissedSecurityNoticeText: string | null = null;
 
 function bindBannerCopy(copyButton: HTMLButtonElement, copyStatus: HTMLSpanElement, text: string) {
   copyButton.onclick = () => {
@@ -561,15 +562,18 @@ function updateIdentity(msg: ServerMessageOf<'update-status'>) {
 
 function showUpdateBanner(msg: ServerMessageOf<'update-status'>) {
   const banner = queryTag(document, '#update-banner', 'div');
-  if (!msg.updateAvailable) {
+  const { mode, tone, text } = updateBanner(msg);
+  const isSecurityNotice = tone === 'security';
+  if (!msg.updateAvailable && !isSecurityNotice) {
     banner.hidden = true;
     return;
   }
-  const { mode, text } = updateBanner(msg);
   const updateId = updateIdentity(msg);
   const identity = updateId && mode === 'restart' ? `${updateId}:ready` : updateId;
-  if (dismissedUpdateBannerIdentity !== undefined && identity === dismissedUpdateBannerIdentity) return;
-  if (identity && getDismissedUpdate() === identity) return;
+  if (isSecurityNotice && text === dismissedSecurityNoticeText) return;
+  if (!isSecurityNotice && dismissedUpdateBannerIdentity !== undefined && identity === dismissedUpdateBannerIdentity) return;
+  if (!isSecurityNotice && identity && getDismissedUpdate() === identity) return;
+  banner.classList.toggle('update-banner-security', isSecurityNotice);
   const command = String(msg.command ?? '');
   queryTag(document, '#update-banner-text', 'span').textContent = text;
   queryTag(document, '#update-banner-cmd', 'code').textContent = command;
@@ -593,9 +597,13 @@ function showUpdateBanner(msg: ServerMessageOf<'update-status'>) {
 
   bindBannerCopy(copyBtn, copyStatus, command);
   queryTag(document, '#update-banner-dismiss', 'button').onclick = () => {
+    banner.hidden = true;
+    if (isSecurityNotice) {
+      dismissedSecurityNoticeText = text;
+      return;
+    }
     dismissedUpdateBannerIdentity = identity;
     setDismissedUpdate(identity);
-    banner.hidden = true;
   };
 }
 

@@ -16,8 +16,11 @@ interface UpdateControls {
 
 type UpdateBannerMode = 'restart' | 'link' | 'command';
 
+type UpdateBannerTone = 'update' | 'security';
+
 interface UpdateBanner {
   mode: UpdateBannerMode;
+  tone: UpdateBannerTone;
   text: string;
 }
 
@@ -130,13 +133,30 @@ function isUpdateReady(status: UpdateStatusView | null | undefined): boolean {
   return status?.journalSummary?.state === 'staged' || status?.applyRefusal?.reason === 'target-already-checked-out';
 }
 
-export function updateBanner(status: UpdateStatusView | null | undefined): UpdateBanner {
+function securityNoticeText(status: UpdateStatusView | null | undefined): string | null {
+  const deprecation = textOr(status?.deprecation, null);
+  if (!deprecation) return null;
+  const current = versionLabel(status?.current, status?.currentSha) || 'This version';
+  return `Security notice: ${current} is marked unsafe. ${deprecation}`;
+}
+
+function plainUpdateBanner(status: UpdateStatusView | null | undefined): Omit<UpdateBanner, 'tone'> {
   const latest = versionLabel(status?.latest, status?.latestSha) || 'A new version';
   if (isUpdateReady(status)) return { mode: 'restart', text: `${latest} is ready. Restart to update, or it installs on the next start.` };
   if (status?.journalSummary?.state === 'running') return { mode: 'link', text: `Downloading ${latest} in the background.` };
   const text = updateBannerText(status);
   if (!status || status.applyRefusal === undefined || isInstallShapeRefusal(status)) return { mode: 'command', text };
   return { mode: 'link', text };
+}
+
+export function updateBanner(status: UpdateStatusView | null | undefined): UpdateBanner {
+  const plain = plainUpdateBanner(status);
+  const securityText = securityNoticeText(status);
+  if (!securityText) return { ...plain, tone: 'update' };
+  if (isUpdateReady(status) || status?.journalSummary?.state === 'running') {
+    return { mode: plain.mode, tone: 'security', text: `${securityText} ${plain.text}` };
+  }
+  return { mode: 'command', tone: 'security', text: securityText };
 }
 
 function reasonSuffix(reason: unknown): string {
@@ -185,7 +205,7 @@ export function projectUpdateProgress(journal: UpdateJournal | null | undefined)
 
 const AUTO_CHECK_STALE_MS = 10 * 60_000;
 
-type UpdateSummaryTone = 'unknown' | 'current' | 'available' | 'running' | 'staged';
+type UpdateSummaryTone = 'unknown' | 'current' | 'available' | 'running' | 'staged' | 'security';
 
 interface UpdateSummary {
   tone: UpdateSummaryTone;
@@ -208,6 +228,8 @@ export function updateSummary(
   if (runState === 'running') return { tone: 'running', headline: `Downloading ${target} in the background. Glimmervoid keeps running.` };
   if (runState === 'staged') return { tone: 'staged', headline: `${target} is ready. Restart to update now, or it installs on the next start.` };
   if (!status) return { tone: 'unknown', headline: 'No update check has run yet.' };
+  const securityText = securityNoticeText(status);
+  if (securityText) return { tone: 'security', headline: securityText };
   const current = versionLabel(status.current, status.currentSha) || 'an unknown version';
   if (status.updateAvailable) {
     const latest = versionLabel(status.latest, status.latestSha) || 'a newer build';

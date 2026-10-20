@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Security notice for unsafe versions**: when the version you run has been marked unsafe on npm, the dashboard shows a red security notice above everything else, with npm's reason and the update command for your install. It shows even when no newer release is out yet, and also in Settings > Updates. Dismissing it hides it until you reload, never for good. The server console prints one security line too. It works with telemetry off, and it rides the normal update check, so turning update checks off turns it off.
 - **Coherence keeps its own hooks wired**: in a repository with a `coherence.config.json`, a session whose Coherence hooks are missing or out of date gets them installed at the end of a turn, with no action from you. Hooks are rechecked after every turn, so ones that went stale mid-session heal too. The installed settings file stays in the session's worktree for the agent to commit with its work. If an install fails, the session asks for your attention with one line saying why. Codex hook trust stays yours to grant in `/hooks`. A healthy session's card looks the same as before.
 
 ### Fixed

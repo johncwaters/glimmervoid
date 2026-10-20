@@ -7822,6 +7822,10 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   color: var(--text-muted);
 }
 
+.settings-update-summary[data-tone="security"] {
+  color: var(--state-failed);
+}
+
 .settings-update-button:disabled {
   cursor: not-allowed;
   opacity: 0.4;
@@ -8796,6 +8800,15 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
 
 .update-banner[hidden] {
   display: none;
+}
+
+.update-banner-security {
+  background: var(--state-failed-bg);
+  border-bottom: 2px solid var(--state-failed);
+}
+
+.update-banner-security .update-banner-text {
+  color: var(--state-failed);
 }
 
 .update-banner-text {
