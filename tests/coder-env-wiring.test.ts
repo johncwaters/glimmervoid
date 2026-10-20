@@ -27,7 +27,8 @@ function createHarness({ hasMapping = true, sharingStatus = '', idleState = STAT
   idleState?: (typeof STATES)[keyof typeof STATES];
   createReleased?: Promise<void>;
 } = {}) {
-  const config: Pick<Config, 'coder' | 'projects'> = {
+  const config: Pick<Config, 'coder' | 'projects' | 'remoteSessions'> = {
+    remoteSessions: true,
     coder: { environments: [{ name: 'remote', template: 'linux', nodePath: '/usr/bin/node', checkoutRoot: '/home/coder/repos', idleStopMinutes: 1, maxLive: 2 }] },
     projects: [{ id: 'project', path: '/project', wasActive: true, ...(hasMapping ? {
       environment: { name: 'remote', workspace: MAPPED_WORKSPACE, remotePort: 40_001, branch: 'feature' },
@@ -163,11 +164,14 @@ test('an idle remote session past its idle limit stops once during that idle per
   assert.equal(harness.timers.pending[0]?.ms, CODER_ENV_IDLE_TICK_MS);
 });
 
-test('maxLive refusal names the live count and runs no coder command', async (context) => {
+test('maxLive and a switched-off Remote Coder sessions setting both refuse a new workspace without running a coder command', async (context) => {
   const harness = createHarness({ hasMapping: false });
   context.after(harness.wiring.stop);
   const reserved = await harness.reserveAndSave(2);
   assert.deepEqual(reserved, { ok: false, reason: 'remote already has 2 of 2 live workspaces; close one first' });
+  harness.config.remoteSessions = false;
+  assert.deepEqual(await harness.reserveAndSave(0), { ok: false, reason: 'Remote Coder sessions are off. Turn on Remote Coder sessions (experimental) in Settings.' });
+  assert.equal(harness.wiring.availableEnvironments(), null);
   assert.deepEqual(harness.commands, []);
   assert.equal(harness.config.projects[0].environment, undefined);
 });

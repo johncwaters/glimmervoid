@@ -24,7 +24,7 @@ interface RunCoderOptions {
 }
 
 interface CoderEnvWiringOptions extends Omit<CoderEnvPollerDeps, 'listWorkspaces' | 'stopWorkspace' | 'deleteWorkspace' | 'mappings' | 'busyWorkspaces' | 'isReconcilePending' | 'deleteAfterStoppedDays' | 'onReconciled'> {
-  config: Pick<Config, 'coder' | 'projects'>;
+  config: Pick<Config, 'coder' | 'projects' | 'remoteSessions'>;
   persistMapping: (projectId: string, mapping: ProjectEnvironment | undefined) => void | Promise<void>;
   onReconciled?: CoderEnvPollerDeps['onReconciled'];
   runCoder?: (args: string[], options: RunCoderOptions) => Promise<{ stdout: string }>;
@@ -155,7 +155,7 @@ function createCoderEnvWiring({
   }
 
   function availableEnvironments(): CoderEnvironmentOffer[] | null {
-    if (!isConfigured() || !isCoderAvailable) return null;
+    if (config.remoteSessions !== true || !isConfigured() || !isCoderAvailable) return null;
     return (config.coder?.environments ?? []).map((settings) => {
       const environment = resolveCoderEnvironment(settings);
       return {
@@ -237,6 +237,7 @@ function createCoderEnvWiring({
     branch: string;
     liveCount: number;
   }): Promise<CoderEnvResult> {
+    if (config.remoteSessions !== true) return { ok: false, reason: 'Remote Coder sessions are off. Turn on Remote Coder sessions (experimental) in Settings.' };
     const environment = resolveEnvironment(environmentName);
     if (!environment) return { ok: false, reason: `Unknown Coder environment: ${environmentName}` };
     const limitReason = liveLimitRefusal({ liveCount, maxLive: environment.maxLive, environmentName });

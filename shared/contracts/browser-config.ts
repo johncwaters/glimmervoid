@@ -242,6 +242,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   conversationView: optionalBoolean('conversationView'),
   streamerMode: optionalBoolean('streamerMode'),
   zenView: optionalBoolean('zenView'),
+  remoteSessions: optionalBoolean('remoteSessions'),
   detectBackgroundAgents: optionalBoolean('detectBackgroundAgents'),
   recordSignals: optionalBoolean('recordSignals'),
   rtk: optionalBoolean('rtk'),

@@ -267,6 +267,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'toggle', keywords: ['experimental', 'calm', 'focus', 'attention', 'needs you'], defaultValue: false, ...MACHINE_NOW,
       },
       {
+        id: 'remote-sessions', path: 'remoteSessions', title: 'Remote Coder sessions (experimental)',
+        description: 'Offer the Coder environments in config.json when adding a session, so the session runs in its own Coder workspace instead of on this machine. Off refuses new remote sessions; ones already running keep working until closed.',
+        control: 'toggle', keywords: ['experimental', 'coder', 'remote', 'workspace', 'cloud'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
         id: 'streamer-mode', path: 'streamerMode', title: 'Streamer mode',
         description: 'Hide sensitive details in the dashboard while screen sharing or streaming.',
         control: 'toggle', keywords: ['streaming', 'screen share', 'privacy'], defaultValue: false, ...MACHINE_NOW,
