@@ -117,7 +117,6 @@ export type ReplayEnvironment = z.infer<typeof ReplayEnvironment>;
 
 export const ReplayStatus = z.strictObject({
   phase: z.enum(['ready', 'complete', 'failed']),
-  pid: z.number().int().positive(),
   warning: z.string().optional(),
   error: z.string().optional(),
   patchApplied: z.boolean().optional(),

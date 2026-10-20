@@ -16,6 +16,7 @@ const keepAlive = setInterval(() => {}, 60_000);
 let statusPath: string | undefined;
 
 async function runReplay(): Promise<void> {
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
   const argv = process.argv.slice(2);
   const settingsIndex = argv.indexOf('--settings');
   const settingsPath = argv.find((argument) => argument.startsWith('--settings='))?.slice('--settings='.length)
@@ -36,7 +37,7 @@ async function runReplay(): Promise<void> {
   const records = redactRecording(parseCaptureRecording(await fs.readFile(session.recording, 'utf8')), environment.manifest.redactions);
   const firstResize = records.find((record) => record.type === 'resize');
   const timeline = compressTimeline(records, environment.manifest.speed, environment.manifest.maxIdleGapMs);
-  await writeJsonAtomic(statusPath, { phase: 'ready', pid: process.pid });
+  await writeJsonAtomic(statusPath, { phase: 'ready' });
   const startPath = path.join(environment.tempDirectory, 'start.json');
   while (!(await fs.stat(startPath).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return null;
@@ -78,7 +79,7 @@ async function runReplay(): Promise<void> {
     if (!response.ok) throw new Error(`hook ${record.event} failed: ${response.status}`);
     await response.arrayBuffer();
   }
-  await writeJsonAtomic(statusPath, { phase: 'complete', pid: process.pid, warning, patchApplied: hasAppliedPatch });
+  await writeJsonAtomic(statusPath, { phase: 'complete', warning, patchApplied: hasAppliedPatch });
   await new Promise<void>((resolve) => {
     if (cancellation.signal.aborted) { resolve(); return; }
     cancellation.signal.addEventListener('abort', () => resolve(), { once: true });
@@ -91,7 +92,7 @@ try {
   if (!cancellation.signal.aborted) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`Replay failed: ${message}\n`);
-    if (statusPath) await writeJsonAtomic(statusPath, { phase: 'failed', pid: process.pid, error: message });
+    if (statusPath) await writeJsonAtomic(statusPath, { phase: 'failed', error: message });
     process.exitCode = 1;
   }
 } finally {

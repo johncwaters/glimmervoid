@@ -46,7 +46,6 @@ async function readStatuses(environment: ReplayEnvironment): Promise<(z.infer<ty
     if (statusText === null) return null;
     const status = ReplayStatus.parse(JSON.parse(statusText));
     if (status.phase === 'failed') throw new Error(`replay ${sessionId} failed: ${status.error}`);
-    process.kill(status.pid, 0);
     return status;
   }));
 }
@@ -156,7 +155,7 @@ async function main(): Promise<void> {
     await waitUntil(startAt + manifest.videoMs, environment);
     const finalStatuses = await readStatuses(environment);
     for (const status of finalStatuses) if (status?.warning) console.warn(status.warning);
-    console.log(`replay: ${finalStatuses.filter((status) => status?.phase === 'complete').length} completed, ${finalStatuses.length} agents alive`);
+    console.log(`replay: ${finalStatuses.filter((status) => status?.phase === 'complete').length} of ${finalStatuses.length} completed`);
     const video = page.video();
     if (!video) throw new Error('Playwright did not create a video');
     await closeBrowserContext();
