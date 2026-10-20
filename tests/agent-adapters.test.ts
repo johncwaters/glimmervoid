@@ -216,6 +216,8 @@ test('a Coder workspace session launches claude over coder ssh with the token on
     hookRouter: new HookRouter(),
     getHookPort: () => 41234,
     hooksBaseDir,
+    dangerouslySkipPermissions: true,
+    hookTools: [{ id: 'saneYolo', binPath: '/g/guard.js' }],
     spawnCommand: { path: process.execPath, kind: 'exe' },
     getRemoteLaunch: () => ({
       workspace: 'gv-0123456789ab',
@@ -225,6 +227,9 @@ test('a Coder workspace session launches claude over coder ssh with the token on
       ensureRunning: async () => ({ ok: true }),
       uploadFile: async (file) => { uploads.push(file); },
       claudeToken: async () => { tokenRequests += 1; return { ok: true, token: `sk-ant-oat-secret-${tokenRequests}` }; },
+      codexVersion: async () => null,
+      codexLoginParams: async () => null,
+      codexRefreshResult: async () => null,
     }),
     ptySpawn: (file, args, opts) => {
       calls.push({ file, args, env: opts.env ?? {} });
@@ -235,6 +240,7 @@ test('a Coder workspace session launches claude over coder ssh with the token on
   });
   try {
     await session.start();
+    assert.equal(session.saneYolo, false);
     assert.equal(calls[0].file, 'coder');
     assert.ok(calls[0].args.includes('gv-0123456789ab'));
     assert.doesNotMatch(calls[0].args.join(' '), /sk-ant-oat-secret/);

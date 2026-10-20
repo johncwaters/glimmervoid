@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { startCodexAppServerBridge } from '../session/codex-app-server-bridge.ts';
 import {
   isFollowableThread,
   isNoRolloutError,
   parseListenUrl,
   pendingApprovalFromServerRequest,
+  remoteCodexAppServerScript,
   traceRecordsForItemEvent,
 } from '../session/core/codex-app-server-core.ts';
 import { TraceRecord } from '../shared/contracts/trace.ts';
@@ -123,4 +129,69 @@ test('listen and thread guards reject unsafe or malformed wire payloads', () => 
     assert.deepEqual(traceRecordsForItemEvent({ ...eventContext, phase: 'completed', item }), { records: [], startedItemIds: [] });
   }
   assert.deepEqual(traceRecordsForItemEvent({ ...eventContext, threadId: '', phase: 'started', item: commandItem }), { records: [], startedItemIds: [] });
+});
+
+test('a remote app-server bootstraps the matching codex release and serves with only a token digest', () => {
+  const script = remoteCodexAppServerScript({ version: '0.161.0', workingDirectory: "/srv/repos/it's", appServerArgs: ['app-server', '--ws-token-sha256', 'abc'] });
+  assert.ok(script);
+  assert.match(script, /rust-v0\.161\.0\/codex-\$codex_arch-unknown-linux-musl\.tar\.gz/);
+  assert.match(script, /!= 'codex-cli 0\.161\.0'/);
+  assert.match(script, /cd '\/srv\/repos\/it'\\''s'\nexec "\$codex_bin" 'app-server' '--ws-token-sha256' 'abc'$/);
+  assert.equal(remoteCodexAppServerScript({ version: '0.161.0; rm -rf /', workingDirectory: '/srv', appServerArgs: ['app-server'] }), null);
+});
+
+test('a remote Codex bridge logs in with host ChatGPT tokens and answers token refresh requests', { skip: process.platform === 'win32' }, async (context) => {
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'gv-codex-remote-'));
+  context.after(() => rm(scratch, { recursive: true, force: true }));
+  const callsLog = path.join(scratch, 'calls.log');
+  const fakeAppServer = path.join(scratch, 'fake-app-server.cjs');
+  const wsModule = createRequire(import.meta.url).resolve('ws');
+  await writeFile(fakeAppServer, `
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const { WebSocketServer } = require(${JSON.stringify(wsModule)});
+const args = process.argv.slice(2);
+const digest = args[args.indexOf('--ws-token-sha256') + 1];
+const log = (entry) => fs.appendFileSync(${JSON.stringify(callsLog)}, JSON.stringify(entry) + '\\n');
+log({ argv: args });
+const server = new WebSocketServer({ host: '127.0.0.1', port: 0, verifyClient: ({ req }) => {
+  const bearer = String(req.headers.authorization || '').replace(/^Bearer /, '');
+  return crypto.createHash('sha256').update(bearer).digest('hex') === digest;
+} });
+server.on('listening', () => process.stderr.write('listening on: ws://127.0.0.1:' + server.address().port + '\\n'));
+server.on('connection', (socket) => socket.on('message', (frame) => {
+  const message = JSON.parse(String(frame));
+  log(message);
+  if (message.method === 'initialize') socket.send(JSON.stringify({ id: message.id, result: { userAgent: 'fake' } }));
+  if (message.method === 'thread/loaded/list') socket.send(JSON.stringify({ id: message.id, result: { data: [] } }));
+  if (message.method === 'account/login/start') {
+    socket.send(JSON.stringify({ id: message.id, result: {} }));
+    socket.send(JSON.stringify({ id: 'refresh-1', method: 'account/chatgptAuthTokens/refresh', params: { reason: 'unauthorized', previousAccountId: 'account-1' } }));
+  }
+}));
+`);
+  const bridge = await startCodexAppServerBridge({
+    command: { file: 'coder', argsBeforeAppServer: [] },
+    configArgs: [],
+    cwd: scratch,
+    env: { PATH: process.env.PATH },
+    tokenParentDirectory: scratch,
+    remote: {
+      launch: (appServerArgs) => ({ file: process.execPath, args: [fakeAppServer, ...appServerArgs] }),
+      forward: async (remotePort) => ({ url: `ws://127.0.0.1:${remotePort}`, stop: async () => {} }),
+      login: async () => ({ type: 'chatgptAuthTokens', accessToken: 'host-access-1', chatgptAccountId: 'account-1' }),
+      refreshLogin: async () => ({ accessToken: 'host-access-2', chatgptAccountId: 'account-1', chatgptPlanType: null }),
+    },
+  });
+  context.after(() => bridge.stop());
+  const deadlineMs = Date.now() + 5000;
+  let entries: { argv?: string[]; method?: string; id?: string | number; params?: { capabilities?: unknown }; result?: unknown }[] = [];
+  while (Date.now() < deadlineMs && !entries.some((entry) => entry.id === 'refresh-1')) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+    entries = (await readFile(callsLog, 'utf8').catch(() => '')).split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  }
+  assert.doesNotMatch(JSON.stringify(entries[0].argv), new RegExp(`${bridge.token}|--ws-token-file|host-access`));
+  assert.deepEqual(entries.find((entry) => entry.method === 'initialize')?.params?.capabilities, { experimentalApi: true });
+  assert.deepEqual(entries.find((entry) => entry.method === 'account/login/start')?.params, { type: 'chatgptAuthTokens', accessToken: 'host-access-1', chatgptAccountId: 'account-1' });
+  assert.deepEqual(entries.find((entry) => entry.id === 'refresh-1')?.result, { accessToken: 'host-access-2', chatgptAccountId: 'account-1', chatgptPlanType: null });
 });

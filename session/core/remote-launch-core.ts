@@ -94,6 +94,17 @@ export function coderSshArgs({ workspace, remotePort, ingressPort, remoteCommand
   return ['ssh', workspace, '--tty', '--remote-forward', `${remotePort}:127.0.0.1:${ingressPort}`, '--wait', 'no', '--', remoteCommand];
 }
 
+export function coderSshExecArgs({ workspace, remoteCommand }: { workspace: string; remoteCommand: string }): string[] | null {
+  if (!isGlimmervoidWorkspaceName(workspace)) return null;
+  return ['ssh', workspace, '--wait', 'no', '--', remoteCommand];
+}
+
+export function coderPortForwardArgs({ workspace, localPort, remotePort }: { workspace: string; localPort: number; remotePort: number }): string[] | null {
+  if (!isGlimmervoidWorkspaceName(workspace)) return null;
+  if (!isPort(localPort) || !isPort(remotePort)) return null;
+  return ['port-forward', workspace, '--tcp', `${localPort}:${remotePort}`];
+}
+
 export function coderCreateArgs({ workspace, template, stopAfter, parameters = {} }: CoderCreateArgs): string[] | null {
   if (!isGlimmervoidWorkspaceName(workspace)) return null;
   if (template === '' || template.startsWith('-')) return null;

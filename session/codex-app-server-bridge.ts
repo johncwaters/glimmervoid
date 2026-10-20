@@ -1,4 +1,5 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import net from 'node:net';
 import { EventEmitter } from 'node:events';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -14,6 +15,14 @@ import {
   traceRecordsForItemEvent,
 } from './core/codex-app-server-core.ts';
 import type { CodexPendingApproval } from './core/codex-app-server-core.ts';
+import { coderPortForwardArgs } from './core/remote-launch-core.ts';
+
+interface CodexRemoteAppServer {
+  launch: (appServerArgs: string[]) => { file: string; args: string[] };
+  forward: (remotePort: number) => Promise<{ url: string; stop: () => Promise<void> }>;
+  login: () => Promise<unknown>;
+  refreshLogin: () => Promise<unknown>;
+}
 
 interface CodexAppServerBridgeOptions {
   command: { file: string; argsBeforeAppServer: string[] };
@@ -26,7 +35,11 @@ interface CodexAppServerBridgeOptions {
   createSocket?: (url: string, headers: Record<string, string>) => WebSocket;
   now?: () => number;
   logger?: Pick<Console, 'log' | 'warn'>;
+  remote?: CodexRemoteAppServer;
 }
+
+const CHATGPT_TOKENS_REFRESH_METHOD = 'account/chatgptAuthTokens/refresh';
+const PORT_FORWARD_POLL_MS = 200;
 
 export interface CodexAppServerBridge extends EventEmitter {
   url: string;
@@ -73,10 +86,12 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
     await chmod(privateDirectory, 0o700);
     const tokenFile = join(privateDirectory, 'token');
     await writeFile(tokenFile, token, { mode: 0o600, flag: 'wx' });
-    child = (options.spawnProcess ?? spawn)(options.command.file, [
-      ...options.command.argsBeforeAppServer, 'app-server', ...options.configArgs,
-      '--listen', 'ws://127.0.0.1:0', '--ws-auth', 'capability-token', '--ws-token-file', tokenFile,
-    ], { cwd: options.cwd, env: options.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const tokenArgs = options.remote
+      ? ['--ws-token-sha256', createHash('sha256').update(token).digest('hex')]
+      : ['--ws-token-file', tokenFile];
+    const appServerArgs = ['app-server', ...options.configArgs, '--listen', 'ws://127.0.0.1:0', '--ws-auth', 'capability-token', ...tokenArgs];
+    const launch = options.remote?.launch(appServerArgs) ?? { file: options.command.file, args: [...options.command.argsBeforeAppServer, ...appServerArgs] };
+    child = (options.spawnProcess ?? spawn)(launch.file, launch.args, { cwd: options.cwd, env: options.env, stdio: ['pipe', 'pipe', 'pipe'] });
   } catch (failure) {
     await rm(privateDirectory, { recursive: true, force: true });
     throw toError(failure);
@@ -84,6 +99,8 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
 
   return new Promise<CodexAppServerBridge>((resolveStartup, rejectStartup) => {
     let socket: WebSocket | null = null;
+    let portForward: { url: string; stop: () => Promise<void> } | null = null;
+    let isForwarding = false;
     let isStarting = true;
     let isStopped = false;
     let hasExited = false;
@@ -174,6 +191,7 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
           }
         } finally {
           if (socket && socket.readyState !== WebSocket.CLOSED) guard(() => socket?.terminate());
+          await portForward?.stop();
           await rm(privateDirectory, { recursive: true, force: true });
         }
       });
@@ -349,6 +367,10 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
       const parsedMessage = rpcMessage.safeParse(JSON.parse(frame.toString('utf8')));
       if (!parsedMessage.success) throw new Error('Invalid Codex JSON-RPC message');
       const message = parsedMessage.data;
+      if (message.method === CHATGPT_TOKENS_REFRESH_METHOD && message.id !== undefined) {
+        answerTokenRefresh(message.id);
+        return;
+      }
       if (message.method && message.id !== undefined) {
         const approval = pendingApprovalFromServerRequest(message.method, message.params, message.id);
         if (!approval || approval.threadId !== followedThreadId) return;
@@ -379,6 +401,41 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
       pendingRequest.resolve(message.result);
     }
 
+    function answerTokenRefresh(requestId: number | string): void {
+      const remote = options.remote;
+      if (!remote) {
+        send({ jsonrpc: '2.0', id: requestId, error: { code: -32601, message: 'This client does not manage ChatGPT tokens' } });
+        return;
+      }
+      void remote.refreshLogin().then(
+        (result) => guard(() => send({ jsonrpc: '2.0', id: requestId, result })),
+        (failure: unknown) => guard(() => send({ jsonrpc: '2.0', id: requestId, error: { code: -32000, message: toError(failure).message } })),
+      );
+    }
+
+    async function loginRemote(): Promise<void> {
+      if (!options.remote) return;
+      await request('account/login/start', await options.remote.login());
+    }
+
+    function onListenUrl(url: string): void {
+      const remote = options.remote;
+      if (!remote) {
+        connect(url);
+        return;
+      }
+      if (isForwarding || socket || isStopped) return;
+      isForwarding = true;
+      void remote.forward(Number(new URL(url).port)).then((forwarded) => {
+        portForward = forwarded;
+        if (isStopped) {
+          void forwarded.stop();
+          return;
+        }
+        guard(() => connect(forwarded.url));
+      }, reportError);
+    }
+
     function connect(url: string): void {
       if (socket || isStopped) return;
       bridge.url = url;
@@ -392,15 +449,19 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
         void stop().catch(reportError);
       }));
       socket.on('open', () => guard(() => {
-        void request('initialize', { clientInfo: { name: 'glimmervoid', title: null, version: '0.1.0' }, capabilities: null }).then((response) => {
+        const capabilities = options.remote ? { experimentalApi: true } : null;
+        void request('initialize', { clientInfo: { name: 'glimmervoid', title: null, version: '0.1.0' }, capabilities }).then((response) => {
           guard(() => {
             if (isStopped || !isStarting) return;
             if (!z.object({ userAgent: z.string() }).passthrough().safeParse(response).success) throw new Error('Invalid Codex initialize response');
             send({ jsonrpc: '2.0', method: 'initialized' });
-            isStarting = false;
-            clearTimeout(startupTimer);
-            resolveStartup(bridge);
-            void discoverLoadedThread().catch((failure: unknown) => { if (!isStopped) reportError(failure); });
+            void loginRemote().then(() => guard(() => {
+              if (isStopped || !isStarting) return;
+              isStarting = false;
+              clearTimeout(startupTimer);
+              resolveStartup(bridge);
+              void discoverLoadedThread().catch((failure: unknown) => { if (!isStopped) reportError(failure); });
+            }), reportError);
           });
         }, reportError);
       }));
@@ -415,12 +476,12 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
         bufferedLine = (lines.pop() ?? '').slice(-8192);
         for (const line of lines) {
           const url = parseListenUrl(line);
-          if (url) connect(url);
+          if (url) onListenUrl(url);
         }
       }));
       stream.on('end', () => guard(() => {
         const url = parseListenUrl(bufferedLine);
-        if (url) connect(url);
+        if (url) onListenUrl(url);
       }));
       stream.on('error', (failure: Error) => guard(() => reportError(failure)));
     }
@@ -440,4 +501,53 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
       void stop().catch(reportError);
     }));
   });
+}
+
+function isLocalPortOpen(port: number): Promise<boolean> {
+  return new Promise((resolvePortCheck) => {
+    const probe = net.connect({ host: '127.0.0.1', port });
+    probe.once('connect', () => {
+      probe.destroy();
+      resolvePortCheck(true);
+    });
+    probe.once('error', () => resolvePortCheck(false));
+  });
+}
+
+function reserveLocalPort(): Promise<number> {
+  return new Promise((resolvePort, rejectPort) => {
+    const server = net.createServer();
+    server.once('error', rejectPort);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = address && typeof address === 'object' ? address.port : 0;
+      server.close(() => resolvePort(port));
+    });
+  });
+}
+
+export async function startCoderPortForward({ workspace, remotePort, readyTimeoutMs = 30_000, spawnProcess = spawn }: {
+  workspace: string;
+  remotePort: number;
+  readyTimeoutMs?: number;
+  spawnProcess?: typeof spawn;
+}): Promise<{ url: string; stop: () => Promise<void> }> {
+  const localPort = await reserveLocalPort();
+  const forwardArgs = coderPortForwardArgs({ workspace, localPort, remotePort });
+  if (forwardArgs === null) throw new Error('Invalid Coder port forward');
+  const child = spawnProcess('coder', forwardArgs, { stdio: ['ignore', 'ignore', 'ignore'] });
+  let hasExited = false;
+  child.once('exit', () => { hasExited = true; });
+  child.once('error', () => { hasExited = true; });
+  const stop = async (): Promise<void> => {
+    if (hasExited) return;
+    child.kill('SIGTERM');
+  };
+  const deadlineMs = Date.now() + readyTimeoutMs;
+  while (!hasExited && Date.now() < deadlineMs) {
+    if (await isLocalPortOpen(localPort)) return { url: `ws://127.0.0.1:${localPort}`, stop };
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, PORT_FORWARD_POLL_MS));
+  }
+  await stop();
+  throw new Error(hasExited ? 'coder port-forward exited before the Codex app-server port was reachable' : 'coder port-forward did not become reachable in time');
 }

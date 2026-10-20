@@ -20,6 +20,9 @@ import { cliPath } from '../runtime-paths.ts';
 import { createSshSigner, installCommitSigningShim } from '../ssh-signing.ts';
 import { createClaudeCredentials } from '../claude-credentials.ts';
 import { commandFor } from '../../session/adapters/index.ts';
+import codexAdapter, { readHostCodexVersion } from '../../session/adapters/codex.ts';
+import { createCodexCredentials } from '../codex-credentials.ts';
+import { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult } from '../core/codex-credentials-core.ts';
 import type { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
 
 interface BackendSessionRuntimeDependencies {
@@ -35,6 +38,7 @@ interface BackendSessionRuntimeDependencies {
 }
 
 const REMOTE_SESSION_TOKEN_LIFETIME_SECONDS = 600;
+const FORCED_CODEX_REFRESH_INTERVAL_MS = 5 * 60_000;
 
 function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependencies) {
   const hookRouter = new HookRouter({ recordOutcome: dependencies.recordOutcome });
@@ -68,10 +72,32 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   const sshSigner = commitSigningProgram ? createSshSigner() : null;
   const claudeCommand = () => commandFor('claude-code').path;
   const claudeCredentials = createClaudeCredentials({ claudeCommand });
+  const codexCredentials = createCodexCredentials({
+    codexCommand: () => {
+      const command = codexAdapter.buildSpawnCommand({ platform: process.platform, resolved: commandFor(codexAdapter), settingsArgs: [], agentArgs: [] });
+      return { file: command.file, argsBeforeAppServer: command.args };
+    },
+  });
+  const codexLogin = async (resolveLogin: typeof codexCredentials.hostLogin) => {
+    const resolved = await resolveLogin();
+    if (!resolved.ok) throw new Error(resolved.reason);
+    return resolved.login;
+  };
+  let lastForcedCodexRefreshAtMs: number | null = null;
+  const rateLimitedCodexRefresh = () => {
+    const nowMs = Date.now();
+    const isWithinForcedRefreshWindow = lastForcedCodexRefreshAtMs !== null && nowMs - lastForcedCodexRefreshAtMs < FORCED_CODEX_REFRESH_INTERVAL_MS;
+    if (isWithinForcedRefreshWindow) return codexCredentials.hostLogin();
+    lastForcedCodexRefreshAtMs = nowMs;
+    return codexCredentials.refreshedHostLogin();
+  };
   const makeSession = createSessionFactory({
     commitSigningProgram,
     getCoderEnv: dependencies.getCoderEnv,
     claudeToken: () => claudeCredentials.resolveArmToken(REMOTE_SESSION_TOKEN_LIFETIME_SECONDS),
+    codexVersion: readHostCodexVersion,
+    codexLoginParams: async () => chatgptAuthTokensLogin(await codexLogin(codexCredentials.hostLogin)),
+    codexRefreshResult: async () => chatgptAuthTokensRefreshResult(await codexLogin(rateLimitedCodexRefresh)),
     configStore: dependencies.configStore,
     getConfig: () => dependencies.configStore.config,
     hookRouter,

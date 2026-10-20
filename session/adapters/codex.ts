@@ -4,7 +4,7 @@ import type { UserHook } from '../core/user-hooks-core.ts';
 
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "../../server/child-process-safe.ts";
+import { execFileAsync, execFileSync } from "../../server/child-process-safe.ts";
 import { relayPath } from "../../server/runtime-paths.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import { classifyAgentTitle, isBrailleChar } from "../core/title-classifier-core.ts";
@@ -183,6 +183,16 @@ function probeInstalledCodexVersion(): string | null {
   }
 }
 
+async function readHostCodexVersion(): Promise<string | null> {
+  const versionCommand = buildSpawnCommand({ platform: process.platform, resolved: resolveCommand(), agentArgs: ["--version"] });
+  try {
+    const { stdout } = await execFileAsync(versionCommand.file, versionCommand.args, { encoding: "utf8", timeout: 3000, windowsHide: true });
+    return parseCodexVersion(stdout);
+  } catch {
+    return null;
+  }
+}
+
 function hookPlanForInstalledCodex(): CodexHookPlan {
   installedHookPlan ??= codexHookPlanFor(probeInstalledCodexVersion());
   return installedHookPlan;
@@ -331,4 +341,5 @@ const codex = {
   },
 } satisfies AgentAdapterShape;
 
+export { readHostCodexVersion };
 export default codex;

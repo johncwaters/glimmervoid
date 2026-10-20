@@ -36,7 +36,8 @@ import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
 import type { SpawnEnv } from "./core/spawn-env.ts";
 import { DEFAULT_AGENT_ID, resolveAdapter, commandFor } from "./adapters/index.ts";
-import { startCodexAppServerBridge } from "./codex-app-server-bridge.ts";
+import { startCodexAppServerBridge, startCoderPortForward } from "./codex-app-server-bridge.ts";
+import { remoteCodexAppServerScript } from "./core/codex-app-server-core.ts";
 import type { CodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import { CODEX_REMOTE_TOKEN_ENV, needsAppServerRefusedFlag, remoteTuiArgs, splitCodexRemoteLaunch } from "./core/codex-remote-launch-core.ts";
 import type { CoherenceAttachment, ConfineCommand, ConfinedCommand } from '../server/coherence/coherence-runtime.ts';
@@ -58,7 +59,7 @@ import type { ExitSignal } from "./core/exit-transition.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
 import { resolveResumeTarget, shouldAdoptReportedResumeId, AUTO_CONTINUE_PROMPT, RESUME_ID_RE } from "./core/auto-resume.ts";
-import { CLAUDE_TOKEN_ALIAS_ENV, CLAUDE_TOKEN_ALIASES, CODER_SSH_ENV, coderSshArgs, encodeCoderSshEnv, remoteLaunchScript } from "./core/remote-launch-core.ts";
+import { CLAUDE_TOKEN_ALIAS_ENV, CLAUDE_TOKEN_ALIASES, CODER_SSH_ENV, coderSshArgs, coderSshExecArgs, encodeCoderSshEnv, remoteLaunchScript } from "./core/remote-launch-core.ts";
 import { safePathSegment } from "../shared/paths.ts";
 import { projectSessionSnapshots } from "./core/snapshot-projection.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
@@ -199,7 +200,12 @@ interface RemoteLaunch {
   ensureRunning: () => Promise<RemoteLaunchStep>;
   uploadFile: (file: { remotePath: string; contents: string; mode: number }) => Promise<void>;
   claudeToken: () => Promise<{ ok: true; token: string } | { ok: false; reason: string }>;
+  codexVersion: () => Promise<string | null>;
+  codexLoginParams: () => Promise<unknown>;
+  codexRefreshResult: () => Promise<unknown>;
 }
+
+const REMOTE_CODEX_STARTUP_TIMEOUT_MS = 300_000;
 
 interface SpawnCommand {
   file: string;
@@ -1549,19 +1555,20 @@ class Session extends EventEmitter {
       this._hookTools.splice(0, this._hookTools.length, ...currentHookTools);
     }
     const remoteLaunch = this._getRemoteLaunch();
-    if (remoteLaunch !== null && this.agentId !== DEFAULT_AGENT_ID) {
-      this._abandonSpawn(new Error("A Coder workspace session runs Claude Code only"));
+    if (remoteLaunch !== null && this.agentId !== DEFAULT_AGENT_ID && this.agentId !== "codex") {
+      this._abandonSpawn(new Error("A Coder workspace session runs Claude Code or Codex only"));
       return;
     }
+    const isRemoteCodex = remoteLaunch !== null && this.agentId === "codex";
     const hookInjection = this._hooks.inject();
-    this._isSaneYoloActive = hookInjection.isSaneYoloActive;
+    this._isSaneYoloActive = remoteLaunch === null && hookInjection.isSaneYoloActive;
     if (this._hooks.isRequiredGuardrailsMissing()) {
       this._abandonSpawn(new Error(GUARDRAILS_UNAPPLIED_ERROR));
       return;
     }
     const settingsArgs = [...hookInjection.args];
 
-    this._titleQuiet = this._adapter.titleProfile.quietUntilFirstPrompt === true && this._hooks.hasInjection();
+    this._titleQuiet = this._adapter.titleProfile.quietUntilFirstPrompt === true && this._hooks.hasInjection() && !isRemoteCodex;
     this._armTitleQuietFallback();
 
     this._titleSource.setContext({ cwdBasename: path.basename(this.effectiveCwd()) });
@@ -1608,18 +1615,16 @@ class Session extends EventEmitter {
       canRunHelpCommand: this._canRunHelpCommand,
     });
 
-    const bridgedLaunch = await this._startConversationBridge(settingsArgs, agentArgs, env);
+    const bridgedLaunch = isRemoteCodex && remoteLaunch !== null
+      ? await this._startRemoteCodexBridge(remoteLaunch, agentArgs, env)
+      : await this._startConversationBridge(settingsArgs, agentArgs, env);
+    if (isRemoteCodex && !bridgedLaunch) return;
     if (isStartSuperseded()) {
       this._hooks.cleanup();
       await this._stopConversationBridge();
       return;
     }
-    const spawnCommand = remoteLaunch !== null ? await this._remoteSpawnCommand(remoteLaunch, agentArgs) : await this._guardedSpawnCommand(this._adapter.buildSpawnCommand({
-      platform: this._platform,
-      resolved: this._spawnCommand || commandFor(this._adapter),
-      settingsArgs: bridgedLaunch ? [] : settingsArgs,
-      agentArgs: bridgedLaunch?.tuiArgs ?? agentArgs,
-    }), launchSession?.agentSessionId ?? null);
+    const spawnCommand = await this._spawnCommandFor({ remoteLaunch, isRemoteCodex, settingsArgs, agentArgs, bridgedLaunch, agentSessionId: launchSession?.agentSessionId ?? null });
     if (!spawnCommand) {
       await this._stopConversationBridge();
       return;
@@ -1709,18 +1714,7 @@ class Session extends EventEmitter {
         env: { ...env },
         tokenParentDirectory: os.tmpdir(),
       });
-      this._codexBridge = bridge;
-      bridge.on("records", (records: unknown) => this.emit("conversation-records", { records }));
-      bridge.on("approval", (approval: { requestId: number | string; kind: ConversationApproval["kind"]; summary: string; isSummaryTruncated: boolean } | null) => {
-        this._setConversationApproval(approval ? { requestId: approval.requestId, kind: approval.kind, summary: approval.summary, isSummaryTruncated: approval.isSummaryTruncated } : null);
-      });
-      bridge.on("error", (error: unknown) => console.warn(`[session:${this.name}] codex app-server bridge: ${errorMessage(error)}`));
-      bridge.on("exit", () => {
-        if (this._codexBridge !== bridge) return;
-        this._codexBridge = null;
-        this._setConversationApproval(null);
-      });
-      this._emitConversationChange();
+      this._attachCodexBridge(bridge);
       return { tuiArgs: remoteTuiArgs(bridge.url, launch.tuiArgs), token: bridge.token };
     } catch (error) {
       console.warn(`[session:${this.name}] codex app-server bridge unavailable, using the plain terminal: ${errorMessage(error)}`);
@@ -1822,6 +1816,84 @@ class Session extends EventEmitter {
     } catch (error) {
       return !isMissingFileError(error);
     }
+  }
+
+  async _spawnCommandFor({ remoteLaunch, isRemoteCodex, settingsArgs, agentArgs, bridgedLaunch, agentSessionId }: {
+    remoteLaunch: RemoteLaunch | null;
+    isRemoteCodex: boolean;
+    settingsArgs: string[];
+    agentArgs: string[];
+    bridgedLaunch: { tuiArgs: string[]; token: string } | null;
+    agentSessionId: string | null;
+  }): Promise<SpawnCommand | null> {
+    if (remoteLaunch !== null && !isRemoteCodex) return this._remoteSpawnCommand(remoteLaunch, agentArgs);
+    const command = this._adapter.buildSpawnCommand({
+      platform: this._platform,
+      resolved: this._spawnCommand || commandFor(this._adapter),
+      settingsArgs: bridgedLaunch ? [] : settingsArgs,
+      agentArgs: bridgedLaunch?.tuiArgs ?? agentArgs,
+    });
+    if (isRemoteCodex) return { file: command.file, args: command.args, env: {} };
+    return this._guardedSpawnCommand(command, agentSessionId);
+  }
+
+  async _startRemoteCodexBridge(remote: RemoteLaunch, agentArgs: string[], env: SpawnEnv): Promise<{ tuiArgs: string[]; token: string } | null> {
+    await this._stopConversationBridge();
+    const prepared = await this._prepareRemoteCodexBridge(remote, agentArgs, env).catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
+    if (this._destroyed) {
+      this._hooks.cleanup();
+      await this._stopConversationBridge();
+      return null;
+    }
+    if (!prepared.ok) {
+      this._abandonSpawn(new Error(`Coder workspace ${remote.workspace}: ${prepared.reason}`));
+      return null;
+    }
+    return prepared.launch;
+  }
+
+  async _prepareRemoteCodexBridge(remote: RemoteLaunch, agentArgs: string[], env: SpawnEnv): Promise<{ ok: true; launch: { tuiArgs: string[]; token: string } } | { ok: false; reason: string }> {
+    const running = await remote.ensureRunning();
+    if (!running.ok) return running;
+    const version = await remote.codexVersion();
+    if (version === null) return { ok: false, reason: "the host codex version could not be read, so the workspace cannot install a matching codex" };
+    const launch = splitCodexRemoteLaunch([], agentArgs);
+    const bridge = await this._startCodexBridge({
+      command: { file: "coder", argsBeforeAppServer: [] },
+      configArgs: launch.appServerConfigArgs,
+      cwd: this.effectiveCwd(),
+      env: { ...env },
+      tokenParentDirectory: os.tmpdir(),
+      startupTimeoutMs: REMOTE_CODEX_STARTUP_TIMEOUT_MS,
+      remote: {
+        launch: (appServerArgs) => {
+          const script = remoteCodexAppServerScript({ version, workingDirectory: remote.checkoutDirectory, appServerArgs });
+          const sshArgs = script === null ? null : coderSshExecArgs({ workspace: remote.workspace, remoteCommand: script });
+          if (sshArgs === null) throw new Error("the remote Codex app-server command could not be built");
+          return { file: "coder", args: sshArgs };
+        },
+        forward: (remotePort) => startCoderPortForward({ workspace: remote.workspace, remotePort }),
+        login: remote.codexLoginParams,
+        refreshLogin: remote.codexRefreshResult,
+      },
+    });
+    this._attachCodexBridge(bridge);
+    return { ok: true, launch: { tuiArgs: remoteTuiArgs(bridge.url, launch.tuiArgs), token: bridge.token } };
+  }
+
+  _attachCodexBridge(bridge: CodexAppServerBridge): void {
+    this._codexBridge = bridge;
+    bridge.on("records", (records: unknown) => this.emit("conversation-records", { records }));
+    bridge.on("approval", (approval: { requestId: number | string; kind: ConversationApproval["kind"]; summary: string; isSummaryTruncated: boolean } | null) => {
+      this._setConversationApproval(approval ? { requestId: approval.requestId, kind: approval.kind, summary: approval.summary, isSummaryTruncated: approval.isSummaryTruncated } : null);
+    });
+    bridge.on("error", (error: unknown) => console.warn(`[session:${this.name}] codex app-server bridge: ${errorMessage(error)}`));
+    bridge.on("exit", () => {
+      if (this._codexBridge !== bridge) return;
+      this._codexBridge = null;
+      this._setConversationApproval(null);
+    });
+    this._emitConversationChange();
   }
 
   async _remoteSpawnCommand(remote: RemoteLaunch, agentArgs: string[]): Promise<SpawnCommand | null> {

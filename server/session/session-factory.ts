@@ -37,6 +37,9 @@ interface SessionFactoryDependencies {
   homeDir?: string;
   getCoderEnv?: () => CoderWorkspacePort | null;
   claudeToken?: () => ReturnType<RemoteLaunch['claudeToken']>;
+  codexVersion?: RemoteLaunch['codexVersion'];
+  codexLoginParams?: RemoteLaunch['codexLoginParams'];
+  codexRefreshResult?: RemoteLaunch['codexRefreshResult'];
 }
 
 interface CoderWorkspacePort {
@@ -104,6 +107,15 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
         await coderEnv.uploadFile({ ...file, workspace: mapping.workspace });
       },
       claudeToken: async () => (claudeToken ? claudeToken() : { ok: false, reason: 'no Claude Code login source is wired for remote sessions' }),
+      codexVersion: async () => (dependencies.codexVersion ? dependencies.codexVersion() : null),
+      codexLoginParams: async () => {
+        if (!dependencies.codexLoginParams) throw new Error('no Codex login source is wired for remote sessions');
+        return dependencies.codexLoginParams();
+      },
+      codexRefreshResult: async () => {
+        if (!dependencies.codexRefreshResult) throw new Error('no Codex login source is wired for remote sessions');
+        return dependencies.codexRefreshResult();
+      },
     };
   }
 

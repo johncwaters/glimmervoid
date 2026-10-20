@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TraceRecord } from '../../shared/contracts/trace.ts';
 import { CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS } from '../../shared/contracts/session.ts';
+import { remoteShellCommand } from './remote-launch-core.ts';
 
 const itemBase = z.object({ id: z.string().min(1) });
 const executionStatus = z.enum(['inProgress', 'completed', 'failed', 'declined']);
@@ -252,4 +253,34 @@ export function isNoRolloutError(error: unknown): boolean {
   if (error instanceof Error) return /no rollout found/i.test(error.message);
   const parsedError = z.object({ message: z.string() }).passthrough().safeParse(error);
   return parsedError.success && /no rollout found/i.test(parsedError.data.message);
+}
+
+const CODEX_RELEASE_BASE_URL = 'https://github.com/openai/codex/releases/download';
+const CODEX_RELEASE_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/;
+
+export function remoteCodexAppServerScript({ version, workingDirectory, appServerArgs }: {
+  version: string;
+  workingDirectory: string;
+  appServerArgs: readonly string[];
+}): string | null {
+  if (!CODEX_RELEASE_VERSION_RE.test(version)) return null;
+  const quotedArgs = remoteShellCommand(appServerArgs);
+  const quotedDirectory = remoteShellCommand([workingDirectory]);
+  if (quotedArgs === null || quotedDirectory === null || workingDirectory === '') return null;
+  const releaseUrl = `${CODEX_RELEASE_BASE_URL}/rust-v${version}/codex-$codex_arch-unknown-linux-musl.tar.gz`;
+  return [
+    'set -e',
+    'codex_bin="$HOME/.local/bin/codex"',
+    `if [ "$("$codex_bin" --version 2>/dev/null)" != 'codex-cli ${version}' ]; then`,
+    '  case "$(uname -m)" in x86_64|amd64) codex_arch=x86_64 ;; aarch64|arm64) codex_arch=aarch64 ;; *) echo "glimmervoid: unsupported workspace architecture $(uname -m)" >&2; exit 1 ;; esac',
+    '  codex_download="$(mktemp -d)"',
+    `  curl -fsSL "${releaseUrl}" | tar -xz -C "$codex_download"`,
+    '  mkdir -p "$HOME/.local/bin"',
+    '  mv "$codex_download/codex-$codex_arch-unknown-linux-musl" "$codex_bin"',
+    '  chmod 755 "$codex_bin"',
+    '  rm -rf "$codex_download"',
+    'fi',
+    `cd ${quotedDirectory}`,
+    `exec "$codex_bin" ${quotedArgs}`,
+  ].join('\n');
 }
