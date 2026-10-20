@@ -195,3 +195,19 @@ server.on('connection', (socket) => socket.on('message', (frame) => {
   assert.deepEqual(entries.find((entry) => entry.method === 'account/login/start')?.params, { type: 'chatgptAuthTokens', accessToken: 'host-access-1', chatgptAccountId: 'account-1' });
   assert.deepEqual(entries.find((entry) => entry.id === 'refresh-1')?.result, { accessToken: 'host-access-2', chatgptAccountId: 'account-1', chatgptPlanType: null });
 });
+
+test('the codex app-server bridge sees a proposed plan only as a completed item notification, never a request it could hold', async () => {
+  const fixturePath = path.join(import.meta.dirname, 'fixtures', 'v2-codex-plan-mode-bridge.jsonl');
+  const serverMessages = (await readFile(fixturePath, 'utf8')).trim().split('\n')
+    .map((line) => JSON.parse(line))
+    .filter((entry) => entry.direction === 'server')
+    .map((entry) => entry.message);
+  const serverRequests = serverMessages.filter((message) => typeof message.method === 'string' && message.id !== undefined);
+  assert.deepEqual(serverRequests.map((request) => request.method), ['item/tool/requestUserInput']);
+  for (const request of serverRequests) assert.equal(pendingApprovalFromServerRequest(request.method, request.params, request.id), null);
+  const completedPlans = serverMessages.filter((message) => message.method === 'item/completed' && message.params?.item?.type === 'plan');
+  assert.equal(completedPlans.length, 1);
+  assert.ok(completedPlans[0].params.item.text.length > 0);
+  const planEvent = { ...eventContext, phase: 'completed' as const, item: completedPlans[0].params.item };
+  assert.deepEqual(traceRecordsForItemEvent(planEvent), { records: [], startedItemIds: [] });
+});
