@@ -3,7 +3,8 @@ import { firstLine } from '../core/text-core.ts';
 import type { Session } from '../../session/sessions.ts';
 import type { CoherenceJournalEntry, CoherenceJournalReading, SessionCoherence } from '../../shared/contracts/coherence.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
-import { appendJournalWindow, journalEntries, selectLatestShownEntry } from './core/coherence-feed-core.ts';
+import type { CoherenceAttachment } from './coherence-runtime.ts';
+import { appendJournalWindow, journalEntries, judgeTurnEnd, selectLatestShownEntry, startVerdictWatch, type CoherenceVerdictWatch } from './core/coherence-feed-core.ts';
 
 type CoherenceFeedSession = Pick<Session, 'id' | 'resumeSessionId' | 'coherenceHooks' | 'coherenceAttachment' | 'refreshCoherenceHooks' | 'noteAttention'> & {
   on(event: 'exit', listener: () => void): unknown;
@@ -17,6 +18,8 @@ interface SessionFeedState {
   debounceTimer: NodeJS.Timeout | null;
   inFlight: Promise<void> | null;
   isRerunWanted: boolean;
+  watchedAttachment: CoherenceAttachment | null;
+  verdictWatch: CoherenceVerdictWatch | null;
 }
 
 function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now = Date.now, log = console }: {
@@ -30,6 +33,7 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
     if (existing) return existing;
     const created: SessionFeedState = {
       isClosed: false, coherenceSessionId: null, window: [], published: null, debounceTimer: null, inFlight: null, isRerunWanted: false,
+      watchedAttachment: null, verdictWatch: null,
     };
     states.set(sessionId, created);
     return created;
@@ -71,6 +75,32 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
     await session.refreshCoherenceHooks();
   }
 
+  async function watchVerdicts(session: CoherenceFeedSession, state: SessionFeedState): Promise<void> {
+    const attachment = session.coherenceAttachment;
+    if (!attachment) return;
+    if (state.watchedAttachment !== attachment) {
+      state.watchedAttachment = attachment;
+      state.verdictWatch = null;
+    }
+    try {
+      if (!state.verdictWatch) {
+        const baseline = await attachment.readVerdictBaseline();
+        if (!baseline || state.isClosed) return;
+        state.verdictWatch = startVerdictWatch(baseline);
+      }
+      const reading = await attachment.rerunTouchedVerdicts({
+        sinceHead: state.verdictWatch.head, sessionId: session.resumeSessionId, standingInvariantIds: state.verdictWatch.standingFailures, isSpecCheckStanding: state.verdictWatch.spec === 'standing',
+      });
+      if (state.isClosed) return;
+      const judged = judgeTurnEnd(state.verdictWatch, reading);
+      state.verdictWatch = judged.watch;
+      for (const note of judged.notes) session.noteAttention(note);
+    } catch (error) {
+      if (state.isClosed) return;
+      session.noteAttention(`Coherence could not re-run invariants after the turn: ${firstLine(errorMessage(error))}`);
+    }
+  }
+
   async function refreshOnce(session: CoherenceFeedSession, state: SessionFeedState): Promise<void> {
     await healHooks(session, state);
     if (session.coherenceHooks?.active !== true || state.isClosed) return;
@@ -78,6 +108,7 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
     if (state.isClosed) return;
     state.published = { journal, updatedAt: now() };
     broadcastControl({ type: 'session-coherence', id: session.id, ...state.published });
+    await watchVerdicts(session, state);
   }
 
   function refresh(session: CoherenceFeedSession, state: SessionFeedState): void {

@@ -3,8 +3,15 @@ import path from 'node:path';
 import { CoherenceJournalOutput } from '../../shared/contracts/coherence.ts';
 import { COHERENCE_HOOKS_INACTIVE, type CoherenceHooksState } from '../../shared/contracts/session.ts';
 import { execFileAsync } from '../child-process-safe.ts';
+import { isCompletedCommandFailure } from '../core/command-failure-core.ts';
+import { nulSeparatedPaths } from '../git/core/git-changed-paths-core.ts';
+import { runHardenedGit } from '../git/git-workspace.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { checkCoherenceNativeHooks } from './coherence-native-hooks.ts';
+import {
+  invariantQueryPaths, parseRunVerdicts, parseStatusVerdicts, totalityRunTargets,
+  type CoherenceTurnReading, type CoherenceVerdictBaseline, type TotalityVerdicts,
+} from './core/coherence-feed-core.ts';
 import { coherenceHealFailureReason, coherenceInstallFailureReason, isTimedOutCommand, shouldInstallCoherenceHooks } from './core/coherence-session-core.ts';
 import { judgeCoherenceSupport, readCoherenceBinScript } from './core/coherence-support-core.ts';
 
@@ -15,23 +22,36 @@ export interface CoherenceAttachment {
   version: string | null;
   refreshHooks(): Promise<CoherenceHooksState>;
   healHooks(): Promise<CoherenceHealOutcome>;
+  readVerdictBaseline(): Promise<CoherenceVerdictBaseline | null>;
+  rerunTouchedVerdicts(turn: { sinceHead: string; sessionId: string | null; standingInvariantIds: readonly string[]; isSpecCheckStanding: boolean }): Promise<CoherenceTurnReading>;
   readJournal(sessionId: string): Promise<CoherenceJournalOutput>;
 }
 
-export async function resolveCoherence({ worktree, host, isSettingOn, codexEnv = process.env, timeoutMs = 20_000 }: {
-  worktree: string; host: string | null | undefined; isSettingOn: boolean; codexEnv?: NodeJS.ProcessEnv; timeoutMs?: number;
+export async function resolveCoherence({ worktree, host, isSettingOn, codexEnv = process.env, timeoutMs = 20_000, verdictTimeoutMs = 600_000 }: {
+  worktree: string; host: string | null | undefined; isSettingOn: boolean; codexEnv?: NodeJS.ProcessEnv; timeoutMs?: number; verdictTimeoutMs?: number;
 }): Promise<CoherenceAttachment | null> {
   if (!isSettingOn || (host !== 'claude' && host !== 'codex')) return null;
   const env = { ...buildAllowlistedChildEnv(process.env, process.platform), COHERENCE_NO_UPDATE_CHECK: '1' };
   let cliScript: string | null = null;
   let version: string | null = null;
   let unavailable: CoherenceHooksState | null = null;
-  function runScript(script: string, args: string[]): Promise<string> {
-    return execFileAsync(process.execPath, [script, ...args], { cwd: worktree, env, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 }).then(({ stdout }) => stdout);
+  function runScript(script: string, args: string[], timeout = timeoutMs): Promise<string> {
+    return execFileAsync(process.execPath, [script, ...args], { cwd: worktree, env, timeout, maxBuffer: 16 * 1024 * 1024 }).then(({ stdout }) => stdout);
   }
-  async function run(args: string[]): Promise<string> {
+  async function run(args: string[], timeout = timeoutMs): Promise<string> {
     if (!cliScript) throw new Error('Coherence is not installed');
-    return runScript(cliScript, args);
+    return runScript(cliScript, args, timeout);
+  }
+  async function runForExitCode(args: string[]): Promise<{ exitCode: number; stdout: string }> {
+    try {
+      return { exitCode: 0, stdout: await run(args, verdictTimeoutMs) };
+    } catch (error) {
+      if (!isCompletedCommandFailure(error)) throw error;
+      return { exitCode: error.code, stdout: 'stdout' in error && typeof error.stdout === 'string' ? error.stdout : '' };
+    }
+  }
+  async function runGit(args: string[]): Promise<string> {
+    return (await runHardenedGit(args, { cwd: worktree, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 })).stdout;
   }
   async function locateCliScript(): Promise<string | null> {
     const packageDirectory = path.join(worktree, 'node_modules', '@posthog', 'coherence');
@@ -95,8 +115,64 @@ export async function resolveCoherence({ worktree, host, isSettingOn, codexEnv =
     const failureReason = coherenceHealFailureReason(await refreshHooks());
     return failureReason === null ? { status: 'healed' } : { status: 'failed', reason: failureReason };
   }
+  async function readSpecProblems(): Promise<boolean> {
+    const { exitCode } = await runForExitCode(['spec', '--check']);
+    if (exitCode !== 0 && exitCode !== 1) throw new Error(`spec --check exited ${exitCode}`);
+    return exitCode === 1;
+  }
+  async function readHead(): Promise<string> {
+    return (await runGit(['rev-parse', 'HEAD'])).trim();
+  }
+  async function runTotalityOracles(targets: string[] | 'all', sessionId: string | null): Promise<TotalityVerdicts> {
+    const { exitCode, stdout } = await runForExitCode([
+      'run', '--form', 'totality-oracle', ...(sessionId ? ['--session', sessionId] : []), '--agent', 'glimmervoid', '--json',
+      ...(targets === 'all' ? [] : targets.flatMap((invariantId) => ['--invariant', invariantId])),
+    ]);
+    const verdicts = exitCode === 0 || exitCode === 1 ? parseRunVerdicts(stdout) : null;
+    if (!verdicts) throw new Error(`run exited ${exitCode} without a readable verdict`);
+    return verdicts;
+  }
+  async function readBaseline(): Promise<CoherenceVerdictBaseline | null> {
+    if (installationProbe) await installationProbe;
+    if (unavailable || !await isRepositoryConfigured()) return null;
+    const verdicts = parseStatusVerdicts(await run(['run', '--status', '--json'], verdictTimeoutMs));
+    if (!verdicts) throw new Error('run --status output unreadable');
+    return { head: await readHead(), verdicts, hasSpecProblems: await readSpecProblems() };
+  }
+  let baselineRead: Promise<CoherenceVerdictBaseline | null> | null = null;
+  function readVerdictBaseline(): Promise<CoherenceVerdictBaseline | null> {
+    if (baselineRead) return baselineRead;
+    const reading = readBaseline();
+    baselineRead = reading;
+    const forgetUnlessReady = (baseline: CoherenceVerdictBaseline | null) => { if (!baseline && baselineRead === reading) baselineRead = null; };
+    reading.then(forgetUnlessReady, () => forgetUnlessReady(null));
+    return reading;
+  }
+  async function readChangedPaths(sinceHead: string): Promise<string[]> {
+    const trackedPaths = nulSeparatedPaths(await runGit(['diff', '-z', '--name-only', sinceHead]));
+    const untrackedPaths = nulSeparatedPaths(await runGit(['ls-files', '-z', '--others', '--exclude-standard']));
+    return [...new Set([...trackedPaths, ...untrackedPaths])];
+  }
+  async function readRunTargets(queryPaths: readonly string[] | 'all' | null, standingInvariantIds: readonly string[]): Promise<string[] | 'all'> {
+    if (queryPaths === 'all') return 'all';
+    const touchedTargets = queryPaths === null ? [] : totalityRunTargets(await run(['query', 'invariants', ...queryPaths], verdictTimeoutMs));
+    if (touchedTargets === 'all') return 'all';
+    return [...new Set([...touchedTargets, ...standingInvariantIds])];
+  }
+  async function rerunTouchedVerdicts({ sinceHead, sessionId, standingInvariantIds, isSpecCheckStanding }: { sinceHead: string; sessionId: string | null; standingInvariantIds: readonly string[]; isSpecCheckStanding: boolean }): Promise<CoherenceTurnReading> {
+    if (installationProbe) await installationProbe;
+    if (unavailable) throw new Error('Coherence is unavailable');
+    const head = await readHead();
+    const queryPaths = invariantQueryPaths(await readChangedPaths(sinceHead));
+    if (queryPaths === null && standingInvariantIds.length === 0 && !isSpecCheckStanding) return { head, observed: {}, hasSpecProblems: null };
+    const targets = await readRunTargets(queryPaths, standingInvariantIds);
+    const observed = targets !== 'all' && targets.length === 0 ? {} : await runTotalityOracles(targets, sessionId);
+    return { head, observed, hasSpecProblems: await readSpecProblems() };
+  }
+  const hooks = await refreshHooks();
+  void readVerdictBaseline().catch(() => {});
   return {
-    hooks: await refreshHooks(), get version() { return version; }, refreshHooks, healHooks,
+    hooks, get version() { return version; }, refreshHooks, healHooks, readVerdictBaseline, rerunTouchedVerdicts,
     async readJournal(sessionId) {
       if (installationProbe) await installationProbe;
       if (unavailable) throw new Error('Coherence is unavailable');

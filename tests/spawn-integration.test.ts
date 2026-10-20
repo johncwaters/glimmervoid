@@ -84,6 +84,8 @@ test('start() announces the Coherence hooks state it records, a turn end recheck
           return deferredPrepare ?? preparedHooks;
         },
         healHooks: async () => ({ status: 'not-needed' as const }),
+        readVerdictBaseline: async () => null,
+        rerunTouchedVerdicts: async () => ({ head: 'HEAD', observed: {}, hasSpecProblems: null }),
         readJournal: async () => ({ branch: null, escalations: [], records: [], citedBy: {}, damaged: [] }),
       };
     },
