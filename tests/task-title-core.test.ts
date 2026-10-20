@@ -80,7 +80,7 @@ test('prompt cleanup removes pasted content and reminders before deriving titles
 });
 
 test('substantive prompts exclude commands, short replies, acknowledgements and cleaned empty content', () => {
-  for (const prompt of ['', 'yes', 'OK!', 'do it', 'go ahead', 'continue', 'lgtm', 'sounds good', 'please go ahead', 'yes please continue', 'that sounds good.', 'Fix titles', '/review the changes', '<pasted_content id="x">Fix all the titles</pasted_content>', undefined]) {
+  for (const prompt of ['', 'yes', 'OK!', 'do it', 'go ahead', 'continue', 'lgtm', 'sounds good', 'please go ahead', 'yes please continue', 'that sounds good.', 'Fix titles', '/review the changes', '<pasted_content id="x">Fix all the titles</pasted_content>', '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n<summary>Agent "Fix the dashboard" completed</summary>\n</task-notification>', undefined]) {
     assert.equal(isSubstantivePrompt(prompt), false, String(prompt));
   }
   assert.equal(isSubstantivePrompt('Fix the task titles'), true);

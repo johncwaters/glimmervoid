@@ -98,7 +98,7 @@ export function seedTaskTitleSources({ persistedTitle, resumeSessionId, customTi
   return { ...parsed.data.sources, pendingPromptTitle: null, customTitle };
 }
 
-const PROMPT_ENVELOPE_PATTERNS = ['pasted_content', 'system-reminder'].map((tag) => new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}\\s*>`, 'gi'));
+const PROMPT_ENVELOPE_PATTERNS = ['pasted_content', 'system-reminder', 'task-notification'].map((tag) => new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}\\s*>`, 'gi'));
 const MIN_SUBSTANTIVE_WORDS = 3;
 const CONTINUATION_PROMPTS = new Set([
   'yes please continue', 'please go ahead', 'go ahead please', 'keep going please',
