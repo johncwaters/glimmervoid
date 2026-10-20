@@ -157,6 +157,22 @@ test('attention posts the joined note and board posts an empty object', async ()
   });
 });
 
+test('close posts the child, and --discard anywhere in the words as a discard flag', async () => {
+  await withAgentServer(OK_REPLY, async (agentUrl, received) => {
+    await runCli(['close', 'agent-spawn-1'], agentUrl);
+    await runCli(['close', '--discard', 'agent-spawn-1'], agentUrl);
+    await runCli(['close', 'agent-spawn-1', '--discard'], agentUrl);
+    assert.deepEqual(received.map(({ url, body }) => [url, JSON.parse(body)]), [
+      [`/agent/${SESSION_ID}/close`, { child: 'agent-spawn-1' }],
+      [`/agent/${SESSION_ID}/close`, { child: 'agent-spawn-1', discard: true }],
+      [`/agent/${SESSION_ID}/close`, { child: 'agent-spawn-1', discard: true }],
+    ]);
+    const bare = await runCli(['close', '--discard'], agentUrl);
+    assert.notEqual(bare.code, 0, 'a lone --discard names no child');
+    assert.equal(received.length, 3);
+  });
+});
+
 test('limits prints the session limits as lines, and a reply it cannot read as it came', async () => {
   await withAgentServer(() => ({ status: 200, body: LIMITS_REPLY }), async (agentUrl, received) => {
     const run = await runCli(['limits'], agentUrl);

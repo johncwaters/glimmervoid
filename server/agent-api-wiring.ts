@@ -15,9 +15,10 @@ import { manualPrLink } from '../session/core/session-pr-links-core.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
-  decideSpawnAllowance, deriveChildSessionName, describePushLanding, describeRoleRefusal, parseAgentVerb, projectMyPrs, projectReviews,
+  decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeRoleRefusal,
+  describeUnpushedCloseRefusal, parseAgentVerb, projectMyPrs, projectReviews,
 } from './core/agent-api-core.ts';
-import type { AgentRequestOf } from './core/agent-api-core.ts';
+import type { AgentRequestOf, ChildWorktree } from './core/agent-api-core.ts';
 import {
   canSubmitWake, decideWake, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, openChannel, postToChannel,
   readLastAssistantMessage, shouldPostStopNote,
@@ -128,6 +129,7 @@ function createAgentApiWiring({
   const parentsWithChannelCleanup = new WeakSet<Session>();
   const sessionsWithOperatorWatch = new WeakSet<Session>();
   const lastOperatorInputAtBySession = new WeakMap<Session, number>();
+  const childIdsToDiscard = new Set<string>();
 
   function forgetLink(childId: string): void {
     const link = linksByChildId.get(childId);
@@ -254,6 +256,38 @@ function createAgentApiWiring({
     };
   }
 
+  async function keepOrDiscardChildWorktree(child: Session, worktree: ChildWorktree | null, isParentRemoved: boolean): Promise<boolean> {
+    const isDiscardRequested = childIdsToDiscard.delete(child.id);
+    if (!worktree) return false;
+    if (isDiscardRequested || isParentRemoved) {
+      await child.discardWorktree();
+      return false;
+    }
+    return !(await child.discardWorktreeIfClean());
+  }
+
+  async function settleChildWorktree(
+    parentId: string, child: Session, childName: string, startAttempt: Promise<unknown>, worktreeAtStart: ChildWorktree | null,
+  ): Promise<void> {
+    try {
+      await startAttempt.catch(() => {});
+      await child._awaitPendingReaps();
+      const worktree = child.getWorktreeCarry();
+      const registeredParent = listAllSessions().find((session) => session.id === parentId);
+      const isKept = await keepOrDiscardChildWorktree(child, worktree, !registeredParent);
+      if (registeredParent && worktree && isKept) {
+        logger.warn(`[${AGENT_LANE_TAG} ${childName}] kept a worktree with unpushed work: ${worktree.worktreeDir}`);
+        registeredParent.noteAttention(describeKeptChildAttention(childName, worktree));
+        post(child.id, 'toParent', { author: 'glimmervoid', text: describeChildEndNote(childName, { kind: 'kept', worktree }), at: now() });
+        return;
+      }
+      const kind = worktree || worktreeAtStart ? 'discarded' : 'none';
+      post(child.id, 'toParent', { author: 'glimmervoid', text: describeChildEndNote(childName, { kind }), at: now() });
+    } catch (error) {
+      logger.warn(`[${AGENT_LANE_TAG} ${childName}] could not settle the worktree: ${errorMessage(error)}`);
+    }
+  }
+
   function post(childId: string, side: ChannelSide, entry: ChannelEntry): void {
     const channel = channelsByChildId.get(childId);
     if (!channel) return;
@@ -344,6 +378,8 @@ function createAgentApiWiring({
     };
 
     let child: Session | null = null;
+    let worktreeAtStart: ChildWorktree | null = null;
+    let startAttempt: Promise<unknown> = Promise.resolve();
     let released = false;
     let detachFromParent = () => {};
     const releaseChildSlot = () => {
@@ -352,6 +388,7 @@ function createAgentApiWiring({
       detachFromParent();
       parent.noteAgentChildExit();
       broadcastControl({ type: 'session-removed', id, session: name });
+      if (child) void settleChildWorktree(parent.id, child, name, startAttempt, worktreeAtStart);
     };
     const abandonChild = (reason: string): SpawnOutcome => {
       logger.warn(`[${AGENT_LANE_TAG} ${name}] ${reason}`);
@@ -378,7 +415,7 @@ function createAgentApiWiring({
       });
       spawned.on('exit', releaseChildSlot);
       spawned.on('teardown', releaseChildSlot);
-      await spawnGate.run(() => {
+      startAttempt = spawnGate.run(() => {
         if (spawned._destroyed) return undefined;
         broadcastControl({
           type: 'session-added',
@@ -386,7 +423,9 @@ function createAgentApiWiring({
         });
         return spawned.start();
       });
+      await startAttempt;
       if (!spawned.hasLivePty) return abandonChild('the child never reached a live terminal');
+      worktreeAtStart = spawned.getWorktreeCarry();
       return { ok: true, sessionId: id, name };
     } catch (error) {
       return abandonChild(`spawn failed: ${errorMessage(error)}`);
@@ -466,7 +505,7 @@ function createAgentApiWiring({
   async function spawnReply(session: Session, request: AgentSpawnRequest): Promise<AgentApiReply> {
     const outcome = await spawn(session, request);
     if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };
-    const note = `this session owns ${outcome.name} until the task is done: glimmervoid read ${outcome.sessionId} reads its messages, glimmervoid send ${outcome.sessionId} <text> steers it, and glimmervoid close ${outcome.sessionId} ends it`;
+    const note = `this session owns ${outcome.name} until the task is done: glimmervoid read ${outcome.sessionId} reads its messages, glimmervoid send ${outcome.sessionId} <text> steers it, and glimmervoid close ${outcome.sessionId} ends it and discards its worktree, refusing while it holds work that is not on the integration branch unless you add --discard`;
     return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name, note } };
   }
 
@@ -501,11 +540,18 @@ function createAgentApiWiring({
     return { status: 200, body: { ok: true, channels: fromChild ? [fromChild] : [] } };
   }
 
-  function close(session: Session, { child }: AgentCloseRequest): AgentApiReply {
+  async function close(session: Session, { child, discard = false }: AgentCloseRequest): Promise<AgentApiReply> {
     const owned = findChildOf(session, child);
     if (!owned.ok) return refusal(404, owned.error);
     const childSession = agentSessions.get(owned.channel.childId);
-    if (!childSession) return refusal(409, `${owned.channel.childName} has already ended`);
+    const alreadyEnded = refusal(409, `${owned.channel.childName} has already ended`);
+    if (!childSession) return alreadyEnded;
+    const worktree = childSession.getWorktreeCarry();
+    if (!discard && worktree && await childSession.hasUnmergedWork()) {
+      return refusal(409, describeUnpushedCloseRefusal(owned.channel.childName, owned.channel.childId, worktree));
+    }
+    if (agentSessions.get(owned.channel.childId) !== childSession) return alreadyEnded;
+    if (discard) childIdsToDiscard.add(childSession.id);
     childSession.destroy();
     return { status: 200, body: { ok: true, closed: owned.channel.childId } };
   }

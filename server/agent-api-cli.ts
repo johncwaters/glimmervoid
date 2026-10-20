@@ -34,8 +34,10 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     return child ? { child } : {};
   },
   close: (rest) => {
-    const child = rest.join(' ').trim();
-    return child ? { child } : null;
+    const discard = rest.includes('--discard');
+    const child = rest.filter((word) => word !== '--discard').join(' ').trim();
+    if (!child) return null;
+    return discard ? { child, discard } : { child };
   },
   attention: (rest) => {
     const note = rest.join(' ').trim();

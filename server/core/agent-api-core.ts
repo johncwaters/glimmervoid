@@ -189,6 +189,29 @@ function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVe
   return { ok: true, verb, request: parsed.request };
 }
 
+interface ChildWorktree {
+  worktreeDir: string;
+  branch: string | null;
+}
+
+function describeChildWorktree({ worktreeDir, branch }: ChildWorktree): string {
+  return branch ? `branch ${branch} at ${worktreeDir}` : worktreeDir;
+}
+
+function describeUnpushedCloseRefusal(childName: string, childId: string, worktree: ChildWorktree): string {
+  return `${childName} holds work that is not on the integration branch (${describeChildWorktree(worktree)}), so it was not closed. Ask it to land the work with glimmervoid push (glimmervoid send ${childId} <text>), or run glimmervoid close ${childId} --discard to end it and throw the work away`;
+}
+
+function describeChildEndNote(childName: string, outcome: { kind: 'discarded' | 'none' } | { kind: 'kept'; worktree: ChildWorktree }): string {
+  if (outcome.kind === 'kept') return `${childName} ended holding work that is not on the integration branch, so its worktree was kept: ${describeChildWorktree(outcome.worktree)}. The operator decides whether to merge or discard it`;
+  if (outcome.kind === 'discarded') return `${childName} ended and its worktree was discarded`;
+  return `${childName} ended`;
+}
+
+function describeKeptChildAttention(childName: string, worktree: ChildWorktree): string {
+  return `${childName}, a session this one spawned, ended holding unpushed work: ${describeChildWorktree(worktree)}`;
+}
+
 function describePushLanding(landing: PushLanding): AgentPushReply {
   if (!landing.merged) {
     const reason = landing.reason || 'unknown';
@@ -273,7 +296,7 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
   },
   close: {
     usage: 'close <child>',
-    summary: 'End a session this one spawned, once its task is done',
+    summary: 'End a session this one spawned and discard its worktree; refused while it holds unpushed work unless --discard',
     missingArgumentHint: 'glimmervoid close: this command needs the spawned session, for example "glimmervoid close <child>"',
   },
   attention: {
@@ -309,8 +332,9 @@ function agentCommandHelpLines(): string[] {
 }
 
 export {
-  decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describePushLanding,
+  decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding,
+  describeUnpushedCloseRefusal,
   describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviews, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
   REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines,
 };
-export type { AgentRequestOf };
+export type { AgentRequestOf, ChildWorktree };

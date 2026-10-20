@@ -198,6 +198,7 @@ interface WiringFixtureOptions {
   holdFirstHeadroomRead?: boolean;
   clock?: ManualClock;
   coderWorkspaceStatus?: (workspace: string) => string | null;
+  childGitWorkspace?: SessionOptions['gitWorkspace'];
 }
 
 interface ManualClock {
@@ -234,7 +235,7 @@ function manualClock() {
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
   holdSpawnGate = false, parentIsGuarded = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
-  clock, coderWorkspaceStatus,
+  clock, coderWorkspaceStatus, childGitWorkspace,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -278,15 +279,18 @@ function wiringFixture({
         return fakePty();
       },
       spawnCommand: { path: process.execPath, kind: 'exe' },
+      ...(childGitWorkspace ? { gitWorkspace: childGitWorkspace } : {}),
       ...overrides,
     });
     created.push(child);
     return child;
   };
+  let registeredParent: Session | null = parent;
+  const registerParent = (session: Session | null) => { registeredParent = session; };
   const wiring = createAgentApiWiring({
     config,
     agentSessions,
-    listAllSessions: () => [parent, ...laneSessions, ...agentSessions.values()],
+    listAllSessions: () => [...(registeredParent ? [registeredParent] : []), ...laneSessions, ...agentSessions.values()],
     listBoardSessions: () => [parent, ...agentSessions.values()],
     makeSession,
     wireSessionEvents: (session: Session) => { wired.push(session); },
@@ -320,6 +324,7 @@ function wiringFixture({
   };
   return {
     wiring, config, spawn, parent, agentSessions, created, childProjects, wired, broadcasts, releaseSpawnGate, untilSpawnGateHolds, releaseHeadroomRead, untilHeadroomReadHolds, destroyAll,
+    registerParent,
   };
 }
 
@@ -748,6 +753,225 @@ test('a parent and the child it spawned message each other through their own cha
     assert.equal((await fixture.wiring.handle(fixture.parent, 'send', { words: [childId, 'still', 'there?'] })).status, 409);
   } finally {
     stranger.destroy();
+    fixture.destroyAll();
+  }
+});
+
+interface StubbedWorktree {
+  log: string[];
+  finishReap: () => void;
+  worktreeDir: string;
+  branch: string;
+}
+
+function stubChildWorktree(child: Session, { dirty }: { dirty: boolean }): StubbedWorktree {
+  const log: string[] = [];
+  const worktreeDir = `/worktrees/${child.id}`;
+  const branch = `glimmervoid/session/${child.id}`;
+  let carry: { worktreeDir: string; branch: string | null; base: string | null } | null = { worktreeDir, branch, base: 'main' };
+  let finishReap = () => {};
+  const reap = new Promise<void>((resolve) => { finishReap = () => { log.push('reaped'); resolve(); }; });
+  child.getWorktreeCarry = () => carry;
+  child.hasUnmergedWork = async () => dirty;
+  child._awaitPendingReaps = () => reap;
+  child.discardWorktree = async () => { log.push('discard'); carry = null; };
+  child.discardWorktreeIfClean = async () => {
+    if (dirty) return false;
+    log.push('discard-if-clean');
+    carry = null;
+    return true;
+  };
+  return { log, finishReap: () => finishReap(), worktreeDir, branch };
+}
+
+async function settleTurns(): Promise<void> {
+  for (let turn = 0; turn < 20; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+async function glimmervoidNotes(fixture: ReturnType<typeof wiringFixture>): Promise<string[]> {
+  const channels = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', {})).body).channels;
+  return channels.flatMap(({ entries }) => entries.filter(({ from }) => from === 'glimmervoid').map(({ text }) => text));
+}
+
+test('closing a clean child discards its worktree only after the killed tree is reaped, and tells the parent', async () => {
+  const fixture = wiringFixture();
+  const attentionNotes: string[] = [];
+  fixture.parent.noteAttention = (note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
+  try {
+    const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the slice' });
+    const childId = String(spawned.body.sessionId);
+    const worktree = stubChildWorktree(fixture.created[0], { dirty: false });
+    assert.match(String(spawned.body.note), /--discard/);
+
+    assert.deepEqual([(await fixture.wiring.handle(fixture.parent, 'close', { child: childId })).status, fixture.agentSessions.has(childId)], [200, false]);
+    await settleTurns();
+    assert.deepEqual(worktree.log, [], 'nothing is discarded while the killed tree may still hold the checkout');
+    worktree.finishReap();
+    await settleTurns();
+    assert.deepEqual(worktree.log, ['reaped', 'discard-if-clean']);
+    assert.ok((await glimmervoidNotes(fixture)).some((text) => text.endsWith('ended and its worktree was discarded')));
+    assert.deepEqual(attentionNotes, []);
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('closing a child holding unpushed work is refused until --discard, which discards it unconditionally', async () => {
+  const fixture = wiringFixture();
+  try {
+    const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the slice' });
+    const childId = String(spawned.body.sessionId);
+    const worktree = stubChildWorktree(fixture.created[0], { dirty: true });
+
+    const refused = await fixture.wiring.handle(fixture.parent, 'close', { child: childId });
+    assert.equal(refused.status, 409);
+    const refusalText = String(refused.body.error);
+    for (const fragment of [worktree.branch, worktree.worktreeDir, 'glimmervoid push', `glimmervoid close ${childId} --discard`]) {
+      assert.ok(refusalText.includes(fragment), `the refusal names ${fragment}`);
+    }
+    assert.equal(fixture.agentSessions.has(childId), true, 'a refused close leaves the child running');
+
+    assert.deepEqual([(await fixture.wiring.handle(fixture.parent, 'close', { child: childId, discard: true })).status, fixture.agentSessions.has(childId)], [200, false]);
+    worktree.finishReap();
+    await settleTurns();
+    assert.deepEqual(worktree.log, ['reaped', 'discard']);
+    assert.ok((await glimmervoidNotes(fixture)).some((text) => text.endsWith('ended and its worktree was discarded')));
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('a parent that ends discards its clean children and keeps a dirty one, flagging the operator with its branch and path', async () => {
+  const fixture = wiringFixture();
+  const attentionNotes: string[] = [];
+  fixture.parent.noteAttention = (note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
+  try {
+    await fixture.spawn(fixture.parent, { prompt: 'clean slice' });
+    await fixture.spawn(fixture.parent, { prompt: 'dirty slice' });
+    const clean = stubChildWorktree(fixture.created[0], { dirty: false });
+    const dirty = stubChildWorktree(fixture.created[1], { dirty: true });
+
+    fixture.parent.emit('exit', { exitCode: 0, signal: null, reason: null });
+    assert.equal(fixture.agentSessions.size, 0, 'the parent ending ends its children');
+    clean.finishReap();
+    dirty.finishReap();
+    await settleTurns();
+    assert.deepEqual([clean.log, dirty.log], [['reaped', 'discard-if-clean'], ['reaped']]);
+    assert.equal(attentionNotes.length, 1);
+    assert.ok(attentionNotes[0]?.includes(dirty.branch) && attentionNotes[0]?.includes(dirty.worktreeDir));
+    const notes = await glimmervoidNotes(fixture);
+    assert.ok(notes.some((text) => text.includes(`its worktree was kept: branch ${dirty.branch} at ${dirty.worktreeDir}`)));
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('a child that exits by itself holding unpushed work keeps its worktree, tells the parent and flags the operator', async () => {
+  const fixture = wiringFixture();
+  const attentionNotes: string[] = [];
+  fixture.parent.noteAttention = (note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
+  try {
+    const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the slice' });
+    const childId = String(spawned.body.sessionId);
+    const child = fixture.created[0];
+    const worktree = stubChildWorktree(child, { dirty: true });
+
+    child.emit('exit', { exitCode: 0, signal: null, reason: null });
+    worktree.finishReap();
+    await settleTurns();
+    assert.equal(fixture.agentSessions.has(childId), false);
+    assert.deepEqual(worktree.log, ['reaped']);
+    assert.equal(attentionNotes.length, 1);
+    assert.ok((await glimmervoidNotes(fixture)).some((text) => text.includes('so its worktree was kept') && text.includes(worktree.worktreeDir)));
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('a parent the operator removes takes a dirty child worktree with it, discarding it unconditionally', async () => {
+  const fixture = wiringFixture();
+  const attentionResults: unknown[] = [];
+  const realNoteAttention = fixture.parent.noteAttention.bind(fixture.parent);
+  fixture.parent.noteAttention = (note) => {
+    const result = realNoteAttention(note);
+    attentionResults.push(result);
+    return result;
+  };
+  try {
+    await fixture.spawn(fixture.parent, { prompt: 'dirty slice' });
+    const dirty = stubChildWorktree(fixture.created[0], { dirty: true });
+
+    fixture.parent.destroy();
+    fixture.registerParent(null);
+    dirty.finishReap();
+    await settleTurns();
+    assert.deepEqual(dirty.log, ['reaped', 'discard']);
+    assert.deepEqual(attentionResults, []);
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('a parent rebuilt under the same id keeps a dirty child worktree and flags the successor with its branch and path', async () => {
+  const fixture = wiringFixture();
+  const originalNotes: string[] = [];
+  const successorNotes: string[] = [];
+  fixture.parent.noteAttention = (note) => { originalNotes.push(note); return { ok: true, pending: false }; };
+  const successor = new Session({ id: fixture.parent.id, name: 'parent', path: process.cwd(), ptySpawn: () => fakePty() });
+  successor.noteAttention = (note) => { successorNotes.push(note); return { ok: true, pending: false }; };
+  try {
+    await fixture.spawn(fixture.parent, { prompt: 'dirty slice' });
+    const dirty = stubChildWorktree(fixture.created[0], { dirty: true });
+
+    fixture.parent.destroy();
+    fixture.registerParent(successor);
+    dirty.finishReap();
+    await settleTurns();
+    assert.deepEqual(dirty.log, ['reaped']);
+    assert.deepEqual(originalNotes, []);
+    assert.equal(successorNotes.length, 1);
+    assert.ok(successorNotes[0]?.includes(dirty.branch) && successorNotes[0]?.includes(dirty.worktreeDir));
+  } finally {
+    successor.destroy();
+    fixture.destroyAll();
+  }
+});
+
+test('a child closed while its worktree is still being created discards that worktree once its start settles', async () => {
+  const calls: string[] = [];
+  let releaseCreate = () => {};
+  const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
+  const unused = async (): Promise<never> => { throw new Error('not used by this test'); };
+  const fixture = wiringFixture({
+    childGitWorkspace: {
+      detectDefaultBranch: async () => { calls.push('detectDefaultBranch'); return 'main'; },
+      create: async () => {
+        calls.push('create');
+        await createHeld;
+        calls.push('created');
+        return { cwd: '/worktrees/held-child', isGit: true, branch: 'glimmervoid/session/held-child', base: 'main' };
+      },
+      populate: () => undefined,
+      hasUnmergedWork: async () => true,
+      discard: async () => { calls.push('discard'); },
+      mergeBack: unused,
+      mergeKeep: unused,
+      rebaseOnly: unused,
+    },
+  });
+  try {
+    const spawning = fixture.spawn(fixture.parent, { prompt: 'build the slice' });
+    while (!calls.includes('create')) await new Promise((resolve) => setImmediate(resolve));
+    const child = fixture.created[0];
+
+    const closed = await fixture.wiring.handle(fixture.parent, 'close', { child: child.id, discard: true });
+    releaseCreate();
+    const spawned = await spawning;
+    await settleTurns();
+    assert.deepEqual([closed.status, spawned.status], [200, 500]);
+    assert.deepEqual(calls, ['detectDefaultBranch', 'create', 'created', 'discard']);
+    assert.equal(child.getWorktreeCarry(), null);
+  } finally {
     fixture.destroyAll();
   }
 });

@@ -152,6 +152,7 @@ export const AgentReadRequest = z.object({
 
 export const AgentCloseRequest = z.object({
   child: SessionTarget,
+  discard: z.boolean().optional(),
 }).strict();
 
 const AgentChannelEntry = z.object({
