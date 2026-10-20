@@ -1,7 +1,7 @@
 import { buildUpdateCommand } from '../../../server/core/update-core.ts';
 
 export const INSTALL_COMMAND = buildUpdateCommand('npx', null);
-export const LINUX_INSTALL_COMMAND = buildUpdateCommand('npx', null, 'linux');
+export const LINUX_INSTALL_COMMAND = `sudo apt install build-essential python3 && ${buildUpdateCommand('npx', null, 'linux')}`;
 
 export type InstallCommandSegment =
   | { kind: 'text'; text: string }
