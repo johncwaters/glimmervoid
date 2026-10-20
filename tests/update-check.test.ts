@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { MAIN_FETCH_TIMEOUT_MS, NPM_REGISTRY_LATEST_URL, checkForUpdate } from '../server/update-check.ts';
 import type { CheckForUpdateOptions } from '../server/update-check.ts';
+import { createBackendUpdateCheck } from '../server/backend/backend-update.ts';
 
 const SHA_LOCAL = '0123456789abcdef0123456789abcdef01234567';
 const SHA_RELEASE_TAG = '1111111111111111111111111111111111111111';
@@ -61,14 +62,21 @@ function fakeGit({ head, throws, isReleaseAncestor }: {
   };
 }
 
-function fakeFetch({ version, ok = true, throws }: {
+const INSTALLED_VERSION_URL = 'https://registry.npmjs.org/glimmervoid/0.20.0';
+
+function fakeFetch({ version, ok = true, throws, deprecated }: {
   version?: string;
   ok?: boolean;
   throws?: Error;
+  deprecated?: string;
 } = {}): typeof fetch {
   return async (input) => {
     if (throws) throw throws;
     if (!ok) return new Response(null, { status: 500 });
+    if (String(input) === INSTALLED_VERSION_URL) {
+      if (deprecated === undefined) return Response.json({ name: 'glimmervoid', version: '0.20.0' });
+      return Response.json({ name: 'glimmervoid', version: '0.20.0', deprecated });
+    }
     if (String(input) !== NPM_REGISTRY_LATEST_URL) throw new Error(`unexpected fetch ${String(input)}`);
     return Response.json({ name: 'glimmervoid', version: version ?? null, gitHead: SHA_RELEASE_COMMIT });
   };
@@ -204,7 +212,7 @@ test('a clone on the release channel reads the latest release from the npm regis
       return fakeFetch({ version: '0.21.0' })(input, init);
     },
   })));
-  assert.deepEqual(requestedUrls, [NPM_REGISTRY_LATEST_URL]);
+  assert.deepEqual(requestedUrls.sort(), [INSTALLED_VERSION_URL, NPM_REGISTRY_LATEST_URL].sort());
   assert.equal(lsRemoteCalls, 0);
   assert.equal(status.flavor, 'clone');
   assert.equal(status.latest, '0.21.0');
@@ -254,11 +262,13 @@ for (const [platform, command] of [
       },
       fetchFn: async (input, init) => {
         requests.push({ url: String(input), method: init?.method ?? 'GET', accept: new Headers(init?.headers).get('Accept') });
-        if (String(input) !== NPM_REGISTRY_LATEST_URL) throw new Error(`unexpected fetch ${String(input)}`);
         return fakeFetch({ version: '0.21.0' })(input, init);
       },
     })));
-    assert.deepEqual(requests, [{ url: NPM_REGISTRY_LATEST_URL, method: 'GET', accept: 'application/json' }]);
+    assert.deepEqual(requests, [
+      { url: NPM_REGISTRY_LATEST_URL, method: 'GET', accept: 'application/json' },
+      { url: INSTALLED_VERSION_URL, method: 'GET', accept: 'application/json' },
+    ]);
     assert.equal(gitCalls, 0);
     assert.equal(status.flavor, 'npx');
     assert.equal(status.latest, '0.21.0');
@@ -470,6 +480,8 @@ test('a real check persists the latest version and nullable sha', async () => {
     releaseSource: 'npm-registry',
     behindCount: null,
     reason: null,
+    installedVersion: '0.20.0',
+    deprecation: null,
   });
 });
 
@@ -786,4 +798,134 @@ test('an abort between main-channel steps stops the remaining probes', async () 
   })));
   assert.equal(remoteTipQueries, 0);
   assert.equal(status.reason, 'remote-tip-unavailable');
+});
+
+const SECURITY_MESSAGE = 'Versions below 0.21.0 expose the hook endpoint; update now.';
+
+function npmGlobalFixture(): Fixture {
+  const fixture = makeTempRoot();
+  writeLockfile(fixture.packageRoot, `git+https://github.com/johncwaters/glimmervoid.git#${SHA_LOCAL}`);
+  return fixture;
+}
+
+function cloneFixture(): Fixture {
+  const fixture = makeTempRoot();
+  fs.mkdirSync(path.join(fixture.packageRoot, '.git'));
+  return fixture;
+}
+
+for (const [flavor, makeFixture] of [['npm-global', npmGlobalFixture], ['npx', npxFixture], ['clone', cloneFixture]] as const) {
+  test(`a ${flavor} install reports the registry deprecation of its installed version and caches it`, async () => {
+    const fixture = makeFixture();
+    const status = statusOf(await checkForUpdate(baseOptions(fixture, {
+      runCommand: fakeGit({ head: SHA_LOCAL, isReleaseAncestor: false }),
+      fetchFn: fakeFetch({ version: '0.21.0', deprecated: `  ${SECURITY_MESSAGE}  ` }),
+    })));
+    assert.equal(status.flavor, flavor);
+    assert.equal(status.deprecation, SECURITY_MESSAGE);
+    assert.equal(status.updateAvailable, true);
+    const cached = statusOf(await checkForUpdate(baseOptions(fixture, {
+      now: 2000,
+      runCommand: fakeGit({ head: SHA_LOCAL, isReleaseAncestor: false }),
+      fetchFn: async () => { throw new Error('a fresh cache makes no request'); },
+    })));
+    assert.equal(cached.deprecation, SECURITY_MESSAGE);
+    const upgraded = statusOf(await checkForUpdate(baseOptions(fixture, {
+      now: 3000,
+      currentVersion: '0.21.0',
+      runCommand: fakeGit({ head: SHA_LOCAL, isReleaseAncestor: false }),
+      fetchFn: async () => { throw new Error('a fresh cache makes no request'); },
+    })));
+    assert.equal(upgraded.deprecation, null);
+  });
+}
+
+test('a deprecation shows even when no newer release exists', async () => {
+  const fixture = makeTempRoot();
+  const status = statusOf(await checkForUpdate(baseOptions(fixture, {
+    fetchFn: fakeFetch({ version: '0.20.0', deprecated: SECURITY_MESSAGE }),
+  })));
+  assert.equal(status.updateAvailable, false);
+  assert.equal(status.deprecation, SECURITY_MESSAGE);
+});
+
+test('a clone that already contains the latest release shows no deprecation', async () => {
+  const fixture = cloneFixture();
+  const status = statusOf(await checkForUpdate(baseOptions(fixture, {
+    runCommand: fakeGit({ head: SHA_LOCAL, isReleaseAncestor: true }),
+    fetchFn: fakeFetch({ version: '0.21.0', deprecated: SECURITY_MESSAGE }),
+  })));
+  assert.equal(status.reason, 'release-already-checked-out');
+  assert.equal(status.deprecation, null);
+});
+
+for (const [label, versionResponse] of [
+  ['an unknown version', () => new Response('{"error":"version not found: 0.20.0"}', { status: 404 })],
+  ['a failed version lookup', () => { throw new Error('registry unreachable'); }],
+] as const) {
+  test(`${label} shows no deprecation and leaves the update check intact`, async () => {
+    const fixture = makeTempRoot();
+    const registry = fakeFetch({ version: '0.21.0' });
+    const status = statusOf(await checkForUpdate(baseOptions(fixture, {
+      fetchFn: async (input, init) => {
+        if (String(input) === INSTALLED_VERSION_URL) return versionResponse();
+        return registry(input, init);
+      },
+    })));
+    assert.equal(status.deprecation, null);
+    assert.equal(status.latest, '0.21.0');
+    assert.equal(status.updateAvailable, true);
+    assert.equal(status.reason, null);
+  });
+}
+
+test('a cache written before deprecations were recorded reports none', async () => {
+  const fixture = makeTempRoot();
+  fs.writeFileSync(fixture.statePath, JSON.stringify({
+    lastCheckAt: 1000,
+    channel: 'release',
+    latestVersion: '0.21.0',
+    latestSha: SHA_RELEASE_COMMIT,
+    releaseSource: 'npm-registry',
+  }), 'utf8');
+  const status = statusOf(await checkForUpdate(baseOptions(fixture, {
+    now: 2000,
+    fetchFn: async () => { throw new Error('a fresh cache makes no request'); },
+  })));
+  assert.equal(status.deprecation, null);
+});
+
+async function settleChecks(): Promise<void> {
+  for (let turn = 0; turn < 20; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+test('the console prints one security line per distinct deprecation message', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const fixture = makeTempRoot();
+  const messages = [SECURITY_MESSAGE, SECURITY_MESSAGE, 'A second advisory.'];
+  let checksRun = 0;
+  const securityLines: string[] = [];
+  const updateCheck = createBackendUpdateCheck({
+    config: { checkForUpdates: true },
+    currentVersion: '0.20.0',
+    getControlClientCount: () => 1,
+    broadcastControl: () => {},
+    logger: { log: (line: string) => { if (line.includes('SECURITY')) securityLines.push(line); } },
+    checkForUpdate: (options) => checkForUpdate(baseOptions(fixture, {
+      ...options,
+      ttlMs: 0,
+      fetchFn: fakeFetch({ version: '0.21.0', deprecated: messages[checksRun++] }),
+    })),
+  });
+  updateCheck.start();
+  await settleChecks();
+  for (let recheck = 1; recheck < messages.length; recheck += 1) {
+    t.mock.timers.tick(24 * 60 * 60 * 1000);
+    await settleChecks();
+  }
+  updateCheck.stop();
+  assert.equal(checksRun, messages.length);
+  assert.equal(securityLines.length, 2);
+  assert.match(securityLines[0], /0\.20\.0 is deprecated \(Versions below 0\.21\.0/);
+  assert.match(securityLines[0], /npm install -g glimmervoid@0\.21\.0/);
 });

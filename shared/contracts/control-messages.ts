@@ -140,6 +140,7 @@ const updateStatusShape = {
   channel: UpdateChannel,
   behindCount: z.number().int().nonnegative().nullable(),
   reason: nullableString,
+  deprecation: nullableString,
   journalSummary: UpdateJournalSummary.nullable(),
   applyRefusal: UpdateApplyRefusal.nullable(),
 };

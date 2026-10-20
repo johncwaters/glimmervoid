@@ -62,6 +62,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
   let inFlight: Promise<UpdateStatus> | null = null;
   let lastChannel = normalizeUpdateChannel(dependencies.config.updateChannel);
   let lastSurfacedIdentity: string | null = null;
+  let lastSurfacedDeprecation: string | null = null;
   let lastDownloadedIdentity: string | null = null;
   let pendingChannelRefresh = false;
   let stopped = false;
@@ -167,6 +168,15 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
     );
   }
 
+  function surfaceDeprecation(status: UpdateStatus): void {
+    if (!status.deprecation || status.deprecation === lastSurfacedDeprecation) return;
+    lastSurfacedDeprecation = status.deprecation;
+    const currentRelease = status.current || shortSha(status.currentSha) || 'unknown';
+    dependencies.logger.log(
+      `[update] SECURITY: glimmervoid ${currentRelease} is deprecated (${status.deprecation}). Update: ${status.command}`,
+    );
+  }
+
   function downloadInBackground(status: UpdateStatus): void {
     const downloadUpdate = dependencies.downloadUpdate;
     if (!downloadUpdate || dependencies.config.checkForUpdates === false) return;
@@ -211,6 +221,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
         }
         const status = recordStatus(updateResult, checkedAt, channel);
         surfaceAvailableUpdate(status);
+        surfaceDeprecation(status);
         downloadInBackground(status);
         return status;
       })

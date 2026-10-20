@@ -209,6 +209,7 @@ test('decideUpdateStatus reports updates by version only', () => {
     channel: 'release',
     behindCount: null,
     reason: null,
+    deprecation: null,
   });
 
   const sameVersionWithDifferentSha = decideUpdateStatus({

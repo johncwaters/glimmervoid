@@ -12,6 +12,7 @@ const CLONE_COMMAND = 'git pull --ff-only && npm ci && npm run build';
 const INSTALL_FLAVORS = new Set<string>(InstallFlavor.options);
 const TAG_VERSION_RE = /^v(\d+\.\d+\.\d+)$/;
 const UPDATE_CHANNELS = new Set<string>(['release', 'main']);
+const DEPRECATION_MESSAGE_MAX_CHARS = 500;
 
 interface ReleaseTag {
   version: string;
@@ -125,6 +126,14 @@ function parseRegistryLatest(doc: unknown): ReleaseTag | null {
   return { version, sha: normalizeSha(registryDocument.gitHead) };
 }
 
+function parseRegistryDeprecation(doc: unknown): string | null {
+  if (!doc || typeof doc !== 'object') return null;
+  const deprecated = (doc as { deprecated?: unknown }).deprecated;
+  if (typeof deprecated !== 'string') return null;
+  const message = deprecated.trim();
+  if (!message) return null;
+  return message.slice(0, DEPRECATION_MESSAGE_MAX_CHARS);
+}
 
 function normalizeFlavor(flavor: unknown): InstallFlavor {
   if (typeof flavor === 'string' && INSTALL_FLAVORS.has(flavor)) return flavor as InstallFlavor;
@@ -151,7 +160,7 @@ function decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }: {
   return textOr(reason, null);
 }
 
-function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, platform, channel, behindCount, reason, isLatestReleaseAncestorOfHead }: {
+function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, platform, channel, behindCount, reason, isLatestReleaseAncestorOfHead, deprecation }: {
   installedSha?: unknown;
   latestSha?: unknown;
   currentVersion?: unknown;
@@ -162,6 +171,7 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
   behindCount?: unknown;
   reason?: unknown;
   isLatestReleaseAncestorOfHead?: unknown;
+  deprecation?: unknown;
 } = {}) {
   const currentSha = normalizeSha(installedSha);
   const latestSha = normalizeSha(remoteSha);
@@ -188,6 +198,7 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
     channel: normalizedChannel,
     behindCount: normalizedBehindCount,
     reason: decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }),
+    deprecation: isReleaseAlreadyCheckedOut ? null : parseRegistryDeprecation({ deprecated: deprecation }),
   };
 }
 
@@ -201,4 +212,4 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
 }
 
 export type { InstallFlavor };
-export { NPM_GLOBAL_COMMAND, CLONE_COMMAND, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseTagVersion, decideInstallFlavor, buildUpdateCommand, buildReleaseUrl, compareSemver, parseRegistryLatest, decideUpdateStatus, isCheckFresh };
+export { NPM_GLOBAL_COMMAND, CLONE_COMMAND, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseTagVersion, decideInstallFlavor, buildUpdateCommand, buildReleaseUrl, compareSemver, parseRegistryLatest, parseRegistryDeprecation, decideUpdateStatus, isCheckFresh };
