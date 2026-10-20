@@ -86,7 +86,7 @@ interface TeamReviewActionControl {
   refresh?: () => Promise<GithubPollingRefreshResult>;
   isRunning(): boolean;
   submitAction(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome>;
-  preparePrSession?(key: string, projectPaths: readonly string[]): Promise<PrSessionCheckout>;
+  preparePrSession?(key: string): Promise<PrSessionCheckout>;
 }
 
 interface MyPrMergeControl {
@@ -1082,13 +1082,12 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       }
       if (!teamReview?.preparePrSession) { reply({ error: 'Team review is not running' }); return; }
       const singleRepoProjects = config.projects.filter((project) => !project.repos);
-      const candidateProjectPaths = [...new Set([...singleRepoProjects.map((project) => project.path), ...(msg.projectPaths ?? [])])];
-      const checkout = await teamReview.preparePrSession(msg.key, candidateProjectPaths);
+      const checkout = await teamReview.preparePrSession(msg.key);
       if (!checkout.ok) { reply({ error: checkout.error }); return; }
       const sourceProject = checkout.isConfiguredProject ? singleRepoProjects.find((project) => project.path === checkout.checkoutPath) : undefined;
       const isPrSessionGuarded = willSessionRunGuarded({ path: checkout.checkoutPath, agent: sourceProject?.agent }, config, null);
       if (!checkout.isConfiguredProject && isPrSessionGuarded) {
-        reply({ error: `No project checks out ${checkout.repo}. Add a checkout of ${checkout.repo} as a project to open this pull request in a guarded session.` });
+        reply({ error: `No checkout of ${checkout.repo} found. Clone ${checkout.repo} under a repo root (Settings) to open its pull requests in a guarded session.` });
         return;
       }
       const created = createProjectSession({
