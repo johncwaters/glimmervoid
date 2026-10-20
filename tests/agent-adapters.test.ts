@@ -255,6 +255,8 @@ const HOOK_CASES: [string, HookPayload, string | null, string | null, string | n
   ['SessionEnd', {}, 'session-end', null, null],
   ['UserPromptSubmit', {}, 'resume', null, null],
   ['Stop', {}, 'ready', null, null],
+  ['StopFailure', { error: 'authentication_failed' }, 'auth-failed', null, null],
+  ['StopFailure', { error: 'rate_limit' }, 'ready', null, null],
   ['SubagentStart', {}, 'subagent-start', null, null],
   ['SubagentStop', {}, 'subagent-stop', null, null],
   ['TaskCreated', {}, 'task-created', null, null],

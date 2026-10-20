@@ -85,6 +85,8 @@ function mapHookToSignal(event: string, payload?: HookPayload): string | null {
       return "resume";
     case "stop":
       return "ready";
+    case "stopfailure":
+      return payload?.error === "authentication_failed" ? "auth-failed" : "ready";
     case "subagentstart":
       return "subagent-start";
     case "subagentstop":
