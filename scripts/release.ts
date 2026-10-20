@@ -36,10 +36,42 @@ function isAncestor(ancestorRef: string, descendantRef: string): boolean {
   }
 }
 
+function isNpmLoggedIn(): boolean {
+  try {
+    execSync('npm whoami', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function deprecateVersionsBelowRelease(): void {
+  console.log(`\n==> ${TAG} carries a Security section; deprecating the versions below it on npm...`);
+  const deprecationMessage = `Security: versions below ${VERSION} have a known vulnerability. Update to ${VERSION} or later. https://github.com/${REPO_SLUG}/releases/tag/${TAG}`;
+  const deprecateCommand = `npm deprecate "glimmervoid@<${VERSION}" "${deprecationMessage}"`;
+  if (!isNpmLoggedIn()) {
+    console.log('   npm is not logged in here, so nothing was deprecated. Log in as a package owner and run:');
+    console.log(`   ${deprecateCommand}`);
+    return;
+  }
+  try {
+    run(deprecateCommand);
+  } catch {
+    console.log('   npm deprecate failed, so the versions below this release are not marked. Run it again as a package owner:');
+    console.log(`   ${deprecateCommand}`);
+  }
+}
+
 const VERSION = pkg.version;
 const TAG = `v${VERSION}`;
 const RELEASE_BRANCH = 'main';
 const RELEASE_UPSTREAM = `origin/${RELEASE_BRANCH}`;
+const SECURITY_HEADING = /^### Security\b/m;
+
+const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+const versionEscaped = VERSION.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+const releaseSectionPattern = new RegExp(String.raw`^## \[${versionEscaped}\].*\r?\n([\s\S]*?)(?=^## \[|$(?![\r\n]))`, 'm');
+const releaseSection = changelog.match(releaseSectionPattern)?.[1].trim() ?? null;
 
 console.log(`==> Releasing glimmervoid ${TAG}\n`);
 
@@ -94,11 +126,7 @@ run(`git push origin ${TAG}`);
 const hasGhCli = hasCommand('gh');
 if (hasGhCli) {
   console.log('\n==> Creating GitHub release...');
-  const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
-  const versionEscaped = VERSION.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
-  const pattern = new RegExp(String.raw`^## \[${versionEscaped}\].*\r?\n([\s\S]*?)(?=^## \[|$(?![\r\n]))`, 'm');
-  const match = changelog.match(pattern);
-  const notes = match ? match[1].trim() : `Release ${TAG}`;
+  const notes = releaseSection ?? `Release ${TAG}`;
 
   const tmpFile = 'release-notes.tmp.md';
   fs.writeFileSync(tmpFile, notes);
@@ -116,6 +144,8 @@ if (!hasGhCli) {
   console.log('\n==> Skipping GitHub release (gh CLI not installed).');
   console.log(`   Create manually at: https://github.com/${REPO_SLUG}/releases/new?tag=${TAG}`);
 }
+
+if (releaseSection && SECURITY_HEADING.test(releaseSection)) deprecateVersionsBelowRelease();
 
 console.log(`\n==> Done! Tagged and pushed glimmervoid ${TAG}.`);
 if (hasGhCli) {
