@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Zen is now a meadow of session pets**: with Zen on, each live session is one of the dashboard animals, the same one every time, and animals you turned off in Settings never appear. A pet ambles while its session prints output, stands still after a few quiet seconds, and falls asleep with zzz after 3 minutes of silence, for Claude, Codex and every other agent. A session waiting on you raises a bubble with the needs-input icon, and a failed one shows the failed icon until you have seen it. While a session is on stage, a strip of the other pets sits on the stage bar. Click any pet to put its session on stage; it stays there until you press Next, even when another session starts needing you. With reduced motion on, pets keep still and only their poses and bubbles change.
 - **Remote Coder sessions are marked cloud**: a session running in a Coder workspace now shows a cloud icon after its name in the session list, on desktop and phone, and a CLOUD tag on its card. Hovering either names the workspace, so a remote session no longer looks like a second local one.
 
 ### Fixed

@@ -67,7 +67,7 @@
     },
     {
       "name": "zen",
-      "definition": "The experimental dashboard view that shows no terminal until a session needs the operator, then stages that one session alone."
+      "definition": "The experimental dashboard view that shows each live session as a pet in a meadow, which wakes on output, sleeps when quiet and raises a status bubble when its session needs the operator, and stages one session alone: the next one needing the operator, or one the operator picks from the meadow."
     }
   ]
 }
