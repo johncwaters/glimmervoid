@@ -19,28 +19,28 @@ import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, SANE_YOLO_AGENT_LABELS, UNREAD
       <tbody>
         <tr>
           <th scope="row" class="aspect">Writes</th>
-          <td class="yes" data-level="Your sessions"><span class="verdict">Anywhere</span><span class="detail">Except credentials, Glimmervoid's state, <code>{BLOCKED_PATHS_KEY}</code></span></td>
-          <td class="no" data-level="Automated lanes"><span class="verdict">Own folder only</span><span class="detail">Not even git hooks</span></td>
+          <td class="yes"><span class="verdict">Anywhere</span><span class="detail">Except credentials, Glimmervoid's state, <code>{BLOCKED_PATHS_KEY}</code></span></td>
+          <td class="no"><span class="verdict">Own folder only</span><span class="detail">Not even git hooks</span></td>
         </tr>
         <tr>
           <th scope="row" class="aspect">Reads</th>
-          <td class="yes" data-level="Your sessions"><span class="verdict">All but credentials and state</span><span class="detail">And <code>{UNREADABLE_PATHS_KEY}</code></span></td>
-          <td class="no" data-level="Automated lanes"><span class="verdict">No credentials, no state</span></td>
+          <td class="yes"><span class="verdict">All but credentials and state</span><span class="detail">And <code>{UNREADABLE_PATHS_KEY}</code></span></td>
+          <td class="no"><span class="verdict">No credentials, no state</span></td>
         </tr>
         <tr>
           <th scope="row" class="aspect">Network</th>
-          <td class="yes" data-level="Your sessions"><span class="verdict">Open</span></td>
-          <td class="no" data-level="Automated lanes"><span class="verdict">Allowlist for reviews</span><span class="detail">Open for lanes that push a fix</span></td>
+          <td class="yes"><span class="verdict">Open</span></td>
+          <td class="no"><span class="verdict">Allowlist for reviews</span><span class="detail">Open for lanes that push a fix</span></td>
         </tr>
         <tr>
           <th scope="row" class="aspect">Tools</th>
-          <td class="yes" data-level="Your sessions"><span class="verdict">Everything</span></td>
-          <td class="no" data-level="Automated lanes"><span class="verdict">Own terminal only</span></td>
+          <td class="yes"><span class="verdict">Everything</span></td>
+          <td class="no"><span class="verdict">Own terminal only</span></td>
         </tr>
         <tr>
           <th scope="row" class="aspect">Opt out</th>
-          <td class="yes" data-level="Your sessions"><span class="verdict">Per project</span></td>
-          <td class="no" data-level="Automated lanes"><span class="verdict">Never</span></td>
+          <td class="yes"><span class="verdict">Per project</span></td>
+          <td class="no"><span class="verdict">Never</span></td>
         </tr>
       </tbody>
     </table>
@@ -70,7 +70,7 @@ that cannot be verified safely.</pre></figure>
   .ledger thead th { padding-block: 16px; }
   .ledger .column-name, .ledger .posture, .ledger .verdict, .ledger .detail { display: block; }
   .ledger .posture { margin-top: 4px; }
-  .ledger .column-name, .ledger .aspect, .ledger td::before { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: var(--text-dim); }
+  .ledger .column-name, .ledger .aspect { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: var(--text-dim); }
   .ledger thead .yes .column-name { color: var(--accent); }
   .ledger thead .no .column-name { color: var(--text-head); }
   .ledger .posture, .ledger .verdict { font-weight: 700; color: var(--text-head); }
@@ -91,10 +91,13 @@ that cannot be verified safely.</pre></figure>
   .yolo-term .blocked { color: var(--state-waiting); font-weight: 700; }
   @media (max-width: 820px) { .yolo { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 720px) {
-    .ledger table, .ledger thead, .ledger tbody, .ledger tr, .ledger th, .ledger td { display: block; }
+    .ledger table, .ledger thead, .ledger tbody { display: block; }
+    .ledger tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     .ledger thead td { display: none; }
-    .ledger th.no, .ledger td.no { border-left: 0; border-top: 1px solid var(--border-dim); }
-    .ledger .aspect { padding-bottom: 0; }
-    .ledger td::before { content: attr(data-level); display: block; margin-bottom: 4px; }
+    .ledger th, .ledger td { padding: 10px 12px; min-width: 0; }
+    .ledger .aspect { grid-column: 1 / -1; padding: 12px 12px 0; }
+    .ledger tbody td.yes { border-left: 0; }
+    .ledger .posture, .ledger .verdict { font-size: 13px; }
+    .ledger .detail { font-size: 12px; }
   }
 </style>
