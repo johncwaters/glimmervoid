@@ -94,12 +94,12 @@ export function prunedKeepMergeableState({ keepMergeableKeys, keepMergeableAttem
   };
 }
 
-export function prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount, totalCount }: {
-  mergeQueueKeys: readonly string[]; prs: readonly Pick<MyPr, 'key' | 'state'>[]; returnedCount: number; totalCount: number;
+export function prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount, totalCount, isComplete }: {
+  mergeQueueKeys: readonly string[]; prs: readonly Pick<MyPr, 'key' | 'state'>[]; returnedCount: number; totalCount: number; isComplete: boolean;
 }): string[] {
   const finishedKeys = new Set(prs.filter((pr) => pr.state !== 'OPEN').map((pr) => pr.key));
   const unfinishedKeys = mergeQueueKeys.filter((key) => !finishedKeys.has(key));
-  if (isSearchTruncated(returnedCount, totalCount)) return unfinishedKeys;
+  if (!isComplete || isSearchTruncated(returnedCount, totalCount)) return unfinishedKeys;
   const openKeys = new Set(prs.filter((pr) => pr.state === 'OPEN').map((pr) => pr.key));
   return unfinishedKeys.filter((key) => openKeys.has(key));
 }

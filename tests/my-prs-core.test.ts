@@ -215,8 +215,9 @@ test('merge queue never retries a merge at a head it already attempted but does 
 test('merge queue drops merged and closed PRs always and unlisted PRs only when the search is complete, keeping order', () => {
   const prs = [queuedPr('Acme/app', 1), queuedPr('Acme/app', 2, { state: 'MERGED' }), queuedPr('Acme/app', 3, { state: 'CLOSED' }), queuedPr('Acme/web', 4)];
   const mergeQueueKeys = ['Acme/web#4', 'Acme/app#2', 'Acme/app#9', 'Acme/app#1', 'Acme/app#3'];
-  assert.deepEqual(prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: 4, totalCount: 4 }), ['Acme/web#4', 'Acme/app#1']);
-  assert.deepEqual(prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: 4, totalCount: 60 }), ['Acme/web#4', 'Acme/app#9', 'Acme/app#1']);
+  assert.deepEqual(prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: 4, totalCount: 4, isComplete: true }), ['Acme/web#4', 'Acme/app#1']);
+  assert.deepEqual(prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: 4, totalCount: 60, isComplete: true }), ['Acme/web#4', 'Acme/app#9', 'Acme/app#1']);
+  assert.deepEqual(prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: 4, totalCount: 4, isComplete: false }), ['Acme/web#4', 'Acme/app#9', 'Acme/app#1']);
 });
 
 test('a queued PR GitHub reports BEHIND is rebased even with auto-rebase off, and an unqueued one only with it on', () => {

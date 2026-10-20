@@ -207,7 +207,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     previousPrs = core.sortedMyPrs(prs, timestamp);
     pruneMergeFailures(timestamp);
     if (snapshot.isComplete) pruneKeepMergeableState(snapshot.returnedCount, snapshot.totalCount);
-    if (isMergeQueueEnabled && snapshot.isComplete) mergeQueueKeys = core.prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: snapshot.returnedCount, totalCount: snapshot.totalCount });
+    if (isMergeQueueEnabled) mergeQueueKeys = core.prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: snapshot.returnedCount, totalCount: snapshot.totalCount, isComplete: snapshot.isComplete });
     previousPrs = withOperatorFlags(previousPrs);
     cancelFixes(core.keepMergeableFixesToCancel(fixControllersByKey.keys(), keepMergeableKeys, previousPrs));
     previousTruncatedNote = core.truncatedSearchNote(snapshot.returnedCount, snapshot.totalCount);
@@ -268,6 +268,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       const merged = await mergePr(pr);
       if (merged.ok) {
         mergeFailuresByKey.delete(pr.key);
+        if (merged.kind === 'merged') mergeQueueKeys = mergeQueueKeys.filter((queuedKey) => queuedKey !== pr.key);
         continue;
       }
       const message = firstLine(merged.error ?? '') || 'GitHub refused the merge';

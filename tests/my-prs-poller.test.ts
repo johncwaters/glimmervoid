@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { createMyPrsPoller as createLanePoller } from '../server/github/my-prs-poller.ts';
 import { FAILED_GITHUB_ACTION_RETRY_MS } from '../server/github/core/my-prs-core.ts';
 import { MyPrsState as MyPrsStateSchema } from '../shared/contracts/my-prs.ts';
-import type { MyPr, MyPrSearchNode, MyPrMergeabilityFixResult, MyPrsSnapshot, MyPrsState } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrSearchNode, MyPrMergeabilityFixResult, MyPrMergeKind, MyPrsSnapshot, MyPrsState } from '../shared/contracts/my-prs.ts';
 
 const NOW = Date.parse('2026-09-28T12:00:00Z');
 function node(state: 'OPEN' | 'MERGED'): MyPrSearchNode {
@@ -851,10 +851,11 @@ function queueNode(repo: string, number: number, overrides: Partial<MyPrSearchNo
 
 function mergeQueueHarness({ items, mergeOutcome = { ok: true, kind: 'merged' }, behindByKey = new Map<string, number>(), savedQueue = [], savedPushedHeadKeys = [], isAutoRebaseOn = false, isMergeQueueEnabled, beforeMergeReturns = async () => {}, beforeRebaseReturns = async () => {} }: {
   isMergeQueueEnabled?: boolean;
-  items: MyPrSearchNode[]; mergeOutcome?: { ok: true; kind: 'merged' } | { ok: false; error: string }; behindByKey?: Map<string, number>; savedQueue?: string[]; savedPushedHeadKeys?: string[];
+  items: MyPrSearchNode[]; mergeOutcome?: { ok: true; kind: MyPrMergeKind } | { ok: false; error: string }; behindByKey?: Map<string, number>; savedQueue?: string[]; savedPushedHeadKeys?: string[];
   isAutoRebaseOn?: boolean; beforeMergeReturns?: (pr: MyPr) => Promise<void>; beforeRebaseReturns?: (pullRequestId: string) => Promise<void>;
 }) {
   let listedItems = items;
+  let unlistedCount = 0;
   let nowMs = NOW;
   let currentMergeOutcome = mergeOutcome;
   let saved: MyPrsState = { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: savedQueue, keepMergeablePushedHeadKeys: savedPushedHeadKeys, keepMergeableAttempts: [] };
@@ -870,7 +871,7 @@ function mergeQueueHarness({ items, mergeOutcome = { ok: true, kind: 'merged' },
     writeState: async (state) => { saved = state; },
     github: {
       async viewer() { return 'alice'; },
-      async readPrs() { return { ok: true as const, items: listedItems, totalCount: listedItems.length, error: '' }; },
+      async readPrs() { return { ok: true as const, items: listedItems, totalCount: listedItems.length + unlistedCount, error: '' }; },
       async behindCounts() { return behindByKey; },
       async reviewThreadsBatch() { return new Map(); },
       async rebasePr(pullRequestId: string, expectedHeadSha: string) { rebases.push(`${pullRequestId}@${expectedHeadSha}`); await beforeRebaseReturns(pullRequestId); return { ok: true, err: '' }; },
@@ -884,6 +885,7 @@ function mergeQueueHarness({ items, mergeOutcome = { ok: true, kind: 'merged' },
   });
   return {
     poller, statuses, merges, rebases, warnings, savedState: () => saved, setItems: (nextItems: MyPrSearchNode[]) => { listedItems = nextItems; },
+    truncateSearch: (unreturnedCount: number) => { unlistedCount = unreturnedCount; },
     advanceClock: (elapsedMs: number) => { nowMs += elapsedMs; }, setMergeOutcome: (nextOutcome: typeof mergeOutcome) => { currentMergeOutcome = nextOutcome; },
   };
 }
@@ -919,7 +921,7 @@ test('merge when ready refuses untracked and no longer open PRs', async () => {
   await harness.poller.stop();
 });
 
-test('a failed queued merge is shown, stays queued, and is retried after the retry delay, at a new head, or when queued again', async () => {
+test('a failed queued merge is shown, stays queued, and is retried after the retry delay, at a new head, or when queued again, stays queued while GitHub only queues it, and leaves the queue once merged', async () => {
   const refusal = 'GraphQL: Resource not accessible by integration (mergePullRequest)';
   const harness = mergeQueueHarness({ items: [queueNode('Acme/app', 1)], mergeOutcome: { ok: false, error: refusal }, savedQueue: ['Acme/app#1'] });
   const firstHead = `Acme/app#1@${'a'.repeat(40)}:SQUASH`;
@@ -935,18 +937,27 @@ test('a failed queued merge is shown, stays queued, and is retried after the ret
   assert.deepEqual(harness.merges, [firstHead, firstHead]);
   assert.equal((await harness.poller.setMergeWhenReady({ repo: 'Acme/app', number: 1, mergeWhenReady: true })).ok, true);
   assert.equal(harness.statuses.at(-1)?.prs[0]?.mergeQueueFailure, undefined);
-  harness.setMergeOutcome({ ok: true, kind: 'merged' });
   await harness.poller.tick();
   assert.deepEqual(harness.merges, [firstHead, firstHead, firstHead]);
-  assert.equal(harness.statuses.at(-1)?.prs[0]?.mergeQueueFailure, undefined);
-  harness.setMergeOutcome({ ok: false, error: refusal });
+  const newHead = `Acme/app#1@${'c'.repeat(40)}:SQUASH`;
   harness.setItems([queueNode('Acme/app', 1, { headRefOid: 'c'.repeat(40) })]);
+  harness.setMergeOutcome({ ok: true, kind: 'queued' });
   await harness.poller.tick();
-  assert.deepEqual(harness.merges, [firstHead, firstHead, firstHead, `Acme/app#1@${'c'.repeat(40)}:SQUASH`]);
+  await harness.poller.tick();
+  assert.deepEqual(harness.merges, [firstHead, firstHead, firstHead, newHead]);
+  assert.deepEqual(harness.savedState().mergeQueueKeys, ['Acme/app#1']);
+  const mergedHead = `Acme/app#1@${'d'.repeat(40)}:SQUASH`;
+  harness.setItems([queueNode('Acme/app', 1, { headRefOid: 'd'.repeat(40) })]);
+  harness.setMergeOutcome({ ok: true, kind: 'merged' });
+  await harness.poller.tick();
+  assert.deepEqual(harness.merges, [firstHead, firstHead, firstHead, newHead, mergedHead]);
+  assert.deepEqual(harness.savedState().mergeQueueKeys, []);
+  assert.equal(harness.statuses.at(-1)?.prs[0]?.mergeQueuePosition, null);
+  assert.equal(harness.statuses.at(-1)?.prs[0]?.mergeQueueFailure, undefined);
   await harness.poller.stop();
 });
 
-test('a queued behind PR is rebased with auto-rebase off, an unqueued one is not, and a merged PR leaves the queue', async () => {
+test('a queued behind PR is rebased with auto-rebase off, an unqueued one is not, and a merged PR leaves the queue even from a truncated search', async () => {
   const behind = { mergeStateStatus: 'BEHIND' };
   const harness = mergeQueueHarness({
     items: [queueNode('Acme/app', 1, behind), queueNode('Acme/app', 2, behind)],
@@ -956,6 +967,7 @@ test('a queued behind PR is rebased with auto-rebase off, an unqueued one is not
   assert.deepEqual(harness.rebases, [`PR_1@${'a'.repeat(40)}`]);
   assert.deepEqual(harness.merges, []);
   harness.setItems([queueNode('Acme/app', 1, { state: 'MERGED', mergedAt: '2026-09-28T11:00:00Z' }), queueNode('Acme/app', 2, behind)]);
+  harness.truncateSearch(60);
   await harness.poller.tick();
   assert.deepEqual(harness.savedState().mergeQueueKeys, []);
   assert.equal(harness.statuses.at(-1)?.prs.find((pr) => pr.key === 'Acme/app#1')?.mergeQueuePosition, null);
