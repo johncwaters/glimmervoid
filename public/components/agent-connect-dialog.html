@@ -1,0 +1,18 @@
+<h2 class="dialog-title" id="agent-connect-title">Connect</h2>
+<p class="dialog-hint" id="agent-connect-intro"></p>
+<p class="dialog-label" id="agent-connect-state" role="status"></p>
+<div class="dialog-label" id="agent-connect-steps" hidden>
+  <span>1. Open <a class="dialog-link" id="agent-connect-link" href="about:blank" target="_blank" rel="noopener noreferrer">the sign-in page</a> and sign in.</span>
+  <span id="agent-connect-code-row" hidden>2. Enter this code there: <code id="agent-connect-code"></code></span>
+  <label class="dialog-label" id="agent-connect-paste-label" hidden>
+    2. Paste the code the page shows
+    <input type="text" class="dialog-input" id="agent-connect-paste" autocomplete="off" spellcheck="false">
+  </label>
+</div>
+<div class="dialog-error" id="agent-connect-error"></div>
+<div class="dialog-actions">
+  <button type="button" class="btn-dialog btn-dialog-cancel" id="agent-connect-close">Close</button>
+  <button type="button" class="btn-dialog btn-dialog-cancel" id="agent-connect-stop" hidden>Stop sign-in</button>
+  <button type="button" class="btn-dialog btn-dialog-confirm" id="agent-connect-submit" hidden>Submit code</button>
+  <button type="button" class="btn-dialog btn-dialog-confirm" id="agent-connect-start">Start sign-in</button>
+</div>

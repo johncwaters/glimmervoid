@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
+const KEYCHAIN_SERVICE = 'Claude Code-credentials';
 const LOGIN_REFRESH_MARGIN_MS = 10 * 60 * 1000;
 const EXPIRY_WAIT_GRACE_MS = 5000;
 
@@ -31,6 +33,11 @@ function parseStoredCredentials(text: string): LoginAccessToken | null {
   const parsed = StoredClaudeCredentials.safeParse(decoded);
   if (!parsed.success) return null;
   return { accessToken: parsed.data.claudeAiOauth.accessToken, expiresAt: parsed.data.claudeAiOauth.expiresAt };
+}
+
+function keychainServiceFor(configDir: string | null): string {
+  if (configDir === null) return KEYCHAIN_SERVICE;
+  return `${KEYCHAIN_SERVICE}-${createHash('sha256').update(configDir.normalize('NFC')).digest('hex').slice(0, 8)}`;
 }
 
 function requiredValidUntil(nowMs: number, cellTimeoutSeconds: number): number {
@@ -66,5 +73,5 @@ function decideArmToken({ login, nowMs, cellTimeoutSeconds, hasRefreshed, expire
   return { kind: 'unavailable', reason: exhaustedLoginReason(login, nowMs, cellTimeoutSeconds, expiresAtBeforeRefresh, hasWaitedForExpiry) };
 }
 
-export { EXPIRY_WAIT_GRACE_MS, LOGIN_REFRESH_MARGIN_MS, decideArmToken, parseStoredCredentials };
+export { EXPIRY_WAIT_GRACE_MS, LOGIN_REFRESH_MARGIN_MS, decideArmToken, keychainServiceFor, parseStoredCredentials };
 export type { LoginAccessToken };

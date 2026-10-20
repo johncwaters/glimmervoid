@@ -1,3 +1,4 @@
+import path from 'node:path';
 import http from 'node:http';
 import { HookRouter } from '../../detection/hook-source.ts';
 import { sweepOrphans } from '../../detection/settings-injector.ts';
@@ -19,7 +20,8 @@ import { buildSettingsPayload } from '../settings-payload.ts';
 import { cliPath } from '../runtime-paths.ts';
 import { createSshSigner, installCommitSigningShim } from '../ssh-signing.ts';
 import { createClaudeCredentials } from '../claude-credentials.ts';
-import { commandFor } from '../../session/adapters/index.ts';
+import { commandFor, getAdapter } from '../../session/adapters/index.ts';
+import { createAgentConnect } from '../agent-login/agent-connect.ts';
 import codexAdapter, { readHostCodexVersion } from '../../session/adapters/codex.ts';
 import { createCodexCredentials } from '../codex-credentials.ts';
 import { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult } from '../core/codex-credentials-core.ts';
@@ -71,13 +73,28 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   });
   const sshSigner = commitSigningProgram ? createSshSigner() : null;
   const claudeCommand = () => commandFor('claude-code').path;
-  const claudeCredentials = createClaudeCredentials({ claudeCommand });
+  const agentLoginsRoot = configSiblingPath(dependencies.configStore.configPath, 'agent-logins');
+  const claudeCredentials = createClaudeCredentials({ claudeCommand, connectedConfigDir: path.join(agentLoginsRoot, 'claude-code') });
   const codexCredentials = createCodexCredentials({
+    connectedCodexHome: path.join(agentLoginsRoot, 'codex'),
     codexCommand: () => {
       const command = codexAdapter.buildSpawnCommand({ platform: process.platform, resolved: commandFor(codexAdapter), settingsArgs: [], agentArgs: [] });
       return { file: command.file, argsBeforeAppServer: command.args };
     },
   });
+  const agentConnect = createAgentConnect({
+    loginsRoot: agentLoginsRoot,
+    loginSource: (agent) => (agent === 'codex' ? codexCredentials.loginSource() : claudeCredentials.loginSource()),
+    launchFor: (agent, loginArgs) => {
+      const adapter = getAdapter(agent);
+      const resolved = adapter ? commandFor(adapter) : null;
+      if (!adapter || !resolved?.path) return null;
+      const command = adapter.buildSpawnCommand({ platform: process.platform, resolved, settingsArgs: [], agentArgs: loginArgs });
+      return { ...command, env: adapter.buildEnv(process.env, null) };
+    },
+    onChange: (logins) => dependencies.getBroadcastControl()?.({ type: 'agent-logins', logins }),
+  });
+  void agentConnect.refresh();
   const codexLogin = async (resolveLogin: typeof codexCredentials.hostLogin) => {
     const resolved = await resolveLogin();
     if (!resolved.ok) throw new Error(resolved.reason);
@@ -121,7 +138,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     }),
   });
 
-  return { agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, rtkInstall, sshSigner };
+  return { agentConnect, agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, rtkInstall, sshSigner };
 }
 
 export { createBackendSessionRuntime };

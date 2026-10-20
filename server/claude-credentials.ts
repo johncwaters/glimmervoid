@@ -2,10 +2,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync } from './child-process-safe.ts';
-import { decideArmToken, parseStoredCredentials } from './core/claude-credentials-core.ts';
+import { decideArmToken, keychainServiceFor, parseStoredCredentials } from './core/claude-credentials-core.ts';
 import type { LoginAccessToken } from './core/claude-credentials-core.ts';
+import type { LoginSource } from './agent-login/core/agent-connect-core.ts';
 
-const KEYCHAIN_SERVICE = 'Claude Code-credentials';
 const OVERRIDE_TOKEN_ENV = 'GLIMMERVOID_CLAUDE_OAUTH_TOKEN';
 const LOGIN_REFRESH_TIMEOUT_MS = 120_000;
 const ARM_ONLY_ENV_KEYS = Object.freeze(['CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY']);
@@ -17,6 +17,7 @@ type CommandRunner = (command: string, args: string[], options: { env?: NodeJS.P
 interface ClaudeCredentialsOptions {
   platform?: NodeJS.Platform;
   homeDir?: string;
+  connectedConfigDir?: string | null;
   env?: NodeJS.ProcessEnv;
   now?: () => number;
   claudeCommand: () => string | null;
@@ -54,15 +55,22 @@ function sleepUnlessAborted(durationMs: number, signal: AbortSignal | undefined)
   });
 }
 
-function loginEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+interface StoredLogin {
+  token: LoginAccessToken;
+  source: LoginSource;
+}
+
+function loginEnvironment(env: NodeJS.ProcessEnv, connectedConfigDir: string | null): NodeJS.ProcessEnv {
   const operatorEnv: NodeJS.ProcessEnv = { ...env };
   for (const key of ARM_ONLY_ENV_KEYS) delete operatorEnv[key];
+  if (connectedConfigDir) operatorEnv.CLAUDE_CONFIG_DIR = connectedConfigDir;
   return operatorEnv;
 }
 
 function createClaudeCredentials({
   platform = process.platform,
   homeDir = os.homedir(),
+  connectedConfigDir = null,
   env = process.env,
   now = () => Date.now(),
   claudeCommand,
@@ -73,17 +81,26 @@ function createClaudeCredentials({
   const overrideToken = env[OVERRIDE_TOKEN_ENV] || null;
   delete env[OVERRIDE_TOKEN_ENV];
 
-  async function readLoginToken(): Promise<LoginAccessToken | null> {
+  async function readLoginTokenIn(configDir: string | null): Promise<LoginAccessToken | null> {
     if (platform === 'darwin') {
-      const keychain = await runCommand('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-w'], { timeoutMs: 10_000 });
+      const keychain = await runCommand('security', ['find-generic-password', '-s', keychainServiceFor(configDir), '-w'], { timeoutMs: 10_000 });
       return keychain.ok ? parseStoredCredentials(keychain.stdout) : null;
     }
-    const stored = await readTextFile(path.join(homeDir, '.claude', '.credentials.json'));
+    const stored = await readTextFile(path.join(configDir ?? path.join(homeDir, '.claude'), '.credentials.json'));
     return stored === null ? null : parseStoredCredentials(stored);
   }
 
-  async function refreshLogin(command: string, signal: AbortSignal | undefined): Promise<void> {
-    await runCommand(command, ['-p', 'Reply with OK.'], { env: loginEnvironment(env), timeoutMs: LOGIN_REFRESH_TIMEOUT_MS, signal });
+  async function readStoredLogin(): Promise<StoredLogin | null> {
+    const hostToken = await readLoginTokenIn(null);
+    if (hostToken) return { token: hostToken, source: 'host' };
+    if (!connectedConfigDir) return null;
+    const connectedToken = await readLoginTokenIn(connectedConfigDir);
+    return connectedToken ? { token: connectedToken, source: 'glimmervoid' } : null;
+  }
+
+  async function refreshLogin(command: string, source: LoginSource | null, signal: AbortSignal | undefined): Promise<void> {
+    const configDir = source === 'glimmervoid' ? connectedConfigDir : null;
+    await runCommand(command, ['-p', 'Reply with OK.'], { env: loginEnvironment(env, configDir), timeoutMs: LOGIN_REFRESH_TIMEOUT_MS, signal });
   }
 
   async function resolveArmToken(cellTimeoutSeconds: number, signal?: AbortSignal): Promise<{ ok: true; token: string } | { ok: false; reason: string }> {
@@ -94,7 +111,8 @@ function createClaudeCredentials({
     let hasWaitedForExpiry = false;
     let expiresAtBeforeRefresh: number | null = null;
     for (;;) {
-      const login = await readLoginToken();
+      const stored = await readStoredLogin();
+      const login = stored?.token ?? null;
       const decision = decideArmToken({ login, nowMs: now(), cellTimeoutSeconds, hasRefreshed, expiresAtBeforeRefresh, hasWaitedForExpiry });
       if (decision.kind === 'use') return { ok: true, token: decision.token };
       if (decision.kind === 'unavailable') return { ok: false, reason: decision.reason };
@@ -107,12 +125,17 @@ function createClaudeCredentials({
         hasWaitedForExpiry = true;
       }
       expiresAtBeforeRefresh = login?.expiresAt ?? null;
-      await refreshLogin(refreshCommand, signal);
+      await refreshLogin(refreshCommand, stored?.source ?? null, signal);
       hasRefreshed = true;
     }
   }
 
-  return { resolveArmToken };
+  async function loginSource(): Promise<LoginSource | null> {
+    if (overrideToken) return 'host';
+    return (await readStoredLogin())?.source ?? null;
+  }
+
+  return { loginSource, resolveArmToken };
 }
 
 export { OVERRIDE_TOKEN_ENV, createClaudeCredentials };

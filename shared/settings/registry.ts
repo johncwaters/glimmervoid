@@ -282,6 +282,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         description: 'Extra agent CLIs a session can be spawned with, declared under customAgents in config.json.',
         control: 'readonly', keywords: ['adapters', 'cli'], status: 'custom-agents', ...READOUT,
       },
+      {
+        id: 'agent-logins', path: 'status:agent-logins', title: 'Agent logins',
+        description: 'How Claude Code and Codex sign in inside a Coder workspace. Each uses the login already on this machine; Connect signs one in for Glimmervoid alone when there is none.',
+        control: 'readonly', keywords: ['claude', 'codex', 'sign in', 'login', 'coder', 'remote'], status: 'agent-logins', ...READOUT,
+      },
     ],
   },
   {

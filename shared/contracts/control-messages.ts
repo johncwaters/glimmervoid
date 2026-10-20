@@ -79,6 +79,19 @@ const CoderEnvironmentOffer = z.object({
 });
 export type CoderEnvironmentOffer = z.infer<typeof CoderEnvironmentOffer>;
 export const CoderEnvironmentOffers = z.array(CoderEnvironmentOffer).nullable();
+export const ConnectableAgent = z.enum(['claude-code', 'codex']);
+export type ConnectableAgent = z.infer<typeof ConnectableAgent>;
+export const AgentLoginStatus = z.object({
+  agent: ConnectableAgent,
+  state: z.enum(['signed-in', 'signed-out', 'connecting', 'failed']),
+  source: z.enum(['host', 'glimmervoid']).nullable(),
+  verificationUrl: z.string().nullable(),
+  userCode: z.string().nullable(),
+  needsPastedCode: z.boolean(),
+  reason: z.string().nullable(),
+}).strict();
+export type AgentLoginStatus = z.infer<typeof AgentLoginStatus>;
+export const AgentLoginStatuses = z.array(AgentLoginStatus);
 export const TelegramDeliveryStatus = z.object({
   setupWarning: nullableString,
   lastFailure: z.object({ message: z.string(), failedAt: timestamp }).nullable(),
@@ -217,6 +230,9 @@ const clientVariants = [
   loose('unlink-session-pr', { id: sessionId, key: PullRequestKey }),
   loose('ping', { requestId }),
   loose('get-settings', { requestId }),
+  loose('get-agent-logins', { requestId }),
+  loose('agent-connect', { agent: ConnectableAgent, action: z.enum(['start', 'cancel']), requestId }),
+  loose('agent-connect-code', { agent: ConnectableAgent, code: z.string(), requestId }),
   loose('update-settings', { settings: z.record(z.string(), z.unknown()), requestId }),
   loose('scan-repo-roots', { requestId, includeSuggestions: z.boolean().optional() }),
   loose('list-agents', { requestId, rescan: z.boolean().optional() }),
@@ -283,6 +299,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'hooks-report',
   'save-hook-result',
   'add-session-result',
+  'agent-logins',
   'delete-hook-result',
   'workspace-repos',
   'set-workspace-repos-result',
@@ -394,6 +411,7 @@ const serverVariants = [
   }),
   loose('save-hook-result', { requestId, ok: z.boolean(), error: optionalError, hook: opaqueObject.optional() }),
   loose('add-session-result', { requestId, ok: z.boolean(), error: optionalError, reason: z.enum(['not-git']).optional() }),
+  loose('agent-logins', { requestId, logins: AgentLoginStatuses, error: optionalError }),
   loose('delete-hook-result', { requestId, ok: z.boolean(), error: optionalError, id: z.string().optional() }),
   loose('workspace-repos', { requestId, id: sessionId, ok: z.boolean(), repos: z.array(z.string()), error: optionalError }),
   loose('set-workspace-repos-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),

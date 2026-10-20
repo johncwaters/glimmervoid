@@ -170,6 +170,8 @@ test('every config sibling file the server names is write-blocked for a session 
     const glimmervoidConfigFile = path.join(configFolder, 'settings.json');
     const blocked = standardWriteBlockCandidates(role, { ...hostPaths, glimmervoidConfigFile, glimmervoidHomeEntryNames: [] });
     for (const blockedPath of [glimmervoidConfigFile, ...siblingNames.map((name) => path.join(configFolder, name))]) assert.equal(blocked.includes(blockedPath), true, blockedPath);
+    const readDenied = entryPaths(planFor(role, { ...hostPaths, glimmervoidConfigFile, existingPaths: new Set() }).policy.filesystem.denyRead);
+    assert.equal(readDenied.includes(path.join(configFolder, 'agent-logins')), true, configFolder);
   }
 });
 

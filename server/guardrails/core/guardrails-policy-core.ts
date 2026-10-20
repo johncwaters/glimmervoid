@@ -143,8 +143,9 @@ const GUARDRAILS_PLACEHOLDER_NAMES: readonly string[] = Object.freeze([
 ]);
 const WHOLE_FILESYSTEM = '/';
 const GUARDRAILS_TEMP_FOLDER = 'guardrails-temp';
+const AGENT_LOGINS_SIBLING_ENTRY = 'agent-logins';
 const GLIMMERVOID_CONFIG_SIBLING_ENTRIES: readonly string[] = Object.freeze([
-  'bin', 'pairings.json', 'pairings-seen.json', 'plans', 'telegram-outbox.json', 'traces', 'uploads', 'usage-budget-state.json', 'usage-lanes.json', 'usage-warehouse.json',
+  AGENT_LOGINS_SIBLING_ENTRY, 'bin', 'pairings.json', 'pairings-seen.json', 'plans', 'telegram-outbox.json', 'traces', 'uploads', 'usage-budget-state.json', 'usage-lanes.json', 'usage-warehouse.json',
   'visions-intent.json',
 ]);
 const GLIMMERVOID_HOME_STATE_ENTRIES: readonly string[] = Object.freeze([
@@ -320,6 +321,7 @@ function readDeniedPaths(role: GuardrailsRole, host: GuardrailsHostPaths): strin
     ...otherVendors.flatMap((vendor) => vendorHeldPaths(host, vendor)),
     ...host.unwrappedVendorHomes,
     host.glimmervoidHome,
+    path.join(path.dirname(host.glimmervoidConfigFile), AGENT_LOGINS_SIBLING_ENTRY),
     ...launchPrivateFolders(role, host),
     ...role.readDenied,
   ];

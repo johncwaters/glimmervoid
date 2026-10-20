@@ -1,8 +1,9 @@
 import addSessionHTML from './components/add-session-dialog.html?raw';
+import agentConnectHTML from './components/agent-connect-dialog.html?raw';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
 import { sendControlRequest } from './control-ws.ts';
-import { CoderEnvironmentOffers } from '#shared/contracts/control-messages.ts';
-import type { CoderEnvironmentOffer, ServerMessage } from '#shared/contracts/control-messages.ts';
+import { AgentLoginStatuses, CoderEnvironmentOffers, ConnectableAgent } from '#shared/contracts/control-messages.ts';
+import type { AgentLoginStatus, CoderEnvironmentOffer, ServerMessage } from '#shared/contracts/control-messages.ts';
 import { el, query, queryTag } from './dom-helpers.ts';
 import { createRepoRootsAdder } from './onboarding/repo-roots-adder.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
@@ -49,6 +50,122 @@ function coderEnvironmentHint(environment: CoderEnvironmentOffer): string {
   ].filter(Boolean).join(' ');
 }
 
+const CONNECTABLE_AGENT_NAMES: Readonly<Record<ConnectableAgent, string>> = Object.freeze({ 'claude-code': 'Claude Code', codex: 'Codex' });
+
+let latestAgentLogins: AgentLoginStatus[] = [];
+const agentLoginListeners = new Set<() => void>();
+
+export function applyAgentLogins(logins: unknown) {
+  const parsed = AgentLoginStatuses.safeParse(logins);
+  if (!parsed.success) return;
+  latestAgentLogins = parsed.data;
+  for (const listener of agentLoginListeners) listener();
+}
+
+export function agentLoginOf(agent: ConnectableAgent): AgentLoginStatus | null {
+  return latestAgentLogins.find((login) => login.agent === agent) ?? null;
+}
+
+export function onAgentLoginsChanged(listener: () => void): () => void {
+  agentLoginListeners.add(listener);
+  return () => { agentLoginListeners.delete(listener); };
+}
+
+function connectableAgentOf(agentId: string): ConnectableAgent | null {
+  const parsed = ConnectableAgent.safeParse(agentId);
+  return parsed.success ? parsed.data : null;
+}
+
+export function agentLoginSummary(login: AgentLoginStatus | null, agent: ConnectableAgent): string {
+  const name = CONNECTABLE_AGENT_NAMES[agent];
+  if (!login) return `Checking whether ${name} is signed in.`;
+  if (login.state === 'signed-in' && login.source === 'host') return `${name} uses the login already on this machine.`;
+  if (login.state === 'signed-in') return `${name} uses the login Glimmervoid connected.`;
+  if (login.state === 'connecting') return login.reason ?? `${name} sign-in is waiting for you.`;
+  if (login.state === 'failed') return login.reason ?? `${name} sign-in failed.`;
+  return `${name} has no login on this machine, so remote ${name} sessions cannot sign in.`;
+}
+
+function refreshAgentLogins() {
+  sendControlRequest('get-agent-logins', {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
+    .then((reply) => { if (reply.type === 'agent-logins') applyAgentLogins(reply.logins); })
+    .catch(() => {});
+}
+
+export function openAgentConnectDialog(agent: ConnectableAgent) {
+  const name = CONNECTABLE_AGENT_NAMES[agent];
+  const { dialog, close } = createModalOverlay();
+  dialog.innerHTML = agentConnectHTML;
+  applyDialogAria(dialog, 'agent-connect-title');
+  query(dialog, '#agent-connect-title').textContent = `Connect ${name}`;
+  query(dialog, '#agent-connect-intro').textContent = `Glimmervoid signs ${name} in for its own remote sessions and keeps that login in its own folder, apart from any login you already have on this machine. The sign-in runs here and is never recorded.`;
+  const stateEl = query(dialog, '#agent-connect-state');
+  const stepsEl = query(dialog, '#agent-connect-steps');
+  const linkEl = queryTag(dialog, '#agent-connect-link', 'a');
+  const codeRowEl = query(dialog, '#agent-connect-code-row');
+  const codeEl = query(dialog, '#agent-connect-code');
+  const pasteLabelEl = query(dialog, '#agent-connect-paste-label');
+  const pasteInput = queryTag(dialog, '#agent-connect-paste', 'input');
+  const errorEl = query(dialog, '#agent-connect-error');
+  const closeButton = queryTag(dialog, '#agent-connect-close', 'button');
+  const stopButton = queryTag(dialog, '#agent-connect-stop', 'button');
+  const submitButton = queryTag(dialog, '#agent-connect-submit', 'button');
+  const startButton = queryTag(dialog, '#agent-connect-start', 'button');
+
+  function render() {
+    if (!dialog.isConnected) {
+      unsubscribe();
+      return;
+    }
+    const login = agentLoginOf(agent);
+    const isConnecting = login?.state === 'connecting';
+    stateEl.textContent = agentLoginSummary(login, agent);
+    startButton.hidden = isConnecting;
+    stopButton.hidden = !isConnecting;
+    const verificationUrl = isConnecting ? login.verificationUrl : null;
+    stepsEl.hidden = verificationUrl === null;
+    linkEl.href = verificationUrl ?? '';
+    linkEl.textContent = verificationUrl ?? '';
+    codeRowEl.hidden = !login?.userCode;
+    codeEl.textContent = login?.userCode ?? '';
+    const needsPastedCode = isConnecting && login.needsPastedCode;
+    pasteLabelEl.hidden = !needsPastedCode;
+    submitButton.hidden = !needsPastedCode;
+  }
+
+  async function send(type: string, payload: Record<string, unknown>, button: HTMLButtonElement) {
+    button.disabled = true;
+    errorEl.textContent = '';
+    try {
+      const reply = await sendControlRequest(type, { agent, ...payload }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+      if (reply.type !== 'agent-logins') return;
+      applyAgentLogins(reply.logins);
+      if (reply.error) errorEl.textContent = reply.error;
+    } catch (reason) {
+      errorEl.textContent = `The server did not answer (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}).`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  startButton.addEventListener('click', () => { void send('agent-connect', { action: 'start' }, startButton); });
+  stopButton.addEventListener('click', () => { void send('agent-connect', { action: 'cancel' }, stopButton); });
+  submitButton.addEventListener('click', () => {
+    const code = pasteInput.value;
+    pasteInput.value = '';
+    void send('agent-connect-code', { code }, submitButton);
+  });
+  pasteInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    submitButton.click();
+  });
+  closeButton.addEventListener('click', close);
+  const unsubscribe = onAgentLoginsChanged(render);
+  render();
+  refreshAgentLogins();
+}
+
 export function addSessionRefusalText(reply: ServerMessage): string {
   if (reply.type === 'add-session-result' && reply.error) return reply.error;
   if (reply.type === 'error') return reply.message;
@@ -83,6 +200,9 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
   const environmentLabelEl = query(dialog, '#add-session-environment-label');
   const environmentSelectEl = queryTag(dialog, '#add-session-environment', 'select');
   const environmentHintEl = query(dialog, '#add-session-environment-hint');
+  const agentLoginEl = query(dialog, '#add-session-agent-login');
+  const agentLoginTextEl = query(dialog, '#add-session-agent-login-text');
+  const agentConnectButton = queryTag(dialog, '#add-session-agent-connect', 'button');
   const repoRootsEl = query(dialog, '#add-session-repo-roots');
   const repoRootsTitleEl = query(dialog, '#add-session-repo-roots-title');
   const advancedToggle = queryTag(dialog, '#add-session-advanced-toggle', 'button');
@@ -230,7 +350,27 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
       agentLabelEl.hidden = false;
     })
     .catch((reason) => { showWarning(`Could not load the agent list (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session uses the default agent.`); });
-  agentSelectEl.addEventListener('change', () => { selectedAgentId = agentSelectEl.value; });
+  agentSelectEl.addEventListener('change', () => {
+    selectedAgentId = agentSelectEl.value;
+    showAgentLogin();
+  });
+
+  function showAgentLogin() {
+    if (!dialog.isConnected) {
+      unsubscribeAgentLogins();
+      return;
+    }
+    const connectableAgent = connectableAgentOf(selectedAgentId);
+    const login = connectableAgent ? agentLoginOf(connectableAgent) : null;
+    agentLoginEl.hidden = selectedEnvironment === null || connectableAgent === null || login === null || login.state === 'signed-in';
+    agentLoginTextEl.textContent = connectableAgent ? agentLoginSummary(login, connectableAgent) : '';
+  }
+  agentConnectButton.addEventListener('click', () => {
+    const connectableAgent = connectableAgentOf(selectedAgentId);
+    if (connectableAgent) openAgentConnectDialog(connectableAgent);
+  });
+  const unsubscribeAgentLogins = onAgentLoginsChanged(showAgentLogin);
+  refreshAgentLogins();
 
   let hasOperatorChosenPermissions = false;
   skipPermsCheckbox.addEventListener('change', () => { hasOperatorChosenPermissions = true; });
@@ -264,6 +404,7 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
     environmentHintEl.hidden = selectedEnvironment === null;
     environmentHintEl.textContent = selectedEnvironment ? coderEnvironmentHint(selectedEnvironment) : '';
     showRunInPlaceChoice(isRunInPlaceOffered);
+    showAgentLogin();
     if (selectedEnvironment === null) return;
     if (isWorkspaceMode) setWorkspaceMode(false);
   });

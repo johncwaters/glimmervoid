@@ -140,7 +140,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     recordOutcome,
     logger: console,
   });
-  const { agentIngressServer, getHookPort, hookRouter, makeSession, rtkInstall, sshSigner } = sessionRuntime;
+  const { agentConnect, agentIngressServer, getHookPort, hookRouter, makeSession, rtkInstall, sshSigner } = sessionRuntime;
 
   const getCurrentIngestLane = () => laneAssembly.currentIngest();
   const getCurrentVisionsLane = () => laneAssembly.currentVisions();
@@ -178,6 +178,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   httpServer.once('close', () => {
     agentIngressServer.close();
     agentIngressServer.closeAllConnections();
+    agentConnect.stop();
   });
 
   const webSockets = createBackendWebSockets({
@@ -522,6 +523,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastControl,
     controlReplayLog,
     getRtkInstallStatus: () => rtkInstall.getStatus(),
+    agentConnect,
     telegramDelivery: notifications.telegramDelivery,
     generateProjectId,
     makeSession,
@@ -568,7 +570,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   stopConfigWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
-    broadcastControl({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, rtkInstallStatus: rtkInstall.getStatus(), coderEnvironments: laneAssembly.coderEnv.availableEnvironments() }) });
+    broadcastControl({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, rtkInstallStatus: rtkInstall.getStatus(), coderEnvironments: laneAssembly.coderEnv.availableEnvironments(), agentLogins: agentConnect.logins() }) });
   });
   updateCheck.start();
 

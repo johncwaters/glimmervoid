@@ -73,6 +73,7 @@ import { errorCode, errorMessage, isMissingFileError } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { sanitizeWorktreeName } from '../shared/paths.ts';
 import type { createCoderEnvWiring } from './coder/coder-env-wiring.ts';
+import type { createAgentConnect } from './agent-login/agent-connect.ts';
 import type { GitWorkspaceInstance } from './git/git-workspace.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 
@@ -163,6 +164,7 @@ interface ControlHandlerDeps {
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture'>>) | null;
   coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'availableEnvironments'> | null;
+  agentConnect?: Pick<ReturnType<typeof createAgentConnect>, 'logins' | 'refresh' | 'start' | 'cancel' | 'submitCode'> | null;
   remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
 }
 
@@ -282,6 +284,9 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'resume-conversation': () => ({ type: 'resume-conversation-ack', requestId, id: typeof msg?.id === 'string' ? msg.id : undefined, ok: false, error: message }),
     'ping': () => ({ type: 'pong', requestId, error: message }),
     'get-settings': () => ({ type: 'settings-error', requestId, message }),
+    'get-agent-logins': () => ({ type: 'agent-logins', requestId, logins: [], error: message }),
+    'agent-connect': () => ({ type: 'agent-logins', requestId, logins: [], error: message }),
+    'agent-connect-code': () => ({ type: 'agent-logins', requestId, logins: [], error: message }),
     'update-settings': () => ({ type: 'settings-error', requestId, message }),
     'scan-repo-roots': () => ({ type: 'repo-roots-scanned', requestId, directories: [], error: message }),
     'list-agents': () => ({ type: 'agents-listed', requestId, agents: [], error: message }),
@@ -401,6 +406,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     changeMapNarrator = null,
     coderEnv = null,
     remoteRepoGit = null,
+    agentConnect = null,
   } = deps;
 
   const changeMaps = createChangeMapService({
@@ -420,7 +426,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
   function buildSettingsPayload() {
-    return buildSettingsPayloadFrom({ configStore, rtkInstallStatus: getRtkInstallStatus(), telegramDelivery: telegramDelivery?.status() ?? null, coderEnvironments: coderEnv?.availableEnvironments() ?? null });
+    return buildSettingsPayloadFrom({ configStore, rtkInstallStatus: getRtkInstallStatus(), telegramDelivery: telegramDelivery?.status() ?? null, coderEnvironments: coderEnv?.availableEnvironments() ?? null, agentLogins: agentConnect?.logins() ?? null });
   }
 
   function findSession(msg: Pick<ClientMessageOf<'kill'>, 'id'>): Session | null {
@@ -828,6 +834,35 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       requestId: msg.requestId || null,
       settings: buildSettingsPayload()
     }));
+    void agentConnect?.refresh();
+  }
+
+  const AGENT_CONNECT_UNAVAILABLE = 'Agent sign-in is not available on this server.';
+
+  async function handleGetAgentLogins(msg: ClientMessageOf<'get-agent-logins'>, ws: ControlSocket): Promise<void> {
+    if (!agentConnect) {
+      replyTo(ws, msg, 'agent-logins', { logins: [], error: AGENT_CONNECT_UNAVAILABLE });
+      return;
+    }
+    replyTo(ws, msg, 'agent-logins', { logins: await agentConnect.refresh() });
+  }
+
+  async function handleAgentConnect(msg: ClientMessageOf<'agent-connect'>, ws: ControlSocket): Promise<void> {
+    if (!agentConnect) {
+      replyTo(ws, msg, 'agent-logins', { logins: [], error: AGENT_CONNECT_UNAVAILABLE });
+      return;
+    }
+    const outcome = msg.action === 'start' ? await agentConnect.start(msg.agent) : agentConnect.cancel(msg.agent);
+    replyTo(ws, msg, 'agent-logins', { logins: agentConnect.logins(), error: outcome.ok ? undefined : outcome.error });
+  }
+
+  function handleAgentConnectCode(msg: ClientMessageOf<'agent-connect-code'>, ws: ControlSocket): void {
+    if (!agentConnect) {
+      replyTo(ws, msg, 'agent-logins', { logins: [], error: AGENT_CONNECT_UNAVAILABLE });
+      return;
+    }
+    const outcome = agentConnect.submitCode(msg.agent, msg.code);
+    replyTo(ws, msg, 'agent-logins', { logins: agentConnect.logins(), error: outcome.ok ? undefined : outcome.error });
   }
 
   function handlePing(msg: ClientMessageOf<'ping'>, ws: ControlSocket): void {
@@ -1453,6 +1488,9 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'unlink-session-pr': handleUnlinkSessionPr,
     'ping':             handlePing,
     'get-settings':     handleGetSettings,
+    'get-agent-logins': handleGetAgentLogins,
+    'agent-connect':    handleAgentConnect,
+    'agent-connect-code': handleAgentConnectCode,
     'update-settings':  handleUpdateSettings,
     'scan-repo-roots':  handleScanRepoRoots,
     'list-agents':      handleListAgents,

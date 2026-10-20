@@ -1,5 +1,5 @@
 import { cachedAgentResolvability } from '../session/adapters/index.ts';
-import type { CoderEnvironmentOffer, CustomAgentDeclaration, CustomAgentSummaryRow, TelegramDeliveryStatus } from '../shared/contracts/index.ts';
+import type { AgentLoginStatus, CoderEnvironmentOffer, CustomAgentDeclaration, CustomAgentSummaryRow, TelegramDeliveryStatus } from '../shared/contracts/index.ts';
 import { getRtkPath } from './rtk-resolver.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 
@@ -11,6 +11,7 @@ interface SettingsPayloadOptions {
   rtkInstallStatus?: Record<string, unknown> | null;
   telegramDelivery?: TelegramDeliveryStatus | null;
   coderEnvironments?: CoderEnvironmentOffer[] | null;
+  agentLogins?: AgentLoginStatus[] | null;
   resolveRtk?: () => string | null;
 }
 
@@ -25,7 +26,7 @@ function summarizeCustomAgents(declarations: readonly CustomAgentDeclaration[]):
 }
 
 function buildSettingsPayload({
-  configStore, rtkInstallStatus = null, telegramDelivery = null, coderEnvironments = null, resolveRtk = getRtkPath,
+  configStore, rtkInstallStatus = null, telegramDelivery = null, coderEnvironments = null, agentLogins = null, resolveRtk = getRtkPath,
 }: SettingsPayloadOptions): Record<string, unknown> {
   return {
     ...configStore.getSettings(),
@@ -35,6 +36,7 @@ function buildSettingsPayload({
     customAgents: summarizeCustomAgents(configStore.config.customAgents ?? []),
     telegramDelivery,
     coderEnvironments,
+    agentLogins,
   };
 }
 

@@ -11,7 +11,7 @@ import { getBorrowedCardId } from './card-host.ts';
 import { createClientErrorReporter } from './client-error-core.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
 import { checkControlLiveness, connectControl, onControlMessage, sendControlMsg, sendControlRequest, setConnectionStateCallback } from './control-ws.ts';
-import { createAddSessionDialog } from './dialogs.ts';
+import { applyAgentLogins, createAddSessionDialog } from './dialogs.ts';
 import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, forgetSessionCoherence, isSessionJournalReadable, openCoherenceJournal, sessionRowCoherenceSignals, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
@@ -480,6 +480,7 @@ const messageHandlers = {
     if (msg.settings) applyDashboardSettings(msg.settings);
     refreshFirstRunChecklist();
   },
+  'agent-logins':       (msg) => applyAgentLogins(msg.logins),
   'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot & ServerMessageOf<'health-snapshot'>['stats']); },
   'radar-status':     (msg) => applyRadarStatus(msg),
   'radar-investigation-activity': (msg) => applyInvestigationActivity(msg),

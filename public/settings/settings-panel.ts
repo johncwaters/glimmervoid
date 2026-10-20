@@ -96,6 +96,7 @@ import {
   updateErrorText,
   updateSummary,
 } from '../updates-view-core.ts';
+import { agentLoginOf, agentLoginSummary, applyAgentLogins, onAgentLoginsChanged, openAgentConnectDialog } from '../dialogs.ts';
 import type { UpdateActionId, UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from '../updates-view-core.ts';
 
 type SectionSearchResult = SettingsSearchResult & { section: SettingsSection };
@@ -195,6 +196,7 @@ function browserPreferences() {
 
 function hydrate(payload: SettingsPayload) {
   storedValues = hydrateFromSettings(SETTINGS_VIEW_MAP, { ...payload, prefs: browserPreferences() });
+  applyAgentLogins(payload.agentLogins);
 }
 
 function storedValue(setting: SettingsSetting): unknown {
@@ -951,7 +953,21 @@ function buildUsageStatus() {
   return block;
 }
 
+function buildAgentLoginsStatus() {
+  const block = el('div', 'settings-view-status-block');
+  for (const agent of ['claude-code', 'codex'] as const) {
+    const row = el('div', 'settings-telegram-test');
+    const connectButton = el('button', 'btn-dialog btn-dialog-cancel', 'Connect');
+    connectButton.type = 'button';
+    connectButton.addEventListener('click', () => openAgentConnectDialog(agent));
+    row.append(el('div', 'settings-readonly', agentLoginSummary(agentLoginOf(agent), agent)), connectButton);
+    block.appendChild(row);
+  }
+  return block;
+}
+
 function renderReadout(setting: SettingsSetting) {
+  if (setting.status === 'agent-logins') return buildAgentLoginsStatus();
   if (setting.status === 'update-actions') return buildUpdateStatusBlock();
   if (setting.status === 'custom-agents') return buildCustomAgentsStatus();
   if (setting.status === 'workflows') return buildWorkflowsStatus();
@@ -1716,3 +1732,5 @@ onLayoutChange(() => {
   syncPhoneSettingsScreen();
   refreshFlyingAnimalsAvailability();
 });
+
+onAgentLoginsChanged(refreshSettingsStatus);
