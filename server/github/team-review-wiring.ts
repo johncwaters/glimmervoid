@@ -25,9 +25,12 @@ import { createJsonStateStore } from '../json-file.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
 import type { LaneRunnerGate, LaneStatusRecord, SharedClock } from '../lanes/lane-runner.ts';
 import { THREAD_JUDGE_TOOLS, createThreadJudge } from './team-review-thread-judge.ts';
+import { isThreadPlaceholderDraft } from './core/team-review-threads-core.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import type { UserHook } from '../../session/core/user-hooks-core.ts';
 import { TeamReviewActionRequest as ActionRequestSchema } from '../../shared/contracts/team-review.ts';
+import type { TeamReviewPostRefusalReason, TeamReviewSettledOutcome } from '../../shared/contracts/telemetry.ts';
+import type { Telemetry } from '../telemetry.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
 import { createRepoCache } from '../git/repo-cache.ts';
@@ -184,6 +187,7 @@ interface TeamReviewWiringOptions {
   guardrailsRefusal?: GuardrailsSpawnRefusal;
   clock?: SharedClock;
   requestPrRefresh?: (key: string) => void;
+  telemetry?: Pick<Telemetry, 'capture'> | null;
 }
 
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
@@ -203,7 +207,17 @@ interface TeamReviewActionOptions {
   github: TeamReviewActionGithub;
   store: Pick<GithubLaneStore, 'requestPrHead' | 'requestPrDiff' | 'requestTeamReviewThreads'>;
   log?: Pick<Console, 'warn'>;
+  telemetry?: Pick<Telemetry, 'capture'> | null;
   requestPrRefresh?: (key: string) => void;
+}
+
+const SETTLED_OUTCOME_BY_ACTION: Partial<Record<TeamReviewActionRequest['action'], TeamReviewSettledOutcome>> = {
+  approve: 'approve', 'approve-only': 'approve-only', comment: 'comment',
+};
+
+interface PostRefusal {
+  reason: TeamReviewPostRefusalReason;
+  error: string;
 }
 
 function teamReviewShouldStart(config: TeamReviewWiringConfig): LaneRunnerGate {
@@ -788,8 +802,27 @@ function describeInvalidComments(comments: readonly ReviewComment[]): string {
   return `These inline comments are not on lines in the diff, remove them and retry: ${locations}`;
 }
 
-function createTeamReviewActions({ drafts, github, store, log = console, requestPrRefresh }: TeamReviewActionOptions) {
+const DRAFTED_REVIEW_STATUSES: ReadonlySet<ReviewDraft['status']> = new Set(['ready', 'error', 'stale']);
+
+function isDraftedReview(draft: ReviewDraft | null): draft is ReviewDraft {
+  return draft !== null && DRAFTED_REVIEW_STATUSES.has(draft.status) && !isThreadPlaceholderDraft(draft);
+}
+
+function createTeamReviewActions({ drafts, github, store, log = console, telemetry = null, requestPrRefresh }: TeamReviewActionOptions) {
   const actionsInFlight = new Set<string>();
+
+  function refusePost({ reason, error }: PostRefusal): TeamReviewActionOutcome {
+    telemetry?.capture('team_review_post_refused', { reason });
+    return { ok: false, error };
+  }
+
+  function captureSettled(outcome: TeamReviewSettledOutcome, draft: ReviewDraft | null, postedCommentCount: number): void {
+    telemetry?.capture('team_review_settled', {
+      outcome,
+      drafted_comment_count: draft?.comments.length ?? 0,
+      posted_comment_count: postedCommentCount,
+    });
+  }
 
   async function markDraft(key: string, draft: ReviewDraft, patch: DraftPatch): Promise<ReviewDraft | null> {
     const updated = await drafts.updateDraft(key, { reviewedHead: draft.reviewedHead, status: draft.status }, patch);
@@ -800,17 +833,19 @@ function createTeamReviewActions({ drafts, github, store, log = console, request
   async function markNotMine(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome> {
     const draft = drafts.getDraft(request.key);
     if (request.head !== undefined && draft?.reviewedHead !== request.head) return { ok: false, error: REPLACED_DRAFT_ERROR };
-    return drafts.markNotMine(request.key);
+    const outcome = await drafts.markNotMine(request.key);
+    if (outcome.ok && isDraftedReview(draft)) captureSettled('discarded', draft, 0);
+    return outcome;
   }
 
-  async function misplacedCommentsError(draft: ReviewDraft, comments: readonly ReviewComment[]): Promise<string | null> {
+  async function misplacedCommentsRefusal(draft: ReviewDraft, comments: readonly ReviewComment[]): Promise<PostRefusal | null> {
     if (comments.length === 0) return null;
     const diffRead = await store.requestPrDiff(draft.repo, draft.number, draft.reviewedHead, 'no-wait');
-    if (diffRead.isRateLimited) return githubStoreRateLimitedError(diffRead.waitMs);
+    if (diffRead.isRateLimited) return { reason: 'rate-limited', error: githubStoreRateLimitedError(diffRead.waitMs) };
     const diff = diffRead.value;
-    if (diff === null) return 'Could not fetch the diff to check the inline comments. Remove them to post without them';
+    if (diff === null) return { reason: 'diff-unreadable', error: 'Could not fetch the diff to check the inline comments. Remove them to post without them' };
     const misplaced = core.invalidComments(comments, core.commentableLines(diff));
-    return misplaced.length > 0 ? describeInvalidComments(misplaced) : null;
+    return misplaced.length > 0 ? { reason: 'misplaced-comments', error: describeInvalidComments(misplaced) } : null;
   }
 
   async function retractApproval(key: string, draft: ReviewDraft, movedHead: string, reviewId: number | null): Promise<TeamReviewActionOutcome> {
@@ -826,32 +861,34 @@ function createTeamReviewActions({ drafts, github, store, log = console, request
 
   async function post(key: string, draft: ReviewDraft, request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome> {
     const event = core.eventForAction(request.action);
-    if (!event) return { ok: false, error: 'Unknown review action' };
-    if (!core.isPostableStatus(draft, event)) return { ok: false, error: `The draft is ${draft.status}, so it cannot be posted` };
+    if (!event) return refusePost({ reason: 'unknown-action', error: 'Unknown review action' });
+    if (!core.isPostableStatus(draft, event)) return refusePost({ reason: 'not-postable', error: `The draft is ${draft.status}, so it cannot be posted` });
     const isFollowUpApproval = draft.status === 'posted';
     const body = request.action === 'approve-only' ? '' : request.body;
     const comments = request.action === 'approve-only' ? [] : request.comments;
-    if (isFollowUpApproval && comments.length > 0) return { ok: false, error: 'The inline comments were already posted, so the approval cannot carry them again' };
+    if (isFollowUpApproval && comments.length > 0) return refusePost({ reason: 'comments-already-posted', error: 'The inline comments were already posted, so the approval cannot carry them again' });
     if (event === 'COMMENT' && !body.trim() && comments.length === 0) {
-      return { ok: false, error: 'A comment review needs a body or an inline comment' };
+      return refusePost({ reason: 'empty-comment', error: 'A comment review needs a body or an inline comment' });
     }
     const liveHeadRead = await store.requestPrHead(draft.repo, draft.number, 'no-wait');
-    if (liveHeadRead.isRateLimited) return { ok: false, error: githubStoreRateLimitedError(liveHeadRead.waitMs) };
+    if (liveHeadRead.isRateLimited) return refusePost({ reason: 'rate-limited', error: githubStoreRateLimitedError(liveHeadRead.waitMs) });
     const liveHead = liveHeadRead.value;
-    if (!liveHead) return { ok: false, error: 'Could not read the pull request head from GitHub' };
+    if (!liveHead) return refusePost({ reason: 'head-unreadable', error: 'Could not read the pull request head from GitHub' });
     if (!core.canPost(draft, draft.reviewedHead, liveHead, event)) {
-      if (isFollowUpApproval) return { ok: false, error: `The pull request moved to ${shortSha(liveHead)} after the comments were posted, so nothing was approved. Queue a review to look at the new commits` };
+      if (isFollowUpApproval) return refusePost({ reason: 'head-moved', error: `The pull request moved to ${shortSha(liveHead)} after the comments were posted, so nothing was approved. Queue a review to look at the new commits` });
       await markDraft(key, draft, { status: 'stale' });
-      return { ok: false, error: `The pull request moved to ${shortSha(liveHead)} after this review, so nothing was posted. It will be reviewed again` };
+      return refusePost({ reason: 'head-moved', error: `The pull request moved to ${shortSha(liveHead)} after this review, so nothing was posted. It will be reviewed again` });
     }
-    const commentsError = await misplacedCommentsError(draft, comments);
-    if (commentsError) return { ok: false, error: commentsError };
+    const commentsRefusal = await misplacedCommentsRefusal(draft, comments);
+    if (commentsRefusal) return refusePost(commentsRefusal);
     const postedBody = core.postedReviewBody(event, body);
     const posted = await github.postReview({
       repo: draft.repo, number: draft.number, commitId: draft.reviewedHead, event, body: postedBody, comments,
     });
-    if (!posted.ok) return { ok: false, error: posted.err || 'GitHub refused the review' };
+    if (!posted.ok) return refusePost({ reason: 'github-refused', error: posted.err || 'GitHub refused the review' });
     requestPrRefresh?.(comparablePrKey(draft));
+    const settledOutcome = SETTLED_OUTCOME_BY_ACTION[request.action];
+    if (!isFollowUpApproval && settledOutcome) captureSettled(settledOutcome, draft, comments.length);
     const headAfterPostRead = event === 'APPROVE' ? await store.requestPrHead(draft.repo, draft.number, 'no-wait') : { isRateLimited: false as const, value: draft.reviewedHead };
     const headAfterPost = headAfterPostRead.isRateLimited ? null : headAfterPostRead.value;
     if (headAfterPost !== null && headAfterPost !== draft.reviewedHead) return retractApproval(key, draft, headAfterPost, posted.reviewId);
@@ -965,6 +1002,7 @@ function createTeamReviewWiring({
   guardrailsRefusal = allowGuardedSpawn,
   clock,
   requestPrRefresh,
+  telemetry = null,
 }: TeamReviewWiringOptions) {
   const stateIo = createTeamReviewStateIo(path.join(homeDir, core.TEAM_REVIEW_STATE_FILENAME), log);
   const worktreeRoot = path.join(homeDir, 'team-review-worktrees');
@@ -1019,6 +1057,7 @@ function createTeamReviewWiring({
         readState: stateIo.readState,
         writeState: stateIo.writeState,
         log,
+        telemetry,
         onTickComplete,
         clock,
         firstTickDelayMs: bootStaggerDelay,
@@ -1124,6 +1163,7 @@ function createTeamReviewWiring({
       },
     },
     log,
+    telemetry,
   });
 
   return {

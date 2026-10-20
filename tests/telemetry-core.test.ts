@@ -144,6 +144,11 @@ test('every event schema refuses a property outside its allowlist', () => {
     },
     view_shown: { view: 'usage' },
     operator_action: { surface: 'radar', action: 'resolve' },
+    team_review_drafted: { inline_comment_count: 3 },
+    team_review_settled: { outcome: 'comment', drafted_comment_count: 3, posted_comment_count: 2 },
+    team_review_post_refused: { reason: 'github-refused' },
+    radar_investigation_finished: { verdict: 'ERROR', mode: 'fix', error_reason: 'handoff-failed' },
+    radar_fix_handoff_failed: { step: 'push-branch' },
   };
   const everyEventName: TelemetryEventName[] = TELEMETRY_EVENTS.map(({ name }) => name);
   for (const name of everyEventName) {

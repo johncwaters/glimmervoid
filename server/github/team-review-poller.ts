@@ -13,6 +13,7 @@ import { firstLine } from '../lanes/ephemeral-session.ts';
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { SharedClock, TickOutcome } from '../lanes/lane-runner.ts';
 import type { PrGh } from './pr-gh.ts';
+import type { Telemetry } from '../telemetry.ts';
 import { allowGuardedSpawn } from '../guardrails/guardrails-deps.ts';
 import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 import { hasStandingViewerApproval, ReviewDraft } from '../../shared/contracts/team-review.ts';
@@ -73,6 +74,7 @@ interface TeamReviewPollerDependencies {
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;
   log?: Pick<Console, 'warn'>;
+  telemetry?: Pick<Telemetry, 'capture'> | null;
   onTickComplete?: (status: TeamReviewStatus) => void;
   now?: () => number;
   intervalMinutes?: number;
@@ -89,7 +91,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     readState = async () => ({}), writeState = async () => {}, beforeStart = async () => {}, guardrailsRefusal = allowGuardedSpawn,
     setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn, clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
     setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
-    log = console, onTickComplete = () => {}, now = () => Date.now(),
+    log = console, telemetry = null, onTickComplete = () => {}, now = () => Date.now(),
   } = deps;
   const maxConcurrentReviews = deps.maxConcurrentReviews ?? core.MAX_CONCURRENT_REVIEWS;
   const reReviewAfterMs = deps.reReviewAfterMs ?? core.DEFAULT_RE_REVIEW_AFTER_HOURS * 60 * 60 * 1000;
@@ -227,6 +229,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     entry.draft.reviewedAt = entry.reviewedAt;
     await persist();
     emitStatus();
+    if (draft.status === 'ready') telemetry?.capture('team_review_drafted', { inline_comment_count: draft.comments.length });
     if (waitingForSlot.length > 0 && !loop.isStopped()) void loop.tick();
   }
 

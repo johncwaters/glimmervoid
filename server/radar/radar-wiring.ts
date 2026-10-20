@@ -38,6 +38,8 @@ import type { PosthogState, SpawnInvestigationArgs } from './radar-poller.ts';
 import { DEFAULT_POSTHOG_REPORT_DIR } from './radar-report.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
+import type { RadarErrorReason, RadarHandoffStep } from '../../shared/contracts/telemetry.ts';
+import type { Telemetry } from '../telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { prepareRoleGuardrails, readLaneCommonGitDir } from '../lanes/work-lane.ts';
 import type { RoleGuardrailsDependencies } from '../lanes/work-lane.ts';
@@ -140,7 +142,17 @@ interface HandoffResult {
   verdict: string;
   prUrl: string | null;
   summary: string | null;
+  errorReason?: RadarErrorReason;
+  failedStep?: RadarHandoffStep;
 }
+
+const HANDOFF_STEP_LABELS: Readonly<Record<RadarHandoffStep, string>> = Object.freeze({
+  'read-diff': 'reading the branch diff',
+  'count-commits': 'counting the branch commits',
+  'push-branch': 'pushing the fix branch',
+  'resolve-repo': 'resolving the repository',
+  'open-pr': 'opening the pull request',
+});
 
 interface RadarWiringOptions {
   config: RadarWiringConfig;
@@ -156,6 +168,7 @@ interface RadarWiringOptions {
   makeSession?: (options: SessionOptions) => Session;
   resolveHookTools?: typeof resolveSharedHookTools;
   guardrails?: RoleGuardrailsDependencies;
+  telemetry?: Pick<Telemetry, 'capture'> | null;
 }
 
 interface RadarLaneAccess {
@@ -408,13 +421,22 @@ async function runCli(cmd: string, args: string[], cwd: string, execFileFn?: Exe
 }
 
 function handoffFailure(
-  step: string,
+  step: RadarHandoffStep,
   detail: unknown,
   { pushed, branch }: { pushed: boolean; branch: string | null | undefined },
 ): HandoffResult {
   const where = pushed ? `branch ${branch} is pushed with no pull request` : `branch ${branch} was not pushed`;
   const why = core.summaryLineFromReportText(detail);
-  return { verdict: 'ERROR', prUrl: null, summary: `fix handoff failed while ${step}${why ? ` (${why})` : ''}; ${where}` };
+  return {
+    verdict: 'ERROR', prUrl: null, summary: `fix handoff failed while ${HANDOFF_STEP_LABELS[step]}${why ? ` (${why})` : ''}; ${where}`,
+    errorReason: 'handoff-failed', failedStep: step,
+  };
+}
+
+function resultErrorReason(outcome: ResultFileOutcome): RadarErrorReason | undefined {
+  if (outcome.verdict !== 'ERROR') return undefined;
+  if (outcome.ok !== false) return 'agent-reported';
+  return outcome.kind === 'missing' ? 'no-result' : 'invalid-result';
 }
 
 async function pushFixBranch(
@@ -429,27 +451,30 @@ async function pushFixBranch(
   const branch = workspace.branch;
   const baseRef = workspace.baseSha || workspace.base;
   const changed = await run('git', ['diff', '-z', '--name-only', '--no-renames', `${baseRef}...HEAD`], workspace.cwd);
-  if (!changed.ok) return handoffFailure('reading the branch diff', changed.err, { pushed: false, branch });
+  if (!changed.ok) return handoffFailure('read-diff', changed.err, { pushed: false, branch });
   const ahead = await run('git', ['rev-list', '--count', `${baseRef}..HEAD`], workspace.cwd);
-  if (!ahead.ok) return handoffFailure('counting the branch commits', ahead.err, { pushed: false, branch });
+  if (!ahead.ok) return handoffFailure('count-commits', ahead.err, { pushed: false, branch });
 
   const decision = core.decideFixHandoff({
     changedFiles: nulSeparatedPaths(changed.out),
     commitsAhead: Number(ahead.out),
   });
-  if (!decision.ok) return { verdict: decision.verdict ?? 'ERROR', prUrl: null, summary: decision.summary ?? null };
+  if (!decision.ok) {
+    const verdict = decision.verdict ?? 'ERROR';
+    return { verdict, prUrl: null, summary: decision.summary ?? null, ...(verdict === 'ERROR' ? { errorReason: 'empty-fix' as const } : {}) };
+  }
 
   const pushed = await run('git', ['push', 'origin', String(branch)], workspace.cwd);
-  if (!pushed.ok) return handoffFailure('pushing the fix branch', pushed.err, { pushed: false, branch });
+  if (!pushed.ok) return handoffFailure('push-branch', pushed.err, { pushed: false, branch });
 
   const slug = await run('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], repoPath);
-  if (!slug.ok || !slug.out) return handoffFailure('resolving the repository', slug.err, { pushed: true, branch });
+  if (!slug.ok || !slug.out) return handoffFailure('resolve-repo', slug.err, { pushed: true, branch });
 
   const args = ['pr', 'create', '--repo', slug.out, '--head', String(branch), '--title', prTitle, '--body', prBody];
   const base = workspace.base;
   if (base && base !== 'HEAD') args.push('--base', base);
   const created = await run('gh', args, repoPath);
-  if (!created.ok) return handoffFailure('opening the pull request', created.err, { pushed: true, branch });
+  if (!created.ok) return handoffFailure('open-pr', created.err, { pushed: true, branch });
 
   const prUrl = core.normalizePrUrl(created.out);
   if (prUrl) return { verdict: 'FIXED', prUrl, summary: null };
@@ -524,6 +549,7 @@ function createRadarWiring({
   makeSession = (options: SessionOptions) => new Session(options),
   resolveHookTools = resolveSharedHookTools,
   guardrails = {},
+  telemetry = null,
 }: RadarWiringOptions) {
   function activePosthogConfig(): RadarLaneConfig & { host: string; apiKey: string } {
     const posthogConfig = config.posthog;
@@ -671,10 +697,10 @@ function createRadarWiring({
       await waitForExit(sess, signal);
       const result = readFixResult(resultFile.path);
       if (signal?.aborted) {
-        return { verdict: 'ERROR', summary: 'fix aborted before the branch was pushed', reproduced: false, prUrl: null, url, mode: core.JOB_MODES.fix };
+        return { verdict: 'ERROR', summary: 'fix aborted before the branch was pushed', reproduced: false, prUrl: null, url, mode: core.JOB_MODES.fix, errorReason: 'aborted' as const };
       }
       if (result.verdict !== 'FIXED') {
-        return { verdict: result.verdict, summary: result.summary, reproduced: result.reproduced, prUrl: null, url, mode: core.JOB_MODES.fix };
+        return { verdict: result.verdict, summary: result.summary, reproduced: result.reproduced, prUrl: null, url, mode: core.JOB_MODES.fix, errorReason: resultErrorReason(result) };
       }
       const handoff = await pushFixBranch({
         run: runCommand,
@@ -685,6 +711,7 @@ function createRadarWiring({
           issueUrl: promptUrl, reproduced: result.reproduced, summary: result.summary,
         })),
       });
+      if (handoff.failedStep) telemetry?.capture('radar_fix_handoff_failed', { step: handoff.failedStep });
       return {
         verdict: handoff.verdict,
         summary: handoff.summary || result.summary,
@@ -692,6 +719,7 @@ function createRadarWiring({
         prUrl: handoff.prUrl,
         url,
         mode: core.JOB_MODES.fix,
+        errorReason: handoff.errorReason,
       };
     } catch (e) {
       const failure = (e ?? {}) as { message?: unknown };
@@ -702,6 +730,7 @@ function createRadarWiring({
         prUrl: null,
         url,
         mode: core.JOB_MODES.fix,
+        errorReason: 'crashed' as const,
       };
     } finally {
       if (resultFile) await resultFile.cleanup();
@@ -744,10 +773,10 @@ function createRadarWiring({
       });
       await waitForExit(sess, signal);
       const result = readInvestigationResult(resultFile.path);
-      return { ...result, url, mode: core.JOB_MODES.investigate };
+      return { ...result, url, mode: core.JOB_MODES.investigate, errorReason: resultErrorReason(result) };
     } catch (e) {
       const failure = (e ?? {}) as { message?: unknown };
-      return { verdict: 'ERROR', summary: String(failure.message || e), mode: core.JOB_MODES.investigate };
+      return { verdict: 'ERROR', summary: String(failure.message || e), mode: core.JOB_MODES.investigate, errorReason: 'crashed' as const };
     } finally {
       if (resultFile) await resultFile.cleanup();
       if (!resolveRepoPath(projectId)) await fs.promises.rm(path.join(WORK_DIR, issueId), { recursive: true, force: true }).catch(() => {});
@@ -812,6 +841,7 @@ function createRadarWiring({
         host: posthogConfig.host,
         resolveProjects: makeResolveProjects(api, config),
         spawnInvestigation: radarInvestigationSpawn,
+        telemetry,
         telegram: (text: string) => { void sendTelegramMessage({ botToken, chatId, text, tag: 'posthog' }); },
         readState: readPosthogState,
         writeState: writePosthogState,

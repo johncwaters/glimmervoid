@@ -5,6 +5,15 @@ import type { OperatorAction, OperatorSurface } from './control-messages.ts';
 
 const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
 const SESSION_EXIT_KINDS = Object.freeze(['clean', 'error', 'signal', 'no_output'] as const);
+const TEAM_REVIEW_SETTLED_OUTCOMES = Object.freeze(['approve', 'comment', 'approve-only', 'discarded'] as const);
+const TEAM_REVIEW_POST_REFUSAL_REASONS = Object.freeze([
+  'unknown-action', 'not-postable', 'comments-already-posted', 'empty-comment', 'rate-limited',
+  'head-unreadable', 'head-moved', 'diff-unreadable', 'misplaced-comments', 'github-refused',
+] as const);
+const RADAR_VERDICTS = Object.freeze(['ROOT_CAUSE', 'FIXED', 'NEEDS_HUMAN', 'TRANSIENT', 'ERROR'] as const);
+const RADAR_JOB_MODES = Object.freeze(['investigate', 'fix'] as const);
+const RADAR_ERROR_REASONS = Object.freeze(['agent-reported', 'no-result', 'invalid-result', 'timed-out', 'no-verdict', 'crashed', 'aborted', 'empty-fix', 'handoff-failed'] as const);
+const RADAR_HANDOFF_STEPS = Object.freeze(['read-diff', 'count-commits', 'push-branch', 'resolve-repo', 'open-pr'] as const);
 const OPERATOR_ACTIONS = Object.freeze([...new Set(Object.values(OPERATOR_ACTIONS_BY_SURFACE).flat())] as [OperatorAction, ...OperatorAction[]]);
 
 export const MAX_EXCEPTION_FRAMES = 64;
@@ -44,6 +53,30 @@ const OperatorActionProperties = z.object({
   surface: z.enum(OPERATOR_SURFACES),
   action: z.enum(OPERATOR_ACTIONS),
 }).strict().refine(isActionOfSurface, { message: 'action does not belong to its surface' });
+
+const TeamReviewDraftedProperties = z.object({
+  inline_comment_count: nonNegativeInteger,
+}).strict();
+
+const TeamReviewSettledProperties = z.object({
+  outcome: z.enum(TEAM_REVIEW_SETTLED_OUTCOMES),
+  drafted_comment_count: nonNegativeInteger,
+  posted_comment_count: nonNegativeInteger,
+}).strict();
+
+const TeamReviewPostRefusedProperties = z.object({
+  reason: z.enum(TEAM_REVIEW_POST_REFUSAL_REASONS),
+}).strict();
+
+const RadarInvestigationFinishedProperties = z.object({
+  verdict: z.enum(RADAR_VERDICTS),
+  mode: z.enum(RADAR_JOB_MODES),
+  error_reason: z.enum(RADAR_ERROR_REASONS).optional(),
+}).strict();
+
+const RadarFixHandoffFailedProperties = z.object({
+  step: z.enum(RADAR_HANDOFF_STEPS),
+}).strict();
 
 export const DashboardTelemetryReport = z.discriminatedUnion('event', [
   z.object({ event: z.literal('view_shown'), properties: ViewShownProperties }),
@@ -97,6 +130,11 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   $ai_generation: AiGenerationProperties,
   view_shown: ViewShownProperties,
   operator_action: OperatorActionProperties,
+  team_review_drafted: TeamReviewDraftedProperties,
+  team_review_settled: TeamReviewSettledProperties,
+  team_review_post_refused: TeamReviewPostRefusedProperties,
+  radar_investigation_finished: RadarInvestigationFinishedProperties,
+  radar_fix_handoff_failed: RadarFixHandoffFailedProperties,
 });
 
 export type TelemetryEventName = keyof typeof TELEMETRY_EVENT_SCHEMAS;
@@ -111,6 +149,11 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: '$ai_generation', description: 'Per agent session and model, after each usage scan, for usage recorded in the last 24 hours: token counts, the model name and estimated cost, under a one-way hash of the session. A model name outside the shipped pricing table is sent as unknown. No prompts or output.' },
   { name: 'view_shown', description: 'A dashboard tab opened, on desktop or phone, with which tab. Sent on every open.' },
   { name: 'operator_action', description: 'An action taken in the Usage, Issues, Radar or Reviews tab: which tab and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on.' },
+  { name: 'team_review_drafted', description: 'A team review draft became ready, with how many inline comments it drafted.' },
+  { name: 'team_review_settled', description: 'A team review draft was posted (approve, comment or approve-only) or discarded, with how many inline comments were drafted and how many were posted.' },
+  { name: 'team_review_post_refused', description: 'Posting a team review was refused, with a reason from a fixed list. Never the error text.' },
+  { name: 'radar_investigation_finished', description: 'A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text.' },
+  { name: 'radar_fix_handoff_failed', description: 'Handing a Radar fix over as a pull request failed, with which step failed. Never the branch or the error text.' },
 ]);
 
 export const TELEMETRY_BASE_PROPERTY_KEYS = Object.freeze([
@@ -142,6 +185,10 @@ export const TelemetryState = z.object({
 export type ExceptionFrame = z.infer<typeof ExceptionFrame>;
 export type ExceptionProperties = z.infer<typeof ExceptionProperties>;
 export type AiGenerationProperties = z.infer<typeof AiGenerationProperties>;
+export type TeamReviewSettledOutcome = (typeof TEAM_REVIEW_SETTLED_OUTCOMES)[number];
+export type TeamReviewPostRefusalReason = (typeof TEAM_REVIEW_POST_REFUSAL_REASONS)[number];
+export type RadarErrorReason = (typeof RADAR_ERROR_REASONS)[number];
+export type RadarHandoffStep = (typeof RADAR_HANDOFF_STEPS)[number];
 export type TelemetryAdapter = (typeof TELEMETRY_ADAPTERS)[number];
 export type SessionExitKind = (typeof SESSION_EXIT_KINDS)[number];
 export type TelemetryState = z.infer<typeof TelemetryState>;

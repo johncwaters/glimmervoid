@@ -11,6 +11,9 @@ import type { TickOutcome } from '../lanes/lane-runner.ts';
 import { normalizeIssues, parseSpikeIssueIds } from './posthog-api.ts';
 import type { NormalizedIssue, PosthogApi } from './posthog-api.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { TELEMETRY_EVENT_SCHEMAS } from '../../shared/contracts/telemetry.ts';
+import type { RadarErrorReason } from '../../shared/contracts/telemetry.ts';
+import type { Telemetry } from '../telemetry.ts';
 import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
@@ -57,6 +60,7 @@ interface JobResult {
   mode?: unknown;
   reproduced?: unknown;
   prUrl?: unknown;
+  errorReason?: RadarErrorReason;
 }
 
 interface SpawnInvestigationArgs {
@@ -139,6 +143,7 @@ interface RadarPollerDependencies {
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;
   log?: Pick<Console, 'warn'>;
+  telemetry?: Pick<Telemetry, 'capture'> | null;
   onTickComplete?: (status: Record<string, unknown>) => void;
   onInvestigationActivity?: (activity: InvestigationActivity) => void;
   now?: () => number;
@@ -196,6 +201,7 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
     setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
     clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
     log = console,
+    telemetry = null,
     onTickComplete = () => {},
     onInvestigationActivity = () => {},
     now = () => Date.now(),
@@ -285,11 +291,11 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
       clearTimeoutFn,
       onTimeout: () => {
         const what = args.mode === core.JOB_MODES.fix ? 'fix' : 'investigation';
-        return { verdict: 'ERROR', summary: `${what} timed out`, mode: args.mode };
+        return { verdict: 'ERROR', summary: `${what} timed out`, mode: args.mode, errorReason: 'timed-out' };
       },
-      onEmpty: () => ({ verdict: 'ERROR', summary: 'no verdict' }),
+      onEmpty: () => ({ verdict: 'ERROR', summary: 'no verdict', errorReason: 'no-verdict' }),
       start: (signal) => loop.track(Promise.resolve(spawnInvestigation({ ...args, signal }))
-        .catch((e: unknown) => ({ verdict: 'ERROR', summary: firstLine(errorMessage(e)) }))),
+        .catch((e: unknown): JobResult => ({ verdict: 'ERROR', summary: firstLine(errorMessage(e)), errorReason: 'crashed' }))),
     });
   }
 
@@ -309,6 +315,22 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
     });
   }
 
+  function verdictOf(result: JobResult | null | undefined): string {
+    return String((result?.verdict) || 'ERROR').toUpperCase();
+  }
+
+  function modeOf(result: JobResult | null | undefined, plannedMode: string): string {
+    return core.normalizeJobMode(result?.mode || plannedMode);
+  }
+
+  function captureInvestigationFinished(result: JobResult | null | undefined, plannedMode: string): void {
+    const verdict = verdictOf(result);
+    const mode = modeOf(result, plannedMode);
+    const errorReason = verdict === 'ERROR' ? (result ? result.errorReason ?? 'agent-reported' : 'no-verdict') : undefined;
+    const finished = TELEMETRY_EVENT_SCHEMAS.radar_investigation_finished.safeParse({ verdict, mode, ...(errorReason ? { error_reason: errorReason } : {}) });
+    if (finished.success) telemetry?.capture('radar_investigation_finished', finished.data);
+  }
+
   function finishInvestigation(
     change: IssueChange,
     result: JobResult | null | undefined,
@@ -316,8 +338,8 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
   ): Promise<void> {
     const prev: Partial<PosthogStateEntry> = issueEntryOf(state, change.key) || {};
     const phases = [...(prev.pingedPhases || [])];
-    const verdict = String((result?.verdict) || 'ERROR').toUpperCase();
-    const mode = core.normalizeJobMode(result?.mode || plannedMode);
+    const verdict = verdictOf(result);
+    const mode = modeOf(result, plannedMode);
     const isFix = mode === core.JOB_MODES.fix;
     const completedAt = now();
     const kind = VERDICT_PING_KIND[verdict];
@@ -449,6 +471,7 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
 
   async function runInvestigation(change: IssueChange, mode: string, runId: number): Promise<void> {
     const isFix = mode === core.JOB_MODES.fix;
+    let isFinishCaptured = false;
     try {
       const res = await spawnWithTimeout({
         key: change.key,
@@ -461,9 +484,13 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
         timeoutMs: (isFix ? fixTimeoutSeconds : investigationTimeoutSeconds) * 1000,
         onActivity: (trail) => noteTrail(change, trail, runId),
       });
+      captureInvestigationFinished(res, mode);
+      isFinishCaptured = true;
       await finishInvestigation(change, res, mode);
     } catch (e) {
-      await finishInvestigation(change, { verdict: 'ERROR', summary: firstLine(errorMessage(e)) }, mode);
+      const crashedResult: JobResult = { verdict: 'ERROR', summary: firstLine(errorMessage(e)), errorReason: 'crashed' };
+      if (!isFinishCaptured) captureInvestigationFinished(crashedResult, mode);
+      await finishInvestigation(change, crashedResult, mode);
     }
   }
 

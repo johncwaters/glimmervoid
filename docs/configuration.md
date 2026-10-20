@@ -307,6 +307,11 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `$ai_generation` | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`, `$ai_total_cost_usd`, `agent_adapter` | Per agent session and model, after each usage scan, for usage recorded in the last 24 hours: token counts, the model name and estimated cost, under a one-way hash of the session. A model name outside the shipped pricing table is sent as unknown. No prompts or output. |
 | `view_shown` | `view` | A dashboard tab opened, on desktop or phone, with which tab. Sent on every open. |
 | `operator_action` | `surface`, `action` | An action taken in the Usage, Issues, Radar or Reviews tab: which tab and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on. |
+| `team_review_drafted` | `inline_comment_count` | A team review draft became ready, with how many inline comments it drafted. |
+| `team_review_settled` | `outcome`, `drafted_comment_count`, `posted_comment_count` | A team review draft was posted (approve, comment or approve-only) or discarded, with how many inline comments were drafted and how many were posted. |
+| `team_review_post_refused` | `reason` | Posting a team review was refused, with a reason from a fixed list. Never the error text. |
+| `radar_investigation_finished` | `verdict`, `mode`, `error_reason` | A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text. |
+| `radar_fix_handoff_failed` | `step` | Handing a Radar fix over as a pull request failed, with which step failed. Never the branch or the error text. |
 
 ## Browser preferences
 

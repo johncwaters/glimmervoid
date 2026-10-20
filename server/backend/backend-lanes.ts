@@ -142,6 +142,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     countRunningSessions: () => allLiveSessions().filter((session) => session.state === STATES.RUNNING).length,
     log: logger,
   });
+  const laneTelemetry: Pick<Telemetry, 'capture'> = telemetry;
   const posthog = createRadarWiring({
     config,
     investigationSessions,
@@ -152,6 +153,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     recordLane,
     gitWorkspace,
     broadcast: broadcastControl,
+    telemetry: laneTelemetry,
   });
   const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger });
   const glimmervoidHome = glimmervoidHomeDir();
@@ -182,6 +184,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     repoCacheRoot: sharedRepoCacheRoot,
     repoCache: sharedRepoCache,
     guardrailsRefusal,
+    telemetry: laneTelemetry,
   });
   const sessionPrLink = createSessionPrLinkWiring({ store: githubStore.laneStore, git: gitWorkspace, log: logger });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
