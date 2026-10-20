@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Session } from '../session/sessions.ts';
+import type { GitWorkspace } from '../session/session-worktree-lifecycle.ts';
 import { encodeProjectDir } from '../session/core/conversation-history.ts';
 import { STATES } from '../shared/states.ts';
 import { waitFor } from './helpers/wait-for.ts';
@@ -306,5 +307,28 @@ test('session factory resolves hook tools with the effective project permission 
     } finally {
       session.destroy();
     }
+  }
+});
+
+test('a session factory builds a project mapped to a Coder workspace without touching the local git workspace', async () => {
+  const { createSessionFactory } = await import('../server/session/session-factory.ts');
+  const gitWorkspaceCalls: string[] = [];
+  const recordingGitWorkspace = new Proxy<GitWorkspace>({} as GitWorkspace, { get: (_target, method) => () => { gitWorkspaceCalls.push(String(method)); return Promise.resolve(null); } });
+  const makeSession = createSessionFactory({
+    configStore: { configPath: path.join(claudeConfigDir, 'config.json') },
+    hookRouter: null, getHookPort: () => null, getGitWorkspace: () => recordingGitWorkspace, getPlanReviewPort: () => null,
+    getUserHooks: () => [], resolveHookTools: () => [],
+  });
+  const environment = { name: 'dev', workspace: 'gv-0123456789ab', remotePort: 45000, branch: 'glimmervoid/session/factory-remote' };
+  const project = { id: 'factory-remote', name: 'factory-remote', path: claudeConfigDir, environment };
+  const session = makeSession(project, { projects: [project], recordSignals: false });
+  session._ptySpawn = () => { throw new Error('a remote session with no Coder lane must not spawn'); };
+  session.on('error', () => {});
+  try {
+    await session.start();
+    assert.deepEqual(gitWorkspaceCalls, []);
+    assert.equal(session.worktreeDir, null);
+  } finally {
+    session.destroy();
   }
 });
