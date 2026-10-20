@@ -199,6 +199,7 @@ interface RemoteLaunch {
   checkoutDirectory: string;
   nodePath: string;
   ensureRunning: () => Promise<RemoteLaunchStep>;
+  describeExit: () => Promise<string | null>;
   uploadFile: (file: { remotePath: string; contents: string; mode: number }) => Promise<void>;
   claudeToken: () => Promise<{ ok: true; token: string } | { ok: false; reason: string }>;
   codexVersion: () => Promise<string | null>;
@@ -2072,6 +2073,12 @@ class Session extends EventEmitter {
     }
   }
 
+  _isExitHeadedForFailure(event: string): boolean {
+    if (this.state === STATES.FAILED) return false;
+    const stateTransitions: Partial<Record<string, string>> | undefined = TRANSITIONS[this.state];
+    return stateTransitions?.[event] === STATES.FAILED;
+  }
+
   _handleSpawnedPtyExit(guardrailsLaunch: GuardrailsLaunch | null, exitCode: number, signal: ExitSignal): Promise<void> {
     this._disposeGuardrailsLaunch(guardrailsLaunch);
     void this._stopConversationBridge();
@@ -2094,6 +2101,11 @@ class Session extends EventEmitter {
 
     const { event, detail } = decideExitTransition(this.state, exitCode, signal, this._receivedFirstOutput);
     const reason = detail.reason || null;
+    const pendingRemoteExitReason = this._isExitHeadedForFailure(event) ? this._getRemoteLaunch()?.describeExit().catch(() => null) : undefined;
+    if (pendingRemoteExitReason) {
+      const remoteExitReason = await pendingRemoteExitReason;
+      if (remoteExitReason && this._isExitHeadedForFailure(event)) this.failureReason = remoteExitReason;
+    }
     this.transition(event, detail);
 
     if (this._recorder) {

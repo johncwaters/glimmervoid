@@ -203,12 +203,14 @@ test('the settings file a session injects is byte-identical to the injector run 
   }
 });
 
-test('a Coder workspace session launches claude over coder ssh with the token only in env, and respawns once on a refused token', async () => {
+test('a Coder workspace session launches claude over coder ssh with the token only in env, respawns once on a refused token, and names why its workspace connection ended', async () => {
   const hooksBaseDir = tmpHooksDir();
   const calls: AdapterSpawnCall[] = [];
   const ptys: ReturnType<typeof exitablePty>[] = [];
   const uploads: { remotePath: string; contents: string; mode: number }[] = [];
   let tokenRequests = 0;
+  let describeExitCalls = 0;
+  const remoteExitReason = 'Coder workspace gv-0123456789ab stopped, by its idle stop or its stop-after limit. Restart to start it again.';
   const session = new Session({
     id: 'remote-session',
     name: 'remote',
@@ -225,6 +227,7 @@ test('a Coder workspace session launches claude over coder ssh with the token on
       checkoutDirectory: '/srv/repos/gv-0123456789ab',
       nodePath: '/opt/node/bin/node',
       ensureRunning: async () => ({ ok: true }),
+      describeExit: async () => { describeExitCalls += 1; return remoteExitReason; },
       uploadFile: async (file) => { uploads.push(file); },
       claudeToken: async () => { tokenRequests += 1; return { ok: true, token: `sk-ant-oat-secret-${tokenRequests}` }; },
       codexVersion: async () => null,
@@ -257,6 +260,15 @@ test('a Coder workspace session launches claude over coder ssh with the token on
     ptys[1].fireExit(1);
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(calls.length, 2);
+    assert.equal(session.state, STATES.FAILED);
+    assert.equal(session.failureReason, remoteExitReason);
+    const describeExitCallsWhileRunning = describeExitCalls;
+    session.failureReason = 'The session folder no longer exists.';
+    ptys[1].fireExit(1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(session.state, STATES.FAILED);
+    assert.equal(session.failureReason, 'The session folder no longer exists.');
+    assert.equal(describeExitCalls, describeExitCallsWhileRunning);
   } finally {
     session.destroy();
     fs.rmSync(hooksBaseDir, { recursive: true, force: true });

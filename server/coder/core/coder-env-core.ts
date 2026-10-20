@@ -222,12 +222,28 @@ function remoteWorkRefusal({ uncommittedStatus, unpushedLog, stashList, branch, 
   return null;
 }
 
+const describeStoppedExit = (workspace: string) => `Coder workspace ${workspace} stopped, by its idle stop or its stop-after limit. Restart to start it again.`;
+const describeDeletedExit = (workspace: string) => `Coder workspace ${workspace} was deleted. Restart to get a fresh workspace.`;
+const REMOTE_EXIT_REASON_BY_STATUS: Partial<Record<CoderWorkspaceStatus | 'gone', (workspace: string) => string>> = {
+  stopped: describeStoppedExit,
+  stopping: describeStoppedExit,
+  deleting: describeDeletedExit,
+  gone: describeDeletedExit,
+  failed: (workspace) => `Coder workspace ${workspace} failed. Restart to get a fresh workspace.`,
+};
+
+function remoteExitReason({ workspace, status }: { workspace: string; status: CoderWorkspaceStatus | 'gone' | null }): string {
+  const describeExit = status === null ? undefined : REMOTE_EXIT_REASON_BY_STATUS[status];
+  if (describeExit) return describeExit(workspace);
+  return `The connection to Coder workspace ${workspace} was lost. Restart to reconnect.`;
+}
+
 function coderNotSignedInReason(failure: string): string {
   return `The coder CLI on this host is not signed in. Run coder login, then try again. (${failure})`;
 }
 
 export {
-  coderErrorDetail, isCoderSignedOutError, remoteWorkRefusal, coderNotSignedInReason, remoteCheckoutDirectory, CODER_ENV_READY_POLL_MS, CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_IDLE_TICK_MS, resolveCoderEnvironment, parseGlimmervoidWorkspaces, decideReadiness, shouldIdleStop, planReconcile,
+  coderErrorDetail, isCoderSignedOutError, remoteWorkRefusal, remoteExitReason, coderNotSignedInReason, remoteCheckoutDirectory, CODER_ENV_READY_POLL_MS, CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_IDLE_TICK_MS, resolveCoderEnvironment, parseGlimmervoidWorkspaces, decideReadiness, shouldIdleStop, planReconcile,
   retainedOwnedWorkspaces, failedProvisionCleanup, sharingRefusal, liveLimitRefusal,
 };
 export type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ReconcilePlan, ResolvedCoderEnvironment, WorkspaceMapping };

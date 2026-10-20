@@ -178,6 +178,14 @@ test('boot reconcile keeps the mapping of a project whose workspace no longer ex
   assert.deepEqual(await harness.wiring.renew(renewal), { ok: true, renewed: false });
 });
 
+test('renewing a project whose listed workspace failed provisions a fresh workspace', async (context) => {
+  const harness = createHarness();
+  context.after(harness.wiring.stop);
+  harness.listings.current = JSON.stringify([{ name: MAPPED_WORKSPACE, latest_build: { status: 'failed', transition: 'start' } }]);
+  assert.deepEqual(await harness.wiring.renew({ projectId: 'project', repoRemoteUrl: 'git@example.com:org/repo.git', baseBranch: 'main', liveCount: 0 }), { ok: true, renewed: true });
+  assert.notEqual(harness.config.projects[0].environment?.workspace, MAPPED_WORKSPACE);
+});
+
 test('renewing a project whose provision failed provisions a fresh workspace in place of the cached failure', async (context) => {
   const harness = createHarness({ hasMapping: false, createStderr: 'error: template refused\n' });
   context.after(harness.wiring.stop);

@@ -44,6 +44,7 @@ interface SessionFactoryDependencies {
 
 interface CoderWorkspacePort {
   resume: (request: { projectId: string }) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  describeRemoteExit: (workspace: string) => Promise<string>;
   uploadFile: (file: { workspace: string; remotePath: string; contents: string; mode: number }) => Promise<void>;
 }
 
@@ -102,6 +103,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       checkoutDirectory: remoteCheckoutDirectory({ checkoutRoot: environment?.checkoutRoot ?? '/', workspace: mapping.workspace }),
       nodePath: environment?.nodePath ?? 'node',
       ensureRunning: async () => (coderEnv ? coderEnv.resume({ projectId }) : refusal),
+      describeExit: async () => (coderEnv ? coderEnv.describeRemoteExit(mapping.workspace) : null),
       uploadFile: async (file) => {
         if (!coderEnv) throw new Error(refusal.reason);
         await coderEnv.uploadFile({ ...file, workspace: mapping.workspace });

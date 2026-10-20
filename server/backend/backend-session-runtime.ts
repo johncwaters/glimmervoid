@@ -36,7 +36,7 @@ interface BackendSessionRuntimeDependencies {
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
   guardrailsRefusal: GuardrailsSpawnRefusal;
-  getCoderEnv?: () => Pick<ReturnType<typeof createCoderEnvWiring>, 'resume' | 'uploadFile'> | null;
+  getCoderEnv?: () => Pick<ReturnType<typeof createCoderEnvWiring>, 'resume' | 'uploadFile' | 'describeRemoteExit'> | null;
 }
 
 const REMOTE_SESSION_TOKEN_LIFETIME_SECONDS = 600;

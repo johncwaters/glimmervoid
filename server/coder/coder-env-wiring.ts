@@ -10,7 +10,7 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { createCoderEnvPoller } from './coder-env-poller.ts';
 import type { CoderEnvPollerDeps } from './coder-env-poller.ts';
 import {
-  CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_READY_POLL_MS, coderErrorDetail, coderNotSignedInReason, decideReadiness, failedProvisionCleanup, isCoderSignedOutError, liveLimitRefusal, parseGlimmervoidWorkspaces, remoteCheckoutDirectory, remoteWorkRefusal, resolveCoderEnvironment, retainedOwnedWorkspaces, sharingRefusal,
+  CODER_ENV_READY_LIST_FAILURE_LIMIT, CODER_ENV_READY_POLL_MS, coderErrorDetail, coderNotSignedInReason, decideReadiness, failedProvisionCleanup, isCoderSignedOutError, liveLimitRefusal, parseGlimmervoidWorkspaces, remoteCheckoutDirectory, remoteExitReason, remoteWorkRefusal, resolveCoderEnvironment, retainedOwnedWorkspaces, sharingRefusal,
 } from './core/coder-env-core.ts';
 import type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ResolvedCoderEnvironment, WorkspaceMapping } from './core/coder-env-core.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
@@ -130,14 +130,21 @@ function createCoderEnvWiring({
     return listingJson;
   }
 
-  async function listWorkspaces(): Promise<CoderWorkspace[]> {
-    const workspaces = recordListing((await command(['list', '-o', 'json'])).stdout);
+  async function listWorkspaces(timeoutMs?: number): Promise<CoderWorkspace[]> {
+    const workspaces = recordListing((await command(['list', '-o', 'json'], timeoutMs)).stdout);
     if (workspaces === null) throw new Error('Invalid Coder workspace listing');
     return workspaces;
   }
 
   function workspaceStatus(workspace: string): CoderWorkspace['status'] | null {
     return lastSeenStatusByWorkspace.get(workspace) ?? null;
+  }
+
+  async function describeRemoteExit(workspace: string): Promise<string> {
+    const workspaces = await listWorkspaces(10_000).catch(() => null);
+    if (workspaces === null) return remoteExitReason({ workspace, status: null });
+    const listed = workspaces.find((candidate) => candidate.name === workspace);
+    return remoteExitReason({ workspace, status: listed?.status ?? 'gone' });
   }
 
   function isConfigured(): boolean {
@@ -351,7 +358,7 @@ function createCoderEnvWiring({
     if (provisionByProject.has(projectId)) return { ok: true, renewed: false };
     const mapping = config.projects.find((project) => project.id === projectId)?.environment;
     if (!mapping) return { ok: false, reason: `Project ${projectId} has no Coder workspace mapping` };
-    const isWorkspaceUsable = !failedProvisionByProject.has(projectId) && await isWorkspaceListed(mapping.workspace);
+    const isWorkspaceUsable = !failedProvisionByProject.has(projectId) && await isWorkspaceListed(mapping.workspace) && workspaceStatus(mapping.workspace) !== 'failed';
     if (isWorkspaceUsable) return { ok: true, renewed: false };
     const environment = resolveEnvironment(mapping.name);
     if (!environment) return { ok: false, reason: `Unknown Coder environment: ${mapping.name}` };
@@ -525,7 +532,7 @@ function createCoderEnvWiring({
     await runCoder(['ssh', workspace, '--', remoteCommand(['sh', '-c', script, 'sh', remotePath])], { timeoutMs: 30_000, input: contents });
   }
 
-  return { start, stop: runner.stopPoller, restartIfConfigChanged, availableEnvironments, reserve, provision, renew, resume, release, settleRemoval, uploadFile, workspaceStatus };
+  return { start, stop: runner.stopPoller, restartIfConfigChanged, availableEnvironments, reserve, provision, renew, resume, release, settleRemoval, uploadFile, workspaceStatus, describeRemoteExit };
 }
 
 export { createCoderEnvWiring };
