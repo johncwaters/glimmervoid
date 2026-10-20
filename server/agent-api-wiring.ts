@@ -7,7 +7,7 @@ import type { SessionRoleFacts } from '../session/core/session-routes.ts';
 import type { Session } from '../session/sessions.ts';
 import type {
   AgentApiVerb, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentEditRequest, AgentLimitsReply, AgentReadReply, AgentReadRequest,
-  AgentSendRequest, AgentSettingsReply, AgentSettingsRequest, AgentSpawnRequest,
+  AgentSendRequest, AgentSettingsReply, AgentSettingsRequest, AgentSpawnRequest, SessionLimits,
 } from '../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../shared/contracts/my-prs.ts';
 import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -69,6 +69,7 @@ interface AgentApiWiringOptions {
   sessionDocs: SessionDocsPort;
   memoryAdmission?: Pick<MemoryAdmission, 'describeShortfallNow'> | null;
   operatorState?: AgentOperatorStatePort | null;
+  coderWorkspaceStatus?: (workspace: string) => string | null;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;
@@ -116,6 +117,7 @@ function createAgentApiWiring({
   recordLane = null,
   memoryAdmission = null,
   operatorState = null,
+  coderWorkspaceStatus = () => null,
   logger = console,
   setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
   clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
@@ -417,7 +419,13 @@ function createAgentApiWiring({
   }
 
   function limits(session: Session): AgentLimitsReply {
-    return { ok: true, ...describeSessionLimits({ ...roleFactsOf(session), isGuarded: session.isGuarded }) };
+    return { ok: true, ...describeSessionLimits({ ...roleFactsOf(session), isGuarded: session.isGuarded, environment: environmentOf(session) }) };
+  }
+
+  function environmentOf(session: Session): SessionLimits['environment'] {
+    const mapping = config.projects.find((project) => project.id === session.id)?.environment;
+    if (!mapping) return null;
+    return { name: mapping.name, workspace: mapping.workspace, state: coderWorkspaceStatus(mapping.workspace) ?? 'unknown' };
   }
 
   async function push(session: Session): Promise<AgentApiReply> {

@@ -305,6 +305,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       myPrsStatus: () => myPrs.getStatus(),
       readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config, process.env)),
     },
+    coderWorkspaceStatus: (workspace) => laneAssembly.coderEnv.workspaceStatus(workspace),
     logger: console,
   });
 

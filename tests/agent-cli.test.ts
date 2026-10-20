@@ -31,12 +31,15 @@ const LIMITS_REPLY = JSON.stringify({
   ok: true,
   commands: [{ name: 'push', answers: true }, { name: 'spawn', answers: false, reason: 'a spawned session may not spawn another' }],
   guarded: true,
+  boundary: 'os-sandbox',
+  environment: null,
   deadEnds: [{ blocked: 'credential folders are off limits', route: 'flag the operator with glimmervoid attention' }],
 });
 const LIMITS_LINES = [
   'This session:',
   '  push: available',
   '  spawn: not available, a spawned session may not spawn another',
+  '  boundary: os-sandbox',
   '  guardrails: OS-enforced, so a read, write or connection they refuse will not succeed on retry',
   '  credential folders are off limits: flag the operator with glimmervoid attention',
 ];

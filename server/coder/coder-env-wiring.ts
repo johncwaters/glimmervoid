@@ -10,7 +10,7 @@ import type { CoderEnvPollerDeps } from './coder-env-poller.ts';
 import {
   CODER_ENV_READY_POLL_MS, decideReadiness, failedProvisionCleanup, liveLimitRefusal, parseGlimmervoidWorkspaces, remoteCheckoutDirectory, resolveCoderEnvironment, sharingRefusal,
 } from './core/coder-env-core.ts';
-import type { CoderEnvironmentSettings, ReadinessVerdict, ResolvedCoderEnvironment } from './core/coder-env-core.ts';
+import type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ResolvedCoderEnvironment } from './core/coder-env-core.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
 
 type ProjectEnvironment = NonNullable<Config['projects'][number]['environment']>;
@@ -42,6 +42,7 @@ function createCoderEnvWiring({
   let isCoderAvailable = false;
   let hasReconciled = false;
   const operationCountByWorkspace = new Map<string, number>();
+  const lastSeenStatusByWorkspace = new Map<string, CoderWorkspace['status']>();
   const setTimeoutFn = pollerDeps.setTimeoutFn ?? DEFAULT_TIMER_FNS.setTimeoutFn;
 
   async function runCoder(args: string[], { timeoutMs, input = '', env: commandEnv }: RunCoderOptions): Promise<{ stdout: string }> {
@@ -56,6 +57,30 @@ function createCoderEnvWiring({
 
   function command(args: string[], timeoutMs = 30_000): Promise<{ stdout: string }> {
     return runCoder(args, { timeoutMs });
+  }
+
+  function recordListing(listingJson: string): CoderWorkspace[] | null {
+    const workspaces = parseGlimmervoidWorkspaces(listingJson);
+    if (workspaces === null) return null;
+    lastSeenStatusByWorkspace.clear();
+    for (const workspace of workspaces) lastSeenStatusByWorkspace.set(workspace.name, workspace.status);
+    return workspaces;
+  }
+
+  async function readWorkspaceListing(): Promise<string> {
+    const listingJson = (await command(['list', '-o', 'json'])).stdout;
+    recordListing(listingJson);
+    return listingJson;
+  }
+
+  async function listWorkspaces(): Promise<CoderWorkspace[]> {
+    const workspaces = recordListing((await command(['list', '-o', 'json'])).stdout);
+    if (workspaces === null) throw new Error('Invalid Coder workspace listing');
+    return workspaces;
+  }
+
+  function workspaceStatus(workspace: string): CoderWorkspace['status'] | null {
+    return lastSeenStatusByWorkspace.get(workspace) ?? null;
   }
 
   function isConfigured(): boolean {
@@ -100,7 +125,7 @@ function createCoderEnvWiring({
     createPoller: () => createPoller({
       ...pollerDeps, now, log,
       firstTickDelayMs: pollerDeps.firstTickDelayMs ?? bootStaggerDelay,
-      listWorkspaces: async () => (await command(['list', '-o', 'json'])).stdout,
+      listWorkspaces: readWorkspaceListing,
       stopWorkspace: async (workspace) => { await command(['stop', workspace, '--yes']); },
       deleteWorkspace: async (workspace) => { await command(['delete', workspace, '--yes']); },
       mappings: () => config.projects.flatMap((project) => project.id && project.environment
@@ -147,8 +172,7 @@ function createCoderEnvWiring({
   async function waitForReady(workspaceName: string, environment: ResolvedCoderEnvironment): Promise<void> {
     const startedAtMs = now();
     for (;;) {
-      const workspaces = parseGlimmervoidWorkspaces((await command(['list', '-o', 'json'])).stdout);
-      if (workspaces === null) throw new Error('Invalid Coder workspace listing');
+      const workspaces = await listWorkspaces();
       const workspace = workspaces.find((candidate) => candidate.name === workspaceName);
       let isReadyUrlUp: boolean | null = null;
       if (environment.readyUrl) {
@@ -274,8 +298,7 @@ function createCoderEnvWiring({
   }): Promise<CoderEnvResult> {
     let didStart = false;
     try {
-      const workspaces = parseGlimmervoidWorkspaces((await command(['list', '-o', 'json'])).stdout);
-      if (workspaces === null) throw new Error('Invalid Coder workspace listing');
+      const workspaces = await listWorkspaces();
       const workspace = workspaces.find((candidate) => candidate.name === mapping.workspace);
       if (!workspace) throw new Error(`Coder workspace ${mapping.workspace} no longer exists`);
       if (workspace.status === 'stopped') {
@@ -315,7 +338,7 @@ function createCoderEnvWiring({
     await runCoder(['ssh', workspace, '--', remoteCommand(['sh', '-c', script, 'sh', remotePath])], { timeoutMs: 30_000, input: contents });
   }
 
-  return { start, stop: runner.stopPoller, restartIfConfigChanged, provision, resume, release, uploadFile };
+  return { start, stop: runner.stopPoller, restartIfConfigChanged, provision, resume, release, uploadFile, workspaceStatus };
 }
 
 export { createCoderEnvWiring };

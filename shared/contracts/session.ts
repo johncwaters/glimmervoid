@@ -259,6 +259,8 @@ export const SessionLimits = z.object({
     reason: z.string().optional(),
   }).strict()),
   guarded: z.boolean(),
+  boundary: z.enum(['os-sandbox', 'workspace', 'none']),
+  environment: z.object({ name: z.string(), workspace: z.string(), state: z.string() }).strict().nullable(),
   deadEnds: z.array(z.object({ blocked: z.string(), route: z.string() }).strict()),
 }).strict();
 

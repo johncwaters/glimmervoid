@@ -19,6 +19,7 @@ type SessionKindFacts = Omit<SessionRoleFacts, 'hasOwnWorktree'>;
 
 interface SessionLimitFacts extends SessionRoleFacts {
   isGuarded: boolean;
+  environment: SessionLimits['environment'];
 }
 
 type PushRefusalCode = 'not-operator-session' | 'no-worktree';
@@ -140,20 +141,34 @@ const OPERATOR_SESSION_GUARDRAIL_DEAD_ENDS: readonly SessionDeadEnd[] = Object.f
   },
 ]);
 
+function sessionBoundary({ environment, isGuarded }: SessionLimitFacts): SessionLimits['boundary'] {
+  if (environment !== null) return 'workspace';
+  return isGuarded ? 'os-sandbox' : 'none';
+}
+
 function describeSessionLimits(facts: SessionLimitFacts): SessionLimits {
   return {
     commands: SESSION_COMMANDS.map((name) => commandLimit(name, facts)),
     guarded: facts.isGuarded,
+    boundary: sessionBoundary(facts),
+    environment: facts.environment,
     deadEnds: runsUnderOperatorSessionGuardrails(facts) ? [...OPERATOR_SESSION_GUARDRAIL_DEAD_ENDS] : [],
   };
 }
 
-function formatSessionLimits({ commands, guarded, deadEnds }: SessionLimits): string[] {
+function boundaryLines({ boundary, environment }: SessionLimits): string[] {
+  if (environment === null) return [`  boundary: ${boundary}`];
+  return [`  boundary: ${boundary}`, `  environment: ${environment.name}, workspace ${environment.workspace}, ${environment.state}`];
+}
+
+function formatSessionLimits(limits: SessionLimits): string[] {
+  const { commands, guarded, deadEnds } = limits;
   const commandLines = commands.map(({ name, answers, reason }) => (answers ? `  ${name}: available` : `  ${name}: not available, ${reason}`));
-  if (!guarded) return ['This session:', ...commandLines, '  guardrails: none'];
+  if (!guarded) return ['This session:', ...commandLines, ...boundaryLines(limits), '  guardrails: none'];
   return [
     'This session:',
     ...commandLines,
+    ...boundaryLines(limits),
     '  guardrails: OS-enforced, so a read, write or connection they refuse will not succeed on retry',
     ...deadEnds.map(({ blocked, route }) => `  ${blocked}: ${route}`),
   ];

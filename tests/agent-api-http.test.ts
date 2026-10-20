@@ -16,6 +16,7 @@ import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { AgentLimitsReply, AgentReadReply } from '../shared/contracts/session.ts';
+import { formatSessionLimits } from '../session/core/session-routes.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
@@ -196,6 +197,7 @@ interface WiringFixtureOptions {
   headroomBytes?: number;
   holdFirstHeadroomRead?: boolean;
   clock?: ManualClock;
+  coderWorkspaceStatus?: (workspace: string) => string | null;
 }
 
 interface ManualClock {
@@ -232,7 +234,7 @@ function manualClock() {
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
   holdSpawnGate = false, parentIsGuarded = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
-  clock,
+  clock, coderWorkspaceStatus,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -295,6 +297,7 @@ function wiringFixture({
       : createSpawnGate({ memoryAdmission }),
     sessionDocs: createSessionDocsWiring({ broadcastControl: (message) => { broadcasts.push(message); } }),
     memoryAdmission,
+    coderWorkspaceStatus,
     logger: { warn: () => {} },
     ...clock,
   });
@@ -653,13 +656,15 @@ test('a lane session is refused a spawn and an attention note with the reason, a
   }
 });
 
-test('limits tells a session which commands answer, and a guarded operator session what its guardrails block with the route that still works', async () => {
-  const fixture = wiringFixture({ parentIsGuarded: true });
+test('limits tells a session which commands answer, its boundary, and a guarded operator session what its guardrails block with the route that still works', async () => {
+  const fixture = wiringFixture({ parentIsGuarded: true, coderWorkspaceStatus: (workspace) => (workspace === 'gv-0123456789ab' ? 'running' : null) });
   const guardedLane = new Session({
     id: 'review-lane', name: 'review', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty(),
     prepareGuardrails: async () => ({ ok: false, reason: 'never launched' }),
   });
   const unguarded = new Session({ id: 'unguarded', name: 'unguarded', path: process.cwd(), ptySpawn: () => fakePty() });
+  const remote = new Session({ id: 'remote', name: 'remote', path: process.cwd(), ptySpawn: () => fakePty() });
+  fixture.config.projects.push({ id: 'remote', name: 'remote', path: process.cwd(), environment: { name: 'dev', workspace: 'gv-0123456789ab', remotePort: 45000, branch: 'main' } });
   const limitsOf = async (session: Session) => {
     const reply = await fixture.wiring.handle(session, 'limits', {});
     assert.equal(reply.status, 200);
@@ -671,7 +676,7 @@ test('limits tells a session which commands answer, and a guarded operator sessi
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
       ...['spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings'].map((name) => ({ name, answers: true })),
     ]);
-    assert.equal(operatorLimits.guarded, true);
+    assert.deepEqual([operatorLimits.guarded, operatorLimits.boundary, operatorLimits.environment], [true, 'os-sandbox', null]);
     assert.deepEqual(operatorLimits.deadEnds.map(({ route }) => route), ['flag the operator with glimmervoid attention']);
     const laneLimits = await limitsOf(guardedLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
@@ -698,10 +703,14 @@ test('limits tells a session which commands answer, and a guarded operator sessi
       assert.equal(refusal.body.error, limits.commands.find(({ name }) => name === command)?.reason, `${command} is refused for the reason limits gave`);
     }
     const unguardedLimits = await limitsOf(unguarded);
-    assert.deepEqual([unguardedLimits.guarded, unguardedLimits.deadEnds], [false, []]);
+    assert.deepEqual([unguardedLimits.guarded, unguardedLimits.boundary, unguardedLimits.deadEnds], [false, 'none', []]);
+    const remoteLimits = await limitsOf(remote);
+    assert.deepEqual([remoteLimits.boundary, remoteLimits.environment], ['workspace', { name: 'dev', workspace: 'gv-0123456789ab', state: 'running' }]);
+    assert.ok(formatSessionLimits(remoteLimits).includes('  environment: dev, workspace gv-0123456789ab, running'));
   } finally {
     guardedLane.destroy();
     unguarded.destroy();
+    remote.destroy();
     fixture.destroyAll();
   }
 });
