@@ -56,6 +56,18 @@ const celebrationStyles = extractCelebrationStyles(dashboardStylesheet);
       .flying-animal-preview .nyan-trail { width: 100px; }
       @media (prefers-reduced-motion: reduce) { .flying-animal-preview .nyan-sprite, .flying-animal-preview .nyan-trail { animation: none !important; } }
     </style>
+    <script>
+      import posthog from 'posthog-js';
+
+      if (import.meta.env.PROD) {
+        posthog.init('phc_s68t9vWmeGcrWkx4NkLQaEiVZ9sMBxv8GjQBbAcix2Sf', {
+          api_host: 'https://us.i.posthog.com',
+          defaults: '2026-08-30',
+          cookieless_mode: 'always',
+          disable_session_recording: true,
+        });
+      }
+    </script>
   </head>
   <body>
     <div class="page">
