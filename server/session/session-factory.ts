@@ -1,4 +1,4 @@
-import { resolveCoherence } from '../coherence/coherence-runtime.ts';
+import { resolveCoherence, type ConfineCommand } from '../coherence/coherence-runtime.ts';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
 import { refreshRtkHookTools } from '../../session/core/rtk-settings-core.ts';
 import path from 'node:path';
@@ -82,8 +82,8 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
   ): Session {
     const skipPermissions = projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
     const originalHookTools = dependencies.resolveHookTools(config, { skipPermissions });
-    const prepareCoherence = overrides.ephemeral ? null : (cwd: string) => resolveCoherence({
-      worktree: cwd, host: getAdapter(overrides.agent ?? project.agent)?.usageVendor,
+    const prepareCoherence = overrides.ephemeral ? null : (cwd: string, confine: ConfineCommand | null) => resolveCoherence({
+      worktree: cwd, confine, host: getAdapter(overrides.agent ?? project.agent)?.usageVendor,
       isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true,
     });
     const session = new Session({

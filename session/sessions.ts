@@ -39,7 +39,7 @@ import { DEFAULT_AGENT_ID, resolveAdapter, commandFor } from "./adapters/index.t
 import { startCodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import type { CodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import { CODEX_REMOTE_TOKEN_ENV, needsAppServerRefusedFlag, remoteTuiArgs, splitCodexRemoteLaunch } from "./core/codex-remote-launch-core.ts";
-import type { CoherenceAttachment } from '../server/coherence/coherence-runtime.ts';
+import type { CoherenceAttachment, ConfineCommand, ConfinedCommand } from '../server/coherence/coherence-runtime.ts';
 import type { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision } from "../shared/contracts/session.ts";
 import { claudeApprovalFor, claudeDecisionReply, isHoldReleasedByHookEvent, parseClaudePermissionRequest } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
@@ -242,7 +242,7 @@ interface SessionOptions {
   planLimits?: boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
-  prepareCoherence?: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
+  prepareCoherence?: ((cwd: string, confine: ConfineCommand | null) => Promise<CoherenceAttachment | null>) | null;
   ptySpawn?: PtySpawn | null;
   screenKeeperFactory?: ScreenKeeperFactory | null;
   killProc?: KillProc | null;
@@ -342,7 +342,7 @@ class Session extends EventEmitter {
   _isSaneYoloActive: boolean;
   _planLimits: boolean;
   _planReviewPort: SessionPlanReviewPort | null;
-  _prepareCoherence: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
+  _prepareCoherence: ((cwd: string, confine: ConfineCommand | null) => Promise<CoherenceAttachment | null>) | null;
   coherenceHooks: CoherenceHooksState | null;
   coherenceAttachment: CoherenceAttachment | null;
   _coherenceHooksRefresh: Promise<void> | null;
@@ -1493,7 +1493,7 @@ class Session extends EventEmitter {
 
     if (this._prepareCoherence) {
       this._coherenceHooksGeneration += 1;
-      this.coherenceAttachment = await this._prepareCoherence(this.effectiveCwd());
+      this.coherenceAttachment = await this._prepareCoherence(this.effectiveCwd(), this._prepareGuardrails ? (command) => this._confineCommand(command) : null);
       this.coherenceHooks = this.coherenceAttachment?.hooks ?? null;
       if (isStartSuperseded()) return;
       this.emit('coherence-hooks-change', this.coherenceHooks);
@@ -1818,6 +1818,22 @@ class Session extends EventEmitter {
     this._guardrailsLaunch = prepared.launch;
     const wrapped = await prepared.launch.wrap(command.file, command.args, { hasTerminal: true });
     return { ...wrapped, env: prepared.launch.env, cwd: prepared.launch.cwd };
+  }
+
+  async _confineCommand(command: { file: string; args: string[] }): Promise<ConfinedCommand> {
+    if (!this._prepareGuardrails) throw new Error('this session has no guardrails to confine a command in');
+    const prepared = await this._prepareGuardrails({
+      launchId: randomUUID(), cwd: this.effectiveCwd(), hookPort: null, readablePaths: [], writablePaths: [], agentSessionId: null,
+    });
+    if (!prepared.ok) throw new Error(prepared.reason);
+    const { launch } = prepared;
+    try {
+      const wrapped = await launch.wrap(command.file, command.args, { hasTerminal: false });
+      return { ...wrapped, env: launch.env, ...(launch.cwd === undefined ? {} : { cwd: launch.cwd }), dispose: () => launch.dispose() };
+    } catch (error) {
+      await launch.dispose();
+      throw error;
+    }
   }
 
   _disposeGuardrailsLaunch(launch: GuardrailsLaunch | null): void {
