@@ -1,5 +1,5 @@
 import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
-import type { CoherenceHooksState, ConversationApproval } from "../../shared/contracts/session.ts";
+import type { CoherenceHooksState, ConversationApproval, UnseenOutcome } from "../../shared/contracts/session.ts";
 import type { LinkedPr } from "../../shared/contracts/my-prs.ts";
 
 interface SessionCardSource {
@@ -88,6 +88,7 @@ interface SnapshotSource {
   mergeReason: string | null;
   worktreeNotice: string | null;
   failureReason?: string | null;
+  unseenOutcome?: UnseenOutcome | null;
   effectiveBase: string | null;
   linkedPrs: LinkedPr[];
   coherenceHooks?: CoherenceHooksState | null;
@@ -130,6 +131,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     mergeReason: source.mergeReason,
     worktreeNotice: source.worktreeNotice,
     failureReason: source.failureReason ?? null,
+    unseenOutcome: source.unseenOutcome ?? null,
     effectiveBase: source.effectiveBase ?? null,
     linkedPrs: source.linkedPrs,
     coherenceHooks: source.coherenceHooks ?? null,

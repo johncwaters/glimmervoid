@@ -1,6 +1,7 @@
 import { STATES } from "../../shared/states.ts";
 import type { SessionState } from "../../shared/states.ts";
 import { COMPACTION_RESTORE_EVENTS } from "../../shared/compaction-restore-events.ts";
+import type { UnseenOutcome } from "../../shared/contracts/session.ts";
 
 
 interface GuardSession {
@@ -118,11 +119,19 @@ const ENTRY_HOOKS: StateHookTable = {
   },
 };
 
+const UNSEEN_OUTCOME_ON_ENTRY: ReadonlyMap<SessionState, UnseenOutcome | null> = new Map<SessionState, UnseenOutcome | null>([
+  [STATES.COMPLETE, "finished"],
+  [STATES.FAILED, "failed"],
+  [STATES.INITIALIZING, null],
+  [STATES.DORMANT, null],
+  [STATES.DONE, null],
+]);
+
 const EXIT_HOOKS: StateHookTable = {
   [STATES.WAITING](session) {
     session.emit("attention-cleared", { name: session.name });
   },
 };
 
-export { TRANSITIONS, GUARDS, ENTRY_HOOKS, EXIT_HOOKS };
+export { TRANSITIONS, GUARDS, ENTRY_HOOKS, EXIT_HOOKS, UNSEEN_OUTCOME_ON_ENTRY };
 export type { HookSession };

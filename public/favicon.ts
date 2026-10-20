@@ -1,3 +1,4 @@
+import type { UnseenOutcome } from '#shared/contracts/session.ts';
 import { decideFaviconVariant, renderFaviconSvg } from './favicon-core.ts';
 
 function getFaviconElement() {
@@ -14,8 +15,8 @@ function getFaviconElement() {
 const faviconElement = getFaviconElement();
 let currentFaviconVariant = 'idle';
 
-export function refreshFavicon(sessionRegistry: Map<string, { currentState?: string }>) {
-  const sessions = [...sessionRegistry.values()].map(({ currentState }) => ({ state: currentState }));
+export function refreshFavicon(sessionRegistry: Map<string, { currentState?: string; unseenOutcome?: UnseenOutcome | null }>) {
+  const sessions = [...sessionRegistry.values()].map(({ currentState, unseenOutcome }) => ({ state: currentState, unseenOutcome }));
   const faviconVariant = decideFaviconVariant(sessions);
   if (faviconVariant === currentFaviconVariant) return;
 

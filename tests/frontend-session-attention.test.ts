@@ -24,17 +24,25 @@ test('every built-in session state has one attention tier shared by the rail and
   }
 });
 
-test('FAILED joins the jump queue and marks the favicon but is never dismissed on view', () => {
-  const failed = { id: 'failed', name: 'Failed session', state: STATES.FAILED };
-  assert.equal(needsAttention(failed), false);
+test('an unseen failure joins the jump queue and marks the favicon until the operator sees it', () => {
+  const failed = { id: 'failed', name: 'Failed session', state: STATES.FAILED, unseenOutcome: 'failed' };
+  assert.equal(needsAttention(failed), true);
   assert.deepEqual(orderAttentionQueue([failed]), ['failed']);
   assert.deepEqual(countAttentionByKind([failed]), { waitingCount: 0, finishedCount: 0, failedCount: 1 });
   assert.equal(decideFaviconVariant([failed]), 'failed');
+
+  const seenFailed = { ...failed, unseenOutcome: null };
+  assert.equal(needsAttention(seenFailed), false);
+  assert.deepEqual(orderAttentionQueue([seenFailed]), []);
+  assert.equal(decideFaviconVariant([seenFailed]), 'idle');
 });
 
-test('COMPLETE counts in the readout until the operator sees it but never marks the favicon', () => {
-  const completed = { id: 'completed', name: 'Completed session', state: STATES.COMPLETE };
+test('an unseen finish counts in the readout through a background-driven turn but never marks the favicon', () => {
+  const completed = { id: 'completed', name: 'Completed session', state: STATES.COMPLETE, unseenOutcome: 'finished' };
+  const monitoring = { ...completed, id: 'monitoring', state: STATES.RUNNING };
   assert.equal(needsAttention(completed), true);
+  assert.deepEqual(orderAttentionQueue([completed, monitoring]), ['completed', 'monitoring']);
+  assert.deepEqual(countAttentionByKind([monitoring]), { waitingCount: 0, finishedCount: 1, failedCount: 0 });
   assert.equal(decideFaviconVariant([completed]), 'idle');
 });
 
@@ -45,8 +53,10 @@ test('unfamiliar states stay resting', () => {
 });
 
 test('favicon preserves waiting priority and accepts absent or malformed session collections', () => {
-  assert.equal(decideFaviconVariant([{ state: STATES.FAILED }, { state: STATES.COMPLETE }, { state: STATES.WAITING }]), 'waiting');
-  assert.equal(decideFaviconVariant([null, undefined, { state: STATES.FAILED }, { state: STATES.COMPLETE }]), 'failed');
+  const unseenFailure = { state: STATES.FAILED, unseenOutcome: 'failed' };
+  const unseenFinish = { state: STATES.COMPLETE, unseenOutcome: 'finished' };
+  assert.equal(decideFaviconVariant([unseenFailure, unseenFinish, { state: STATES.WAITING }]), 'waiting');
+  assert.equal(decideFaviconVariant([null, undefined, unseenFailure, unseenFinish]), 'failed');
   for (const sessions of [undefined, null, {}, 'WAITING']) assert.equal(decideFaviconVariant(sessions), 'idle');
 });
 
@@ -59,8 +69,8 @@ test('row snapshots preserve stable ids, source references and layout-specific n
   const railRows = buildSessionRows(sessions, (session) => session.railName);
   const boardRows = buildSessionRows(sessions, (session) => session.cardName);
   assert.deepEqual(railRows, [
-    { id: 'first-id', ui: firstSession, name: 'Session 10', isDormant: false, state: STATES.RUNNING, ownerId: null },
-    { id: 'second-id', ui: secondSession, name: null, isDormant: true, state: STATES.DORMANT, ownerId: null },
+    { id: 'first-id', ui: firstSession, name: 'Session 10', isDormant: false, state: STATES.RUNNING, unseenOutcome: null, ownerId: null },
+    { id: 'second-id', ui: secondSession, name: null, isDormant: true, state: STATES.DORMANT, unseenOutcome: null, ownerId: null },
   ]);
   assert.deepEqual(boardRows.map(({ id, name }) => ({ id, name })), [
     { id: 'first-id', name: 'Renamed card' }, { id: 'second-id', name: '' },

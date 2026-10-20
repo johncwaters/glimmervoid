@@ -86,24 +86,28 @@ test('pickAdjacent: single-element list stays put either direction', () => {
 interface AttentionRow {
   id: string;
   state: string;
+  unseenOutcome: string | null;
 }
 
-const attentionRow = (id: string, state: string): AttentionRow => ({ id, state });
+const UNSEEN_OUTCOME_BY_STATE: ReadonlyMap<string, string> = new Map([['COMPLETE', 'finished'], ['FAILED', 'failed']]);
+const attentionRow = (id: string, state: string): AttentionRow => ({ id, state, unseenOutcome: UNSEEN_OUTCOME_BY_STATE.get(state) ?? null });
 
-test('needsAttention: WAITING and COMPLETE qualify until the operator sees them', () => {
+test('needsAttention: WAITING and any unseen outcome qualify until the operator sees them', () => {
   assert.equal(needsAttention({ state: 'WAITING' }), true);
-  assert.equal(needsAttention({ state: 'COMPLETE' }), true);
+  assert.equal(needsAttention({ state: 'COMPLETE', unseenOutcome: 'finished' }), true);
+  assert.equal(needsAttention({ state: 'FAILED', unseenOutcome: 'failed' }), true);
+  assert.equal(needsAttention({ state: 'RUNNING', unseenOutcome: 'finished' }), true);
 });
 
-test('needsAttention: no other state qualifies', () => {
-  for (const state of ['RUNNING', 'FAILED', 'IDLE', 'DONE', 'DORMANT', 'STARTING', 'INITIALIZING']) {
-    assert.equal(needsAttention({ state }), false, `${state} must not qualify`);
+test('needsAttention: nothing else qualifies, whatever the state', () => {
+  for (const state of ['RUNNING', 'COMPLETE', 'FAILED', 'IDLE', 'DONE', 'DORMANT', 'STARTING', 'INITIALIZING']) {
+    assert.equal(needsAttention({ state, unseenOutcome: null }), false, `${state} must not qualify`);
   }
   assert.equal(needsAttention({}), false);
   assert.equal(needsAttention(), false);
 });
 
-test('countAttentionByKind: counts the rows needsAttention accepts, plus failed sessions', () => {
+test('countAttentionByKind: counts the rows needsAttention accepts by kind', () => {
   assert.deepEqual(countAttentionByKind([
     attentionRow('a', 'WAITING'),
     attentionRow('b', 'FAILED'),

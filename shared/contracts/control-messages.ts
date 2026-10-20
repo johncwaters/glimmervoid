@@ -15,7 +15,7 @@ import { ChangeMap } from './change-map.ts';
 import {
   COHERENCE_JOURNAL_DRAWER_MAX_ROWS, CoherenceJournalEntry, SessionCoherence,
 } from './coherence.ts';
-import { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
+import { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, SessionState, TaskTitle, UnseenOutcome } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { SessionSetup } from './session-setup.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
@@ -437,6 +437,7 @@ const serverVariants = [
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-coherence-hooks', { id: sessionId, coherenceHooks: CoherenceHooksState.nullable() }),
   loose('session-agents', { id: sessionId, activeAgents: z.number().int().nonnegative(), awaitingBackgroundTasks: z.boolean(), timestamp }),
+  loose('session-unseen', { id: sessionId, unseenOutcome: UnseenOutcome.nullable(), timestamp }),
   loose('session-wakeup', { id: sessionId, pendingWakeup: PendingWakeup.nullable(), timestamp }),
   loose('session-prompt', { isCompacting: z.boolean().optional(), id: sessionId, pendingPromptKind: nullableString, timestamp }),
   loose('session-conversation', { id: sessionId, hasConversationBridge: z.boolean(), isConversationViewOn: z.boolean(), conversationApproval: ConversationApproval.nullable() }),

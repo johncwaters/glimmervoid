@@ -41,7 +41,7 @@ import { remoteCodexAppServerScript } from "./core/codex-app-server-core.ts";
 import type { CodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import { CODEX_REMOTE_TOKEN_ENV, needsAppServerRefusedFlag, remoteTuiArgs, splitCodexRemoteLaunch } from "./core/codex-remote-launch-core.ts";
 import type { CoherenceAttachment, ConfineCommand, ConfinedCommand } from '../server/coherence/coherence-runtime.ts';
-import type { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision } from "../shared/contracts/session.ts";
+import type { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision, UnseenOutcome } from "../shared/contracts/session.ts";
 import { claudeApprovalFor, claudeDecisionReply, isHoldReleasedByHookEvent, parseClaudePermissionRequest } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities } from "./adapters/index.ts";
@@ -51,6 +51,7 @@ import {
   GUARDS,
   ENTRY_HOOKS,
   EXIT_HOOKS,
+  UNSEEN_OUTCOME_ON_ENTRY,
 } from "./core/state-machine.ts";
 import { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention } from "./core/status-mapper.ts";
 import { decideWaitingInput, isOperatorKeystroke } from "./core/waiting-input-core.ts";
@@ -310,6 +311,7 @@ class Session extends EventEmitter {
   state: SessionState;
   stateSince: number;
   failureReason: string | null;
+  unseenOutcome: UnseenOutcome | null;
   ephemeral: boolean;
   agentId: string;
   usageVendor: string;
@@ -511,6 +513,7 @@ class Session extends EventEmitter {
     this.state = STATES.DORMANT;
     this.stateSince = Date.now();
     this.failureReason = null;
+    this.unseenOutcome = null;
     this._receivedFirstOutput = false;
     this._killPollTimer = null;
     this._killReapTimer = null;
@@ -1382,6 +1385,7 @@ class Session extends EventEmitter {
       mergeReason: this.mergeReason,
       worktreeNotice: this.worktreeNotice,
       failureReason: this.failureReason,
+      unseenOutcome: this.unseenOutcome,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,
       coherenceHooks: this.coherenceHooks,
@@ -1438,6 +1442,8 @@ class Session extends EventEmitter {
     this.state = to;
     if (event === "spawn_fail") this.failureReason = describeSpawnFailure(detail);
     if (to === STATES.INITIALIZING) this.failureReason = null;
+    const unseenOutcomeOnEntry = UNSEEN_OUTCOME_ON_ENTRY.get(to);
+    if (unseenOutcomeOnEntry !== undefined && !isCompactionRestoreEvent(event)) this._setUnseenOutcome(unseenOutcomeOnEntry);
     if (to === STATES.IDLE || to === STATES.COMPLETE) this._observeCompaction("settled");
 
     const entryHook = ENTRY_HOOKS[to];
@@ -2298,8 +2304,16 @@ class Session extends EventEmitter {
   }
 
   dismiss(): boolean {
-    if (!DISMISSIBLE_STATES.has(this.state)) return false;
+    const hadUnseenOutcome = this.unseenOutcome !== null;
+    this._setUnseenOutcome(null);
+    if (!DISMISSIBLE_STATES.has(this.state)) return hadUnseenOutcome;
     return this.transition("user_dismiss");
+  }
+
+  _setUnseenOutcome(nextUnseenOutcome: UnseenOutcome | null): void {
+    if (this.unseenOutcome === nextUnseenOutcome) return;
+    this.unseenOutcome = nextUnseenOutcome;
+    this.emit("unseen-outcome-change", { unseenOutcome: nextUnseenOutcome });
   }
 
   _teardownPending(): boolean {

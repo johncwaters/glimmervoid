@@ -29,6 +29,7 @@ import { osc8LinkHandler, registerUrlLinkProvider } from './terminal-links.ts';
 import { installTerminalSecretMask, resetTerminalSecretMask } from './terminal-secret-mask.ts';
 import { decideTerminalLinkState } from './terminal-link-core.ts';
 import { uploadFilesToSession } from '../session-upload.ts';
+import { sendControlMsg } from '../control-ws.ts';
 import { wireTouchScroll } from './touch-scroll.ts';
 import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from '../flying-animal-preview.ts';
@@ -755,7 +756,10 @@ export function wireTerminalIO(ui: SessionUi, sessionId: string) {
 
   const term = ui.term;
   if (!term) return;
-  term.onData((data) => { sendTerminalInput(ui, data); });
+  term.onData((data) => {
+    sendTerminalInput(ui, data);
+    if (ui.unseenOutcome) sendControlMsg({ type: 'dismiss', id: sessionId, expectedState: ui.currentState });
+  });
   term.onScroll((viewportTopLine) => { requestDeepHistoryAtTop(ui, sessionId, viewportTopLine); });
 
   wireFileTransfer(ui.termWrap, sessionId, ui.abortController.signal);

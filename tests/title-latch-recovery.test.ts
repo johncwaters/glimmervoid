@@ -154,3 +154,28 @@ test('reset() still clears hasSeenSpinner (resync is strictly weaker)', () => {
   assert.deepEqual(src.getState(), { hasSeenSpinner: false, lastKind: null, lastChar: null });
   src.destroy();
 });
+
+test('an unseen finish survives a background-driven turn and a failure clears only on dismiss', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const s = makeSession(STATES.IDLE);
+  feedTitle(s, SPIN_A);
+  hook(s, 'ready');
+  t.mock.timers.tick(40);
+  assert.equal(s.unseenOutcome, 'finished');
+
+  feedTitle(s, SPIN_B);
+  assert.equal(s.state, STATES.RUNNING);
+  assert.equal(s.unseenOutcome, 'finished');
+
+  assert.equal(s.dismiss(), true);
+  assert.equal(s.state, STATES.RUNNING);
+  assert.equal(s.unseenOutcome, null);
+
+  assert.equal(s.transition('process_exit_fail'), true);
+  assert.equal(s.unseenOutcome, 'failed');
+  assert.equal(s.dismiss(), true);
+  assert.equal(s.state, STATES.FAILED);
+  assert.equal(s.unseenOutcome, null);
+  assert.equal(s.dismiss(), false);
+  s.destroy();
+});

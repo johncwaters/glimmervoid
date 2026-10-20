@@ -10,6 +10,7 @@ export const TASK_TITLE_CONTROL_CHARACTERS = /[\x00-\x1f\x7f-\x9f]/;
 export const TaskTitle = z.string().refine((title) => !TASK_TITLE_CONTROL_CHARACTERS.test(title)).trim().max(TASK_TITLE_MAX_LENGTH);
 export const RefinedTaskTitle = z.object({ title: z.string().nullable(), name: z.string().nullable().optional() }).strict();
 export const SessionState = z.enum(STATES);
+export const UnseenOutcome = z.enum(['finished', 'failed']);
 export const PendingWakeup = z.object({
   at: z.number().finite().nullable(),
   kind: z.string(),
@@ -92,6 +93,7 @@ export const SessionSnapshot = z.object({
   mergeReason: z.string().nullable(),
   worktreeNotice: z.string().nullable(),
   failureReason: z.string().nullable().optional(),
+  unseenOutcome: UnseenOutcome.nullable().default(null),
   effectiveBase: z.string().nullable(),
   linkedPrs: z.array(LinkedPr).default([]),
   coherenceHooks: CoherenceHooksState.nullable().default(null),
@@ -100,6 +102,7 @@ export const SessionSnapshot = z.object({
 
 export type RefinedTaskTitle = z.infer<typeof RefinedTaskTitle>;
 export type SessionState = z.infer<typeof SessionState>;
+export type UnseenOutcome = z.infer<typeof UnseenOutcome>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type CoherenceHooksState = z.infer<typeof CoherenceHooksState>;
 export type PendingWakeup = z.infer<typeof PendingWakeup>;

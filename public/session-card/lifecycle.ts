@@ -2,7 +2,7 @@ import { isCompactionRestoreEvent } from '#shared/compaction-restore-events.ts';
 import { localHourMinuteText } from '#shared/display-text.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { PlanDraftPush } from '#shared/contracts/plan-review.ts';
-import type { ConversationApproval } from '#shared/contracts/session.ts';
+import type { ConversationApproval, UnseenOutcome } from '#shared/contracts/session.ts';
 import { isConversationAgent } from '../conversation/conversation-core.ts';
 import { createConversationFace } from '../conversation/conversation-face.ts';
 import type { SessionState } from '#shared/states.ts';
@@ -40,7 +40,7 @@ import { requestSessionRemoval } from '../session-actions.ts';
 import { openResumeDialog } from './resume-dialog.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { reportUnsourcedError } from '../action-status.ts';
-import { countAttentionByKind, needsAttention, titleAlertCount } from '../focus-view/attention-core.ts';
+import { countAttentionByKind, needsAttention, sessionAttentionTier, titleAlertCount } from '../focus-view/attention-core.ts';
 import { closeSessionNotifications } from '../notifications.ts';
 
 import {
@@ -332,7 +332,7 @@ export function refreshTerminalFonts() {
 }
 
 export function updateAttentionTitle() {
-  const counts = countAttentionByKind([...sessionUIs.values()].map((ui) => ({ state: ui.currentState })));
+  const counts = countAttentionByKind([...sessionUIs.values()].map((ui) => ({ state: ui.currentState, unseenOutcome: ui.unseenOutcome })));
   const alertCount = titleAlertCount(counts);
   document.title = alertCount > 0 ? `(${alertCount}) Glimmervoid` : 'Glimmervoid';
 }
@@ -628,6 +628,12 @@ export function setSessionPrompt(sessionId: unknown, kind: unknown, isCompacting
   if (!hasPendingPrompt && ui.face === 'terminal') showSessionConversationFace(sessionId);
 }
 
+export function setSessionUnseenOutcome(sessionId: unknown, unseenOutcome: UnseenOutcome | null | undefined) {
+  const ui = findSessionUi(sessionId);
+  if (!ui) return;
+  ui.unseenOutcome = unseenOutcome ?? null;
+}
+
 function formatWakeupChip(at: unknown) {
   if (!at) return 'scheduled';
   return `sleeping until ~${localHourMinuteText(new Date(at as string | number))}`;
@@ -764,7 +770,7 @@ function _handleRestartTransition(ui: SessionUi, prevState: string) {
 
 export function markSessionSeen(sessionId: string) {
   const ui = sessionUIs.get(sessionId);
-  if (!ui || !needsAttention({ state: ui.currentState })) return;
+  if (!ui || !needsAttention({ state: ui.currentState, unseenOutcome: ui.unseenOutcome })) return;
   if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
   sendControlMsg({ type: 'dismiss', id: sessionId, expectedState: ui.currentState });
 }
@@ -801,7 +807,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
     ensureTerminalSetup(ui, sessionIdOf(sessionId));
   }
 
-  if (!needsAttention({ state })) closeSessionNotifications(sessionIdOf(sessionId));
+  if (sessionAttentionTier({ state }) === 'resting') closeSessionNotifications(sessionIdOf(sessionId));
 
   ui.card.dataset.state = state;
   ui.card.toggleAttribute('data-monitoring', isMonitoringState(state, ui.awaitingBackgroundTasks));

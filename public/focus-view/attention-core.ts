@@ -1,11 +1,13 @@
 import type { SessionState } from '#shared/states.ts';
 import { STATES } from '#shared/states.ts';
+import { UnseenOutcome } from '#shared/contracts/session.ts';
 import type { SessionStateSource } from '../session-actions-core.ts';
 import { promptKindNeedWords } from '../session-card/face-core.ts';
 
 export type SessionAttentionTier = 'now' | 'later' | 'resting';
 interface SessionAttentionRow {
   state?: unknown;
+  unseenOutcome?: unknown;
 }
 
 const SESSION_ATTENTION_TIER_BY_STATE: Readonly<Record<SessionState, SessionAttentionTier>> = {
@@ -38,16 +40,17 @@ export interface SessionRow<Session, Name = string> extends RosterEntry {
   name: Name;
   isDormant: boolean;
   state: string;
+  unseenOutcome: UnseenOutcome | null;
   ownerId: string | null;
 }
 
-export function buildSessionRows<Session extends SessionStateSource & { ownerId?: string | null }, Name>(
+export function buildSessionRows<Session extends SessionStateSource & { ownerId?: string | null; unseenOutcome?: UnseenOutcome | null }, Name>(
   sessions: Iterable<readonly [string, Session]>,
   nameOf: (session: Session) => Name,
 ): SessionRow<Session, Name>[] {
   return [...sessions].map(([id, ui]) => {
     const state = ui.currentState || STATES.DORMANT;
-    return { id, ui, name: nameOf(ui), isDormant: state === STATES.DORMANT, state, ownerId: ui.ownerId ?? null };
+    return { id, ui, name: nameOf(ui), isDormant: state === STATES.DORMANT, state, unseenOutcome: ui.unseenOutcome ?? null, ownerId: ui.ownerId ?? null };
   });
 }
 
@@ -101,18 +104,32 @@ export function pickAdjacent(orderedIds: readonly string[], currentId: string | 
   return orderedIds[(start + step + orderedIds.length) % orderedIds.length];
 }
 
-export function needsAttention({ state }: SessionAttentionRow = {}) {
-  return sessionAttentionTier({ state }) !== 'resting';
+type AttentionKind = 'waiting' | UnseenOutcome;
+
+function attentionKindOf({ state, unseenOutcome }: SessionAttentionRow): AttentionKind | null {
+  if (state === STATES.WAITING) return 'waiting';
+  const parsedUnseenOutcome = UnseenOutcome.safeParse(unseenOutcome);
+  return parsedUnseenOutcome.success ? parsedUnseenOutcome.data : null;
 }
 
-const JUMP_RANK_BY_STATE: ReadonlyMap<string, number> = new Map([
-  [STATES.WAITING, 0],
-  [STATES.FAILED, 1],
-  [STATES.COMPLETE, 2],
+export function hasUnseenOutcomeAttention(row: SessionAttentionRow = {}) {
+  const kind = attentionKindOf(row);
+  return kind !== null && kind !== 'waiting';
+}
+
+export function needsAttention(row: SessionAttentionRow = {}) {
+  return attentionKindOf(row) !== null;
+}
+
+const JUMP_RANK_BY_KIND: ReadonlyMap<AttentionKind, number> = new Map<AttentionKind, number>([
+  ['waiting', 0],
+  ['failed', 1],
+  ['finished', 2],
 ]);
 
-function jumpRankOf({ state }: SessionAttentionRow): number | undefined {
-  return typeof state === 'string' ? JUMP_RANK_BY_STATE.get(state) : undefined;
+function jumpRankOf(row: SessionAttentionRow): number | undefined {
+  const kind = attentionKindOf(row);
+  return kind === null ? undefined : JUMP_RANK_BY_KIND.get(kind);
 }
 
 export function orderAttentionQueue<Row extends SessionAttentionRow & { id: string }>(rosterOrderedRows: readonly Row[]): string[] {
@@ -133,16 +150,10 @@ export interface AttentionCounts {
 export function countAttentionByKind(rows: readonly AttentionCountRow[] | null | undefined): AttentionCounts {
   const counts = { waitingCount: 0, finishedCount: 0, failedCount: 0 };
   for (const row of (rows || [])) {
-    if (row?.state === STATES.FAILED) {
-      counts.failedCount++;
-      continue;
-    }
-    if (!needsAttention(row || {})) continue;
-    if (row?.state === STATES.COMPLETE) {
-      counts.finishedCount++;
-      continue;
-    }
-    counts.waitingCount++;
+    const kind = attentionKindOf(row || {});
+    if (kind === 'waiting') counts.waitingCount++;
+    if (kind === 'failed') counts.failedCount++;
+    if (kind === 'finished') counts.finishedCount++;
   }
   return counts;
 }

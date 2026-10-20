@@ -1,7 +1,7 @@
 import { STATES } from '#shared/states.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { el } from '../dom-helpers.ts';
-import { orderAttentionQueue, orderRoster, pickNextAttention, pickStagedSession, stageNeedWords } from '../focus-view/attention-core.ts';
+import { hasUnseenOutcomeAttention, orderAttentionQueue, orderRoster, pickNextAttention, pickStagedSession, stageNeedWords } from '../focus-view/attention-core.ts';
 import { basename } from '../focus-view/roster-groups-core.ts';
 import { readSessionRows } from '../session-actions.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
@@ -79,9 +79,10 @@ export function refreshZenView() {
 export function stageNextAttention() {
   if (!isActive) return;
   const leavingId = stagedSessionId;
-  const isLeavingFinished = leavingId !== null && sessionUIs.get(leavingId)?.currentState === STATES.COMPLETE;
-  if (leavingId !== null && isLeavingFinished) markSessionSeen(leavingId);
-  const queuedIds = queuedSessionIds().filter((id) => !isLeavingFinished || id !== leavingId);
+  const leavingUi = leavingId === null ? undefined : sessionUIs.get(leavingId);
+  const isLeavingUnseenOutcome = leavingUi !== undefined && hasUnseenOutcomeAttention({ state: leavingUi.currentState, unseenOutcome: leavingUi.unseenOutcome });
+  if (leavingId !== null && isLeavingUnseenOutcome) markSessionSeen(leavingId);
+  const queuedIds = queuedSessionIds().filter((id) => !isLeavingUnseenOutcome || id !== leavingId);
   const nextId = pickNextAttention(queuedIds, leavingId);
   showStage(nextId, queuedIds);
 }
