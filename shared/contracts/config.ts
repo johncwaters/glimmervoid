@@ -55,6 +55,50 @@ function isGitBranchName(name: string): boolean {
   return name.split('/').every((component) => !component.startsWith('.') && !component.endsWith('.lock'));
 }
 
+const CODER_WORKSPACE_NAME_RE = /^gv-[0-9a-f]{12}$/;
+const CODER_ENVIRONMENT_NAME_RE = /^[a-z][a-z0-9-]{0,31}$/;
+const CODER_STOP_AFTER_RE = /^[1-9][0-9]*[hm]$/;
+
+const absolutePosixPath = (field: string) => z.string({ error: `${field} must be a string` })
+  .refine((value) => path.posix.isAbsolute(value), { error: `${field} must be an absolute path` });
+const positiveInteger = (field: string) => z.number({ error: `${field} must be a number` }).int({ error: `${field} must be a whole number` })
+  .positive({ error: `${field} must be positive` });
+
+const PARAMETERS_MESSAGE = 'coder.environments[].parameters must map names to strings';
+
+const CoderEnvironment = z.object({
+  name: z.string({ error: 'coder.environments[].name must be a string' })
+    .regex(CODER_ENVIRONMENT_NAME_RE, { error: 'coder.environments[].name must be 1 to 32 lowercase letters, digits and dashes, starting with a letter' }),
+  template: z.string({ error: 'coder.environments[].template must be a string' }).min(1, { error: 'coder.environments[].template must not be empty' })
+    .refine((value) => !value.startsWith('-'), { error: 'coder.environments[].template must not start with a dash' }),
+  parameters: z.record(z.string(), z.string({ error: PARAMETERS_MESSAGE }), { error: PARAMETERS_MESSAGE }).optional(),
+  nodePath: absolutePosixPath('coder.environments[].nodePath'),
+  checkoutRoot: absolutePosixPath('coder.environments[].checkoutRoot'),
+  readyUrl: z.url({ protocol: /^https?$/, error: 'coder.environments[].readyUrl must be an http or https URL' }).optional(),
+  idleStopMinutes: positiveInteger('coder.environments[].idleStopMinutes').optional(),
+  stopAfter: z.string().regex(CODER_STOP_AFTER_RE, { error: 'coder.environments[].stopAfter must be a duration like 4h or 90m' }).optional(),
+  maxLive: positiveInteger('coder.environments[].maxLive').optional(),
+  deleteAfterStoppedDays: positiveInteger('coder.environments[].deleteAfterStoppedDays').optional(),
+  hourlyCostUsd: z.number({ error: 'coder.environments[].hourlyCostUsd must be a number' }).nonnegative({ error: 'coder.environments[].hourlyCostUsd must not be negative' }).optional(),
+}).strict();
+
+const CoderSettings = z.object({
+  appSlug: z.string().optional(),
+  environments: z.array(CoderEnvironment).optional().refine((environments) => {
+    const names = (environments ?? []).map((environment) => environment.name);
+    return new Set(names).size === names.length;
+  }, { error: 'coder.environments[].name must be unique' }),
+}).loose().optional();
+
+const PORT_MESSAGE = 'projects[].environment.remotePort must be a port from 1 to 65535';
+
+const ProjectEnvironment = z.object({
+  name: z.string().regex(CODER_ENVIRONMENT_NAME_RE, { error: 'projects[].environment.name must name a coder environment' }),
+  workspace: z.string().regex(CODER_WORKSPACE_NAME_RE, { error: 'projects[].environment.workspace must be gv- and 12 hex digits' }),
+  remotePort: z.number({ error: PORT_MESSAGE }).int({ error: PORT_MESSAGE }).min(1, { error: PORT_MESSAGE }).max(65535, { error: PORT_MESSAGE }),
+  branch: z.string().refine(isGitBranchName, { error: 'projects[].environment.branch must be a git branch name' }),
+}).strict();
+
 export const CustomAgentDeclaration = z.object({
   id: z.string({ error: 'customAgents[].id must be a string' }).regex(AGENT_ID_RE, { error: `customAgents[].id must be ${AGENT_ID_SHAPE_MESSAGE}` }),
   label: z.string({ error: 'customAgents[].label must be a string' })
@@ -119,12 +163,13 @@ export const ProjectConfig = z.object({
   conversationView: z.boolean({ error: 'projects[].conversationView must be a boolean' }).optional(),
   dangerouslySkipPermissions: z.boolean({ error: 'projects[].dangerouslySkipPermissions must be a boolean' }).optional(),
   unguarded: z.boolean({ error: 'projects[].unguarded must be a boolean' }).optional(),
+  environment: ProjectEnvironment.optional(),
 }).passthrough();
 const FILE_CONFIG_SHAPE = {
   ...BROWSER_CONFIG_SHAPE,
   changeMap: ChangeMapSettings,
   branchGc: optionalLooseObject('branchGc'),
-  coder: z.object({ appSlug: z.string().optional() }).loose().optional(),
+  coder: CoderSettings,
   visions: optionalLooseObject('visions'),
   github: GithubSettings,
   teamReview: optionalLooseObject('teamReview'),
@@ -169,6 +214,16 @@ export const Config = z.object({
       code: 'custom',
       path: ['projects', index, 'agent'],
       message: `projects[${index}].agent "${agent}" names no known agent; declare it under customAgents or use one of ${[...declaredAgentIds].join(', ')}`,
+    });
+  }
+  const declaredEnvironmentNames = new Set((config.coder?.environments ?? []).map((environment) => environment.name));
+  for (const [index, project] of config.projects.entries()) {
+    const environmentName = project?.environment?.name;
+    if (environmentName === undefined || declaredEnvironmentNames.has(environmentName)) continue;
+    ctx.addIssue({
+      code: 'custom',
+      path: ['projects', index, 'environment', 'name'],
+      message: `projects[${index}].environment "${environmentName}" must be declared under coder.environments`,
     });
   }
 });

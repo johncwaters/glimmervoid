@@ -200,6 +200,7 @@ function validateConfig(candidate: unknown): ConfigValidation {
       if (field === 'agent') return `projects[${index}].agent must be ${AGENT_ID_SHAPE_MESSAGE}`;
       if (field === 'codexBypassHookTrust') return `projects[${index}].codexBypassHookTrust must be a boolean`;
       if (field === 'conversationView') return `projects[${index}].conversationView must be a boolean`;
+      if (field === 'environment') return issue.message;
       return `projects[${index}].${String(field)} must be a string`;
     });
     return { ok: false, errors };

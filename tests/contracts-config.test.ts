@@ -418,3 +418,23 @@ test('invalid persisted title state is dropped without rejecting the project or 
     assert.deepEqual(parsed.projects[0].packs, ['house-rules']);
   }
 });
+
+test('coder environments and a project environment mapping parse, and a malformed one fails closed', () => {
+  const environment = { name: 'devbox', template: 'linux', nodePath: '/opt/node/bin/node', checkoutRoot: '/home/coder/Projects', maxLive: 2 };
+  const mapping = { name: 'devbox', workspace: 'gv-0123456789ab', remotePort: 47100, branch: 'glimmervoid/session/one' };
+  const withEnvironments = (environments: unknown, environmentMapping: unknown = mapping) => Config.safeParse({
+    ...DEFAULT_CONFIG, coder: { appSlug: 'claude', environments }, projects: [{ path: '/work', environment: environmentMapping }],
+  });
+  const parsed = withEnvironments([environment]);
+  assert.equal(parsed.success, true);
+  assert.deepEqual(parsed.success === true && parsed.data.coder?.environments, [environment]);
+  assert.deepEqual(parsed.success === true && parsed.data.projects[0]?.environment, mapping);
+  assert.equal(withEnvironments([environment, environment]).success, false);
+  assert.equal(withEnvironments([{ ...environment, nodePath: 'node' }]).success, false);
+  assert.equal(withEnvironments([{ ...environment, template: '--yes' }]).success, false);
+  assert.equal(withEnvironments([{ ...environment, extra: true }]).success, false);
+  assert.equal(withEnvironments([environment], { ...mapping, workspace: 'devbox-main' }).success, false);
+  assert.equal(withEnvironments([environment], { ...mapping, name: 'nosuch' }).success, false);
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, projects: [{ path: '/work', environment: mapping }] }).success, false);
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, coder: { appSlug: 'claude' }, projects: [] }).success, true);
+});
