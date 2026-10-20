@@ -8,6 +8,7 @@ import type { AppliedChange } from './visions-buffer-core.ts';
 import { lineOfOffset, lineStartOffsets, replacedSpanOfWholeTextChange } from './visions-buffer-core.ts';
 import { formatTouchedRanges, shiftLines } from './visions-touch-core.ts';
 import { isRecord, nonNegativeIntOr, positiveIntOr } from '../../../shared/coerce.ts';
+import { fnv1a32 } from '../../../shared/fnv-hash.ts';
 
 const DEFAULT_QUIET_MS = 30000;
 const DEFAULT_COOLDOWN_MS = 300000;
@@ -160,12 +161,7 @@ function resolveVisionsConfig(raw: unknown) {
 
 function hashText(text: unknown): string {
   const value = typeof text === 'string' ? text : '';
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return `${value.length.toString(36)}-${hash.toString(36)}`;
+  return `${value.length.toString(36)}-${fnv1a32(value).toString(36)}`;
 }
 
 function createDispatchState(dispatchTimes: DispatchTimeEntry[] = []): DispatchState {
