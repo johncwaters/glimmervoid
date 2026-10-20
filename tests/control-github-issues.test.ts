@@ -43,7 +43,7 @@ interface GithubIssuesFrame {
   body?: string | null;
 }
 
-function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket', agent: 'codex' as const }], projectRepos = ['acme/socket'], existingSessionName = '', githubFailure = '', skipPermissionsByDefault, preparePrSession }: { projects?: ProjectEntry[]; projectRepos?: string[]; existingSessionName?: string; githubFailure?: string; skipPermissionsByDefault?: boolean; preparePrSession?: () => Promise<PrSessionCheckout> } = {}) {
+function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket', agent: 'codex' as const }], projectRepos = ['acme/socket'], existingSessionName = '', githubFailure = '', skipPermissionsByDefault, preparePrSession }: { projects?: ProjectEntry[]; projectRepos?: string[]; existingSessionName?: string; githubFailure?: string; skipPermissionsByDefault?: boolean; preparePrSession?: (key: string, projectPaths: readonly string[]) => Promise<PrSessionCheckout> } = {}) {
   const config: GlimmervoidConfig = { projects, skipPermissionsByDefault };
   const sessions = new Map<string, Session>();
   const pastesById = new Map<string, string[]>();
@@ -286,6 +286,31 @@ test('open-team-review-session keeps permission prompts for a matched project on
   assert.equal(h.sent[0].ok, true);
   assert.equal(h.config.projects[1].agent, 'codex');
   assert.equal(h.config.projects[1].dangerouslySkipPermissions, false);
+});
+
+test('open-team-review-session offers kept projects and refuses a guarded session in the review cache', async () => {
+  const offeredPaths: (readonly string[])[] = [];
+  const h = harness({
+    projects: [{ id: 'p1', name: 'socket', path: '/repo/socket' }],
+    preparePrSession: async (_key, projectPaths) => {
+      offeredPaths.push(projectPaths);
+      return {
+        ok: true, repo: 'acme/site', draft: null, checkoutPath: '/home/op/.glimmervoid/team-review-repos/acme/site', baseBranch: 'docs/pino', isConfiguredProject: false,
+        detail: {
+          number: 9, title: 'Docs', body: '', url: 'https://github.com/acme/site/pull/9',
+          author: { login: 'teammate' }, isDraft: false, isCrossRepository: false,
+          baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefOid: 'a'.repeat(40), additions: 1, deletions: 0, files: [],
+        },
+      };
+    },
+  });
+
+  await h.send({ type: 'open-team-review-session', requestId: 'r1', key: 'acme/site#9', projectPaths: ['/repo/site', '/repo/socket'] });
+
+  assert.deepEqual(offeredPaths, [['/repo/socket', '/repo/site']]);
+  assert.equal(h.sent[0].ok, false);
+  assert.match(String(h.sent[0].error), /acme\/site as a project/);
+  assert.equal(h.config.projects.length, 1);
 });
 
 test('open-issue-session reports the gh failure instead of a missing issue', async () => {

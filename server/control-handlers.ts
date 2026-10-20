@@ -1082,10 +1082,15 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       }
       if (!teamReview?.preparePrSession) { reply({ error: 'Team review is not running' }); return; }
       const singleRepoProjects = config.projects.filter((project) => !project.repos);
-      const checkout = await teamReview.preparePrSession(msg.key, singleRepoProjects.map((project) => project.path));
+      const candidateProjectPaths = [...new Set([...singleRepoProjects.map((project) => project.path), ...(msg.projectPaths ?? [])])];
+      const checkout = await teamReview.preparePrSession(msg.key, candidateProjectPaths);
       if (!checkout.ok) { reply({ error: checkout.error }); return; }
       const sourceProject = checkout.isConfiguredProject ? singleRepoProjects.find((project) => project.path === checkout.checkoutPath) : undefined;
       const isPrSessionGuarded = willSessionRunGuarded({ path: checkout.checkoutPath, agent: sourceProject?.agent }, config, null);
+      if (!checkout.isConfiguredProject && isPrSessionGuarded) {
+        reply({ error: `No project checks out ${checkout.repo}. Add a checkout of ${checkout.repo} as a project to open this pull request in a guarded session.` });
+        return;
+      }
       const created = createProjectSession({
         name: prSessionName(checkout.repo, checkout.detail.number, checkout.detail.title),
         path: checkout.checkoutPath,

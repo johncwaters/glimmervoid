@@ -213,7 +213,7 @@ const clientVariants = [
   loose('issue-detail', { requestId: z.string().min(1), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
   loose('open-issue-session', { requestId, projectId: z.string(), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
   loose('radar-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
-  loose('open-team-review-session', { requestId, key: PullRequestKey }),
+  loose('open-team-review-session', { requestId, key: PullRequestKey, projectPaths: z.array(z.string()).optional() }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }).refine(hasRequiredActionHead, { message: 'only discard may omit head', path: ['head'] }),
   loose('benchmark-action', { ...BenchmarkActionRequest.shape, requestId }),
   loose('my-pr-merge', { ...MyPrMergeRequest.shape, requestId }),

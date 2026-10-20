@@ -15,6 +15,7 @@ import { createPrStatusIcon } from './pr-status-icon.ts';
 import { MORE_ICON_PATH, createLineIcon, createSvgIcon as svgIcon, createSvgShape as svgShape } from '../svg-dom.ts';
 import { formatTrailOffset } from '../radar/radar-core.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
+import { getKeptProjects } from '../ui-prefs.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview,
   answeredNonNitThreads, changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionOrder, nextAttentionKey, buildActionRequest, buildNotMineRequest, chooseSelectedReviewKey,
@@ -404,7 +405,7 @@ function settleSessionOpen(key: string, text: string): void {
 function openReviewSession(key: string, button: HTMLButtonElement, status: HTMLElement): void {
   if (_sessionOpenByKey.get(key)?.requestId) return;
   const requestId = nextRequestId('open-team-review-session');
-  if (!sendControlMsg({ type: 'open-team-review-session', requestId, key })) {
+  if (!sendControlMsg({ type: 'open-team-review-session', requestId, key, projectPaths: getKeptProjects() })) {
     status.dataset.tone = 'error';
     status.textContent = NOT_CONNECTED_TEXT;
     return;
