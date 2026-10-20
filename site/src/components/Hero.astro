@@ -14,6 +14,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   <div class="hero-copy">
     <p class="eyebrow">Open source agent orchestrator</p>
     <h1>Mission control for your <em>coding agents</em>.</h1>
+    <p class="lede">Runs on your machine. Steer every agent from your phone, <a href="#remote">anywhere</a>.</p>
     <div class="install-line">
       <code id="install-command" title="Click to copy"><span data-install-for="default"><InstallCommand /></span><span data-install-for="linux" hidden><InstallCommand command={LINUX_INSTALL_COMMAND} /></span></code>
       <button class="btn" type="button" id="copy-install">Copy</button>
@@ -31,6 +32,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
 <style>
   .hero { border-top: none; padding-block: 36px 72px; }
   .hero-copy { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 18px; position: relative; z-index: 2; }
+  .lede { color: var(--text-dim); font-size: 16px; max-width: 46ch; }
   .install-platform-note { margin: 0; font-size: 13px; color: var(--text-dim); }
   .install-platform-note code { color: var(--text); }
   .platform-switch { display: inline-flex; margin: 0; padding: 0; min-inline-size: 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }

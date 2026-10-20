@@ -1,18 +1,65 @@
+---
+const FEATURE_GROUPS = [
+  {
+    heading: 'Attention',
+    features: [
+      { name: 'Needs you', line: 'One count of every waiting, failed or finished session. Cmd+J or Alt+J jumps to the next.' },
+      { name: 'Notifications', line: 'Browser or Telegram, the moment an agent stops.' },
+      { name: 'Plan review', line: 'Read and approve Claude Code plans anywhere.' },
+    ],
+  },
+  {
+    heading: 'Shipping',
+    features: [
+      { name: 'Reviews', line: "Your team's pull requests and yours in one tab. Merge when ready queues a PR until it can land." },
+      { name: 'PR chips', line: 'Every session card links its pull requests.' },
+      { name: 'Agent commands', line: 'Agents spawn siblings, flag you and land their own branch.', code: 'glimmervoid spawn | attention | push' },
+      { name: 'Usage', line: 'Tokens, cost and budgets per session.' },
+    ],
+  },
+  {
+    heading: 'Your setup',
+    features: [
+      { name: 'Phone layout', line: 'Triage from your phone, with a sticky Ctrl key and screenshot paste.' },
+      { name: 'Streamer mode', line: 'Masks keys, tokens and names while you share your screen.' },
+      { name: 'Auto-resume', line: 'Restart Glimmervoid. Sessions come back, even mid-turn.' },
+      { name: 'Local first', line: 'No cloud service. No account.' },
+    ],
+  },
+];
+---
 <section id="features">
-  <div class="bento">
-    <div class="tile reveal"><span class="glyph">&#x25c6;</span><h3>Notifications</h3><p>Browser or Telegram, the moment an agent is stuck. Cmd+J jumps straight to it.</p></div>
-    <div class="tile reveal"><span class="glyph">&#x25ad;</span><h3>Phone layout</h3><p>Triage every agent from your phone.</p></div>
-    <div class="tile reveal"><span class="glyph">&#x2713;</span><h3>Plan review</h3><p>Read and approve Claude Code plans anywhere.</p></div>
-    <div class="tile reveal"><span class="glyph">&#x25a4;</span><h3>Usage</h3><p>Tokens, cost and budgets per session.</p></div>
-    <div class="tile reveal"><span class="glyph">&#x21bb;</span><h3>Auto-resume</h3><p>Restart Glimmervoid. Sessions come back.</p></div>
-    <div class="tile reveal"><span class="glyph">&#x2302;</span><h3>Local first</h3><p>No cloud service. No account.</p></div>
+  <div class="section-head reveal">
+    <p class="eyebrow">And the rest</p>
+    <h2>Everything around the terminal.</h2>
+  </div>
+  <div class="feature-index">
+    {FEATURE_GROUPS.map(({ heading, features }) => (
+      <div class="feature-group reveal">
+        <h3>{heading}</h3>
+        <dl>
+          {features.map(({ name, line, code }) => (
+            <div class="feature">
+              <dt>{name}</dt>
+              <dd>{line}{code && <code>{code}</code>}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    ))}
   </div>
 </section>
 
 <style>
-  .bento { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-  .tile { border: 1px solid var(--border-dim); border-radius: 6px; background: var(--bg-card); padding: 20px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-  .tile p { color: var(--text-dim); font-size: 14px; }
-  .tile .glyph { font-size: 18px; color: var(--accent); }
-  @media (max-width: 820px) { .bento { grid-template-columns: minmax(0, 1fr); } }
+  .feature-index { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 36px; }
+  .feature-group { min-width: 0; }
+  .feature-group h3 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .feature-group dl { margin: 0; }
+  .feature { padding-block: 14px; border-bottom: 1px solid var(--border-dim); }
+  .feature dt { color: var(--text-head); font-weight: 700; font-size: 14px; }
+  .feature dd { margin: 4px 0 0; color: var(--text-dim); font-size: 13px; }
+  .feature dd code { display: block; font-family: inherit; margin-top: 6px; font-size: 12px; color: var(--text); overflow-wrap: anywhere; }
+  @media (max-width: 820px) {
+    .feature-index { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  }
 </style>
