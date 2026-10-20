@@ -1378,6 +1378,23 @@ test('a posted review of a merged or closed PR leaves the list without waiting o
   await poller.stop();
 });
 
+test('an unposted draft of a merged or closed PR leaves the list even while the search is incomplete', async () => {
+  const { poller, github } = setup();
+  github.requested = [searchItem(1, 'teammate'), searchItem(2, 'teammate')];
+  for (const number of [1, 2]) github.heads.set(number, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(poller.getDraft(`${REPO}#1`)?.status, 'ready');
+  github.requested = [];
+  github.isRequestedComplete = false;
+  github.closedNumbers.add(1);
+  await poller.tick();
+  await poller.tick();
+  await settle();
+  assert.deepEqual(Object.keys(poller._state()), [`${REPO}#2`]);
+  await poller.stop();
+});
+
 test('an incomplete requested search prunes nothing but still reviews the candidates it returned', async () => {
   const { poller, github, spawned } = setup();
   github.requested = [searchItem(1, 'teammate')];

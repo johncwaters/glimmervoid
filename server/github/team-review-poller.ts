@@ -413,26 +413,32 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return false;
   }
 
-  function closedPostedKeys(candidateKeys: Set<string>): Set<string> {
-    const departedPosted = Object.entries(state).filter(([key, entry]) => !candidateKeys.has(key) && !entry.inFlight && entry.draft?.status === 'posted');
-    store.setWatchedKeys('team-review-departed', departedPosted.flatMap(([, entry]) => entry.draft ? [comparablePrKey(entry.draft)] : []));
+  function closedEntryKeys(): Set<string> {
     const prs = store.getSnapshot().prs;
-    return new Set(departedPosted.filter(([, entry]) => {
-      const pr = entry.draft ? prs[comparablePrKey(entry.draft)] : undefined;
-      return pr !== undefined && pr.state !== 'OPEN';
-    }).map(([key]) => key));
+    return new Set(Object.keys(state).filter((key) => {
+      const pr = prs[key.toLowerCase()];
+      return !state[key]?.inFlight && pr !== undefined && pr.state !== 'OPEN';
+    }));
   }
 
-  async function pruneDeparted(candidateKeys: Set<string>): Promise<boolean> {
+  function watchDeparted(candidateKeys: Set<string>): void {
+    const departedKeys = Object.keys(state).filter((key) => !candidateKeys.has(key) && !state[key]?.inFlight);
+    store.setWatchedKeys('team-review-departed', departedKeys.map((key) => key.toLowerCase()));
+  }
+
+  async function pruneDeparted(candidateKeys: Set<string>, isComplete: boolean): Promise<boolean> {
     let isDirty = false;
-    const closedKeys = closedPostedKeys(candidateKeys);
+    watchDeparted(candidateKeys);
+    const closedKeys = closedEntryKeys();
     for (const [key, entry] of Object.entries(state)) {
-      if (!candidateKeys.has(key) && entry.resumable) {
+      const isClosed = closedKeys.has(key);
+      if (candidateKeys.has(key) || (!isComplete && !isClosed)) continue;
+      if (entry.resumable) {
         await discardResumable(entry.resumable);
         entry.resumable = null;
         isDirty = true;
       }
-      if (!core.shouldPruneEntry(entry, candidateKeys.has(key), now(), closedKeys.has(key))) continue;
+      if (!core.shouldPruneEntry(entry, false, now(), isClosed)) continue;
       delete state[key];
       isDirty = true;
     }
@@ -638,6 +644,10 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const planned = headsToReview(candidates);
     if (planned.isDirty) loop.track(persist());
     emitStatus();
+    if (closedEntryKeys().size > 0) {
+      loop.tickSoon();
+      return;
+    }
     if (planned.queue.length === 0 || !canStartReview()) return;
     const queueSignature = queuedHeadsSignature(planned.queue);
     if (queueSignature === lastRebuildQueueSignature) return;
@@ -686,7 +696,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       pollingError = 'GitHub rate limit asks to wait.';
       return { failed: true, retryAfterMs: rateLimitWaitMs };
     }
-    const isPruned = isComplete ? await pruneDeparted(new Set(candidates.map((candidate) => candidate.key))) : false;
+    const isPruned = await pruneDeparted(new Set(candidates.map((candidate) => candidate.key)), isComplete);
     if (isPruned) watchAskedFor();
     const planned = headsToReview(candidates);
     const isStarted = await startReviewsUnlessGuardrailsRefused(planned.queue);

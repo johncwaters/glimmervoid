@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Codex sessions get Claude Code's status detail**: on codex 0.163.0 or newer, a Codex card now stays working while a subagent it spawned is still running, shows compacting while Codex compacts its context instead of flashing complete, and moves to waiting when Codex asks you a question with request_user_input. A `git push` or `gh pr` command a Codex session runs refreshes its linked pull requests, and Team Review and Radar see each tool call a Codex session makes, as they do for Claude Code. Older Codex versions keep working as before.
 - **Codex plan limits in Usage**: the Plan limits section of the Usage tab now shows Codex's 5 hour and 7 day windows beside Claude Code's, read from the Codex session files on this machine, each with its own reset countdown and age. With only one agent reporting limits, the section looks as before.
 
+### Fixed
+
+- **Reviews leave the queue once merged or approved**: a review of a pull request that GitHub reports merged or closed now leaves the Reviews tab within about a minute, from Ready and from Waiting on author alike. Before, it could sit there for hours whenever one of the team searches came back incomplete. Approving a review whose comments were all resolved now moves it out of Ready right away, instead of waiting for GitHub to report the approval back.
+
 ## [0.41.0] - 2026-10-20
 
 ### Added

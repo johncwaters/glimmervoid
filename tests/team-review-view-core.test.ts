@@ -953,6 +953,9 @@ test('a posted review whose comments are all resolved moves to Ready unless your
   assert.equal(groupDrafts(status([{ ...posted, viewerThreads: { total: 3, resolved: 1 } }])).posted.length, 1);
   const approved = { ...posted, reviewDecision: 'APPROVED' as const, githubReviews: [{ login: 'me', state: 'APPROVED' as const, commit: HEAD, isViewer: true }] };
   assert.equal(groupDrafts(status([approved])).posted.length, 1);
+  const approvedBeforeGithubEchoes = { ...posted, postedEvent: 'APPROVE' as const };
+  assert.equal(groupDrafts(status([approvedBeforeGithubEchoes])).posted.length, 1);
+  assert.equal(groupDrafts(status([{ ...approvedBeforeGithubEchoes, liveHead: NEXT_HEAD }])).ready.length, 1);
 });
 
 test('your approval at the current head settles resolved comments without a standing review decision', () => {
