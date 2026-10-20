@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.1] - 2026-10-20
+
 ### Added
 
 - **Codex sessions get Claude Code's status detail**: on codex 0.163.0 or newer, a Codex card now stays working while a subagent it spawned is still running, shows compacting while Codex compacts its context instead of flashing complete, and moves to waiting when Codex asks you a question with request_user_input. A `git push` or `gh pr` command a Codex session runs refreshes its linked pull requests, and Team Review and Radar see each tool call a Codex session makes, as they do for Claude Code. Older Codex versions keep working as before.
