@@ -9,6 +9,9 @@ import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import { createBenchmarkWiring } from '../benchmark-wiring.ts';
 import { STATES } from '../../shared/states.ts';
 import { createCoderActivityWiring } from '../coder-activity-wiring.ts';
+import { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
+import { resolveCoderEnvironment } from '../coder/core/coder-env-core.ts';
+import { persistSessionField } from '../session/session-event-wiring.ts';
 import { createBranchGcWiring } from '../branch-gc-wiring.ts';
 import { createClaudeCredentials } from '../claude-credentials.ts';
 import { DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
@@ -143,6 +146,27 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     log: logger,
   });
   const laneTelemetry: Pick<Telemetry, 'capture'> = telemetry;
+  const coderEnv = createCoderEnvWiring({
+    config,
+    persistMapping: (projectId, mapping) => persistSessionField(configStore, config, projectId, 'environment', mapping),
+    sessionsForIdleCheck: () => {
+      const environmentsByName = new Map((config.coder?.environments ?? []).map((environment) => [environment.name, resolveCoderEnvironment(environment)]));
+      return config.projects.flatMap((project) => {
+        if (!project.environment) return [];
+        const session = sessions.get(project.id);
+        const environment = environmentsByName.get(project.environment.name);
+        if (!session || !environment) return [];
+        return [{
+          projectId: project.id,
+          workspace: project.environment.workspace,
+          state: session.state,
+          idleSinceMs: session.stateSince,
+          idleStopMinutes: environment.idleStopMinutes,
+        }];
+      });
+    },
+    log: logger,
+  });
   const posthog = createRadarWiring({
     config,
     investigationSessions,
@@ -475,6 +499,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => void visionsSetup.maybeApply(),
       () => branchGc.start(),
       () => coderActivity.start(),
+      () => coderEnv.start(),
       () => posthog.startPoller(),
       () => teamReview.startPoller(),
       () => myPrs.startPoller(),
@@ -492,6 +517,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     const restartSteps = [
       () => branchGc.restartIfConfigChanged(),
       () => coderActivity.restartIfConfigChanged(),
+      () => coderEnv.restartIfConfigChanged(),
       () => posthog.restartIfConfigChanged(),
       () => teamReview.restartIfConfigChanged(),
       () => myPrs.restartIfConfigChanged(),
@@ -510,6 +536,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     benchmarkSessions,
     branchGc,
     coderActivity,
+    coderEnv,
     changeMapNarrator,
     taskTitleRefiner,
     taskTitleSessions,

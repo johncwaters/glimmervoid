@@ -49,7 +49,7 @@ function isGlimmervoidWorkspaceName(name: string): boolean {
   return WORKSPACE_NAME_RE.test(name);
 }
 
-function remoteShellCommand(argv: readonly string[]): string | null {
+export function remoteShellCommand(argv: readonly string[]): string | null {
   if (argv.length === 0) return null;
   if (argv.some((argument) => NUL_RE.test(argument))) return null;
   return argv.map(shellQuote).join(' ');
@@ -105,4 +105,3 @@ export function coderCreateArgs({ workspace, template, stopAfter, parameters = {
   }
   return ['create', workspace, '--template', template, '--preset', 'none', '--stop-after', stopAfter, ...parameterArgs, '--yes'];
 }
-
