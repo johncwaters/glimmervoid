@@ -45,6 +45,7 @@ function fakeScanner(
     sessionTotals: () => new Map(),
     stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: outcome, isHistoryCaughtUp: outcome === 'complete', resolutionError: null }),
     budgetSpend: spend,
+    latestCodexRateLimits: () => null,
     buildReport: () => ({
       ts: 0,
       tz: 'UTC',

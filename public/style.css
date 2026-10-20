@@ -4836,6 +4836,26 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   gap: 8px;
 }
 
+.usage-plan-vendors {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.usage-plan-vendor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.usage-plan-vendor-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-head);
+}
+
 .usage-plan-window {
   display: flex;
   flex-direction: column;
@@ -4844,8 +4864,10 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 
 .usage-plan-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
+  column-gap: 8px;
+  row-gap: 2px;
 }
 
 .usage-plan-label {
@@ -4857,6 +4879,7 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 }
 
 .usage-plan-used {
+  white-space: nowrap;
   font-size: 16px;
   font-weight: 700;
   color: var(--text-head);

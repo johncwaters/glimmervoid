@@ -10,8 +10,8 @@ import { dailyBaseline, detectBurnAnomaly, detectDailyAnomaly } from './core/usa
 import { buildBlocks, burnRate, projectBlock } from './core/usage-blocks-core.ts';
 import type { UsageBlock } from './core/usage-blocks-core.ts';
 import { budgetStanding, normalizeBudgetConfig } from './core/usage-budget-core.ts';
-import { codexDedupIdentity, createCodexUsageState, parseCodexUsageLine } from './core/usage-codex-core.ts';
-import type { CodexUsageState } from './core/usage-codex-core.ts';
+import { codexDedupIdentity, createCodexUsageState, parseCodexRateLimitsLine, parseCodexUsageLine } from './core/usage-codex-core.ts';
+import type { CodexRateLimitSnapshot, CodexUsageState } from './core/usage-codex-core.ts';
 import {
   dedupKeys,
   expandAdvisorIterations,
@@ -440,6 +440,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   let lastPartial = false;
   let lastOutcome: PassOutcome | null = null;
   let lastIoFailures = 0;
+  let latestCodexRateLimitSnapshot: CodexRateLimitSnapshot | null = null;
   let activePass: Promise<PassResult> | null = null;
   let pendingForce = false;
   let pendingScopeDirs: string[] | null = null;
@@ -570,6 +571,16 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     return false;
   }
 
+  function noteCodexRateLimits(snapshot: CodexRateLimitSnapshot | null): void {
+    if (!snapshot) return;
+    if (latestCodexRateLimitSnapshot && snapshot.ts < latestCodexRateLimitSnapshot.ts) return;
+    latestCodexRateLimitSnapshot = snapshot;
+  }
+
+  function latestCodexRateLimits(): CodexRateLimitSnapshot | null {
+    return latestCodexRateLimitSnapshot;
+  }
+
   function ingestVendorLine(parsed: UsageEntry | null, file: string): number {
     if (!parsed) return 0;
     const entry = stripIngestFields(priceEntry({ ...parsed, project: path.dirname(file) }));
@@ -587,6 +598,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     },
   ): number {
     if (vendor === 'codex') {
+      noteCodexRateLimits(parseCodexRateLimitsLine(line));
       const parsedCodexEntry = parseCodexUsageLine(line, vendorState ?? createCodexUsageState());
       if (!parsedCodexEntry) return 0;
       return ingestVendorLine({ ...parsedCodexEntry, sessionId: codexSessionIdFromPath(file) }, file);
@@ -1060,6 +1072,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     sessionTotals,
     stats,
     budgetSpend,
+    latestCodexRateLimits,
     _entriesForTest: () => entries.map((entry) => entry),
   };
   Object.defineProperty(api, '_entriesForTest', { enumerable: false });

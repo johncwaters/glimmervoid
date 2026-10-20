@@ -82,7 +82,7 @@ test('capabilities claim only what a live probe verified', () => {
     awaitingInput: true,
     backgroundAgents: true,
     resume: true,
-    statusLine: false,
+    statusLine: true,
     rtk: true,
     saneYolo: true,
     compactQuiet: true,

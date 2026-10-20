@@ -696,6 +696,7 @@ const serverVariants = [
     fiveHour: z.unknown().nullable(),
     sevenDay: z.unknown().nullable(),
     source: z.string(),
+    vendor: z.enum(['claude', 'codex']).optional(),
   }),
   loose('usage-budget-alert', {
     scope: z.string(),

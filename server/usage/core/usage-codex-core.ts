@@ -1,6 +1,8 @@
 import { parseJsonLine, vendorUsageEntry } from './usage-entry-core.ts';
 import type { DedupIdentityEntry, UsageEntry } from './usage-entry-core.ts';
-import { numberOr, rawTextOr } from '../../../shared/coerce.ts';
+import { isRecord, numberOr, rawTextOr } from '../../../shared/coerce.ts';
+import { rateLimitWindow } from './usage-statusline-core.ts';
+import type { RateLimitWindow, RateLimitWindows } from './usage-statusline-core.ts';
 
 interface CodexTokenUsage {
   input_tokens?: unknown;
@@ -70,6 +72,44 @@ function parseCodexUsageLine(
   });
 }
 
+const RATE_LIMITS_MARKER = '"rate_limits"';
+const CODEX_PLAN_LIMIT_ID = 'codex';
+const FIVE_HOUR_WINDOW_MINUTES = 300;
+const SEVEN_DAY_WINDOW_MINUTES = 10080;
+
+interface CodexRateLimitSnapshot {
+  rateLimits: RateLimitWindows;
+  ts: number;
+}
+
+function codexPlanWindows(rawWindows: readonly unknown[]): RateLimitWindows {
+  const windowsByMinutes = new Map<number, RateLimitWindow | null>();
+  for (const rawWindow of rawWindows) {
+    if (!isRecord(rawWindow)) continue;
+    windowsByMinutes.set(numberOr(rawWindow.window_minutes, 0), rateLimitWindow(rawWindow.used_percent, rawWindow.resets_at));
+  }
+  return {
+    fiveHour: windowsByMinutes.get(FIVE_HOUR_WINDOW_MINUTES) ?? null,
+    sevenDay: windowsByMinutes.get(SEVEN_DAY_WINDOW_MINUTES) ?? null,
+  };
+}
+
+function parseCodexRateLimitsLine(line: unknown): CodexRateLimitSnapshot | null {
+  if (typeof line !== 'string' || !line.includes(RATE_LIMITS_MARKER)) return null;
+  const raw = parseJsonLine(line);
+  if (!raw) return null;
+  const parsed = raw as CodexLine & { payload?: { rate_limits?: unknown } | null };
+  if (parsed.payload?.type !== 'token_count') return null;
+  const rateLimits = parsed.payload.rate_limits;
+  if (!isRecord(rateLimits)) return null;
+  if (rateLimits.limit_id != null && rateLimits.limit_id !== CODEX_PLAN_LIMIT_ID) return null;
+  const ts = Date.parse(String(parsed.timestamp));
+  if (!Number.isFinite(ts)) return null;
+  const windows = codexPlanWindows([rateLimits.primary, rateLimits.secondary]);
+  if (!windows.fiveHour && !windows.sevenDay) return null;
+  return { rateLimits: windows, ts };
+}
+
 function codexDedupIdentity(entry: DedupIdentityEntry | null | undefined): string | null {
   if (!entry) return null;
   return [
@@ -124,4 +164,5 @@ function deltaFromTotal(totalUsage: CodexTokenUsage | null, previousTotalUsage: 
   };
 }
 
-export { codexDedupIdentity, createCodexUsageState, parseCodexUsageLine };
+export { codexDedupIdentity, createCodexUsageState, parseCodexRateLimitsLine, parseCodexUsageLine };
+export type { CodexRateLimitSnapshot };

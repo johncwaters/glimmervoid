@@ -36,13 +36,16 @@ function resetsAtMs(value: unknown): number | null {
   return Math.round(numeric * 1000);
 }
 
+function rateLimitWindow(usedPct: unknown, resetsAt: unknown): RateLimitWindow | null {
+  const pct = roundPct(usedPct);
+  const resetsAtMsValue = resetsAtMs(resetsAt);
+  if (pct === null && resetsAtMsValue === null) return null;
+  return { pct, resetsAtMs: resetsAtMsValue };
+}
+
 function normalizeWindow(raw: unknown): RateLimitWindow | null {
   if (!isRecord(raw)) return null;
-  const window = raw as Record<string, unknown>;
-  const pct = roundPct(window.used_percentage);
-  const resetsAt = resetsAtMs(window.resets_at);
-  if (pct === null && resetsAt === null) return null;
-  return { pct, resetsAtMs: resetsAt };
+  return rateLimitWindow(raw.used_percentage, raw.resets_at);
 }
 
 function normalizeRateLimits(raw: unknown): RateLimitWindows | null {
@@ -89,14 +92,25 @@ function shouldBroadcastPlanLimits(
   return nextSignature !== planLimitsSignature(previous);
 }
 
-function buildPlanLimitsMessage(snapshot: { rateLimits?: RateLimitWindows | null; ts?: number } | null | undefined) {
+type PlanLimitsVendor = 'claude' | 'codex';
+
+const PLAN_LIMITS_SOURCE_BY_VENDOR: Readonly<Record<PlanLimitsVendor, string>> = Object.freeze({
+  claude: 'statusline',
+  codex: 'rollout',
+});
+
+function buildPlanLimitsMessage(
+  snapshot: { rateLimits?: RateLimitWindows | null; ts?: number } | null | undefined,
+  vendor: PlanLimitsVendor = 'claude',
+) {
   if (!snapshot?.rateLimits) return null;
   return {
     type: 'plan-limits',
     ts: snapshot.ts,
     fiveHour: snapshot.rateLimits.fiveHour,
     sevenDay: snapshot.rateLimits.sevenDay,
-    source: 'statusline',
+    source: PLAN_LIMITS_SOURCE_BY_VENDOR[vendor],
+    vendor,
   };
 }
 
@@ -105,4 +119,5 @@ function selectOfficialSessionCost(costMode: string, recordedCostUSD: number | n
   return recordedCostUSD ?? null;
 }
 
-export { normalizeStatuslinePayload, shouldBroadcastPlanLimits, buildPlanLimitsMessage, planLimitsSignature, selectOfficialSessionCost };
+export { normalizeStatuslinePayload, rateLimitWindow, shouldBroadcastPlanLimits, buildPlanLimitsMessage, planLimitsSignature, selectOfficialSessionCost };
+export type { PlanLimitsVendor };

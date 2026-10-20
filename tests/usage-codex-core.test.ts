@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   codexDedupIdentity,
   createCodexUsageState,
+  parseCodexRateLimitsLine,
   parseCodexUsageLine,
 } from '../server/usage/core/usage-codex-core.ts';
 
@@ -202,6 +203,23 @@ test('parseCodexUsageLine skips repeated cumulative totals', () => {
 
   assert.equal(first?.input, 3281);
   assert.equal(repeated, null);
+});
+
+test('parseCodexRateLimitsLine keys plan windows by their length and refuses a limit that is not the plan', () => {
+  const windows = {
+    primary: { used_percent: 2.0, window_minutes: 10080, resets_at: 1793105824 },
+    secondary: { used_percent: 13.0, window_minutes: 300, resets_at: 1792519024 },
+  };
+  const lineWith = (rateLimits: Record<string, unknown>) => tokenCountLine({
+    payload: { ...JSON.parse(tokenCountLine()).payload, rate_limits: rateLimits },
+  });
+  assert.deepEqual(parseCodexRateLimitsLine(lineWith({ limit_id: 'codex', ...windows })), {
+    rateLimits: { fiveHour: { pct: 13, resetsAtMs: 1792519024000 }, sevenDay: { pct: 2, resetsAtMs: 1793105824000 } },
+    ts: Date.parse('2026-07-08T22:50:28.569Z'),
+  });
+  assert.equal(parseCodexRateLimitsLine(lineWith({ limit_id: 'codex_other_model', ...windows })), null);
+  assert.equal(parseCodexRateLimitsLine(tokenCountLine()), null, 'a plan type with no windows says nothing');
+  assert.equal(parseCodexRateLimitsLine(turnContextLine()), null);
 });
 
 test('codexDedupIdentity is deterministic', () => {

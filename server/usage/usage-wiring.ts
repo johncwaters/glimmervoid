@@ -18,7 +18,8 @@ import {
   selectOfficialSessionCost,
   shouldBroadcastPlanLimits,
 } from './core/usage-statusline-core.ts';
-import type { StatuslineSnapshot } from './core/usage-statusline-core.ts';
+import type { PlanLimitsVendor, StatuslineSnapshot } from './core/usage-statusline-core.ts';
+import type { CodexRateLimitSnapshot } from './core/usage-codex-core.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { createLaneLog } from '../lanes/lane-log.ts';
 import { getRtkPath } from '../rtk-resolver.ts';
@@ -255,6 +256,7 @@ function createUsageWiring({
   let ioFailureStreakId = 0;
 
   let planLimits: StatuslineSnapshot | null = null;
+  let codexPlanLimits: CodexRateLimitSnapshot | null = null;
   const officialCostByClaudeId = new Map<string, number>();
   let budgetFiredState: BudgetFiredState = { daily: {}, monthly: {} };
   let budgetEvaluationChain: Promise<void> = Promise.resolve();
@@ -347,6 +349,7 @@ function createUsageWiring({
     if (stopped) return result;
 
     if (result) {
+      ingestCodexRateLimits(scanner.latestCodexRateLimits());
       laneLog.debugNote(
         () => 'pass complete',
         () => ({
@@ -497,8 +500,19 @@ function createUsageWiring({
     if (message) broadcast(message);
   }
 
-  function getPlanLimitsMessage() {
+  function ingestCodexRateLimits(snapshot: CodexRateLimitSnapshot | null): void {
+    if (stopped || !cfg.enabled || !cfg.planLimits || !snapshot) return;
+    if (codexPlanLimits && snapshot.ts < codexPlanLimits.ts) return;
+    const changed = shouldBroadcastPlanLimits(codexPlanLimits, snapshot);
+    codexPlanLimits = snapshot;
+    if (!changed) return;
+    const message = buildPlanLimitsMessage(snapshot, 'codex');
+    if (message) broadcast(message);
+  }
+
+  function getPlanLimitsMessage(vendor: PlanLimitsVendor = 'claude') {
     if (!cfg.enabled || !cfg.planLimits) return null;
+    if (vendor === 'codex') return buildPlanLimitsMessage(codexPlanLimits, 'codex');
     return buildPlanLimitsMessage(planLimits);
   }
 

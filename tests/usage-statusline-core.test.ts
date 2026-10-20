@@ -213,6 +213,7 @@ test('buildPlanLimitsMessage: the wire shape, or null with nothing to say', () =
     fiveHour: { pct: 12, resetsAtMs: 1_800_003_600_000 },
     sevenDay: { pct: 68.4, resetsAtMs: 1_800_400_000_000 },
     source: 'statusline',
+    vendor: 'claude',
   });
   assert.equal(buildPlanLimitsMessage(null), null);
   assert.equal(buildPlanLimitsMessage({ rateLimits: null }), null);

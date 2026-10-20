@@ -51,7 +51,7 @@ interface UsageControl {
   getSessionsMessage: () => Record<string, unknown> | null;
   getCachedReport: () => Record<string, unknown> | null;
   requestReport: (args: { days?: number; force?: boolean; requestId?: string | null }) => Promise<Record<string, unknown>>;
-  getPlanLimitsMessage: () => Record<string, unknown> | null;
+  getPlanLimitsMessage: (vendor?: 'claude' | 'codex') => Record<string, unknown> | null;
 }
 
 interface BackendControlDependencies {
@@ -164,7 +164,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     getUsageSessions: () => usage.getSessionsMessage(),
     getUsageReport: () => usage.getCachedReport(),
     requestUsageReport: (args) => usage.requestReport(args),
-    getPlanLimits: () => usage.getPlanLimitsMessage(),
+    getPlanLimits: () => [usage.getPlanLimitsMessage('claude'), usage.getPlanLimitsMessage('codex')],
     readTracePage: dependencies.readTracePage,
     readPlanRevision: dependencies.readPlanRevision,
     decidePlanReview: dependencies.decidePlanReview,

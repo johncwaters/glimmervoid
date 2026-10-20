@@ -120,6 +120,7 @@ function harness({
     sessionTotals: () => new Map(),
     stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: 'complete' as const, isHistoryCaughtUp: true, resolutionError: null }),
     budgetSpend: () => ({ todayKey: '2026-08-21', monthKey: '2026-08', todayUsd: 0, monthUsd: 0 }),
+    latestCodexRateLimits: () => null,
     buildReport: (request: BuildReportRequest) => {
       buildReportRequests.push(request);
       return {

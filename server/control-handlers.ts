@@ -148,7 +148,7 @@ interface ControlHandlerDeps {
   getUsageSessions?: (() => unknown) | null;
   getUsageReport?: (() => unknown) | null;
   requestUsageReport?: ((args: { days?: number; force?: boolean; requestId?: string | null }) => Promise<unknown>) | null;
-  getPlanLimits?: (() => unknown) | null;
+  getPlanLimits?: (() => readonly unknown[]) | null;
   changeMapNarrator?: ChangeMapNarrator | null;
   controlReplayLog?: ReplayLog | null;
   getRtkInstallStatus?: () => Record<string, unknown> | null;
@@ -1769,9 +1769,9 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       ws.send(JSON.stringify(usageReport));
     }
 
-    const planLimits = typeof getPlanLimits === 'function' ? getPlanLimits() : null;
-    if (planLimits) {
-      ws.send(JSON.stringify(planLimits));
+    const planLimitsMessages = typeof getPlanLimits === 'function' ? getPlanLimits() : [];
+    for (const planLimits of planLimitsMessages) {
+      if (planLimits) ws.send(JSON.stringify(planLimits));
     }
 
     const since = parseSinceParam(req?.url);

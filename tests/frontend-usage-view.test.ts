@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ariaSortValue, blockAttentionTone, blockHistoryRows, blockLabel, blockProgress, burnTiles, cacheSavingsTile, CLAUDE_ONLY_HINT, claudeOnlyHint, compositionParts, dailyRowForDay, dayLabel, dayRangeLabel, defaultSortDir, formatCount, formatMinutes, formatPercent, formatTokens, formatUsd, hasMultiVendorUsage, hasOfficialPlanLimits, hasSavings, isGlimmervoidSessionRow, isPlanLimitStale, isUsageUnavailable, limitPct, missingPricingLine, modelLabel, modelRowPrefix, nextSortState, NO_VALUE, officialFiveHourPct, percentOfTotal, PLAN_LIMIT_STALE_MS, planLimitAgeText, planLimitStaleNote, planWindowOf, planWindowUsedText, pricingFetchedAtMs, pricingSourceLine, projectedLimitPct, projectionLimitLine, projectionLine, reportDayKey, resetCountdownText, rtkSavingsTile, scanLine, SESSION_ROW_LIMIT, sessionChipCost, sessionChipText, sessionChipTitle, sessionOverflowText, sessionRowLabel, shareBasis, shareLabel, shouldApplyUsageReport, sortDailyRows, sortModelRows, sortSessionRows, sortUsageRows, TOKEN_LIMIT_WARN_PCT, tokenLimitLine, tokenLimitTone, usageAttentionSignature, usageErrorLine, usageWarningLine, vendorLabel, vendorTotalsRows, visibleSessionRows } from '../public/usage/usage-view-core.ts';
+import { ariaSortValue, blockAttentionTone, blockHistoryRows, blockLabel, blockProgress, burnTiles, cacheSavingsTile, CLAUDE_ONLY_HINT, claudeOnlyHint, compositionParts, dailyRowForDay, dayLabel, dayRangeLabel, defaultSortDir, formatCount, formatMinutes, formatPercent, formatTokens, formatUsd, hasMultiVendorUsage, hasOfficialPlanLimits, hasSavings, isGlimmervoidSessionRow, isPlanLimitStale, isUsageUnavailable, limitPct, missingPricingLine, modelLabel, modelRowPrefix, nextSortState, NO_VALUE, officialFiveHourPct, percentOfTotal, PLAN_LIMIT_STALE_MS, planLimitAgeText, planLimitsSectionHint, planLimitStaleNote, planLimitsVendorOf, planWindowOf, planWindowUsedText, pricingFetchedAtMs, pricingSourceLine, projectedLimitPct, projectionLimitLine, projectionLine, reportDayKey, resetCountdownText, rtkSavingsTile, scanLine, SESSION_ROW_LIMIT, sessionChipCost, sessionChipText, sessionChipTitle, sessionOverflowText, sessionRowLabel, shareBasis, shareLabel, shouldApplyUsageReport, sortDailyRows, sortModelRows, sortSessionRows, sortUsageRows, TOKEN_LIMIT_WARN_PCT, tokenLimitLine, tokenLimitTone, usageAttentionSignature, usageErrorLine, usageWarningLine, vendorLabel, vendorTotalsRows, visibleSessionRows } from '../public/usage/usage-view-core.ts';
 import * as core from '../public/usage/usage-view-core.ts';
 
 test('formatUsd: cents, thousands grouping, sub-cent precision and a missing value', () => {
@@ -463,6 +463,10 @@ test('modelRowPrefix and claudeOnlyHint: only shown once another vendor is on th
   assert.equal(claudeOnlyHint(multi), CLAUDE_ONLY_HINT);
   assert.equal(claudeOnlyHint(single), '', 'no clause needed when every number is Claude');
   assert.equal(claudeOnlyHint(null), '');
+  assert.equal(planLimitsSectionHint(['claude'], multi), `official, from Claude Code, ${CLAUDE_ONLY_HINT}`);
+  assert.equal(planLimitsSectionHint(['claude', 'codex'], multi), 'official, from Claude Code and Codex', 'side by side, each window names its agent');
+  assert.equal(planLimitsVendorOf({ vendor: 'codex' }), 'codex');
+  assert.equal(planLimitsVendorOf({}), 'claude', 'a server without vendor-keyed limits only ever sent Claude windows');
 });
 
 test('planWindowOf and hasOfficialPlanLimits: a window is absent unless it reported something', () => {
@@ -651,7 +655,7 @@ test('no produced string contains an em dash, en dash or ellipsis character', ()
   produced.push(core.scanLine({ dirs: 1, files: 3, entries: 4, lastScanMs: 5 }));
   produced.push(core.usageWarningLine({ warning: 'nope' }), core.usageErrorLine({ error: 'off' }));
   produced.push(core.shareLabel('costUSD'), core.shareLabel('tokens'));
-  produced.push(core.provenanceLabel('official'), core.provenanceLabel('estimated'), core.provenanceLabel(null));
+  produced.push(core.planLimitsSectionHint(['claude', 'codex'], null), core.provenanceLabel('estimated'), core.provenanceLabel(null));
   produced.push(core.CLAUDE_ONLY_HINT, core.vendorLabel('codex'), core.vendorLabel('grok'), core.vendorLabel(''));
   produced.push(core.claudeOnlyHint({ byVendor: { claude: {}, codex: { tokens: 1 } } }));
   for (const window of core.PLAN_WINDOWS) produced.push(window.label);

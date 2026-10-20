@@ -917,6 +917,7 @@ interface PlanWindow {
 
 export interface PlanLimits {
   ts?: unknown;
+  vendor?: unknown;
 
   fiveHour?: PlanWindow | null;
   sevenDay?: PlanWindow | null;
@@ -936,6 +937,25 @@ export function planWindowOf(planLimits: PlanLimits | null | undefined, key: 'fi
   return { pct, resetsAtMs };
 }
 
+export type PlanLimitsVendor = 'claude' | 'codex';
+
+export const PLAN_LIMIT_VENDORS: readonly { vendor: PlanLimitsVendor; label: string }[] = Object.freeze([
+  { vendor: 'claude', label: 'Claude Code' },
+  { vendor: 'codex', label: 'Codex' },
+]);
+
+export function planLimitsVendorOf(planLimits: PlanLimits | null | undefined): PlanLimitsVendor {
+  return planLimits?.vendor === 'codex' ? 'codex' : 'claude';
+}
+
+export function planLimitsSectionHint(vendors: readonly PlanLimitsVendor[], totals: UsageTotals | null | undefined) {
+  const labels = PLAN_LIMIT_VENDORS.filter(({ vendor }) => vendors.includes(vendor)).map(({ label }) => label);
+  const provenance = `official, from ${labels.join(' and ')}`;
+  const isClaudeAlone = vendors.length === 1 && vendors[0] === 'claude';
+  const claudeOnly = isClaudeAlone ? claudeOnlyHint(totals) : '';
+  return claudeOnly ? `${provenance}, ${claudeOnly}` : provenance;
+}
+
 export function hasOfficialPlanLimits(planLimits: PlanLimits | null | undefined) {
   return PLAN_WINDOWS.some((window) => planWindowOf(planLimits, window.key) !== null);
 }
@@ -945,7 +965,6 @@ export function officialFiveHourPct(planLimits: PlanLimits | null | undefined) {
 }
 
 export function provenanceLabel(source: unknown) {
-  if (source === 'official') return 'official, from Claude Code';
   if (source === 'estimated') return 'estimated from the largest completed block';
   return '';
 }

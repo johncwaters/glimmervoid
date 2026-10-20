@@ -89,6 +89,7 @@ function harness({ usage = {} }: { usage?: Record<string, unknown> } = {}) {
     buildReport: (): never => { throw new Error('this suite never builds a report'); },
     stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: 'complete' as const, isHistoryCaughtUp: true, resolutionError: null }),
     budgetSpend: () => ({ todayKey: '2027-01-15', monthKey: '2027-01', todayUsd: 0, monthUsd: 0 }),
+    latestCodexRateLimits: () => null,
   };
   const wiring = createUsageWiring({
     config: { usage: { ...usage } },

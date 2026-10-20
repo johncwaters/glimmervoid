@@ -16,7 +16,10 @@ import {
   LANE_SCOPE_HINT,
   OVERHEAD_SCOPE_HINT,
   PERIOD_VIEWS,
+  PLAN_LIMIT_VENDORS,
   PLAN_WINDOWS,
+  planLimitsSectionHint,
+  planLimitsVendorOf,
   RANGE_OPTIONS,
   SESSION_ROW_LIMIT,
   USAGE_CAVEAT_SHORT,
@@ -97,7 +100,7 @@ import {
   vendorTotalsRows,
   visibleSessionRows,
 } from './usage-view-core.ts';
-import type { PlanLimits, SortState, UsageReport, UsageTotals, UsageWireRow } from './usage-view-core.ts';
+import type { PlanLimits, PlanLimitsVendor, SortState, UsageReport, UsageTotals, UsageWireRow } from './usage-view-core.ts';
 
 const REFRESH_STATUS_TIMEOUT_MS = 20000;
 
@@ -126,7 +129,7 @@ interface TableCell {
 
 let _report: UsageReport | null = null;
 let _sessions: UsageSessionsPush | null = null;
-let _planLimits: PlanLimits | null = null;
+let _planLimitsByVendor: Record<PlanLimitsVendor, PlanLimits | null> = { claude: null, codex: null };
 let _root: HTMLDivElement | null = null;
 let _activityCallback: ((isActive: boolean) => void) | null = null;
 let _sendRequest: ((message: Record<string, unknown>) => boolean) | null = null;
@@ -147,13 +150,12 @@ const _expandedDays = new Set<string>();
 const _attention = createAttentionAck({
   getAck: getUsageAttentionAck,
   setAck: setUsageAttentionAck,
-  signature: () => usageAttentionSignature(_report, _planLimits),
+  signature: () => usageAttentionSignature(_report, _planLimitsByVendor.claude),
   isLooking: () => !isPanelHidden(_root),
 });
 
 let _reportAgeEl: HTMLParagraphElement | null = null;
 let _sessionsTsEl: HTMLParagraphElement | null = null;
-let _planAgeEl: HTMLParagraphElement | null = null;
 let _blockElapsedEl: HTMLSpanElement | null = null;
 let _blockRemainingEl: HTMLSpanElement | null = null;
 let _blockMeterEl: HTMLDivElement | null = null;
@@ -339,29 +341,43 @@ function buildHeaderSection() {
 }
 
 function buildPlanLimitsSection() {
-  if (!hasOfficialPlanLimits(_planLimits)) return null;
-  const claudeOnly = claudeOnlyHint(_report?.totals);
-  const section = buildSection('Plan limits', claudeOnly
-    ? `${provenanceLabel('official')}, ${claudeOnly}`
-    : provenanceLabel('official'));
-  const stale = planLimitStaleNote(_planLimits?.ts);
+  const shownVendors = PLAN_LIMIT_VENDORS.filter(({ vendor }) => hasOfficialPlanLimits(_planLimitsByVendor[vendor]));
+  if (shownVendors.length === 0) return null;
+  const section = buildSection('Plan limits', planLimitsSectionHint(shownVendors.map(({ vendor }) => vendor), _report?.totals));
+  const isSideBySide = shownVendors.length > 1;
+  const columns = el('div', 'usage-plan-vendors');
+  for (const { vendor, label } of shownVendors) {
+    columns.append(buildVendorPlanLimits(_planLimitsByVendor[vendor], isSideBySide ? label : null));
+  }
+  section.append(columns);
+  return section;
+}
+
+function buildVendorPlanLimits(planLimits: PlanLimits | null, vendorLabel: string | null) {
+  const column = el('div', 'usage-plan-vendor');
+  if (vendorLabel) column.append(el('p', 'usage-plan-vendor-label', vendorLabel));
+  const stale = planLimitStaleNote(planLimits?.ts);
   if (stale) {
     const note = el('p', 'usage-meta', stale);
     note.dataset.tone = 'warn';
-    section.append(note);
+    column.append(note);
   }
   const list = el('div', 'usage-plan');
   for (const spec of PLAN_WINDOWS) {
-    const window = planWindowOf(_planLimits, spec.key);
+    const window = planWindowOf(planLimits, spec.key);
     if (!window) continue;
     list.append(buildPlanWindow(spec, window));
   }
-  section.append(list);
-  _planAgeEl = el('p', 'usage-meta', '');
-  section.append(_planAgeEl);
-  paintPlanAge();
-  _ticker.onTick(paintPlanAge);
-  return section;
+  const ageEl = el('p', 'usage-meta', '');
+  column.append(list, ageEl);
+  const paintAge = () => {
+    if (!ageEl.isConnected) return;
+    const age = planLimitAgeText(planLimits?.ts);
+    ageEl.textContent = age ? `Plan ${age}` : '';
+  };
+  paintAge();
+  _ticker.onTick(paintAge);
+  return column;
 }
 
 function buildPlanWindow(spec: { key: 'fiveHour' | 'sevenDay'; label: string }, window: { pct: number | null; resetsAtMs: number | null }) {
@@ -386,14 +402,8 @@ function buildPlanWindow(spec: { key: 'fiveHour' | 'sevenDay'; label: string }, 
   return row;
 }
 
-function paintPlanAge() {
-  if (!_planAgeEl?.isConnected) return;
-  const age = planLimitAgeText(_planLimits?.ts);
-  _planAgeEl.textContent = age ? `Plan ${age}` : '';
-}
-
 function buildOverheadSection() {
-  const windows = glimmervoidOverhead(_report, _planLimits);
+  const windows = glimmervoidOverhead(_report, _planLimitsByVendor.claude);
   const lanesTable = buildLanesTable();
   if (windows.length === 0 && !lanesTable) return null;
   const section = buildSection('Glimmervoid overhead', windows.length > 0 ? OVERHEAD_SCOPE_HINT : null);
@@ -461,7 +471,7 @@ function buildActiveBlockSection() {
     return section;
   }
 
-  const tone = blockAttentionTone(_report, _planLimits);
+  const tone = blockAttentionTone(_report, _planLimitsByVendor.claude);
   const tiles = el('div', 'usage-tiles');
   tiles.append(buildTile('block tokens', formatTokens(block.tokens ?? 0), formatUsd(block.costUSD ?? 0), tone).tile);
   for (const spec of burnTiles(block.burn)) {
@@ -547,7 +557,7 @@ function buildTotalsSection() {
   const today = dailyRowForDay(_report?.daily, reportDayKey(_report));
   const hint = [USAGE_CAVEAT_SHORT, _report?.tz ? `TZ ${_report.tz}` : ''].filter(Boolean).join(' ');
   const section = buildSection('Totals', hint);
-  const tone = blockAttentionTone(_report, _planLimits);
+  const tone = blockAttentionTone(_report, _planLimitsByVendor.claude);
   const tiles = el('div', 'usage-tiles');
   tiles.append(buildTile('today', formatTokens(today?.tokens ?? 0), formatUsd(today?.costUSD ?? 0), tone).tile);
   tiles.append(buildTile('range total', formatTokens(totals.tokens ?? 0), formatUsd(totals.costUSD ?? 0)).tile);
@@ -900,7 +910,6 @@ function buildUnavailableSection() {
 function clearRefs() {
   _reportAgeEl = null;
   _sessionsTsEl = null;
-  _planAgeEl = null;
   _blockElapsedEl = null;
   _blockRemainingEl = null;
   _blockMeterEl = null;
@@ -1084,7 +1093,8 @@ export function applyUsageSessions(msg: UsageSessionsPush) {
 }
 
 export function applyPlanLimits(msg: unknown) {
-  _planLimits = msg as PlanLimits;
+  const planLimits = msg as PlanLimits;
+  _planLimitsByVendor = { ..._planLimitsByVendor, [planLimitsVendorOf(planLimits)]: planLimits };
   render();
   refreshActivity();
 }
