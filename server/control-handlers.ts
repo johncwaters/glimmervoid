@@ -66,7 +66,6 @@ import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import type { CoherenceSessionFeed } from './coherence/coherence-session-feed.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import { createChangeMapService } from './change-map/change-map-wiring.ts';
-import type { ChangeMapNarrator } from './change-map/change-map-wiring.ts';
 import type { Telemetry } from './telemetry.ts';
 import { DashboardTelemetryReport } from '../shared/contracts/telemetry.ts';
 import { errorCode, errorMessage, isMissingFileError } from '../shared/text.ts';
@@ -149,7 +148,6 @@ interface ControlHandlerDeps {
   getUsageReport?: (() => unknown) | null;
   requestUsageReport?: ((args: { days?: number; force?: boolean; requestId?: string | null }) => Promise<unknown>) | null;
   getPlanLimits?: (() => readonly unknown[]) | null;
-  changeMapNarrator?: ChangeMapNarrator | null;
   controlReplayLog?: ReplayLog | null;
   getRtkInstallStatus?: () => Record<string, unknown> | null;
   telegramDelivery?: TelegramDeliveryControl | null;
@@ -404,27 +402,12 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     decidePlanReview = null,
     sessionDocs = null,
     coherenceFeed = null,
-    changeMapNarrator = null,
     coderEnv = null,
     remoteRepoGit = null,
     agentConnect = null,
   } = deps;
 
-  const changeMaps = createChangeMapService({
-    sessions,
-    narrator: changeMapNarrator,
-    onNarrationSettled: (sessionId) => {
-      broadcastChangeMap(sessionId).catch((error: unknown) => {
-        console.warn(`[control] change-map broadcast failed: id=${sessionId}: ${errorMessage(error)}`);
-      });
-    },
-  });
-
-  async function broadcastChangeMap(sessionId: string): Promise<void> {
-    const session = sessions.get(sessionId);
-    if (!session) return;
-    broadcastControl({ type: 'change-map', id: session.id, map: await changeMaps.build(session, { mayStartNarration: false }) });
-  }
+  const changeMaps = createChangeMapService({ sessions });
 
   function buildSettingsPayload() {
     return buildSettingsPayloadFrom({ configStore, rtkInstallStatus: getRtkInstallStatus(), telegramDelivery: telegramDelivery?.status() ?? null, coderEnvironments: coderEnv?.availableEnvironments() ?? null, agentLogins: agentConnect?.logins() ?? null });
@@ -1597,7 +1580,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       const map = await changeMaps.build(s).catch((error: unknown): ChangeMap => {
         console.warn(`[control] request-change-map build failed: id=${s.id}: ${errorMessage(error)}`);
         return {
-          sessionId: s.id, sig: null, generatedAt: Date.now(), repos: [], narrative: null, narratorState: 'disabled',
+          sessionId: s.id, sig: null, generatedAt: Date.now(), repos: [],
           error: `Change map could not be built: ${errorMessage(error)}`,
         };
       });

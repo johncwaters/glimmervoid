@@ -1,8 +1,6 @@
 import { z } from 'zod';
 
 export const CHANGE_MAP_LIST_CAP = 20;
-export const CHANGE_MAP_CLAIM_MAX_CHARS = 600;
-export const CHANGE_MAP_CLAIMS_MAX = 12;
 
 const CHANGE_MAP_FACT_KINDS = Object.freeze([
   'file', 'subsystem', 'co-change', 'hotspot', 'blast', 'untested', 'collision', 'link',
@@ -112,28 +110,11 @@ export const RepoChangeMap = z.strictObject({
 });
 export type RepoChangeMap = z.infer<typeof RepoChangeMap>;
 
-const NarrativeClaim = z.strictObject({
-  text: z.string().min(1).max(CHANGE_MAP_CLAIM_MAX_CHARS),
-  factIds: z.array(factId).min(1),
-});
-
-export const ChangeNarrative = z.strictObject({
-  factsHash: z.string().min(1),
-  model: z.string().nullable(),
-  claims: z.array(NarrativeClaim).max(CHANGE_MAP_CLAIMS_MAX),
-});
-export type ChangeNarrative = z.infer<typeof ChangeNarrative>;
-
-export const NarratorState = z.enum(['disabled', 'pending', 'ready', 'failed']);
-export type NarratorState = z.infer<typeof NarratorState>;
-
 export const ChangeMap = z.strictObject({
   sessionId: z.string().min(1),
   sig: z.string().nullable(),
   generatedAt: z.number().finite(),
   repos: z.array(RepoChangeMap),
-  narrative: ChangeNarrative.nullable(),
-  narratorState: NarratorState,
   error: z.string().min(1).optional(),
 });
 export type ChangeMap = z.infer<typeof ChangeMap>;

@@ -17,34 +17,13 @@ test('DEFAULT_CONFIG satisfies the persisted Config contract', () => {
   assert.equal(Config.shape.integrationBranch.safeParse(null).success, true);
   assert.equal(DEFAULT_CONFIG.trace.enabled, true);
   assert.equal(DEFAULT_CONFIG.planReview.enabled, true);
-  assert.deepEqual(DEFAULT_CONFIG.changeMap.narrator, { enabled: false, engine: 'claude', model: '', timeoutSeconds: 90 });
 });
 
-test('change map narrator settings cross persisted, browser, and update contracts', () => {
-  const changeMap = { narrator: { enabled: true, model: 'sonnet', timeoutSeconds: 15 } };
-  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, changeMap }).success, true);
-  assert.equal(BrowserConfig.safeParse({ changeMap }).success, true);
-  assert.equal(ConfigUpdate.safeParse({ changeMap }).success, true);
-  assert.equal(CONFIG_BLOCK_KEYS.includes('changeMap'), true);
-  for (const timeoutSeconds of [14, 601, 15.5]) {
-    assert.equal(ConfigUpdate.safeParse({ changeMap: { narrator: { timeoutSeconds } } }).success, false);
-    assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, changeMap: { narrator: { timeoutSeconds } } }).success, false);
-  }
-  assert.equal(ConfigUpdate.safeParse({ changeMap: { narrator: { enabled: 'true' } } }).success, false);
-  for (const engine of ['claude', 'codex']) {
-    const narrator = { enabled: true, engine };
-    assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, changeMap: { narrator } }).success, true);
-    assert.equal(BrowserConfig.safeParse({ changeMap: { narrator } }).success, true);
-    assert.equal(ConfigUpdate.safeParse({ changeMap: { narrator } }).success, true);
-  }
-  for (const engine of ['grok', '', 1, null]) {
-    const changeMap = { narrator: { engine } };
-    assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, changeMap }).success, false);
-    assert.equal(BrowserConfig.safeParse({ changeMap }).success, false);
-    const refused = ConfigUpdate.safeParse({ changeMap });
-    assert.equal(refused.success, false);
-    assert.equal(refused.success === false && configIssueMessage(refused.error), 'changeMap.narrator.engine must be one of claude, codex');
-  }
+test('a config.json still holding the retired changeMap.narrator block loads unchanged', () => {
+  const changeMap = { narrator: { enabled: true, engine: 'codex', model: 'sonnet', timeoutSeconds: 15 } };
+  const parsed = Config.safeParse({ ...DEFAULT_CONFIG, changeMap });
+  assert.equal(parsed.success, true);
+  assert.deepEqual(parsed.success && parsed.data.changeMap, changeMap);
 });
 
 test('benchmark settings cross persisted, browser, and update contracts', () => {

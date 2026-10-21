@@ -15,7 +15,7 @@ function shutdownDependencies(stoppedLanes: string[], overrides: Partial<Backend
     stopUpdateCheck: () => {},
     notificationManager: { destroy: () => {} },
     telegramChannel: { destroy: () => {} },
-    sessions: new Map(), agentSessions: new Map(), reviewSessions: new Map(), investigationSessions: new Map(), visionsSessions: new Map(), changeMapSessions: new Map(),
+    sessions: new Map(), agentSessions: new Map(), reviewSessions: new Map(), investigationSessions: new Map(), visionsSessions: new Map(),
     branchGc: idle,
     coderActivity: idle,
     posthog: lane('posthog'),

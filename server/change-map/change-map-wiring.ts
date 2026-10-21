@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ChangeMap } from '../../shared/contracts/change-map.ts';
-import type { ChangedFile, ChangeNarrative, NarratorState, RepoChangeMap } from '../../shared/contracts/change-map.ts';
+import type { ChangedFile, RepoChangeMap } from '../../shared/contracts/change-map.ts';
 import type { ChangeScope } from '../../session/session-worktree-lifecycle.ts';
 import { gitCommandFailure, runGit } from '../git/git-exec.ts';
 import {
@@ -40,23 +40,8 @@ export interface ChangeMapSession {
   getChangeScopes(): Promise<ChangeScope[]>;
 }
 
-export interface ChangeMapNarration {
-  narrative: ChangeNarrative | null;
-  narratorState: NarratorState;
-}
-
-export interface ChangeMapNarrator {
-  narrationFor(map: ChangeMap, onSettled: () => void, options?: { mayStart?: boolean }): ChangeMapNarration;
-}
-
-interface ChangeMapBuildOptions {
-  mayStartNarration?: boolean;
-}
-
 interface ChangeMapServiceOptions {
   sessions: Map<string, ChangeMapSession>;
-  narrator?: ChangeMapNarrator | null;
-  onNarrationSettled?: (sessionId: string) => void;
   runGit?: (args: string[], cwd: string) => Promise<string>;
   nowFn?: () => number;
 }
@@ -87,11 +72,6 @@ interface RepoInputs {
 interface MemoizedImporterIndex {
   memoKey: string;
   importersByPackage: Map<string, string[]>;
-}
-
-interface QueuedAssembly {
-  mayStartNarration: boolean;
-  promise: Promise<ChangeMap>;
 }
 
 async function runGitAsync(args: string[], cwd: string): Promise<string> {
@@ -183,8 +163,6 @@ function changedFilesOf(scope: ChangeScope) {
 
 export function createChangeMapService({
   sessions,
-  narrator = null,
-  onNarrationSettled = () => {},
   runGit = runGitAsync,
   nowFn = Date.now,
 }: ChangeMapServiceOptions) {
@@ -199,7 +177,7 @@ export function createChangeMapService({
   const repoFactsByRoot = new Map<string, MemoizedRepoFacts>();
   const importerIndexByRoot = new Map<string, MemoizedImporterIndex>();
   const runningBySessionId = new Map<string, Promise<ChangeMap>>();
-  const queuedBySessionId = new Map<string, QueuedAssembly>();
+  const queuedBySessionId = new Map<string, Promise<ChangeMap>>();
 
   async function commonDirFor(root: string): Promise<string> {
     const cached = commonDirByRoot.get(root);
@@ -303,7 +281,7 @@ export function createChangeMapService({
     }
   }
 
-  async function assemble(session: ChangeMapSession, mayStartNarration: boolean): Promise<ChangeMap> {
+  async function assemble(session: ChangeMapSession): Promise<ChangeMap> {
     forgetEndedSiblings();
     const scopes = await session.getChangeScopes();
     const inputsByRoot = new Map<string, Promise<RepoInputs>>();
@@ -370,43 +348,33 @@ export function createChangeMapService({
         for (const repo of repos) repo.links = [];
       }
     }
-    const factsOnly: ChangeMap = {
+    return ChangeMap.parse({
       sessionId: session.id,
       sig: hashText(JSON.stringify(scopes)),
       generatedAt: nowFn(),
       repos,
-      narrative: null,
-      narratorState: 'disabled',
-    };
-    const narration = narrator ? narrator.narrationFor(factsOnly, () => onNarrationSettled(session.id), { mayStart: mayStartNarration }) : null;
-    return ChangeMap.parse(narration ? { ...factsOnly, ...narration } : factsOnly);
+    });
   }
 
-  function startAssembly(session: ChangeMapSession, mayStartNarration: boolean): Promise<ChangeMap> {
-    const running = assemble(session, mayStartNarration).finally(() => {
+  function startAssembly(session: ChangeMapSession): Promise<ChangeMap> {
+    const running = assemble(session).finally(() => {
       if (runningBySessionId.get(session.id) === running) runningBySessionId.delete(session.id);
     });
     runningBySessionId.set(session.id, running);
     return running;
   }
 
-  function build(session: ChangeMapSession, { mayStartNarration = true }: ChangeMapBuildOptions = {}): Promise<ChangeMap> {
+  function build(session: ChangeMapSession): Promise<ChangeMap> {
     const queued = queuedBySessionId.get(session.id);
-    if (queued) {
-      queued.mayStartNarration ||= mayStartNarration;
-      return queued.promise;
-    }
+    if (queued) return queued;
     const running = runningBySessionId.get(session.id);
-    if (!running) return startAssembly(session, mayStartNarration);
-    const followUp: QueuedAssembly = {
-      mayStartNarration,
-      promise: running.then(ignoreOutcome, ignoreOutcome).then(() => {
-        queuedBySessionId.delete(session.id);
-        return startAssembly(session, followUp.mayStartNarration);
-      }),
-    };
+    if (!running) return startAssembly(session);
+    const followUp = running.then(ignoreOutcome, ignoreOutcome).then(() => {
+      queuedBySessionId.delete(session.id);
+      return startAssembly(session);
+    });
     queuedBySessionId.set(session.id, followUp);
-    return followUp.promise;
+    return followUp;
   }
 
   return { build };

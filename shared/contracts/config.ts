@@ -2,7 +2,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { TaskTitle } from './session.ts';
 import { SessionPrLinks } from './my-prs.ts';
-import { BranchGcControlSettings, ChangeMapSettings, GithubSettings,
+import { BranchGcControlSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject,
   PlanReviewSettings, GuardrailsFileSettings, TelemetryFileSettings, TraceSettings,
 } from './browser-config.ts';
@@ -10,7 +10,7 @@ import { WorkflowsSettingsUpdate } from './workflows.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema } from './browser-config.ts';
 
 export {
-  BRANCH_GC_CONTROL_BOOLEAN_KEYS, BRANCH_GC_CONTROL_NUMERIC_KEYS, CHANGE_MAP_NARRATOR_ENGINES,
+  BRANCH_GC_CONTROL_BOOLEAN_KEYS, BRANCH_GC_CONTROL_NUMERIC_KEYS,
   BranchGcFileSettings,
 } from './browser-config.ts';
 
@@ -167,7 +167,6 @@ export const ProjectConfig = z.object({
 }).passthrough();
 const FILE_CONFIG_SHAPE = {
   ...BROWSER_CONFIG_SHAPE,
-  changeMap: ChangeMapSettings,
   branchGc: optionalLooseObject('branchGc'),
   coder: CoderSettings,
   visions: optionalLooseObject('visions'),
@@ -229,7 +228,7 @@ export const Config = z.object({
 });
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
-  'changeMap', 'taskTitle', 'branchGc', 'postTurnChecks', 'visions', 'github', 'teamReview', 'benchmarks', 'coherence', 'posthog', 'usage', 'telegram', 'ingest',
+  'taskTitle', 'branchGc', 'postTurnChecks', 'visions', 'github', 'teamReview', 'benchmarks', 'coherence', 'posthog', 'usage', 'telegram', 'ingest',
   'guardrails', 'telemetry', 'workflows', 'coder',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {

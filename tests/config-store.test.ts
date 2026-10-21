@@ -670,7 +670,6 @@ test('blocks with defaults still project their defaults through the registry pic
     assert.deepEqual(settings.telemetry, { enabled: true });
     assert.deepEqual(settings.taskTitle, DEFAULT_CONFIG.taskTitle);
     assert.deepEqual(settings.branchGc, DEFAULT_CONFIG.branchGc);
-    assert.equal(settings.changeMap, null);
   });
 });
 

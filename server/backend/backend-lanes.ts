@@ -22,7 +22,6 @@ import { jsonStateLoadError, loadJsonStateFileSync, writeJsonAtomic } from '../j
 import { CoderOwnedWorkspaces } from '../../shared/contracts/coder-owned-workspaces.ts';
 import { createGitWorkspace, createGitWorkspaceSync } from '../git/git-workspace.ts';
 import { createIngestLane } from '../ingest/ingest-wiring.ts';
-import { createChangeNarrator } from '../change-map/change-narrator.ts';
 import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-refiner.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import { createPlanReviewWiring } from '../plan-review-wiring.ts';
@@ -125,7 +124,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   void laneLedger.load();
   const recordLane = laneLedger.record;
   const liveSessionMaps = (): Map<string, Session>[] => [
-    sessions, agentSessions, reviewSessions, investigationSessions, visionsSessions, changeMapSessions, taskTitleSessions, benchmarkSessions,
+    sessions, agentSessions, reviewSessions, investigationSessions, visionsSessions, taskTitleSessions, benchmarkSessions,
   ];
   const allLiveSessions = (): Session[] => liveSessionMaps().flatMap((sessionsById) => [...sessionsById.values()]);
   const findLiveSession = (id: string): Session | null => {
@@ -342,22 +341,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   planReview?.on('plan-draft', (notice: Record<string, unknown>) => {
     broadcastControl({ type: 'session-plan-draft', ...notice });
   });
-  const changeMapSessions = new Map<string, Session>();
-  const changeMapNarrator = createChangeNarrator({
-    getConfig: () => configStore.config,
-    spawnLane: createLaneSpawn({
-      sessions: changeMapSessions,
-      closeSessionDataClients,
-      hookRouter,
-      getHookPort,
-      spawnGate,
-      recordLane,
-      replayBufferKB: config.replayBufferKB,
-      laneName: 'change-map',
-      guardrailsRefusal,
-    }),
-  });
-
   const taskTitleSessions = new Map<string, Session>();
   const taskTitleRefiner = createTaskTitleRefiner({
     getConfig: () => configStore.config,
@@ -557,13 +540,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     branchGc,
     coderActivity,
     coderEnv,
-    changeMapNarrator,
     taskTitleRefiner,
     taskTitleSessions,
     current,
     currentIngest,
     currentVisions,
-    changeMapSessions,
     gitWorkspace,
     gitWorkspaceSync,
     githubStore,

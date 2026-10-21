@@ -5,7 +5,6 @@ import type { GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
-import type { ChangeMapNarrator } from '../change-map/change-map-wiring.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
 import type { BenchmarkControl, ControlHandlerDeps, MyPrMergeControl, TeamReviewActionControl } from '../control-handlers.ts';
@@ -96,7 +95,6 @@ interface BackendControlDependencies {
   decidePlanReview: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs: SessionDocsPort;
   coherenceFeed: CoherenceSessionFeed;
-  changeMapNarrator: ChangeMapNarrator | null;
   serverBuild: () => string;
   telemetry: Pick<Telemetry, 'capture' | 'captureException' | 'captureClientError'>;
   logger: Pick<Console, 'warn'>;
@@ -170,7 +168,6 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     decidePlanReview: dependencies.decidePlanReview,
     sessionDocs: dependencies.sessionDocs,
     coherenceFeed: dependencies.coherenceFeed,
-    changeMapNarrator: dependencies.changeMapNarrator,
     coderEnv: laneAssembly.coderEnv,
     remoteRepoGit: laneAssembly.gitWorkspace,
     agentConnect: dependencies.agentConnect,

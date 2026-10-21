@@ -13,8 +13,7 @@ function makeRepo(overrides: Partial<RepoChangeMap> = {}): RepoChangeMap {
 
 function makeMap(repo: RepoChangeMap, overrides: Partial<ChangeMap> = {}): ChangeMap {
   return {
-    sessionId: 'session', sig: 'sig', generatedAt: 1, repos: [repo], narrative: null,
-    narratorState: 'disabled', ...overrides,
+    sessionId: 'session', sig: 'sig', generatedAt: 1, repos: [repo], ...overrides,
   };
 }
 
@@ -147,20 +146,6 @@ test('a map that failed to build shows its error', () => {
   const failed = buildChangeMapView({ ...makeMap(makeRepo()), repos: [], error: 'Change map could not be built: boom' });
   assert.equal(failed.error, 'Change map could not be built: boom');
   assert.equal(buildChangeMapView(makeMap(makeRepo())).error, null);
-});
-
-test('narrator states display status or linked claims', () => {
-  const repo = makeRepo();
-  const claims = [{ text: 'Session changes touch startup.', factIds: [changeMapFactId('file', 'glimmervoid', 'a.ts')] }];
-  assert.equal(buildChangeMapView(makeMap(repo, { narratorState: 'disabled' })).narrative.status, null);
-  for (const state of ['pending', 'failed'] as const) {
-    const view = buildChangeMapView(makeMap(repo, { narratorState: state }));
-    assert.ok(view.narrative.status);
-    assert.deepEqual(view.narrative.claims, []);
-  }
-  const ready = buildChangeMapView(makeMap(repo, { narratorState: 'ready', narrative: { factsHash: 'hash', model: 'model', claims } }));
-  assert.equal(ready.narrative.status, null);
-  assert.deepEqual(ready.narrative.claims, claims);
 });
 
 test('link warnings without a changed provider file open the first changed importer', () => {

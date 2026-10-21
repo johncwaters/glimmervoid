@@ -6,7 +6,7 @@ import path from 'node:path';
 import { ChangeMap } from '../shared/contracts/change-map.ts';
 import type { ChangeScope } from '../session/session-worktree-lifecycle.ts';
 import { createChangeMapService } from '../server/change-map/change-map-wiring.ts';
-import type { ChangeMapNarrator, ChangeMapSession } from '../server/change-map/change-map-wiring.ts';
+import type { ChangeMapSession } from '../server/change-map/change-map-wiring.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 
 function writeRepoFile(root: string, repoPath: string, contents: string): void {
@@ -95,7 +95,6 @@ test('change map joins git facts for a real repo into one contract-valid map', {
     assert.deepEqual(blast?.dependentTests, ['tests/a.test.ts']);
     assert.deepEqual(repo.untestedFiles.map((fact) => fact.path), ['server/lonely.ts']);
     assert.deepEqual(repo.collisions.map((fact) => [fact.path, fact.otherSessionName]), [['server/a.ts', 'Sibling']]);
-    assert.equal(map.narratorState, 'disabled');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -118,25 +117,6 @@ test('a session with no changes gets an empty repo map without reading history',
   }
 });
 
-test('narration state rides the map and settling re-announces the session', async () => {
-  const settledSessionIds: string[] = [];
-  const narrator: ChangeMapNarrator = {
-    narrationFor: (_map, onSettled) => {
-      onSettled();
-      return { narrative: null, narratorState: 'pending' };
-    },
-  };
-  const empty = fixtureSession('empty', 'Empty', () => []);
-  const service = createChangeMapService({
-    sessions: new Map([[empty.id, empty]]),
-    narrator,
-    onNarrationSettled: (sessionId) => settledSessionIds.push(sessionId),
-  });
-  const map = await service.build(empty);
-  assert.equal(map.narratorState, 'pending');
-  assert.deepEqual(settledSessionIds, ['empty']);
-});
-
 test('builds requested during an assembly coalesce into one follow-up that reads fresh state', async () => {
   let scopeReads = 0;
   let repoName = 'before';
@@ -154,39 +134,6 @@ test('builds requested during an assembly coalesce into one follow-up that reads
   assert.equal(thirdMap, secondMap);
   await service.build(session);
   assert.equal(scopeReads, 3);
-});
-
-test('a settle-triggered build asks the narrator not to start a narration', async () => {
-  const requestedStarts: (boolean | undefined)[] = [];
-  const narrator: ChangeMapNarrator = {
-    narrationFor: (_map, _onSettled, options) => {
-      requestedStarts.push(options?.mayStart);
-      return { narrative: null, narratorState: 'disabled' };
-    },
-  };
-  const empty = fixtureSession('empty', 'Empty', () => []);
-  const service = createChangeMapService({ sessions: new Map([[empty.id, empty]]), narrator });
-  await service.build(empty);
-  await service.build(empty, { mayStartNarration: false });
-  assert.deepEqual(requestedStarts, [true, false]);
-});
-
-test('queued builds may start a narration when any coalesced request allows it', async () => {
-  const requestedStarts: (boolean | undefined)[] = [];
-  const narrator: ChangeMapNarrator = {
-    narrationFor: (_map, _onSettled, options) => {
-      requestedStarts.push(options?.mayStart);
-      return { narrative: null, narratorState: 'disabled' };
-    },
-  };
-  const empty = fixtureSession('empty', 'Empty', () => []);
-  const service = createChangeMapService({ sessions: new Map([[empty.id, empty]]), narrator });
-  await Promise.all([
-    service.build(empty, { mayStartNarration: false }),
-    service.build(empty, { mayStartNarration: false }),
-    service.build(empty),
-  ]);
-  assert.deepEqual(requestedStarts, [false, true]);
 });
 
 test('ended sibling sessions are forgotten so a returning id reports its current scopes', async () => {

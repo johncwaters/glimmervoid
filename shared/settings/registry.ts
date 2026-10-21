@@ -1,6 +1,6 @@
-import { CHANGE_MAP_NARRATOR_ENGINES, POST_TURN_CHECK_MODES, UPDATE_CHANNELS } from '../contracts/browser-config.ts';
+import { POST_TURN_CHECK_MODES, UPDATE_CHANNELS } from '../contracts/browser-config.ts';
 import {
-  CHANGE_MAP_NARRATOR_TIMEOUT_RANGE, FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_GAP_RANGE,
+  FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_GAP_RANGE,
   FLYING_ANIMALS_SCALE_RANGE, KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, NON_NEGATIVE_NUMBER_RANGE, PORT_RANGE, POSITIVE_NUMBER_RANGE,
   POSTHOG_FIX_TIMEOUT_RANGE, POSTHOG_TRAFFIC_BASELINE_RANGE, POSTHOG_TRAFFIC_MIN_USERS_RANGE, POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
   MEMORY_RESERVE_MB_RANGE, REPLAY_BUFFER_KB_RANGE, TASK_TITLE_TIMEOUT_RANGE, USAGE_BUDGET_RANGE, USAGE_INTEGER_RANGES, USAGE_RETAIN_DAYS_RANGE, USAGE_SCAN_INTERVAL_RANGE,
@@ -620,31 +620,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     ],
   },
   {
-    id: 'lanes-change-map',
-    level: 'lanes',
-    title: 'Change map',
-    description: 'Optional model narration for deterministic change facts.',
-    legacyIds: ['change-map'],
-    settings: [
-      {
-        id: 'change-map-narrator-enabled', path: 'changeMap.narrator.enabled', title: 'Enable narration',
-        description: 'Add cited model claims to the change map.',
-        control: 'toggle', keywords: ['review', 'claims'], defaultValue: false, ...MACHINE_NOW,
-      },
-      {
-        id: 'change-map-narrator-engine', path: 'changeMap.narrator.engine', title: 'Narrator engine',
-        description: 'CLI used to generate change map claims.',
-        control: 'select', options: capitalizedOptions(CHANGE_MAP_NARRATOR_ENGINES),
-        keywords: ['claude', 'codex'], defaultValue: 'claude', ...MACHINE_NOW,
-      },
-      {
-        id: 'change-map-narrator-model', path: 'changeMap.narrator.model', title: 'Narrator model',
-        description: 'Blank uses the engine default: haiku for Claude, the configured Codex model for Codex.',
-        control: 'text', keywords: ['claude', 'codex', 'haiku'], defaultValue: '', ...MACHINE_NOW,
-      },
-    ],
-  },
-  {
     id: 'machine-privacy',
     level: 'machine',
     title: 'Privacy',
@@ -866,11 +841,6 @@ const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'file-usage-extra-projects-dirs', path: 'usage.extraProjectsDirs', title: 'Extra transcript folders', group: 'machine-usage',
     description: 'Absolute paths of additional Claude projects folders the usage scan reads.',
     control: 'list', keywords: ['transcripts', 'folders', 'scan'], defaultValue: [], takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-change-map-narrator-timeout', path: 'changeMap.narrator.timeoutSeconds', title: 'Narrator timeout', group: 'lanes-change-map',
-    description: 'Maximum time allowed for one narration.',
-    control: 'number', range: CHANGE_MAP_NARRATOR_TIMEOUT_RANGE, unit: SECONDS, keywords: ['deadline', 'narration'], defaultValue: 90, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
     id: 'file-visions-quiet-delay', path: 'visions.dispatch.quietMs', title: 'Quiet delay', group: 'lanes-visions',

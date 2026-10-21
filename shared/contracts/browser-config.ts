@@ -33,18 +33,8 @@ const optionalInteger = (field: string, range: { min: number; max: number }) => 
 const optionalObject = (field: string, shape: z.ZodRawShape) => z.object(shape, { error: `${field} must be an object` }).nullable().optional();
 export const optionalLooseObject = (field: string) => z.object({}, { error: `${field} must be an object` }).passthrough().nullable().optional();
 
-export const CHANGE_MAP_NARRATOR_ENGINES = Object.freeze(['claude', 'codex'] as const);
 export const UPDATE_CHANNELS = Object.freeze(['release', 'main'] as const);
 export const POST_TURN_CHECK_MODES = Object.freeze(['report', 'fix'] as const);
-
-export const ChangeMapSettings = optionalObject('changeMap', {
-  narrator: optionalObject('changeMap.narrator', {
-    enabled: optionalBoolean('changeMap.narrator.enabled'),
-    engine: z.enum(CHANGE_MAP_NARRATOR_ENGINES, { error: `changeMap.narrator.engine must be one of ${CHANGE_MAP_NARRATOR_ENGINES.join(', ')}` }).optional(),
-    model: optionalString('changeMap.narrator.model', true),
-    timeoutSeconds: optionalInteger('changeMap.narrator.timeoutSeconds', ranges.CHANGE_MAP_NARRATOR_TIMEOUT_RANGE),
-  }),
-});
 
 const TaskTitleSettings = z.object({
   refiner: z.object({
@@ -256,7 +246,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   worktreeRoot: optionalString('worktreeRoot'),
   worktreeShare: z.array(z.string()).optional(),
   repoRoots: z.array(z.string()).optional(),
-  changeMap: ChangeMapSettings,
   taskTitle: TaskTitleSettings,
   branchGc: BranchGcSettings,
   postTurnChecks: PostTurnChecksSettings,

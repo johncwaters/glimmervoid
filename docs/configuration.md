@@ -180,17 +180,6 @@ Per-session Coherence hook status and decision journal for agent sessions.
 |-----|---------|---------|-------|
 | `coherence.enabled` | Show session Coherence | `false` | Shows each session's Coherence hook status and decision journal when the repository installed @posthog/coherence 1.8 or newer. Off by default. |
 
-### Change map
-
-Optional model narration for deterministic change facts.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `changeMap.narrator.enabled` | Enable narration | `false` | Add cited model claims to the change map. |
-| `changeMap.narrator.engine` | Narrator engine | `"claude"` | CLI used to generate change map claims. |
-| `changeMap.narrator.model` | Narrator model | `""` | Blank uses the engine default: haiku for Claude, the configured Codex model for Codex. |
-| `changeMap.narrator.timeoutSeconds` | Narrator timeout | `90` | Maximum time allowed for one narration. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-
 ### Privacy
 
 What Glimmervoid sends about itself.

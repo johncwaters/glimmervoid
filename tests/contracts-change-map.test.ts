@@ -52,8 +52,6 @@ function changeMap(overrides: Record<string, unknown> = {}) {
     sig: 'sig-1',
     generatedAt: 1,
     repos: [repoMap()],
-    narrative: null,
-    narratorState: 'disabled',
     ...overrides,
   };
 }
@@ -82,11 +80,6 @@ test('blast radius lists are capped', () => {
   const [blast] = repoMap().blastRadius;
   const parsed = ChangeMap.safeParse(changeMap({ repos: [repoMap({ blastRadius: [{ ...blast, directDependents: tooMany }] })] }));
   assert.equal(parsed.success, false);
-});
-
-test('a narrative claim must cite at least one fact', () => {
-  const narrative = { factsHash: 'h', model: 'haiku', claims: [{ text: 'Touches sessions.', factIds: [] }] };
-  assert.equal(ChangeMap.safeParse(changeMap({ narrative, narratorState: 'ready' })).success, false);
 });
 
 test('request-change-map and change-map travel on the control socket', () => {

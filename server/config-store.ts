@@ -62,10 +62,6 @@ const DEFAULT_CONFIG = {
   taskTitle: {
     refiner: { enabled: true, model: 'haiku', minIntervalSeconds: 60, timeoutSeconds: 60 },
   },
-  changeMap: {
-    narrator: { enabled: false, engine: 'claude', model: '', timeoutSeconds: 90 },
-  },
-
   guardrails: {
     unguardedRepos: [] as string[],
     blockedPaths: [] as string[],
@@ -542,7 +538,6 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       repositoryRootCaseInsensitive: equalsIgnoringCaseOnWindows('root', 'ROOT'),
 
       taskTitle: pickBlock('taskTitle', config.taskTitle ?? DEFAULT_CONFIG.taskTitle),
-      changeMap: pickBlock('changeMap', config.changeMap),
       branchGc: pickBlock('branchGc', config.branchGc),
       postTurnChecks: pickBlock('postTurnChecks', config.postTurnChecks ?? DEFAULT_CONFIG.postTurnChecks),
       visions: pickBlock('visions', config.visions),
@@ -593,7 +588,6 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.worktreeShare == null) delete config.worktreeShare;
     if (newConfig.worktreeShare != null) config.worktreeShare = newConfig.worktreeShare;
     if (newConfig.taskTitle != null) config.taskTitle = newConfig.taskTitle;
-    if (newConfig.changeMap != null) config.changeMap = newConfig.changeMap;
     if (newConfig.branchGc != null) config.branchGc = resolveBranchGc(newConfig.branchGc);
     if (newConfig.visions != null) config.visions = newConfig.visions;
     if (newConfig.github != null) config.github = newConfig.github;

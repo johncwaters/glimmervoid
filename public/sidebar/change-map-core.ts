@@ -26,7 +26,6 @@ export interface ChangeMapRepoView {
 
 export interface ChangeMapView {
   repos: ChangeMapRepoView[];
-  narrative: { state: ChangeMap['narratorState']; claims: { text: string; factIds: string[] }[]; status: string | null };
   error: string | null;
 }
 
@@ -138,20 +137,9 @@ export function buildChangeMapView(map: ChangeMap): ChangeMapView {
     providerByName.set(repo.name, { repo, firstChangedPathByDirectory: firstChangedPathByDirectory(repo) });
   }
   const repos = map.repos.map((repo) => repoView(repo, providerByName));
-  const statusByState: Record<ChangeMap['narratorState'], string | null> = {
-    disabled: null,
-    pending: 'Narrative is being prepared.',
-    ready: null,
-    failed: 'Narrative could not be prepared.',
-  };
   const hasNothingToShow = !map.error && repos.every((repo) => repo.header.fileCount === 0 && repo.warnings.length === 0 && !repo.error);
   return {
     repos: hasNothingToShow ? [] : repos,
-    narrative: {
-      state: map.narratorState,
-      claims: map.narratorState === 'ready' ? map.narrative?.claims.map((claim) => ({ text: claim.text, factIds: claim.factIds })) ?? [] : [],
-      status: statusByState[map.narratorState],
-    },
     error: map.error ?? null,
   };
 }
