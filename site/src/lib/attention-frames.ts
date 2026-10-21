@@ -11,11 +11,10 @@ export interface AttentionFrame {
 const { RUNNING, WAITING, COMPLETE, FAILED } = STATES;
 
 export const ATTENTION_FRAMES: readonly AttentionFrame[] = [
-  { states: [RUNNING, WAITING, RUNNING, RUNNING, RUNNING], focusedRow: 1, holdMs: 2800 },
-  { states: [RUNNING, RUNNING, RUNNING, RUNNING, RUNNING], focusedRow: null, holdMs: 1400 },
-  { states: [RUNNING, RUNNING, RUNNING, COMPLETE, RUNNING], focusedRow: null, holdMs: 1600 },
-  { states: [RUNNING, RUNNING, RUNNING, COMPLETE, FAILED], focusedRow: 4, holdMs: 2800 },
-  { states: [RUNNING, RUNNING, RUNNING, RUNNING, RUNNING], focusedRow: null, holdMs: 1600 },
+  { states: [RUNNING, WAITING, RUNNING, RUNNING, RUNNING], focusedRow: 1, holdMs: 3400 },
+  { states: [RUNNING, RUNNING, RUNNING, RUNNING, RUNNING], focusedRow: null, holdMs: 2400 },
+  { states: [RUNNING, RUNNING, RUNNING, COMPLETE, FAILED], focusedRow: 4, holdMs: 3400 },
+  { states: [RUNNING, RUNNING, RUNNING, RUNNING, RUNNING], focusedRow: null, holdMs: 2400 },
 ];
 
 export const FIRST_ATTENTION_FRAME = ATTENTION_FRAMES[0];
