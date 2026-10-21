@@ -2,6 +2,8 @@ export type InstallPlatform = 'macos' | 'windows' | 'linux';
 
 export const INSTALL_PLATFORMS: readonly InstallPlatform[] = ['macos', 'windows', 'linux'];
 
+export const INSTALL_PLATFORM_LABELS: Record<InstallPlatform, string> = { macos: 'macOS', windows: 'Windows', linux: 'Linux' };
+
 const PLATFORM_PATTERNS: readonly [InstallPlatform, RegExp][] = [
   ['windows', /windows|win32|win64/i],
   ['macos', /mac ?os|macintosh|mac os x/i],

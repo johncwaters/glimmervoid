@@ -15,13 +15,17 @@ test('the default install command skips the node-pty script flag only because th
   assert.match(hero, /On Linux, use the <a href="#install">Linux command<\/a>/);
   assert.match(hero, /<span data-install-for="linux" hidden><InstallCommand command=\{LINUX_INSTALL_COMMAND\} \/><\/span>/);
   const install = fs.readFileSync(path.join(SITE_COMPONENTS, 'Install.astro'), 'utf8');
-  assert.match(install, /<InstallCommand class="cmd" command=\{LINUX_INSTALL_COMMAND\} \/>/);
+  assert.match(install, /<span data-install-for="linux"><InstallCommand command=\{LINUX_INSTALL_COMMAND\} \/><\/span>/);
 });
 
-test('the hero carries every markup hook its platform switch script applies the view to', () => {
-  const hero = fs.readFileSync(path.join(SITE_COMPONENTS, 'Hero.astro'), 'utf8');
-  assert.match(hero, /<code id="install-command" title="Click to copy"><span data-install-for="default">/);
-  assert.match(hero, /<span data-install-for="linux" hidden>/);
-  assert.match(hero, /<fieldset class="platform-switch" id="platform-switch"[^>]*>\s*\{INSTALL_PLATFORMS\.map\(\(platform\) => <button type="button" data-platform=\{platform\}/);
+test('the hero and install section carry every markup hook the install picker applies the view to', () => {
+  for (const component of ['Hero.astro', 'Install.astro']) {
+    const markup = fs.readFileSync(path.join(SITE_COMPONENTS, component), 'utf8');
+    assert.match(markup, /<code[^>]* data-install-command[^>]*><span data-install-for="default">/, component);
+    assert.match(markup, /<span data-install-for="linux"[^>]*>/, component);
+    assert.match(markup, /data-copy-install/, component);
+    assert.match(markup, /data-copy-status/, component);
+    assert.match(markup, /<fieldset class="platform-switch" data-platform-switch[^>]*>\s*\{INSTALL_PLATFORMS\.map\(\(platform\) => <button type="button" data-platform=\{platform\}/, component);
+  }
   assert.deepEqual([...INSTALL_PLATFORMS].sort(), ['linux', 'macos', 'windows']);
 });

@@ -20,6 +20,29 @@ export function runTimeline(timeline: readonly TimelineStep[], loopMs: number, r
   startCycle();
 }
 
+export function runFramesWhileVisible(element: Element, holdMsByFrame: readonly number[], showFrame: (frameIndex: number) => void): void {
+  if (prefersReducedMotion() || holdMsByFrame.length < 2) return;
+  let isOnScreen = false;
+  let frameIndex = 0;
+  let pendingAdvance: ReturnType<typeof setTimeout> | null = null;
+  const scheduleAdvance = () => {
+    if (pendingAdvance !== null || !isOnScreen || document.hidden) return;
+    pendingAdvance = setTimeout(advance, holdMsByFrame[frameIndex]);
+  };
+  const advance = () => {
+    pendingAdvance = null;
+    if (!isOnScreen || document.hidden) return;
+    frameIndex = (frameIndex + 1) % holdMsByFrame.length;
+    showFrame(frameIndex);
+    scheduleAdvance();
+  };
+  new IntersectionObserver(([entry]) => {
+    isOnScreen = entry.isIntersecting;
+    scheduleAdvance();
+  }).observe(element);
+  document.addEventListener('visibilitychange', scheduleAdvance);
+}
+
 export function hasTextSelectedIn(element: Element): boolean {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || selection.toString().trim() === '') return false;

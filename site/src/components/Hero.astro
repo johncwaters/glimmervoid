@@ -3,26 +3,24 @@ import { ANIMALS } from '../../../public/nyan-animals-core.ts';
 import DashboardRecording from './DashboardRecording.astro';
 import InstallCommand from './InstallCommand.astro';
 import { LINUX_INSTALL_COMMAND } from '../lib/install-command.ts';
-import { INSTALL_PLATFORMS } from '../lib/install-platform.ts';
-
-const PLATFORM_LABELS = { macos: 'macOS', windows: 'Windows', linux: 'Linux' } as const;
+import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../lib/install-platform.ts';
 
 const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, trail })));
 ---
 <section class="hero" id="top">
   <div class="sky" id="sky" aria-hidden="true" data-animals={skyAnimals}></div>
-  <div class="hero-copy">
+  <div class="hero-copy" id="hero-install">
     <h1>Mission control <em>that ships</em>.</h1>
     <p class="lede">Not a terminal multiplexer. Grids are for watching. <span class="unbroken">This is for shipping.</span></p>
     <div class="install-line">
-      <code id="install-command" title="Click to copy"><span data-install-for="default"><InstallCommand /></span><span data-install-for="linux" hidden><InstallCommand command={LINUX_INSTALL_COMMAND} /></span></code>
-      <button class="btn" type="button" id="copy-install">Copy</button>
-      <span class="copy-status" id="copy-status" role="status"></span>
+      <code data-install-command title="Click to copy"><span data-install-for="default"><InstallCommand /></span><span data-install-for="linux" hidden><InstallCommand command={LINUX_INSTALL_COMMAND} /></span></code>
+      <button class="btn" type="button" data-copy-install>Copy</button>
+      <span class="copy-status" data-copy-status role="status"></span>
     </div>
-    <fieldset class="platform-switch" id="platform-switch" aria-label="Your operating system" hidden>
-      {INSTALL_PLATFORMS.map((platform) => <button type="button" data-platform={platform} aria-pressed="false">{PLATFORM_LABELS[platform]}</button>)}
+    <fieldset class="platform-switch" data-platform-switch aria-label="Your operating system" hidden>
+      {INSTALL_PLATFORMS.map((platform) => <button type="button" data-platform={platform} aria-pressed="false">{INSTALL_PLATFORM_LABELS[platform]}</button>)}
     </fieldset>
-    <p class="install-platform-note" id="install-platform-note">Windows and macOS. On Linux, use the <a href="#install">Linux command</a>.</p>
+    <p class="install-platform-note" data-install-platform-note>Windows and macOS. On Linux, use the <a href="#install">Linux command</a>.</p>
   </div>
   <DashboardRecording />
 </section>
@@ -34,13 +32,6 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   .lede { color: var(--text-dim); font-size: clamp(17px, 2vw, 19px); max-width: 54ch; }
   .install-platform-note { margin: 0; font-size: 14px; color: var(--text-dim); }
   .install-platform-note code { color: var(--text); }
-  .platform-switch { display: inline-flex; margin: 0; padding: 0; min-inline-size: 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
-  .platform-switch[hidden] { display: none; }
-  .platform-switch button { font: inherit; font-size: 14px; cursor: pointer; background: transparent; color: var(--text-dim); border: 0; padding: 6px 14px; }
-  .platform-switch button + button { border-left: 1px solid var(--border); }
-  .platform-switch button:hover { color: var(--text-head); }
-  .platform-switch button[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
-  .platform-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .install-line { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; align-items: center; max-width: 100%; }
   .install-line code {
     display: flex; align-items: center; gap: 10px; background: var(--bg-surface); border: 1px solid var(--border);
@@ -51,9 +42,6 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   @media (max-width: 640px) {
     .install-line code { align-items: flex-start; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; font-size: 14px; line-height: 1.6; }
   }
-  .btn { font: inherit; font-size: 14px; cursor: pointer; background: transparent; color: var(--accent); border: 1px solid var(--accent-dim); border-radius: 4px; padding: 9px 18px; }
-  .btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-  .copy-status { font-size: 14px; color: var(--text-dim); min-width: 6ch; text-align: left; }
   .sky { position: absolute; inset-block: 0; inset-inline: calc(50% - 50vw); pointer-events: none; z-index: 1; overflow: hidden; }
   @media (prefers-reduced-motion: reduce) {
     .sky { display: none; }
@@ -62,9 +50,8 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
 
 <script>
   import { deriveNyanGeometry, nyanFlightStyleProperties } from '../../../public/nyan-geometry-core.ts';
-  import { copyText, createElement, hasTextSelectedIn, prefersReducedMotion } from '../lib/dom.ts';
-  import { detectInstallPlatform, INSTALL_PLATFORMS, installPlatformView } from '../lib/install-platform.ts';
-  import type { InstallPlatform } from '../lib/install-platform.ts';
+  import { createElement, prefersReducedMotion } from '../lib/dom.ts';
+  import { wireInstallPicker } from '../lib/install-picker.ts';
 
   interface SkyAnimal {
     sprite: string;
@@ -83,78 +70,6 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
     const parsed: unknown = JSON.parse(sky.dataset.animals ?? '[]');
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(isSkyAnimal);
-  }
-
-  function visibleInstallCommand(): HTMLElement | null {
-    return document.querySelector<HTMLElement>('#install-command > [data-install-for]:not([hidden])');
-  }
-
-  function showInstallPlatform(platform: InstallPlatform): void {
-    const view = installPlatformView(platform);
-    for (const command of document.querySelectorAll<HTMLElement>('#install-command > [data-install-for]')) command.hidden = command.dataset.installFor !== view.visibleCommand;
-    for (const button of document.querySelectorAll<HTMLButtonElement>('#platform-switch [data-platform]')) button.setAttribute('aria-pressed', String(button.dataset.platform === view.pressedPlatform));
-    const copyStatus = document.getElementById('copy-status');
-    if (copyStatus) copyStatus.textContent = '';
-  }
-
-  function isInstallPlatform(value: string | undefined): value is InstallPlatform {
-    return INSTALL_PLATFORMS.some((platform) => platform === value);
-  }
-
-  function userAgentDataPlatform(): string | null {
-    const userAgentData: unknown = Reflect.get(navigator, 'userAgentData');
-    if (typeof userAgentData !== 'object' || userAgentData === null) return null;
-    const platform: unknown = Reflect.get(userAgentData, 'platform');
-    return typeof platform === 'string' ? platform : null;
-  }
-
-  function wirePlatformSwitch(): void {
-    const platformSwitch = document.getElementById('platform-switch');
-    const platformNote = document.getElementById('install-platform-note');
-    if (!platformSwitch || !platformNote) return;
-    platformNote.hidden = true;
-    const detected = detectInstallPlatform({ userAgentDataPlatform: userAgentDataPlatform(), userAgent: navigator.userAgent });
-    if (detected) {
-      showInstallPlatform(detected);
-      return;
-    }
-    platformSwitch.hidden = false;
-    platformSwitch.addEventListener('click', (event) => {
-      const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-platform]') : null;
-      if (button && isInstallPlatform(button.dataset.platform)) showInstallPlatform(button.dataset.platform);
-    });
-    showInstallPlatform('macos');
-  }
-
-  function wireCopyButton(): void {
-    const copyButton = document.getElementById('copy-install');
-    const copyStatus = document.getElementById('copy-status');
-    const installCommand = document.getElementById('install-command');
-    if (!copyButton || !copyStatus || !installCommand) return;
-    const selectCommand = (command: HTMLElement) => {
-      const range = document.createRange();
-      range.selectNodeContents(command);
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      copyStatus.textContent = 'Selected';
-    };
-    const copyVisibleCommand = () => {
-      const command = visibleInstallCommand();
-      if (!command) return;
-      void copyText(command.textContent ?? '').then((isCopied) => {
-        if (!isCopied) {
-          selectCommand(command);
-          return;
-        }
-        copyStatus.textContent = 'Copied';
-      });
-    };
-    copyButton.addEventListener('click', copyVisibleCommand);
-    installCommand.addEventListener('click', () => {
-      if (hasTextSelectedIn(installCommand)) return;
-      copyVisibleCommand();
-    });
   }
 
   function startSky(): void {
@@ -184,7 +99,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
     setInterval(flyAnimal, FLIGHT_INTERVAL_MS);
   }
 
-  wirePlatformSwitch();
-  wireCopyButton();
+  const heroInstall = document.getElementById('hero-install');
+  if (heroInstall) wireInstallPicker(heroInstall, { isSwitchAlwaysShown: false });
   startSky();
 </script>

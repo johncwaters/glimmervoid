@@ -1,28 +1,101 @@
 ---
 import InstallCommand from './InstallCommand.astro';
-import { LINUX_INSTALL_COMMAND } from '../lib/install-command.ts';
-import { DEFAULT_PORT, MINIMUM_NODE_VERSION } from '../lib/product-facts.ts';
+import { buildUpdateCommand } from '../../../server/core/update-core.ts';
+import { INSTALL_COMMAND, LINUX_INSTALL_COMMAND } from '../lib/install-command.ts';
+import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../lib/install-platform.ts';
+import { DEFAULT_PORT, MINIMUM_NODE_VERSION, PRODUCT_VERSION } from '../lib/product-facts.ts';
+
+const BOOT_LINES = [
+  { text: `GLIMMERVOID ${PRODUCT_VERSION}`, isBanner: true },
+  { text: `Open http://localhost:${DEFAULT_PORT}`, isBanner: false },
+  { text: 'Ctrl+C stops the server.', isBanner: false },
+];
+const NEXT_COMMANDS = [
+  { command: 'glimmervoid doctor', linuxCommand: null, line: 'Checks PATH, agent CLIs and node-pty' },
+  { command: 'glimmervoid pair', linuxCommand: null, line: 'Links your phone' },
+  { command: INSTALL_COMMAND, linuxCommand: buildUpdateCommand('npx', null, 'linux'), line: 'Updates. Same command.' },
+];
 ---
 <section id="install">
   <div class="section-head reveal">
     <h2>Shipping in a minute.</h2>
+    <p>One command. Needs Node {MINIMUM_NODE_VERSION}.</p>
   </div>
-  <div class="install-grid reveal">
-<pre class="term-block"><span class="c"># Windows and macOS</span>
-<InstallCommand class="cmd" /></pre>
-<pre class="term-block"><span class="c"># Linux</span>
-<InstallCommand class="cmd" command={LINUX_INSTALL_COMMAND} /></pre>
+  <div class="install-console reveal" id="install-console">
+    <div class="console-bar">
+      <fieldset class="platform-switch" data-platform-switch aria-label="Your operating system" hidden>
+        {INSTALL_PLATFORMS.map((platform) => <button type="button" data-platform={platform} aria-pressed="false">{INSTALL_PLATFORM_LABELS[platform]}</button>)}
+      </fieldset>
+      <p class="console-platforms" data-install-platform-note>Windows and macOS, then Linux</p>
+      <span class="console-copy">
+        <span class="copy-status" data-copy-status role="status"></span>
+        <button class="btn" type="button" data-copy-install>Copy</button>
+      </span>
+    </div>
+    <pre class="console-screen"><code class="console-command" data-install-command title="Click to copy"><span data-install-for="default"><InstallCommand /></span><span data-install-for="linux"><InstallCommand command={LINUX_INSTALL_COMMAND} /></span></code><span class="boot-output">{BOOT_LINES.map(({ text, isBanner }, lineIndex) => <span class={`boot-line${isBanner ? ' is-banner' : ''}`} data-boot-step={lineIndex + 1}>{text}</span>)}</span></pre>
   </div>
-  <p class="install-next">Then open <code>localhost:{DEFAULT_PORT}</code>. Needs Node {MINIMUM_NODE_VERSION}.</p>
+  <ul class="next-commands reveal" aria-label="After install">
+    {NEXT_COMMANDS.map(({ command, linuxCommand, line }) => (
+      <li data-next-command>
+        {linuxCommand === null ? <code title="Click to copy">{command}</code> : <code title="Click to copy"><span data-install-for="default">{command}</span><span data-install-for="linux" hidden>{linuxCommand}</span></code>}
+        <span class="next-line">{line}</span>
+        <span class="next-copy">
+          <span class="copy-status" data-copy-status role="status"></span>
+          <button class="btn is-small" type="button" data-copy-control>Copy</button>
+        </span>
+      </li>
+    ))}
+  </ul>
 </section>
 
+<script>
+  import { runFramesWhileVisible } from '../lib/dom.ts';
+  import { BOOT_STEP_HOLD_MS } from '../lib/feature-frames.ts';
+  import { wireCopyControl, wireInstallPicker } from '../lib/install-picker.ts';
+
+  const installSection = document.getElementById('install');
+  if (installSection) wireInstallPicker(installSection, { isSwitchAlwaysShown: true });
+  const installConsole = document.getElementById('install-console');
+  if (installConsole) {
+    const bootLines = [...installConsole.querySelectorAll<HTMLElement>('[data-boot-step]')];
+    runFramesWhileVisible(installConsole, BOOT_STEP_HOLD_MS, (frameIndex) => {
+      for (const line of bootLines) line.dataset.shown = String(frameIndex === 0 || Number(line.dataset.bootStep) < frameIndex);
+    });
+  }
+
+  for (const nextCommand of document.querySelectorAll<HTMLElement>('[data-next-command]')) {
+    const command = nextCommand.querySelector<HTMLElement>('code');
+    const copyControl = nextCommand.querySelector<HTMLElement>('[data-copy-control]');
+    const copyStatus = nextCommand.querySelector<HTMLElement>('[data-copy-status]');
+    if (command && copyControl && copyStatus) wireCopyControl(copyControl, command, copyStatus, () => command.querySelector<HTMLElement>('[data-install-for]:not([hidden])') ?? command);
+  }
+</script>
+
 <style>
-  .install-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
-  pre.term-block { margin: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 16px 18px; color: var(--text-head); font-family: inherit; font-size: 15px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
-  pre.term-block :global(.cmd) { display: inline-block; width: 100%; padding-left: 2ch; text-indent: -2ch; }
-  pre.term-block :global(.unbroken) { white-space: nowrap; }
-  pre.term-block .c { color: var(--text-dim); }
-  .install-next { margin-top: 18px; color: var(--text-dim); }
-  @media (max-width: 820px) { .install-grid { grid-template-columns: minmax(0, 1fr); } }
-  @media (max-width: 640px) { pre.term-block { padding: 14px; } }
+  .install-console { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); overflow: hidden; }
+  .console-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border-dim); }
+  .console-platforms { font-size: 13px; color: var(--text-dim); }
+  .console-copy, .next-copy { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; }
+  .console-copy .copy-status, .next-copy .copy-status { min-width: 0; text-align: right; }
+  .console-screen { margin: 0; padding: 18px; font-family: inherit; font-size: 15px; line-height: 1.8; color: var(--text-head); white-space: pre-wrap; overflow-wrap: anywhere; min-height: 11.5em; }
+  .console-command { display: block; cursor: copy; padding-left: 2ch; text-indent: -2ch; }
+  .console-command::before { content: "$ "; color: var(--accent-dim); }
+  .console-command [hidden] { display: none; }
+  .boot-output { display: flex; flex-direction: column; margin-top: 10px; padding-left: 2ch; color: var(--text); }
+  .boot-line { transition: opacity 400ms cubic-bezier(0.16, 1, 0.3, 1), transform 400ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .boot-line[data-shown="false"] { opacity: 0; transform: translateY(4px); }
+  .boot-line.is-banner { margin-bottom: 10px; color: var(--accent); font-weight: 700; letter-spacing: 0.06em; }
+  .next-commands { list-style: none; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .next-commands li { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 12px 14px; min-width: 0; }
+  .next-commands code { cursor: copy; font-size: 14px; overflow-wrap: anywhere; }
+  .next-line { color: var(--text-dim); font-size: 13px; }
+  .btn.is-small { padding: 4px 12px; font-size: 13px; }
+  @media (max-width: 820px) {
+    .next-commands { grid-template-columns: minmax(0, 1fr); }
+    .next-commands li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+    .next-commands .next-copy { grid-row: 1 / span 2; grid-column: 2; }
+  }
+  @media (max-width: 640px) {
+    .console-screen { padding: 14px; font-size: 14px; }
+  }
 </style>

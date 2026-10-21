@@ -33,7 +33,7 @@ const firstBanner = attentionBannerOf(FIRST_ATTENTION_FRAME);
 </section>
 
 <script>
-  import { prefersReducedMotion } from '../lib/dom.ts';
+  import { runFramesWhileVisible } from '../lib/dom.ts';
   import { ATTENTION_FRAMES, attentionBannerOf } from '../lib/attention-frames.ts';
   import type { AttentionFrame } from '../lib/attention-frames.ts';
 
@@ -51,31 +51,8 @@ const firstBanner = attentionBannerOf(FIRST_ATTENTION_FRAME);
     });
   }
 
-  function startAttentionBoard(): void {
-    const board = document.getElementById('attention-board');
-    if (!board || prefersReducedMotion()) return;
-    let isOnScreen = false;
-    let frameIndex = 0;
-    let pendingAdvance: ReturnType<typeof setTimeout> | null = null;
-    const scheduleAdvance = () => {
-      if (pendingAdvance !== null || !isOnScreen || document.hidden) return;
-      pendingAdvance = setTimeout(advance, ATTENTION_FRAMES[frameIndex].holdMs);
-    };
-    const advance = () => {
-      pendingAdvance = null;
-      if (!isOnScreen || document.hidden) return;
-      frameIndex = (frameIndex + 1) % ATTENTION_FRAMES.length;
-      showFrame(board, ATTENTION_FRAMES[frameIndex]);
-      scheduleAdvance();
-    };
-    new IntersectionObserver(([entry]) => {
-      isOnScreen = entry.isIntersecting;
-      scheduleAdvance();
-    }).observe(board);
-    document.addEventListener('visibilitychange', scheduleAdvance);
-  }
-
-  startAttentionBoard();
+  const board = document.getElementById('attention-board');
+  if (board) runFramesWhileVisible(board, ATTENTION_FRAMES.map(({ holdMs }) => holdMs), (frameIndex) => showFrame(board, ATTENTION_FRAMES[frameIndex]));
 </script>
 
 <style>

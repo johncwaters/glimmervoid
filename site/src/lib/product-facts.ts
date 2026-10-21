@@ -59,4 +59,6 @@ export const UNREADABLE_PATHS_KEY = settingNamed('guardrails.unreadablePaths').p
 
 export const DEFAULT_PORT = settingNamed('port').defaultValue;
 
+export const PRODUCT_VERSION = rootPackage.version;
+
 export const MINIMUM_NODE_VERSION = minimumNodeVersionOf(rootPackage.engines.node);

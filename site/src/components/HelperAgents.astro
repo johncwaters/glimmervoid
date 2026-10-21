@@ -1,0 +1,82 @@
+---
+import { framePart } from '../lib/frame-parts.ts';
+
+const CHILD_SESSIONS = [
+  { task: 'schema', completeFrom: 2, closedFrom: 3 },
+  { task: 'backfill', completeFrom: 4, closedFrom: 5 },
+];
+const CHANNEL_EVENTS = [
+  { verb: 'spawn', text: 'schema: split the migration', from: 0 },
+  { verb: 'spawn', text: 'backfill: copy old invoices', from: 0 },
+  { verb: 'send', text: 'backfill: use the batch API', from: 1 },
+  { verb: 'read', text: 'schema: done, 3 files', from: 2 },
+  { verb: 'close', text: 'schema', from: 3 },
+  { verb: 'read', text: 'backfill: done, 41k rows', from: 4 },
+  { verb: 'close', text: 'backfill', from: 5 },
+];
+---
+<section id="helpers">
+  <div class="section-head reveal">
+    <h2>Agents that hire help.</h2>
+    <p>A session spawns helpers, steers them, and closes them when the work is done.</p>
+  </div>
+  <div class="helper-board reveal" id="helper-board" role="img" aria-label="A migrate-billing session spawns two helper sessions, schema and backfill, that sit indented under it. It sends backfill a message, reads what each one reports, and closes each helper once it completes.">
+    <ol class="session-tree" aria-hidden="true">
+      <li class="tree-row is-parent"><span class="dot is-working"></span><span class="tree-task">migrate-billing</span><span class="tree-state is-working">Working</span></li>
+      {CHILD_SESSIONS.map(({ task, completeFrom, closedFrom }) => (
+        <li class="tree-row is-child">
+          <span class="tree-branch"></span>
+          <span class="stacked tree-dot"><span class="dot is-working" {...framePart(0, completeFrom)}></span><span class="dot is-complete" {...framePart(completeFrom, closedFrom)}></span><span class="dot is-closed" {...framePart(closedFrom)}></span></span>
+          <span class="tree-task">{task}</span>
+          <span class="stacked tree-stage"><span class="tree-state is-working" {...framePart(0, completeFrom)}>Working</span><span class="tree-state is-complete" {...framePart(completeFrom, closedFrom)}>Complete</span><span class="tree-state is-closed" {...framePart(closedFrom)}>Closed</span></span>
+        </li>
+      ))}
+    </ol>
+    <ol class="channel-log" aria-hidden="true">
+      {CHANNEL_EVENTS.map(({ verb, text, from }) => (
+        <li {...framePart(from)}><span class={`channel-verb is-${verb}`}>{verb}</span>{text}</li>
+      ))}
+    </ol>
+  </div>
+</section>
+
+<script>
+  import { runFramesWhileVisible } from '../lib/dom.ts';
+  import { HELPER_HOLD_MS } from '../lib/feature-frames.ts';
+  import { showFrameParts } from '../lib/frame-parts.ts';
+
+  const helperBoard = document.getElementById('helper-board');
+  if (helperBoard) {
+    runFramesWhileVisible(helperBoard, HELPER_HOLD_MS, (frameIndex) => showFrameParts(helperBoard, frameIndex));
+  }
+</script>
+
+<style>
+  .helper-board { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  .session-tree, .channel-log { list-style: none; margin: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 16px; min-width: 0; font-size: 14px; }
+  .session-tree { display: flex; flex-direction: column; gap: 4px; }
+  .tree-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 4px; min-width: 0; }
+  .tree-row.is-parent { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .tree-branch { flex: none; width: 14px; height: 10px; margin-left: 4px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); transform: translateY(-4px); }
+  .tree-task { flex: 1; min-width: 0; color: var(--text-head); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree-dot { flex: none; }
+  .dot { display: block; width: 8px; height: 8px; border-radius: 50%; }
+  .dot.is-working { background: var(--state-running); }
+  .dot.is-complete { background: var(--state-complete); }
+  .dot.is-closed { border: 1px solid var(--text-dim); }
+  .tree-stage { flex: none; justify-items: end; }
+  .tree-state { font-size: 13px; font-weight: 700; }
+  .tree-state.is-working { color: var(--state-running); }
+  .tree-state.is-complete { color: var(--state-complete); }
+  .tree-state.is-closed { color: var(--text-dim); }
+  .channel-log { display: flex; flex-direction: column; gap: 6px; color: var(--text); }
+  .channel-log li { display: flex; gap: 12px; min-width: 0; }
+  .channel-verb { flex: none; width: 5ch; font-weight: 700; }
+  .channel-verb.is-spawn { color: var(--accent); }
+  .channel-verb.is-send { color: var(--state-starting); }
+  .channel-verb.is-read { color: var(--state-complete); }
+  .channel-verb.is-close { color: var(--text-dim); }
+  @media (max-width: 820px) {
+    .helper-board { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>
