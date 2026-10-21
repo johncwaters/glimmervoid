@@ -1,0 +1,11 @@
+{
+  "brand": "brand.json",
+  "shots": [{
+    "template": "templates/link-card.html",
+    "placement": "link-card",
+    "out": "out/final/og.png",
+    "alt": "Glimmervoid: Mission control that ships. Grids are for watching. This is for shipping. Below, the real dashboard with one session flagged as needing you.",
+    "source": "site/src/components/Hero.astro headline and lede; screenshot cropped from site/public/capture/hero.webp",
+    "vars": { "eyebrow": "Glimmervoid", "subline": "Grids are for watching. This is for shipping.", "image": "assets/dashboard-top.png" }
+  }]
+}

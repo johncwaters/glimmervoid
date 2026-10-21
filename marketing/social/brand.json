@@ -1,0 +1,13 @@
+{
+  "colors": {
+    "background": "#0a0810",
+    "surface": "#16122a",
+    "ink": "#e8e0ff",
+    "accent": "#c084fc",
+    "accentInk": "#0a0810"
+  },
+  "fonts": {
+    "display": { "family": "CommitMono", "files": ["../../assets/fonts/commit-mono-700-regular.woff2"], "weight": 700 },
+    "body": { "family": "CommitMono", "files": ["../../assets/fonts/commit-mono-400-regular.woff2"], "weight": 400 }
+  }
+}

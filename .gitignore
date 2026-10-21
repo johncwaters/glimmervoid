@@ -23,6 +23,7 @@ test/browser/artifacts/
 test/site-capture/out/
 test/site-capture/recordings/
 site/.astro/
+marketing/social/out/
 
 # compiled-commit runner scratch
 .compiled-commit-tmp/
