@@ -1,32 +1,32 @@
 import type { ChangeMap, ChangeMapFactKind, RepoChangeMap } from '#shared/contracts/change-map.ts';
 
-interface ChangeMapWarningView {
-  factId: string;
+const WIDE_BLAST_RADIUS_MIN = 10;
+
+export interface WorthALookLine {
+  dedupeKey: string;
   kind: ChangeMapFactKind;
   severity: number;
   path: string;
   openPath: string;
-  headline: string;
+  text: string;
   detail: string;
 }
 
-export interface ChangeMapRepoView {
-  header: {
-    name: string;
-    fileCount: number;
-    committedCount: number;
-    uncommittedCount: number;
-    base: string | null;
-  };
-  subsystems: { title: string; fileCount: number }[];
-  warnings: ChangeMapWarningView[];
-  files: { path: string; openPath: string; status: RepoChangeMap['files'][number]['status']; isCommitted: boolean; dependentCount: number; testCount: number }[];
-  error: string | null;
+export interface FileHint {
+  text: string;
+  title: string;
+}
+
+interface ChangeMapRepoRef {
+  name: string;
+  sessionPathPrefix: string;
 }
 
 export interface ChangeMapView {
-  repos: ChangeMapRepoView[];
-  error: string | null;
+  worthALook: WorthALookLine[];
+  hintsByOpenPath: Map<string, FileHint[]>;
+  repos: ChangeMapRepoRef[];
+  errors: string[];
 }
 
 interface ProviderLookup {
@@ -48,8 +48,8 @@ function firstChangedPathByDirectory(repo: RepoChangeMap): Map<string, string> {
   return firstPathByDirectory;
 }
 
-function warningViews(repo: RepoChangeMap, providerByName: Map<string, ProviderLookup>): ChangeMapWarningView[] {
-  const warnings: ChangeMapWarningView[] = [];
+function worthALookLines(repo: RepoChangeMap, providerByName: Map<string, ProviderLookup>): WorthALookLine[] {
+  const lines: WorthALookLine[] = [];
   const changedPaths = new Set(repo.files.map((file) => file.path));
   for (const link of repo.links) {
     const provider = providerByName.get(link.providerRepo);
@@ -64,69 +64,58 @@ function warningViews(repo: RepoChangeMap, providerByName: Map<string, ProviderL
       : `Uses ${link.versionSpec} from the registry, so ${link.providerRepo} changes reach it only after a publish.`;
     if (link.providerChangedPathCount > 0) detail += ` ${link.providerRepo} changed ${link.providerChangedPathCount} ${providerNoun} in ${link.packageDir || 'the repository root'}.`;
     if (link.changedImporterCount > 0) detail += ` ${link.changedImporterCount} importing ${changedImporterNoun} changed here.`;
-    warnings.push({
-      factId: link.factId, kind: 'link', severity: 6, path, openPath: `${pathOwner.sessionPathPrefix}${path}`,
-      headline: `${repo.name} imports ${link.packageName} from ${link.providerRepo} in ${link.importerCount} ${importerNoun}`,
+    lines.push({
+      dedupeKey: `link:${link.providerRepo}:${link.packageName}:${repo.name}`, kind: 'link', severity: 6, path, openPath: `${pathOwner.sessionPathPrefix}${path}`,
+      text: `${repo.name} imports ${link.packageName} from ${link.providerRepo} in ${link.importerCount} ${importerNoun}`,
       detail,
     });
   }
-  for (const collision of repo.collisions) warnings.push({
-    factId: collision.factId, kind: 'collision', severity: 5, path: collision.path, openPath: `${repo.sessionPathPrefix}${collision.path}`,
-    headline: `${collision.path} is also changed in "${collision.otherSessionName}"`,
-    detail: 'Another live session is changing this file.',
+  for (const collision of repo.collisions) lines.push({
+    dedupeKey: `collision:${repo.sessionPathPrefix}${collision.path}:${collision.otherSessionId}`, kind: 'collision', severity: 5,
+    path: collision.path, openPath: `${repo.sessionPathPrefix}${collision.path}`,
+    text: `Also being changed in "${collision.otherSessionName}"`,
+    detail: 'Another live session is changing this file, so the two may conflict.',
   });
   for (const gap of repo.coChangeGaps) {
     const totalCommits = gap.confidence > 0 ? Math.round(gap.support / gap.confidence) : 0;
-    warnings.push({
-      factId: gap.factId, kind: 'co-change', severity: 4, path: gap.path, openPath: `${repo.sessionPathPrefix}${gap.path}`,
-      headline: `Usually changes with ${gap.partner} (${gap.support} of ${totalCommits} commits)`,
-      detail: `${gap.partner} is absent from these changes.`,
+    lines.push({
+      dedupeKey: `co-change:${repo.sessionPathPrefix}${gap.path}:${gap.partner}`, kind: 'co-change', severity: 4,
+      path: gap.path, openPath: `${repo.sessionPathPrefix}${gap.path}`,
+      text: `Usually changes with ${gap.partner}, which is not in this change`,
+      detail: `${gap.support} of the ${totalCommits} commits that touched it also touched ${gap.partner}.`,
     });
   }
-  for (const untested of repo.untestedFiles) warnings.push({
-    factId: untested.factId, kind: 'untested', severity: 3, path: untested.path, openPath: `${repo.sessionPathPrefix}${untested.path}`,
-    headline: `No test reaches ${untested.path}`,
+  for (const untested of repo.untestedFiles) lines.push({
+    dedupeKey: `untested:${repo.sessionPathPrefix}${untested.path}`, kind: 'untested', severity: 3,
+    path: untested.path, openPath: `${repo.sessionPathPrefix}${untested.path}`,
+    text: 'No test reaches it',
     detail: 'No dependent test was found in the import graph.',
   });
-  for (const hotspot of repo.hotspots) warnings.push({
-    factId: hotspot.factId, kind: 'hotspot', severity: 2, path: hotspot.path, openPath: `${repo.sessionPathPrefix}${hotspot.path}`,
-    headline: `${hotspot.path} is a hotspot`,
-    detail: `${hotspot.fixCommitCount} of its last ${hotspot.commitCount} commits were fixes.`,
-  });
-  for (const blast of repo.blastRadius) {
-    if (blast.transitiveDependentCount < 10) continue;
-    warnings.push({
-      factId: blast.factId, kind: 'blast', severity: 1, path: blast.path, openPath: `${repo.sessionPathPrefix}${blast.path}`,
-      headline: `Wide blast radius: ${blast.transitiveDependentCount} files depend on ${blast.path}`,
-      detail: `${blast.directDependentCount} direct dependents; ${blast.dependentTestCount} dependent tests.`,
-    });
-  }
-  return warnings.sort((left, right) => right.severity - left.severity || left.path.localeCompare(right.path) || left.factId.localeCompare(right.factId));
+  return lines;
 }
 
-function repoView(repo: RepoChangeMap, providerByName: Map<string, ProviderLookup>): ChangeMapRepoView {
-  const blastByPath = new Map(repo.blastRadius.map((blast) => [blast.path, blast]));
-  const committedCount = repo.files.filter((file) => file.isCommitted).length;
-  return {
-    header: {
-      name: repo.name,
-      fileCount: repo.files.length,
-      committedCount,
-      uncommittedCount: repo.files.length - committedCount,
-      base: repo.base,
-    },
-    subsystems: repo.subsystems.map((subsystem) => ({ title: subsystem.title, fileCount: subsystem.paths.length })),
-    warnings: warningViews(repo, providerByName),
-    files: repo.files.map((file) => ({
-      path: file.path,
-      openPath: `${repo.sessionPathPrefix}${file.path}`,
-      status: file.status,
-      isCommitted: file.isCommitted,
-      dependentCount: blastByPath.get(file.path)?.transitiveDependentCount ?? 0,
-      testCount: blastByPath.get(file.path)?.dependentTestCount ?? 0,
-    })),
-    error: repo.error,
-  };
+function addHint(hintsByOpenPath: Map<string, FileHint[]>, openPath: string, hint: FileHint) {
+  const hints = hintsByOpenPath.get(openPath) ?? [];
+  hints.push(hint);
+  hintsByOpenPath.set(openPath, hints);
+}
+
+function collectHints(repo: RepoChangeMap, hintsByOpenPath: Map<string, FileHint[]>) {
+  for (const hotspot of repo.hotspots) addHint(hintsByOpenPath, `${repo.sessionPathPrefix}${hotspot.path}`, {
+    text: 'often fixed',
+    title: `${hotspot.fixCommitCount} of its last ${hotspot.commitCount} commits were fixes.`,
+  });
+  for (const blast of repo.blastRadius) {
+    if (blast.transitiveDependentCount < WIDE_BLAST_RADIUS_MIN) continue;
+    addHint(hintsByOpenPath, `${repo.sessionPathPrefix}${blast.path}`, {
+      text: `${blast.transitiveDependentCount} depend on it`,
+      title: `${blast.transitiveDependentCount} files depend on it: ${blast.directDependentCount} directly, ${blast.dependentTestCount} of them tests.`,
+    });
+  }
+}
+
+function byWorthALookOrder(left: WorthALookLine, right: WorthALookLine): number {
+  return right.severity - left.severity || left.openPath.localeCompare(right.openPath) || left.dedupeKey.localeCompare(right.dedupeKey);
 }
 
 export function buildChangeMapView(map: ChangeMap): ChangeMapView {
@@ -136,10 +125,30 @@ export function buildChangeMapView(map: ChangeMap): ChangeMapView {
     if (!providerNames.has(repo.name) || providerByName.has(repo.name)) continue;
     providerByName.set(repo.name, { repo, firstChangedPathByDirectory: firstChangedPathByDirectory(repo) });
   }
-  const repos = map.repos.map((repo) => repoView(repo, providerByName));
-  const hasNothingToShow = !map.error && repos.every((repo) => repo.header.fileCount === 0 && repo.warnings.length === 0 && !repo.error);
+  const lineByDedupeKey = new Map<string, WorthALookLine>();
+  const hintsByOpenPath = new Map<string, FileHint[]>();
+  const errors = map.error ? [map.error] : [];
+  for (const repo of map.repos) {
+    for (const line of worthALookLines(repo, providerByName)) {
+      if (!lineByDedupeKey.has(line.dedupeKey)) lineByDedupeKey.set(line.dedupeKey, line);
+    }
+    collectHints(repo, hintsByOpenPath);
+    if (repo.error) errors.push(map.repos.length > 1 ? `${repo.name}: ${repo.error}` : repo.error);
+  }
   return {
-    repos: hasNothingToShow ? [] : repos,
-    error: map.error ?? null,
+    worthALook: [...lineByDedupeKey.values()].sort(byWorthALookOrder),
+    hintsByOpenPath,
+    repos: map.repos.map((repo) => ({ name: repo.name, sessionPathPrefix: repo.sessionPathPrefix })),
+    errors,
   };
+}
+
+export function repoNameForPath(repos: readonly ChangeMapRepoRef[], openPath: string): string | null {
+  let bestMatch: ChangeMapRepoRef | null = null;
+  for (const repo of repos) {
+    if (!openPath.startsWith(repo.sessionPathPrefix)) continue;
+    if (bestMatch && bestMatch.sessionPathPrefix.length >= repo.sessionPathPrefix.length) continue;
+    bestMatch = repo;
+  }
+  return bestMatch?.name ?? null;
 }

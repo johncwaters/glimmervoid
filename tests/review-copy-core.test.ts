@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { baseLabel, branchSyncActionTitle, branchSyncClickAction, branchSyncLabel, committedMergeTargetText, decideMergeAction, decidePrimaryReviewAction, hasReviewChanges, mergeActionTitle, mergeDisabledReason, parkedStatusText, resyncOutcomeText, reviewHeadline, shouldShowBranchSyncLabel, shouldShowReviewHeaderCounts } from '../public/sidebar/review-copy-core.ts';
+import { baseLabel, branchSyncActionTitle, branchSyncClickAction, branchSyncLabel, committedMergeTargetText, decideMergeAction, decidePrimaryReviewAction, hasReviewChanges, mergeActionTitle, mergeDisabledReason, parkedStatusText, resyncOutcomeText, reviewHeadline, shouldShowBranchSyncLabel } from '../public/sidebar/review-copy-core.ts';
 
 const headlineInputs = {
   status: 'pending-review',
@@ -92,9 +92,16 @@ test('review headline reports an ended session instead of ready to merge', () =>
 
 test('review headline reports uncommitted only changes instead of ready to merge', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, hasCommits: false, canMerge: false }), {
-    text: 'Uncommitted changes',
+    text: 'Not committed yet',
     namesMergeTarget: false,
   });
+});
+
+test('review headline leads with the changed file count as one sentence', () => {
+  assert.equal(reviewHeadline({ ...headlineInputs, hasCommits: false, canMerge: false, changedFileCount: 5 }).text, '5 files changed, not committed yet');
+  assert.equal(reviewHeadline({ ...headlineInputs, changedFileCount: 1 }).text, '1 file changed, ready to merge into main');
+  assert.equal(reviewHeadline({ ...headlineInputs, isWorkspace: true, canMerge: false, changedFileCount: 2 }).text, '2 files changed in this worktree');
+  assert.equal(reviewHeadline({ ...headlineInputs, status: 'parked', mergeReason: 'rebase-conflict', changedFileCount: 3 }).text, 'Parked: merge conflict');
 });
 
 test('review headline reports committed changes that cannot merge yet', () => {
@@ -139,6 +146,10 @@ test('H1 base-diverged park keeps Merge rendered and enabled', () => {
   });
 });
 
+test('a live session with nothing committed says why Merge is disabled', () => {
+  assert.equal(mergeDisabledReason({ status: 'none', hasCommits: false, live: true, state: 'IDLE' }), 'Nothing is committed yet. Merge opens once the session commits.');
+});
+
 test('base-diverged rendered Merge leaves its disabled reason to the parked explanation', () => {
   assert.deepEqual(decideMergeAction('parked', 'base-diverged', false), {
     isRendered: true,
@@ -161,7 +172,7 @@ test('merge reason names an ended session only under a parked or merged headline
   }
 });
 
-test('merge reason explains a starting session and stays silent without commits or while merging', () => {
+test('merge reason explains a starting session and stays silent for an ended session without commits or while merging', () => {
   for (const state of ['INITIALIZING', 'STARTING']) {
     assert.equal(mergeDisabledReason({ status: 'pending-review', hasCommits: true, live: true, state }), 'Starting up. Mergeable once the session is live.');
   }
@@ -206,17 +217,6 @@ test('only a fresh in-sync branch hides its visible sync label', () => {
   }
   assert.equal(shouldShowBranchSyncLabel(null), true);
   assert.equal(shouldShowBranchSyncLabel(undefined), true);
-});
-
-test('header counts show only outside Diff, whose sections carry their own counts, once changed files are known', () => {
-  const inputs = { fetched: true, changedFileCount: 2, view: 'map' };
-  assert.equal(shouldShowReviewHeaderCounts(inputs), true);
-  assert.equal(shouldShowReviewHeaderCounts({ ...inputs, view: 'notes' }), true);
-  assert.equal(shouldShowReviewHeaderCounts({ ...inputs, view: 'diff' }), false);
-  for (const view of ['diff', 'map', 'notes']) {
-    assert.equal(shouldShowReviewHeaderCounts({ ...inputs, view, changedFileCount: 0 }), false);
-    assert.equal(shouldShowReviewHeaderCounts({ ...inputs, view, fetched: false }), false);
-  }
 });
 
 test('unchanged resync is silent while all other outcomes keep their copy', () => {

@@ -17,8 +17,28 @@ interface ReviewHeadline {
   namesMergeTarget: boolean;
 }
 
+function changeHeadline({ changedFileCount, hasCommits, canMerge, isWorkspace, live, effectiveBase }: {
+  changedFileCount: number;
+  hasCommits: boolean;
+  canMerge: boolean;
+  isWorkspace: boolean;
+  live: boolean;
+  effectiveBase: string | null | undefined;
+}): ReviewHeadline {
+  const filesChanged = `${changedFileCount} file${changedFileCount === 1 ? '' : 's'} changed`;
+  const withFileCount = (phrase: string, sentence: string) => (changedFileCount > 0 ? `${filesChanged}, ${phrase}` : sentence);
+  if (isWorkspace) return { text: changedFileCount > 0 ? `${filesChanged} in this worktree` : 'Changes in this worktree', namesMergeTarget: false };
+  if (canMerge) {
+    const target = baseLabel(effectiveBase);
+    return { text: withFileCount(`ready to merge into ${target}`, `Ready to merge into ${target}`), namesMergeTarget: true };
+  }
+  if (!live) return { text: withFileCount('session ended', 'Session ended'), namesMergeTarget: false };
+  if (!hasCommits) return { text: withFileCount('not committed yet', 'Not committed yet'), namesMergeTarget: false };
+  return { text: withFileCount('not ready to merge', 'Not ready to merge'), namesMergeTarget: false };
+}
+
 export function reviewHeadline({
-  status, mergeReason, fetched, hasDiffError, hasChanges, hasCommits, canMerge, isWorkspace, live, effectiveBase,
+  status, mergeReason, fetched, hasDiffError, hasChanges, hasCommits, canMerge, isWorkspace, live, effectiveBase, changedFileCount = 0,
 }: {
   status: string;
   mergeReason: string | null;
@@ -30,6 +50,7 @@ export function reviewHeadline({
   isWorkspace: boolean;
   live: boolean;
   effectiveBase: string | null | undefined;
+  changedFileCount?: number;
 }): ReviewHeadline {
   if (status === 'parked' && mergeReason === 'base-diverged') {
     return { text: 'Parked: base branch diverged', namesMergeTarget: false };
@@ -40,11 +61,7 @@ export function reviewHeadline({
   if (hasDiffError) return { text: 'Could not read changes', namesMergeTarget: false };
   if (!fetched) return { text: 'Checking for changes', namesMergeTarget: false };
   if (!hasChanges) return { text: 'No changes yet', namesMergeTarget: false };
-  if (isWorkspace) return { text: 'Changes in this worktree', namesMergeTarget: false };
-  if (canMerge) return { text: `Ready to merge into ${baseLabel(effectiveBase)}`, namesMergeTarget: true };
-  if (!live) return { text: 'Session ended', namesMergeTarget: false };
-  if (!hasCommits) return { text: 'Uncommitted changes', namesMergeTarget: false };
-  return { text: 'Not ready to merge', namesMergeTarget: false };
+  return changeHeadline({ changedFileCount, hasCommits, canMerge, isWorkspace, live, effectiveBase });
 }
 
 export function committedMergeTargetText(headline: ReviewHeadline, effectiveBase: string | null | undefined): string | null {
@@ -98,7 +115,7 @@ export function mergeDisabledReason({
   state,
 }: MergeDisabledInputs): string | null {
   if (status === 'merging') return null;
-  if (!hasCommits) return null;
+  if (!hasCommits) return live ? 'Nothing is committed yet. Merge opens once the session commits.' : null;
   if (!live && (status === 'parked' || status === 'merged')) return 'Session ended.';
   if (!live) return null;
   if (status === 'parked') return null;
@@ -156,15 +173,6 @@ export function branchSyncActionTitle(sync: ReviewBranchSync | null | undefined,
 
 export function shouldShowBranchSyncLabel(sync: ReviewBranchSync | null | undefined): boolean {
   return sync?.state !== 'in-sync' || sync.fetched === false;
-}
-
-export function shouldShowReviewHeaderCounts({ fetched, changedFileCount, view }: {
-  fetched: boolean;
-  changedFileCount: number;
-  view: string;
-}): boolean {
-  if (!fetched || changedFileCount === 0) return false;
-  return view !== 'diff';
 }
 
 export function resyncOutcomeText(sync: ReviewBranchSync): string | null {

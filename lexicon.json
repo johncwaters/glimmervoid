@@ -68,6 +68,17 @@
     {
       "name": "zen",
       "definition": "The experimental dashboard view that shows each live session as a pet in a meadow, which wakes on output, sleeps when quiet and raises a status bubble when its session needs the operator, and stages one session alone: the next one needing the operator, or one the operator picks from the meadow."
+    },
+    {
+      "name": "worth a look",
+      "definition": "The review panel's short list of change signals an operator can act on: a file another session is changing, a package link into another repository, a usual partner file left out, or a file no test reaches.",
+      "aliases": [
+        "worth"
+      ]
+    },
+    {
+      "name": "committed",
+      "definition": "Changes a session has recorded in commits on its branch, as opposed to edits still only in its worktree."
     }
   ]
 }

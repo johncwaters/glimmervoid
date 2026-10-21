@@ -6,7 +6,7 @@ import { getJSON, setJSON } from './local-store.ts';
 const STORAGE_KEY = 'glimmervoid-ui-prefs';
 const SIDEBAR_WIDTH_KEY = 'glimmervoid:sidebar-width';
 
-export interface UiPrefs extends FlyingAnimalsOptions {
+interface UiPrefs extends FlyingAnimalsOptions {
   soundEnabled: boolean;
   soundId: string;
   themeId: string;
@@ -18,7 +18,6 @@ export interface UiPrefs extends FlyingAnimalsOptions {
   lastFocusedSessionId: string | null;
   railWidth: number | null;
   reviewSidebarExpanded: boolean;
-  reviewSidebarView: 'map' | 'diff';
   prsQueueWidth: number | null;
   prsQueueCollapsed: boolean;
   prsMode: 'team' | 'mine';
@@ -40,7 +39,6 @@ const asNullableNumber = (value: unknown): number | null => (typeof value === 'n
 const asFiniteNumber = (fallback: number) => (value: unknown): number => asNullableNumber(value) ?? fallback;
 const asStringList = (value: unknown): string[] =>
   Array.isArray(value) ? [...new Set(value.filter((entry): entry is string => typeof entry === 'string' && entry !== ''))] : [];
-const asReviewSidebarView = (value: unknown): UiPrefs['reviewSidebarView'] => value === 'map' ? value : 'diff';
 const asPrsMode = (value: unknown): UiPrefs['prsMode'] => value === 'mine' ? 'mine' : 'team';
 
 const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
@@ -62,7 +60,6 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   lastFocusedSessionId: asNullableString,
   railWidth: asNullableNumber,
   reviewSidebarExpanded: asBoolean(false),
-  reviewSidebarView: asReviewSidebarView,
   prsQueueWidth: asNullableNumber,
   prsQueueCollapsed: asBoolean(false),
   prsMode: asPrsMode,
@@ -126,8 +123,6 @@ export const setRailWidth = (px: number | null) => write('railWidth', px);
 
 export const isReviewSidebarExpanded = () => read('reviewSidebarExpanded');
 export const setReviewSidebarExpanded = (expanded: boolean) => write('reviewSidebarExpanded', expanded);
-export const getReviewSidebarView = () => read('reviewSidebarView');
-export const setReviewSidebarView = (view: UiPrefs['reviewSidebarView']) => write('reviewSidebarView', view);
 
 export const getPrsQueueWidth = () => read('prsQueueWidth');
 export const setPrsQueueWidth = (px: number | null) => write('prsQueueWidth', px);

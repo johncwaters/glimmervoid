@@ -1,62 +1,52 @@
-import { shortSha } from '#shared/git-text.ts';
 import { el } from '../dom-helpers.ts';
-import type { ChangeMapRepoView, ChangeMapView } from './change-map-core.ts';
+import type { ChangeMapView, FileHint, WorthALookLine } from './change-map-core.ts';
 
-function clickableFileRow(path: string, openPath: string, className: string, onOpenFile: (path: string) => void) {
-  const row = el('button', className);
+const WORTH_A_LOOK_VISIBLE_MAX = 5;
+
+function worthALookRow(line: WorthALookLine, onOpenFile: (openPath: string) => void) {
+  const row = el('button', 'review-look-line');
   row.type = 'button';
-  row.title = `Open ${path} in the diff`;
-  row.addEventListener('click', () => onOpenFile(openPath));
+  row.dataset.kind = line.kind;
+  row.title = `${line.detail} Click to open ${line.path} below.`;
+  row.append(el('span', 'review-look-file', line.path), el('span', 'review-look-text', line.text));
+  row.addEventListener('click', () => onOpenFile(line.openPath));
   return row;
 }
 
-function renderRepo(repo: ChangeMapRepoView, onOpenFile: (path: string) => void) {
-  const section = el('section', 'review-map-repo');
-  const header = el('div', 'review-map-repo-head');
-  header.append(el('strong', 'review-map-repo-name', repo.header.name));
-  section.append(header);
-  const summary = el('div', 'review-map-summary');
-  summary.append(el('span', '', `${repo.header.committedCount} committed`));
-  summary.append(el('span', '', `${repo.header.uncommittedCount} uncommitted`));
-  summary.append(el('span', '', `Base: ${shortSha(repo.header.base, { chars: 8 }) || 'unknown'}`));
-  section.append(summary);
-  if (repo.error) section.append(el('p', 'review-map-error', repo.error));
-  if (repo.subsystems.length > 0) {
-    const subsystems = el('div', 'review-map-subsystems');
-    for (const subsystem of repo.subsystems) subsystems.append(el('span', 'review-map-chip', `${subsystem.title} (${subsystem.fileCount})`));
-    section.append(subsystems);
+export function renderWorthALook(view: ChangeMapView, { isShowingAll, onShowAll, onOpenFile }: {
+  isShowingAll: boolean;
+  onShowAll: () => void;
+  onOpenFile: (openPath: string) => void;
+}): HTMLElement | null {
+  if (view.worthALook.length === 0 && view.errors.length === 0) return null;
+  const section = el('section', 'review-look');
+  section.append(el('h3', 'review-group-label', 'Worth a look'));
+  if (view.errors.length > 0) {
+    const failure = el('p', 'review-look-error', 'Could not check this change for anything worth a look.');
+    failure.title = view.errors.join('\n');
+    section.append(failure);
   }
-  if (repo.warnings.length > 0) {
-    section.append(el('h3', 'review-map-label', 'Signals'));
-    const warnings = el('div', 'review-map-warnings');
-    for (const warning of repo.warnings) {
-      const row = clickableFileRow(warning.path, warning.openPath, 'review-map-warning', onOpenFile);
-      row.dataset.severity = String(warning.severity);
-      row.dataset.kind = warning.kind;
-      row.append(el('span', 'review-map-warning-headline', warning.headline));
-      row.append(el('span', 'review-map-detail', warning.detail));
-      warnings.append(row);
-    }
-    section.append(warnings);
+  const visibleLines = isShowingAll ? view.worthALook : view.worthALook.slice(0, WORTH_A_LOOK_VISIBLE_MAX);
+  if (visibleLines.length > 0) {
+    const list = el('div', 'review-look-list');
+    for (const line of visibleLines) list.append(worthALookRow(line, onOpenFile));
+    section.append(list);
   }
-  if (repo.files.length > 0) {
-    section.append(el('h3', 'review-map-label', 'Files'));
-    const files = el('div', 'review-map-files');
-    for (const file of repo.files) {
-      const row = clickableFileRow(file.path, file.openPath, 'review-map-file', onOpenFile);
-      row.dataset.status = file.status;
-      row.append(el('span', 'review-map-file-path', file.path));
-      row.append(el('span', 'review-map-file-meta', `${file.status} · ${file.isCommitted ? 'committed' : 'uncommitted'} · ${file.dependentCount} dependents · ${file.testCount} tests`));
-      files.append(row);
-    }
-    section.append(files);
-  }
+  const hiddenLineCount = view.worthALook.length - visibleLines.length;
+  if (hiddenLineCount === 0) return section;
+  const more = el('div', 'review-look-more');
+  const showAll = el('button', 'review-look-show-all', 'Show all');
+  showAll.type = 'button';
+  showAll.addEventListener('click', onShowAll);
+  more.append(el('span', 'review-look-more-count', `+${hiddenLineCount} more`), showAll);
+  section.append(more);
   return section;
 }
 
-export function renderChangeMapView(view: ChangeMapView, onOpenFile: (path: string) => void): HTMLElement {
-  const root = el('div', 'review-map');
-  if (view.error) root.append(el('p', 'review-map-error', view.error));
-  for (const repo of view.repos) root.append(renderRepo(repo, onOpenFile));
-  return root;
+export function renderFileHints(hints: readonly FileHint[] | undefined): HTMLElement[] {
+  return (hints ?? []).map((hint) => {
+    const tag = el('span', 'review-file-hint', hint.text);
+    tag.title = hint.title;
+    return tag;
+  });
 }

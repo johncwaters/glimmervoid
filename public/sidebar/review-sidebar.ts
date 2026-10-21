@@ -11,10 +11,10 @@ import { openConfirmDialog } from '../session-card/modal.ts';
 import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { shortcutHint } from '../shortcuts-core.ts';
 import { createLineIcon, MORE_ICON_PATH } from '../svg-dom.ts';
-import type { UiPrefs } from '../ui-prefs.ts';
-import { getReviewSidebarView, getSidebarWidth, isReviewSidebarExpanded, setReviewSidebarExpanded, setReviewSidebarView, setSidebarWidth } from '../ui-prefs.ts';
-import { buildChangeMapView } from './change-map-core.ts';
-import { renderChangeMapView } from './change-map-view.ts';
+import { getSidebarWidth, isReviewSidebarExpanded, setReviewSidebarExpanded, setSidebarWidth } from '../ui-prefs.ts';
+import type { ChangeMapView } from './change-map-core.ts';
+import { buildChangeMapView, repoNameForPath } from './change-map-core.ts';
+import { renderFileHints, renderWorthALook } from './change-map-view.ts';
 import type { DiffFile } from './diff-core.ts';
 import { parseUnifiedDiff, shouldDropDiffCache, summarizeFiles } from './diff-core.ts';
 import {
@@ -32,12 +32,17 @@ import {
   reviewHeadline,
   resyncOutcomeText,
   shouldShowBranchSyncLabel,
-  shouldShowReviewHeaderCounts,
 } from './review-copy-core.ts';
 import type { MergeActionVerdict, ReviewBranchSync as BranchSync } from './review-copy-core.ts';
 import { getSelectedId, onSelectionChange, setSelectedId } from './selection.ts';
 
 type SessionDiffPayload = Pick<ServerMessageOf<'session-diff'>, 'committed' | 'uncommitted' | 'hasCommits'>;
+type DiffSection = 'committed' | 'uncommitted';
+
+interface ParsedDiff {
+  committed: DiffFile[];
+  uncommitted: DiffFile[];
+}
 
 const REVIEWABLE = new Set(['pending-review', 'parked']);
 const MAX_FILE_LINES = 600;
@@ -57,15 +62,17 @@ const syncById = new Map<string, BranchSync | null>();
 
 const resyncingIds = new Set<string>();
 
+const parsedDiffByPayload = new WeakMap<SessionDiffPayload, ParsedDiff>();
+const changeMapViewByMap = new WeakMap<ChangeMap, ChangeMapView>();
+
 const openFiles = new Set<string>();
 const expanded = new Set<string>();
-let selectedView = getReviewSidebarView();
+let isWorthALookShowingAll = false;
 let pendingOpenFilePath: string | null = null;
 
 let panelEl: HTMLElement | null = null;
 let controlsEl: HTMLElement | null = null;
 let bodyEl: HTMLElement | null = null;
-const viewButtonByView = new Map<UiPrefs['reviewSidebarView'], HTMLButtonElement>();
 let railLabelEl: HTMLElement | null = null;
 let railStatusEl: HTMLElement | null = null;
 let railAddedEl: HTMLElement | null = null;
@@ -110,21 +117,10 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
     setReviewSidebarExpanded(!isCollapsed);
   };
 
-  const viewTabs = el('div', 'review-header-tabs');
-  viewTabs.setAttribute('role', 'group');
-  viewTabs.setAttribute('aria-label', 'Review view');
-  for (const [view, label] of [['map', 'Map'], ['diff', 'Diff']] as const) {
-    const button = el('button', 'review-header-tab', label);
-    button.type = 'button';
-    button.addEventListener('click', () => setSelectedView(view));
-    viewButtonByView.set(view, button);
-    viewTabs.append(button);
-  }
-
   const minimizeBtn = createReviewIconButton('Close review', 'M6 3L11 8L6 13');
   minimizeBtn.classList.add('review-sidebar-close');
   minimizeBtn.addEventListener('click', () => applyCollapsed(true));
-  head.append(title, viewTabs, minimizeBtn);
+  head.append(title, minimizeBtn);
 
   const rail = el('div', 'review-sidebar-rail');
   const expandBtn = createReviewIconButton('Open review', 'M10 3L5 8L10 13');
@@ -177,6 +173,7 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
     shortcutRefusal = null;
     openFiles.clear();
     expanded.clear();
+    isWorthALookShowingAll = false;
     pendingOpenFilePath = null;
     if (id) requestDiff(id);
     if (id && !isWorkspaceSession(id)) requestBranchSync(id);
@@ -392,12 +389,27 @@ export function resyncSelectedSession() {
   return true;
 }
 
+function parsedDiffOf(payload: SessionDiffPayload | null | undefined): ParsedDiff {
+  if (!payload) return { committed: [], uncommitted: [] };
+  const cached = parsedDiffByPayload.get(payload);
+  if (cached) return cached;
+  const parsed = { committed: parseUnifiedDiff(payload.committed?.diff || ''), uncommitted: parseUnifiedDiff(payload.uncommitted?.diff || '') };
+  parsedDiffByPayload.set(payload, parsed);
+  return parsed;
+}
+
+function changeMapViewOf(map: ChangeMap): ChangeMapView {
+  const cached = changeMapViewByMap.get(map);
+  if (cached) return cached;
+  const view = buildChangeMapView(map);
+  changeMapViewByMap.set(map, view);
+  return view;
+}
+
 function sessionHasChanges(id: string) {
+  const parsed = parsedDiffOf(diffById.get(id));
+  const changedFiles = [...parsed.committed, ...parsed.uncommitted];
   const payload = diffById.get(id) ?? null;
-  const changedFiles = [
-    ...parseUnifiedDiff(payload?.committed?.diff || ''),
-    ...parseUnifiedDiff(payload?.uncommitted?.diff || ''),
-  ];
   return hasReviewChanges({
     fetched: diffById.has(id),
     changedFileCount: summarizeFiles(changedFiles).files,
@@ -488,17 +500,9 @@ function sessionName(ui: SessionUi | null | undefined, id: string) {
   return ui?.card?.dataset.session || id;
 }
 
-function setSelectedView(view: UiPrefs['reviewSidebarView']) {
-  selectedView = view;
-  if (view !== 'diff') pendingOpenFilePath = null;
-  setReviewSidebarView(view);
-  render();
-}
-
 function expandFileInDiff(path: string, payload: SessionDiffPayload | null | undefined) {
   if (!payload) return;
-  const committed = parseUnifiedDiff(payload.committed?.diff);
-  const uncommitted = parseUnifiedDiff(payload.uncommitted?.diff);
+  const { committed, uncommitted } = parsedDiffOf(payload);
   for (const file of committed) {
     if (file.path === path || file.oldPath === path) openFiles.add(`committed:${file.path}`);
   }
@@ -518,11 +522,16 @@ function scrollToPendingFile() {
   }
 }
 
-function openFileFromMap(path: string) {
+function openFileFromWorthALook(path: string) {
   pendingOpenFilePath = path;
   expandFileInDiff(path, diffById.get(getSelectedId() ?? ''));
-  setSelectedView('diff');
+  render();
   scrollToPendingFile();
+}
+
+function showAllWorthALook() {
+  isWorthALookShowingAll = true;
+  render();
 }
 
 function render() {
@@ -535,7 +544,6 @@ function renderSidebar() {
   if (!controlsEl || !bodyEl) return;
   controlsEl.replaceChildren();
   bodyEl.replaceChildren();
-  for (const [view, button] of viewButtonByView) button.setAttribute('aria-pressed', String(selectedView === view));
   if (railLabelEl) railLabelEl.hidden = true;
   if (railStatusEl) railStatusEl.hidden = true;
 
@@ -558,8 +566,7 @@ function renderSidebar() {
   const payload = fetched ? diffById.get(id) : null;
   const diffError = diffErrorById.get(id) ?? null;
 
-  const committedFiles = payload ? parseUnifiedDiff(payload.committed?.diff || '') : [];
-  const uncommittedFiles = payload ? parseUnifiedDiff(payload.uncommitted?.diff || '') : [];
+  const { committed: committedFiles, uncommitted: uncommittedFiles } = parsedDiffOf(payload);
   const hasCommits = !!(payload?.hasCommits);
 
   const live = isLive(state);
@@ -575,7 +582,7 @@ function renderSidebar() {
   const primaryAction = decidePrimaryReviewAction({ status, mergeReason, live, hasChanges, isMergeRendered: mergeAction.isRendered });
   const headline = reviewHeadline({
     status, mergeReason, fetched, hasDiffError: diffError !== null, hasChanges: totals.files > 0 || hasCommits, hasCommits,
-    canMerge: !isWorkspace && mergeAction.isEnabled, isWorkspace, live, effectiveBase,
+    canMerge: !isWorkspace && mergeAction.isEnabled, isWorkspace, live, effectiveBase, changedFileCount: totals.files,
   });
   const statusLine = el('div', 'review-status-headline');
   statusLine.append(el('span', 'review-status-text', headline.text));
@@ -595,8 +602,7 @@ function renderSidebar() {
   controlsEl.append(statusLine);
 
   const metadata = el('div', 'review-status-meta');
-  if (shouldShowReviewHeaderCounts({ fetched, changedFileCount: totals.files, view: selectedView })) metadata.append(
-    el('span', 'review-status-files', `${totals.files} file${totals.files === 1 ? '' : 's'}`),
+  if (fetched && totals.files > 0) metadata.append(
     el('span', 'review-status-added', `+${totals.added}`),
     el('span', 'review-status-removed', `-${totals.removed}`),
     el('span', 'review-status-spacer'),
@@ -645,22 +651,23 @@ function renderSidebar() {
   if (resolveOutcome?.forId === id) controlsEl.append(statusNote(resolveOutcome.text, resolveOutcome.isError));
   if (shortcutRefusal && (shortcutRefusal.forId === id || shortcutRefusal.forId === null)) controlsEl.append(statusNote(shortcutRefusal.text, true));
 
-  if (selectedView === 'map') {
-    const changeMap = mapById.get(id);
-    if (!changeMap) {
-      bodyEl.append(el('div', 'review-nochanges review-loading', 'Loading map...'));
-      return;
-    }
-    bodyEl.append(renderChangeMapView(buildChangeMapView(changeMap), openFileFromMap));
-    return;
-  }
-
   if (diffError) {
     bodyEl.append(el('p', 'review-diff-error', diffError));
     return;
   }
-  if (committedFiles.length > 0) bodyEl.append(renderSection('committed', 'Committed', committedMergeTargetText(headline, effectiveBase), committedFiles));
-  if (uncommittedFiles.length > 0) bodyEl.append(renderSection('uncommitted', 'Uncommitted', null, uncommittedFiles));
+  const changeMap = mapById.get(id);
+  const changeMapView = changeMap ? changeMapViewOf(changeMap) : null;
+  const worthALook = changeMapView
+    ? renderWorthALook(changeMapView, { isShowingAll: isWorthALookShowingAll, onShowAll: showAllWorthALook, onOpenFile: openFileFromWorthALook })
+    : null;
+  if (worthALook) bodyEl.append(worthALook);
+  const hasBothSections = committedFiles.length > 0 && uncommittedFiles.length > 0;
+  if (committedFiles.length > 0) bodyEl.append(renderSection({
+    kind: 'committed', label: hasBothSections ? 'Committed' : null, meaning: committedMergeTargetText(headline, effectiveBase), files: committedFiles, changeMapView,
+  }));
+  if (uncommittedFiles.length > 0) bodyEl.append(renderSection({
+    kind: 'uncommitted', label: hasBothSections ? 'Not committed yet' : null, meaning: null, files: uncommittedFiles, changeMapView,
+  }));
 }
 
 function statusNote(text: string, isError: boolean) {
@@ -701,34 +708,47 @@ function renderBranchSync(id: string, shortcutResyncs: boolean) {
   return row;
 }
 
-function renderSection(kind: 'committed' | 'uncommitted', label: string, meaning: string | null, files: DiffFile[]) {
+function renderSection({ kind, label, meaning, files, changeMapView }: {
+  kind: DiffSection;
+  label: string | null;
+  meaning: string | null;
+  files: DiffFile[];
+  changeMapView: ChangeMapView | null;
+}) {
   const wrap = el('div', 'review-section');
   wrap.dataset.kind = kind;
-
-  const sum = summarizeFiles(files);
-  const head = el('div', 'review-section-head');
-
-  const titleGroup = el('div', 'review-section-id');
-  titleGroup.append(el('span', 'review-section-label', label));
-  if (meaning) titleGroup.append(el('span', 'review-section-meaning', meaning));
-  head.append(titleGroup);
-
-  const stat = el('div', 'review-section-stat');
-  stat.append(el('span', 'review-stat-files', `${sum.files} file${sum.files === 1 ? '' : 's'}`));
-  stat.append(
-    el('span', 'review-add', `+${sum.added}`),
-    el('span', 'review-del', `-${sum.removed}`)
-  );
-  head.append(stat);
-  wrap.append(head);
+  if (label) wrap.append(renderSectionHead(label, meaning, files));
 
   const list = el('div', 'review-diff');
-  for (const f of files) list.append(renderFile(f, kind));
+  const repos = changeMapView && changeMapView.repos.length > 1 ? changeMapView.repos : [];
+  let previousRepoName: string | null = null;
+  for (const f of files) {
+    const repoName = repos.length > 0 ? repoNameForPath(repos, f.path) : null;
+    if (repoName && repoName !== previousRepoName) list.append(el('div', 'review-repo-label', repoName));
+    previousRepoName = repoName;
+    list.append(renderFile(f, kind, changeMapView));
+  }
   wrap.append(list);
   return wrap;
 }
 
-function renderFile(f: DiffFile, kind: 'committed' | 'uncommitted') {
+function renderSectionHead(label: string, meaning: string | null, files: DiffFile[]) {
+  const sum = summarizeFiles(files);
+  const head = el('div', 'review-section-head');
+  const titleGroup = el('div', 'review-section-id');
+  titleGroup.append(el('span', 'review-section-label', label));
+  if (meaning) titleGroup.append(el('span', 'review-section-meaning', meaning));
+  const stat = el('div', 'review-section-stat');
+  stat.append(
+    el('span', 'review-stat-files', `${sum.files} file${sum.files === 1 ? '' : 's'}`),
+    el('span', 'review-add', `+${sum.added}`),
+    el('span', 'review-del', `-${sum.removed}`),
+  );
+  head.append(titleGroup, stat);
+  return head;
+}
+
+function renderFile(f: DiffFile, kind: DiffSection, changeMapView: ChangeMapView | null) {
   const key = `${kind}:${f.path}`;
   const open = openFiles.has(key);
   const sec = el('div', 'review-file');
@@ -742,7 +762,15 @@ function renderFile(f: DiffFile, kind: 'committed' | 'uncommitted') {
   head.setAttribute('aria-expanded', open ? 'true' : 'false');
   const twisty = el('span', 'review-file-twisty', open ? '▾' : '▸');
   twisty.setAttribute('aria-hidden', 'true');
-  head.append(twisty, el('span', 'review-file-path', f.path));
+  const name = el('span', 'review-file-name');
+  name.append(el('span', 'review-file-path', f.path));
+  const hints = renderFileHints(changeMapView?.hintsByOpenPath.get(f.path));
+  if (hints.length > 0) {
+    const hintRow = el('span', 'review-file-hints');
+    hintRow.append(...hints);
+    name.append(hintRow);
+  }
+  head.append(twisty, name);
   const c = el('span', 'review-file-counts');
   if (f.binary) c.append(el('span', 'review-bin', 'bin'));
   if (!f.binary) c.append(
