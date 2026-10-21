@@ -4,18 +4,14 @@ const DEMO_PAIRING_TOKEN = 'q8Vf2LkT0xRw7mZc4NsY1bHd9GpJa6UeKo3iXt5WvQn';
 ---
 <section id="remote">
   <div class="section-head reveal">
-    <h2>Ship from anywhere.</h2>
-    <p>Steer from your phone. Run agents in Coder workspaces.</p>
+    <h2>Host it once. Steer from your phone.</h2>
+    <p>One machine runs it all. Your phone pairs in.</p>
   </div>
-  <div class="remote-route reveal" role="img" aria-label="Agents can run in their own Coder workspace. Glimmervoid runs on your machine, and your own HTTPS proxy, such as Tailscale, carries the dashboard to paired devices.">
-    <div class="route-node">
-      <span class="route-label">Coder workspace</span>
-      <span class="route-detail">Agents, experimental</span>
-    </div>
-    <span class="route-link" aria-hidden="true"></span>
-    <div class="route-node">
+  <div class="remote-route reveal" role="img" aria-label="Glimmervoid and your agents run on one machine. Your own HTTPS proxy, such as Tailscale, carries the dashboard to paired devices like your phone.">
+    <div class="route-node host">
       <span class="route-label">Your machine</span>
-      <span class="route-detail">Glimmervoid</span>
+      <span class="route-detail">Glimmervoid and your agents</span>
+      <span class="route-extra">Agents can also run in Coder workspaces<span class="experimental-tag">Experimental</span></span>
     </div>
     <span class="route-link" aria-hidden="true"></span>
     <div class="route-node">
@@ -35,9 +31,11 @@ const DEMO_PAIRING_TOKEN = 'q8Vf2LkT0xRw7mZc4NsY1bHd9GpJa6UeKo3iXt5WvQn';
 </section>
 
 <style>
-  .remote-route { display: grid; grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr) 32px minmax(0, 1fr) 32px minmax(0, 1fr); align-items: center; margin-bottom: 32px; }
+  .remote-route { display: grid; grid-template-columns: minmax(0, 1.4fr) 32px minmax(0, 1fr) 32px minmax(0, 1fr); align-items: center; margin-bottom: 32px; }
   .route-node { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 16px 18px; min-width: 0; }
-  .route-node.paired { border-color: var(--accent-dim); }
+  .route-node.paired, .route-node.host { border-color: var(--accent-dim); }
+  .route-extra { margin-top: 4px; color: var(--text-dim); font-size: 13px; }
+  .route-extra .experimental-tag { margin-left: 8px; font-size: 11px; }
   .route-label { color: var(--text-head); font-weight: 700; font-size: 16px; }
   .route-detail { color: var(--text-dim); font-size: 14px; }
   .route-link { height: 1px; background: repeating-linear-gradient(to right, var(--accent-dim) 0 6px, transparent 6px 10px); background-size: 20px 1px; animation: route-flow 1.2s linear infinite; }
@@ -47,7 +45,7 @@ const DEMO_PAIRING_TOKEN = 'q8Vf2LkT0xRw7mZc4NsY1bHd9GpJa6UeKo3iXt5WvQn';
   .remote-term .pair-url { color: var(--accent); word-break: break-all; }
   .remote-term .prompt, .remote-term .dim { color: var(--text-dim); }
   @media (max-width: 820px) {
-    .remote-route { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 24px auto 24px auto 24px auto; }
+    .remote-route { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 24px auto 24px auto; }
     .route-link { width: 1px; height: 100%; justify-self: center; background: repeating-linear-gradient(to bottom, var(--accent-dim) 0 6px, transparent 6px 10px); background-size: 1px 20px; animation-name: route-flow-down; }
   }
   @keyframes route-flow-down { to { background-position: 0 20px; } }
