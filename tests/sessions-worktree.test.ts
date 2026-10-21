@@ -1244,6 +1244,29 @@ test('getDiff: committed range + gate come from the integration branch, not a st
   } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
+test('getDiff: a local integration branch behind origin diffs against origin, not commits that already landed', { skip: !GIT }, async () => {
+  const repo = initOneCommitRepo();
+  git(['branch', 'develop'], repo);
+  git(['checkout', '-b', 'feat'], repo);
+  fs.writeFileSync(path.join(repo, 'landed.txt'), 'landed on origin\n', 'utf8');
+  git(['add', '-A'], repo);
+  git(['commit', '-m', 'landed on origin'], repo);
+  git(['remote', 'add', 'origin', repo], repo);
+  git(['update-ref', 'refs/remotes/origin/develop', 'HEAD'], repo);
+  fs.writeFileSync(path.join(repo, 'feature.txt'), 'work\n', 'utf8');
+  git(['add', '-A'], repo);
+  git(['commit', '-m', 'feat work'], repo);
+  const s = makeSession({ integrationBranch: 'develop' });
+  try {
+    attachWorktree(s, repo);
+    const d = await s.getDiff();
+    assert.ok(d.committed.diff.includes('feature.txt'), 'the session commit is listed');
+    assert.ok(!d.committed.diff.includes('landed.txt'), 'a commit already on origin/develop is not listed as session work');
+    const [scope] = await s.worktreeLifecycle.getChangeScopes();
+    assert.ok(!scope.committedNameStatus.includes('landed.txt'), 'the change map scope leaves out commits already on origin/develop');
+  } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
+});
+
 test('getDiff: a branch already on develop shows nothing to merge despite a stale baseSha (out-of-band merge)', { skip: !GIT }, async () => {
   const repo = initRepoDevelopFeature();
   const s = makeSession({ integrationBranch: 'develop' });

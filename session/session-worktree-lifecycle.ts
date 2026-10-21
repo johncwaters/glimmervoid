@@ -728,8 +728,17 @@ function createSessionWorktreeLifecycle({
 
   async function resolveVerifiedBaseRef(opts: RunGitOptions): Promise<{ ref: string; verified: true } | { ref: string | null; verified: false }> {
     const candidate = await resolveEffectiveBase(opts);
-    if (candidate && await gitLookup(["rev-parse", "--verify", "--quiet", candidate], opts) !== null) return { ref: candidate, verified: true };
+    if (candidate && await gitLookup(["rev-parse", "--verify", "--quiet", candidate], opts) !== null) return { ref: await freshestBaseRef(candidate, opts), verified: true };
     return { ref: lifecycleState.baseSha || null, verified: false };
+  }
+
+  async function freshestBaseRef(baseBranch: string, opts: RunGitOptions): Promise<string> {
+    const localRef = `refs/heads/${baseBranch}`;
+    const originRef = `refs/remotes/origin/${baseBranch}`;
+    const existingRefs = (await gitOut(["for-each-ref", "--format=%(refname)", localRef, originRef], opts)).split("\n");
+    if (!existingRefs.includes(localRef) || !existingRefs.includes(originRef)) return baseBranch;
+    const isLocalBehindOrigin = await gitLookup(["merge-base", "--is-ancestor", localRef, originRef], opts) !== null;
+    return isLocalBehindOrigin ? `origin/${baseBranch}` : baseBranch;
   }
 
   function diffGitOptions(cwd: string): RunGitOptions {
@@ -765,7 +774,7 @@ function createSessionWorktreeLifecycle({
 
   async function memberMergeBase(member: WorkspaceMember): Promise<string> {
     const opts = diffGitOptions(member.dir);
-    const candidates = member.base ? [member.base, `origin/${member.base}`, "origin/HEAD"] : ["origin/HEAD"];
+    const candidates = member.base ? [await freshestBaseRef(member.base, opts), `origin/${member.base}`, "origin/HEAD"] : ["origin/HEAD"];
     for (const candidate of candidates) {
       if (await gitLookup(["rev-parse", "--verify", "--quiet", candidate], opts) === null) continue;
       return (await gitLookup(["merge-base", candidate, "HEAD"], opts))?.trim() ?? "";

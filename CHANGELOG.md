@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The review panel no longer lists work that already landed as this session's**: when the local main checkout lagged behind origin, the Committed list, the line totals and Worth a look's "Also being changed in" lines counted commits already on origin as the session's own work. A session now compares against origin when the local branch is just an older copy of it, and still compares against the local branch when that branch is ahead or has gone its own way.
+
 ## [0.42.2] - 2026-10-21
 
 ### Changed
