@@ -34,20 +34,20 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   .lede { color: var(--text-dim); font-size: clamp(17px, 2vw, 19px); max-width: 54ch; }
   .install-platform-note { margin: 0; font-size: 14px; color: var(--text-dim); }
   .install-platform-note code { color: var(--text); }
-  .install-line { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(44ch) minmax(0, 1fr); gap: 10px; align-items: center; width: 100%; }
+  .install-line { display: flex; justify-content: center; align-items: center; gap: 10px; max-width: 100%; }
   .install-line code {
-    grid-column: 2; display: flex; align-items: center; gap: 10px; background: var(--bg-surface); border: 1px solid var(--border);
-    border-radius: 4px; padding: 10px 14px; font-size: 14px; min-width: 0; max-width: 100%; white-space: nowrap; cursor: copy;
+    display: flex; align-items: center; gap: 10px; background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: 10px 14px; font-size: 14px; min-width: 0; max-width: 44ch; white-space: nowrap; cursor: copy;
   }
   .install-line code:hover { border-color: var(--accent-dim); }
   .install-line code::before { content: "$"; color: var(--accent-dim); }
   .install-line [data-install-for] { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .install-line [data-install-for][hidden] { display: none; }
-  .install-actions { grid-column: 3; justify-self: start; display: inline-flex; align-items: center; gap: 10px; }
+  .install-actions { position: relative; flex: none; display: inline-flex; }
+  .install-actions .copy-status { position: absolute; left: calc(100% + 10px); top: 50%; translate: 0 -50%; white-space: nowrap; }
   @media (max-width: 640px) {
-    .install-line { grid-template-columns: minmax(0, 1fr); justify-items: center; }
-    .install-line code, .install-actions { grid-column: 1; }
-    .install-actions { justify-self: center; }
+    .install-line { flex-direction: column; }
+    .install-line code { max-width: 100%; }
   }
   .sky { position: absolute; inset-block: 0; inset-inline: calc(50% - 50vw); pointer-events: none; z-index: 1; overflow: hidden; }
   .sky:not([data-on-screen="true"]) :is(.nyan-flight, .nyan-trail, .nyan-sprite) { animation-play-state: paused; }
