@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.2] - 2026-10-21
+
 ### Changed
 
 - **The review panel is one plain view**: the Map and Diff tabs are gone. The top says what changed in one sentence, such as "5 files changed, not committed yet", with the added and removed line counts. A short Worth a look list follows, at most five lines, each naming a file: another session changing it, a package link that reaches another repository, a file it usually changes with that is missing, or no test reaching it; Show all reveals the rest, and clicking a line opens that file below. Then the file list, where clicking a file shows its diff right under it, grouped into Committed and Not committed yet only when both exist. "Often fixed" and "N depend on it" now sit as small tags on the file row instead of in the list, and the base commit, committed and uncommitted counters and area chips are gone. A disabled Merge on work with nothing committed now says why beside it.
