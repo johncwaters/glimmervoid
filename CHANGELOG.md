@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The STREAMER badge below the header is gone**: it hung over the middle of the page while streamer mode was on. On the desktop header, the streamer button still shows in the accent color while the mode is on.
+
 ### Fixed
 
 - **Settings > Updates offers Restart when the newest release is already pulled but not running**: it used to say "The last check did not finish" with only a Check for updates button. It now names the checked-out release, lists it as Latest, and shows Restart. The status card also stops repeating itself: the headline gives the verdict (up to date, update available, or why the check failed), and the version and last-check time appear only once each, in the rows below.

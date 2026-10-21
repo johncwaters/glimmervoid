@@ -931,7 +931,6 @@ mountPhoneShell({
     queryTag(document, '#btn-add-session-header', 'button'),
     queryTag(document, '#btn-help', 'button'),
     btnMute,
-    queryTag(document, '#streamer-badge', 'span'),
     btnStreamer,
     powerMenu,
   ],

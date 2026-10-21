@@ -1481,26 +1481,6 @@ body {
   border-color: var(--accent);
 }
 
-.streamer-badge {
-  position: absolute;
-  bottom: -9px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: none;
-  align-items: center;
-  height: 18px;
-  padding: 0 8px;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  background: var(--bg-header);
-  color: var(--accent);
-  font: 700 10px var(--font-mono);
-  letter-spacing: 0.08em;
-  pointer-events: none;
-}
-
-html[data-streamer] .streamer-badge { display: inline-flex; }
-
 html[data-streamer] .settings-view-sidebar { display: none; }
 
 html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr); }
