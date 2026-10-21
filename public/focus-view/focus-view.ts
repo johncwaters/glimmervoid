@@ -22,7 +22,7 @@ import type { RosterGroup } from './roster-groups-core.ts';
 import { groupRoster, visibleOrder } from './roster-groups-core.ts';
 import type { SessionGroupHeader } from './roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group-header.ts';
-import { buildAttentionBanner, paintAttentionBanner } from '../attention-banner.ts';
+import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner } from '../attention-banner.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
@@ -320,6 +320,7 @@ function updateRailHead() {
 
 export function focusNextAttention() {
   if (!active) return;
+  if (railHeadEl) pressAttentionBanner(railHeadEl);
   const ids = attentionIds();
   if (!ids.length) return;
   const nextId = pickNextAttention(ids, attnCursorId);
@@ -446,6 +447,7 @@ export function activateFocusView() {
     focusNextAttention();
     return;
   }
+  if (isAttentionJumpActivating && railHeadEl) pressAttentionBanner(railHeadEl);
   restoreFocusedSession();
 }
 

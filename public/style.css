@@ -5845,14 +5845,23 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   border-radius: var(--radius);
   font-family: var(--font-mono);
 }
-.attention-banner:has(.attention-chip[data-state="COMPLETE"]:not([hidden])) { --st: var(--state-complete); }
-.attention-banner:has(.attention-chip[data-state="WAITING"]:not([hidden])) { --st: var(--state-waiting); }
-.attention-banner:has(.attention-chip[data-state="FAILED"]:not([hidden])) { --st: var(--state-failed); }
+.attention-banner:has(.attention-chip[data-state="COMPLETE"]:not([hidden]):not([data-leaving])) { --st: var(--state-complete); }
+.attention-banner:has(.attention-chip[data-state="WAITING"]:not([hidden]):not([data-leaving])) { --st: var(--state-waiting); }
+.attention-banner:has(.attention-chip[data-state="FAILED"]:not([hidden]):not([data-leaving])) { --st: var(--state-failed); }
 .attention-banner[data-empty] {
   background: var(--bg-header);
   border-color: var(--border);
 }
-.attention-banner-status { display: flex; align-items: center; min-height: 32px; min-width: 0; container-type: inline-size; }
+.attention-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--text-head);
+  opacity: 0;
+  pointer-events: none;
+}
+.attention-banner-status { position: relative; display: flex; align-items: center; min-height: 32px; min-width: 0; container-type: inline-size; }
 .attention-banner-chips { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; }
 .attention-banner[data-empty] .attention-banner-chips { display: none; }
 .attention-chip {
@@ -5887,13 +5896,27 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.attention-banner-count {
+.attention-banner-count,
+.attention-banner-line {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
+  transition: opacity 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
+.attention-banner-line {
+  position: absolute;
+  inset: 0;
+  align-content: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+.attention-banner[data-empty][data-all-clear-line] .attention-banner-line { opacity: 1; }
+.attention-banner[data-empty][data-all-clear-line] .attention-banner-count { opacity: 0; }
 .attention-banner-jump-row {
   display: flex;
   align-items: center;
@@ -5909,6 +5932,7 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 .attention-banner-jump .shortcut-sep { font-size: 12px; color: var(--text-muted); }
 .attention-banner-jump .kbd {
   position: relative;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5917,15 +5941,24 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   margin-bottom: 3px;
   padding: 0 7px;
   font-size: 12px;
+  background: transparent;
+  border-color: transparent;
+  border-radius: var(--radius);
+}
+.attention-banner-jump .kbd::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
   background: var(--bg-surface);
-  border-color: var(--border-hover);
+  border: 1px solid var(--border-hover);
   border-radius: var(--radius);
 }
 .attention-banner-jump .kbd::after {
   content: '';
   position: absolute;
   inset: 3px -1px -4px;
-  z-index: -1;
+  z-index: -2;
   background: var(--border-hover);
   border-radius: var(--radius);
 }
@@ -8371,7 +8404,7 @@ html[data-layout="phone"] .phone-shell[hidden] { display: none; }
 }
 
 html[data-layout="phone"] .phone-board-group-rows:empty { display: none; }
-html[data-layout="phone"] .attention-banner { position: static; flex: 0 0 auto; width: auto; margin: 8px 8px 0; }
+html[data-layout="phone"] .attention-banner { position: relative; flex: 0 0 auto; width: auto; margin: 8px 8px 0; }
 html[data-layout="phone"] .attention-banner-jump-caption { display: none; }
 html[data-layout="phone"] .attention-banner-jump-row { justify-content: flex-end; }
 html[data-layout="phone"] .attention-banner-jump { min-height: 44px; }
