@@ -6,7 +6,7 @@ import Animals from './Animals.astro';
     <h2>Every merge gets a party.</h2>
     <p>It waits in the trophy tray until you're back.</p>
   </div>
-  <div class="celebration-demo">
+  <div class="celebration-demo" id="celebration-demo">
     <div class="trophy-stage">
       <div class="celebration-tray" id="celebration-tray" data-state="empty">
         <button class="btn-celebrations" id="btn-celebrations" type="button" title="Play queued merge celebrations" aria-label="Play queued merge celebrations"><svg class="btn-celebrations-icon" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false"><path d="M4.5 2h7v3.5a3.5 3.5 0 0 1-7 0z" /><path d="M4.5 3.5H2.5a2 2 0 0 0 2 2.5" /><path d="M11.5 3.5h2a2 2 0 0 1-2 2.5" /><path d="M8 9v3" /><path d="M5.5 14h5" /></svg></button>
@@ -23,6 +23,7 @@ import Animals from './Animals.astro';
 
 <script>
   import { mountCelebrationTray, queueMergeCelebration } from '../../../public/merge-celebration.ts';
+  import { markWhileOnScreen } from '../lib/dom.ts';
 
   const DEMO_PULL_REQUEST_TITLES = ['Fix the auth redirect loop', 'Stabilize the flaky upload test', 'Migrate billing to the new ledger', 'Bump Node to 22', 'Rename the color tokens'];
   const tray = document.getElementById('celebration-tray');
@@ -37,6 +38,8 @@ import Animals from './Animals.astro';
     queueMergeCelebration({ message: `Merged acme/app#${100 + queuedMergeCount}`, detailLines: [title] });
   }
 
+  const demo = document.getElementById('celebration-demo');
+  if (demo) markWhileOnScreen(demo);
   if (tray && trophyButton instanceof HTMLButtonElement && count && queueButton) {
     mountCelebrationTray(tray, trophyButton, count);
     queueDemoMerge();
@@ -51,27 +54,36 @@ import Animals from './Animals.astro';
   .celebration-demo .celebration-tray .btn-celebrations { width: 64px; height: 64px; border-radius: 10px; border-width: 2px; }
   .celebration-demo .celebration-tray .btn-celebrations-icon { width: 30px; height: 30px; }
   .celebration-demo .celebration-tray .celebration-tray-count { top: -9px; right: -9px; min-width: 22px; height: 22px; border-radius: 11px; font-size: 12px; line-height: 22px; }
-  .celebration-demo .celebration-tray[data-state="queued"] .btn-celebrations { background: color-mix(in srgb, var(--state-complete) 12%, transparent); animation: trophy-pulse 1.6s ease-out infinite; }
-  .celebration-demo .celebration-tray[data-state="queued"] .btn-celebrations-icon { animation: trophy-wiggle 1.6s ease-in-out infinite; }
+  .celebration-demo .celebration-tray[data-state="queued"] .btn-celebrations { background: color-mix(in srgb, var(--state-complete) 12%, transparent); }
+  .celebration-demo .celebration-tray::before { content: ''; position: absolute; inset: 0; border: 2px solid var(--state-complete); border-radius: 10px; opacity: 0; pointer-events: none; }
+  .celebration-demo .celebration-tray[data-state="queued"]::before { animation: trophy-pulse 1.6s var(--ease-out-expo) infinite; }
+  .celebration-demo .celebration-tray[data-state="queued"] .btn-celebrations-icon { animation: trophy-wiggle 1.6s infinite; }
   .trophy-callout { margin: 0; font-size: 16px; font-weight: 700; color: var(--state-complete); transition: opacity var(--transition-fast); }
-  .trophy-arrow { display: inline-block; animation: trophy-nudge 0.8s ease-in-out infinite alternate; }
+  .trophy-arrow { display: inline-block; animation: trophy-nudge 1.6s infinite; }
+  .celebration-demo:not([data-on-screen="true"]) .celebration-tray[data-state="queued"]::before, .celebration-demo:not([data-on-screen="true"]) .celebration-tray[data-state="queued"] .btn-celebrations-icon, .celebration-demo:not([data-on-screen="true"]) .trophy-arrow { animation-play-state: paused; }
   .celebration-demo:has(.celebration-tray:not([data-state="queued"])) .trophy-callout { opacity: 0; }
   .queue-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border-dim); }
   .queue-merge { height: var(--header-control-height); border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; padding: 0 14px; min-height: 40px; cursor: pointer; }
   .queue-merge:hover { border-color: var(--accent); color: var(--text-head); }
   @keyframes trophy-pulse {
-    from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--state-complete) 55%, transparent); }
-    to { box-shadow: 0 0 0 16px transparent; }
+    from { opacity: 0.55; transform: scale(1); }
+    to { opacity: 0; transform: scale(1.5); }
   }
   @keyframes trophy-wiggle {
-    0%, 60%, 100% { rotate: 0deg; }
-    70% { rotate: -12deg; }
-    80% { rotate: 10deg; }
-    90% { rotate: -6deg; }
+    0%, 60%, 100% { rotate: 0deg; animation-timing-function: var(--ease-out-expo); }
+    64% { rotate: 4deg; animation-timing-function: var(--ease-out-expo); }
+    72% { rotate: -12deg; animation-timing-function: var(--ease-out-expo); }
+    81% { rotate: 10deg; animation-timing-function: var(--ease-out-expo); }
+    90% { rotate: -5deg; animation-timing-function: var(--ease-out-expo); }
   }
-  @keyframes trophy-nudge { to { translate: -6px 0; } }
+  @keyframes trophy-nudge {
+    0%, 100% { translate: 0 0; animation-timing-function: var(--ease-out-expo); }
+    20% { translate: 3px 0; animation-timing-function: var(--ease-out-expo); }
+    45% { translate: -8px 0; animation-timing-function: var(--ease-out-expo); }
+    70% { translate: 0 0; animation-timing-function: var(--ease-out-expo); }
+  }
   @media (prefers-reduced-motion: reduce) {
-    .celebration-demo .celebration-tray[data-state="queued"] .btn-celebrations { animation: none; box-shadow: 0 0 0 4px color-mix(in srgb, var(--state-complete) 30%, transparent); }
+    .celebration-demo .celebration-tray[data-state="queued"]::before { animation: none; opacity: 0.4; }
     .celebration-demo .celebration-tray[data-state="queued"] .btn-celebrations-icon, .trophy-arrow { animation: none; }
   }
 </style>

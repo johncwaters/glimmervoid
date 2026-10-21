@@ -60,21 +60,30 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
 <style>
   .attention-board { margin: 0; max-width: 560px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 16px; }
   .attention-banner { display: grid; margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--border-dim); border-radius: 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
-  .attention-banner > span { grid-area: 1 / 1; opacity: 0; transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .attention-banner > span { grid-area: 1 / 1; opacity: 0; transition: opacity var(--leave-ms) var(--ease-in-expo); }
   .session-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-  .session-rows li { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 4px; font-size: 14px; transition: opacity 900ms cubic-bezier(0.16, 1, 0.3, 1), transform 900ms cubic-bezier(0.16, 1, 0.3, 1); }
-  .session-rows li::before { content: ''; position: absolute; inset: 0; border-radius: 4px; border: 1px solid var(--outline-color); background: color-mix(in srgb, var(--outline-color) 10%, transparent); opacity: 0; transition: opacity 900ms cubic-bezier(0.16, 1, 0.3, 1); }
-  .session-rows li[data-focus="true"] { transform: scale(1.015); }
+  .session-rows li { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 4px; font-size: 14px; transition: opacity 900ms var(--ease-out-expo), transform 900ms var(--ease-out-expo); }
+  .session-rows li::before { content: ''; position: absolute; inset: 0; border-radius: 4px; border: 1px solid var(--outline-color); background: color-mix(in srgb, var(--outline-color) 10%, transparent); opacity: 0; transition: opacity 900ms var(--ease-out-expo); }
+  .session-rows li[data-focus="true"] { transform: scale(1.015); animation: focus-arrive 720ms var(--ease-out-expo) var(--leave-ms) both; }
+  @keyframes focus-arrive {
+    0% { transform: scale(1); }
+    25% { transform: scale(0.985); }
+    65% { transform: scale(1.025); }
+    100% { transform: scale(1.015); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .session-rows li[data-focus="true"] { animation: none; }
+  }
   .session-rows li[data-focus="true"]::before { opacity: 1; }
   .session-rows li[data-dimmed="true"] { opacity: 0.4; }
   .state-stack { display: grid; flex: none; }
-  .state-stack > * { grid-area: 1 / 1; opacity: 0; transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .state-stack > * { grid-area: 1 / 1; opacity: 0; transition: opacity var(--leave-ms) var(--ease-in-expo); }
   .label-stack { justify-items: end; }
   .session-rows svg { width: 16px; height: 16px; }
   .session-task { flex: 1; min-width: 0; color: var(--text-head); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .session-state { font-size: 13px; font-weight: 700; }
-  .session-rows li[data-state="RUNNING"] [data-icon-for="RUNNING"], .session-rows li[data-state="RUNNING"] [data-label-for="RUNNING"], .session-rows li[data-state="WAITING"] [data-icon-for="WAITING"], .session-rows li[data-state="WAITING"] [data-label-for="WAITING"], .session-rows li[data-state="COMPLETE"] [data-icon-for="COMPLETE"], .session-rows li[data-state="COMPLETE"] [data-label-for="COMPLETE"], .session-rows li[data-state="FAILED"] [data-icon-for="FAILED"], .session-rows li[data-state="FAILED"] [data-label-for="FAILED"] { opacity: 1; }
-  .attention-banner[data-banner="ALL CLEAR"] [data-banner-text="ALL CLEAR"], .attention-banner[data-banner="1 NEEDS YOU"] [data-banner-text="1 NEEDS YOU"], .attention-banner[data-banner="1 FAILED"] [data-banner-text="1 FAILED"] { opacity: 1; }
+  .session-rows li[data-state="RUNNING"] [data-icon-for="RUNNING"], .session-rows li[data-state="RUNNING"] [data-label-for="RUNNING"], .session-rows li[data-state="WAITING"] [data-icon-for="WAITING"], .session-rows li[data-state="WAITING"] [data-label-for="WAITING"], .session-rows li[data-state="COMPLETE"] [data-icon-for="COMPLETE"], .session-rows li[data-state="COMPLETE"] [data-label-for="COMPLETE"], .session-rows li[data-state="FAILED"] [data-icon-for="FAILED"], .session-rows li[data-state="FAILED"] [data-label-for="FAILED"] { opacity: 1; transition: opacity var(--arrive-ms) var(--ease-out-expo) var(--leave-ms); }
+  .attention-banner[data-banner="ALL CLEAR"] [data-banner-text="ALL CLEAR"], .attention-banner[data-banner="1 NEEDS YOU"] [data-banner-text="1 NEEDS YOU"], .attention-banner[data-banner="1 FAILED"] [data-banner-text="1 FAILED"] { opacity: 1; transition: opacity var(--arrive-ms) var(--ease-out-expo) var(--leave-ms); }
   .agent-list { list-style: none; margin: 24px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 28px; font-size: 15px; }
   .agent-name { color: var(--text-head); font-weight: 700; }
   .agent-support { color: var(--text-dim); }

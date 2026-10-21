@@ -29,7 +29,7 @@ const STACKED_PULLS = [
               <li><span class={`tick${isTicked ? ' is-ticked' : ''}`}></span><span class={`severity is-${severity.toLowerCase()}`}>{severity}</span>{text}</li>
             ))}
           </ul>
-          <p class="post-line"><span class="post-control">Post</span><span class="post-status" {...framePart(1)}>Posted</span></p>
+          <p class="post-line"><span class="post-control">Post</span><span class="post-status pops-in" {...framePart(1)}>Posted</span></p>
         </div>
         <div class="pull-card" {...framePart(2)}>
           <p class="pull-title"><span class="pull-number">#483</span> Cache avatar URLs</p>
@@ -47,7 +47,7 @@ const STACKED_PULLS = [
             <span class="stacked pull-stage">
               <span class="stage is-checks" {...framePart(0, readyFrom)}>Checks</span>
               <span class="stage is-ready" {...framePart(readyFrom, mergedFrom)}>Ready</span>
-              {mergedFrom !== undefined && <span class="stage is-merged" {...framePart(mergedFrom)}>Merged</span>}
+              {mergedFrom !== undefined && <span class="stage is-merged pops-in" {...framePart(mergedFrom)}>Merged</span>}
             </span>
           </li>
         ))}

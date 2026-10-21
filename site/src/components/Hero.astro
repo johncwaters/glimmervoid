@@ -43,6 +43,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
     .install-line code { align-items: flex-start; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; font-size: 14px; line-height: 1.6; }
   }
   .sky { position: absolute; inset-block: 0; inset-inline: calc(50% - 50vw); pointer-events: none; z-index: 1; overflow: hidden; }
+  .sky:not([data-on-screen="true"]) :is(.nyan-flight, .nyan-trail, .nyan-sprite) { animation-play-state: paused; }
   @media (prefers-reduced-motion: reduce) {
     .sky { display: none; }
   }
@@ -50,7 +51,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
 
 <script>
   import { deriveNyanGeometry, nyanFlightStyleProperties } from '../../../public/nyan-geometry-core.ts';
-  import { createElement, prefersReducedMotion } from '../lib/dom.ts';
+  import { createElement, markWhileOnScreen, prefersReducedMotion } from '../lib/dom.ts';
   import { wireInstallPicker } from '../lib/install-picker.ts';
 
   interface SkyAnimal {
@@ -75,10 +76,11 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   function startSky(): void {
     const sky = document.getElementById('sky');
     if (!sky || prefersReducedMotion()) return;
+    markWhileOnScreen(sky);
     const skyAnimals = readSkyAnimals(sky);
     if (skyAnimals.length === 0) return;
     const flyAnimal = () => {
-      if (document.hidden || sky.childElementCount > 0) return;
+      if (document.hidden || sky.dataset.onScreen !== 'true' || sky.childElementCount > 0) return;
       const { sprite, trail } = skyAnimals[Math.floor(Math.random() * skyAnimals.length)];
       const flight = createElement('div', 'nyan-flight');
       flight.append(createElement('div', `nyan-trail ${trail}`), createElement('div', `nyan-sprite ${sprite}`));
@@ -89,7 +91,9 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
       flight.style.left = '0';
       flight.style.width = 'var(--nyan-width)';
       flight.style.height = 'var(--nyan-height)';
-      flight.style.animation = `nyan-fly ${7 + Math.random() * 4}s linear`;
+      flight.style.animationName = 'nyan-fly';
+      flight.style.animationDuration = `${7 + Math.random() * 4}s`;
+      flight.style.animationTimingFunction = 'linear';
       flight.addEventListener('animationend', (event) => {
         if (event.target === flight) flight.remove();
       });

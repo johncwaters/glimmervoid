@@ -1,4 +1,5 @@
 import { STATES } from '../../../shared/states.ts';
+import { BEAT_MS } from './feature-frames.ts';
 
 type ShownState = typeof STATES.RUNNING | typeof STATES.WAITING | typeof STATES.COMPLETE | typeof STATES.FAILED;
 
@@ -11,10 +12,10 @@ export interface AttentionFrame {
 const { RUNNING, WAITING, COMPLETE, FAILED } = STATES;
 
 export const ATTENTION_FRAMES: readonly AttentionFrame[] = [
-  { states: [RUNNING, WAITING, RUNNING, RUNNING, RUNNING], focusedRow: 1, holdMs: 3400 },
-  { states: [RUNNING, RUNNING, RUNNING, RUNNING, RUNNING], focusedRow: null, holdMs: 2400 },
-  { states: [RUNNING, RUNNING, RUNNING, COMPLETE, FAILED], focusedRow: 4, holdMs: 3400 },
-  { states: [RUNNING, RUNNING, RUNNING, RUNNING, RUNNING], focusedRow: null, holdMs: 2400 },
+  { states: [RUNNING, WAITING, RUNNING, RUNNING, RUNNING], focusedRow: 1, holdMs: 4 * BEAT_MS },
+  { states: [RUNNING, RUNNING, RUNNING, RUNNING, RUNNING], focusedRow: null, holdMs: 3 * BEAT_MS },
+  { states: [RUNNING, RUNNING, RUNNING, COMPLETE, FAILED], focusedRow: 4, holdMs: 4 * BEAT_MS },
+  { states: [RUNNING, RUNNING, RUNNING, RUNNING, RUNNING], focusedRow: null, holdMs: 3 * BEAT_MS },
 ];
 
 export const FIRST_ATTENTION_FRAME = ATTENTION_FRAMES[0];

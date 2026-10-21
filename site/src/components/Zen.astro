@@ -36,12 +36,14 @@ function spriteOf(animalName: string): string {
       {MEADOW_PETS.map(({ animalName, leftPercent, topPercent, isAsking }, petIndex) => (
         <div class={`zen-pet${isAsking ? ' is-asking' : ''}`} style={`left: ${leftPercent}%; top: ${topPercent}%; --amble-delay: ${petIndex * -1.3}s`}>
           <div class="zen-pet-walker">
-            <div class="flying-animal-preview zen-pet-sprite" style={spriteSizeStyle}>
-              <div class="flying-animal-preview-stage"><div class={`nyan-sprite ${spriteOf(animalName)}`}></div></div>
+            <div class="zen-pet-bob">
+              <div class="flying-animal-preview zen-pet-sprite" style={spriteSizeStyle}>
+                <div class="flying-animal-preview-stage"><div class={`nyan-sprite ${spriteOf(animalName)}`}></div></div>
+              </div>
             </div>
           </div>
           {isAsking && (
-            <span class="zen-bubble" {...framePart(0, 1)}>
+            <span class="zen-bubble pops-in" {...framePart(0, 1)}>
               <svg viewBox="0 0 16 16">{STATUS_ICON_SHAPES[STATE_ICONS[STATES.WAITING]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>
             </span>
           )}
@@ -52,13 +54,13 @@ function spriteOf(animalName: string): string {
 </section>
 
 <script>
-  import { runFramesWhileVisible } from '../lib/dom.ts';
+  import { markWhileOnScreen, runFramesWhileVisible } from '../lib/dom.ts';
   import { ZEN_HOLD_MS } from '../lib/feature-frames.ts';
   import { showFrameParts } from '../lib/frame-parts.ts';
 
   const zenBoard = document.getElementById('zen-board');
   if (zenBoard) {
-    new IntersectionObserver(([entry]) => { zenBoard.dataset.onScreen = String(entry.isIntersecting); }).observe(zenBoard);
+    markWhileOnScreen(zenBoard);
     runFramesWhileVisible(zenBoard, ZEN_HOLD_MS, (frameIndex) => {
       zenBoard.dataset.frame = String(frameIndex);
       showFrameParts(zenBoard, frameIndex);
@@ -73,14 +75,25 @@ function spriteOf(animalName: string): string {
   .zen-status .is-clear { color: var(--state-running); }
   .zen-reason { margin-left: 10px; color: var(--text-dim); font-weight: 400; letter-spacing: 0.02em; }
   .zen-meadow { position: relative; height: clamp(220px, 40vw, 340px); border-radius: 4px; background: color-mix(in srgb, var(--state-running) 6%, transparent); overflow: hidden; }
-  .zen-pet { position: absolute; transform: translate(-50%, -50%); transition: opacity 600ms cubic-bezier(0.16, 1, 0.3, 1), transform 600ms cubic-bezier(0.16, 1, 0.3, 1); }
-  .zen-pet-walker { animation: zen-amble 9s cubic-bezier(0.16, 1, 0.3, 1) infinite; animation-delay: var(--amble-delay); }
+  .zen-pet { position: absolute; transform: translate(-50%, -50%); transform-origin: 50% 100%; transition: opacity 600ms var(--ease-out-expo), transform 600ms var(--ease-out-expo); }
+  .zen-pet-walker { animation: zen-amble 9.6s var(--ease-out-expo) infinite; animation-delay: var(--amble-delay); }
+  .zen-pet-bob { animation: zen-bob 800ms infinite; animation-delay: var(--amble-delay); }
   .zen-pet-sprite.flying-animal-preview { width: var(--nyan-width); height: var(--nyan-height); overflow: visible; }
   .zen-pet-sprite .flying-animal-preview-stage { left: 0; top: 0; }
-  .zen-board:not([data-on-screen="true"]) .zen-pet-walker, .zen-board:not([data-on-screen="true"]) .nyan-sprite { animation-play-state: paused; }
+  .zen-board:not([data-on-screen="true"]) :is(.zen-pet-walker, .zen-pet-bob, .nyan-sprite), .zen-board[data-frame="0"] :is(.zen-pet-walker, .zen-pet-bob) { animation-play-state: paused; }
   .zen-board[data-frame="0"] .zen-pet:not(.is-asking) { opacity: 0.3; }
-  .zen-board[data-frame="0"] .zen-pet.is-asking .zen-pet-walker { animation-play-state: paused; }
-  .zen-board[data-frame="0"] .zen-pet.is-asking { transform: translate(-50%, -50%) scale(1.3); }
+  .zen-board[data-frame="0"] .zen-pet.is-asking { transform: translate(-50%, -50%) scale(1.3); animation: zen-step-forward 800ms var(--ease-out-expo) both; }
+  @keyframes zen-step-forward {
+    0% { transform: translate(-50%, -50%) scale(1); }
+    25% { transform: translate(-50%, -50%) scale(1.1, 0.86); }
+    60% { transform: translate(-50%, -50%) scale(1.22, 1.44); }
+    82% { transform: translate(-50%, -50%) scale(1.36, 1.24); }
+    100% { transform: translate(-50%, -50%) scale(1.3); }
+  }
+  @keyframes zen-bob {
+    0%, 100% { transform: translateY(0); animation-timing-function: var(--ease-out-expo); }
+    50% { transform: translateY(-3px); animation-timing-function: var(--ease-in-expo); }
+  }
   .zen-bubble { position: absolute; bottom: calc(100% + 4px); left: 50%; display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-left: -11px; border: 1px solid currentColor; border-radius: 50%; background: var(--bg-card); color: var(--state-waiting); }
   .zen-bubble svg { width: 14px; height: 14px; }
   @keyframes zen-amble {
@@ -90,6 +103,6 @@ function spriteOf(animalName: string): string {
     94% { transform: translateX(-24px) scaleX(-1); }
   }
   @media (prefers-reduced-motion: reduce) {
-    .zen-pet-walker, .zen-board .nyan-sprite { animation: none; }
+    .zen-pet-walker, .zen-pet-bob, .zen-board .nyan-sprite, .zen-board[data-frame="0"] .zen-pet.is-asking { animation: none; }
   }
 </style>

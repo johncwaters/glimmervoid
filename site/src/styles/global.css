@@ -39,8 +39,17 @@ p { margin: 0; }
   .diagram svg.diagram-compact { display: block; min-width: 0; max-width: 340px; margin-inline: auto; }
 }
 
-[data-from] { transition: opacity 500ms cubic-bezier(0.16, 1, 0.3, 1), transform 500ms cubic-bezier(0.16, 1, 0.3, 1); }
-[data-from][data-on="false"] { opacity: 0; transform: translateY(6px); pointer-events: none; }
+:root { --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1); --ease-in-expo: cubic-bezier(0.7, 0, 0.84, 0); --leave-ms: 200ms; --arrive-ms: 480ms; }
+[data-from], .hands-off { transition: opacity var(--arrive-ms) var(--ease-out-expo) var(--leave-ms), transform var(--arrive-ms) var(--ease-out-expo) var(--leave-ms); }
+[data-from][data-on="false"], .hands-off[data-on="false"] { opacity: 0; transform: translateY(6px); pointer-events: none; transition: opacity var(--leave-ms) var(--ease-in-expo), transform var(--leave-ms) var(--ease-in-expo); }
+.pops-in { transform-box: fill-box; transform-origin: center; }
+.pops-in[data-on="true"] { animation: settle-pop 640ms var(--ease-out-expo) var(--leave-ms) both; }
+@keyframes settle-pop {
+  0% { transform: scale(0.9); }
+  20% { transform: scale(0.86); }
+  60% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
 .stacked { display: grid; }
 .stacked > * { grid-area: 1 / 1; }
 .experimental-tag { margin-left: 10px; color: var(--text-dim); font-size: 12px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -57,5 +66,5 @@ p { margin: 0; }
 .copy-status { font-size: 14px; color: var(--text-dim); min-width: 6ch; text-align: left; }
 
 @media (prefers-reduced-motion: reduce) {
-  .reveal { animation: none; }
+  .reveal, .pops-in[data-on="true"] { animation: none; }
 }

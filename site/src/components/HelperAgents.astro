@@ -29,7 +29,7 @@ const CLI_STEPS = [
       {CHILD_SESSIONS.map(({ task, completeFrom, closedFrom }) => (
         <li class="tree-row is-child">
           <span class="tree-branch"></span>
-          <span class="stacked tree-dot"><span class="dot is-working" {...framePart(0, completeFrom)}></span><span class="dot is-complete" {...framePart(completeFrom, closedFrom)}></span><span class="dot is-closed" {...framePart(closedFrom)}></span></span>
+          <span class="stacked tree-dot"><span class="dot is-working" {...framePart(0, completeFrom)}></span><span class="dot is-complete pops-in" {...framePart(completeFrom, closedFrom)}></span><span class="dot is-closed" {...framePart(closedFrom)}></span></span>
           <span class="tree-task">{task}</span>
           <span class="stacked tree-stage"><span class="tree-state is-working" {...framePart(0, completeFrom)}>Working</span><span class="tree-state is-complete" {...framePart(completeFrom, closedFrom)}>Complete</span><span class="tree-state is-closed" {...framePart(closedFrom)}>Closed</span></span>
         </li>

@@ -82,8 +82,8 @@ const NEXT_COMMANDS = [
   .console-command::before { content: "$ "; color: var(--accent-dim); }
   .console-command [hidden] { display: none; }
   .boot-output { display: flex; flex-direction: column; margin-top: 10px; padding-left: 2ch; color: var(--text); }
-  .boot-line { transition: opacity 400ms cubic-bezier(0.16, 1, 0.3, 1), transform 400ms cubic-bezier(0.16, 1, 0.3, 1); }
-  .boot-line[data-shown="false"] { opacity: 0; transform: translateY(4px); }
+  .boot-line { transition: opacity var(--arrive-ms) var(--ease-out-expo), transform var(--arrive-ms) var(--ease-out-expo); }
+  .boot-line[data-shown="false"] { opacity: 0; transform: translateY(4px); transition: opacity var(--leave-ms) var(--ease-in-expo), transform var(--leave-ms) var(--ease-in-expo); }
   .boot-line.is-banner { margin-bottom: 10px; color: var(--accent); font-weight: 700; letter-spacing: 0.06em; }
   .next-commands { list-style: none; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
   .next-commands li { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 12px 14px; min-width: 0; }

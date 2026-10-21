@@ -9,17 +9,6 @@ export function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-export type TimelineStep = readonly [atMs: number, step: () => void];
-
-export function runTimeline(timeline: readonly TimelineStep[], loopMs: number, reset: () => void): void {
-  const startCycle = () => {
-    reset();
-    for (const [atMs, step] of timeline) setTimeout(step, atMs);
-    setTimeout(startCycle, loopMs);
-  };
-  startCycle();
-}
-
 export function runFramesWhileVisible(element: Element, holdMsByFrame: readonly number[], showFrame: (frameIndex: number) => void): void {
   if (prefersReducedMotion() || holdMsByFrame.length < 2) return;
   let isOnScreen = false;
@@ -41,6 +30,12 @@ export function runFramesWhileVisible(element: Element, holdMsByFrame: readonly 
     scheduleAdvance();
   }).observe(element);
   document.addEventListener('visibilitychange', scheduleAdvance);
+}
+
+export function markWhileOnScreen(element: HTMLElement): void {
+  new IntersectionObserver(([entry]) => {
+    element.dataset.onScreen = String(entry.isIntersecting);
+  }).observe(element);
 }
 
 export function hasTextSelectedIn(element: Element): boolean {
