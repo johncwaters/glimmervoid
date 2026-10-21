@@ -2,22 +2,36 @@
 import { STATE_ICONS, STATUS_ICON_SHAPES } from '../../../shared/state-icons.ts';
 import { BADGE_LABELS, STATES } from '../../../shared/states.ts';
 import { AGENT_CARDS } from '../lib/product-facts.ts';
-import { ATTENTION_FRAMES, FIRST_ATTENTION_FRAME, attentionBannerOf } from '../lib/attention-frames.ts';
+import { ATTENTION_CHIP_STATES, FIRST_ATTENTION_FRAME, attentionCountsOf } from '../lib/attention-frames.ts';
 
 const SHOWN_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.FAILED];
 const SESSION_TASKS = ['fix-auth-redirect', 'flaky-upload-test', 'migrate-billing', 'bump-node-22', 'rename-color-tokens'];
-const firstBanner = attentionBannerOf(FIRST_ATTENTION_FRAME);
-const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banner) => [banner.text, banner]));
+const firstCounts = attentionCountsOf(FIRST_ATTENTION_FRAME);
+const isFirstFrameClear = ATTENTION_CHIP_STATES.every((state) => firstCounts[state] === 0);
 ---
 <section id="status">
   <div class="section-head reveal">
     <h2>One needs you. You'll know which.</h2>
     <p>Status from your coding agents' own hooks, not screen reading. Unmodified agents, real terminals.</p>
   </div>
-  <figure class="attention-board reveal" id="attention-board" aria-label="Five agent sessions working. One stops for input, comes forward, and goes back to work once answered. Another completes, and one fails and takes the focus.">
-    <p class="attention-banner" data-banner={firstBanner.text} aria-hidden="true">
-      {[...bannersByText.values()].map(({ state, text }) => <span data-state={state} data-banner-text={text}>{text}</span>)}
-    </p>
+  <figure class="attention-board reveal" id="attention-board" aria-label="Five agent sessions working. Two stop for input: the first comes forward, and once it is answered, Cmd+J jumps to the second. Later one completes, and one fails and takes the focus.">
+    <div class="attention-banner" data-empty={isFirstFrameClear ? '' : undefined} aria-hidden="true">
+      <div class="banner-status">
+        <span class="banner-chips">
+          {ATTENTION_CHIP_STATES.map((state) => (
+            <span class="banner-chip" data-state={state} hidden={firstCounts[state] === 0}>
+              <svg viewBox="0 0 16 16" aria-hidden="true">{STATUS_ICON_SHAPES[STATE_ICONS[state]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>
+              <span class="banner-chip-count">{firstCounts[state]}</span>
+            </span>
+          ))}
+        </span>
+        <span class="banner-clear">ALL CLEAR</span>
+      </div>
+      <div class="banner-jump-row">
+        <span class="banner-jump-caption">Next session</span>
+        <span class="banner-keys"><kbd>Cmd</kbd><span class="banner-plus">+</span><kbd>J</kbd></span>
+      </div>
+    </div>
     <ol class="session-rows" aria-hidden="true">
       {SESSION_TASKS.map((task, rowIndex) => (
         <li data-state={FIRST_ATTENTION_FRAME.states[rowIndex]} data-outline={FIRST_ATTENTION_FRAME.states[rowIndex]} data-focus={String(FIRST_ATTENTION_FRAME.focusedRow === rowIndex)}>
@@ -39,12 +53,78 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
 
 <script>
   import { runFramesWhileVisible } from '../lib/dom.ts';
-  import { ATTENTION_FRAMES, attentionBannerOf } from '../lib/attention-frames.ts';
+  import { ATTENTION_CHIP_STATES, ATTENTION_FRAMES, FIRST_ATTENTION_FRAME, attentionCountsOf } from '../lib/attention-frames.ts';
   import type { AttentionFrame } from '../lib/attention-frames.ts';
+
+  const EASE_OUT_EXPO = 'cubic-bezier(0.16, 1, 0.3, 1)';
+  const PRESS_MS = 260;
+  const POP_MS = 280;
+  const CHIP_MS = 200;
+  const SLIDE_MS = 260;
+
+  let previousFrame = FIRST_ATTENTION_FRAME;
+
+  function eased(frames: Keyframe[]): Keyframe[] {
+    return frames.map((frame) => ({ easing: EASE_OUT_EXPO, ...frame }));
+  }
+
+  function pressBanner(banner: HTMLElement): void {
+    const timing = { duration: PRESS_MS };
+    banner.animate(eased([{ transform: 'none' }, { transform: 'scale(0.97) translateY(1px)', offset: 0.3 }, { transform: 'none' }]), timing);
+    banner.animate(eased([{ opacity: 0 }, { opacity: 0.07, offset: 0.3 }, { opacity: 0 }]), { ...timing, pseudoElement: '::after' });
+    banner.querySelectorAll<HTMLElement>('.banner-keys kbd').forEach((key) => {
+      key.animate(eased([{ transform: 'none' }, { transform: 'translateY(3px)', offset: 0.3 }, { transform: 'none' }]), timing);
+      key.animate(eased([{ transform: 'none' }, { transform: 'translateY(-3px)', offset: 0.3 }, { transform: 'none' }]), { ...timing, pseudoElement: '::after' });
+    });
+  }
+
+  function slideChipsAfterLeaving(banner: HTMLElement, leavingChip: HTMLElement): void {
+    const stayingChips = [...banner.querySelectorAll<HTMLElement>('.banner-chip:not([hidden]):not([data-leaving])')];
+    const leftBeforeByChip = new Map(stayingChips.map((chip) => [chip, chip.getBoundingClientRect().left]));
+    leavingChip.removeAttribute('data-leaving');
+    leavingChip.hidden = true;
+    for (const animation of leavingChip.getAnimations()) animation.cancel();
+    stayingChips.forEach((chip) => {
+      const shiftPx = (leftBeforeByChip.get(chip) ?? 0) - chip.getBoundingClientRect().left;
+      if (shiftPx !== 0) chip.animate(eased([{ transform: `translateX(${shiftPx}px)` }, { transform: 'none' }]), { duration: SLIDE_MS });
+    });
+  }
+
+  function paintChip(banner: HTMLElement, chip: HTMLElement, count: number, previousCount: number): void {
+    const countEl = chip.querySelector<HTMLElement>('.banner-chip-count');
+    if (count === 0) {
+      if (previousCount === 0) return;
+      chip.setAttribute('data-leaving', '');
+      const leave = chip.animate(eased([{ transform: 'none', opacity: 1 }, { transform: 'scale(0.6)', opacity: 0 }]), { duration: CHIP_MS, fill: 'forwards' });
+      leave.onfinish = () => slideChipsAfterLeaving(banner, chip);
+      return;
+    }
+    if (countEl) countEl.textContent = String(count);
+    if (previousCount === 0) {
+      chip.hidden = false;
+      chip.animate(eased([{ transform: 'scale(0.6)', opacity: 0 }, { transform: 'none', opacity: 1 }]), { duration: CHIP_MS });
+      return;
+    }
+    if (count === previousCount) return;
+    chip.animate(eased([{ transform: 'none' }, { transform: 'scale(1.14)', offset: 0.35 }, { transform: 'none' }]), { duration: POP_MS });
+    countEl?.animate(eased([{ transform: 'translateY(-60%)', opacity: 0 }, { transform: 'none', opacity: 1 }]), { duration: POP_MS });
+  }
+
+  function paintBanner(banner: HTMLElement, frame: AttentionFrame): void {
+    const counts = attentionCountsOf(frame);
+    const previousCounts = attentionCountsOf(previousFrame);
+    ATTENTION_CHIP_STATES.forEach((state) => {
+      const chip = banner.querySelector<HTMLElement>(`.banner-chip[data-state="${state}"]`);
+      if (chip) paintChip(banner, chip, counts[state], previousCounts[state]);
+    });
+    banner.toggleAttribute('data-empty', ATTENTION_CHIP_STATES.every((state) => counts[state] === 0));
+    if (frame.focusedRow !== null && frame.focusedRow !== previousFrame.focusedRow) pressBanner(banner);
+  }
 
   function showFrame(board: HTMLElement, frame: AttentionFrame): void {
     const banner = board.querySelector<HTMLElement>('.attention-banner');
-    if (banner) banner.dataset.banner = attentionBannerOf(frame).text;
+    if (banner) paintBanner(banner, frame);
+    previousFrame = frame;
     board.querySelectorAll<HTMLElement>('.session-rows > li').forEach((row, rowIndex) => {
       row.dataset.state = frame.states[rowIndex];
       if (frame.focusedRow === rowIndex) row.dataset.outline = frame.states[rowIndex];
@@ -58,8 +138,32 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
 
 <style>
   .attention-board { margin: 0; max-width: 560px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 16px; }
-  .attention-banner { display: grid; margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--border-dim); border-radius: 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
-  .attention-banner > span { grid-area: 1 / 1; opacity: 0; transition: opacity var(--leave-ms) var(--ease-in-expo); }
+  .attention-banner { --st: var(--border-hover); position: relative; display: flex; flex-direction: column; gap: 12px; margin: 0 0 10px; padding: 14px 12px 12px; background: color-mix(in srgb, var(--st) 8%, var(--bg-header)); border: 1px solid var(--st); border-radius: var(--radius); }
+  .attention-banner:has(.banner-chip[data-state="COMPLETE"]:not([hidden]):not([data-leaving])) { --st: var(--state-complete); }
+  .attention-banner:has(.banner-chip[data-state="WAITING"]:not([hidden]):not([data-leaving])) { --st: var(--state-waiting); }
+  .attention-banner:has(.banner-chip[data-state="FAILED"]:not([hidden]):not([data-leaving])) { --st: var(--state-failed); }
+  .attention-banner[data-empty] { background: var(--bg-header); border-color: var(--border); }
+  .attention-banner::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--text-head); opacity: 0; pointer-events: none; }
+  .banner-status { display: flex; align-items: center; min-height: 32px; }
+  .banner-chips { display: flex; align-items: center; gap: 8px; }
+  .attention-banner[data-empty] .banner-chips:not(:has([data-leaving])), .attention-banner:not([data-empty]) .banner-clear, .attention-banner:has([data-leaving]) .banner-clear { display: none; }
+  .banner-chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px 0 8px; color: var(--st); background: color-mix(in srgb, var(--st) 14%, transparent); border: 1px solid color-mix(in srgb, var(--st) 45%, transparent); border-radius: var(--radius); }
+  .banner-chip[data-state="WAITING"] { --st: var(--state-waiting); }
+  .banner-chip[data-state="COMPLETE"] { --st: var(--state-complete); }
+  .banner-chip[data-state="FAILED"] { --st: var(--state-failed); }
+  .banner-chip[hidden] { display: none; }
+  .banner-chip svg { display: block; width: 16px; height: 16px; }
+  .banner-chip-count { display: inline-block; font-size: 16px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .banner-clear { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--text-dim); }
+  .banner-jump-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--text-head) 8%, transparent); }
+  .attention-banner[data-empty] .banner-jump-row { border-top-color: var(--border-dim); }
+  .banner-jump-caption { font-size: 12px; color: var(--text-dim); }
+  .attention-banner[data-empty] .banner-keys { opacity: 0.45; }
+  .banner-keys { display: inline-flex; align-items: center; gap: 5px; isolation: isolate; }
+  .banner-plus { font-size: 12px; color: var(--text-muted); }
+  .banner-keys kbd { position: relative; isolation: isolate; display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 21px; margin-bottom: 3px; padding: 0 7px; font-family: var(--font-mono); font-size: 12px; font-weight: 700; line-height: 1; color: var(--text-head); border-radius: var(--radius); }
+  .banner-keys kbd::before { content: ''; position: absolute; inset: -1px; z-index: -1; background: var(--bg-surface); border: 1px solid var(--border-hover); border-radius: var(--radius); }
+  .banner-keys kbd::after { content: ''; position: absolute; inset: 3px -1px -4px; z-index: -2; background: var(--border-hover); border-radius: var(--radius); }
   .session-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .session-rows li { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 4px; font-size: 14px; transition: transform 900ms var(--ease-out-expo); }
   .session-rows li::before { content: ''; position: absolute; inset: 0; border-radius: 4px; border: 1px solid var(--outline-color); background: color-mix(in srgb, var(--outline-color) 10%, transparent); opacity: 0; transition: opacity 900ms var(--ease-out-expo); }
@@ -81,7 +185,6 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
   .session-task { flex: 1; min-width: 0; color: var(--text-head); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .session-state { font-size: 13px; font-weight: 700; }
   .session-rows li[data-state="RUNNING"] [data-icon-for="RUNNING"], .session-rows li[data-state="RUNNING"] [data-label-for="RUNNING"], .session-rows li[data-state="WAITING"] [data-icon-for="WAITING"], .session-rows li[data-state="WAITING"] [data-label-for="WAITING"], .session-rows li[data-state="COMPLETE"] [data-icon-for="COMPLETE"], .session-rows li[data-state="COMPLETE"] [data-label-for="COMPLETE"], .session-rows li[data-state="FAILED"] [data-icon-for="FAILED"], .session-rows li[data-state="FAILED"] [data-label-for="FAILED"] { opacity: 1; transition: opacity var(--arrive-ms) var(--ease-out-expo) var(--leave-ms); }
-  .attention-banner[data-banner="ALL CLEAR"] [data-banner-text="ALL CLEAR"], .attention-banner[data-banner="1 NEEDS YOU"] [data-banner-text="1 NEEDS YOU"], .attention-banner[data-banner="1 FAILED"] [data-banner-text="1 FAILED"] { opacity: 1; transition: opacity var(--arrive-ms) var(--ease-out-expo) var(--leave-ms); }
   .agent-list { list-style: none; margin: 24px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 28px; font-size: 15px; }
   .agent-name { color: var(--text-head); font-weight: 700; }
   .agent-support { color: var(--text-dim); }
