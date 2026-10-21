@@ -6,11 +6,11 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.18-brightgreen.svg)](https://nodejs.org)
 [![Platform: Windows | Linux | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-0078d4)](https://github.com/johncwaters/glimmervoid)
 
-**Mission control for your coding agents. Run dozens of Claude Code, Codex and Grok sessions at once. See every one. Miss nothing.**
+**Mission control that ships. Not a terminal multiplexer. Grids are for watching. This is for shipping.**
 
 [glimmervoid.dev](https://glimmervoid.dev)
 
-Glimmervoid is one browser dashboard for all your coding agents: a live terminal for every session, exact status instead of a guess, a notification the moment an agent needs you, and a git worktree per agent that you review and merge from the same page.
+Glimmervoid takes a feature from start to finish. Every agent works in its own git worktree, status comes from the agent's own hooks, and the one session that needs you comes to the front. Review and merge from the same page.
 
 It is an orchestrator, not a harness. Claude Code, Codex and Grok run unmodified, as real processes in real terminals on your own machine. No cloud service, no account. Glimmervoid is developed inside Glimmervoid.
 
