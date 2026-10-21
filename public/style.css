@@ -5863,7 +5863,7 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 }
 .attention-banner-status { position: relative; display: flex; align-items: center; min-height: 32px; min-width: 0; container-type: inline-size; }
 .attention-banner-chips { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; }
-.attention-banner[data-empty] .attention-banner-chips { display: none; }
+.attention-banner[data-empty] .attention-banner-chips:not(:has([data-leaving])) { display: none; }
 .attention-chip {
   display: inline-flex;
   align-items: center;
@@ -5917,6 +5917,7 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 }
 .attention-banner[data-empty][data-all-clear-line] .attention-banner-line { opacity: 1; }
 .attention-banner[data-empty][data-all-clear-line] .attention-banner-count { opacity: 0; }
+.attention-banner[data-empty]:has([data-leaving]) .attention-banner-count { opacity: 0; }
 .attention-banner-jump-row {
   display: flex;
   align-items: center;
