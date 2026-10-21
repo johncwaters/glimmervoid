@@ -61,4 +61,6 @@ export const DEFAULT_PORT = settingNamed('port').defaultValue;
 
 export const PRODUCT_VERSION = rootPackage.version;
 
+export const REPOSITORY_URL = 'https://github.com/johncwaters/glimmervoid';
+
 export const MINIMUM_NODE_VERSION = minimumNodeVersionOf(rootPackage.engines.node);

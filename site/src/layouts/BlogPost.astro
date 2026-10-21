@@ -25,7 +25,7 @@ const postStructuredData = {
   mainEntityOfPage: new URL(Astro.url.pathname, Astro.site).href,
 };
 ---
-<Base title={`${title} | Glimmervoid`} description={description} socialImagePath={socialImagePath} socialImageAlt={title} pageType="article" publishedTime={pubDate} structuredData={postStructuredData}>
+<Base title={`${title} | Glimmervoid`} description={description} socialImagePath={socialImagePath} socialImageAlt={title} pageType="article" publishedTime={pubDate} structuredData={postStructuredData} markdownPath={`blog/${slug}.md`}>
   <Nav />
   <article class="post">
     <header class="post-header">

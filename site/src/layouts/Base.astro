@@ -14,6 +14,7 @@ type Props = {
   pageType?: 'website' | 'article';
   publishedTime?: Date;
   structuredData?: Record<string, unknown>;
+  markdownPath?: string;
 };
 
 const {
@@ -24,6 +25,7 @@ const {
   pageType = 'website',
   publishedTime,
   structuredData,
+  markdownPath,
 } = Astro.props;
 const structuredDataJson = structuredData ? JSON.stringify({ '@context': 'https://schema.org', ...structuredData }).replace(/</g, '\\u003c') : null;
 const canonicalUrl = new URL(Astro.url.pathname, Astro.site).href;
@@ -42,6 +44,7 @@ const celebrationStyles = extractCelebrationStyles(dashboardStylesheet);
     <title>{title}</title>
     <meta name="description" content={description}>
     <link rel="canonical" href={canonicalUrl}>
+    {markdownPath && <link rel="alternate" type="text/markdown" href={sitePath(markdownPath)}>}
     <meta property="og:type" content={pageType}>
     <meta property="og:site_name" content="Glimmervoid">
     <meta property="og:title" content={title}>
