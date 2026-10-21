@@ -2,32 +2,100 @@
 import { STATE_ICONS, STATUS_ICON_SHAPES } from '../../../shared/state-icons.ts';
 import { BADGE_LABELS, STATES } from '../../../shared/states.ts';
 import { AGENT_CARDS } from '../lib/product-facts.ts';
+import { FIRST_ATTENTION_FRAME, attentionBannerOf } from '../lib/attention-frames.ts';
 
 const SHOWN_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.FAILED];
+const SESSION_TASKS = ['fix-auth-redirect', 'flaky-upload-test', 'migrate-billing', 'bump-node-22', 'rename-color-tokens'];
+const firstBanner = attentionBannerOf(FIRST_ATTENTION_FRAME);
 ---
 <section id="status">
   <div class="section-head reveal">
     <h2>One needs you. You'll know which.</h2>
     <p>Status from agent hooks, not screen reading. Unmodified agents, real terminals.</p>
   </div>
-  <ul class="state-row reveal" aria-label="Session states">
-    {SHOWN_STATES.map((state) => (
-      <li data-state={state}><svg viewBox="0 0 16 16" aria-hidden="true">{STATUS_ICON_SHAPES[STATE_ICONS[state]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>{BADGE_LABELS[state]}</li>
-    ))}
-  </ul>
+  <figure class="attention-board reveal" id="attention-board" aria-label="Five agent sessions working. One stops for input, comes forward while the rest dim, and goes back to work once answered. Another completes, and one fails and takes the focus.">
+    <p class="attention-banner" data-state={firstBanner.state} aria-hidden="true">{firstBanner.text}</p>
+    <ol class="session-rows" aria-hidden="true">
+      {SESSION_TASKS.map((task, rowIndex) => (
+        <li data-state={FIRST_ATTENTION_FRAME.states[rowIndex]} data-focus={String(FIRST_ATTENTION_FRAME.focusedRow === rowIndex)} data-dimmed={String(FIRST_ATTENTION_FRAME.focusedRow !== null && FIRST_ATTENTION_FRAME.focusedRow !== rowIndex)}>
+          {SHOWN_STATES.map((state) => (
+            <svg viewBox="0 0 16 16" data-icon-for={state}>{STATUS_ICON_SHAPES[STATE_ICONS[state]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>
+          ))}
+          <span class="session-task">{task}</span>
+          {SHOWN_STATES.map((state) => <span class="session-state" data-label-for={state}>{BADGE_LABELS[state]}</span>)}
+        </li>
+      ))}
+    </ol>
+  </figure>
   <ul class="agent-list reveal" aria-label="Supported agents">
-    {AGENT_CARDS.map(({ label, support }) => <li><span class="agent-name">{label}</span><span class="agent-support">{support}</span></li>)}
+    {AGENT_CARDS.map(({ label, support }) => <li><span class="agent-name">{label}</span> <span class="agent-support">{support}</span></li>)}
   </ul>
 </section>
 
+<script>
+  import { prefersReducedMotion } from '../lib/dom.ts';
+  import { ATTENTION_FRAMES, attentionBannerOf } from '../lib/attention-frames.ts';
+  import type { AttentionFrame } from '../lib/attention-frames.ts';
+
+  function showFrame(board: HTMLElement, frame: AttentionFrame): void {
+    const banner = board.querySelector<HTMLElement>('.attention-banner');
+    if (banner) {
+      const { state, text } = attentionBannerOf(frame);
+      banner.dataset.state = state;
+      banner.textContent = text;
+    }
+    board.querySelectorAll<HTMLElement>('.session-rows > li').forEach((row, rowIndex) => {
+      row.dataset.state = frame.states[rowIndex];
+      row.dataset.focus = String(frame.focusedRow === rowIndex);
+      row.dataset.dimmed = String(frame.focusedRow !== null && frame.focusedRow !== rowIndex);
+    });
+  }
+
+  function startAttentionBoard(): void {
+    const board = document.getElementById('attention-board');
+    if (!board || prefersReducedMotion()) return;
+    let isOnScreen = false;
+    let frameIndex = 0;
+    let pendingAdvance: ReturnType<typeof setTimeout> | null = null;
+    const scheduleAdvance = () => {
+      if (pendingAdvance !== null || !isOnScreen || document.hidden) return;
+      pendingAdvance = setTimeout(advance, ATTENTION_FRAMES[frameIndex].holdMs);
+    };
+    const advance = () => {
+      pendingAdvance = null;
+      if (!isOnScreen || document.hidden) return;
+      frameIndex = (frameIndex + 1) % ATTENTION_FRAMES.length;
+      showFrame(board, ATTENTION_FRAMES[frameIndex]);
+      scheduleAdvance();
+    };
+    new IntersectionObserver(([entry]) => {
+      isOnScreen = entry.isIntersecting;
+      scheduleAdvance();
+    }).observe(board);
+    document.addEventListener('visibilitychange', scheduleAdvance);
+  }
+
+  startAttentionBoard();
+</script>
+
 <style>
-  .state-row { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 12px; }
-  .state-row li { display: inline-flex; align-items: center; gap: 10px; padding: 12px 18px; border: 1px solid currentColor; border-radius: 6px; background: color-mix(in srgb, currentColor 8%, transparent); font-size: 17px; font-weight: 700; }
-  .state-row svg { width: 18px; height: 18px; }
-  .agent-list { list-style: none; margin: 32px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 12px 40px; }
-  .agent-list li { display: flex; flex-direction: column; }
+  .attention-board { margin: 0; max-width: 560px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 16px; }
+  .attention-banner { margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--border-dim); border-radius: 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--text-head); }
+  .session-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .session-rows li { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 4px; font-size: 14px; transition: opacity 600ms cubic-bezier(0.16, 1, 0.3, 1), transform 600ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .session-rows li::before { content: ''; position: absolute; inset: 0; border-radius: 4px; border: 1px solid currentColor; background: color-mix(in srgb, currentColor 10%, transparent); opacity: 0; transition: opacity 600ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .session-rows li[data-focus="true"] { transform: scale(1.02); }
+  .session-rows li[data-focus="true"]::before { opacity: 1; }
+  .session-rows li[data-dimmed="true"] { opacity: 0.35; }
+  .session-rows svg { width: 16px; height: 16px; flex: none; }
+  .session-task { flex: 1; min-width: 0; color: var(--text-head); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-state { font-size: 13px; font-weight: 700; }
+  .session-rows [data-icon-for], .session-rows [data-label-for] { display: none; }
+  .session-rows [data-state="RUNNING"] [data-icon-for="RUNNING"], .session-rows [data-state="WAITING"] [data-icon-for="WAITING"], .session-rows [data-state="COMPLETE"] [data-icon-for="COMPLETE"], .session-rows [data-state="FAILED"] [data-icon-for="FAILED"] { display: block; }
+  .session-rows [data-state="RUNNING"] [data-label-for="RUNNING"], .session-rows [data-state="WAITING"] [data-label-for="WAITING"], .session-rows [data-state="COMPLETE"] [data-label-for="COMPLETE"], .session-rows [data-state="FAILED"] [data-label-for="FAILED"] { display: inline; }
+  .agent-list { list-style: none; margin: 24px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 28px; font-size: 15px; }
   .agent-name { color: var(--text-head); font-weight: 700; }
-  .agent-support { color: var(--text-dim); font-size: 15px; }
+  .agent-support { color: var(--text-dim); }
   [data-state="RUNNING"] { color: var(--state-running); }
   [data-state="WAITING"] { color: var(--state-waiting); }
   [data-state="COMPLETE"] { color: var(--state-complete); }
