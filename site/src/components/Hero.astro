@@ -14,8 +14,10 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
     <p class="lede">Not a terminal multiplexer. Grids are for watching. <span class="unbroken">This is for shipping.</span></p>
     <div class="install-line">
       <code data-install-command title="Click to copy"><span data-install-for="default"><InstallCommand /></span><span data-install-for="linux" hidden><InstallCommand command={LINUX_INSTALL_COMMAND} /></span></code>
-      <button class="btn" type="button" data-copy-install>Copy</button>
-      <span class="copy-status" data-copy-status role="status"></span>
+      <span class="install-actions">
+        <button class="btn" type="button" data-copy-install>Copy</button>
+        <span class="copy-status" data-copy-status role="status"></span>
+      </span>
     </div>
     <fieldset class="platform-switch" data-platform-switch aria-label="Your operating system" hidden>
       {INSTALL_PLATFORMS.map((platform) => <button type="button" data-platform={platform} aria-pressed="false">{INSTALL_PLATFORM_LABELS[platform]}</button>)}
@@ -32,15 +34,20 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   .lede { color: var(--text-dim); font-size: clamp(17px, 2vw, 19px); max-width: 54ch; }
   .install-platform-note { margin: 0; font-size: 14px; color: var(--text-dim); }
   .install-platform-note code { color: var(--text); }
-  .install-line { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; align-items: center; max-width: 100%; }
+  .install-line { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(44ch) minmax(0, 1fr); gap: 10px; align-items: center; width: 100%; }
   .install-line code {
-    display: flex; align-items: center; gap: 10px; background: var(--bg-surface); border: 1px solid var(--border);
-    border-radius: 4px; padding: 10px 14px; font-size: 14px; max-width: 100%; overflow-x: auto; white-space: nowrap; cursor: copy;
+    grid-column: 2; display: flex; align-items: center; gap: 10px; background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: 10px 14px; font-size: 14px; min-width: 0; max-width: 100%; white-space: nowrap; cursor: copy;
   }
   .install-line code:hover { border-color: var(--accent-dim); }
   .install-line code::before { content: "$"; color: var(--accent-dim); }
+  .install-line [data-install-for] { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .install-line [data-install-for][hidden] { display: none; }
+  .install-actions { grid-column: 3; justify-self: start; display: inline-flex; align-items: center; gap: 10px; }
   @media (max-width: 640px) {
-    .install-line code { align-items: flex-start; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; font-size: 14px; line-height: 1.6; }
+    .install-line { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+    .install-line code, .install-actions { grid-column: 1; }
+    .install-actions { justify-self: center; }
   }
   .sky { position: absolute; inset-block: 0; inset-inline: calc(50% - 50vw); pointer-events: none; z-index: 1; overflow: hidden; }
   .sky:not([data-on-screen="true"]) :is(.nyan-flight, .nyan-trail, .nyan-sprite) { animation-play-state: paused; }
