@@ -21,14 +21,14 @@ const assetBase = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/capture`;
 </figure>
 
 <style>
-  .recording { position: relative; z-index: 2; margin: 44px 0 0; }
+  .recording { position: relative; z-index: 2; margin: 72px 0 0; }
   .recording-frame {
     overflow: hidden; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
     box-shadow: 0 30px 80px -30px color-mix(in srgb, var(--accent-dim) 45%, transparent);
   }
   .recording-video { display: block; width: 100%; height: auto; }
   @media (max-width: 640px) {
-    .recording { margin-top: 32px; }
+    .recording { margin-top: 56px; }
     .recording-frame { aspect-ratio: 1065 / 900; }
     .recording-video { width: calc(100% * 1440 / 1065); max-width: none; }
   }

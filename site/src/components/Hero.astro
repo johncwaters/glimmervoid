@@ -28,13 +28,13 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
 </section>
 
 <style>
-  .hero { border-top: none; padding-block: 36px 72px; }
-  .hero-copy { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 18px; position: relative; z-index: 2; }
+  .hero { border-top: none; padding-block: 56px 96px; }
+  .hero-copy { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 22px; position: relative; z-index: 2; }
   .unbroken { white-space: nowrap; }
   .lede { color: var(--text-dim); font-size: clamp(17px, 2vw, 19px); max-width: 54ch; }
   .install-platform-note { margin: 0; font-size: 14px; color: var(--text-dim); }
   .install-platform-note code { color: var(--text); }
-  .install-line { display: flex; justify-content: center; align-items: center; gap: 10px; max-width: 100%; }
+  .install-line { display: flex; justify-content: center; align-items: center; gap: 10px; max-width: 100%; margin-top: 16px; }
   .install-line code {
     display: flex; align-items: center; gap: 10px; background: var(--bg-surface); border: 1px solid var(--border);
     border-radius: 4px; padding: 10px 14px; font-size: 14px; min-width: 0; max-width: 44ch; white-space: nowrap; cursor: copy;
