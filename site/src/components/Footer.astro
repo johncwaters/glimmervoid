@@ -1,25 +1,56 @@
 ---
+import { PRODUCT_VERSION } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
+
+const REPOSITORY_URL = 'https://github.com/johncwaters/glimmervoid';
+const LINK_GROUPS = [
+  {
+    title: 'Product',
+    links: [
+      { label: 'Install', href: sitePath('#install') },
+      { label: 'Changelog', href: `${REPOSITORY_URL}/blob/main/CHANGELOG.md` },
+      { label: 'Blog', href: sitePath('blog/') },
+    ],
+  },
+  {
+    title: 'Source',
+    links: [
+      { label: 'GitHub', href: REPOSITORY_URL },
+      { label: 'npm', href: 'https://www.npmjs.com/package/glimmervoid' },
+      { label: 'Issues', href: `${REPOSITORY_URL}/issues` },
+    ],
+  },
+];
 ---
 <footer>
-  <span>MIT. Shipped from inside Glimmervoid.</span>
-  <ul>
-    <li><a href="https://github.com/johncwaters/glimmervoid">GitHub</a></li>
-    <li><a href="https://www.npmjs.com/package/glimmervoid">npm</a></li>
-    <li><a href="https://github.com/johncwaters/glimmervoid/blob/main/CHANGELOG.md">Changelog</a></li>
-    <li><a href={sitePath('blog/')}>Blog</a></li>
-  </ul>
+  <div class="footer-brand">
+    <p class="wordmark">Glimmervoid</p>
+    <p>Mission control that ships.</p>
+    <p class="footer-meta">v{PRODUCT_VERSION}, MIT. Shipped from inside Glimmervoid.</p>
+  </div>
+  {LINK_GROUPS.map(({ title, links }) => (
+    <nav aria-label={title}>
+      <p class="group-title">{title}</p>
+      <ul>{links.map(({ label, href }) => <li><a href={href}>{label}</a></li>)}</ul>
+    </nav>
+  ))}
   <p class="credits">Guardrails built on <a href="https://github.com/anthropics/sandbox-runtime">Anthropic's sandbox-runtime</a> and <a href="https://ccsafetynet.com">CC Safety Net</a>.</p>
 </footer>
 
 <style>
-  footer { border-top: 1px solid var(--border-dim); padding-block: 28px 0; display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: space-between; font-size: 14px; color: var(--text-dim); }
-  .credits { flex-basis: 100%; }
-  footer ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+  footer { border-top: 1px solid var(--border-dim); padding-block: 40px 0; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 28px 24px; font-size: 14px; color: var(--text-dim); }
+  .footer-brand { display: flex; flex-direction: column; gap: 6px; }
+  .wordmark { color: var(--text-head); font-weight: 700; font-size: 18px; letter-spacing: 0.02em; }
+  .footer-meta { margin-top: 6px; font-size: 13px; }
+  .group-title { margin-bottom: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text); }
+  footer ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   footer a { color: var(--text-dim); }
-  @media (pointer: coarse), (max-width: 640px) {
-    footer { padding-block: 18px 0; row-gap: 0; align-items: center; }
-    footer ul { gap: 0; margin-inline: -8px; }
-    footer a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 8px; }
+  footer a:hover { color: var(--accent); }
+  .credits { grid-column: 1 / -1; padding-top: 18px; border-top: 1px solid var(--border-dim); font-size: 13px; }
+  @media (max-width: 640px) {
+    footer { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-block: 28px 0; }
+    .footer-brand { grid-column: 1 / -1; }
+    footer ul { gap: 0; }
+    footer nav a { display: inline-flex; align-items: center; min-height: 44px; }
   }
 </style>

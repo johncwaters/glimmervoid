@@ -1,28 +1,31 @@
 ---
 import { framePart } from '../lib/frame-parts.ts';
 
+const PARENT_TASK = 'billing';
+const FIRST_HELPER = `${PARENT_TASK} agent`;
+const SECOND_HELPER = `${PARENT_TASK} agent 2`;
 const CHILD_SESSIONS = [
-  { task: 'schema', completeFrom: 2, closedFrom: 3 },
-  { task: 'backfill', completeFrom: 4, closedFrom: 5 },
+  { task: FIRST_HELPER, completeFrom: 2, closedFrom: 3 },
+  { task: SECOND_HELPER, completeFrom: 4, closedFrom: 5 },
 ];
-const CHANNEL_EVENTS = [
-  { verb: 'spawn', text: 'schema: split the migration', from: 0 },
-  { verb: 'spawn', text: 'backfill: copy old invoices', from: 0 },
-  { verb: 'send', text: 'backfill: use the batch API', from: 1 },
-  { verb: 'read', text: 'schema: done, 3 files', from: 2 },
-  { verb: 'close', text: 'schema', from: 3 },
-  { verb: 'read', text: 'backfill: done, 41k rows', from: 4 },
-  { verb: 'close', text: 'backfill', from: 5 },
+const CLI_STEPS = [
+  { verb: 'spawn', argument: 'split the migration', reply: null, from: 0 },
+  { verb: 'spawn', argument: 'backfill old invoices', reply: null, from: 0 },
+  { verb: 'send', argument: `"${SECOND_HELPER}" use the batch API`, reply: null, from: 1 },
+  { verb: 'read', argument: `"${FIRST_HELPER}"`, reply: 'done, 3 files', from: 2 },
+  { verb: 'close', argument: `"${FIRST_HELPER}"`, reply: null, from: 3 },
+  { verb: 'read', argument: `"${SECOND_HELPER}"`, reply: 'done, 41k rows', from: 4 },
+  { verb: 'close', argument: `"${SECOND_HELPER}"`, reply: null, from: 5 },
 ];
 ---
 <section id="helpers">
   <div class="section-head reveal">
     <h2>Agents that hire help.</h2>
-    <p>A session spawns helpers, steers them, and closes them when the work is done.</p>
+    <p>Every session gets the <code>glimmervoid</code> CLI. One command spawns a helper, steers it, or closes it.</p>
   </div>
-  <div class="helper-board reveal" id="helper-board" role="img" aria-label="A migrate-billing session spawns two helper sessions, schema and backfill, that sit indented under it. It sends backfill a message, reads what each one reports, and closes each helper once it completes.">
+  <div class="helper-board reveal" id="helper-board" role="img" aria-label="A billing session runs glimmervoid spawn twice, and two helper sessions appear indented under it. It sends the second helper a message with glimmervoid send, reads what each one reports with glimmervoid read, and ends each with glimmervoid close once it completes.">
     <ol class="session-tree" aria-hidden="true">
-      <li class="tree-row is-parent"><span class="dot is-working"></span><span class="tree-task">migrate-billing</span><span class="tree-state is-working">Working</span></li>
+      <li class="tree-row is-parent"><span class="dot is-working"></span><span class="tree-task">{PARENT_TASK}</span><span class="tree-state is-working">Working</span></li>
       {CHILD_SESSIONS.map(({ task, completeFrom, closedFrom }) => (
         <li class="tree-row is-child">
           <span class="tree-branch"></span>
@@ -33,8 +36,11 @@ const CHANNEL_EVENTS = [
       ))}
     </ol>
     <ol class="channel-log" aria-hidden="true">
-      {CHANNEL_EVENTS.map(({ verb, text, from }) => (
-        <li {...framePart(from)}><span class={`channel-verb is-${verb}`}>{verb}</span>{text}</li>
+      {CLI_STEPS.map(({ verb, argument, reply, from }) => (
+        <li {...framePart(from)}>
+          <span class="cli-line"><span class="cli-prompt">$</span> glimmervoid <span class={`channel-verb is-${verb}`}>{verb}</span> {argument}</span>
+          {reply && <span class="cli-reply">{reply}</span>}
+        </li>
       ))}
     </ol>
   </div>
@@ -70,8 +76,11 @@ const CHANNEL_EVENTS = [
   .tree-state.is-complete { color: var(--state-complete); }
   .tree-state.is-closed { color: var(--text-dim); }
   .channel-log { display: flex; flex-direction: column; gap: 6px; color: var(--text); }
-  .channel-log li { display: flex; gap: 12px; min-width: 0; }
-  .channel-verb { flex: none; width: 5ch; font-weight: 700; }
+  .channel-log li { display: flex; flex-direction: column; min-width: 0; }
+  .cli-line { padding-left: 2ch; text-indent: -2ch; overflow-wrap: anywhere; }
+  .cli-prompt { color: var(--text-dim); }
+  .cli-reply { padding-left: 2ch; color: var(--text-dim); }
+  .channel-verb { font-weight: 700; }
   .channel-verb.is-spawn { color: var(--accent); }
   .channel-verb.is-send { color: var(--state-starting); }
   .channel-verb.is-read { color: var(--state-complete); }
