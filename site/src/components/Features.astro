@@ -3,9 +3,14 @@ const FEATURES = [
   { name: 'Needs you', line: 'Cmd+J jumps to the next waiting session.' },
   { name: 'Notifications', line: 'Browser or Telegram when an agent stops.' },
   { name: 'Plan review', line: 'Approve Claude Code plans anywhere.' },
-  { name: 'Pull requests', line: 'Every PR in one tab. Merge when ready.' },
+  { name: 'Pull requests', line: 'Your PRs, stacked. Merge when ready, kept mergeable.' },
+  { name: 'Team review', line: "Drafts reviews of your team's PRs. You post them." },
+  { name: 'Helper agents', line: 'A session spawns, steers and closes its own helpers.' },
   { name: 'Auto-resume', line: 'Sessions survive restarts, even mid-turn.' },
   { name: 'Streamer mode', line: 'Hides secrets while you share your screen.' },
+  { name: 'Conversation view', line: 'Read any session like a chat.', isExperimental: true },
+  { name: 'Zen', line: 'No terminals until one needs you.', isExperimental: true },
+  { name: 'Coder workspaces', line: 'Run a session in its own cloud workspace.', isExperimental: true },
 ];
 ---
 <section id="features">
@@ -13,9 +18,9 @@ const FEATURES = [
     <h2>Also in the box.</h2>
   </div>
   <dl class="feature-list reveal">
-    {FEATURES.map(({ name, line }) => (
+    {FEATURES.map(({ name, line, isExperimental }) => (
       <div class="feature">
-        <dt>{name}</dt>
+        <dt>{name}{isExperimental && <span class="experimental">Experimental</span>}</dt>
         <dd>{line}</dd>
       </div>
     ))}
@@ -27,6 +32,7 @@ const FEATURES = [
   .feature { padding-block: 18px; border-top: 1px solid var(--border-dim); }
   .feature dt { color: var(--text-head); font-weight: 700; }
   .feature dd { margin: 4px 0 0; color: var(--text-dim); }
+  .experimental { margin-left: 10px; color: var(--text-dim); font-size: 12px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.06em; }
   @media (max-width: 820px) {
     .feature-list { grid-template-columns: minmax(0, 1fr); }
   }
