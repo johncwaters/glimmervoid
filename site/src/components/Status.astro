@@ -23,7 +23,7 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
         <li data-state={FIRST_ATTENTION_FRAME.states[rowIndex]} data-outline={FIRST_ATTENTION_FRAME.states[rowIndex]} data-focus={String(FIRST_ATTENTION_FRAME.focusedRow === rowIndex)}>
           <span class="state-stack">
             {SHOWN_STATES.map((state) => (
-              <svg viewBox="0 0 16 16" data-icon-for={state} data-state={state}>{STATUS_ICON_SHAPES[STATE_ICONS[state]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>
+              <svg viewBox="0 0 16 16" aria-hidden="true" data-icon-for={state} data-state={state}>{STATUS_ICON_SHAPES[STATE_ICONS[state]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>
             ))}
           </span>
           <span class="session-task">{task}</span>

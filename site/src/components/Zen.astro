@@ -44,7 +44,7 @@ function spriteOf(animalName: string): string {
           </div>
           {isAsking && (
             <span class="zen-bubble pops-in" {...framePart(0, 1)}>
-              <svg viewBox="0 0 16 16">{STATUS_ICON_SHAPES[STATE_ICONS[STATES.WAITING]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>
+              <svg viewBox="0 0 16 16" aria-hidden="true">{STATUS_ICON_SHAPES[STATE_ICONS[STATES.WAITING]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>
             </span>
           )}
         </div>
