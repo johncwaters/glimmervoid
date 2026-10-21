@@ -14,13 +14,13 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
     <h2>One needs you. You'll know which.</h2>
     <p>Status from agent hooks, not screen reading. Unmodified agents, real terminals.</p>
   </div>
-  <figure class="attention-board reveal" id="attention-board" aria-label="Five agent sessions working. One stops for input, comes forward while the rest dim, and goes back to work once answered. Another completes, and one fails and takes the focus.">
+  <figure class="attention-board reveal" id="attention-board" aria-label="Five agent sessions working. One stops for input, comes forward, and goes back to work once answered. Another completes, and one fails and takes the focus.">
     <p class="attention-banner" data-banner={firstBanner.text} aria-hidden="true">
       {[...bannersByText.values()].map(({ state, text }) => <span data-state={state} data-banner-text={text}>{text}</span>)}
     </p>
     <ol class="session-rows" aria-hidden="true">
       {SESSION_TASKS.map((task, rowIndex) => (
-        <li data-state={FIRST_ATTENTION_FRAME.states[rowIndex]} data-outline={FIRST_ATTENTION_FRAME.states[rowIndex]} data-focus={String(FIRST_ATTENTION_FRAME.focusedRow === rowIndex)} data-dimmed={String(FIRST_ATTENTION_FRAME.focusedRow !== null && FIRST_ATTENTION_FRAME.focusedRow !== rowIndex)}>
+        <li data-state={FIRST_ATTENTION_FRAME.states[rowIndex]} data-outline={FIRST_ATTENTION_FRAME.states[rowIndex]} data-focus={String(FIRST_ATTENTION_FRAME.focusedRow === rowIndex)}>
           <span class="state-stack">
             {SHOWN_STATES.map((state) => (
               <svg viewBox="0 0 16 16" data-icon-for={state} data-state={state}>{STATUS_ICON_SHAPES[STATE_ICONS[state]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>
@@ -49,7 +49,6 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
       row.dataset.state = frame.states[rowIndex];
       if (frame.focusedRow === rowIndex) row.dataset.outline = frame.states[rowIndex];
       row.dataset.focus = String(frame.focusedRow === rowIndex);
-      row.dataset.dimmed = String(frame.focusedRow !== null && frame.focusedRow !== rowIndex);
     });
   }
 
@@ -62,7 +61,7 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
   .attention-banner { display: grid; margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--border-dim); border-radius: 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
   .attention-banner > span { grid-area: 1 / 1; opacity: 0; transition: opacity var(--leave-ms) var(--ease-in-expo); }
   .session-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-  .session-rows li { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 4px; font-size: 14px; transition: opacity 900ms var(--ease-out-expo), transform 900ms var(--ease-out-expo); }
+  .session-rows li { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 4px; font-size: 14px; transition: transform 900ms var(--ease-out-expo); }
   .session-rows li::before { content: ''; position: absolute; inset: 0; border-radius: 4px; border: 1px solid var(--outline-color); background: color-mix(in srgb, var(--outline-color) 10%, transparent); opacity: 0; transition: opacity 900ms var(--ease-out-expo); }
   .session-rows li[data-focus="true"] { transform: scale(1.015); animation: focus-arrive 720ms var(--ease-out-expo) var(--leave-ms) both; }
   @keyframes focus-arrive {
@@ -75,7 +74,6 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
     .session-rows li[data-focus="true"] { animation: none; }
   }
   .session-rows li[data-focus="true"]::before { opacity: 1; }
-  .session-rows li[data-dimmed="true"] { opacity: 0.4; }
   .state-stack { display: grid; flex: none; }
   .state-stack > * { grid-area: 1 / 1; opacity: 0; transition: opacity var(--leave-ms) var(--ease-in-expo); }
   .label-stack { justify-items: end; }
