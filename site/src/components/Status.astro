@@ -20,10 +20,10 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
     </p>
     <ol class="session-rows" aria-hidden="true">
       {SESSION_TASKS.map((task, rowIndex) => (
-        <li data-state={FIRST_ATTENTION_FRAME.states[rowIndex]} data-focus={String(FIRST_ATTENTION_FRAME.focusedRow === rowIndex)} data-dimmed={String(FIRST_ATTENTION_FRAME.focusedRow !== null && FIRST_ATTENTION_FRAME.focusedRow !== rowIndex)}>
+        <li data-state={FIRST_ATTENTION_FRAME.states[rowIndex]} data-outline={FIRST_ATTENTION_FRAME.states[rowIndex]} data-focus={String(FIRST_ATTENTION_FRAME.focusedRow === rowIndex)} data-dimmed={String(FIRST_ATTENTION_FRAME.focusedRow !== null && FIRST_ATTENTION_FRAME.focusedRow !== rowIndex)}>
           <span class="state-stack">
             {SHOWN_STATES.map((state) => (
-              <svg viewBox="0 0 16 16" data-icon-for={state}>{STATUS_ICON_SHAPES[STATE_ICONS[state]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>
+              <svg viewBox="0 0 16 16" data-icon-for={state} data-state={state}>{STATUS_ICON_SHAPES[STATE_ICONS[state]].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>
             ))}
           </span>
           <span class="session-task">{task}</span>
@@ -47,6 +47,7 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
     if (banner) banner.dataset.banner = attentionBannerOf(frame).text;
     board.querySelectorAll<HTMLElement>('.session-rows > li').forEach((row, rowIndex) => {
       row.dataset.state = frame.states[rowIndex];
+      if (frame.focusedRow === rowIndex) row.dataset.outline = frame.states[rowIndex];
       row.dataset.focus = String(frame.focusedRow === rowIndex);
       row.dataset.dimmed = String(frame.focusedRow !== null && frame.focusedRow !== rowIndex);
     });
@@ -61,8 +62,8 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
   .attention-banner { display: grid; margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--border-dim); border-radius: 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
   .attention-banner > span { grid-area: 1 / 1; opacity: 0; transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1); }
   .session-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-  .session-rows li { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 4px; font-size: 14px; transition: opacity 900ms cubic-bezier(0.16, 1, 0.3, 1), transform 900ms cubic-bezier(0.16, 1, 0.3, 1), color 700ms ease-out; }
-  .session-rows li::before { content: ''; position: absolute; inset: 0; border-radius: 4px; border: 1px solid currentColor; background: color-mix(in srgb, currentColor 10%, transparent); opacity: 0; transition: opacity 900ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .session-rows li { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 4px; font-size: 14px; transition: opacity 900ms cubic-bezier(0.16, 1, 0.3, 1), transform 900ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .session-rows li::before { content: ''; position: absolute; inset: 0; border-radius: 4px; border: 1px solid var(--outline-color); background: color-mix(in srgb, var(--outline-color) 10%, transparent); opacity: 0; transition: opacity 900ms cubic-bezier(0.16, 1, 0.3, 1); }
   .session-rows li[data-focus="true"] { transform: scale(1.015); }
   .session-rows li[data-focus="true"]::before { opacity: 1; }
   .session-rows li[data-dimmed="true"] { opacity: 0.4; }
@@ -77,6 +78,10 @@ const bannersByText = new Map(ATTENTION_FRAMES.map(attentionBannerOf).map((banne
   .agent-list { list-style: none; margin: 24px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 28px; font-size: 15px; }
   .agent-name { color: var(--text-head); font-weight: 700; }
   .agent-support { color: var(--text-dim); }
+  [data-outline="RUNNING"] { --outline-color: var(--state-running); }
+  [data-outline="WAITING"] { --outline-color: var(--state-waiting); }
+  [data-outline="COMPLETE"] { --outline-color: var(--state-complete); }
+  [data-outline="FAILED"] { --outline-color: var(--state-failed); }
   [data-state="RUNNING"] { color: var(--state-running); }
   [data-state="WAITING"] { color: var(--state-waiting); }
   [data-state="COMPLETE"] { color: var(--state-complete); }

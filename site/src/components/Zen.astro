@@ -74,7 +74,7 @@ function spriteOf(animalName: string): string {
   .zen-reason { margin-left: 10px; color: var(--text-dim); font-weight: 400; letter-spacing: 0.02em; }
   .zen-meadow { position: relative; height: clamp(220px, 40vw, 340px); border-radius: 4px; background: color-mix(in srgb, var(--state-running) 6%, transparent); overflow: hidden; }
   .zen-pet { position: absolute; transform: translate(-50%, -50%); transition: opacity 600ms cubic-bezier(0.16, 1, 0.3, 1), transform 600ms cubic-bezier(0.16, 1, 0.3, 1); }
-  .zen-pet-walker { animation: zen-amble 9s ease-in-out infinite; animation-delay: var(--amble-delay); }
+  .zen-pet-walker { animation: zen-amble 9s cubic-bezier(0.16, 1, 0.3, 1) infinite; animation-delay: var(--amble-delay); }
   .zen-pet-sprite.flying-animal-preview { width: var(--nyan-width); height: var(--nyan-height); overflow: visible; }
   .zen-pet-sprite .flying-animal-preview-stage { left: 0; top: 0; }
   .zen-board:not([data-on-screen="true"]) .zen-pet-walker, .zen-board:not([data-on-screen="true"]) .nyan-sprite { animation-play-state: paused; }
