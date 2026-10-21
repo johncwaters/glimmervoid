@@ -54,7 +54,7 @@ const NEXT_COMMANDS = [
   import { wireCopyControl, wireInstallPicker } from '../lib/install-picker.ts';
 
   const installSection = document.getElementById('install');
-  if (installSection) wireInstallPicker(installSection, { isSwitchAlwaysShown: true });
+  if (installSection) wireInstallPicker(installSection);
   const installConsole = document.getElementById('install-console');
   if (installConsole) {
     const bootLines = [...installConsole.querySelectorAll<HTMLElement>('[data-boot-step]')];

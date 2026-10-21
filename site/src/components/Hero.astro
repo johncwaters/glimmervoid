@@ -3,7 +3,6 @@ import { ANIMALS } from '../../../public/nyan-animals-core.ts';
 import DashboardRecording from './DashboardRecording.astro';
 import InstallCommand from './InstallCommand.astro';
 import { LINUX_INSTALL_COMMAND } from '../lib/install-command.ts';
-import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../lib/install-platform.ts';
 
 const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, trail })));
 ---
@@ -19,10 +18,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
         <span class="copy-status" data-copy-status role="status"></span>
       </span>
     </div>
-    <fieldset class="platform-switch" data-platform-switch aria-label="Your operating system" hidden>
-      {INSTALL_PLATFORMS.map((platform) => <button type="button" data-platform={platform} aria-pressed="false">{INSTALL_PLATFORM_LABELS[platform]}</button>)}
-    </fieldset>
-    <p class="install-platform-note" data-install-platform-note>Windows and macOS. On Linux, use the <a href="#install">Linux command</a>.</p>
+    <a class="install-other-platforms" href="#install">Other platforms</a>
   </div>
   <DashboardRecording />
 </section>
@@ -32,8 +28,8 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   .hero-copy { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 22px; position: relative; z-index: 2; }
   .unbroken { white-space: nowrap; }
   .lede { color: var(--text-dim); font-size: clamp(17px, 2vw, 19px); max-width: 54ch; }
-  .install-platform-note { margin: 0; font-size: 14px; color: var(--text-dim); }
-  .install-platform-note code { color: var(--text); }
+  .install-other-platforms { font-size: 14px; color: var(--text-dim); }
+  .install-other-platforms:hover { color: var(--text-head); }
   .install-line { display: flex; justify-content: center; align-items: center; gap: 10px; max-width: 100%; margin-top: 16px; }
   .install-line code {
     display: flex; align-items: center; gap: 10px; background: var(--bg-surface); border: 1px solid var(--border);
@@ -46,8 +42,8 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   .install-actions { position: relative; flex: none; display: inline-flex; }
   .install-actions .copy-status { position: absolute; left: calc(100% + 10px); top: 50%; translate: 0 -50%; white-space: nowrap; }
   @media (max-width: 640px) {
-    .install-line { flex-direction: column; }
-    .install-line code { max-width: 100%; }
+    .install-line code { flex: 1 1 auto; }
+    .install-actions .copy-status { left: 50%; top: calc(100% + 6px); translate: -50% 0; }
   }
   .sky { position: absolute; inset-block: 0; inset-inline: calc(50% - 50vw); pointer-events: none; z-index: 1; overflow: hidden; }
   .sky:not([data-on-screen="true"]) :is(.nyan-flight, .nyan-trail, .nyan-sprite) { animation-play-state: paused; }
@@ -111,6 +107,6 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   }
 
   const heroInstall = document.getElementById('hero-install');
-  if (heroInstall) wireInstallPicker(heroInstall, { isSwitchAlwaysShown: false });
+  if (heroInstall) wireInstallPicker(heroInstall);
   startSky();
 </script>

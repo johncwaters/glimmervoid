@@ -41,23 +41,23 @@ export function wireCopyControl(copyControl: HTMLElement, copySource: HTMLElemen
   });
 }
 
-export function wireInstallPicker(root: HTMLElement, { isSwitchAlwaysShown }: { isSwitchAlwaysShown: boolean }): void {
+export function wireInstallPicker(root: HTMLElement): void {
   const installCommand = root.querySelector<HTMLElement>('[data-install-command]');
   const copyControl = root.querySelector<HTMLElement>('[data-copy-install]');
   const copyStatus = root.querySelector<HTMLElement>('[data-copy-status]');
   const platformSwitch = root.querySelector<HTMLElement>('[data-platform-switch]');
-  if (!installCommand || !copyControl || !copyStatus || !platformSwitch) return;
+  if (!installCommand || !copyControl || !copyStatus) return;
   const showInstallPlatform = (platform: InstallPlatform) => {
     const view = installPlatformView(platform);
     for (const command of root.querySelectorAll<HTMLElement>('[data-install-for]')) command.hidden = command.dataset.installFor !== view.visibleCommand;
-    for (const button of platformSwitch.querySelectorAll<HTMLButtonElement>('[data-platform]')) button.setAttribute('aria-pressed', String(button.dataset.platform === view.pressedPlatform));
+    for (const button of platformSwitch?.querySelectorAll<HTMLButtonElement>('[data-platform]') ?? []) button.setAttribute('aria-pressed', String(button.dataset.platform === view.pressedPlatform));
     copyStatus.textContent = '';
   };
   wireCopyControl(copyControl, installCommand, copyStatus, () => installCommand.querySelector<HTMLElement>('[data-install-for]:not([hidden])'));
   for (const platformNote of root.querySelectorAll<HTMLElement>('[data-install-platform-note]')) platformNote.hidden = true;
   const detected = detectInstallPlatform({ userAgentDataPlatform: userAgentDataPlatform(), userAgent: navigator.userAgent });
   showInstallPlatform(detected ?? 'macos');
-  if (detected && !isSwitchAlwaysShown) return;
+  if (!platformSwitch) return;
   platformSwitch.hidden = false;
   platformSwitch.addEventListener('click', (event) => {
     const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-platform]') : null;
