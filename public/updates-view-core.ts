@@ -61,7 +61,6 @@ const CHECK_FAILURE_TEXT: Readonly<Record<string, string>> = Object.freeze({
   'main-channel-requires-clone': 'The main channel requires a clone install.',
   'no-branch': 'The last update check found no checked-out branch.',
   'no-upstream': 'The checked-out branch has no upstream.',
-  'release-already-checked-out': 'The checkout already contains the latest release. Restart to run it.',
   'release-check-failed': 'The last release check failed.',
   'remote-tip-unavailable': 'The last update check could not resolve the upstream branch tip.',
   'update-check-failed': 'The last update check failed.',
@@ -121,16 +120,24 @@ export function updateControls({
 function statusControls(runState: unknown, status: UpdateStatusView | null | undefined, isRequestInFlight: boolean): UpdateControls {
   if (runState === 'running' || isRequestInFlight) return controls([]);
   if (runState === 'staged') return controls(['restart']);
+  if (isTargetCheckedOut(status)) return controls(['restart']);
   if (!status?.updateAvailable) return controls(['check']);
   const refusal = status.applyRefusal;
   if (!refusal) return controls(['update']);
-  if (refusal.reason === 'target-already-checked-out') return controls(['restart'], refusal.message);
   if (isInstallShapeRefusal(status)) return controls(['check'], refusal.message, textOr(status.command, null));
   return controls(['check'], refusal.message);
 }
 
+function isTargetCheckedOut(status: UpdateStatusView | null | undefined): boolean {
+  return status?.applyRefusal?.reason === 'target-already-checked-out';
+}
+
 function isUpdateReady(status: UpdateStatusView | null | undefined): boolean {
-  return status?.journalSummary?.state === 'staged' || status?.applyRefusal?.reason === 'target-already-checked-out';
+  return status?.journalSummary?.state === 'staged' || isTargetCheckedOut(status);
+}
+
+function checkFailureText(reason: string): string {
+  return CHECK_FAILURE_TEXT[reason] ?? `The last update check failed: ${reason}.`;
 }
 
 function securityNoticeText(status: UpdateStatusView | null | undefined): string | null {
@@ -230,14 +237,18 @@ export function updateSummary(
   if (!status) return { tone: 'unknown', headline: 'No update check has run yet.' };
   const securityText = securityNoticeText(status);
   if (securityText) return { tone: 'security', headline: securityText };
-  const current = versionLabel(status.current, status.currentSha) || 'an unknown version';
-  if (status.updateAvailable) {
-    const latest = versionLabel(status.latest, status.latestSha) || 'a newer build';
-    const behind = behindText(status);
-    return { tone: 'available', headline: `Update available: ${current} to ${latest}${behind ? ` (${behind})` : ''}.` };
+  if (isTargetCheckedOut(status)) {
+    const checkedOut = versionLabel(status.latest, status.latestSha) || 'The latest release';
+    return { tone: 'staged', headline: `${checkedOut} is already checked out. Restart to run it.` };
   }
-  if (textOr(status.reason, '')) return { tone: 'unknown', headline: `Running ${current}. The last check did not finish.` };
-  return { tone: 'current', headline: `Up to date. Running ${current}.` };
+  if (status.updateAvailable) return { tone: 'available', headline: 'Update available.' };
+  const reason = textOr(status.reason, '');
+  if (reason) return { tone: 'unknown', headline: checkFailureText(reason) };
+  return { tone: 'current', headline: 'Up to date.' };
+}
+
+export function shouldShowLatestUpdate(status: UpdateStatusView | null | undefined): boolean {
+  return status?.updateAvailable === true || isTargetCheckedOut(status);
 }
 
 export function installedUpdateText(status: UpdateStatusView | null | undefined): string {
@@ -288,8 +299,6 @@ export function lastUpdateCheckText({
 }): string {
   if (checkForUpdates === false) return 'Update checks are off.';
   if (!status) return 'No update check has run.';
-  const reason = textOr(status.reason, '');
-  if (reason) return CHECK_FAILURE_TEXT[reason] ?? `The last update check failed: ${reason}.`;
   if (status.flavor === 'unknown') return 'The install flavor is unknown.';
   return relativeTime;
 }

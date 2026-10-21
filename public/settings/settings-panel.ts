@@ -92,6 +92,7 @@ import {
   projectUpdateProgress,
   reduceUpdateRequest,
   shouldAutoCheckUpdates,
+  shouldShowLatestUpdate,
   updateControls,
   updateErrorText,
   updateSummary,
@@ -843,7 +844,7 @@ function buildUpdateStatusBlock() {
   headline.dataset.tone = summary.tone;
   block.appendChild(headline);
   block.appendChild(buildUpdateFact('Running', installedUpdateText(updateStatus)));
-  if (updateStatus?.updateAvailable) block.appendChild(buildLatestUpdateFact());
+  if (shouldShowLatestUpdate(updateStatus)) block.appendChild(buildLatestUpdateFact());
   const lastCheckedAt = typeof updateStatus?.lastCheckAt === 'number' ? updateStatus.lastCheckAt : null;
   const lastChecked = buildUpdateFact('Last checked', lastUpdateCheckText({
     status: updateStatus,

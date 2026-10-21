@@ -11,6 +11,7 @@ import {
   projectUpdateProgress,
   reduceUpdateRequest,
   shouldAutoCheckUpdates,
+  shouldShowLatestUpdate,
   updateBanner,
   updateControls,
   updateSummary,
@@ -114,7 +115,7 @@ test('updateControls shows only the one action the update state calls for', () =
     { name: 'ready to restart', input: { status: status(), journal: journal('staged') }, expected: { actions: ['restart'], note: null, command: null } },
     { name: 'refused checkout', input: { status: status({ applyRefusal: dirty }) }, expected: { actions: ['check'], note: dirty.message, command: null } },
     { name: 'install command', input: { status: status({ applyRefusal: npmGlobal }) }, expected: { actions: ['check'], note: npmGlobal.message, command: 'git pull --ff-only' } },
-    { name: 'already checked out', input: { status: status({ applyRefusal: alreadyCheckedOut }) }, expected: { actions: ['restart'], note: alreadyCheckedOut.message, command: null } },
+    { name: 'already checked out', input: { status: status({ updateAvailable: false, reason: 'release-already-checked-out', applyRefusal: alreadyCheckedOut }) }, expected: { actions: ['restart'], note: null, command: null } },
     { name: 'unsent request', input: { status: status(), request: { requested: false, failure: 'Not connected to the server. Reconnecting.' } }, expected: { actions: [], note: 'Not connected to the server. Reconnecting.', command: null } },
     { name: 'refused apply', input: { status: status(), request: { requested: false, failure: 'The target sha is unknown. Check for updates again.' } }, expected: { actions: ['update'], note: 'The target sha is unknown. Check for updates again.', command: null } },
   ];
@@ -231,36 +232,30 @@ test('update identity rows show installed state, latest metadata and main-channe
 test('lastUpdateCheckText explains disabled checks, unknown flavor and failures', () => {
   assert.equal(lastUpdateCheckText({ status: status(), checkForUpdates: false, relativeTime: '1m ago' }), 'Update checks are off.');
   assert.equal(lastUpdateCheckText({ status: status({ flavor: 'unknown' }), relativeTime: '1m ago' }), 'The install flavor is unknown.');
-  assert.equal(lastUpdateCheckText({ status: status({ reason: 'update-check-failed' }), relativeTime: '1m ago' }), 'The last update check failed.');
+  assert.equal(lastUpdateCheckText({ status: status({ reason: 'update-check-failed' }), relativeTime: '1m ago' }), '1m ago');
   assert.equal(lastUpdateCheckText({ status: status(), relativeTime: '1m ago' }), '1m ago');
 });
 
-test('lastUpdateCheckText explains when the checkout already contains the release', () => {
-  assert.equal(
-    lastUpdateCheckText({
-      status: status({ reason: 'release-already-checked-out', updateAvailable: false }),
-      relativeTime: '1m ago',
-    }),
-    'The checkout already contains the latest release. Restart to run it.',
-  );
+test('a checkout already holding the latest release offers a restart to run it', () => {
+  const checkedOut = status({
+    updateAvailable: false,
+    reason: 'release-already-checked-out',
+    applyRefusal: { reason: 'target-already-checked-out', message: 'The checkout already contains the update target. Restart to run it.' },
+  });
+  assert.deepEqual(updateSummary(checkedOut, journal('succeeded')), {
+    tone: 'staged',
+    headline: 'v0.25.0 is already checked out. Restart to run it.',
+  });
+  assert.deepEqual(updateControls({ status: checkedOut }).actions, ['restart']);
+  assert.equal(shouldShowLatestUpdate(checkedOut), true);
 });
 
-test('updateSummary names the running and target versions in one headline', () => {
-  assert.deepEqual(updateSummary(status(), null), {
-    tone: 'available',
-    headline: 'Update available: v0.24.0 to v0.25.0.',
-  });
-  assert.deepEqual(updateSummary(status({ latest: null, channel: 'main', behindCount: 1 }), null), {
-    tone: 'available',
-    headline: 'Update available: v0.24.0 to commit fedcba9 (1 commit behind).',
-  });
-  assert.deepEqual(updateSummary(status({ updateAvailable: false, latest: '0.24.0' }), null), {
-    tone: 'current',
-    headline: 'Up to date. Running v0.24.0.',
-  });
+test('updateSummary states the verdict and leaves versions to the fact rows', () => {
+  assert.deepEqual(updateSummary(status(), null), { tone: 'available', headline: 'Update available.' });
+  assert.deepEqual(updateSummary(status({ updateAvailable: false, latest: '0.24.0' }), null), { tone: 'current', headline: 'Up to date.' });
   assert.deepEqual(updateSummary(status({ updateAvailable: false, reason: 'fetch-failed' }), null), {
     tone: 'unknown',
-    headline: 'Running v0.24.0. The last check did not finish.',
+    headline: 'The last update check could not fetch the upstream branch.',
   });
   assert.deepEqual(updateSummary(null, null), { tone: 'unknown', headline: 'No update check has run yet.' });
 });
