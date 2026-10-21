@@ -13,7 +13,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   <div class="sky" id="sky" aria-hidden="true" data-animals={skyAnimals}></div>
   <div class="hero-copy">
     <h1>Mission control <em>that ships</em>.</h1>
-    <p class="lede">Not a terminal multiplexer. Grids are for watching. This is for shipping.</p>
+    <p class="lede">Not a terminal multiplexer. Grids are for watching. <span class="unbroken">This is for shipping.</span></p>
     <div class="install-line">
       <code id="install-command" title="Click to copy"><span data-install-for="default"><InstallCommand /></span><span data-install-for="linux" hidden><InstallCommand command={LINUX_INSTALL_COMMAND} /></span></code>
       <button class="btn" type="button" id="copy-install">Copy</button>
@@ -30,6 +30,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
 <style>
   .hero { border-top: none; padding-block: 36px 72px; }
   .hero-copy { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 18px; position: relative; z-index: 2; }
+  .unbroken { white-space: nowrap; }
   .lede { color: var(--text-dim); font-size: clamp(17px, 2vw, 19px); max-width: 54ch; }
   .install-platform-note { margin: 0; font-size: 14px; color: var(--text-dim); }
   .install-platform-note code { color: var(--text); }

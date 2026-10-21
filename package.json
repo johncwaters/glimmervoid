@@ -1,7 +1,7 @@
 {
   "name": "glimmervoid",
   "version": "0.42.1",
-  "description": "Mission control for coding agents: run and supervise Claude Code, Codex and Grok sessions in parallel git worktrees from one local browser dashboard",
+  "description": "Mission control that ships. Not a terminal multiplexer: Claude Code, Codex and Grok each work in their own git worktree, and the one session that needs you comes to the front",
   "main": "dist/server/index.js",
   "type": "module",
   "imports": {

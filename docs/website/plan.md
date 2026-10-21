@@ -4,7 +4,7 @@ State of the public website work as of 2026-10-01, written so another agent can 
 
 ## Decisions already made by the operator
 
-- Positioning: Glimmervoid is an agent orchestrator ("mission control for your coding agents"), never a "harness". The README, `PRODUCT.md`, the root `AGENTS.md` purpose line and the `package.json` description already say this (commit 9f37b0e).
+- Positioning: Glimmervoid is an agent orchestrator ("mission control that ships"), never a "harness" and never a terminal multiplexer: it pitches focus on the one session that needs you, not a grid of every session. The README, `PRODUCT.md`, the root `AGENTS.md` purpose line and the `package.json` description already say this (commit 9f37b0e).
 - Framework: Astro.
 - Copy: short. The operator rejected the first draft as "very wordy". Prefer graphics and animation over prose.
 - Visuals: HTML, CSS and SVG animation, no stock video. The 19 real flying animal sprites from the dashboard appear on the site.
