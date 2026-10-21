@@ -24,7 +24,7 @@ function spriteOf(animalName: string): string {
 ---
 <section id="zen">
   <div class="section-head reveal">
-    <h2>Zen. No terminals until one needs you.<span class="experimental-tag">Experimental</span></h2>
+    <div class="zen-title"><h2>Zen. No terminals until one needs you.</h2><span class="experimental-tag">Experimental</span></div>
     <p>Every live session is a pet in a meadow. The one that needs you steps forward.</p>
   </div>
   <figure class="zen-board reveal" id="zen-board" data-frame="0" aria-label="Five session pets amble around a meadow. One stops with a question bubble, grows, and the others fade while a line names the session that needs you.">
@@ -69,6 +69,8 @@ function spriteOf(animalName: string): string {
 </script>
 
 <style>
+  .zen-title { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
+  .zen-title .experimental-tag { margin-left: 0; }
   .zen-board { margin: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 16px; }
   .zen-status { margin-bottom: 12px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
   .zen-status .is-asking { color: var(--state-waiting); }

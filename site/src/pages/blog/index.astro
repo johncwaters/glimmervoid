@@ -10,7 +10,7 @@ const posts = (await getCollection('blog', ({ data }) => !data.draft)).sort(
   (left, right) => right.data.pubDate.valueOf() - left.data.pubDate.valueOf(),
 );
 ---
-<Base title="Glimmervoid Blog" description="Notes from building Glimmervoid, mission control that ships.">
+<Base title="Blog | Glimmervoid" description="Notes from building Glimmervoid, mission control for Claude Code and Codex agents: why each piece exists, what broke and what shipped.">
   <Nav />
   <section class="blog-index">
     <h1>Blog</h1>

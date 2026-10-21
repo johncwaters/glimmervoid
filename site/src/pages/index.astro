@@ -13,8 +13,14 @@ import Features from '../components/Features.astro';
 import Celebrations from '../components/Celebrations.astro';
 import Install from '../components/Install.astro';
 import Footer from '../components/Footer.astro';
+
+const HOME_STRUCTURED_DATA = {
+  '@type': 'WebSite',
+  name: 'Glimmervoid',
+  url: new URL('/', Astro.site).href,
+};
 ---
-<Base>
+<Base title="Glimmervoid: mission control for Claude Code and Codex agents" structuredData={HOME_STRUCTURED_DATA}>
   <Nav />
   <Hero />
   <Remote />

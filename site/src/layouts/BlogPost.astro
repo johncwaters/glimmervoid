@@ -14,8 +14,18 @@ type Props = {
 };
 
 const { slug, title, description, pubDate, tags } = Astro.props;
+const socialImagePath = `blog/${slug}.png`;
+const postStructuredData = {
+  '@type': 'BlogPosting',
+  headline: title,
+  description,
+  image: new URL(sitePath(socialImagePath), Astro.site).href,
+  datePublished: pubDate.toISOString(),
+  author: { '@type': 'Person', name: 'John C. Waters', url: 'https://github.com/johncwaters' },
+  mainEntityOfPage: new URL(Astro.url.pathname, Astro.site).href,
+};
 ---
-<Base title={title} description={description} socialImagePath={`blog/${slug}.png`} pageType="article">
+<Base title={`${title} | Glimmervoid`} description={description} socialImagePath={socialImagePath} socialImageAlt={title} pageType="article" publishedTime={pubDate} structuredData={postStructuredData}>
   <Nav />
   <article class="post">
     <header class="post-header">
