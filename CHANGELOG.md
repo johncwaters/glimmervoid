@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Dependencies**: `cc-safety-net` 2.6.16, so Sane YOLO now also refuses `rsync --delete` into a folder outside the working directory or a trusted temp folder, shell `-c` invocations whose real command string it cannot identify (such as `bash -c -x '<cmd>'`), and commands holding a carriage return or an unquoted Unicode blank. It also inspects more scripts that a heredoc wrote before they run, and blocks fewer safe `source` and script paths as unverifiable.
+
 ## [0.42.3] - 2026-10-21
 
 ### Fixed
