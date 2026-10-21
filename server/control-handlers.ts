@@ -30,7 +30,6 @@ import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from 
 import { readPosthogReport } from './radar/radar-report.ts';
 import { willSessionRunGuarded } from './session/session-factory.ts';
 import * as radarLaneCore from './radar/core/radar-lane-core.ts';
-import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './github/core/github-issues-core.ts';
 import { machineSkipsPermissionsByDefault } from './session/core/session-registry-core.ts';
 import { prKey, prSessionName, prSessionPrompt } from './github/core/team-review-core.ts';
@@ -308,7 +307,6 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'add-session': () => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'remove-session': () => ({ type: 'remove-session-result', requestId, ok: false, error: message }),
     'delete-hook': () => ({ type: 'delete-hook-result', requestId, ok: false, error: message }),
-    'send-diff-annotations': () => ({ type: 'send-diff-annotations-result', requestId, ok: false, error: message }),
     'session-doc-read': () => ({ type: 'session-doc-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
     'session-doc-save': () => ({ type: 'session-doc-save-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
     'session-coherence-journal': () => ({ type: 'session-coherence-journal-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, entries: [], error: message }),
@@ -1368,18 +1366,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply({ ok: res.ok === true, error: res.error || null });
   }
 
-  function handleSendDiffAnnotations(msg: ClientMessageOf<'send-diff-annotations'>, ws: ControlSocket): void {
-    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'send-diff-annotations-result', { ok: false, error: null, ...payload });
-    const session = findSession(msg);
-    if (!session) { reply({ error: 'Session not found' }); return; }
-    const text = formatDiffAnnotationMessage(msg.annotations ?? []);
-    if (!text) { reply({ error: 'No review notes to send' }); return; }
-    const pasted = session.pasteTextWhenReady(text);
-    if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
-    session.noteOperatorDraft();
-    reply({ ok: true, pending: pasted.deferred === true });
-  }
-
   async function handleRequestUsageReport(msg: ClientMessageOf<'request-usage-report'>, ws: ControlSocket): Promise<void> {
     if (!requestUsageReport) {
       ws.send(JSON.stringify({ type: 'usage-report', requestId: msg.requestId || null, error: 'Usage tracking is not running' }));
@@ -1541,7 +1527,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
     'delete-hook': handleDeleteHook,
-    'send-diff-annotations': handleSendDiffAnnotations,
     'kill':             (msg: ClientMessageOf<'kill'>) => { const s = findSession(msg); if (s) s.killSession(); },
     'start-session':    handleStartSession,
     'restart':          (msg: ClientMessageOf<'restart'>, ws: ControlSocket) => restartSession(msg, ws, (s) => { s.restart({ fresh: msg.fresh === true }); }),

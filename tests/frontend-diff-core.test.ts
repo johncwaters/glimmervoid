@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { annotationKey, annotationTargetOf, parseHunkHeader, parseUnifiedDiff, shouldDropDiffCache, staleDraftKeys, summarizeFiles } from '../public/sidebar/diff-core.ts';
+import { parseHunkHeader, parseUnifiedDiff, shouldDropDiffCache, summarizeFiles } from '../public/sidebar/diff-core.ts';
 
 test('parseUnifiedDiff: empty input returns []', () => {
   assert.deepEqual(parseUnifiedDiff(''), []);
@@ -261,75 +261,4 @@ test('shouldDropDiffCache: drops on merged/none and on parked -> pending-review,
   assert.equal(shouldDropDiffCache('pending-review', 'pending-review'), false);
   assert.equal(shouldDropDiffCache('parked', 'parked'), false);
   assert.equal(shouldDropDiffCache('merging', 'parked'), false);
-});
-
-test('annotationTargetOf: an added line targets the new side at its new line number', () => {
-  const line = { type: 'add', text: 'added', oldLineNumber: null, newLineNumber: 12 };
-
-  assert.deepEqual(annotationTargetOf({ path: 'a.ts' }, line), { path: 'a.ts', line: 12, side: 'new' });
-});
-
-test('annotationTargetOf: a removed line targets the old side at its pre-image line number', () => {
-  const line = { type: 'del', text: 'removed', oldLineNumber: 7, newLineNumber: null };
-
-  assert.deepEqual(annotationTargetOf({ path: 'a.ts' }, line), { path: 'a.ts', line: 7, side: 'old' });
-});
-
-test('annotationTargetOf: a context line targets the new side', () => {
-  const line = { type: 'context', text: 'kept', oldLineNumber: 3, newLineNumber: 4 };
-
-  assert.deepEqual(annotationTargetOf({ path: 'a.ts' }, line), { path: 'a.ts', line: 4, side: 'new' });
-});
-
-test('annotationTargetOf: a meta line and a numberless line cannot be annotated', () => {
-
-  assert.equal(annotationTargetOf({ path: 'a.ts' }, { type: 'meta', text: 'No newline', oldLineNumber: null, newLineNumber: null }), null);
-  assert.equal(annotationTargetOf({ path: 'a.ts' }, { type: 'del', text: 'removed', oldLineNumber: null, newLineNumber: null }), null);
-});
-
-test('annotationTargetOf: every line parsed out of a diff carries the target its gutter implies', () => {
-  const diff = [
-    'diff --git a/src/foo.js b/src/foo.js',
-    '--- a/src/foo.js',
-    '+++ b/src/foo.js',
-    '@@ -1,2 +1,2 @@',
-    ' kept',
-    '-gone',
-    '+fresh',
-  ].join('\n');
-  const [file] = parseUnifiedDiff(diff);
-
-  assert.deepEqual(file.hunks[0].lines.map((line) => annotationTargetOf(file, line)), [
-    { path: 'src/foo.js', line: 1, side: 'new' },
-    { path: 'src/foo.js', line: 2, side: 'old' },
-    { path: 'src/foo.js', line: 2, side: 'new' },
-  ]);
-});
-
-test('annotationKey separates the two diff sections, the two sides and the two lines', () => {
-
-  assert.notEqual(annotationKey('committed', 'a.ts', 3, 'new'), annotationKey('uncommitted', 'a.ts', 3, 'new'));
-  assert.notEqual(annotationKey('committed', 'a.ts', 3, 'new'), annotationKey('committed', 'a.ts', 3, 'old'));
-  assert.notEqual(annotationKey('committed', 'a.ts', 3, 'new'), annotationKey('committed', 'a.ts', 4, 'new'));
-  assert.equal(annotationKey('committed', 'a.ts', 3, 'new'), annotationKey('committed', 'a.ts', 3, 'new'));
-});
-
-test('staleDraftKeys drops only the drafts of a section whose diff text changed', () => {
-  const committedKey = annotationKey('committed', 'a.ts', 3, 'new');
-  const uncommittedKey = annotationKey('uncommitted', 'b.ts', 7, 'old');
-  const keys = [committedKey, uncommittedKey];
-
-  assert.deepEqual(staleDraftKeys(null, { committed: 'x', uncommitted: 'y' }, keys), []);
-  assert.deepEqual(
-    staleDraftKeys({ committed: 'x', uncommitted: 'y' }, { committed: 'x', uncommitted: 'y' }, keys),
-    [],
-  );
-  assert.deepEqual(
-    staleDraftKeys({ committed: 'x', uncommitted: 'y' }, { committed: 'x2', uncommitted: 'y' }, keys),
-    [committedKey],
-  );
-  assert.deepEqual(
-    staleDraftKeys({ committed: 'x', uncommitted: 'y' }, { committed: 'x2', uncommitted: '' }, keys),
-    keys,
-  );
 });

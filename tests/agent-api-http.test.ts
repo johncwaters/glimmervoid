@@ -1026,7 +1026,7 @@ test('a spawned child that stops wakes its idle parent with one submitted line, 
   }
 });
 
-test('review notes the operator stages at an idle parent hold off the wake so a stopping child never submits them', async () => {
+test('a draft the operator stages at an idle parent holds off the wake so a stopping child never submits it', async () => {
   const { clock, advanceBy } = manualClock();
   const fixture = wiringFixture({ clock });
   const wakePastes: string[] = [];
@@ -1039,14 +1039,12 @@ test('review notes the operator stages at an idle parent hold off the wake so a 
     await fixture.parent.start();
     fixture.parent.transition('first_output');
     assert.equal(fixture.parent.state, STATES.IDLE);
-    const server = createControlServer(controlDeps({ projects: [] }, { sessions: new Map([['parent', fixture.parent]]) }));
-    const connection = connectControl<{ ok?: boolean }>(server);
-    await connection.send({ type: 'send-diff-annotations', id: 'parent', annotations: [{ section: 'uncommitted', path: 'server/index.ts', line: 1, side: 'new', note: 'half done' }] });
+    assert.equal(fixture.parent.pasteTextWhenReady('half done').ok, true);
+    fixture.parent.noteOperatorDraft();
     advanceBy(1000);
     child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
     advanceBy(1000);
-    assert.equal(connection.sent.at(-1)?.ok, true);
-    assert.match(written.join(''), /^\x1b\[200~Operator review notes/);
+    assert.match(written.join(''), /^\x1b\[200~half done/);
     assert.deepEqual([wakePastes.length, written.filter((text) => text === '\r').length], [0, 0]);
   } finally {
     fixture.destroyAll();

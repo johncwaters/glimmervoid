@@ -1,16 +1,8 @@
-import type { DiffAnnotation } from '#shared/contracts/control-messages.ts';
-
 interface DiffLine {
   type: string;
   text: string;
   oldLineNumber: number | null;
   newLineNumber: number | null;
-}
-
-export interface AnnotationTarget {
-  path: string;
-  line: number;
-  side: DiffAnnotation['side'];
 }
 
 export function parseHunkHeader(header: string): { oldStart: number; newStart: number } | null {
@@ -130,45 +122,6 @@ export function parseUnifiedDiff(diff: string | null | undefined): DiffFile[] {
   }
   for (const f of files) { if (!f.path) f.path = f.oldPath || '(unknown)'; }
   return files;
-}
-
-export function annotationKey(
-  section: DiffAnnotation['section'],
-  path: string,
-  line: number,
-  side: DiffAnnotation['side'],
-): string {
-  return `${section}:${side}:${line}:${path}`;
-}
-
-export interface SectionDiffText {
-  committed: string;
-  uncommitted: string;
-}
-
-export function staleDraftKeys(
-  previous: SectionDiffText | null | undefined,
-  next: SectionDiffText,
-  draftKeys: Iterable<string>,
-): string[] {
-  if (!previous) return [];
-  const changedSections = new Set<string>();
-  if (previous.committed !== next.committed) changedSections.add('committed');
-  if (previous.uncommitted !== next.uncommitted) changedSections.add('uncommitted');
-  if (changedSections.size === 0) return [];
-  const stale: string[] = [];
-  for (const key of draftKeys) {
-    if (changedSections.has(key.slice(0, key.indexOf(':')))) stale.push(key);
-  }
-  return stale;
-}
-
-export function annotationTargetOf(file: Pick<DiffFile, 'path'>, line: DiffLine): AnnotationTarget | null {
-  if (line.type === 'del') {
-    return line.oldLineNumber === null ? null : { path: file.path, line: line.oldLineNumber, side: 'old' };
-  }
-  if (line.newLineNumber === null) return null;
-  return { path: file.path, line: line.newLineNumber, side: 'new' };
 }
 
 export function shouldDropDiffCache(prevStatus: string | null | undefined, nextStatus: string | null | undefined) {

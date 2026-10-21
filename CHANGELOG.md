@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Review notes are gone**: the note button on diff lines, the Notes tab in the review panel and its Send notes bar are removed. To steer a session about its diff, type into its terminal.
 - **The change map narrator is gone**: the optional model-written claims at the top of the review panel's map, and the Settings > Lanes > Change map section that turned them on, are removed. Glimmervoid no longer starts a narrator lane. An existing config.json that still has a `changeMap.narrator` block loads as before, and the block is ignored.
 - **The STREAMER badge below the header is gone**: it hung over the middle of the page while streamer mode was on. On the desktop header, the streamer button still shows in the accent color while the mode is on.
 
