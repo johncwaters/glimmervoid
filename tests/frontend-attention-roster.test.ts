@@ -128,12 +128,12 @@ test('attentionSummaryText: resting reads as a sentence, never an empty slot', (
   assert.equal(attentionSummaryText({ waitingCount: 0, finishedCount: 0, failedCount: 0 }), 'ALL CLEAR');
   assert.equal(attentionSummaryText({ waitingCount: 1, finishedCount: 0, failedCount: 0 }), '1 NEEDS YOU');
   assert.equal(attentionSummaryText({ waitingCount: 4, finishedCount: 0, failedCount: 0 }), '4 NEED YOU');
-  assert.equal(attentionSummaryText({ waitingCount: 1, finishedCount: 2, failedCount: 1 }), '1 NEEDS YOU, 1 FAILED, 2 FINISHED');
+  assert.equal(attentionSummaryText({ waitingCount: 1, finishedCount: 2, failedCount: 1 }), '1 FAILED, 1 NEEDS YOU, 2 FINISHED');
 });
 
-test('orderAttentionQueue: the jump queue puts waiting, then failed, then finished sessions, keeping roster order within each', () => {
+test('orderAttentionQueue: the jump queue puts failed, then waiting, then finished sessions, keeping roster order within each', () => {
   const rosterOrderedRows = [attentionRow('alpha', 'COMPLETE'), attentionRow('bravo', 'RUNNING'), attentionRow('charlie', 'WAITING'), attentionRow('delta', 'FAILED'), attentionRow('echo', 'WAITING'), attentionRow('foxtrot', 'IDLE')];
-  assert.deepEqual(orderAttentionQueue(rosterOrderedRows), ['charlie', 'echo', 'delta', 'alpha']);
+  assert.deepEqual(orderAttentionQueue(rosterOrderedRows), ['delta', 'charlie', 'echo', 'alpha']);
 });
 
 test('pickStagedSession: a staged session keeps the stage while it stays queued, even when a higher-ranked one arrives', () => {

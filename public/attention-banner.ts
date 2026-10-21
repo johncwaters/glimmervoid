@@ -9,8 +9,8 @@ import { paintStatusIcon } from './status-icon.ts';
 const NO_ATTENTION: AttentionCounts = { waitingCount: 0, finishedCount: 0, failedCount: 0 };
 
 const ATTENTION_CHIP_KINDS = [
-  { state: STATES.WAITING, countKey: 'waitingCount' },
   { state: STATES.FAILED, countKey: 'failedCount' },
+  { state: STATES.WAITING, countKey: 'waitingCount' },
   { state: STATES.COMPLETE, countKey: 'finishedCount' },
 ] as const;
 
@@ -30,7 +30,11 @@ export function buildAttentionBanner(jumpAffordance: HTMLElement) {
   jumpAffordance.classList.add('attention-banner-jump');
   const chips = el('span', 'attention-banner-chips');
   chips.append(...ATTENTION_CHIP_KINDS.map((kind) => buildAttentionChip(kind.state)));
-  banner.append(chips, el('span', 'attention-banner-count'), jumpAffordance);
+  const statusRow = el('div', 'attention-banner-status');
+  statusRow.append(chips, el('span', 'attention-banner-count'));
+  const jumpRow = el('div', 'attention-banner-jump-row');
+  jumpRow.append(el('span', 'attention-banner-jump-caption', 'Next session'), jumpAffordance);
+  banner.append(statusRow, jumpRow);
   paintAttentionBanner(banner, NO_ATTENTION);
   return banner;
 }
@@ -44,6 +48,9 @@ export function paintAttentionBanner(banner: HTMLElement, counts: AttentionCount
     chip.title = attentionSummaryText({ ...NO_ATTENTION, [kind.countKey]: count });
     query(chip, '.attention-chip-count').textContent = String(count);
   }
+  const isJumpable = jumpTargetCount(counts) > 0;
   banner.toggleAttribute('data-empty', !hasAnyAttention(counts));
-  banner.toggleAttribute('data-jumpable', jumpTargetCount(counts) > 0);
+  banner.toggleAttribute('data-jumpable', isJumpable);
+  const jumpAffordance = query(banner, '.attention-banner-jump');
+  if (jumpAffordance instanceof HTMLButtonElement) jumpAffordance.disabled = !isJumpable;
 }

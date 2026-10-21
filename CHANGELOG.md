@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The "needs you" banner in the Focus rail has room to breathe and puts failed sessions first**: the status chips sit on their own row, with a "Next session" line and larger, readable Alt+J (Cmd+J on Mac) keys below them. Chips, the banner color and Cmd/Alt+J now go failed first, then waiting, then finished, in Focus, Zen and the phone Board. ALL CLEAR sits where the chips were, so the banner keeps its height when the last item clears, and the thick colored left edge is gone.
+
 ### Removed
 
 - **The STREAMER badge below the header is gone**: it hung over the middle of the page while streamer mode was on. On the desktop header, the streamer button still shows in the accent color while the mode is on.

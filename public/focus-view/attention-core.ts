@@ -122,8 +122,8 @@ export function needsAttention(row: SessionAttentionRow = {}) {
 }
 
 const JUMP_RANK_BY_KIND: ReadonlyMap<AttentionKind, number> = new Map<AttentionKind, number>([
-  ['waiting', 0],
-  ['failed', 1],
+  ['failed', 0],
+  ['waiting', 1],
   ['finished', 2],
 ]);
 
@@ -172,9 +172,9 @@ export function hasAnyAttention(counts: AttentionCounts) {
 
 export function attentionSummaryText({ waitingCount, finishedCount, failedCount }: AttentionCounts) {
   const parts: string[] = [];
+  if (failedCount > 0) parts.push(`${failedCount} FAILED`);
   if (waitingCount === 1) parts.push('1 NEEDS YOU');
   if (waitingCount > 1) parts.push(`${waitingCount} NEED YOU`);
-  if (failedCount > 0) parts.push(`${failedCount} FAILED`);
   if (finishedCount > 0) parts.push(`${finishedCount} FINISHED`);
   if (parts.length === 0) return 'ALL CLEAR';
   return parts.join(', ');
