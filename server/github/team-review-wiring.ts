@@ -122,7 +122,7 @@ interface TeamReviewGitWorkspace {
   populate(args: { projectPath: string; wtDir: string; shareList: string[]; keepTrackableLinks?: boolean }): Promise<void>;
   removeWorktreeByPath(args: { projectPath: string; cwd?: string | null }): Promise<{ ok: boolean; err?: string }>;
   pruneWorktrees(args: { projectPath: string }): Promise<{ ok: boolean; err?: string }>;
-  forgetRemovedWorktree?(worktreePath: string): Promise<void>;
+  forgetRemovedPath?(worktreePath: string): Promise<void>;
   seedBranchFromOrigin?(args: { projectPath: string; name: string }): Promise<{ ok: boolean; out: string; err?: string }>;
 }
 
@@ -412,10 +412,10 @@ async function deleteDirectory(directory: string, log: Pick<Console, 'warn'>): P
 }
 
 async function deleteCheckout(
-  gitWorkspace: Pick<TeamReviewGitWorkspace, 'forgetRemovedWorktree'>, worktreePath: string, log: Pick<Console, 'warn'>,
+  gitWorkspace: Pick<TeamReviewGitWorkspace, 'forgetRemovedPath'>, worktreePath: string, log: Pick<Console, 'warn'>,
 ): Promise<void> {
   await deleteDirectory(worktreePath, log);
-  await gitWorkspace.forgetRemovedWorktree?.(worktreePath);
+  await gitWorkspace.forgetRemovedPath?.(worktreePath);
 }
 
 async function isDirectory(candidatePath: string): Promise<boolean> {
@@ -494,7 +494,7 @@ async function sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoC
   workRoot: string;
   keepPaths: ReadonlySet<string>;
   repoCache: Pick<TeamReviewRepoCache, 'listRepos'>;
-  gitWorkspace: Pick<TeamReviewGitWorkspace, 'pruneWorktrees' | 'forgetRemovedWorktree'>;
+  gitWorkspace: Pick<TeamReviewGitWorkspace, 'pruneWorktrees' | 'forgetRemovedPath'>;
   reapProcesses?: TeamReviewReap;
   log: Pick<Console, 'warn'>;
 }): Promise<void> {

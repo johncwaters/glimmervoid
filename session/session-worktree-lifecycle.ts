@@ -36,6 +36,7 @@ import type { GitWorkspaceInstance } from "../server/git/git-workspace.ts";
 import { planWorkspaceMembers } from "./core/workspace-core.ts";
 import type { WorkspaceMember } from "./core/workspace-core.ts";
 import { createSessionWorkspaceMembers } from "./session-workspace-members.ts";
+import type { WorkspaceMemberGit } from "./session-workspace-members.ts";
 import type { OwnedPathOwner } from "../shared/contracts/owned-paths.ts";
 
 const WORKTREE_CHECK_DEBOUNCE_MS = 400;
@@ -123,6 +124,16 @@ interface GitWorkspace {
   detectDefaultBranch?: (options: { projectPath: string }) => Promise<string | null>;
   ensureWorkspaceMember?: GitWorkspaceInstance["ensureWorkspaceMember"];
   removeWorkspaceMember?: GitWorkspaceInstance["removeWorkspaceMember"];
+  describeWorkspaceMemberWork?: GitWorkspaceInstance["describeWorkspaceMemberWork"];
+  recordOwnedFolder?: GitWorkspaceInstance["recordOwnedFolder"];
+  forgetRemovedPath?: GitWorkspaceInstance["forgetRemovedPath"];
+}
+
+function workspaceMemberGit(gitWorkspace: GitWorkspace | null): WorkspaceMemberGit | null {
+  if (!gitWorkspace) return null;
+  const { ensureWorkspaceMember, removeWorkspaceMember, describeWorkspaceMemberWork, recordOwnedFolder, forgetRemovedPath } = gitWorkspace;
+  if (!ensureWorkspaceMember || !removeWorkspaceMember || !describeWorkspaceMemberWork || !recordOwnedFolder || !forgetRemovedPath) return null;
+  return { ensureWorkspaceMember, removeWorkspaceMember, describeWorkspaceMemberWork, recordOwnedFolder, forgetRemovedPath };
 }
 
 type WorkspaceMembersSetup =
@@ -265,12 +276,11 @@ function setUpWorkspaceMembers({ folder, sessionId, sessionName, repoPaths, shar
 }): WorkspaceMembersSetup {
   const planned = planWorkspaceMembers({ folder, sessionId, repoPaths });
   if (!planned.ok) return planned;
-  const ensureWorkspaceMember = gitWorkspace?.ensureWorkspaceMember;
-  const removeWorkspaceMember = gitWorkspace?.removeWorkspaceMember;
-  if (!ensureWorkspaceMember || !removeWorkspaceMember) return { ok: false, error: "Git workspace is unavailable" };
+  const memberGit = workspaceMemberGit(gitWorkspace);
+  if (!memberGit) return { ok: false, error: "Git workspace is unavailable" };
   return {
     ok: true,
-    members: createSessionWorkspaceMembers({ plan: planned.plan, owner: `session:${sessionId}`, sessionName, shareList, gitWorkspace: { ensureWorkspaceMember, removeWorkspaceMember } }),
+    members: createSessionWorkspaceMembers({ plan: planned.plan, owner: `session:${sessionId}`, sessionName, shareList, gitWorkspace: memberGit }),
   };
 }
 
@@ -667,7 +677,8 @@ function createSessionWorktreeLifecycle({
 
   async function releaseWorkspaceMembers(members: ReturnType<typeof createSessionWorkspaceMembers>, keepRepoPaths: string[] = []): Promise<void> {
     const released = await members.release({ keepRepoPaths });
-    if (released.keptDirs.length > 0) console.warn(`[session ${id}] kept workspace members with uncommitted work: ${released.keptDirs.join(", ")}`);
+    if (released.kept.length === 0) return;
+    console.warn(`[session ${id}] kept workspace members: ${released.kept.map((kept) => `${kept.path} (${kept.reason})`).join(", ")}`);
   }
 
   async function releaseDroppedWorkspaceMembers(keepRepoPaths: string[]): Promise<void> {

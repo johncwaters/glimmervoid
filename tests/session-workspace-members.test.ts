@@ -51,14 +51,16 @@ test('workspace member shell preserves existing maps, reports partial failure an
 
     fs.writeFileSync(path.join(planned.plan.members[1].dir, 'dirty.txt'), 'keep');
     const released = await shell.release();
-    assert.deepEqual(released.keptDirs, [planned.plan.members[1].dir]);
+    assert.deepEqual(released.kept, [{ path: planned.plan.members[1].dir, reason: 'uncommitted changes' }]);
     assert.equal(fs.existsSync(planned.plan.members[0].dir), false);
     assert.equal(fs.existsSync(planned.plan.members[1].dir), true);
     assert.equal(fs.existsSync(planned.plan.folder), true);
     assert.equal(git(['rev-parse', planned.plan.branch], first).trim().length, 40);
 
-    fs.rmSync(path.join(planned.plan.members[1].dir, 'dirty.txt'));
-    assert.deepEqual((await shell.release()).keptDirs, []);
+    fs.writeFileSync(path.join(planned.plan.folder, 'notes.md'), 'agent scratch');
+    assert.deepEqual((await shell.release({ discardWork: true, keepRepoPaths: [path.join(root, 'replacement')] })).kept, []);
+    assert.equal(fs.existsSync(path.join(planned.plan.folder, 'notes.md')), true);
+    assert.deepEqual((await shell.release({ discardWork: true })).kept, []);
     assert.equal(fs.existsSync(planned.plan.folder), false);
     assert.equal(git(['rev-parse', planned.plan.branch], second).trim().length, 40);
 
@@ -79,7 +81,7 @@ test('workspace member shell preserves existing maps, reports partial failure an
     const pendingProvision = raceShell.provision();
     const pendingRelease = raceShell.release();
     assert.equal((await pendingProvision).ok, true);
-    assert.deepEqual((await pendingRelease).keptDirs, []);
+    assert.deepEqual((await pendingRelease).kept, []);
     assert.equal(fs.existsSync(racePlan.plan.folder), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -95,6 +97,9 @@ test('workspace member release keeps a member whose removal git refuses', async 
     const removedDirs: string[] = [];
     const shell = createSessionWorkspaceMembers({ owner: 'lane:test', plan: planned.plan, sessionName: 'Refused', shareList: null, gitWorkspace: {
       ensureWorkspaceMember: async ({ projectPath }) => ({ cwd: projectPath, isGit: false, reason: 'not-git' }),
+      describeWorkspaceMemberWork: async () => null,
+      recordOwnedFolder: async () => {},
+      forgetRemovedPath: async () => {},
       removeWorkspaceMember: async ({ cwd }) => {
         if (cwd === planned.plan.members[0].dir) return { ok: false, out: '', err: 'contains modified or untracked files' };
         removedDirs.push(String(cwd));
@@ -102,7 +107,7 @@ test('workspace member release keeps a member whose removal git refuses', async 
         return { ok: true, out: '' };
       },
     } });
-    assert.deepEqual((await shell.release()).keptDirs, [planned.plan.members[0].dir]);
+    assert.deepEqual((await shell.release()).kept, [{ path: planned.plan.members[0].dir, reason: 'contains modified or untracked files' }]);
     assert.deepEqual(removedDirs, [planned.plan.members[1].dir]);
     assert.equal(fs.existsSync(planned.plan.members[0].dir), true);
     assert.equal(fs.existsSync(planned.plan.folder), true);

@@ -385,13 +385,17 @@ function createGitWorkspace(opts: {
   async function removeWorktreeEntry(runGitInProject: ProjectGitRunner, worktreePath: string, removeFlags: string[]): Promise<GitResult> {
     if (isWorktreeHiddenFromGuardedSessions(worktreePath, glimmervoidHomes)) await runGitInProject(['worktree', 'unlock', worktreePath]);
     const removed = await runGitInProject(['worktree', 'remove', ...removeFlags, worktreePath]);
-    await forgetRemovedWorktree(worktreePath);
+    await forgetRemovedPath(worktreePath);
     return removed;
   }
 
-  async function forgetRemovedWorktree(worktreePath: string): Promise<void> {
-    if (await directoryExists(worktreePath)) return;
-    await opts.ownedPaths?.forget(worktreePath);
+  async function forgetRemovedPath(ownedPath: string): Promise<void> {
+    if (await directoryExists(ownedPath)) return;
+    await opts.ownedPaths?.forget(ownedPath);
+  }
+
+  async function recordOwnedFolder({ folderPath, owner }: { folderPath: string; owner: OwnedPathOwner }): Promise<void> {
+    await opts.ownedPaths?.record({ path: folderPath, owner, kind: 'folder', projectPath: null, branch: null });
   }
 
   async function pruneWorktreeEntries(runGitInProject: ProjectGitRunner): Promise<GitResult> {
@@ -957,19 +961,32 @@ function createGitWorkspace(opts: {
     await pruneWorktreeEntries(runInProject(projectPath));
   }
 
-  async function probeWorktreeWork({ projectPath, cwd, branch, integrationBranch, configuredIntegrationBranch }: {
+  async function probeWorktreeWork({ projectPath, cwd, branch, measuredTip = branch, integrationBranch, configuredIntegrationBranch }: {
     projectPath: string;
     cwd: string;
     branch: string;
+    measuredTip?: string;
     integrationBranch?: string | null;
     configuredIntegrationBranch?: string | null;
   }): Promise<WorktreeProbe> {
     const { base: resolvedIntegrationBranch, measureRef } = await migrateMarkerBase(projectPath, branch, integrationBranch, configuredIntegrationBranch);
     const dirty = await run(WORK_PRESENCE_STATUS_ARGS, cwd);
     const ahead = !isDirtyResult(dirty) && resolvedIntegrationBranch
-      ? await run(['rev-list', '--count', `${measureRef || resolvedIntegrationBranch}..${branch}`], projectPath)
+      ? await run(['rev-list', '--count', `${measureRef || resolvedIntegrationBranch}..${measuredTip}`], projectPath)
       : null;
     return { dirty, ahead, integrationBranch: resolvedIntegrationBranch ?? null };
+  }
+
+  async function describeWorkspaceMemberWorkBody({ projectPath, cwd, branch }: { projectPath: string; cwd: string; branch: string }): Promise<string | null> {
+    const memberHead = await run(['rev-parse', '--verify', 'HEAD'], cwd);
+    if (!memberHead.ok || !memberHead.out) return 'its checked-out commit could not be read';
+    const integrationBranch = await detectDefaultBranch({ projectPath });
+    const { dirty, ahead, integrationBranch: comparedBranch } = await probeWorktreeWork({ projectPath, cwd, branch, measuredTip: memberHead.out, integrationBranch });
+    if (!dirty.ok) return 'its git status could not be read';
+    if (isDirtyResult(dirty)) return 'uncommitted changes';
+    if (!ahead?.ok) return 'its commits could not be compared with the base branch';
+    if (!ahead.out || ahead.out === '0') return null;
+    return `${ahead.out} ${ahead.out === '1' ? 'commit' : 'commits'} not on ${comparedBranch}`;
   }
 
   async function hasUnmergedWorkBody({ projectPath, workspace, integrationBranch, configuredIntegrationBranch }: WorktreeArgs): Promise<boolean> {
@@ -1114,11 +1131,14 @@ function createGitWorkspace(opts: {
     }
   }
 
-  async function removeWorkspaceMemberBody({ projectPath, cwd, shareList }: WorktreeArgs): Promise<GitResult> {
+  async function removeWorkspaceMemberBody({ projectPath, cwd, shareList, discardWork = false }: WorktreeArgs & { discardWork?: boolean }): Promise<GitResult> {
     if (!cwd) return { ok: false, out: '', err: 'a workspace member removal needs a path' };
     await removeSharedLinks(cwd, shareList);
-    const removed = await removeWorktreeEntry(runInProject(projectPath), cwd, []);
+    const removed = await removeWorktreeEntry(runInProject(projectPath), cwd, discardWork ? ['--force', '--force'] : []);
+    if (discardWork && await directoryExists(cwd)) await fsp.rm(cwd, { recursive: true, force: true });
     await pruneWorktreeEntries(runInProject(projectPath));
+    await forgetRemovedPath(cwd);
+    if (discardWork && !(await directoryExists(cwd))) return { ok: true, out: removed.out };
     return removed;
   }
 
@@ -1553,7 +1573,9 @@ function createGitWorkspace(opts: {
     pruneWorktrees: serialized(pruneWorktreesBody),
     discardSessionBranch: serialized(discardSessionBranchBody),
     stageDetachedWorktree: serialized(stageDetachedWorktreeBody),
-    forgetRemovedWorktree,
+    forgetRemovedPath,
+    recordOwnedFolder,
+    describeWorkspaceMemberWork: serialized(describeWorkspaceMemberWorkBody),
     checkoutDetached: serialized(checkoutDetachedBody),
     stageIsolatedCheckout,
     mergeFastForwardTo,

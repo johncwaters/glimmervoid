@@ -8,7 +8,9 @@ import { caseFoldedPathKey } from '../shared/paths.ts';
 import { renderWorkspaceAgentsMd, WORKSPACE_CLAUDE_MD } from './core/workspace-core.ts';
 import type { WorkspacePlan, WorkspaceMember } from './core/workspace-core.ts';
 
-type WorkspaceMemberGit = Pick<GitWorkspaceInstance, 'ensureWorkspaceMember' | 'removeWorkspaceMember'>;
+export type WorkspaceMemberGit = Pick<GitWorkspaceInstance, 'ensureWorkspaceMember' | 'removeWorkspaceMember' | 'describeWorkspaceMemberWork' | 'recordOwnedFolder' | 'forgetRemovedPath'>;
+
+type KeptWorkspacePath = { path: string; reason: string };
 
 async function writeWhenAbsent(filePath: string, contents: string): Promise<void> {
   await fs.promises.writeFile(filePath, contents, { flag: 'wx' }).catch((error: NodeJS.ErrnoException) => {
@@ -19,7 +21,6 @@ async function writeWhenAbsent(filePath: string, contents: string): Promise<void
 const WORKSPACE_MAP_FILE = 'AGENTS.md';
 const WORKSPACE_POINTER_FILE = 'CLAUDE.md';
 const WORKSPACE_MAP_HASH_FILE = '.glimmervoid-map-hash';
-const GENERATED_WORKSPACE_FILES = new Set([WORKSPACE_MAP_FILE, WORKSPACE_POINTER_FILE, WORKSPACE_MAP_HASH_FILE]);
 
 function hashWorkspaceMap(contents: string): string {
   return crypto.createHash('sha256').update(contents).digest('hex');
@@ -57,6 +58,7 @@ export function createSessionWorkspaceMembers({ plan, owner, sessionName, shareL
   async function provisionBody(): Promise<ProvisionOutcome> {
     try {
       await fs.promises.mkdir(plan.folder, { recursive: true });
+      await gitWorkspace.recordOwnedFolder({ folderPath: plan.folder, owner });
       const members: WorkspaceMember[] = [];
       for (const member of plan.members) {
         const ensured = await gitWorkspace.ensureWorkspaceMember({ projectPath: member.repoPath, owner, wtDir: member.dir, branch: plan.branch, shareList });
@@ -81,22 +83,38 @@ export function createSessionWorkspaceMembers({ plan, owner, sessionName, shareL
     return attempt;
   }
 
-  async function release({ keepRepoPaths = [] }: { keepRepoPaths?: string[] } = {}): Promise<{ keptDirs: string[] }> {
+  const pathExists = (candidatePath: string) => fs.promises.stat(candidatePath).then(() => true, () => false);
+
+  async function findMemberWork(member: WorkspaceMember): Promise<string | null> {
+    return gitWorkspace.describeWorkspaceMemberWork({ projectPath: member.repoPath, cwd: member.dir, branch: plan.branch })
+      .catch((error: unknown) => `its work could not be checked: ${errorMessage(error)}`);
+  }
+
+  async function releaseMember(member: WorkspaceMember, discardWork: boolean): Promise<KeptWorkspacePath | null> {
+    if (!(await pathExists(member.dir))) return null;
+    const reason = discardWork ? null : await findMemberWork(member);
+    if (reason) return { path: member.dir, reason };
+    const removed = await gitWorkspace.removeWorkspaceMember({ projectPath: member.repoPath, cwd: member.dir, shareList, discardWork });
+    if (removed.ok) return null;
+    return { path: member.dir, reason: removed.err?.split('\n')[0] || 'git refused to remove it' };
+  }
+
+  async function release({ keepRepoPaths = [], discardWork = false }: { keepRepoPaths?: string[]; discardWork?: boolean } = {}): Promise<{ kept: KeptWorkspacePath[] }> {
     if (activeProvision) await activeProvision;
     const keptRepoKeys = new Set(keepRepoPaths.map((repoPath) => caseFoldedPathKey(path.resolve(repoPath))));
-    const keptDirs: string[] = [];
+    const kept: KeptWorkspacePath[] = [];
     for (const member of plan.members) {
       if (keptRepoKeys.has(caseFoldedPathKey(member.repoPath))) continue;
-      const exists = await fs.promises.stat(member.dir).then(() => true, () => false);
-      if (!exists) continue;
-      const removed = await gitWorkspace.removeWorkspaceMember({ projectPath: member.repoPath, cwd: member.dir, shareList });
-      if (!removed.ok) keptDirs.push(member.dir);
+      const keptMember = await releaseMember(member, discardWork);
+      if (keptMember) kept.push(keptMember);
     }
-    const entries = await fs.promises.readdir(plan.folder).catch(() => []);
-    if (entries.some((entry) => !GENERATED_WORKSPACE_FILES.has(entry))) return { keptDirs };
-    for (const entry of entries) await fs.promises.rm(path.join(plan.folder, entry), { force: true });
-    await fs.promises.rmdir(plan.folder).catch(() => {});
-    return { keptDirs };
+    if (keptRepoKeys.size > 0) return { kept };
+    for (const member of plan.members) {
+      if (await pathExists(member.dir)) return { kept };
+    }
+    await fs.promises.rm(plan.folder, { recursive: true, force: true });
+    await gitWorkspace.forgetRemovedPath(plan.folder);
+    return { kept };
   }
 
   return { provision, release, branch: plan.branch };
