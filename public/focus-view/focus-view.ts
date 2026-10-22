@@ -17,7 +17,7 @@ import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { getRailWidth, setRailWidth } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
 import type { SessionRow } from './attention-core.ts';
-import { countAttentionByKind, orderAttentionQueue, orderRoster, pickAdjacent, pickNextAttention } from './attention-core.ts';
+import { countAttentionByKind, orderAttentionLine, orderRoster, pickAdjacent } from './attention-core.ts';
 import type { RosterGroup } from './roster-groups-core.ts';
 import { groupRoster, visibleOrder } from './roster-groups-core.ts';
 import type { SessionGroupHeader } from './roster-group-header.ts';
@@ -44,7 +44,6 @@ let emptyTitleEl: HTMLElement | null = null;
 let emptyDescEl: HTMLElement | null = null;
 
 let active = false;
-let attnCursorId: string | null = null;
 let isAttentionJumpActivating = false;
 const mergeStatusById = new Map<string, string>();
 const pillById = new Map<string, FocusPill>();
@@ -310,8 +309,8 @@ function pickNeighborOfRemoved(previousRailOrder: readonly string[], removedId: 
   return pickAdjacent(survivorsAndRemoved, removedId, isRemovedLast ? -1 : 1);
 }
 
-function attentionIds() {
-  return orderAttentionQueue(orderedSessions());
+function attentionLine() {
+  return orderAttentionLine(orderedSessions(), getFocusedSessionId());
 }
 
 function updateRailHead() {
@@ -321,18 +320,13 @@ function updateRailHead() {
 export function focusNextAttention() {
   if (!active) return;
   if (railHeadEl) pressAttentionBanner(railHeadEl);
-  const ids = attentionIds();
-  if (!ids.length) return;
-  const nextId = pickNextAttention(ids, attnCursorId);
+  const nextId = attentionLine()[0];
   if (!nextId) return;
-  attnCursorId = nextId;
   const ui = sessionUIs.get(nextId);
-
-  const alreadyCentered = nextId === getFocusedSessionId();
   requestSessionOpen(nextId);
   focusSession(nextId);
   pillById.get(nextId)?.scrollIntoView({ block: 'nearest' });
-  if (alreadyCentered) flashAttention(nextId);
+  flashAttention(nextId);
   focusTerminalAfterSettle(ui, nextId);
 }
 
@@ -443,7 +437,7 @@ export function activateFocusView() {
   releaseCenter();
   railTabStopId = null;
   refreshFocusRoster();
-  if (isAttentionJumpActivating && attentionIds().length > 0) {
+  if (isAttentionJumpActivating && attentionLine().length > 0) {
     focusNextAttention();
     return;
   }

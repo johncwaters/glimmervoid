@@ -2,7 +2,7 @@ import { el, observeHeaderHeight } from '../dom-helpers.ts';
 import type { SessionRowRefs } from '../session-row.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import type { SessionRow } from '../focus-view/attention-core.ts';
-import { countAttentionByKind, jumpTargetCount, orderAttentionQueue, orderRoster, pickNextAttention } from '../focus-view/attention-core.ts';
+import { countAttentionByKind, jumpTargetCount, orderAttentionLine, orderRoster } from '../focus-view/attention-core.ts';
 import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner } from '../attention-banner.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { groupRoster, visibleOrder } from '../focus-view/roster-groups-core.ts';
@@ -30,15 +30,12 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
 
   const topBar = el('header', 'phone-topbar');
 
-  let attentionCursorId: string | null = null;
   const nextAttentionButton = el('button', 'btn-dialog', 'Next');
   nextAttentionButton.type = 'button';
   nextAttentionButton.addEventListener('click', () => {
     pressAttentionBanner(attentionEl);
-    const attentionIds = orderAttentionQueue(currentOrderedRows());
-    const nextId = pickNextAttention(attentionIds, attentionCursorId);
+    const nextId = orderAttentionLine(currentOrderedRows(), null)[0];
     if (!nextId) return;
-    attentionCursorId = nextId;
     onSelectSession?.(nextId);
   });
   const attentionEl = buildAttentionBanner(nextAttentionButton);

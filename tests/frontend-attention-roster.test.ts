@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { attentionRank, attentionSummaryText, countAttentionByKind, needsAttention, orderAttentionQueue, orderRoster, pickAdjacent, pickNextAttention, pickStagedSession, pickStrongestAttention, stageNeedWords, titleAlertCount } from '../public/focus-view/attention-core.ts';
+import { attentionRank, attentionSummaryText, countAttentionByKind, needsAttention, orderAttentionLine, orderAttentionQueue, orderRoster, pickAdjacent, pickNextAttention, pickStagedSession, pickStrongestAttention, stageNeedWords, titleAlertCount } from '../public/focus-view/attention-core.ts';
 
 test('orderRoster: non-dormant before dormant, add order within each group', () => {
   const out = orderRoster([
@@ -134,6 +134,13 @@ test('attentionSummaryText: resting reads as a sentence, never an empty slot', (
 test('orderAttentionQueue: the jump queue puts failed, then waiting, then finished sessions, keeping roster order within each', () => {
   const rosterOrderedRows = [attentionRow('alpha', 'COMPLETE'), attentionRow('bravo', 'RUNNING'), attentionRow('charlie', 'WAITING'), attentionRow('delta', 'FAILED'), attentionRow('echo', 'WAITING'), attentionRow('foxtrot', 'IDLE')];
   assert.deepEqual(orderAttentionQueue(rosterOrderedRows), ['delta', 'charlie', 'echo', 'alpha']);
+});
+
+test('orderAttentionLine: the focused session leaves the line and is back at its rank once focus moves on', () => {
+  const rosterOrderedRows = [attentionRow('alpha', 'COMPLETE'), attentionRow('charlie', 'WAITING'), attentionRow('delta', 'FAILED'), attentionRow('echo', 'WAITING')];
+  assert.deepEqual(orderAttentionLine(rosterOrderedRows, 'charlie'), ['delta', 'echo', 'alpha']);
+  assert.deepEqual(orderAttentionLine(rosterOrderedRows, 'echo'), ['delta', 'charlie', 'alpha']);
+  assert.deepEqual(orderAttentionLine(rosterOrderedRows, null), ['delta', 'charlie', 'echo', 'alpha']);
 });
 
 test('pickStagedSession: a staged session keeps the stage while it stays queued, even when a higher-ranked one arrives', () => {

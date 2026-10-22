@@ -139,6 +139,10 @@ export function orderAttentionQueue<Row extends SessionAttentionRow & { id: stri
     .map(({ id }) => id);
 }
 
+export function orderAttentionLine<Row extends SessionAttentionRow & { id: string }>(rosterOrderedRows: readonly Row[], focusedId: string | null | undefined): string[] {
+  return orderAttentionQueue(rosterOrderedRows).filter((id) => id !== focusedId);
+}
+
 type AttentionCountRow = SessionAttentionRow | null | undefined;
 
 export interface AttentionCounts {
