@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-10-22
+
 ### Changed
 
 - **Next session banner**: the counted chips are now one icon tile per session needing you, in jump order (failed, then waiting, then finished), with the head tile larger and the banner border in its color. Next session (Cmd/Alt+J) always opens the head tile, which flies into that session's rail row; the rest slide up. Clicking a tile opens its session the same way, hovering a tile or a rail row highlights its partner, and tiles past the banner width fold into +N. The session you are in leaves the line and rejoins at its rank if it still needs you. The phone Board banner gets the same tiles.
