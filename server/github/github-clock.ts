@@ -9,6 +9,7 @@ interface GithubClockOptions {
   setIntervalFn?: SetIntervalFn;
   clearIntervalFn?: ClearIntervalFn;
   log?: Pick<Console, 'warn'>;
+  githubStatus?: SharedClock['githubStatus'];
 }
 
 interface ClockSubscription {
@@ -17,7 +18,7 @@ interface ClockSubscription {
   ticksSinceRun: number;
 }
 
-export function createGithubClock({ baseIntervalMs, setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn, clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn, log = console }: GithubClockOptions) {
+export function createGithubClock({ baseIntervalMs, setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn, clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn, log = console, githubStatus }: GithubClockOptions) {
   const subscriptions = new Set<ClockSubscription>();
   let timer: NodeJS.Timeout | null = null;
   let isSweeping = false;
@@ -78,5 +79,5 @@ export function createGithubClock({ baseIntervalMs, setIntervalFn = DEFAULT_TIME
     };
   };
 
-  return { schedule, exclusive, sweep };
+  return { schedule, exclusive, sweep, githubStatus };
 }

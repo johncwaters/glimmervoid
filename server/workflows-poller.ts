@@ -141,7 +141,8 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
   }
 
   function publishStatus(): void {
-    onTickComplete({ type: 'workflows-status', ts: now(), configured: true, error: pollingError, ...loop.scheduleStatus() });
+    const { nextAttemptAt, retry, isRefreshing, refreshNotice } = loop.scheduleStatus();
+    onTickComplete({ type: 'workflows-status', ts: now(), configured: true, error: pollingError, nextAttemptAt, retry, isRefreshing, refreshNotice });
   }
 
   const loop = createTickLoop({

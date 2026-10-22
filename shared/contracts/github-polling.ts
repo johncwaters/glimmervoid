@@ -5,6 +5,8 @@ export type GithubPollingRetry = z.infer<typeof GithubPollingRetry>;
 
 export const githubPollingShape = {
   error: z.string().nullable().optional(),
+  lastRefreshedAt: z.number().finite().nonnegative().nullable().optional(),
+  incident: z.string().nullable().optional(),
   nextAttemptAt: z.number().finite().nonnegative().nullable().optional(),
   retry: GithubPollingRetry.nullable().optional(),
   isRefreshing: z.boolean().optional(),

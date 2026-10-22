@@ -41,6 +41,7 @@ import { keepMergeableTimeoutSeconds } from '../github/core/my-prs-core.ts';
 import { createSessionPrLinkWiring } from '../github/session-pr-link-wiring.ts';
 import { createWorkflowSpawn, createWorkflowsWiring } from '../workflows-wiring.ts';
 import { createGithubClock } from '../github/github-clock.ts';
+import { createGithubStatus } from '../github/github-status.ts';
 import { createGithubStoreWiring } from '../github/github-store-wiring.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from '../github/core/github-clock-core.ts';
 import { createUsageWiring, resolveUsageConfig } from '../usage/usage-wiring.ts';
@@ -200,7 +201,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     broadcast: broadcastControl,
     telemetry: laneTelemetry,
   });
-  const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger });
+  const githubStatus = createGithubStatus({ log: logger });
+  const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger, githubStatus });
   const glimmervoidHome = glimmervoidHomeDir();
   const github = createPrGh(glimmervoidHome);
   const githubStore = createGithubStoreWiring({

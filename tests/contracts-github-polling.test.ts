@@ -13,9 +13,9 @@ test('Reviews statuses accept old snapshots and optional polling metadata', () =
   for (const status of statuses) {
     const schema = status.type === 'my-prs-status' ? MyPrsStatus : TeamReviewStatus;
     assert.equal(schema.safeParse(status).success, true);
-    const polling = { error: 'offline', nextAttemptAt: 11_000, retry: { attempt: 1, limit: 3 }, isRefreshing: false, refreshNotice: null };
+    const polling = { error: 'offline', nextAttemptAt: 11_000, retry: { attempt: 1, limit: 3 }, isRefreshing: false, refreshNotice: null, lastRefreshedAt: 1000, incident: 'Degraded API requests' };
     const parsed = schema.parse({ ...status, ...polling });
-    for (const key of ['error', 'nextAttemptAt', 'retry', 'isRefreshing', 'refreshNotice'] as const) assert.deepEqual(parsed[key], polling[key]);
+    for (const key of ['error', 'nextAttemptAt', 'retry', 'isRefreshing', 'refreshNotice', 'lastRefreshedAt', 'incident'] as const) assert.deepEqual(parsed[key], polling[key]);
     assert.equal(ServerMessage.safeParse({ ...status, ...polling }).success, true);
     assert.equal(schema.safeParse({ ...status, error: null, nextAttemptAt: null, retry: null }).success, true);
     for (const invalid of [{ nextAttemptAt: -1 }, { nextAttemptAt: Number.NaN }, { error: 12 }, { retry: { attempt: 0, limit: 3 } }, { retry: { attempt: 4, limit: 3 } }, { retry: { attempt: 1.5, limit: 3 } }, { isRefreshing: 'yes' }]) {

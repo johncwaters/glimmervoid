@@ -16,7 +16,7 @@ interface GithubStoreWiringOptions {
 }
 
 export function storeReadingLaneClock(clock: SharedClock | undefined): SharedClock | undefined {
-  return clock ? { schedule: clock.schedule, exclusive: async (work) => work() } : undefined;
+  return clock ? { schedule: clock.schedule, exclusive: async (work) => work(), githubStatus: clock.githubStatus } : undefined;
 }
 
 export function createGithubStoreWiring({ github, clock, now = Date.now, isDashboardConnected, broadcast, log }: GithubStoreWiringOptions) {

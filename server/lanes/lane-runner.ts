@@ -15,6 +15,7 @@ interface TickOutcome {
 type TickTrigger = 'interval' | 'retry' | 'manual';
 
 interface SharedClock {
+  githubStatus?: { noteTransientFailure(): void; incident(): string | null };
   schedule(run: () => Promise<void>, intervalMs: number): () => void;
   exclusive<T>(work: () => Promise<T>, options?: { isPriority?: boolean }): Promise<T>;
 }
@@ -46,7 +47,7 @@ interface TickLoop {
   tick(): Promise<void>;
   tickSoon(): void;
   refresh(beforeTick?: () => Promise<GithubPollingRefreshResult>): Promise<GithubPollingRefreshResult>;
-  scheduleStatus(): { nextAttemptAt: number | null; retry: GithubPollingRetry | null; isRefreshing: boolean; refreshNotice: string | null };
+  scheduleStatus(): { nextAttemptAt: number | null; retry: GithubPollingRetry | null; isRefreshing: boolean; refreshNotice: string | null; lastRefreshedAt: number | null; incident: string | null };
   persist(): Promise<void>;
   track<T>(promise: Promise<T>): Promise<T>;
   isStopped(): boolean;
@@ -90,6 +91,8 @@ function createTickLoop({
   let rateLimitedUntil = 0;
   let isRefreshing = false;
   let refreshNotice: string | null = null;
+  let lastRefreshedAt: number | null = null;
+  let hasTransientFailure = false;
 
   const running = new Set<Promise<unknown>>();
 
@@ -124,7 +127,8 @@ function createTickLoop({
   }
 
   function scheduleStatus() {
-    return { nextAttemptAt, retry, isRefreshing, refreshNotice };
+    const incident = hasTransientFailure ? clock?.githubStatus?.incident() ?? null : null;
+    return { nextAttemptAt, retry, isRefreshing, refreshNotice, lastRefreshedAt, incident };
   }
 
   async function runTick(trigger: TickTrigger, beforeTick?: () => Promise<GithubPollingRefreshResult>): Promise<GithubPollingRefreshResult> {
@@ -170,6 +174,8 @@ function createTickLoop({
       const outcome = clock ? await clock.exclusive(() => (stopped ? Promise.resolve(null) : tickBody())) : await tickBody();
       if (stopped) return { ok: false, error: 'Reviews polling is stopped.' };
       if (outcome?.failed !== true) {
+        lastRefreshedAt = now();
+        hasTransientFailure = false;
         failureStreak = 0;
         quickRetryCount = 0;
         backoffUntil = 0;
@@ -178,6 +184,8 @@ function createTickLoop({
         return { ok: true };
       }
       failureStreak += 1;
+      hasTransientFailure = outcome.retryAfterMs === undefined;
+      if (hasTransientFailure) clock?.githubStatus?.noteTransientFailure();
       const scheduled = nextRetrySchedule({
         failureStreak, quickRetryCount, quickRetries, baseMs: backoffBaseMs, maxMs: backoffMaxMs,
         retryAfterMs: outcome.retryAfterMs, random,
