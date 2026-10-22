@@ -22,7 +22,7 @@ import type { RosterGroup } from './roster-groups-core.ts';
 import { groupRoster, visibleOrder } from './roster-groups-core.ts';
 import type { SessionGroupHeader } from './roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group-header.ts';
-import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner } from '../attention-banner.ts';
+import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendAttentionTileToRow, tetherAttentionTile } from '../attention-banner.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
@@ -112,7 +112,10 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   mountedRail.removeAttribute('aria-label');
   mountedRail.setAttribute('aria-keyshortcuts', railAriaKeyShortcuts(SHORTCUT_PLATFORM));
 
-  railHeadEl = buildAttentionBanner(buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)));
+  railHeadEl = buildAttentionBanner(buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)), {
+    onOpenTile: openAttentionSession,
+    rowFor: (id) => pillById.get(id),
+  });
 
   const statusKey = el('details', 'rail-status-key');
   statusKey.append(el('summary', 'rail-status-key-summary', 'Status key'), renderStatusLegend());
@@ -180,6 +183,8 @@ function buildPill(id: string) {
   button.dataset.id = id;
   button.setAttribute('role', 'option');
   button.addEventListener('click', () => onPillActivate(id));
+  button.addEventListener('pointerenter', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, id); });
+  button.addEventListener('pointerleave', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, null); });
 
   const { item, removeButton } = wrapSessionRow(button, () => requestSessionRemoval(id, mergeStatusById.get(id)));
   item.setAttribute('role', 'presentation');
@@ -314,20 +319,26 @@ function attentionLine() {
 }
 
 function updateRailHead() {
-  if (railHeadEl) paintAttentionBanner(railHeadEl, countAttentionByKind(orderedSessions()));
+  if (!railHeadEl) return;
+  const rosterOrderedRows = orderedSessions();
+  paintAttentionBanner(railHeadEl, countAttentionByKind(rosterOrderedRows), orderAttentionLine(rosterOrderedRows, getFocusedSessionId()));
 }
 
 export function focusNextAttention() {
   if (!active) return;
   if (railHeadEl) pressAttentionBanner(railHeadEl);
-  const nextId = attentionLine()[0];
-  if (!nextId) return;
-  const ui = sessionUIs.get(nextId);
-  requestSessionOpen(nextId);
-  focusSession(nextId);
-  pillById.get(nextId)?.scrollIntoView({ block: 'nearest' });
-  flashAttention(nextId);
-  focusTerminalAfterSettle(ui, nextId);
+  const nextId = attentionLine()[0]?.id;
+  if (nextId) openAttentionSession(nextId);
+}
+
+function openAttentionSession(id: string) {
+  if (!active) return;
+  pillById.get(id)?.scrollIntoView({ block: 'nearest' });
+  if (railHeadEl) sendAttentionTileToRow(railHeadEl, id, () => flashAttention(id));
+  const ui = sessionUIs.get(id);
+  requestSessionOpen(id);
+  focusSession(id);
+  focusTerminalAfterSettle(ui, id);
 }
 
 function focusTerminalAfterSettle(ui: SessionUi | null | undefined, id: string) {

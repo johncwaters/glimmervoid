@@ -3,7 +3,7 @@ import type { SessionRowRefs } from '../session-row.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import type { SessionRow } from '../focus-view/attention-core.ts';
 import { countAttentionByKind, jumpTargetCount, orderAttentionLine, orderRoster } from '../focus-view/attention-core.ts';
-import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner } from '../attention-banner.ts';
+import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendAttentionTileToRow } from '../attention-banner.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { groupRoster, visibleOrder } from '../focus-view/roster-groups-core.ts';
 import type { SessionGroupHeader } from '../focus-view/roster-group-header.ts';
@@ -34,11 +34,29 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
   nextAttentionButton.type = 'button';
   nextAttentionButton.addEventListener('click', () => {
     pressAttentionBanner(attentionEl);
-    const nextId = orderAttentionLine(currentOrderedRows(), null)[0];
-    if (!nextId) return;
-    onSelectSession?.(nextId);
+    const nextId = orderAttentionLine(currentOrderedRows(), null)[0]?.id;
+    if (nextId) openAttentionSession(nextId);
   });
-  const attentionEl = buildAttentionBanner(nextAttentionButton);
+  const attentionEl = buildAttentionBanner(nextAttentionButton, {
+    onOpenTile: openAttentionSession,
+    rowFor: (id) => rowById.get(id),
+  });
+
+  let pendingLandingId: string | null = null;
+
+  function openAttentionSession(id: string) {
+    pendingLandingId = id;
+    rowById.get(id)?.scrollIntoView({ block: 'nearest' });
+    sendAttentionTileToRow(attentionEl, id, () => {
+      if (pendingLandingId !== id) return;
+      selectSession(id);
+    });
+  }
+
+  function selectSession(id: string) {
+    pendingLandingId = null;
+    onSelectSession?.(id);
+  }
 
   const groupsEl = el('div', 'phone-board-list');
 
@@ -62,7 +80,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     const { row, refs } = buildSessionRow('button');
     row.type = 'button';
     row.dataset.id = id;
-    row.addEventListener('click', () => onSelectSession?.(id));
+    row.addEventListener('click', () => selectSession(id));
     const { item } = wrapSessionRow(row, () => requestSessionRemoval(id));
     item.setAttribute('role', 'listitem');
     rowState.set(row, { refs, item });
@@ -108,7 +126,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     const boardGroups = groupRoster(orderedRows, projectPathOf, emptyProjectKeys(orderedRows, projectPathOf));
     const attentionCounts = countAttentionByKind(orderedRows);
     attentionCount = jumpTargetCount(attentionCounts);
-    paintAttentionBanner(attentionEl, attentionCounts);
+    paintAttentionBanner(attentionEl, attentionCounts, orderAttentionLine(orderedRows, null));
 
     const presentGroupKeys = new Set(boardGroups.order);
     const groupOrderKey = boardGroups.order.join(',');

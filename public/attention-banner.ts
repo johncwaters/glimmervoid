@@ -1,18 +1,24 @@
+import type { StatusIcon } from '#shared/state-icons.ts';
 import { STATE_ICONS } from '#shared/state-icons.ts';
-import type { SessionState } from '#shared/states.ts';
 import { STATES } from '#shared/states.ts';
 import { el, query } from './dom-helpers.ts';
-import type { AttentionCounts } from './focus-view/attention-core.ts';
-import { attentionSummaryText, hasAnyAttention, jumpTargetCount } from './focus-view/attention-core.ts';
+import type { AttentionCounts, AttentionKind, AttentionTile } from './focus-view/attention-core.ts';
+import { ATTENTION_TILE_SIZES_PX, attentionSummaryText, fitAttentionTiles } from './focus-view/attention-core.ts';
 import { paintStatusIcon } from './status-icon.ts';
 
 const NO_ATTENTION: AttentionCounts = { waitingCount: 0, finishedCount: 0, failedCount: 0 };
 
-const ATTENTION_CHIP_KINDS = [
-  { state: STATES.FAILED, countKey: 'failedCount' },
-  { state: STATES.WAITING, countKey: 'waitingCount' },
-  { state: STATES.COMPLETE, countKey: 'finishedCount' },
-] as const;
+const ICON_BY_KIND: Readonly<Record<AttentionKind, StatusIcon>> = {
+  failed: STATE_ICONS[STATES.FAILED],
+  waiting: STATE_ICONS[STATES.WAITING],
+  finished: STATE_ICONS[STATES.COMPLETE],
+};
+
+const NEED_WORDS_BY_KIND: Readonly<Record<AttentionKind, string>> = {
+  failed: 'failed',
+  waiting: 'needs you',
+  finished: 'finished',
+};
 
 const ALL_CLEAR_LINES = [
   'NI.',
@@ -41,17 +47,32 @@ const ALL_CLEAR_LINES = [
 
 const ALL_CLEAR_LINE_HOLD_MS = 2500;
 const EASE_OUT_EXPO = 'cubic-bezier(0.16, 1, 0.3, 1)';
+const EASE_IN_OUT_FLIGHT = 'cubic-bezier(0.5, 0, 0.2, 1)';
 const PRESS_MS = 260;
-const POP_MS = 280;
-const CHIP_ENTER_MS = 200;
-const CHIP_LEAVE_MS = 200;
-const CHIP_SLIDE_MS = 260;
+const TILE_ENTER_MS = 200;
+const TILE_LEAVE_MS = 200;
+const TILE_SLIDE_MS = 300;
+const TILE_SLIDE_STAGGER_MS = 28;
+const TILE_PROMOTE_MS = 360;
+const TILE_FLY_MS = 420;
+const TILE_FADE_MS = 200;
 const KEYCAP_TRAVEL_PX = 3;
 
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
+interface AttentionBannerHooks {
+  onOpenTile: (sessionId: string) => void;
+  rowFor: (sessionId: string) => HTMLElement | null | undefined;
+}
+
 interface BannerMotion {
-  previousCounts: AttentionCounts;
+  hooks: AttentionBannerHooks;
+  tiles: readonly AttentionTile[];
+  tileById: Map<string, HTMLButtonElement>;
+  headId: string | null;
+  flyingIds: Set<string>;
+  tetheredId: string | null;
+  tetheredRow: HTMLElement | null;
   lastAllClearLine: string | null;
   allClearLineTimer: number | null;
   pressAnimations: Animation[];
@@ -60,11 +81,9 @@ interface BannerMotion {
 const motionByBanner = new WeakMap<HTMLElement, BannerMotion>();
 
 function motionOf(banner: HTMLElement) {
-  const existing = motionByBanner.get(banner);
-  if (existing) return existing;
-  const created: BannerMotion = { previousCounts: NO_ATTENTION, lastAllClearLine: null, allClearLineTimer: null, pressAnimations: [] };
-  motionByBanner.set(banner, created);
-  return created;
+  const motion = motionByBanner.get(banner);
+  if (!motion) throw new Error('attention banner was not built by buildAttentionBanner');
+  return motion;
 }
 
 function canAnimate(element: HTMLElement) {
@@ -79,22 +98,19 @@ function eased(frames: Keyframe[]) {
   return frames.map((frame) => ({ easing: EASE_OUT_EXPO, ...frame }));
 }
 
-function buildAttentionChip(state: SessionState) {
-  const chip = el('span', 'attention-chip');
-  chip.dataset.state = state;
-  chip.setAttribute('aria-hidden', 'true');
-  const icon = el('span', 'attention-chip-icon');
-  paintStatusIcon(icon, STATE_ICONS[state]);
-  chip.append(icon, el('span', 'attention-chip-count'));
-  return chip;
-}
-
-export function buildAttentionBanner(jumpAffordance: HTMLElement) {
+export function buildAttentionBanner(jumpAffordance: HTMLElement, hooks: AttentionBannerHooks) {
   const banner = el('div', 'attention-banner');
   banner.setAttribute('role', 'status');
+  banner.style.setProperty('--attention-head-tile-px', `${ATTENTION_TILE_SIZES_PX.headTile}px`);
+  banner.style.setProperty('--attention-tile-px', `${ATTENTION_TILE_SIZES_PX.tile}px`);
+  banner.style.setProperty('--attention-tile-gap-px', `${ATTENTION_TILE_SIZES_PX.tileGap}px`);
+  banner.style.setProperty('--attention-overflow-px', `${ATTENTION_TILE_SIZES_PX.overflowSlot}px`);
   jumpAffordance.classList.add('attention-banner-jump');
   const chips = el('span', 'attention-banner-chips');
-  chips.append(...ATTENTION_CHIP_KINDS.map((kind) => buildAttentionChip(kind.state)));
+  const overflow = el('span', 'attention-tile-overflow');
+  overflow.setAttribute('aria-hidden', 'true');
+  overflow.hidden = true;
+  chips.append(overflow);
   const allClearLine = el('span', 'attention-banner-line');
   allClearLine.setAttribute('aria-hidden', 'true');
   const statusRow = el('div', 'attention-banner-status');
@@ -102,95 +118,239 @@ export function buildAttentionBanner(jumpAffordance: HTMLElement) {
   const jumpRow = el('div', 'attention-banner-jump-row');
   jumpRow.append(el('span', 'attention-banner-jump-caption', 'Next session'), jumpAffordance);
   banner.append(statusRow, jumpRow);
-  paintAttentionBanner(banner, NO_ATTENTION);
+  motionByBanner.set(banner, {
+    hooks,
+    tiles: [],
+    tileById: new Map(),
+    headId: null,
+    flyingIds: new Set(),
+    tetheredId: null,
+    tetheredRow: null,
+    lastAllClearLine: null,
+    allClearLineTimer: null,
+    pressAnimations: [],
+  });
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => renderTiles(banner)).observe(chips);
+  paintAttentionBanner(banner, NO_ATTENTION, []);
   return banner;
 }
 
-export function paintAttentionBanner(banner: HTMLElement, counts: AttentionCounts) {
+export function paintAttentionBanner(banner: HTMLElement, counts: AttentionCounts, tiles: readonly AttentionTile[]) {
   const motion = motionOf(banner);
-  const shouldAnimate = canAnimate(banner);
+  motion.tiles = tiles;
   query(banner, '.attention-banner-count').textContent = attentionSummaryText(counts);
-  for (const kind of ATTENTION_CHIP_KINDS) {
-    const chip = query(banner, `.attention-chip[data-state="${kind.state}"]`);
-    const count = counts[kind.countKey];
-    const previousCount = motion.previousCounts[kind.countKey];
-    chip.title = attentionSummaryText({ ...NO_ATTENTION, [kind.countKey]: count });
-    if (count === 0) {
-      paintChipLeaving(banner, chip, previousCount > 0 && shouldAnimate);
-      continue;
-    }
-    cancelChipLeave(chip);
-    chip.hidden = false;
-    query(chip, '.attention-chip-count').textContent = String(count);
-    if (!shouldAnimate || count === previousCount) continue;
-    if (previousCount === 0) {
-      animateChipEnter(chip);
-      continue;
-    }
-    animateChipPop(chip);
-  }
-  const isJumpable = jumpTargetCount(counts) > 0;
-  banner.toggleAttribute('data-empty', !hasAnyAttention(counts));
+  const isJumpable = tiles.length > 0;
+  banner.toggleAttribute('data-empty', !isJumpable);
   banner.toggleAttribute('data-jumpable', isJumpable);
   const jumpAffordance = query(banner, '.attention-banner-jump');
   if (jumpAffordance instanceof HTMLButtonElement) jumpAffordance.disabled = !isJumpable;
-  if (hasAnyAttention(counts)) endAllClearLine(banner, motion);
-  motion.previousCounts = counts;
+  if (isJumpable) endAllClearLine(banner, motion);
+  renderTiles(banner);
 }
 
-function paintChipLeaving(banner: HTMLElement, chip: HTMLElement, shouldAnimate: boolean) {
-  if (chip.hidden || chip.hasAttribute('data-leaving')) return;
-  if (!shouldAnimate) {
-    chip.hidden = true;
-    return;
-  }
-  chip.toggleAttribute('data-leaving', true);
+function renderTiles(banner: HTMLElement) {
+  const motion = motionOf(banner);
+  const chips = query(banner, '.attention-banner-chips');
+  const overflow = query(chips, '.attention-tile-overflow');
+  const shouldAnimate = canAnimate(banner);
+  const visibleTiles = motion.tiles.slice(0, fitAttentionTiles(chips.clientWidth, motion.tiles.length));
+  const visibleIds = new Set(visibleTiles.map(({ id }) => id));
+  const leftBeforeById = new Map<string, number>();
+  if (shouldAnimate) for (const [id, tile] of motion.tileById) leftBeforeById.set(id, tile.getBoundingClientRect().left);
+  const departingTiles = [...motion.tileById].filter(([id]) => !visibleIds.has(id));
+  const pinnedOffsets = departingTiles.map(([, tile]) => ({ left: tile.offsetLeft, top: tile.offsetTop }));
+  departingTiles.forEach(([id, tile], index) => {
+    motion.tileById.delete(id);
+    if (motion.flyingIds.has(id) || !shouldAnimate) {
+      tile.remove();
+      return;
+    }
+    leaveTile(tile, pinnedOffsets[index]);
+  });
+  const previousHeadId = motion.headId;
+  const enteringTiles: HTMLButtonElement[] = [];
+  let precedingTile: HTMLButtonElement | null = null;
+  visibleTiles.forEach((attentionTile, index) => {
+    const existing = motion.tileById.get(attentionTile.id);
+    const tile = existing ?? buildTile(banner, attentionTile.id);
+    if (!existing) {
+      motion.tileById.set(attentionTile.id, tile);
+      enteringTiles.push(tile);
+    }
+    paintTile(tile, attentionTile, index === 0);
+    const isAlreadyInPlace = tile.parentElement === chips && previousSettledTileOf(tile) === precedingTile;
+    if (!isAlreadyInPlace) chips.insertBefore(tile, overflow);
+    precedingTile = tile;
+  });
+  const hiddenCount = motion.tiles.length - visibleTiles.length;
+  overflow.hidden = hiddenCount === 0;
+  overflow.textContent = `+${hiddenCount}`;
+  overflow.title = `${hiddenCount} more after these`;
+  motion.headId = visibleTiles[0]?.id ?? null;
+  const headKind = motion.tiles[0]?.kind;
+  if (headKind) banner.dataset.headKind = headKind;
+  if (!headKind) delete banner.dataset.headKind;
+  if (motion.tetheredId && !visibleIds.has(motion.tetheredId)) tetherAttentionTile(banner, null);
+  if (!shouldAnimate) return;
+  for (const tile of enteringTiles) animateTileEnter(tile);
+  visibleTiles.forEach(({ id }, index) => {
+    const tile = motion.tileById.get(id);
+    const leftBefore = leftBeforeById.get(id);
+    if (!tile || leftBefore === undefined) return;
+    const shiftPx = leftBefore - tile.getBoundingClientRect().left;
+    const isPromoted = id === motion.headId && id !== previousHeadId;
+    if (isPromoted) {
+      animateTilePromote(tile, shiftPx);
+      return;
+    }
+    if (shiftPx !== 0) animateTileSlide(tile, shiftPx, index);
+  });
+}
+
+function previousSettledTileOf(tile: Element) {
+  let sibling = tile.previousElementSibling;
+  while (sibling?.hasAttribute('data-leaving')) sibling = sibling.previousElementSibling;
+  return sibling;
+}
+
+function buildTile(banner: HTMLElement, sessionId: string) {
+  const tile = el('button', 'attention-tile');
+  tile.type = 'button';
+  tile.dataset.id = sessionId;
+  const icon = el('span', 'attention-tile-icon');
+  icon.setAttribute('aria-hidden', 'true');
+  tile.append(icon);
+  tile.addEventListener('click', () => motionOf(banner).hooks.onOpenTile(sessionId));
+  tile.addEventListener('pointerenter', () => tetherAttentionTile(banner, sessionId));
+  tile.addEventListener('pointerleave', () => tetherAttentionTile(banner, null));
+  return tile;
+}
+
+function paintTile(tile: HTMLButtonElement, { kind, name }: AttentionTile, isHead: boolean) {
+  tile.dataset.kind = kind;
+  tile.toggleAttribute('data-head', isHead);
+  const label = `${name}, ${NEED_WORDS_BY_KIND[kind]}`;
+  tile.title = label;
+  tile.setAttribute('aria-label', label);
+  paintStatusIcon(query(tile, '.attention-tile-icon'), ICON_BY_KIND[kind]);
+}
+
+function leaveTile(tile: HTMLButtonElement, pinnedOffset: { left: number; top: number }) {
+  tile.toggleAttribute('data-leaving', true);
+  tile.style.left = `${pinnedOffset.left}px`;
+  tile.style.top = `${pinnedOffset.top}px`;
   const frames = prefersReducedMotion()
     ? [{ opacity: 1 }, { opacity: 0 }]
     : eased([{ transform: 'none', opacity: 1 }, { transform: 'scale(0.6)', opacity: 0 }]);
-  const leave = chip.animate(frames, { duration: CHIP_LEAVE_MS, fill: 'forwards' });
-  leave.onfinish = () => {
-    if (!chip.hasAttribute('data-leaving')) return;
-    slideFollowingChips(banner, () => {
-      chip.toggleAttribute('data-leaving', false);
-      chip.hidden = true;
-      leave.cancel();
-    });
-  };
+  const leave = tile.animate(frames, { duration: TILE_LEAVE_MS, fill: 'forwards' });
+  leave.onfinish = () => tile.remove();
+  leave.oncancel = () => tile.remove();
 }
 
-function cancelChipLeave(chip: HTMLElement) {
-  if (!chip.hasAttribute('data-leaving')) return;
-  chip.toggleAttribute('data-leaving', false);
-  for (const animation of chip.getAnimations()) animation.cancel();
-}
-
-function slideFollowingChips(banner: HTMLElement, removeLeavingChip: () => void) {
-  const stayingChips = [...banner.querySelectorAll<HTMLElement>('.attention-chip:not([hidden]):not([data-leaving])')];
-  const leftBeforeByChip = new Map(stayingChips.map((chip) => [chip, chip.getBoundingClientRect().left]));
-  removeLeavingChip();
-  if (prefersReducedMotion() || !canAnimate(banner)) return;
-  for (const chip of stayingChips) {
-    const shiftPx = (leftBeforeByChip.get(chip) ?? 0) - chip.getBoundingClientRect().left;
-    if (shiftPx === 0) continue;
-    chip.animate(eased([{ transform: `translateX(${shiftPx}px)` }, { transform: 'none' }]), { duration: CHIP_SLIDE_MS });
-  }
-}
-
-function animateChipEnter(chip: HTMLElement) {
+function animateTileEnter(tile: HTMLElement) {
   const frames = prefersReducedMotion()
     ? [{ opacity: 0 }, { opacity: 1 }]
     : eased([{ transform: 'scale(0.6)', opacity: 0 }, { transform: 'none', opacity: 1 }]);
-  chip.animate(frames, { duration: CHIP_ENTER_MS });
+  tile.animate(frames, { duration: TILE_ENTER_MS });
 }
 
-function animateChipPop(chip: HTMLElement) {
+function animateTileSlide(tile: HTMLElement, shiftPx: number, index: number) {
+  if (prefersReducedMotion()) return;
+  tile.animate(eased([{ transform: `translateX(${shiftPx}px)` }, { transform: 'none' }]), { duration: TILE_SLIDE_MS, delay: index * TILE_SLIDE_STAGGER_MS, fill: 'backwards' });
+}
+
+function animateTilePromote(tile: HTMLElement, shiftPx: number) {
   if (prefersReducedMotion()) {
-    chip.animate([{ opacity: 0.35 }, { opacity: 1 }], { duration: POP_MS, easing: EASE_OUT_EXPO });
+    tile.animate([{ opacity: 0.35 }, { opacity: 1 }], { duration: TILE_PROMOTE_MS, easing: EASE_OUT_EXPO });
     return;
   }
-  chip.animate(eased([{ transform: 'none' }, { transform: 'scale(1.14)', offset: 0.35 }, { transform: 'none' }]), { duration: POP_MS });
-  query(chip, '.attention-chip-count').animate(eased([{ transform: 'translateY(-60%)', opacity: 0 }, { transform: 'none', opacity: 1 }]), { duration: POP_MS });
+  tile.animate(eased([
+    { transform: `translateX(${shiftPx}px) scale(0.8)`, filter: 'brightness(1.8)' },
+    { transform: 'scale(1.1)', offset: 0.6 },
+    { transform: 'none', filter: 'none' },
+  ]), { duration: TILE_PROMOTE_MS });
+}
+
+export function tetherAttentionTile(banner: HTMLElement, sessionId: string | null) {
+  const motion = motionOf(banner);
+  const tile = sessionId ? motion.tileById.get(sessionId) : undefined;
+  const nextId = tile && sessionId ? sessionId : null;
+  if (nextId === motion.tetheredId) return;
+  if (motion.tetheredId) motion.tileById.get(motion.tetheredId)?.toggleAttribute('data-tethered', false);
+  motion.tetheredRow?.toggleAttribute('data-tethered', false);
+  motion.tetheredRow?.style.removeProperty('--tether');
+  motion.tetheredId = nextId;
+  motion.tetheredRow = null;
+  if (!tile || !nextId) return;
+  tile.toggleAttribute('data-tethered', true);
+  const row = motion.hooks.rowFor(nextId);
+  if (!row) return;
+  const tileColor = getComputedStyle(tile).getPropertyValue('--tile').trim();
+  if (tileColor) row.style.setProperty('--tether', tileColor);
+  row.toggleAttribute('data-tethered', true);
+  motion.tetheredRow = row;
+}
+
+function visibleRectOf(element: Element | null | undefined) {
+  if (!element || element.getClientRects().length === 0) return null;
+  return element.getBoundingClientRect();
+}
+
+export function sendAttentionTileToRow(banner: HTMLElement, sessionId: string, onLand: () => void) {
+  const motion = motionOf(banner);
+  if (motion.flyingIds.has(sessionId)) return;
+  const tile = motion.tileById.get(sessionId);
+  if (!tile || !canAnimate(banner)) {
+    onLand();
+    return;
+  }
+  tetherAttentionTile(banner, null);
+  motion.flyingIds.add(sessionId);
+  const row = motion.hooks.rowFor(sessionId);
+  const fromRect = tile.getBoundingClientRect();
+  const targetRect = visibleRectOf(row?.querySelector('.session-row-glyph') ?? row);
+  const ghost = tile.cloneNode(true);
+  if (!(ghost instanceof HTMLElement)) {
+    motion.flyingIds.delete(sessionId);
+    onLand();
+    return;
+  }
+  ghost.classList.add('attention-tile-ghost');
+  ghost.setAttribute('aria-hidden', 'true');
+  ghost.removeAttribute('aria-label');
+  ghost.tabIndex = -1;
+  ghost.style.left = `${fromRect.left}px`;
+  ghost.style.top = `${fromRect.top}px`;
+  ghost.style.width = `${fromRect.width}px`;
+  ghost.style.height = `${fromRect.height}px`;
+  document.body.append(ghost);
+  tile.style.visibility = 'hidden';
+  const flight = ghost.animate(flightFrames(fromRect, targetRect), flightTiming(targetRect));
+  const land = () => {
+    ghost.remove();
+    motion.flyingIds.delete(sessionId);
+    if (tile.isConnected) tile.style.visibility = '';
+    onLand();
+  };
+  flight.onfinish = land;
+  flight.oncancel = land;
+}
+
+function flightFrames(fromRect: DOMRect, targetRect: DOMRect | null): Keyframe[] {
+  if (!targetRect || prefersReducedMotion()) return [{ opacity: 1 }, { opacity: 0 }];
+  const shiftXPx = targetRect.left + targetRect.width / 2 - (fromRect.left + fromRect.width / 2);
+  const shiftYPx = targetRect.top + targetRect.height / 2 - (fromRect.top + fromRect.height / 2);
+  const landingScale = Math.min(1, targetRect.width / fromRect.width);
+  return [
+    { transform: 'none', opacity: 1 },
+    { transform: 'translateY(-5px) scale(1.2)', opacity: 1, offset: 0.25 },
+    { transform: `translate(${shiftXPx}px, ${shiftYPx}px) scale(${landingScale})`, opacity: 0.2 },
+  ];
+}
+
+function flightTiming(targetRect: DOMRect | null): KeyframeAnimationOptions {
+  if (!targetRect || prefersReducedMotion()) return { duration: TILE_FADE_MS, fill: 'forwards' };
+  return { duration: TILE_FLY_MS, easing: EASE_IN_OUT_FLIGHT, fill: 'forwards' };
 }
 
 export function pressAttentionBanner(banner: HTMLElement) {

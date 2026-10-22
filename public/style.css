@@ -5845,9 +5845,9 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   border-radius: var(--radius);
   font-family: var(--font-mono);
 }
-.attention-banner:has(.attention-chip[data-state="COMPLETE"]:not([hidden]):not([data-leaving])) { --st: var(--state-complete); }
-.attention-banner:has(.attention-chip[data-state="WAITING"]:not([hidden]):not([data-leaving])) { --st: var(--state-waiting); }
-.attention-banner:has(.attention-chip[data-state="FAILED"]:not([hidden]):not([data-leaving])) { --st: var(--state-failed); }
+.attention-banner[data-head-kind="finished"] { --st: var(--state-complete); }
+.attention-banner[data-head-kind="waiting"] { --st: var(--state-waiting); }
+.attention-banner[data-head-kind="failed"] { --st: var(--state-failed); }
 .attention-banner[data-empty] {
   background: var(--bg-header);
   border-color: var(--border);
@@ -5862,31 +5862,51 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   pointer-events: none;
 }
 .attention-banner-status { position: relative; display: flex; align-items: center; min-height: 32px; min-width: 0; container-type: inline-size; }
-.attention-banner-chips { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; }
+.attention-banner-chips { position: relative; display: flex; flex: 1; flex-wrap: nowrap; align-items: center; gap: var(--attention-tile-gap-px); min-width: 0; }
 .attention-banner[data-empty] .attention-banner-chips:not(:has([data-leaving])) { display: none; }
-.attention-chip {
+.attention-tile {
+  --tile: var(--state-waiting);
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 10px 0 8px;
-  color: var(--st);
-  background: color-mix(in srgb, var(--st) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--st) 45%, transparent);
+  justify-content: center;
+  width: var(--attention-tile-px);
+  height: var(--attention-tile-px);
+  padding: 0;
+  color: var(--tile);
+  background: color-mix(in srgb, var(--tile) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tile) 45%, transparent);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.attention-tile[data-kind="failed"] { --tile: var(--state-failed); }
+.attention-tile[data-kind="finished"] { --tile: var(--state-complete); }
+.attention-tile[data-head] { width: var(--attention-head-tile-px); height: var(--attention-head-tile-px); color: var(--bg); background: var(--tile); border-color: var(--tile); }
+.attention-tile[data-leaving] { position: absolute; pointer-events: none; }
+.attention-tile[data-tethered] { box-shadow: 0 0 0 2px color-mix(in srgb, var(--tile) 60%, transparent); }
+.attention-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.attention-tile-icon { display: block; width: 14px; height: 14px; }
+.attention-tile[data-head] .attention-tile-icon { width: 16px; height: 16px; }
+.attention-tile-icon svg { display: block; width: 100%; height: 100%; }
+.attention-tile-ghost { position: fixed; z-index: 1000; margin: 0; pointer-events: none; box-sizing: border-box; }
+.attention-tile-overflow {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--attention-overflow-px);
+  height: var(--attention-tile-px);
+  padding: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+  border: 1px dashed var(--border-hover);
   border-radius: var(--radius);
 }
-.attention-chip[hidden] { display: none; }
-.attention-chip-icon { display: block; width: 16px; height: 16px; }
-.attention-chip-count { font-size: 16px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-@container (max-width: 199.98px) {
-  .attention-banner-chips { gap: 4px; }
-  .attention-chip { gap: 4px; padding: 0 7px 0 6px; }
-}
-@container (max-width: 170.98px) {
-  .attention-banner-chips { gap: 3px; }
-  .attention-chip { gap: 3px; padding: 0 4px 0 3px; }
-  .attention-chip-icon { width: 14px; height: 14px; }
-  .attention-chip-count { font-size: 14px; }
+.attention-tile-overflow[hidden] { display: none; }
+.session-row[data-tethered] {
+  background: color-mix(in srgb, var(--tether, var(--accent)) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tether, var(--accent)) 60%, transparent);
 }
 .attention-banner:not([data-empty]) .attention-banner-count {
   position: absolute;
@@ -6669,12 +6689,12 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="RUNNING"] { --st: var(--state-running); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="RUNNING"][data-monitoring] { --st: var(--state-monitoring); }
-:is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card, .attention-chip)[data-state="WAITING"] { --st: var(--state-waiting); }
-:is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card, .attention-chip)[data-state="FAILED"] { --st: var(--state-failed); }
+:is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="WAITING"] { --st: var(--state-waiting); }
+:is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="FAILED"] { --st: var(--state-failed); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="DONE"] { --st: var(--state-done); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="IDLE"] { --st: var(--state-idle); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="STARTING"] { --st: var(--state-starting); }
-:is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card, .attention-chip)[data-state="COMPLETE"] { --st: var(--state-complete); }
+:is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="COMPLETE"] { --st: var(--state-complete); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="INITIALIZING"] { --st: var(--state-starting); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="DORMANT"] { --st: var(--text-muted); }
 .session-row[data-merge="parked"] { --st: var(--state-failed); }

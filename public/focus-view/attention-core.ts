@@ -104,7 +104,13 @@ export function pickAdjacent(orderedIds: readonly string[], currentId: string | 
   return orderedIds[(start + step + orderedIds.length) % orderedIds.length];
 }
 
-type AttentionKind = 'waiting' | UnseenOutcome;
+export type AttentionKind = 'waiting' | UnseenOutcome;
+
+export interface AttentionTile {
+  id: string;
+  kind: AttentionKind;
+  name: string;
+}
 
 function attentionKindOf({ state, unseenOutcome }: SessionAttentionRow): AttentionKind | null {
   if (state === STATES.WAITING) return 'waiting';
@@ -139,8 +145,26 @@ export function orderAttentionQueue<Row extends SessionAttentionRow & { id: stri
     .map(({ id }) => id);
 }
 
-export function orderAttentionLine<Row extends SessionAttentionRow & { id: string }>(rosterOrderedRows: readonly Row[], focusedId: string | null | undefined): string[] {
-  return orderAttentionQueue(rosterOrderedRows).filter((id) => id !== focusedId);
+export function orderAttentionLine<Row extends SessionAttentionRow & { id: string; name?: string | null }>(rosterOrderedRows: readonly Row[], focusedId: string | null | undefined): AttentionTile[] {
+  const rowById = new Map(rosterOrderedRows.map((row) => [row.id, row]));
+  return orderAttentionQueue(rosterOrderedRows).flatMap((id) => {
+    const row = rowById.get(id);
+    const kind = row ? attentionKindOf(row) : null;
+    if (!row || kind === null || id === focusedId) return [];
+    return [{ id, kind, name: row.name ?? '' }];
+  });
+}
+
+export const ATTENTION_TILE_SIZES_PX = { headTile: 32, tile: 26, tileGap: 4, overflowSlot: 40 } as const;
+
+export function fitAttentionTiles(availableWidthPx: number, tileCount: number) {
+  if (tileCount === 0) return 0;
+  const { headTile, tile, tileGap, overflowSlot } = ATTENTION_TILE_SIZES_PX;
+  const tileStepPx = tile + tileGap;
+  if (headTile + (tileCount - 1) * tileStepPx <= availableWidthPx) return tileCount;
+  const roomBeforeOverflowPx = availableWidthPx - overflowSlot - tileGap - headTile;
+  const tilesAfterHead = Math.floor(roomBeforeOverflowPx / tileStepPx);
+  return Math.max(1, Math.min(tileCount - 1, 1 + tilesAfterHead));
 }
 
 type AttentionCountRow = SessionAttentionRow | null | undefined;
@@ -168,10 +192,6 @@ export function jumpTargetCount({ waitingCount, finishedCount, failedCount }: At
 
 export function titleAlertCount({ waitingCount, failedCount }: AttentionCounts) {
   return waitingCount + failedCount;
-}
-
-export function hasAnyAttention(counts: AttentionCounts) {
-  return jumpTargetCount(counts) > 0;
 }
 
 export function attentionSummaryText({ waitingCount, finishedCount, failedCount }: AttentionCounts) {

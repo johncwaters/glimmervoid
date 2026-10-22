@@ -138,9 +138,10 @@ test('orderAttentionQueue: the jump queue puts failed, then waiting, then finish
 
 test('orderAttentionLine: the focused session leaves the line and is back at its rank once focus moves on', () => {
   const rosterOrderedRows = [attentionRow('alpha', 'COMPLETE'), attentionRow('charlie', 'WAITING'), attentionRow('delta', 'FAILED'), attentionRow('echo', 'WAITING')];
-  assert.deepEqual(orderAttentionLine(rosterOrderedRows, 'charlie'), ['delta', 'echo', 'alpha']);
-  assert.deepEqual(orderAttentionLine(rosterOrderedRows, 'echo'), ['delta', 'charlie', 'alpha']);
-  assert.deepEqual(orderAttentionLine(rosterOrderedRows, null), ['delta', 'charlie', 'echo', 'alpha']);
+  const lineIds = (focusedId: string | null) => orderAttentionLine(rosterOrderedRows, focusedId).map(({ id }) => id);
+  assert.deepEqual(lineIds('charlie'), ['delta', 'echo', 'alpha']);
+  assert.deepEqual(lineIds('echo'), ['delta', 'charlie', 'alpha']);
+  assert.deepEqual(lineIds(null), ['delta', 'charlie', 'echo', 'alpha']);
 });
 
 test('pickStagedSession: a staged session keeps the stage while it stays queued, even when a higher-ranked one arrives', () => {
