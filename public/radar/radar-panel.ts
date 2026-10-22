@@ -3,7 +3,7 @@ import { createAttentionAck } from '../attention-ack-core.ts';
 import { buildPanelSection, buildStatChip, el, externalLink, isPanelHidden, projectsOf } from '../dom-helpers.ts';
 import { createInvestigationDialog, createRadarReportDialog } from '../dialogs.ts';
 import type { InvestigationDialog } from '../dialogs.ts';
-import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
+import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { createPollAgoTicker, formatAgo, formatDuration } from '../poll-ago.ts';
@@ -266,13 +266,11 @@ function createActionCluster() {
     _hold.begin(token);
     setBusy(true);
     clearFollowUp();
-    status.dataset.tone = 'busy';
-    status.textContent = pendingText;
-    const settle = (tone: string, text: string) => {
+    paintActionStatus(status, 'busy', pendingText);
+    const settle = (tone: 'ok' | 'error', text: string) => {
       setBusy(false);
       clearFollowUp();
-      status.dataset.tone = tone;
-      status.textContent = text;
+      paintActionStatus(status, tone, text);
       _hold.settle(token);
     };
     const resolved = (msg: ServerMessage) => {

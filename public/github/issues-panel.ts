@@ -1,3 +1,4 @@
+import { paintActionStatus, type ActionStatusTone } from '../action-status.ts';
 import type { OperatorActionOf, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { IssuesStatus } from '#shared/contracts/issues.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
@@ -48,7 +49,7 @@ let hasStaleSessionState = false;
 let pollingControls: ReturnType<typeof createGithubPollingControls> | null = null;
 let requestSender: IssuesRequestSender | null = null;
 const openRequestById = new Map<string, PendingOpenRequest>();
-const openOutcomeByIssue = new Map<string, string>();
+const openOutcomeByIssue = new Map<string, { text: string; tone: ActionStatusTone }>();
 const detailRequestById = new Map<string, PendingDetailRequest>();
 const bodyByCacheKey = new Map<string, string>();
 const bodyErrorByCacheKey = new Map<string, string>();
@@ -97,7 +98,7 @@ function abandonOpenRequest(requestId: string): void {
   const request = openRequestById.get(requestId);
   if (!request) return;
   openRequestById.delete(requestId);
-  openOutcomeByIssue.set(request.issueKey, ISSUES_NO_REPLY_TEXT);
+  openOutcomeByIssue.set(request.issueKey, { text: ISSUES_NO_REPLY_TEXT, tone: 'error' });
   renderDetail();
 }
 
@@ -133,7 +134,7 @@ function openIssueSession(issue: IssueRow): void {
   if (!projectId || liveIssueSession(issue) || isOpeningIssue(issue)) return;
   const requestId = nextRequestId('open-issue-session');
   if (!requestSender?.({ type: 'open-issue-session', requestId, projectId, repo: issue.repo, issueNumber: issue.number })) {
-    openOutcomeByIssue.set(issue.key, NOT_CONNECTED_TEXT);
+    openOutcomeByIssue.set(issue.key, { text: NOT_CONNECTED_TEXT, tone: 'error' });
     renderDetail();
     return;
   }
@@ -142,7 +143,7 @@ function openIssueSession(issue: IssueRow): void {
     issueNumber: issue.number,
     timeoutHandle: setTimeout(() => abandonOpenRequest(requestId), ISSUES_REQUEST_TIMEOUT_MS),
   });
-  openOutcomeByIssue.set(issue.key, 'Opening session.');
+  openOutcomeByIssue.set(issue.key, { text: 'Opening session.', tone: 'busy' });
   renderDetail();
 }
 
@@ -206,9 +207,9 @@ function buildDetailFooter(issue: IssueRow): HTMLElement {
   footer.append(externalLink('pr-action pr-action-ghost', 'View on GitHub', issue.url));
   const outcome = openOutcomeByIssue.get(issue.key);
   const fallback = issue.projectId ? '' : `Add a project for ${issue.repo} in Settings to open sessions from here.`;
-  const status = el('span', 'pr-action-status issue-open-status', outcome ?? fallback);
+  const status = el('span', 'pr-action-status issue-open-status');
   status.setAttribute('role', 'status');
-  if (isOpeningIssue(issue)) status.prepend(el('span', 'issues-spinner'));
+  paintActionStatus(status, outcome?.tone ?? null, outcome?.text ?? fallback);
   footer.append(status);
   return footer;
 }
@@ -478,7 +479,7 @@ export function applyIssuesConnectionState(connected: boolean): void {
   if (connected) return;
   for (const request of openRequestById.values()) {
     clearTimeout(request.timeoutHandle);
-    openOutcomeByIssue.set(request.issueKey, NOT_CONNECTED_TEXT);
+    openOutcomeByIssue.set(request.issueKey, { text: NOT_CONNECTED_TEXT, tone: 'error' });
   }
   openRequestById.clear();
   for (const request of detailRequestById.values()) {
@@ -517,14 +518,14 @@ export function applyOpenIssueSessionResult(message: Record<string, unknown>): v
     const name = typeof message.sessionName === 'string' ? message.sessionName : `issue #${request.issueNumber}`;
     const suffix = message.pending === true ? ' Prompt queued.' : '';
     const outcome = message.existing === true ? 'already open' : 'created';
-    openOutcomeByIssue.set(key, `Session "${name}" ${outcome}.${suffix}`);
+    openOutcomeByIssue.set(key, { text: `Session "${name}" ${outcome}.${suffix}`, tone: 'ok' });
     const issue = latestStatus?.issues.find((candidate) => candidate.key === key);
     if (issue && typeof message.sessionId === 'string') issue.sessionId = message.sessionId;
     render();
     return;
   }
   const error = typeof message.error === 'string' && message.error ? message.error : 'Could not open session.';
-  openOutcomeByIssue.set(key, error);
+  openOutcomeByIssue.set(key, { text: error, tone: 'error' });
   renderDetail();
 }
 

@@ -2658,6 +2658,7 @@ html[data-layout="phone"] .view-panel {
   white-space: nowrap;
 }
 
+.radar-issue-action-status > .action-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .radar-issue-action-status[data-tone="ok"] { color: var(--state-complete); }
 .radar-issue-action-status[data-tone="error"] { color: var(--state-failed); }
 
@@ -3787,10 +3788,12 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .my-pr-row-gro
 .issues-body-section .pr-section-heading { padding: 0; }
 .issue-body { max-width: 80ch; font-size: 12px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; padding-bottom: 22px; }
 .issues-detail-footer { position: sticky; bottom: 0; margin-top: auto; background: var(--bg); }
-.issues-content .pr-action-status { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-.issues-spinner { width: 10px; height: 10px; flex: 0 0 auto; border: 1.5px solid var(--border-hover); border-top-color: var(--accent); border-radius: 50%; animation: issues-spin 900ms linear infinite; }
-@keyframes issues-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .issues-spinner { animation: none; } }
+:has(> .action-status-icon):not([hidden]) { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.action-status-icon { flex: 0 0 12px; display: grid; place-items: center; width: 12px; height: 12px; }
+[data-tone="busy"] > .action-status-icon { color: var(--state-running); }
+[data-tone="ok"] > .action-status-icon { color: var(--state-complete); }
+[data-tone="error"] > .action-status-icon { color: var(--state-failed); }
+.action-status-text { min-width: 0; }
 
 
 .hooks-content {

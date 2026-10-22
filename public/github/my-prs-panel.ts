@@ -4,7 +4,7 @@ import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import type { GithubPollingRefreshRequest } from '#shared/contracts/github-polling.ts';
 import type { LinkedPr, MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { STATES } from '#shared/states.ts';
-import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
+import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden, query } from '../dom-helpers.ts';
 import { buildSessionRow, paintSessionRowStatus } from '../session-row.ts';
@@ -153,7 +153,7 @@ function createMergeControl(pr: MyPr): HTMLElement | null {
   const status = el('span', 'pr-action-status', state.statusText);
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  if (state.tone) status.dataset.tone = state.tone;
+  paintActionStatus(status, state.tone, state.statusText);
   button.addEventListener('click', () => {
     openConfirmDialog({ title: 'Merge pull request', message: mergeConfirmMessage(pr), confirmLabel: 'Merge', onConfirm: () => sendMerge(pr) });
   });
@@ -170,6 +170,7 @@ function createToggleControl(pr: MyPr, toggle: PrToggle): HTMLElement | null {
   button.disabled = state.isDisabled;
   button.setAttribute('aria-pressed', String(state.isPressed));
   const indicator = el('span', 'pr-action-status', state.statusText);
+  paintActionStatus(indicator, state.tone, state.statusText);
   indicator.setAttribute('role', 'status');
   indicator.setAttribute('aria-live', 'polite');
   button.addEventListener('click', async () => {

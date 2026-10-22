@@ -1,3 +1,4 @@
+import { clearActionStatus, paintActionStatus } from '../action-status.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { createGithubPollingControls } from './my-prs-panel.ts';
@@ -378,8 +379,7 @@ function showActionNotice(notice: ActionReplyNotice | null): void {
   _actionNotice = notice;
   if (!_actionNoticeLine) return;
   _actionNoticeLine.hidden = notice === null;
-  _actionNoticeLine.textContent = notice?.text ?? '';
-  if (notice) _actionNoticeLine.dataset.tone = notice.tone;
+  paintActionStatus(_actionNoticeLine, notice?.tone ?? null, notice?.text ?? '');
 }
 
 function createQueueSection(title: string, reviews: (ReviewDraft | InFlightReview | QueuedReview)[], kind: QueueRowKind, hasMultipleRepos: boolean): HTMLElement {
@@ -396,9 +396,7 @@ const SESSION_OPEN_BUSY_TEXT = 'Preparing the branch and session.';
 function showSettledSessionOpen(key: string, text: string, tone: 'error' | null): void {
   for (const status of document.querySelectorAll<HTMLElement>('.pr-session-open-status')) {
     if (status.dataset.reviewKey !== key) continue;
-    status.textContent = text;
-    if (tone) status.dataset.tone = tone;
-    if (!tone) delete status.dataset.tone;
+    paintActionStatus(status, tone, text);
     const button = status.parentElement?.querySelector<HTMLButtonElement>('.pr-session-open-button');
     if (button) button.disabled = false;
   }
@@ -415,15 +413,13 @@ function openReviewSession(key: string, button: HTMLButtonElement, status: HTMLE
   if (_sessionOpenByKey.get(key)?.requestId) return;
   const requestId = nextRequestId('open-team-review-session');
   if (!sendControlMsg({ type: 'open-team-review-session', requestId, key })) {
-    status.dataset.tone = 'error';
-    status.textContent = NOT_CONNECTED_TEXT;
+    paintActionStatus(status, 'error', NOT_CONNECTED_TEXT);
     return;
   }
   const timer = window.setTimeout(() => settleSessionOpen(key, `The server did not answer within ${ACTION_REPLY_TIMEOUT_MS / 1000} s.`), ACTION_REPLY_TIMEOUT_MS);
   _sessionOpenByKey.set(key, { requestId, timer, text: SESSION_OPEN_BUSY_TEXT, tone: 'busy' });
   button.disabled = true;
-  status.dataset.tone = 'busy';
-  status.textContent = SESSION_OPEN_BUSY_TEXT;
+  paintActionStatus(status, 'busy', SESSION_OPEN_BUSY_TEXT);
 }
 
 function createOpenSessionControl(review: Pick<ReviewDraft, 'key'>): HTMLElement {
@@ -434,7 +430,7 @@ function createOpenSessionControl(review: Pick<ReviewDraft, 'key'>): HTMLElement
   button.disabled = Boolean(opening?.requestId);
   const status = el('span', 'pr-action-status pr-session-open-status', opening?.text ?? '');
   status.dataset.reviewKey = review.key;
-  if (opening) status.dataset.tone = opening.tone;
+  if (opening) paintActionStatus(status, opening.tone, opening.text);
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
   button.addEventListener('click', () => openReviewSession(review.key, button, status));
@@ -686,20 +682,19 @@ function createNotMineFooter(review: QueuedReview | InFlightReview): HTMLElement
   const button = createFooterButton('discard', () => {
     if (_pendingActions.has(review.key)) return;
     button.disabled = true;
-    status.dataset.tone = 'busy';
-    status.textContent = actionProgressText('discard');
+    paintActionStatus(status, 'busy', actionProgressText('discard'));
     if (sendAction('other', review, buildNotMineRequest(review.key), settle)) return;
     settle(false, NOT_CONNECTED_TEXT);
   });
   const isPending = _pendingActions.has(review.key);
   button.disabled = isPending;
-  const status = el('span', 'pr-action-status', isPending ? actionProgressText('discard') : '');
+  const status = el('span', 'pr-action-status');
+  if (isPending) paintActionStatus(status, 'busy', actionProgressText('discard'));
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
   const settle = (isDone: boolean, text: string) => {
     button.disabled = isDone;
-    status.dataset.tone = isDone ? 'ok' : 'error';
-    status.textContent = text;
+    paintActionStatus(status, isDone ? 'ok' : 'error', text);
     if (!isDone) showActionNotice({ text: `${pullRequestLabel(review.repo, review.number)}: ${text}`, tone: 'error' });
   };
   footer.append(button, status);
@@ -827,8 +822,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   status.setAttribute('aria-live', 'polite');
   const updateFooter = () => {
     if (_pendingActions.has(draft.key) || status.dataset.tone === 'ok') return;
-    status.textContent = '';
-    delete status.dataset.tone;
+    clearActionStatus(status);
   };
   for (const [index, comment] of draft.comments.entries()) posts.append(createInlineComment(comment, index, includedIndexes, updateFooter));
   detail.append(posts, bodyDetails, noteDetails, createCoverageDetails(draft));
@@ -840,14 +834,12 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   };
   const settle = (isDone: boolean, text: string) => {
     setBusy(isDone);
-    status.dataset.tone = isDone ? 'ok' : 'error';
-    status.textContent = text;
+    paintActionStatus(status, isDone ? 'ok' : 'error', text);
   };
   const runAction = (action: TeamReviewAction) => {
     if (_pendingActions.has(draft.key)) return;
     setBusy(true);
-    status.dataset.tone = 'busy';
-    status.textContent = actionProgressText(action);
+    paintActionStatus(status, 'busy', actionProgressText(action));
     const comments = draft.comments.filter((_comment, index) => includedIndexes.has(index));
     if (sendAction('ready', draft, buildActionRequest(draft, action, withReviewerNote(noteInput.value, bodyInput.value), comments), settle)) return;
     settle(false, NOT_CONNECTED_TEXT);
@@ -967,13 +959,12 @@ function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
     button.disabled = !item.canResolve || _pendingActions.has(draft.key);
     const settle = (isDone: boolean, text: string) => {
       button.disabled = isDone || !item.canResolve;
-      status.textContent = text;
-      status.dataset.tone = isDone ? 'ok' : 'error';
+      paintActionStatus(status, isDone ? 'ok' : 'error', text);
     };
     button.addEventListener('click', () => {
       if (_pendingActions.has(draft.key)) return;
       button.disabled = true;
-      status.textContent = actionProgressText('resolve-thread');
+      paintActionStatus(status, 'busy', actionProgressText('resolve-thread'));
       if (sendAction('other', draft, buildActionRequest(draft, 'resolve-thread', '', [], item.thread.id), settle)) return;
       settle(false, NOT_CONNECTED_TEXT);
     });
@@ -1008,14 +999,12 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
   const buttons: HTMLButtonElement[] = [];
   const settle = (isDone: boolean, message: string) => {
     for (const button of buttons) button.disabled = isDone;
-    status.dataset.tone = isDone ? 'ok' : 'error';
-    status.textContent = message;
+    paintActionStatus(status, isDone ? 'ok' : 'error', message);
   };
   const runAction = (action: TeamReviewAction) => {
     if (_pendingActions.has(draft.key)) return;
     for (const button of buttons) button.disabled = true;
-    status.dataset.tone = 'busy';
-    status.textContent = actionProgressText(action);
+    paintActionStatus(status, 'busy', actionProgressText(action));
     if (sendAction('other', draft, buildActionRequest(draft, action, '', []), settle)) return;
     settle(false, NOT_CONNECTED_TEXT);
   };

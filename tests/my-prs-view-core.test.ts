@@ -17,27 +17,27 @@ const appRequest = { name: 'Acme/app', isTeam: true, avatarUrl: null };
 const userRequest = { name: 'bob', isTeam: false, avatarUrl: null };
 
 test('keep mergeable exposes pressed state and separate save status for open and saved PRs', () => {
-  assert.deepEqual(keepMergeableControlState(base, false), { isVisible: true, isPressed: false, isDisabled: false, statusText: 'Off' });
-  assert.deepEqual(keepMergeableControlState({ ...base, keepMergeable: true }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'On' });
-  assert.deepEqual(keepMergeableControlState(base, true), { isVisible: true, isPressed: false, isDisabled: true, statusText: 'Saving' });
+  assert.deepEqual(keepMergeableControlState(base, false), { isVisible: true, isPressed: false, isDisabled: false, statusText: 'Off', tone: null });
+  assert.deepEqual(keepMergeableControlState({ ...base, keepMergeable: true }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'On', tone: null });
+  assert.deepEqual(keepMergeableControlState(base, true), { isVisible: true, isPressed: false, isDisabled: true, statusText: 'Saving', tone: 'busy' });
   assert.equal(keepMergeableControlState(base, false, 'Cannot save').statusText, 'Cannot save');
   assert.equal(keepMergeableControlState({ ...base, state: 'MERGED' }, false).isVisible, false);
   assert.equal(keepMergeableControlState({ ...base, state: 'MERGED', keepMergeable: true }, false).isVisible, true);
 });
 
 test('merge when ready exposes queued state through aria-pressed and a status line that claims no place in line', () => {
-  assert.deepEqual(mergeWhenReadyControlState(base, false), { isVisible: true, isPressed: false, isDisabled: false, statusText: 'Not queued' });
-  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: null }, false), { isVisible: true, isPressed: false, isDisabled: false, statusText: 'Not queued' });
-  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1 }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'On, merges as soon as it is ready' });
+  assert.deepEqual(mergeWhenReadyControlState(base, false), { isVisible: true, isPressed: false, isDisabled: false, statusText: 'Not queued', tone: null });
+  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: null }, false), { isVisible: true, isPressed: false, isDisabled: false, statusText: 'Not queued', tone: null });
+  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1 }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'On, merges as soon as it is ready', tone: null });
   assert.equal(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 3 }, false).statusText, 'On, merges as soon as it is ready');
-  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 2 }, true), { isVisible: true, isPressed: true, isDisabled: true, statusText: 'Saving' });
+  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 2 }, true), { isVisible: true, isPressed: true, isDisabled: true, statusText: 'Saving', tone: 'busy' });
   assert.equal(mergeWhenReadyControlState(base, false, 'Cannot save').statusText, 'Cannot save');
   assert.equal(mergeWhenReadyControlState({ ...base, state: 'MERGED' }, false).isVisible, false);
   assert.equal(mergeWhenReadyControlState({ ...base, state: 'CLOSED', mergeQueuePosition: 1 }, false).isVisible, true);
 });
 
 test('merge when ready shows a queued head Keep mergeable pushed as held for the operator', () => {
-  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1, isMergeQueueHeldForRepairPush: true }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'Repair pushed, waiting for you' });
+  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1, isMergeQueueHeldForRepairPush: true }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'Repair pushed, waiting for you', tone: null });
   assert.equal(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1, isMergeQueueHeldForRepairPush: false }, false).statusText, 'On, merges as soon as it is ready');
 });
 

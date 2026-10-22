@@ -1,9 +1,11 @@
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
+import type { StatusIcon } from '#shared/state-icons.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
+import { paintStatusIcon } from './status-icon.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 
-type ActionStatusTone = 'busy' | 'ok' | 'error';
+export type ActionStatusTone = 'busy' | 'ok' | 'error';
 
 export interface ActionStatus {
   element: HTMLElement;
@@ -26,20 +28,56 @@ function streamerSafeText(tone: ActionStatusTone, text: string): string {
   return document.documentElement.hasAttribute('data-streamer') ? STREAMER_HIDDEN_ERROR_TEXT : text;
 }
 
+const ICON_BY_TONE: Record<ActionStatusTone, StatusIcon> = {
+  busy: 'working',
+  ok: 'complete',
+  error: 'failed',
+};
+
+function actionStatusParts(element: HTMLElement): { iconElement: HTMLElement; textElement: HTMLElement } {
+  const existingIcon = element.querySelector<HTMLElement>(':scope > .action-status-icon');
+  const existingText = element.querySelector<HTMLElement>(':scope > .action-status-text');
+  if (existingIcon && existingText && element.childNodes.length === 2) return { iconElement: existingIcon, textElement: existingText };
+  const iconElement = el('span', 'action-status-icon');
+  iconElement.setAttribute('aria-hidden', 'true');
+  const textElement = el('span', 'action-status-text');
+  element.replaceChildren(iconElement, textElement);
+  return { iconElement, textElement };
+}
+
+export function clearActionStatus(element: HTMLElement): void {
+  element.replaceChildren();
+  delete element.dataset.tone;
+}
+
+export function paintActionStatus(element: HTMLElement, tone: ActionStatusTone | null, text: string): void {
+  if (!text) {
+    clearActionStatus(element);
+    return;
+  }
+  if (!tone) {
+    clearActionStatus(element);
+    element.textContent = text;
+    return;
+  }
+  element.dataset.tone = tone;
+  const { iconElement, textElement } = actionStatusParts(element);
+  paintStatusIcon(iconElement, ICON_BY_TONE[tone]);
+  textElement.textContent = streamerSafeText(tone, text);
+}
+
 export function createActionStatus(className = 'action-status'): ActionStatus {
   const element = el('p', className);
   element.setAttribute('role', 'status');
   element.hidden = true;
   const clear = () => {
     element.hidden = true;
-    element.textContent = '';
-    delete element.dataset.tone;
+    clearActionStatus(element);
   };
   const show = (tone: ActionStatusTone, text: string) => {
     element.className = `${className} text-xs ${TONE_CLASS[tone]}`;
-    element.dataset.tone = tone;
-    element.textContent = streamerSafeText(tone, text);
-    element.hidden = false;
+    paintActionStatus(element, tone, text);
+    element.hidden = !text;
   };
   return { element, show, clear };
 }

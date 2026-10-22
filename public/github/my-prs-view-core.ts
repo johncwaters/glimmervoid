@@ -16,7 +16,7 @@ interface ThreadRow {
 interface ReviewRow { reviewer: string; text: string; tone: StateTone; icon: PrStatusIcon; submittedAt: string | null }
 interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase' | 'Merge when ready'; tone: StateTone; icon: PrStatusIcon; text: string }
 
-export interface ToggleControlState { isVisible: boolean; isPressed: boolean; isDisabled: boolean; statusText: string }
+export interface ToggleControlState { isVisible: boolean; isPressed: boolean; isDisabled: boolean; statusText: string; tone: 'busy' | 'error' | null }
 
 function toggleControlState(pr: MyPr, isOn: boolean, isPending: boolean, errorText: string, settledText: string, isFeatureEnabled: boolean): ToggleControlState {
   return {
@@ -24,6 +24,7 @@ function toggleControlState(pr: MyPr, isOn: boolean, isPending: boolean, errorTe
     isPressed: isOn,
     isDisabled: isPending,
     statusText: errorText || (isPending ? 'Saving' : settledText),
+    tone: errorText ? 'error' : isPending ? 'busy' : null,
   };
 }
 
