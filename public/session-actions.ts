@@ -1,6 +1,7 @@
 import { DEFAULT_REPLY_TIMEOUT_MS, reportUnsourcedError, requestFailureText } from './action-status.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { addSessionRefusalText, openAddSessionDialogForFolderWithoutWorktree } from './dialogs.ts';
+import type { KeptWorkPath } from '#shared/contracts/control-messages.ts';
 import type { SessionRow } from './focus-view/attention-core.ts';
 import { buildSessionRows } from './focus-view/attention-core.ts';
 import type { SessionOpenStatePolicy } from './session-actions-core.ts';
@@ -66,25 +67,31 @@ export function quickAddSession(path: string | null | undefined, label: string |
   void requestQuickAdd(path, label);
 }
 
-const REMOTE_REMOVAL_TIMEOUT_MS = 65 * 60_000;
+const SESSION_REMOVAL_TIMEOUT_MS = 65 * 60_000;
 
-async function requestRemoteSessionRemoval(ui: SessionUi, id: string, discardRemoteWork: boolean) {
+function unsavedWorkMessage(ui: SessionUi, reply: { error?: string | null; keptPaths?: KeptWorkPath[] }): string {
+  if (!reply.keptPaths?.length) return `${reply.error}. Removing "${sessionName(ui)}" deletes its Coder workspace and that work with it. Push it from the session first to keep it.`;
+  const keptWork = reply.keptPaths.map((kept) => `${kept.path} (${kept.reason})`).join('; ');
+  return `Removing "${sessionName(ui)}" deletes work that is not saved: ${keptWork}. Commit and push it from the session first to keep it.`;
+}
+
+async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWork: boolean, confirmedKeptPaths: string[] = []) {
   try {
-    const reply = await sendControlRequest('remove-session', { id, discardRemoteWork }, { timeoutMs: REMOTE_REMOVAL_TIMEOUT_MS });
+    const reply = await sendControlRequest('remove-session', { id, discardWork, confirmedKeptPaths }, { timeoutMs: SESSION_REMOVAL_TIMEOUT_MS });
     if (reply.type !== 'remove-session-result' || reply.ok) return;
-    if (!reply.canDiscardRemoteWork) {
+    if (!reply.canDiscardWork) {
       reportUnsourcedError(`The session was not removed: ${reply.error ?? 'unknown error'}`);
       return;
     }
     openConfirmDialog({
-      title: 'Remote work not saved',
-      message: `${reply.error}. Removing "${sessionName(ui)}" deletes its Coder workspace and that work with it. Push it from the session first to keep it.`,
-      confirmLabel: 'Discard remote work',
+      title: 'Work not saved',
+      message: unsavedWorkMessage(ui, reply),
+      confirmLabel: 'Discard work',
       danger: true,
-      onConfirm: () => { void requestRemoteSessionRemoval(ui, id, true); },
+      onConfirm: () => { void requestCheckedSessionRemoval(ui, id, true, (reply.keptPaths ?? []).map((kept) => kept.path)); },
     });
   } catch (reason) {
-    reportUnsourcedError(`The session was not removed: ${requestFailureText(reason, REMOTE_REMOVAL_TIMEOUT_MS)}`);
+    reportUnsourcedError(`The session was not removed: ${requestFailureText(reason, SESSION_REMOVAL_TIMEOUT_MS)}`);
   }
 }
 
@@ -93,17 +100,17 @@ export function requestSessionRemoval(id: string, mergeStatus?: string) {
   if (!ui) return;
   const currentMergeStatus = mergeStatus || ui.card?.dataset.merge || 'none';
   const hasUnmergedWork = currentMergeStatus === 'pending-review' || currentMergeStatus === 'parked';
-  const isRemote = Boolean(ui.card?.dataset.remoteWorkspace);
+  const needsWorkCheck = ui.card?.dataset.remoteWorkspace !== undefined || ui.card?.dataset.workspace !== undefined;
   openConfirmDialog({
     title: 'Remove Session',
     message: hasUnmergedWork
       ? `"${sessionName(ui)}" has unmerged worktree changes that will be permanently discarded if you remove it. Merge or review them first to keep them. Remove anyway?`
       : `Remove session "${sessionName(ui)}"?`,
-    confirmLabel: hasUnmergedWork ? 'Discard & Remove' : 'Remove',
+    confirmLabel: 'Remove',
     danger: true,
     onConfirm: () => {
-      if (isRemote) {
-        void requestRemoteSessionRemoval(ui, id, false);
+      if (needsWorkCheck) {
+        void requestCheckedSessionRemoval(ui, id, false);
         return;
       }
       sendSessionAction(ui, { type: 'remove-session', id });

@@ -160,7 +160,7 @@ test('removing a remote session stops its agent before the remote work check and
   const connection = connectControl<{ type: string }>(server);
   await connection.send({ type: 'remove-session', requestId: 'remove-1', id: session.id });
   assert.deepEqual(steps, ['stop agent', 'check remote work']);
-  assert.deepEqual(connection.sent.at(-1), { type: 'remove-session-result', requestId: 'remove-1', ok: false, error: reason, canDiscardRemoteWork: true });
+  assert.deepEqual(connection.sent.at(-1), { type: 'remove-session-result', requestId: 'remove-1', ok: false, error: reason, canDiscardWork: true });
   assert.deepEqual(config.projects.map((project) => project.id), ['p-remote']);
 });
 

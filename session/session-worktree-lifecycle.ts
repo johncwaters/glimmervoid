@@ -38,6 +38,7 @@ import type { WorkspaceMember } from "./core/workspace-core.ts";
 import { createSessionWorkspaceMembers } from "./session-workspace-members.ts";
 import type { WorkspaceMemberGit } from "./session-workspace-members.ts";
 import type { OwnedPathOwner } from "../shared/contracts/owned-paths.ts";
+import type { KeptWorkPath } from "../shared/contracts/control-messages.ts";
 
 const WORKTREE_CHECK_DEBOUNCE_MS = 400;
 const GIT_NOT_FOUND_EXIT_CODE = 1;
@@ -675,8 +676,19 @@ function createSessionWorktreeLifecycle({
     setMergeStatus(status);
   }
 
+  let isWorkspaceWorkDiscardConfirmed = false;
+
+  function confirmWorkspaceWorkDiscard(): void {
+    isWorkspaceWorkDiscardConfirmed = true;
+  }
+
+  async function findWorkspaceKeptWork(): Promise<KeptWorkPath[]> {
+    if (!workspaceMembers?.ok) return [];
+    return workspaceMembers.members.findKeptWork();
+  }
+
   async function releaseWorkspaceMembers(members: ReturnType<typeof createSessionWorkspaceMembers>, keepRepoPaths: string[] = []): Promise<void> {
-    const released = await members.release({ keepRepoPaths });
+    const released = await members.release({ keepRepoPaths, discardWork: isWorkspaceWorkDiscardConfirmed });
     if (released.kept.length === 0) return;
     console.warn(`[session ${id}] kept workspace members: ${released.kept.map((kept) => `${kept.path} (${kept.reason})`).join(", ")}`);
   }
@@ -1222,6 +1234,8 @@ function createSessionWorktreeLifecycle({
     setMergeStatus,
     pasteMergePrompt,
     hasUnmergedWork,
+    findWorkspaceKeptWork,
+    confirmWorkspaceWorkDiscard,
     getDiff,
     getChangeScopes,
     resolveEffectiveBase,

@@ -1315,6 +1315,8 @@ class Session extends EventEmitter {
   }
 
   discardWorktree() { return this.worktreeLifecycle.discardWorktree(); }
+  findWorkspaceKeptWork() { return this.worktreeLifecycle.findWorkspaceKeptWork(); }
+  confirmWorkspaceWorkDiscard() { this.worktreeLifecycle.confirmWorkspaceWorkDiscard(); }
 
   getDetectionStats() {
     return {

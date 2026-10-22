@@ -26,6 +26,8 @@ import { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } from '
 
 const requestId = z.string().nullable().optional();
 const sessionId = z.string();
+export const KeptWorkPath = z.object({ path: z.string(), reason: z.string() }).strict();
+export type KeptWorkPath = z.infer<typeof KeptWorkPath>;
 
 const PullRequestKey = SessionPrLinks.shape.unlinkedKeys.unwrap().element;
 
@@ -204,7 +206,7 @@ const clientVariants = [
     environment: z.string().optional(),
     requestId,
   }),
-  loose('remove-session', { id: sessionId, force: z.unknown().optional(), discardRemoteWork: z.boolean().optional(), requestId }),
+  loose('remove-session', { id: sessionId, force: z.unknown().optional(), discardWork: z.boolean().optional(), confirmedKeptPaths: z.array(z.string()).optional(), requestId }),
   loose('list-conversations', { id: sessionId, requestId }),
   loose('resume-conversation', { id: sessionId, conversationId: z.string() }),
   loose('rename-session', { id: sessionId, newName: z.string() }),
@@ -391,7 +393,7 @@ const serverVariants = [
   }),
   loose('save-hook-result', { requestId, ok: z.boolean(), error: optionalError, hook: opaqueObject.optional() }),
   loose('add-session-result', { requestId, ok: z.boolean(), error: optionalError, reason: z.enum(['not-git']).optional() }),
-  loose('remove-session-result', { requestId, ok: z.boolean(), error: optionalError, canDiscardRemoteWork: z.boolean().optional() }),
+  loose('remove-session-result', { requestId, ok: z.boolean(), error: optionalError, canDiscardWork: z.boolean().optional(), keptPaths: z.array(KeptWorkPath).optional() }),
   loose('agent-logins', { requestId, logins: AgentLoginStatuses, error: optionalError }),
   loose('delete-hook-result', { requestId, ok: z.boolean(), error: optionalError, id: z.string().optional() }),
   loose('workspace-repos', { requestId, id: sessionId, ok: z.boolean(), repos: z.array(z.string()), error: optionalError }),

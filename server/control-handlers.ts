@@ -51,6 +51,7 @@ import { PlanDecision } from '../shared/contracts/plan-review.ts';
 import { getRtkPath } from './rtk-resolver.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { ChangeMap } from '../shared/contracts/change-map.ts';
+import type { KeptWorkPath } from '../shared/contracts/control-messages.ts';
 import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import { BenchmarkActionRequest } from '../shared/contracts/benchmark.ts';
 import type { BenchmarkActionResult, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
@@ -623,7 +624,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     sess.start();
   }
 
-  async function removeSession(msg: ClientMessageOf<'remove-session'>): Promise<{ ok: true } | { ok: false; error: string; canDiscardRemoteWork?: boolean }> {
+  async function removeSession(msg: ClientMessageOf<'remove-session'>): Promise<{ ok: true } | { ok: false; error: string; canDiscardWork?: boolean; keptPaths?: KeptWorkPath[] }> {
     const sess = findSession(msg);
     if (!sess) return { ok: false, error: 'Session not found' };
 
@@ -633,17 +634,26 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       return { ok: true };
     }
 
+    const isDiscardingWorkspaceWork = sess.isWorkspace && msg.discardWork === true;
+    if (isDiscardingWorkspaceWork) sess.killSession();
+    const keptPaths = sess.isWorkspace ? await sess.findWorkspaceKeptWork() : [];
+    const confirmedKeptPaths = new Set(isDiscardingWorkspaceWork ? msg.confirmedKeptPaths ?? [] : []);
+    const hasUnconfirmedKeptWork = keptPaths.some((kept) => !confirmedKeptPaths.has(kept.path));
+    if (hasUnconfirmedKeptWork) return { ok: false, error: 'Workspace members hold work that is not saved', canDiscardWork: true, keptPaths };
+
     const hasRemoteWorkspace = config.projects.some((project) => project.id === sess.id && project.environment);
     if (hasRemoteWorkspace && coderEnv) {
       sess.killSession();
-      const settlement = await coderEnv.settleRemoval({ projectId: sess.id, discardRemoteWork: msg.discardRemoteWork === true });
-      if (!settlement.ok) return { ok: false, error: settlement.reason, canDiscardRemoteWork: settlement.canDiscardRemoteWork };
+      const settlement = await coderEnv.settleRemoval({ projectId: sess.id, discardRemoteWork: msg.discardWork === true });
+      if (!settlement.ok) return { ok: false, error: settlement.reason, canDiscardWork: settlement.canDiscardRemoteWork };
     }
 
     const freshConfig = configStore.save(cfg => {
       cfg.projects = cfg.projects.filter(p => p.id !== sess.id);
     });
-    if (freshConfig) applyConfigReload(freshConfig);
+    if (!freshConfig) return { ok: false, error: `Could not save the removal of session "${sess.name}"` };
+    if (isDiscardingWorkspaceWork) sess.confirmWorkspaceWorkDiscard();
+    applyConfigReload(freshConfig);
     console.log(`[control] Removed session via UI: ${sess.name}`);
     return { ok: true };
   }

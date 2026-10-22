@@ -9,7 +9,7 @@ import { createSessionWorkspaceMembers } from '../session/session-workspace-memb
 import { carryWorktreeAcrossRecreate } from '../server/session/session-registry.ts';
 import { Session } from '../session/sessions.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
-import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
+import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
 import { waitFor } from './helpers/wait-for.ts';
 
 function makeRepo(root: string, name: string): string {
@@ -288,6 +288,50 @@ test('a stale workspace release waiting on the old reap keeps members the live s
     assert.equal(fs.existsSync(path.join(folder, 'c', 'README.md')), true);
   } finally {
     restored.destroy();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('removing a workspace session that holds work is refused with each kept path until discard is confirmed', { skip: !hasGit() }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-workspace-remove-'));
+  const first = makeRepo(root, 'first');
+  const second = makeRepo(root, 'second');
+  const folder = path.join(root, 'ws-workspace-remove');
+  const session = new Session({ id: 'workspace-remove-session', name: 'Workspace Remove', path: folder, workspaceRepos: [first, second], gitWorkspace: createGitWorkspace() });
+  try {
+    assert.equal(await session._provisionWorktree(), true);
+    fs.writeFileSync(path.join(folder, 'second', 'unsaved.txt'), 'unsaved');
+    const config = { projects: [{ id: 'workspace-remove-session', name: 'Workspace Remove', path: folder, repos: [first, second] }] };
+    const control = connectControl<{ type: string; requestId?: string; ok?: boolean; keptPaths?: unknown; canDiscardWork?: boolean }>(createControlServer(controlDeps(config, { sessions: new Map([['workspace-remove-session', session]]) })));
+    const replyTo = (requestId: string) => control.sent.find((frame) => frame.requestId === requestId);
+
+    control.send({ type: 'remove-session', id: 'workspace-remove-session', requestId: 'refused' });
+    await waitFor(() => replyTo('refused') !== undefined, 'refused removal replied', 10000);
+    assert.equal(replyTo('refused')?.canDiscardWork, true);
+    assert.deepEqual(replyTo('refused')?.keptPaths, [{ path: path.join(folder, 'second'), reason: 'uncommitted changes' }]);
+    assert.deepEqual(config.projects.map((project) => project.id), ['workspace-remove-session']);
+
+    fs.writeFileSync(path.join(folder, 'first', 'written-while-dialog-open.txt'), 'unsaved');
+    control.send({ type: 'remove-session', id: 'workspace-remove-session', discardWork: true, confirmedKeptPaths: [path.join(folder, 'second')], requestId: 'refused-again' });
+    await waitFor(() => replyTo('refused-again') !== undefined, 'second refused removal replied', 10000);
+    assert.deepEqual(replyTo('refused-again')?.keptPaths, [{ path: path.join(folder, 'first'), reason: 'uncommitted changes' }, { path: path.join(folder, 'second'), reason: 'uncommitted changes' }]);
+    const confirmedKeptPaths = [path.join(folder, 'first'), path.join(folder, 'second')];
+
+    const failingSaveControl = connectControl<{ type: string; requestId?: string; ok?: boolean }>(createControlServer(controlDeps(config, { sessions: new Map([['workspace-remove-session', session]]), configStore: testConfigStore(config, { saveFails: true }) })));
+    failingSaveControl.send({ type: 'remove-session', id: 'workspace-remove-session', discardWork: true, confirmedKeptPaths, requestId: 'save-failed' });
+    await waitFor(() => failingSaveControl.sent.some((frame) => frame.requestId === 'save-failed'), 'failed-save removal replied', 10000);
+    assert.equal(failingSaveControl.sent.find((frame) => frame.requestId === 'save-failed')?.ok, false);
+    await session.releaseDroppedWorkspaceMembers([first]);
+    assert.equal(fs.existsSync(path.join(folder, 'second', 'unsaved.txt')), true);
+
+    control.send({ type: 'remove-session', id: 'workspace-remove-session', discardWork: true, confirmedKeptPaths, requestId: 'discarded' });
+    await waitFor(() => replyTo('discarded') !== undefined, 'discarded removal replied', 10000);
+    assert.equal(replyTo('discarded')?.ok, true);
+    session.destroy();
+    await session.discardWorktree();
+    assert.equal(fs.existsSync(folder), false);
+  } finally {
+    session.destroy();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

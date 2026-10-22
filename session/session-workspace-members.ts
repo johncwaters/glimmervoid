@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { GitWorkspaceInstance } from '../server/git/git-workspace.ts';
+import type { KeptWorkPath } from '../shared/contracts/control-messages.ts';
 import type { OwnedPathOwner } from '../shared/contracts/owned-paths.ts';
 import { caseFoldedPathKey } from '../shared/paths.ts';
 import { renderWorkspaceAgentsMd, WORKSPACE_CLAUDE_MD } from './core/workspace-core.ts';
@@ -10,7 +11,6 @@ import type { WorkspacePlan, WorkspaceMember } from './core/workspace-core.ts';
 
 export type WorkspaceMemberGit = Pick<GitWorkspaceInstance, 'ensureWorkspaceMember' | 'removeWorkspaceMember' | 'describeWorkspaceMemberWork' | 'recordOwnedFolder' | 'forgetRemovedPath'>;
 
-type KeptWorkspacePath = { path: string; reason: string };
 
 async function writeWhenAbsent(filePath: string, contents: string): Promise<void> {
   await fs.promises.writeFile(filePath, contents, { flag: 'wx' }).catch((error: NodeJS.ErrnoException) => {
@@ -90,7 +90,18 @@ export function createSessionWorkspaceMembers({ plan, owner, sessionName, shareL
       .catch((error: unknown) => `its work could not be checked: ${errorMessage(error)}`);
   }
 
-  async function releaseMember(member: WorkspaceMember, discardWork: boolean): Promise<KeptWorkspacePath | null> {
+  async function findKeptWork(): Promise<KeptWorkPath[]> {
+    if (activeProvision) await activeProvision;
+    const kept: KeptWorkPath[] = [];
+    for (const member of plan.members) {
+      if (!(await pathExists(member.dir))) continue;
+      const reason = await findMemberWork(member);
+      if (reason) kept.push({ path: member.dir, reason });
+    }
+    return kept;
+  }
+
+  async function releaseMember(member: WorkspaceMember, discardWork: boolean): Promise<KeptWorkPath | null> {
     if (!(await pathExists(member.dir))) return null;
     const reason = discardWork ? null : await findMemberWork(member);
     if (reason) return { path: member.dir, reason };
@@ -99,10 +110,10 @@ export function createSessionWorkspaceMembers({ plan, owner, sessionName, shareL
     return { path: member.dir, reason: removed.err?.split('\n')[0] || 'git refused to remove it' };
   }
 
-  async function release({ keepRepoPaths = [], discardWork = false }: { keepRepoPaths?: string[]; discardWork?: boolean } = {}): Promise<{ kept: KeptWorkspacePath[] }> {
+  async function release({ keepRepoPaths = [], discardWork = false }: { keepRepoPaths?: string[]; discardWork?: boolean } = {}): Promise<{ kept: KeptWorkPath[] }> {
     if (activeProvision) await activeProvision;
     const keptRepoKeys = new Set(keepRepoPaths.map((repoPath) => caseFoldedPathKey(path.resolve(repoPath))));
-    const kept: KeptWorkspacePath[] = [];
+    const kept: KeptWorkPath[] = [];
     for (const member of plan.members) {
       if (keptRepoKeys.has(caseFoldedPathKey(member.repoPath))) continue;
       const keptMember = await releaseMember(member, discardWork);
@@ -117,5 +128,5 @@ export function createSessionWorkspaceMembers({ plan, owner, sessionName, shareL
     return { kept };
   }
 
-  return { provision, release, branch: plan.branch };
+  return { provision, release, findKeptWork, branch: plan.branch };
 }

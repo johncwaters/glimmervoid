@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Removing a multi-repo workspace session cleans up its folder and asks before discarding work**: removal used to leave the `ws-` folder behind, and often its repo checkouts too. Now, when every member is clean and its commits are already on the base branch, removal deletes all of it. When a member still holds uncommitted changes or commits that are not on the base branch, removal stops and the dialog lists each such folder and why; choosing Discard work then removes everything.
 - **Dependencies**: `cc-safety-net` 2.6.16, so Sane YOLO now also refuses `rsync --delete` into a folder outside the working directory or a trusted temp folder, shell `-c` invocations whose real command string it cannot identify (such as `bash -c -x '<cmd>'`), and commands holding a carriage return or an unquoted Unicode blank. It also inspects more scripts that a heredoc wrote before they run, and blocks fewer safe `source` and script paths as unverifiable.
 
 ## [0.42.3] - 2026-10-21
