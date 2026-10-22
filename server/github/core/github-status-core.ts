@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const GITHUB_STATUS_CACHE_MS = 5 * 60_000;
+const GITHUB_STATUS_CACHE_MS = 5 * 60_000;
 
 export const GithubStatusSummary = z.object({
   incidents: z.array(z.object({
