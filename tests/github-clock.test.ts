@@ -160,3 +160,27 @@ test('an ad-hoc tick during a sweep waits until the sweep run finishes', async (
   await Promise.all([sweep, adHocTick]);
   assert.deepEqual(events, ['sweep-run-started', 'sweep-run-finished', 'ad-hoc-tick']);
 });
+
+test('priority work waits for the holder, passes queued background work and releases the queue on rejection', async () => {
+  const events: string[] = [];
+  let releaseHolder: () => void = () => {};
+  const clock = createGithubClock({ baseIntervalMs: FIVE_MINUTES_MS, ...manualTimer(), log: { warn() {} } });
+  const holder = clock.exclusive(async () => {
+    events.push('holder-started');
+    await new Promise<void>((resolve) => { releaseHolder = resolve; });
+    events.push('holder-finished');
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const background = clock.exclusive(async () => { events.push('background'); return 'read'; });
+  const priority = clock.exclusive(async () => {
+    events.push('priority');
+    throw new Error('priority failed');
+  }, { isPriority: true });
+  const rejection = assert.rejects(priority, /priority failed/);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['holder-started']);
+  releaseHolder();
+  await Promise.all([holder, rejection]);
+  assert.equal(await background, 'read');
+  assert.deepEqual(events, ['holder-started', 'holder-finished', 'priority', 'background']);
+});

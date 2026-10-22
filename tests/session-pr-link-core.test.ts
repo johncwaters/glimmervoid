@@ -46,7 +46,7 @@ function storeHarness(context: TestContext, initialNodes: GithubPrDetailNode[] =
       async prDiff() { assert.fail('Unexpected PR diff'); },
       async prHead() { assert.fail('Unexpected PR head'); },
     },
-    now: () => LINKED_AT_MS, isDashboardConnected: () => true, exclusive: queue.run,
+    now: () => LINKED_AT_MS, isDashboardConnected: () => true, exclusive: (work) => queue.run(work),
     setTimeoutFn: timers.setTimeoutFn, clearTimeoutFn: timers.clearTimeoutFn,
     log: { warn: (message: string) => assert.fail(message) },
   });

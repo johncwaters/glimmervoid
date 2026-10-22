@@ -174,7 +174,7 @@ function setup(overrides: Partial<Omit<TeamReviewPollerDependencies, 'github' | 
   let nowMs = 1000;
   const queue = createSerialQueue();
   const storePoller = createGithubStorePoller({
-    now: () => nowMs, isDashboardConnected: () => true, exclusive: queue.run,
+    now: () => nowMs, isDashboardConnected: () => true, exclusive: (work) => queue.run(work),
     setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn() {} },
     github: {
       ...github,
@@ -212,7 +212,7 @@ function setup(overrides: Partial<Omit<TeamReviewPollerDependencies, 'github' | 
   const refreshStore = () => store.refreshWatches(Object.keys(store.getSnapshot().watches));
   const dependencies: TeamReviewPollerDependencies = {
     org: 'Acme', store,
-    clock: { exclusive: queue.run, schedule: () => () => {} },
+    clock: { exclusive: (work) => queue.run(work), schedule: () => () => {} },
     teams: [{ org: 'Acme', slug: 'core' }],
     github,
     spawnReview: async (args) => { spawned.push(args); return draftFor(args); },

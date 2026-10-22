@@ -16,7 +16,7 @@ type TickTrigger = 'interval' | 'retry' | 'manual';
 
 interface SharedClock {
   schedule(run: () => Promise<void>, intervalMs: number): () => void;
-  exclusive<T>(work: () => Promise<T>): Promise<T>;
+  exclusive<T>(work: () => Promise<T>, options?: { isPriority?: boolean }): Promise<T>;
 }
 
 interface TickLoopOptions {
@@ -45,7 +45,7 @@ interface TickLoop {
   stop(): Promise<void>;
   tick(): Promise<void>;
   tickSoon(): void;
-  refresh(): Promise<GithubPollingRefreshResult>;
+  refresh(beforeTick?: () => Promise<GithubPollingRefreshResult>): Promise<GithubPollingRefreshResult>;
   scheduleStatus(): { nextAttemptAt: number | null; retry: GithubPollingRetry | null; isRefreshing: boolean; refreshNotice: string | null };
   persist(): Promise<void>;
   track<T>(promise: Promise<T>): Promise<T>;
@@ -127,7 +127,7 @@ function createTickLoop({
     return { nextAttemptAt, retry, isRefreshing, refreshNotice };
   }
 
-  async function runTick(trigger: TickTrigger): Promise<GithubPollingRefreshResult> {
+  async function runTick(trigger: TickTrigger, beforeTick?: () => Promise<GithubPollingRefreshResult>): Promise<GithubPollingRefreshResult> {
     const isManual = trigger === 'manual';
     if (stopped) return { ok: false, error: 'Reviews polling is stopped.' };
     if (tickRunning) {
@@ -156,6 +156,12 @@ function createTickLoop({
           refreshNotice = 'GitHub rate limit asks to wait before refreshing.';
           return { ok: false, error: refreshNotice };
         }
+      }
+      if (isManual && beforeTick) {
+        onScheduleChange();
+        const refreshed = await beforeTick();
+        if (stopped) return { ok: false, error: 'Reviews polling is stopped.' };
+        if (!refreshed.ok) return refreshed;
       }
       clearRetryTimer();
       nextAttemptAt = null;
@@ -199,8 +205,8 @@ function createTickLoop({
     void runTick('interval');
   }
 
-  function refresh(): Promise<GithubPollingRefreshResult> {
-    return runTick('manual');
+  function refresh(beforeTick?: () => Promise<GithubPollingRefreshResult>): Promise<GithubPollingRefreshResult> {
+    return runTick('manual', beforeTick);
   }
 
   async function start(prelude: (() => Promise<void> | void) | null = null): Promise<void> {

@@ -895,10 +895,11 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   async function refresh() {
     if (loop.isStopped()) return { ok: false, error: 'Reviews polling is stopped.' };
     if (watches.size === 0) await collectCandidates();
-    const refreshed = await store.refreshWatches([...watches.keys()]);
-    rebuild();
-    if (!refreshed.ok) return refreshed;
-    return loop.refresh();
+    return loop.refresh(async () => {
+      const refreshed = await store.refreshWatches([...watches.keys()]);
+      rebuild();
+      return refreshed;
+    });
   }
 
   async function stop(): Promise<void> {

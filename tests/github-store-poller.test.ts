@@ -206,6 +206,33 @@ test('repeated transient failures retry within five minutes and success resets q
   assert.equal((await harness.poller.tick()).retryAfterMs, 10_000);
 });
 
+test('manual refresh bypasses transient backoff but refuses a rate-limit wait without reading', async (context) => {
+  const harness = storeHarness();
+  context.after(harness.cleanup);
+  const { poller } = harness;
+  poller.registerWatch({ name: 'my-prs', qualifiers: 'author:@me', needsDetail: true });
+  harness.setLightFailure('gh: HTTP 504');
+  assert.deepEqual(await poller.tick(), { failed: true, retryAfterMs: 10_000, error: 'gh: HTTP 504' });
+  assert.equal(poller.getSnapshot().freshness.error, 'gh: HTTP 504');
+  harness.setLightFailure(null);
+  assert.deepEqual(await poller.tick(), { failed: false, retryAfterMs: 10_000 });
+  assert.equal(harness.lightCalls.length, 1);
+  assert.deepEqual(await poller.refreshWatches(['my-prs']), { ok: true });
+  assert.equal(harness.lightCalls.length, 2);
+  assert.equal(poller.getSnapshot().freshness.error, null);
+  assert.ok(poller.getSnapshot().prs['acme/app#1']);
+  harness.advance(60_000);
+  harness.limitResource('graphql');
+  assert.deepEqual(await poller.tick(), { failed: true, retryAfterMs: 120_000 });
+  harness.limitResource(null);
+  const rateLimitCallCount = harness.rateLimitCalls.length;
+  const searchCount = harness.searches.length;
+  assert.deepEqual(await poller.refreshWatches(['my-prs']), { ok: false, error: 'GitHub rate limit asks to wait before refreshing.' });
+  assert.equal(harness.rateLimitCalls.length, rateLimitCallCount);
+  assert.equal(harness.searches.length, searchCount);
+  assert.equal(harness.lightCalls.length, 2);
+});
+
 test('a rollup change without an updatedAt change fetches only that PR and emits one canonical change', async (context) => {
   const harness = storeHarness();
   context.after(harness.cleanup);

@@ -36,7 +36,7 @@ function createMyPrsPoller({ github, ...dependencies }: Omit<LaneDependencies, '
   let currentNodes: GithubPrDetailNode[] = [];
   let searchSequence = 0;
   const store = createGithubStorePoller({
-    now: dependencies.now ?? (() => NOW), isDashboardConnected: () => true, exclusive: queue.run,
+    now: dependencies.now ?? (() => NOW), isDashboardConnected: () => true, exclusive: (work) => queue.run(work),
     setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn() {} },
     github: {
       ...github,

@@ -287,7 +287,8 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   function tick(watchNames?: readonly string[]): Promise<TickOutcome> {
     return exclusive(async () => {
       const tickStartedAt = now();
-      if (shouldSkipTick({ now: tickStartedAt, backoffUntil })) return { failed: watchNames !== undefined, retryAfterMs: backoffUntil - tickStartedAt };
+      if (watchNames !== undefined && rateLimitedUntil > tickStartedAt) return { failed: true, retryAfterMs: rateLimitedUntil - tickStartedAt };
+      if (watchNames === undefined && shouldSkipTick({ now: tickStartedAt, backoffUntil })) return { failed: false, retryAfterMs: backoffUntil - tickStartedAt };
       const previousError = pollingError;
       let details: GithubPr[] = [];
       let removedKeys: string[] = [];
@@ -317,7 +318,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
       } finally {
         publishChanges([...details, ...behindChangedPrs], removedKeys, previousError, hasWatchChanges);
       }
-    });
+    }, { isPriority: watchNames !== undefined });
   }
 
   async function refreshWatches(names: readonly string[]): Promise<GithubPollingRefreshResult> {

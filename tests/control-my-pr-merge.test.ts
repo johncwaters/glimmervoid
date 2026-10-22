@@ -66,7 +66,7 @@ function storeReads(readNodes: () => MyPrSearchNode[]): Pick<PrGh, 'searchPrsLig
 function createTestStore(github: PrGh) {
   const queue = createSerialQueue();
   const poller = createGithubStorePoller({
-    github, now: Date.now, isDashboardConnected: () => true, exclusive: queue.run,
+    github, now: Date.now, isDashboardConnected: () => true, exclusive: (work) => queue.run(work),
     setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn() {} },
   });
   return {
@@ -100,7 +100,7 @@ test('a store rollup change broadcasts my-prs status without a lane tick and Ref
   const queue = createSerialQueue();
   let storeTick = async () => {};
   const clock: SharedClock = {
-    exclusive: queue.run,
+    exclusive: (work) => queue.run(work),
     schedule: (run, intervalMs) => {
       if (intervalMs === 60_000) storeTick = run;
       return () => {};

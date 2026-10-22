@@ -21,12 +21,27 @@ export function createGithubClock({ baseIntervalMs, setIntervalFn = DEFAULT_TIME
   const subscriptions = new Set<ClockSubscription>();
   let timer: NodeJS.Timeout | null = null;
   let isSweeping = false;
-  let exclusiveChain: Promise<unknown> = Promise.resolve();
+  let isExclusiveRunning = false;
+  const priorityJobs: (() => Promise<void>)[] = [];
+  const backgroundJobs: (() => Promise<void>)[] = [];
 
-  function exclusive<T>(work: () => Promise<T>): Promise<T> {
-    const outcome = exclusiveChain.then(() => work());
-    exclusiveChain = outcome.catch(() => undefined);
-    return outcome;
+  function runNextExclusiveJob(): void {
+    if (isExclusiveRunning) return;
+    const job = priorityJobs.shift() ?? backgroundJobs.shift();
+    if (!job) return;
+    isExclusiveRunning = true;
+    void job().finally(() => {
+      isExclusiveRunning = false;
+      runNextExclusiveJob();
+    });
+  }
+
+  function exclusive<T>(work: () => Promise<T>, { isPriority = false }: { isPriority?: boolean } = {}): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const jobs = isPriority ? priorityJobs : backgroundJobs;
+      jobs.push(() => Promise.resolve().then(work).then(resolve, reject));
+      runNextExclusiveJob();
+    });
   }
 
   async function sweep(): Promise<void> {

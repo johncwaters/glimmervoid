@@ -422,10 +422,11 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   async function refresh() {
     if (loop.isStopped()) return { ok: false, error: 'Reviews polling is stopped.' };
     registerWatches();
-    const refreshed = await store.refreshWatches(watchNames);
-    rebuild();
-    if (!refreshed.ok) return refreshed;
-    return loop.refresh();
+    return loop.refresh(async () => {
+      const refreshed = await store.refreshWatches(watchNames);
+      rebuild();
+      return refreshed;
+    });
   }
 
   return { start, stop, tick: loop.tick, refresh, rebuild, setKeepMergeable, setMergeWhenReady };
