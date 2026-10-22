@@ -666,7 +666,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
 
   async function rateLimitedOutcome(): Promise<TickOutcome> {
     const rateLimitWaitMs = await store.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES) ?? secondaryRateLimitWaitMs(pollingError);
-    return rateLimitWaitMs === null ? { failed: true } : { failed: true, retryAfterMs: rateLimitWaitMs };
+    return rateLimitWaitMs === null ? { failed: true, error: pollingError ?? undefined } : { failed: true, retryAfterMs: rateLimitWaitMs, error: pollingError ?? undefined };
   }
 
   async function runTick(): Promise<TickOutcome | undefined> {
@@ -679,7 +679,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     });
     if (tickRateLimitWaitMs !== null) {
       pollingError = 'GitHub rate limit asks to wait.';
-      return { failed: true, retryAfterMs: tickRateLimitWaitMs };
+      return { failed: true, retryAfterMs: tickRateLimitWaitMs, error: pollingError };
     }
     if (collected === null) {
       pollingError ??= 'Could not look up your GitHub account or team members.';
@@ -694,7 +694,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const rateLimitWaitMs = isComplete ? null : await store.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES);
     if (rateLimitWaitMs !== null) {
       pollingError = 'GitHub rate limit asks to wait.';
-      return { failed: true, retryAfterMs: rateLimitWaitMs };
+      return { failed: true, retryAfterMs: rateLimitWaitMs, error: pollingError };
     }
     const isPruned = await pruneDeparted(new Set(candidates.map((candidate) => candidate.key)), isComplete);
     if (isPruned) watchAskedFor();
@@ -704,7 +704,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     if (isPruned || planned.isDirty || areThreadsChanged || isStarted) await persist();
     if (tickRateLimitWaitMs !== null) {
       pollingError = 'GitHub rate limit asks to wait.';
-      return { failed: true, retryAfterMs: tickRateLimitWaitMs };
+      return { failed: true, retryAfterMs: tickRateLimitWaitMs, error: pollingError };
     }
     if (hasSlotFreedSinceSlotCount && waitingForSlot.length > 0 && !loop.isStopped()) {
       setTimeoutFn(() => { void loop.tick(); }, 0);

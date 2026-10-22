@@ -2,6 +2,7 @@ import type { GithubPollingRetry } from '../../../shared/contracts/github-pollin
 import { nextBackoffMs } from '../../../shared/backoff.ts';
 
 export const QUICK_RETRY_DELAYS_MS = Object.freeze([10_000, 30_000, 90_000]);
+export const TRANSIENT_BACKOFF_MAX_MS = 5 * 60_000;
 
 export function nextRetrySchedule({ failureStreak, quickRetryCount, quickRetries, retryAfterMs, baseMs, maxMs, random }: {
   failureStreak: number; quickRetryCount: number; quickRetries: boolean; retryAfterMs?: number; baseMs: number; maxMs: number; random: () => number;
@@ -9,7 +10,8 @@ export function nextRetrySchedule({ failureStreak, quickRetryCount, quickRetries
   const hasRateLimitWait = typeof retryAfterMs === 'number' && Number.isFinite(retryAfterMs) && retryAfterMs > 0;
   const quickRetryDelayMs = quickRetries && !hasRateLimitWait ? QUICK_RETRY_DELAYS_MS[quickRetryCount] : undefined;
   if (quickRetryDelayMs !== undefined) return { waitMs: quickRetryDelayMs, retry: { attempt: quickRetryCount + 1, limit: QUICK_RETRY_DELAYS_MS.length } };
-  return { waitMs: nextBackoffMs({ attempt: Math.max(1, failureStreak - quickRetryCount), baseMs, maxMs, retryAfterMs, random }), retry: null };
+  const backoffCeilingMs = quickRetries && !hasRateLimitWait ? Math.min(maxMs, TRANSIENT_BACKOFF_MAX_MS) : maxMs;
+  return { waitMs: nextBackoffMs({ attempt: Math.max(1, failureStreak - quickRetryCount), baseMs, maxMs: backoffCeilingMs, retryAfterMs, random }), retry: null };
 }
 
 function shouldSkipTick({ now = 0, backoffUntil = 0 }: { now?: number; backoffUntil?: number } = {}): boolean {

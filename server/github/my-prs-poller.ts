@@ -148,7 +148,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   });
   async function failedOutcome(errorText: string) {
     const rateLimitWaitMs = await store.rateLimitWaitMs(now(), MY_PRS_RATE_LIMIT_RESOURCES) ?? secondaryRateLimitWaitMs(errorText);
-    return rateLimitWaitMs === null ? { failed: true } : { failed: true, retryAfterMs: rateLimitWaitMs };
+    return rateLimitWaitMs === null ? { failed: true, error: errorText } : { failed: true, retryAfterMs: rateLimitWaitMs, error: errorText };
   }
   async function runTick() {
     await loadState();

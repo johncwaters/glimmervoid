@@ -6,6 +6,7 @@ import { toMyPr } from '../server/github/core/my-prs-core.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
+import { TRANSIENT_BACKOFF_MAX_MS } from '../server/lanes/core/lane-backoff.ts';
 import { createSerialQueue } from '../server/spawn-gate.ts';
 import { comparablePrKey, GithubPrDetailNode, GithubPrLightSearchNode, GithubPrsFrame } from '../shared/contracts/github-prs.ts';
 import type { MyPrThreadNode } from '../shared/contracts/my-prs.ts';
@@ -180,6 +181,30 @@ function storeHarness(ghCallDurationMs = 0) {
     cleanup: () => { for (const timer of timers.pending) timers.clearTimeoutFn(timer.handle); },
   };
 }
+
+test('repeated transient failures retry within five minutes and success resets quick retries', async (context) => {
+  const harness = storeHarness();
+  context.after(harness.cleanup);
+  harness.poller.registerWatch({ name: 'my-prs', qualifiers: 'author:@me', needsDetail: true });
+  harness.setLightFailure('gh: HTTP 504');
+  const retryWaits: number[] = [];
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const outcome = await harness.poller.tick();
+    assert.equal(outcome.failed, true);
+    assert.equal(outcome.error, 'gh: HTTP 504');
+    const waitMs = outcome.retryAfterMs;
+    assert.ok(waitMs !== undefined && waitMs > 0 && waitMs <= TRANSIENT_BACKOFF_MAX_MS);
+    retryWaits.push(waitMs);
+    harness.advance(waitMs);
+  }
+  assert.deepEqual(retryWaits.slice(0, 3), [10_000, 30_000, 90_000]);
+  assert.equal(harness.lightCalls.length, 20);
+  harness.setLightFailure(null);
+  assert.deepEqual(await harness.poller.tick(), { failed: false });
+  harness.advance(60_000);
+  harness.setLightFailure('gh: HTTP 504');
+  assert.equal((await harness.poller.tick()).retryAfterMs, 10_000);
+});
 
 test('a rollup change without an updatedAt change fetches only that PR and emits one canonical change', async (context) => {
   const harness = storeHarness();

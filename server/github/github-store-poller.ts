@@ -70,6 +70,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   let backoffUntil = 0;
   let rateLimitedUntil = 0;
   let failureStreak = 0;
+  let quickRetryCount = 0;
   const unavailableKeys = new Set<string>();
 
   function getSnapshot() {
@@ -122,11 +123,12 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     pollingError = errorMessage(error);
     failureStreak += 1;
     const retryAfterMs = secondaryRateLimitWaitMs(pollingError) ?? undefined;
-    const schedule = nextRetrySchedule({ failureStreak, quickRetryCount: 0, quickRetries: false, retryAfterMs, baseMs: 60_000, maxMs: GITHUB_RATE_LIMIT_WINDOW_MS, random: () => 1 });
+    const schedule = nextRetrySchedule({ failureStreak, quickRetryCount, quickRetries: true, retryAfterMs, baseMs: 60_000, maxMs: GITHUB_RATE_LIMIT_WINDOW_MS, random: () => 1 });
+    if (schedule.retry) quickRetryCount += 1;
     backoffUntil = now() + schedule.waitMs;
     rateLimitedUntil = retryAfterMs === undefined ? 0 : backoffUntil;
     log.warn(`[github-store] ${pollingError}`);
-    return { failed: true, retryAfterMs: schedule.waitMs };
+    return { failed: true, retryAfterMs: schedule.waitMs, error: pollingError };
   }
 
   function recordReadFailure(error: unknown): void {
@@ -136,6 +138,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   function recordSuccess(): void {
     pollingError = null;
     failureStreak = 0;
+    quickRetryCount = 0;
     backoffUntil = 0;
     rateLimitedUntil = 0;
   }

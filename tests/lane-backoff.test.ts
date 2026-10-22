@@ -137,13 +137,19 @@ test('quick retry decisions choose 10, 30 and 90 seconds before exponential back
     assert.deepEqual(retryDecision(attempt - 1), { waitMs: QUICK_RETRY_DELAYS_MS[attempt - 1], retry: { attempt, limit: 3 } });
   }
   assert.deepEqual(retryDecision(3), { waitMs: 300_000, retry: null });
-  assert.deepEqual(retryDecision(3, { failureStreak: 5 }), { waitMs: 600_000, retry: null });
+  assert.deepEqual(retryDecision(3, { failureStreak: 5 }), { waitMs: 300_000, retry: null });
   assert.deepEqual(retryDecision(0, { quickRetries: false }), { waitMs: 300_000, retry: null });
 });
 
 test('a rate-limit wait wins without spending the quick retry budget', () => {
   assert.deepEqual(retryDecision(0, { retryAfterMs: 120_000 }), { waitMs: 120_000, retry: null });
   assert.deepEqual(retryDecision(1, { retryAfterMs: 120_000 }), { waitMs: 120_000, retry: null });
+});
+
+test('exhausted quick retries cap transient backoff at five minutes and preserve rate-limit waits', () => {
+  const scheduleOptions = { failureStreak: 50, maxMs: 60 * 60_000 };
+  assert.ok(retryDecision(3, scheduleOptions).waitMs <= 5 * 60_000);
+  assert.deepEqual(retryDecision(3, { ...scheduleOptions, retryAfterMs: 30 * 60_000 }), { waitMs: 30 * 60_000, retry: null });
 });
 
 async function fireScheduledAttempt(harness: ReturnType<typeof makeLoop>) {

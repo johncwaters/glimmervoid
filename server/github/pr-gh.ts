@@ -124,12 +124,13 @@ interface PostedReview {
   reviewId: number | null;
 }
 
-const GH_TIMEOUT_MS = 30000;
+const GH_READ_TIMEOUT_MS = 15000;
+const GH_WRITE_TIMEOUT_MS = 30000;
 const GH_MAX_BUFFER_BYTES = 2 * 1024 * 1024 + 1;
 
-function run(cmd: string, args: string[], cwd: string, input?: string, preserveOutput = false): Promise<CommandResult> {
+function run(cmd: string, args: string[], cwd: string, input?: string, preserveOutput = false, timeoutMs = GH_READ_TIMEOUT_MS): Promise<CommandResult> {
   return runCommand(cmd, args, {
-    cwd, input, timeoutMs: GH_TIMEOUT_MS, maxBuffer: GH_MAX_BUFFER_BYTES, trim: !preserveOutput, keepStdoutOnFailure: true, preferStderr: true,
+    cwd, input, timeoutMs, maxBuffer: GH_MAX_BUFFER_BYTES, trim: !preserveOutput, keepStdoutOnFailure: true, preferStderr: true,
   });
 }
 
@@ -401,9 +402,9 @@ function conditionalGetResult(response: CommandResult): ConditionalGetResult {
 }
 
 function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
-  async function runGh(args: string[], input?: string, preserveOutput = false): Promise<CommandResult> {
+  async function runGh(args: string[], input?: string, preserveOutput = false, timeoutMs = GH_READ_TIMEOUT_MS): Promise<CommandResult> {
     try {
-      return await commandRunner('gh', args, cwd, input, preserveOutput);
+      return await commandRunner('gh', args, cwd, input, preserveOutput, timeoutMs);
     } catch (error) {
       return { ok: false, out: '', err: errorMessage(error) };
     }
@@ -601,7 +602,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!repoParts(repo) || !isPrNumber(number)) return { ok: false, err: 'invalid repository or pull request number' };
       const label = WorkflowLabelName.safeParse(name);
       if (!label.success) return { ok: false, err: 'invalid label name' };
-      const response = await runGh(['pr', 'edit', String(number), '--repo', repo, '--add-label', label.data]);
+      const response = await runGh(['pr', 'edit', String(number), '--repo', repo, '--add-label', label.data], undefined, false, GH_WRITE_TIMEOUT_MS);
       return { ok: response.ok, err: response.ok ? '' : response.err.trim() || 'gh pr edit failed' };
     },
 
@@ -609,7 +610,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!repoParts(repo) || !isPrNumber(number)) return { ok: false, err: 'invalid repository or pull request number' };
       const comment = WorkflowCommentBody.safeParse(body);
       if (!comment.success) return { ok: false, err: 'invalid comment body' };
-      const response = await runGh(['pr', 'comment', String(number), '--repo', repo, '--body-file', '-'], comment.data);
+      const response = await runGh(['pr', 'comment', String(number), '--repo', repo, '--body-file', '-'], comment.data, false, GH_WRITE_TIMEOUT_MS);
       return { ok: response.ok, err: response.ok ? '' : response.err.trim() || 'gh pr comment failed' };
     },
 
@@ -655,7 +656,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 
     async resolveReviewThread(threadId) {
       if (!ReviewThreadId.safeParse(threadId).success) return { ok: false, err: 'invalid review thread id' };
-      const response = await runGh(['api', 'graphql', '-f', `query=${RESOLVE_THREAD_MUTATION}`, '-f', `id=${threadId}`]);
+      const response = await runGh(['api', 'graphql', '-f', `query=${RESOLVE_THREAD_MUTATION}`, '-f', `id=${threadId}`], undefined, false, GH_WRITE_TIMEOUT_MS);
       const parsed = TeamReviewResolveResponse.safeParse(parseJsonOrNull(response.out));
       const isResolved = response.ok && parsed.success && !parsed.data.errors?.length && parsed.data.data?.resolveReviewThread.thread.id === threadId;
       return { ok: Boolean(isResolved), err: isResolved ? '' : response.err || 'GitHub did not confirm the thread was resolved' };
@@ -756,7 +757,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     },
     async rebasePr(pullRequestId, expectedHeadSha) {
       if (!NODE_ID_RE.test(pullRequestId) || !CommitSha.safeParse(expectedHeadSha).success) return { ok: false, err: 'invalid pull request id or head' };
-      const response = await runGh(['api', 'graphql', '-f', `query=${REBASE_PR_MUTATION}`, '-f', `id=${pullRequestId}`, '-f', `head=${expectedHeadSha}`]);
+      const response = await runGh(['api', 'graphql', '-f', `query=${REBASE_PR_MUTATION}`, '-f', `id=${pullRequestId}`, '-f', `head=${expectedHeadSha}`], undefined, false, GH_WRITE_TIMEOUT_MS);
       if (!response.ok) return { ok: false, err: response.err.trim() || 'gh graphql rebase failed' };
       const parsed = (parseJsonOrNull(response.out) ?? {}) as { errors?: { message?: unknown }[] };
       const firstError = parsed.errors?.[0]?.message;
@@ -769,7 +770,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!CommitSha.safeParse(headSha).success) return { ok: false, err: 'invalid head commit' };
       const parsedMethod = MyPrMergeMethod.safeParse(method);
       if (!parsedMethod.success) return { ok: false, err: 'invalid merge method' };
-      const response = await runGh(['pr', 'merge', String(number), '--repo', repo, GH_MERGE_FLAGS[parsedMethod.data], '--match-head-commit', headSha]);
+      const response = await runGh(['pr', 'merge', String(number), '--repo', repo, GH_MERGE_FLAGS[parsedMethod.data], '--match-head-commit', headSha], undefined, false, GH_WRITE_TIMEOUT_MS);
       if (!response.ok) return { ok: false, err: response.err.trim() || 'gh pr merge failed' };
       const prState = await runGh(['api', 'graphql', '-f', `query=${MY_PR_MERGE_STATE_QUERY}`, '-f', `owner=${parts[0]}`, '-f', `name=${parts[1]}`, '-F', `number=${number}`]);
       return { ok: true, kind: prState.ok ? mergeKindFromPrState(prState.out) : 'unconfirmed' };
@@ -877,7 +878,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const parsedComments = z.array(ReviewComment).safeParse(comments);
       if (!parsedComments.success) return { ok: false, err: 'invalid review comments', reviewId: null };
       const input = JSON.stringify({ commit_id: commitId, event, body, comments: parsedComments.data });
-      const response = await runGh(['api', '-X', 'POST', `repos/${parts[0]}/${parts[1]}/pulls/${number}/reviews`, '--input', '-'], input);
+      const response = await runGh(['api', '-X', 'POST', `repos/${parts[0]}/${parts[1]}/pulls/${number}/reviews`, '--input', '-'], input, false, GH_WRITE_TIMEOUT_MS);
       if (!response.ok) return { ok: false, err: response.err.trim() || 'gh review post failed', reviewId: null };
       const created = CREATED_REVIEW.safeParse(parseJsonOrNull(response.out));
       return { ok: true, err: '', reviewId: created.success ? created.data.id : null };
@@ -889,7 +890,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!Number.isSafeInteger(reviewId) || reviewId <= 0) return { ok: false, err: 'invalid review id' };
       if (typeof message !== 'string' || !message.trim()) return { ok: false, err: 'a dismissal needs a message' };
       const input = JSON.stringify({ message, event: 'DISMISS' });
-      const response = await runGh(['api', '-X', 'PUT', `repos/${parts[0]}/${parts[1]}/pulls/${number}/reviews/${reviewId}/dismissals`, '--input', '-'], input);
+      const response = await runGh(['api', '-X', 'PUT', `repos/${parts[0]}/${parts[1]}/pulls/${number}/reviews/${reviewId}/dismissals`, '--input', '-'], input, false, GH_WRITE_TIMEOUT_MS);
       return { ok: response.ok, err: response.ok ? '' : response.err.trim() || 'gh review dismissal failed' };
     },
   };

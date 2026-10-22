@@ -9,6 +9,7 @@ import { createSerialQueue } from '../spawn-gate.ts';
 interface TickOutcome {
   failed?: boolean;
   retryAfterMs?: number;
+  error?: string;
 }
 
 type TickTrigger = 'interval' | 'retry' | 'manual';
@@ -178,7 +179,7 @@ function createTickLoop({
       if (scheduled.retry) quickRetryCount += 1;
       if (outcome.retryAfterMs && outcome.retryAfterMs > 0) rateLimitedUntil = now() + outcome.retryAfterMs;
       scheduleAttempt(scheduled.waitMs, scheduled.retry);
-      log.warn(`[${tag}] poll failed (${failureStreak} in a row) - backing off ${Math.round(scheduled.waitMs / 1000)}s`);
+      log.warn(`[${tag}] poll failed (${failureStreak} in a row)${outcome.error ? `: ${outcome.error}` : ''} - backing off ${Math.round(scheduled.waitMs / 1000)}s`);
       return { ok: false, error: 'Could not refresh from GitHub.' };
     } finally {
       tickRunning = false;

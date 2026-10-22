@@ -58,7 +58,7 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
 
   async function failedOutcome(error: string) {
     const waitMs = await rateLimitWaitMs() ?? secondaryRateLimitWaitMs(error);
-    return waitMs === null ? { failed: true } : { failed: true, retryAfterMs: waitMs };
+    return waitMs === null ? { failed: true, error } : { failed: true, retryAfterMs: waitMs, error };
   }
 
   async function runTick() {
