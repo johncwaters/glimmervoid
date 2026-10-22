@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The open session stands out in the Focus rail**: its row used to get a faint accent wash that looked the same as the wash on waiting, failed and finished rows, so after Next session (Cmd/Alt+J) it was hard to tell where you landed. The open row now has a raised background, a full accent outline and a bold name, and a jump rings the row you land on in accent for a moment. The ring is skipped when your system asks for reduced motion.
+
 ## [0.43.0] - 2026-10-22
 
 ### Changed

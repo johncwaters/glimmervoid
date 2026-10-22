@@ -360,6 +360,10 @@ function flashAttention(id: string) {
       ],
       { duration: 360, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
     );
+    pill._row.animate(
+      [{ boxShadow: '0 0 0 3px var(--accent)' }, { boxShadow: '0 0 0 3px transparent' }],
+      { duration: 700, easing: 'ease-out' },
+    );
   }
   const card = sessionUIs.get(id)?.card;
   if (card?.animate) {
