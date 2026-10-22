@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dashboard idles lighter while a session works**: the pulsing ring on a working session's icon, and the spinner on a starting one, made the browser lay out the whole page again on every frame, about 60 times a second. They look the same but no longer do, which cuts the dashboard's idle CPU use while any session is working.
+
 ## [0.43.0] - 2026-10-22
 
 ### Changed
