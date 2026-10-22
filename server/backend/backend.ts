@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { customAgentFingerprint, resolveAdapter, setCustomAgents } from '../../session/adapters/index.ts';
 import type { Session } from '../../session/sessions.ts';
-import { createConfigStore, generateProjectId, ensureProjectIds, glimmervoidHomeDir } from '../config-store.ts';
+import { createConfigStore, DEFAULT_CONFIG, generateProjectId, ensureProjectIds, glimmervoidHomeDir } from '../config-store.ts';
+import { reconcileOwnedPaths } from '../owned-paths-ledger.ts';
 import type { GlimmervoidConfig } from '../config-store.ts';
 import { createLifecycle } from '../server-lifecycle.ts';
 import { execFileAsync, spawn } from '../child-process-safe.ts';
@@ -358,6 +359,12 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   void rtkInstall.maybeInstall();
   void sweepOrphanedGuardrailsLaunches();
+  void reconcileOwnedPaths({
+    ledger: laneAssembly.ownedPaths,
+    configuredSessionIds: new Set(config.projects.map((project) => project.id)),
+    git: laneAssembly.gitWorkspace,
+    shareList: config.worktreeShare || DEFAULT_CONFIG.worktreeShare,
+  });
   laneAssembly.startRuntimeLanes();
 
   function applyCustomAgents(sourceConfig: GlimmervoidConfig): void {
