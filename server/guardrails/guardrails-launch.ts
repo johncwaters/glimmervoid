@@ -299,6 +299,18 @@ function enteringFolder(enterDir: string | undefined, file: string, args: readon
   return ['/bin/sh', '-c', ENTER_FOLDER_SCRIPT, 'sh', enterDir, file, ...args];
 }
 
+function sessionTempFolderFor(sessionId: string): string | null {
+  if (!LAUNCH_ID_SHAPE.test(sessionId)) return null;
+  return path.join(glimmervoidHomeDir(), GUARDRAILS_TEMP_FOLDER, sessionId);
+}
+
+async function removeSessionTempFolder(sessionId: string, log: Pick<Console, 'warn'> = console): Promise<void> {
+  const sessionTempFolder = sessionTempFolderFor(sessionId);
+  if (!sessionTempFolder) return;
+  await rm(sessionTempFolder, { recursive: true, force: true })
+    .catch((error: unknown) => log.warn(`[guardrails] could not delete session temp folder ${sessionTempFolder}: ${errorMessage(error)}`));
+}
+
 function launchTempDirFor(glimmervoidHome: string, launchId: string, tempDir: string | undefined, keptTempFolderName: string | undefined): string {
   if (tempDir !== undefined) return path.resolve(tempDir);
   return path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER, keptTempFolderName ?? launchId);
@@ -386,5 +398,5 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, keptTempFolder
   }
 }
 
-export { prepareGuardrailsLaunch, pruneLeftoverSessionTempFolders, sweepOrphanedGuardrailsLaunches };
+export { prepareGuardrailsLaunch, pruneLeftoverSessionTempFolders, removeSessionTempFolder, sessionTempFolderFor, sweepOrphanedGuardrailsLaunches };
 export type { GuardrailsLaunch, GuardrailsLaunchResult };

@@ -11,6 +11,7 @@ import { diffProjects, machineSkipsPermissionsByDefault, shouldStartAfterModify 
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import type { SessionWorktree, WorktreeArgs } from '../git/git-workspace.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { removeSessionTempFolder } from '../guardrails/guardrails-launch.ts';
 
 interface RegistryConfig extends Record<string, unknown> {
   projects: RegistryProject[];
@@ -264,7 +265,8 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
     Promise.resolve(session._killReap)
       .catch(() => {})
       .then(() => session.discardWorktree?.())
-      .catch(() => {});
+      .catch(() => {})
+      .then(() => removeSessionTempFolder(id, dependencies.logger));
     sessions.delete(id);
     capturedAgentFingerprints.delete(id);
     dependencies.broadcastControl({ type: 'session-removed', id, session: session.name });

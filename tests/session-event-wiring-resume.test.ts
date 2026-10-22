@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createConfigStore } from '../server/config-store.ts';
-import type { ConfigStore } from '../server/config-store.ts';
+import { existsSync } from 'node:fs';
+import { createConfigStore, glimmervoidHomeDir } from '../server/config-store.ts';
+import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
 import { Session } from '../session/sessions.ts';
 import type { Server } from 'node:http';
@@ -235,6 +236,46 @@ for (const titleKind of ['automatic', 'custom'] as const) {
   });
 }
 
+function reloadingRegistry(store: ConfigStore, sessions: Map<string, Session>, makeSession: (project: ProjectEntry, config: GlimmervoidConfig) => Session) {
+  const wireSessionEvents = createSessionEventWiring({
+    configStore: store,
+    config: store.config,
+    recordLane: () => {},
+    usage: { refreshSessions: () => {}, nudgeSession: () => {} },
+    broadcastControl: () => {},
+    telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
+    notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
+    getIngestLane: () => null,
+    tapIngestForSession: () => {},
+    closeSessionDataClients: () => {},
+    logger: { error: () => {}, log: () => {}, warn: () => {} },
+  });
+  return createSessionRegistry({
+    httpServer: { listening: true } as Server,
+    sessions,
+    config: store.config,
+    configStore: store,
+    makeSession: (project, config) => {
+      const session = makeSession(project, config);
+      session.start = () => Promise.resolve();
+      return session;
+    },
+    wireSessionEvents,
+    closeSessionDataClients: () => {},
+    notificationManager: { acknowledge: () => {} },
+    getIngestLane: () => null,
+    broadcastControl: () => {},
+    applySettingsReload: () => {},
+    spawnGate: { run: (callback) => Promise.resolve(callback()) },
+    gitWorkspaceSync: { listSessionWorktrees: () => [], removeWorktreeByPath: () => {} },
+    reconcileSessionWorktrees: () => {},
+    carryWorktreeAcrossRecreate: () => undefined,
+    ensureProjectIds: () => false,
+    resolveAgentId: (agent) => agent ?? 'claude-code',
+    logger: { log: () => {}, warn: () => {} },
+  });
+}
+
 test('a session added by a config reload persists its seeded title state to disk', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-reload-title-'));
   const configPath = path.join(directory, 'config.json');
@@ -244,43 +285,7 @@ test('a session added by a config reload persists its seeded title state to disk
   await writeFile(configPath, JSON.stringify({ recordSignals: false, projects: [] }));
   const store = createConfigStore();
   try {
-    const wireSessionEvents = createSessionEventWiring({
-      configStore: store,
-      config: store.config,
-      recordLane: () => {},
-      usage: { refreshSessions: () => {}, nudgeSession: () => {} },
-      broadcastControl: () => {},
-      telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
-      notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
-      getIngestLane: () => null,
-      tapIngestForSession: () => {},
-      closeSessionDataClients: () => {},
-      logger: { error: () => {}, log: () => {}, warn: () => {} },
-    });
-    const registry = createSessionRegistry({
-      httpServer: { listening: true } as Server,
-      sessions,
-      config: store.config,
-      configStore: store,
-      makeSession: (project) => {
-        const session = new Session({ id: project.id, name: project.name, path: project.path, customTitle: project.customTitle });
-        session.start = () => Promise.resolve();
-        return session;
-      },
-      wireSessionEvents,
-      closeSessionDataClients: () => {},
-      notificationManager: { acknowledge: () => {} },
-      getIngestLane: () => null,
-      broadcastControl: () => {},
-      applySettingsReload: () => {},
-      spawnGate: { run: (callback) => Promise.resolve(callback()) },
-      gitWorkspaceSync: { listSessionWorktrees: () => [], removeWorktreeByPath: () => {} },
-      reconcileSessionWorktrees: () => {},
-      carryWorktreeAcrossRecreate: () => undefined,
-      ensureProjectIds: () => false,
-      resolveAgentId: (agent) => agent ?? 'claude-code',
-      logger: { log: () => {}, warn: () => {} },
-    });
+    const registry = reloadingRegistry(store, sessions, (project) => new Session({ id: project.id, name: project.name, path: project.path, customTitle: project.customTitle }));
     await writeFile(configPath, JSON.stringify({
       recordSignals: false,
       projects: [{ id: 'reload-added-session', name: 'reloaded', path: directory, customTitle: 'Reloaded custom title' }],
@@ -290,6 +295,43 @@ test('a session added by a config reload persists its seeded title state to disk
     const diskConfig = JSON.parse(await readFile(configPath, 'utf8'));
     assert.equal(diskConfig.projects[0].taskTitleState.taskTitle, 'Reloaded custom title');
     assert.equal(store.config.projects[0].taskTitleState?.taskTitle, 'Reloaded custom title');
+  } finally {
+    for (const session of sessions.values()) session.destroy();
+    await store.idle();
+    if (previousConfigPath === undefined) delete process.env.GLIMMERVOID_CONFIG;
+    if (previousConfigPath !== undefined) process.env.GLIMMERVOID_CONFIG = previousConfigPath;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('an unguarded session keeps Claude Code scratch in its own temp folder until the operator removes it', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-session-temp-'));
+  const configPath = path.join(directory, 'config.json');
+  const previousConfigPath = process.env.GLIMMERVOID_CONFIG;
+  const sessions = new Map<string, Session>();
+  process.env.GLIMMERVOID_CONFIG = configPath;
+  const removableProject = { id: 'session-temp-removal', name: 'scratch', path: directory };
+  await writeFile(configPath, JSON.stringify({ recordSignals: false, projects: [] }));
+  const store = createConfigStore();
+  try {
+    const makeSession = createSessionFactory({
+      configStore: { configPath }, hookRouter: null, getHookPort: () => null,
+      getGitWorkspace: () => null, getPlanReviewPort: () => null,
+      resolveHookTools: () => [], getUserHooks: () => [],
+    });
+    const registry = reloadingRegistry(store, sessions, makeSession);
+    await writeFile(configPath, JSON.stringify({ recordSignals: false, projects: [removableProject] }));
+    registry.applyConfigReload(createConfigStore().config);
+    const sessionTempFolder = path.join(glimmervoidHomeDir(), 'guardrails-temp', removableProject.id);
+    assert.equal(sessions.get(removableProject.id)?._spawnEnv?.CLAUDE_CODE_TMPDIR, sessionTempFolder);
+    assert.equal(existsSync(sessionTempFolder), true);
+    await writeFile(configPath, JSON.stringify({ recordSignals: false, projects: [{ ...removableProject, name: 'renamed scratch' }] }));
+    registry.applyConfigReload(createConfigStore().config);
+    assert.equal(existsSync(sessionTempFolder), true);
+    await writeFile(configPath, JSON.stringify({ recordSignals: false, projects: [] }));
+    registry.applyConfigReload(createConfigStore().config);
+    for (let attempt = 0; attempt < 50 && existsSync(sessionTempFolder); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(existsSync(sessionTempFolder), false);
   } finally {
     for (const session of sessions.values()) session.destroy();
     await store.idle();

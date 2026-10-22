@@ -1,6 +1,7 @@
 import { resolveCoherence, type ConfineCommand } from '../coherence/coherence-runtime.ts';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
 import { refreshRtkHookTools } from '../../session/core/rtk-settings-core.ts';
+import fs from 'node:fs';
 import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
@@ -18,6 +19,7 @@ import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './cor
 import { expandTilde } from '../usage/core/usage-scan-core.ts';
 import { remoteCheckoutDirectory } from '../coder/core/coder-env-core.ts';
 import type { SessionGuardrails } from '../guardrails/session-guardrails.ts';
+import { sessionTempFolderFor } from '../guardrails/guardrails-launch.ts';
 import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
@@ -133,6 +135,8 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true,
     });
     const builtMapping = project.environment;
+    const sessionTempFolder = builtMapping ? null : sessionTempFolderFor(project.id);
+    if (sessionTempFolder) fs.mkdirSync(sessionTempFolder, { recursive: true });
     const session = new Session({
       id: project.id,
       name: project.name,
@@ -170,6 +174,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config) : null,
       ...overrides,
+      spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,
       prepareGuardrails: 'prepareGuardrails' in overrides ? overrides.prepareGuardrails : defaultGuardrailsFor(project, config, overrides),
     });
     const captureConfig = {
