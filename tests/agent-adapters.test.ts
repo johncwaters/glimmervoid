@@ -29,6 +29,7 @@ const REPO_ROOT = path.join(import.meta.dirname, '..');
 const RESUME_ID = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
 const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
 const SUPERVISION_ARGS = ['--append-system-prompt', SUPERVISION_LINE];
+const OPERATOR_SUPERVISION_ARGS = ['--append-system-prompt', `${SUPERVISION_LINE} To delegate work that edits files or runs long, use glimmervoid spawn rather than an in-process subagent: the spawned session gets its own dashboard card the operator can watch. An in-process subagent stays fine for a quick read-only lookup.`];
 
 function tmpHooksDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-adapter-'));
@@ -146,7 +147,7 @@ test('spawn argv for a fully featured session is byte-identical to the pre-extra
       '--settings', settingsPath,
       '--dangerously-skip-permissions',
       '--resume', RESUME_ID,
-      ...SUPERVISION_ARGS,
+      ...OPERATOR_SUPERVISION_ARGS,
       '-p', '--model', 'sonnet',
       'THE PROMPT',
     ]);

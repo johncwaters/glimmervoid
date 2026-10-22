@@ -29,6 +29,7 @@ interface CodexSpawnCall {
 const CODEX_SESSION_ID = '01a030d4-6956-73c2-a74a-eedd17b6361d';
 const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
 const SUPERVISION_ARGS = ['-c', `developer_instructions='''${SUPERVISION_LINE}'''`];
+const OPERATOR_SUPERVISION_ARGS = ['-c', `developer_instructions='''${SUPERVISION_LINE} To delegate work that edits files or runs long, use glimmervoid spawn rather than an in-process subagent: the spawned session gets its own dashboard card the operator can watch. An in-process subagent stays fine for a quick read-only lookup.'''`];
 
 function makeCodexSession(options: Partial<SessionOptions> = {}) {
   const calls: CodexSpawnCall[] = [];
@@ -161,11 +162,11 @@ test('a Codex session passes no supervision line when the operator config.toml s
     }
   };
   try {
-    assert.deepEqual((await launchArgs('codex-no-config')).slice(0, 4), ['-c', 'check_for_update_on_startup=false', ...SUPERVISION_ARGS]);
+    assert.deepEqual((await launchArgs('codex-no-config')).slice(0, 4), ['-c', 'check_for_update_on_startup=false', ...OPERATOR_SUPERVISION_ARGS]);
     fs.writeFileSync(path.join(codexHome, 'config.toml'), 'model = "gpt"\ndeveloper_instructions = "mine"\n');
     assert.equal((await launchArgs('codex-own-instructions')).some((argument) => argument.startsWith('developer_instructions=')), false);
     fs.writeFileSync(path.join(codexHome, 'config.toml'), 'model = "gpt"\n');
-    assert.deepEqual((await launchArgs('codex-plain-config')).slice(2, 4), SUPERVISION_ARGS);
+    assert.deepEqual((await launchArgs('codex-plain-config')).slice(2, 4), OPERATOR_SUPERVISION_ARGS);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }

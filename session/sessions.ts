@@ -1618,6 +1618,7 @@ class Session extends EventEmitter {
       hasOuterGuardrails: isSpawnGuarded,
       hasOperatorInstructions: this._hasOperatorInstructions(env),
       canRunHelpCommand: this._canRunHelpCommand,
+      canSpawn: !this.ephemeral,
     });
 
     const bridgedLaunch = isRemoteCodex && remoteLaunch !== null

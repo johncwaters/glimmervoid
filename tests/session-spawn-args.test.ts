@@ -12,6 +12,7 @@ import { fakePty } from './helpers/fake-pty.ts';
 import { supervisionLine } from '../session/core/session-routes.ts';
 
 const SUPERVISION_ARGS = ['--append-system-prompt', supervisionLine({ isGuarded: false })];
+const OPERATOR_SUPERVISION_ARGS = ['--append-system-prompt', supervisionLine({ isGuarded: false, canSpawn: true })];
 
 interface ArgvCall {
   file: string;
@@ -72,7 +73,7 @@ test('start() appends extraClaudeArgs then the initialPrompt as the final positi
   }
 });
 
-test('a session with no team options spawns with the supervision line and no other args', async () => {
+test('an operator session spawns with the supervision line that points it at glimmervoid spawn and no other args', async () => {
   const calls: ArgvCall[] = [];
   const s = new Session({
     id: 'plain',
@@ -83,7 +84,8 @@ test('a session with no team options spawns with the supervision line and no oth
   });
   try {
     await s.start();
-    assert.deepEqual(calls[0].args, SUPERVISION_ARGS, 'no settings, no perms, no team args');
+    assert.deepEqual(calls[0].args, OPERATOR_SUPERVISION_ARGS, 'no settings, no perms, no team args');
+    assert.match(calls[0].args[1], /glimmervoid spawn/);
     assert.equal(s.toSnapshot().ephemeral, false);
   } finally {
     s.destroy();

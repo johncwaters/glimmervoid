@@ -81,6 +81,7 @@ interface AgentArgsOptions {
   hasOuterGuardrails?: boolean;
   hasOperatorInstructions?: boolean;
   canRunHelpCommand?: boolean;
+  canSpawn?: boolean;
 }
 
 interface AgentLaunchSessionOptions {

@@ -59,7 +59,7 @@ Editor integration (Visions):
   visions relay       Run the Visions LSP relay on stdio (an editor's LSP client starts this)
 
 Inside a Glimmervoid session:
-  spawn <prompt>      Start a session on that prompt that this session owns until its task is done
+  spawn <prompt>      Start a session on that prompt, with its own dashboard card, that this session owns until its task is done
   send [child] <text> Message a session this one spawned; a spawned session messages its parent with send <text>
   read [child]        Read what this session's spawned sessions sent; a spawned session reads its parent's messages
   close <child>       End a session this one spawned and discard its worktree; refused while it holds unpushed work unless --discard

@@ -309,10 +309,11 @@ function buildArgs({
   hasOuterGuardrails = false,
   hasOperatorInstructions = false,
   canRunHelpCommand = true,
+  canSpawn = false,
 }: AgentArgsOptions = {}): string[] {
   const args = [...UPDATE_CHECK_ARGS];
   if (canRunHelpCommand && !hasOperatorInstructions && !extraArgs.some(isDeveloperInstructionsOverride)) {
-    args.push("-c", `${DEVELOPER_INSTRUCTIONS_KEY}='''${supervisionLine({ isGuarded: hasOuterGuardrails })}'''`);
+    args.push("-c", `${DEVELOPER_INSTRUCTIONS_KEY}='''${supervisionLine({ isGuarded: hasOuterGuardrails, canSpawn })}'''`);
   }
   if (resumeSessionId) args.push("resume", resumeSessionId);
   args.push(...permissionArgs(dangerouslySkipPermissions, hasOuterGuardrails));

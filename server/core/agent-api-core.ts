@@ -281,7 +281,7 @@ interface AgentCommandHelp {
 const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = Object.freeze({
   spawn: {
     usage: 'spawn <prompt>',
-    summary: 'Start a session on that prompt that this session owns until its task is done',
+    summary: 'Start a session on that prompt, with its own dashboard card, that this session owns until its task is done',
     missingArgumentHint: 'glimmervoid spawn: this command needs text, for example "glimmervoid spawn check the failing test"',
   },
   send: {

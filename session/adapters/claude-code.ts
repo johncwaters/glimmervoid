@@ -187,10 +187,11 @@ function buildArgs({
   initialPrompt = null,
   hasOuterGuardrails = false,
   canRunHelpCommand = true,
+  canSpawn = false,
 }: AgentArgsOptions = {}): string[] {
   const args = dangerouslySkipPermissions ? ["--dangerously-skip-permissions"] : [];
   if (resumeSessionId) args.push("--resume", resumeSessionId);
-  if (canRunHelpCommand && !extraArgs.some(isAppendedSystemPromptArgument)) args.push(APPEND_SYSTEM_PROMPT_FLAG, supervisionLine({ isGuarded: hasOuterGuardrails }));
+  if (canRunHelpCommand && !extraArgs.some(isAppendedSystemPromptArgument)) args.push(APPEND_SYSTEM_PROMPT_FLAG, supervisionLine({ isGuarded: hasOuterGuardrails, canSpawn }));
   for (let index = 0; index < extraArgs.length; index += 1) {
     const argument = extraArgs[index];
     if (resumeSessionId && argument === "--session-id") {

@@ -2,6 +2,7 @@ import { SESSION_COMMANDS } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, SessionCommand, SessionLimits } from '../../shared/contracts/session.ts';
 
 const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
+const SPAWN_LINE = 'To delegate work that edits files or runs long, use glimmervoid spawn rather than an in-process subagent: the spawned session gets its own dashboard card the operator can watch. An in-process subagent stays fine for a quick read-only lookup.';
 const GUARDRAILS_LINE = 'Its guardrails are OS-enforced, so a read, write or connection they refuse will not succeed on retry.';
 const HELP_COMMAND = 'glimmervoid --help';
 const SHELL_TOOL_RULE = 'Bash';
@@ -30,9 +31,11 @@ type SessionDeadEnd = SessionLimits['deadEnds'][number];
 
 const ANSWERS: { answers: true } = Object.freeze({ answers: true });
 
-function supervisionLine({ isGuarded }: { isGuarded: boolean }): string {
-  if (!isGuarded) return SUPERVISION_LINE;
-  return `${SUPERVISION_LINE} ${GUARDRAILS_LINE}`;
+function supervisionLine({ isGuarded, canSpawn = false }: { isGuarded: boolean; canSpawn?: boolean }): string {
+  const sentences = [SUPERVISION_LINE];
+  if (canSpawn) sentences.push(SPAWN_LINE);
+  if (isGuarded) sentences.push(GUARDRAILS_LINE);
+  return sentences.join(' ');
 }
 
 function coversHelpCommand(permissionRule: unknown): boolean {
