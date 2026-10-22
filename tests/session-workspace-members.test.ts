@@ -33,7 +33,7 @@ test('workspace member shell preserves existing maps, reports partial failure an
     const planned = planWorkspace({ worktreeRoot: root, sessionName: 'Example', sessionId: '12345678-session', repoPaths: [first, second] });
     if (!planned.ok) throw new Error(planned.error);
     const gitWorkspace = createGitWorkspace();
-    const shell = createSessionWorkspaceMembers({ plan: planned.plan, sessionName: 'Example', shareList: null, gitWorkspace });
+    const shell = createSessionWorkspaceMembers({ owner: 'lane:test', plan: planned.plan, sessionName: 'Example', shareList: null, gitWorkspace });
     assert.equal((await shell.provision()).ok, true);
     const agentsPath = path.join(planned.plan.folder, 'AGENTS.md');
     const claudePath = path.join(planned.plan.folder, 'CLAUDE.md');
@@ -66,7 +66,7 @@ test('workspace member shell preserves existing maps, reports partial failure an
     fs.mkdirSync(missing);
     const partialPlan = planWorkspace({ worktreeRoot: root, sessionName: 'Partial', sessionId: '87654321-session', repoPaths: [first, missing] });
     if (!partialPlan.ok) throw new Error(partialPlan.error);
-    const partialShell = createSessionWorkspaceMembers({ plan: partialPlan.plan, sessionName: 'Partial', shareList: null, gitWorkspace });
+    const partialShell = createSessionWorkspaceMembers({ owner: 'lane:test', plan: partialPlan.plan, sessionName: 'Partial', shareList: null, gitWorkspace });
     const partial = await partialShell.provision();
     assert.equal(partial.ok, false);
     assert.equal(fs.existsSync(partialPlan.plan.members[0].dir), true);
@@ -75,7 +75,7 @@ test('workspace member shell preserves existing maps, reports partial failure an
 
     const racePlan = planWorkspace({ worktreeRoot: root, sessionName: 'Race', sessionId: '99999999-session', repoPaths: [first, second] });
     if (!racePlan.ok) throw new Error(racePlan.error);
-    const raceShell = createSessionWorkspaceMembers({ plan: racePlan.plan, sessionName: 'Race', shareList: null, gitWorkspace });
+    const raceShell = createSessionWorkspaceMembers({ owner: 'lane:test', plan: racePlan.plan, sessionName: 'Race', shareList: null, gitWorkspace });
     const pendingProvision = raceShell.provision();
     const pendingRelease = raceShell.release();
     assert.equal((await pendingProvision).ok, true);
@@ -93,7 +93,7 @@ test('workspace member release keeps a member whose removal git refuses', async 
     if (!planned.ok) throw new Error(planned.error);
     for (const member of planned.plan.members) fs.mkdirSync(member.dir, { recursive: true });
     const removedDirs: string[] = [];
-    const shell = createSessionWorkspaceMembers({ plan: planned.plan, sessionName: 'Refused', shareList: null, gitWorkspace: {
+    const shell = createSessionWorkspaceMembers({ owner: 'lane:test', plan: planned.plan, sessionName: 'Refused', shareList: null, gitWorkspace: {
       ensureWorkspaceMember: async ({ projectPath }) => ({ cwd: projectPath, isGit: false, reason: 'not-git' }),
       removeWorkspaceMember: async ({ cwd }) => {
         if (cwd === planned.plan.members[0].dir) return { ok: false, out: '', err: 'contains modified or untracked files' };

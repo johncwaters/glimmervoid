@@ -544,7 +544,7 @@ test('the startup sweep interrupts stale runs and removes scratch dirs and legac
   git(['init', '-q'], repo);
   git(['-c', 'user.name=Bench', '-c', 'user.email=bench@example.com', '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'base'], repo);
   const sha = git(['rev-parse', 'HEAD'], repo).trim();
-  assert.equal((await createGitWorkspace({}).stageDetachedWorktree({ projectPath: repo, worktreePath: legacyWorktree, sha })).ok, true);
+  assert.equal((await createGitWorkspace({}).stageDetachedWorktree({ owner: 'lane:test', projectPath: repo, worktreePath: legacyWorktree, sha })).ok, true);
   await wiring.sweepLeftovers();
   const settled = BenchmarkRun.parse(JSON.parse(fs.readFileSync(staleRunPath, 'utf8')));
   assert.equal(settled.status, 'interrupted');

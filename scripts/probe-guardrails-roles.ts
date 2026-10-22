@@ -317,7 +317,7 @@ async function probeTeamReview(roleRoot: string): Promise<void> {
   await runGit(['add', 'initial.txt'], cachedClone);
   await runGit(['-c', 'user.name=Role probe', '-c', 'user.email=role-probe@example.test', '-c', 'commit.gpgsign=false', 'commit', '-m', 'initial'], cachedClone);
   const headSha = (await runGit(['rev-parse', 'HEAD'], cachedClone)).stdout.trim();
-  const staged = await createGitWorkspace().stageDetachedWorktree({ projectPath: cachedClone, worktreePath: checkoutPath, sha: headSha });
+  const staged = await createGitWorkspace().stageDetachedWorktree({ projectPath: cachedClone, owner: 'lane:guardrails-probe', worktreePath: checkoutPath, sha: headSha });
   assert.ok(staged.ok, staged.err ?? 'the worktree was not staged');
   const outsideFile = path.join(roleRoot, 'outside-team-review.txt');
   const checkoutFile = path.join(checkoutPath, 'owned.txt');
@@ -387,7 +387,7 @@ async function probePosthog(roleRoot: string): Promise<void> {
   await runGit(['add', 'initial.txt'], repoPath);
   await runGit(['commit', '-m', 'initial'], repoPath);
   const initialSha = (await runGit(['rev-parse', 'HEAD'], repoPath)).stdout.trim();
-  const staged = await createGitWorkspace().stageDetachedWorktree({ projectPath: repoPath, worktreePath, sha: initialSha });
+  const staged = await createGitWorkspace().stageDetachedWorktree({ projectPath: repoPath, owner: 'lane:guardrails-probe', worktreePath, sha: initialSha });
   assert.ok(staged.ok, staged.err ?? 'the worktree was not staged');
   const repoConfigFile = path.join(repoPath, '.git', 'config');
   const repoConfigText = await readFile(repoConfigFile, 'utf8');
@@ -808,7 +808,7 @@ try {
     await runGit(['add', 'initial.txt']);
     await runGit(['commit', '-m', 'initial']);
     const initialSha = (await runGit(['rev-parse', 'HEAD'])).stdout.trim();
-    const workspace = await createGitWorkspace().create({ projectPath: repository, teamId: 'probe', label: roleName,
+    const workspace = await createGitWorkspace().create({ projectPath: repository, owner: 'lane:guardrails-probe', teamId: 'probe', label: roleName,
       baseBranch: 'main', configuredIntegrationBranch: 'main', worktreeBase: roleRoot, shareList: [] });
     assert.equal(workspace.isGit, true);
     const checkout = await realpath(workspace.cwd);

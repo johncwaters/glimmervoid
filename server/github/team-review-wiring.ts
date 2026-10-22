@@ -53,6 +53,7 @@ import { errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { shortSha } from '../../shared/git-text.ts';
 import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
+import type { OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
 import { isPathInside } from '../../shared/paths.ts';
 import { readGitDirsOfOwnCheckout } from '../lanes/work-lane.ts';
 import { repositoryRootOfCommonGitDir } from '../core/claude-trust-core.ts';
@@ -116,11 +117,12 @@ interface TeamReviewWorkDir {
 }
 
 interface TeamReviewGitWorkspace {
-  stageDetachedWorktree(args: { projectPath: string; worktreePath?: string; sha?: string }): Promise<{ ok: boolean; err?: string }>;
+  stageDetachedWorktree(args: { projectPath: string; owner: OwnedPathOwner; worktreePath?: string; sha?: string }): Promise<{ ok: boolean; err?: string }>;
   originUrl(args: { projectPath: string }): Promise<string | null>;
   populate(args: { projectPath: string; wtDir: string; shareList: string[]; keepTrackableLinks?: boolean }): Promise<void>;
   removeWorktreeByPath(args: { projectPath: string; cwd?: string | null }): Promise<{ ok: boolean; err?: string }>;
   pruneWorktrees(args: { projectPath: string }): Promise<{ ok: boolean; err?: string }>;
+  forgetRemovedWorktree?(worktreePath: string): Promise<void>;
   seedBranchFromOrigin?(args: { projectPath: string; name: string }): Promise<{ ok: boolean; out: string; err?: string }>;
 }
 
@@ -409,6 +411,13 @@ async function deleteDirectory(directory: string, log: Pick<Console, 'warn'>): P
     .catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not delete ${directory}: ${errorMessage(error)}`));
 }
 
+async function deleteCheckout(
+  gitWorkspace: Pick<TeamReviewGitWorkspace, 'forgetRemovedWorktree'>, worktreePath: string, log: Pick<Console, 'warn'>,
+): Promise<void> {
+  await deleteDirectory(worktreePath, log);
+  await gitWorkspace.forgetRemovedWorktree?.(worktreePath);
+}
+
 async function isDirectory(candidatePath: string): Promise<boolean> {
   const stats = await fs.stat(candidatePath).catch(() => null);
   return stats?.isDirectory() === true;
@@ -485,7 +494,7 @@ async function sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoC
   workRoot: string;
   keepPaths: ReadonlySet<string>;
   repoCache: Pick<TeamReviewRepoCache, 'listRepos'>;
-  gitWorkspace: Pick<TeamReviewGitWorkspace, 'pruneWorktrees'>;
+  gitWorkspace: Pick<TeamReviewGitWorkspace, 'pruneWorktrees' | 'forgetRemovedWorktree'>;
   reapProcesses?: TeamReviewReap;
   log: Pick<Console, 'warn'>;
 }): Promise<void> {
@@ -495,7 +504,7 @@ async function sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoC
     for (const leftoverName of leftoverNames) {
       const directory = path.join(root, leftoverName);
       if (keepPaths.has(directory)) continue;
-      await deleteDirectory(directory, log);
+      await deleteCheckout(gitWorkspace, directory, log);
     }
   }
   const cachedClones = await repoCache.listRepos()
@@ -522,7 +531,7 @@ function createTeamReviewDispatcher({
       .catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
     if (removal.ok && !(await pathExists(worktreePath))) return;
     log.warn(`[${core.TEAM_REVIEW_LANE_ID}] worktree removal failed for ${worktreePath}, deleting it directly: ${firstLine(removal.err ?? '') || 'the directory is still present'}`);
-    await deleteDirectory(worktreePath, log);
+    await deleteCheckout(gitWorkspace, worktreePath, log);
     await pruneCachedClone(gitWorkspace, projectPath, log);
   }
 
@@ -631,7 +640,7 @@ function createTeamReviewDispatcher({
       const hasWorktree = await pathExists(args.resume.worktreePath);
       if (hasWorkDir && hasWorktree) return { kind: 'stopped', resumable: { ...args.resume, savedAt: now() } };
       if (hasWorkDir) await deleteDirectory(args.resume.workDir, log);
-      if (hasWorktree) await deleteDirectory(args.resume.worktreePath, log);
+      if (hasWorktree) await deleteCheckout(gitWorkspace, args.resume.worktreePath, log);
       return { kind: 'stopped', resumable: null };
     }
     const failed = (error: string) => core.errorDraft({ candidate, tier, reasons, reviewedHead: detail.headRefOid, error });
@@ -678,7 +687,7 @@ function createTeamReviewDispatcher({
         if (hasWorktree) {
           const projectPath = await repoCache.ensureRepo(candidate.repo);
           if (projectPath) await removeCheckout({ projectPath, worktreePath: args.resume.worktreePath });
-          if (!projectPath) await deleteDirectory(args.resume.worktreePath, log);
+          if (!projectPath) await deleteCheckout(gitWorkspace, args.resume.worktreePath, log);
         }
         if (hasWorkDir) await deleteDirectory(args.resume.workDir, log);
         sessionId = null;
@@ -695,7 +704,7 @@ function createTeamReviewDispatcher({
       const worktreePath = path.join(worktreeRoot, worktreeDirName(candidate.repo, detail.number, randomSuffix()));
       resources.checkout = { projectPath: staged.projectPath, worktreePath };
       await fs.mkdir(worktreeRoot, { recursive: true });
-      const created = await gitWorkspace.stageDetachedWorktree({ projectPath: staged.projectPath, worktreePath, sha: detail.headRefOid });
+      const created = await gitWorkspace.stageDetachedWorktree({ projectPath: staged.projectPath, owner: 'lane:team-review', worktreePath, sha: detail.headRefOid });
       if (!created.ok) return failed(`could not stage a checkout: ${firstLine(created.err ?? '') || 'git worktree add failed'}`);
       const hydrated = await hydrateBlobs(candidate, detail);
       if (!hydrated.ok) return failed(`could not fetch the file contents of ${candidate.key}${hydrated.err ? `: ${firstLine(hydrated.err)}` : ''}`);
@@ -1079,7 +1088,7 @@ function createTeamReviewWiring({
           if (!isOwnedResumable(record, { workRoot, worktreeRoot })) return;
           await reapProcesses({ ownedDirectories: [record.workDir, record.worktreePath], reviewRoots: [workRoot, worktreeRoot], scope: 'run', log })
             .catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] process reap failed: ${errorMessage(error)}`));
-          await deleteDirectory(record.worktreePath, log);
+          await deleteCheckout(gitWorkspace, record.worktreePath, log);
           await deleteDirectory(record.workDir, log);
           const cachedClones = await repoCache.listRepos();
           for (const projectPath of cachedClones) await pruneCachedClone(gitWorkspace, projectPath, log);

@@ -45,6 +45,7 @@ import { prepareRoleGuardrails, readLaneCommonGitDir } from '../lanes/work-lane.
 import type { RoleGuardrailsDependencies } from '../lanes/work-lane.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { createCoalescedTimer } from '../../shared/coalesce-timer.ts';
+import type { OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
 
 const POSTHOG_DENY = {
   deny: [
@@ -123,6 +124,7 @@ interface PosthogWorkspace {
 interface PosthogGitWorkspace {
   create: (options: {
     projectPath: string;
+    owner: OwnedPathOwner;
     teamId: string;
     label: string;
     worktreeBase: string;
@@ -662,6 +664,7 @@ function createRadarWiring({
     const issueId = safeIssueId(issue.issueId);
     const workspace = await Promise.resolve(gitWorkspace.create({
       projectPath: repoPath,
+      owner: 'lane:radar-fix',
       teamId: 'radar-fix',
       label: `${safeIssueId(projectId)}-${issueId}-${newFixDiscriminator()}`,
       worktreeBase: worktreeBaseFor(repoPath),

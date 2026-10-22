@@ -1115,7 +1115,7 @@ test('branch GC reads a live child id back out of the branch git-workspace names
     git(['commit', '-m', 'initial'], projectPath);
 
     const workspace = createGitWorkspace();
-    const handle = await workspace.create({ projectPath, teamId: 'session', label: childId, worktreeBase });
+    const handle = await workspace.create({ owner: 'lane:test', projectPath, teamId: 'session', label: childId, worktreeBase });
     assert.ok(handle.branch, handle.reason || handle.error || 'the worktree carries a branch');
     assert.equal(sessionIdFromBranch(handle.branch), childId, 'the live child id survives the branch name');
   } finally {

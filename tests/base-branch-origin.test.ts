@@ -52,7 +52,7 @@ function pushCommit(writerPath: string, fileName: string, content: string, messa
 }
 
 async function createSessionWorkspace(gitWorkspace: GitWorkspaceInstance, repositoryPath: string, label: string): Promise<WorkspaceHandle> {
-  return gitWorkspace.create({
+  return gitWorkspace.create({ owner: 'lane:test',
     projectPath: repositoryPath,
     teamId: 'session',
     label,
@@ -118,7 +118,7 @@ test('auto create writes the detected marker and an existing worktree keeps it',
       git(['config', '--get', `branch.${created.branch}.glimmervoid-integration`], fixture.repositoryPath).trim(),
       'main',
     );
-    const adopted = await gitWorkspace.create({
+    const adopted = await gitWorkspace.create({ owner: 'lane:test',
       projectPath: fixture.repositoryPath,
       teamId: 'session',
       label: 'stable',
@@ -159,7 +159,7 @@ test('M2 no-origin fork and merge skip sync without an operator warning', { skip
     git(['remote', 'remove', 'origin'], fixture.repositoryPath);
     const serverWarnings: string[] = [];
     const gitWorkspace = createGitWorkspace({ log: { warn: (message) => serverWarnings.push(message) } });
-    const created = await gitWorkspace.create({
+    const created = await gitWorkspace.create({ owner: 'lane:test',
       projectPath: fixture.repositoryPath,
       teamId: 'session',
       label: 'local-only',
@@ -186,7 +186,7 @@ test('M3 merge does not publish a local-only base branch', { skip: !GIT }, async
   try {
     git(['branch', 'local-base'], fixture.repositoryPath);
     const gitWorkspace = createGitWorkspace();
-    const created = await gitWorkspace.create({
+    const created = await gitWorkspace.create({ owner: 'lane:test',
       projectPath: fixture.repositoryPath,
       teamId: 'session',
       label: 'unpublished-base',
@@ -226,7 +226,7 @@ test('merge fast-forwards and pushes a published base fetched outside a narrow r
     ], fixture.repositoryPath));
 
     const gitWorkspace = createGitWorkspace();
-    const created = await gitWorkspace.create({
+    const created = await gitWorkspace.create({ owner: 'lane:test',
       projectPath: fixture.repositoryPath,
       teamId: 'session',
       label: 'narrow-published-base',
@@ -269,7 +269,7 @@ test('merge does not recreate a remotely deleted base from a stale tracking ref'
     ], fixture.repositoryPath));
 
     const gitWorkspace = createGitWorkspace();
-    const created = await gitWorkspace.create({
+    const created = await gitWorkspace.create({ owner: 'lane:test',
       projectPath: fixture.repositoryPath,
       teamId: 'session',
       label: 'deleted-published-base',
@@ -334,7 +334,7 @@ test('M4 omitted base options auto-detect instead of forking from HEAD', { skip:
     const topicSha = git(['rev-parse', 'HEAD'], fixture.repositoryPath).trim();
     const mainSha = git(['rev-parse', 'main'], fixture.repositoryPath).trim();
     const gitWorkspace = createGitWorkspace();
-    const created = await gitWorkspace.create({
+    const created = await gitWorkspace.create({ owner: 'lane:test',
       projectPath: fixture.repositoryPath,
       teamId: 'session',
       label: 'auto-default',
@@ -354,7 +354,7 @@ test('L5 forkFromHead isolates a detached checkout at its exact SHA', { skip: !G
     git(['checkout', '--detach'], fixture.repositoryPath);
     const detachedSha = git(['rev-parse', 'HEAD'], fixture.repositoryPath).trim();
     const gitWorkspace = createGitWorkspace();
-    const created = await gitWorkspace.create({
+    const created = await gitWorkspace.create({ owner: 'lane:test',
       projectPath: fixture.repositoryPath,
       teamId: 'team-review',
       label: 'detached',

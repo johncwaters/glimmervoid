@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createJsonStateStore } from './json-file.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
@@ -13,6 +14,20 @@ function ownedPathsLedgerPath(glimmervoidHome: string = glimmervoidHomeDir()): s
 
 function ledgerKey(ownedPath: string): string {
   return caseFoldedPathKey(path.resolve(ownedPath));
+}
+
+async function canonicalOwnedPath(ownedPath: string): Promise<string> {
+  const resolvedPath = path.resolve(ownedPath);
+  const missingSegments: string[] = [];
+  let existingAncestor = resolvedPath;
+  while (true) {
+    const realAncestor = await fs.realpath(existingAncestor).catch(() => null);
+    if (realAncestor !== null) return path.join(realAncestor, ...missingSegments);
+    const parent = path.dirname(existingAncestor);
+    if (parent === existingAncestor) return resolvedPath;
+    missingSegments.unshift(path.basename(existingAncestor));
+    existingAncestor = parent;
+  }
 }
 
 function createOwnedPathsLedger({ filePath, log = console }: { filePath: string; log?: Pick<Console, 'warn'> }) {
@@ -38,14 +53,14 @@ function createOwnedPathsLedger({ filePath, log = console }: { filePath: string;
   async function record(entry: OwnedPathEntry): Promise<void> {
     await store.load();
     if (!isLoaded) return;
-    const resolvedEntry = { ...entry, path: path.resolve(entry.path) };
-    entriesByPath.set(ledgerKey(resolvedEntry.path), resolvedEntry);
+    const canonicalEntry = { ...entry, path: await canonicalOwnedPath(entry.path) };
+    entriesByPath.set(ledgerKey(canonicalEntry.path), canonicalEntry);
     await persist();
   }
 
   async function forget(ownedPath: string): Promise<void> {
     await store.load();
-    if (!isLoaded || !entriesByPath.delete(ledgerKey(ownedPath))) return;
+    if (!isLoaded || !entriesByPath.delete(ledgerKey(await canonicalOwnedPath(ownedPath)))) return;
     await persist();
   }
 

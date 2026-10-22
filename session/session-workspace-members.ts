@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { GitWorkspaceInstance } from '../server/git/git-workspace.ts';
+import type { OwnedPathOwner } from '../shared/contracts/owned-paths.ts';
 import { caseFoldedPathKey } from '../shared/paths.ts';
 import { renderWorkspaceAgentsMd, WORKSPACE_CLAUDE_MD } from './core/workspace-core.ts';
 import type { WorkspacePlan, WorkspaceMember } from './core/workspace-core.ts';
@@ -43,8 +44,9 @@ async function writeWorkspaceMap(folder: string, contents: string): Promise<void
   await fs.promises.writeFile(hashPath, `${renderedHash}\n`);
 }
 
-export function createSessionWorkspaceMembers({ plan, sessionName, shareList, gitWorkspace }: {
+export function createSessionWorkspaceMembers({ plan, owner, sessionName, shareList, gitWorkspace }: {
   plan: WorkspacePlan;
+  owner: OwnedPathOwner;
   sessionName: string;
   shareList: string[] | null;
   gitWorkspace: WorkspaceMemberGit;
@@ -57,7 +59,7 @@ export function createSessionWorkspaceMembers({ plan, sessionName, shareList, gi
       await fs.promises.mkdir(plan.folder, { recursive: true });
       const members: WorkspaceMember[] = [];
       for (const member of plan.members) {
-        const ensured = await gitWorkspace.ensureWorkspaceMember({ projectPath: member.repoPath, wtDir: member.dir, branch: plan.branch, shareList });
+        const ensured = await gitWorkspace.ensureWorkspaceMember({ projectPath: member.repoPath, owner, wtDir: member.dir, branch: plan.branch, shareList });
         if (!ensured.isGit) return { ok: false, error: `${member.name}: ${ensured.reason || ensured.error || 'worktree creation failed'}${ensured.conflictPath ? ` (${ensured.conflictPath})` : ''}` };
         members.push({ ...member, base: ensured.base });
       }

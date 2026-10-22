@@ -31,6 +31,8 @@ import { normalizeSha } from '../core/update-core.ts';
 import { isMissingFileError } from '../../shared/text.ts';
 import { runGit } from './git-exec.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
+import type { OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
+import type { OwnedPathsLedgerHandle } from '../owned-paths-ledger.ts';
 import { GLIMMERVOID_WORKTREE_LOCK_REASON, isOwnWorktreeLockLine, isWorktreeHiddenFromGuardedSessions, listHomeWorktreePathsMissingLock, listOwnLockedWorktreePaths } from './core/worktree-lock-core.ts';
 
 const fsp = fs.promises;
@@ -143,7 +145,10 @@ type QueuedGitResult = GitResult & { admissionRefused?: boolean };
 type WorktreeDirtyProbe = { ok: boolean; dirty: boolean; headSha: string | null; err?: string; admissionRefused?: boolean };
 type MergeProbeEnvArgs = { projectPath: string; timeoutMs?: number };
 type CheckoutDetachedArgs = { worktreePath: string; sha: string } & GitIsolationOptions;
-type StageDetachedWorktreeArgs = { projectPath: string; worktreePath?: string; sha?: string } & GitIsolationOptions;
+type StageDetachedWorktreeArgs = { projectPath: string; worktreePath?: string; sha?: string; owner: OwnedPathOwner } & GitIsolationOptions;
+type OwnedWorktreeArgs = WorktreeArgs & { owner: OwnedPathOwner };
+type WorktreeOwnership = { owner: OwnedPathOwner; projectPath: string; branch: string | null };
+type OwnedPathsRecorder = Pick<OwnedPathsLedgerHandle, 'record' | 'forget'>;
 type StageIsolatedCheckoutArgs = { projectPath: string; checkoutPath?: string; sha?: string; baseSha?: string };
 type MergeFastForwardArgs = {
   projectPath: string;
@@ -303,6 +308,7 @@ function createGitWorkspace(opts: {
   log?: Pick<Console, 'warn'>;
   isolation?: GitIsolationOptions;
   glimmervoidHome?: string;
+  ownedPaths?: OwnedPathsRecorder;
 } = {}) {
 
   const rawGit: GitRunner = opts.git || (async (args, cwd, extra) => {
@@ -355,9 +361,11 @@ function createGitWorkspace(opts: {
   type ProjectGitRunner = (args: string[]) => Promise<GitResult>;
   const runInProject = (projectPath: string): ProjectGitRunner => (args) => run(args, projectPath);
 
-  async function addWorktreeEntry(runGitInProject: ProjectGitRunner, worktreePath: string, addArgs: string[]): Promise<GitResult> {
+  async function addWorktreeEntry(runGitInProject: ProjectGitRunner, worktreePath: string, addArgs: string[], ownership: WorktreeOwnership): Promise<GitResult> {
     const added = await runGitInProject(['worktree', 'add', ...addArgs]);
-    if (!added.ok || !isWorktreeHiddenFromGuardedSessions(worktreePath, glimmervoidHomes)) return added;
+    if (!added.ok) return added;
+    await opts.ownedPaths?.record({ path: worktreePath, kind: 'git-worktree', ...ownership });
+    if (!isWorktreeHiddenFromGuardedSessions(worktreePath, glimmervoidHomes)) return added;
     await lockWorktreeEntry(runGitInProject, worktreePath);
     return added;
   }
@@ -376,7 +384,14 @@ function createGitWorkspace(opts: {
 
   async function removeWorktreeEntry(runGitInProject: ProjectGitRunner, worktreePath: string, removeFlags: string[]): Promise<GitResult> {
     if (isWorktreeHiddenFromGuardedSessions(worktreePath, glimmervoidHomes)) await runGitInProject(['worktree', 'unlock', worktreePath]);
-    return runGitInProject(['worktree', 'remove', ...removeFlags, worktreePath]);
+    const removed = await runGitInProject(['worktree', 'remove', ...removeFlags, worktreePath]);
+    await forgetRemovedWorktree(worktreePath);
+    return removed;
+  }
+
+  async function forgetRemovedWorktree(worktreePath: string): Promise<void> {
+    if (await directoryExists(worktreePath)) return;
+    await opts.ownedPaths?.forget(worktreePath);
   }
 
   async function pruneWorktreeEntries(runGitInProject: ProjectGitRunner): Promise<GitResult> {
@@ -521,6 +536,7 @@ function createGitWorkspace(opts: {
 
   async function createBody({
     projectPath,
+    owner,
     teamId,
     label,
     baseBranch = null,
@@ -528,7 +544,7 @@ function createGitWorkspace(opts: {
     forkFromHead = false,
     worktreeBase,
     shareList,
-  }: WorktreeArgs): Promise<WorkspaceHandle> {
+  }: OwnedWorktreeArgs): Promise<WorkspaceHandle> {
     const inside = await run(['rev-parse', '--is-inside-work-tree'], projectPath);
     if (!inside.ok || inside.out !== 'true') return { cwd: projectPath, isGit: false };
     const head = await run(['rev-parse', 'HEAD'], projectPath);
@@ -570,7 +586,7 @@ function createGitWorkspace(opts: {
     }
     const location = sessionWorktreeLocation(projectPath, teamId, worktreeBase);
     const wtDir = mkdtemp(path.join(location.parent, location.prefix));
-    const add = await addWorktreeEntry(runInProject(projectPath), wtDir, ['-b', branch, wtDir, baseSha]);
+    const add = await addWorktreeEntry(runInProject(projectPath), wtDir, ['-b', branch, wtDir, baseSha], { owner, projectPath, branch });
     if (!add.ok) {
       try { fs.rmSync(wtDir, { recursive: true, force: true }); } catch {}
       return { cwd: projectPath, isGit: false, error: add.err };
@@ -596,7 +612,7 @@ function createGitWorkspace(opts: {
     await refuseTrackableLinks(wtDir, ignored);
   }
 
-  async function ensureWorkspaceMemberBody({ projectPath, wtDir, branch, shareList }: WorktreeArgs): Promise<WorkspaceHandle> {
+  async function ensureWorkspaceMemberBody({ projectPath, owner, wtDir, branch, shareList }: OwnedWorktreeArgs): Promise<WorkspaceHandle> {
     if (!wtDir || !branch) return { cwd: projectPath, isGit: false, reason: 'missing-workspace-member' };
     const inside = await run(['rev-parse', '--is-inside-work-tree'], projectPath);
     if (!inside.ok || inside.out !== 'true') return { cwd: projectPath, isGit: false, reason: 'not-git' };
@@ -614,7 +630,7 @@ function createGitWorkspace(opts: {
     }
     const existingBranch = await run(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], projectPath);
     if (existingBranch.ok) {
-      const attached = await addWorktreeEntry(runInProject(projectPath), wtDir, [wtDir, branch]);
+      const attached = await addWorktreeEntry(runInProject(projectPath), wtDir, [wtDir, branch], { owner, projectPath, branch });
       if (!attached.ok) return { cwd: projectPath, isGit: false, reason: 'worktree-add-failed', error: attached.err };
       await populateShare({ projectPath, wtDir, shareList });
       return { cwd: wtDir, isGit: true, branch, base };
@@ -627,7 +643,7 @@ function createGitWorkspace(opts: {
     const baseRef = await run(['rev-parse', '--verify', '--quiet', `refs/heads/${base}`], projectPath);
     const baseSha = baseRef.ok ? baseRef.out : await ensureLocalBranch(projectPath, base);
     if (!baseSha) return { cwd: projectPath, isGit: false, reason: 'no-base-branch' };
-    const added = await addWorktreeEntry(runInProject(projectPath), wtDir, ['-b', branch, wtDir, baseSha]);
+    const added = await addWorktreeEntry(runInProject(projectPath), wtDir, ['-b', branch, wtDir, baseSha], { owner, projectPath, branch });
     if (!added.ok) return { cwd: projectPath, isGit: false, reason: 'worktree-add-failed', error: added.err };
     await populateShare({ projectPath, wtDir, shareList });
     return { cwd: wtDir, isGit: true, branch, base, baseSha };
@@ -1163,10 +1179,10 @@ function createGitWorkspace(opts: {
     return okResult(originSha);
   }
 
-  async function stageDetachedWorktreeBody({ projectPath, worktreePath, sha, disableHooks, replaceEnv }: StageDetachedWorktreeArgs): Promise<GitResult> {
+  async function stageDetachedWorktreeBody({ projectPath, worktreePath, sha, owner, disableHooks, replaceEnv }: StageDetachedWorktreeArgs): Promise<GitResult> {
     if (!worktreePath) return { ok: false, out: '', err: 'a detached worktree needs a path' };
     if (normalizeSha(sha) !== sha) return { ok: false, out: '', err: 'a detached worktree sha must be 40 lowercase hexadecimal characters' };
-    return addWorktreeEntry((args) => runUntrusted(args, projectPath, { disableHooks, replaceEnv }), worktreePath, ['--detach', worktreePath, sha]);
+    return addWorktreeEntry((args) => runUntrusted(args, projectPath, { disableHooks, replaceEnv }), worktreePath, ['--detach', worktreePath, sha], { owner, projectPath, branch: null });
   }
 
   async function checkoutDetachedBody({ worktreePath, sha, ...isolation }: CheckoutDetachedArgs): Promise<GitResult> {
@@ -1537,6 +1553,7 @@ function createGitWorkspace(opts: {
     pruneWorktrees: serialized(pruneWorktreesBody),
     discardSessionBranch: serialized(discardSessionBranchBody),
     stageDetachedWorktree: serialized(stageDetachedWorktreeBody),
+    forgetRemovedWorktree,
     checkoutDetached: serialized(checkoutDetachedBody),
     stageIsolatedCheckout,
     mergeFastForwardTo,
@@ -1556,7 +1573,7 @@ function createGitWorkspace(opts: {
   };
 }
 
-function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => string; glimmervoidHome?: string } = {}) {
+function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => string; glimmervoidHome?: string; ownedPaths?: OwnedPathsRecorder } = {}) {
   const glimmervoidHome = opts.glimmervoidHome ?? glimmervoidHomeDir();
   const glimmervoidHomes = comparableGlimmervoidHomes(glimmervoidHome);
   const git = opts.git || ((args: string[], cwd: string) => execFileSync('git', args, {
@@ -1627,6 +1644,7 @@ function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => s
       removeWorktreeLinks(cwd);
       if (isWorktreeHiddenFromGuardedSessions(cwd, glimmervoidHomes)) run(['worktree', 'unlock', cwd], projectPath);
       run(['worktree', 'remove', '--force', cwd], projectPath);
+      if (!fs.existsSync(cwd)) void opts.ownedPaths?.forget(cwd);
     }
     if (branch) run(['branch', '-D', branch], projectPath);
     pruneWorktreeEntries(projectPath);

@@ -299,6 +299,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
         projectPath: dependencies.packageRoot,
         worktreePath: stagingPath,
         sha: status.latestSha || undefined,
+        owner: 'lane:update-apply',
       }));
       const lockfileDiff = await gitCommand([
         'diff', '--name-only', `${tree.headSha}..${status.latestSha}`, '--', 'package-lock.json',

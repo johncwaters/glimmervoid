@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import { jsonStateLoadError, loadJsonStateFileSync, writeJsonAtomic } from '../json-file.ts';
 import { CoderOwnedWorkspaces } from '../../shared/contracts/coder-owned-workspaces.ts';
 import { createGitWorkspace, createGitWorkspaceSync } from '../git/git-workspace.ts';
+import { createOwnedPathsLedger, ownedPathsLedgerPath } from '../owned-paths-ledger.ts';
 import { createIngestLane } from '../ingest/ingest-wiring.ts';
 import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-refiner.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
@@ -114,8 +115,9 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     warn: (message) => logger.warn(message),
   });
   const spawnGate = createSpawnGate({ memoryAdmission });
-  const gitWorkspace = createGitWorkspace({ rerere: config.worktreeRerere !== false });
-  const gitWorkspaceSync = createGitWorkspaceSync();
+  const ownedPaths = createOwnedPathsLedger({ filePath: ownedPathsLedgerPath(), log: logger });
+  const gitWorkspace = createGitWorkspace({ rerere: config.worktreeRerere !== false, ownedPaths });
+  const gitWorkspaceSync = createGitWorkspaceSync({ ownedPaths });
   const laneLedger = createLaneLedger({
     ledgerPath: configSiblingPath(configStore.configPath, 'usage-lanes.json'),
     retainDays: resolveUsageConfig(config.usage).warehouseRetainDays,
@@ -547,6 +549,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     currentVisions,
     gitWorkspace,
     gitWorkspaceSync,
+    ownedPaths,
     githubStore,
     investigationSessions,
     planReview,

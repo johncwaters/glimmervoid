@@ -191,7 +191,7 @@ test('stageDetachedWorktree adds the fixed sha as a detached worktree', async ()
     },
   });
   const sha = 'a'.repeat(40);
-  const staged = await gitWorkspace.stageDetachedWorktree({ projectPath: '/repo', worktreePath: '/repo/.glimmervoid/update/next', sha });
+  const staged = await gitWorkspace.stageDetachedWorktree({ owner: 'lane:test', projectPath: '/repo', worktreePath: '/repo/.glimmervoid/update/next', sha });
   assert.equal(staged.ok, true);
   assert.deepEqual(calls, [{ args: ['worktree', 'add', '--detach', '/repo/.glimmervoid/update/next', sha], cwd: '/repo' }]);
 });
@@ -207,7 +207,7 @@ test('untrusted staging and removal run git with hooks pointed at the null devic
   const sha = 'a'.repeat(40);
   const replaceEnv = { PATH: '/usr/bin', CI: '1' };
   const hookless = ['-c', `core.hooksPath=${os.devNull}`];
-  const staging = gitWorkspace.stageDetachedWorktree({ projectPath: '/repo', worktreePath: '/checks', sha, disableHooks: true, replaceEnv });
+  const staging = gitWorkspace.stageDetachedWorktree({ owner: 'lane:test', projectPath: '/repo', worktreePath: '/checks', sha, disableHooks: true, replaceEnv });
   const removal = gitWorkspace.removeWorktreeByPath({ projectPath: '/repo', cwd: '/checks', disableHooks: true, replaceEnv });
   const pruning = gitWorkspace.pruneWorktrees({ projectPath: '/repo', disableHooks: true, replaceEnv });
   assert.equal((await staging).ok, true);
@@ -226,7 +226,7 @@ test('untrusted staging and removal run git with hooks pointed at the null devic
 test('stageDetachedWorktree refuses a non-lowercase full sha without running git', async () => {
   const calls: string[][] = [];
   const gitWorkspace = createGitWorkspace({ git: (args) => { calls.push(args); return ''; } });
-  const staged = await gitWorkspace.stageDetachedWorktree({ projectPath: '/repo', worktreePath: '/stage', sha: 'A'.repeat(40) });
+  const staged = await gitWorkspace.stageDetachedWorktree({ owner: 'lane:test', projectPath: '/repo', worktreePath: '/stage', sha: 'A'.repeat(40) });
   assert.equal(staged.ok, false);
   assert.deepEqual(calls, []);
 });
@@ -243,7 +243,7 @@ test('checkoutDetached validates the SHA and serializes moving the detached head
   });
   const firstSha = 'a'.repeat(40);
   const secondSha = 'b'.repeat(40);
-  const staged = gitWorkspace.stageDetachedWorktree({ projectPath: '/repo', worktreePath: '/control', sha: firstSha });
+  const staged = gitWorkspace.stageDetachedWorktree({ owner: 'lane:test', projectPath: '/repo', worktreePath: '/control', sha: firstSha });
   const moved = gitWorkspace.checkoutDetached({ worktreePath: '/control', sha: secondSha });
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(calls.length, 1);
@@ -308,7 +308,7 @@ test('discardSessionBranch removes a dead session worktree and branch so the sam
     fs.rmSync(worktreeBase, { recursive: true, force: true });
   });
   const gitWorkspace = createGitWorkspace({});
-  const sessionArgs = { projectPath: repo, teamId: 'session', label: 'factory-work-0000beef', baseBranch: 'main', worktreeBase };
+  const sessionArgs = { projectPath: repo, owner: 'lane:test', teamId: 'session', label: 'factory-work-0000beef', baseBranch: 'main', worktreeBase };
   const first = await gitWorkspace.create(sessionArgs);
   assert.equal(first.isGit, true);
   fs.writeFileSync(path.join(repo, 'merged.txt'), 'merged\n', 'utf8');
@@ -334,7 +334,7 @@ test('discardSessionBranch refuses an operator worktree or the main checkout hol
   const gitWorkspace = createGitWorkspace({});
   const worktreeBase = path.join(scratch, 'worktrees');
   const sessionArgs = { projectPath: repo, teamId: 'session', label: 'factory-work-0000beef', worktreeBase };
-  const created = await gitWorkspace.create({ ...sessionArgs, baseBranch: 'main' });
+  const created = await gitWorkspace.create({ owner: 'lane:test', ...sessionArgs, baseBranch: 'main' });
   const sessionBranch = branchOf(created);
   git(['worktree', 'remove', '--force', created.cwd], repo);
   const operatorWorktree = path.join(scratch, 'operator-salvage');
@@ -690,7 +690,7 @@ test('mergeKeep (real git): lands on develop yet keeps the worktree alive for a 
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'cont', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'cont', baseBranch: 'develop' });
     assert.equal(ws.isGit, true);
 
     fs.writeFileSync(path.join(ws.cwd, 'a.js'), 'one\n', 'utf8');
@@ -724,7 +724,7 @@ test('mergeKeep (real git): committed work merges; uncommitted work is preserved
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'split', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'split', baseBranch: 'develop' });
 
     fs.writeFileSync(path.join(ws.cwd, 'committed.js'), 'shipped\n', 'utf8');
     git(['add', 'committed.js'], ws.cwd); git(['commit', '-m', 'committed work'], ws.cwd);
@@ -759,7 +759,7 @@ test('mergeKeep (real git): restores its own saved work when another stash entry
         return git(args, cwd);
       },
     });
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'stackrace', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'stackrace', baseBranch: 'develop' });
 
     fs.writeFileSync(path.join(ws.cwd, 'committed.js'), 'shipped\n', 'utf8');
     git(['add', 'committed.js'], ws.cwd); git(['commit', '-m', 'committed work'], ws.cwd);
@@ -786,7 +786,7 @@ test('mergeBack (real git): only-uncommitted work cannot merge and is preserved 
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'wiponly', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'wiponly', baseBranch: 'develop' });
     fs.writeFileSync(path.join(ws.cwd, 'wip.js'), 'wip\n', 'utf8');
 
     const r = await gw.mergeBack({ projectPath: repo, workspace: ws, targetBranch: 'develop' });
@@ -806,7 +806,7 @@ test('mergeBack (real git): Coherence journals land with committed work, other u
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'mixed', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'mixed', baseBranch: 'develop' });
     const activityPath = path.join('.coherence', 'runs', 'x.jsonl');
     const decisionPath = path.join('.coherence', 'journal', 'x.jsonl');
     const committedActivity = '{"event":"start"}\n';
@@ -877,7 +877,7 @@ test('mergeBack (real git): a NEW committed file lands on develop via rebase+ff,
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'abc', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'abc', baseBranch: 'develop' });
     assert.equal(ws.isGit, true);
     assert.equal(ws.base, 'develop', 'worktree forks off the integration branch');
 
@@ -901,7 +901,7 @@ test('mergeBack (real git): rebases onto a moved develop, then ff (both commits 
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'm1', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'm1', baseBranch: 'develop' });
 
     fs.writeFileSync(path.join(repo, 'other.js'), 'other\n', 'utf8');
     git(['add', '-A'], repo);
@@ -927,7 +927,7 @@ test('mergeBack (real git): a rebase conflict parks the branch and leaves develo
     fs.writeFileSync(path.join(repo, 'conflict.txt'), 'base\n', 'utf8');
     git(['add', '-A'], repo); git(['commit', '-m', 'seed conflict file'], repo);
 
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'cflt', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'cflt', baseBranch: 'develop' });
 
     fs.writeFileSync(path.join(repo, 'conflict.txt'), 'develop-side\n', 'utf8');
     git(['add', '-A'], repo); git(['commit', '-m', 'develop edits'], repo);
@@ -954,7 +954,7 @@ test('hasUnmergedWork (real git): a committed but CLEAN worktree reports work (t
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'ahead', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'ahead', baseBranch: 'develop' });
     assert.equal(await gw.hasUnmergedWork({ projectPath: repo, workspace: ws, integrationBranch: 'develop', configuredIntegrationBranch: 'develop' }), false,
       'a fresh worktree holds nothing: discardable');
 
@@ -973,7 +973,7 @@ test('hasUnmergedWork (real git): uncommitted changes report work; a merged-away
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'dirty', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'dirty', baseBranch: 'develop' });
     fs.writeFileSync(path.join(ws.cwd, 'scratch.txt'), 'wip\n', 'utf8');
     assert.equal(await gw.hasUnmergedWork({ projectPath: repo, workspace: ws, integrationBranch: 'develop', configuredIntegrationBranch: 'develop' }), true,
       'an untracked new file counts: it is usually the whole deliverable');
@@ -993,7 +993,7 @@ test('hasUnmergedWork (real git): untracked Coherence journals alone are not wor
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'journals', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'journals', baseBranch: 'develop' });
     const workArgs = { projectPath: repo, workspace: ws, integrationBranch: 'develop', configuredIntegrationBranch: 'develop' };
     for (const journal of ['runs', 'journal', 'work']) {
       fs.mkdirSync(path.join(ws.cwd, '.coherence', journal), { recursive: true });
@@ -1014,7 +1014,7 @@ test('hasUnmergedWork (real git): an unresolvable integration branch reports wor
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'safe', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'safe', baseBranch: 'develop' });
 
     git(['config', `branch.${ws.branch}.glimmervoid-integration`, 'no-such-branch'], repo);
     assert.equal(await gw.hasUnmergedWork({ projectPath: repo, workspace: ws, integrationBranch: 'develop', configuredIntegrationBranch: 'develop' }), true,
@@ -1037,7 +1037,7 @@ test('discard is junction-safe: the real node_modules survives worktree teardown
   fs.writeFileSync(path.join(repo, 'node_modules', 'sentinel.txt'), 'KEEP ME\n', 'utf8');
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'nm', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'nm', baseBranch: 'develop' });
     assert.equal(makeNodeModulesJunction(repo, ws.cwd), true, 'junction created');
     assert.ok(fs.existsSync(path.join(ws.cwd, 'node_modules', 'sentinel.txt')), 'junction resolves to the real node_modules');
 
@@ -1056,7 +1056,7 @@ test('mergeBack is junction-safe: the real node_modules survives a successful me
   fs.writeFileSync(path.join(repo, 'node_modules', 'sentinel.txt'), 'KEEP\n', 'utf8');
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'nm2', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'nm2', baseBranch: 'develop' });
     makeNodeModulesJunction(repo, ws.cwd);
     fs.writeFileSync(path.join(ws.cwd, 'feature.js'), 'x\n', 'utf8');
     git(['add', 'feature.js'], ws.cwd); git(['commit', '-m', 'feat'], ws.cwd);
@@ -1076,7 +1076,7 @@ test('create (baseBranch): forks off the named branch even when the main checkou
   const { dir, developSha } = initRepoMainWithDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: dir, teamId: 'session', label: 'x1', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: dir, teamId: 'session', label: 'x1', baseBranch: 'develop' });
     assert.equal(ws.isGit, true);
     assert.equal(ws.base, 'develop');
     assert.equal(ws.baseSha, developSha, 'forked off develop HEAD, not main');
@@ -1093,7 +1093,7 @@ test('create (baseBranch): a missing local integration branch is auto-created fr
   try {
     const mainSha = git(['rev-parse', 'main'], repo).trim();
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'x2', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'x2', baseBranch: 'develop' });
     assert.equal(ws.isGit, true);
     assert.equal(ws.base, 'develop');
     assert.equal(ws.baseSha, mainSha, 'new develop branch was seeded from main');
@@ -1116,7 +1116,7 @@ test('create (baseBranch): a missing local integration branch prefers an existin
     git(['update-ref', 'refs/remotes/origin/develop', firstSha], repo);
 
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'x3', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'x3', baseBranch: 'develop' });
     assert.equal(ws.isGit, true);
     assert.equal(ws.base, 'develop');
     assert.equal(ws.baseSha, firstSha, 'seeded from origin/develop, not the newer main');
@@ -1131,7 +1131,7 @@ test('create (baseBranch): a branch name git refuses to create still returns rea
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'x4', baseBranch: 'bad..name' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'x4', baseBranch: 'bad..name' });
     assert.equal(ws.isGit, false);
     assert.equal(ws.reason, 'no-base-branch');
     assert.equal(git(['worktree', 'list'], repo).trim().split(/\r?\n/).length, 1, 'no extra worktree created');
@@ -1144,7 +1144,7 @@ test('create (real git): stamps the fork-base marker on the branch; branch delet
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'mark1', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'mark1', baseBranch: 'develop' });
     assert.equal(ws.isGit, true);
     assert.equal(git(['config', '--get', `branch.${ws.branch}.glimmervoid-integration`], repo).trim(), 'develop');
 
@@ -1159,7 +1159,7 @@ test('listSessionWorktrees (real git): resolves integrationBranch from the marke
   const { dir, developSha } = initRepoMainWithDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: dir, teamId: 'session', label: 'markresolve', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: dir, teamId: 'session', label: 'markresolve', baseBranch: 'develop' });
     assert.equal(ws.baseSha, developSha, 'worktree HEAD sits exactly on develop, no extra commits');
 
     const [entry] = await gw.listSessionWorktrees({ projectPath: dir, integrationBranch: 'main' });
@@ -1185,7 +1185,7 @@ test('create (injected git): a branch already checked out in another worktree re
     return '';
   };
   const gw = createGitWorkspace({ git: fakeGit });
-  const ws = await gw.create({ projectPath: '/repo', teamId: 'session', label: 'dup1', forkFromHead: true });
+  const ws = await gw.create({ owner: 'lane:test', projectPath: '/repo', teamId: 'session', label: 'dup1', forkFromHead: true });
   assert.equal(ws.isGit, false);
   assert.equal(ws.reason, 'branch-in-use');
   assert.equal(ws.conflictPath, '/other/wt');
@@ -1198,10 +1198,10 @@ test('create (real git): creating the same session branch twice returns branch-i
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws1 = await gw.create({ projectPath: repo, teamId: 'session', label: 'dup2', baseBranch: 'develop' });
+    const ws1 = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'dup2', baseBranch: 'develop' });
     assert.equal(ws1.isGit, true);
 
-    const ws2 = await gw.create({ projectPath: repo, teamId: 'session', label: 'dup2', baseBranch: 'develop' });
+    const ws2 = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'dup2', baseBranch: 'develop' });
     assert.equal(ws2.isGit, false);
     assert.equal(ws2.reason, 'branch-in-use');
 
@@ -1229,7 +1229,7 @@ test('create (worktreeBase + shareList): worktree lives under the base and gets 
   fs.writeFileSync(path.join(repo, 'tracked.txt'), 'tracked\n', 'utf8');
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({
+    const ws = await gw.create({ owner: 'lane:test',
       projectPath: repo, teamId: 'session', label: 'ctx', baseBranch: 'develop',
       worktreeBase: base, shareList: ['node_modules', '.omc', '.env', 'tracked.txt', '.absent'],
     });
@@ -1262,7 +1262,7 @@ test('populate re-shares stripped junctions into a surviving worktree (adopt-aft
   try {
     const gw = createGitWorkspace();
     const shareList = ['node_modules', '.env', 'tracked.txt'];
-    const ws = await gw.create({
+    const ws = await gw.create({ owner: 'lane:test',
       projectPath: repo, teamId: 'session', label: 'strip', baseBranch: 'develop',
       worktreeBase: base, shareList,
     });
@@ -1303,7 +1303,7 @@ test('create (worktreeBase + shareList, POSIX): dirs are SYMLINKED in, files cop
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-wtroot-'));
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({
+    const ws = await gw.create({ owner: 'lane:test',
       projectPath: repo, teamId: 'session', label: 'posixctx', baseBranch: 'develop',
       worktreeBase: base, shareList: ['node_modules', '.omc', '.env', 'tracked.txt', '.absent'],
     });
@@ -1335,7 +1335,7 @@ test('mergeBack (POSIX): the shared symlink is never staged by `git add -A`, and
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-wtroot-'));
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({
+    const ws = await gw.create({ owner: 'lane:test',
       projectPath: repo, teamId: 'session', label: 'posixstage', baseBranch: 'develop',
       worktreeBase: base, shareList: ['node_modules', '.omc'],
     });
@@ -1366,7 +1366,7 @@ test('create (shareList, POSIX): a trailing-slash ignore pattern cannot cover a 
   console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({
+    const ws = await gw.create({ owner: 'lane:test',
       projectPath: repo, teamId: 'session', label: 'posixslash', baseBranch: 'develop',
       worktreeBase: base, shareList: ['node_modules', '.omc', '.env'],
     });
@@ -1394,8 +1394,8 @@ test('listSessionWorktrees flags uncommitted work; removeWorktreeByPath removes 
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const clean = await gw.create({ projectPath: repo, teamId: 'session', label: 'clean', baseBranch: 'develop' });
-    const dirty = await gw.create({ projectPath: repo, teamId: 'session', label: 'dirty', baseBranch: 'develop' });
+    const clean = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'clean', baseBranch: 'develop' });
+    const dirty = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'dirty', baseBranch: 'develop' });
     fs.writeFileSync(path.join(dirty.cwd, 'wip.js'), 'work in progress\n', 'utf8');
 
     const byId = Object.fromEntries(
@@ -1543,7 +1543,7 @@ test('listSessionWorktrees flags a parked (committed-ahead) worktree as work eve
   const repo = initRepoOnDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'parked', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'parked', baseBranch: 'develop' });
     fs.writeFileSync(path.join(ws.cwd, 'feature.js'), 'done\n', 'utf8');
     git(['add', '-A'], ws.cwd);
     git(['commit', '-m', 'session work'], ws.cwd);
@@ -1570,7 +1570,7 @@ test('listSessionWorktrees (real git): an unconfigured base migrates a marker wh
   const dir = initRepoWithAbsorbedDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: dir, teamId: 'session', label: 'stale', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: dir, teamId: 'session', label: 'stale', baseBranch: 'develop' });
     assert.equal(git(['config', '--get', `branch.${ws.branch}.glimmervoid-integration`], dir).trim(), 'develop');
 
     const [entry] = await gw.listSessionWorktrees({ projectPath: dir, integrationBranch: null });
@@ -1587,7 +1587,7 @@ test('listSessionWorktrees (real git, sync): the startup reconcile path migrates
   const dir = initRepoWithAbsorbedDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: dir, teamId: 'session', label: 'stalesync', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: dir, teamId: 'session', label: 'stalesync', baseBranch: 'develop' });
     const [entry] = createGitWorkspaceSync().listSessionWorktrees({ projectPath: dir, integrationBranch: null });
     assert.equal(entry.integrationBranch, 'main');
     assert.equal(git(['config', '--get', `branch.${ws.branch}.glimmervoid-integration`], dir).trim(), 'main');
@@ -1601,7 +1601,7 @@ test('listSessionWorktrees (real git): a marker whose branch holds commits main 
   const { dir } = initRepoMainWithDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: dir, teamId: 'session', label: 'keepmarker', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: dir, teamId: 'session', label: 'keepmarker', baseBranch: 'develop' });
     const [entry] = await gw.listSessionWorktrees({ projectPath: dir, integrationBranch: null });
     assert.equal(entry.integrationBranch, 'develop', 'develop is not an ancestor of main, so retargeting would show its commits as session work');
     assert.equal(git(['config', '--get', `branch.${ws.branch}.glimmervoid-integration`], dir).trim(), 'develop');
@@ -1615,8 +1615,8 @@ test('create (real git): a branch-in-use adoption with no configured base report
   const dir = initRepoWithAbsorbedDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: dir, teamId: 'session', label: 'inuse', baseBranch: 'develop' });
-    const adopted = await gw.create({ projectPath: dir, teamId: 'session', label: 'inuse', baseBranch: 'main', configuredIntegrationBranch: null });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: dir, teamId: 'session', label: 'inuse', baseBranch: 'develop' });
+    const adopted = await gw.create({ owner: 'lane:test', projectPath: dir, teamId: 'session', label: 'inuse', baseBranch: 'main', configuredIntegrationBranch: null });
     assert.equal(adopted.reason, 'branch-in-use');
     assert.equal(adopted.base, 'main');
     await gw.discard({ projectPath: dir, workspace: ws });
@@ -1629,7 +1629,7 @@ test('hasUnmergedWork (real git): an already-resolved base argument does not blo
   const dir = initRepoWithAbsorbedDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: dir, teamId: 'session', label: 'unmerged', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: dir, teamId: 'session', label: 'unmerged', baseBranch: 'develop' });
     assert.equal(
       await gw.hasUnmergedWork({ projectPath: dir, workspace: ws, integrationBranch: 'develop', configuredIntegrationBranch: null }),
       false,
@@ -1650,7 +1650,7 @@ test('listSessionWorktrees (real git): a marker whose branch was deleted migrate
   const { dir } = initRepoMainWithDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: dir, teamId: 'session', label: 'gonebase', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: dir, teamId: 'session', label: 'gonebase', baseBranch: 'develop' });
     git(['branch', '-D', 'develop'], dir);
     fs.writeFileSync(path.join(ws.cwd, 'session.txt'), 'work\n', 'utf8');
     git(['add', '-A'], ws.cwd);
@@ -1686,7 +1686,7 @@ test('listSessionWorktrees (real git): a marker branch alive only on origin keep
   const { rootDir, repoDir } = initCloneWithOriginOnlyDevelop();
   try {
     const gw = createGitWorkspace();
-    const ws = await gw.create({ projectPath: repoDir, teamId: 'session', label: 'originbase', baseBranch: 'develop' });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repoDir, teamId: 'session', label: 'originbase', baseBranch: 'develop' });
     git(['branch', '-D', 'develop'], repoDir);
     fs.writeFileSync(path.join(ws.cwd, 'session.txt'), 'work\n', 'utf8');
     git(['add', '-A'], ws.cwd);
@@ -1806,7 +1806,7 @@ test('a session based on a pull request branch forks from its origin tip and a b
   const seeded = await workspace.seedBranchFromOrigin({ projectPath: checkout, name: 'feature/pr-branch' });
   assert.equal(seeded.ok, true);
   assert.equal(seeded.out, pullRequestHead);
-  const session = await workspace.create({ projectPath: checkout, teamId: 'session', label: 'pr-session', baseBranch: 'feature/pr-branch', worktreeBase });
+  const session = await workspace.create({ owner: 'lane:test', projectPath: checkout, teamId: 'session', label: 'pr-session', baseBranch: 'feature/pr-branch', worktreeBase });
   assert.equal(session.isGit, true);
   assert.equal(session.base, 'feature/pr-branch');
   assert.equal(git(['rev-parse', 'HEAD'], session.cwd).trim(), pullRequestHead);
@@ -1841,7 +1841,7 @@ test('a checkout in the Glimmervoid home survives a git worktree prune run where
   const controlCheckout = path.join(glimmervoidHome, 'factory', 'project', 'control');
   fs.mkdirSync(path.dirname(controlCheckout), { recursive: true });
   const sha = git(['rev-parse', 'HEAD'], repo).trim();
-  assert.equal((await workspace.stageDetachedWorktree({ projectPath: repo, worktreePath: controlCheckout, sha })).ok, true);
+  assert.equal((await workspace.stageDetachedWorktree({ owner: 'lane:test', projectPath: repo, worktreePath: controlCheckout, sha })).ok, true);
 
   fs.renameSync(controlCheckout, `${controlCheckout}-out-of-sight`);
   git(['worktree', 'prune'], repo);

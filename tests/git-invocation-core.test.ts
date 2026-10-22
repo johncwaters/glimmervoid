@@ -144,7 +144,7 @@ test('the isolated git workspace runner keeps a caller env value across a rerere
     invocations.push({ args, env: extra?.replaceEnv });
     return (await execFileAsync('git', args, { cwd, env: extra?.replaceEnv, encoding: 'utf8', timeout: REAL_PROCESS_DEADLINE_MS })).stdout;
   } });
-  const ledger = await gitWorkspace.create({ projectPath: repository, teamId: 'repo', label: 'ledger', baseBranch: 'main', configuredIntegrationBranch: 'main', worktreeBase: directory, shareList: [] });
+  const ledger = await gitWorkspace.create({ owner: 'lane:test', projectPath: repository, teamId: 'repo', label: 'ledger', baseBranch: 'main', configuredIntegrationBranch: 'main', worktreeBase: directory, shareList: [] });
   assert.ok(ledger.isGit);
   await writeFile(path.join(ledger.cwd, 'shared.txt'), 'ledger\n');
   await git(['commit', '-am', 'ledger change'], ledger.cwd);
@@ -200,7 +200,7 @@ test('the isolated git workspace runner hands git the server transport env when 
     invocations.push({ args, env: extra?.replaceEnv });
     return (await execFileAsync('git', args, { cwd, env: extra?.replaceEnv, encoding: 'utf8', timeout: REAL_PROCESS_DEADLINE_MS })).stdout;
   } });
-  const ledger = await gitWorkspace.create({ projectPath: repository, teamId: 'repo', label: 'ledger', baseBranch: 'main', configuredIntegrationBranch: 'main', worktreeBase: directory, shareList: [] });
+  const ledger = await gitWorkspace.create({ owner: 'lane:test', projectPath: repository, teamId: 'repo', label: 'ledger', baseBranch: 'main', configuredIntegrationBranch: 'main', worktreeBase: directory, shareList: [] });
   assert.ok(ledger.isGit);
   await writeFile(path.join(ledger.cwd, 'shared.txt'), 'ledger\n');
   await git(['commit', '-am', 'ledger change'], ledger.cwd);

@@ -36,6 +36,7 @@ import type { GitWorkspaceInstance } from "../server/git/git-workspace.ts";
 import { planWorkspaceMembers } from "./core/workspace-core.ts";
 import type { WorkspaceMember } from "./core/workspace-core.ts";
 import { createSessionWorkspaceMembers } from "./session-workspace-members.ts";
+import type { OwnedPathOwner } from "../shared/contracts/owned-paths.ts";
 
 const WORKTREE_CHECK_DEBOUNCE_MS = 400;
 const GIT_NOT_FOUND_EXIT_CODE = 1;
@@ -111,7 +112,7 @@ interface IntegrationSyncResult {
 
 interface GitWorkspace {
   withGitIsolation?: GitWorkspaceInstance["withGitIsolation"];
-  create: (args: WorkspaceArgs) => Workspace | Promise<Workspace>;
+  create: (args: WorkspaceArgs & { owner: OwnedPathOwner }) => Workspace | Promise<Workspace>;
   populate: (args: WorkspaceArgs) => unknown;
   hasUnmergedWork: (args: WorkspaceArgs) => boolean | Promise<boolean>;
   discard: (args: WorkspaceArgs) => unknown;
@@ -269,7 +270,7 @@ function setUpWorkspaceMembers({ folder, sessionId, sessionName, repoPaths, shar
   if (!ensureWorkspaceMember || !removeWorkspaceMember) return { ok: false, error: "Git workspace is unavailable" };
   return {
     ok: true,
-    members: createSessionWorkspaceMembers({ plan: planned.plan, sessionName, shareList, gitWorkspace: { ensureWorkspaceMember, removeWorkspaceMember } }),
+    members: createSessionWorkspaceMembers({ plan: planned.plan, owner: `session:${sessionId}`, sessionName, shareList, gitWorkspace: { ensureWorkspaceMember, removeWorkspaceMember } }),
   };
 }
 
@@ -574,6 +575,7 @@ function createSessionWorktreeLifecycle({
     try {
       workspace = await gitWorkspace.create({
         projectPath: currentProjectPath(),
+        owner: `session:${id}`,
         teamId: "session",
         label: id,
         baseBranch,
