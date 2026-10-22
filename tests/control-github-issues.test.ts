@@ -90,7 +90,7 @@ function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket',
   };
 
   const requestIssue: GithubLaneStore['requestIssue'] = async (_issueNumber, repo, mode) => {
-    assert.equal(mode, 'no-wait');
+    assert.equal(mode, 'priority');
     viewedRepos.push(repo);
     if (issueReadWaitMs !== null) return { isRateLimited: true, waitMs: issueReadWaitMs };
     return { isRateLimited: false, value: githubFailure

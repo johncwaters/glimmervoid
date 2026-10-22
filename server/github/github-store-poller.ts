@@ -31,8 +31,8 @@ interface GithubStoreDependencies {
 }
 
 type GithubStoreSnapshot = Pick<GithubPrsFrame, 'prs' | 'freshness'>;
-type GithubStoreReadMode = 'wait' | 'no-wait';
-export type GithubStoreRead<Value> = { isRateLimited: false; value: Value } | { isRateLimited: true; waitMs: number };
+type GithubStoreReadMode = 'wait' | 'no-wait' | 'priority';
+export type GithubStoreRead<Value> = ({ isRateLimited: false; value: Value } | { isRateLimited: true; waitMs: number }) & { queueWaitMs?: number; readMs?: number };
 type WatchState = GithubStoreWatch & { nodes: readonly GithubPrLightSearchNode[]; returnedKeys: readonly string[]; returnedCount: number; totalCount: number; isComplete: boolean; isLoaded: boolean; lastMembershipPolledAt: number | null; membershipRevision: number };
 
 const REFRESH_DEBOUNCE_MS = 5_000;
@@ -333,14 +333,23 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   }
 
   async function readWhenAllowed<Value>(read: () => Promise<Value>, canSkipWait: () => boolean = () => false, mode: GithubStoreReadMode = 'wait', resources: readonly string[] = RATE_LIMIT_RESOURCES): Promise<GithubStoreRead<Value>> {
+    let queueWaitMs = 0;
+    let readMs = 0;
     while (true) {
+      const enqueuedAt = now();
       const attempt = await exclusive(async (): Promise<{ isReady: true; value: Value } | { isReady: false; waitMs: number }> => {
+        queueWaitMs += now() - enqueuedAt;
         const waitMs = canSkipWait() ? 0 : await readWaitMs(resources);
         if (waitMs > 0) return { isReady: false, waitMs };
-        return { isReady: true, value: await read() };
-      });
-      if (attempt.isReady) return { isRateLimited: false, value: attempt.value };
-      if (mode === 'no-wait') return { isRateLimited: true, waitMs: attempt.waitMs };
+        const readStartedAt = now();
+        try {
+          return { isReady: true, value: await read() };
+        } finally {
+          readMs += now() - readStartedAt;
+        }
+      }, { isPriority: mode === 'priority' });
+      if (attempt.isReady) return { isRateLimited: false, value: attempt.value, queueWaitMs, readMs };
+      if (mode !== 'wait') return { isRateLimited: true, waitMs: attempt.waitMs, queueWaitMs, readMs };
       await new Promise<void>((resolve) => setTimeoutFn(resolve, attempt.waitMs));
     }
   }
@@ -378,7 +387,14 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
 
   async function requestRead<Value>(read: () => Promise<Value>, fallback: Value, hasCachedValue: () => boolean = () => false, mode: GithubStoreReadMode = 'wait', resources: readonly string[] = RATE_LIMIT_RESOURCES): Promise<GithubStoreRead<Value>> {
     try {
-      return await readWhenAllowed(read, hasCachedValue, mode, resources);
+      return await readWhenAllowed(async () => {
+        try {
+          return await read();
+        } catch (error: unknown) {
+          recordReadFailure(error);
+          return fallback;
+        }
+      }, hasCachedValue, mode, resources);
     } catch (error: unknown) {
       recordReadFailure(error);
       return { isRateLimited: false, value: fallback };

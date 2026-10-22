@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
 import { TRANSIENT_BACKOFF_MAX_MS } from '../server/lanes/core/lane-backoff.ts';
+import { createGithubClock } from '../server/github/github-clock.ts';
 import { createSerialQueue } from '../server/spawn-gate.ts';
 import { comparablePrKey, GithubPrDetailNode, GithubPrLightSearchNode, GithubPrsFrame } from '../shared/contracts/github-prs.ts';
 import type { MyPrThreadNode } from '../shared/contracts/my-prs.ts';
@@ -39,7 +40,7 @@ const unresolvedThread: MyPrThreadNode = {
   lastComment: { nodes: [{ author: { login: 'bob' }, createdAt: '2026-10-19T11:00:00Z' }] },
 };
 
-function storeHarness(ghCallDurationMs = 0) {
+function storeHarness(ghCallDurationMs = 0, exclusive?: Parameters<typeof createGithubStorePoller>[0]['exclusive']) {
   let timestamp = FIRST_TICK_AT;
   let isDashboardConnected = true;
   let isExclusive = false;
@@ -49,6 +50,7 @@ function storeHarness(ghCallDurationMs = 0) {
   let behindBy = 2;
   let notificationResponse: Awaited<ReturnType<PrGh['notificationsSince']>> = { kind: 'unchanged' };
   const queue = createSerialQueue();
+  const runExclusive: Parameters<typeof createGithubStorePoller>[0]['exclusive'] = exclusive ?? ((work) => queue.run(work));
   const timers = manualTimers();
   const searches: string[] = [];
   const membershipCaps: (number | undefined)[] = [];
@@ -142,6 +144,7 @@ function storeHarness(ghCallDurationMs = 0) {
     async prDiff(repo, number) {
       assert.equal(isExclusive, true);
       diffCalls.push(comparablePrKey({ repo, number }));
+      timestamp += ghCallDurationMs;
       return 'diff --git a/app.ts b/app.ts\n';
     },
     async prHead() {
@@ -151,7 +154,7 @@ function storeHarness(ghCallDurationMs = 0) {
   };
   const poller = createGithubStorePoller({
     github, now: () => timestamp, isDashboardConnected: () => isDashboardConnected,
-    exclusive: (work) => queue.run(async () => {
+    exclusive: (work, options) => runExclusive(async () => {
       assert.equal(isExclusive, false);
       isExclusive = true;
       try {
@@ -159,7 +162,7 @@ function storeHarness(ghCallDurationMs = 0) {
       } finally {
         isExclusive = false;
       }
-    }),
+    }, options),
     setTimeoutFn: timers.setTimeoutFn, clearTimeoutFn: timers.clearTimeoutFn,
     log: { warn: (warning: string) => { warnings.push(warning); } },
   });
@@ -372,11 +375,11 @@ test('two refresh requests for the same comparable key debounce to one detail fe
 test('one-shot reads cache successful viewers and diffs by PR and head SHA without a second gh call', async (context) => {
   const harness = storeHarness();
   context.after(harness.cleanup);
-  assert.deepEqual(await harness.poller.requestViewer('no-wait'), { isRateLimited: false, value: null });
+  assert.deepEqual(await harness.poller.requestViewer('no-wait'), { queueWaitMs: 0, readMs: 0, isRateLimited: false, value: null });
   harness.setViewer('alice');
-  assert.deepEqual(await harness.poller.requestViewer('no-wait'), { isRateLimited: false, value: 'alice' });
+  assert.deepEqual(await harness.poller.requestViewer('no-wait'), { queueWaitMs: 0, readMs: 0, isRateLimited: false, value: 'alice' });
   harness.limitResource('core');
-  assert.deepEqual(await harness.poller.requestViewer('no-wait'), { isRateLimited: false, value: 'alice' });
+  assert.deepEqual(await harness.poller.requestViewer('no-wait'), { queueWaitMs: 0, readMs: 0, isRateLimited: false, value: 'alice' });
   assert.equal(harness.viewerCalls(), 2);
   harness.limitResource(null);
   const firstDiff = await harness.poller.requestPrDiff('Acme/app', 1, HEAD_SHA);
@@ -508,7 +511,7 @@ test('membership searches and batched state reads stay within the viewed and unv
   assert.equal(failedTick.failed, true);
   assert.equal(poller.getSnapshot().prs, previousPrs);
   assert.equal(poller.getSnapshot().freshness.error, 'light batch failed');
-  assert.deepEqual(await poller.requestViewer('no-wait'), { isRateLimited: false, value: null });
+  assert.deepEqual(await poller.requestViewer('no-wait'), { queueWaitMs: 0, readMs: 0, isRateLimited: false, value: null });
   assert.equal(harness.viewerCalls(), 1);
   harness.setLightFailure(null);
   harness.advance(failedTick.retryAfterMs ?? 0);
@@ -582,18 +585,18 @@ test('issue reads share the store gate, honor search and GraphQL limits and reta
   const query = 'is:issue is:open assignee:@me';
   for (const resource of ['core', 'search']) {
     harness.limitResource(resource);
-    assert.deepEqual(await poller.requestRepoIssues('acme/app', since, 300, 'no-wait'), { isRateLimited: true, waitMs: 120000 });
-    assert.deepEqual(await poller.requestIssueSearch(query, 'no-wait'), { isRateLimited: true, waitMs: 120000 });
-    assert.deepEqual(await poller.requestIssueLinkedPullRequests(['acme/app#1'], 'no-wait'), { isRateLimited: true, waitMs: 120000 });
+    assert.deepEqual(await poller.requestRepoIssues('acme/app', since, 300, 'no-wait'), { queueWaitMs: 0, readMs: 0, isRateLimited: true, waitMs: 120000 });
+    assert.deepEqual(await poller.requestIssueSearch(query, 'no-wait'), { queueWaitMs: 0, readMs: 0, isRateLimited: true, waitMs: 120000 });
+    assert.deepEqual(await poller.requestIssueLinkedPullRequests(['acme/app#1'], 'no-wait'), { queueWaitMs: 0, readMs: 0, isRateLimited: true, waitMs: 120000 });
   }
   harness.limitResource('graphql');
-  assert.deepEqual(await poller.requestIssueLinkedPullRequests(['acme/app#1'], 'no-wait'), { isRateLimited: true, waitMs: 120000 });
+  assert.deepEqual(await poller.requestIssueLinkedPullRequests(['acme/app#1'], 'no-wait'), { queueWaitMs: 0, readMs: 0, isRateLimited: true, waitMs: 120000 });
   assert.deepEqual(harness.repoIssueCalls, []);
   assert.deepEqual(harness.issueSearchCalls, []);
   assert.deepEqual(harness.issueLinkedPrCalls, []);
   assert.equal(harness.timers.pending.length, 0);
-  assert.deepEqual(await poller.requestRepoIssues('acme/app', since, 300, 'no-wait'), { isRateLimited: false, value: harness.issueFetch });
-  assert.deepEqual(await poller.requestIssueSearch(query, 'no-wait'), { isRateLimited: false, value: harness.issueFetch });
+  assert.deepEqual(await poller.requestRepoIssues('acme/app', since, 300, 'no-wait'), { queueWaitMs: 0, readMs: 0, isRateLimited: false, value: harness.issueFetch });
+  assert.deepEqual(await poller.requestIssueSearch(query, 'no-wait'), { queueWaitMs: 0, readMs: 0, isRateLimited: false, value: harness.issueFetch });
   harness.limitResource(null);
   const linked = await poller.requestIssueLinkedPullRequests(['acme/app#1'], 'no-wait');
   assert.equal(linked.isRateLimited, false);
@@ -610,11 +613,36 @@ test('issue reads share the store gate, honor search and GraphQL limits and reta
   assert.equal(harness.issueSearchCalls.length, 1);
   harness.limitResource(null);
   harness.timers.fireAll();
-  assert.deepEqual(await waiting, { isRateLimited: false, value: harness.issueFetch });
+  assert.deepEqual(await waiting, { queueWaitMs: 0, readMs: 0, isRateLimited: false, value: harness.issueFetch });
   assert.equal(harness.issueSearchCalls.length, 2);
   harness.failIssueReads();
-  assert.deepEqual(await poller.requestRepoIssues('acme/app', null, 300), { isRateLimited: false, value: { ok: false, items: [], isComplete: false, error: 'Issue listing failed.' } });
-  assert.deepEqual(await poller.requestIssueSearch(query), { isRateLimited: false, value: { ok: false, items: [], isComplete: false, error: 'Issue search failed.' } });
-  assert.deepEqual(await poller.requestIssueLinkedPullRequests(['acme/app#1']), { isRateLimited: false, value: new Map() });
+  assert.deepEqual(await poller.requestRepoIssues('acme/app', null, 300), { queueWaitMs: 0, readMs: 0, isRateLimited: false, value: { ok: false, items: [], isComplete: false, error: 'Issue listing failed.' } });
+  assert.deepEqual(await poller.requestIssueSearch(query), { queueWaitMs: 0, readMs: 0, isRateLimited: false, value: { ok: false, items: [], isComplete: false, error: 'Issue search failed.' } });
+  assert.deepEqual(await poller.requestIssueLinkedPullRequests(['acme/app#1']), { queueWaitMs: 0, readMs: 0, isRateLimited: false, value: new Map() });
   assert.equal(harness.warnings.filter((warning) => warning.includes('Issue read offline')).length, 3);
+});
+
+test('priority reads precede queued background reads and report queue wait and read timings', async (context) => {
+  const clock = createGithubClock({ baseIntervalMs: 60_000 });
+  const harness = storeHarness(7, clock.exclusive);
+  context.after(harness.cleanup);
+  let releaseBlocker: () => void = () => {};
+  const blocker = new Promise<void>((resolve) => { releaseBlocker = resolve; });
+  const activeJob = clock.exclusive(() => blocker);
+  const firstBackgroundRead = harness.poller.requestPrDiff('acme/app', 1, HEAD_SHA, 'no-wait');
+  const secondBackgroundRead = harness.poller.requestPrDiff('acme/app', 2, HEAD_SHA, 'no-wait');
+  const priorityRead = harness.poller.requestPrDiff('acme/app', 3, HEAD_SHA, 'priority');
+  harness.advance(25);
+  releaseBlocker();
+  const priorityResult = await priorityRead;
+  assert.equal(priorityResult.isRateLimited, false);
+  assert.equal(priorityResult.queueWaitMs, 25);
+  assert.equal(priorityResult.readMs, 7);
+  await Promise.all([activeJob, firstBackgroundRead, secondBackgroundRead]);
+  assert.deepEqual(harness.diffCalls, ['acme/app#3', 'acme/app#1', 'acme/app#2']);
+  harness.limitResource('core');
+  assert.deepEqual(await harness.poller.requestPrHead('acme/app', 1, 'priority'), {
+    isRateLimited: true, waitMs: 120000, queueWaitMs: 0, readMs: 0,
+  });
+  assert.equal(harness.timers.pending.length, 0);
 });

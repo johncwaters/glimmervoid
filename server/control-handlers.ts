@@ -1135,7 +1135,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   async function handleIssueDetail(request: ClientMessageOf<'issue-detail'>, ws: ControlSocket): Promise<void> {
     try {
-      const issueRead = await requestIssue(request.issueNumber, request.repo, 'no-wait');
+      const issueRead = await requestIssue(request.issueNumber, request.repo, 'priority');
       if (issueRead.isRateLimited) {
         replyTo(ws, request, 'issue-detail-result', { ok: false, body: null, error: githubStoreRateLimitedError(issueRead.waitMs, 'the issue') });
         return;
@@ -1172,7 +1172,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         reply({ ok: true, sessionId: linkedSession.id, sessionName: linkedSession.name, existing: true });
         return;
       }
-      const issueRead = await requestIssue(issueNumber, repo, 'no-wait');
+      const issueRead = await requestIssue(issueNumber, repo, 'priority');
       if (issueRead.isRateLimited) { reply({ error: githubStoreRateLimitedError(issueRead.waitMs, 'the issue') }); return; }
       const viewed = issueRead.value;
       if (!viewed.ok) { reply({ error: `Could not read GitHub issue #${issueNumber}: ${viewed.error}` }); return; }

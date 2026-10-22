@@ -879,7 +879,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
 
   async function misplacedCommentsRefusal(draft: ReviewDraft, comments: readonly ReviewComment[]): Promise<PostRefusal | null> {
     if (comments.length === 0) return null;
-    const diffRead = await store.requestPrDiff(draft.repo, draft.number, draft.reviewedHead, 'no-wait');
+    const diffRead = await store.requestPrDiff(draft.repo, draft.number, draft.reviewedHead, 'priority');
     if (diffRead.isRateLimited) return { reason: 'rate-limited', error: githubStoreRateLimitedError(diffRead.waitMs) };
     const diff = diffRead.value;
     if (diff === null) return { reason: 'diff-unreadable', error: 'Could not fetch the diff to check the inline comments. Remove them to post without them' };
@@ -909,7 +909,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     if (event === 'COMMENT' && !body.trim() && comments.length === 0) {
       return refusePost({ reason: 'empty-comment', error: 'A comment review needs a body or an inline comment' });
     }
-    const liveHeadRead = await store.requestPrHead(draft.repo, draft.number, 'no-wait');
+    const liveHeadRead = await store.requestPrHead(draft.repo, draft.number, 'priority');
     if (liveHeadRead.isRateLimited) return refusePost({ reason: 'rate-limited', error: githubStoreRateLimitedError(liveHeadRead.waitMs) });
     const liveHead = liveHeadRead.value;
     if (!liveHead) return refusePost({ reason: 'head-unreadable', error: 'Could not read the pull request head from GitHub' });
@@ -928,7 +928,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     requestPrRefresh?.(comparablePrKey(draft));
     const settledOutcome = SETTLED_OUTCOME_BY_ACTION[request.action];
     if (!isFollowUpApproval && settledOutcome) captureSettled(settledOutcome, draft, comments.length);
-    const headAfterPostRead = event === 'APPROVE' ? await store.requestPrHead(draft.repo, draft.number, 'no-wait') : { isRateLimited: false as const, value: draft.reviewedHead };
+    const headAfterPostRead = event === 'APPROVE' ? await store.requestPrHead(draft.repo, draft.number, 'priority') : { isRateLimited: false as const, value: draft.reviewedHead };
     const headAfterPost = headAfterPostRead.isRateLimited ? null : headAfterPostRead.value;
     if (headAfterPost !== null && headAfterPost !== draft.reviewedHead) return retractApproval(key, draft, headAfterPost, posted.reviewId);
     const postedPatch: DraftPatch = isFollowUpApproval ? { status: 'posted', postedEvent: event } : { status: 'posted', postedEvent: event, body: postedBody, comments };
@@ -946,7 +946,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     if (!stored) return { ok: false, error: 'That answered thread no longer exists' };
     if (stored.isResolved) return { ok: false, error: 'That thread is already resolved' };
     if (stored.isNit && stored.resolveError === undefined) return { ok: false, error: 'That nit is resolved automatically' };
-    const fetchedRead = await store.requestTeamReviewThreads([{ repo: draft.repo, number: draft.number }], 'no-wait');
+    const fetchedRead = await store.requestTeamReviewThreads([{ repo: draft.repo, number: draft.number }], 'priority');
     if (fetchedRead.isRateLimited) return { ok: false, error: githubStoreRateLimitedError(fetchedRead.waitMs) };
     const fetched = fetchedRead.value;
     const thread = fetched.get(draft.key)?.find((thread) => thread.id === request.threadId);
@@ -1170,9 +1170,9 @@ function createTeamReviewWiring({
     const separatorIndex = key.lastIndexOf('#');
     const repo = key.slice(0, separatorIndex);
     const number = Number(key.slice(separatorIndex + 1));
-    const headRead = await store.requestPrHead(repo, number, 'no-wait');
+    const headRead = await store.requestPrHead(repo, number, 'priority');
     if (headRead.isRateLimited) return { ok: false, error: githubStoreRateLimitedError(headRead.waitMs) };
-    const detailRead = headRead.value ? await store.requestPrView(repo, number, headRead.value, 'no-wait') : { isRateLimited: false as const, value: null };
+    const detailRead = headRead.value ? await store.requestPrView(repo, number, headRead.value, 'priority') : { isRateLimited: false as const, value: null };
     if (detailRead.isRateLimited) return { ok: false, error: githubStoreRateLimitedError(detailRead.waitMs) };
     const detail = detailRead.value;
     if (!detail) return { ok: false, error: `Could not read ${key} from GitHub` };
