@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The open session stands out in the Focus rail**: its row used to get a faint accent wash that looked the same as the wash on waiting, failed and finished rows, so after Next session (Cmd/Alt+J) it was hard to tell where you landed. The open row now has a raised background, a full accent outline and a bold name, and a jump rings the row you land on in accent for a moment. The ring is skipped when your system asks for reduced motion.
 
+### Fixed
+
+- **Dashboard idles lighter while a session works**: the pulsing ring on a working session's icon, and the spinner on a starting one, made the browser lay out the whole page again on every frame, about 60 times a second. They look the same but no longer do, which cuts the dashboard's idle CPU use while any session is working.
+
 ## [0.43.0] - 2026-10-22
 
 ### Changed
