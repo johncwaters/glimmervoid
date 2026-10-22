@@ -30,14 +30,12 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
 
   const topBar = el('header', 'phone-topbar');
 
-  const nextAttentionButton = el('button', 'btn-dialog', 'Next');
-  nextAttentionButton.type = 'button';
-  nextAttentionButton.addEventListener('click', () => {
-    pressAttentionBanner(attentionEl);
-    const nextId = orderAttentionLine(currentOrderedRows(), null)[0]?.id;
-    if (nextId) openAttentionSession(nextId);
-  });
-  const attentionEl = buildAttentionBanner(nextAttentionButton, {
+  const attentionEl = buildAttentionBanner({
+    onJump: () => {
+      pressAttentionBanner(attentionEl);
+      const nextId = orderAttentionLine(currentOrderedRows(), null)[0]?.id;
+      if (nextId) openAttentionSession(nextId);
+    },
     onOpenTile: openAttentionSession,
     rowFor: (id) => rowById.get(id),
   });

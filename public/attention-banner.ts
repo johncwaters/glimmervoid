@@ -61,6 +61,7 @@ const KEYCAP_TRAVEL_PX = 3;
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
 interface AttentionBannerHooks {
+  onJump: () => void;
   onOpenTile: (sessionId: string) => void;
   rowFor: (sessionId: string) => HTMLElement | null | undefined;
 }
@@ -98,14 +99,13 @@ function eased(frames: Keyframe[]) {
   return frames.map((frame) => ({ easing: EASE_OUT_EXPO, ...frame }));
 }
 
-export function buildAttentionBanner(jumpAffordance: HTMLElement, hooks: AttentionBannerHooks) {
+export function buildAttentionBanner(hooks: AttentionBannerHooks, jumpKeys?: HTMLElement) {
   const banner = el('div', 'attention-banner');
   banner.setAttribute('role', 'status');
   banner.style.setProperty('--attention-head-tile-px', `${ATTENTION_TILE_SIZES_PX.headTile}px`);
   banner.style.setProperty('--attention-tile-px', `${ATTENTION_TILE_SIZES_PX.tile}px`);
   banner.style.setProperty('--attention-tile-gap-px', `${ATTENTION_TILE_SIZES_PX.tileGap}px`);
   banner.style.setProperty('--attention-overflow-px', `${ATTENTION_TILE_SIZES_PX.overflowSlot}px`);
-  jumpAffordance.classList.add('attention-banner-jump');
   const chips = el('span', 'attention-banner-chips');
   const overflow = el('span', 'attention-tile-overflow');
   overflow.setAttribute('aria-hidden', 'true');
@@ -115,8 +115,14 @@ export function buildAttentionBanner(jumpAffordance: HTMLElement, hooks: Attenti
   allClearLine.setAttribute('aria-hidden', 'true');
   const statusRow = el('div', 'attention-banner-status');
   statusRow.append(chips, el('span', 'attention-banner-count'), allClearLine);
-  const jumpRow = el('div', 'attention-banner-jump-row');
-  jumpRow.append(el('span', 'attention-banner-jump-caption', 'Next session'), jumpAffordance);
+  const jumpRow = el('button', 'attention-banner-jump-row');
+  jumpRow.type = 'button';
+  jumpRow.append(el('span', 'attention-banner-jump-caption', 'Next session'));
+  if (jumpKeys) {
+    jumpKeys.classList.add('attention-banner-jump');
+    jumpRow.append(jumpKeys);
+  }
+  jumpRow.addEventListener('click', () => hooks.onJump());
   banner.append(statusRow, jumpRow);
   motionByBanner.set(banner, {
     hooks,
@@ -142,8 +148,6 @@ export function paintAttentionBanner(banner: HTMLElement, counts: AttentionCount
   const isJumpable = tiles.length > 0;
   banner.toggleAttribute('data-empty', !isJumpable);
   banner.toggleAttribute('data-jumpable', isJumpable);
-  const jumpAffordance = query(banner, '.attention-banner-jump');
-  if (jumpAffordance instanceof HTMLButtonElement) jumpAffordance.disabled = !isJumpable;
   if (isJumpable) endAllClearLine(banner, motion);
   renderTiles(banner);
 }

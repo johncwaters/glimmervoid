@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Click Next session to jump**: the Next session row at the bottom of the Focus rail banner is now a button, so clicking it does exactly what Cmd/Alt+J does, including the all-clear line when nothing needs you. The phone Board banner uses the same row in place of its separate Next button.
+
 ## [0.43.2] - 2026-10-22
 
 ### Changed

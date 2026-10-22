@@ -112,10 +112,11 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   mountedRail.removeAttribute('aria-label');
   mountedRail.setAttribute('aria-keyshortcuts', railAriaKeyShortcuts(SHORTCUT_PLATFORM));
 
-  railHeadEl = buildAttentionBanner(buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)), {
+  railHeadEl = buildAttentionBanner({
+    onJump: focusNextAttention,
     onOpenTile: openAttentionSession,
     rowFor: (id) => pillById.get(id),
-  });
+  }, buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)));
 
   const statusKey = el('details', 'rail-status-key');
   statusKey.append(el('summary', 'rail-status-key-summary', 'Status key'), renderStatusLegend());
