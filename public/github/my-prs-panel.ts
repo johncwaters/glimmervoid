@@ -1,5 +1,5 @@
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
-import { hasGithubPollingCountdown, githubPollingErrorNotice, githubPollingRefreshText } from './github-polling-retry-core.ts';
+import { hasGithubPollingCountdown, githubPollingAgeText, githubPollingErrorNotice, githubPollingRefreshText } from './github-polling-retry-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import type { GithubPollingRefreshRequest } from '#shared/contracts/github-polling.ts';
 import type { LinkedPr, MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
@@ -77,9 +77,14 @@ export function createGithubPollingControls(lane: GithubPollingRefreshRequest['l
   let countdownTimer: number | null = null;
 
   function updateCountdown(): void {
-    notice.textContent = githubPollingErrorNotice(currentStatus, Date.now());
+    const nowMs = Date.now();
+    const errorNotice = githubPollingErrorNotice(currentStatus, nowMs);
+    const ageText = githubPollingAgeText(currentStatus, nowMs);
+    notice.textContent = errorNotice ? [errorNotice, ageText].filter(Boolean).join(' ') : '';
     if (notice.hidden !== !currentStatus?.error) notice.hidden = !currentStatus?.error;
-    const shouldTick = notice.isConnected && !isPanelHidden(panel) && !document.hidden && notice.getClientRects().length > 0 && hasGithubPollingCountdown(currentStatus, Date.now());
+    progress.textContent = githubPollingRefreshText(currentStatus, isPending, outcomeText) || (!currentStatus?.error ? ageText : '') || '';
+    if (progress.hidden !== !progress.textContent) progress.hidden = !progress.textContent;
+    const shouldTick = notice.isConnected && !isPanelHidden(panel) && !document.hidden && notice.getClientRects().length > 0 && hasGithubPollingCountdown(currentStatus, nowMs);
     if (!shouldTick && countdownTimer !== null) {
       window.clearInterval(countdownTimer);
       countdownTimer = null;
@@ -91,8 +96,6 @@ export function createGithubPollingControls(lane: GithubPollingRefreshRequest['l
     if (status !== currentStatus) outcomeText = '';
     currentStatus = status;
     button.disabled = isPending || !!status?.isRefreshing || !status?.configured;
-    progress.textContent = githubPollingRefreshText(status, isPending, outcomeText);
-    progress.hidden = !progress.textContent;
     updateCountdown();
   }
 

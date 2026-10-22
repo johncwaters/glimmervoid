@@ -1,6 +1,6 @@
 import type { MyPrsStatus } from '#shared/contracts/my-prs.ts';
 
-export type GithubPollingStatus = Pick<MyPrsStatus, 'error' | 'nextAttemptAt' | 'retry' | 'isRefreshing' | 'refreshNotice' | 'configured'>;
+export type GithubPollingStatus = Pick<MyPrsStatus, 'error' | 'incident' | 'lastRefreshedAt' | 'nextAttemptAt' | 'retry' | 'isRefreshing' | 'refreshNotice' | 'configured'> & { lastSyncAt?: number | null };
 
 export function hasGithubPollingCountdown(status: GithubPollingStatus | null, nowMs: number): boolean {
   return !!status?.error && !status.isRefreshing && typeof status.nextAttemptAt === 'number' && status.nextAttemptAt > nowMs;
@@ -9,7 +9,8 @@ export function hasGithubPollingCountdown(status: GithubPollingStatus | null, no
 export function githubPollingErrorNotice(status: GithubPollingStatus | null, nowMs: number): string | null {
   if (!status?.error) return null;
   const errorText = status.error.trim().replace(/[.!]+$/, '');
-  const prefix = `Could not reach GitHub: ${errorText}.`;
+  const incidentText = status.incident?.trim().replace(/[.!]+$/, '');
+  const prefix = `Could not reach GitHub: ${errorText}.${incidentText ? ` GitHub reports: ${incidentText}.` : ''}`;
   if (status.isRefreshing) return `${prefix} Refreshing.`;
   if (typeof status.nextAttemptAt !== 'number') return prefix;
   const remainingSeconds = Math.max(0, Math.ceil((status.nextAttemptAt - nowMs) / 1000));
@@ -23,4 +24,14 @@ export function githubPollingRefreshText(status: GithubPollingStatus | null, isP
   if (status?.refreshNotice && status.isRefreshing) return status.refreshNotice;
   if (isPending || status?.isRefreshing) return 'Refreshing';
   return outcomeText || status?.refreshNotice || '';
+}
+
+export function githubPollingAgeText(status: GithubPollingStatus | null, nowMs: number): string | null {
+  const dataTime = status?.lastRefreshedAt ?? status?.lastSyncAt ?? null;
+  if (dataTime === null) return null;
+  const ageMs = Math.max(0, nowMs - dataTime);
+  if (!status?.error && ageMs <= 5 * 60_000) return null;
+  if (ageMs < 60_000) return 'Last updated less than a minute ago.';
+  if (ageMs < 60 * 60_000) return `Last updated ${Math.floor(ageMs / 60_000)} min ago.`;
+  return `Last updated ${Math.floor(ageMs / (60 * 60_000))} h ago.`;
 }
