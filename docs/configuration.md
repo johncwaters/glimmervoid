@@ -298,8 +298,8 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `view_shown` | `view` | A dashboard tab opened, on desktop or phone, with which tab. Sent on every open. |
 | `operator_action` | `surface`, `action` | An action taken in the Usage, Issues, Radar or Reviews tab: which tab and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on. |
 | `team_review_drafted` | `inline_comment_count` | A team review draft became ready, with how many inline comments it drafted. |
-| `team_review_settled` | `outcome`, `drafted_comment_count`, `posted_comment_count` | A team review draft was posted (approve, comment or approve-only) or discarded, with how many inline comments were drafted and how many were posted. |
-| `team_review_post_refused` | `reason` | Posting a team review was refused, with a reason from a fixed list. Never the error text. |
+| `team_review_settled` | `duration_ms`, `outcome`, `drafted_comment_count`, `posted_comment_count` | A team review draft was posted (approve, comment or approve-only) or discarded, with how many inline comments were drafted and how many were posted, plus the total action duration in milliseconds. |
+| `team_review_post_refused` | `duration_ms`, `reason` | Posting a team review was refused, with a reason from a fixed list and the total action duration in milliseconds. Never the error text. |
 | `radar_investigation_finished` | `verdict`, `mode`, `error_reason` | A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text. |
 | `radar_fix_handoff_failed` | `step` | Handing a Radar fix over as a pull request failed, with which step failed. Never the branch or the error text. |
 

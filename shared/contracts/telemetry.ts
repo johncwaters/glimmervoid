@@ -59,12 +59,14 @@ const TeamReviewDraftedProperties = z.object({
 }).strict();
 
 const TeamReviewSettledProperties = z.object({
+  duration_ms: nonNegativeInteger,
   outcome: z.enum(TEAM_REVIEW_SETTLED_OUTCOMES),
   drafted_comment_count: nonNegativeInteger,
   posted_comment_count: nonNegativeInteger,
 }).strict();
 
 const TeamReviewPostRefusedProperties = z.object({
+  duration_ms: nonNegativeInteger,
   reason: z.enum(TEAM_REVIEW_POST_REFUSAL_REASONS),
 }).strict();
 
@@ -150,8 +152,8 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'view_shown', description: 'A dashboard tab opened, on desktop or phone, with which tab. Sent on every open.' },
   { name: 'operator_action', description: 'An action taken in the Usage, Issues, Radar or Reviews tab: which tab and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on.' },
   { name: 'team_review_drafted', description: 'A team review draft became ready, with how many inline comments it drafted.' },
-  { name: 'team_review_settled', description: 'A team review draft was posted (approve, comment or approve-only) or discarded, with how many inline comments were drafted and how many were posted.' },
-  { name: 'team_review_post_refused', description: 'Posting a team review was refused, with a reason from a fixed list. Never the error text.' },
+  { name: 'team_review_settled', description: 'A team review draft was posted (approve, comment or approve-only) or discarded, with how many inline comments were drafted and how many were posted, plus the total action duration in milliseconds.' },
+  { name: 'team_review_post_refused', description: 'Posting a team review was refused, with a reason from a fixed list and the total action duration in milliseconds. Never the error text.' },
   { name: 'radar_investigation_finished', description: 'A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text.' },
   { name: 'radar_fix_handoff_failed', description: 'Handing a Radar fix over as a pull request failed, with which step failed. Never the branch or the error text.' },
 ]);
