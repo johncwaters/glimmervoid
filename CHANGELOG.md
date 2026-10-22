@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.2] - 2026-10-22
+
 ### Changed
 
 - **GitHub actions start sooner and show their progress**: Reviews, Issues and PR session checkout actions now run their GitHub reads ahead of background polling. Action statuses show the Focus rail's pulsing dot while working, a check when done and a cross on failure; the dot stays still with reduced motion. Approve and resolve-thread actions log total and per-step timing to `server.log` and include `duration_ms` in the `team_review_settled` and `team_review_post_refused` telemetry events.
