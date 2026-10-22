@@ -2,7 +2,7 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import { createActionStatus } from '../action-status.ts';
-import type { ActionStatus } from '../action-status.ts';
+import type { ActionStatus, ActionStatusTone } from '../action-status.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
 import type { SessionUi } from './card-registry.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
@@ -84,7 +84,6 @@ const sessionUisWithDeepHistory = new WeakSet<SessionUi>();
 const sessionUisReattachingQuietly = new WeakSet<SessionUi>();
 
 type TerminalNoticeKind = 'keys' | 'clipboard';
-type TerminalNoticeTone = 'busy' | 'ok' | 'error';
 
 interface TerminalNotices {
   status: ActionStatus;
@@ -103,7 +102,7 @@ const DROPPED_KEYS_TEXT = 'The terminal is still reconnecting and its key buffer
 const CLIPBOARD_PROMPT_TEXT = 'The agent copied text. The browser needs a click before it can reach your clipboard.';
 const CLIPBOARD_UNAVAILABLE_TEXT = 'The clipboard is unavailable in this browser.';
 
-function showTerminalNotice(ui: SessionUi, kind: TerminalNoticeKind, tone: TerminalNoticeTone, text: string) {
+function showTerminalNotice(ui: SessionUi, kind: TerminalNoticeKind, tone: ActionStatusTone, text: string) {
   const notices = terminalNoticesBySessionUi.get(ui);
   if (!notices) return;
   if (notices.clearTimerId !== null) clearTimeout(notices.clearTimerId);
