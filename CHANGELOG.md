@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.3] - 2026-10-23
+
 ### Added
 
 - **Set up a remote host from Settings**: Settings > Sessions has a Set up remote host button. It starts a Claude Code or Codex session, whichever you are signed in to, that walks you through running Glimmervoid on another Linux machine you reach by ssh: installing it, running it as a systemd user service, opening it from your laptop and phone through `tailscale serve` and `glimmervoid pair`, signing commits through your forwarded ssh agent, and the Ubuntu sandbox fix. The session runs outside the guardrails so it can use your ssh keys, still asks before each command, and its working folder is deleted when it ends.
