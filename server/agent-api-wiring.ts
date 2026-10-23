@@ -18,10 +18,10 @@ import {
   decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeRoleRefusal,
   describeUnpushedCloseRefusal, parseAgentVerb, projectMyPrs, projectReviews,
 } from './core/agent-api-core.ts';
-import type { AgentRequestOf, ChildWorktree } from './core/agent-api-core.ts';
+import type { AgentRequestOf, ChildEndCause, ChildWorktree } from './core/agent-api-core.ts';
 import {
-  canSubmitWake, decideWake, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, openChannel, postToChannel,
-  readLastAssistantMessage, shouldPostStopNote,
+  canSubmitWake, decideWake, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread,
+  openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake,
 } from './core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelSide } from './core/child-channel-core.ts';
 import { isGuardedSessionVendor } from './guardrails/core/guardrails-roles-core.ts';
@@ -81,6 +81,7 @@ interface ChannelLink {
   parent: Session;
   child: Session;
   lastChildMessage: string | null;
+  hasParentRead: boolean;
   wakesSinceOperatorInput: number;
   isOperatorFlagged: boolean;
   pendingWakeSides: Set<ChannelSide>;
@@ -130,6 +131,11 @@ function createAgentApiWiring({
   const sessionsWithOperatorWatch = new WeakSet<Session>();
   const lastOperatorInputAtBySession = new WeakMap<Session, number>();
   const childIdsToDiscard = new Set<string>();
+  const endCauseByChildId = new Map<string, ChildEndCause>();
+
+  function noteEndCause(childId: string, cause: ChildEndCause): void {
+    if (!endCauseByChildId.has(childId)) endCauseByChildId.set(childId, cause);
+  }
 
   function forgetLink(childId: string): void {
     const link = linksByChildId.get(childId);
@@ -179,7 +185,7 @@ function createAgentApiWiring({
     if (recipient._destroyed) return;
     const decision = decideWake({
       recipientState: recipient.state,
-      hasUnread: channel[side].unread.length > 0,
+      hasUnread: hasWakingUnread(channel[side]),
       isWakePending: link.pendingWakeSides.has(side),
       isOperatorFlagged: link.isOperatorFlagged,
       wakesSinceOperatorInput: link.wakesSinceOperatorInput,
@@ -224,7 +230,8 @@ function createAgentApiWiring({
     });
     link.child.on('state-change', ({ from, to }: StateChange) => {
       if (shouldPostStopNote(from, to)) {
-        post(childId, 'toParent', { author: 'glimmervoid', text: describeStopNote({ childName: link.child.name, state: to, lastMessage: link.lastChildMessage }), at: now() });
+        const text = describeStopNote({ childName: link.child.name, state: to, lastMessage: link.lastChildMessage });
+        post(childId, 'toParent', { author: 'glimmervoid', text, at: now(), wakes: shouldStopNoteWake(to, link.hasParentRead) });
         link.lastChildMessage = null;
       }
       wakeRecipient(childId, 'toParent');
@@ -235,7 +242,7 @@ function createAgentApiWiring({
   function openChildChannel(parent: Session, child: Session, childName: string): () => void {
     channelsByChildId.set(child.id, openChannel({ parentId: parent.id, childId: child.id, childName }));
     const link: ChannelLink = {
-      parent, child, lastChildMessage: null, wakesSinceOperatorInput: 0, isOperatorFlagged: false, pendingWakeSides: new Set(), retryTimersBySide: new Map(),
+      parent, child, lastChildMessage: null, hasParentRead: false, wakesSinceOperatorInput: 0, isOperatorFlagged: false, pendingWakeSides: new Set(), retryTimersBySide: new Map(),
     };
     linksByChildId.set(child.id, link);
     watchChild(link, child.id);
@@ -245,7 +252,10 @@ function createAgentApiWiring({
       parentsWithChannelCleanup.add(parent);
       parent.once('teardown', () => forgetChannelsOf(parent));
     }
-    const closeChildWithParent = () => child.destroy();
+    const closeChildWithParent = () => {
+      noteEndCause(child.id, 'parent-ended');
+      child.destroy();
+    };
     const wakeParent = () => wakeRecipient(child.id, 'toParent');
     parent.on('exit', closeChildWithParent);
     parent.on('teardown', closeChildWithParent);
@@ -275,14 +285,18 @@ function createAgentApiWiring({
       const worktree = child.getWorktreeCarry();
       const registeredParent = listAllSessions().find((session) => session.id === parentId);
       const isKept = await keepOrDiscardChildWorktree(child, worktree, !registeredParent);
+      const cause = endCauseByChildId.get(child.id) ?? 'operator';
+      endCauseByChildId.delete(child.id);
       if (registeredParent && worktree && isKept) {
         logger.warn(`[${AGENT_LANE_TAG} ${childName}] kept a worktree with unpushed work: ${worktree.worktreeDir}`);
         registeredParent.noteAttention(describeKeptChildAttention(childName, worktree));
-        post(child.id, 'toParent', { author: 'glimmervoid', text: describeChildEndNote(childName, { kind: 'kept', worktree }), at: now() });
+        post(child.id, 'toParent', { author: 'glimmervoid', text: describeChildEndNote(childName, cause, { kind: 'kept', worktree }), at: now(), wakes: true });
         return;
       }
+      if (cause === 'parent-closed') return;
       const kind = worktree || worktreeAtStart ? 'discarded' : 'none';
-      post(child.id, 'toParent', { author: 'glimmervoid', text: describeChildEndNote(childName, { kind }), at: now() });
+      const hasParentRead = linksByChildId.get(child.id)?.hasParentRead ?? false;
+      post(child.id, 'toParent', { author: 'glimmervoid', text: describeChildEndNote(childName, cause, { kind }), at: now(), wakes: !hasParentRead });
     } catch (error) {
       logger.warn(`[${AGENT_LANE_TAG} ${childName}] could not settle the worktree: ${errorMessage(error)}`);
     }
@@ -300,6 +314,8 @@ function createAgentApiWiring({
     if (!channel) return null;
     const { channel: drainedChannel, drained } = drainChannel(channel, side);
     channelsByChildId.set(childId, drainedChannel);
+    const link = linksByChildId.get(childId);
+    if (link && side === 'toParent' && drained.entries.length > 0) link.hasParentRead = true;
     const peerId = side === 'toParent' ? channel.childId : channel.parentId;
     const peerName = side === 'toParent' ? channel.childName : (listAllSessions().find((session) => session.id === channel.parentId)?.name ?? channel.parentId);
     return {
@@ -413,6 +429,8 @@ function createAgentApiWiring({
       registerEphemeralSession({
         map: agentSessions, id, sess: spawned, closeSessionDataClients, logPrefix: AGENT_LANE_TAG, name, recordLane,
       });
+      spawned.on('exit', () => { if (!released) noteEndCause(id, 'exited'); });
+      spawned.on('teardown', () => { if (!released) noteEndCause(id, 'operator'); });
       spawned.on('exit', releaseChildSlot);
       spawned.on('teardown', releaseChildSlot);
       startAttempt = spawnGate.run(() => {
@@ -512,7 +530,7 @@ function createAgentApiWiring({
   function send(session: Session, { words }: AgentSendRequest): AgentApiReply {
     const at = Date.now();
     if (channelsByChildId.has(session.id)) {
-      post(session.id, 'toParent', { author: 'child', text: words.join(' '), at });
+      post(session.id, 'toParent', { author: 'child', text: words.join(' '), at, wakes: true });
       return { status: 200, body: { ok: true } };
     }
     const [target = '', ...textWords] = words;
@@ -521,7 +539,7 @@ function createAgentApiWiring({
     const owned = findChildOf(session, target);
     if (!owned.ok) return refusal(404, owned.error);
     if (!agentSessions.has(owned.channel.childId)) return refusal(409, `${owned.channel.childName} has ended, so nothing was sent`);
-    post(owned.channel.childId, 'toChild', { author: 'parent', text, at });
+    post(owned.channel.childId, 'toChild', { author: 'parent', text, at, wakes: true });
     return { status: 200, body: { ok: true } };
   }
 
@@ -552,6 +570,7 @@ function createAgentApiWiring({
     }
     if (agentSessions.get(owned.channel.childId) !== childSession) return alreadyEnded;
     if (discard) childIdsToDiscard.add(childSession.id);
+    noteEndCause(childSession.id, 'parent-closed');
     childSession.destroy();
     return { status: 200, body: { ok: true, closed: owned.channel.childId } };
   }

@@ -18,6 +18,7 @@ interface ChannelEntry {
   author: ChannelAuthor;
   text: string;
   at: number;
+  wakes: boolean;
 }
 
 interface Mailbox {
@@ -91,6 +92,14 @@ function findOwnedChild(channels: readonly AgentChannel[], parentId: string, tar
   return { ok: false, error: `${wanted} is not a session this one spawned; its spawned sessions are ${ownedNames}` };
 }
 
+function hasWakingUnread(mailbox: Mailbox): boolean {
+  return mailbox.unread.some((entry) => entry.wakes);
+}
+
+function shouldStopNoteWake(state: SessionState, hasParentRead: boolean): boolean {
+  return state !== STATES.DONE || !hasParentRead;
+}
+
 function shouldPostStopNote(from: SessionState, to: SessionState): boolean {
   if (ENDED_STATES.includes(to)) return !ENDED_STATES.includes(from);
   if (!TURN_END_STATES.includes(to)) return false;
@@ -142,7 +151,7 @@ function canSubmitWake({ recipientState, pastedAt, lastOperatorInputAt }: { reci
 }
 
 export {
-  canSubmitWake, decideWake, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, openChannel, postToChannel,
-  readLastAssistantMessage, shouldPostStopNote,
+  canSubmitWake, decideWake, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread,
+  openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake,
 };
 export type { AgentChannel, ChannelEntry, ChannelSide };

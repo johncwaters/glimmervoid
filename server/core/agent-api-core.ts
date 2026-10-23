@@ -202,10 +202,22 @@ function describeUnpushedCloseRefusal(childName: string, childId: string, worktr
   return `${childName} holds work that is not on the integration branch (${describeChildWorktree(worktree)}), so it was not closed. Ask it to land the work with glimmervoid push (glimmervoid send ${childId} <text>), or run glimmervoid close ${childId} --discard to end it and throw the work away`;
 }
 
-function describeChildEndNote(childName: string, outcome: { kind: 'discarded' | 'none' } | { kind: 'kept'; worktree: ChildWorktree }): string {
-  if (outcome.kind === 'kept') return `${childName} ended holding work that is not on the integration branch, so its worktree was kept: ${describeChildWorktree(outcome.worktree)}. The operator decides whether to merge or discard it`;
-  if (outcome.kind === 'discarded') return `${childName} ended and its worktree was discarded`;
-  return `${childName} ended`;
+type ChildEndCause = 'exited' | 'operator' | 'parent-closed' | 'parent-ended';
+
+const CHILD_END_CAUSE_COPY: Readonly<Record<ChildEndCause, string>> = {
+  exited: 'exited by itself',
+  operator: 'closed by the operator',
+  'parent-closed': 'closed by this session',
+  'parent-ended': 'closed because this session ended',
+};
+
+function describeChildEndNote(
+  childName: string, cause: ChildEndCause, outcome: { kind: 'discarded' | 'none' } | { kind: 'kept'; worktree: ChildWorktree },
+): string {
+  const ending = `${childName} ended: ${CHILD_END_CAUSE_COPY[cause]}`;
+  if (outcome.kind === 'kept') return `${ending}, holding work that is not on the integration branch, so its worktree was kept: ${describeChildWorktree(outcome.worktree)}. The operator decides whether to merge or discard it`;
+  if (outcome.kind === 'discarded') return `${ending}, and its worktree was discarded`;
+  return ending;
 }
 
 function describeKeptChildAttention(childName: string, worktree: ChildWorktree): string {
@@ -337,4 +349,4 @@ export {
   describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviews, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
   REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines,
 };
-export type { AgentRequestOf, ChildWorktree };
+export type { AgentRequestOf, ChildEndCause, ChildWorktree };

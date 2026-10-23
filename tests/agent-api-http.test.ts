@@ -793,7 +793,7 @@ async function glimmervoidNotes(fixture: ReturnType<typeof wiringFixture>): Prom
   return channels.flatMap(({ entries }) => entries.filter(({ from }) => from === 'glimmervoid').map(({ text }) => text));
 }
 
-test('closing a clean child discards its worktree only after the killed tree is reaped, and tells the parent', async () => {
+test('closing a clean child discards its worktree only after the killed tree is reaped, and posts the closing parent no end note', async () => {
   const fixture = wiringFixture();
   const attentionNotes: string[] = [];
   fixture.parent.noteAttention = (note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
@@ -809,7 +809,7 @@ test('closing a clean child discards its worktree only after the killed tree is 
     worktree.finishReap();
     await settleTurns();
     assert.deepEqual(worktree.log, ['reaped', 'discard-if-clean']);
-    assert.ok((await glimmervoidNotes(fixture)).some((text) => text.endsWith('ended and its worktree was discarded')));
+    assert.deepEqual(await glimmervoidNotes(fixture), []);
     assert.deepEqual(attentionNotes, []);
   } finally {
     fixture.destroyAll();
@@ -835,7 +835,7 @@ test('closing a child holding unpushed work is refused until --discard, which di
     worktree.finishReap();
     await settleTurns();
     assert.deepEqual(worktree.log, ['reaped', 'discard']);
-    assert.ok((await glimmervoidNotes(fixture)).some((text) => text.endsWith('ended and its worktree was discarded')));
+    assert.deepEqual(await glimmervoidNotes(fixture), []);
   } finally {
     fixture.destroyAll();
   }
@@ -971,6 +971,79 @@ test('a child closed while its worktree is still being created discards that wor
     assert.deepEqual([closed.status, spawned.status], [200, 500]);
     assert.deepEqual(calls, ['detectDefaultBranch', 'create', 'created', 'discard']);
     assert.equal(child.getWorktreeCarry(), null);
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+for (const ending of [
+  { how: 'operator removal', end: (child: Session) => child.destroy(), note: 'ended: closed by the operator, and its worktree was discarded' },
+  { how: 'its own exit', end: (child: Session) => child.emit('exit', { exitCode: 0, signal: null, reason: null }), note: 'ended: exited by itself, and its worktree was discarded' },
+]) {
+  test(`a child ending by ${ending.how} wakes its parent only until the parent has read from it, and says how it ended`, async () => {
+    const { clock, advanceBy } = manualClock();
+    for (const hasParentRead of [true, false]) {
+      const fixture = wiringFixture({ clock });
+      const pasted: string[] = [];
+      fixture.parent.pasteText = (text) => { pasted.push(text); return { ok: true }; };
+      fixture.parent.write = () => {};
+      try {
+        const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the title screen' });
+        const childId = String(spawned.body.sessionId);
+        const child = fixture.created[0];
+        const worktree = stubChildWorktree(child, { dirty: false });
+        fixture.parent.transition('user_start');
+        fixture.parent.transition('spawn_success', { spawnCwdExists: true });
+        fixture.parent.transition('first_output');
+        if (hasParentRead) {
+          await fixture.wiring.handle(child, 'send', { words: ['title screen landed'] });
+          advanceBy(60_000);
+          await fixture.wiring.handle(fixture.parent, 'read', { child: childId });
+        }
+        pasted.length = 0;
+
+        ending.end(child);
+        worktree.finishReap();
+        await settleTurns();
+        advanceBy(60_000);
+        assert.equal(pasted.length, hasParentRead ? 0 : 1, `woken at the end with hasParentRead=${hasParentRead}`);
+        fixture.parent.transition('new_output');
+        fixture.parent.transition('task_complete');
+        assert.equal(fixture.parent.state, STATES.COMPLETE);
+        advanceBy(60_000);
+        if (hasParentRead) assert.equal(pasted.length, 0, 'the silent note never wakes the parent on a later turn end');
+        assert.deepEqual(await glimmervoidNotes(fixture), [`${String(spawned.body.name)} ${ending.note}`]);
+      } finally {
+        fixture.destroyAll();
+      }
+    }
+  });
+}
+
+test('a child that fails wakes its parent even after the parent read its report', async () => {
+  const { clock, advanceBy } = manualClock();
+  const fixture = wiringFixture({ clock });
+  const pasted: string[] = [];
+  fixture.parent.pasteText = (text) => { pasted.push(text); return { ok: true }; };
+  fixture.parent.write = () => {};
+  try {
+    const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the title screen' });
+    const childId = String(spawned.body.sessionId);
+    const child = fixture.created[0];
+    fixture.parent.transition('user_start');
+    fixture.parent.transition('spawn_success', { spawnCwdExists: true });
+    fixture.parent.transition('first_output');
+    await fixture.wiring.handle(child, 'send', { words: ['title screen landed'] });
+    advanceBy(60_000);
+    await fixture.wiring.handle(fixture.parent, 'read', { child: childId });
+    pasted.length = 0;
+
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.DONE });
+    advanceBy(60_000);
+    assert.equal(pasted.length, 0, 'a clean exit after the report is silent');
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.FAILED });
+    advanceBy(60_000);
+    assert.equal(pasted.length, 1, 'a failure wakes');
   } finally {
     fixture.destroyAll();
   }
