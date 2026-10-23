@@ -10,6 +10,7 @@ import type { AgentApiVerb, AgentPrsReply, AgentReviewsReply } from '../../share
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import { COMMAND_ROUTES, NO_OWN_WORKTREE_REASON } from '../../session/core/session-routes.ts';
+import { extractPromptTaskTitle } from '../../session/core/task-title-core.ts';
 import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
 
 const MAX_LIVE_CHILDREN = 3;
@@ -269,8 +270,12 @@ function projectMyPrs(snapshot: MyPrsSnapshot | null): AgentPrsReply {
   };
 }
 
-function deriveChildSessionName(parentName: string, existingNames: readonly string[]): string {
-  const base = `${String(parentName || '').trim() || 'session'} agent`;
+function deriveChildSessionName(
+  { requestedName, brief, parentName }: { requestedName?: string; brief: string; parentName: string },
+  existingNames: readonly string[],
+): string {
+  const briefTitle = requestedName ? null : extractPromptTaskTitle(brief);
+  const base = briefTitle ?? `${String(requestedName || parentName || '').trim() || 'session'} agent`;
   const taken = new Set(existingNames);
   let candidate = base;
   let suffix = 1;

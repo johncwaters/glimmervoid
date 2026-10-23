@@ -76,12 +76,17 @@ test('the lifetime cap survives children exiting', () => {
 });
 
 
-test('a child name is derived from the parent and never collides', () => {
-  assert.equal(deriveChildSessionName('glimmervoid', []), 'glimmervoid agent');
-  assert.equal(deriveChildSessionName('glimmervoid', ['glimmervoid agent']), 'glimmervoid agent 2');
+test('a child is named from its brief, else its requested or parent name, and never collides', () => {
+  const fromBrief = { brief: 'build the title screen', parentName: 'Hog TCG Slack' };
+  assert.equal(deriveChildSessionName(fromBrief, []), 'build the title screen');
+  assert.equal(deriveChildSessionName(fromBrief, ['build the title screen']), 'build the title screen 2');
+  assert.equal(deriveChildSessionName({ ...fromBrief, requestedName: 'titles' }, []), 'titles agent');
+
+  const fromParent = { brief: '/compact', parentName: 'glimmervoid' };
+  assert.equal(deriveChildSessionName(fromParent, []), 'glimmervoid agent');
   assert.equal(
-    deriveChildSessionName('glimmervoid', ['glimmervoid agent', 'glimmervoid agent 2', 'glimmervoid agent 3']),
+    deriveChildSessionName(fromParent, ['glimmervoid agent', 'glimmervoid agent 2', 'glimmervoid agent 3']),
     'glimmervoid agent 4',
   );
-  assert.equal(deriveChildSessionName('  ', ['session agent']), 'session agent 2');
+  assert.equal(deriveChildSessionName({ brief: '', parentName: '  ' }, ['session agent']), 'session agent 2');
 });

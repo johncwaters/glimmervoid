@@ -383,7 +383,8 @@ function createAgentApiWiring({
     if (budgetRefusalAfterMemoryRead) return budgetRefusalAfterMemoryRead;
     const budget = parent.agentSpawnBudget();
 
-    const name = deriveChildSessionName(request.name || parent.name, listAllSessions().map((session) => session.name));
+    const existingNames = listAllSessions().map((session) => session.name);
+    const name = deriveChildSessionName({ requestedName: request.name, brief: request.prompt, parentName: parent.name }, existingNames);
     const id = `${AGENT_LANE_TAG}-${crypto.randomUUID()}`;
     const project: ProjectEntry = {
       id,
