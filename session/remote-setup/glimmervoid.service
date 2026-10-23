@@ -1,0 +1,20 @@
+[Unit]
+Description=Glimmervoid
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=__NODE__ __GLIMMERVOID__
+EnvironmentFile=-%h/.glimmervoid/secrets.env
+Environment=PATH=__PATH__
+KillMode=control-group
+TimeoutStopSec=10
+LimitNOFILE=65536
+Restart=on-failure
+RestartSec=5
+OOMPolicy=continue
+MemoryHigh=50%
+MemoryMax=60%
+
+[Install]
+WantedBy=default.target

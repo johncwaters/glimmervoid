@@ -16,6 +16,8 @@ const REQUIRED_OUTPUTS = [
   'session/hook-tool-relay.js',
   'session/visions-relay.js',
   'session/guardrails-open-launcher.js',
+  'session/remote-setup/SKILL.md',
+  'session/remote-setup/glimmervoid.service',
   'scripts/postinstall-path-check.js',
   'tools/vscode-visions/extension.js',
   'tools/vscode-visions/lsp-convert.js',
@@ -57,6 +59,8 @@ await build({ configFile: path.join(repoRoot, 'vite.config.ts') });
 await build({ configFile: path.join(repoRoot, 'vite.server.config.ts') });
 assertImportMetaSurvived();
 await build({ configFile: path.join(repoRoot, 'vite.extension.config.ts') });
+
+fs.cpSync(path.join(repoRoot, 'session', 'remote-setup'), path.join(distDir, 'session', 'remote-setup'), { recursive: true });
 
 fs.writeFileSync(path.join(distDir, 'package.json'), `${JSON.stringify({ type: 'module' }, null, 2)}\n`);
 
