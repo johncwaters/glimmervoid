@@ -63,6 +63,7 @@ interface BackendControlDependencies {
   controlReplayLog: ReplayLog;
   getRtkInstallStatus: () => Record<string, unknown> | null;
   agentConnect: NonNullable<ControlHandlerDeps['agentConnect']>;
+  remoteSetup: NonNullable<ControlHandlerDeps['remoteSetup']>;
   telegramDelivery: TelegramDeliveryControl;
   generateProjectId: () => string;
   makeSession: (project: ProjectEntry, config: GlimmervoidConfig) => Session;
@@ -171,6 +172,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     coderEnv: laneAssembly.coderEnv,
     remoteRepoGit: laneAssembly.gitWorkspace,
     agentConnect: dependencies.agentConnect,
+    remoteSetup: dependencies.remoteSetup,
   });
 
   const sendLaneSnapshotOnConnect = (

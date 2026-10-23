@@ -79,6 +79,10 @@
     {
       "name": "committed",
       "definition": "Changes a session has recorded in commits on its branch, as opposed to edits still only in its worktree."
+    },
+    {
+      "name": "pairing",
+      "definition": "Granting a device access to the remote listener with a single-use link from glimmervoid pair; a paired device has full control as the operator."
     }
   ]
 }

@@ -13,6 +13,7 @@ import { execFileAsync, spawn } from '../child-process-safe.ts';
 import { createAgentIngressApp, createBackendHttpApp } from './backend-http.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
 import { createAgentApiWiring } from '../agent-api-wiring.ts';
+import { createRemoteSetupWiring } from '../remote-setup-wiring.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
 import { configFileViewOf, readSettingsForAgent } from '../core/settings-readout-core.ts';
 import { createBackendWebSockets } from './backend-websockets.ts';
@@ -48,7 +49,7 @@ import { trackedReportCleanupCommands } from '../../shared/post-turn-leftovers.t
 import type { RepositoryTrackingReports } from '../../shared/post-turn-leftovers.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts';
-import { bundled, packageRoot } from '../runtime-paths.ts';
+import { assetRoot, bundled, packageRoot } from '../runtime-paths.ts';
 import { createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
@@ -309,6 +310,18 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     coderWorkspaceStatus: (workspace) => laneAssembly.coderEnv.workspaceStatus(workspace),
     logger: console,
   });
+  const remoteSetup = createRemoteSetupWiring({
+    config,
+    agentSessions,
+    makeSession,
+    wireSessionEvents: (session: Session) => wireSessionEvents(session),
+    closeSessionDataClients,
+    broadcastControl,
+    spawnGate,
+    recordLane,
+    setupRootDir: path.join(glimmervoidHomeDir(), 'remote-setup'),
+    skillSourceDir: path.join(assetRoot, 'session', 'remote-setup'),
+  });
 
   const wireSessionEvents = createSessionEventWiring({
     configStore,
@@ -529,6 +542,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     controlReplayLog,
     getRtkInstallStatus: () => rtkInstall.getStatus(),
     agentConnect,
+    remoteSetup,
     telegramDelivery: notifications.telegramDelivery,
     generateProjectId,
     makeSession,

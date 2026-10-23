@@ -73,6 +73,7 @@ import { isRecord } from '../shared/coerce.ts';
 import { sanitizeWorktreeName } from '../shared/paths.ts';
 import type { createCoderEnvWiring } from './coder/coder-env-wiring.ts';
 import type { createAgentConnect } from './agent-login/agent-connect.ts';
+import type { RemoteSetupAgent, RemoteSetupOutcome } from './remote-setup-wiring.ts';
 import type { GitWorkspaceInstance } from './git/git-workspace.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 
@@ -163,6 +164,7 @@ interface ControlHandlerDeps {
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture'>>) | null;
   coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'renew' | 'availableEnvironments' | 'settleRemoval'> | null;
   agentConnect?: Pick<ReturnType<typeof createAgentConnect>, 'logins' | 'refresh' | 'start' | 'cancel' | 'submitCode'> | null;
+  remoteSetup?: { start: (agent: RemoteSetupAgent) => Promise<RemoteSetupOutcome> } | null;
   remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
 }
 
@@ -284,6 +286,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'get-settings': () => ({ type: 'settings-error', requestId, message }),
     'get-agent-logins': () => ({ type: 'agent-logins', requestId, logins: [], error: message }),
     'agent-connect': () => ({ type: 'agent-logins', requestId, logins: [], error: message }),
+    'start-remote-setup': () => ({ type: 'start-remote-setup-result', requestId, ok: false, error: message }),
     'agent-connect-code': () => ({ type: 'agent-logins', requestId, logins: [], error: message }),
     'update-settings': () => ({ type: 'settings-error', requestId, message }),
     'scan-repo-roots': () => ({ type: 'repo-roots-scanned', requestId, directories: [], error: message }),
@@ -404,6 +407,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     coderEnv = null,
     remoteRepoGit = null,
     agentConnect = null,
+    remoteSetup = null,
   } = deps;
 
   const changeMaps = createChangeMapService({ sessions });
@@ -882,6 +886,16 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       return;
     }
     replyTo(ws, msg, 'agent-logins', { logins: await agentConnect.refresh() });
+  }
+
+  async function handleStartRemoteSetup(msg: ClientMessageOf<'start-remote-setup'>, ws: ControlSocket): Promise<void> {
+    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'start-remote-setup-result', { ok: false, error: null, ...payload });
+    if (!remoteSetup) { reply({ error: 'Remote host setup is not available on this server.' }); return; }
+    const login = agentConnect?.logins().find((status) => status.agent === msg.agent);
+    if (login?.state !== 'signed-in') { reply({ error: `Sign in to ${msg.agent} before starting the remote setup session.` }); return; }
+    const outcome = await remoteSetup.start(msg.agent);
+    if (!outcome.ok) { reply({ error: outcome.error }); return; }
+    reply({ ok: true, sessionId: outcome.sessionId, sessionName: outcome.sessionName });
   }
 
   async function handleAgentConnect(msg: ClientMessageOf<'agent-connect'>, ws: ControlSocket): Promise<void> {
@@ -1515,6 +1529,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'get-settings':     handleGetSettings,
     'get-agent-logins': handleGetAgentLogins,
     'agent-connect':    handleAgentConnect,
+    'start-remote-setup': handleStartRemoteSetup,
     'agent-connect-code': handleAgentConnectCode,
     'update-settings':  handleUpdateSettings,
     'scan-repo-roots':  handleScanRepoRoots,
