@@ -8,8 +8,8 @@ import { getRestorableSessionId, quickAddSession, readSessionRows, requestSessio
 import { markSessionSeen, showSessionPlanFace } from '../session-card/lifecycle.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { addActivityRenderer, pulseActivityGlyph } from '../session-card/activity.ts';
-import { buildShortcutKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
-import { railAriaKeyShortcuts, shortcutChord } from '../shortcuts-core.ts';
+import { buildNextAttentionKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { railAriaKeyShortcuts } from '../shortcuts-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
@@ -116,7 +116,7 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
     onJump: focusNextAttention,
     onOpenTile: openAttentionSession,
     rowFor: (id) => pillById.get(id),
-  }, buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)));
+  }, buildNextAttentionKeys());
 
   const statusKey = el('details', 'rail-status-key');
   statusKey.append(el('summary', 'rail-status-key-summary', 'Status key'), renderStatusLegend());

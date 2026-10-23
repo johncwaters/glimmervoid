@@ -52,9 +52,9 @@ import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../feature-sur
 import type { FeatureSurfaceRule } from '../feature-surfaces-core.ts';
 import type { PrimaryViewDefinition } from '../view-registry-core.ts';
 import { projectSelectionChoices } from './settings-projects-core.ts';
-import { appendShortcutChord, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { appendShortcutChord, applyNextAttentionKeyCode, buildShortcutKeys, currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { isStreamerMode, onStreamerModeChanged, saveStreamerMode } from '../streamer-mode.ts';
-import { shortcutGroupsFor } from '../shortcuts-core.ts';
+import { recordNextAttentionKey, shortcutChord, shortcutGroupsFor } from '../shortcuts-core.ts';
 import { renderPrStatusLegend, renderStatusLegend } from '../status-legend.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
 import { applyPhoneArrowPad, applySessionUsageChips, applyTheme, getThemeList } from '../theme.ts';
@@ -78,8 +78,10 @@ import {
   setSessionUsageChips,
   setFlyingAnimalsEnabled,
   setNotificationsEnabled,
+  setNextAttentionKeyCode,
   setSoundId,
   setThemeId,
+  getNextAttentionKeyCode,
 } from '../ui-prefs.ts';
 import { usageStatusLines } from '../usage/usage-panel.ts';
 import { applySoundEnabled, onSoundEnabledChange } from '../mute-button.ts';
@@ -192,6 +194,7 @@ function browserPreferences() {
     notificationsEnabled: isNotificationsEnabled(),
     sessionUsageChips: isSessionUsageChips(),
     phoneArrowPad: isPhoneArrowPad(),
+    nextAttentionKeyCode: getNextAttentionKeyCode(),
   };
 }
 
@@ -239,7 +242,8 @@ function flashSetting(settingId: string) {
 }
 
 function renderShortcutGroups(container: HTMLElement) {
-  for (const group of shortcutGroupsFor(SHORTCUT_PLATFORM)) {
+  container.replaceChildren();
+  for (const group of shortcutGroupsFor(SHORTCUT_PLATFORM, currentNextAttentionKeyCode())) {
     const groupEl = el('div', 'shortcut-group');
     groupEl.appendChild(el('div', 'shortcut-group-title', group.title));
     const rows = el('dl', 'shortcut-rows');
@@ -333,6 +337,13 @@ function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
   if (setting.path === 'pref:phoneArrowPad') {
     setPhoneArrowPad(value === true);
     applyPhoneArrowPad(value === true);
+    return;
+  }
+  if (setting.path === 'pref:nextAttentionKeyCode') {
+    setNextAttentionKeyCode(String(value));
+    applyNextAttentionKeyCode(getNextAttentionKeyCode());
+    const shortcutGroups = contentEl?.querySelector<HTMLElement>('.settings-view-shortcuts');
+    if (shortcutGroups) renderShortcutGroups(shortcutGroups);
     return;
   }
   if (setting.path === 'pref:themeId') {
@@ -473,6 +484,56 @@ function renderToggle(setting: SettingsSetting) {
   label.append(input, state);
   wrapper.appendChild(label);
   return wrapper;
+}
+
+function renderShortcutKey(setting: SettingsSetting) {
+  const wrapper = el('div', 'settings-view-shortcut-key');
+  const chord = buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM, String(storedValue(setting))));
+  const record = el('button', 'btn-dialog btn-dialog-cancel', 'Record');
+  record.type = 'button';
+  const prompt = el('span', 'settings-view-shortcut-key-prompt');
+  prompt.setAttribute('role', 'status');
+  record.addEventListener('click', () => recordShortcutKey(setting, wrapper, record, prompt));
+  wrapper.append(chord, record, prompt);
+  return wrapper;
+}
+
+function recordShortcutKey(setting: SettingsSetting, row: HTMLElement, record: HTMLButtonElement, prompt: HTMLElement) {
+  const stopRecording = () => {
+    window.removeEventListener('keydown', onRecordingKeydown, true);
+    window.removeEventListener('pointerdown', onLeavingRow, true);
+    window.removeEventListener('focusin', onLeavingRow, true);
+    record.disabled = false;
+    prompt.textContent = '';
+  };
+  const onLeavingRow = (event: Event) => {
+    if (event.target instanceof Node && row.contains(event.target)) return;
+    stopRecording();
+  };
+  const onRecordingKeydown = (event: KeyboardEvent) => {
+    if (!record.isConnected || !record.checkVisibility()) {
+      stopRecording();
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const outcome = recordNextAttentionKey(event, SHORTCUT_PLATFORM);
+    if (outcome.kind === 'ignored') return;
+    if (outcome.kind === 'refused') {
+      setFieldError(setting, outcome.reason);
+      return;
+    }
+    stopRecording();
+    setFieldError(setting, null);
+    record.focus();
+    if (outcome.kind === 'recorded') commitSetting(setting, outcome.keyCode);
+  };
+  setFieldError(setting, null);
+  record.disabled = true;
+  prompt.textContent = 'Press the new shortcut, or Esc to cancel.';
+  window.addEventListener('keydown', onRecordingKeydown, true);
+  window.addEventListener('pointerdown', onLeavingRow, true);
+  window.addEventListener('focusin', onLeavingRow, true);
 }
 
 function bindDraftCommit(input: HTMLInputElement, commitDraft: () => void, restoreDraft: () => void) {
@@ -986,6 +1047,7 @@ function renderControl(setting: SettingsSetting) {
   if (setting.control === 'select') return choicePresentation(setting) === 'segmented' ? renderSegmented(setting) : renderSelect(setting);
   if (setting.control === 'list') return renderList(setting);
   if (setting.control === 'projects') return renderProjects(setting);
+  if (setting.control === 'shortcut-key') return renderShortcutKey(setting);
   return renderInput(setting);
 }
 
@@ -1330,6 +1392,9 @@ function renderContent() {
   contentEl.appendChild(header);
 
   if (selectedPage.id === SHORTCUTS_PAGE_ID) {
+    const stack = el('div', 'settings-view-stack');
+    renderPart(stack, selectedPage);
+    contentEl.appendChild(stack);
     const groups = el('div', 'shortcut-groups settings-view-shortcuts');
     renderShortcutGroups(groups);
     contentEl.appendChild(groups);

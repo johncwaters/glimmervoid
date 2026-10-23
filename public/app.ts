@@ -55,7 +55,7 @@ import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects,
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
-import { SHORTCUT_PLATFORM } from './shortcuts.ts';
+import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from './shortcuts.ts';
 import { resolveDashboardShortcut } from './shortcuts-core.ts';
 import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
@@ -1055,7 +1055,7 @@ document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   if (isRealInputOwningKey(e)) return;
   const isTerminalFocused = document.activeElement?.classList.contains('xterm-helper-textarea') ?? false;
-  const shortcut = resolveDashboardShortcut(e, SHORTCUT_PLATFORM, { isTerminalFocused });
+  const shortcut = resolveDashboardShortcut(e, SHORTCUT_PLATFORM, { isTerminalFocused }, currentNextAttentionKeyCode());
   if (!shortcut) return;
   if (runDashboardShortcut(shortcut)) e.preventDefault();
 });

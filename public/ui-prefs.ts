@@ -2,6 +2,7 @@ import { FLYING_ANIMALS_DEFAULTS, normalizeExcludedSprites, normalizeFlyingAnima
 import type { FlyingAnimalsOptions } from './flying-animals-core.ts';
 import { DEFAULT_SOUND_ID } from './alert-sound-core.ts';
 import { getJSON, setJSON } from './local-store.ts';
+import { DEFAULT_NEXT_ATTENTION_KEY_CODE, isNextAttentionKeyCode } from './shortcuts-core.ts';
 
 const STORAGE_KEY = 'glimmervoid-ui-prefs';
 const SIDEBAR_WIDTH_KEY = 'glimmervoid:sidebar-width';
@@ -14,6 +15,7 @@ interface UiPrefs extends FlyingAnimalsOptions {
   notificationsEnabled: boolean;
   sessionUsageChips: boolean;
   phoneArrowPad: boolean;
+  nextAttentionKeyCode: string;
   activeView: string;
   lastFocusedSessionId: string | null;
   railWidth: number | null;
@@ -56,6 +58,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   notificationsEnabled: asBoolean(true),
   sessionUsageChips: asBoolean(false),
   phoneArrowPad: asBoolean(false),
+  nextAttentionKeyCode: (value: unknown): string => (isNextAttentionKeyCode(value) ? value : DEFAULT_NEXT_ATTENTION_KEY_CODE),
   activeView: asString('focus'),
   lastFocusedSessionId: asNullableString,
   railWidth: asNullableNumber,
@@ -108,6 +111,8 @@ export const isSessionUsageChips = () => read('sessionUsageChips');
 export const setSessionUsageChips = (enabled: boolean) => write('sessionUsageChips', enabled);
 export const isPhoneArrowPad = () => read('phoneArrowPad');
 export const setPhoneArrowPad = (enabled: boolean) => write('phoneArrowPad', enabled);
+export const getNextAttentionKeyCode = () => read('nextAttentionKeyCode');
+export const setNextAttentionKeyCode = (keyCode: string) => write('nextAttentionKeyCode', keyCode);
 
 export const getThemeId = () => read('themeId');
 export const setThemeId = (id: string) => write('themeId', id);

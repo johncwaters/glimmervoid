@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Pick your own jump key**: Settings > Shortcuts and about now records the key that, held with Cmd on a Mac or Alt elsewhere, jumps to the next session needing you, in place of J. Press Record, then the whole shortcut; keys other dashboard shortcuts use, the browser's own Q, W, T, N, L and R, and the copy, paste, cut, select all and undo keys C, V, X, A and Z are refused with the reason. Every on-screen hint follows the new key at once, and Reset brings back J. The choice is kept per browser.
 - **Agents are pointed at glimmervoid spawn**: an operator session's agent is now told to delegate work that edits files or runs long with `glimmervoid spawn`, which gives the task its own dashboard card, instead of an in-process subagent you cannot see. Lanes and spawned sessions, which cannot spawn, are not told. The `spawn` line of `glimmervoid --help` says the same.
 - **Click Next session to jump**: the Next session row at the bottom of the Focus rail banner is now a button, so clicking it does exactly what Cmd/Alt+J does, including the all-clear line when nothing needs you. The phone Board banner uses the same row in place of its separate Next button.
 

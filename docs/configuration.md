@@ -322,3 +322,4 @@ Stored in each browser, not in `config.json`, so every device keeps its own. Cha
 | Alert sounds | `true` | Play sounds when a session needs attention and when a merge celebration plays. The same switch as the note button in the desktop header. |
 | Alert sound | `"chime"` | Sound played when a session needs attention. Your own .ogg, .mp3, .wav, .m4a or .webm files dropped into the sounds folder of the Glimmervoid home (~/.glimmervoid/sounds/, or $GLIMMERVOID_HOME/sounds/) are listed after the built-in sounds. Glimmervoid never creates that folder, so make it yourself; new files show up the next time Settings opens. |
 | Desktop notifications | `true` | Raise a browser notification when a session needs attention while this dashboard is in the background. |
+| Jump to the next session needing you | `"KeyJ"` | The key held with Cmd on a Mac, or Alt elsewhere, that jumps to the next session needing you. Record a new one by pressing the whole shortcut. |

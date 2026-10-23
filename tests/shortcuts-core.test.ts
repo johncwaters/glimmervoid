@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { ShortcutKeyEvent, ShortcutPlatform } from '../public/shortcuts-core.ts';
-import { railAriaKeyShortcuts, resolveDashboardShortcut, shortcutGroupsFor, shortcutHint, shortcutPlatformFor } from '../public/shortcuts-core.ts';
+import { railAriaKeyShortcuts, recordNextAttentionKey, resolveDashboardShortcut, shortcutChord, shortcutGroupsFor, shortcutHint, shortcutPlatformFor } from '../public/shortcuts-core.ts';
 
 const MAC_COMMAND = String.fromCharCode(0x2318);
 const PLATFORMS: readonly ShortcutPlatform[] = ['mac', 'other'];
@@ -147,4 +147,22 @@ test('on a Mac, session digits take Command plus Option so Command plus a digit 
   assert.equal(resolveDashboardShortcut(keyEvent('Digit2', { metaKey: true }), 'mac'), null);
   assert.deepEqual(resolveDashboardShortcut(keyEvent('Digit2', { metaKey: true, altKey: true }), 'mac', { isTerminalFocused: true }), { action: 'session-nth', step: 2 });
   assert.equal(shortcutHint('session-nth', 'mac'), `${MAC_COMMAND}${String.fromCharCode(0x2325)}1..9`);
+});
+
+test('a recorded next-attention key replaces J everywhere and refuses keys the dashboard or browser already owns', () => {
+  for (const platform of PLATFORMS) {
+    const held = shortcutModifierHeld(platform);
+    assert.deepEqual(recordNextAttentionKey(keyEvent('KeyK', held), platform), { kind: 'recorded', keyCode: 'KeyK' });
+    assert.deepEqual(recordNextAttentionKey(keyEvent('Semicolon', held), platform), { kind: 'recorded', keyCode: 'Semicolon' });
+    assert.deepEqual(resolveDashboardShortcut(keyEvent('KeyK', held), platform, { isTerminalFocused: false }, 'KeyK'), { action: 'next-attention', step: 0 });
+    assert.equal(resolveDashboardShortcut(keyEvent('KeyJ', held), platform, { isTerminalFocused: false }, 'KeyK'), null);
+    assert.equal(shortcutChord('next-attention', platform, 'KeyK').at(-1), 'K');
+    for (const ownedCode of ['KeyI', 'KeyU', 'Digit0', 'Digit5', 'Backslash', 'KeyQ', 'KeyW', 'KeyT', 'KeyN', 'KeyL', 'KeyR', 'KeyC', 'KeyV', 'KeyX', 'KeyA', 'KeyZ', 'Enter']) {
+      assert.equal(recordNextAttentionKey(keyEvent(ownedCode, held), platform).kind, 'refused', ownedCode);
+    }
+    assert.equal(recordNextAttentionKey(keyEvent('KeyK'), platform).kind, 'refused');
+    assert.equal(recordNextAttentionKey(keyEvent('KeyK', { ...held, shiftKey: true }), platform).kind, 'refused');
+    assert.equal(recordNextAttentionKey(keyEvent('MetaLeft', { ...held, key: 'Meta' }), platform).kind, 'ignored');
+    assert.equal(recordNextAttentionKey(keyEvent('Escape', { key: 'Escape' }), platform).kind, 'cancelled');
+  }
 });

@@ -12,8 +12,7 @@ import { sessionUIs } from '../session-card/card-registry.ts';
 import { markSessionSeen } from '../session-card/lifecycle.ts';
 import { onSessionTick } from '../session-card/session-tick.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
-import { buildShortcutKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
-import { shortcutChord } from '../shortcuts-core.ts';
+import { buildNextAttentionKeys } from '../shortcuts.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import { getFlyingAnimalsOptions } from '../ui-prefs.ts';
 import { isPetState, petBubbleIcon, petMood, petSpot, pickPetAnimal, stageReasonWords } from './zen-pets-core.ts';
@@ -68,7 +67,7 @@ export function mountZenView(panel: HTMLElement) {
   nextButton.type = 'button';
   nextButton.addEventListener('click', stageNextAttention);
   const stageBar = el('div', 'zen-stage-bar');
-  stageBar.append(reasonLine, petStrip, nextButton, buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)));
+  stageBar.append(reasonLine, petStrip, nextButton, buildNextAttentionKeys());
   const cardSlot = el('div', 'zen-card-slot');
   stage.append(stageBar, cardSlot);
   stage.hidden = true;

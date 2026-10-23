@@ -13,7 +13,7 @@ type SettingsScope = 'browser' | 'machine';
 type SettingsAccess = 'editable' | 'advanced' | 'readout' | 'file-only';
 export type SettingsEffect = 'now' | 'new-sessions' | 'restart';
 export type SettingsLevel = 'browser' | 'machine' | 'lanes';
-type SettingsControl = 'toggle' | 'number' | 'text' | 'password' | 'select' | 'list' | 'projects' | 'json' | 'readonly';
+type SettingsControl = 'toggle' | 'number' | 'text' | 'password' | 'select' | 'list' | 'projects' | 'json' | 'readonly' | 'shortcut-key';
 export type SettingsChoicePresentation = 'segmented' | 'select';
 
 interface SettingsOption {
@@ -637,9 +637,15 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     id: 'browser-shortcuts',
     level: 'browser',
     title: 'Shortcuts and about',
-    description: 'Keyboard reference and build information.',
+    description: 'Keyboard shortcuts, their reference and build information.',
     legacyIds: ['shortcuts'],
-    settings: [],
+    settings: [
+      {
+        id: 'next-attention-key', path: 'pref:nextAttentionKeyCode', title: 'Jump to the next session needing you',
+        description: 'The key held with Cmd on a Mac, or Alt elsewhere, that jumps to the next session needing you. Record a new one by pressing the whole shortcut.',
+        control: 'shortcut-key', keywords: ['shortcut', 'keyboard', 'hotkey', 'jump', 'next', 'attention'], defaultValue: 'KeyJ', ...BROWSER_NOW,
+      },
+    ],
   },
 ]);
 

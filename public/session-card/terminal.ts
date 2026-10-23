@@ -7,7 +7,7 @@ import { currentTerminalFontFamily } from '../mono-font.ts';
 import type { SessionUi } from './card-registry.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
-import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { escapesFocusedTerminal, resolveDashboardShortcut } from '../shortcuts-core.ts';
 import { nextReconnectDelayMs } from '../reconnect-backoff.ts';
 import { renderScheduler } from '../render-scheduler.ts';
@@ -35,7 +35,7 @@ import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from '../flying-animal-preview.ts';
 
 function isDashboardShortcutInActiveView(ev: KeyboardEvent) {
-  const shortcut = resolveDashboardShortcut(ev, SHORTCUT_PLATFORM, { isTerminalFocused: true });
+  const shortcut = resolveDashboardShortcut(ev, SHORTCUT_PLATFORM, { isTerminalFocused: true }, currentNextAttentionKeyCode());
   if (!shortcut) return false;
   return escapesFocusedTerminal(shortcut, document.body.dataset.activeView);
 }
