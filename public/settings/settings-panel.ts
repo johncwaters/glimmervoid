@@ -99,7 +99,7 @@ import {
   updateErrorText,
   updateSummary,
 } from '../updates-view-core.ts';
-import { agentLoginOf, agentLoginSummary, applyAgentLogins, onAgentLoginsChanged, openAgentConnectDialog } from '../dialogs.ts';
+import { agentLoginOf, agentLoginSummary, applyAgentLogins, onAgentLoginsChanged, openAgentConnectDialog, openRemoteSetupDialog } from '../dialogs.ts';
 import type { UpdateActionId, UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from '../updates-view-core.ts';
 
 type SectionSearchResult = SettingsSearchResult & { section: SettingsSection };
@@ -1032,8 +1032,18 @@ function buildAgentLoginsStatus() {
   return block;
 }
 
+function buildRemoteSetupStatus() {
+  const block = el('div', 'settings-view-status-block');
+  const setupButton = el('button', 'btn-dialog btn-dialog-cancel', 'Set up remote host');
+  setupButton.type = 'button';
+  setupButton.addEventListener('click', openRemoteSetupDialog);
+  block.appendChild(setupButton);
+  return block;
+}
+
 function renderReadout(setting: SettingsSetting) {
   if (setting.status === 'agent-logins') return buildAgentLoginsStatus();
+  if (setting.status === 'remote-setup') return buildRemoteSetupStatus();
   if (setting.status === 'update-actions') return buildUpdateStatusBlock();
   if (setting.status === 'custom-agents') return buildCustomAgentsStatus();
   if (setting.status === 'workflows') return buildWorkflowsStatus();

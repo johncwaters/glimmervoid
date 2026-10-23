@@ -166,6 +166,68 @@ export function openAgentConnectDialog(agent: ConnectableAgent) {
   refreshAgentLogins();
 }
 
+export function openRemoteSetupDialog() {
+  const { dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Set up a remote host' });
+  const warning = el('p', 'dialog-hint', 'The setup session runs outside the guardrails so it can use your ssh keys. It runs commands on the remote host over ssh and asks before each one. Glimmervoid deletes its working folder when the session ends.');
+  const agentLabel = el('p', 'dialog-label', 'Agent');
+  const agentChoices = el('div', 'hooks-type-row');
+  agentChoices.setAttribute('role', 'radiogroup');
+  const status = createActionStatus();
+  const startButton = el('button', 'btn-dialog btn-dialog-confirm', 'Start setup');
+  startButton.type = 'button';
+  btnCancel.type = 'button';
+  btnCancel.addEventListener('click', close);
+  actions.append(startButton);
+  dialog.append(warning, agentLabel, agentChoices, status.element, actions);
+  let chosenAgent: ConnectableAgent | null = null;
+  let isStarting = false;
+
+  function renderAgentChoices() {
+    if (!dialog.isConnected) {
+      unsubscribe();
+      return;
+    }
+    const signedInAgents = ConnectableAgent.options.filter((agent) => agentLoginOf(agent)?.state === 'signed-in');
+    if (chosenAgent === null || !signedInAgents.includes(chosenAgent)) chosenAgent = signedInAgents[0] ?? null;
+    agentChoices.replaceChildren(...signedInAgents.map((agent) => {
+      const option = el('label', 'settings-view-toggle hooks-choice');
+      const input = el('input', 'settings-view-checkbox');
+      input.type = 'radio';
+      input.name = 'remote-setup-agent';
+      input.checked = agent === chosenAgent;
+      input.addEventListener('change', () => { chosenAgent = agent; });
+      option.append(input, el('span', null, CONNECTABLE_AGENT_NAMES[agent]));
+      return option;
+    }));
+    if (signedInAgents.length === 0) agentChoices.append(el('span', '', 'Sign in to Claude Code or Codex on this machine first.'));
+    startButton.disabled = isStarting || chosenAgent === null;
+  }
+
+  startButton.addEventListener('click', async () => {
+    if (chosenAgent === null) return;
+    isStarting = true;
+    startButton.disabled = true;
+    status.show('busy', 'Starting the setup session.');
+    try {
+      const reply = await sendControlRequest('start-remote-setup', { agent: chosenAgent }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+      if (reply.type === 'start-remote-setup-result' && reply.ok) {
+        close();
+        return;
+      }
+      status.show('error', reply.type === 'start-remote-setup-result' && reply.error ? reply.error : 'The setup session did not start.');
+    } catch (reason) {
+      status.show('error', `The server did not answer (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}).`);
+    } finally {
+      isStarting = false;
+      renderAgentChoices();
+    }
+  });
+
+  const unsubscribe = onAgentLoginsChanged(renderAgentChoices);
+  renderAgentChoices();
+  refreshAgentLogins();
+}
+
 export function addSessionRefusalText(reply: ServerMessage): string {
   if (reply.type === 'add-session-result' && reply.error) return reply.error;
   if (reply.type === 'error') return reply.message;

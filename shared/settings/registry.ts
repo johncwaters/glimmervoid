@@ -292,6 +292,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         description: 'How Claude Code and Codex sign in inside a Coder workspace. Each uses the login already on this machine; Connect signs one in for Glimmervoid alone when there is none.',
         control: 'readonly', keywords: ['claude', 'codex', 'sign in', 'login', 'coder', 'remote'], status: 'agent-logins', ...READOUT,
       },
+      {
+        id: 'remote-setup', path: 'status:remote-setup', title: 'Remote host setup',
+        description: 'Start a session that walks you through running Glimmervoid on another Linux machine you reach by ssh, as a service you open from your laptop and phone.',
+        control: 'readonly', keywords: ['remote', 'ssh', 'server', 'devbox', 'tailscale', 'pair', 'host'], status: 'remote-setup', ...READOUT,
+      },
     ],
   },
   {
