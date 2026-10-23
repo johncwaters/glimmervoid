@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Set up a remote host from Settings**: Settings > Sessions has a Set up remote host button. It starts a Claude Code or Codex session, whichever you are signed in to, that walks you through running Glimmervoid on another Linux machine you reach by ssh: installing it, running it as a systemd user service, opening it from your laptop and phone through `tailscale serve` and `glimmervoid pair`, signing commits through your forwarded ssh agent, and the Ubuntu sandbox fix. The session runs outside the guardrails so it can use your ssh keys, still asks before each command, and its working folder is deleted when it ends.
+
 ### Changed
 
 - **Pick your own jump key**: Settings > Shortcuts and about now records the key that, held with Cmd on a Mac or Alt elsewhere, jumps to the next session needing you, in place of J. Press Record, then the whole shortcut; keys other dashboard shortcuts use, the browser's own Q, W, T, N, L and R, and the copy, paste, cut, select all and undo keys C, V, X, A and Z are refused with the reason. Every on-screen hint follows the new key at once, and Reset brings back J. The choice is kept per browser.
