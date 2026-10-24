@@ -54,7 +54,8 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
     + '<span class="session-row-label"></span>'
     + '<span class="session-row-signals" hidden></span>'
     + '</span></span>'
-    + '<span class="session-row-elapsed" aria-hidden="true"></span>';
+    + '<span class="session-row-elapsed" aria-hidden="true"></span>'
+    + '<span class="session-row-attention-tab" aria-hidden="true" hidden></span>';
   const refs = {
     glyph: query(row, '.session-row-glyph'),
     label: query(row, '.session-row-label'),
@@ -64,6 +65,7 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
     task: query(row, '.session-row-task'),
     signals: query(row, '.session-row-signals'),
     elapsed: query(row, '.session-row-elapsed'),
+    attentionTab: query(row, '.session-row-attention-tab'),
   };
   return { row, refs };
 }
@@ -125,10 +127,21 @@ function paintSessionRowOwnership(row: HTMLElement, refs: SessionRowRefs, ui: Se
   return ownershipText;
 }
 
+function attentionPositionText(attentionPosition: number | null): string | null {
+  if (attentionPosition === null) return null;
+  return attentionPosition === 1 ? 'next up' : `#${attentionPosition} in line`;
+}
+
+function paintSessionRowAttentionTab(row: HTMLElement, attentionTab: HTMLElement, attentionPosition: number | null) {
+  attentionTab.hidden = attentionPosition === null;
+  attentionTab.textContent = attentionPosition === null ? '' : String(attentionPosition);
+  row.toggleAttribute('data-attention-head', attentionPosition === 1);
+}
+
 export function paintSessionRow(
   row: HTMLElement,
   refs: SessionRowRefs,
-  { ui, state, name, mergeStatus }: { ui: SessionUi; state: string; name: string; mergeStatus: string },
+  { ui, state, name, mergeStatus, attentionPosition }: { ui: SessionUi; state: string; name: string; mergeStatus: string; attentionPosition: number | null },
 ) {
   const statusLabel = paintSessionRowStatus(row, refs, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
   refs.name.textContent = name;
@@ -140,7 +153,8 @@ export function paintSessionRow(
   row.dataset.activity = ui._activity || '';
   refs.elapsed.textContent = sessionElapsedText(ui);
   const ownershipText = paintSessionRowOwnership(row, refs, ui);
-  const accessibleLabel = [name, cloudText, ui.taskTitle, statusLabel, ownershipText].filter(Boolean).join(', ');
+  paintSessionRowAttentionTab(row, refs.attentionTab, attentionPosition);
+  const accessibleLabel = [name, cloudText, ui.taskTitle, statusLabel, ownershipText, attentionPositionText(attentionPosition)].filter(Boolean).join(', ');
   row.setAttribute('aria-label', accessibleLabel);
   row.title = accessibleLabel;
   return statusLabel;

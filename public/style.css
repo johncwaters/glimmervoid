@@ -6653,6 +6653,39 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   font-variant-numeric: tabular-nums;
 }
 .session-row-elapsed:empty { display: none; }
+.session-row-attention-tab {
+  --tab: var(--st, var(--text-muted));
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--tab);
+  background: color-mix(in srgb, var(--tab) 12%, var(--bg-header));
+  border-left: 1px solid color-mix(in srgb, var(--tab) 40%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--tab) 40%, transparent);
+  border-bottom-left-radius: var(--radius);
+  pointer-events: none;
+}
+.session-row-attention-tab[hidden] { display: none; }
+.session-row[data-attention-head] .session-row-attention-tab {
+  color: var(--bg);
+  background: var(--tab);
+  border-color: var(--tab);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .session-row[data-attention-head] .session-row-attention-tab { animation: attention-tab-fill 200ms ease-out; }
+}
+@keyframes attention-tab-fill {
+  from { background: color-mix(in srgb, var(--tab) 12%, var(--bg-header)); color: var(--tab); }
+}
 .coherence-journal-button { position: relative; flex: 0 0 auto; padding: 2px 4px; border: 1px solid var(--border); border-radius: var(--radius); background: transparent; color: var(--text-muted); font: inherit; cursor: pointer; }
 @media (hover: hover) {
   .coherence-journal-button:hover { color: var(--text-head); border-color: var(--border-hover); }

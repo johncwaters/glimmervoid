@@ -100,11 +100,11 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     return section;
   }
 
-  function paintRow(row: HTMLButtonElement, entry: BoardRow) {
+  function paintRow(row: HTMLButtonElement, entry: BoardRow, attentionPosition: number | null) {
     const rowDetails = rowState.get(row);
     if (!rowDetails) return;
     const { ui, state, name } = entry;
-    paintSessionRow(row, rowDetails.refs, { ui, state, name, mergeStatus: ui.card?.dataset.merge || '' });
+    paintSessionRow(row, rowDetails.refs, { ui, state, name, mergeStatus: ui.card?.dataset.merge || '', attentionPosition });
   }
 
   function paintGroup(section: HTMLElement, group: RosterGroup<BoardRow>) {
@@ -123,7 +123,9 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     const boardGroups = groupRoster(orderedRows, projectPathOf, emptyProjectKeys(orderedRows, projectPathOf));
     const attentionCounts = countAttentionByKind(orderedRows);
     attentionCount = jumpTargetCount(attentionCounts);
-    paintAttentionBanner(attentionEl, attentionCounts, orderAttentionLine(orderedRows, null));
+    const attentionLine = orderAttentionLine(orderedRows, null);
+    const attentionPositionById = new Map(attentionLine.map(({ id }, index) => [id, index + 1]));
+    paintAttentionBanner(attentionEl, attentionCounts, attentionLine);
 
     const presentGroupKeys = new Set(boardGroups.order);
     const groupOrderKey = boardGroups.order.join(',');
@@ -148,7 +150,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
           row = buildRow(entry.id);
           rowById.set(entry.id, row);
         }
-        paintRow(row, entry);
+        paintRow(row, entry, attentionPositionById.get(entry.id) ?? null);
         const state = rowState.get(row);
         if (!state) continue;
         if (!rowOrderUnchanged) refs.rows.appendChild(state.item);

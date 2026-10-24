@@ -16,7 +16,7 @@ import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { getRailWidth, setRailWidth } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
-import type { SessionRow } from './attention-core.ts';
+import type { AttentionTile, SessionRow } from './attention-core.ts';
 import { countAttentionByKind, orderAttentionLine, orderRoster, pickAdjacent } from './attention-core.ts';
 import type { RosterGroup } from './roster-groups-core.ts';
 import { groupRoster, visibleOrder } from './roster-groups-core.ts';
@@ -199,9 +199,9 @@ function onPillActivate(id: string) {
   focusTerminalAfterSettle(ui, id);
 }
 
-function paintPill(pill: FocusPill, { id, ui, state, name }: RosterRow) {
+function paintPill(pill: FocusPill, { id, ui, state, name }: RosterRow, attentionPosition: number | null) {
   const mergeStatus = mergeStatusById.get(id) || 'none';
-  paintSessionRow(pill, pill._refs, { ui, state, name: name ?? '', mergeStatus: mergeStatus === 'none' ? '' : mergeStatus });
+  paintSessionRow(pill, pill._refs, { ui, state, name: name ?? '', mergeStatus: mergeStatus === 'none' ? '' : mergeStatus, attentionPosition });
   pill.classList.toggle('focused', id === getFocusedSessionId());
   const isTabStop = id === railTabStopId;
   pill.setAttribute('aria-selected', String(isTabStop));
@@ -236,6 +236,8 @@ export function refreshFocusRoster() {
   const order = orderedSessions();
   const groups = groupsOf(order);
   const seen = new Set<string>();
+  const attentionTiles = orderAttentionLine(order, getFocusedSessionId());
+  const attentionPositionById = new Map(attentionTiles.map(({ id }, index) => [id, index + 1]));
 
   const placeList = (rows: RosterRow[], listEl: GroupList) => {
     const newKey = rows.map((r) => r.id).join(',');
@@ -245,7 +247,7 @@ export function refreshFocusRoster() {
       seen.add(id);
       let pill = pillById.get(id);
       if (!pill) { pill = buildPill(id); pillById.set(id, pill); }
-      paintPill(pill, row);
+      paintPill(pill, row, attentionPositionById.get(id) ?? null);
       if (!orderUnchanged) listEl.appendChild(pill._row);
     }
     listEl._lastOrderKey = newKey;
@@ -304,7 +306,7 @@ export function refreshFocusRoster() {
     const ui = sessionUIs.get(centeredId);
     if (ui && ui.card.parentElement !== cardSlotEl) borrowToCenter(ui, centeredId);
   }
-  updateRailHead();
+  updateRailHead(order, attentionTiles);
 }
 
 function pickNeighborOfRemoved(previousRailOrder: readonly string[], removedId: string) {
@@ -318,10 +320,9 @@ function attentionLine() {
   return orderAttentionLine(orderedSessions(), getFocusedSessionId());
 }
 
-function updateRailHead() {
+function updateRailHead(rosterOrderedRows: readonly RosterRow[], attentionTiles: readonly AttentionTile[]) {
   if (!railHeadEl) return;
-  const rosterOrderedRows = orderedSessions();
-  paintAttentionBanner(railHeadEl, countAttentionByKind(rosterOrderedRows), orderAttentionLine(rosterOrderedRows, getFocusedSessionId()));
+  paintAttentionBanner(railHeadEl, countAttentionByKind(rosterOrderedRows), attentionTiles);
 }
 
 export function focusNextAttention() {
