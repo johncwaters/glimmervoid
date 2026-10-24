@@ -7,13 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.4] - 2026-10-23
+
 ### Added
 
 - **Rearrange your tabs**: drag a tab in the desktop header to a new place, or use Move up and Move down under Settings > Sessions > Tab order. The order is saved with Glimmervoid, not the browser, so the phone's More menu follows the same order as the desktop header.
 
 ### Changed
 
-- **The whole Next session banner jumps**: a click or tap anywhere on the banner, not only its Next session row, does what Cmd/Alt+J does. The session tiles in it no longer open their own session; they show who is next in line. On a phone the banner now sits at the bottom of the Board, just above the bottom nav, within reach of your thumb.
+- **The whole Next session banner jumps**: a click or tap anywhere on the banner, not only its Next session row, does what Cmd/Alt+J does. The session tiles in it no longer open their own session; they show who is next in line. On a phone the banner now sits at the bottom of the Focus screen, just above the bottom nav, within reach of your thumb.
 - **Phone nav names match desktop**: the phone's Board button is now called Focus, like the desktop tab it stands for.
 
 ### Removed
