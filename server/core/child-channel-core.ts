@@ -1,5 +1,7 @@
 import { BADGE_LABELS, STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
+import type { ConversationApproval } from '../../shared/contracts/session.ts';
+import { shellQuote } from '../../session/core/hook-command-core.ts';
 
 const MAX_UNREAD_ENTRIES_PER_SIDE = 50;
 const MAX_ENTRY_CHARS = 4000;
@@ -77,6 +79,11 @@ function postToChannel(channel: AgentChannel, side: ChannelSide, entry: ChannelE
   return { ...channel, [side]: postToMailbox(channel[side], entry) };
 }
 
+function withdrawUnreadNote(channel: AgentChannel, side: ChannelSide, text: string): AgentChannel {
+  const unread = channel[side].unread.filter((entry) => entry.author !== 'glimmervoid' || entry.text !== text);
+  return { ...channel, [side]: { ...channel[side], unread } };
+}
+
 function drainChannel(channel: AgentChannel, side: ChannelSide): { channel: AgentChannel; drained: DrainedMailbox } {
   const { unread, droppedCount } = channel[side];
   return { channel: { ...channel, [side]: EMPTY_MAILBOX }, drained: { entries: unread, droppedCount } };
@@ -128,6 +135,30 @@ function describeStopNote({ childName, state, lastMessage }: { childName: string
   return `${summary}. Its last message:\n${shownMessage}`;
 }
 
+function describeQuestionNote(childName: string, childRef: string, approval: ConversationApproval): string {
+  const answerCommand = `glimmervoid answer ${childRef}`;
+  const operatorLine = `Or pass it to the operator: ${answerCommand} --operator`;
+  const questions = approval.questions ?? [];
+  if (approval.isSummaryTruncated || questions.length === 0) {
+    return [`${childName} asks a question too large to answer here. Pass it to the operator: ${answerCommand} --operator`, approval.summary].join('\n');
+  }
+  const questionLines = questions.map((question, index) => `${index + 1}. ${question.question} [${question.options.map((option) => option.label).join(' | ')}]`);
+  const exampleAnswers = Object.fromEntries(questions.map((question) => [question.question, question.options[0].label]));
+  const fullNote = [
+    `${childName} asks:`,
+    ...questionLines,
+    `Answer: ${answerCommand} ${shellQuote(JSON.stringify(exampleAnswers))}`,
+    operatorLine,
+  ].join('\n');
+  if (fullNote.length <= MAX_ENTRY_CHARS) return fullNote;
+  return [
+    `${childName} asks the questions below.`,
+    `Answer: ${answerCommand} '{"<question text>":"<option label>"}' with one entry per question, each keyed by its full text`,
+    operatorLine,
+    ...questionLines,
+  ].join('\n');
+}
+
 function describeWakeLine(channel: AgentChannel, side: ChannelSide): string {
   if (side === 'toParent') return `Glimmervoid: ${channel.childName}, the session you spawned, has news. Run glimmervoid read ${channel.childId} and act on it.`;
   return 'Glimmervoid: the session that spawned you sent a message. Run glimmervoid read and act on it.';
@@ -151,7 +182,7 @@ function canSubmitWake({ recipientState, pastedAt, lastOperatorInputAt }: { reci
 }
 
 export {
-  canSubmitWake, decideWake, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread,
-  openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake,
+  canSubmitWake, decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread,
+  openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote,
 };
 export type { AgentChannel, ChannelEntry, ChannelSide };

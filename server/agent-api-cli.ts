@@ -39,6 +39,14 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     if (!child) return null;
     return discard ? { child, discard } : { child };
   },
+  answer: ([child, answerText, ...extra]) => {
+    if (!child?.trim() || !answerText || extra.length > 0) return null;
+    if (answerText === '--operator') return { child, toOperator: true };
+    const answers: unknown = parseJsonOrNull(answerText);
+    if (typeof answers !== 'object' || answers === null || Array.isArray(answers)) return null;
+    if (!Object.values(answers).every((answer) => typeof answer === 'string')) return null;
+    return { child, answers };
+  },
   attention: (rest) => {
     const note = rest.join(' ').trim();
     return note ? { note } : null;

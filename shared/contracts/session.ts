@@ -129,7 +129,7 @@ export const SshSignReply = z.union([
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
 export const SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings'] as const;
-export const AGENT_API_VERBS = [...SESSION_COMMANDS, 'limits'] as const;
+export const AGENT_API_VERBS = [...SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
 
@@ -158,6 +158,11 @@ export const AgentCloseRequest = z.object({
   child: SessionTarget,
   discard: z.boolean().optional(),
 }).strict();
+
+export const AgentAnswerRequest = z.union([
+  z.object({ child: SessionTarget, answers: z.record(z.string(), z.string().min(1)) }).strict(),
+  z.object({ child: SessionTarget, toOperator: z.literal(true) }).strict(),
+]);
 
 const AgentChannelEntry = z.object({
   from: z.enum(['parent', 'child', 'glimmervoid']),
@@ -275,6 +280,7 @@ export type AgentSpawnRequest = z.infer<typeof AgentSpawnRequest>;
 export type AgentSendRequest = z.infer<typeof AgentSendRequest>;
 export type AgentReadRequest = z.infer<typeof AgentReadRequest>;
 export type AgentCloseRequest = z.infer<typeof AgentCloseRequest>;
+export type AgentAnswerRequest = z.infer<typeof AgentAnswerRequest>;
 export type AgentReadReply = z.infer<typeof AgentReadReply>;
 export type SessionCommand = (typeof SESSION_COMMANDS)[number];
 export type SessionLimits = z.infer<typeof SessionLimits>;

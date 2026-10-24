@@ -4,7 +4,7 @@ import type { z } from 'zod';
 
 import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
 import {
-  AGENT_API_VERBS, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest,
+  AGENT_API_VERBS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest,
 } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, AgentPrsReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
@@ -46,6 +46,7 @@ interface AgentRequestByVerb {
   send: AgentSendRequest;
   read: AgentReadRequest;
   close: AgentCloseRequest;
+  answer: AgentAnswerRequest;
   attention: AgentAttentionRequest;
   board: EmptyRequest;
   push: EmptyRequest;
@@ -171,6 +172,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   send: bodyParser(AgentSendRequest),
   read: bodyParser(AgentReadRequest),
   close: bodyParser(AgentCloseRequest),
+  answer: bodyParser(AgentAnswerRequest),
   attention: bodyParser(AgentAttentionRequest),
   board: parseEmptyBody,
   push: parseEmptyBody,
@@ -316,6 +318,11 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     summary: 'End a session this one spawned and discard its worktree; refused while it holds unpushed work unless --discard',
     missingArgumentHint: 'glimmervoid close: this command needs the spawned session, for example "glimmervoid close <child>"',
   },
+  answer: {
+    usage: 'answer <child> <json>|--operator',
+    summary: "Answer a spawned session's held question, or pass it to the operator with --operator",
+    missingArgumentHint: 'glimmervoid answer: this command needs a child and a JSON object of answers, or --operator',
+  },
   attention: {
     usage: 'attention <note>',
     summary: 'Flag this session as needing the operator',
@@ -345,7 +352,7 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
 });
 
 function agentCommandHelpLines(): string[] {
-  return Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => `  ${usage.padEnd(USAGE_COLUMN_WIDTH)}${summary}`);
+  return Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => `  ${usage.padEnd(Math.max(USAGE_COLUMN_WIDTH, usage.length + 1))}${summary}`);
 }
 
 export {

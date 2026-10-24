@@ -1796,6 +1796,13 @@ class Session extends EventEmitter {
     return true;
   }
 
+  releaseQuestionHold(requestId: string): boolean {
+    const hold = this._claudeApprovalHolds.find((candidate) => candidate.approval.requestId === requestId && candidate.approval.kind === "question");
+    if (!hold) return false;
+    this._releaseClaudeHolds((candidate) => candidate === hold);
+    return true;
+  }
+
   answerConversationApproval(requestId: number | string, decision: ConversationApprovalDecision, answers?: ConversationAnswers): boolean {
     if (this.agentId === "claude-code") return this._answerClaudeApproval(requestId, decision, answers);
     const bridge = this._codexBridge;

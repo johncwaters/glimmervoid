@@ -63,6 +63,7 @@ Inside a Glimmervoid session:
   send [child] <text> Message a session this one spawned; a spawned session messages its parent with send <text>
   read [child]        Read what this session's spawned sessions sent; a spawned session reads its parent's messages
   close <child>       End a session this one spawned and discard its worktree; refused while it holds unpushed work unless --discard
+  answer <child> <json>|--operator Answer a spawned session's held question, or pass it to the operator with --operator
   attention <note>    Flag this session as needing the operator
   board               List the live sessions
   push                Land this session's commits on the integration branch and push it

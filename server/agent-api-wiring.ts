@@ -6,7 +6,7 @@ import { describeSessionLimits } from '../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../session/core/session-routes.ts';
 import type { Session } from '../session/sessions.ts';
 import type {
-  AgentApiVerb, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentEditRequest, AgentLimitsReply, AgentReadReply, AgentReadRequest,
+  AgentAnswerRequest, AgentApiVerb, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentEditRequest, AgentLimitsReply, AgentReadReply, AgentReadRequest, ConversationApproval,
   AgentSendRequest, AgentSettingsReply, AgentSettingsRequest, AgentSpawnRequest, SessionLimits,
 } from '../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../shared/contracts/my-prs.ts';
@@ -20,8 +20,8 @@ import {
 } from './core/agent-api-core.ts';
 import type { AgentRequestOf, ChildEndCause, ChildWorktree } from './core/agent-api-core.ts';
 import {
-  canSubmitWake, decideWake, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread,
-  openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake,
+  canSubmitWake, decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread,
+  openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote,
 } from './core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelSide } from './core/child-channel-core.ts';
 import { isGuardedSessionVendor } from './guardrails/core/guardrails-roles-core.ts';
@@ -31,6 +31,7 @@ import type { SessionSpawnOverrides } from './session/session-factory.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import type { MemoryAdmission } from './spawn-gate.ts';
 import { errorMessage } from '../shared/text.ts';
+import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../shared/timer-deps.ts';
@@ -81,6 +82,7 @@ interface ChannelLink {
   parent: Session;
   child: Session;
   lastChildMessage: string | null;
+  waitingStopNoteText: string | null;
   hasParentRead: boolean;
   wakesSinceOperatorInput: number;
   isOperatorFlagged: boolean;
@@ -223,16 +225,33 @@ function createAgentApiWiring({
     });
   }
 
+  function withdrawWaitingStopNote(childId: string, link: ChannelLink): void {
+    const channel = channelsByChildId.get(childId);
+    if (!channel || link.waitingStopNoteText === null) return;
+    channelsByChildId.set(childId, withdrawUnreadNote(channel, 'toParent', link.waitingStopNoteText));
+    link.waitingStopNoteText = null;
+  }
+
   function watchChild(link: ChannelLink, childId: string): void {
+    let lastRelayedQuestionId: ConversationApproval['requestId'] | null = null;
+    link.child.on('conversation-change', ({ conversationApproval }: { conversationApproval: ConversationApproval | null }) => {
+      if (conversationApproval?.kind !== 'question' || conversationApproval.requestId === lastRelayedQuestionId) return;
+      lastRelayedQuestionId = conversationApproval.requestId;
+      withdrawWaitingStopNote(childId, link);
+      const text = describeQuestionNote(link.child.name, childId, conversationApproval);
+      post(childId, 'toParent', { author: 'glimmervoid', text, at: now(), wakes: true });
+    });
     link.child.on('hook-event', ({ event, payload }: HookEvent) => {
       if (event.toLowerCase() !== 'stop') return;
       link.lastChildMessage = readLastAssistantMessage(payload);
     });
     link.child.on('state-change', ({ from, to }: StateChange) => {
-      if (shouldPostStopNote(from, to)) {
+      const isHeldQuestionWaiting = to === STATES.WAITING && link.child._conversationApproval?.kind === 'question';
+      if (!isHeldQuestionWaiting && shouldPostStopNote(from, to)) {
         const text = describeStopNote({ childName: link.child.name, state: to, lastMessage: link.lastChildMessage });
         post(childId, 'toParent', { author: 'glimmervoid', text, at: now(), wakes: shouldStopNoteWake(to, link.hasParentRead) });
         link.lastChildMessage = null;
+        link.waitingStopNoteText = to === STATES.WAITING ? text : null;
       }
       wakeRecipient(childId, 'toParent');
       wakeRecipient(childId, 'toChild');
@@ -242,7 +261,7 @@ function createAgentApiWiring({
   function openChildChannel(parent: Session, child: Session, childName: string): () => void {
     channelsByChildId.set(child.id, openChannel({ parentId: parent.id, childId: child.id, childName }));
     const link: ChannelLink = {
-      parent, child, lastChildMessage: null, hasParentRead: false, wakesSinceOperatorInput: 0, isOperatorFlagged: false, pendingWakeSides: new Set(), retryTimersBySide: new Map(),
+      parent, child, lastChildMessage: null, waitingStopNoteText: null, hasParentRead: false, wakesSinceOperatorInput: 0, isOperatorFlagged: false, pendingWakeSides: new Set(), retryTimersBySide: new Map(),
     };
     linksByChildId.set(child.id, link);
     watchChild(link, child.id);
@@ -559,6 +578,25 @@ function createAgentApiWiring({
     return { status: 200, body: { ok: true, channels: fromChild ? [fromChild] : [] } };
   }
 
+  function answer(session: Session, request: AgentAnswerRequest): AgentApiReply {
+    const owned = findChildOf(session, request.child);
+    if (!owned.ok) return refusal(404, owned.error);
+    const child = agentSessions.get(owned.channel.childId);
+    if (!child) return refusal(409, `${owned.channel.childName} has already ended`);
+    const approval = child._conversationApproval;
+    if (approval?.kind !== 'question') return refusal(409, `${owned.channel.childName} has no held question`);
+    if ('toOperator' in request) {
+      if (typeof approval.requestId !== 'string' || !child.releaseQuestionHold(approval.requestId)) return refusal(409, 'the question is no longer held');
+      return { status: 200, body: { ok: true } };
+    }
+    if (approval.isSummaryTruncated) return refusal(409, `${owned.channel.childName}'s question is too large to answer here; pass it to the operator with glimmervoid answer ${request.child} --operator`);
+    if (!child.answerConversationApproval(approval.requestId, 'accept', request.answers)) {
+      const expectedQuestions = (approval.questions ?? []).map((question) => question.question);
+      return refusal(409, `answers must match the expected question texts: ${JSON.stringify(expectedQuestions)}`);
+    }
+    return { status: 200, body: { ok: true } };
+  }
+
   async function close(session: Session, { child, discard = false }: AgentCloseRequest): Promise<AgentApiReply> {
     const owned = findChildOf(session, child);
     if (!owned.ok) return refusal(404, owned.error);
@@ -585,6 +623,7 @@ function createAgentApiWiring({
     send,
     read,
     close,
+    answer,
     attention,
     board: () => ({ status: 200, body: { ok: true, sessions: board() } }),
     push,
