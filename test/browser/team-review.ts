@@ -194,7 +194,7 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     await root.getByRole('tab', { name: 'Mine', exact: true }).click();
     assert.equal(await mineRow.locator('.my-pr-stage').first().textContent(), stage);
     assert.equal(await mineRow.locator('.pr-queue-glyph').innerHTML(), teamGlyph);
-    if (layout === 'phone') await page.getByRole('button', { name: 'Board', exact: true }).click();
+    if (layout === 'phone') await page.getByRole('button', { name: 'Focus', exact: true }).click();
     if (layout === 'desktop') {
       await root.locator(`.my-pr-session-pill[data-session-id="${sessionId}"]`).click();
       await page.waitForFunction(() => document.body.dataset.activeView === 'focus');

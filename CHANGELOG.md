@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Phone bottom nav usable on first run**: before your first session, the Next session banner sat on top of the phone's bottom nav and blocked taps on More. The banner now stays hidden until there is a session to jump to.
+
 ## [0.43.4] - 2026-10-23
 
 ### Added

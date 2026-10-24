@@ -142,7 +142,7 @@ async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus, initialP
     assert.equal(await panel.locator('.pr-queue-row').count(), 1);
     assert.equal(await panel.getByRole('button', { name: 'Keep mergeable', exact: true }).getAttribute('aria-pressed'), 'true');
     const isPhone = await page.locator('html').getAttribute('data-layout') === 'phone';
-    if (isPhone) await page.getByRole('button', { name: 'Board', exact: true }).click();
+    if (isPhone) await page.getByRole('button', { name: 'Focus', exact: true }).click();
     if (!isPhone) {
       await sessionPill.click();
       await page.waitForFunction(() => document.body.dataset.activeView === 'focus');

@@ -176,6 +176,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     showFirstRunChecklist(emptyEl, isFirstRun);
     emptyTitleEl.hidden = isFirstRun;
     emptyDescEl.hidden = isFirstRun;
+    attentionEl.hidden = isFirstRun;
   }
 
   function renderActivity(ui: SessionUi, kind: ActivityRenderKind) {

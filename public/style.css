@@ -5850,6 +5850,7 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   font-family: var(--font-mono);
   cursor: pointer;
 }
+.attention-banner[hidden] { display: none; }
 .attention-banner[data-head-kind="finished"] { --st: var(--state-complete); }
 .attention-banner[data-head-kind="waiting"] { --st: var(--state-waiting); }
 .attention-banner[data-head-kind="failed"] { --st: var(--state-failed); }
