@@ -260,8 +260,8 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
 }
 
 function describeBuiltinHooks(
-  { detectScheduledWakeups = true, observeToolCalls = false, hookTools = [], planReview = false, conversationApprovals = false }:
-    { detectScheduledWakeups?: boolean; observeToolCalls?: boolean; hookTools?: ResolvedHookTool[]; planReview?: boolean; conversationApprovals?: boolean } = {},
+  { detectScheduledWakeups = true, observeToolCalls = false, hookTools = [], planReview = false, conversationApprovals = false, holdsQuestionsForParent = false }:
+    { detectScheduledWakeups?: boolean; observeToolCalls?: boolean; hookTools?: ResolvedHookTool[]; planReview?: boolean; conversationApprovals?: boolean; holdsQuestionsForParent?: boolean } = {},
 ): { event: string; matcher: string | null; purpose: string }[] {
   const rows = HOOK_EVENTS.map((event) => ({ event, matcher: null as string | null, purpose: 'Status detection: POST to the Glimmervoid hook router' }));
   if (planReview) rows.push({ event: 'PermissionRequest', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: POST the plan to the Glimmervoid plan endpoint' });
@@ -271,6 +271,10 @@ function describeBuiltinHooks(
   if (conversationApprovals) {
     rows.push({ event: 'PermissionRequest', matcher: null, purpose: 'Conversation view: hold a permission prompt so the dashboard can answer it' });
     rows.push({ event: 'PostToolUse', matcher: null, purpose: 'Conversation view: release a held prompt the terminal answered' });
+  }
+  if (holdsQuestionsForParent && !conversationApprovals) {
+    rows.push({ event: 'PermissionRequest', matcher: ASK_USER_QUESTION_TOOL_NAME, purpose: 'Spawned session: hold a question so the parent can answer it' });
+    rows.push({ event: 'PostToolUse', matcher: ASK_USER_QUESTION_TOOL_NAME, purpose: 'Spawned session: release a held question the terminal answered' });
   }
   if (observeToolCalls) rows.push({ event: 'PreToolUse', matcher: null, purpose: 'Investigation trail: POST every tool call to the Glimmervoid hook router' });
   for (const tool of hookTools) {
