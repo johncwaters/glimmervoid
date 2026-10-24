@@ -40,7 +40,6 @@ interface ViewerEngagementInput {
 }
 
 interface CardTerminalVisibilityInput {
-  isDocumentVisible: boolean;
   isBorrowedCard: boolean;
   isTerminalFaceShown: boolean;
 }
@@ -113,11 +112,10 @@ export function isViewerEngaged({
 }
 
 export function isCardTerminalHidden({
-  isDocumentVisible,
   isBorrowedCard,
   isTerminalFaceShown,
 }: CardTerminalVisibilityInput): boolean {
-  return !isDocumentVisible || !isBorrowedCard || !isTerminalFaceShown;
+  return !isBorrowedCard || !isTerminalFaceShown;
 }
 
 export function shouldRequestDeepHistory({

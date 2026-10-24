@@ -232,12 +232,11 @@ test('a visible phone is engaged however the window and the card report their fo
   assert.equal(isViewerEngaged({ ...blurredPhone, isDocumentVisible: false }), false);
 });
 
-test('only the borrowed card showing its terminal face in a visible tab renders output', () => {
-  const shownCard = { isDocumentVisible: true, isBorrowedCard: true, isTerminalFaceShown: true };
+test('only the borrowed card showing its terminal face renders output, since a hidden page pauses output at the server', () => {
+  const shownCard = { isBorrowedCard: true, isTerminalFaceShown: true };
   assert.equal(isCardTerminalHidden(shownCard), false);
   assert.equal(isCardTerminalHidden({ ...shownCard, isBorrowedCard: false }), true);
   assert.equal(isCardTerminalHidden({ ...shownCard, isTerminalFaceShown: false }), true);
-  assert.equal(isCardTerminalHidden({ ...shownCard, isDocumentVisible: false }), true);
 });
 
 test('an engagement edge re-bids for a following viewer and only re-syncs the exact owner', () => {

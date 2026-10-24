@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The whole Next session banner jumps**: a click or tap anywhere on the banner, not only its Next session row, does what Cmd/Alt+J does. The session tiles in it no longer open their own session; they show who is next in line. On a phone the banner now sits at the bottom of the Board, just above the bottom nav, within reach of your thumb.
 
+### Fixed
+
+- **Resuming on a phone no longer gets stuck connecting**: coming back to the dashboard after your phone was locked or switched away used to reconnect the open terminal every time output had arrived meanwhile, and on Android that reconnect could hang on the connecting animal until you reloaded the page. The server now pauses terminal output while the page is hidden and catches the same connection up when you return, so the terminal comes back live with what you missed and its scrollback intact. A hidden page also stops receiving terminal data, which saves mobile data.
+
 ## [0.43.3] - 2026-10-23
 
 ### Added

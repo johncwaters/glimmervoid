@@ -3,7 +3,6 @@ import path from 'node:path';
 
 import type { Browser, BrowserContext, ConsoleMessage, Page, WebSocketRoute } from 'playwright-core';
 
-import { SCREEN_KEEPER_ATTACH_SCROLLBACK } from '../../session/core/screen-keeper-core.ts';
 import { safeTextTail } from '../support/backend-harness.ts';
 import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.ts';
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
@@ -592,6 +591,8 @@ async function runExpectRevealed(viewer: Viewer, sessionId: string, tickAtWatch:
     const reading = await readGridOf(viewer, sessionId);
     if (!reading) return { ok: false, detail: 'the session card carries no terminal yet', reading: null };
     if (reading.link !== 'live') return { ok: false, reading, detail: `data-link is ${String(reading.link)}, wanted live` };
+    const watch = await viewer.page.evaluate(readTerminalWatch, { sessionId, registryUrl: CARD_REGISTRY_URL });
+    if (!watch?.isSameDataSocket) return { ok: false, reading, detail: 'the data socket was replaced, wanted the page show to reuse it' };
     const status = parseStatusRow(reading.lines[reading.rows - 1] ?? '');
     if (!status) return { ok: false, reading, detail: 'last row carries no status' };
     if (status.tick <= tickAtWatch) {
@@ -600,15 +601,20 @@ async function runExpectRevealed(viewer: Viewer, sessionId: string, tickAtWatch:
     const mismatch = firstMismatch(expectedRows(reading.cols, reading.rows, status.tick), reading.lines);
     if (mismatch) return { ok: false, reading, tick: status.tick, mismatch, detail: `row ${mismatch.index} differs from the ruler frame` };
     const scrollbackLines = reading.bufferLength - reading.rows;
-    if (scrollbackLines <= 0 || scrollbackLines > SCREEN_KEEPER_ATTACH_SCROLLBACK) {
-      return { ok: false, reading, tick: status.tick, detail: `scrollback holds ${scrollbackLines} lines, wanted 1 to ${SCREEN_KEEPER_ATTACH_SCROLLBACK}` };
-    }
+    if (scrollbackLines <= 0) return { ok: false, reading, tick: status.tick, detail: 'scrollback is empty, wanted the output from before the hide kept' };
     return { ok: true, reading, tick: status.tick, detail: `current at tick ${status.tick} with ${scrollbackLines} lines of scrollback` };
   }, { label: `reveal for viewer ${viewer.id}`, timeoutMs: deadlines.settleMs, intervalMs: deadlines.pollIntervalMs });
   return outcomeFor('revealed-current', revealed);
 }
 
 async function runLoadDeepHistory(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
+  const attached = await pollUntil(async () => {
+    const reading = await readGridOf(viewer, sessionId);
+    if (!reading) return { ok: false, detail: 'the session card carries no terminal yet', reading: null };
+    if (reading.bufferLength <= reading.rows) return { ok: false, reading, detail: 'the attach has not drawn any scrollback yet' };
+    return { ok: true, reading, detail: `${reading.bufferLength - reading.rows} lines of scrollback drawn` };
+  }, { label: `scrollback before deep history for viewer ${viewer.id}`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+  if (!attached.ok) return outcomeFor('deep-history-loaded', attached);
   const top = await viewer.page.evaluate(scrollTerminalToTop, { sessionId, registryUrl: CARD_REGISTRY_URL });
   if (!top) return failedOutcome('deep-history-loaded', 'the card has no terminal to scroll');
   const loaded = await pollUntil(async () => {

@@ -297,6 +297,8 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'expect-terminal-untouched', durationMs: 1500 },
       { kind: 'foreground' },
       { kind: 'expect-revealed' },
+      { kind: 'offline' },
+      { kind: 'online' },
       { kind: 'load-deep-history' },
       { kind: 'watch-terminal' },
       { kind: 'background' },

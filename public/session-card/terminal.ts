@@ -72,7 +72,6 @@ function isViewerEngagedAt(card: HTMLElement) {
 
 function isCardTerminalHiddenNow(ui: SessionUi, sessionId: string) {
   return isCardTerminalHidden({
-    isDocumentVisible: document.visibilityState === 'visible',
     isBorrowedCard: uiState.snapshot().borrowedCardId === sessionId,
     isTerminalFaceShown: ui.face === 'terminal',
   });
@@ -173,13 +172,14 @@ function reattachIfMissedWhileHidden(ui: SessionUi, sessionId: string) {
   reconnectDataWs(sessionId);
 }
 
+function sendOutputFlowForPageVisibility(socket: WebSocket | null) {
+  if (socket?.readyState !== WebSocket.OPEN) return;
+  const outputFlowMessage = document.visibilityState === 'visible' ? 'resume-output' : 'pause-output';
+  socket.send(JSON.stringify({ type: outputFlowMessage }));
+}
+
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return;
-  const borrowedCardId = uiState.snapshot().borrowedCardId;
-  if (!borrowedCardId) return;
-  const borrowedUi = sessionUIs.get(borrowedCardId);
-  if (!borrowedUi) return;
-  reattachIfMissedWhileHidden(borrowedUi, borrowedCardId);
+  for (const ui of sessionUIs.values()) sendOutputFlowForPageVisibility(ui.dataWs);
 });
 
 function decodeOsc52Payload(b64: string) {
@@ -401,6 +401,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     ui._dataWsRetryAttempt = 0;
     sessionUisReattachingQuietly.delete(ui);
     refreshTerminalLink(ui);
+    if (document.visibilityState !== 'visible') sendOutputFlowForPageVisibility(ws);
 
     ui._syncGrid?.({ isActivationEdge: true });
     ui._retryOwedGridClaim?.();
