@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.5] - 2026-10-24
+
 ### Added
 
 - **See who is next in line**: every session waiting on you, failed or finished unseen now carries a small numbered tab in the corner of its row in the Focus rail and on the phone, in the same order as the Next session banner. Tab 1 is filled: it is the session Cmd/Alt+J (or a tap on the banner) opens next. Rows never move; hovering a row or using a screen reader reads its place, such as "next up" or "#3 in line".
