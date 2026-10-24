@@ -5847,6 +5847,7 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   border: 1px solid var(--st);
   border-radius: var(--radius);
   font-family: var(--font-mono);
+  cursor: pointer;
 }
 .attention-banner[data-head-kind="finished"] { --st: var(--state-complete); }
 .attention-banner[data-head-kind="waiting"] { --st: var(--state-waiting); }
@@ -5880,14 +5881,12 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   background: color-mix(in srgb, var(--tile) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--tile) 45%, transparent);
   border-radius: var(--radius);
-  cursor: pointer;
 }
 .attention-tile[data-kind="failed"] { --tile: var(--state-failed); }
 .attention-tile[data-kind="finished"] { --tile: var(--state-complete); }
 .attention-tile[data-head] { width: var(--attention-head-tile-px); height: var(--attention-head-tile-px); color: var(--bg); background: var(--tile); border-color: var(--tile); }
 .attention-tile[data-leaving] { position: absolute; pointer-events: none; }
 .attention-tile[data-tethered] { box-shadow: 0 0 0 2px color-mix(in srgb, var(--tile) 60%, transparent); }
-.attention-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .attention-tile-icon { display: block; width: 14px; height: 14px; }
 .attention-tile[data-head] .attention-tile-icon { width: 16px; height: 16px; }
 .attention-tile-icon svg { display: block; width: 100%; height: 100%; }
@@ -5955,9 +5954,8 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   background: none;
   border: 0;
   border-top: 1px solid color-mix(in srgb, var(--text-head) 8%, transparent);
-  cursor: pointer;
 }
-.attention-banner-jump-row:hover .attention-banner-jump-caption { color: var(--text-head); }
+.attention-banner:hover .attention-banner-jump-caption { color: var(--text-head); }
 .attention-banner-jump-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
 .attention-banner[data-empty] .attention-banner-jump-row { border-top-color: var(--border-dim); }
 .attention-banner-jump-caption { font-size: 12px; color: var(--text-dim); }
@@ -8318,9 +8316,9 @@ html[data-layout="phone"] .phone-shell[hidden] { display: none; }
 }
 
 html[data-layout="phone"] .phone-board-group-rows:empty { display: none; }
-html[data-layout="phone"] .attention-banner { position: relative; flex: 0 0 auto; width: auto; margin: 8px 8px 0; }
+html[data-layout="phone"] .attention-banner { position: relative; flex: 0 0 auto; width: auto; margin: 0 8px 8px; }
 html[data-layout="phone"] .attention-banner-jump-row { min-height: 44px; }
-html[data-layout="phone"] .phone-board-list { padding: 0 8px 8px; }
+html[data-layout="phone"] .phone-board-list { padding: 8px; }
 html[data-layout="phone"] .session-group-header { min-height: 44px; margin-top: 0; }
 html[data-layout="phone"] :is(.session-group-add, .session-group-forget) { position: relative; }
 html[data-layout="phone"] :is(.session-group-add, .session-group-forget)::after { content: ""; position: absolute; inset: -13px; }

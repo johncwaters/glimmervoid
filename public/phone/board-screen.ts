@@ -36,7 +36,6 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
       const nextId = orderAttentionLine(currentOrderedRows(), null)[0]?.id;
       if (nextId) openAttentionSession(nextId);
     },
-    onOpenTile: openAttentionSession,
     rowFor: (id) => rowById.get(id),
   });
 
@@ -63,7 +62,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
   const emptyDescEl = el('p', 'phone-empty-desc', 'Spawn a session to start watching.');
   emptyEl.append(emptyTitleEl, emptyDescEl);
 
-  screen.append(topBar, attentionEl, groupsEl, emptyEl);
+  screen.append(topBar, groupsEl, emptyEl, attentionEl);
 
   const rowById = new Map<string, HTMLButtonElement>();
   const groupSectionByKey = new Map<string, HTMLElement>();

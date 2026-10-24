@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The whole Next session banner jumps**: a click or tap anywhere on the banner, not only its Next session row, does what Cmd/Alt+J does. The session tiles in it no longer open their own session; they show who is next in line. On a phone the banner now sits at the bottom of the Board, just above the bottom nav, within reach of your thumb.
+
 ## [0.43.3] - 2026-10-23
 
 ### Added

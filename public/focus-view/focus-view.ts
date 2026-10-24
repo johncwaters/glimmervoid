@@ -114,7 +114,6 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
 
   railHeadEl = buildAttentionBanner({
     onJump: focusNextAttention,
-    onOpenTile: openAttentionSession,
     rowFor: (id) => pillById.get(id),
   }, buildNextAttentionKeys());
 

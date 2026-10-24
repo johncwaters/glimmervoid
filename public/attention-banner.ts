@@ -62,14 +62,13 @@ const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
 interface AttentionBannerHooks {
   onJump: () => void;
-  onOpenTile: (sessionId: string) => void;
   rowFor: (sessionId: string) => HTMLElement | null | undefined;
 }
 
 interface BannerMotion {
   hooks: AttentionBannerHooks;
   tiles: readonly AttentionTile[];
-  tileById: Map<string, HTMLButtonElement>;
+  tileById: Map<string, HTMLSpanElement>;
   headId: string | null;
   flyingIds: Set<string>;
   tetheredId: string | null;
@@ -122,7 +121,7 @@ export function buildAttentionBanner(hooks: AttentionBannerHooks, jumpKeys?: HTM
     jumpKeys.classList.add('attention-banner-jump');
     jumpRow.append(jumpKeys);
   }
-  jumpRow.addEventListener('click', () => hooks.onJump());
+  banner.addEventListener('click', () => hooks.onJump());
   banner.append(statusRow, jumpRow);
   motionByBanner.set(banner, {
     hooks,
@@ -172,8 +171,8 @@ function renderTiles(banner: HTMLElement) {
     leaveTile(tile, pinnedOffsets[index]);
   });
   const previousHeadId = motion.headId;
-  const enteringTiles: HTMLButtonElement[] = [];
-  let precedingTile: HTMLButtonElement | null = null;
+  const enteringTiles: HTMLSpanElement[] = [];
+  let precedingTile: HTMLSpanElement | null = null;
   visibleTiles.forEach((attentionTile, index) => {
     const existing = motion.tileById.get(attentionTile.id);
     const tile = existing ?? buildTile(banner, attentionTile.id);
@@ -218,19 +217,18 @@ function previousSettledTileOf(tile: Element) {
 }
 
 function buildTile(banner: HTMLElement, sessionId: string) {
-  const tile = el('button', 'attention-tile');
-  tile.type = 'button';
+  const tile = el('span', 'attention-tile');
+  tile.setAttribute('role', 'img');
   tile.dataset.id = sessionId;
   const icon = el('span', 'attention-tile-icon');
   icon.setAttribute('aria-hidden', 'true');
   tile.append(icon);
-  tile.addEventListener('click', () => motionOf(banner).hooks.onOpenTile(sessionId));
   tile.addEventListener('pointerenter', () => tetherAttentionTile(banner, sessionId));
   tile.addEventListener('pointerleave', () => tetherAttentionTile(banner, null));
   return tile;
 }
 
-function paintTile(tile: HTMLButtonElement, { kind, name }: AttentionTile, isHead: boolean) {
+function paintTile(tile: HTMLSpanElement, { kind, name }: AttentionTile, isHead: boolean) {
   tile.dataset.kind = kind;
   tile.toggleAttribute('data-head', isHead);
   const label = `${name}, ${NEED_WORDS_BY_KIND[kind]}`;
@@ -239,7 +237,7 @@ function paintTile(tile: HTMLButtonElement, { kind, name }: AttentionTile, isHea
   paintStatusIcon(query(tile, '.attention-tile-icon'), ICON_BY_KIND[kind]);
 }
 
-function leaveTile(tile: HTMLButtonElement, pinnedOffset: { left: number; top: number }) {
+function leaveTile(tile: HTMLSpanElement, pinnedOffset: { left: number; top: number }) {
   tile.toggleAttribute('data-leaving', true);
   tile.style.left = `${pinnedOffset.left}px`;
   tile.style.top = `${pinnedOffset.top}px`;
