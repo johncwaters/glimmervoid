@@ -23,7 +23,7 @@ import { sessionTempFolderFor } from '../guardrails/guardrails-launch.ts';
 import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
-  'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'settingsGuardrails' | 'prepareGuardrails' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ownerId' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
+  'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'settingsGuardrails' | 'prepareGuardrails' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ownerId' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };

@@ -38,7 +38,7 @@ test('a parent reads and answers held child questions through the agent API or r
       ...project,
       spawnCommand: { path: process.execPath, kind: 'exe' },
       prepareGuardrails: null,
-      isConversationViewEnabled: () => true,
+      isConversationViewEnabled: () => false,
       ...overrides,
     }),
     wireSessionEvents: () => {},
@@ -68,6 +68,7 @@ test('a parent reads and answers held child questions through the agent API or r
     assert.equal(spawned.status, 200);
     const child = [...agentSessions.values()][0];
     assert.ok(child);
+    assert.equal(child.holdClaudePermission({ tool_name: 'Bash', tool_input: { command: 'pwd' } }, new AbortController().signal), null);
     child.transition('first_output');
     child.transition('new_output');
     const questions = [

@@ -245,6 +245,7 @@ interface SessionOptions {
   isGuardrailsReleased?: boolean;
   isConversationViewEnabled?: (() => boolean) | null;
   isConversationViewSettingOn?: (() => boolean) | null;
+  holdsQuestionsForParent?: boolean;
   startCodexBridge?: typeof startCodexAppServerBridge;
   titleQuietFallbackMs?: number;
   spawnCommand?: ResolvedCommand | null;
@@ -320,6 +321,7 @@ class Session extends EventEmitter {
   isMarkedUnguarded: boolean;
   isGuardrailsReleased: boolean;
   _isConversationViewEnabled: () => boolean;
+  _holdsQuestionsForParent: boolean;
   _startCodexBridge: typeof startCodexAppServerBridge;
   _codexBridge: CodexAppServerBridge | null;
   _conversationApproval: ConversationApproval | null;
@@ -433,6 +435,7 @@ class Session extends EventEmitter {
     isGuardrailsReleased = false,
     isConversationViewEnabled = null,
     isConversationViewSettingOn = null,
+    holdsQuestionsForParent = false,
     startCodexBridge = startCodexAppServerBridge,
 
     titleQuietFallbackMs = 30000,
@@ -560,6 +563,7 @@ class Session extends EventEmitter {
     this.isGuardrailsReleased = isGuardrailsReleased === true;
     const isConversationViewConfigured = isConversationViewEnabled ?? (() => false);
     this._isConversationViewEnabled = () => isConversationViewConfigured() && !this.isConversationBridgeRefused();
+    this._holdsQuestionsForParent = holdsQuestionsForParent;
     this._startCodexBridge = startCodexBridge;
     this._codexBridge = null;
     this._conversationApproval = null;
@@ -633,6 +637,7 @@ class Session extends EventEmitter {
       planLimits: this._planLimits,
       planReview: planReviewPort !== null,
       conversationApprovals: () => this.agentId === "claude-code" && (isConversationViewSettingOn ?? isConversationViewConfigured)(),
+      holdsQuestionsForParent: this._holdsQuestionsForParent,
       getUserHooks,
       extraUserHooks,
       bypassHookTrust: this.bypassHookTrust,
@@ -1754,9 +1759,10 @@ class Session extends EventEmitter {
   }
 
   holdClaudePermission(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null {
-    if (this.agentId !== "claude-code" || !this._isConversationViewEnabled()) return null;
+    if (this.agentId !== "claude-code") return null;
     const request = parseClaudePermissionRequest(payload);
     if (!request) return null;
+    if (!this._isConversationViewEnabled() && !(this._holdsQuestionsForParent && request.toolName === ASK_USER_QUESTION_TOOL_NAME)) return null;
     this._releaseClaudeHolds((hold) => hold.request.agentKey === request.agentKey);
     const requestId = `claude-${this._nextClaudeApprovalNumber}`;
     this._nextClaudeApprovalNumber += 1;

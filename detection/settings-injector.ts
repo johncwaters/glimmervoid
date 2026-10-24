@@ -12,7 +12,7 @@ import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { appendUserHooks } from '../session/core/user-hooks-core.ts';
 import type { UserHook } from '../session/core/user-hooks-core.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT, PLAN_TOOL_NAME } from '../shared/contracts/plan-review.ts';
-import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../shared/contracts/session.ts';
+import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../shared/contracts/session.ts';
 import { safePathSegment } from '../shared/paths.ts';
 import { isRecord, textOr } from '../shared/coerce.ts';
 
@@ -66,6 +66,7 @@ interface BuildHookSettingsOptions {
   planLimits?: boolean;
   planReview?: boolean;
   conversationApprovals?: boolean;
+  holdsQuestionsForParent?: boolean;
   userSettingsPath?: string | null;
   relayPath?: string;
   commandHookRelayPath?: string;
@@ -162,7 +163,7 @@ function buildRemoteCommandHookCommand({ nodePath, postUrl }: { nodePath: string
   return `${shellQuote(nodePath)} -e ${shellQuote(inlineRelay)} ${shellQuote(postUrl)}`;
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, guardrails = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, conversationApprovals = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, guardrails = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, conversationApprovals = false, holdsQuestionsForParent = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -188,8 +189,11 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
       hooks: [{ type: 'http', url: hookUrl(PLAN_HOOK_EVENT), timeout: PLAN_HOOK_TIMEOUT_SEC }],
     });
   }
-  if (conversationApprovals && permissionRequestEntries) {
-    permissionRequestEntries.push({ hooks: [{ type: 'http', url: hookUrl(CONVERSATION_PERMISSION_HOOK_EVENT), timeout: PLAN_HOOK_TIMEOUT_SEC }] });
+  if ((conversationApprovals || holdsQuestionsForParent) && permissionRequestEntries) {
+    permissionRequestEntries.push({
+      ...(conversationApprovals ? {} : { matcher: ASK_USER_QUESTION_TOOL_NAME }),
+      hooks: [{ type: 'http', url: hookUrl(CONVERSATION_PERMISSION_HOOK_EVENT), timeout: PLAN_HOOK_TIMEOUT_SEC }],
+    });
   }
   const sharedPostToolUseMatchers: string[] = [];
   if (detectScheduledWakeups) sharedPostToolUseMatchers.push(WAKEUP_TOOL_MATCHER);
@@ -203,8 +207,11 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
       hooks: [{ type: 'http', url: hookUrl(PLAN_RESULT_HOOK_EVENT), timeout: timeoutSec }],
     });
   }
-  if (conversationApprovals) {
-    postToolUse.push({ hooks: [{ type: 'http', url: hookUrl(CONVERSATION_TOOL_RESULT_HOOK_EVENT), timeout: timeoutSec }] });
+  if (conversationApprovals || holdsQuestionsForParent) {
+    postToolUse.push({
+      ...(conversationApprovals ? {} : { matcher: ASK_USER_QUESTION_TOOL_NAME }),
+      hooks: [{ type: 'http', url: hookUrl(CONVERSATION_TOOL_RESULT_HOOK_EVENT), timeout: timeoutSec }],
+    });
   }
   if (postToolUse.length > 0) {
     hooks.PostToolUse = postToolUse;

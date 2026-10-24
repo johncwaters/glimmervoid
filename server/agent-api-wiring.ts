@@ -440,6 +440,7 @@ function createAgentApiWiring({
         agent: agentId,
         agentDepth: budget.depth + 1,
         ownerId: parent.id,
+        holdsQuestionsForParent: true,
         ephemeral: true,
         initialPrompt: request.prompt,
       });

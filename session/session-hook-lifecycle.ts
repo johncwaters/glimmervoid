@@ -52,6 +52,7 @@ interface SessionHookOptions {
   planLimits: boolean;
   planReview: boolean;
   conversationApprovals: () => boolean;
+  holdsQuestionsForParent: boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
   bypassHookTrust: boolean;
@@ -293,6 +294,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         planLimits: options.planLimits,
         planReview: options.planReview,
         conversationApprovals: options.conversationApprovals(),
+        holdsQuestionsForParent: options.holdsQuestionsForParent,
         userHooks: [
           ...(typeof options.getUserHooks === "function" ? options.getUserHooks() : []),
           ...glimmervoidSuppliedHooks(),

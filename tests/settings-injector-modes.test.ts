@@ -12,7 +12,9 @@ import {
   WAKEUP_TOOL_MATCHER,
   PR_LINK_TOOL_MATCHER,
   DEFAULT_TIMEOUT_SEC,
+  PLAN_HOOK_TIMEOUT_SEC,
 } from '../detection/settings-injector.ts';
+import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../shared/contracts/session.ts';
 
 const POSIX = process.platform !== 'win32';
 
@@ -90,6 +92,27 @@ test('no Read matcher reaches PostToolUse, since no builtin hook consumes reads'
     WAKEUP_TOOL_MATCHER,
     PR_LINK_TOOL_MATCHER,
   ]);
+});
+
+test('parent question holds use one AskUserQuestion entry unless conversation approvals already hold every tool', () => {
+  const base = { port: 3000, glimmervoidId: 'child', token: 'tok', holdsQuestionsForParent: true };
+  const questionHook = { type: 'http', url: `http://127.0.0.1:3000/hook/child/${CONVERSATION_PERMISSION_HOOK_EVENT}?t=tok`, timeout: PLAN_HOOK_TIMEOUT_SEC };
+  const statusEntry = { hooks: [{ type: 'http', url: 'http://127.0.0.1:3000/hook/child/permissionrequest?t=tok', timeout: DEFAULT_TIMEOUT_SEC }] };
+  assert.deepEqual(buildHookSettings({ ...base, conversationApprovals: false }).hooks.PermissionRequest, [
+    statusEntry,
+    { matcher: 'AskUserQuestion', hooks: [questionHook] },
+  ]);
+  assert.deepEqual(buildHookSettings({ ...base, conversationApprovals: true }).hooks.PermissionRequest, [
+    statusEntry,
+    { hooks: [questionHook] },
+  ]);
+  assert.deepEqual(buildHookSettings({ ...base, holdsQuestionsForParent: false }).hooks.PermissionRequest, [statusEntry]);
+  const releaseHook = { type: 'http', url: `http://127.0.0.1:3000/hook/child/${CONVERSATION_TOOL_RESULT_HOOK_EVENT.toLowerCase()}?t=tok`, timeout: DEFAULT_TIMEOUT_SEC };
+  const releaseEntriesOf = (settings: ReturnType<typeof buildHookSettings>) =>
+    (settings.hooks.PostToolUse ?? []).filter((entry) => entry.hooks.some((hook) => 'url' in hook && hook.url === releaseHook.url));
+  assert.deepEqual(releaseEntriesOf(buildHookSettings({ ...base, conversationApprovals: false })), [{ matcher: 'AskUserQuestion', hooks: [releaseHook] }]);
+  assert.deepEqual(releaseEntriesOf(buildHookSettings({ ...base, conversationApprovals: true })), [{ hooks: [releaseHook] }]);
+  assert.deepEqual(releaseEntriesOf(buildHookSettings({ ...base, holdsQuestionsForParent: false })), []);
 });
 
 test('the Bash PR link matcher stays on with wakeup detection off and shares the posttooluse URL', () => {
