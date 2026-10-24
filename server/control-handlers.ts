@@ -1420,6 +1420,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       hookTools,
       planReview: config.planReview?.enabled !== false,
       conversationApprovals: config.conversationView === true,
+      holdsQuestionsForParent: true,
     });
   }
 

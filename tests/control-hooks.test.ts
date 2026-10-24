@@ -73,6 +73,7 @@ test('request-hooks-report answers the stored records, the catalog, the built-in
   assert.ok(report.builtin?.some((row) => row.event === 'PreToolUse' && row.matcher === 'Bash'), 'rtk entry when config.rtk');
   assert.ok(report.builtin?.some((row) => row.event === 'PostToolUse'), 'wakeup tracking entry');
   assert.equal(report.builtin?.some((row) => row.matcher === 'Read'), false, 'no Read row, since no builtin hook consumes reads');
+  assert.ok(report.builtin?.some((row) => row.event === 'PermissionRequest' && row.matcher === 'AskUserQuestion'), 'spawned session question hold');
   assert.deepEqual(report.limits, { maxTimeoutSec: MAX_TIMEOUT_SEC });
 });
 
