@@ -110,7 +110,7 @@ function expectedControls(def: SchemaDef): readonly string[] {
   if (def.type === 'number') return ['number'];
   if (def.type === 'string') return ['text', 'password'];
   if (def.type === 'enum') return ['select'];
-  if (def.type === 'array') return leafDef(def.element).type === 'string' ? ['list', 'projects'] : ['json'];
+  if (def.type === 'array') return leafDef(def.element).type === 'string' ? ['list', 'projects', 'tab-order'] : ['json'];
   if (def.type === 'record' || def.type === 'object') return ['json'];
   if (def.type === 'union') return ['list'];
   assert.fail(`no control is defined for a ${def.type} leaf`);

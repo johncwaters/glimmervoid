@@ -58,6 +58,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     const tab = el('button', 'header-tab', definition.label);
     tab.id = `tab-${definition.view}`;
     tab.type = 'button';
+    tab.draggable = true;
     const panelId = `view-${definition.view}`;
     tab.setAttribute('role', 'tab');
     tab.setAttribute('aria-controls', panelId);

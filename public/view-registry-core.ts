@@ -52,6 +52,19 @@ export function viewAvailabilityFromSettings<View extends { gate?: ViewGate }>(v
   });
 }
 
+export function orderViewIds(defaultViewIds: readonly string[], savedViewIds: readonly string[] | null | undefined): string[] {
+  const knownViewIds = new Set(defaultViewIds);
+  const savedKnownViewIds = [...new Set((savedViewIds ?? []).filter((viewId) => knownViewIds.has(viewId)))];
+  return [...savedKnownViewIds, ...defaultViewIds.filter((viewId) => !savedKnownViewIds.includes(viewId))];
+}
+
+export function moveViewId(orderedViewIds: readonly string[], movedViewId: string, targetIndex: number): string[] {
+  const remainingViewIds = orderedViewIds.filter((viewId) => viewId !== movedViewId);
+  if (remainingViewIds.length === orderedViewIds.length) return [...orderedViewIds];
+  const insertionIndex = Math.max(0, Math.min(targetIndex, remainingViewIds.length));
+  return [...remainingViewIds.slice(0, insertionIndex), movedViewId, ...remainingViewIds.slice(insertionIndex)];
+}
+
 export function viewAttentionState(attention: ViewAttention) {
   return { isActive: attention === true || typeof attention === 'string', level: typeof attention === 'string' ? attention : null };
 }

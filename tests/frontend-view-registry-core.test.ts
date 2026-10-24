@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { FEATURE_SURFACE_RULES } from '../public/feature-surfaces-core.ts';
-import { isPrimaryViewVisible, refreshViewOnReason, refreshVisibleViews, viewAttentionState, viewAvailabilityFromSettings } from '../public/view-registry-core.ts';
+import { isPrimaryViewVisible, orderViewIds, refreshViewOnReason, refreshVisibleViews, viewAttentionState, viewAvailabilityFromSettings } from '../public/view-registry-core.ts';
 import type { ViewGate, ViewRefreshReason, VisibleViewState } from '../public/view-registry-core.ts';
 
 const readSource = (relativePath: string) => fs.readFileSync(new URL(relativePath, import.meta.url), 'utf8');
@@ -89,4 +89,11 @@ test('settings connect and broadcast share one fan-out', () => {
     const declarations = [...appSource.matchAll(new RegExp(`\\bfunction ${consumer}\\(`, 'g'))].length;
     assert.equal(references - declarations, 1, `${consumer} has one fan-out call`);
   }
+});
+
+test('a saved tab order drops unknown and duplicate ids and appends views it never named in default order', () => {
+  const defaultViewIds = ['focus', 'zen', 'prs', 'issues', 'settings'];
+
+  assert.deepEqual(orderViewIds(defaultViewIds, ['issues', 'retired', 'focus', 'issues']), ['issues', 'focus', 'zen', 'prs', 'settings']);
+  assert.deepEqual(orderViewIds(defaultViewIds, undefined), defaultViewIds);
 });

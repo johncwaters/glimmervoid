@@ -7,9 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Rearrange your tabs**: drag a tab in the desktop header to a new place, or use Move up and Move down under Settings > Sessions > Tab order. The order is saved with Glimmervoid, not the browser, so the phone's More menu follows the same order as the desktop header.
+
 ### Changed
 
 - **The whole Next session banner jumps**: a click or tap anywhere on the banner, not only its Next session row, does what Cmd/Alt+J does. The session tiles in it no longer open their own session; they show who is next in line. On a phone the banner now sits at the bottom of the Board, just above the bottom nav, within reach of your thumb.
+- **Phone nav names match desktop**: the phone's Board button is now called Focus, like the desktop tab it stands for.
+
+### Removed
+
+- **Phone Review screen**: the phone bottom nav no longer has a Review button for the selected session's diff. Pull request reviews are still under More > Reviews, and the desktop review sidebar is unchanged.
 
 ### Fixed
 

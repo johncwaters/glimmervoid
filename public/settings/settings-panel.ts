@@ -50,6 +50,7 @@ import type { ControlDraft, SettingsPayload, SettingsValues, WorkflowRuleToggleR
 import { createSettingsLink, settingsHash, settingsSearchHash } from './settings-link.ts';
 import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../feature-surfaces-core.ts';
 import type { FeatureSurfaceRule } from '../feature-surfaces-core.ts';
+import { moveViewId, orderViewIds } from '../view-registry-core.ts';
 import type { PrimaryViewDefinition } from '../view-registry-core.ts';
 import { projectSelectionChoices } from './settings-projects-core.ts';
 import { appendShortcutChord, applyNextAttentionKeyCode, buildShortcutKeys, currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
@@ -260,12 +261,12 @@ function renderShortcutGroups(container: HTMLElement) {
   }
 }
 
-type FeatureTabView = Pick<PrimaryViewDefinition<unknown>, 'label' | 'gate'>;
+type FeatureTabView = Pick<PrimaryViewDefinition<unknown>, 'view' | 'label' | 'gate'>;
 
 let featureTabViews: readonly FeatureTabView[] = [];
 
 export function setFeatureTabViews(views: readonly FeatureTabView[]) {
-  featureTabViews = views;
+  featureTabViews = [...views];
 }
 
 function featureTabLabel(rule: FeatureSurfaceRule) {
@@ -743,6 +744,39 @@ function renderList(setting: SettingsSetting) {
   return wrapper;
 }
 
+let lastTabOrderMoveKey: string | null = null;
+
+function renderTabOrder(setting: SettingsSetting) {
+  const orderedViewIds = orderViewIds(featureTabViews.map((view) => view.view), listValue(storedValue(setting)));
+  const list = el('ol', 'settings-view-tab-order');
+  list.setAttribute('aria-labelledby', setting.id);
+  for (const [index, viewId] of orderedViewIds.entries()) {
+    const label = featureTabViews.find((view) => view.view === viewId)?.label ?? viewId;
+    const item = el('li', 'settings-view-tab-order-item');
+    item.append(
+      el('span', 'settings-view-tab-order-label', label),
+      buildTabOrderMove(setting, orderedViewIds, viewId, index - 1, 'Move up', `Move ${label} up`),
+      buildTabOrderMove(setting, orderedViewIds, viewId, index + 1, 'Move down', `Move ${label} down`),
+    );
+    list.append(item);
+  }
+  return list;
+}
+
+function buildTabOrderMove(setting: SettingsSetting, orderedViewIds: readonly string[], viewId: string, targetIndex: number, label: string, accessibleName: string) {
+  const moveKey = `${viewId}:${label}`;
+  const button = el('button', 'btn-dialog btn-dialog-cancel', label);
+  button.type = 'button';
+  button.setAttribute('aria-label', accessibleName);
+  button.disabled = targetIndex < 0 || targetIndex >= orderedViewIds.length;
+  if (moveKey === lastTabOrderMoveKey) button.dataset.restoresFocus = 'true';
+  button.addEventListener('click', () => {
+    lastTabOrderMoveKey = moveKey;
+    commitSetting(setting, moveViewId(orderedViewIds, viewId, targetIndex));
+  });
+  return button;
+}
+
 function renderProjects(setting: SettingsSetting) {
   const wrapper = el('div', 'settings-view-projects');
   const currentValue = storedValue(setting);
@@ -1058,6 +1092,7 @@ function renderControl(setting: SettingsSetting) {
   if (setting.control === 'list') return renderList(setting);
   if (setting.control === 'projects') return renderProjects(setting);
   if (setting.control === 'shortcut-key') return renderShortcutKey(setting);
+  if (setting.control === 'tab-order') return renderTabOrder(setting);
   return renderInput(setting);
 }
 
@@ -1242,7 +1277,8 @@ function rowOf(setting: SettingsSetting): HTMLElement | null {
 function focusControl(row: HTMLElement) {
   const control = row.querySelector<HTMLElement>('.settings-view-setting-control');
   if (!control) return;
-  const target = control.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')
+  const target = control.querySelector<HTMLElement>('[data-restores-focus="true"]:not([disabled])')
+    ?? control.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')
     ?? control.querySelector<HTMLElement>('input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])');
   target?.focus();
 }

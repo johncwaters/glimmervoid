@@ -5,7 +5,6 @@ import { getRestorableSessionId, requestSessionOpen, selectSession } from '../se
 import { addActivityRenderer } from '../session-card/activity.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
-import { reparentReviewPanel } from '../sidebar/review-sidebar.ts';
 import { uiState } from '../ui-state-core.ts';
 import { createBoardScreen } from './board-screen.ts';
 import type { PhonePanel } from './phone-panels-core.ts';
@@ -28,9 +27,8 @@ interface PhoneShellHooks {
 }
 
 const NAV_SCREENS: readonly PhoneScreenSpec[] = Object.freeze([
-  { id: BOARD, label: 'Board', glyph: '▤' },
+  { id: BOARD, label: 'Focus', glyph: '▤' },
   { id: 'terminal', label: 'Terminal', glyph: '▸' },
-  { id: 'review', label: 'Review', glyph: '◫' },
 ]);
 let panels: PhonePanel<AdoptableElement>[] = [];
 const panelMountElById = new Map<string, HTMLDivElement>();
@@ -40,7 +38,6 @@ const screenElById = new Map<string, HTMLElement>();
 const screenAttentionById = new Map<string, string | boolean>();
 let boardScreen: ReturnType<typeof createBoardScreen> | null = null;
 let terminalScreen: ReturnType<typeof createTerminalScreen> | null = null;
-let reviewMountEl: HTMLDivElement | null = null;
 let moreButtonEl: HTMLButtonElement | null = null;
 let moreMenuEl: HTMLDivElement | null = null;
 const menuButtonById = new Map<string, HTMLButtonElement>();
@@ -176,13 +173,11 @@ function build() {
   boardScreen = createBoardScreen({ onSelectSession: openSession });
   addActivityRenderer((ui, kind) => { if (active) boardScreen?.renderActivity(ui, kind); });
   terminalScreen = createTerminalScreen({ onBack: () => showScreen(BOARD) });
-  reviewMountEl = el('div', 'phone-review');
 
   const screens = el('div', 'phone-screens');
   const contentByScreenId: Record<string, HTMLElement | null> = {
     [BOARD]: boardScreen.el,
     terminal: terminalScreen.el,
-    review: reviewMountEl,
   };
   for (const screen of NAV_SCREENS) {
     screens.appendChild(wrapScreen(screen.id, screen.label, contentByScreenId[screen.id]));
@@ -342,6 +337,11 @@ function showScreen(screenId: string) {
   syncPhoneHistory();
 }
 
+export function orderPhonePanels(orderedViewIds: readonly string[]) {
+  panels.sort((first, second) => orderedViewIds.indexOf(first.id) - orderedViewIds.indexOf(second.id));
+  moreMenuEl?.append(...panels.flatMap((panel) => menuButtonById.get(panel.id) ?? []));
+}
+
 export function mountPhoneShell(options?: PhoneShellHooks) {
   hooks = options || {};
   panels = hooks.panels || [];
@@ -354,7 +354,6 @@ export function activatePhoneShell({ sessionId, linkedScreenId }: { sessionId?: 
   active = true;
   shellEl.hidden = false;
   for (const control of (hooks.headerControls || [])) adoptElement(control, boardScreen.topBarEl);
-  reparentReviewPanel(reviewMountEl);
   for (const panel of panels) {
     adoptElement(panel.el, panelMountElById.get(panel.id));
     panel.el.hidden = false;
@@ -380,7 +379,6 @@ export function deactivatePhoneShell() {
   if (!shellEl || !terminalScreen) throw new Error('Phone shell is not built');
   active = false;
   terminalScreen.clear();
-  reparentReviewPanel(null);
   for (const panel of panels) releaseElement(panel.el);
   for (const control of (hooks.headerControls || [])) releaseElement(control);
   setMoreMenuOpen(false);

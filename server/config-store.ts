@@ -39,6 +39,7 @@ const DEFAULT_CONFIG = {
   conversationView: false,
   streamerMode: false,
   zenView: false,
+  viewTabOrder: [] as string[],
   remoteSessions: false,
 
   detectBackgroundAgents: true,
@@ -516,6 +517,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       conversationView: config.conversationView ?? effectiveDefaults.conversationView,
       streamerMode: config.streamerMode ?? effectiveDefaults.streamerMode,
       zenView: config.zenView ?? effectiveDefaults.zenView,
+      viewTabOrder: config.viewTabOrder ?? DEFAULT_CONFIG.viewTabOrder,
       remoteSessions: config.remoteSessions ?? effectiveDefaults.remoteSessions,
       detectBackgroundAgents: config.detectBackgroundAgents ?? effectiveDefaults.detectBackgroundAgents,
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,

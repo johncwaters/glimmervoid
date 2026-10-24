@@ -28,7 +28,7 @@ import { applyHooksReport, applyLateHookResult, setHooksRequestSender } from './
 import { showDesktopNotification } from './notifications.ts';
 import { clearUnsourcedError, reportUnsourcedError } from './action-status.ts';
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
-import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession, syncPhoneHistory } from './phone/phone-shell.ts';
+import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, orderPhonePanels, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession, syncPhoneHistory } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-panel.ts';
@@ -73,7 +73,7 @@ import { applyPlanLimits, applyUsageReport, applyUsageSessions, setUsageRequestS
 import { createDashboardViews } from './view-registry.ts';
 import { isZenActive, refreshZenView, stageNextAttention } from './zen-view/zen-view.ts';
 import type { DashboardView } from './view-registry.ts';
-import { refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings } from './view-registry-core.ts';
+import { moveViewId, orderViewIds, refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings } from './view-registry-core.ts';
 import type { ViewRefreshReason } from './view-registry-core.ts';
 
 applyTheme(getThemeId());
@@ -764,6 +764,11 @@ const VIEW_TABS = createDashboardViews({
   setPhoneAttention: setPhoneScreenAttention,
 });
 
+function currentViewOrder() {
+  return VIEW_TABS.map((viewTab) => viewTab.view);
+}
+
+const DEFAULT_VIEW_ORDER = currentViewOrder();
 setFeatureTabViews(VIEW_TABS);
 mountReviewSidebar({ panel: document.getElementById('review-sidebar') });
 for (const viewTab of VIEW_TABS) viewTab.mount(viewTab.el);
@@ -845,12 +850,22 @@ function applySurfaceSettings(settings: FeatureSurfaceSettings) {
   for (const { view, isAvailable } of viewAvailabilityFromSettings(VIEW_TABS, settings)) setSurfaceAvailable(view, isAvailable);
 }
 
-function applyDashboardSettings(settings: FeatureSurfaceSettings & Pick<BrowserConfig, 'coherence'> & { streamerMode?: boolean; conversationView?: boolean }) {
+function applyTabOrder(savedViewOrder: readonly string[] | undefined) {
+  const orderedViewIds = orderViewIds(DEFAULT_VIEW_ORDER, savedViewOrder);
+  const isAlreadyOrdered = VIEW_TABS.every((viewTab, index) => viewTab.view === orderedViewIds[index]);
+  if (isAlreadyOrdered) return;
+  VIEW_TABS.sort((first, second) => orderedViewIds.indexOf(first.view) - orderedViewIds.indexOf(second.view));
+  queryTag(document, '#header-tabs', 'div').append(...VIEW_TABS.map((viewTab) => viewTab.tab));
+  orderPhonePanels(orderedViewIds);
+}
+
+function applyDashboardSettings(settings: FeatureSurfaceSettings & Pick<BrowserConfig, 'coherence' | 'viewTabOrder'> & { streamerMode?: boolean; conversationView?: boolean }) {
   applyTerminalSettings(settings);
   applySettingsBroadcast(settings);
   applyVisionsSettings(settings);
   applySurfaceSettings(settings);
   syncTelemetryBanner(settings);
+  applyTabOrder(settings.viewTabOrder);
   setStreamerMode(settings.streamerMode === true);
   setConversationViewEnabled(settings.conversationView === true);
 }
@@ -880,9 +895,46 @@ function focusViewTabIfFocused(tab: HTMLElement) {
   tab.focus();
 }
 
+let draggedViewId: string | null = null;
+
+function saveTabOrder(nextViewOrder: string[]) {
+  const previousViewOrder = currentViewOrder();
+  applyTabOrder(nextViewOrder);
+  sendControlRequest('update-settings', { settings: { viewTabOrder: nextViewOrder } })
+    .then((message) => {
+      if (message.type === 'settings-error') applyTabOrder(previousViewOrder);
+    })
+    .catch(() => applyTabOrder(previousViewOrder));
+}
+
+function dropDraggedTabOn(targetView: string) {
+  const movedView = draggedViewId;
+  draggedViewId = null;
+  if (!movedView || movedView === targetView) return;
+  const viewOrder = currentViewOrder();
+  saveTabOrder(moveViewId(viewOrder, movedView, viewOrder.indexOf(targetView)));
+}
+
 for (let i = 0; i < VIEW_TABS.length; i++) {
   const { view, tab } = VIEW_TABS[i];
   tab.addEventListener('click', () => activateView(view));
+  tab.addEventListener('dragstart', (e) => {
+    draggedViewId = view;
+    e.dataTransfer?.setData('text/plain', view);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  });
+  tab.addEventListener('dragover', (e) => {
+    if (!draggedViewId || draggedViewId === view) return;
+    e.preventDefault();
+    tab.dataset.dropTarget = 'true';
+  });
+  tab.addEventListener('dragleave', () => delete tab.dataset.dropTarget);
+  tab.addEventListener('drop', (e) => {
+    e.preventDefault();
+    delete tab.dataset.dropTarget;
+    dropDraggedTabOn(view);
+  });
+  tab.addEventListener('dragend', () => { draggedViewId = null; });
   tab.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     if (e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return;

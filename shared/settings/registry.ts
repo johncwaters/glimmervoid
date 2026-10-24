@@ -13,7 +13,7 @@ type SettingsScope = 'browser' | 'machine';
 type SettingsAccess = 'editable' | 'advanced' | 'readout' | 'file-only';
 export type SettingsEffect = 'now' | 'new-sessions' | 'restart';
 export type SettingsLevel = 'browser' | 'machine' | 'lanes';
-type SettingsControl = 'toggle' | 'number' | 'text' | 'password' | 'select' | 'list' | 'projects' | 'json' | 'readonly' | 'shortcut-key';
+type SettingsControl = 'toggle' | 'number' | 'text' | 'password' | 'select' | 'list' | 'projects' | 'json' | 'readonly' | 'shortcut-key' | 'tab-order';
 export type SettingsChoicePresentation = 'segmented' | 'select';
 
 interface SettingsOption {
@@ -265,6 +265,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         id: 'zen-view', path: 'zenView', title: 'Zen view (experimental)',
         description: 'Add a Zen tab that shows no terminal until a session needs you, then shows only that session and what it needs.',
         control: 'toggle', keywords: ['experimental', 'calm', 'focus', 'attention', 'needs you'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'tab-order', path: 'viewTabOrder', title: 'Tab order',
+        description: 'The order of the dashboard tabs in every browser: the header on desktop and the More menu on a phone. You can also drag a tab in the desktop header.',
+        control: 'tab-order', keywords: ['tabs', 'order', 'rearrange', 'reorder', 'header', 'more', 'menu'], defaultValue: [], ...MACHINE_NOW,
       },
       {
         id: 'remote-sessions', path: 'remoteSessions', title: 'Remote Coder sessions (experimental)',

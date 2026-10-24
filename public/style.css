@@ -5751,6 +5751,7 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   transition: color var(--transition-med), background var(--transition-med), border-color var(--transition-med), box-shadow var(--transition-med);
 }
 .header-tab[hidden] { display: none; }
+.header-tab[data-drop-target="true"] { border-color: var(--accent); }
 @media (hover: hover) {
   .header-tab:hover {
     color: var(--text);
@@ -7659,6 +7660,26 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   gap: 6px;
 }
 
+.settings-view-tab-order {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-view-tab-order-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-view-tab-order-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .settings-view-list-input {
   min-height: 72px;
   line-height: 1.4;
@@ -8463,12 +8484,8 @@ html[data-arrow-pad] .phone-arrow-pad { display: block; }
 html[data-arrow-pad] .phone-key-arrow { display: none; }
 .phone-key:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.phone-review,
 .phone-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
-.phone-review > .app-sidebar { flex: 1 1 auto; border-left: none; }
-html[data-layout="phone"] .review-resize-handle { display: none; }
-html[data-layout="phone"] .review-sidebar-body { overscroll-behavior: contain; }
 .phone-panel > :not(.settings-view) { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 
 .phone-settings > .settings-view { flex: 1 1 auto; min-height: 0; }
