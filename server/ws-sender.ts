@@ -36,8 +36,21 @@ interface WsSenderOptions {
   startOffset?: number;
 }
 
+interface ScreenSnapshotForResume {
+  data: string;
+  offset: number;
+}
+
+interface ResumeOutputInput {
+  outputOffset: number;
+  hasResizedWhilePaused: boolean;
+  readScreenSnapshot: () => ScreenSnapshotForResume;
+}
+
 interface WsSender {
   onData(data: string): void;
+  pauseOutput(): void;
+  resumeOutput(input: ResumeOutputInput): void;
   markInputFlush(): void;
   sendImmediate(payload: string, rewindToOffset: number): boolean;
   sendOutOfBand(payload: string | Uint8Array): boolean;
@@ -66,6 +79,7 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
   let sentOffset = initialOffset;
   let desynced = false;
   let refusedOutOfBand: string | Uint8Array | null = null;
+  let isOutputPaused = false;
 
   const bufferedAmount = () => ws.bufferedAmount || 0;
   const isOpen = () => ws.readyState === OPEN;
@@ -101,7 +115,7 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
   }
 
   function maybeBackfill(): void {
-    if (!desynced || !source || destroyed || !isOpen()) return;
+    if (!desynced || !source || destroyed || isOutputPaused || !isOpen()) return;
     if (overHighWater()) return;
     const { data, end, evicted } = source.getBufferSince(sentOffset);
     if (evicted) ws.send(SCREEN_RESET + data);
@@ -138,7 +152,7 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
   }
 
   function onData(data: string): void {
-    if (destroyed || !isOpen()) return;
+    if (destroyed || isOutputPaused || !isOpen()) return;
     if (desynced && !overHighWater()) {
       maybeBackfill();
       return;
@@ -195,6 +209,41 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
     return true;
   }
 
+  function pauseOutput(): void {
+    if (destroyed || isOutputPaused) return;
+    flushSend();
+    isOutputPaused = true;
+  }
+
+  function resetToScreenSnapshot(snapshot: ScreenSnapshotForResume): void {
+    sendBuffer = '';
+    if (overHighWater()) {
+      if (source) desynced = true;
+      armStallClose();
+      return;
+    }
+    desynced = false;
+    clearStall();
+    ws.send(snapshot.data);
+    sentOffset = snapshot.offset;
+    flushRefusedOutOfBand();
+  }
+
+  function resumeOutput({ outputOffset, hasResizedWhilePaused, readScreenSnapshot }: ResumeOutputInput): void {
+    if (destroyed || !isOutputPaused) return;
+    isOutputPaused = false;
+    if (!source || !isOpen()) return;
+    const missedByteCount = outputOffset - sentOffset;
+    if (missedByteCount <= 0 && !desynced) return;
+    const canReplayMissedBytes = !hasResizedWhilePaused && missedByteCount <= cfg.maxSendBuffer;
+    if (canReplayMissedBytes) {
+      desynced = true;
+      maybeBackfill();
+      return;
+    }
+    resetToScreenSnapshot(readScreenSnapshot());
+  }
+
   function destroy(): void {
     destroyed = true;
     clearStall();
@@ -204,7 +253,7 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
     flushNextData = false;
   }
 
-  return { onData, markInputFlush, sendImmediate, sendOutOfBand, destroy };
+  return { onData, pauseOutput, resumeOutput, markInputFlush, sendImmediate, sendOutOfBand, destroy };
 }
 
 export { createWsSender, DEFAULTS };

@@ -230,6 +230,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     session.on('data', dataListener);
     const resizeListener = (size: { cols: number; rows: number; seq: number }) => sendPtySizeFrame(sender, size);
     session.on('resize', resizeListener);
+    let resizeSeqAtPause: number | null = null;
     socket.on('message', (raw) => {
       const message = parseDataClientMessage(String(raw));
       if (!message) return;
@@ -257,7 +258,23 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
         applyResolvedSize(false);
         return;
       }
-      if (message.type === 'unview') releaseViewerSize();
+      if (message.type === 'unview') {
+        releaseViewerSize();
+        return;
+      }
+      if (message.type === 'pause-output') {
+        resizeSeqAtPause ??= session.ptySize().seq;
+        sender.pauseOutput();
+        return;
+      }
+      if (message.type !== 'resume-output' || resizeSeqAtPause === null) return;
+      const hasResizedWhilePaused = session.ptySize().seq !== resizeSeqAtPause;
+      resizeSeqAtPause = null;
+      sender.resumeOutput({
+        outputOffset: session.getOutputOffset(),
+        hasResizedWhilePaused,
+        readScreenSnapshot: () => session.getScreenSnapshot(),
+      });
     });
 
     socket.on('close', () => {

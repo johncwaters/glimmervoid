@@ -12,6 +12,8 @@ export const DataClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('input'), data: z.string() }),
   z.object({ type: z.literal('claim'), cols: viewerCols, rows: viewerRows }),
   z.object({ type: z.literal('unview') }),
+  z.object({ type: z.literal('pause-output') }),
+  z.object({ type: z.literal('resume-output') }),
 ]);
 export type DataClientMessage = z.infer<typeof DataClientMessage>;
 

@@ -581,3 +581,44 @@ test('only the most recent refused out-of-band frame is retried', () => {
   assert.deepEqual(framesOf(ws), ['SIZE-2'], 'the superseded size frame never reaches the client');
   assert.equal(ws.closed, null, 'a socket that drained before the stall fired is not closed');
 });
+
+function pausedSenderWithMissedOutput(missedOutput: string) {
+  const ws = fakeWs();
+  const sched = manualScheduler();
+  const ring = fakeRing();
+  const s = makeSender(ws, sched, { source: ring, maxSendBuffer: 8 });
+  feed(ring, s, 'seen');
+  sched.runMicro();
+  s.pauseOutput();
+  feed(ring, s, missedOutput);
+  sched.runMicro();
+  sched.runTimers();
+  return { ws, sched, ring, s };
+}
+
+test('a paused sender sends nothing, then a resume replays exactly the missed bytes on the same socket', () => {
+  const { ws, sched, ring, s } = pausedSenderWithMissedOutput('missed');
+  assert.deepEqual(framesOf(ws), ['seen'], 'nothing goes out while paused');
+
+  s.resumeOutput({ outputOffset: ring.end(), hasResizedWhilePaused: false, readScreenSnapshot: () => assert.fail('a small gap never reads the screen') });
+  feed(ring, s, 'live');
+  sched.runMicro();
+
+  assert.equal(framesOf(ws).join(''), 'seenmissedlive');
+});
+
+test('a resume after a gap past one send buffer or a resize resets to the screen snapshot instead of replaying', () => {
+  for (const { missedOutput, hasResizedWhilePaused } of [
+    { missedOutput: 'far too much missed', hasResizedWhilePaused: false },
+    { missedOutput: 'small', hasResizedWhilePaused: true },
+  ]) {
+    const { ws, sched, ring, s } = pausedSenderWithMissedOutput(missedOutput);
+    const snapshotFrame = `${SCREEN_RESET}screen`;
+
+    s.resumeOutput({ outputOffset: ring.end(), hasResizedWhilePaused, readScreenSnapshot: () => ({ data: snapshotFrame, offset: ring.end() }) });
+    feed(ring, s, 'live');
+    sched.runMicro();
+
+    assert.deepEqual(framesOf(ws), ['seen', snapshotFrame, 'live']);
+  }
+});
