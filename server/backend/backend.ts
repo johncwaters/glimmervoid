@@ -74,7 +74,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     glimmervoid?: { posthogReleaseId?: unknown };
   };
 
-  const configStore = createConfigStore({ settingsDefaults });
+  const configStore = createConfigStore({ settingsDefaults, readTelemetryInstallId: () => telemetry.currentInstallId() });
   const { config } = configStore;
   applyCustomAgents(config);
   const port = process.env.GLIMMERVOID_PORT
@@ -101,6 +101,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const serverBuild = `${packageJson.version}+${crypto.randomBytes(4).toString('hex')}`;
 
   const installFlavor = detectInstallFlavor(packageRoot).flavor;
+  let broadcastSettings: (() => void) | null = null;
   const telemetry = createTelemetry({
     config,
     env: process.env,
@@ -119,6 +120,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     releaseId: parsePosthogReleaseId(packageJson.glimmervoid?.posthogReleaseId),
     getActiveSessionCount: () => sessions.size + agentSessions.size,
     readAccountIds: createAccountIdReader({ env: process.env, homeDir: os.homedir() }),
+    onInstallIdChange: () => broadcastSettings?.(),
   });
   telemetry.watchForCrashes();
   telemetry.startRemoteSwitchChecks();
@@ -587,9 +589,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   updateApply.startAfterListening(httpServer);
   httpServer.once('listening', startPostTurnLeftoverCleanup);
 
+  broadcastSettings = () => broadcastControl?.({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, rtkInstallStatus: rtkInstall.getStatus(), coderEnvironments: laneAssembly.coderEnv.availableEnvironments(), agentLogins: agentConnect.logins() }) });
   stopConfigWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
-    broadcastControl({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, rtkInstallStatus: rtkInstall.getStatus(), coderEnvironments: laneAssembly.coderEnv.availableEnvironments(), agentLogins: agentConnect.logins() }) });
+    broadcastSettings?.();
   });
   updateCheck.start();
 

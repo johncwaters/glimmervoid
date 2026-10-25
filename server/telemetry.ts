@@ -57,6 +57,7 @@ interface TelemetryOptions {
   nodeVersion?: string;
   getActiveSessionCount?: () => number;
   readAccountIds?: () => Promise<AccountIds>;
+  onInstallIdChange?: () => void;
   logger?: LaneLogger | null;
   now?: () => Date;
 }
@@ -76,7 +77,7 @@ interface Telemetry {
   consumeFirstRunNotice(): Promise<boolean>;
   applyConfig(): void;
   isEnabled(): boolean;
-  getInstallId(): Promise<string | null>;
+  currentInstallId(): string | null;
   requestDataDeletion(): Promise<boolean>;
 }
 
@@ -398,9 +399,9 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     return true;
   }
 
-  async function getInstallId(): Promise<string | null> {
+  function currentInstallId(): string | null {
     if (!isEnabled()) return null;
-    return (await ensureInstallState()).installId;
+    return state?.installId ?? null;
   }
 
   async function writeStateDurably(nextState: TelemetryState): Promise<boolean> {
@@ -428,7 +429,10 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
       return false;
     }
     const deletionRequest: QueuedEvent = { event: 'data_deletion_requested', timestamp: now().toISOString(), properties: {} };
-    if (await post([deletionRequest], deletedState.installId, SEND_TIMEOUT_MS)) return true;
+    if (await post([deletionRequest], deletedState.installId, SEND_TIMEOUT_MS)) {
+      options.onInstallIdChange?.();
+      return true;
+    }
     await writeStateDurably(deletedState);
     return false;
   }
@@ -437,7 +441,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     const isLocalConsentNowGiven = isLocalConsentGiven();
     const isLocalConsentTurnedOn = isLocalConsentNowGiven && !wasLocalConsentGiven;
     wasLocalConsentGiven = isLocalConsentNowGiven;
-    if (isLocalConsentTurnedOn) void checkRemoteSwitch();
+    if (isLocalConsentTurnedOn) void checkRemoteSwitch().then(ensureInstallState).then(() => options.onInstallIdChange?.());
     if (isCaptureAllowed()) return;
     queue = [];
     clearFlushTimer();
@@ -445,7 +449,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
 
   return {
     capture, captureException, captureClientError, captureAiGenerations, recordFatalCrash, watchForCrashes, sendPendingCrash,
-    checkRemoteSwitch, startRemoteSwitchChecks, flush, stop, consumeFirstRunNotice, applyConfig, isEnabled, getInstallId, requestDataDeletion,
+    checkRemoteSwitch, startRemoteSwitchChecks, flush, stop, consumeFirstRunNotice, applyConfig, isEnabled, currentInstallId, requestDataDeletion,
   };
 }
 

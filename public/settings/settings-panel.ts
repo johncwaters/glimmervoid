@@ -119,6 +119,8 @@ const OPTION_CATALOGS: Readonly<Record<string, () => { id: string; label: string
 
 const SAVED_STATUS_MS = 2200;
 const COPY_STATUS_MS = 1600;
+const TELEMETRY_DELETION_TIMEOUT_MS = 15000;
+const WEBSITE_ORIGIN = 'https://glimmervoid.dev';
 const APPEARANCE_PAGE_ID = 'browser-appearance';
 const SHORTCUTS_PAGE_ID = 'browser-shortcuts';
 const FEATURES_PAGE_ID = 'lanes-features';
@@ -290,21 +292,32 @@ function renderFeatureList(container: HTMLElement) {
   container.appendChild(list);
 }
 
+function websiteUrl(pathname: string): string {
+  const url = new URL(pathname, WEBSITE_ORIGIN);
+  const { telemetryInstallId } = settingsPayload;
+  if (typeof telemetryInstallId === 'string' && telemetryInstallId) url.searchParams.set('gv', telemetryInstallId);
+  return url.href;
+}
+
+function externalLink(label: string, href: string) {
+  const link = el('a', 'settings-about-link', label);
+  link.href = href;
+  link.target = '_blank';
+  link.rel = 'noopener';
+  return link;
+}
+
 function renderAbout(container: HTMLElement) {
   const about = el('div', 'settings-about');
   const version = typeof __APP_VERSION__ === 'string' && __APP_VERSION__ ? `v${__APP_VERSION__}` : 'version unknown';
   const versionEl = el('span', 'settings-about-version', 'GLIMMERVOID ');
   versionEl.appendChild(el('span', 'settings-about-v', version));
   const links = el('span', 'settings-about-links');
-  const repo = el('a', 'settings-about-link', 'GitHub');
-  repo.href = `https://github.com/${REPO_SLUG}`;
-  repo.target = '_blank';
-  repo.rel = 'noopener';
-  const changelog = el('a', 'settings-about-link', 'Changelog');
-  changelog.href = `https://github.com/${REPO_SLUG}/blob/main/CHANGELOG.md`;
-  changelog.target = '_blank';
-  changelog.rel = 'noopener';
-  links.append(repo, changelog);
+  links.append(
+    externalLink('GitHub', `https://github.com/${REPO_SLUG}`),
+    externalLink('Changelog', `https://github.com/${REPO_SLUG}/blob/main/CHANGELOG.md`),
+    externalLink('Website', websiteUrl('/')),
+  );
   about.append(versionEl, links);
   container.appendChild(about);
 }
@@ -1111,6 +1124,7 @@ function buildStatusSlot(setting: SettingsSetting) {
     return block;
   }
   if (setting.id === 'desktop-notifications') return buildNotificationPermissionSlot(setting);
+  if (setting.id === 'telemetry-enabled') return buildTelemetryDataSlot();
   if (setting.status === 'telegram-delivery') return buildTelegramDeliverySlot();
   const status = statusText(setting);
   if (!status) return null;
@@ -1153,6 +1167,39 @@ function buildTelegramDeliverySlot() {
   const testRow = el('div', 'settings-telegram-test');
   testRow.append(testButton, testStatus.element);
   slot.append(deliveryLines, testRow);
+  return slot;
+}
+
+async function requestTelemetryDeletion() {
+  telemetryDeletionButton.disabled = true;
+  const reply = await requestWithStatus('request-telemetry-deletion', {}, telemetryDeletionStatus, {
+    busyText: 'Sending the deletion request.', timeoutMs: TELEMETRY_DELETION_TIMEOUT_MS,
+  });
+  telemetryDeletionButton.disabled = false;
+  if (reply?.type !== 'telemetry-deletion-result') return;
+  if (reply.ok) {
+    telemetryDeletionStatus.show('ok', 'Deletion requested. New usage starts under a new id.');
+    return;
+  }
+  telemetryDeletionStatus.show('error', 'Not sent: PostHog did not take the request. Try again later.');
+}
+
+const telemetryDeletionButton = el('button', 'btn-dialog btn-dialog-cancel', 'Delete my data');
+telemetryDeletionButton.type = 'button';
+telemetryDeletionButton.addEventListener('click', () => {
+  openConfirmDialog({
+    title: 'Delete your usage data?',
+    message: 'We delete everything collected under this install. New usage starts under a new id.',
+    confirmLabel: 'Delete my data',
+    danger: true,
+    onConfirm: () => { void requestTelemetryDeletion(); },
+  });
+});
+const telemetryDeletionStatus = createActionStatus('settings-telemetry-deletion-status');
+
+function buildTelemetryDataSlot() {
+  const slot = el('div', 'settings-view-status-slot settings-telemetry-data');
+  slot.append(externalLink('Privacy details', websiteUrl('/privacy')), telemetryDeletionButton, telemetryDeletionStatus.element);
   return slot;
 }
 

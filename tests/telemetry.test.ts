@@ -163,6 +163,7 @@ test('deleting data sends one request under the old id even with telemetry off, 
   fs.writeFileSync(stateFilePath, JSON.stringify({ installId: oldInstallId, noticeShownAt: '2026-10-01T00:00:00.000Z' }));
   const { telemetry } = buildTelemetry({ fetchFn, stateFilePath, config: { telemetry: { enabled: false } } });
   assert.equal(await telemetry.requestDataDeletion(), true);
+  assert.equal(telemetry.currentInstallId(), null);
   await telemetry.stop();
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0].body.batch.map(({ event, distinct_id }) => ({ event, distinct_id })), [{ event: 'data_deletion_requested', distinct_id: oldInstallId }]);
@@ -191,6 +192,8 @@ test('events captured while the deletion request is pending never go out under t
   await telemetry.flush();
   releaseDeletionResponse();
   assert.equal(await deletion, true);
+  assert.match(telemetry.currentInstallId() ?? '', /^[0-9a-f-]{36}$/);
+  assert.notEqual(telemetry.currentInstallId(), oldInstallId);
   await telemetry.stop();
   const distinctIdsOfOtherEvents = sent.flatMap(({ body }) => body.batch).filter(({ event }) => event !== 'data_deletion_requested').map(({ distinct_id }) => distinct_id);
   assert.ok(distinctIdsOfOtherEvents.length > 0);
@@ -335,6 +338,22 @@ test('turning consent off in config clears the queue', async () => {
   await telemetry.flush();
   await telemetry.stop();
   assert.equal(sent.length, 0);
+});
+
+test('turning consent on after a start with it off makes the install id known and announces it', async () => {
+  const config: { telemetry: { enabled: boolean } } = { telemetry: { enabled: false } };
+  let announceInstallId: (installId: string | null) => void = () => {};
+  const announcedInstallId = new Promise<string | null>((resolve) => { announceInstallId = resolve; });
+  const { telemetry } = buildTelemetry({
+    fetchFn: recordingFetch().fetchFn,
+    config,
+    onInstallIdChange: () => announceInstallId(telemetry.currentInstallId()),
+  });
+  assert.equal(await telemetry.consumeFirstRunNotice(), false);
+  config.telemetry.enabled = true;
+  telemetry.applyConfig();
+  assert.match(await announcedInstallId ?? '', /^[0-9a-f-]{36}$/);
+  await telemetry.stop();
 });
 
 test('stop sends what is queued and nothing captured afterwards', async () => {

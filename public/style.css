@@ -9981,7 +9981,8 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
   margin: 14px 0 0;
 }
 
-.settings-telegram-test {
+.settings-telegram-test,
+.settings-telemetry-data {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -9989,7 +9990,8 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
   margin-top: 10px;
 }
 
-.settings-telegram-test .settings-telegram-test-status {
+.settings-telegram-test .settings-telegram-test-status,
+.settings-telemetry-data .settings-telemetry-deletion-status {
   margin: 0;
 }
 

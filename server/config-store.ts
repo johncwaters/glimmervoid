@@ -369,7 +369,10 @@ function retiredGuardrailKeysWarning(config: GlimmervoidConfig): string | null {
   return `[guardrails] config.json still has ${retiredKeys.join(' and ')}. These keys are ignored, so their unreadable paths and opt-outs do not apply until you move them.`;
 }
 
-function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<DefaultConfig> } = {}) {
+function createConfigStore({ settingsDefaults, readTelemetryInstallId }: {
+  settingsDefaults?: Partial<DefaultConfig>;
+  readTelemetryInstallId?: () => string | null;
+} = {}) {
   const configPath = resolveConfigPath();
   const effectiveDefaults: Record<string, unknown> = { ...DEFAULT_CONFIG, ...(settingsDefaults || {}) };
 
@@ -525,6 +528,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       guardrails: pickBlock('guardrails', { ...DEFAULT_CONFIG.guardrails, ...config.guardrails }),
       telemetry: pickBlock('telemetry', { ...DEFAULT_CONFIG.telemetry, ...config.telemetry }),
       telemetryForcedOff: isTelemetryForcedOff(process.env),
+      telemetryInstallId: readTelemetryInstallId?.() ?? null,
       rtk: config.rtk ?? effectiveDefaults.rtk,
       rtkInstallSupported: assetForPlatform(process.platform, process.arch) !== null,
       saneYolo: config.saneYolo ?? effectiveDefaults.saneYolo,
