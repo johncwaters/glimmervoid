@@ -5,6 +5,7 @@ import { MERGEABLE_LIVE_STATES, STATES } from '#shared/states.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
+import { isPhoneLayout } from '../form-factor.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -28,6 +29,7 @@ import {
   hasReviewChanges,
   mergeActionTitle,
   mergeDisabledReason,
+  noChangesDescription,
   parkedStatusText,
   reviewHeadline,
   resyncOutcomeText,
@@ -199,9 +201,11 @@ export function reparentReviewPanel(parentEl: HTMLElement | null) {
   if (!panelEl) return;
   if (parentEl) {
     adoptElement(panelEl, parentEl);
+    render();
     return;
   }
   releaseElement(panelEl);
+  render();
 }
 
 export function setReviewMergeStatus(id: string, mergeStatus: string, reason: string | null = null) {
@@ -584,9 +588,11 @@ function renderSidebar() {
     status, mergeReason, fetched, hasDiffError: diffError !== null, hasChanges: totals.files > 0 || hasCommits, hasCommits,
     canMerge: !isWorkspace && mergeAction.isEnabled, isWorkspace, live, effectiveBase, changedFileCount: totals.files,
   });
+  const isEmpty = headline.isEmpty === true;
+  const isSyncLabelShown = isEmpty || isPhoneLayout() || shouldShowBranchSyncLabel(sync);
   const statusLine = el('div', 'review-status-headline');
   statusLine.append(el('span', 'review-status-text', headline.text));
-  if (!isWorkspace && !shouldShowBranchSyncLabel(sync)) {
+  if (!isWorkspace && !isSyncLabelShown) {
     const syncText = branchSyncLabel(sync);
     if (syncText) {
       statusLine.title = syncText;
@@ -599,7 +605,7 @@ function renderSidebar() {
       statusLine.append(el('span', 'sr-only', syncText), refreshButton);
     }
   }
-  controlsEl.append(statusLine);
+  if (!isEmpty) controlsEl.append(statusLine);
 
   const metadata = el('div', 'review-status-meta');
   if (fetched && totals.files > 0) metadata.append(
@@ -607,7 +613,7 @@ function renderSidebar() {
     el('span', 'review-status-removed', `-${totals.removed}`),
     el('span', 'review-status-spacer'),
   );
-  if (!isWorkspace && shouldShowBranchSyncLabel(sync)) {
+  if (!isWorkspace && isSyncLabelShown) {
     const branchSync = renderBranchSync(id, primaryAction !== 'resolve');
     if (branchSync) metadata.append(branchSync);
   }
@@ -644,7 +650,7 @@ function renderSidebar() {
     if (resyncStatus.error) resyncReasonLine.classList.add('review-control-reason-error');
     resyncReasonLine.setAttribute('role', 'status');
     metadata.append(resyncReasonLine);
-    if (!metadata.isConnected) controlsEl.insertBefore(metadata, statusLine.nextSibling);
+    if (!metadata.isConnected) controlsEl.insertBefore(metadata, statusLine.isConnected ? statusLine.nextSibling : controlsEl.firstChild);
     controlsEl.querySelector('.review-branch-sync-button, .review-branch-sync-refresh')?.setAttribute('aria-describedby', resyncReasonLine.id);
   }
 
@@ -653,6 +659,10 @@ function renderSidebar() {
 
   if (diffError) {
     bodyEl.append(el('p', 'review-diff-error', diffError));
+    return;
+  }
+  if (isEmpty) {
+    renderEmpty(headline.text, noChangesDescription(isWorkspace, effectiveBase));
     return;
   }
   const changeMap = mapById.get(id);

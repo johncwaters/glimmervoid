@@ -3,7 +3,7 @@ import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import { pickStrongestAttention } from '../focus-view/attention-core.ts';
 import { getRestorableSessionId, requestSessionOpen, selectSession } from '../session-actions.ts';
 import { addActivityRenderer } from '../session-card/activity.ts';
-import { sessionUIs } from '../session-card/card-registry.ts';
+import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
 import { reparentReviewPanel } from '../sidebar/review-sidebar.ts';
 import { uiState } from '../ui-state-core.ts';
@@ -43,6 +43,7 @@ const screenAttentionById = new Map<string, string | boolean>();
 let boardScreen: ReturnType<typeof createBoardScreen> | null = null;
 let terminalScreen: ReturnType<typeof createTerminalScreen> | null = null;
 let reviewMountEl: HTMLDivElement | null = null;
+let changesSessionNameEl: HTMLSpanElement | null = null;
 let moreButtonEl: HTMLButtonElement | null = null;
 let moreMenuEl: HTMLDivElement | null = null;
 const menuButtonById = new Map<string, HTMLButtonElement>();
@@ -222,7 +223,8 @@ function buildChangesScreen(mountEl: HTMLDivElement) {
   backButton.type = 'button';
   backButton.setAttribute('aria-label', 'Back to terminal');
   backButton.addEventListener('click', () => showScreen(TERMINAL));
-  topBar.append(backButton, el('span', 'phone-changes-title', 'Changes'));
+  changesSessionNameEl = el('span', 'phone-changes-session');
+  topBar.append(backButton, el('span', 'phone-changes-title', 'Changes'), changesSessionNameEl);
   changesScreen.append(topBar, mountEl);
   return changesScreen;
 }
@@ -336,6 +338,7 @@ function applyScreen(screenId: string) {
   if (!moreButtonEl || !terminalScreen) throw new Error('Phone shell is not built');
   uiState.dispatch('setPhoneScreen', screenId);
   setMoreMenuOpen(false);
+  paintChangesSessionName();
   for (const [id, section] of screenElById) {
     section.hidden = id !== screenId;
   }
@@ -354,6 +357,15 @@ function applyScreen(screenId: string) {
 
 function canShowScreen(screenId: string) {
   return screenElById.has(screenId) && !unavailableScreenIds.has(screenId);
+}
+
+function paintChangesSessionName() {
+  if (!changesSessionNameEl || !terminalScreen) return;
+  const shownSessionId = terminalScreen.getSessionId();
+  const shownSessionUi = shownSessionId ? sessionUIs.get(shownSessionId) : null;
+  const name = shownSessionUi ? sessionName(shownSessionUi) : '';
+  changesSessionNameEl.textContent = name;
+  changesSessionNameEl.title = name;
 }
 
 function showScreen(screenId: string) {
@@ -438,6 +450,7 @@ export function refreshPhoneBoard() {
   restoreShownSession();
   boardScreen.refresh();
   terminalScreen.refresh();
+  paintChangesSessionName();
   const isSessionScreen = rootScreenOf(uiState.snapshot().phoneScreen || BOARD) === TERMINAL;
   if (isSessionScreen && !terminalScreen.getSessionId()) showScreen(BOARD);
   const dot = dotOf(navButtonById.get(BOARD));

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Changes screen on phone**: one title row with the session name instead of two stacked headers. A session with no changes yet shows a short note saying edits land here, ready to merge into the base branch, instead of an empty screen, on desktop too. The branch sync refresh button now always shows its sync state beside it on phone, since there is no hover tooltip to explain it.
+
 ### Fixed
 
 - **Typing on a phone no longer pushes the terminal out of view**: pressing a key, such as a number on a Claude question screen with a side preview, could slide the terminal's content up and leave the card blank until you left and reopened the session. The terminal now stays put while you type, and the key still lands.

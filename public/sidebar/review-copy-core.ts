@@ -15,6 +15,7 @@ interface MergeDisabledInputs {
 interface ReviewHeadline {
   text: string;
   namesMergeTarget: boolean;
+  isEmpty?: boolean;
 }
 
 function changeHeadline({ changedFileCount, hasCommits, canMerge, isWorkspace, live, effectiveBase }: {
@@ -60,8 +61,13 @@ export function reviewHeadline({
   if (status === 'merged') return { text: 'Merged', namesMergeTarget: false };
   if (hasDiffError) return { text: 'Could not read changes', namesMergeTarget: false };
   if (!fetched) return { text: 'Checking for changes', namesMergeTarget: false };
-  if (!hasChanges) return { text: 'No changes yet', namesMergeTarget: false };
+  if (!hasChanges) return { text: 'No changes yet', namesMergeTarget: false, isEmpty: true };
   return changeHeadline({ changedFileCount, hasCommits, canMerge, isWorkspace, live, effectiveBase });
+}
+
+export function noChangesDescription(isWorkspace: boolean, effectiveBase: string | null | undefined): string {
+  if (isWorkspace) return 'Edits this session makes in its worktree show up here.';
+  return `Edits this session makes show up here, ready to merge into ${baseLabel(effectiveBase)}.`;
 }
 
 export function committedMergeTargetText(headline: ReviewHeadline, effectiveBase: string | null | undefined): string | null {
