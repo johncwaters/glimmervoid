@@ -97,7 +97,7 @@ interface BackendControlDependencies {
   sessionDocs: SessionDocsPort;
   coherenceFeed: CoherenceSessionFeed;
   serverBuild: () => string;
-  telemetry: Pick<Telemetry, 'capture' | 'captureException' | 'captureClientError'>;
+  telemetry: Pick<Telemetry, 'capture' | 'captureException' | 'captureClientError' | 'requestDataDeletion'>;
   logger: Pick<Console, 'warn'>;
 }
 

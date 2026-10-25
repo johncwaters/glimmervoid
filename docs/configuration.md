@@ -304,6 +304,7 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `team_review_post_refused` | `duration_ms`, `reason` | Posting a team review was refused, with a reason from a fixed list and the total action duration in milliseconds. Never the error text. |
 | `radar_investigation_finished` | `verdict`, `mode`, `error_reason` | A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text. |
 | `radar_fix_handoff_failed` | `step` | Handing a Radar fix over as a pull request failed, with which step failed. Never the branch or the error text. |
+| `data_deletion_requested` | none | Delete my data was confirmed in Settings > Privacy, with no properties. Sent under the old install id even when telemetry is off, unless the maintainers stopped all sending, and then the install id is replaced. PostHog deletes the person and every event under that id on receipt. |
 
 ## Browser preferences
 

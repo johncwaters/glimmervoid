@@ -13,7 +13,7 @@ import type { AccountIds, RemoteTelemetryState, TelemetryConfig, TelemetryEnviro
 import { listClaudeGlobalConfigPathCandidates } from './core/claude-trust-core.ts';
 import { codexHomeDir } from './core/codex-credentials-core.ts';
 import type { UsageGenerationRollupRow } from './usage/core/usage-entry-core.ts';
-import { createJsonStateStore, loadJsonStateFile, writeJsonAtomicSync } from './json-file.ts';
+import { createJsonStateStore, loadJsonStateFile, writeJsonAtomic, writeJsonAtomicSync } from './json-file.ts';
 import { createLaneLog } from './lanes/lane-log.ts';
 import type { LaneLogger } from './lanes/lane-log.ts';
 import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
@@ -76,6 +76,8 @@ interface Telemetry {
   consumeFirstRunNotice(): Promise<boolean>;
   applyConfig(): void;
   isEnabled(): boolean;
+  getInstallId(): Promise<string | null>;
+  requestDataDeletion(): Promise<boolean>;
 }
 
 function createTelemetry(options: TelemetryOptions): Telemetry {
@@ -280,6 +282,15 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
       const outgoing = await withPersonProperties(batch);
       const { installId } = await ensureInstallState();
       if (!isCaptureAllowed()) return false;
+      return await post(outgoing, installId, timeoutMs);
+    } catch (error) {
+      log.warnOnce('send-failed', 'send failed', { error: error instanceof Error ? error.name : String(error) });
+      return false;
+    }
+  }
+
+  async function post(outgoing: QueuedEvent[], installId: string, timeoutMs: number): Promise<boolean> {
+    try {
       const response = await fetchFn(TELEMETRY_BATCH_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -387,6 +398,41 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     return true;
   }
 
+  async function getInstallId(): Promise<string | null> {
+    if (!isEnabled()) return null;
+    return (await ensureInstallState()).installId;
+  }
+
+  async function writeStateDurably(nextState: TelemetryState): Promise<boolean> {
+    state = nextState;
+    try {
+      if (options.stateFilePath) await writeJsonAtomic(options.stateFilePath, nextState, { mkdir: true });
+    } catch (error) {
+      log.warnOnce('deletion-state-write-failed', 'could not record the new install id', { error: errorKind(error) });
+      return false;
+    }
+    await persistState(nextState);
+    return true;
+  }
+
+  async function requestDataDeletion(): Promise<boolean> {
+    await stateStore.load();
+    while (inFlightFlush) await inFlightFlush;
+    const deletedState = state;
+    if (!deletedState) return true;
+    if (remoteTelemetryState === 'disabled') return false;
+    queue = [];
+    clearFlushTimer();
+    if (!await writeStateDurably({ ...deletedState, installId: randomUUID() })) {
+      state = deletedState;
+      return false;
+    }
+    const deletionRequest: QueuedEvent = { event: 'data_deletion_requested', timestamp: now().toISOString(), properties: {} };
+    if (await post([deletionRequest], deletedState.installId, SEND_TIMEOUT_MS)) return true;
+    await writeStateDurably(deletedState);
+    return false;
+  }
+
   function applyConfig(): void {
     const isLocalConsentNowGiven = isLocalConsentGiven();
     const isLocalConsentTurnedOn = isLocalConsentNowGiven && !wasLocalConsentGiven;
@@ -399,7 +445,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
 
   return {
     capture, captureException, captureClientError, captureAiGenerations, recordFatalCrash, watchForCrashes, sendPendingCrash,
-    checkRemoteSwitch, startRemoteSwitchChecks, flush, stop, consumeFirstRunNotice, applyConfig, isEnabled,
+    checkRemoteSwitch, startRemoteSwitchChecks, flush, stop, consumeFirstRunNotice, applyConfig, isEnabled, getInstallId, requestDataDeletion,
   };
 }
 

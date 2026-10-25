@@ -156,6 +156,73 @@ test('app_started carries only hashes of the Claude and Codex account ids, never
   }
 });
 
+test('deleting data sends one request under the old id even with telemetry off, then rotates the id', async () => {
+  const { sent, fetchFn } = recordingFetch();
+  const stateFilePath = path.join(makeStateDir(), 'telemetry.json');
+  const oldInstallId = 'a0000000-0000-4000-8000-000000000001';
+  fs.writeFileSync(stateFilePath, JSON.stringify({ installId: oldInstallId, noticeShownAt: '2026-10-01T00:00:00.000Z' }));
+  const { telemetry } = buildTelemetry({ fetchFn, stateFilePath, config: { telemetry: { enabled: false } } });
+  assert.equal(await telemetry.requestDataDeletion(), true);
+  await telemetry.stop();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].body.batch.map(({ event, distinct_id }) => ({ event, distinct_id })), [{ event: 'data_deletion_requested', distinct_id: oldInstallId }]);
+  const storedState = JSON.parse(fs.readFileSync(stateFilePath, 'utf8'));
+  assert.notEqual(storedState.installId, oldInstallId);
+  assert.equal(storedState.noticeShownAt, '2026-10-01T00:00:00.000Z');
+});
+
+test('events captured while the deletion request is pending never go out under the deleted id', async () => {
+  const sent: SentBatch[] = [];
+  let releaseDeletionResponse = () => {};
+  const deletionResponseReleased = new Promise<void>(resolve => { releaseDeletionResponse = resolve; });
+  const fetchFn: typeof fetch = async (input, init) => {
+    const body = JSON.parse(String(init?.body));
+    sent.push({ url: String(input), body, signal: init?.signal });
+    if (body.batch[0].event === 'data_deletion_requested') await deletionResponseReleased;
+    return new Response('{}', { status: 200 });
+  };
+  const stateFilePath = path.join(makeStateDir(), 'telemetry.json');
+  const oldInstallId = 'a0000000-0000-4000-8000-000000000003';
+  fs.writeFileSync(stateFilePath, JSON.stringify({ installId: oldInstallId, noticeShownAt: null }));
+  const { telemetry } = buildTelemetry({ fetchFn, stateFilePath, config: { telemetry: { enabled: true } } });
+  const deletion = telemetry.requestDataDeletion();
+  while (sent.length === 0) await new Promise(resolve => setImmediate(resolve));
+  for (let index = 0; index < 20; index += 1) telemetry.capture('session_started', { adapter: 'custom' });
+  await telemetry.flush();
+  releaseDeletionResponse();
+  assert.equal(await deletion, true);
+  await telemetry.stop();
+  const distinctIdsOfOtherEvents = sent.flatMap(({ body }) => body.batch).filter(({ event }) => event !== 'data_deletion_requested').map(({ distinct_id }) => distinct_id);
+  assert.ok(distinctIdsOfOtherEvents.length > 0);
+  assert.equal(distinctIdsOfOtherEvents.includes(oldInstallId), false);
+});
+
+test('deleting data fails and keeps the id when the new id cannot be written', async (context) => {
+  const { sent, fetchFn } = recordingFetch();
+  const stateFilePath = path.join(makeStateDir(), 'telemetry.json');
+  const installId = 'a0000000-0000-4000-8000-000000000004';
+  fs.writeFileSync(stateFilePath, JSON.stringify({ installId, noticeShownAt: null }));
+  const { telemetry } = buildTelemetry({ fetchFn, stateFilePath, config: { telemetry: { enabled: false } } });
+  context.mock.method(fs.promises, 'rename', async () => { throw Object.assign(new Error('read-only'), { code: 'EACCES' }); });
+  assert.equal(await telemetry.requestDataDeletion(), false);
+  context.mock.restoreAll();
+  await telemetry.stop();
+  assert.equal(sent.length, 0);
+  assert.equal(JSON.parse(fs.readFileSync(stateFilePath, 'utf8')).installId, installId);
+});
+
+test('deleting data sends nothing and keeps the id while the remote kill switch is on', async () => {
+  const { sent, fetchFn } = recordingFetch();
+  const stateFilePath = path.join(makeStateDir(), 'telemetry.json');
+  const installId = 'a0000000-0000-4000-8000-000000000002';
+  fs.writeFileSync(stateFilePath, JSON.stringify({ installId, noticeShownAt: null, remoteDisabled: true }));
+  const { telemetry } = buildTelemetry({ fetchFn, stateFilePath, config: { telemetry: { enabled: false } } });
+  assert.equal(await telemetry.requestDataDeletion(), false);
+  await telemetry.stop();
+  assert.equal(sent.length, 0);
+  assert.equal(JSON.parse(fs.readFileSync(stateFilePath, 'utf8')).installId, installId);
+});
+
 test('the project token override reaches the batch body', async () => {
   const { sent, fetchFn } = recordingFetch();
   const { telemetry } = buildTelemetry({ fetchFn, env: { GLIMMERVOID_TELEMETRY_PROJECT_TOKEN: 'phc_scratch' } });

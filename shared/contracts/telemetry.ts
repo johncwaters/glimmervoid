@@ -41,6 +41,8 @@ const AppActiveProperties = z.object({
   ...PersonProperties.partial().shape,
 }).strict();
 
+const DataDeletionRequestedProperties = z.object({}).strict();
+
 const SessionStartedProperties = z.object({
   adapter: z.enum(TELEMETRY_ADAPTERS),
 }).strict();
@@ -155,6 +157,7 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   team_review_post_refused: TeamReviewPostRefusedProperties,
   radar_investigation_finished: RadarInvestigationFinishedProperties,
   radar_fix_handoff_failed: RadarFixHandoffFailedProperties,
+  data_deletion_requested: DataDeletionRequestedProperties,
 });
 
 export type TelemetryEventName = keyof typeof TELEMETRY_EVENT_SCHEMAS;
@@ -175,6 +178,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'team_review_post_refused', description: 'Posting a team review was refused, with a reason from a fixed list and the total action duration in milliseconds. Never the error text.' },
   { name: 'radar_investigation_finished', description: 'A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text.' },
   { name: 'radar_fix_handoff_failed', description: 'Handing a Radar fix over as a pull request failed, with which step failed. Never the branch or the error text.' },
+  { name: 'data_deletion_requested', description: 'Delete my data was confirmed in Settings > Privacy, with no properties. Sent under the old install id even when telemetry is off, unless the maintainers stopped all sending, and then the install id is replaced. PostHog deletes the person and every event under that id on receipt.' },
 ]);
 
 export const TELEMETRY_BASE_PROPERTY_KEYS = Object.freeze([

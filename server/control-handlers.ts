@@ -161,7 +161,7 @@ interface ControlHandlerDeps {
   decidePlanReview?: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs?: SessionDocsPort | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
-  telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture'>>) | null;
+  telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;
   coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'renew' | 'availableEnvironments' | 'settleRemoval'> | null;
   agentConnect?: Pick<ReturnType<typeof createAgentConnect>, 'logins' | 'refresh' | 'start' | 'cancel' | 'submitCode'> | null;
   remoteSetup?: { start: (agent: RemoteSetupAgent) => Promise<RemoteSetupOutcome> } | null;
@@ -1785,6 +1785,10 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       deps.telemetry?.captureClientError({ name: msg.name, stack: msg.stack });
     },
     'dashboard-telemetry': captureDashboardTelemetry,
+    'request-telemetry-deletion': async (msg: ClientMessageOf<'request-telemetry-deletion'>, ws: ControlSocket) => {
+      const ok = await deps.telemetry?.requestDataDeletion?.() ?? false;
+      ws.send(JSON.stringify({ type: 'telemetry-deletion-result', requestId: msg.requestId || null, ok }));
+    },
     'request-health-snapshot': (_msg: ClientMessageOf<'request-health-snapshot'>, ws: ControlSocket) => {
       if (!buildHealthSnapshot) return;
       ws.send(JSON.stringify({ type: 'health-snapshot', stats: buildHealthSnapshot() }));

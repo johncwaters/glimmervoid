@@ -255,6 +255,7 @@ const clientVariants = [
   loose('restart-server'),
   loose('focus-change', { focused: z.boolean() }),
   loose('request-health-snapshot'),
+  loose('request-telemetry-deletion', { requestId }),
   loose('update-check'),
   loose('update-apply'),
   loose('session-trace', {
@@ -358,6 +359,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'open-issue-session-result',
   'open-team-review-session-result',
   'radar-issue-action-result',
+  'telemetry-deletion-result',
   'team-review-action-result',
   'benchmark-action-result',
   'my-pr-merge-result',
@@ -635,6 +637,7 @@ const serverVariants = [
     status: nullableString.optional(),
   }),
   loose('team-review-action-result', { ...TeamReviewActionResult.shape, requestId }),
+  loose('telemetry-deletion-result', { requestId, ok: z.boolean() }),
   loose('benchmark-action-result', { ...BenchmarkActionResult.shape, requestId }),
   loose('my-pr-merge-result', { ...MyPrMergeResult.shape, requestId }),
   loose('my-pr-keep-mergeable-result', { ...MyPrKeepMergeableResult.shape, requestId }),
