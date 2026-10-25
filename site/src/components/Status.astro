@@ -35,7 +35,10 @@ function terminalVariantsFor(task: string) {
   </div>
   <figure class="attention-board" id="attention-board" aria-label="The attention banner from the dashboard over five agent sessions. Each session that needs you has a tile in the banner and a number for its place in line. Tap the banner or press the shortcut to open the next one.">
     <div class="attention-banner-slot" id="attention-banner-slot"></div>
-    <p class="jump-callout" aria-hidden="true"><span class="jump-arrow">&#x2191;</span> Tap the banner<span class="jump-callout-keys"></span> to open the next session's terminal</p>
+    <div class="callout-stack" aria-hidden="true">
+      <p class="jump-callout"><span class="jump-arrow">&#x2191;</span> Tap the banner<span class="jump-callout-keys"></span> to open the next session's terminal</p>
+      <p class="all-clear-hint">All clear. Queue a question below to see the next one.</p>
+    </div>
     <ol class="session-rows" aria-hidden="true">
       {DEMO_SESSIONS.map(({ task, state }) => (
         <li class="session-row" data-id={task} data-state={state} data-focus="false">
@@ -181,7 +184,11 @@ function terminalVariantsFor(task: string) {
   .attention-board { margin: 0; max-width: 560px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 16px; }
   .attention-board :global(.attention-banner) { position: relative; margin-bottom: 0; }
   .attention-board :global(.attention-banner-jump .kbd) { font-family: var(--font-mono); font-weight: 700; line-height: 1; color: var(--text-head); }
-  .jump-callout { margin: 10px 0 8px; font-size: 14px; font-weight: 700; color: var(--state-waiting); transition: opacity var(--transition-fast); }
+  .callout-stack { display: grid; margin: 10px 0 8px; }
+  .callout-stack > * { grid-area: 1 / 1; margin: 0; }
+  .all-clear-hint { font-size: 14px; color: var(--text-dim); opacity: 0; transition: opacity var(--transition-fast); }
+  .attention-board[data-line-empty] .all-clear-hint { opacity: 1; }
+  .jump-callout { font-size: 14px; font-weight: 700; color: var(--state-waiting); transition: opacity var(--transition-fast); }
   .attention-board[data-line-empty] .jump-callout { opacity: 0; }
   .jump-arrow { display: inline-block; animation: jump-nudge 1.6s infinite; }
   .attention-board:not([data-on-screen="true"]) .jump-arrow { animation-play-state: paused; }
