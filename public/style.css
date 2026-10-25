@@ -8402,7 +8402,7 @@ html[data-layout="phone"] .session-row-remove { flex-basis: 44px; min-width: 44p
 .phone-changes:active { color: var(--text-head); border-color: var(--border-hover); }
 .phone-back:focus-visible,
 .phone-changes:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.phone-changes { width: auto; padding: 0 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.phone-changes { border-color: transparent; }
 .phone-changes[hidden] { display: none; }
 
 .phone-terminal-identity { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

@@ -9,6 +9,7 @@ import { markSessionSeen } from '../session-card/lifecycle.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { sendTerminalInput, setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { paintSessionRowStatus } from '../session-row.ts';
+import { CHANGES_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { controlBytesForCharacter, createMobileKeyStrip } from './mobile-key-strip.ts';
 
@@ -39,9 +40,11 @@ export function createTerminalScreen({ onBack, onShowChanges }: { onBack?: () =>
   labelEl.before(nameEl);
   identity.append(taskTitleEl, badgeEl);
 
-  const changesButton = el('button', 'phone-changes', 'Changes');
+  const changesButton = el('button', 'phone-changes');
+  changesButton.append(createLineIcon(CHANGES_ICON_PATH));
   changesButton.type = 'button';
   changesButton.title = "Show this session's code changes";
+  changesButton.setAttribute('aria-label', "Show this session's code changes");
   changesButton.addEventListener('click', () => onShowChanges?.());
 
   const actionSlot = el('div', 'phone-terminal-actions');
