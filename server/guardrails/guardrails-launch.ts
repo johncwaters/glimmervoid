@@ -1,4 +1,6 @@
-import { access, chmod, copyFile, lstat, mkdir, readdir, readlink, realpath, rename, rm, stat, symlink } from 'node:fs/promises';
+import { access, chmod, copyFile, lstat, mkdir, readdir, realpath, rename, rm, stat, symlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, readlinkSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,7 +15,7 @@ import { bridgeSocketLauncherEnv } from './core/guardrails-bridge-socket-core.ts
 import { buildGuardrailsLaunchPlan, GUARDRAILS_TEMP_FOLDER, lockedClaudeMountPoints, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates } from './core/guardrails-policy-core.ts';
 import type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, GuardrailsRole } from './core/guardrails-policy-core.ts';
 import { codexHomes, grokHomes, projectDirCandidates } from '../usage/core/usage-scan-core.ts';
-import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
+import { loadJsonStateFile, writeJsonAtomic, writeJsonAtomicSync } from '../json-file.ts';
 import { relayPath, resolvePackageBin } from '../runtime-paths.ts';
 import { pruneAgedFiles } from '../prune-files.ts';
 
@@ -45,6 +47,9 @@ const POLICY_FOLDER = 'guardrails-policies';
 const LAUNCH_HOME_FOLDER = 'guardrails-homes';
 const START_FOLDER = 'start';
 const OWNER_FILE_SUFFIX = '.owner.json';
+const LEASE_FILE_SUFFIX = '.lease.json';
+const LEASE_INSTANCE_SHAPE = /^\d+-[0-9a-f-]+$/;
+const GuardrailsSessionLease = GuardrailsLaunchOwner.pick({ ownerPid: true, ownerHost: true, ownerPidNamespace: true });
 const ENTER_FOLDER_SCRIPT = 'cd "$1" && shift && exec "$@"';
 const LOGIN_FILE_MODE = 0o600;
 const ABSENT_PATH_DENY_PLATFORM = 'darwin';
@@ -216,8 +221,74 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-function readOwnPidNamespace(): Promise<string | null> {
-  return readlink(OWN_PID_NAMESPACE_LINK).catch(() => null);
+let ownPidNamespace: string | null | undefined;
+
+function readOwnPidNamespace(): string | null {
+  if (ownPidNamespace !== undefined) return ownPidNamespace;
+  ownPidNamespace = readPidNamespaceLink();
+  return ownPidNamespace;
+}
+
+function readPidNamespaceLink(): string | null {
+  try {
+    return readlinkSync(OWN_PID_NAMESPACE_LINK);
+  } catch {
+    return null;
+  }
+}
+
+type ProcessOwner = Pick<GuardrailsLaunchOwner, 'ownerPid' | 'ownerHost' | 'ownerPidNamespace'>;
+
+function isOwnerProcessGone(owner: ProcessOwner): boolean {
+  return owner.ownerHost === os.hostname() && owner.ownerPidNamespace === readOwnPidNamespace() && !isProcessAlive(owner.ownerPid);
+}
+
+function isOwnerProcessLive(owner: ProcessOwner): boolean {
+  return owner.ownerHost === os.hostname() && owner.ownerPidNamespace === readOwnPidNamespace() && isProcessAlive(owner.ownerPid);
+}
+
+type SessionLeaseState = 'live' | 'gone' | 'unverifiable';
+
+interface SessionLeaseFile {
+  sessionId: string;
+  leasePath: string;
+  state: SessionLeaseState;
+}
+
+function sessionLeaseStateOf(lease: ProcessOwner | null): SessionLeaseState {
+  if (lease === null) return 'unverifiable';
+  if (isOwnerProcessLive(lease)) return 'live';
+  if (isOwnerProcessGone(lease)) return 'gone';
+  return 'unverifiable';
+}
+
+async function readSessionLease(leasePath: string): Promise<ProcessOwner | null> {
+  const outcome = await loadJsonStateFile({ filePath: leasePath, quarantine: false, parse: (raw) => GuardrailsSessionLease.safeParse(raw).data ?? null });
+  return outcome.status === 'loaded' ? outcome.value : null;
+}
+
+function sessionIdOfLeaseFile(entryName: string): string | null {
+  if (!entryName.endsWith(LEASE_FILE_SUFFIX)) return null;
+  const leaseName = entryName.slice(0, -LEASE_FILE_SUFFIX.length);
+  const instanceSeparatorIndex = leaseName.lastIndexOf('.');
+  if (instanceSeparatorIndex < 0) return null;
+  const sessionId = leaseName.slice(0, instanceSeparatorIndex);
+  if (!LAUNCH_ID_SHAPE.test(sessionId) || !LEASE_INSTANCE_SHAPE.test(leaseName.slice(instanceSeparatorIndex + 1))) return null;
+  return sessionId;
+}
+
+async function readSessionLeaseFiles(policyDir: string, entryNames: readonly string[]): Promise<SessionLeaseFile[]> {
+  const leaseEntries = entryNames.flatMap((entryName) => {
+    const sessionId = sessionIdOfLeaseFile(entryName);
+    return sessionId === null ? [] : [{ sessionId, leasePath: path.join(policyDir, entryName) }];
+  });
+  return Promise.all(leaseEntries.map(async (leaseEntry) => ({ ...leaseEntry, state: sessionLeaseStateOf(await readSessionLease(leaseEntry.leasePath)) })));
+}
+
+function sessionIdsWhere(leaseFiles: readonly SessionLeaseFile[], isMatchingSession: (sessionLeaseFiles: SessionLeaseFile[]) => boolean): Set<string> {
+  const leaseFilesBySessionId = new Map<string, SessionLeaseFile[]>();
+  for (const leaseFile of leaseFiles) leaseFilesBySessionId.set(leaseFile.sessionId, [...(leaseFilesBySessionId.get(leaseFile.sessionId) ?? []), leaseFile]);
+  return new Set([...leaseFilesBySessionId].filter(([, sessionLeaseFiles]) => isMatchingSession(sessionLeaseFiles)).map(([sessionId]) => sessionId));
 }
 
 async function readOwnerFile(ownerPath: string): Promise<GuardrailsLaunchOwner | null> {
@@ -233,7 +304,6 @@ async function sweepOrphanedGuardrailsLaunches(log: Pick<Console, 'log' | 'warn'
       throw error;
     });
     const glimmervoidHome = await realpath(glimmervoidHomeDir());
-    const sweeperPidNamespace = await readOwnPidNamespace();
     let removedLaunchCount = 0;
     for (const entryName of entryNames) {
       if (!entryName.endsWith(OWNER_FILE_SUFFIX)) continue;
@@ -241,7 +311,7 @@ async function sweepOrphanedGuardrailsLaunches(log: Pick<Console, 'log' | 'warn'
       if (!LAUNCH_ID_SHAPE.test(launchId)) continue;
       const ownerPath = path.join(policyDir, entryName);
       const owner = await readOwnerFile(ownerPath);
-      if (owner === null || owner.ownerHost !== os.hostname() || owner.ownerPidNamespace !== sweeperPidNamespace || isProcessAlive(owner.ownerPid)) continue;
+      if (owner === null || !isOwnerProcessGone(owner)) continue;
       try {
         await removeLaunch({
           policyPath: path.join(policyDir, `${launchId}.json`),
@@ -273,13 +343,35 @@ async function pruneLeftoverSessionTempFolders(glimmervoidHome: string, liveSess
     ...ownerEntryNames.map((entryName) => entryName.slice(0, -OWNER_FILE_SUFFIX.length)),
     ...owners.flatMap((owner) => owner?.keptTempFolderName === undefined ? [] : [owner.keptTempFolderName]),
   ]);
+  const leasesReadAt = Date.now();
+  const leaseFiles = await readSessionLeaseFiles(path.join(glimmervoidHome, POLICY_FOLDER), policyEntryNames);
+  const releasableSessionIds = sessionIdsWhere(leaseFiles, (sessionLeaseFiles) => sessionLeaseFiles.every((leaseFile) => leaseFile.state === 'gone'));
+  const sessionIdsWithLiveLeases = sessionIdsWhere(leaseFiles, (sessionLeaseFiles) => sessionLeaseFiles.some((leaseFile) => leaseFile.state === 'live'));
+  const isHeldHere = (id: string) => liveSessionIds.has(id) || tempFolderNamesWithOwners.has(id);
+  const sessionTempRoot = path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER);
   await pruneAgedFiles({
-    directory: path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER),
+    directory: sessionTempRoot,
+    suffixes: [''],
+    retainDays: 0,
+    now: leasesReadAt,
+    entryMode: 'directory',
+    isRetainedId: (id) => isHeldHere(id) || !releasableSessionIds.has(id),
+  });
+  await pruneAgedFiles({
+    directory: sessionTempRoot,
     suffixes: [''],
     retainDays: SESSION_TEMP_RETAIN_DAYS,
     entryMode: 'directory',
-    isRetainedId: (id) => liveSessionIds.has(id) || tempFolderNamesWithOwners.has(id),
+    isRetainedId: (id) => isHeldHere(id) || sessionIdsWithLiveLeases.has(id) || releasableSessionIds.has(id),
   });
+  const discardableLeaseFiles = await Promise.all(leaseFiles.map(async (leaseFile) => {
+    if (leaseFile.state === 'gone') return leaseFile;
+    if (leaseFile.state === 'live' || isHeldHere(leaseFile.sessionId)) return null;
+    const hasSessionTempFolder = await lstat(path.join(sessionTempRoot, leaseFile.sessionId)).then(() => true, (error: unknown) => !isMissingFileError(error));
+    return hasSessionTempFolder ? null : leaseFile;
+  }));
+  await Promise.all(discardableLeaseFiles.flatMap((leaseFile) => leaseFile === null ? [] : [rm(leaseFile.leasePath, { force: true })
+    .catch((error: unknown) => log.warn(`[guardrails] could not delete the session lease ${leaseFile.leasePath}: ${errorMessage(error)}`))]));
 }
 
 function launcherCommand(plan: GuardrailsLaunchPlan, policyPath: string): WrappedCommand | null {
@@ -304,11 +396,45 @@ function sessionTempFolderFor(sessionId: string): string | null {
   return path.join(glimmervoidHomeDir(), GUARDRAILS_TEMP_FOLDER, sessionId);
 }
 
+let ownInstanceId: string | undefined;
+
+function readOwnInstanceId(): string {
+  ownInstanceId ??= randomUUID();
+  return ownInstanceId;
+}
+
+function ownSessionLeasePath(sessionId: string): string {
+  return path.join(glimmervoidHomeDir(), POLICY_FOLDER, `${sessionId}.${process.pid}-${readOwnInstanceId()}${LEASE_FILE_SUFFIX}`);
+}
+
+function ensureSessionTempFolder(sessionId: string): string | null {
+  const sessionTempFolder = sessionTempFolderFor(sessionId);
+  if (!sessionTempFolder) return null;
+  mkdirSync(path.join(glimmervoidHomeDir(), POLICY_FOLDER), { recursive: true, mode: 0o700 });
+  const lease: ProcessOwner = { ownerPid: process.pid, ownerHost: os.hostname(), ownerPidNamespace: readOwnPidNamespace() };
+  writeJsonAtomicSync(ownSessionLeasePath(sessionId), lease);
+  mkdirSync(sessionTempFolder, { recursive: true });
+  return sessionTempFolder;
+}
+
 async function removeSessionTempFolder(sessionId: string, log: Pick<Console, 'warn'> = console): Promise<void> {
   const sessionTempFolder = sessionTempFolderFor(sessionId);
   if (!sessionTempFolder) return;
+  const policyDir = path.join(glimmervoidHomeDir(), POLICY_FOLDER);
+  await rm(ownSessionLeasePath(sessionId), { force: true })
+    .catch((error: unknown) => log.warn(`[guardrails] could not delete the lease of session ${sessionId}: ${errorMessage(error)}`));
+  const policyEntryNames = await readdir(policyDir).catch((error: unknown) => {
+    if (isMissingFileError(error)) return [];
+    log.warn(`[guardrails] kept session temp folder ${sessionTempFolder} because its leases could not be read: ${errorMessage(error)}`);
+    return null;
+  });
+  if (policyEntryNames === null) return;
+  const remainingLeaseFiles = await readSessionLeaseFiles(policyDir, policyEntryNames.filter((entryName) => sessionIdOfLeaseFile(entryName) === sessionId));
+  if (remainingLeaseFiles.some((leaseFile) => leaseFile.state === 'live')) return;
   await rm(sessionTempFolder, { recursive: true, force: true })
     .catch((error: unknown) => log.warn(`[guardrails] could not delete session temp folder ${sessionTempFolder}: ${errorMessage(error)}`));
+  await Promise.all(remainingLeaseFiles.map((leaseFile) => rm(leaseFile.leasePath, { force: true })
+    .catch((error: unknown) => log.warn(`[guardrails] could not delete the session lease ${leaseFile.leasePath}: ${errorMessage(error)}`))));
 }
 
 function launchTempDirFor(glimmervoidHome: string, launchId: string, tempDir: string | undefined, keptTempFolderName: string | undefined): string {
@@ -322,7 +448,7 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, keptTempFolder
   try {
     const policyDir = path.join(glimmervoidHomeDir(), POLICY_FOLDER);
     await mkdir(policyDir, { recursive: true, mode: 0o700 });
-    const [homeDir, glimmervoidHome, realRole, ownerPidNamespace] = await Promise.all([realpath(os.homedir()), realpath(glimmervoidHomeDir()), withRealRoots(role), readOwnPidNamespace()]);
+    const [homeDir, glimmervoidHome, realRole] = await Promise.all([realpath(os.homedir()), realpath(glimmervoidHomeDir()), withRealRoots(role)]);
     const ownsTempDir = tempDir === undefined && keptTempFolderName === undefined;
     const launchTempDir = launchTempDirFor(glimmervoidHome, launchId, tempDir, keptTempFolderName);
     const launchHomeDir = path.join(glimmervoidHome, LAUNCH_HOME_FOLDER, launchId);
@@ -368,7 +494,7 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, keptTempFolder
     const owner: GuardrailsLaunchOwner = {
       ownerPid: process.pid,
       ownerHost: os.hostname(),
-      ownerPidNamespace,
+      ownerPidNamespace: readOwnPidNamespace(),
       ownsTempDir,
       ...(keptTempFolderName === undefined ? {} : { keptTempFolderName }),
       logins: plan.launchHomeLinks.filter((link) => link.isLogin).map(({ linkPath, targetPath }) => ({ linkPath, targetPath })),
@@ -398,5 +524,5 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, keptTempFolder
   }
 }
 
-export { prepareGuardrailsLaunch, pruneLeftoverSessionTempFolders, removeSessionTempFolder, sessionTempFolderFor, sweepOrphanedGuardrailsLaunches };
+export { ensureSessionTempFolder, prepareGuardrailsLaunch, pruneLeftoverSessionTempFolders, removeSessionTempFolder, sweepOrphanedGuardrailsLaunches };
 export type { GuardrailsLaunch, GuardrailsLaunchResult };

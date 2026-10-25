@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import pty from 'node-pty';
 import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
@@ -166,4 +168,63 @@ test('a session temp folder survives its launch so the next launch of that sessi
   await secondLaunch.launch.dispose();
   await pruneLeftoverSessionTempFolders(await realpath(glimmervoidHomeDir()), new Set());
   await assert.rejects(lstat(sessionTempFolder), { code: 'ENOENT' });
+});
+
+function secondInstanceScript(sessionIds: string[], { staysRunning }: { staysRunning: boolean }): string {
+  const guardrailsLaunchUrl = pathToFileURL(path.resolve('server/guardrails/guardrails-launch.ts')).href;
+  const keepRunning = staysRunning ? 'setInterval(() => {}, 1000);' : '';
+  return `const { ensureSessionTempFolder } = await import(${JSON.stringify(guardrailsLaunchUrl)}); for (const sessionId of ${JSON.stringify(sessionIds)}) ensureSessionTempFolder(sessionId); console.log('ready'); ${keepRunning}`;
+}
+
+async function leaseFileNamesOf(glimmervoidHome: string, sessionId: string): Promise<string[]> {
+  const policyEntryNames = await readdir(path.join(glimmervoidHome, 'guardrails-policies'));
+  return policyEntryNames.filter((entryName) => entryName.startsWith(`${sessionId}.`) && entryName.endsWith('.lease.json'));
+}
+
+async function writeForeignLease(glimmervoidHome: string, sessionId: string, foreignLease: object): Promise<string> {
+  const leasePath = path.join(glimmervoidHome, 'guardrails-policies', `${sessionId}.1-00000000-0000-0000-0000-000000000000.lease.json`);
+  await writeFile(leasePath, JSON.stringify(foreignLease));
+  return leasePath;
+}
+
+test('a session temp folder of a second instance survives this instance\'s prune while that instance runs, and goes at any age once it has exited', async (context) => {
+  const glimmervoidHome = await realpath(glimmervoidHomeDir());
+  const sessionFolderOf = (sessionId: string) => path.join(glimmervoidHome, 'guardrails-temp', sessionId);
+  const sessionIds = ['second-instance-running', 'second-instance-exited', 'second-instance-shared', 'foreign-host-aged', 'foreign-host-recent'];
+  const runningInstance = spawn(process.execPath, ['--input-type=module', '-e', secondInstanceScript(['second-instance-running', 'second-instance-shared'], { staysRunning: true })], { stdio: ['ignore', 'pipe', 'inherit'] });
+  context.after(async () => {
+    runningInstance.kill();
+    const leaseFileNames = (await Promise.all(sessionIds.map((sessionId) => leaseFileNamesOf(glimmervoidHome, sessionId)))).flat();
+    await Promise.all([
+      ...sessionIds.map((sessionId) => rm(sessionFolderOf(sessionId), { recursive: true, force: true })),
+      ...leaseFileNames.map((leaseFileName) => rm(path.join(glimmervoidHome, 'guardrails-policies', leaseFileName), { force: true })),
+    ]);
+  });
+  await once(runningInstance.stdout, 'data');
+  const exitedInstance = spawnSync(process.execPath, ['--input-type=module', '-e', secondInstanceScript(['second-instance-exited', 'second-instance-shared'], { staysRunning: false })], { encoding: 'utf8' });
+  assert.equal(exitedInstance.status, 0, exitedInstance.stderr);
+  await writeFile(path.join(sessionFolderOf('second-instance-exited'), 'scratchpad-note'), 'left behind');
+  await writeFile(path.join(sessionFolderOf('second-instance-shared'), 'scratchpad-note'), 'still in use');
+  const foreignLease = { ownerPid: process.pid, ownerHost: 'another-machine', ownerPidNamespace: null };
+  const agedForeignLeasePath = await writeForeignLease(glimmervoidHome, 'foreign-host-aged', foreignLease);
+  const recentForeignLeasePath = await writeForeignLease(glimmervoidHome, 'foreign-host-recent', foreignLease);
+  await mkdir(sessionFolderOf('foreign-host-aged'), { recursive: true });
+  await mkdir(sessionFolderOf('foreign-host-recent'), { recursive: true });
+  const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  await utimes(sessionFolderOf('foreign-host-aged'), eightDaysAgo, eightDaysAgo);
+  await utimes(sessionFolderOf('foreign-host-recent'), oneDayAgo, oneDayAgo);
+
+  await pruneLeftoverSessionTempFolders(glimmervoidHome, new Set());
+
+  assert.deepEqual(await readdir(sessionFolderOf('second-instance-running')), []);
+  assert.equal(await readFile(path.join(sessionFolderOf('second-instance-shared'), 'scratchpad-note'), 'utf8'), 'still in use');
+  await assert.rejects(lstat(sessionFolderOf('second-instance-exited')), { code: 'ENOENT' });
+  assert.deepEqual(await leaseFileNamesOf(glimmervoidHome, 'second-instance-exited'), []);
+  assert.equal((await leaseFileNamesOf(glimmervoidHome, 'second-instance-running')).length, 1);
+  assert.equal((await leaseFileNamesOf(glimmervoidHome, 'second-instance-shared')).length, 1);
+  await assert.rejects(lstat(sessionFolderOf('foreign-host-aged')), { code: 'ENOENT' });
+  await assert.rejects(lstat(agedForeignLeasePath), { code: 'ENOENT' });
+  await lstat(sessionFolderOf('foreign-host-recent'));
+  await lstat(recentForeignLeasePath);
 });
