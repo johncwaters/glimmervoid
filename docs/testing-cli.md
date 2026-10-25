@@ -112,7 +112,7 @@ Created default config at <GLIMMERVOID_HOME>/config.json
 
   Open http://localhost:4567  opened in your browser
 
-  Anonymous usage data is on. Never paths, prompts or output. Details: https://github.com/johncwaters/glimmervoid/blob/main/docs/configuration.md#telemetry
+  Glimmervoid collects usage data to help us improve it. No prompts or project information are collected.
   Turn it off in Settings > Privacy, or GLIMMERVOID_TELEMETRY=0.
 
   Ctrl+C stops the server.

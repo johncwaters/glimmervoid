@@ -651,7 +651,7 @@ function syncTelemetryBanner(settings: unknown) {
 }
 
 const telemetrySettingsLink = queryTag(document, '#telemetry-banner-settings', 'a');
-telemetrySettingsLink.href = createSettingsLink('privacy', 'telemetry-enabled', 'Open settings').href;
+telemetrySettingsLink.href = createSettingsLink('privacy', 'telemetry-enabled', "What's collected").href;
 telemetrySettingsLink.addEventListener('click', dismissTelemetryBanner);
 queryTag(document, '#telemetry-banner-dismiss', 'button').addEventListener('click', dismissTelemetryBanner);
 

@@ -22,7 +22,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const OPENAI_USER_ID_PATTERN = /^user-[A-Za-z0-9]+$/;
 
 const FIRST_RUN_NOTICE = [
-  'Anonymous usage data is on. Never paths, prompts or output. Details: https://github.com/johncwaters/glimmervoid/blob/main/docs/configuration.md#telemetry',
+  'Glimmervoid collects usage data to help us improve it. No prompts or project information are collected.',
   'Turn it off in Settings > Privacy, or GLIMMERVOID_TELEMETRY=0.',
 ].join('\n');
 

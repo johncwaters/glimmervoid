@@ -9043,6 +9043,24 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
   margin-left: auto;
 }
 
+.telemetry-banner-cat {
+  flex: none;
+  width: 52px;
+  height: 23px;
+  background: url("./animals/sprite-cat.png") -6px -11px / 408px 42px no-repeat;
+  image-rendering: pixelated;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .telemetry-banner-cat {
+    animation: telemetry-banner-cat-frames 0.9s steps(6) infinite;
+  }
+}
+
+@keyframes telemetry-banner-cat-frames {
+  to { background-position-x: -414px; }
+}
+
 :root[data-flying-animals="true"] .nyan-flight {
   position: fixed;
 
