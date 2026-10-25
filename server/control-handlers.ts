@@ -66,6 +66,7 @@ import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import type { CoherenceSessionFeed } from './coherence/coherence-session-feed.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import { createChangeMapService } from './change-map/change-map-wiring.ts';
+import { createChangesWatch } from './changes-watch.ts';
 import type { Telemetry } from './telemetry.ts';
 import { DashboardTelemetryReport } from '../shared/contracts/telemetry.ts';
 import { errorCode, errorMessage, isMissingFileError } from '../shared/text.ts';
@@ -414,6 +415,10 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   } = deps;
 
   const changeMaps = createChangeMapService({ sessions });
+  const changesWatch = createChangesWatch<ControlSocket>({
+    findSession: (id) => sessions.get(id) ?? agentSessions.get(id) ?? null,
+    isHolderOpen: (ws) => ws.readyState === 1,
+  });
 
   function buildSettingsPayload() {
     return buildSettingsPayloadFrom({ configStore, rtkInstallStatus: getRtkInstallStatus(), telegramDelivery: telegramDelivery?.status() ?? null, coderEnvironments: coderEnv?.availableEnvironments() ?? null, agentLogins: agentConnect?.logins() ?? null });
@@ -1616,6 +1621,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         ws.send(JSON.stringify({ type: 'session-diff-error', id: s.id, message: firstGitErrorLine(error) }));
       }
     },
+
+    'watch-session-changes':      (msg: ClientMessageOf<'watch-session-changes'>, ws: ControlSocket) => changesWatch.request(ws, msg.id),
 
     'request-change-map':         async (msg: ClientMessageOf<'request-change-map'>, ws: ControlSocket) => {
       const s = findSession(msg);

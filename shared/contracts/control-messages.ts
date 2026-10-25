@@ -24,6 +24,9 @@ import { LinkedPr, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeR
 import { GithubPrsFrame } from './github-prs.ts';
 import { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } from './benchmark.ts';
 
+export const CHANGES_POLL_INTERVAL_MS = 4_000;
+export const CHANGES_WATCH_LEASE_MS = 10_000;
+
 const requestId = z.string().nullable().optional();
 const sessionId = z.string();
 export const KeptWorkPath = z.object({ path: z.string(), reason: z.string() }).strict();
@@ -281,6 +284,7 @@ const clientVariants = [
   loose('client-error', ClientErrorReport.shape),
   loose('dashboard-telemetry', { event: z.enum(DASHBOARD_TELEMETRY_EVENTS), properties: z.record(z.string(), z.unknown()) }),
   loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
+  loose('watch-session-changes', { id: sessionId.nullable() }),
   ...idOnlyClientVariants,
 ] as const;
 
