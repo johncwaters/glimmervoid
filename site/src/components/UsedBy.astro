@@ -1,0 +1,57 @@
+---
+import { sitePath } from '../lib/site-path.ts';
+
+interface Supporter {
+  name: string;
+  logo?: { source: string; width: number; height: number };
+}
+
+const SUPPORTERS: Supporter[] = [
+  { name: 'Waters Websites', logo: { source: sitePath('used-by/waters-websites.svg'), width: 91, height: 50 } },
+  { name: 'MOM' },
+  { name: 'PostHog', logo: { source: sitePath('used-by/posthog.svg'), width: 171, height: 30 } },
+  { name: 'ELM Utility Services', logo: { source: sitePath('used-by/elm-utility-services.png'), width: 135, height: 46 } },
+];
+const REPEATS_PER_HALF = 3;
+const MARQUEE_ENTRIES = Array.from({ length: REPEATS_PER_HALF * 2 }, (_, repeatIndex) =>
+  SUPPORTERS.map((supporter) => ({ ...supporter, isDuplicate: repeatIndex > 0 })),
+).flat();
+---
+<section class="used-by" aria-labelledby="used-by-label">
+  <p class="eyebrow center" id="used-by-label">Used by these awesome people</p>
+  <div class="marquee">
+    <ul class="marquee-track">
+      {MARQUEE_ENTRIES.map(({ name, logo, isDuplicate }) => (
+        <li class="supporter-logo" aria-hidden={isDuplicate ? 'true' : undefined}>
+          {logo && <img src={logo.source} alt={name} width={logo.width} height={logo.height} />}
+          {!logo && <span class="supporter-name">{name}</span>}
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>
+
+<style>
+  .used-by { padding-block: 40px 56px; display: flex; flex-direction: column; gap: 24px; }
+  .marquee {
+    overflow: hidden; margin-inline: calc(50% - 50vw);
+    mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+  }
+  .marquee-track {
+    list-style: none; margin: 0; padding: 0; display: flex; width: max-content;
+    animation: marquee-scroll 32s linear infinite;
+  }
+  .marquee:hover .marquee-track { animation-play-state: paused; }
+  .supporter-logo {
+    flex: none; height: 72px; padding-inline: 44px; display: flex; align-items: center; justify-content: center;
+    color: var(--text-head);
+  }
+  .supporter-name { font-weight: 700; font-size: 36px; line-height: 1; letter-spacing: -0.01em; }
+  @keyframes marquee-scroll { to { transform: translateX(-50%); } }
+  @media (prefers-reduced-motion: reduce) {
+    .marquee { margin-inline: 0; mask-image: none; }
+    .marquee-track { animation: none; width: auto; flex-wrap: wrap; justify-content: center; }
+    .supporter-logo[aria-hidden] { display: none; }
+    .supporter-logo { padding-inline: 24px; }
+  }
+</style>

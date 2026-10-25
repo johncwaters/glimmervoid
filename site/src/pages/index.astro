@@ -2,6 +2,7 @@
 import Base from '../layouts/Base.astro';
 import Nav from '../components/Nav.astro';
 import Hero from '../components/Hero.astro';
+import UsedBy from '../components/UsedBy.astro';
 import Remote from '../components/Remote.astro';
 import Status from '../components/Status.astro';
 import WorktreeFlow from '../components/WorktreeFlow.astro';
@@ -22,6 +23,7 @@ const HOME_STRUCTURED_DATA = {
 <Base title="Glimmervoid: mission control for Claude Code and Codex agents" structuredData={HOME_STRUCTURED_DATA} markdownPath="index.md">
   <Nav />
   <Hero />
+  <UsedBy />
   <Remote />
   <Status />
   <Reviews />
