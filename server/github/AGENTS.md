@@ -8,15 +8,15 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 ### Shared GitHub Store
 
-- Only the store modules read GitHub; lanes and handlers hold the gh client for writes only, because one reader keeps every view's PR status the same and one rate-limit budget (`tests/github-store-boundary.test.ts`).
+- Only the store modules read GitHub; lanes and handlers hold the gh client for writes only, because one reader keeps every view's PR status the same and one rate-limit budget.
 
 ### Team PR Review (opt-in)
 
-- Only the operator's Approve or Comment posts, and only when the clicked head equals both the reviewed and the live head, since a review lands under the operator's name (`tests/team-review-core.test.ts`, `tests/team-review-wiring.test.ts`).
-- Glimmervoid owns the report contract, not the procedure: skills differ per machine, so the review runs `teamReview.skill`; its cwd is an empty work dir and the untrusted checkout is never an `--add-dir` (`tests/team-review-wiring.test.ts`).
-- The review starts inside the sandbox runtime (`teamReviewRole`: closed egress, credential folders unreadable, a Codex home of its own, no secret in env); a session that cannot apply it never spawns (`tests/session-hook-lifecycle.test.ts`, `tests/team-review-wiring.test.ts`).
+- Only the operator's Approve or Comment posts, and only when the clicked head equals both the reviewed and the live head, since a review lands under the operator's name.
+- Glimmervoid owns the report contract, not the procedure: skills differ per machine, so the review runs `teamReview.skill`; its cwd is an empty work dir and the untrusted checkout is never an `--add-dir`.
+- The review starts inside the sandbox runtime (`teamReviewRole`: closed egress, credential folders unreadable, a Codex home of its own, no secret in env); a session that cannot apply it never spawns.
 - The wrap still runs PR code (linked `node_modules`, tests, lint) as the operator, and the linked clone's `.env` deny is root-level only. `api.github.com` stays reachable because Codex stalls at startup without it; no GitHub credential is readable inside.
-- PR text is untrusted data, fenced in the prompt (`tests/team-review-core.test.ts`).
-- Thread resolution also acts under the operator's name: only answered nit threads resolve without a click and each at most once, a judge failure never resolves, and the judge reading untrusted replies gets only Read and Write (`tests/team-review-poller.test.ts`, `tests/team-review-thread-judge.test.ts`).
-- An agent's `glimmervoid review` only queues a draft, never posts, and a lane session cannot ask at all, since a lane runs on unvetted input that could steer reviews (`tests/agent-api-http.test.ts`, `tests/team-review-poller.test.ts`).
-- Review dirs are deleted on every exit and swept at start, bar a shutdown's resume record (`tests/team-review-wiring.test.ts`).
+- PR text is untrusted data, fenced in the prompt.
+- Thread resolution also acts under the operator's name: only answered nit threads resolve without a click and each at most once, a judge failure never resolves, and the judge reading untrusted replies gets only Read and Write.
+- An agent's `glimmervoid review` only queues a draft, never posts, and a lane session cannot ask at all, since a lane runs on unvetted input that could steer reviews.
+- Review dirs are deleted on every exit and swept at start, bar a shutdown's resume record.

@@ -9,7 +9,7 @@ import {
   repaintInPlace,
   rulerFill,
   statusRow,
-} from '../test/browser/frame-core.ts';
+} from '../harness/browser/frame-core.ts';
 
 const WIDTHS = [1, 2, 13, 80, 200, 500];
 const HEIGHTS = [1, 2, 24, 60];

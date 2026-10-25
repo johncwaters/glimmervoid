@@ -1,4 +1,4 @@
-# test/container/remote-mode.sh must use LF because test/container/Dockerfile copies the working tree, and CRLF from core.autocrlf=true breaks bash.
+# harness/container/remote-mode.sh must use LF because harness/container/Dockerfile copies the working tree, and CRLF from core.autocrlf=true breaks bash.
 *.sh text eol=lf
-# public/animals/*.txt pixel sources must use LF because scripts/generate-animal-sprites.ts splits rows on LF and tests/animal-sprites.test.ts compares the rendered PNGs byte for byte.
+# public/animals/*.txt pixel sources must use LF because scripts/generate-animal-sprites.ts splits rows on LF and tests/gates/animal-sprites.test.ts compares the rendered PNGs byte for byte.
 public/animals/*.txt text eol=lf

@@ -10,7 +10,7 @@ The globally-installed CLI entry point for Glimmervoid (`npm install -g glimmerv
 
 | File | Description |
 |------|-------------|
-| `glimmervoid.ts` | `#!/usr/bin/env node` launcher: parses flags, sets env vars, dispatches the CLI-only commands listed by `--help`, then boots the server; a new command also goes into the `--help` text, which `../tests/cli-docs.test.ts` checks the docs against |
+| `glimmervoid.ts` | `#!/usr/bin/env node` launcher: parses flags, sets env vars, dispatches the CLI-only commands listed by `--help`, then boots the server; a new command also goes into the `--help` text, which the cli-docs gate checks the docs against |
 | `path-doctor.ts` | Pure PATH helpers shared by `glimmervoid doctor` and the post-install PATH notice |
 
 ## For AI Agents

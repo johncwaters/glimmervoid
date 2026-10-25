@@ -1,4 +1,4 @@
-import '../../test/support/disable-telemetry.ts';
+import '../../harness/support/disable-telemetry.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

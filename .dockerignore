@@ -1,4 +1,4 @@
-# Build context for test/container/Dockerfile. node_modules MUST be excluded: it is a Windows tree
+# Build context for harness/container/Dockerfile. node_modules MUST be excluded: it is a Windows tree
 # (and in a worktree, a junction into the main checkout), while the image runs `npm ci` for Linux
 # native builds of node-pty. The machine-local files below are excluded so no developer's state
 # leaks into the image.

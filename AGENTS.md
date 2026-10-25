@@ -1,6 +1,6 @@
 # glimmervoid
 
-This file is loaded into EVERY session, so it holds only what every session needs: cross-cutting conventions and a lean map. A rule about one subsystem belongs in that subsystem's own AGENTS.md, which loads when that code is open. Never restate what code shows. Size, placement and citation rot are gated by `tests/agents-md-size.test.ts`.
+This file is loaded into EVERY session, so it holds only what every session needs: cross-cutting conventions and a lean map. A rule about one subsystem belongs in that subsystem's own AGENTS.md, which loads when that code is open. Never restate what code shows. Size, placement and citation rot are gated by the agents-md-size gate.
 
 ## Purpose
 
@@ -28,14 +28,14 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `shared/` | Shared constants and wire contracts |
 | `public/` | Browser dashboard (`public/AGENTS.md`) |
 | `site/` | Public Astro website, its own npm package; reads dashboard sprites from `public/` at build time |
-| `scripts/`, `tests/`, `test/` | Release scripts and tests |
+| `scripts/`, `tests/`, `harness/` | Release scripts, the npm test suite, hand-run harnesses |
 | `tools/`, `assets/`, `dist/` | Dev tools, static assets and generated build output |
 
 ## For AI Agents
 
 ### Working In This Directory
 
-- Everything is TypeScript ESM. Erasable syntax only (no enums, namespaces, parameter properties); relative imports carry explicit `.ts` extensions; the browser reaches `shared/` through the `#shared/*` imports map. Never `any`, never `as unknown as` (`tests/typecheck-gate.test.ts`).
+- Everything is TypeScript ESM. Erasable syntax only (no enums, namespaces, parameter properties); relative imports carry explicit `.ts` extensions; the browser reaches `shared/` through the `#shared/*` imports map. Never `any`, never `as unknown as`.
 - Node >=22.18.0 (where type stripping is on by default, which source mode and the `.test.ts` suite depend on). Windows 11, Linux and macOS, developed on v24.
 - Do NOT add dependencies without explicit instruction.
 - Status detection is structural (hooks plus OSC-0 title). Never reintroduce PTY body or content scraping.
@@ -50,13 +50,13 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 - Inter-module communication via Node `EventEmitter`, not globals or direct coupling.
 - The published package ships `dist/` only and runs built `.js`, because Node refuses type stripping inside `node_modules`. Resolve a shipped asset (relay, CLI, dashboard) through `server/runtime-paths.ts`, never from `import.meta.dirname`: the same module runs from a source checkout and from `dist/`.
 - Sessions are keyed by stable UUID `id`; `name` is display-only.
-- Wire and persisted shapes are Zod schemas in `shared/contracts/`; boundaries parse and fail closed (`tests/contracts-config.test.ts` and siblings), and types come from `z.infer`, never hand-duplicated.
-- `npm run typecheck` gates every tree at zero errors under full `strict` plus `erasableSyntaxOnly` and `verbatimModuleSyntax` (`tsconfig.json` for node code, `tsconfig.public.json` for the browser). No suppressions of any kind: `@ts-*` pragmas, `biome-ignore`, `as any`, and `as unknown as` all fail the gate (`tests/typecheck-gate.test.ts`).
+- Wire and persisted shapes are Zod schemas in `shared/contracts/`; boundaries parse and fail closed, and types come from `z.infer`, never hand-duplicated.
+- `npm run typecheck` gates every tree at zero errors under full `strict` plus `erasableSyntaxOnly` and `verbatimModuleSyntax` (`tsconfig.json` for node code, `tsconfig.public.json` for the browser). No suppressions of any kind: `@ts-*` pragmas, `biome-ignore`, `as any`, and `as unknown as` all fail the gate.
 
 ### Testing Requirements
 
 - Run `npm test` (the `node:test` suite in `tests/`) before claiming completion.
-- Detection changes must pass the replay fixtures (`tests/replay-harness.test.ts`).
+- Detection changes must pass the replay fixtures.
 - Tests pin behavior better than prose: when a rule matters, add the test rather than a paragraph here.
 - Every operator-visible change (feature, fix, removal, dependency bump) lands with an entry under `## [Unreleased]` in `CHANGELOG.md`, written for the operator, because `scripts/release.ts` publishes that section verbatim as the GitHub release notes. Tests-only, refactor and internal docs changes need none.
 
@@ -87,7 +87,7 @@ Each subsystem states its own rules beside its code, so a rule is loaded when th
 
 - No classes unless the pattern genuinely requires instance state.
 - Propagate errors via EventEmitter `error` events or callbacks, not thrown exceptions in async paths.
-- Code comments are banned entirely; name or restructure instead (`tests/typecheck-gate.test.ts` fails on any comment line).
+- Code comments are banned entirely; name or restructure instead.
 
 ## Development Workflow
 

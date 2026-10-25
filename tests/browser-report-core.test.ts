@@ -5,7 +5,7 @@ import type {
   BrowserRunReport,
   CaseRecord,
   StepRecord,
-} from '../test/browser/report-core.ts';
+} from '../harness/browser/report-core.ts';
 import {
   EXIT_HARNESS_ERROR,
   PROVE_FAILURE_SCENARIO,
@@ -16,7 +16,7 @@ import {
   renderMarkdown,
   renderProveFailureCheck,
   summarize,
-} from '../test/browser/report-core.ts';
+} from '../harness/browser/report-core.ts';
 
 function passedStep(index: number, source: string, shot: string | null): StepRecord {
   return { index, source, outcome: 'passed', durationMs: 11, grid: null, failure: null, shot };

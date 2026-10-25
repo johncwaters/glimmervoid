@@ -19,9 +19,9 @@ uploads/
 # Update staging and backups written into the install folder by the in-place updater.
 .glimmervoid/
 # Browser harness output (screenshots and traces from a real Chromium run). Runtime output, not a deliverable.
-test/browser/artifacts/
-test/site-capture/out/
-test/site-capture/recordings/
+harness/browser/artifacts/
+harness/site-capture/out/
+harness/site-capture/recordings/
 site/.astro/
 marketing/social/out/
 

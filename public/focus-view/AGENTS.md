@@ -24,7 +24,7 @@ The Focus view: a watch-and-steer layout with a persistent left roster rail (one
 - The center holds the REAL card (re-parented), not a copy; rail activity paints only on the pill, never on the centered terminal.
 
 ### Testing Requirements
-- `tests/frontend-attention-roster.test.ts`, `tests/roster-groups-core.test.ts`, `tests/shortcuts-core.test.ts`; layout verified via `npm run dev`.
+- Layout is verified via `npm run dev`.
 
 ## Dependencies
 

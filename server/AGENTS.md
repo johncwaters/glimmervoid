@@ -21,10 +21,10 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `usage/` | Usage lane: transcript scanner, pricing loader, lane ledger and wiring (`usage/AGENTS.md`) |
 | `github/` | GitHub lanes: issues, my PRs, team PR review and its reaper and thread judge, `gh` queries, the shared clock and rate limit (`github/AGENTS.md`) |
 | `radar/` | Radar lane: the PostHog API client, poller, wiring and report, with its cores (`radar/AGENTS.md`) |
-| `git/git-workspace.ts` | THE ONLY module allowed to run `git worktree` (`tests/no-direct-git-worktree.test.ts`) |
-| `coherence/` | Optional repository CLI boundary, pinned by `tests/coherence-boundary.test.ts` |
+| `git/git-workspace.ts` | THE ONLY module allowed to run `git worktree` |
+| `coherence/` | Optional repository CLI boundary, pinned by the coherence-boundary gate |
 | `config-store.ts` | Runtime config load/save/defaults |
-| `child-process-safe.ts` | THE ONLY importer of `node:child_process` (`tests/no-direct-child-process.test.ts`) |
+| `child-process-safe.ts` | THE ONLY importer of `node:child_process` |
 | `update-check.ts` | Startup release-tag check, advisory only |
 | `guardrails/session-guardrails.ts` | Ordinary session guardrails: the session role, rebuilt from the live checkout at every spawn; the session factory's default |
 | `benchmark-wiring.ts` | Benchmark lane: suites under `~/.glimmervoid/benchmarks`, mining, one serial run (pure rules in `core/benchmark-core.ts`, `core/benchmark-mining-core.ts`) |
@@ -45,36 +45,36 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 ### Worktree Auto-Rebase
 
-- It rides the existing change funnel (no timer) and runs BEFORE the signature dedup, since a moved integration branch leaves the signature byte-identical. Every guard is pure in `session/core/rebase-gate.ts`, and the guard ORDER is stated only by `tests/rebase-gate.test.ts`.
+- It rides the existing change funnel (no timer) and runs BEFORE the signature dedup, since a moved integration branch leaves the signature byte-identical. Every guard is pure in `session/core/rebase-gate.ts`, and the guard ORDER is the order of its checks.
 - WAITING is the load-bearing exclusion: it is a permission prompt PAUSING a turn, and the agent resumes into the files an unattended rebase would have rewritten under it.
 - `rebaseOnly` never stashes and merges nothing back: it runs unattended under a live agent, so a dirty tree is a hard refusal.
 - A conflict is never escalated: the worktree is left byte-identical for the operator's own Merge. A cooldown key of both shas stops the retry loop; a sibling's resolution retriggers it.
 - Which paths rerere replayed is deliberately unreported: git clears `MERGE_RR` as it resolves, so any list would be a guess, and a guess in a forensic trace is worse than a silence.
 - rerere config is seeded only when UNSET, an operator who disabled it meaning it. A rebase suppresses the change funnel while it runs, or the review gate self-heals to none mid-rebase.
 
-- Every worktree Glimmervoid adds inside its home is locked with its own reason, because guarded sessions are denied that folder yet can write the shared `.git`, so their `git worktree prune` would drop it; only Glimmervoid unlocks it, and branch GC treats that lock as unlocked (`tests/git-workspace-session.test.ts`).
+- Every worktree Glimmervoid adds inside its home is locked with its own reason, because guarded sessions are denied that folder yet can write the shared `.git`, so their `git worktree prune` would drop it; only Glimmervoid unlocks it, and branch GC treats that lock as unlocked.
 
 ### Worktree Base Branch
 
-- A worktree's fork-base marker pins its base across restarts. With no configured branch, a marker whose branch the detected default already absorbed, or whose branch is gone, migrates to that default, so an abandoned staging branch stops showing landed commits as pending review; a marker holding commits the default lacks is kept (`tests/git-workspace-session.test.ts`).
+- A worktree's fork-base marker pins its base across restarts. With no configured branch, a marker whose branch the detected default already absorbed, or whose branch is gone, migrates to that default, so an abandoned staging branch stops showing landed commits as pending review; a marker holding commits the default lacks is kept.
 
 ### Remote Branch GC
 
-- Deletion needs ancestry or tree-containment proof (`server/core/merge-proof-core.ts`) or staleness, any probe failure keeps it, and the push is a leased qualified refspec on that listed tip, so cleanup cannot lose a branch; `dryRun` traces would-delete (`tests/branch-gc-poller.test.ts`).
+- Deletion needs ancestry or tree-containment proof (`server/core/merge-proof-core.ts`) or staleness, any probe failure keeps it, and the push is a leased qualified refspec on that listed tip, so cleanup cannot lose a branch; `dryRun` traces would-delete.
 
 ### Benchmarks (opt-in)
 
-- An arm's token rides only that cell's spawn env and never reaches a run record, status push or log; an arm that fails preflight fails the run, never scores zero recall (`tests/benchmark-wiring.test.ts`).
-- Arms never get the operator's refresh token: an arm's refresh could rotate it and log the operator out (`tests/claude-credentials.test.ts`).
-- The reviewed commit is the mode of the inline comments' commits and the base is the base tip at review time, so a stacked or force-pushed PR replays what reviewers saw (`tests/benchmark-mining-core.test.ts`).
+- An arm's token rides only that cell's spawn env and never reaches a run record, status push or log; an arm that fails preflight fails the run, never scores zero recall.
+- Arms never get the operator's refresh token: an arm's refresh could rotate it and log the operator out.
+- The reviewed commit is the mode of the inline comments' commits and the base is the base tip at review time, so a stacked or force-pushed PR replays what reviewers saw.
 
 ### Plan Review
 
-- The plan endpoint is a SECOND URL, never a second entry on the shared one: hooks run in parallel and a `PermissionRequest` payload carries no tool-use id, so two entries on one URL arrive as indistinguishable posts. The unmatched entry stays byte-identical (`tests/settings-injector-user-hooks.test.ts`).
+- The plan endpoint is a SECOND URL, never a second entry on the shared one: hooks run in parallel and a `PermissionRequest` payload carries no tool-use id, so two entries on one URL arrive as indistinguishable posts. The unmatched entry stays byte-identical.
 - Every path fails OPEN and the held reply is written AT MOST ONCE, never after the socket closed: a fired hook timeout destroys the socket in silence, so a late write is a no-op.
-- EVERY way a review can end writes that one reply and leaves `open` behind, since a hold nobody answers is an agent hung forever; `PostToolUse` counts, because the terminal can answer without cancelling the hook (`tests/backend-plan-hold.test.ts`).
+- EVERY way a review can end writes that one reply and leaves `open` behind, since a hold nobody answers is an agent hung forever; `PostToolUse` counts, because the terminal can answer without cancelling the hook.
 - An allow echoes the plan bytes AS RECEIVED, never a re-read of `planFilePath`, or whatever the file holds then becomes the approved plan; only an operator EDIT on the open revision replaces them.
-- The in-memory index holds offsets, chars and titles and never a body, so a summary push carries no plan and a body crosses an authenticated socket only on request; a DRAFT body comes from the hook's own path, never a client's (`tests/backend-plan-draft.test.ts`).
+- The in-memory index holds offsets, chars and titles and never a body, so a summary push carries no plan and a body crosses an authenticated socket only on request; a DRAFT body comes from the hook's own path, never a client's.
 - Only a plan segment raises the body cap, the RESULT one twice, as it repeats the plan it approves.
 - Conversation approvals follow the same hold rules on their own URLs (`permissionrequest-conversation`, released by a matching `posttooluse-conversation`); ExitPlanMode passes through so plan review keeps it (`session/core/claude-approval-core.ts`).
 
@@ -84,14 +84,14 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Host allow-list first (`server/core/host-policy.ts`). An ABSENT Host passes, since rebinding always carries a name and refusing it would only break HTTP/1.0 clients.
 - Port-exact Origin, the port read from the socket so nothing a client sends decides it; a mismatch falls THROUGH to the allow-list. Browser channels demand an Origin, non-browser ingresses do not.
 - A per-process page token guards local control and data upgrades, riding the query string since a browser cannot set a WS handshake header. `GET /control-token` refuses a disallowed Origin outright.
-- Trust is the LISTENER PORT, never a header or IP: a reverse proxy makes remote traffic look loopback, so an IP or `X-Forwarded-For` rule would hand every visitor local trust (`tests/request-trust.test.ts`).
-- An ordinary Claude Code session is wrapped by default in `session/session-factory.ts`. A caller that sets `prepareGuardrails`, even to null, owns its own confinement, and only operator config opts a session out (`projects[].unguarded`, `guardrails.unguardedRepos`), never the agent API: a child is unguarded only when its parent is (`tests/agent-api-http.test.ts`).
+- Trust is the LISTENER PORT, never a header or IP: a reverse proxy makes remote traffic look loopback, so an IP or `X-Forwarded-For` rule would hand every visitor local trust.
+- An ordinary Claude Code session is wrapped by default in `session/session-factory.ts`. A caller that sets `prepareGuardrails`, even to null, owns its own confinement, and only operator config opts a session out (`projects[].unguarded`, `guardrails.unguardedRepos`), never the agent API: a child is unguarded only when its parent is.
 - The ordinary session wrap starts in a scratch folder and enters the checkout inside the guardrails, because the sandbox runtime plants protected-name placeholders in its working folder and a session that commits everything would commit them (`session` role in `scripts/probe-guardrails-roles.ts`).
-- Sessions reach `/hook` and `/agent` on their OWN loopback listener, never the dashboard port: a lane guardrails allowlists one exact host and port (enforced on Linux, macOS unverified), and that port must not also serve `GET /control-token` or the control WS (`tests/backend-auto-resume.test.ts`).
+- Sessions reach `/hook` and `/agent` on their OWN loopback listener, never the dashboard port: a lane guardrails allowlists one exact host and port (enforced on Linux, macOS unverified), and that port must not also serve `GET /control-token` or the control WS.
 - A pairing cookie is RCE as the server account, the control WS accepting any project path plus `dangerouslySkipPermissions`. Pairing URLs are single-use, short-TTL, never logged or stored in plaintext; the store fails CLOSED on corruption.
 - The `/pair/*` exemption is judged on the DECODED pathname: `express.static` resolves dot segments, so an un-normalized check served the dashboard bundle under `/pair/%2e%2e/`.
-- Remote config is unreachable from the control WS, and remote-off is fully inert: no route, no middleware, no file (`tests/backend-remote-disabled.test.ts`). Binding wider needs `GLIMMERVOID_INSECURE_BIND=1`.
-- A dashboard socket reads or saves only a path its session surfaced through `glimmervoid edit`, and every read and save re-runs containment against the checkout, so the browser never widens file access past what the agent token surfaced (`tests/session-docs.test.ts`).
+- Remote config is unreachable from the control WS, and remote-off is fully inert: no route, no middleware, no file. Binding wider needs `GLIMMERVOID_INSECURE_BIND=1`.
+- A dashboard socket reads or saves only a path its session surfaced through `glimmervoid edit`, and every read and save re-runs containment against the checkout, so the browser never widens file access past what the agent token surfaced.
 - Two HTTP write ingresses. `POST /hook/:glimmervoidId/:event` keeps its per-session bearer token, and its RESPONSE is also an ingress, so only Glimmervoid-authored text may be injected. Each untrusted corpus in a lane prompt gets its OWN `contentMarker` fence, so one cannot close another, and it is a sha256 digest rather than a cheap hash an attacker's text could fix-point. `POST /upload/:sessionId` sits behind remote-auth with a size cap; a non-image upload keeps only a sanitized extension from the client name, never the name itself.
 
 ### Transport and Session Identity

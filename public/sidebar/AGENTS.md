@@ -26,7 +26,7 @@ The review sidebar: the single home for the worktree review gate of the selected
 - The panel is built once and MOVED between layouts, never rebuilt, so its state and listeners survive layout changes. Desktop minimizes to a status rail (`data-collapsed`, persisted in `ui-prefs.ts`); phone hides the minimize control and rail and ignores collapsed state.
 
 ### Testing Requirements
-- `tests/frontend-diff-core.test.ts` for the parser; merge flow verified end-to-end via `npm run dev` with a worktree session.
+- The merge flow is verified end-to-end via `npm run dev` with a worktree session.
 
 ## Dependencies
 

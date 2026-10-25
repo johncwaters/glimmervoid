@@ -1,46 +1,19 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-10 | Updated: 2026-06-10 -->
 
 # tests
 
-## Purpose
-The automated test suite, run with `npm test` (node:test, no test framework dependency). Covers the pure cores, detection stack, session lifecycle, and the frontend's pure `-core.ts` modules. Recorded-session fixtures drive the version-aware replay harness.
+The automated suite `npm test` runs (node:test, no framework). It holds rules, not a mirror of the code: a test earns its file only by failing on a defect nobody meant to write.
 
-## Key Files
-Tests are named `<module>.test.ts` after the module under test. Notable clusters:
-
-| Cluster | Files |
-|---------|-------|
-| Detection | `status-source`, `hook-source`, `osc-title-source`, `replay-harness`, `worktree-detection`, `worktree-watch`, `integration-ref-watch`, `title-latch-recovery` |
-| Agent adapters | `agent-adapters` (the seam plus its byte-identity pins), `agent-capabilities` (one capability off per test), `agent-codex` (the Codex adapter: argv, hook table, title profile, boot-quiet latch, gate off) |
-| Session core | `state-machine`, `status-mapper` (via `sessions-detection`), `agent-tracker`, `wakeup-tracker` (via `pending-wakeup`), `spawn-command`, `spawn-env`, `spawn-gate`, `spawn-integration`, `merge-prompt`, `post-turn-rules`, `slop-code-patterns`, `post-turn-checker` |
-| Session/server | `sessions-buffer`, `sessions-worktree`, `session-resize`, `session-write-guard`, `ws-sender`, `control-worktree` |
-| Worktrees | `git-workspace-session`, `git-workspace-rebase`, `rebase-gate`, `sessions-auto-rebase`, `session-spawn-args`, `no-direct-git-worktree`, `backend-worktree-reconcile` |
-| Usage tracking | `usage-entry-core`, `usage-pricing-core`, `usage-aggregate-core`, `usage-blocks-core`, `usage-scan-core`, `usage-scanner`, `usage-pricing`, `backend-usage`, `control-settings-usage`, `frontend-usage-view` |
-| Frontend pure cores | `frontend-naming`, `frontend-webgl-pool`, `frontend-attention-roster`, `frontend-diff-core`, `roster-groups-core`, `shortcuts-core`, `render-scheduler`, `perf-corpus` |
-
-## Subdirectories
-
-| Directory | Purpose |
-|-----------|---------|
-| `fixtures/` | JSONL session recordings (v1 legacy and v2 structural-signal format) consumed by `replay-harness.test.ts` |
-| `helpers/` | Shared test fixtures that are not themselves tests (the `*.test.ts` glob skips them). `short-path.ts` mints 8.3 aliases so the CI runner's short `%TEMP%` is reproducible locally; `transcript-homes.ts` redirects the three vendor transcript homes, so a boot with the agent-log source never reads the operator's |
+| Path | Role |
+|------|------|
+| `gates/` | Repo-wide rules: each walks the tracked tree or a whole catalog and fails on any entry that breaks the rule |
+| `*.test.ts` | Wire and persisted contracts, end-to-end runs through real components, hostile-input edges |
+| `fixtures/` | Recorded session JSONL replayed through the real adapters |
+| `helpers/` | Shared setup that is not itself a test (the `*.test.ts` glob skips it) |
 
 ## For AI Agents
 
-### Working In This Directory
-- node:test only: `test()`/`describe()` from `node:test`, `assert` from `node:assert`. No jest/mocha/vitest.
-- Tests assert on pure modules or injected fakes; no real PTY, no network, no live `claude`. Git-touching tests build temp repos.
-- No-dash rule applies to test sources too: build em/en dash/ellipsis expectations via `String.fromCharCode`, never literals.
-- New detection scenarios get a fixture recording plus a replay assertion, not a hand-rolled signal sequence only.
-- Frontend `-core.ts` modules are imported from `../public/`; keep them DOM-free or these tests break.
-
-### Testing Requirements
-- `npm test` runs the whole suite; `node --import ./tests/helpers/isolate-home.ts --test tests/<file>` runs one file.
-
-## Dependencies
-
-### Internal
-- Everything under test: `../server/`, `../session/`, `../notifications/`, `../session/core/`, `../detection/`, `../public/`, `../shared/`.
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+- A new rule is a gate in `gates/`, never a test that pins one module's source text.
+- Outside `gates/`, drive real components: a booted backend, a temp git repo, real files, a PTY, a child process, or a replay fixture. A test that restates the code or wires fakes together is not added.
+- No real network and no live agent binary; a fake agent binary on PATH is fine.
+- `node --import ./tests/helpers/isolate-home.ts --test <file>` runs one file.

@@ -14,9 +14,9 @@ import {
   layoutFor,
   needsSocketRoute,
   needsTeamReview,
-} from '../test/browser/cases-core.ts';
-import type { HarnessCase, Scenario, Step, Viewport } from '../test/browser/cases-core.ts';
-import { BURST_CAP } from '../test/browser/frame-core.ts';
+} from '../harness/browser/cases-core.ts';
+import type { HarnessCase, Scenario, Step, Viewport } from '../harness/browser/cases-core.ts';
+import { BURST_CAP } from '../harness/browser/frame-core.ts';
 
 const DEFAULT_CASE_COUNT = 72;
 const PROVE_FAILURE_CASE_COUNT = 74;

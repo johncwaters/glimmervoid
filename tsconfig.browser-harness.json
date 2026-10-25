@@ -13,7 +13,7 @@
     ]
   },
   "include": [
-    "test/browser/**/*.ts",
+    "harness/browser/**/*.ts",
     "server/ws-module.d.ts"
   ],
   "exclude": [

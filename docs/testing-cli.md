@@ -36,7 +36,7 @@ node bin/glimmervoid.ts --help
 node bin/glimmervoid.ts -h
 ```
 
-**Expected:** both print the same usage text and exit 0. `tests/cli-docs.test.ts` pins this block to the real output:
+**Expected:** both print the same usage text and exit 0. `tests/gates/cli-docs.test.ts` pins this block to the real output:
 
 ```
 Usage: glimmervoid [command] [options]

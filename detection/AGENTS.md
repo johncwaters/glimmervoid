@@ -29,8 +29,7 @@ Status detection and change watching. Session status is derived from machine-emi
 - The signal x state transition matrix lives in `session/core/status-mapper.ts` and is documented in `docs/postmortem-terminal-detection.md`.
 
 ### Testing Requirements
-- Unit tests: `tests/status-source.test.ts`, `hook-source.test.ts`, `osc-title-source.test.ts`, `worktree-watch.test.ts`, `integration-ref-watch.test.ts`.
-- Detection behavior changes must keep `tests/replay-harness.test.ts` green against the `tests/fixtures/*.jsonl` recordings; add a fixture for a new signal scenario.
+- Detection behavior changes must keep the replay harness green against the `tests/fixtures/*.jsonl` recordings; add a fixture for a new signal scenario.
 
 ### Common Patterns
 - Sources emit normalized signals; `sessions.js._onStatus` + `session/core/status-mapper.ts` decide transitions.
@@ -53,13 +52,13 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 - Machine signals only: hooks authoritative, OSC-0 title a fallback that never emits `awaiting-input`. Scraping the rendered TUI false-fires on redraw races (`session/core/status-mapper.ts`, `docs/postmortem-terminal-detection.md`).
 - A held `ready` is cancelled by `working`/`resume` in the conflict window, since resolving it fired a false COMPLETE after a fast re-prompt; `/clear` and `/compact` latch the title off likewise. `idle_prompt` is low confidence: it may only confirm quiescence from RUNNING.
-- A main `Stop` is held for live work; an orphan `SubagentStop` proves a lost Start, so an empty Stop waits one quiet window (2026-08-25 recordings; `tests/sessions-detection.test.ts`).
+- A main `Stop` is held for live work; an orphan `SubagentStop` proves a lost Start, so an empty Stop waits one quiet window (2026-08-25 recordings).
 - A held ready releases on live evidence, never the count, sequence-ordered, its quiet window starting at the first evaluation that OBSERVES the drain (false COMPLETEs, 2026-08-14).
 - Declared entries age from first sighting of each id: `shell` has no completion hook, while `monitor` must never gate a finished turn; snapshot refreshes once pinned cards WORKING. Kill switch `detectBackgroundAgents`.
 
 ### Operator Hooks
 
-- The Hooks tab's records (`config.hooks`) are appended to the per-session settings file AFTER Glimmervoid's own entries for the same event, never merged into `~/.claude/settings.json`: a session with none configured writes a byte-identical file, and no operator hook can displace a status callback (`tests/settings-injector-user-hooks.test.ts`).
+- The Hooks tab's records (`config.hooks`) are appended to the per-session settings file AFTER Glimmervoid's own entries for the same event, never merged into `~/.claude/settings.json`: a session with none configured writes a byte-identical file, and no operator hook can displace a status callback.
 - The core (`session/core/user-hooks-core.ts`) is the one validator; the control handler, the spawn path and a hand edit of config.json all pass through it, and an unreadable record is dropped there rather than failing the spawn.
 
 ### Session Recording
@@ -71,5 +70,5 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 - A new trace may bind before its transcript exists because Claude's first hook precedes file creation; it tails the vendor transcript itself on the pure tail core and never a shared tail source, because one shared cursor and slot table leak one lane's lifecycle into the other; hook bodies are never the source, since they cap at 64 KB and carry no thinking or skill body (`server/core/trace-tail-core.ts`, `server/trace-wiring.ts`).
 - A trace file is keyed by Glimmervoid session UUID under `~/.glimmervoid/traces`, never by project name, because a recording keyed by project name cannot answer what one terminal did (`server/trace-wiring.ts`).
-- Trace bodies cross any authenticated control socket only on explicit request, never as a push, because a paired remote client can already type into the terminal and read the transcript file itself, so a refusal here protects nothing (`tests/control-trace.test.ts`).
-- Subagent transcripts are tailed by a per-path offset kept in the checkpoint, committed only at a complete line, and recovery never resumes at zero for a non-empty trace: an early return on a seen path lost every record a resumed subagent appended, and a lost checkpoint once replayed a whole transcript (`tests/trace-wiring.test.ts`).
+- Trace bodies cross any authenticated control socket only on explicit request, never as a push, because a paired remote client can already type into the terminal and read the transcript file itself, so a refusal here protects nothing.
+- Subagent transcripts are tailed by a per-path offset kept in the checkpoint, committed only at a complete line, and recovery never resumes at zero for a non-empty trace: an early return on a seen path lost every record a resumed subagent appended, and a lost checkpoint once replayed a whole transcript.

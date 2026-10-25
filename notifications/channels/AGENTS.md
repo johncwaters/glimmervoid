@@ -19,7 +19,7 @@ Notification delivery adapters consumed by `notification-manager.ts`. Channels a
 - A new channel should expose the same adapter shape the manager already consumes (see `web-notification.ts`).
 
 ### Testing Requirements
-- `tests/notification-manager.test.ts` covers the manager; channel changes are verified by triggering a notification in `npm run dev`.
+- Channel changes are verified by triggering a notification in `npm run dev`.
 
 ## Dependencies
 

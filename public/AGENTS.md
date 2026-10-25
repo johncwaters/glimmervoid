@@ -68,7 +68,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 - Section heads, stat chips, `projectsOf` and `isPanelHidden` come from `dom-helpers.ts`; a new tab panel passes its class prefix rather than copying the builders.
 
 ### Testing Requirements
-- Pure cores have node:test coverage (`tests/frontend-*.test.js`, `shortcuts-core`, `render-scheduler`, `roster-groups-core`); DOM modules are verified manually via `npm run dev`.
+- DOM modules are verified manually via `npm run dev`.
 
 ### Common Patterns
 - Pure-core (`*-core`) + DOM-wrapper pairs, mirroring the server's seam pattern.

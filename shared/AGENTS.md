@@ -25,9 +25,6 @@ TypeScript ESM modules used by BOTH the server and the browser bundle. Single so
 - Not everything here is browser-safe: `canonical-paths.ts` touches the filesystem and is consumed only by server code. Keep new browser-facing constants in `states.ts`.
 - Any path handed to `fs.watch` goes through `canonicalizePath` first. libuv expands each reported event filename to its long form and asserts it still starts with the watched dir, so an 8.3 short path (a CI runner's `C:\Users\RUNNER~1\...` %TEMP%) ABORTS the process from native code, past every try/catch.
 
-### Testing Requirements
-- `tests/state-machine.test.ts` and the notification tests exercise these constants; `npm test`.
-
 ## Dependencies
 
 ### Internal

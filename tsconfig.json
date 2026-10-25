@@ -14,7 +14,7 @@
     "bin/**/*.ts",
     "scripts/**/*.ts",
     "tools/**/*.ts",
-    "test/**/*.ts",
+    "harness/**/*.ts",
     "tests/**/*.ts",
     "*.ts"
   ],
@@ -23,6 +23,6 @@
     "dist/**",
     "node_modules/**",
     "public/**",
-    "test/browser/**"
+    "harness/browser/**"
   ]
 }

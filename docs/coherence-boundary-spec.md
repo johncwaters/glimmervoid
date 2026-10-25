@@ -82,7 +82,7 @@ Each phase lands on its own with `npm test` green.
 
 ## Acceptance, each pinned by a test
 
-- **Boundary guard** (new `tests/coherence-boundary.test.ts`): nothing outside `server/coherence/` spawns a coherence CLI or names `.coherence`, and `package.json` names no coherence package as a runtime dependency (the repository's own `@posthog/coherence` devDependency is its own install, not a glimmervoid dependency).
+- **Boundary guard** (new `tests/gates/coherence-boundary.test.ts`): nothing outside `server/coherence/` spawns a coherence CLI or names `.coherence`, and `package.json` names no coherence package as a runtime dependency (the repository's own `@posthog/coherence` devDependency is its own install, not a glimmervoid dependency).
 - **Operator sessions**: a Claude and a Codex session spawned through the session factory get Coherence status from a fake supported install in the worktree, and none without it.
 - **Absent or unsupported**: a session spawns with no install, and with a fake `coherence version` printing `0.37.1`; both report the reason and neither blocks the spawn.
 - **Upstream shape**: `journal --json` and `hooks` output recorded from `@posthog/coherence` 1.8.0 parse through the contracts and the Codex trust check (`tests/contracts-coherence.test.ts`, fixtures under `tests/fixtures/coherence/1.8.0/`).

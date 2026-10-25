@@ -378,7 +378,7 @@ test("atomic hook replacement creates a private sibling before rename", () => {
 });
 
 test("the live Grok probe keeps recordings only behind the explicit flag", () => {
-  const help = spawnSync(process.execPath, [path.join(import.meta.dirname, "..", "test", "probe-grok-session.ts"), "--help"], {
+  const help = spawnSync(process.execPath, [path.join(import.meta.dirname, "..", "harness", "probe-grok-session.ts"), "--help"], {
     encoding: "utf8",
   });
   assert.equal(help.status, 0, help.stderr);

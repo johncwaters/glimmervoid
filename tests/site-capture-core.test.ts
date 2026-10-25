@@ -4,9 +4,9 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   classifyClaudeStartup, compressTimeline, findHookEndpoint, hasRunSettled, isRecordingClosed, parseCaptureRecording, redactRecording, redactSameLength, validateManifest, validateRecordManifest,
-} from '../test/site-capture/manifest-core.ts';
+} from '../harness/site-capture/manifest-core.ts';
 
-const fixtureDirectory = path.resolve(import.meta.dirname, '../test/site-capture/fixtures');
+const fixtureDirectory = path.resolve(import.meta.dirname, '../harness/site-capture/fixtures');
 const sampleManifest: unknown = JSON.parse(fs.readFileSync(path.join(fixtureDirectory, 'sample-manifest.json'), 'utf8'));
 const demoRecordManifest: unknown = JSON.parse(fs.readFileSync(path.join(fixtureDirectory, 'demo-record.json'), 'utf8'));
 const demoCaptureManifest: unknown = JSON.parse(fs.readFileSync(path.join(fixtureDirectory, 'demo-capture.json'), 'utf8'));

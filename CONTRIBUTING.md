@@ -29,7 +29,7 @@ npm test
 node --import ./tests/helpers/isolate-home.ts --test tests/some.test.ts
 ```
 
-Changed a setting, config key or environment variable? Run `npm run docs:config` and commit the regenerated `docs/configuration.md`. `tests/config-docs.test.ts` fails otherwise.
+Changed a setting, config key or environment variable? Run `npm run docs:config` and commit the regenerated `docs/configuration.md`. `tests/gates/config-docs.test.ts` fails otherwise.
 
 ## Conventions
 
