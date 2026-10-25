@@ -27,21 +27,21 @@ const PARENT_STAGES = [
 <section id="reviews">
   <div class="section-head reveal">
     <h2>Reviews drafted. You post the good parts.</h2>
-    <p>Your team's PRs arrive with a drafted review. Yours show everything between them and the merge, and can merge themselves. On desktop or phone.</p>
+    <p>Team PRs arrive with a drafted review. Yours merge themselves.</p>
   </div>
 
   <div class="review-act reveal">
     <div class="act-copy">
       <p class="act-label">Team</p>
-      <h3>Your teammates' PRs, read before you open them.</h3>
-      <p class="act-lede">A sandboxed agent drafts each review. You read a short draft, keep the comments you agree with, and click. Nothing reaches GitHub until you do.</p>
+      <h3>Teammates' PRs, read before you open them.</h3>
+      <p class="act-lede">An agent drafts it. Keep what you agree with, click post.</p>
       <ul class="act-points">
-        <li><strong>Only your click posts.</strong> And only if the PR has not moved since it was reviewed.</li>
-        <li><strong>Re-reviews stay quiet.</strong> New commits raise high findings only, never another round of nits.</li>
-        <li><strong>Threads close themselves.</strong> Answered nit threads resolve on their own; the rest get a Resolve button.</li>
-        <li><strong>Fix it in a session.</strong> Open in session starts an agent on the branch with the review pasted in.</li>
+        <li><strong>Only your click posts.</strong></li>
+        <li><strong>Re-reviews flag high findings only.</strong></li>
+        <li><strong>Answered threads resolve themselves.</strong></li>
+        <li><strong>Fix it in a session.</strong></li>
       </ul>
-      <p class="act-note">Opt-in, turned on once in Settings.</p>
+      <p class="act-note">Opt-in.</p>
     </div>
     <figure class="act-demo" id="team-review-demo" role="img" aria-label="A drafted review of pull request 482 says approve with nits, with a high, a medium and a low finding, all included. You untick the low one and press Approve and comment, and the review posts as You approved. After new commits, the re-review raises no new high findings and both of your comments are resolved.">
       <div class="pull-card" aria-hidden="true">
@@ -93,13 +93,13 @@ const PARENT_STAGES = [
   <div class="review-act is-mine reveal">
     <div class="act-copy">
       <p class="act-label">Mine</p>
-      <h3>Your own PRs, watched until they merge.</h3>
-      <p class="act-lede">Every PR you opened shows what still stands between it and the merge. Switch on the parts you want handled.</p>
+      <h3>Your PRs, watched until they merge.</h3>
+      <p class="act-lede">See what blocks each merge. Turn on what you want handled.</p>
       <ul class="act-points">
-        <li><strong>Merge readiness at a glance.</strong> Checks, review, threads, conflicts and base, with failing check names.</li>
-        <li><strong>Merge when ready.</strong> Per PR: it merges as soon as everything is green.</li>
-        <li><strong>Keep mergeable.</strong> A sandboxed agent repairs conflicts and failing checks, pushed only if the branch has not moved.</li>
-        <li><strong>Kept rebased, stacks grouped.</strong> PRs that fall behind get rebased if you turn it on; stacked PRs sit under their parent.</li>
+        <li><strong>Merge readiness at a glance.</strong></li>
+        <li><strong>Merge when ready.</strong></li>
+        <li><strong>Keep mergeable.</strong></li>
+        <li><strong>Kept rebased, stacks grouped.</strong></li>
       </ul>
     </div>
     <figure class="act-demo" id="my-prs-demo" role="img" aria-label="Your pull request 501 has merge conflicts and is 2 commits behind main, with Merge when ready and Keep mergeable on. Keep mergeable repairs the conflict, the branch is rebased, the PR becomes Ready to merge and then merges. Your stacked pull request 502 sits under it with its checks running.">
