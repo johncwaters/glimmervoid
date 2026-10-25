@@ -625,7 +625,7 @@ function createTeamReviewDispatcher({
           if (!outcome.ok) return failed(outcome.reason);
           const posting = await readPostingPlan(postingPath, detail.headRefOid, log);
           const filteredReview = core.reReviewResult(outcome.result, { priorReview: priorReview ?? null, posting });
-          return core.readyDraft({ candidate, tier, reasons, ...filteredReview, reviewedBase: detail.baseRefOid, commentable });
+          return core.readyDraft({ candidate, tier, reasons, ...filteredReview, reviewedBase: detail.baseRefOid, commentable, uiFiles: core.uiFilesOf(detail.files) });
         })
         .catch((error: unknown) => failed(firstLine(errorMessage(error)) || 'review session failed')),
     });

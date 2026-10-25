@@ -42,7 +42,10 @@ function createStatus(): TeamReviewStatus {
           { login: 'sarah', state: 'COMMENTED', commit: REVIEWED_HEAD, isViewer: false },
         ],
       }),
-      createDraft(3, { verdict: 'REQUEST CHANGES' }),
+      createDraft(3, {
+        verdict: 'REQUEST CHANGES',
+        assessment: { goal: 'Fix the header.', change: 'Moves the header.', checked: [], gaps: [], handChecks: [{ text: 'Look at what these changed UI files render', paths: ['public/header.css'], isFallback: true }] },
+      }),
       createDraft(4, { verdict: 'BLOCKED' }),
       createDraft(5, { status: 'error', error: 'Review timed out' }),
       createDraft(6, { status: 'discarded' }),
@@ -679,6 +682,13 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   assert.equal(await page.locator('.pr-detail .pr-verdict-seal').textContent(), 'Approve with nits');
   assert.equal(await page.locator('.pr-detail .pr-verdict-seal svg').count(), 1);
   assert.ok(await page.locator('.pr-detail .pr-severity-meter').count() > 0);
+  await showQueue(page);
+  await page.locator('.pr-queue-row[data-review-key="Acme/app#3"]').click();
+  const handChecks = page.locator('.pr-detail .pr-hand-checks');
+  assert.equal(await handChecks.locator('li').textContent(), 'Look at what these changed UI files render: public/header.css');
+  assert.deepEqual(await page.locator('.pr-detail > section').evaluateAll((sections) => sections.map((section) => section.getAttribute('aria-label')).filter((label) => label === 'Verdict' || label === 'Check by hand' || label === 'Findings')), ['Verdict', 'Check by hand', 'Findings']);
+  await showQueue(page);
+  await nitsRow.click();
   const mixed = { ...status, drafts: [...status.drafts, createDraft(11, { key: 'Acme/docs#11', repo: 'Acme/docs' })] };
   await applyStatus(page, mixed);
   assert.equal(await nitsRow.locator('.pr-queue-ref').textContent(), 'Acme/app#2');

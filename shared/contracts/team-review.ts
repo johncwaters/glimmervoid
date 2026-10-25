@@ -68,11 +68,19 @@ export const ReviewFinding = z.object({
 });
 export type ReviewFinding = z.infer<typeof ReviewFinding>;
 
+export const HandCheck = z.object({
+  text: z.string().min(1),
+  paths: z.array(z.string()),
+  isFallback: z.boolean().default(false),
+});
+export type HandCheck = z.infer<typeof HandCheck>;
+
 export const ReviewAssessment = z.object({
   goal: z.string().default(''),
   change: z.string(),
   checked: z.array(z.string()),
   gaps: z.array(z.string()),
+  handChecks: z.array(HandCheck).default([]),
 });
 export type ReviewAssessment = z.infer<typeof ReviewAssessment>;
 

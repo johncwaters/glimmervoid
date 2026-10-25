@@ -3,7 +3,7 @@ import { decisionAsIfApprovalRequired, hasStandingViewerApproval, canApproveAfte
 import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, foldedFindingSection, generalFindingBullet, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import type {
-  GithubReview, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
+  GithubReview, HandCheck, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
   ResumableReview, ReviewAssessment, ReviewResult as ReviewResultType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../../shared/contracts/team-review.ts';
 import { positiveNumberOr } from '../../../shared/coerce.ts';
@@ -585,7 +585,7 @@ function parseFindingLine(line: string): UnvalidatedFinding | null {
   };
 }
 
-const REPORT_HEADINGS = ['HEAD_SHA:', 'VERDICT:', 'ACTIONABLE', 'TRUNCATED:', 'STRUCTURED_FINDINGS:', 'OVERALL_SUMMARY:', 'GOAL:', 'CHANGE:', 'CHECKED:', 'GAPS:'] as const;
+const REPORT_HEADINGS = ['HEAD_SHA:', 'VERDICT:', 'ACTIONABLE', 'TRUNCATED:', 'STRUCTURED_FINDINGS:', 'OVERALL_SUMMARY:', 'GOAL:', 'CHANGE:', 'CHECKED:', 'GAPS:', 'CHECK_BY_HAND:'] as const;
 
 const COLON_WITH_EMPHASIS = /^[*_]*:[*_]*/;
 
@@ -644,13 +644,40 @@ function bulletsIn(sectionLines: readonly string[] | null): string[] {
   return items.filter((item) => !NOTHING_TO_LIST.test(item));
 }
 
+const BACKTICK_PATH = /`([^`\n]+)`/g;
+const TRAILING_PATH_LIST = /:?\s*(?:`[^`\n]+`\s*,?\s*)+$/;
+
+function handCheckFrom(item: string): HandCheck {
+  const paths = [...item.matchAll(BACKTICK_PATH)].map((match) => match[1] ?? '').filter(Boolean);
+  const text = item.replace(TRAILING_PATH_LIST, '').trim();
+  return { text: text || item, paths: text ? paths : [], isFallback: false };
+}
+
 function parseAssessment(lines: readonly string[]): ReviewAssessment | null {
   const goal = (sectionAfter(lines, 'GOAL:') ?? []).join('\n').trim();
   const change = (sectionAfter(lines, 'CHANGE:') ?? []).join('\n').trim();
   const checked = bulletsIn(sectionAfter(lines, 'CHECKED:'));
   const gaps = bulletsIn(sectionAfter(lines, 'GAPS:'));
-  if (!goal && !change && checked.length === 0 && gaps.length === 0) return null;
-  return { goal, change, checked, gaps };
+  const handChecks = bulletsIn(sectionAfter(lines, 'CHECK_BY_HAND:')).map(handCheckFrom);
+  if (!goal && !change && checked.length === 0 && gaps.length === 0 && handChecks.length === 0) return null;
+  return { goal, change, checked, gaps, handChecks };
+}
+
+const UI_FILE_EXTENSION = /\.(?:css|scss|sass|less|html|tsx|jsx|vue|svelte|astro)$/;
+const UI_DIRECTORY = /(?:^|\/)(?:components|public|styles)\//;
+const UI_FALLBACK_TEXT = 'Look at what these changed UI files render';
+
+function uiFilesOf(files: PrDetail['files']): string[] {
+  return files.map((file) => file.path).filter((filePath) => {
+    if (isDocsOrTests(filePath)) return false;
+    const normalizedPath = filePath.toLowerCase();
+    return UI_FILE_EXTENSION.test(normalizedPath) || UI_DIRECTORY.test(normalizedPath);
+  });
+}
+
+function withHandCheckFallback(assessment: ReviewAssessment, uiFiles: readonly string[]): ReviewAssessment {
+  if (assessment.handChecks.length > 0 || uiFiles.length === 0) return assessment;
+  return { ...assessment, handChecks: [{ text: UI_FALLBACK_TEXT, paths: [...uiFiles], isFallback: true }] };
 }
 
 const NITS_HEADING_WORDS = ['NITPICKS', 'NITS'] as const;
@@ -854,16 +881,17 @@ function renderPostingPlan(plan: PostingPlanType, findings: readonly ReviewFindi
 }
 
 function readyDraft(
-  { candidate, tier, reasons, result, reviewedBase, commentable = null, posting = null }: {
+  { candidate, tier, reasons, result, reviewedBase, commentable = null, posting = null, uiFiles = [] }: {
     candidate: TeamReviewCandidate; tier: ReviewTier; reasons: string[]; result: ReviewResultType; reviewedBase?: string;
-    commentable?: CommentableLines | null; posting?: PostingPlanType | null;
+    commentable?: CommentableLines | null; posting?: PostingPlanType | null; uiFiles?: readonly string[];
   },
 ): ReviewDraft {
   const rendered = posting ? renderPostingPlan(posting, result.findings, commentable) : renderReview(result, commentable);
+  const assessment = result.assessment ? withHandCheckFallback(result.assessment, uiFiles) : null;
   return {
     ...draftBase(candidate, tier, reasons, result.head),
     ...(reviewedBase ? { reviewedBase } : {}),
-    verdict: result.verdict, summary: result.summary, ...(result.assessment ? { assessment: result.assessment } : {}),
+    verdict: result.verdict, summary: result.summary, ...(assessment ? { assessment } : {}),
     body: rendered.body, comments: rendered.comments, status: 'ready',
   };
 }
@@ -1087,10 +1115,14 @@ function buildReviewPrompt({
     '- then one line starting "- " for each thing the review could not cover (a reviewer that failed, a file it did',
     '  not read, behavior it could not exercise), or the single line (none).',
     '- then one blank line',
+    '- then one line: CHECK_BY_HAND:',
+    '- then one line "- <what to look at>: `path`[, `path`]" for each UI element, layout, copy or UX flow whose look or',
+    '  feel the review cannot judge from code, or the single line (none).',
+    '- then one blank line',
     '- then one line: OVERALL_SUMMARY:',
     '- then one or two sentences on why the verdict follows from CHECKED and the findings.',
     'No line inside these sections may start with VERDICT:, ACTIONABLE, TRUNCATED:, HEAD_SHA:, STRUCTURED_FINDINGS:,',
-    'OVERALL_SUMMARY:, GOAL:, CHANGE:, CHECKED: or GAPS:.',
+    'OVERALL_SUMMARY:, GOAL:, CHANGE:, CHECKED:, GAPS: or CHECK_BY_HAND:.',
     'If the review cannot complete, still write the file, with the line VERDICT: FAILED in place of a verdict.',
     '',
     `Posting file: use the Write tool to write ${postingPath} with one JSON object, the review exactly as it would be posted:`,
@@ -1130,5 +1162,5 @@ function absolutePathReadRule(absolutePath: string): string {
   return `Read(/${posixPath}/**)`;
 }
 
-export { reviewSnapshotFromGithubPr, STAMP_MODEL, FULL_MODEL, MAX_CONCURRENT_REVIEWS, MAX_ASKED_FOR_REVIEWS, ASKED_FOR_FETCH_GRACE_MS, askedForRefusal, advanceAwakeElapsed, handReviewRows, REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, isSameQueuedReview, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
+export { reviewSnapshotFromGithubPr, STAMP_MODEL, FULL_MODEL, MAX_CONCURRENT_REVIEWS, MAX_ASKED_FOR_REVIEWS, ASKED_FOR_FETCH_GRACE_MS, askedForRefusal, advanceAwakeElapsed, handReviewRows, REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, uiFilesOf, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, isSameQueuedReview, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
 export type { CommentableLines, NewWorkPointer, NewWorkRange, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };

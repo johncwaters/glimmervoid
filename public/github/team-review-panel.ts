@@ -436,6 +436,17 @@ function createAssessmentList(items: readonly string[]): HTMLElement {
   return list;
 }
 
+function createHandChecks(draft: ReviewDraft): HTMLElement[] {
+  const handChecks = draft.assessment?.handChecks ?? [];
+  if (handChecks.length === 0) return [];
+  const section = el('section', 'pr-hand-checks');
+  section.setAttribute('aria-label', 'Check by hand');
+  section.append(el('h3', 'pr-assessment-title', 'Check by hand'));
+  const items = handChecks.map((check) => (check.paths.length === 0 ? check.text : `${check.text}: ${check.paths.map((path) => `\`${path}\``).join(', ')}`));
+  section.append(createAssessmentList(items));
+  return [section];
+}
+
 function createAboutPr(draft: ReviewDraft): HTMLElement[] {
   const paragraphs = aboutPrParagraphs(draft.assessment);
   if (paragraphs.length === 0) return [];
@@ -672,7 +683,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   threads.dataset.reviewThreads = '';
   detail.append(createDetailHeading(draft), ...createAboutPr(draft));
   if (draft.earlierReview) detail.append(createEarlierReviewDetails(draft.earlierReview, false));
-  detail.append(threads, createVerdictBlock(draft));
+  detail.append(threads, createVerdictBlock(draft), ...createHandChecks(draft));
   refreshThreadDetails(detail, draft);
 
   const generalFindings = generalFindingsOf(draft.body);

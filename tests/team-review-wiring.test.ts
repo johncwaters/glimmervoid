@@ -373,6 +373,26 @@ test('local checkout sharing excludes the cache clone and both review roots', as
   }
 });
 
+test('a ready review lists the check by hand items the reviewer named, else the changed UI files', async () => {
+  const assessedReport = (handCheckLines: string[]) => [
+    reportText(), '', 'GOAL:', 'Fix the header.', '', 'CHANGE:', 'Moves the header.', '', 'CHECKED:', '- Safe?: yes `src/a.ts:2`', '',
+    'GAPS:', '(none)', '', 'CHECK_BY_HAND:', ...handCheckLines,
+  ].join('\n');
+  const uiDetail = PrDetail.parse({ ...detail, files: [...detail.files, { path: 'public/header.css', additions: 1, deletions: 0 }, { path: 'docs/header.md', additions: 1, deletions: 0 }] });
+  const named = setup({ writeReport: (workDir) => fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), assessedReport(['- The header wraps on a phone: `public/header.css`, `src/a.ts`'])) });
+  const fallback = setup({ writeReport: (workDir) => fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), assessedReport(['(none)'])) });
+  try {
+    const namedDraft = await named.review({ ...reviewArgs('full'), detail: uiDetail });
+    assert.deepEqual(namedDraft.assessment?.handChecks, [{ text: 'The header wraps on a phone', paths: ['public/header.css', 'src/a.ts'], isFallback: false }]);
+    assert.match(named.spawns[0]?.prompt ?? '', /CHECK_BY_HAND:/);
+    const fallbackDraft = await fallback.review({ ...reviewArgs('full'), detail: uiDetail });
+    assert.deepEqual(fallbackDraft.assessment?.handChecks.map((check) => ({ paths: check.paths, isFallback: check.isFallback })), [{ paths: ['public/header.css'], isFallback: true }]);
+  } finally {
+    named.cleanup();
+    fallback.cleanup();
+  }
+});
+
 test('review work dirs are created under the selected root', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-work-root-'));
   try {

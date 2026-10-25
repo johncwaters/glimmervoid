@@ -104,9 +104,9 @@ test('editable review draft requires a repository, tier, status, and reviewed he
   ]) assert.equal(ReviewDraft.safeParse(invalid).success, false);
 });
 
-test('an old assessment without a goal parses with an empty goal', () => {
+test('an old assessment without a goal or hand checks parses with an empty goal and no hand checks', () => {
   const oldAssessment = { change: 'Re-arm the timer.', checked: ['Old timer cleared.'], gaps: [] };
-  assert.deepEqual(ReviewAssessment.parse(oldAssessment), { goal: '', ...oldAssessment });
+  assert.deepEqual(ReviewAssessment.parse(oldAssessment), { goal: '', handChecks: [], ...oldAssessment });
 });
 
 test('request source and priority fields round trip through the review wire and fail closed', () => {
