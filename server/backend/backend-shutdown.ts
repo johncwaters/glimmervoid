@@ -1,8 +1,9 @@
 import { createStopperCollector } from '../core/shutdown-core.ts';
 import type { StopperEntry } from '../core/shutdown-core.ts';
+import type { SessionEndCause } from '../../shared/contracts/telemetry.ts';
 
 interface ShutdownSession {
-  destroy(): void;
+  destroy(cause: SessionEndCause): void;
   _killReap?: Promise<unknown> | null;
 }
 
@@ -60,7 +61,7 @@ interface ShutdownOutcome {
 function destroySessions(sessionMaps: Map<string, ShutdownSession>[], pendingReaps: Promise<unknown>[]): void {
   for (const sessions of sessionMaps) {
     for (const session of sessions.values()) {
-      session.destroy();
+      session.destroy('server_stopped');
       if (session._killReap) pendingReaps.push(session._killReap);
     }
   }

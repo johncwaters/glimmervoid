@@ -4,7 +4,8 @@ import { DASHBOARD_VIEWS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES } from 
 import type { OperatorAction, OperatorSurface } from './control-messages.ts';
 
 const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
-const SESSION_EXIT_KINDS = Object.freeze(['clean', 'error', 'signal', 'no_output'] as const);
+const SESSION_END_CAUSES = Object.freeze(['removed', 'replaced', 'server_stopped'] as const);
+const SESSION_EXIT_KINDS = Object.freeze(['clean', 'error', 'signal', 'no_output', ...SESSION_END_CAUSES] as const);
 const TEAM_REVIEW_SETTLED_OUTCOMES = Object.freeze(['approve', 'comment', 'approve-only', 'discarded'] as const);
 const TEAM_REVIEW_POST_REFUSAL_REASONS = Object.freeze([
   'unknown-action', 'not-postable', 'comments-already-posted', 'empty-comment', 'rate-limited',
@@ -146,7 +147,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'app_started', description: 'The server started listening.' },
   { name: 'app_active', description: 'Once a day while the server runs, with how many sessions are live.' },
   { name: 'session_started', description: 'A session spawned, with which kind of agent (any custom agent counts as `custom`).' },
-  { name: 'session_ended', description: 'A session exited: how it exited and how long it ran, in whole seconds.' },
+  { name: 'session_ended', description: 'A session ended: how it exited, or that it was removed, replaced by a settings change or stopped with the server, and how long it ran, in whole seconds.' },
   { name: '$exception', description: 'An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start.' },
   { name: '$ai_generation', description: 'Per agent session and model, after each usage scan, for usage recorded in the last 24 hours: token counts, the model name and estimated cost, under a one-way hash of the session. A model name outside the shipped pricing table is sent as unknown. No prompts or output.' },
   { name: 'view_shown', description: 'A dashboard tab opened, on desktop or phone, with which tab. Sent on every open.' },
@@ -193,5 +194,6 @@ export type RadarErrorReason = (typeof RADAR_ERROR_REASONS)[number];
 export type RadarHandoffStep = (typeof RADAR_HANDOFF_STEPS)[number];
 export type TelemetryAdapter = (typeof TELEMETRY_ADAPTERS)[number];
 export type SessionExitKind = (typeof SESSION_EXIT_KINDS)[number];
+export type SessionEndCause = (typeof SESSION_END_CAUSES)[number];
 export type TelemetryState = z.infer<typeof TelemetryState>;
 export type PendingCrashReport = z.infer<typeof PendingCrashReport>;

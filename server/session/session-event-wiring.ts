@@ -12,6 +12,7 @@ import { adapterBucket, classifySessionExit } from '../core/telemetry-core.ts';
 import { INTERACTIVE_LANE } from '../usage/core/usage-lane-core.ts';
 import { resolveCheckConfig, runPostTurnChecks } from '../post-turn-checker.ts';
 import type { Telemetry } from '../telemetry.ts';
+import type { SessionEndCause, SessionExitKind } from '../../shared/contracts/telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
 
 const IDLE_COMPACTION_CONFIRM_MS = 10000;
@@ -145,13 +146,13 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       void Promise.resolve(persistSessionField(dependencies.configStore, dependencies.config, session.id, field, value))
         .catch((error: unknown) => dependencies.logger.warn(`[config] Failed to persist ${field}: ${errorMessage(error)}`));
     };
-    const captureSessionEnded = (exit: { exitCode: number | null; signal: unknown; reason?: string }) => {
+    const captureSessionEnded = (exitKind: SessionExitKind) => {
       if (spawnedAtMs === null) return;
       const durationSeconds = Math.max(0, Math.round((Date.now() - spawnedAtMs) / 1000));
       spawnedAtMs = null;
       dependencies.telemetry?.capture('session_ended', {
         adapter: adapterBucket(session.agentId),
-        exit_kind: classifySessionExit(exit),
+        exit_kind: exitKind,
         duration_seconds: durationSeconds,
       });
     };
@@ -203,12 +204,13 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       clearCompactionConfirm();
       const reasonText = reason ? `, reason=${reason}` : '';
       dependencies.logger.log(`[${session.name}] exited (code=${exitCode}, signal=${signal}${reasonText})`);
-      captureSessionEnded({ exitCode, signal, reason });
+      captureSessionEnded(classifySessionExit({ exitCode, signal, reason }));
     });
-    session.on('teardown', () => {
+    session.on('teardown', ({ cause }: { id: string; cause: SessionEndCause }) => {
       clearCompactionConfirm();
       isAcknowledgeDeferredForCompaction = false;
       dependencies.getIngestLane()?.detachSessionTap(session);
+      captureSessionEnded(cause);
     });
 
     const resolvePostTurn = () => {

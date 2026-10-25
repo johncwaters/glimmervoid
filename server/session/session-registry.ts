@@ -298,7 +298,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       dependencies.closeSessionDataClients(project.id);
       dependencies.notificationManager.acknowledge(project.id);
 
-      oldSession.destroy();
+      oldSession.destroy('replaced');
       const newSession = dependencies.makeSession(project, newConfig);
       sessions.set(project.id, newSession);
       captureAgentFingerprint(project);

@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Anonymous usage data counts every session end**: closing a session, a settings change that restarts it, and stopping the server now send the session ended event, with which of the three it was. Before, only an agent that quit on its own sent it.
 - **Phone terminal no longer comes back half blank**: returning to the dashboard after your phone put the tab in the background could leave the Terminal showing only a scatter of characters until new output arrived. The terminal now redraws every character as soon as the browser hands its graphics back.
 - **Phone clears what you have seen**: opening a session on the phone Terminal screen now reliably clears it from Needs you, the Board dot and the favicon, even when the mobile browser reports the page as unfocused. Coming back to the phone with a session still open on the Terminal screen clears it too, including after the connection reconnects.
 - **Ended background sessions no longer leave their temp folder behind**: a session spawned by another agent, a team review, a Radar fix or a Visions job kept its folder under `~/.glimmervoid/guardrails-temp` after it ended, holding its scratchpad and background task output, so the folder grew by gigabytes over a week. The folder is now deleted as soon as the session's processes have exited.

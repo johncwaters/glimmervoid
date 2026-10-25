@@ -10,6 +10,7 @@ import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
 import { buildPersistedTaskTitle, cleanTaskPrompt, extractOscTaskTitle, extractPromptTaskTitle, isSelfWakePrompt, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle, seedTaskTitleSources } from "./core/task-title-core.ts";
 import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
+import type { SessionEndCause } from "../shared/contracts/telemetry.ts";
 import type { LinkedPr, SessionPrLinks } from "../shared/contracts/my-prs.ts";
 import { mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink } from "./core/session-pr-links-core.ts";
 import type { TaskTitleRefinementResult, TaskTitleSources } from "./core/task-title-core.ts";
@@ -2436,7 +2437,7 @@ class Session extends EventEmitter {
       this._output.setMax(cfg.replayBufferKB * 1024);
   }
 
-  destroy(): void {
+  destroy(cause: SessionEndCause = "removed"): void {
     if (this._destroyed) return;
     this._destroyed = true;
     this._agentToken = null;
@@ -2465,7 +2466,7 @@ class Session extends EventEmitter {
     this._output.disposeScreenKeeper();
     this._titleSource.destroy();
     this._statusSource.destroy();
-    this.emit("teardown", { id: this.id });
+    this.emit("teardown", { id: this.id, cause });
     this.removeAllListeners();
   }
 }
