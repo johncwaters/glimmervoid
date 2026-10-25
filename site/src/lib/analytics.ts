@@ -12,10 +12,14 @@ type SiteEvent =
 const POSTHOG_PROJECT_TOKEN = 'phc_s68t9vWmeGcrWkx4NkLQaEiVZ9sMBxv8GjQBbAcix2Sf';
 export const CONSENT_CHANGE_EVENT = 'glimmervoid:consent-change';
 const CONSENT_CHOICE_BY_STATUS = { pending: 'pending', granted: 'accepted', denied: 'declined' } as const;
+const INSTALL_ID_PARAM = 'gv';
+const INSTALL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+let pendingInstallId: string | null = null;
 
 export const isAnalyticsEnabled = import.meta.env.PROD;
 
 export function initAnalytics(): void {
+  keepInstallIdFromUrl();
   if (!isAnalyticsEnabled) return;
   posthog.init(POSTHOG_PROJECT_TOKEN, {
     api_host: 'https://us.i.posthog.com',
@@ -25,7 +29,24 @@ export function initAnalytics(): void {
     capture_dead_clicks: true,
     capture_heatmaps: true,
   });
+  identifyInstallIfConsented();
   captureSectionViews();
+}
+
+function keepInstallIdFromUrl(): void {
+  const url = new URL(window.location.href);
+  const installId = url.searchParams.get(INSTALL_ID_PARAM);
+  if (installId === null) return;
+  url.searchParams.delete(INSTALL_ID_PARAM);
+  history.replaceState(history.state, '', url.href);
+  if (INSTALL_ID_PATTERN.test(installId)) pendingInstallId = installId.toLowerCase();
+}
+
+function identifyInstallIfConsented(): void {
+  if (consentChoice() !== 'accepted') return;
+  if (!pendingInstallId) return;
+  posthog.identify(pendingInstallId);
+  pendingInstallId = null;
 }
 
 export function captureSiteEvent(siteEvent: SiteEvent): void {
@@ -53,6 +74,7 @@ export function consentChoice(): ConsentChoice {
 export function acceptAnalytics(): void {
   if (!isAnalyticsEnabled) return;
   posthog.opt_in_capturing();
+  identifyInstallIfConsented();
   window.dispatchEvent(new Event(CONSENT_CHANGE_EVENT));
 }
 
