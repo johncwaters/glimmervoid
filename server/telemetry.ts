@@ -1,14 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 
 import type { ClientErrorReport } from '../shared/contracts/control-messages.ts';
 import { PendingCrashReport, TELEMETRY_EVENT_SCHEMAS, TelemetryState } from '../shared/contracts/telemetry.ts';
 import type { ExceptionProperties, TelemetryEventName, TelemetryEventProperties } from '../shared/contracts/telemetry.ts';
 import {
   TELEMETRY_BATCH_URL, TELEMETRY_FLAGS_URL, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties,
-  decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, resolveProjectToken,
+  buildPersonProperties, claudeAccountUuidOf, codexUserIdOf, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, resolveProjectToken,
 } from './core/telemetry-core.ts';
-import type { RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
+import type { AccountIds, RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
+import { listClaudeGlobalConfigPathCandidates } from './core/claude-trust-core.ts';
+import { codexHomeDir } from './core/codex-credentials-core.ts';
 import type { UsageGenerationRollupRow } from './usage/core/usage-entry-core.ts';
 import { createJsonStateStore, loadJsonStateFile, writeJsonAtomicSync } from './json-file.ts';
 import { createLaneLog } from './lanes/lane-log.ts';
@@ -24,6 +27,8 @@ const ACTIVE_HEARTBEAT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const REMOTE_SWITCH_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const MAX_REPORTED_EXCEPTION_FINGERPRINTS = 256;
 const CRASH_MONITOR_EVENT = 'uncaughtExceptionMonitor';
+const PERSON_PROPERTY_EVENTS: ReadonlySet<TelemetryEventName> = new Set(['app_started', 'app_active']);
+const NO_ACCOUNT_IDS: AccountIds = Object.freeze({ claudeAccountUuid: null, codexUserId: null });
 
 interface QueuedEvent {
   event: TelemetryEventName;
@@ -51,6 +56,7 @@ interface TelemetryOptions {
   platform?: string;
   nodeVersion?: string;
   getActiveSessionCount?: () => number;
+  readAccountIds?: () => Promise<AccountIds>;
   logger?: LaneLogger | null;
   now?: () => Date;
 }
@@ -85,8 +91,8 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     is_dev_install: options.isDevInstall,
     ...(options.releaseId ? { $release_id: options.releaseId } : {}),
     $lib: 'glimmervoid',
-    $process_person_profile: false,
   };
+  const firstSeen = { appVersion: options.version, osPlatform: baseProperties.os_platform, installFlavor: options.installFlavor };
   let queue: QueuedEvent[] = [];
   let state: TelemetryState | null = null;
   const flushTimer = createCoalescedTimer({ mode: 'leading', delayMs: FLUSH_INTERVAL_MS, run: () => { void flush(); } });
@@ -173,6 +179,22 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     enqueue(event, parsed.data);
   }
 
+  async function readAccountIdsOrNone(): Promise<AccountIds> {
+    if (!options.readAccountIds) return NO_ACCOUNT_IDS;
+    try {
+      return await options.readAccountIds();
+    } catch (error) {
+      log.warnOnce('account-ids-failed', 'could not read account ids', { error: errorKind(error) });
+      return NO_ACCOUNT_IDS;
+    }
+  }
+
+  async function withPersonProperties(batch: QueuedEvent[]): Promise<QueuedEvent[]> {
+    if (!batch.some((queued) => PERSON_PROPERTY_EVENTS.has(queued.event))) return batch;
+    const personProperties = buildPersonProperties(await readAccountIdsOrNone(), firstSeen);
+    return batch.map((queued) => (PERSON_PROPERTY_EVENTS.has(queued.event) ? { ...queued, properties: { ...queued.properties, ...personProperties } } : queued));
+  }
+
   function captureExceptionOnce(properties: ExceptionProperties): void {
     if (!isEnabled()) return;
     const fingerprint = exceptionFingerprint(properties);
@@ -255,6 +277,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
 
   async function send(batch: QueuedEvent[], timeoutMs: number): Promise<boolean> {
     try {
+      const outgoing = await withPersonProperties(batch);
       const { installId } = await ensureInstallState();
       if (!isCaptureAllowed()) return false;
       const response = await fetchFn(TELEMETRY_BATCH_URL, {
@@ -262,7 +285,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           api_key: resolveProjectToken(options.env),
-          batch: batch.map((queued) => ({
+          batch: outgoing.map((queued) => ({
             event: queued.event,
             distinct_id: installId,
             timestamp: queued.timestamp,
@@ -380,5 +403,33 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   };
 }
 
-export { createTelemetry, MAX_QUEUED_EVENTS, MAX_REPORTED_EXCEPTION_FINGERPRINTS };
+interface AccountIdReaderOptions {
+  env: NodeJS.ProcessEnv;
+  homeDir: string;
+  readTextFile?: (filePath: string) => Promise<string | null>;
+}
+
+function readTextFileOrNull(filePath: string): Promise<string | null> {
+  return fs.promises.readFile(filePath, 'utf8').catch(() => null);
+}
+
+function createAccountIdReader({ env, homeDir, readTextFile = readTextFileOrNull }: AccountIdReaderOptions): () => Promise<AccountIds> {
+  async function readClaudeConfigText(): Promise<string | null> {
+    const [legacyConfigPath, currentConfigPath] = listClaudeGlobalConfigPathCandidates(env, homeDir);
+    return await readTextFile(legacyConfigPath) ?? await readTextFile(currentConfigPath);
+  }
+
+  return async () => {
+    const [claudeConfigText, codexAuthText] = await Promise.all([
+      readClaudeConfigText(),
+      readTextFile(path.join(codexHomeDir(env, homeDir), 'auth.json')),
+    ]);
+    return {
+      claudeAccountUuid: claudeConfigText === null ? null : claudeAccountUuidOf(claudeConfigText),
+      codexUserId: codexAuthText === null ? null : codexUserIdOf(codexAuthText),
+    };
+  };
+}
+
+export { createAccountIdReader, createTelemetry, MAX_QUEUED_EVENTS, MAX_REPORTED_EXCEPTION_FINGERPRINTS };
 export type { Telemetry, TelemetryOptions };

@@ -50,7 +50,7 @@ import type { RepositoryTrackingReports } from '../../shared/post-turn-leftovers
 import { errorMessage } from '../../shared/text.ts';
 import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts';
 import { assetRoot, bundled, packageRoot } from '../runtime-paths.ts';
-import { createTelemetry } from '../telemetry.ts';
+import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
@@ -118,6 +118,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }),
     releaseId: parsePosthogReleaseId(packageJson.glimmervoid?.posthogReleaseId),
     getActiveSessionCount: () => sessions.size + agentSessions.size,
+    readAccountIds: createAccountIdReader({ env: process.env, homeDir: os.homedir() }),
   });
   telemetry.watchForCrashes();
   telemetry.startRemoteSwitchChecks();

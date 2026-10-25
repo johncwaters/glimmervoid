@@ -6,7 +6,7 @@ import {
   FeatureFlagsResponse, MAX_AI_MODEL_LENGTH, MAX_AI_PROVIDER_LENGTH, MAX_EXCEPTION_FRAMES, MAX_TEXT_LENGTH, TELEMETRY_KILL_SWITCH_FLAG,
 } from '../../shared/contracts/telemetry.ts';
 import type {
-  AiGenerationProperties, ExceptionFrame, ExceptionProperties, SessionExitKind, TelemetryAdapter,
+  AiGenerationProperties, ExceptionFrame, ExceptionProperties, PersonProperties, SessionExitKind, TelemetryAdapter,
 } from '../../shared/contracts/telemetry.ts';
 import type { UsageGenerationRollupRow } from '../usage/core/usage-entry-core.ts';
 
@@ -16,6 +16,10 @@ const TELEMETRY_BATCH_URL = `${POSTHOG_INGEST_HOST}/batch/`;
 const TELEMETRY_FLAGS_URL = `${POSTHOG_INGEST_HOST}/flags?v=2`;
 
 const MAX_STACK_LENGTH = 16384;
+const ACCOUNT_HASH_SALT = 'glimmervoid-account-hash-v1';
+const OPENAI_AUTH_CLAIM = 'https://api.openai.com/auth';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const OPENAI_USER_ID_PATTERN = /^user-[A-Za-z0-9]+$/;
 
 const FIRST_RUN_NOTICE = [
   'Anonymous usage data is on. Never paths, prompts or output. Details: https://github.com/johncwaters/glimmervoid/blob/main/docs/configuration.md#telemetry',
@@ -361,6 +365,63 @@ function decideIsDevInstall(
   return comparablePath(homeDir) !== comparablePath(defaultHomeDir);
 }
 
+interface AccountIds {
+  claudeAccountUuid: string | null;
+  codexUserId: string | null;
+}
+
+interface FirstSeen {
+  appVersion: string;
+  osPlatform: string;
+  installFlavor: string;
+}
+
+function parseJsonOrNull(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function fieldOf(value: unknown, key: string): unknown {
+  if (typeof value !== 'object' || value === null || !(key in value)) return undefined;
+  return Reflect.get(value, key);
+}
+
+function hashAccountId(rawAccountId: string): string {
+  return createHash('sha256').update(`${ACCOUNT_HASH_SALT}:${rawAccountId}`).digest('hex');
+}
+
+function claudeAccountUuidOf(claudeConfigText: string): string | null {
+  const accountUuid = fieldOf(fieldOf(parseJsonOrNull(claudeConfigText), 'oauthAccount'), 'accountUuid');
+  return typeof accountUuid === 'string' && UUID_PATTERN.test(accountUuid) ? accountUuid : null;
+}
+
+function codexUserIdOf(codexAuthText: string): string | null {
+  const idToken = fieldOf(fieldOf(parseJsonOrNull(codexAuthText), 'tokens'), 'id_token');
+  if (typeof idToken !== 'string') return null;
+  const encodedClaims = idToken.split('.')[1];
+  if (!encodedClaims) return null;
+  const claims = parseJsonOrNull(Buffer.from(encodedClaims, 'base64url').toString('utf8'));
+  const userId = fieldOf(fieldOf(claims, OPENAI_AUTH_CLAIM), 'user_id');
+  return typeof userId === 'string' && OPENAI_USER_ID_PATTERN.test(userId) ? userId : null;
+}
+
+function buildPersonProperties(accountIds: AccountIds, firstSeen: FirstSeen): PersonProperties {
+  return {
+    $set: {
+      ...(accountIds.claudeAccountUuid ? { claude_account_hash: hashAccountId(accountIds.claudeAccountUuid) } : {}),
+      ...(accountIds.codexUserId ? { codex_user_hash: hashAccountId(accountIds.codexUserId) } : {}),
+    },
+    $set_once: {
+      first_app_version: firstSeen.appVersion.slice(0, MAX_TEXT_LENGTH),
+      first_os_platform: firstSeen.osPlatform.slice(0, MAX_TEXT_LENGTH),
+      first_install_flavor: firstSeen.installFlavor.slice(0, MAX_TEXT_LENGTH),
+    },
+  };
+}
+
 function nodeMajorVersion(nodeVersion: string): number {
   const major = Number.parseInt(nodeVersion.replace(/^v/, ''), 10);
   return Number.isFinite(major) ? major : 0;
@@ -368,8 +429,8 @@ function nodeMajorVersion(nodeVersion: string): number {
 
 export {
   FIRST_RUN_NOTICE, POSTHOG_PROJECT_TOKEN, TELEMETRY_BATCH_URL, TELEMETRY_FLAGS_URL,
-  adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, classifySessionExit,
-  decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion,
+  adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, buildPersonProperties, claudeAccountUuidOf,
+  classifySessionExit, codexUserIdOf, decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion,
   parseBrowserStackFrames, parsePosthogReleaseId, parseV8StackFrames, resolveProjectToken, scrubLocalPath, urlPathOnly,
 };
-export type { RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment };
+export type { AccountIds, RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment };

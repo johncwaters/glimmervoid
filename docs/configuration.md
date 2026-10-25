@@ -282,7 +282,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 
 ## Telemetry
 
-Glimmervoid sends anonymous usage and error events to its own PostHog project, under a random install id kept in `telemetry.json` in the Glimmervoid home (`~/.glimmervoid`, or `$GLIMMERVOID_HOME`). No person profile is created, and nothing names a path, repository, branch, session, prompt, error message or terminal output. A crash is kept in `telemetry-pending-crash.json` beside it until the next start sends it, or deletes it unsent when telemetry is off. It prints a notice once on first start. Turn it off with `telemetry.enabled`, `GLIMMERVOID_TELEMETRY=0`, `DO_NOT_TRACK=1` or `CI=true`.
+Glimmervoid sends usage and error events to its own PostHog project, under a random install id kept in `telemetry.json` in the Glimmervoid home (`~/.glimmervoid`, or `$GLIMMERVOID_HOME`). That id gets a PostHog person profile, which `app_started` and `app_active` fill with the first version, platform and install flavor seen, plus a salted one-way hash of the Claude Code account id and the Codex user id when logged in; never the ids themselves, an email, a name or a token. Nothing names a path, repository, branch, session, prompt, error message or terminal output. A crash is kept in `telemetry-pending-crash.json` beside it until the next start sends it, or deletes it unsent when telemetry is off. It prints a notice once on first start. Turn it off with `telemetry.enabled`, `GLIMMERVOID_TELEMETRY=0`, `DO_NOT_TRACK=1` or `CI=true`.
 
 At start and once a day it also asks PostHog for the `telemetry-enabled` flag for its install id. It also checks when telemetry is turned back on. Once that flag comes back disabled it sends nothing, across restarts too, until a later check returns it enabled; a failed check or a missing flag changes nothing. The maintainers stop all sending by setting the flag's rollout to 0%; deactivating or deleting the flag does not stop installs, because PostHog then leaves it out of the answer. That request is skipped whenever telemetry is off.
 
@@ -290,8 +290,8 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 
 | Event | Properties | When |
 |-------|------------|------|
-| `app_started` | `is_first_start` | The server started listening, and whether this is the first start, with no Glimmervoid config file yet. |
-| `app_active` | `active_session_count` | Once a day while the server runs, with how many sessions are live. |
+| `app_started` | `is_first_start`, `$set`, `$set_once` | The server started listening, and whether this is the first start, with no Glimmervoid config file yet. Also sets the person properties: a one-way hash of the Claude Code account id and the Codex user id when logged in, and the first version, platform and install flavor seen. |
+| `app_active` | `active_session_count`, `$set`, `$set_once` | Once a day while the server runs, with how many sessions are live, and the same person properties as app_started. |
 | `session_started` | `adapter` | A session spawned, with which kind of agent (any custom agent counts as `custom`). |
 | `session_ended` | `adapter`, `exit_kind`, `duration_seconds` | A session ended: how it exited, or that it was removed, replaced by a settings change or stopped with the server, and how long it ran, in whole seconds. |
 | `$exception` | `$exception_list`, `$exception_level` | An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start. |

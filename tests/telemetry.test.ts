@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { POSTHOG_PROJECT_TOKEN, TELEMETRY_BATCH_URL, TELEMETRY_FLAGS_URL } from '../server/core/telemetry-core.ts';
-import { createTelemetry, MAX_QUEUED_EVENTS } from '../server/telemetry.ts';
+import { createAccountIdReader, createTelemetry, MAX_QUEUED_EVENTS } from '../server/telemetry.ts';
 import type { TelemetryOptions } from '../server/telemetry.ts';
 import { TELEMETRY_BASE_PROPERTY_KEYS } from '../shared/contracts/telemetry.ts';
 
@@ -50,8 +50,10 @@ function buildTelemetry(overrides: Partial<TelemetryOptions> = {}) {
   return { telemetry, warnings };
 }
 
-for (const operation of ['flush', 'checkRemoteSwitch', 'stop'] as const) {
-  test(`${operation} rechecks consent after awaiting install state and makes no request after opt-out`, async (context) => {
+for (const [operation, pendingRead] of [
+  ['flush', 'install state'], ['checkRemoteSwitch', 'install state'], ['stop', 'install state'], ['flush', 'account ids'],
+] as const) {
+  test(`${operation} rechecks consent after awaiting ${pendingRead} and makes no request after opt-out`, async (context) => {
     const { sent, fetchFn } = recordingFetch();
     const stateFilePath = path.join(makeStateDir(), 'telemetry.json');
     fs.writeFileSync(stateFilePath, JSON.stringify({ installId: 'a0000000-0000-4000-8000-000000000001', noticeShownAt: null }));
@@ -62,13 +64,20 @@ for (const operation of ['flush', 'checkRemoteSwitch', 'stop'] as const) {
     const stateReadReleased = new Promise<void>(resolve => { releaseStateRead = resolve; });
     const readFile = fs.promises.readFile;
     context.mock.method(fs.promises, 'readFile', async (...args: Parameters<typeof readFile>) => {
-      if (args[0] === stateFilePath) {
+      if (pendingRead === 'install state' && args[0] === stateFilePath) {
         markStateReadStarted();
         await stateReadReleased;
       }
       return readFile(...args);
     });
-    const { telemetry } = buildTelemetry({ fetchFn, config, stateFilePath });
+    const readAccountIds = async () => {
+      if (pendingRead === 'account ids') {
+        markStateReadStarted();
+        await stateReadReleased;
+      }
+      return { claudeAccountUuid: '3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f', codexUserId: null };
+    };
+    const { telemetry } = buildTelemetry({ fetchFn, config, stateFilePath, readAccountIds });
     context.after(() => telemetry.stop());
     telemetry.capture('app_started', { is_first_start: false });
     const outboundOperation = telemetry[operation]();
@@ -95,7 +104,7 @@ test('disabled consent sends nothing and writes no state file', async () => {
   assert.equal(fs.existsSync(stateFilePath), false);
 });
 
-test('a batch posts the project token, the install id and an anonymous allowlisted event', async () => {
+test('a batch posts the project token, the install id and an allowlisted event', async () => {
   const { sent, fetchFn } = recordingFetch();
   const stateFilePath = path.join(makeStateDir(), 'telemetry.json');
   const { telemetry } = buildTelemetry({ fetchFn, stateFilePath });
@@ -111,14 +120,40 @@ test('a batch posts the project token, the install id and an anonymous allowlist
   assert.equal(event.event, 'session_started');
   assert.equal(event.distinct_id, storedState.installId);
   assert.match(event.distinct_id, /^[0-9a-f-]{36}$/);
-  assert.equal(event.properties.$process_person_profile, false);
   assert.deepEqual(Object.keys(event.properties).sort(), [
-    ...TELEMETRY_BASE_PROPERTY_KEYS, '$lib', '$process_person_profile', 'adapter',
+    ...TELEMETRY_BASE_PROPERTY_KEYS, '$lib', 'adapter',
   ].sort());
   assert.deepEqual(
     { app_version: event.properties.app_version, os_platform: event.properties.os_platform, node_major: event.properties.node_major },
     { app_version: '9.9.9', os_platform: 'linux', node_major: 24 },
   );
+});
+
+test('app_started carries only hashes of the Claude and Codex account ids, never the login files', async () => {
+  const claudeAccountUuid = '3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f';
+  const codexUserId = 'user-AbC123xyz';
+  const idTokenClaims = { email: 'alice@example.com', name: 'Alice', 'https://api.openai.com/auth': { user_id: codexUserId, chatgpt_account_id: 'workspace-1' } };
+  const idToken = `header.${Buffer.from(JSON.stringify(idTokenClaims)).toString('base64url')}.signature`;
+  const homeDir = '/home/alice';
+  const filesByPath: Record<string, string> = {
+    [path.join(homeDir, '.claude.json')]: JSON.stringify({ oauthAccount: { accountUuid: claudeAccountUuid, emailAddress: 'alice@example.com', displayName: 'Alice' } }),
+    [path.join(homeDir, '.codex', 'auth.json')]: JSON.stringify({ tokens: { id_token: idToken, access_token: 'secret-access', refresh_token: 'secret-refresh', account_id: 'workspace-1' } }),
+  };
+  const readAccountIds = createAccountIdReader({ env: {}, homeDir, readTextFile: (filePath) => Promise.resolve(filesByPath[filePath] ?? null) });
+  const { sent, fetchFn } = recordingFetch();
+  const { telemetry } = buildTelemetry({ fetchFn, readAccountIds });
+  telemetry.capture('app_started', { is_first_start: true });
+  telemetry.capture('session_started', { adapter: 'codex' });
+  await telemetry.flush();
+  await telemetry.stop();
+  const [appStarted, sessionStarted] = sent[0].body.batch;
+  assert.deepEqual(Object.keys(appStarted.properties.$set as object).sort(), ['claude_account_hash', 'codex_user_hash']);
+  assert.deepEqual(appStarted.properties.$set_once, { first_app_version: '9.9.9', first_os_platform: 'linux', first_install_flavor: 'npm-global' });
+  assert.equal(sessionStarted.properties.$set, undefined);
+  const body = JSON.stringify(sent[0].body);
+  for (const secret of [claudeAccountUuid, codexUserId, 'alice@example.com', 'Alice', 'secret-access', 'secret-refresh', 'workspace-1']) {
+    assert.equal(body.includes(secret), false, `${secret} never leaves the machine`);
+  }
 });
 
 test('the project token override reaches the batch body', async () => {

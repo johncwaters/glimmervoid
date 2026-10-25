@@ -24,13 +24,21 @@ export const MAX_AI_MODEL_LENGTH = 128;
 
 const nonNegativeInteger = z.number().int().nonnegative();
 const boundedText = z.string().max(MAX_TEXT_LENGTH);
+const sha256Hex = z.string().regex(/^[0-9a-f]{64}$/);
+
+export const PersonProperties = z.object({
+  $set: z.object({ claude_account_hash: sha256Hex.optional(), codex_user_hash: sha256Hex.optional() }).strict(),
+  $set_once: z.object({ first_app_version: boundedText, first_os_platform: boundedText, first_install_flavor: boundedText }).strict(),
+}).strict();
 
 const AppStartedProperties = z.object({
   is_first_start: z.boolean(),
+  ...PersonProperties.partial().shape,
 }).strict();
 
 const AppActiveProperties = z.object({
   active_session_count: nonNegativeInteger,
+  ...PersonProperties.partial().shape,
 }).strict();
 
 const SessionStartedProperties = z.object({
@@ -153,8 +161,8 @@ export type TelemetryEventName = keyof typeof TELEMETRY_EVENT_SCHEMAS;
 export type TelemetryEventProperties<EventName extends TelemetryEventName> = z.infer<(typeof TELEMETRY_EVENT_SCHEMAS)[EventName]>;
 
 export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description: string }[] = Object.freeze([
-  { name: 'app_started', description: 'The server started listening, and whether this is the first start, with no Glimmervoid config file yet.' },
-  { name: 'app_active', description: 'Once a day while the server runs, with how many sessions are live.' },
+  { name: 'app_started', description: 'The server started listening, and whether this is the first start, with no Glimmervoid config file yet. Also sets the person properties: a one-way hash of the Claude Code account id and the Codex user id when logged in, and the first version, platform and install flavor seen.' },
+  { name: 'app_active', description: 'Once a day while the server runs, with how many sessions are live, and the same person properties as app_started.' },
   { name: 'session_started', description: 'A session spawned, with which kind of agent (any custom agent counts as `custom`).' },
   { name: 'session_ended', description: 'A session ended: how it exited, or that it was removed, replaced by a settings change or stopped with the server, and how long it ran, in whole seconds.' },
   { name: '$exception', description: 'An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start.' },
@@ -196,6 +204,7 @@ export const TelemetryState = z.object({
 });
 
 export type ExceptionFrame = z.infer<typeof ExceptionFrame>;
+export type PersonProperties = z.infer<typeof PersonProperties>;
 export type ExceptionProperties = z.infer<typeof ExceptionProperties>;
 export type AiGenerationProperties = z.infer<typeof AiGenerationProperties>;
 export type TeamReviewSettledOutcome = (typeof TEAM_REVIEW_SETTLED_OUTCOMES)[number];

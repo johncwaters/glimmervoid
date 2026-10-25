@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { z } from 'zod';
 
 const CODEX_LOGIN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
@@ -46,6 +48,11 @@ function parseCodexAuth(text: string): CodexLogin | null {
   return { accessToken, accountId, expiresAtMs: accessTokenExpiryMs(accessToken) };
 }
 
+function codexHomeDir(env: NodeJS.ProcessEnv, homeDir: string): string {
+  const override = env.CODEX_HOME?.trim();
+  return override ? path.resolve(override) : path.join(homeDir, '.codex');
+}
+
 function decideCodexLogin({ login, nowMs, hasRefreshed }: { login: CodexLogin | null; nowMs: number; hasRefreshed: boolean }): CodexLoginDecision {
   if (!login) return { kind: 'unavailable', reason: 'no Codex login was found on this host; run codex login, or connect Codex from Glimmervoid' };
   if (login.expiresAtMs === null || login.expiresAtMs - nowMs >= CODEX_LOGIN_REFRESH_MARGIN_MS) return { kind: 'use', login };
@@ -62,5 +69,5 @@ function chatgptAuthTokensRefreshResult(login: CodexLogin) {
   return { accessToken: login.accessToken, chatgptAccountId: login.accountId, chatgptPlanType: null };
 }
 
-export { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult, decideCodexLogin, parseCodexAuth };
+export { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult, codexHomeDir, decideCodexLogin, parseCodexAuth };
 export type { CodexLogin };

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from './child-process-safe.ts';
-import { decideCodexLogin, parseCodexAuth } from './core/codex-credentials-core.ts';
+import { codexHomeDir, decideCodexLogin, parseCodexAuth } from './core/codex-credentials-core.ts';
 import type { CodexLogin } from './core/codex-credentials-core.ts';
 import type { LoginSource } from './agent-login/core/agent-connect-core.ts';
 
@@ -31,11 +31,6 @@ type CodexLoginResult = { ok: true; login: CodexLogin } | { ok: false; reason: s
 
 async function readTextFileOrNull(filePath: string): Promise<string | null> {
   return fs.readFile(filePath, 'utf8').catch(() => null);
-}
-
-function codexHomeDir(env: NodeJS.ProcessEnv, homeDir: string): string {
-  const override = env.CODEX_HOME?.trim();
-  return override ? path.resolve(override) : path.join(homeDir, '.codex');
 }
 
 function refreshHostLoginOverAppServer(command: CodexCommand, env: NodeJS.ProcessEnv): Promise<boolean> {
