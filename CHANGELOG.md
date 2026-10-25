@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Typing on a phone no longer pushes the terminal out of view**: pressing a key, such as a number on a Claude question screen with a side preview, could slide the terminal's content up and leave the card blank until you left and reopened the session. The terminal now stays put while you type, and the key still lands.
+
 ## [0.44.1] - 2026-10-25
 
 ### Added

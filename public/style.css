@@ -803,7 +803,7 @@ body {
   position: relative;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: clip;
 
   background: var(--bg-card);
 }
@@ -961,10 +961,6 @@ body {
 .terminal-wrap .xterm-viewport {
   border-radius: 4px;
   background-color: var(--bg-card);
-}
-
-.session-card[data-grid="following"] .terminal-wrap {
-  overflow: hidden;
 }
 
 .session-card[data-grid="following"] .terminal-wrap .xterm {
