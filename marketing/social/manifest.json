@@ -4,8 +4,8 @@
     "template": "templates/link-card.html",
     "placement": "link-card",
     "out": "out/final/og.png",
-    "alt": "Glimmervoid: Mission control that ships. Grids are for watching. This is for shipping. Below, the real dashboard with one session flagged as needing you.",
+    "alt": "Glimmervoid: Mission control that ships. Grids are for watching. This is for working. Below, the real dashboard, its attention banner showing one session that needs you and one that finished.",
     "source": "site/src/components/Hero.astro headline and lede; screenshot cropped from site/public/capture/hero.webp",
-    "vars": { "subline": "Grids are for watching. This is for shipping.", "image": "assets/dashboard-top.png" }
+    "vars": { "subline": "Grids are for watching. This is for working.", "image": "assets/dashboard-top.png" }
   }]
 }
