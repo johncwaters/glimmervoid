@@ -3081,6 +3081,12 @@ html[data-layout="phone"] .view-panel {
 .my-pr-requested-names { min-width: 0; overflow-wrap: anywhere; }
 .my-pr-reviewer { color: var(--text); font-size: 12px; }
 .my-pr-merge { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.pr-readiness-row[data-tone="ok"] .pr-readiness-value { color: var(--text-dim); }
+.pr-readiness-row[data-tone="danger"] .pr-readiness-value, .pr-readiness-row[data-tone="warn"] .pr-readiness-value { color: var(--text-head); }
+.pr-readiness-value > .my-pr-facts { margin-top: 4px; gap: 2px; }
+.my-pr-automation { display: flex; flex-direction: column; }
+.my-pr-automation > .pr-section-heading { padding-left: 0; }
+.my-pr-automation > .my-pr-merge { margin-top: 8px; }
 
 .pr-content {
   display: flex;

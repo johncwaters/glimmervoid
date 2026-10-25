@@ -145,7 +145,7 @@ function sendMerge(pr: MyPr): void {
 function createMergeControl(pr: MyPr): HTMLElement | null {
   const state = mergeControlState(pr, mergeAttempts.get(pr.key));
   if (!state.isVisible) return null;
-  const control = el('div', 'my-pr-merge');
+  const control = el('footer', 'pr-footer pr-decision-bar');
   const button = el('button', 'pr-action', 'Merge');
   button.type = 'button';
   button.disabled = state.isDisabled;
@@ -214,93 +214,111 @@ function requestedReviewers(pr: MyPr, text: string): HTMLElement {
   return requested;
 }
 
+function createMineHeading(pr: MyPr): HTMLElement {
+  const heading = el('div', 'pr-detail-heading');
+  const title = el('div', 'pr-detail-title');
+  title.append(externalLink('pr-link', pr.key, pr.url), el('h2', null, pr.title));
+  const meta = el('p', 'pr-detail-meta');
+  const mergedOrUpdated = pr.state === 'MERGED' ? `Merged ${formatAgo(Date.parse(pr.mergedAt ?? ''))}` : `Updated ${formatAgo(Date.parse(pr.updatedAt))}`;
+  meta.append(el('span', 'pr-queue-owner', 'Yours'), stageChip(pr, { hasGlyph: true }), el('span', null, `Opened ${formatAgo(Date.parse(pr.createdAt))}`), el('span', null, mergedOrUpdated));
+  heading.append(title, meta);
+  return heading;
+}
+
+function createReadinessSection(pr: MyPr): HTMLElement | null {
+  const readiness = readinessRows(pr, latest?.viewer ?? null);
+  if (readiness.length === 0) return null;
+  const section = el('section', 'pr-readiness-section');
+  section.append(el('h3', 'pr-section-heading', 'Merge readiness'));
+  const list = el('ul', 'pr-readiness');
+  for (const readinessRow of readiness) {
+    const item = el('li', 'pr-readiness-row');
+    item.dataset.tone = readinessRow.tone;
+    const value = el('span', 'pr-readiness-value');
+    if (readinessRow.label === 'Review' && readinessRow.text.startsWith('Requested: ')) value.append(requestedReviewers(pr, readinessRow.text));
+    if (value.childNodes.length === 0) value.textContent = readinessRow.text;
+    if (readinessRow.items) {
+      const items = el('ul', 'my-pr-facts');
+      for (const name of readinessRow.items) items.append(el('li', null, name));
+      value.append(items);
+    }
+    item.append(createPrStatusIcon(readinessRow.icon, readinessRow.tone), el('span', 'pr-readiness-label', readinessRow.label), value);
+    list.append(item);
+  }
+  section.append(list);
+  return section;
+}
+
+function createThreadsSection(headingText: string, threads: ReturnType<typeof threadRows>): HTMLElement | null {
+  if (threads.length === 0) return null;
+  const section = el('section', 'my-pr-threads-section');
+  section.append(el('h3', 'pr-section-heading', headingText));
+  const list = el('ul', 'my-pr-threads');
+  for (const thread of threads) {
+    const item = el('li', 'my-pr-thread');
+    const heading = el('div', 'my-pr-thread-heading');
+    heading.append(externalLink('my-pr-thread-location', thread.location, thread.url));
+    if (thread.waiting) {
+      const badge = el('span', 'my-pr-stage');
+      badge.dataset.tone = thread.waiting.tone;
+      badge.append(createPrStatusIcon(thread.waiting.icon, thread.waiting.tone), thread.waiting.text);
+      heading.append(badge);
+    }
+    const excerpt = el('p', 'my-pr-thread-excerpt');
+    excerpt.append(el('strong', null, thread.author), ` ${thread.excerpt}`);
+    const activity = Date.parse(thread.lastActivityAt);
+    const meta = el('p', 'my-pr-thread-meta', Number.isFinite(activity) ? `${thread.replySummary}, ${formatAgo(activity)}` : thread.replySummary);
+    item.append(heading, excerpt, meta);
+    list.append(item);
+  }
+  section.append(list);
+  return section;
+}
+
+function createReviewsSection(pr: MyPr): HTMLElement | null {
+  const reviews = reviewRows(pr);
+  if (reviews.length === 0) return null;
+  const section = el('section', 'pr-readiness-section');
+  section.append(el('h3', 'pr-section-heading', 'Reviews'));
+  const list = el('ul', 'pr-readiness');
+  for (const review of reviews) {
+    const item = el('li', 'pr-readiness-row');
+    const submittedAtMs = Date.parse(review.submittedAt ?? '');
+    const when = Number.isFinite(submittedAtMs) ? `${review.text} ${formatAgo(submittedAtMs)}` : review.text;
+    const reviewer = el('span', 'my-pr-reviewer');
+    reviewer.append(createReviewerStack([{ login: review.reviewer, tone: review.tone, title: review.reviewer, url: review.reviewer === 'a deleted account' ? null : undefined }], 16), el('span', null, review.reviewer));
+    item.append(createPrStatusIcon(review.icon, review.tone), reviewer, el('span', 'pr-readiness-value', when));
+    list.append(item);
+  }
+  section.append(list);
+  return section;
+}
+
+function createAutomationSection(pr: MyPr): HTMLElement | null {
+  const toggleControls = [keepMergeableToggle, mergeWhenReadyToggle].map((toggle) => createToggleControl(pr, toggle)).filter((control) => control !== null);
+  if (toggleControls.length === 0) return null;
+  const section = el('section', 'my-pr-automation');
+  section.append(el('h3', 'pr-section-heading', 'Automation'), ...toggleControls);
+  return section;
+}
+
 function renderDetail(pr: MyPr | undefined): void {
   if (!detail) return;
   if (!pr) {
     detail.replaceChildren(el('p', 'pr-empty', emptyStateText(latest)));
     return;
   }
-  const content = el('article', 'pr-detail');
-  const heading = el('div', 'pr-detail-heading');
-  const title = el('div', 'pr-detail-title');
-  title.append(externalLink('pr-link', pr.key, pr.url), el('h2', null, pr.title));
-  heading.append(title, stageChip(pr, { hasGlyph: true }));
-  content.append(heading);
-  for (const toggle of [keepMergeableToggle, mergeWhenReadyToggle]) {
-    const toggleControl = createToggleControl(pr, toggle);
-    if (toggleControl) content.append(toggleControl);
-  }
-  const readiness = readinessRows(pr, latest?.viewer ?? null);
-  if (readiness.length > 0) {
-    const section = el('section', 'pr-readiness-section');
-    section.append(el('h3', 'pr-section-heading', 'Merge readiness'));
-    const list = el('ul', 'pr-readiness');
-    for (const readinessRow of readiness) {
-      const item = el('li', 'pr-readiness-row');
-      const value = el('span', 'pr-readiness-value');
-      if (readinessRow.label === 'Review' && readinessRow.text.startsWith('Requested: ')) value.append(requestedReviewers(pr, readinessRow.text));
-      if (value.childNodes.length === 0) value.textContent = readinessRow.text;
-      item.append(createPrStatusIcon(readinessRow.icon, readinessRow.tone), el('span', 'pr-readiness-label', readinessRow.label), value);
-      list.append(item);
-    }
-    section.append(list);
-    const mergeControl = createMergeControl(pr);
-    if (mergeControl) section.append(mergeControl);
-    content.append(section);
-  }
-  if (pr.checks.failing.length > 0) {
-    const failed = el('section', 'my-pr-failures');
-    failed.append(el('h3', 'pr-section-heading', 'Failing checks'));
-    const list = el('ul', 'my-pr-facts');
-    for (const name of pr.checks.failing) list.append(el('li', null, name));
-    failed.append(list);
-    content.append(failed);
-  }
-  const reviews = reviewRows(pr);
-  if (reviews.length > 0) {
-    const section = el('section', 'pr-readiness-section');
-    section.append(el('h3', 'pr-section-heading', 'Reviews'));
-    const list = el('ul', 'pr-readiness');
-    for (const review of reviews) {
-      const item = el('li', 'pr-readiness-row');
-      const submittedAtMs = Date.parse(review.submittedAt ?? '');
-      const when = Number.isFinite(submittedAtMs) ? `${review.text} ${formatAgo(submittedAtMs)}` : review.text;
-      const reviewer = el('span', 'my-pr-reviewer');
-      reviewer.append(createReviewerStack([{ login: review.reviewer, tone: review.tone, title: review.reviewer, url: review.reviewer === 'a deleted account' ? null : undefined }], 16), el('span', null, review.reviewer));
-      item.append(createPrStatusIcon(review.icon, review.tone), reviewer, el('span', 'pr-readiness-value', when));
-      list.append(item);
-    }
-    section.append(list);
-    content.append(section);
-  }
   const threads = threadRows(pr, latest?.viewer ?? null);
-  if (threads.length > 0) {
-    const section = el('section', 'my-pr-threads-section');
-    section.append(el('h3', 'pr-section-heading', 'Unresolved threads'));
-    const list = el('ul', 'my-pr-threads');
-    for (const thread of threads) {
-      const item = el('li', 'my-pr-thread');
-      const heading = el('div', 'my-pr-thread-heading');
-      heading.append(externalLink('my-pr-thread-location', thread.location, thread.url));
-      if (thread.waiting) {
-        const badge = el('span', 'my-pr-stage');
-        badge.dataset.tone = thread.waiting.tone;
-        badge.append(createPrStatusIcon(thread.waiting.icon, thread.waiting.tone), thread.waiting.text);
-        heading.append(badge);
-      }
-      const excerpt = el('p', 'my-pr-thread-excerpt');
-      excerpt.append(el('strong', null, thread.author), ` ${thread.excerpt}`);
-      const activity = Date.parse(thread.lastActivityAt);
-      const meta = el('p', 'my-pr-thread-meta', Number.isFinite(activity) ? `${thread.replySummary}, ${formatAgo(activity)}` : thread.replySummary);
-      item.append(heading, excerpt, meta);
-      list.append(item);
-    }
-    section.append(list);
-    content.append(section);
-  }
-  const time = el('p', 'pr-detail-meta');
-  time.append(el('span', null, `Opened ${formatAgo(Date.parse(pr.createdAt))}`), el('span', null, `${pr.state === 'MERGED' ? 'Merged' : 'Updated'} ${formatAgo(Date.parse(pr.state === 'MERGED' ? pr.mergedAt ?? '' : pr.updatedAt))}`));
-  content.append(time);
+  const content = el('article', 'pr-detail');
+  const sections = [
+    createReadinessSection(pr),
+    createThreadsSection('Threads waiting on you', threads.filter((thread) => thread.isWaitingOnYou)),
+    createThreadsSection('Other open threads', threads.filter((thread) => !thread.isWaitingOnYou)),
+    createReviewsSection(pr),
+    createAutomationSection(pr),
+    createMergeControl(pr),
+  ];
+  content.append(createMineHeading(pr), ...sections.filter((section) => section !== null));
   detail.replaceChildren(content);
 }
 

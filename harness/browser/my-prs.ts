@@ -44,6 +44,9 @@ export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
   assert.equal(await rowChip.textContent(), 'Repair failed');
   assert.equal(await rowChip.getAttribute('title'), await detailStatus.textContent());
   assert.equal(await control.locator('.pr-action-status, svg').count(), 0);
+  assert.equal(await panel.locator('.pr-detail .pr-readiness-label').first().textContent(), 'Conflicts');
+  assert.deepEqual(await panel.locator('.pr-detail > section > .pr-section-heading').allTextContents(), ['Merge readiness', 'Automation']);
+  assert.equal(await panel.locator('.pr-detail > .pr-decision-bar').getByRole('button', { name: 'Merge', exact: true }).count(), 1);
   for (const outcome of ['no-change', 'timed-out'] as const) {
     await applyStatus(page, { ...status, prs: status.prs.map((pr) => ({ ...pr, keepMergeableAttempt: { outcome, reason: 'No repair was pushed', at: timestamp - 120000 } })) });
     assert.equal(await detailStatus.textContent(), 'Keep mergeable failed: No repair was pushed (2m ago)');

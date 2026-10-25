@@ -12,9 +12,10 @@ interface MyPrSection { title: string; prs: MyPr[] }
 interface ThreadRow {
   location: string; url: string; author: string; excerpt: string; replySummary: string; lastActivityAt: string;
   waiting: { tone: StateTone; icon: PrStatusIcon; text: string } | null;
+  isWaitingOnYou: boolean;
 }
 interface ReviewRow { reviewer: string; text: string; tone: StateTone; icon: PrStatusIcon; submittedAt: string | null }
-interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase' | 'Merge when ready'; tone: StateTone; icon: PrStatusIcon; text: string }
+interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase' | 'Merge when ready'; tone: StateTone; icon: PrStatusIcon; text: string; items?: readonly string[] }
 
 export interface ToggleControlState { isVisible: boolean; isPressed: boolean; isDisabled: boolean; statusText: string; tone: 'busy' | 'error' | null }
 
@@ -163,10 +164,7 @@ export function stageTone(stage: MyPrStage): StateTone { return STAGE_TONES[stag
 export function stageIcon(stage: MyPrStage): PrStatusIcon { return STAGE_ICONS[stage]; }
 
 function checksReadiness(pr: MyPr): ReadinessRow {
-  if (pr.checks.failing.length > 0) {
-    const extra = pr.checks.failing.length - 3;
-    return { label: 'Checks', tone: 'danger', icon: 'failed', text: `${pr.checks.failing.length} failing: ${pr.checks.failing.slice(0, 3).join(', ')}${extra > 0 ? ` and ${extra} more` : ''}` };
-  }
+  if (pr.checks.failing.length > 0) return { label: 'Checks', tone: 'danger', icon: 'failed', text: `${pr.checks.failing.length} failing`, items: pr.checks.failing };
   if (pr.checks.state === 'FAILURE' || pr.checks.state === 'ERROR') return { label: 'Checks', tone: 'danger', icon: 'failed', text: 'Failing' };
   if (pr.checks.pendingCount > 0) return { label: 'Checks', tone: 'wait', icon: 'running', text: `${pr.checks.pendingCount} running` };
   if (pr.checks.state === 'PENDING' || pr.checks.state === 'EXPECTED') return { label: 'Checks', tone: 'wait', icon: 'running', text: 'Running' };
@@ -231,7 +229,7 @@ export function threadRows(pr: MyPr, viewer: string | null): ThreadRow[] {
   }).map((thread) => ({
     location: threadLocation(thread), url: thread.url, author: thread.author ?? 'a deleted account',
     excerpt: thread.excerpt, replySummary: replySummary(thread), lastActivityAt: thread.lastActivityAt,
-    waiting: waitingBadge(thread, viewer),
+    waiting: waitingBadge(thread, viewer), isWaitingOnYou: isWaitingOnViewer(thread, viewer) === true,
   }));
 }
 
@@ -270,12 +268,14 @@ export function reviewRows(pr: MyPr): ReviewRow[] {
   });
 }
 
+const READINESS_TONE_RANK: Readonly<Record<StateTone, number>> = { danger: 0, warn: 1, wait: 2, muted: 3, ok: 4 };
+
 export function readinessRows(pr: MyPr, viewer: string | null = null): ReadinessRow[] {
   if (pr.state === 'MERGED') return [];
   const rows = [checksReadiness(pr), reviewReadiness(pr), threadsReadiness(pr, viewer), conflictsReadiness(pr), baseReadiness(pr)];
   const autoRebaseRows = pr.autoRebase ? [autoRebaseReadiness(pr, pr.autoRebase)] : [];
   const mergeFailureRows: ReadinessRow[] = pr.mergeQueueFailure ? [{ label: 'Merge when ready', tone: 'danger', icon: 'failed', text: `Merge failed: ${pr.mergeQueueFailure.message}` }] : [];
-  return [...rows, ...autoRebaseRows, ...mergeFailureRows];
+  return [...rows, ...autoRebaseRows, ...mergeFailureRows].toSorted((first, second) => READINESS_TONE_RANK[first.tone] - READINESS_TONE_RANK[second.tone]);
 }
 
 function autoRebaseReadiness(pr: MyPr, autoRebase: NonNullable<MyPr['autoRebase']>): ReadinessRow {
