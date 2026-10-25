@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Delete my data**: Settings > Privacy has a Delete my data button. After you confirm, Glimmervoid asks for everything its usage data recorded under this install to be erased and switches to a new install id; your telemetry setting stays as it was. The same page links to the privacy details on glimmervoid.dev, and Shortcuts and about links to the website.
+
 ### Changed
+
+- **Usage data says plainly what it collects**: the first-run banner, now with a cat, and the terminal notice read "Glimmervoid collects usage data to help us improve it. No prompts or project information are collected.", with a link to what is collected. The setting is now called Send usage data. Each install now keeps a usage profile with its first version and platform and a salted one-way hash of your Claude and Codex account ids, never the ids themselves, emails or names. Opening the website from the dashboard ties that visit to your install only after you accept the site cookie.
 
 - **Anonymous usage data marks a first start**: the app start event now says whether this is the first time Glimmervoid has started on the machine (no config file yet), so a new install can be told apart from a restart. Nothing else about the install is sent.
 
