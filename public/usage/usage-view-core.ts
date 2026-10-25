@@ -1233,7 +1233,7 @@ export function blockHistoryRows(blocks: unknown, limit = 8) {
   }));
 }
 
-export function sessionChipCost(usage: UsageSessionUsage | null | undefined): { costUSD: number | null; source: string | null } {
+function sessionChipCost(usage: UsageSessionUsage | null | undefined): { costUSD: number | null; source: string | null } {
   const official = numberOr(usage?.officialCostUSD, null);
   if (official !== null && official > 0) return { costUSD: official, source: 'official' };
   const estimated = numberOr(usage?.costUSD, null);

@@ -333,22 +333,4 @@ function escalationDetail({
   return head;
 }
 
-export {
-  distinctiveTokens,
-  jaccard,
-  scoreAgainstPrior,
-  findRecurrenceMatch,
-  escalationReason,
-  decideRecurrence,
-  planIssueActions,
-  recordTransientSignature,
-  noteRecurrence,
-  pruneSignatures,
-  signatureRecords,
-  recurrenceSummaryLine,
-  escalationDetail,
-  SIGNATURES_KEY,
-  SIGNATURE_CAP,
-  DEFAULT_RECURRENCE_WINDOW_DAYS,
-  DEFAULT_TRANSIENT_RECURRENCE_LIMIT,
-};
+export { planIssueActions, recordTransientSignature, noteRecurrence, pruneSignatures, signatureRecords, recurrenceSummaryLine, escalationDetail, SIGNATURES_KEY, DEFAULT_RECURRENCE_WINDOW_DAYS, DEFAULT_TRANSIENT_RECURRENCE_LIMIT };

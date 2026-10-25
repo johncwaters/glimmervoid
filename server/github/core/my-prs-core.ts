@@ -20,7 +20,7 @@ export const MyPrsLaneState = MyPrsState.extend({
 export type MyPrsLaneState = z.infer<typeof MyPrsLaneState>;
 export const emptyMyPrsLaneState = (): MyPrsLaneState => MyPrsLaneState.parse({ keepMergeableKeys: [], keepMergeableAttemptKeys: [] });
 
-export const FAILED_GITHUB_ACTION_RETRY_MS = 60 * 60 * 1000;
+const FAILED_GITHUB_ACTION_RETRY_MS = 60 * 60 * 1000;
 
 export function isFailedAttemptRetryDue(failedAt: number, nowMs: number): boolean {
   return nowMs - failedAt >= FAILED_GITHUB_ACTION_RETRY_MS;
