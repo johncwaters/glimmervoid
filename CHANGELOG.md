@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.1] - 2026-10-25
+
 ### Added
 
 - **Delete my data**: Settings > Privacy has a Delete my data button. After you confirm, Glimmervoid asks for everything its usage data recorded under this install to be erased and switches to a new install id; your telemetry setting stays as it was. The same page links to the privacy details on glimmervoid.dev, and Shortcuts and about links to the website.
