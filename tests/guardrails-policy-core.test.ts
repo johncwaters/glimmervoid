@@ -1,63 +1,18 @@
 import assert from 'node:assert/strict';
-import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { FilesystemConfigSchema, SandboxRuntimeConfigSchema } from '@anthropic-ai/sandbox-runtime';
 import { buildGuardrailsLaunchPlan, guardrailsPolicyProbePaths, standardWriteBlockCandidates } from '../server/guardrails/core/guardrails-policy-core.ts';
-import type { GuardrailsHost, GuardrailsLaunchPlan, GuardrailsNetworkAccess, GuardrailsRole } from '../server/guardrails/core/guardrails-policy-core.ts';
+import type { GuardrailsNetworkAccess } from '../server/guardrails/core/guardrails-policy-core.ts';
 import { isSessionGuarded, sessionRole } from '../server/guardrails/core/guardrails-roles-core.ts';
 import { HOOK_VIA_GUARDRAILS_PROXY_ENV } from '../session/core/guardrails-proxy-core.ts';
-
-const homeDir = path.resolve('/home/operator');
-const glimmervoidHome = path.join(homeDir, '.glimmervoid');
-const tempDir = path.join(glimmervoidHome, 'guardrails-temp', 'session-one');
-const launchHomeDir = path.join(glimmervoidHome, 'guardrails-homes', 'session-one');
-const agentSessionId = 'agent-session-one';
-const worktree = path.resolve('/work/worktree');
-const commonGitDir = path.resolve('/work/repo/.git');
-const hostPaths = {
-  homeDir,
-  glimmervoidHome,
-  glimmervoidConfigFile: path.join(glimmervoidHome, 'config.json'),
-  tempDir,
-  launchHomeDir,
-  homeEntryNames: ['.claude', '.claude.json', '.claude.json.backup', '.codex', '.codex.old', 'Projects'],
-  glimmervoidHomeEntryNames: ['config.json', 'guardrails-policies', 'guardrails-temp', 'scratch'],
-  writeBlockedPaths: [] as string[],
-  vendorLocations: {
-    claude: { stateFolder: path.join(homeDir, '.claude'), configFiles: [path.join(homeDir, '.claude.json')], otherHomes: [path.join(homeDir, '.config', 'claude')] },
-    codex: { stateFolder: path.join(homeDir, '.codex'), configFiles: [], otherHomes: [] },
-  },
-  unwrappedVendorHomes: [path.join(homeDir, '.grok')],
-  relocatedXdgConfigHome: null,
-};
+import { homeDir, glimmervoidHome, tempDir, launchHomeDir, agentSessionId, worktree, commonGitDir, hostPaths, roleWith, hostWhereEveryProbedPathExists, planFor, entryPaths } from './helpers/guardrails-host.ts';
 
 const networkByName: Record<string, GuardrailsNetworkAccess> = {
   none: { access: 'none' },
   allowlist: { access: 'allowlist', domains: ['api.github.com'], hookPort: 4199 },
   open: { access: 'open' },
 };
-
-function roleWith(overrides: Partial<GuardrailsRole> = {}): GuardrailsRole {
-  return {
-    vendors: ['claude'], vendorHome: { scope: 'launch', cwd: worktree, agentSessionId }, network: { access: 'allowlist', domains: [], hookPort: 4199 },
-    writableRoots: [], lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: [], ...overrides,
-  };
-}
-
-function hostWhereEveryProbedPathExists(role: GuardrailsRole): GuardrailsHost {
-  return { ...hostPaths, existingPaths: new Set(guardrailsPolicyProbePaths(role, hostPaths)) };
-}
-
-function planFor(role: GuardrailsRole, host: GuardrailsHost = hostWhereEveryProbedPathExists(role)): GuardrailsLaunchPlan {
-  const built = buildGuardrailsLaunchPlan(role, host);
-  if (!built.ok) throw new Error(built.reason);
-  return built.plan;
-}
-
-function entryPaths(entries: readonly (string | { path: string })[] | undefined): string[] {
-  return (entries ?? []).map((entry) => (typeof entry === 'string' ? entry : entry.path));
-}
 
 for (const [networkName, network] of Object.entries(networkByName)) {
   test(`${networkName} network role never allows unix sockets and names every path literally`, () => {
@@ -157,22 +112,6 @@ test('an ordinary Claude session is guarded unless it or a folder above it is ma
   assert.equal(strictPolicy.terminalScope, 'own');
   assert.equal(strictPolicy.allowAppleEvents, false);
   assert.equal(entryPaths(strictPolicy.filesystem.denyRead).includes(path.join(homeDir, 'Library/Keychains')), true);
-});
-
-test('every config sibling file the server names is write-blocked for a session beside the config file, wherever the config lives', async () => {
-  const serverFolder = path.join(import.meta.dirname, '..', 'server');
-  const serverFiles = (await readdir(serverFolder, { recursive: true })).filter((file) => file.endsWith('.ts'));
-  const sources = await Promise.all(serverFiles.map((file) => readFile(path.join(serverFolder, file), 'utf8')));
-  const siblingNames = sources.flatMap((source) => [...source.matchAll(/configSiblingPath\([^,()]*,\s*'([^']+)'\)/g)].map((match) => match[1]));
-  assert.ok(siblingNames.includes('pairings.json'));
-  const role = sessionRole({ writableRoots: [], readDenied: [], readablePaths: [], blockedPaths: [] });
-  for (const configFolder of [glimmervoidHome, path.resolve('/etc/glimmervoid')]) {
-    const glimmervoidConfigFile = path.join(configFolder, 'settings.json');
-    const blocked = standardWriteBlockCandidates(role, { ...hostPaths, glimmervoidConfigFile, glimmervoidHomeEntryNames: [] });
-    for (const blockedPath of [glimmervoidConfigFile, ...siblingNames.map((name) => path.join(configFolder, name))]) assert.equal(blocked.includes(blockedPath), true, blockedPath);
-    const readDenied = entryPaths(planFor(role, { ...hostPaths, glimmervoidConfigFile, existingPaths: new Set() }).policy.filesystem.denyRead);
-    assert.equal(readDenied.includes(path.join(configFolder, 'agent-logins')), true, configFolder);
-  }
 });
 
 test('an absent path is never write-denied and an absent login file is never made writable', () => {

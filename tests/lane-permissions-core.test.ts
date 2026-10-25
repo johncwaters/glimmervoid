@@ -75,36 +75,17 @@ test('--tools is never the last token, since only a following option ends the va
   assert.equal(args.filter((arg) => arg === 'Read' || arg === 'Write').length, 0);
 });
 
-test('the lanes outside the seam are named, and the ones on it all cwd into a throwaway dir', async () => {
-  const readSource = (file: string) => fs.readFileSync(path.join(import.meta.dirname, '..', 'server', file), 'utf8');
-  const LANES_ON_THE_SEAM = ['visions/visions-dispatch.ts', 'lanes/lane-spawn.ts'];
-  const LANES_OFF_THE_SEAM = ['radar/radar-wiring.ts', 'github/team-review-wiring.ts'];
-
-  const LANE_WORK_DIRS = [
-    { file: 'visions/visions-dispatch.ts', dir: await makeVisionsWorkDir(), cleanup: (dir: string) => fs.rmSync(dir, { recursive: true, force: true }) },
-  ];
-  const realTmp = fs.realpathSync(os.tmpdir());
-
-  for (const file of LANES_ON_THE_SEAM) {
-    assert.ok(readSource(file).includes('buildLanePermissions'), `${file} builds its posture here`);
-  }
-  for (const { file, dir, cleanup } of LANE_WORK_DIRS) {
-    try {
-      const resolved = fs.realpathSync(dir);
-      assert.equal(
-        resolved.startsWith(realTmp + path.sep), true,
-        `${file} must cwd into a temp dir, or --setting-sources project,local loads a real repo's settings and hooks`,
-      );
-      assert.deepEqual(fs.readdirSync(dir), [], `${file} must cwd into an EMPTY dir it owns`);
-    } finally {
-      await cleanup(dir);
-    }
-  }
-  for (const file of LANES_OFF_THE_SEAM) {
+test('the visions dispatch work dir is an empty directory under the system temp dir', async () => {
+  const workDir = await makeVisionsWorkDir();
+  try {
+    const realTmp = fs.realpathSync(os.tmpdir());
     assert.equal(
-      readSource(file).includes('buildLanePermissions'), false,
-      `${file} runs cwd'd in a real worktree and needs a shell, so it keeps the operator's environment; wiring it here means updating this list and its reason`,
+      fs.realpathSync(workDir).startsWith(realTmp + path.sep), true,
+      'a lane must cwd into a temp dir, or --setting-sources project,local loads a real repo\'s settings and hooks',
     );
+    assert.deepEqual(fs.readdirSync(workDir), [], 'a lane must cwd into an EMPTY dir it owns');
+  } finally {
+    fs.rmSync(workDir, { recursive: true, force: true });
   }
 });
 

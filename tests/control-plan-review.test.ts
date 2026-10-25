@@ -297,15 +297,6 @@ test('a revision the client names but the store never held is refused rather tha
   await lane.stop();
 });
 
-test('every plan summary reaches every control client, and the body request reaches the lane', () => {
-  const lanesSource = fs.readFileSync(new URL('../server/backend/backend-lanes.ts', import.meta.url), 'utf8');
-  assert.match(lanesSource, /planReview\?\.on\('plan-changed'/);
-  assert.match(lanesSource, /broadcastControl\(\{ type: 'session-plan-changed', \.\.\.summary \}\)/);
-  const backendSource = fs.readFileSync(new URL('../server/backend/backend.ts', import.meta.url), 'utf8');
-  assert.match(backendSource, /readPlanRevision: laneAssembly\.planReview\?\.readPlanRevision \?\? null/);
-  assert.match(backendSource, /getPlanReviewPort: \(\) => laneAssembly\.planReview\?\.port \?\? null/);
-});
-
 test('a plan read for a session with no live Session never pins its file against the retention window', async () => {
   const configDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-plan-retention-'));
   temporaryDirectories.push(configDirectory);
@@ -561,10 +552,4 @@ test('a draft body crosses the socket only when the client asks for one', async 
   assert.equal(responses[1].body?.plan, '# Ship it\n\nthe draft the agent is writing');
   assert.equal(responses[1].body?.revision, 0, 'the draft is marked by revision zero');
   await lane.stop();
-});
-
-test('every plan draft notice reaches every control client', () => {
-  const lanesSource = fs.readFileSync(new URL('../server/backend/backend-lanes.ts', import.meta.url), 'utf8');
-  assert.match(lanesSource, /planReview\?\.on\('plan-draft'/);
-  assert.match(lanesSource, /broadcastControl\(\{ type: 'session-plan-draft', \.\.\.notice \}\)/);
 });

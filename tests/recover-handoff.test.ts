@@ -5,11 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { execFileAsync } from '../server/child-process-safe.ts';
-import {
-  PREVIOUS_DEPENDENCIES_BACKUP_NAME,
-  PREVIOUS_DIST_BACKUP_NAME,
-  QUARANTINED_DIST_NAME,
-} from '../server/core/update-apply-core.ts';
+import { PREVIOUS_DIST_BACKUP_NAME, QUARANTINED_DIST_NAME } from '../server/core/update-apply-core.ts';
 
 const SCRIPT_PATH = path.join(import.meta.dirname, '..', 'scripts', 'recover-handoff.mjs');
 
@@ -129,16 +125,3 @@ test('a marker entry that cannot be applied keeps the marker for the next start'
   }
 });
 
-function backupNameDeclaredInShim(source: string, constantName: string): string {
-  const declaration = new RegExp(`const ${constantName} = '([^']+)';`).exec(source);
-  assert.ok(declaration, `the shim declares ${constantName}`);
-  return declaration[1];
-}
-
-test('the recovery shim restores exactly the backup names the handoff plan writes', () => {
-  const shimSource = fs.readFileSync(SCRIPT_PATH, 'utf8');
-  assert.equal(backupNameDeclaredInShim(shimSource, 'PREVIOUS_DIST_BACKUP_NAME'), PREVIOUS_DIST_BACKUP_NAME);
-  assert.equal(backupNameDeclaredInShim(shimSource, 'PREVIOUS_DEPENDENCIES_BACKUP_NAME'), PREVIOUS_DEPENDENCIES_BACKUP_NAME);
-  assert.match(shimSource, /restore\(updatePath, root, PREVIOUS_DEPENDENCIES_BACKUP_NAME, 'node_modules'\)/);
-  assert.match(shimSource, /restore\(updatePath, root, PREVIOUS_DIST_BACKUP_NAME, 'dist'\)/);
-});

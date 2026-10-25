@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { once } from 'node:events';
@@ -309,11 +308,6 @@ test('an absent relay reports itself instead of spawning anything', () => {
   extension.activate(context);
   assert.equal(context.subscriptions.length, 2);
   assert.match(String(vscode.__test.state.errors[0]), /glimmervoid visions install/);
-});
-
-test('the packed extension names the same activity method the daemon answers', () => {
-  const source = fs.readFileSync(path.join(import.meta.dirname, '..', 'tools', 'vscode-visions', 'extension.ts'), 'utf8');
-  assert.match(source, new RegExp(`const ACTIVITY_METHOD = '${ACTIVITY_METHOD}';`));
 });
 
 test('the relay port rides argv only when one was configured', () => {

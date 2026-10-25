@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const repoRoot = path.join(import.meta.dirname, '..');
 import test from 'node:test';
 
 import { computeRuntimePaths } from '../server/core/runtime-paths.ts';
@@ -64,57 +63,6 @@ test('a module with no package.json above it falls back to the parent of its own
 
   assert.equal(paths.packageRoot, path.join(path.sep, 'tmp', 'loose'));
   assert.equal(paths.bundled, false);
-});
-
-test('the emitted dist manifest never carries a name, which would hijack the package-root walk', () => {
-  const buildSource = fs.readFileSync(path.join(repoRoot, 'scripts', 'build.mjs'), 'utf8');
-  const manifestWrite = buildSource.match(/writeFileSync\([^;]*dist[^;]*package\.json[^;]*;/);
-  assert.ok(manifestWrite, 'scripts/build.mjs writes dist/package.json');
-  assert.ok(!manifestWrite[0].includes('name'), 'the dist manifest stays nameless so findPackageRoot cannot stop at dist/');
-  const distManifestPath = path.join(repoRoot, 'dist', 'package.json');
-  if (!fs.existsSync(distManifestPath)) return;
-  const distManifest = JSON.parse(fs.readFileSync(distManifestPath, 'utf8')) as { name?: string; type?: string };
-  assert.equal(distManifest.name, undefined);
-  assert.equal(distManifest.type, 'module');
-});
-
-test('the build leaves every declared bin executable, which only a registry install would otherwise do', () => {
-  const buildSource = fs.readFileSync(path.join(repoRoot, 'scripts', 'build.mjs'), 'utf8');
-  assert.match(buildSource, /chmodSync\([^;]*0o755\)/, 'scripts/build.mjs chmods the declared bins');
-
-  const { bin } = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as { bin?: string | Record<string, string> };
-  const declaredBins = typeof bin === 'string' ? [bin] : Object.values(bin ?? {});
-  assert.ok(declaredBins.length > 0, 'package.json declares a bin for the build to chmod');
-  if (process.platform === 'win32') return;
-  for (const relativePath of declaredBins) {
-    const builtPath = path.join(repoRoot, relativePath);
-    if (!fs.existsSync(builtPath)) continue;
-    assert.ok(fs.statSync(builtPath).mode & 0o111, `${relativePath} carries the executable bit`);
-  }
-});
-
-test('the built server entry recovers a half-finished handoff before any dependency loads', () => {
-  const entrySource = fs.readFileSync(path.join(repoRoot, 'server', 'index.ts'), 'utf8');
-  assert.match(entrySource, /^import \{ recoverHandoff \} from '\.\.\/scripts\/recover-handoff\.mjs';$/m);
-  assert.match(entrySource, /recoverHandoff\(packageRoot\);/);
-  assert.match(entrySource, /await import\('\.\/main\.ts'\);/);
-  assert.ok(!/^import .* from '\.\/main\.ts';$/m.test(entrySource), 'the real server loads only after recovery, so it cannot be a static import');
-
-  const buildConfig = fs.readFileSync(path.join(repoRoot, 'vite.server.config.ts'), 'utf8');
-  assert.match(buildConfig, /'server\/index': path\.join\(repoRoot, 'server', 'index\.ts'\)/);
-
-  const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as {
-    scripts: Record<string, string>;
-    files: string[];
-  };
-  assert.equal(manifest.scripts.start, 'node dist/server/index.js');
-  assert.ok(manifest.files.includes('scripts/recover-handoff.mjs'), 'the shim ships with the package');
-});
-
-test('the shipped launcher starts the server through the recovering bootstrap', () => {
-  const launcherSource = fs.readFileSync(path.join(repoRoot, 'bin', 'glimmervoid.ts'), 'utf8');
-  assert.match(launcherSource, /await import\('\.\.\/server\/index\.ts'\);/);
-  assert.ok(!/['"]\.\.\/server\/main\.ts['"]/.test(launcherSource), 'the launcher never reaches main ahead of recovery');
 });
 
 

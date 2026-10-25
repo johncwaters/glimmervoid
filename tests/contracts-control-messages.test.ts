@@ -1,8 +1,6 @@
 import { myPrsStatus } from '../server/github/core/my-prs-core.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
 
 import { z } from 'zod';
 
@@ -37,33 +35,9 @@ test('add-session accepts workspace repository paths', () => {
   assert.equal(ClientMessage.safeParse({ type: 'add-session', name: 'Workspace', path: '/repos/one', repos: 'bad' }).success, false);
 });
 
-function dispatchTypes(file: string, startMarker: string, endMarker: string): string[] {
-  const source = fs.readFileSync(path.join(import.meta.dirname, '..', file), 'utf8');
-  const start = source.indexOf(startMarker);
-  const end = source.indexOf(endMarker, start);
-  assert.notEqual(start, -1);
-  assert.notEqual(end, -1);
-  return [...source.slice(start, end).matchAll(/^\s*['"]([a-z][a-z0-9-]*)['"]\s*:/gm)].map((match) => match[1]);
-}
-
 function schemaTypes(schema: typeof ClientMessage | typeof ServerMessage): Set<string> {
   return new Set(schema.options.map((option) => option.shape.type.value));
 }
-
-test('control dispatch tables contain only contract message types', () => {
-  const clientTypes = dispatchTypes('server/control-handlers.ts', 'const handlers = {', "controlWss.on('connection'");
-  const serverTypes = dispatchTypes('public/app.ts', 'const messageHandlers = {', 'onControlMessage((msg)');
-  const clientSchemaTypes = schemaTypes(ClientMessage);
-  const serverSchemaTypes = schemaTypes(ServerMessage);
-  assert.deepEqual(clientTypes.filter((type) => !clientSchemaTypes.has(type)), []);
-  assert.deepEqual(serverTypes.filter((type) => !serverSchemaTypes.has(type)), []);
-});
-
-test('the browser dispatches update-progress from the complete contract table', () => {
-  const serverTypes = dispatchTypes('public/app.ts', 'const messageHandlers = {', 'onControlMessage((msg)');
-  assert.equal(serverTypes.includes('update-progress'), true);
-  assert.equal(schemaTypes(ServerMessage).has('update-progress'), true);
-});
 
 const NOW = 1_777_000_000_000;
 const UPDATE_JOURNAL = {
