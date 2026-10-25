@@ -1,11 +1,12 @@
 import { createActionStatus, requestFailureText, DEFAULT_REPLY_TIMEOUT_MS } from '../action-status.ts';
-import { sendControlRequest } from '../control-ws.ts';
+import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { createAddSessionDialog } from '../dialogs.ts';
 import { el } from '../dom-helpers.ts';
 import { createNotificationPermissionControl } from '../notifications.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import { buildNextAttentionKeys } from '../shortcuts.ts';
-import { agentSummaryText, decideFirstRunSteps, UPCOMING_STEPS } from './first-run-checklist-core.ts';
+import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
+import { agentSummaryText, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, UPCOMING_STEPS } from './first-run-checklist-core.ts';
 import type { FirstRunStepState, FirstRunSteps } from './first-run-checklist-core.ts';
 import { createRepoRootsAdder } from './repo-roots-adder.ts';
 
@@ -25,8 +26,20 @@ let rescanButton: HTMLButtonElement | null = null;
 let repoRootsAdder: ReturnType<typeof createRepoRootsAdder> | null = null;
 let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', repoRoots: [] };
 let loadSequence = 0;
+const reportedStepKeys = new Set<string>();
 const loadStatus = createActionStatus('first-run-load-status');
 const notificationPermissionControl = createNotificationPermissionControl();
+
+function reportOnboardingAction(action: OperatorActionOf<'onboarding'>) {
+  sendControlMsg({ type: 'dashboard-telemetry', event: 'operator_action', properties: { surface: 'onboarding', action } });
+}
+
+function reportOnboardingStepChanges(steps: FirstRunSteps) {
+  for (const report of decideOnboardingStepReports(reportedStepKeys, steps)) {
+    const isSent = sendControlMsg({ type: 'dashboard-telemetry', event: 'onboarding_step', properties: report });
+    if (isSent) reportedStepKeys.add(onboardingStepReportKey(report));
+  }
+}
 
 function buildStep({ title, state, summary, badge, body }: {
   title: string;
@@ -56,7 +69,10 @@ function agentStepBody(): HTMLElement[] {
   const actions = el('div', 'first-run-step-actions');
   rescanButton = el('button', 'btn-dialog btn-dialog-cancel', 'Rescan');
   rescanButton.type = 'button';
-  rescanButton.addEventListener('click', () => { void loadFirstRunState({ rescanAgents: true }); });
+  rescanButton.addEventListener('click', () => {
+    reportOnboardingAction('rescan');
+    void loadFirstRunState({ rescanAgents: true });
+  });
   actions.append(rescanButton, el('span', 'first-run-step-hint', 'Any other terminal agent can be added under customAgents.'));
   return [
     el('p', 'first-run-step-text', 'No supported agent is on PATH. Install Claude Code, Codex or Grok, then rescan. Rescan still finding nothing means the CLI went into a folder the server cannot see: restart Glimmervoid from a terminal where the command runs.'),
@@ -66,7 +82,10 @@ function agentStepBody(): HTMLElement[] {
 }
 
 function repoRootsStepBody(): HTMLElement[] {
-  const adder = repoRootsAdder ?? createRepoRootsAdder({ onAdded: () => { void loadFirstRunState({ rescanAgents: false }); } });
+  const adder = repoRootsAdder ?? createRepoRootsAdder({ onAdded: (source) => {
+    reportOnboardingAction(source === 'typed' ? 'add-root-typed' : 'add-root-suggested');
+    void loadFirstRunState({ rescanAgents: false });
+  } });
   repoRootsAdder = adder;
   return [
     el('p', 'first-run-step-text', 'The folder that holds your git checkouts. Each subfolder becomes a project you can start a session in.'),
@@ -78,7 +97,10 @@ function firstSessionStepBody(): HTMLElement[] {
   const actions = el('div', 'first-run-step-actions');
   const addSessionButton = el('button', 'btn-dialog btn-dialog-confirm', '+ Session');
   addSessionButton.type = 'button';
-  addSessionButton.addEventListener('click', createAddSessionDialog);
+  addSessionButton.addEventListener('click', () => {
+    reportOnboardingAction('add-session');
+    createAddSessionDialog();
+  });
   const hint = el('span', 'first-run-step-hint', 'Folders and agents can change later in ');
   hint.append(createSettingsLink('machine-sessions', 'repository-roots', 'Settings > Sessions'), '.');
   actions.append(addSessionButton, hint);
@@ -116,6 +138,7 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
     currentState = { steps: decideFirstRunSteps({ agentListing, repoRoots }), agentSummary: agentSummaryText(agentListing), repoRoots };
     loadStatus.clear();
     renderSteps();
+    reportOnboardingStepChanges(currentState.steps);
     repoRootsAdder?.setSuggestions(isRootsScan ? rootsScan.suggestions ?? [] : []);
   } catch (reason) {
     if (rescanButton) rescanButton.disabled = false;

@@ -1,3 +1,4 @@
+import type { OnboardingStepReport } from '#shared/contracts/control-messages.ts';
 import { decideAgentAvailability, decideAgentPicker } from '../session-card/agent-core.ts';
 
 type FirstRunStepState = 'done' | 'current' | 'upcoming';
@@ -22,6 +23,27 @@ function decideFirstRunSteps({ agentListing, repoRoots }: { agentListing: unknow
   };
 }
 
+const REPORTED_STEP_BY_CHECKLIST_STEP = [
+  ['agent', 'agent'],
+  ['repoRoots', 'repo_roots'],
+  ['firstSession', 'first_session'],
+] as const;
+
+function onboardingStepReportKey({ step, state }: OnboardingStepReport): string {
+  return `${step}:${state}`;
+}
+
+function decideOnboardingStepReports(reportedStepKeys: ReadonlySet<string>, steps: FirstRunSteps): OnboardingStepReport[] {
+  const reports: OnboardingStepReport[] = [];
+  for (const [checklistStep, reportedStep] of REPORTED_STEP_BY_CHECKLIST_STEP) {
+    const state = steps[checklistStep];
+    if (state === 'upcoming') continue;
+    const report = { step: reportedStep, state };
+    if (!reportedStepKeys.has(onboardingStepReportKey(report))) reports.push(report);
+  }
+  return reports;
+}
+
 function agentSummaryText(agentListing: unknown): string {
   const agents = typeof agentListing === 'object' && agentListing !== null ? (agentListing as { agents?: unknown }).agents : [];
   return decideAgentPicker(agents).options.map((agentOption) => agentOption.label).join(', ');
@@ -37,5 +59,5 @@ function withRepoRootAdded(repoRoots: readonly string[], addedRoot: string): str
   return [...repoRoots, trimmedRoot];
 }
 
-export { decideFirstRunSteps, agentSummaryText, gitRepoCountText, withRepoRootAdded, UPCOMING_STEPS };
+export { decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, withRepoRootAdded, UPCOMING_STEPS };
 export type { FirstRunStepState, FirstRunSteps };

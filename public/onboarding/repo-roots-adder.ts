@@ -25,7 +25,9 @@ async function saveRepoRoot(addedRoot: string): Promise<string | null> {
   return null;
 }
 
-export function createRepoRootsAdder({ onAdded }: { onAdded: () => void }) {
+type RepoRootSource = 'typed' | 'suggested';
+
+export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSource) => void }) {
   adderSequence += 1;
   const typedInputId = `repo-roots-adder-path-${adderSequence}`;
   const element = el('div', 'repo-roots-adder');
@@ -62,7 +64,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: () => void }) {
     if (!saving) typedAddButton.disabled = typedInput.value.trim() === '';
   }
 
-  async function addRoot(addedRoot: string) {
+  async function addRoot(addedRoot: string, source: RepoRootSource) {
     if (isSaving) return;
     setSaving(true);
     errorEl.textContent = '';
@@ -73,7 +75,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: () => void }) {
         return;
       }
       typedInput.value = '';
-      onAdded();
+      onAdded(source);
     } catch (error) {
       errorEl.textContent = `Could not save the folder: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
@@ -87,9 +89,9 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: () => void }) {
   typedInput.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || typedInput.value.trim() === '') return;
     event.preventDefault();
-    void addRoot(typedInput.value.trim());
+    void addRoot(typedInput.value.trim(), 'typed');
   });
-  typedAddButton.addEventListener('click', () => { void addRoot(typedInput.value.trim()); });
+  typedAddButton.addEventListener('click', () => { void addRoot(typedInput.value.trim(), 'typed'); });
 
   function setSuggestions(suggestions: readonly RepoRootSuggestion[]) {
     suggestionsList.textContent = '';
@@ -98,7 +100,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: () => void }) {
       const addButton = el('button', 'btn-dialog btn-dialog-cancel', 'Add');
       addButton.type = 'button';
       addButton.setAttribute('aria-label', `Add ${suggestion.label}`);
-      addButton.addEventListener('click', () => { void addRoot(suggestion.path); });
+      addButton.addEventListener('click', () => { void addRoot(suggestion.path, 'suggested'); });
       row.append(
         el('span', 'repo-roots-adder-path', suggestion.label),
         el('span', 'repo-roots-adder-count', gitRepoCountText(suggestion.gitRepoCount)),

@@ -144,6 +144,7 @@ test('every event schema refuses a property outside its allowlist', () => {
     },
     view_shown: { view: 'usage' },
     operator_action: { surface: 'radar', action: 'resolve' },
+    onboarding_step: { step: 'repo_roots', state: 'done' },
     team_review_drafted: { inline_comment_count: 3 },
     team_review_settled: { outcome: 'comment', drafted_comment_count: 3, posted_comment_count: 2, duration_ms: 5230 },
     team_review_post_refused: { reason: 'github-refused', duration_ms: 120 },

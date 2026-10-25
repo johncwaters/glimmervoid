@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { BUILTIN_AGENT_IDS } from './config.ts';
-import { DASHBOARD_VIEWS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES } from './control-messages.ts';
+import { DASHBOARD_VIEWS, ONBOARDING_STEP_STATES, ONBOARDING_STEPS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES } from './control-messages.ts';
 import type { OperatorAction, OperatorSurface } from './control-messages.ts';
 
 const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
@@ -55,6 +55,11 @@ const OperatorActionProperties = z.object({
   action: z.enum(OPERATOR_ACTIONS),
 }).strict().refine(isActionOfSurface, { message: 'action does not belong to its surface' });
 
+const OnboardingStepProperties = z.object({
+  step: z.enum(ONBOARDING_STEPS),
+  state: z.enum(ONBOARDING_STEP_STATES),
+}).strict();
+
 const TeamReviewDraftedProperties = z.object({
   inline_comment_count: nonNegativeInteger,
 }).strict();
@@ -84,6 +89,7 @@ const RadarFixHandoffFailedProperties = z.object({
 export const DashboardTelemetryReport = z.discriminatedUnion('event', [
   z.object({ event: z.literal('view_shown'), properties: ViewShownProperties }),
   z.object({ event: z.literal('operator_action'), properties: OperatorActionProperties }),
+  z.object({ event: z.literal('onboarding_step'), properties: OnboardingStepProperties }),
 ]);
 
 export const ExceptionFrame = z.object({
@@ -133,6 +139,7 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   $ai_generation: AiGenerationProperties,
   view_shown: ViewShownProperties,
   operator_action: OperatorActionProperties,
+  onboarding_step: OnboardingStepProperties,
   team_review_drafted: TeamReviewDraftedProperties,
   team_review_settled: TeamReviewSettledProperties,
   team_review_post_refused: TeamReviewPostRefusedProperties,
@@ -151,7 +158,8 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: '$exception', description: 'An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start.' },
   { name: '$ai_generation', description: 'Per agent session and model, after each usage scan, for usage recorded in the last 24 hours: token counts, the model name and estimated cost, under a one-way hash of the session. A model name outside the shipped pricing table is sent as unknown. No prompts or output.' },
   { name: 'view_shown', description: 'A dashboard tab opened, on desktop or phone, with which tab. Sent on every open.' },
-  { name: 'operator_action', description: 'An action taken in the Usage, Issues, Radar or Reviews tab: which tab and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on.' },
+  { name: 'operator_action', description: 'An action taken in the Usage, Issues, Radar or Reviews tab or the first-run checklist: which tab and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on.' },
+  { name: 'onboarding_step', description: 'The first-run checklist moved a step to current or done, with which step. Sent once per change while the page is open.' },
   { name: 'team_review_drafted', description: 'A team review draft became ready, with how many inline comments it drafted.' },
   { name: 'team_review_settled', description: 'A team review draft was posted (approve, comment or approve-only) or discarded, with how many inline comments were drafted and how many were posted, plus the total action duration in milliseconds.' },
   { name: 'team_review_post_refused', description: 'Posting a team review was refused, with a reason from a fixed list and the total action duration in milliseconds. Never the error text.' },
