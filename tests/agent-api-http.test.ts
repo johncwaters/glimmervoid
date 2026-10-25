@@ -22,7 +22,7 @@ import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { SessionCardFields } from '../shared/contracts/index.ts';
-import { DEFAULT_CONFIG } from '../server/config-store.ts';
+import { DEFAULT_CONFIG, glimmervoidHomeDir } from '../server/config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
 import { STATES } from '../shared/states.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../shared/timer-deps.ts';
@@ -33,6 +33,7 @@ import { hasGit, git } from './helpers/git-fixture.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
+import { waitFor } from './helpers/wait-for.ts';
 
 const SESSION_ID = 'agent-api-session';
 const GIT = hasGit();
@@ -793,7 +794,7 @@ async function glimmervoidNotes(fixture: ReturnType<typeof wiringFixture>): Prom
   return channels.flatMap(({ entries }) => entries.filter(({ from }) => from === 'glimmervoid').map(({ text }) => text));
 }
 
-test('closing a clean child discards its worktree only after the killed tree is reaped, and posts the closing parent no end note', async () => {
+test('closing a clean child discards its worktree and deletes its guardrails temp folder only after the killed tree is reaped, and posts the closing parent no end note', async () => {
   const fixture = wiringFixture();
   const attentionNotes: string[] = [];
   fixture.parent.noteAttention = (note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
@@ -801,14 +802,18 @@ test('closing a clean child discards its worktree only after the killed tree is 
     const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the slice' });
     const childId = String(spawned.body.sessionId);
     const worktree = stubChildWorktree(fixture.created[0], { dirty: false });
+    const childTempFolder = path.join(glimmervoidHomeDir(), 'guardrails-temp', childId);
+    fs.mkdirSync(path.join(childTempFolder, 'scratchpad'), { recursive: true });
     assert.match(String(spawned.body.note), /--discard/);
 
     assert.deepEqual([(await fixture.wiring.handle(fixture.parent, 'close', { child: childId })).status, fixture.agentSessions.has(childId)], [200, false]);
     await settleTurns();
     assert.deepEqual(worktree.log, [], 'nothing is discarded while the killed tree may still hold the checkout');
+    assert.equal(fs.existsSync(childTempFolder), true, 'the temp folder stays while the killed tree may still write to it');
     worktree.finishReap();
     await settleTurns();
     assert.deepEqual(worktree.log, ['reaped', 'discard-if-clean']);
+    await waitFor(() => !fs.existsSync(childTempFolder), 'the temp folder is gone once the tree is reaped');
     assert.deepEqual(await glimmervoidNotes(fixture), []);
     assert.deepEqual(attentionNotes, []);
   } finally {

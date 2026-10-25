@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { Session } from '../../session/sessions.ts';
+import { removeSessionTempFolder } from '../guardrails/guardrails-launch.ts';
 import { awaitBounded } from '../core/shutdown-core.ts';
 import { firstLine } from '../core/text-core.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
@@ -173,6 +174,7 @@ interface RegisterableSession {
   on(event: 'exit', listener: () => void): unknown;
   destroy: () => void;
   readonly hasLivePty?: boolean;
+  _awaitPendingReaps?: () => Promise<void> | null;
 }
 
 function registerEphemeralSession({ map, id, sess, closeSessionDataClients, logPrefix, name, recordLane = null }: {
@@ -205,8 +207,19 @@ function registerEphemeralSession({ map, id, sess, closeSessionDataClients, logP
     if (sess.hasLivePty !== false) return;
     releaseAfterListeners();
   });
+  let hasScheduledTempFolderRemoval = false;
+  const removeTempFolderAfterReap = () => {
+    if (hasScheduledTempFolderRemoval) return;
+    hasScheduledTempFolderRemoval = true;
+    void Promise.resolve(sess._awaitPendingReaps?.())
+      .catch(() => {})
+      .then(() => {
+        if (map.has(id)) return;
+        return removeSessionTempFolder(id);
+      });
+  };
   const origDestroy = sess.destroy.bind(sess);
-  sess.destroy = () => { origDestroy(); removeFromMap(); };
+  sess.destroy = () => { origDestroy(); removeFromMap(); removeTempFolderAfterReap(); };
 }
 
 export { awaitSessionExit, createJobResultFile, drainPending, firstLine, raceWithAbort, readResultFile, registerEphemeralSession };
