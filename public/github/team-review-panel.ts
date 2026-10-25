@@ -1,25 +1,24 @@
-import { clearActionStatus, paintActionStatus } from '../action-status.ts';
+import { paintActionStatus } from '../action-status.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { DraftComment, EarlierReview, FindingSeverity, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
-import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAvatar, createReviewerStack, el, externalLink } from '../dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from '../poll-ago.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
-import { MORE_ICON_PATH, createLineIcon, createSvgIcon as svgIcon, createSvgShape as svgShape } from '../svg-dom.ts';
+import { createSvgIcon as svgIcon, createSvgShape as svgShape } from '../svg-dom.ts';
 import { formatTrailOffset } from '../radar/radar-core.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview,
-  answeredNonNitThreads, changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, buildNotMineRequest, 
-  commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, joinTeamReviews, parseInlineSegments, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, 
-  parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, readyRowSignature, detailHeadingSignature,
-  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, planActionReply, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
+  answeredNonNitThreads, changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, buildNotMineRequest,
+  buildReadyDecisionRequest, commentLocation, detailActionLayout, isIncludedByDefault, isSeverityIncludedByDefault, emptyStateText, generalFindingsOf, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, hasSelection, joinTeamReviews, parseInlineSegments, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText,
+  parseReviewComment, postedOutcomeText, postingPreviewText, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, readyRowSignature, detailHeadingSignature,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, severityPresentation, planActionReply, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice,
 } from './team-review-view-core.ts';
-import type { ActionReplyNotice, QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
+import type { ActionReplyNotice, GeneralFinding, QueueRowKind, ReviewSelection, TeamReviewSections } from './team-review-view-core.ts';
 import { isStreamerMode, onStreamerModeChanged } from '../streamer-mode.ts';
 
 const ACTION_REPLY_TIMEOUT_MS = 120000;
@@ -37,6 +36,7 @@ interface ActionDetailHandle {
 interface PendingAction {
   requestId: string;
   action: TeamReviewAction;
+  outcomeText: string;
   origin: DetailOrigin;
   capturedOrder: string[];
   pullRequest: string;
@@ -401,10 +401,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
 function refreshDetailHeading(detail: HTMLElement, draft: ReviewDraft): HTMLElement {
   const heading = detail.querySelector<HTMLElement>(':scope > .pr-detail-heading');
   if (!heading || heading.dataset.signature === detailHeadingSignature(draft)) return detail;
-  const freshHeading = createDetailHeading(draft);
-  const more = heading.querySelector(':scope > .pr-detail-title > .pr-detail-more');
-  if (more) freshHeading.querySelector(':scope > .pr-detail-title')?.append(more);
-  heading.replaceWith(freshHeading);
+  heading.replaceWith(createDetailHeading(draft));
   return detail;
 }
 
@@ -433,13 +430,6 @@ function appendInlineText(element: HTMLElement, text: string): HTMLElement {
   return appendSegments(element, parseInlineSegments(text));
 }
 
-function createAssessmentPart(title: string, content: HTMLElement, tone?: string): HTMLElement {
-  const part = el('div', 'pr-assessment-part');
-  if (tone) part.dataset.tone = tone;
-  part.append(el('h4', 'pr-assessment-title', title), content);
-  return part;
-}
-
 function createAssessmentList(items: readonly string[]): HTMLElement {
   const list = el('ul', 'pr-assessment-list');
   for (const item of items) list.append(appendInlineText(el('li', null), item));
@@ -459,34 +449,30 @@ function createAboutPr(draft: ReviewDraft): HTMLElement[] {
   return [section];
 }
 
-function createSummaryStrip(draft: ReviewDraft): HTMLElement {
+function createVerdictBlock(draft: ReviewDraft): HTMLElement {
   const verdict = el('section', 'pr-verdict-box');
   verdict.setAttribute('aria-label', 'Verdict');
   const verdictLine = el('div', 'pr-verdict-line');
   verdictLine.append(createVerdictSeal(draft));
   verdict.append(verdictLine);
-  if (!draft.assessment) {
+  const { assessment } = draft;
+  if (!assessment) {
     verdict.append(el('p', 'pr-verdict-legacy', LEGACY_SUMMARY_HINT));
+    if (draft.summary.trim()) verdict.append(appendInlineText(el('p', 'pr-verdict-summary pr-verdict-reason'), draft.summary));
     return verdict;
   }
   verdict.append(appendInlineText(el('p', 'pr-verdict-summary pr-verdict-reason'), draft.summary));
-  return verdict;
-}
-
-function createCoverageDetails(draft: ReviewDraft): HTMLElement {
-  const details = el('details', 'pr-disclosure pr-coverage');
-  const summary = el('summary', 'pr-disclosure-summary');
-  const heading = coverageDisclosureHeading(draft.assessment);
-  summary.append(el('span', 'pr-disclosure-label', heading.label), el('span', 'pr-disclosure-preview', heading.preview));
-  details.append(summary);
-  const { assessment } = draft;
-  if (!assessment) {
-    details.append(appendInlineText(el('p', 'pr-verdict-summary'), draft.summary));
-    return details;
+  if (assessment.gaps.length > 0) {
+    const gaps = createAssessmentList(assessment.gaps);
+    gaps.classList.add('pr-verdict-gaps');
+    gaps.setAttribute('aria-label', 'Not covered');
+    verdict.append(gaps);
   }
-  if (assessment.checked.length > 0) details.append(createAssessmentPart('What the review checked', createAssessmentList(assessment.checked)));
-  if (assessment.gaps.length > 0) details.append(createAssessmentPart('Not covered', createAssessmentList(assessment.gaps), 'warning'));
-  return details;
+  if (assessment.checked.length === 0) return verdict;
+  const checked = el('details', 'pr-verdict-checked');
+  checked.append(el('summary', null, `What it checked (${assessment.checked.length})`), createAssessmentList(assessment.checked));
+  verdict.append(checked);
+  return verdict;
 }
 
 function createCommentParagraph(paragraph: ReturnType<typeof parseReviewComment>['paragraphs'][number]): HTMLElement {
@@ -507,14 +493,29 @@ function createCommentParagraph(paragraph: ReturnType<typeof parseReviewComment>
   return appendSegments(element, paragraph.segments);
 }
 
-function createCommentContent(comment: DraftComment): HTMLDetailsElement {
+interface FindingContent {
+  body: string;
+  severity: FindingSeverity | null;
+  location: string;
+  locationTitle: string;
+}
+
+function commentFindingContent(comment: DraftComment): FindingContent {
+  return { body: comment.body, severity: commentSeverity(comment), location: shortCommentLocation(comment), locationTitle: commentLocation(comment) };
+}
+
+function generalFindingContent(finding: GeneralFinding): FindingContent {
+  const locationTitle = finding.location ?? 'Not on a changed line, posts in the review body';
+  return { body: finding.body, severity: finding.severity, location: finding.location?.split('/').at(-1) ?? 'general', locationTitle };
+}
+
+function createCommentContent({ body, severity, location: locationText, locationTitle }: FindingContent): HTMLDetailsElement {
   const content = el('details', 'pr-comment-content');
   const header = el('summary', 'pr-comment-header');
-  const parsed = parseReviewComment(comment.body);
-  const severity = commentSeverity(comment);
+  const parsed = parseReviewComment(body);
   if (severity) header.append(createSeverityMeter(severity));
-  const location = el('span', 'pr-comment-location', shortCommentLocation(comment));
-  location.title = commentLocation(comment);
+  const location = el('span', 'pr-comment-location', locationText);
+  location.title = locationTitle;
   header.append(location);
   header.append(el('span', 'pr-comment-preview', reviewCommentPreview(parsed.paragraphs)));
   content.append(header);
@@ -536,7 +537,7 @@ function createEarlierReviewDetails(review: EarlierReview, isOpen: boolean): HTM
   if (review.summary.trim()) body.append(appendInlineText(el('p', 'pr-verdict-summary'), review.summary));
   for (const comment of review.comments) {
     const card = el('article', 'pr-comment-card pr-comment-card-readonly');
-    card.append(createCommentContent(comment));
+    card.append(createCommentContent(commentFindingContent(comment)));
     body.append(card);
   }
   details.append(summary, body);
@@ -565,27 +566,26 @@ function inReviewEarlierDetails(review: InFlightReview): HTMLElement[] {
   return [element];
 }
 
-function createInlineComment(comment: DraftComment, index: number, includedIndexes: Set<number>, updateFooter: () => void): HTMLElement {
+function createTickableFinding(content: FindingContent, included: Set<number>, index: number, onToggle: () => void): HTMLElement {
   const card = el('article', 'pr-comment-card');
   const checkbox = el('input', 'pr-comment-checkbox');
   checkbox.type = 'checkbox';
-  checkbox.checked = includedIndexes.has(index);
-  checkbox.setAttribute('aria-label', `Include comment on ${commentLocation(comment)}`);
+  checkbox.checked = included.has(index);
+  checkbox.setAttribute('aria-label', `Post finding on ${content.locationTitle}`);
   checkbox.addEventListener('change', () => {
-    if (checkbox.checked) includedIndexes.add(index);
-    if (!checkbox.checked) includedIndexes.delete(index);
+    if (checkbox.checked) included.add(index);
+    if (!checkbox.checked) included.delete(index);
     card.dataset.included = String(checkbox.checked);
-    updateFooter();
+    onToggle();
   });
   card.dataset.included = String(checkbox.checked);
-  card.append(checkbox, createCommentContent(comment));
+  card.append(checkbox, createCommentContent(content));
   return card;
 }
 
-const MORE_ACTIONS_LABEL = 'More review actions';
 const FOLLOW_UP_APPROVAL_HINT = 'Your comments are on GitHub. Approve adds an approval without posting them again.';
 
-function sendAction(origin: DetailOrigin, review: Pick<ReviewDraft, 'key' | 'repo' | 'number'>, request: TeamReviewActionRequest, settle: (isDone: boolean, text: string) => void): boolean {
+function sendAction(origin: DetailOrigin, review: Pick<ReviewDraft, 'key' | 'repo' | 'number'>, request: TeamReviewActionRequest, settle: (isDone: boolean, text: string) => void, outcomeText = actionOutcomeText(request.action)): boolean {
   const capturedOrder = _queueHooks?.captureTurnOrder() ?? [];
   showActionNotice(null);
   const requestId = nextRequestId('team-review-action');
@@ -595,7 +595,7 @@ function sendAction(origin: DetailOrigin, review: Pick<ReviewDraft, 'key' | 'rep
     _pendingActions.delete(review.key);
     settle(false, ACTION_NO_REPLY_TEXT);
   }, ACTION_REPLY_TIMEOUT_MS);
-  _pendingActions.set(review.key, { requestId, action: request.action, origin, capturedOrder, pullRequest: pullRequestLabel(review.repo, review.number), timer, settle });
+  _pendingActions.set(review.key, { requestId, action: request.action, outcomeText, origin, capturedOrder, pullRequest: pullRequestLabel(review.repo, review.number), timer, settle });
   return true;
 }
 
@@ -623,156 +623,110 @@ function createNotMineFooter(review: QueuedReview | InFlightReview): HTMLElement
   return footer;
 }
 
-let _moreMenuCount = 0;
-
-function createMoreActions(actions: readonly TeamReviewAction[], runAction: (action: TeamReviewAction) => void): { element: HTMLElement; controls: HTMLButtonElement[] } {
-  const container = el('div', 'pr-detail-more');
-  const toggle = el('button', 'review-icon-button review-more-button');
-  toggle.type = 'button';
-  toggle.title = MORE_ACTIONS_LABEL;
-  toggle.setAttribute('aria-label', MORE_ACTIONS_LABEL);
-  toggle.setAttribute('aria-haspopup', 'menu');
-  toggle.setAttribute('aria-expanded', 'false');
-  toggle.append(createLineIcon(MORE_ICON_PATH));
-  _moreMenuCount += 1;
-  const menu = el('div', 'review-more-menu');
-  menu.id = `pr-more-menu-${_moreMenuCount}`;
-  menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', MORE_ACTIONS_LABEL);
-  menu.hidden = true;
-  toggle.setAttribute('aria-controls', menu.id);
-  const closeOnEscape = (event: KeyboardEvent) => {
-    if (event.key !== 'Escape') return;
-    event.preventDefault();
-    closeMenu();
-    toggle.focus();
-  };
-  const closeOnOutsidePointer = (event: PointerEvent) => {
-    if (event.target instanceof Node && container.contains(event.target)) return;
-    closeMenu();
-  };
-  function closeMenu(): void {
-    menu.hidden = true;
-    toggle.setAttribute('aria-expanded', 'false');
-    document.removeEventListener('keydown', closeOnEscape);
-    document.removeEventListener('pointerdown', closeOnOutsidePointer);
-  }
-  const openMenu = () => {
-    menu.hidden = false;
-    toggle.setAttribute('aria-expanded', 'true');
-    document.addEventListener('keydown', closeOnEscape);
-    document.addEventListener('pointerdown', closeOnOutsidePointer);
-    menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
-  };
-  toggle.addEventListener('click', () => {
-    if (menu.hidden) {
-      openMenu();
-      return;
-    }
-    closeMenu();
-  });
-  const controls: HTMLButtonElement[] = [toggle];
-  for (const action of actions) {
-    const item = el('button', 'review-btn', actionLabel(action));
-    item.type = 'button';
-    item.dataset.action = action;
-    item.setAttribute('role', 'menuitem');
-    item.addEventListener('click', () => {
-      closeMenu();
-      runAction(action);
-    });
-    controls.push(item);
-    menu.append(item);
-  }
-  container.append(toggle, menu);
-  return { element: container, controls };
-}
-
-function createFooterButton(action: TeamReviewAction, runAction: (action: TeamReviewAction) => void): HTMLButtonElement {
-  const button = el('button', 'pr-action', actionLabel(action));
+function createFooterButton(action: TeamReviewAction, runAction: (action: TeamReviewAction) => void, isSecondary = false): HTMLButtonElement {
+  const button = el('button', isSecondary ? 'pr-action pr-action-ghost' : 'pr-action', actionLabel(action));
   button.type = 'button';
   button.dataset.action = action;
   button.addEventListener('click', () => runAction(action));
   return button;
 }
 
-function attachMoreActions(detail: HTMLElement, more: HTMLElement): void {
-  detail.querySelector(':scope > .pr-detail-heading > .pr-detail-title')?.append(more);
+interface DecisionBar {
+  footer: HTMLElement;
+  status: HTMLElement;
+  buttons: HTMLButtonElement[];
+}
+
+function createDecisionBar(draft: Pick<ReviewDraft, 'status' | 'postedEvent'>, runAction: (action: TeamReviewAction) => void, statusText = ''): DecisionBar {
+  const layout = detailActionLayout(draft);
+  const footer = el('footer', 'pr-footer pr-decision-bar');
+  const status = el('span', 'pr-action-status', statusText);
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  const primary = layout.primary.map((action) => createFooterButton(action, runAction));
+  const secondary = layout.secondary.map((action) => createFooterButton(action, runAction, true));
+  footer.append(...primary, el('span', 'pr-decision-spacer'), ...secondary, status);
+  return { footer, status, buttons: [...primary, ...secondary] };
+}
+
+let _noteFieldCount = 0;
+
+function createNoteField(onInput: () => void): { section: HTMLElement; input: HTMLTextAreaElement } {
+  const section = el('section', 'pr-note');
+  _noteFieldCount += 1;
+  const input = el('textarea', 'pr-body-input pr-note-input');
+  input.id = `pr-note-${_noteFieldCount}`;
+  input.rows = 2;
+  input.spellcheck = true;
+  input.placeholder = 'Optional. Posts at the top of the review, above the automated-review label.';
+  input.addEventListener('input', onInput);
+  const label = el('label', 'pr-section-heading', 'Your note');
+  label.htmlFor = input.id;
+  section.append(label, input);
+  return { section, input };
 }
 
 function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const detail = el('article', 'pr-detail');
   const threads = el('div');
   threads.dataset.reviewThreads = '';
-  detail.append(createDetailHeading(draft), ...createAboutPr(draft), threads, createSummaryStrip(draft));
+  detail.append(createDetailHeading(draft), ...createAboutPr(draft));
+  if (draft.earlierReview) detail.append(createEarlierReviewDetails(draft.earlierReview, false));
+  detail.append(threads, createVerdictBlock(draft));
   refreshThreadDetails(detail, draft);
 
-  const posts = el('section', 'pr-posts');
-  posts.setAttribute('aria-label', 'Inline comments');
-  const heading = el('div', 'pr-posts-heading');
-  heading.append(el('h3', null, 'Inline comments'), el('span', null, String(draft.comments.length)));
-  posts.append(heading);
-  const bodyDetails = el('details', 'pr-disclosure');
-  const bodySummary = el('summary', 'pr-disclosure-summary');
-  const bodyPreview = el('span', 'pr-disclosure-preview');
-  bodySummary.append(el('span', 'pr-disclosure-label', 'Review body'), bodyPreview);
-  bodyDetails.append(bodySummary);
-  const bodyInput = el('textarea', 'pr-body-input');
-  bodyInput.setAttribute('aria-label', 'Review body');
-  bodyInput.value = draft.body;
-  bodyInput.rows = Math.min(10, Math.max(3, draft.body.split('\n').length + 1));
-  bodyInput.spellcheck = true;
-  const updateBodyPreview = () => {
-    bodyPreview.textContent = withoutAutomatedNote(bodyInput.value).split(/\r?\n/).map((line) => line.trim()).find(Boolean) || 'No review body';
-  };
-  bodyInput.addEventListener('input', updateBodyPreview);
-  updateBodyPreview();
-  bodyDetails.append(bodyInput);
-  const noteDetails = el('details', 'pr-disclosure');
-  noteDetails.append(el('summary', 'pr-disclosure-summary', 'Add a note'));
-  const noteInput = el('textarea', 'pr-body-input pr-note-input');
-  noteInput.setAttribute('aria-label', 'Your note');
-  noteInput.rows = 2;
-  noteInput.spellcheck = true;
-  noteInput.placeholder = 'Posts above the automated-review note';
-  noteDetails.append(noteInput);
-
-  const includedIndexes = new Set(draft.comments.flatMap((comment, index) => (isIncludedByDefault(comment) ? [index] : [])));
-  const footer = el('footer', 'pr-footer');
-  const status = el('span', 'pr-action-status');
-  status.setAttribute('role', 'status');
-  status.setAttribute('aria-live', 'polite');
-  const updateFooter = () => {
-    if (_pendingActions.has(draft.key) || status.dataset.tone === 'ok') return;
-    clearActionStatus(status);
-  };
-  for (const [index, comment] of draft.comments.entries()) posts.append(createInlineComment(comment, index, includedIndexes, updateFooter));
-  detail.append(posts, bodyDetails, noteDetails, createCoverageDetails(draft));
-  if (draft.earlierReview) detail.append(createEarlierReviewDetails(draft.earlierReview, false));
-  const buttons: HTMLButtonElement[] = [];
-  const setBusy = (isBusy: boolean) => {
-    for (const button of buttons) button.disabled = isBusy;
-    detail.dataset.busy = String(isBusy);
-  };
-  const settle = (isDone: boolean, text: string) => {
-    setBusy(isDone);
-    paintActionStatus(status, isDone ? 'ok' : 'error', text);
-  };
+  const generalFindings = generalFindingsOf(draft.body);
+  const includedComments = new Set(draft.comments.flatMap((comment, index) => (isIncludedByDefault(comment) ? [index] : [])));
+  const includedGeneral = new Set(generalFindings.flatMap((finding, index) => (isSeverityIncludedByDefault(finding.severity) ? [index] : [])));
+  const findingCount = draft.comments.length + generalFindings.length;
+  const findings = el('section', 'pr-posts');
+  findings.setAttribute('aria-label', 'Findings');
+  const findingsHeading = el('div', 'pr-posts-heading');
+  const findingsTally = el('span', null);
+  findingsHeading.append(el('h3', null, 'Findings'), findingsTally);
+  findings.append(findingsHeading);
+  const note = createNoteField(() => paintDecision());
+  const selection = (): ReviewSelection => ({
+    note: note.input.value,
+    comments: draft.comments.filter((_comment, index) => includedComments.has(index)),
+    generalFindings: generalFindings.filter((_finding, index) => includedGeneral.has(index)),
+  });
+  let isBusy = false;
   const runAction = (action: TeamReviewAction) => {
     if (_pendingActions.has(draft.key)) return;
+    const chosen = selection();
+    const request = action === 'approve' || action === 'comment' ? buildReadyDecisionRequest(draft, action, chosen) : buildActionRequest(draft, action, '', []);
     setBusy(true);
-    paintActionStatus(status, 'busy', actionProgressText(action));
-    const comments = draft.comments.filter((_comment, index) => includedIndexes.has(index));
-    if (sendAction('ready', draft, buildActionRequest(draft, action, withReviewerNote(noteInput.value, bodyInput.value), comments), settle)) return;
+    paintActionStatus(bar.status, 'busy', actionProgressText(request.action));
+    if (sendAction('ready', draft, request, settle, postedOutcomeText(request.action, chosen))) return;
     settle(false, NOT_CONNECTED_TEXT);
   };
-  const layout = detailActionLayout(draft);
-  const footerButtons = layout.footer.map((action) => createFooterButton(action, runAction));
-  const more = createMoreActions(layout.more, runAction);
-  buttons.push(...footerButtons, ...more.controls);
-  attachMoreActions(detail, more.element);
-  footer.append(...footerButtons, status);
-  detail.append(footer);
+  const bar = createDecisionBar(draft, runAction);
+  function paintControls(): void {
+    const isCommentReady = hasSelection(selection());
+    for (const button of bar.buttons) button.disabled = isBusy || (button.dataset.action === 'comment' && !isCommentReady);
+    detail.dataset.busy = String(isBusy);
+  }
+  function setBusy(nextIsBusy: boolean): void {
+    isBusy = nextIsBusy;
+    paintControls();
+  }
+  function paintDecision(): void {
+    const chosen = selection();
+    findingsTally.textContent = `${chosen.comments.length + chosen.generalFindings.length} of ${findingCount} will post. Low severity starts unticked.`;
+    paintControls();
+    if (_pendingActions.has(draft.key) || bar.status.dataset.tone === 'ok') return;
+    paintActionStatus(bar.status, null, postingPreviewText(draft, chosen));
+  }
+  const settle = (isDone: boolean, text: string) => {
+    setBusy(isDone);
+    paintActionStatus(bar.status, isDone ? 'ok' : 'error', text);
+  };
+  for (const [index, comment] of draft.comments.entries()) findings.append(createTickableFinding(commentFindingContent(comment), includedComments, index, paintDecision));
+  for (const [index, finding] of generalFindings.entries()) findings.append(createTickableFinding(generalFindingContent(finding), includedGeneral, index, paintDecision));
+  if (findingCount > 0) detail.append(findings);
+  detail.append(note.section, bar.footer);
+  paintDecision();
   return { signature: readyRowSignature(draft), element: detail, settle };
 }
 
@@ -904,41 +858,29 @@ function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
 
 function createOtherDetail(draft: ReviewDraft): HTMLElement {
   const detail = el('article', 'pr-detail');
-  detail.append(createDetailHeading(draft), ...createAboutPr(draft), ...createThreadDetails(draft));
-  if (draft.status === 'posted') detail.append(createSummaryStrip(draft), createCoverageDetails(draft));
+  detail.append(createDetailHeading(draft), ...createAboutPr(draft));
+  if (draft.earlierReview) detail.append(createEarlierReviewDetails(draft.earlierReview, draft.status === 'stale'));
+  detail.append(...createThreadDetails(draft));
+  if (draft.status === 'posted') detail.append(createVerdictBlock(draft));
   if (draft.status !== 'posted') detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));
   if (draft.status === 'stale') detail.append(...createChangedSinceReview(draft));
-  if (draft.earlierReview) detail.append(createEarlierReviewDetails(draft.earlierReview, draft.status === 'stale'));
   if (!hasRequeueFooter(draft.status)) {
     _otherDetails.set(draft.key, { signature: otherDetailSignature(draft), element: detail, settle: () => {} });
     return detail;
   }
-  const footer = el('footer', 'pr-footer');
-  const layout = detailActionLayout(draft);
-  const status = el('span', 'pr-action-status', layout.footer.includes('approve-only') ? FOLLOW_UP_APPROVAL_HINT : '');
-  status.setAttribute('role', 'status');
-  status.setAttribute('aria-live', 'polite');
-  const buttons: HTMLButtonElement[] = [];
-  const settle = (isDone: boolean, message: string) => {
-    for (const button of buttons) button.disabled = isDone;
-    paintActionStatus(status, isDone ? 'ok' : 'error', message);
-  };
   const runAction = (action: TeamReviewAction) => {
     if (_pendingActions.has(draft.key)) return;
-    for (const button of buttons) button.disabled = true;
-    paintActionStatus(status, 'busy', actionProgressText(action));
+    for (const button of bar.buttons) button.disabled = true;
+    paintActionStatus(bar.status, 'busy', actionProgressText(action));
     if (sendAction('other', draft, buildActionRequest(draft, action, '', []), settle)) return;
     settle(false, NOT_CONNECTED_TEXT);
   };
-  const footerButtons = layout.footer.map((action) => createFooterButton(action, runAction));
-  buttons.push(...footerButtons);
-  if (layout.more.length > 0) {
-    const more = createMoreActions(layout.more, runAction);
-    buttons.push(...more.controls);
-    attachMoreActions(detail, more.element);
-  }
-  footer.append(...footerButtons, status);
-  detail.append(footer);
+  const bar = createDecisionBar(draft, runAction, detailActionLayout(draft).primary.includes('approve-only') ? FOLLOW_UP_APPROVAL_HINT : '');
+  const settle = (isDone: boolean, message: string) => {
+    for (const button of bar.buttons) button.disabled = isDone;
+    paintActionStatus(bar.status, isDone ? 'ok' : 'error', message);
+  };
+  detail.append(bar.footer);
   _otherDetails.set(draft.key, { signature: otherDetailSignature(draft), element: detail, settle });
   return detail;
 }
@@ -1057,8 +999,18 @@ export function refreshTeamReviewAges(): void {
   trackAges(_root);
 }
 
-export function clearTeamReviewSelection(): void {
+export function releaseTeamReviewSelection(notice: 'keep' | 'clear'): void {
+  if (notice === 'clear') showActionNotice(null);
   _selectedKey = null;
+}
+
+export function teamReviewActionNotice(): HTMLElement {
+  if (_actionNoticeLine) return _actionNoticeLine;
+  _actionNoticeLine = el('p', 'pr-action-status pr-action-notice');
+  _actionNoticeLine.setAttribute('role', 'status');
+  _actionNoticeLine.setAttribute('aria-live', 'polite');
+  showActionNotice(_actionNotice);
+  return _actionNoticeLine;
 }
 
 export function showTeamReview(reviewKey: string, notice: 'keep' | 'clear'): void {
@@ -1086,12 +1038,8 @@ export function mountTeamReviewDetail(root: HTMLElement, hooks: TeamReviewQueueH
   _root = root;
   if (_detailHost) return _detailHost;
   _detailHost = el('div', 'pr-detail-team');
-  _actionNoticeLine = el('p', 'pr-action-status pr-action-notice');
-  _actionNoticeLine.setAttribute('role', 'status');
-  _actionNoticeLine.setAttribute('aria-live', 'polite');
   _detail = el('div', 'pr-detail-body');
-  _detailHost.append(_actionNoticeLine, _detail);
-  showActionNotice(_actionNotice);
+  _detailHost.append(_detail);
   _progressTicker.ensure();
   _detailProgressTicker.ensure();
   _ageTicker.ensure();
@@ -1154,6 +1102,7 @@ export function applyTeamReviewActionResult(message: unknown): void {
     if (pending.origin === 'other') _otherDetails.delete(actionResult.key);
     const reply = planActionReply({
       action: pending.action,
+      outcomeText: pending.outcomeText,
       pullRequest: pending.pullRequest,
       warning: typeof actionResult.warning === 'string' ? actionResult.warning : '',
       isActedSelected: _selectedKey === actionResult.key,

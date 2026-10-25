@@ -1,16 +1,20 @@
 import type { GithubPr } from '#shared/contracts/github-prs.ts';
 import type { MyPrStage } from '#shared/contracts/my-prs.ts';
 import { myPrFromGithubPr } from '#shared/my-pr-merge.ts';
-import { canApproveAfterComment, decisionAsIfApprovalRequired, DECIDING_REVIEW_STATES, FindingSeverity, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
+import { canApproveAfterComment, decisionAsIfApprovalRequired, DECIDING_REVIEW_STATES, type FindingSeverity, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
 import type {
   DraftComment, EarlierReview, GithubReview, GithubReviewState, InFlightReview, PostedReviewEvent, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread, ViewerThreadTally,
 } from '#shared/contracts/team-review.ts';
 import { shortSha } from '#shared/git-text.ts';
-import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
+import { AUTOMATED_REVIEW_NOTE, findingSeveritiesIn, generalPreambleOf, parseLeadingFindingHeader, strongestFindingSeverity, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
+import type { GeneralFinding } from '#shared/team-review-markdown.ts';
 import { formatClockOffset } from '../radar/radar-core.ts';
 import { stageIcon, stageLabel, stageTone } from './my-prs-view-core.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
+
+export { generalFindingsOf } from '#shared/team-review-markdown.ts';
+export type { GeneralFinding } from '#shared/team-review-markdown.ts';
 
 type TeamReviewPrView<Review> = Review & { prStage?: MyPrStage };
 
@@ -217,7 +221,7 @@ export interface TeamReviewSections {
 
 export interface ActionReplyNotice {
   text: string;
-  tone: 'error';
+  tone: 'ok' | 'error';
 }
 
 interface ActionReplyPlan {
@@ -231,11 +235,13 @@ function asSentence(text: string): string {
   return trimmed.endsWith('.') ? trimmed : `${trimmed}.`;
 }
 
-export function planActionReply({ action, pullRequest, warning, isActedSelected }: { action: TeamReviewAction; pullRequest: string; warning: string; isActedSelected: boolean }): ActionReplyPlan {
-  const statusText = actionOutcomeText(action);
-  const outcome = `${pullRequest}: ${asSentence(statusText)}`;
-  if (warning.trim()) return { statusText, shouldAdvance: false, notice: { text: `${outcome} ${asSentence(warning)}`, tone: 'error' } };
-  return { statusText, shouldAdvance: isActedSelected, notice: null };
+const POSTING_ACTIONS: ReadonlySet<TeamReviewAction> = new Set(['approve', 'approve-only', 'comment']);
+
+export function planActionReply({ action, outcomeText, pullRequest, warning, isActedSelected }: { action: TeamReviewAction; outcomeText: string; pullRequest: string; warning: string; isActedSelected: boolean }): ActionReplyPlan {
+  const outcome = `${pullRequest}: ${asSentence(outcomeText)}`;
+  if (warning.trim()) return { statusText: outcomeText, shouldAdvance: false, notice: { text: `${outcome} ${asSentence(warning)}`, tone: 'error' } };
+  const isPostAdvance = isActedSelected && POSTING_ACTIONS.has(action);
+  return { statusText: outcomeText, shouldAdvance: isActedSelected, notice: isPostAdvance ? { text: outcome, tone: 'ok' } : null };
 }
 
 export function queueRowRefLabel(repo: string, number: number, hasMultipleRepos: boolean): string {
@@ -323,7 +329,7 @@ const ACTION_OUTCOME_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.f
   approve: 'Approved on GitHub',
   'approve-only': 'Approved on GitHub',
   comment: 'Comment posted on GitHub',
-  discard: 'Marked not mine. Not reviewed again until queued.',
+  discard: 'Marked not mine. Not reviewed again until you re-run it.',
   requeue: 'Queued. The review starts as soon as a slot is free.',
   'resolve-thread': 'Thread resolved on GitHub',
 });
@@ -484,12 +490,15 @@ function commentSeverities(comment: Pick<DraftComment, 'body' | 'severity'>): Fi
 }
 
 export function commentSeverity(comment: Pick<DraftComment, 'body' | 'severity'>): FindingSeverity | null {
-  const severities = commentSeverities(comment);
-  return FindingSeverity.options.find((severity) => severities.includes(severity)) ?? null;
+  return strongestFindingSeverity(commentSeverities(comment));
+}
+
+export function isSeverityIncludedByDefault(severity: FindingSeverity | null): boolean {
+  return severity !== 'LOW';
 }
 
 export function isIncludedByDefault(comment: Pick<DraftComment, 'body' | 'severity'>): boolean {
-  return commentSeverity(comment) !== 'LOW';
+  return isSeverityIncludedByDefault(commentSeverity(comment));
 }
 
 const CITABLE_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -592,22 +601,7 @@ export function aboutPrParagraphs(assessment: ReviewAssessment | null | undefine
   return paragraphs;
 }
 
-function coverageSummaryText(assessment: ReviewAssessment | null | undefined): string {
-  if (!assessment) return 'No coverage notes';
-  const checks = assessment.checked.length;
-  const gaps = assessment.gaps.length;
-  const parts: string[] = [];
-  if (checks > 0) parts.push(`${checks} ${checks === 1 ? 'check' : 'checks'}`);
-  if (gaps > 0) parts.push(`${gaps} not covered`);
-  return parts.join(', ') || 'No coverage notes';
-}
-
-export function coverageDisclosureHeading(assessment: ReviewAssessment | null | undefined): { label: string; preview: string } {
-  if (!assessment) return { label: 'Review audit', preview: '' };
-  return { label: 'Coverage', preview: coverageSummaryText(assessment) };
-}
-
-export const LEGACY_SUMMARY_HINT = 'This review ran before plain summaries existed, so only its verdict and findings remain. The audit log shows what it checked. Queue review to get a plain summary.';
+export const LEGACY_SUMMARY_HINT = 'This review ran before plain summaries existed, so only its verdict and findings remain. Re-run review to get a plain summary.';
 
 const REQUEUEABLE_STATUSES: ReadonlySet<ReviewDraft['status']> = new Set(['error', 'stale', 'discarded', 'posted']);
 
@@ -665,9 +659,9 @@ export function inFlightProgressText(review: InFlightReview, nowMs: number): str
 }
 
 export function attentionDetail(draft: ReviewDraft): string {
-  if (draft.status === 'stale' && draft.earlierReview) return 'Out of date. New commits landed after this review, so its findings may not match the code any more. Automatic review runs after the configured wait; Queue review starts it now and hands it these findings.';
-  if (draft.status === 'stale') return 'Out of date. New commits landed after this review, so its findings may not match the code any more. Automatic review runs after the configured wait; Queue review starts it now.';
-  if (draft.status === 'discarded') return 'Marked not mine. Not reviewed again until queued.';
+  if (draft.status === 'stale' && draft.earlierReview) return 'Out of date. New commits landed after this review, so its findings may not match the code any more. Automatic review runs after the configured wait; Re-run review starts it now and hands it these findings.';
+  if (draft.status === 'stale') return 'Out of date. New commits landed after this review, so its findings may not match the code any more. Automatic review runs after the configured wait; Re-run review starts it now.';
+  if (draft.status === 'discarded') return 'Marked not mine. Not reviewed again until you re-run it.';
   return draft.error || draft.summary || 'The review failed.';
 }
 
@@ -685,7 +679,7 @@ export function shortCommentLocation(comment: Pick<ReviewComment, 'path' | 'line
   return locationOf(fileName, comment);
 }
 
-export function withReviewerNote(reviewerNote: string, reviewBody: string): string {
+function withReviewerNote(reviewerNote: string, reviewBody: string): string {
   const trimmedNote = reviewerNote.trim();
   if (!trimmedNote) return reviewBody;
   if (!reviewBody.trim()) return trimmedNote;
@@ -701,18 +695,53 @@ export function buildActionRequest(draft: ReviewDraft, action: TeamReviewAction,
   return { key: draft.key, head: draft.reviewedHead, action, body, ...(threadId ? { threadId } : {}), comments: comments.map(({ path, line, side, body: commentBody }) => ({ path, line, side, body: commentBody })) };
 }
 
+export interface ReviewSelection {
+  note: string;
+  comments: readonly DraftComment[];
+  generalFindings: readonly GeneralFinding[];
+}
+
+export function hasSelection(selection: ReviewSelection): boolean {
+  return selection.note.trim() !== '' || selection.comments.length > 0 || selection.generalFindings.length > 0;
+}
+
+export function buildReadyDecisionRequest(draft: ReviewDraft, control: 'approve' | 'comment', selection: ReviewSelection): TeamReviewActionRequest {
+  if (control === 'approve' && !hasSelection(selection)) return buildActionRequest(draft, 'approve-only', '', []);
+  const body = withReviewerNote(selection.note, [AUTOMATED_REVIEW_NOTE, generalPreambleOf(draft.body), ...selection.generalFindings.map((finding) => finding.markdown)].filter(Boolean).join('\n\n'));
+  return buildActionRequest(draft, control, body, selection.comments);
+}
+
+function selectionParts(selection: ReviewSelection): string {
+  const findingCount = selection.comments.length + selection.generalFindings.length;
+  const parts = [selection.note.trim() ? 'your note' : '', findingCount ? `${findingCount} ${findingCount === 1 ? 'finding' : 'findings'}` : ''];
+  return parts.filter(Boolean).join(' and ');
+}
+
+export function postingPreviewText(draft: Pick<ReviewDraft, 'reviewedHead'>, selection: ReviewSelection): string {
+  const parts = selectionParts(selection);
+  if (!parts) return 'Nothing ticked: Approve posts a bare approval, Comment needs a finding or a note.';
+  return `Posts ${parts}, labeled as an automated review, at ${shortSha(draft.reviewedHead)}.`;
+}
+
+export function postedOutcomeText(action: TeamReviewAction, selection: ReviewSelection): string {
+  const parts = selectionParts(selection);
+  if (action === 'approve' && parts) return `Approved on GitHub with ${parts}`;
+  if (action === 'comment' && parts) return `Commented on GitHub with ${parts}`;
+  return actionOutcomeText(action);
+}
+
 const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = Object.freeze({
-  approve: 'Approve and comment',
+  approve: 'Approve',
   'approve-only': 'Approve',
   comment: 'Comment',
   discard: 'Not mine',
-  requeue: 'Queue review',
+  requeue: 'Re-run review',
   'resolve-thread': 'Resolve',
 });
 
 interface DetailActionLayout {
-  footer: readonly TeamReviewAction[];
-  more: readonly TeamReviewAction[];
+  primary: readonly TeamReviewAction[];
+  secondary: readonly TeamReviewAction[];
 }
 
 export function actionLabel(action: TeamReviewAction): string {
@@ -720,11 +749,11 @@ export function actionLabel(action: TeamReviewAction): string {
 }
 
 export function detailActionLayout(draft: Pick<ReviewDraft, 'status' | 'postedEvent'>): DetailActionLayout {
-  if (draft.status === 'ready') return { footer: ['comment', 'approve-only', 'approve'], more: ['requeue', 'discard'] };
-  if (canApproveAfterComment(draft)) return { footer: ['approve-only'], more: ['requeue'] };
-  if (draft.status === 'error' || draft.status === 'stale') return { footer: ['requeue'], more: ['discard'] };
-  if (hasRequeueFooter(draft.status)) return { footer: ['requeue'], more: [] };
-  return { footer: [], more: [] };
+  if (draft.status === 'ready') return { primary: ['approve', 'comment'], secondary: ['requeue', 'discard'] };
+  if (canApproveAfterComment(draft)) return { primary: ['approve-only'], secondary: ['requeue'] };
+  if (draft.status === 'error' || draft.status === 'stale') return { primary: ['requeue'], secondary: ['discard'] };
+  if (hasRequeueFooter(draft.status)) return { primary: ['requeue'], secondary: [] };
+  return { primary: [], secondary: [] };
 }
 
 export function actionProgressText(action: TeamReviewAction): string {

@@ -46,7 +46,7 @@ function actionStatusParts(element: HTMLElement): { iconElement: HTMLElement; te
   return { iconElement, textElement };
 }
 
-export function clearActionStatus(element: HTMLElement): void {
+function clearActionStatus(element: HTMLElement): void {
   element.replaceChildren();
   delete element.dataset.tone;
 }

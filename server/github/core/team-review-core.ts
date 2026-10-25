@@ -1,6 +1,6 @@
 import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
 import { decisionAsIfApprovalRequired, hasStandingViewerApproval, canApproveAfterComment, DECIDING_REVIEW_STATES, EarlierReview, FindingSeverity, GithubReviewState, PostingPlan, QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../../shared/contracts/team-review.ts';
-import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
+import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, foldedFindingSection, generalFindingBullet, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import type {
   GithubReview, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
@@ -762,10 +762,6 @@ function isInlineFinding(finding: ReviewFinding, commentable: CommentableLines |
   return isLineCommentable(commentable, finding.path, finding.side, finding.line);
 }
 
-function findingLocation(finding: ReviewFinding): string {
-  return finding.line === null ? `\`${finding.path}\`` : `\`${finding.path}:${finding.line}\``;
-}
-
 function renderReview(result: ReviewResultType, commentable: CommentableLines | null): { body: string; comments: ReviewComment[] } {
   const comments: ReviewComment[] = [];
   const generalBullets: string[] = [];
@@ -777,7 +773,7 @@ function renderReview(result: ReviewResultType, commentable: CommentableLines | 
       });
       continue;
     }
-    generalBullets.push(`- ${findingHeader(finding)} ${findingLocation(finding)}: ${finding.body}`);
+    generalBullets.push(generalFindingBullet(finding));
   }
   const bodyParts = [AUTOMATED_REVIEW_NOTE];
   if (generalBullets.length > 0) bodyParts.push(generalBullets.join('\n'));
@@ -851,7 +847,7 @@ function renderPostingPlan(plan: PostingPlanType, findings: readonly ReviewFindi
       comments.push({ ...comment, body: withAutomatedNote(comment.body) });
       continue;
     }
-    foldedSections.push(`**\`${comment.path}:${comment.line}\`** (line not in the diff)\n\n${withoutAutomatedNote(comment.body)}`);
+    foldedSections.push(foldedFindingSection(comment.path, comment.line, withoutAutomatedNote(comment.body)));
   }
   const body = [plan.body.trim(), ...foldedSections].filter(Boolean).join('\n\n');
   return { body: withAutomatedNote(body), comments };

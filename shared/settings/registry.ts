@@ -542,7 +542,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'team-review-re-review-after-hours', path: 'teamReview.reReviewAfterHours', title: 'Re-review after',
-        description: 'When a reviewed PR has a new head, review it again after this long since its last review. Queue review runs it at any time.',
+        description: 'When a reviewed PR has a new head, review it again after this long since its last review. Re-run review runs it at any time.',
         control: 'number', range: POSITIVE_NUMBER_RANGE, unit: HOURS, keywords: ['review', 'delay'], defaultValue: 24, integer: false, step: 0.5, ...MACHINE_NOW,
       },
       {

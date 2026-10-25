@@ -14,7 +14,7 @@ import {
 } from './review-queue-core.ts';
 import type { QueueFilter, QueueGroup, QueueItem } from './review-queue-core.ts';
 import {
-  clearTeamReviewSelection, createCaughtUpBanner, createTeamQueueRow, mountTeamReviewDetail, paintQueueRowTitle, refreshTeamReviewAges, resetTeamQueueTickers, showTeamReview, teamReviewEmptyState,
+  createCaughtUpBanner, createTeamQueueRow, mountTeamReviewDetail, paintQueueRowTitle, refreshTeamReviewAges, releaseTeamReviewSelection, resetTeamQueueTickers, showTeamReview, teamReviewActionNotice, teamReviewEmptyState,
   teamReviewLaneNotices, teamReviewSections, teamReviewStatusView,
 } from './team-review-panel.ts';
 
@@ -107,7 +107,7 @@ function showSelectedDetail(notice: 'keep' | 'clear'): void {
   const item = queueItemByKey(currentGroups, selectedKey);
   shownKey = item?.key ?? null;
   if (!item) {
-    clearTeamReviewSelection();
+    releaseTeamReviewSelection(notice);
     if (detailHost) detailHost.replaceChildren(isCaughtUp ? caughtUpElement() : el('p', 'pr-empty', 'Pick a pull request from the queue.'));
     return;
   }
@@ -117,7 +117,7 @@ function showSelectedDetail(notice: 'keep' | 'clear'): void {
     return;
   }
   if (item.source === 'mine' && mineDetail) {
-    clearTeamReviewSelection();
+    releaseTeamReviewSelection(notice);
     showMyPr(item.pr.key);
     swapDetail(mineDetail);
   }
@@ -314,7 +314,8 @@ export function mountReviewQueue(parent: HTMLElement, queueNavigation?: ReviewQu
   });
   const shell = createPrQueueColumns({ queueLabel: 'Review queue', scopeTabs: filterTabs.element, resizerLabel: 'Resize review queue' });
   queueElement = shell.queue;
-  detailHost = shell.detail;
+  detailHost = el('div', 'review-queue-detail');
+  shell.detail.append(teamReviewActionNotice(), detailHost);
   banner = buildAttentionBanner({
     onJump: () => {
       jumpToNextReview();
