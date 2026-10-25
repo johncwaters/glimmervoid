@@ -46,7 +46,7 @@ import { applySessionSetupResponse, openSessionSetup } from './session-setup/set
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
-import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUnseenOutcome, setSessionUsage, setSessionGuarded, setSessionWakeup, setSessionWorktree, updateAttentionTitle } from './session-card/lifecycle.ts';
+import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, markSessionSeen, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUnseenOutcome, setSessionUsage, setSessionGuarded, setSessionWakeup, setSessionWorktree, updateAttentionTitle } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -303,6 +303,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
   refreshAttentionSurfaces();
   syncTraceSessionsFromCards();
   activatePlanHash(location.hash);
+  markShownPhoneSessionSeen();
   hasReceivedSnapshot = true;
   revealAppWhenTerminalsLive();
 }
@@ -1124,9 +1125,17 @@ function sendFocusState() {
   focusStateTimer.schedule();
 }
 
+function markShownPhoneSessionSeen() {
+  const shownPhoneSessionId = getPhoneSessionId();
+  if (!shownPhoneSessionId) return;
+  if (findSessionUi(shownPhoneSessionId)?._isActiveViewer?.() !== true) return;
+  markSessionSeen(shownPhoneSessionId);
+}
+
 function noteViewerFocusEdge() {
   sendFocusState();
   syncGridOnEngagementEdge(findSessionUi(getBorrowedCardId()));
+  markShownPhoneSessionSeen();
 }
 
 window.addEventListener('focus', noteViewerFocusEdge);

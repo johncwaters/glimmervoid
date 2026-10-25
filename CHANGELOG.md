@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Phone terminal no longer comes back half blank**: returning to the dashboard after your phone put the tab in the background could leave the Terminal showing only a scatter of characters until new output arrived. The terminal now redraws every character as soon as the browser hands its graphics back.
+- **Phone clears what you have seen**: opening a session on the phone Terminal screen now reliably clears it from Needs you, the Board dot and the favicon, even when the mobile browser reports the page as unfocused. Coming back to the phone with a session still open on the Terminal screen clears it too, including after the connection reconnects.
 
 ## [0.43.5] - 2026-10-24
 

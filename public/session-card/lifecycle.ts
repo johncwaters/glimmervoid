@@ -750,7 +750,8 @@ function _handleRestartTransition(ui: SessionUi, prevState: string) {
 export function markSessionSeen(sessionId: string) {
   const ui = sessionUIs.get(sessionId);
   if (!ui || !needsAttention({ state: ui.currentState, unseenOutcome: ui.unseenOutcome })) return;
-  if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
+  if (document.visibilityState !== 'visible') return;
+  if (!isPhoneLayout() && !document.hasFocus()) return;
   sendControlMsg({ type: 'dismiss', id: sessionId, expectedState: ui.currentState });
 }
 
