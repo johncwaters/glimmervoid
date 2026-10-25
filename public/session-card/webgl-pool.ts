@@ -63,6 +63,21 @@ export function rebuildWebglGlyphAtlases() {
   }
 }
 
+let isGlyphAtlasRebuildScheduled = false;
+
+function scheduleGlyphAtlasRebuild() {
+  if (isGlyphAtlasRebuildScheduled) return;
+  isGlyphAtlasRebuildScheduled = true;
+  requestAnimationFrame(() => {
+    isGlyphAtlasRebuildScheduled = false;
+    rebuildWebglGlyphAtlases();
+  });
+}
+
+function rebuildWhenGlyphAtlasCanvasRestores(glyphAtlasCanvas: HTMLCanvasElement | undefined) {
+  glyphAtlasCanvas?.addEventListener('contextrestored', scheduleGlyphAtlasRebuild);
+}
+
 export function tryLoadWebGL(ui: SessionUi, options: { isForced?: boolean } = {}) {
   try {
     if (ui.webglAddon && !ui.needsWebGLReload && !options.isForced) {
@@ -86,6 +101,9 @@ export function tryLoadWebGL(ui: SessionUi, options: { isForced?: boolean } = {}
     const term = ui.term;
     if (!term) throw new Error('webgl: the terminal was disposed before the addon loaded');
     term.loadAddon(addon);
+    addon.onChangeTextureAtlas(rebuildWhenGlyphAtlasCanvasRestores);
+    addon.onAddTextureAtlasCanvas(rebuildWhenGlyphAtlasCanvasRestores);
+    rebuildWhenGlyphAtlasCanvasRestores(addon.textureAtlas);
     ui.webglAddon = addon;
     ui.needsWebGLReload = false;
     ui.webglAttachedWithoutLayout = !hasLayoutBox(ui.termWrap);

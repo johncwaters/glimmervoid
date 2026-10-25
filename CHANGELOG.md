@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **One-line attention banner**: the banner at the top of the Focus rail and the phone Board is now a single line. The separate "Next session" row is gone: on desktop the Cmd/Alt+J keys sit at the right of the same line, lit in the color of the session they would open and dimmed when everything is clear, so you can tell at a glance whether pressing them does anything. On the phone the line shows status only, and a tap anywhere on it still opens the next session.
 
+### Fixed
+
+- **Phone terminal no longer comes back half blank**: returning to the dashboard after your phone put the tab in the background could leave the Terminal showing only a scatter of characters until new output arrived. The terminal now redraws every character as soon as the browser hands its graphics back.
+
 ## [0.43.5] - 2026-10-24
 
 ### Added
