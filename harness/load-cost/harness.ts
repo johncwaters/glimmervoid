@@ -22,6 +22,7 @@ import type { ChannelTallies, ShapingProxy } from './shaping-proxy.ts';
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const CLIENT_DIR = path.join(REPO_ROOT, 'dist', 'client');
 const SCROLLBACK_AGENT_PATH = path.join(import.meta.dirname, 'scrollback-agent.ts');
+const CLIENT_SOURCES = ['public', 'shared', 'assets', 'vite.config.ts', 'package.json', 'package-lock.json'];
 const DEFAULT_ARTIFACTS_DIR = path.join(import.meta.dirname, 'artifacts');
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const PHONE_LABEL = 'Phone viewport 390x844';
@@ -63,7 +64,10 @@ interface Scenario {
 }
 
 const SESSION_A: FixtureSession = { key: 'A', name: 'session-a', fillLines: 1500 };
-const FIXTURES: FixtureSession[] = [SESSION_A];
+const SESSION_B: FixtureSession = { key: 'B', name: 'session-b', fillLines: 300 };
+const SESSION_C: FixtureSession = { key: 'C', name: 'session-c', fillLines: 50 };
+const IDLE_FILLERS: FixtureSession[] = [1, 2, 3, 4, 5].map((number) => ({ key: `idle-${number}`, name: `idle-${number}`, fillLines: 20 }));
+const FIXTURES: FixtureSession[] = [SESSION_A, SESSION_B, SESSION_C, ...IDLE_FILLERS];
 
 function parseOptions(argv: readonly string[]): HarnessOptions {
   const options: HarnessOptions = { runs: 3, comparePath: null, artifactsDir: DEFAULT_ARTIFACTS_DIR, executablePath: process.env.CHROME_PATH };
@@ -134,29 +138,45 @@ async function seedScrollback(port: number, sessionId: string, fixture: FixtureS
   }
 }
 
-function watchPageSockets(page: Page, readySessionId: string, fixture: FixtureSession) {
-  const parsed = { controlJsonBytes: 0, replayBytes: 0 };
-  const readyMarker = fillCompleteMarker(fixture.fillLines);
+function watchPageSockets(page: Page) {
+  let parsed = { controlJsonBytes: 0, replayBytes: 0 };
+  let readySessionId = '';
+  let readyMarker = '';
+  let isMeasuring = false;
   let isOpening = false;
   let isReady = false;
   page.on('websocket', (socket: PageWebSocket) => {
     const socketPath = new URL(socket.url()).pathname;
     if (socketPath === '/control') {
-      socket.on('framereceived', ({ payload }) => { if (!isReady) parsed.controlJsonBytes += Buffer.byteLength(payload); });
+      socket.on('framereceived', ({ payload }) => { if (isMeasuring && !isReady) parsed.controlJsonBytes += Buffer.byteLength(payload); });
       return;
     }
-    if (socketPath !== `/terminals/${readySessionId}`) return;
     const isViewSocket = isOpening;
     let viewText = '';
     socket.on('framereceived', ({ payload }) => {
-      if (isReady) return;
+      if (!isMeasuring || isReady) return;
       parsed.replayBytes += Buffer.byteLength(payload);
-      if (!isViewSocket) return;
+      if (!isViewSocket || socketPath !== `/terminals/${readySessionId}`) return;
       viewText += payloadText(payload);
       isReady = viewText.includes(readyMarker);
     });
   });
-  return { parsed, markOpening: () => { isOpening = true; }, hasReplayArrived: () => isReady };
+  return {
+    beginWindow(sessionId: string, fixture: FixtureSession) {
+      parsed = { controlJsonBytes: 0, replayBytes: 0 };
+      readySessionId = sessionId;
+      readyMarker = fillCompleteMarker(fixture.fillLines);
+      isMeasuring = true;
+      isOpening = false;
+      isReady = false;
+    },
+    markOpening() { isOpening = true; },
+    hasReplayArrived: () => isReady,
+    endWindow() {
+      isMeasuring = false;
+      return parsed;
+    },
+  };
 }
 
 function watchHttpSizes(page: Page) {
@@ -190,36 +210,63 @@ async function waitForPaint(page: Page): Promise<void> {
   await page.evaluate(() => new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
 }
 
-async function openSessionRow(page: Page, sessionId: string): Promise<void> {
-  await page.locator(`.phone-board-list button.session-row[data-id="${sessionId}"]`).click({ timeout: READY_TIMEOUT_MS });
+type Visit = 'cold' | 'reconnect' | 'open';
+
+async function loadDashboard(page: Page, port: number): Promise<void> {
+  await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'commit', timeout: READY_TIMEOUT_MS });
+  await page.locator('body.app-ready').waitFor({ timeout: READY_TIMEOUT_MS });
 }
 
-async function measureColdOpen(fleet: Fleet, browser: Browser, proxy: ShapingProxy, fixture: FixtureSession): Promise<RunMeasurement> {
+async function openSession(page: Page, sockets: ReturnType<typeof watchPageSockets>, sessionId: string, fixture: FixtureSession): Promise<void> {
+  sockets.markOpening();
+  await page.locator(`.phone-board-list button.session-row[data-id="${sessionId}"]`).click({ timeout: READY_TIMEOUT_MS });
+  await waitForReplay(page, sockets, fixture);
+}
+
+async function waitForReplay(page: Page, sockets: ReturnType<typeof watchPageSockets>, fixture: FixtureSession): Promise<void> {
+  await waitFor(sockets.hasReplayArrived, READY_TIMEOUT_MS, `${fixture.name} replay never reached ready`);
+  await waitForPaint(page);
+}
+
+async function measureVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, fixture: FixtureSession, visit: Visit): Promise<RunMeasurement> {
   const sessionId = fleet.sessionIdByKey.get(fixture.key) ?? '';
   const context: BrowserContext = await browser.newContext(PHONE);
   try {
     const page = await context.newPage();
-    const sockets = watchPageSockets(page, sessionId, fixture);
-    const checkShell = watchHttpSizes(page);
+    const sockets = watchPageSockets(page);
+    if (visit !== 'cold') {
+      sockets.beginWindow(sessionId, fixture);
+      await loadDashboard(page, fleet.port);
+      if (visit === 'reconnect') await openSession(page, sockets, sessionId, fixture);
+      sockets.endWindow();
+    }
+    const checkShell = visit === 'cold' ? watchHttpSizes(page) : null;
+    sockets.beginWindow(sessionId, fixture);
     proxy.beginMeasure();
     const startedAt = performance.now();
-    await page.goto(`http://127.0.0.1:${fleet.port}/`, { waitUntil: 'commit', timeout: READY_TIMEOUT_MS });
-    await page.locator('body.app-ready').waitFor({ timeout: READY_TIMEOUT_MS });
-    sockets.markOpening();
-    await openSessionRow(page, sessionId);
-    await waitFor(sockets.hasReplayArrived, READY_TIMEOUT_MS, `${fixture.name} replay never reached ready`);
-    await waitForPaint(page);
+    if (visit === 'cold') await loadDashboard(page, fleet.port);
+    if (visit === 'reconnect') {
+      sockets.markOpening();
+      await page.reload({ waitUntil: 'commit', timeout: READY_TIMEOUT_MS });
+      await waitForReplay(page, sockets, fixture);
+    }
+    if (visit !== 'reconnect') await openSession(page, sockets, sessionId, fixture);
     const elapsedMs = performance.now() - startedAt;
+    const parsed = sockets.endWindow();
     const channels = await proxy.endMeasure();
-    const shellCheck = await checkShell(channels.http.wireBytesDown);
-    return { elapsedMs, channels, parsed: sockets.parsed, shellCheck };
+    const shellCheck = checkShell ? await checkShell(channels.http.wireBytesDown) : null;
+    return { elapsedMs, channels, parsed, shellCheck };
   } finally {
     await context.close();
   }
 }
 
 const SCENARIOS: Scenario[] = [
-  { id: 'cold', label: 'Cold connect', detail: 'shell + session A', measure: (fleet, browser, proxy) => measureColdOpen(fleet, browser, proxy, SESSION_A) },
+  { id: 'cold', label: 'Cold connect', detail: 'shell + session A', measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_A, 'cold') },
+  { id: 'reconnect', label: 'Reconnect', detail: 'warm-cache reload, session A restores', measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_A, 'reconnect') },
+  { id: 'open-a', label: 'Open session A', detail: `${SESSION_A.fillLines} lines`, measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_A, 'open') },
+  { id: 'open-b', label: 'Open session B', detail: `${SESSION_B.fillLines} lines`, measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_B, 'open') },
+  { id: 'open-c', label: 'Open session C', detail: `${SESSION_C.fillLines} lines`, measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_C, 'open') },
 ];
 
 async function runScenario(scenario: Scenario, runs: number, fleet: Fleet, browser: Browser, proxy: ShapingProxy): Promise<{ result: ScenarioResult; shellCheck: ShellCheck | null }> {
@@ -266,6 +313,24 @@ async function waitForAgentsToExit(tempDirectory: string): Promise<void> {
 async function currentCommit(): Promise<string> {
   const { stdout } = await runCommand('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD']);
   return stdout.trim();
+}
+
+function newestSourceChange(sourcePath: string): { path: string; mtimeMs: number } {
+  const stats = fs.statSync(sourcePath);
+  if (!stats.isDirectory()) return { path: sourcePath, mtimeMs: stats.mtimeMs };
+  let newest = { path: sourcePath, mtimeMs: 0 };
+  for (const entry of fs.readdirSync(sourcePath)) {
+    const candidate = newestSourceChange(path.join(sourcePath, entry));
+    if (candidate.mtimeMs > newest.mtimeMs) newest = candidate;
+  }
+  return newest;
+}
+
+function findStaleBuildReason(): string | null {
+  const builtAtMs = fs.statSync(path.join(CLIENT_DIR, 'index.html')).mtimeMs;
+  const newest = CLIENT_SOURCES.map((source) => newestSourceChange(path.join(REPO_ROOT, source))).reduce((latest, candidate) => (candidate.mtimeMs > latest.mtimeMs ? candidate : latest));
+  if (newest.mtimeMs <= builtAtMs) return null;
+  return `dist/client is older than ${path.relative(REPO_ROOT, newest.path)}`;
 }
 
 async function measureAll(options: HarnessOptions): Promise<LoadCostResult> {
@@ -353,6 +418,11 @@ async function main(): Promise<number> {
   const options = parseOptions(process.argv.slice(2));
   if (!fs.existsSync(path.join(CLIENT_DIR, 'index.html'))) {
     console.error('dist/client/index.html is missing: run npm run build first');
+    return 1;
+  }
+  const staleBuildReason = findStaleBuildReason();
+  if (staleBuildReason) {
+    console.error(`${staleBuildReason}: run npm run build first`);
     return 1;
   }
   const baseline = options.comparePath ? LoadCostResultSchema.parse(JSON.parse(await fs.promises.readFile(options.comparePath, 'utf8'))) : null;

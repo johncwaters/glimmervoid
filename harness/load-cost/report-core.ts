@@ -88,7 +88,7 @@ export function renderMarkdown(result: LoadCostResult): string {
     `# Dashboard load cost`,
     '',
     `${result.profile}. ${result.viewport}. Median of ${result.runs} run(s). Commit ${result.commit.slice(0, 8)}, ${result.recordedAt}.`,
-    'Wire bytes are server to browser, raw then gzip estimate in parentheses. Server wait is time from the last request byte reaching the server to its first response byte.',
+    'Wire bytes are server to browser, raw then gzip estimate in parentheses. Server wait is time from the last request byte reaching the server to its first response byte. Parsed replay counts every terminal socket the step opens, not only the session it opens.',
     '',
     '| Scenario | Median | Runs | HTTP | Control WS | Data WS | Parsed control JSON | Parsed replay | Server wait | Connections |',
     '|---|---:|---|---:|---:|---:|---:|---:|---|---:|',
