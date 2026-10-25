@@ -11,6 +11,22 @@ const DEMO_SESSIONS = [
   { task: 'bump-node-22', state: STATES.RUNNING },
   { task: 'rename-color-tokens', state: STATES.COMPLETE },
 ];
+const QUESTION_BY_TASK: Record<string, string> = {
+  'fix-auth-redirect': 'Keep /login as a redirect? (y/n)',
+  'flaky-upload-test': 'Retry with a longer upload timeout? (y/n)',
+  'migrate-billing': 'Run the backfill now? (y/n)',
+  'bump-node-22': 'Bump the CI image to Node 22 too? (y/n)',
+  'rename-color-tokens': 'Rename the tokens in the docs too? (y/n)',
+};
+const OUTCOME_LINES_BY_TASK: Record<string, { state: string; lines: string[] }> = {
+  'flaky-upload-test': { state: STATES.FAILED, lines: ['x upload.test.ts timed out after 5000 ms', '1 failed, 41 passed'] },
+  'rename-color-tokens': { state: STATES.COMPLETE, lines: ['Renamed 38 tokens across 12 files.', 'All tests pass.'] },
+};
+function terminalVariantsFor(task: string) {
+  const outcome = OUTCOME_LINES_BY_TASK[task];
+  const question = { state: STATES.WAITING, lines: [`? ${QUESTION_BY_TASK[task] ?? ''}`] };
+  return outcome ? [question, outcome] : [question];
+}
 ---
 <section id="status">
   <div class="section-head reveal">
@@ -19,7 +35,7 @@ const DEMO_SESSIONS = [
   </div>
   <figure class="attention-board" id="attention-board" aria-label="The attention banner from the dashboard over five agent sessions. Each session that needs you has a tile in the banner and a number for its place in line. Tap the banner or press the shortcut to open the next one.">
     <div class="attention-banner-slot" id="attention-banner-slot"></div>
-    <p class="jump-callout" aria-hidden="true"><span class="jump-arrow">&#x2191;</span> Tap the banner<span class="jump-callout-keys"></span></p>
+    <p class="jump-callout" aria-hidden="true"><span class="jump-arrow">&#x2191;</span> Tap the banner<span class="jump-callout-keys"></span> to open the next session's terminal</p>
     <ol class="session-rows" aria-hidden="true">
       {DEMO_SESSIONS.map(({ task, state }) => (
         <li class="session-row" data-id={task} data-state={state} data-focus="false">
@@ -31,6 +47,11 @@ const DEMO_SESSIONS = [
           <span class="session-task">{task}</span>
           <span class="state-stack label-stack">{SHOWN_STATES.map((shownState) => <span class="session-state" data-label-for={shownState} data-state={shownState}>{BADGE_LABELS[shownState]}</span>)}</span>
           <span class="session-row-attention-tab" hidden></span>
+          {terminalVariantsFor(task).map(({ state: openedAs, lines }) => (
+            <div class="session-terminal" data-opened-as={openedAs}>
+              <pre class="session-terminal-screen"><span class="terminal-title">{task}</span>{lines.map((line) => <span class="terminal-line">{line}</span>)}<span class="terminal-prompt">&gt; <span class="terminal-cursor"></span></span></pre>
+            </div>
+          ))}
         </li>
       ))}
     </ol>
@@ -120,7 +141,10 @@ const DEMO_SESSIONS = [
     function openSession(sessionId: string) {
       for (const row of rowsOf(boardElement)) row.dataset.focus = String(row.dataset.id === sessionId);
       const openedRow = rowById.get(sessionId);
-      if (openedRow) openedRow.dataset.state = STATES.RUNNING;
+      if (openedRow) {
+        openedRow.dataset.openedAs = openedRow.dataset.state;
+        openedRow.dataset.state = STATES.RUNNING;
+      }
       repaint();
     }
 
@@ -168,7 +192,7 @@ const DEMO_SESSIONS = [
     70% { translate: 0 0; animation-timing-function: var(--ease-out-expo); }
   }
   .session-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-  .session-rows li { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 4px; font-size: 14px; overflow: hidden; transition: transform 900ms var(--ease-out-expo); }
+  .session-rows li { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; padding: 10px 12px; border-radius: 4px; font-size: 14px; overflow: hidden; transition: transform 900ms var(--ease-out-expo); }
   .session-rows li::before { content: ''; position: absolute; inset: 0; border-radius: 4px; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); opacity: 0; transition: opacity 900ms var(--ease-out-expo); }
   .session-rows li[data-focus="true"] { transform: scale(1.015); animation: focus-arrive 720ms var(--ease-out-expo) both; }
   .session-rows li[data-focus="true"]::before { opacity: 1; }
@@ -178,6 +202,19 @@ const DEMO_SESSIONS = [
     65% { transform: scale(1.025); }
     100% { transform: scale(1.015); }
   }
+  .session-terminal { position: relative; flex-basis: 100%; display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 500ms var(--ease-out-expo), opacity 300ms var(--ease-out-expo); }
+  .session-rows li[data-focus="true"][data-opened-as="WAITING"] .session-terminal[data-opened-as="WAITING"], .session-rows li[data-focus="true"][data-opened-as="FAILED"] .session-terminal[data-opened-as="FAILED"], .session-rows li[data-focus="true"][data-opened-as="COMPLETE"] .session-terminal[data-opened-as="COMPLETE"] { grid-template-rows: 1fr; opacity: 1; }
+  .session-terminal-screen { min-height: 0; overflow: hidden; margin: 0; display: grid; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .terminal-title { margin-top: 10px; padding: 6px 10px; border: 1px solid var(--border); border-bottom: 0; border-radius: 4px 4px 0 0; background: var(--bg); color: var(--text-dim); font-size: 12px; }
+  .terminal-line, .terminal-prompt { padding: 0 10px; border-inline: 1px solid var(--border); background: var(--bg); }
+  .terminal-title + .terminal-line { padding-top: 8px; }
+  .terminal-prompt { padding-bottom: 8px; border-bottom: 1px solid var(--border); border-radius: 0 0 4px 4px; color: var(--accent); }
+  .session-terminal[data-opened-as="WAITING"] .terminal-line { color: var(--state-waiting); }
+  .session-terminal[data-opened-as="FAILED"] .terminal-title + .terminal-line { color: var(--state-failed); }
+  .session-terminal[data-opened-as="COMPLETE"] .terminal-line { color: var(--state-complete); }
+  .terminal-cursor { display: inline-block; width: 0.6em; height: 1.1em; vertical-align: text-bottom; background: var(--accent); animation: terminal-blink 1.1s steps(1) infinite; }
+  .attention-board:not([data-on-screen="true"]) .terminal-cursor { animation-play-state: paused; }
+  @keyframes terminal-blink { 50% { opacity: 0; } }
   .state-stack { display: grid; flex: none; }
   .state-stack > * { grid-area: 1 / 1; opacity: 0; transition: opacity var(--leave-ms) var(--ease-in-expo); }
   .label-stack { justify-items: end; margin-right: 10px; }
@@ -202,5 +239,6 @@ const DEMO_SESSIONS = [
   @media (prefers-reduced-motion: reduce) {
     .session-rows li[data-focus="true"] { animation: none; }
     .jump-arrow { animation: none; }
+    .terminal-cursor { animation: none; }
   }
 </style>
