@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Anonymous usage data marks a first start**: the app start event now says whether this is the first time Glimmervoid has started on the machine (no config file yet), so a new install can be told apart from a restart. Nothing else about the install is sent.
+
 ## [0.44.0] - 2026-10-25
 
 ### Added

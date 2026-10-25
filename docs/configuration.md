@@ -290,7 +290,7 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 
 | Event | Properties | When |
 |-------|------------|------|
-| `app_started` | none | The server started listening. |
+| `app_started` | `is_first_start` | The server started listening, and whether this is the first start, with no Glimmervoid config file yet. |
 | `app_active` | `active_session_count` | Once a day while the server runs, with how many sessions are live. |
 | `session_started` | `adapter` | A session spawned, with which kind of agent (any custom agent counts as `custom`). |
 | `session_ended` | `adapter`, `exit_kind`, `duration_seconds` | A session ended: how it exited, or that it was removed, replaced by a settings change or stopped with the server, and how long it ran, in whole seconds. |

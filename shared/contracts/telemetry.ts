@@ -25,7 +25,9 @@ export const MAX_AI_MODEL_LENGTH = 128;
 const nonNegativeInteger = z.number().int().nonnegative();
 const boundedText = z.string().max(MAX_TEXT_LENGTH);
 
-const AppStartedProperties = z.object({}).strict();
+const AppStartedProperties = z.object({
+  is_first_start: z.boolean(),
+}).strict();
 
 const AppActiveProperties = z.object({
   active_session_count: nonNegativeInteger,
@@ -151,7 +153,7 @@ export type TelemetryEventName = keyof typeof TELEMETRY_EVENT_SCHEMAS;
 export type TelemetryEventProperties<EventName extends TelemetryEventName> = z.infer<(typeof TELEMETRY_EVENT_SCHEMAS)[EventName]>;
 
 export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description: string }[] = Object.freeze([
-  { name: 'app_started', description: 'The server started listening.' },
+  { name: 'app_started', description: 'The server started listening, and whether this is the first start, with no Glimmervoid config file yet.' },
   { name: 'app_active', description: 'Once a day while the server runs, with how many sessions are live.' },
   { name: 'session_started', description: 'A session spawned, with which kind of agent (any custom agent counts as `custom`).' },
   { name: 'session_ended', description: 'A session ended: how it exited, or that it was removed, replaced by a settings change or stopped with the server, and how long it ran, in whole seconds.' },

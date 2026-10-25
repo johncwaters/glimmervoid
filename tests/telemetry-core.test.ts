@@ -133,7 +133,7 @@ test('exception properties carry the handled mechanism and level, and satisfy th
 
 test('every event schema refuses a property outside its allowlist', () => {
   const validByEvent = {
-    app_started: {},
+    app_started: { is_first_start: true },
     app_active: { active_session_count: 2 },
     session_started: { adapter: 'codex' },
     session_ended: { adapter: 'custom', exit_kind: 'clean', duration_seconds: 30 },

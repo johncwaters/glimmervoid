@@ -70,7 +70,7 @@ for (const operation of ['flush', 'checkRemoteSwitch', 'stop'] as const) {
     });
     const { telemetry } = buildTelemetry({ fetchFn, config, stateFilePath });
     context.after(() => telemetry.stop());
-    telemetry.capture('app_started', {});
+    telemetry.capture('app_started', { is_first_start: false });
     const outboundOperation = telemetry[operation]();
     await stateReadStarted;
     assert.equal(sent.length, 0);
@@ -87,7 +87,7 @@ test('disabled consent sends nothing and writes no state file', async () => {
   const { sent, fetchFn } = recordingFetch();
   const stateFilePath = path.join(makeStateDir(), 'telemetry.json');
   const { telemetry } = buildTelemetry({ fetchFn, stateFilePath, env: { DO_NOT_TRACK: '1' } });
-  for (let index = 0; index < 30; index += 1) telemetry.capture('app_started', {});
+  for (let index = 0; index < 30; index += 1) telemetry.capture('app_started', { is_first_start: false });
   await telemetry.flush();
   assert.equal(await telemetry.consumeFirstRunNotice(), false);
   await telemetry.stop();
@@ -124,7 +124,7 @@ test('a batch posts the project token, the install id and an anonymous allowlist
 test('the project token override reaches the batch body', async () => {
   const { sent, fetchFn } = recordingFetch();
   const { telemetry } = buildTelemetry({ fetchFn, env: { GLIMMERVOID_TELEMETRY_PROJECT_TOKEN: 'phc_scratch' } });
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await telemetry.flush();
   await telemetry.stop();
   assert.equal(sent[0].body.api_key, 'phc_scratch');
@@ -181,9 +181,9 @@ test('the queue holds at most 500 events and drops the oldest', async () => {
 test('a rejected send is swallowed and logged once', async () => {
   const { sent, fetchFn } = recordingFetch(() => Promise.reject(new TypeError('fetch failed')));
   const { telemetry, warnings } = buildTelemetry({ fetchFn });
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await telemetry.flush();
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await telemetry.flush();
   await telemetry.stop();
   assert.equal(sent.length, 2);
@@ -193,7 +193,7 @@ test('a rejected send is swallowed and logged once', async () => {
 test('a timed-out send is swallowed', async () => {
   const { fetchFn } = recordingFetch(() => Promise.reject(new DOMException('The operation timed out.', 'TimeoutError')));
   const { telemetry, warnings } = buildTelemetry({ fetchFn });
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await assert.doesNotReject(telemetry.flush());
   await telemetry.stop();
   assert.match(warnings[0] ?? '', /TimeoutError/);
@@ -202,7 +202,7 @@ test('a timed-out send is swallowed', async () => {
 test('a non-2xx response is logged, never thrown', async () => {
   const { fetchFn } = recordingFetch(() => Promise.resolve(new Response('nope', { status: 401 })));
   const { telemetry, warnings } = buildTelemetry({ fetchFn });
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await assert.doesNotReject(telemetry.flush());
   await telemetry.stop();
   assert.match(warnings[0] ?? '', /status=401/);
@@ -226,7 +226,7 @@ test('turning consent off in config clears the queue', async () => {
   const { sent, fetchFn } = recordingFetch();
   const config: { telemetry: { enabled: boolean } } = { telemetry: { enabled: true } };
   const { telemetry } = buildTelemetry({ fetchFn, config });
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   config.telemetry.enabled = false;
   telemetry.applyConfig();
   config.telemetry.enabled = true;
@@ -238,9 +238,9 @@ test('turning consent off in config clears the queue', async () => {
 test('stop sends what is queued and nothing captured afterwards', async () => {
   const { sent, fetchFn } = recordingFetch();
   const { telemetry } = buildTelemetry({ fetchFn });
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await telemetry.stop();
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await telemetry.flush();
   assert.equal(sent.length, 1);
   assert.equal(sent[0].body.batch.length, 1);
@@ -310,10 +310,10 @@ test('a disabled telemetry-enabled flag stops capture and clears the queue until
   let flags: Record<string, unknown> = { 'telemetry-enabled': { key: 'telemetry-enabled', enabled: false } };
   const { batches, fetchFn } = killSwitchFetch(() => flagsResponse(flags)());
   const { telemetry } = buildTelemetry({ fetchFn });
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await telemetry.checkRemoteSwitch();
   assert.equal(telemetry.isEnabled(), false);
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await telemetry.flush();
   assert.equal(batches.length, 0);
   flags = { 'telemetry-enabled': { key: 'telemetry-enabled', enabled: true } };
@@ -329,7 +329,7 @@ test('an enabled or missing telemetry-enabled flag leaves capture on', async () 
     const { batches, fetchFn } = killSwitchFetch(flagsResponse(flags));
     const { telemetry } = buildTelemetry({ fetchFn });
     await telemetry.checkRemoteSwitch();
-    telemetry.capture('app_started', {});
+    telemetry.capture('app_started', { is_first_start: false });
     await telemetry.flush();
     await telemetry.stop();
     assert.equal(batches.length, 1);
@@ -346,7 +346,7 @@ test('a timed-out, rejected or unparseable flag check leaves capture on', async 
     const { batches, fetchFn } = killSwitchFetch(respondToFlags);
     const { telemetry } = buildTelemetry({ fetchFn });
     await assert.doesNotReject(telemetry.checkRemoteSwitch());
-    telemetry.capture('app_started', {});
+    telemetry.capture('app_started', { is_first_start: false });
     await telemetry.flush();
     await telemetry.stop();
     assert.equal(batches.length, 1);
@@ -360,7 +360,7 @@ test('a flag check failure after a disable keeps capture off', async () => {
   await telemetry.checkRemoteSwitch();
   respondToFlags = () => Promise.reject(new DOMException('The operation timed out.', 'TimeoutError'));
   await telemetry.checkRemoteSwitch();
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await telemetry.flush();
   await telemetry.stop();
   assert.equal(batches.length, 0);
@@ -373,7 +373,7 @@ test('an absent telemetry-enabled flag after a disable keeps capture off', async
   await telemetry.checkRemoteSwitch();
   respondToFlags = flagsResponse({});
   await telemetry.checkRemoteSwitch();
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await telemetry.flush();
   await telemetry.stop();
   assert.equal(batches.length, 0);
@@ -405,10 +405,10 @@ test('a remote disable is persisted and keeps a restarted install silent when it
   assert.equal(JSON.parse(fs.readFileSync(stateFilePath, 'utf8')).remoteDisabled, true);
   const { batches, flagRequests, fetchFn } = killSwitchFetch(() => Promise.resolve(new Response('nope', { status: 500 })));
   const { telemetry } = buildTelemetry({ fetchFn, stateFilePath });
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await telemetry.flush();
   await telemetry.checkRemoteSwitch();
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await telemetry.flush();
   await telemetry.stop();
   assert.equal(flagRequests.length, 1);
@@ -439,7 +439,7 @@ test('a persisted remote disable is cleared and persisted once a check returns t
   const { batches, fetchFn } = killSwitchFetch(flagsResponse(enabledFlag));
   const { telemetry } = buildTelemetry({ fetchFn, stateFilePath });
   await telemetry.checkRemoteSwitch();
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: false });
   await telemetry.flush();
   await telemetry.stop();
   assert.equal(batches.length, 1);
@@ -469,12 +469,12 @@ test('turning local consent on through applyConfig runs a flag check, and leavin
 test('every event carries is_dev_install, and $release_id only when a release id is set', async () => {
   const withRelease = recordingFetch();
   const linked = buildTelemetry({ fetchFn: withRelease.fetchFn, isDevInstall: true, releaseId: 'release-1' });
-  linked.telemetry.capture('app_started', {});
+  linked.telemetry.capture('app_started', { is_first_start: false });
   await linked.telemetry.flush();
   await linked.telemetry.stop();
   const withoutRelease = recordingFetch();
   const unlinked = buildTelemetry({ fetchFn: withoutRelease.fetchFn, releaseId: null });
-  unlinked.telemetry.capture('app_started', {});
+  unlinked.telemetry.capture('app_started', { is_first_start: false });
   await unlinked.telemetry.flush();
   await unlinked.telemetry.stop();
   const [linkedEvent] = withRelease.sent[0].body.batch;

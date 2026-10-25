@@ -110,7 +110,7 @@ server.listen(port, bind.host, () => {
   sweepOrphanedHostScratch().catch((error: unknown) => {
     console.warn(`Leftover scratch sweep failed: ${error instanceof Error ? error.message : String(error)}`);
   });
-  telemetry.capture('app_started', {});
+  telemetry.capture('app_started', { is_first_start: isFirstStart });
   writeTerminalTitle(buildTitleSequence(`glimmervoid :${boundPort}`));
   if (bind.reason === 'insecure-bind') {
     console.warn(`WARNING: bound ${bind.host} with GLIMMERVOID_INSECURE_BIND=1 - this listener has NO authentication.`);
