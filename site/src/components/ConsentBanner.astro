@@ -1,0 +1,51 @@
+---
+import { deriveNyanGeometry } from '../../../public/nyan-geometry-core.ts';
+import { sitePath } from '../lib/site-path.ts';
+
+const geometry = deriveNyanGeometry({ viewportWidthPx: 1440, viewportHeightPx: 900, verticalProgress: 0 });
+const spriteSizeStyle = `--nyan-width: ${geometry.spriteWidthPx}px; --nyan-height: ${geometry.spriteHeightPx}px`;
+---
+<aside class="consent-banner" aria-label="Cookie choice" data-consent-banner style={spriteSizeStyle} hidden>
+  <div class="flying-animal-preview consent-animal" aria-hidden="true">
+    <div class="nyan-sprite" data-consent-animal></div>
+  </div>
+  <p>We use a cookie to see how the site is used. <a href={sitePath('privacy/')}>Privacy</a></p>
+  <div class="consent-actions">
+    <button type="button" class="btn" data-consent-choice="declined">Decline</button>
+    <button type="button" class="btn" data-consent-choice="accepted">Accept</button>
+  </div>
+</aside>
+
+<script>
+  import { ANIMALS } from '../../../public/nyan-animals-core.ts';
+  import { acceptAnalytics, consentChoice, declineAnalytics, isAnalyticsEnabled } from '../lib/analytics.ts';
+
+  const banner = document.querySelector<HTMLElement>('[data-consent-banner]');
+  const animal = document.querySelector<HTMLElement>('[data-consent-animal]');
+  if (banner && animal && isAnalyticsEnabled && consentChoice() === 'pending') {
+    animal.classList.add(ANIMALS[Math.floor(Math.random() * ANIMALS.length)].sprite);
+    banner.hidden = false;
+    banner.addEventListener('click', (event) => {
+      const choiceButton = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-consent-choice]') : null;
+      if (!choiceButton) return;
+      if (choiceButton.dataset.consentChoice === 'accepted') acceptAnalytics();
+      if (choiceButton.dataset.consentChoice === 'declined') declineAnalytics();
+      banner.hidden = true;
+    });
+  }
+</script>
+
+<style>
+  .consent-banner { position: fixed; z-index: 10; inset-inline: 16px; bottom: 16px; max-width: 760px; margin-inline: auto; display: flex; align-items: center; gap: 16px; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 32px rgb(0 0 0 / 0.5); font-size: 15px; }
+  .consent-banner[hidden] { display: none; }
+  .consent-animal { position: relative; flex: none; width: var(--nyan-width); height: var(--nyan-height); }
+  .consent-banner p { flex: 1; margin: 0; color: var(--text); }
+  .consent-banner a { color: var(--accent); }
+  .consent-actions { flex: none; display: flex; gap: 8px; }
+  @media (max-width: 640px) {
+    .consent-banner { flex-wrap: wrap; }
+    .consent-banner p { flex-basis: calc(100% - var(--nyan-width) - 16px); }
+    .consent-actions { width: 100%; }
+    .consent-actions .btn { flex: 1; min-height: 44px; }
+  }
+</style>
