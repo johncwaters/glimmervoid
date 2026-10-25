@@ -2,7 +2,7 @@
 import '../styles/global.css';
 import dashboardStylesheet from '../../../public/style.css?raw';
 import { extractAnimalStyles } from '../lib/animal-styles.ts';
-import { extractCelebrationStyles } from '../lib/celebration-styles.ts';
+import { extractDemoStyles } from '../lib/demo-styles.ts';
 import { extractDashboardTokens } from '../lib/dashboard-tokens.ts';
 import { sitePath } from '../lib/site-path.ts';
 
@@ -35,7 +35,7 @@ const dashboardTokens = extractDashboardTokens(dashboardStylesheet);
 const animalSpriteUrlsByPath = import.meta.glob<string>('../../../public/animals/*.png', { eager: true, query: '?url', import: 'default' });
 const animalSpriteUrlsByFileName = Object.fromEntries(Object.entries(animalSpriteUrlsByPath).map(([spritePath, spriteUrl]) => [spritePath.split('/').at(-1) ?? spritePath, spriteUrl]));
 const animalStyles = extractAnimalStyles(dashboardStylesheet, animalSpriteUrlsByFileName);
-const celebrationStyles = extractCelebrationStyles(dashboardStylesheet);
+const demoStyles = extractDemoStyles(dashboardStylesheet);
 ---
 <html lang="en">
   <head>
@@ -71,7 +71,7 @@ const celebrationStyles = extractCelebrationStyles(dashboardStylesheet);
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&display=swap">
     <style is:global set:html={dashboardTokens}></style>
     <style is:global set:html={animalStyles}></style>
-    <style is:global set:html={celebrationStyles}></style>
+    <style is:global set:html={demoStyles}></style>
     <style is:global>
       .sky .nyan-flight { position: absolute; z-index: 1; }
       .flying-animal-preview .nyan-trail { width: 100px; }
