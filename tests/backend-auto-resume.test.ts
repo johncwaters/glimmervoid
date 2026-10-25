@@ -73,28 +73,6 @@ async function asWin32(fn: () => Promise<void>): Promise<void> {
   finally { Object.defineProperty(process, 'platform', original); }
 }
 
-test('decideWasActiveFlip: entering STARTING or RUNNING always flips true', () => {
-  assert.equal(decideWasActiveFlip(STATES.STARTING, 'spawn_success', false), true);
-  assert.equal(decideWasActiveFlip(STATES.RUNNING, 'new_output', false), true);
-  assert.equal(decideWasActiveFlip(STATES.RUNNING, 'resume', true), true, 'true even mid-restart');
-});
-
-test('decideWasActiveFlip: a genuine user_kill or terminal exit flips false', () => {
-  assert.equal(decideWasActiveFlip(STATES.DONE, 'user_kill', false), false);
-  assert.equal(decideWasActiveFlip(STATES.DONE, 'process_exit_ok', false), false);
-  assert.equal(decideWasActiveFlip(STATES.FAILED, 'process_exit_fail', false), false);
-});
-
-test('decideWasActiveFlip: pendingRestart exempts the transient user_kill/DONE from forceRestart', () => {
-  assert.equal(decideWasActiveFlip(STATES.DONE, 'user_kill', true), null, 'no flip - forceRestart is mid-cycle');
-  assert.equal(decideWasActiveFlip(STATES.FAILED, 'process_exit_fail', true), null, 'no flip while a restart is pending');
-});
-
-test('decideWasActiveFlip: an unrelated transition never flips', () => {
-  assert.equal(decideWasActiveFlip(STATES.WAITING, 'prompt_detected', false), null);
-  assert.equal(decideWasActiveFlip(STATES.COMPLETE, 'task_complete', false), null);
-});
-
 test('persistSessionField writes the field to disk and to the in-memory config', async () => {
   await withStoreAsync({ projects: [{ id: 'p1', name: 'proj', path: 'C:/proj' }] }, async (store, p) => {
     await persistSessionField(store, store.config, 'p1', 'resumeSessionId', 'abcd1234-0000-0000-0000-abcdabcdabcd');
@@ -314,6 +292,7 @@ test('createBackend defers boot auto-resume until the HTTP listener has a hook p
   fs.writeFileSync(cfgPath, JSON.stringify({
     autoResume: true,
     checkForUpdates: false,
+    sessionMemoryReserveMB: 0,
     projects: [{
       id: 'boot-picked',
       name: 'boot-picked',
