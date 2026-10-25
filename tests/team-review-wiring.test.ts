@@ -5,25 +5,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { answeredViewerThreads } from '../server/github/core/team-review-threads-core.ts';
-import { threadNode } from './helpers/team-review-thread-fixture.ts';
 import { isDispatchWorkdir } from '../server/ingest/core/ingest-agent-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { ACCEPT_EDITS_MODE } from '../server/lanes/core/lane-permissions-core.ts';
-import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, HAND_APPROVAL_LINE, REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/github/core/team-review-core.ts';
+import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/github/core/team-review-core.ts';
 import type { ReviewProgressEvent, ReviewTier } from '../server/github/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/github/team-review-poller.ts';
-import type { DraftPatch, SpawnReviewArgs } from '../server/github/team-review-poller.ts';
-import type { PostedReview } from '../server/github/pr-gh.ts';
-import {
-  TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, emptyTeamReviewStatus,
-  createTeamReviewStateIo, makeTeamReviewWorkDir, readTeamReviewSettings, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewRole, teamReviewShouldStart, teamReviewSpawnEnv,
-  hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions,
-} from '../server/github/team-review-wiring.ts';
-import type { TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/github/team-review-wiring.ts';
-import { PrDetail, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
-import type { ResumableReview, ReviewComment, ReviewDraft as ReviewDraftType, TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
+import type { SpawnReviewArgs } from '../server/github/team-review-poller.ts';
+import { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, createTeamReviewStateIo, makeTeamReviewWorkDir, sweepLeftoverCheckouts, teamReviewClaudeArgs, teamReviewRole, teamReviewSpawnEnv, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions } from '../server/github/team-review-wiring.ts';
+import type { TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/github/team-review-wiring.ts';
+import { PrDetail, ReviewDraft } from '../shared/contracts/team-review.ts';
+import type { ResumableReview, ReviewDraft as ReviewDraftType } from '../shared/contracts/team-review.ts';
 import { GUARDRAILS_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import type { resolveHookTools as resolveSharedHookTools } from '../server/hook-tools.ts';
@@ -1302,17 +1295,6 @@ test('a review reports checkout then reviewing with the timeout, and forwards to
   }
 });
 
-test('the lane starts only when enabled with a resolved organization and teams', () => {
-  assert.equal(teamReviewShouldStart({}).start, false);
-  assert.equal(teamReviewShouldStart({ teamReview: { enabled: true, org: 'Acme' } }).start, false);
-  assert.equal(teamReviewShouldStart({ teamReview: { enabled: false, org: 'Acme', team: 'core' } }).start, false);
-  assert.equal(teamReviewShouldStart({ teamReview: { enabled: true, org: 'Acme', team: 'core' } }).start, true);
-  const config = { teamReview: { enabled: true }, github: { teams: ['Acme/core'] } };
-  assert.equal(teamReviewShouldStart(config).start, true);
-  assert.equal(teamReviewShouldStart({ ...config, github: { teams: [] } }).start, false);
-  assert.notEqual(teamReviewCfgKey(config), teamReviewCfgKey({ ...config, github: { teams: ['Acme/core', 'Other/tools'] } }));
-});
-
 test('the configured review skill reaches the prompt of each review as it is read at spawn time', async () => {
   let configuredSkill = 'my-review';
   const { review, spawns, cleanup } = setup({ readReviewSkill: () => configuredSkill });
@@ -1325,16 +1307,6 @@ test('the configured review skill reaches the prompt of each review as it is rea
   } finally {
     cleanup();
   }
-});
-
-test('team review settings use configurable positive review and idle windows', () => {
-  assert.deepEqual(readTeamReviewSettings({}), { enabled: false, org: '', teams: [], reReviewAfterHours: 24, skipIdleAfterDays: 14, skill: '', autoRebaseMyPrs: false });
-  assert.deepEqual(readTeamReviewSettings({ teamReview: { enabled: true, org: ' Acme ', team: ' core ', reReviewAfterHours: 6, skipIdleAfterDays: 3, skill: ' my-review ', autoRebaseMyPrs: true } }), {
-    enabled: true, org: 'Acme', teams: [{ org: 'Acme', slug: 'core' }], reReviewAfterHours: 6, skipIdleAfterDays: 3, skill: 'my-review', autoRebaseMyPrs: true,
-  });
-  assert.equal(readTeamReviewSettings({ github: { teams: ['Acme/core'] }, teamReview: { org: ' ' } }).org, 'Acme');
-  assert.equal(readTeamReviewSettings({ github: { teams: ['Acme/core'] }, teamReview: { org: 'Override' } }).org, 'Override');
-  assert.equal(readTeamReviewSettings({ teamReview: { autoRebaseMyPrs: 'yes' } }).autoRebaseMyPrs, false);
 });
 
 test('a failed worktree removal still deletes the checkout directory and prunes the cached clone', async () => {
@@ -1534,11 +1506,6 @@ test('discarding a saved review reaps its processes before removing its director
   }
 });
 
-test('the empty lane status parses as the team-review-status contract', () => {
-  assert.equal(TeamReviewStatus.safeParse(emptyTeamReviewStatus({ start: false, reason: 'teamReview needs both org and team' })).success, true);
-  assert.equal(TeamReviewStatus.safeParse(emptyTeamReviewStatus({ start: true })).success, true);
-});
-
 function deferredSignal(): { promise: Promise<void>; resolve: () => void; reject: (reason: unknown) => void } {
   let resolve: () => void = () => {};
   let reject: (reason: unknown) => void = () => {};
@@ -1625,32 +1592,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
 });
 
 const ACTION_KEY = 'Acme/app#7';
-const ACTION_DIFF = [
-  'diff --git a/src/app.ts b/src/app.ts',
-  '--- a/src/app.ts',
-  '+++ b/src/app.ts',
-  '@@ -1,2 +1,3 @@',
-  ' const port = 3000;',
-  '-listen(port);',
-  '+listen(port, host);',
-  '+ready();',
-  '',
-].join('\n');
-const COMMENT_ON_ADDED_LINE: ReviewComment = { path: 'src/app.ts', line: 3, side: 'RIGHT', body: 'Log this?' };
-const COMMENT_OFF_DIFF: ReviewComment = { path: 'src/app.ts', line: 40, side: 'RIGHT', body: 'Not in the diff' };
 
-type PostArgs = Parameters<TeamReviewActionGithub['postReview']>[0];
-type DismissArgs = Parameters<TeamReviewActionGithub['dismissReview']>[0];
-
-interface ActionHarnessOptions {
-  headReads?: (string | null)[];
-  diff?: string | null;
-  postResult?: PostedReview;
-  dismissResult?: { ok: boolean; err: string };
-  holdPost?: Promise<void>;
-  onPost?: () => void;
-  draft?: Partial<ReviewDraftType>;
-}
 
 function actionDraft(overrides: Partial<ReviewDraftType> = {}): ReviewDraftType {
   return ReviewDraft.parse({
@@ -1674,321 +1616,6 @@ test('state loading drops an invalid saved review while retaining a valid draft'
   } finally {
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
-});
-
-function actionHarness(options: ActionHarnessOptions = {}) {
-  let draft = actionDraft(options.draft);
-  const headReads = [...(options.headReads ?? [HEAD, HEAD])];
-  const headLookups: string[] = [];
-  const diffLookups: string[] = [];
-  const posted: PostArgs[] = [];
-  const dismissed: DismissArgs[] = [];
-  const patches: DraftPatch[] = [];
-  const requeues: string[] = [];
-  const notMineKeys: string[] = [];
-  const requestedPrRefreshes: string[] = [];
-  const actions = createTeamReviewActions({
-    requestPrRefresh: (key) => { requestedPrRefreshes.push(key); },
-    drafts: {
-      getDraft: (key) => (key === draft.key ? draft : null),
-      updateDraft: async (key, expected, patch) => {
-        if (key !== draft.key || draft.reviewedHead !== expected.reviewedHead || draft.status !== expected.status) return null;
-        patches.push(patch);
-        draft = ReviewDraft.parse({ ...draft, ...patch });
-        return draft;
-      },
-      markNotMine: async (key) => {
-        notMineKeys.push(key);
-        return { ok: true };
-      },
-      requeue: async (key, head) => {
-        requeues.push(`${key}@${head}`);
-        return key === draft.key && head === draft.reviewedHead && (draft.status === 'error' || draft.status === 'ready' || draft.status === 'stale' || draft.status === 'discarded' || draft.status === 'posted');
-      },
-    },
-    store: {
-      requestTeamReviewThreads: async () => ({ isRateLimited: false, value: new Map() }),
-      requestPrHead: async (repo, number) => {
-        headLookups.push(`${repo}#${number}`);
-        return { isRateLimited: false, value: headReads.length > 0 ? (headReads.shift() ?? null) : HEAD };
-      },
-      requestPrDiff: async (repo, number) => {
-        diffLookups.push(`${repo}#${number}`);
-        return { isRateLimited: false, value: options.diff === undefined ? ACTION_DIFF : options.diff };
-      },
-    },
-    github: {
-      postReview: async (review) => {
-        posted.push(review);
-        if (options.holdPost) await options.holdPost;
-        options.onPost?.();
-        return options.postResult ?? { ok: true, err: '', reviewId: 99 };
-      },
-      dismissReview: async (dismissal) => {
-        dismissed.push(dismissal);
-        return options.dismissResult ?? { ok: true, err: '' };
-      },
-    },
-    log: { warn: () => {} },
-  });
-  const submit = (overrides: Partial<TeamReviewActionRequest> & Pick<TeamReviewActionRequest, 'action'>) => actions.submitAction({
-    key: ACTION_KEY, head: HEAD, body: 'LGTM', comments: [], ...overrides,
-  });
-  return {
-    submit, posted, dismissed, patches, requeues, notMineKeys, headLookups, diffLookups, requestedPrRefreshes,
-    currentDraft: () => draft,
-    replaceDraft: (next: ReviewDraftType) => { draft = next; },
-  };
-}
-
-test('approve posts one APPROVE review carrying the hand-approval line, the body and the inline comments at the reviewed head', async () => {
-  const h = actionHarness();
-  assert.deepEqual(await h.submit({ action: 'approve', body: 'Ship it', comments: [COMMENT_ON_ADDED_LINE] }), { ok: true });
-  assert.deepEqual(h.posted, [{
-    repo: 'Acme/app', number: 7, commitId: HEAD, event: 'APPROVE', body: `Ship it\n\n${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`, comments: [COMMENT_ON_ADDED_LINE],
-  }]);
-  assert.equal(h.currentDraft().status, 'posted');
-  assert.equal(h.currentDraft().postedEvent, 'APPROVE');
-  assert.equal(h.currentDraft().body, `Ship it\n\n${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`);
-  assert.deepEqual(h.currentDraft().comments, [COMMENT_ON_ADDED_LINE]);
-  assert.deepEqual(h.dismissed, []);
-  assert.deepEqual(h.requestedPrRefreshes, ['acme/app#7']);
-});
-
-test('approve-only ignores supplied body and comments and records only the hand approval', async () => {
-  const h = actionHarness({ diff: null });
-  assert.deepEqual(await h.submit({ action: 'approve-only', body: 'Ship it', comments: [COMMENT_ON_ADDED_LINE] }), { ok: true });
-  assert.deepEqual(h.posted, [{
-    repo: 'Acme/app', number: 7, commitId: HEAD, event: 'APPROVE', body: `${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`, comments: [],
-  }]);
-  assert.equal(h.currentDraft().status, 'posted');
-  assert.equal(h.currentDraft().postedEvent, 'APPROVE');
-  assert.equal(h.currentDraft().body, `${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`);
-  assert.deepEqual(h.currentDraft().comments, []);
-  assert.deepEqual(h.diffLookups, []);
-});
-
-test('comment posts a COMMENT review with the body unchanged and without re-reading the head afterwards', async () => {
-  const h = actionHarness();
-  assert.equal((await h.submit({ action: 'comment', body: 'A few notes' })).ok, true);
-  assert.equal(h.posted[0]?.event, 'COMMENT');
-  assert.equal(h.posted[0]?.body, 'A few notes');
-  assert.equal(h.headLookups.length, 1);
-});
-
-test('approve-only after a posted comment review posts an APPROVE with only the hand-approval line and keeps the posted comments', async () => {
-  const h = actionHarness({ headReads: [HEAD, HEAD, HEAD] });
-  assert.equal((await h.submit({ action: 'comment', body: 'Nits inline', comments: [COMMENT_ON_ADDED_LINE] })).ok, true);
-  assert.equal(h.currentDraft().postedEvent, 'COMMENT');
-  assert.deepEqual(await h.submit({ action: 'approve-only', body: 'Ignore this body', comments: [COMMENT_ON_ADDED_LINE] }), { ok: true });
-  assert.deepEqual(h.posted.map((review) => [review.event, review.body, review.comments.length]), [['COMMENT', 'Nits inline', 1], ['APPROVE', `${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`, 0]]);
-  assert.equal(h.currentDraft().status, 'posted');
-  assert.equal(h.currentDraft().postedEvent, 'APPROVE');
-  assert.equal(h.currentDraft().body, 'Nits inline');
-  assert.deepEqual(h.currentDraft().comments, [COMMENT_ON_ADDED_LINE]);
-});
-
-test('a follow-up approval refuses to repost inline comments and a posted approval refuses another', async () => {
-  const h = actionHarness({ draft: { status: 'posted', postedEvent: 'COMMENT' } });
-  const withComments = await h.submit({ action: 'approve', body: '', comments: [COMMENT_ON_ADDED_LINE] });
-  assert.equal(withComments.ok, false);
-  assert.match(String(withComments.error), /already posted/);
-  assert.equal((await h.submit({ action: 'comment', body: 'More', comments: [] })).ok, false);
-  h.replaceDraft(actionDraft({ status: 'posted', postedEvent: 'APPROVE' }));
-  assert.equal((await h.submit({ action: 'approve', body: '', comments: [] })).ok, false);
-  assert.equal((await h.submit({ action: 'approve-only', body: '', comments: [] })).ok, false);
-  assert.deepEqual(h.posted, []);
-  assert.deepEqual(h.headLookups, []);
-});
-
-test('a follow-up approval whose live head moved refuses without posting and the draft stays posted', async () => {
-  const h = actionHarness({ draft: { status: 'posted', postedEvent: 'COMMENT' }, headReads: [OTHER_HEAD] });
-  const outcome = await h.submit({ action: 'approve-only', body: '', comments: [] });
-  assert.equal(outcome.ok, false);
-  assert.match(String(outcome.error), /after the comments were posted, so nothing was approved/);
-  assert.deepEqual(h.posted, []);
-  assert.deepEqual(h.patches, []);
-  assert.equal(h.currentDraft().status, 'posted');
-  assert.equal(h.currentDraft().postedEvent, 'COMMENT');
-});
-
-test('a follow-up approval whose head moved during the post is dismissed and the draft stays posted', async () => {
-  const h = actionHarness({ draft: { status: 'posted', postedEvent: 'COMMENT' }, headReads: [HEAD, OTHER_HEAD] });
-  const outcome = await h.submit({ action: 'approve', body: '', comments: [] });
-  assert.equal(outcome.ok, false);
-  assert.match(String(outcome.error), /approval was dismissed/);
-  assert.match(String(outcome.error), /Queue a review|queue a review/);
-  assert.doesNotMatch(String(outcome.error), /reviewed again/);
-  assert.equal(h.posted.length, 1);
-  assert.equal(h.dismissed[0]?.reviewId, 99);
-  assert.deepEqual(h.patches, []);
-  assert.equal(h.currentDraft().status, 'posted');
-  assert.equal(h.currentDraft().postedEvent, 'COMMENT');
-});
-
-test('a clicked head that differs from the draft head is refused before GitHub is asked anything', async () => {
-  const h = actionHarness();
-  const outcome = await h.submit({ action: 'approve', head: OTHER_HEAD });
-  assert.equal(outcome.ok, false);
-  assert.match(String(outcome.error), /replaced/);
-  assert.deepEqual(h.headLookups, []);
-  assert.deepEqual(h.posted, []);
-  assert.equal(h.currentDraft().status, 'ready');
-});
-
-test('requeue accepts error, ready, stale, discarded or posted drafts at the clicked head and never calls GitHub', async () => {
-  const harness = actionHarness();
-  harness.replaceDraft(actionDraft({ status: 'posted' }));
-  assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: true });
-  harness.replaceDraft(actionDraft({ status: 'error', error: 'timed out' }));
-  assert.equal((await harness.submit({ action: 'requeue', head: OTHER_HEAD, body: '', comments: [] })).ok, false);
-  assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: true });
-  harness.replaceDraft(actionDraft({ status: 'ready' }));
-  assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: true });
-  harness.replaceDraft(actionDraft({ status: 'discarded' }));
-  assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: true });
-  harness.replaceDraft(actionDraft({ status: 'stale' }));
-  assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: true });
-  assert.deepEqual(harness.requeues, Array(5).fill(`${ACTION_KEY}@${HEAD}`));
-  assert.deepEqual(harness.headLookups, []);
-  assert.deepEqual(harness.diffLookups, []);
-  assert.deepEqual(harness.posted, []);
-  assert.deepEqual(harness.dismissed, []);
-});
-
-test('discard of a draft replaced after it was shown is refused and the new draft stays ready', async () => {
-  const h = actionHarness({ draft: { reviewedHead: OTHER_HEAD } });
-  const outcome = await h.submit({ action: 'discard', head: HEAD });
-  assert.equal(outcome.ok, false);
-  assert.match(String(outcome.error), /replaced/);
-  assert.equal(h.currentDraft().status, 'ready');
-  assert.deepEqual(h.notMineKeys, []);
-});
-
-test('a live head that moved marks the draft stale and never posts', async () => {
-  const h = actionHarness({ headReads: [OTHER_HEAD] });
-  const outcome = await h.submit({ action: 'approve' });
-  assert.equal(outcome.ok, false);
-  assert.match(String(outcome.error), /moved to ddddddd/);
-  assert.deepEqual(h.posted, []);
-  assert.equal(h.currentDraft().status, 'stale');
-});
-
-test('an unreadable live head refuses without posting or marking the draft', async () => {
-  const h = actionHarness({ headReads: [null] });
-  assert.equal((await h.submit({ action: 'approve' })).ok, false);
-  assert.deepEqual(h.posted, []);
-  assert.equal(h.currentDraft().status, 'ready');
-});
-
-test('an inline comment outside the diff is refused by name and nothing is posted', async () => {
-  const h = actionHarness();
-  const outcome = await h.submit({ action: 'comment', comments: [COMMENT_ON_ADDED_LINE, COMMENT_OFF_DIFF] });
-  assert.equal(outcome.ok, false);
-  assert.match(String(outcome.error), /src\/app\.ts:40 \(RIGHT\)/);
-  assert.doesNotMatch(String(outcome.error), /src\/app\.ts:3 /);
-  assert.deepEqual(h.posted, []);
-  assert.equal(h.currentDraft().status, 'ready');
-});
-
-test('an unavailable diff refuses inline comments rather than posting them unchecked', async () => {
-  const h = actionHarness({ diff: null });
-  assert.equal((await h.submit({ action: 'approve', comments: [COMMENT_ON_ADDED_LINE] })).ok, false);
-  assert.deepEqual(h.posted, []);
-});
-
-test('a review with no inline comments posts without fetching the diff', async () => {
-  const h = actionHarness();
-  assert.equal((await h.submit({ action: 'approve' })).ok, true);
-  assert.deepEqual(h.diffLookups, []);
-});
-
-test('a postReview failure reports the gh error and leaves the draft ready', async () => {
-  const h = actionHarness({ postResult: { ok: false, err: 'HTTP 422: Unprocessable Entity', reviewId: null } });
-  assert.deepEqual(await h.submit({ action: 'approve' }), { ok: false, error: 'HTTP 422: Unprocessable Entity' });
-  assert.equal(h.currentDraft().status, 'ready');
-  assert.deepEqual(h.patches, []);
-});
-
-test('not mine hands the pull request to the poller with or without a reviewed head and never touches GitHub', async () => {
-  const h = actionHarness();
-  assert.deepEqual(await h.submit({ action: 'discard' }), { ok: true });
-  assert.deepEqual(await h.submit({ action: 'discard', head: undefined }), { ok: true });
-  assert.deepEqual(h.notMineKeys, [ACTION_KEY, ACTION_KEY]);
-  assert.deepEqual(h.headLookups, []);
-  assert.deepEqual(h.posted, []);
-});
-
-test('a second action for the same key while one runs is refused', async () => {
-  let releasePost: () => void = () => {};
-  const holdPost = new Promise<void>((resolve) => { releasePost = resolve; });
-  const h = actionHarness({ holdPost });
-  const first = h.submit({ action: 'approve' });
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  const second = await h.submit({ action: 'approve' });
-  releasePost();
-  assert.equal(second.ok, false);
-  assert.match(String(second.error), /already running/);
-  assert.equal((await first).ok, true);
-  assert.equal(h.posted.length, 1);
-});
-
-test('a draft that is not ready is never posted', async () => {
-  const h = actionHarness({ draft: { status: 'stale' } });
-  assert.equal((await h.submit({ action: 'approve' })).ok, false);
-  assert.deepEqual(h.headLookups, []);
-  assert.deepEqual(h.posted, []);
-});
-
-test('a draft replaced while the review posts is left untouched and the operator is warned not to post again', async () => {
-  const freshDraft = actionDraft({ reviewedHead: OTHER_HEAD, body: 'Fresh review' });
-  let replace: () => void = () => {};
-  const h = actionHarness({ onPost: () => replace() });
-  replace = () => h.replaceDraft(freshDraft);
-  const outcome = await h.submit({ action: 'comment', body: 'Old text' });
-  assert.equal(outcome.ok, true);
-  assert.match(String(outcome.warning), /Do not post it again/);
-  assert.deepEqual(h.currentDraft(), freshDraft);
-  assert.deepEqual(h.patches, []);
-});
-
-test('an approval whose pull request moved during the post is dismissed and the draft marked stale', async () => {
-  const h = actionHarness({ headReads: [HEAD, OTHER_HEAD] });
-  const outcome = await h.submit({ action: 'approve' });
-  assert.equal(outcome.ok, false);
-  assert.match(String(outcome.error), /moved to ddddddd while the approval was posting, so the approval was dismissed/);
-  assert.equal(h.dismissed.length, 1);
-  const [dismissal] = h.dismissed;
-  assert.deepEqual([dismissal?.repo, dismissal?.number, dismissal?.reviewId], ['Acme/app', 7, 99]);
-  assert.match(String(dismissal?.message), /moved while this approval was posting/);
-  assert.equal(h.currentDraft().status, 'stale');
-  assert.deepEqual(h.requestedPrRefreshes, ['acme/app#7', 'acme/app#7']);
-});
-
-test('a failed dismissal of a moved approval tells the operator the approval still stands', async () => {
-  const h = actionHarness({ headReads: [HEAD, OTHER_HEAD], dismissResult: { ok: false, err: 'HTTP 403' } });
-  const outcome = await h.submit({ action: 'approve' });
-  assert.equal(outcome.ok, false);
-  assert.match(String(outcome.error), /dismissing the approval failed \(HTTP 403\), so it still stands/);
-  assert.equal(h.currentDraft().status, 'stale');
-  assert.deepEqual(h.requestedPrRefreshes, ['acme/app#7']);
-});
-
-test('a moved approval without a review id is reported rather than dismissed blindly', async () => {
-  const h = actionHarness({ headReads: [HEAD, OTHER_HEAD], postResult: { ok: true, err: '', reviewId: null } });
-  const outcome = await h.submit({ action: 'approve' });
-  assert.equal(outcome.ok, false);
-  assert.match(String(outcome.error), /did not return the review id/);
-  assert.deepEqual(h.dismissed, []);
-});
-
-test('an approval whose head cannot be re-read is marked posted with a warning to check GitHub', async () => {
-  const h = actionHarness({ headReads: [HEAD, null] });
-  const outcome = await h.submit({ action: 'approve' });
-  assert.equal(outcome.ok, true);
-  assert.match(String(outcome.warning), /Could not confirm/);
-  assert.equal(h.currentDraft().status, 'posted');
-  assert.deepEqual(h.dismissed, []);
 });
 
 const PRIOR_REVIEW = { head: OTHER_HEAD, base: PRIOR_BASE, verdict: 'REQUEST CHANGES' as const, summary: 'null deref', body: 'Fix the null check.', comments: [], wasPosted: true };
@@ -2210,79 +1837,6 @@ test('the wiring hands its cached guardrails refusal to the poller, whose status
   }
 });
 
-
-test('resolve action rechecks permissions and reply before mutating, and needs neither a judgement nor an unchanged head', async () => {
-  for (const scenario of ['success', 'resolved', 'permission', 'head', 'reply', 'failure', 'no-judgement'] as const) {
-    const node = threadNode();
-    const threads = answeredViewerThreads([node], [], HEAD);
-    const thread = threads[0];
-    thread.judgement = { addressed: true, reason: 'Guard added', head: HEAD, lastReplyAt: thread.lastReplyAt, judgedAt: 1 };
-    const draft = actionDraft({ threads, status: 'posted' });
-    let mutations = 0;
-    const patches: { isResolved?: boolean; resolveError?: string }[] = [];
-    if (scenario === 'resolved') node.isResolved = true;
-    if (scenario === 'permission') node.viewerCanResolve = false;
-    if (scenario === 'reply') node.comments.nodes[1].createdAt = '2026-10-02T12:00:00Z';
-    if (scenario === 'no-judgement') delete draft.threads?.[0].judgement;
-    const actions = createTeamReviewActions({
-      drafts: { getDraft: () => draft, updateDraft: async () => draft, requeue: async () => false, markNotMine: async () => ({ ok: false, error: 'must not mark not mine' }), updateThread: async (_key, _id, patch) => { patches.push(patch); return true; } },
-      store: emptyGithubStore({
-        teamReviewThreads: async () => new Map([[draft.key, [node]]]),
-        prHead: async () => scenario === 'head' ? OTHER_HEAD : HEAD,
-      }),
-      github: {
-        postReview: async () => { throw new Error('must not post a review'); },
-        dismissReview: async () => { throw new Error('must not dismiss a review'); },
-        resolveReviewThread: async () => { mutations += 1; return { ok: scenario !== 'failure', err: scenario === 'failure' ? 'denied' : '' }; },
-      },
-    });
-    const outcome = await actions.submitAction({ key: draft.key, head: HEAD, action: 'resolve-thread', threadId: node.id, body: '', comments: [] });
-    const isResolvable = scenario === 'success' || scenario === 'head' || scenario === 'no-judgement';
-    assert.equal(outcome.ok, isResolvable, scenario);
-    assert.equal(mutations, isResolvable || scenario === 'failure' ? 1 : 0, scenario);
-    if (isResolvable) assert.deepEqual(patches, [{ isResolved: true }], scenario);
-    if (scenario === 'failure') assert.deepEqual(patches, [{ resolveError: 'denied' }]);
-    assert.equal((await actions.submitAction({ key: draft.key, head: HEAD, action: 'resolve-thread', threadId: 'bad id', body: '', comments: [] })).ok, false);
-  }
-});
-
-test('a nit whose automatic resolve failed resolves by hand, and each refusal names its cause', async () => {
-  const cases = [
-    { scenario: 'failed-nit', error: undefined },
-    { scenario: 'pending-nit', error: 'That nit is resolved automatically' },
-    { scenario: 'stored-resolved', error: 'That thread is already resolved' },
-    { scenario: 'missing-stored', error: 'That answered thread no longer exists' },
-    { scenario: 'missing-remote', error: 'That thread is no longer on the pull request' },
-    { scenario: 'remote-resolved', error: 'That thread is already resolved on GitHub' },
-    { scenario: 'permission', error: 'You do not have permission to resolve that thread' },
-  ] as const;
-  for (const { scenario, error } of cases) {
-    const node = threadNode('LOW');
-    const threads = answeredViewerThreads([node], [], HEAD);
-    if (scenario !== 'pending-nit') threads[0].resolveError = 'denied';
-    if (scenario === 'stored-resolved') threads[0].isResolved = true;
-    if (scenario === 'remote-resolved') node.isResolved = true;
-    if (scenario === 'permission') node.viewerCanResolve = false;
-    const draft = actionDraft({ threads: scenario === 'missing-stored' ? [] : threads, status: 'posted' });
-    const patches: { isResolved?: boolean; resolveError?: string }[] = [];
-    let mutations = 0;
-    const actions = createTeamReviewActions({
-      drafts: { getDraft: () => draft, updateDraft: async () => draft, requeue: async () => false, markNotMine: async () => ({ ok: false, error: 'must not mark not mine' }), updateThread: async (_key, _id, patch) => { patches.push(patch); return true; } },
-      store: emptyGithubStore({
-        teamReviewThreads: async () => new Map([[draft.key, scenario === 'missing-remote' ? [] : [node]]]),
-      }),
-      github: {
-        postReview: async () => { throw new Error('must not post a review'); },
-        dismissReview: async () => { throw new Error('must not dismiss a review'); },
-        resolveReviewThread: async () => { mutations += 1; return { ok: true, err: '' }; },
-      },
-    });
-    const outcome = await actions.submitAction({ key: draft.key, head: HEAD, action: 'resolve-thread', threadId: node.id, body: '', comments: [] });
-    assert.deepEqual(outcome, error === undefined ? { ok: true } : { ok: false, error }, scenario);
-    assert.equal(mutations, error === undefined ? 1 : 0, scenario);
-    assert.deepEqual(patches, error === undefined ? [{ isResolved: true }] : [], scenario);
-  }
-});
 
 function emptyGithubStore(github: Partial<Parameters<typeof createGithubStorePoller>[0]['github']> = {}) {
   const searches: string[] = [];

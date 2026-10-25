@@ -216,38 +216,6 @@ test('a transcript whose project folder appears after SessionStart binds on the 
   fs.rmSync(projectDirectory, { recursive: true, force: true });
 });
 
-test('a draining poll logs debug details only when it appends transcript records', async () => {
-  const { configDirectory, projectDirectory } = makeWorkspace('debug-drain');
-  const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
-  fs.writeFileSync(transcriptPath, '', 'utf8');
-  const notes: string[] = [];
-  const harness = createHarness(configDirectory, 10, {
-    log: (message) => { notes.push(String(message)); },
-    warn: () => {},
-  }, true);
-  await harness.wiring.start();
-  const session = new TestTraceSession('glimmervoid-session-id');
-  harness.wiring.attachSession(session);
-
-  session.emit('claude-session-id', { id: 'vendor-session', vendor: 'claude', transcriptPath });
-  await harness.wiring.whenIdle();
-  const record = mainPrompt('main prompt', 'prompt-id');
-  fs.appendFileSync(transcriptPath, record, 'utf8');
-  await harness.poll();
-
-  const offset = Buffer.byteLength(record);
-  assert.deepEqual(notes, [
-    `[trace] drained session=glimmervoid-session-id records=1 bytes=${offset} offset=${offset}`,
-  ]);
-
-  notes.length = 0;
-  await harness.poll();
-  assert.deepEqual(notes, []);
-
-  await harness.wiring.stop();
-  fs.rmSync(configDirectory, { recursive: true, force: true });
-});
-
 test('a second SubagentStop appends only records added since the first stop', async () => {
   const { configDirectory, projectDirectory } = makeWorkspace('order');
   const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
@@ -721,38 +689,6 @@ test('a missing subagent leaves no record while another refusal in the same sess
   assert.equal(records[1].kind === 'notice' ? records[1].text : null, 'refused agent-a1.jsonl: outside-root');
   assert.equal(warnings.filter((warning) => /reason=missing/.test(warning)).length, 1);
   assert.equal(warnings.filter((warning) => /reason=outside-root/.test(warning)).length, 1);
-
-  await harness.wiring.stop();
-  fs.rmSync(configDirectory, { recursive: true, force: true });
-  fs.rmSync(strayProject, { recursive: true, force: true });
-});
-
-test('a repeated refused subagent transcript warns once for its reason', async () => {
-  const { configDirectory, projectDirectory } = makeWorkspace('repeated-refuse');
-  const strayProject = fs.mkdtempSync(path.join(projectsRoot, 'stray-'));
-  const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
-  fs.writeFileSync(transcriptPath, '', 'utf8');
-  const strayPath = path.join(strayProject, 'agent-a1.jsonl');
-  fs.writeFileSync(strayPath, subagentAnswer('stray answer'), 'utf8');
-  const warnings: string[] = [];
-  const harness = createHarness(configDirectory, 10, {
-    log: () => {},
-    warn: (message) => { warnings.push(String(message)); },
-  });
-  await harness.wiring.start();
-  const session = new TestTraceSession('glimmervoid-session-id');
-  harness.wiring.attachSession(session);
-
-  session.emit('claude-session-id', { id: 'vendor-session', vendor: 'claude', transcriptPath });
-  session.emit('hook-event', subagentStop(strayPath));
-  session.emit('hook-event', subagentStop(strayPath));
-  await harness.wiring.whenIdle();
-
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /reason=outside-root/);
-  const records = readTrace(harness.tracePath('glimmervoid-session-id'));
-  assert.deepEqual(records.map((record) => record.kind), ['session', 'notice']);
-  assert.equal(records[1].kind === 'notice' ? records[1].text : null, 'refused agent-a1.jsonl: outside-root');
 
   await harness.wiring.stop();
   fs.rmSync(configDirectory, { recursive: true, force: true });

@@ -897,4 +897,4 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 }
 
 export { createPrGh };
-export type { CommandResult, PostedReview, PrGh };
+export type { CommandResult, PrGh };

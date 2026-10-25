@@ -1274,6 +1274,6 @@ function createTeamReviewWiring({
   };
 }
 
-export { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir, emptyGhConfigDir, emptyTeamReviewStatus, hooksPathPinnedSpawnEnv, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewCfgKey, describeTeamReviewRole, teamReviewClaudeArgs, teamReviewRole, teamReviewShouldStart, teamReviewSpawnEnv };
+export { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir, emptyGhConfigDir, hooksPathPinnedSpawnEnv, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, describeTeamReviewRole, teamReviewClaudeArgs, teamReviewRole, teamReviewSpawnEnv };
 export { readTeamReviewSettings } from './core/team-review-core.ts';
-export type { PrSessionCheckout, TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewGitWorkspace, LaneSettingsGuardrails, TeamReviewRepoCache, TeamReviewSpawn };
+export type { PrSessionCheckout, TeamReviewDispatchOptions, TeamReviewGitWorkspace, LaneSettingsGuardrails, TeamReviewRepoCache, TeamReviewSpawn };
