@@ -112,17 +112,17 @@ export function buildAttentionBanner(hooks: AttentionBannerHooks, jumpKeys?: HTM
   chips.append(overflow);
   const allClearLine = el('span', 'attention-banner-line');
   allClearLine.setAttribute('aria-hidden', 'true');
-  const statusRow = el('div', 'attention-banner-status');
-  statusRow.append(chips, el('span', 'attention-banner-count'), allClearLine);
+  const status = el('span', 'attention-banner-status');
+  status.append(chips, el('span', 'attention-banner-count'), allClearLine);
   const jumpRow = el('button', 'attention-banner-jump-row');
   jumpRow.type = 'button';
-  jumpRow.append(el('span', 'attention-banner-jump-caption', 'Next session'));
+  jumpRow.append(status);
   if (jumpKeys) {
     jumpKeys.classList.add('attention-banner-jump');
     jumpRow.append(jumpKeys);
   }
   banner.addEventListener('click', () => hooks.onJump());
-  banner.append(statusRow, jumpRow);
+  banner.append(jumpRow);
   motionByBanner.set(banner, {
     hooks,
     tiles: [],
