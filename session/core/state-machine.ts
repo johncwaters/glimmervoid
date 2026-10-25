@@ -134,4 +134,3 @@ const EXIT_HOOKS: StateHookTable = {
 };
 
 export { TRANSITIONS, GUARDS, ENTRY_HOOKS, EXIT_HOOKS, UNSEEN_OUTCOME_ON_ENTRY };
-export type { HookSession };

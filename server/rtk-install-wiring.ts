@@ -89,4 +89,3 @@ function createRtkInstallWiring({
 }
 
 export { createRtkInstallWiring };
-export type { RtkInstallStatus, RtkInstallWiring, RtkInstallWiringOptions };

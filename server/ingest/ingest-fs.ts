@@ -365,4 +365,4 @@ function createFsIngest({
 }
 
 export { createFsIngest };
-export type { FsIngestOptions, WatcherModule };
+export type { FsIngestOptions };

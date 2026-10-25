@@ -9,7 +9,7 @@ interface ViewAttentionSource {
   acknowledge: () => void;
 }
 
-export type ViewGate = { fromSettings: FeatureSurfaceRule } | { subscribe: (notify: (isAvailable: boolean) => void) => void };
+type ViewGate = { fromSettings: FeatureSurfaceRule } | { subscribe: (notify: (isAvailable: boolean) => void) => void };
 
 export interface PrimaryViewDefinition<PanelElement> {
   view: string;
@@ -34,13 +34,13 @@ export interface PrimaryView<PanelElement> extends PrimaryViewDefinition<PanelEl
   el: PanelElement;
 }
 
-export interface VisibleViewState {
+interface VisibleViewState {
   isPhoneShellActive: boolean;
   activeView: string;
   phoneScreen: string | null;
 }
 
-export function isPrimaryViewVisible(view: string, state: VisibleViewState): boolean {
+function isPrimaryViewVisible(view: string, state: VisibleViewState): boolean {
   if (state.isPhoneShellActive) return state.phoneScreen === view;
   return state.activeView === view;
 }

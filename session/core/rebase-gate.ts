@@ -81,4 +81,3 @@ function decideRerereCooldownClear(
 }
 
 export { decideAutoRebase, decideRerereCooldownClear, AUTO_REBASE_STATES, SPAWN_GAP_TRIGGER };
-export type { AutoRebaseInputs };

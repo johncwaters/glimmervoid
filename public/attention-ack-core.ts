@@ -4,7 +4,7 @@ export function attentionSignature(parts: unknown) {
   return [...new Set(cleaned)].sort().join('|');
 }
 
-export function decideAttention(signature: unknown, acknowledged: unknown) {
+function decideAttention(signature: unknown, acknowledged: unknown) {
   const current = typeof signature === 'string' ? signature : '';
   const seen = typeof acknowledged === 'string' ? acknowledged : '';
   if (current === '') return { shown: false, acknowledged: '' };

@@ -4,4 +4,4 @@ function isLoopbackHostname(hostname: string): boolean {
   return LOOPBACK_HOSTS.has(hostname);
 }
 
-export { LOOPBACK_HOSTS, isLoopbackHostname };
+export { isLoopbackHostname };

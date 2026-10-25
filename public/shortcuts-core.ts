@@ -5,7 +5,7 @@ const RIGHT = String.fromCharCode(0x2192);
 const MAC_COMMAND = String.fromCharCode(0x2318);
 const MAC_OPTION = String.fromCharCode(0x2325);
 
-export type ShortcutPlatform = 'mac' | 'other';
+type ShortcutPlatform = 'mac' | 'other';
 
 type DashboardShortcutAction =
   | 'next-attention'
@@ -17,7 +17,7 @@ type DashboardShortcutAction =
   | 'resolve-or-resync'
   | 'streamer-mode';
 
-export interface ShortcutKeyEvent {
+interface ShortcutKeyEvent {
   key: string;
   code: string;
   altKey: boolean;

@@ -214,4 +214,4 @@ async function loadPricing({
 }
 
 export { loadPricing };
-export type { LoadPricingOptions, PricingResult };
+export type { PricingResult };

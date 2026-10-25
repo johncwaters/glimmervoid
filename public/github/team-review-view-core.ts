@@ -82,7 +82,7 @@ const VIEWER_REVIEW_OUTCOMES: Readonly<Record<GithubReviewState, PostedOutcome>>
   COMMENTED: { label: 'You commented', tone: 'muted', icon: 'thread' },
 };
 
-export function postedOutcome(draft: ReviewDraft): PostedOutcome | null {
+function postedOutcome(draft: ReviewDraft): PostedOutcome | null {
   const viewerReviews = (draft.githubReviews ?? []).filter((review) => review.isViewer);
   const latestViewerReview = viewerReviews.sort((left, right) => (Date.parse(right.submittedAt ?? '') || 0) - (Date.parse(left.submittedAt ?? '') || 0)).at(0);
   if (!draft.postedEvent) return latestViewerReview ? VIEWER_REVIEW_OUTCOMES[latestViewerReview.state] : null;
@@ -111,7 +111,7 @@ function queueRowException(review: ExceptionReviewFields): { text: string; icon:
   return icon ? { text: REVIEW_PRIORITY_REASON_TEXT[reason], icon } : null;
 }
 
-export function queueRowExceptionReason(review: ExceptionReviewFields): string | null {
+function queueRowExceptionReason(review: ExceptionReviewFields): string | null {
   return queueRowException(review)?.text ?? null;
 }
 
@@ -414,7 +414,7 @@ export function threadBodyOverflowsPreview(body: string, previewLines: number): 
   return wrappedLineCount > previewLines;
 }
 
-export function isReviewNeeded(draft: ReviewDraft): boolean {
+function isReviewNeeded(draft: ReviewDraft): boolean {
   if (answeredNonNitThreads(draft).length > 0) return true;
   if (hasStandingViewerApproval(draft)) return false;
   if (isAwaitingViewerAfterResolvedComments(draft)) return true;
@@ -454,7 +454,7 @@ export function viewerApprovalNotice(context: ViewerApprovalContext, age: string
   return `${decision}, so this review covers what changed after ${previousReview}.`;
 }
 
-export function githubReviewTone(state: GithubReviewState): StateTone {
+function githubReviewTone(state: GithubReviewState): StateTone {
   if (state === 'APPROVED') return 'ok';
   if (state === 'CHANGES_REQUESTED') return 'warn';
   return 'muted';
@@ -592,7 +592,7 @@ export function aboutPrParagraphs(assessment: ReviewAssessment | null | undefine
   return paragraphs;
 }
 
-export function coverageSummaryText(assessment: ReviewAssessment | null | undefined): string {
+function coverageSummaryText(assessment: ReviewAssessment | null | undefined): string {
   if (!assessment) return 'No coverage notes';
   const checks = assessment.checked.length;
   const gaps = assessment.gaps.length;

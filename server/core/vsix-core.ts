@@ -189,4 +189,4 @@ function extensionIdOf(manifest: VsixManifest): string {
   return `${manifest.publisher}.${manifest.name}`;
 }
 
-export { buildVsix, buildZip, crc32, extensionIdOf, vsixManifestXml };
+export { buildVsix, crc32, extensionIdOf };

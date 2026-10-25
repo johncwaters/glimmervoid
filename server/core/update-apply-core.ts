@@ -397,4 +397,4 @@ export {
   QUARANTINED_DIST_NAME,
   retireAtBoot,
 };
-export type { PreflightFacts, RenameOperation };
+export type { RenameOperation };

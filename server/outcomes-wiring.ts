@@ -86,4 +86,3 @@ function createOutcomesLane({
 }
 
 export { createOutcomesLane };
-export type { LoopLagHistogram };

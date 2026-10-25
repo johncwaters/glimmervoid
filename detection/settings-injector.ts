@@ -138,10 +138,6 @@ function readOperatorClaudeSettings(settingsPath: string): OperatorClaudeSetting
   })) ?? NO_OPERATOR_SETTINGS;
 }
 
-function readUserStatuslineCommand(settingsPath: string): string | null {
-  return readOperatorClaudeSettings(settingsPath).statuslineCommand;
-}
-
 function buildStatuslineCommand(
   { relayPath = RELAY_PATH, postUrl, userCommand = null }:
     { relayPath?: string; postUrl: string; userCommand?: string | null },
@@ -341,4 +337,4 @@ function sweepOrphans(baseDir: string = DEFAULT_BASE_DIR, maxAgeMs: number = 24 
 
 const safeDirSegment = safePathSegment;
 
-export { buildHookSettings, describeBuiltinHooks, writeSessionSettings, sweepOrphans, generateToken, safeDirSegment, buildStatuslineCommand, readUserStatuslineCommand, HOOK_EVENTS, WAKEUP_TOOL_MATCHER, PR_LINK_TOOL_MATCHER, DEFAULT_TIMEOUT_SEC, PLAN_HOOK_TIMEOUT_SEC, PLAN_HOLD_RELEASE_MS, DIR_MODE, FILE_MODE, RELAY_PATH, COMMAND_HOOK_RELAY_PATH, NO_CHAIN };
+export { buildHookSettings, describeBuiltinHooks, writeSessionSettings, sweepOrphans, generateToken, safeDirSegment, HOOK_EVENTS, WAKEUP_TOOL_MATCHER, PR_LINK_TOOL_MATCHER, DEFAULT_TIMEOUT_SEC, PLAN_HOOK_TIMEOUT_SEC, PLAN_HOLD_RELEASE_MS, DIR_MODE, FILE_MODE, RELAY_PATH, COMMAND_HOOK_RELAY_PATH, NO_CHAIN };

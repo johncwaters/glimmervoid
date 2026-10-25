@@ -23,7 +23,7 @@ import type { SpawnSession, WorkflowsPoller, WorkflowsPollerDependencies } from 
 
 type SpawnAction = PlannedWorkflowAction & { action: { type: 'spawn'; promptTemplate: string } };
 
-export function createWorkflowsStateIo(statePath: string, log: Pick<Console, 'warn'>) {
+function createWorkflowsStateIo(statePath: string, log: Pick<Console, 'warn'>) {
   let loaded: WorkflowsStateType | null = null;
   const store = createJsonStateStore<WorkflowsStateType>({
     name: 'workflows state', filePath: statePath,

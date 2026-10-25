@@ -429,4 +429,4 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
   };
 }
 
-export { createSessionEventWiring, persistSessionField, IDLE_COMPACTION_CONFIRM_MS };
+export { createSessionEventWiring, persistSessionField };

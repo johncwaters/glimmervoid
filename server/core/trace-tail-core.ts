@@ -140,20 +140,5 @@ function isOversizedPartialLine(
   return carryBytes > Math.max(1, Math.floor(maxPartialLineBytes));
 }
 
-export {
-  LINE_BREAK,
-  MAX_PARTIAL_LINE_BYTES,
-  MAX_REMEMBERED_SUBAGENTS,
-  MAX_REMEMBERED_TRANSCRIPTS,
-  MAX_SUBAGENT_CHUNKS_PER_STOP,
-  MAX_TRANSCRIPT_READ_BYTES,
-  TRACE_TAIL_SCAN_BYTES,
-  committedOffsetFromTraceTailOrNull,
-  completeLineBytes,
-  containmentRefusalReason,
-  isOversizedPartialLine,
-  planContiguousRead,
-  resumeOffsetFrom,
-  withCommittedOffset,
-};
+export { LINE_BREAK, MAX_PARTIAL_LINE_BYTES, MAX_REMEMBERED_SUBAGENTS, MAX_SUBAGENT_CHUNKS_PER_STOP, MAX_TRANSCRIPT_READ_BYTES, TRACE_TAIL_SCAN_BYTES, committedOffsetFromTraceTailOrNull, completeLineBytes, containmentRefusalReason, isOversizedPartialLine, planContiguousRead, resumeOffsetFrom, withCommittedOffset };
 export type { ContainmentRefusal };

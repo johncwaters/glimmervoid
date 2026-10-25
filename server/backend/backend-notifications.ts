@@ -167,4 +167,3 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
 }
 
 export { createBackendNotifications };
-export type { NotificationConfig };

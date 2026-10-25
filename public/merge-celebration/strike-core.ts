@@ -16,8 +16,8 @@ const BALL_APPROACH_SPIN_DEGREES = 2200;
 const BALL_OVERLAP_INTO_HEAD_PIN_PX = 1;
 const BALL_FOLLOW_THROUGH_PX = 120;
 const BALL_SPEED_AFTER_IMPACT_PX_PER_MS = 0.35;
-export const PIN_LAUNCH_ANGLE_MIN_DEGREES = 15;
-export const PIN_LAUNCH_ANGLE_MAX_DEGREES = 105;
+const PIN_LAUNCH_ANGLE_MIN_DEGREES = 15;
+const PIN_LAUNCH_ANGLE_MAX_DEGREES = 105;
 const PIN_LAUNCH_ANGLE_JITTER_DEGREES = 4;
 const PIN_DEPTH_SCALE_MIN_PERCENT = 65;
 const PIN_DEPTH_SCALE_MAX_PERCENT = 145;
@@ -137,11 +137,11 @@ export function strikePinStyleProperties(flight: StrikePinFlight): Array<readonl
   ];
 }
 
-export function strikeBallLayer(): number {
+function strikeBallLayer(): number {
   return layerAtDepth(BALL_ROLLING_DEPTH);
 }
 
-export function strikeRackWidthPx(): number {
+function strikeRackWidthPx(): number {
   return Math.max(...pinPositions().map(distanceFromHeadPinPx)) + PIN_WIDTH_PX;
 }
 

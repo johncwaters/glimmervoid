@@ -1,4 +1,4 @@
-export interface UiState {
+interface UiState {
   layout: string;
   activeView: string;
   phoneScreen: string | null;
@@ -8,7 +8,7 @@ export interface UiState {
 }
 
 type UiStatePatch = Partial<UiState>;
-export type UiStateSubscriber = (state: Readonly<UiState>, changedKeys: (keyof UiState)[], previousState: Readonly<UiState>) => void;
+type UiStateSubscriber = (state: Readonly<UiState>, changedKeys: (keyof UiState)[], previousState: Readonly<UiState>) => void;
 
 const INITIAL_UI_STATE: Readonly<UiState> = Object.freeze({
   layout: 'desktop',
@@ -32,7 +32,7 @@ const UI_ACTIONS = Object.freeze({
 
 type UiActionName = keyof typeof UI_ACTIONS;
 
-export function createUiStateStore(initialState?: UiStatePatch) {
+function createUiStateStore(initialState?: UiStatePatch) {
   let state: Readonly<UiState> = Object.freeze({ ...INITIAL_UI_STATE, ...initialState });
   const subscribers = new Set<UiStateSubscriber>();
 

@@ -1,4 +1,4 @@
-export function webSocketProtocolFor(pageProtocol: string | undefined) {
+function webSocketProtocolFor(pageProtocol: string | undefined) {
   if (pageProtocol === 'https:') return 'wss:';
   return 'ws:';
 }

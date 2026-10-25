@@ -6,7 +6,7 @@ const BALL_HEIGHT_THROUGH_RIM_PX = 23;
 const BALL_HEIGHT_LEAVING_NET_PX = 7;
 const BALL_HEIGHT_OUT_OF_CARD_PX = -40;
 
-export function swishBallFlight() {
+function swishBallFlight() {
   const riseMs = freeFallDurationMs(BALL_PEAK_HEIGHT_PX - BALL_LAUNCH_HEIGHT_PX);
   const fallToRimMs = freeFallDurationMs(BALL_PEAK_HEIGHT_PX - BALL_HEIGHT_THROUGH_RIM_PX);
   const speedThroughRimPxPerSecond = (GRAVITY_PX_PER_SECOND_SQUARED * fallToRimMs) / 1000;

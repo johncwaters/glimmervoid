@@ -288,4 +288,4 @@ function mapAgentLine({
   return mapped;
 }
 
-export { MAX_RAW_CHARS, isDispatchWorkdir, firstTextBlock, mapAgentLine, parseTimestamp, toolTarget };
+export { isDispatchWorkdir, firstTextBlock, mapAgentLine, parseTimestamp };

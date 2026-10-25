@@ -916,4 +916,4 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;
 
 export { createTeamReviewPoller };
-export type { DraftExpectation, DraftPatch, NotMineOutcome, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller, TeamReviewPollerDependencies };
+export type { DraftExpectation, DraftPatch, NotMineOutcome, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller };

@@ -192,5 +192,4 @@ function createLifecycle({
   return { requestShutdown, requestRestart };
 }
 
-export { awaitReaps, createLifecycle };
-export type { LifecycleOptions };
+export { createLifecycle };

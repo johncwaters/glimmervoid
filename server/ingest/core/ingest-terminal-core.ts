@@ -9,7 +9,7 @@ const MAX_SUMMARY_CHARS = RING_SUMMARY_CHARS;
 const MAX_TEXT_CHARS = 1000;
 const TRUNCATION_NOTE = 'output truncated';
 
-export interface TerminalAccumulator {
+interface TerminalAccumulator {
   sessionId: string | null;
   root: string | null;
   maxAccumulatorBytes: number;
@@ -299,17 +299,4 @@ function flushAccumulator(
   };
 }
 
-export {
-  DEFAULT_ACCUMULATOR_BYTES,
-  DEFAULT_FLUSH_MS,
-  DEFAULT_WINDOW_BYTES,
-  TRUNCATION_NOTE,
-  appendChunk,
-  cleanOutput,
-  createTerminalAccumulator,
-  flushAccumulator,
-  rebaseline,
-  segmentLines,
-  stripAnsi,
-  summarize,
-};
+export { DEFAULT_FLUSH_MS, appendChunk, createTerminalAccumulator, flushAccumulator, rebaseline, summarize };

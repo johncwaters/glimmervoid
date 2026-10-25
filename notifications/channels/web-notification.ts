@@ -1,4 +1,4 @@
-export type NotifyBroadcast = {
+type NotifyBroadcast = {
   type: string;
   session: string;
   category: string;

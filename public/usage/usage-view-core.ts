@@ -2,7 +2,7 @@ import { localDayKey, localHourMinuteText, twoUnitDurationText } from '#shared/d
 import { attentionSignature } from '../attention-ack-core.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 
-export interface UsageModelRow {
+interface UsageModelRow {
   key?: string;
   model?: string | null;
   vendor?: string;
@@ -133,7 +133,7 @@ export interface UsageSessionUsage {
   officialCostUSD?: unknown;
 }
 
-export interface HeatmapCell {
+interface HeatmapCell {
   day: string;
   week: number;
   weekday: number;
@@ -150,7 +150,7 @@ export const USAGE_CAVEAT_SHORT = 'Estimated list prices, not a bill.';
 
 export const USAGE_DISABLED_HINT = 'Enable in Settings.';
 
-export const TOKEN_LIMIT_WARN_PCT = 80;
+const TOKEN_LIMIT_WARN_PCT = 80;
 export const SESSION_ROW_LIMIT = 10;
 
 export const RANGE_OPTIONS: readonly { value: string; label: string; days: number | null }[] = Object.freeze([
@@ -233,7 +233,7 @@ export function percentOfTotal(value: unknown, total: unknown) {
   return (part / whole) * 100;
 }
 
-export function dayLabel(day: unknown) {
+function dayLabel(day: unknown) {
   const parts = DAY_KEY_RE.exec(String(day ?? ''));
   if (!parts) return String(day ?? '') || NO_VALUE;
   const month = MONTH_NAMES[Number(parts[2]) - 1];
@@ -357,7 +357,7 @@ export function limitPct(tokenLimit: UsageTokenLimit | null | undefined) {
   return ratio * 100;
 }
 
-export function projectedLimitPct(projection: UsageProjection | null | undefined, tokenLimit: UsageTokenLimit | null | undefined) {
+function projectedLimitPct(projection: UsageProjection | null | undefined, tokenLimit: UsageTokenLimit | null | undefined) {
   const max = limitMax(tokenLimit);
   const projected = numberOr(projection?.projectedTokens, null);
   if (max === null || projected === null) return null;
@@ -576,7 +576,7 @@ export function cacheSavingsTile(savings: UsageSavings | null | undefined) {
   };
 }
 
-export const BUDGET_ATTENTION_PCT = 90;
+const BUDGET_ATTENTION_PCT = 90;
 
 export function budgetRows(report: UsageReport | null | undefined): UsageBudgetRow[] {
   const rows = report?.budget?.rows;
@@ -617,7 +617,7 @@ function parseDayKey(day: unknown) {
   return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), 12);
 }
 
-export function weekStartKey(day: unknown) {
+function weekStartKey(day: unknown) {
   const date = parseDayKey(day);
   if (!date) return '';
   const dayOfWeek = date.getDay();
@@ -724,11 +724,11 @@ function rollupByPeriod(daily: unknown, keyOf: (day: unknown) => string): UsageW
   return Array.from(buckets.values()).map(serializePeriodBucket);
 }
 
-export function weeklyRows(daily: unknown) {
+function weeklyRows(daily: unknown) {
   return rollupByPeriod(daily, weekStartKey);
 }
 
-export function monthlyRows(daily: unknown) {
+function monthlyRows(daily: unknown) {
   return rollupByPeriod(daily, monthKey);
 }
 
@@ -762,11 +762,11 @@ export function historyNote(rows: unknown) {
   return 'older days from local history';
 }
 
-export const HEATMAP_WEEKS = 16;
+const HEATMAP_WEEKS = 16;
 const HEATMAP_TONE_FRACTIONS = Object.freeze([0.05, 0.25, 0.5, 0.75]);
 export const HEATMAP_DAY_LABELS = Object.freeze(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
 
-export function heatmapTone(tokens: unknown, max: unknown) {
+function heatmapTone(tokens: unknown, max: unknown) {
   const value = numberOr(tokens, 0);
   const peak = numberOr(max, 0);
   if (value <= 0 || peak <= 0) return 0;
@@ -901,14 +901,14 @@ export function hasMultiVendorUsage(totals: UsageTotals | null | undefined) {
   return vendors.length === 1 && vendors[0] !== 'claude';
 }
 
-export const CLAUDE_ONLY_HINT = 'Claude only';
+const CLAUDE_ONLY_HINT = 'Claude only';
 
 export function claudeOnlyHint(totals: UsageTotals | null | undefined) {
   if (!hasMultiVendorUsage(totals)) return '';
   return CLAUDE_ONLY_HINT;
 }
 
-export const PLAN_LIMIT_STALE_MS = 60 * 60 * 1000;
+const PLAN_LIMIT_STALE_MS = 60 * 60 * 1000;
 
 interface PlanWindow {
   pct?: unknown;
@@ -960,7 +960,7 @@ export function hasOfficialPlanLimits(planLimits: PlanLimits | null | undefined)
   return PLAN_WINDOWS.some((window) => planWindowOf(planLimits, window.key) !== null);
 }
 
-export function officialFiveHourPct(planLimits: PlanLimits | null | undefined) {
+function officialFiveHourPct(planLimits: PlanLimits | null | undefined) {
   return planWindowOf(planLimits, 'fiveHour')?.pct ?? null;
 }
 
@@ -1013,7 +1013,7 @@ export function planLimitAgeText(ts: unknown, now = Date.now()) {
   return `${minutes}m old`;
 }
 
-export function isPlanLimitStale(ts: unknown, now = Date.now()) {
+function isPlanLimitStale(ts: unknown, now = Date.now()) {
   const stamped = numberOr(ts, null);
   if (stamped === null || stamped <= 0) return true;
   return now - stamped > PLAN_LIMIT_STALE_MS;
@@ -1141,7 +1141,7 @@ function sortValueOf(row: UsageWireRow, key: string, labelOf: (row: UsageWireRow
   return labelOf(row);
 }
 
-export function sortUsageRows(
+function sortUsageRows(
   rows: unknown,
   key: string,
   dir: string,
@@ -1170,7 +1170,7 @@ export interface SortState {
   dir: 'asc' | 'desc';
 }
 
-export function defaultSortDir(key: string): 'asc' | 'desc' {
+function defaultSortDir(key: string): 'asc' | 'desc' {
   return ASC_BY_DEFAULT_KEYS.has(key) ? 'asc' : 'desc';
 }
 

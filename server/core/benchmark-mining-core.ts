@@ -178,5 +178,4 @@ async function mineCandidates(dependencies: MiningDependencies): Promise<{ ok: t
   return { ok: true, outcomes };
 }
 
-export { baseTipAt, mineCandidates, mostCommonCommit, reviewedRangeFrom };
-export type { MiningDependencies };
+export { mineCandidates };

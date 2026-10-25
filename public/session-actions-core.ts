@@ -16,7 +16,7 @@ export function decideSessionOpenAction(
   return null;
 }
 
-export interface CompletionWatchInput {
+interface CompletionWatchInput {
   previousState: string | null | undefined;
   nextState: string | null | undefined;
   isPhoneLayout: boolean;

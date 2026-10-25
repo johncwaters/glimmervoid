@@ -102,7 +102,7 @@ export function parseMyPrsStatus(message: unknown): MyPrsStatusType | null {
 interface MyPrStackRow { pr: MyPr; parentKey: string | null; depth: number }
 interface MyPrStack { root: MyPr; rows: MyPrStackRow[] }
 
-export function groupStackedMyPrs(prs: readonly MyPr[]): MyPrStack[] {
+function groupStackedMyPrs(prs: readonly MyPr[]): MyPrStack[] {
   const stackParentCandidates = prs.filter((pr) => pr.state === 'OPEN' && !pr.isCrossRepository);
   const prByHeadBranch = new Map(stackParentCandidates.map((pr) => [JSON.stringify([pr.repo.toLowerCase(), pr.headRefName]), pr]));
   const childrenByParentKey = new Map<string, MyPr[]>();
@@ -324,12 +324,6 @@ export function liveSessionsByPrKey(sessions: Iterable<LiveSessionLinks>): Map<s
     }
   }
   return sessionsByPrKey;
-}
-
-export function chooseSelectedKey(sections: readonly MyPrSection[], previousKey: string | null): string | null {
-  const prs = sections.flatMap((section) => section.prs);
-  if (previousKey && prs.some((pr) => pr.key === previousKey)) return previousKey;
-  return prs[0]?.key ?? null;
 }
 
 export function newlyMergedPrs(previous: readonly MyPr[] | null, next: readonly MyPr[]): MyPr[] {

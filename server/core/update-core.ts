@@ -212,4 +212,4 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
 }
 
 export type { InstallFlavor };
-export { NPM_GLOBAL_COMMAND, CLONE_COMMAND, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseTagVersion, decideInstallFlavor, buildUpdateCommand, buildReleaseUrl, compareSemver, parseRegistryLatest, parseRegistryDeprecation, decideUpdateStatus, isCheckFresh };
+export { normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseRegistryLatest, parseRegistryDeprecation, decideUpdateStatus, isCheckFresh };

@@ -353,16 +353,4 @@ function createVisionsSetup({
   return { maybeApply };
 }
 
-export {
-  RELAY_PATH,
-  createVisionsSetup,
-  editorExtensions,
-  installExtensions,
-  packVsix,
-  relayInvocationOptions,
-  resolveRelayInvocation,
-  resolvedEditorPaths,
-  unwireEverything,
-  wireEverything,
-};
-export type { ExtensionReport, WireReport };
+export { RELAY_PATH, createVisionsSetup, editorExtensions, packVsix, relayInvocationOptions, resolveRelayInvocation, resolvedEditorPaths, unwireEverything, wireEverything };

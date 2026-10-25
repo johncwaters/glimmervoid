@@ -1256,4 +1256,4 @@ function createSessionWorktreeLifecycle({
 }
 
 export { createSessionWorktreeLifecycle };
-export type { IntegrationSyncResult, RebaseResult, WorkspaceArgs, GitWorkspace, MergeResult, Workspace, WorktreeSignature };
+export type { IntegrationSyncResult, GitWorkspace, Workspace, WorktreeSignature };

@@ -1,6 +1,6 @@
 export const DEFAULT_AGENT_ID = 'claude-code';
 
-export const BUILTIN_AGENT_BADGE_LABELS: Readonly<Record<string, string>> = Object.freeze({
+const BUILTIN_AGENT_BADGE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   'claude-code': '',
   codex: 'Codex',
   grok: 'Grok',
@@ -32,7 +32,7 @@ export function decideAgentPicker(agents: unknown, { defaultId = DEFAULT_AGENT_I
   return { show: options.length > 1, options, selectedId };
 }
 
-export const NO_AGENT_GUIDANCE = 'No supported agent CLI was found on the PATH Glimmervoid runs with. Install Claude Code (or another supported agent), make sure its command is on that PATH, then run glimmervoid doctor to confirm.';
+const NO_AGENT_GUIDANCE = 'No supported agent CLI was found on the PATH Glimmervoid runs with. Install Claude Code (or another supported agent), make sure its command is on that PATH, then run glimmervoid doctor to confirm.';
 
 export function decideAgentAvailability(listing: unknown) {
   const reply = typeof listing === 'object' && listing !== null ? (listing as { agents?: unknown; error?: unknown }) : null;

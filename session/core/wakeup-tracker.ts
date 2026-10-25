@@ -82,13 +82,5 @@ function extractCronTaskId(payload: unknown): string | null {
   return null;
 }
 
-export {
-  addWakeup,
-  removeWakeup,
-  pruneWakeups,
-  nextWakeupExpiry,
-  earliestWakeup,
-  extractCronTaskId,
-  MAX_WAKEUPS,
-};
+export { addWakeup, removeWakeup, pruneWakeups, nextWakeupExpiry, earliestWakeup, extractCronTaskId };
 export type { WakeupMap };

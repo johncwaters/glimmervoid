@@ -117,4 +117,4 @@ function resumePromptFor(project: AutoResumeProject | undefined): string | null 
   return project?.wasWorking === true ? AUTO_CONTINUE_PROMPT : null;
 }
 
-export { pickAutoResume, resolveResumeTarget, resumePromptFor, shouldAdoptReportedResumeId, AUTO_CONTINUE_PROMPT, AUTO_RESUME_IDLE_CUTOFF_MS, RESUME_ID_RE };
+export { pickAutoResume, resolveResumeTarget, resumePromptFor, shouldAdoptReportedResumeId, AUTO_CONTINUE_PROMPT, RESUME_ID_RE };

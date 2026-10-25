@@ -19,7 +19,7 @@ export type PlanChangedMessage = PlanChangedPush;
 export type PlanActionKind = Extract<PlanDecisionKind, 'approve' | 'revise' | 'terminal'>;
 export type PlanMode = 'read' | 'changes' | 'edit';
 
-export interface PlanViewInput {
+interface PlanViewInput {
   state: PlanReviewState;
   selectedAgentId: string | null;
   selectedRevision: number | null;

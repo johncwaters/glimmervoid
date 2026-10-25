@@ -361,10 +361,4 @@ function createIngestLane({
   };
 }
 
-export {
-  BATCH_INTERVAL_MS,
-  MAX_EVENTS_PER_FRAME,
-  SNAPSHOT_EVENT_LIMIT,
-  createIngestLane,
-};
-export type { IngestLaneOptions };
+export { createIngestLane };

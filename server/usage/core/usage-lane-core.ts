@@ -29,7 +29,7 @@ interface LaneUsageEntry {
   costUSD?: number | null;
 }
 
-export interface LaneRollupRow {
+interface LaneRollupRow {
   lane: string;
   tokens: number;
   costUSD: number;
@@ -149,16 +149,4 @@ function compareEntries(a: LaneLedgerEntry, b: LaneLedgerEntry): number {
   return laneKey(a.vendor, a.sessionId).localeCompare(laneKey(b.vendor, b.sessionId));
 }
 
-export {
-  FIVE_HOUR_WINDOW_MS,
-  INTERACTIVE_LANE,
-  OTHER_LANE,
-  SEVEN_DAY_WINDOW_MS,
-  laneKey,
-  laneMapFromLedger,
-  laneRollup,
-  laneRollupSince,
-  normalizeLedger,
-  planWindowStartsMs,
-  pruneLedger,
-};
+export { FIVE_HOUR_WINDOW_MS, INTERACTIVE_LANE, SEVEN_DAY_WINDOW_MS, laneKey, laneMapFromLedger, laneRollup, laneRollupSince, planWindowStartsMs, pruneLedger };

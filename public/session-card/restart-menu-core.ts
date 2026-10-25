@@ -1,9 +1,9 @@
 import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, STATES } from '#shared/states.ts';
 
-export type RestartChoice = 'restart' | 'restart-fresh' | 'restart-into';
+type RestartChoice = 'restart' | 'restart-fresh' | 'restart-into';
 
-export function restartConfirmation(action: RestartChoice, state: string) {
+function restartConfirmation(action: RestartChoice, state: string) {
   if (state !== STATES.RUNNING) return null;
   if (action === 'restart-fresh') {
     return {
@@ -36,7 +36,7 @@ function restartMessage(action: RestartChoice, state: string, sessionId: string,
   return { type, id: sessionId };
 }
 
-export interface RestartChoiceDeps {
+interface RestartChoiceDeps {
   readState: () => string;
   send: (message: ReturnType<typeof restartMessage>) => void;
   confirm: (confirmation: NonNullable<ReturnType<typeof restartConfirmation>> & { onConfirm: () => void }) => void;

@@ -9,7 +9,7 @@ interface EditorCandidate extends EditorIdentity {
   macAppBundleName?: string;
 }
 
-export interface EditorProbe {
+interface EditorProbe {
   platform: NodeJS.Platform;
   exists: (candidate: string) => boolean;
 }
@@ -154,4 +154,4 @@ function isExtensionInstalled(stdout: unknown, extensionId: string): boolean {
   return parseInstalledExtensions(stdout).some((line) => line.toLowerCase() === wanted);
 }
 
-export { decideEditorTargets, isExtensionInstalled, parseInstalledExtensions, resolveEditorPathsFor, visionsExtensionFiles };
+export { decideEditorTargets, isExtensionInstalled, resolveEditorPathsFor, visionsExtensionFiles };

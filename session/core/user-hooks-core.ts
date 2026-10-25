@@ -265,4 +265,4 @@ export {
   hooksForProject,
   appendUserHooks,
 };
-export type { HookEventEntry, HookInput, HooksBlock, UserHook };
+export type { UserHook };

@@ -28,5 +28,5 @@ function pushDecision(
   return "appended";
 }
 
-export { pushDecision, DEFAULT_DECISION_LOG_CAP };
+export { pushDecision };
 export type { DecisionEntry };

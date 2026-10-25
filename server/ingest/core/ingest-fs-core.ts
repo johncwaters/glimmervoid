@@ -336,24 +336,4 @@ function decideFsEvents(batch: FsBatch, { root = null, now = 0 }: { root?: strin
   }];
 }
 
-export {
-  DEFAULT_BATCH_MS,
-  IGNORED_DIR_NAMES,
-  MAX_FILES_PER_BATCH,
-  MAX_TRACKED_FILES,
-  MAX_UNTRACKED_KEYS,
-  TRUNCATED_SUFFIX,
-  batchSize,
-  buildIgnorePatterns,
-  createBatch,
-  daemonWriteRules,
-  decideFsEvents,
-  dedupeRoots,
-  deriveSessionRoots,
-  isActiveSessionState,
-  isIgnoredChange,
-  mergeChange,
-  normalizeRoots,
-  recordChange,
-  relativeWithin,
-};
+export { DEFAULT_BATCH_MS, batchSize, buildIgnorePatterns, createBatch, daemonWriteRules, decideFsEvents, dedupeRoots, deriveSessionRoots, isActiveSessionState, isIgnoredChange, normalizeRoots, recordChange, relativeWithin };

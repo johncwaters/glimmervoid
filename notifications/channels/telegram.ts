@@ -42,7 +42,7 @@ function formatTelegramText(sessionName: string, message: string): string {
   return message || `${sessionName} needs attention`;
 }
 
-export interface TelegramChannelDeps {
+interface TelegramChannelDeps {
   getConfig: () => { telegramNotifications?: boolean; telegram?: { botToken?: string; chatId?: string } | null } | null;
 
   getConnectionCount: () => number;
@@ -96,8 +96,4 @@ function createTelegramChannel({
   };
 }
 
-export {
-  createTelegramChannel,
-  decideTelegramNotification,
-  formatTelegramText,
-};
+export { createTelegramChannel, decideTelegramNotification };

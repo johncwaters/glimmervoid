@@ -4,7 +4,7 @@ import { UnseenOutcome } from '#shared/contracts/session.ts';
 import type { SessionStateSource } from '../session-actions-core.ts';
 import { promptKindNeedWords } from '../session-card/face-core.ts';
 
-export type SessionAttentionTier = 'now' | 'later' | 'resting';
+type SessionAttentionTier = 'now' | 'later' | 'resting';
 interface SessionAttentionRow {
   state?: unknown;
   unseenOutcome?: unknown;
@@ -209,7 +209,7 @@ const ATTENTION_RANK_PRESENT = 1;
 
 type AttentionLevel = string | boolean | null | undefined;
 
-export function attentionRank(level: AttentionLevel) {
+function attentionRank(level: AttentionLevel) {
   if (!level) return 0;
   if (typeof level === 'string') return ATTENTION_RANK_BY_LEVEL.get(level) || ATTENTION_RANK_PRESENT;
   return ATTENTION_RANK_PRESENT;

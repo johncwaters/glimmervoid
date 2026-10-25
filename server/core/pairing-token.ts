@@ -103,13 +103,4 @@ function deviceNameFromUserAgent(ua: unknown): string {
   return 'unnamed device';
 }
 
-export {
-  DEFAULT_TOKEN_TTL_MS,
-  DEFAULT_DEVICE_MAX_AGE_MS,
-  hashSecret,
-  mintPairingToken,
-  decideRedemption,
-  mintDeviceCredential,
-  decideDeviceAuth,
-  deviceNameFromUserAgent,
-};
+export { DEFAULT_DEVICE_MAX_AGE_MS, hashSecret, mintPairingToken, decideRedemption, mintDeviceCredential, decideDeviceAuth, deviceNameFromUserAgent };

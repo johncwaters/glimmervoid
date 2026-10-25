@@ -111,5 +111,5 @@ async function reapTeamReviewProcesses({ ownedDirectories, reviewRoots, scope, l
   }
 }
 
-export { listTeamReviewProcesses, reapTeamReviewProcesses };
+export { reapTeamReviewProcesses };
 export type { TeamReviewReapOptions };

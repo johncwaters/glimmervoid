@@ -290,15 +290,4 @@ function createVisionsDispatcher({
   };
 }
 
-export {
-  PROMPT_FILE,
-  RESULT_FILE,
-  VISIONS_BOOTSTRAP_PROMPT,
-  VISIONS_DENY_TOOLS,
-  createVisionsDispatcher,
-  createVisionsSpawn,
-  makeVisionsWorkDir,
-  readCommentsResult,
-  visionsPermissions,
-};
-export type { VisionsSpawn };
+export { PROMPT_FILE, RESULT_FILE, VISIONS_BOOTSTRAP_PROMPT, VISIONS_DENY_TOOLS, createVisionsDispatcher, createVisionsSpawn, makeVisionsWorkDir };

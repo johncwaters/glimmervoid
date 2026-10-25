@@ -1,7 +1,7 @@
 const READY_STATE_CONNECTING = 0;
 const READY_STATE_OPEN = 1;
 
-export const CONNECTING_WEDGE_MS = 10000;
+const CONNECTING_WEDGE_MS = 10000;
 
 interface LivenessInput {
   hasSocket: boolean;

@@ -175,18 +175,4 @@ function pickStaleByMtime<TKey>(
   return entries.slice(0, entries.length - bound).map(([key]) => key);
 }
 
-export {
-  HEAD_SAMPLE_BYTES,
-  LISTING_SETTLE_MS,
-  MAX_CATCH_UP_BYTES,
-  applyRead,
-  canTrustCachedListing,
-  createTailState,
-  fileIdentity,
-  headChanged,
-  headSample,
-  isActiveMtime,
-  isTailCurrent,
-  pickStaleByMtime,
-  planRead,
-};
+export { HEAD_SAMPLE_BYTES, MAX_CATCH_UP_BYTES, applyRead, canTrustCachedListing, createTailState, headChanged, headSample, isActiveMtime, isTailCurrent, pickStaleByMtime, planRead };

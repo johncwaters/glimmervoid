@@ -5,7 +5,7 @@ interface DiffLine {
   newLineNumber: number | null;
 }
 
-export function parseHunkHeader(header: string): { oldStart: number; newStart: number } | null {
+function parseHunkHeader(header: string): { oldStart: number; newStart: number } | null {
   const match = /^@@+ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(header);
   if (!match) return null;
   const oldStart = Number(match[1]);

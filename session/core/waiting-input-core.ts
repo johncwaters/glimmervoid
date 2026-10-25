@@ -40,4 +40,3 @@ function decideWaitingInput({ state, hasHookAwaitingInput, pendingPromptKind, is
 }
 
 export { decideWaitingInput, isOperatorKeystroke };
-export type { WaitingInputContext };

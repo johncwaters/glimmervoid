@@ -10,7 +10,7 @@ import { HEX_SHA_RE } from '../../shared/git-text.ts';
 export const CO_CHANGE_LOG_ARGS = Object.freeze([
   'log', '--no-merges', '--name-only', '--format=%H%x1f%s', '-n', '2000',
 ]);
-export const CO_CHANGE_MAX_FILES_PER_COMMIT = 40;
+const CO_CHANGE_MAX_FILES_PER_COMMIT = 40;
 
 export type CommitFiles = { subject: string; paths: string[] };
 

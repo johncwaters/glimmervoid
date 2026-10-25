@@ -287,4 +287,3 @@ async function runPostTurnChecks({
 }
 
 export { resolveCheckConfig, runPostTurnChecks };
-export type { PostTurnDependencies };

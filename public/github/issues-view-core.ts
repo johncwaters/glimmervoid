@@ -28,7 +28,7 @@ export function issuesPlaceholder(status: Pick<IssuesStatus, 'configured' | 'rea
   return 'No open issues.';
 }
 
-export function matchesIssueScope(issue: IssueRow, scope: IssueScope): boolean {
+function matchesIssueScope(issue: IssueRow, scope: IssueScope): boolean {
   return scope === 'all' || issue.sources.includes(scope);
 }
 

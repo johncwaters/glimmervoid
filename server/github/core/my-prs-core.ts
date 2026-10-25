@@ -204,7 +204,7 @@ export function keepMergeableExcludeLines(): string {
   return `\n${GUARDRAILS_PLACEHOLDER_NAMES.map((placeholderName) => `/${placeholderName}`).join('\n')}\n`;
 }
 
-export function keepMergeablePushUrl(repo: string): string | null {
+function keepMergeablePushUrl(repo: string): string | null {
   return REPO_SLUG_RE.test(repo) ? `https://github.com/${repo}.git` : null;
 }
 
@@ -295,7 +295,7 @@ export function hasUnresolvedThreads(node: MyPrSearchNode): boolean {
   return node.reviewThreads.pageInfo.hasNextPage || node.reviewThreads.nodes.some((thread) => !thread.isResolved);
 }
 
-export function threadExcerpt(bodyText: string): string {
+function threadExcerpt(bodyText: string): string {
   const characters = [...bodyText.replace(/\s+/g, ' ').trim()];
   if (characters.length <= THREAD_EXCERPT_MAX_CHARACTERS) return characters.join('');
   const truncated = characters.slice(0, THREAD_EXCERPT_MAX_CHARACTERS).join('');
@@ -303,7 +303,7 @@ export function threadExcerpt(bodyText: string): string {
   return `${(lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated).trimEnd()}...`;
 }
 
-export function toMyPrThreads(threadNodes: readonly MyPrThreadNode[], pullRequestUrl: string): MyPrThread[] {
+function toMyPrThreads(threadNodes: readonly MyPrThreadNode[], pullRequestUrl: string): MyPrThread[] {
   return threadNodes.flatMap((thread) => {
     if (thread.isResolved) return [];
     const firstComment = thread.firstComment.nodes[0];

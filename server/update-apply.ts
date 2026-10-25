@@ -583,9 +583,4 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
 }
 
 export { createUpdateApplyLane };
-export type {
-  UpdateApplyDependencies,
-  UpdateApplyOutcome,
-  UpdateFileSystem,
-  UpdateGitWorkspace,
-};
+export type { UpdateApplyOutcome };

@@ -12,14 +12,14 @@ const DEFAULT_POLL_MS = SOURCE_DEFAULTS.git.pollMs;
 
 const CLEAN_SIGNATURE = 'clean';
 
-export interface GitStatusCounts {
+interface GitStatusCounts {
   staged: number;
   unstaged: number;
   untracked: number;
   conflicted: number;
 }
 
-export interface GitStatus {
+interface GitStatus {
   branch: string | null;
   detached: boolean;
   unborn: boolean;
@@ -331,22 +331,4 @@ function classifyGitStatusFailure(error: unknown): 'missing-root' | 'check-root'
   return 'transient';
 }
 
-export {
-  CLEAN_SIGNATURE,
-  classifyGitStatusFailure,
-  DEFAULT_DEBOUNCE_MS,
-  DEFAULT_POLL_MS,
-  LOG_ARGS,
-  LOG_FIELD_SEPARATOR,
-  REV_PARSE_ARGS,
-  STATUS_ARGS,
-  createRepoState,
-  decideGitEvents,
-  deriveWatchDirs,
-  isNoiseGitFile,
-  parseCommitLine,
-  parsePorcelainStatus,
-  parseRevParse,
-  shouldReadCommit,
-  signatureOf,
-};
+export { classifyGitStatusFailure, DEFAULT_DEBOUNCE_MS, DEFAULT_POLL_MS, LOG_ARGS, LOG_FIELD_SEPARATOR, REV_PARSE_ARGS, STATUS_ARGS, createRepoState, decideGitEvents, deriveWatchDirs, isNoiseGitFile, parseCommitLine, parsePorcelainStatus, parseRevParse, shouldReadCommit };

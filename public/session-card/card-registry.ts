@@ -8,7 +8,7 @@ import type { createPlanFace } from '../plan/plan-face.ts';
 import type { SessionCardFace } from './face-core.ts';
 import type { TerminalGrid } from './grid-core.ts';
 
-export type SessionCardElement = HTMLDivElement & { _cardHostClass?: string };
+type SessionCardElement = HTMLDivElement & { _cardHostClass?: string };
 
 type PlanFaceController = ReturnType<typeof createPlanFace>;
 

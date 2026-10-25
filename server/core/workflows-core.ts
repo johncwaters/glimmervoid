@@ -13,7 +13,7 @@ export const WORKFLOWS_STATE_FILENAME = 'workflows-state.json';
 export const WORKFLOWS_POLL_INTERVAL_MINUTES = 5;
 export { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS };
 export const MAX_DEFERRED_WORKFLOW_SPAWNS = 20;
-export const WORKFLOW_SEARCH_LAG_GRACE_MS = 10 * 60 * 1000;
+const WORKFLOW_SEARCH_LAG_GRACE_MS = 10 * 60 * 1000;
 export const WORKFLOW_NOTIFY_CATEGORY = 'workflow';
 export const WORKFLOW_PROMPT_FILENAME = 'workflow-prompt.md';
 export const WORKFLOW_BOOTSTRAP_PROMPT = `Read ${WORKFLOW_PROMPT_FILENAME} and follow all instructions in that file`;
@@ -29,7 +29,7 @@ const TRIGGER_PHRASES: Readonly<Record<WorkflowTrigger, string>> = Object.freeze
   merged: 'merged',
 });
 
-export interface WorkflowEvent {
+interface WorkflowEvent {
   trigger: WorkflowTrigger;
   pr: WorkflowPr;
   addedReviewRequests: string[];
@@ -252,7 +252,7 @@ export function workflowSessionName({ rule, event }: Pick<PlannedWorkflowAction,
   return `Workflow ${rule.name} ${workflowPrKey(event.pr)}`;
 }
 
-export function fillPromptTemplate(template: string, event: WorkflowEvent): string {
+function fillPromptTemplate(template: string, event: WorkflowEvent): string {
   const values: Readonly<Record<string, string>> = {
     repo: event.pr.repo,
     number: String(event.pr.number),

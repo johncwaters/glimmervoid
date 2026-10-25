@@ -1,5 +1,5 @@
 export const ROYAL_FLUSH_RANKS = ['10', 'J', 'Q', 'K', 'A'];
-export const FLIP_DURATION_MS = 160;
+const FLIP_DURATION_MS = 160;
 const CARD_SPACING_PX = 19;
 const CARD_TILT_STEP_DEGREES = 5;
 const CARD_RESTING_BOTTOM_PX = 9;

@@ -1,6 +1,6 @@
 const CLIPBOARD_ACTION = 'clipboard';
 
-export const UPLOAD_ACTION = 'upload';
+const UPLOAD_ACTION = 'upload';
 
 const ARROW_PAD_STEP_PX = 24;
 

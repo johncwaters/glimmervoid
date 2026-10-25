@@ -1,5 +1,5 @@
-export const BOOT_STAGGER_MIN_MS = 30_000;
-export const BOOT_STAGGER_MAX_MS = 5 * 60_000;
+const BOOT_STAGGER_MIN_MS = 30_000;
+const BOOT_STAGGER_MAX_MS = 5 * 60_000;
 
 export function bootStaggerDelayMs(uptimeMs: number, random: number): number {
   const clampedRandom = Math.min(Math.max(Number.isFinite(random) ? random : 0, 0), 1);

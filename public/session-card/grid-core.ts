@@ -14,7 +14,7 @@ export interface TerminalGrid {
   rows: number;
 }
 
-export interface GridDecisionInput {
+interface GridDecisionInput {
   authoritative: TerminalGrid | null;
   applied: TerminalGrid | null;
   proposal: TerminalGrid | null;

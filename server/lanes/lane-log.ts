@@ -72,4 +72,4 @@ function createLaneLog({ prefix = '', logger = console, debugFlag = false }: Lan
 }
 
 export { createLaneLog };
-export type { LaneLog, LaneLogger, LaneLogOptions };
+export type { LaneLog, LaneLogger };

@@ -1,7 +1,7 @@
 import type { ControlBroadcast } from './backend/backend-websockets.ts';
 import { unrefTimer } from '../shared/timer-deps.ts';
 
-export const TRACE_CHANGE_COALESCE_MS = 250;
+const TRACE_CHANGE_COALESCE_MS = 250;
 
 interface TraceAppendSource {
   on(event: 'trace-appended', listener: (payload: { id: string }) => void): unknown;

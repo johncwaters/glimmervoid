@@ -355,10 +355,5 @@ function agentCommandHelpLines(): string[] {
   return Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => `  ${usage.padEnd(Math.max(USAGE_COLUMN_WIDTH, usage.length + 1))}${summary}`);
 }
 
-export {
-  decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding,
-  describeUnpushedCloseRefusal,
-  describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviews, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
-  REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines,
-};
+export { decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviews, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines };
 export type { AgentRequestOf, ChildEndCause, ChildWorktree };

@@ -1,4 +1,4 @@
-export const BUNDLED_MONO_FONT_NAME = 'CommitMono';
+const BUNDLED_MONO_FONT_NAME = 'CommitMono';
 export const BUNDLED_MONO_FONT_FACES: readonly string[] = [400, 700].map((fontWeight) => `${fontWeight} 14px ${BUNDLED_MONO_FONT_NAME}`);
 const LAST_RESORT_FONT_FAMILY = 'monospace';
 
@@ -12,9 +12,9 @@ export function terminalFontFamily(cssFontStack: string, isBundledFontLoaded: bo
   return usableFamilies.length > 0 ? usableFamilies.join(', ') : LAST_RESORT_FONT_FAMILY;
 }
 
-export type MonoFontSet = { load(face: string): Promise<unknown> };
+type MonoFontSet = { load(face: string): Promise<unknown> };
 
-export type FontRefreshableTerminalEntry = {
+type FontRefreshableTerminalEntry = {
   term?: { options: { fontFamily?: string } } | null;
   _syncGrid?: () => void;
 };

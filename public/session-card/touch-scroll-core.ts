@@ -1,17 +1,17 @@
 
-export const TOUCH_SCROLL_THRESHOLD_PX = 10;
+const TOUCH_SCROLL_THRESHOLD_PX = 10;
 
 const VERTICAL_DOMINANCE = 1.2;
 
 export const MAX_WHEEL_ROWS_PER_STEP = 8;
 
-export const SCROLL_FRICTION_PX_PER_MS2 = 0.005;
+const SCROLL_FRICTION_PX_PER_MS2 = 0.005;
 
-export const VELOCITY_SAMPLE_LIMIT = 4;
+const VELOCITY_SAMPLE_LIMIT = 4;
 
-export const MIN_FLICK_VELOCITY_PX_PER_MS = 0.08;
+const MIN_FLICK_VELOCITY_PX_PER_MS = 0.08;
 
-export const MAX_FLICK_VELOCITY_PX_PER_MS = 5;
+const MAX_FLICK_VELOCITY_PX_PER_MS = 5;
 
 export function isScrollGesture(deltaXPx: number, deltaYPx: number) {
   const vertical = Math.abs(deltaYPx);

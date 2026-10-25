@@ -258,4 +258,4 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
 }
 
 export type WorkflowsPoller = ReturnType<typeof createWorkflowsPoller>;
-export type { SpawnPlannedAction, SpawnSession, WorkflowsPollerDependencies };
+export type { SpawnSession, WorkflowsPollerDependencies };

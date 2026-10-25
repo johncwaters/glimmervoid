@@ -115,5 +115,5 @@ function runGh(args: readonly string[], options: RunCommandOptions = {}): Promis
   return runCommand('gh', args, options);
 }
 
-export { DEFAULT_COMMAND_TIMEOUT_MS, gitCommandFailure, runCommand, runGh, runGit };
+export { gitCommandFailure, runCommand, runGh, runGit };
 export type { CommandResult, ExecFileFn, ExecFileOptions, RunCommandOptions, RunGitOptions };

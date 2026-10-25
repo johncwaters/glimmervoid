@@ -330,5 +330,5 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   };
 }
 
-export { createSessionHookLifecycle, MAX_PROJECT_CONFIG_DEPTH };
+export { createSessionHookLifecycle };
 export type { HookRouterPort };

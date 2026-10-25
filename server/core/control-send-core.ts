@@ -48,10 +48,4 @@ function decideControlSend({
   return { action: 'send', reason: null };
 }
 
-export {
-  classifyControlMessage,
-  decideControlSend,
-  REFRESHABLE_TYPES,
-  DEFAULT_HIGH_WATER_MARK,
-  DEFAULT_HARD_CEILING,
-};
+export { decideControlSend, REFRESHABLE_TYPES };

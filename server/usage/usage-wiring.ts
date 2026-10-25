@@ -752,5 +752,5 @@ function createUsageWiring({
   };
 }
 
-export { DEFAULT_USAGE_CONFIG, RTK_SAVINGS_TTL_MS, budgetAlertText, createUsageWiring, resolveUsageConfig };
+export { DEFAULT_USAGE_CONFIG, budgetAlertText, createUsageWiring, resolveUsageConfig };
 export type { UsageWiringOptions };

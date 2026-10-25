@@ -13,7 +13,7 @@ export const DISCARD_TITLE = 'Discard changes';
 export const DISCARD_TEXT = 'Close the editor and lose the unsaved changes?';
 export const SHORTCUT_HINT = 'Esc cancels. Ctrl+Enter saves.';
 
-export const FILTER_MIN_COUNT = 4;
+const FILTER_MIN_COUNT = 4;
 export const HOOKS_APPLY_NOTE = 'A change reaches a session at its next start or restart. Claude Code sessions only; Codex and Grok sessions do not read this file.';
 export const BUILTIN_TITLE = "Glimmervoid's own hooks";
 export const BUILTIN_HINT = 'Always present, read-only. Status detection depends on them.';
@@ -22,7 +22,7 @@ export const NEW_HOOK_TITLE = 'New hook';
 export const EDIT_HOOK_TITLE = 'Edit hook';
 export const EDITOR_HINT = 'Saved to config.json.';
 export const ALL_PROJECTS_LABEL = 'All projects';
-export const NO_MATCHER_TEXT = 'This event takes no matcher.';
+const NO_MATCHER_TEXT = 'This event takes no matcher.';
 export const DEFAULT_TIMEOUT_TEXT = "Blank uses Claude Code's default for the event.";
 
 export type HookRecord = {

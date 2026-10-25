@@ -88,4 +88,3 @@ function createHeartbeat({
 }
 
 export { createHeartbeat };
-export type { HeartbeatServer, HeartbeatSocket };

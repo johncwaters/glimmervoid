@@ -1,4 +1,4 @@
-export const TOOL_DETAIL_MAX_CHARS = 160;
+const TOOL_DETAIL_MAX_CHARS = 160;
 
 const DETAIL_FIELD_BY_TOOL: Readonly<Record<string, string>> = Object.freeze({
   Bash: 'command',

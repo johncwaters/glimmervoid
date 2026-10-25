@@ -21,7 +21,7 @@ interface TerminalSink {
   live: boolean;
 }
 
-export interface SchedulerOptions {
+interface SchedulerOptions {
   budget?: number;
   maxChunkBytes?: number;
   requestFrame?: (callback: FrameRequestCallback) => number;
@@ -36,7 +36,7 @@ function appendWriteSlices(writes: string[], entry: string) {
   for (let at = 0; at < entry.length; at += WRITE_SLICE_BYTES) writes.push(entry.slice(at, at + WRITE_SLICE_BYTES));
 }
 
-export function createScheduler({
+function createScheduler({
   budget = DEFAULT_BUDGET,
   maxChunkBytes = DEFAULT_MAX_CHUNK,
   requestFrame,

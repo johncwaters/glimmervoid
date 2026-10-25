@@ -32,4 +32,4 @@ function createClientErrorReporter(sendReport: (message: Record<string, unknown>
   };
 }
 
-export { MAX_CLIENT_ERROR_REPORTS, buildClientErrorReport, createClientErrorReporter };
+export { createClientErrorReporter };

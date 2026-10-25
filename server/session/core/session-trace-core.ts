@@ -41,7 +41,7 @@ function parseTraceLine(request: SessionTracePageRequest, line: string, lineByte
   return unreadableRecordNotice(request, lineByteCount);
 }
 
-export function sessionTracePageFromBytes(
+function sessionTracePageFromBytes(
   request: SessionTracePageRequest,
   after: number,
   bytes: Uint8Array,

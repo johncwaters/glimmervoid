@@ -168,4 +168,3 @@ function createAgentConnect({
 }
 
 export { createAgentConnect };
-export type { ConnectPty };

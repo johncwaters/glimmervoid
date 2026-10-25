@@ -209,8 +209,5 @@ function registerEphemeralSession({ map, id, sess, closeSessionDataClients, logP
   sess.destroy = () => { origDestroy(); removeFromMap(); };
 }
 
-export {
-  awaitSessionExit, createJobResultFile, drainPending, firstLine, raceWithAbort, readResultFile,
-  registerEphemeralSession, JOB_RESULT_FILENAME,
-};
+export { awaitSessionExit, createJobResultFile, drainPending, firstLine, raceWithAbort, readResultFile, registerEphemeralSession };
 export type { JobResultFile, RecordLane, ResultFileOutcome, SpawnGate };

@@ -10,8 +10,8 @@ export interface PlanDiff {
   isTooLarge: boolean;
 }
 
-export const PLAN_DIFF_MAX_LINES = 2000;
-export const PLAN_DIFF_CONTEXT_LINES = 3;
+const PLAN_DIFF_MAX_LINES = 2000;
+const PLAN_DIFF_CONTEXT_LINES = 3;
 
 function planLines(body: string): string[] {
   return body.replace(/\r\n?/g, '\n').split('\n');

@@ -84,4 +84,4 @@ function detectCodeSlop(content: unknown, relPath?: unknown, cap = DEFAULT_FINDI
   return findings;
 }
 
-export { detectCodeSlop, extOf, DEFAULT_FINDINGS_CAP };
+export { detectCodeSlop };

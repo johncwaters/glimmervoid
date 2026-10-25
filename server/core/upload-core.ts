@@ -100,4 +100,4 @@ function imageMimeForUploadFilename(name: string): string | null {
   return imageEntry ? imageEntry[0] : null;
 }
 
-export { MAX_UPLOAD_BYTES, UPLOAD_RETAIN_FILES, buildUploadFilename, decideUploadType, exceedsUploadCap, extensionForImageMime, extensionForUploadName, framePathPaste, imageMimeForUploadFilename, isSafePathSegment, isUploadFilename, planUploadRetention };
+export { MAX_UPLOAD_BYTES, buildUploadFilename, decideUploadType, exceedsUploadCap, framePathPaste, imageMimeForUploadFilename, isSafePathSegment, planUploadRetention };

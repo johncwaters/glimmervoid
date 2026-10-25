@@ -8,7 +8,7 @@ export function confettiScaleFor(positionInPlayThrough: number): number {
   return Math.min(FIRST_CONFETTI_SCALE + positionInPlayThrough * CONFETTI_SCALE_STEP, MAX_CONFETTI_SCALE);
 }
 
-export const CONFETTI_COLORS = ['var(--accent)', 'var(--state-running)', 'var(--state-idle)', 'var(--state-waiting)', 'var(--state-failed)'];
+const CONFETTI_COLORS = ['var(--accent)', 'var(--state-running)', 'var(--state-idle)', 'var(--state-waiting)', 'var(--state-failed)'];
 
 export function confettiPieceStyleProperties(pieceIndex: number, random: () => number = Math.random): Array<readonly [string, string]> {
   const riseMs = randomBetween(320, 520, random);

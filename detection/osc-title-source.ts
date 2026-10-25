@@ -22,14 +22,6 @@ export interface TitleProfile {
   unknownGlyphHint?: string;
 }
 
-export interface TitleSignal {
-  signal: string;
-  char: string | null;
-  codepoint: number | null;
-  ts: number;
-  source: string;
-}
-
 interface OscTitleSourceOptions {
   stabilizationMs?: number;
   titleProfile?: TitleProfile;

@@ -22,7 +22,7 @@ interface EditorNotification {
   now?: number;
 }
 
-export interface EditorState {
+interface EditorState {
   openUris: Set<string>;
 }
 

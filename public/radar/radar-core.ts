@@ -135,7 +135,7 @@ const VERDICT_LABEL: Record<string, string> = {
   ERROR: 'error',
 };
 
-export function trailStepRows(trail: unknown): TrailStepRow[] {
+function trailStepRows(trail: unknown): TrailStepRow[] {
   if (!Array.isArray(trail)) return [];
   return (trail as unknown[]).flatMap((entry): TrailStepRow[] => {
     const record = entry as { at?: unknown; tool?: unknown; detail?: unknown; note?: unknown } | null | undefined;
@@ -157,7 +157,7 @@ function trailStepLabel(step: TrailToolRow) {
   return `${step.tool} ${step.detail}`;
 }
 
-export function latestTrailLabel(issue: RadarIssue | null | undefined) {
+function latestTrailLabel(issue: RadarIssue | null | undefined) {
   const steps = trailStepRows(issue?.trail);
   const latestNote = steps.findLast((step): step is TrailNoteRow => 'note' in step);
   if (latestNote) return latestNote.note;
@@ -381,7 +381,7 @@ export function summarizeIssues(issues: unknown) {
 }
 
 
-export const DEFAULT_STALE_MS = 5 * 60 * 1000;
+const DEFAULT_STALE_MS = 5 * 60 * 1000;
 
 function staleThresholdMs(intervalMs: unknown) {
   const interval = Number(intervalMs);

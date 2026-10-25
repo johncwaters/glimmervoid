@@ -58,4 +58,4 @@ function applyChanges<T extends Record<string, unknown>>(config: T, changes: Imp
   return config;
 }
 
-export { IMPLIED_INGEST, applyChanges, decideImpliedDefaults };
+export { applyChanges, decideImpliedDefaults };

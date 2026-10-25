@@ -45,4 +45,4 @@ function upgradeTokenFromUrl(rawUrl: unknown): string | null {
   return null;
 }
 
-export { upgradePathname, classifyUpgradePath, dataSessionIdFromUrl, upgradeTokenFromUrl };
+export { classifyUpgradePath, dataSessionIdFromUrl, upgradeTokenFromUrl };

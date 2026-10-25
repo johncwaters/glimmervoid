@@ -104,4 +104,4 @@ function requireExecutableSpawnHelper(
   if (!helper.ok) throw new Error(helper.reason);
 }
 
-export { probeNodePty, requireExecutableSpawnHelper, scanNativeBinding };
+export { probeNodePty, requireExecutableSpawnHelper };

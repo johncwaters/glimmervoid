@@ -46,25 +46,11 @@ function resolveRtkPath({ glimmervoidHome, platform, exec, fsApi }: RtkPathInput
   return path.resolve(firstMatch);
 }
 
-function quoteCommandPath(commandPath: string): string {
-  if (!/\s/.test(commandPath)) return commandPath;
-  return `"${commandPath}"`;
-}
-
 function toForwardSlashes(commandPath: string): string {
   return commandPath.replace(/\\/g, '/');
 }
 
-function buildRtkHookEntry(rtkPath: string): RtkHookEntry {
-  const command = `${quoteCommandPath(toForwardSlashes(rtkPath))} hook claude`;
-  return {
-    matcher: 'Bash',
-    hooks: [{ type: 'command', command }],
-  };
-}
-
-export { resolveRtkPath, buildRtkHookEntry };
-export type { StatApi };
+export { resolveRtkPath };
 
 type HookToolId = 'rtk' | 'saneYolo';
 interface ResolvedHookTool {

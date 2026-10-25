@@ -3,9 +3,9 @@ import { VISIONS_THREAD_ID_PATTERN } from '#shared/visions-intent-ids.ts';
 
 export const VISIONS_EMPTY_TEXT = 'No findings. Open a markdown file in a connected editor.';
 
-export const VISIONS_INTENT_EMPTY_TEXT = 'No intent yet. The visions proposes one after its first pass.';
+const VISIONS_INTENT_EMPTY_TEXT = 'No intent yet. The visions proposes one after its first pass.';
 
-export const VISIONS_INTENT_UNOWNED_LABEL = 'Unowned';
+const VISIONS_INTENT_UNOWNED_LABEL = 'Unowned';
 
 export interface IntentThread {
   id: string | null;
@@ -75,7 +75,7 @@ export function emptyIntentState(): IntentState {
   return { byProject: {}, unowned: [] };
 }
 
-export function normalizeIntentThread(rawThread: unknown): IntentThread | null {
+function normalizeIntentThread(rawThread: unknown): IntentThread | null {
   if (!rawThread || typeof rawThread !== 'object') return null;
   const raw = rawThread as { id?: unknown; text?: unknown; uris?: unknown; ts?: unknown; hits?: unknown };
   const text = typeof raw.text === 'string' ? raw.text : '';
@@ -172,13 +172,13 @@ function intentSourceText(intent: { text?: unknown } | null | undefined) {
   return 'proposed by visions';
 }
 
-export function intentAgeText(ts: unknown, now: number = Date.now()) {
+function intentAgeText(ts: unknown, now: number = Date.now()) {
   const stamp = Number(ts);
   if (!Number.isFinite(stamp) || stamp <= 0) return '';
   return elapsedText(Number(now) - stamp, { rounding: 'floor', wording: 'spelled', suffix: ' ago', justNowBelowSeconds: 60 });
 }
 
-export function intentMetaText(intent: Partial<IntentThread> | null | undefined, now = Date.now()) {
+function intentMetaText(intent: Partial<IntentThread> | null | undefined, now = Date.now()) {
   const source = intentSourceText(intent);
   if (!source) return '';
   const thread = typeof intent?.id === 'string' && intent.id ? `thread ${intent.id}, ` : '';
@@ -220,7 +220,7 @@ function boundedCount(count: unknown) {
   return typeof count === 'number' && Number.isFinite(count) ? Math.max(Math.floor(count), 0) : 0;
 }
 
-export function findingCountText(count: unknown) {
+function findingCountText(count: unknown) {
   const total = boundedCount(count);
   return total === 1 ? '1 finding' : `${total} findings`;
 }
@@ -278,8 +278,8 @@ export function applyHandSnapshot(msg: { documents?: unknown } | null | undefine
   return next;
 }
 
-export const VISIONS_ATTENTION_HAND = 'hand';
-export const VISIONS_ATTENTION_UNSEEN = 'unseen';
+const VISIONS_ATTENTION_HAND = 'hand';
+const VISIONS_ATTENTION_UNSEEN = 'unseen';
 
 const ATTENTION_ENTRY_SEPARATOR = '\n';
 
@@ -456,7 +456,7 @@ function compareText(left: string, right: string) {
 
 export const VISIONS_FIXES_EMPTY_TEXT = 'No fixes yet. Silent fixes appear here once the lane applies or is refused one.';
 
-export const MAX_RENDERED_FIXES = 20;
+const MAX_RENDERED_FIXES = 20;
 
 export function fixCountText(count: unknown) {
   const total = boundedCount(count);
@@ -490,7 +490,7 @@ function normalizeFixEntry(rawEntry: unknown, { uri = '', ts = 0 }: { uri?: stri
   };
 }
 
-export function fixEntryOfMessage(msg: { uri?: unknown; ts?: unknown; fix?: unknown } | null | undefined) {
+function fixEntryOfMessage(msg: { uri?: unknown; ts?: unknown; fix?: unknown } | null | undefined) {
   const uri = typeof msg?.uri === 'string' ? msg.uri : '';
   const ts = Number(msg?.ts);
   return normalizeFixEntry(msg?.fix, { uri, ts: Number.isFinite(ts) ? ts : 0 });
@@ -518,7 +518,7 @@ export function applyFixSnapshot(msg: { fixes?: unknown } | null | undefined, { 
 
 export const INGEST_EMPTY_TEXT = 'No activity yet. The ingest lane reports what your sessions and tools are doing.';
 
-export const MAX_RENDERED_ACTIVITY = 100;
+const MAX_RENDERED_ACTIVITY = 100;
 
 const SOURCE_LABELS: Record<string, string> = {
   terminal: 'terminal',
@@ -540,7 +540,7 @@ export function activityAgeText(ts: unknown, now: number = Date.now()) {
   return elapsedText(Number(now) - stamp, COMPACT_FLOORED_AGO);
 }
 
-export function normalizeActivityEvent(rawEvent: unknown): ActivityEvent | null {
+function normalizeActivityEvent(rawEvent: unknown): ActivityEvent | null {
   if (!rawEvent || typeof rawEvent !== 'object') return null;
   const raw = rawEvent as { seq?: unknown; summary?: unknown; ts?: unknown; scope?: unknown; source?: unknown; kind?: unknown };
   const seq = Number(raw.seq);
@@ -560,7 +560,7 @@ export function normalizeActivityEvent(rawEvent: unknown): ActivityEvent | null 
   };
 }
 
-export function eventsOfMessage(msg: { events?: unknown } | null | undefined): ActivityEvent[] {
+function eventsOfMessage(msg: { events?: unknown } | null | undefined): ActivityEvent[] {
   const raw: unknown[] = Array.isArray(msg?.events) ? msg.events : [];
   const events: ActivityEvent[] = [];
   for (const entry of raw) {

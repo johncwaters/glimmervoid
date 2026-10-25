@@ -18,7 +18,7 @@ export interface RegistryProject {
   unguarded?: boolean;
 }
 
-export interface RegistrySession {
+interface RegistrySession {
   ephemeral?: boolean;
   name?: string;
   path?: string;
@@ -29,7 +29,7 @@ export interface RegistrySession {
   isMarkedUnguarded?: boolean;
 }
 
-export interface RegistryDependencies {
+interface RegistryDependencies {
   ensureProjectIds: (projects: RegistryProject[]) => unknown;
   resolveAgentId: (agent: AgentId) => string;
   agentFingerprintOf?: (agentId: string) => string | null;

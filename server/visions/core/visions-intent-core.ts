@@ -314,4 +314,4 @@ function intentPayload(state: IntentState | null | undefined) {
   };
 }
 
-export { DEFAULT_THREAD_TTL_MS, MAX_INTENT_CHARS, MAX_THREADS_PER_PROJECT, THREAD_ID_PATTERN, THREAD_ID_RE, activeThreadFor, applyModelIntent, createIntentState, intentPayload, intentProjectPayload, isEmptyIntent, liveThreadsFor, pruneIntentProjects, readIntentProposal, retireStaleThreads, reviveIntentState, sanitizeIntentText };
+export { DEFAULT_THREAD_TTL_MS, MAX_INTENT_CHARS, THREAD_ID_RE, applyModelIntent, createIntentState, intentPayload, intentProjectPayload, isEmptyIntent, liveThreadsFor, pruneIntentProjects, readIntentProposal, retireStaleThreads, reviveIntentState, sanitizeIntentText };

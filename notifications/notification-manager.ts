@@ -45,7 +45,7 @@ interface NotificationEntry {
   pendingSinceMs: number;
 }
 
-export interface NotificationManagerOptions {
+interface NotificationManagerOptions {
   escalationIntervalMs?: number;
   debounceMs?: number;
   phoneEscalationMs?: number;

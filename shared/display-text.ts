@@ -41,7 +41,7 @@ const UNIT_WORDS: Record<ElapsedUnitWording, Record<'second' | 'minute' | 'hour'
 
 export const COMPACT_FLOORED_AGO: ElapsedTextOptions = { rounding: 'floor', wording: 'compact', suffix: ' ago', justNowBelowSeconds: 0 };
 
-export function pad2(value: number): string {
+function pad2(value: number): string {
   return String(value).padStart(2, '0');
 }
 

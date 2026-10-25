@@ -40,4 +40,4 @@ function createClientPresence(): ClientPresence {
   };
 }
 
-export { createClientPresence, decideFocusSuppression, decideOffDashboardDelivery };
+export { createClientPresence, decideOffDashboardDelivery };

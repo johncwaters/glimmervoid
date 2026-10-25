@@ -53,13 +53,5 @@ function guardrailsInstallNotice(report: GuardrailsDependencyReport): string | n
   return `glimmervoid: ${missingBinariesPhrase(report)}; ${GUARDED_WORK} need ${namesList(report.requiredBinaries)}. ${report.installHint}`;
 }
 
-export {
-  GUARDRAILS_INSTALL_HINT,
-  requiredGuardrailsBinaries,
-  guardrailsBootWarning,
-  guardrailsDependencyReport,
-  guardrailsDoctorRows,
-  guardrailsInstallNotice,
-  guardrailsSpawnRefusal,
-};
+export { requiredGuardrailsBinaries, guardrailsBootWarning, guardrailsDependencyReport, guardrailsDoctorRows, guardrailsInstallNotice, guardrailsSpawnRefusal };
 export type { GuardrailsDependencyReport };

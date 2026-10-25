@@ -141,7 +141,7 @@ function traceAgentPrefix(record: TraceRecord): string {
   return `[${record.agentType}${agentIdSuffix}] `;
 }
 
-export function traceRowParts(record: TraceRecord, toolCallByUseId: ReadonlyMap<string, ToolCallRecord>): Omit<TraceViewRow, 'record'> {
+function traceRowParts(record: TraceRecord, toolCallByUseId: ReadonlyMap<string, ToolCallRecord>): Omit<TraceViewRow, 'record'> {
   const labelParts = traceLabelParts(record, toolCallByUseId);
   const agentPrefix = traceAgentPrefix(record);
   const renderedText = record.kind === 'tool_call' || record.kind === 'tool_result'
@@ -217,7 +217,7 @@ export function createTraceGrouping(): TraceGrouping {
   return { turns: [], toolCallByUseId: new Map<string, ToolCallRecord>(), unresolvedToolUseCounts: new Map<string, number>() };
 }
 
-export function traceTurnDurationMs(turn: TraceTurn): number {
+function traceTurnDurationMs(turn: TraceTurn): number {
   if (turn.startedAt === null) return 0;
   let finishedAtMs = turn.head?.record.ts ?? turn.startedAt;
   for (const row of turn.rows) finishedAtMs = Math.max(finishedAtMs, row.record.ts);

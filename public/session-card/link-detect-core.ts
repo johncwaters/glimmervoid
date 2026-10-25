@@ -10,7 +10,7 @@ function countChar(text: string, wanted: string) {
   return count;
 }
 
-export function trimTrailingPunctuation(url: string) {
+function trimTrailingPunctuation(url: string) {
   for (;;) {
     const last = url[url.length - 1];
     if (last === undefined) return url;

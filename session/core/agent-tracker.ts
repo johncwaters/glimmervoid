@@ -434,17 +434,5 @@ function createTaskRegistry({
   };
 }
 
-export {
-  addAgent,
-  removeAgent,
-  pruneAgents,
-  extractBackgroundTasks,
-  declaredActiveCount,
-  msUntilNextDrain,
-  evictDepartedTeammateNames,
-  createTaskRegistry,
-  DEFAULT_AGENT_TTL_MS,
-  DEFAULT_SHELL_TASK_TTL_MS,
-  DEFAULT_TEAMMATE_TASK_TTL_MS,
-};
-export type { DeclaredEntry, TaskRegistryBreakdown, TaskRegistryOptions };
+export { extractBackgroundTasks, msUntilNextDrain, createTaskRegistry, DEFAULT_AGENT_TTL_MS, DEFAULT_SHELL_TASK_TTL_MS, DEFAULT_TEAMMATE_TASK_TTL_MS };
+export type { TaskRegistryBreakdown, TaskRegistryOptions };

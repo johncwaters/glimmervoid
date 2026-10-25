@@ -1,8 +1,8 @@
 import type { GithubPollingRetry } from '../../../shared/contracts/github-polling.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
 
-export const QUICK_RETRY_DELAYS_MS = Object.freeze([10_000, 30_000, 90_000]);
-export const TRANSIENT_BACKOFF_MAX_MS = 5 * 60_000;
+const QUICK_RETRY_DELAYS_MS = Object.freeze([10_000, 30_000, 90_000]);
+const TRANSIENT_BACKOFF_MAX_MS = 5 * 60_000;
 
 export function nextRetrySchedule({ failureStreak, quickRetryCount, quickRetries, retryAfterMs, baseMs, maxMs, random }: {
   failureStreak: number; quickRetryCount: number; quickRetries: boolean; retryAfterMs?: number; baseMs: number; maxMs: number; random: () => number;
@@ -30,16 +30,4 @@ function secondaryRateLimitWaitMs(errorText: string | null | undefined): number 
   return Math.max(SECONDARY_RATE_LIMIT_MIN_WAIT_MS, retryAfterMs);
 }
 
-function parseRetryAfterMs(header: unknown, now: number = Date.now()): number | null {
-  if (header == null) return null;
-  const raw = String(header).trim();
-  if (raw === '') return null;
-  if (/^\d+$/.test(raw)) return Number.parseInt(raw, 10) * 1000;
-  const at = Date.parse(raw);
-  if (Number.isNaN(at)) return null;
-  const delta = at - now;
-  if (delta > 0) return delta;
-  return null;
-}
-
-export { parseRetryAfterMs, secondaryRateLimitWaitMs, shouldSkipTick, SECONDARY_RATE_LIMIT_MIN_WAIT_MS };
+export { secondaryRateLimitWaitMs, shouldSkipTick };

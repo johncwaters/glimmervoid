@@ -3,7 +3,7 @@ import { normalizedHttpUrl } from '#shared/http-url.ts';
 const ELECTRON_USER_AGENT_TOKEN = /\bElectron\/\d/;
 const LOOPBACK_PAGE_HOSTNAMES: ReadonlySet<string> = new Set(['localhost', '127.0.0.1']);
 
-export function isHostedInEditorBrowser(userAgent: string): boolean {
+function isHostedInEditorBrowser(userAgent: string): boolean {
   return ELECTRON_USER_AGENT_TOKEN.test(userAgent);
 }
 

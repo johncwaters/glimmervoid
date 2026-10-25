@@ -119,5 +119,5 @@ function selectOfficialSessionCost(costMode: string, recordedCostUSD: number | n
   return recordedCostUSD ?? null;
 }
 
-export { normalizeStatuslinePayload, rateLimitWindow, shouldBroadcastPlanLimits, buildPlanLimitsMessage, planLimitsSignature, selectOfficialSessionCost };
+export { normalizeStatuslinePayload, rateLimitWindow, shouldBroadcastPlanLimits, buildPlanLimitsMessage, selectOfficialSessionCost };
 export type { PlanLimitsVendor };

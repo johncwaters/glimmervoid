@@ -10,4 +10,4 @@ function shortSha(sha: unknown, { chars = SHORT_SHA_CHARS, validate = false }: {
   return text.slice(0, chars).toLowerCase();
 }
 
-export { FULL_SHA_RE, HEX_SHA_RE, SHORT_SHA_CHARS, shortSha };
+export { FULL_SHA_RE, HEX_SHA_RE, shortSha };

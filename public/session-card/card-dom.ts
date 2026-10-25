@@ -115,7 +115,7 @@ function paintPermsBadge(permsBadge: HTMLElement, saneYolo: boolean) {
     : 'Running with --dangerously-skip-permissions';
 }
 
-export function applyCardSaneYolo(card: HTMLElement, saneYolo: boolean) {
+function applyCardSaneYolo(card: HTMLElement, saneYolo: boolean) {
   if (saneYolo) card.dataset.saneYolo = '';
   if (!saneYolo) delete card.dataset.saneYolo;
   const permsBadge = card.querySelector<HTMLElement>('.perms-badge');

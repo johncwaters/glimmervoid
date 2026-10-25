@@ -196,4 +196,4 @@ function toneForPct(pct: number): 'ok' | 'warn' | 'crit' {
 }
 
 
-export { BUDGET_THRESHOLDS, budgetStanding, evaluateBudget, markFired, mergeFiredState, normalizeBudgetConfig };
+export { budgetStanding, evaluateBudget, markFired, mergeFiredState, normalizeBudgetConfig };

@@ -341,18 +341,4 @@ function decideCommandEvent({
   };
 }
 
-export {
-  dataHome,
-  MAX_COMMAND_CHARS,
-  MAX_CONTINUATION_LINES,
-  SHELLS,
-  createParseState,
-  decideCommandEvent,
-  defaultShellsFor,
-  historyLocations,
-  isTrivialCommand,
-  matchesLocation,
-  normalizeShells,
-  parseHistoryLines,
-  unescapeFish,
-};
+export { dataHome, createParseState, decideCommandEvent, historyLocations, matchesLocation, normalizeShells, parseHistoryLines };

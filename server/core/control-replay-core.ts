@@ -61,5 +61,5 @@ function createReplayLog({ maxEntries = 500, maxAgeMs = 5 * 60_000 }: {
   return { stamp, entriesSince, currentSeq };
 }
 
-export { REPLAYABLE_EXACT, createReplayLog, isReplayable };
+export { createReplayLog, isReplayable };
 export type { ControlMessageRecord, ReplayLog };
