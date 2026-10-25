@@ -66,7 +66,7 @@ import { applyTraceChanged, applyTraceError, applyTraceResponse, setTraceNavigat
 import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
 import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isFlyingAnimalsEnabled, isPhoneArrowPad, isSessionUsageChips, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';
-import { jumpToNextReview } from './github/review-queue-panel.ts';
+import { canReturnToReviewQueue, jumpToNextReview, onPhoneReviewScreenChanged, returnToReviewQueue } from './github/review-queue-panel.ts';
 import { updateBanner } from './updates-view-core.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
@@ -977,10 +977,11 @@ mountPhoneShell({
     acknowledgeViewAttention(screenId);
   },
 
-  canGoBack: (screenId) => screenId === 'settings' && canReturnToSettingsList(),
+  canGoBack: (screenId) => (screenId === 'settings' && canReturnToSettingsList()) || (screenId === 'prs' && canReturnToReviewQueue()),
 
   onBack: (screenId) => {
     if (screenId === 'settings') returnToSettingsList();
+    if (screenId === 'prs') returnToReviewQueue();
   },
 
   headerControls: [
@@ -995,6 +996,7 @@ mountPhoneShell({
   ],
 });
 onPhoneSettingsScreenChanged(syncPhoneHistory);
+onPhoneReviewScreenChanged(syncPhoneHistory);
 
 function applyFormFactorLayout(layout: string) {
   if (layout === 'phone') {

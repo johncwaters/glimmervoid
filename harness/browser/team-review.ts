@@ -6,7 +6,7 @@ import { MyPrsStatus } from '../../shared/contracts/my-prs.ts';
 import { ReviewDraft, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type { TeamReviewAction, TeamReviewThread } from '../../shared/contracts/team-review.ts';
 import type { Layout } from './cases-core.ts';
-import { verifyMyPrKeepMergeable } from './my-prs.ts';
+import { showQueue, verifyMyPrKeepMergeable } from './my-prs.ts';
 
 const REVIEWED_HEAD = 'a'.repeat(40);
 const PREVIOUS_HEAD = 'b'.repeat(40);
@@ -192,6 +192,7 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     assert.ok(unchangedTeamRow);
     await emitTeamReviewFrames(page, [frameFor({ ...pr, commentCount: pr.commentCount + 1 })]);
     assert.equal(await unchangedTeamRow.evaluate((row) => row.isConnected), true);
+    await showQueue(page);
     await root.getByRole('tab', { name: 'Mine', exact: true }).click();
     assert.equal(await mineRow.locator('.my-pr-stage').first().textContent(), stage);
     assert.equal(await mineRow.locator('.pr-queue-glyph').innerHTML(), teamGlyph);
@@ -206,8 +207,10 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     assert.equal(await chip.getAttribute('title'), `ACME/app: ${canonicalPr.title} (${stage}). Show in Reviews; Cmd/Ctrl-click opens GitHub`);
     assert.equal(await chip.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML), teamIcon);
     await openReviewsView(page, layout);
+    await showQueue(page);
     await root.getByRole('tab', { name: 'All', exact: true }).click();
   }
+  await showQueue(page);
   await teamRow.click();
   await applyStatus(page, { ...laneSnapshot, drafts: [createDraft(1, { status: 'stale', liveHead: REVIEWED_HEAD }), createDraft(2)] });
   const movedHead = 'c'.repeat(40);
@@ -217,6 +220,29 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
   assert.equal(await page.locator('.pr-detail .pr-changed-since').count(), 0);
   assert.equal(await teamRow.locator('.pr-queue-state').textContent(), 'Out of date');
   await applyStatus(page, snapshot);
+}
+
+async function verifyPhoneDetailScreen(page: Page, status: TeamReviewStatus): Promise<void> {
+  await applyStatus(page, status);
+  await showQueue(page);
+  const root = page.locator('.review-queue');
+  const pane = root.locator('.pr-queue-pane');
+  await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').click();
+  assert.equal(await root.getAttribute('data-detail-open'), 'true');
+  assert.equal(await pane.isVisible(), false);
+  assert.match(await root.locator('.review-queue-position').textContent() ?? '', /^1 of \d+ in Your turn$/);
+  const barBox = await root.locator('.pr-decision-bar').boundingBox();
+  const navBox = await page.locator('.phone-nav').boundingBox();
+  assert.ok(barBox && navBox && barBox.y + barBox.height <= navBox.y + 1);
+  const buttonRows = await root.locator('.pr-decision-bar > .pr-action').evaluateAll((buttons) => new Set(buttons.map((button) => Math.round(button.getBoundingClientRect().top))).size);
+  assert.equal(buttonRows, 2);
+  await page.goBack();
+  await pane.waitFor({ state: 'visible' });
+  assert.equal(await root.getAttribute('data-detail-open'), 'false');
+  assert.ok(await root.isVisible());
+  await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').click();
+  await root.locator('.review-queue-back').click();
+  await pane.waitFor({ state: 'visible' });
 }
 
 async function verifyCollapsedRailShowsNumbers(page: Page): Promise<void> {
@@ -245,6 +271,7 @@ async function readInReviewElapsedTexts(page: Page): Promise<{ row: string | nul
 }
 
 async function verifyUnchangedQueueKeepsRowNodes(page: Page, status: TeamReviewStatus): Promise<void> {
+  await showQueue(page);
   await page.locator('.pr-queue-row[data-review-key="Acme/app#9"]').click();
   await applyStatus(page, { ...status, isRefreshing: true });
   const firstRowBefore = await page.locator('.pr-queue-row').first().elementHandle();
@@ -288,6 +315,7 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   assert.match(await row.getAttribute('title') ?? '', /2 of 5 of your comments resolved/);
   const sectionHeading = () => row.evaluate((element) => element.closest('.pr-queue-section')?.querySelector('.pr-section-heading')?.textContent);
   assert.match(await sectionHeading() ?? '', /Waiting on others/);
+  await showQueue(page);
   await row.click();
   assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), '2 of 5 of your comments resolved');
   const resolved = { ...review, viewerThreads: { total: 5, resolved: 5 } };
@@ -303,6 +331,7 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   await applyStatus(page, withDraft({ ...resolved, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
   assert.match(await sectionHeading() ?? '', /Your turn/);
   assert.equal(await row.locator('.pr-queue-state').textContent(), 'Comments resolved');
+  await showQueue(page);
   await row.click();
   assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), 'All 5 of your comments resolved');
   await applyStatus(page, withDraft({ ...review, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
@@ -323,6 +352,7 @@ async function verifyAnsweredThreadConversation(page: Page, snapshot: TeamReview
   thread.unjudgeable.lastReplyAt = thread.lastReplyAt;
   const showThread = async (bodies: Partial<TeamReviewThread>) => {
     await applyStatus(page, { ...snapshot, drafts: [createDraft(1, { threads: [{ ...thread, ...bodies }] })], inFlight: [], queued: [] });
+    await showQueue(page);
     await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').click();
   };
   await showThread({});
@@ -435,6 +465,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
   try {
     for (const unreviewed of [9, 10]) {
       await applyStatus(page, { ...withDrafts([createDraft(1), createDraft(2)]), inFlight: snapshot.inFlight, queued: snapshot.queued });
+      await showQueue(page);
       await reviewRow(unreviewed).click();
       assert.equal(await page.locator('.pr-detail button[data-action="discard"]').textContent(), 'Not mine');
       await clickReviewAction(page, 'discard');
@@ -449,6 +480,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     const postNotices: Partial<Record<TeamReviewAction, string>> = { approve: 'Acme/app#1: Approved on GitHub with 1 finding.', comment: 'Acme/app#1: Commented on GitHub with 1 finding.' };
     for (const action of ['approve', 'comment', 'discard', 'requeue'] as const) {
       await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
+      await showQueue(page);
       await reviewRow(1).click();
       await clickReviewAction(page, action);
       const sentAction = (JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { action?: string }).action;
@@ -462,6 +494,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
       if (expectedNotice) assert.equal(await actionNotice.textContent(), expectedNotice);
     }
     await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
+    await showQueue(page);
     await reviewRow(1).click();
     await page.locator('.pr-detail .pr-comment-checkbox').uncheck();
     assert.equal(await page.locator('.pr-detail button[data-action="comment"]').isDisabled(), true);
@@ -469,9 +502,11 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     assert.equal((JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { action?: string }).action, 'approve-only');
     await replyToCapturedAction(page, false);
     await page.locator('.pr-detail .pr-comment-checkbox').check();
+    await showQueue(page);
     await reviewRow(3).click();
     assert.equal(await actionNotice.isVisible(), false);
     await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
+    await showQueue(page);
     await reviewRow(1).click();
     await clickReviewAction(page, 'approve');
     await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2), createDraft(3)]));
@@ -484,17 +519,21 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
       isNit: false, url: 'https://github.com/Acme/app/pull/4#discussion_r4',
       lastReplyAuthor: 'teammate', lastReplyAt: '2026-10-01T12:00:00Z',
     }] }), createDraft(2)]));
+    await showQueue(page);
     await reviewRow(4).click();
     await page.locator('.pr-detail').getByRole('button', { name: 'Resolve', exact: true }).click();
     await replyToCapturedAction(page, true);
     assert.equal(await reviewRow(4).getAttribute('aria-current'), 'true');
     await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
+    await showQueue(page);
     await reviewRow(1).click();
     await clickReviewAction(page, 'approve');
+    await showQueue(page);
     await reviewRow(3).click();
     await replyToCapturedAction(page, true);
     assert.equal(await reviewRow(3).getAttribute('aria-current'), 'true');
     await applyStatus(page, withDrafts([createDraft(1, { summary: 'A fresh draft' }), createDraft(2)]));
+    await showQueue(page);
     await reviewRow(1).click();
     await clickReviewAction(page, 'approve');
     await replyToCapturedAction(page, false);
@@ -512,6 +551,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     assert.equal(await page.locator('.pr-queue-row[aria-current="true"]').count(), 0);
     assert.equal(await caughtUpTitle.textContent(), 'New pull requests need you');
     assert.equal(await caughtUpDetailText.textContent(), 'Pick one from the queue.');
+    await showQueue(page);
     await reviewRow(2).click();
     assert.equal(await reviewRow(2).getAttribute('aria-current'), 'true');
     assert.equal(await page.locator('.pr-detail-host .pr-caught-up').count(), 0);
@@ -520,6 +560,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await applyStatus(page, withDrafts([]));
     assert.equal(await caughtUpTitle.textContent(), 'All caught up');
     await applyStatus(page, { ...withDrafts([]), handReview: [createDraft(12)] });
+    await showQueue(page);
     await reviewRow(12).click();
     assert.equal(await page.locator('.pr-detail-host .pr-detail').getByRole('link', { name: 'Review on GitHub', exact: true }).getAttribute('href'), 'https://github.com/Acme/app/pull/12');
   } catch (error) {
@@ -533,6 +574,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
       delete document.documentElement.dataset.teamReviewAction;
     });
     await applyStatus(page, snapshot);
+    await showQueue(page);
     await reviewRow(1).click();
   }
 }
@@ -574,6 +616,7 @@ async function verifyOpenInSession(page: Page, layout: Layout, snapshot: TeamRev
   try {
     for (const number of [1, 10]) {
       await applyStatus(page, snapshot);
+      await showQueue(page);
       await page.locator(`.pr-queue-row[data-review-key="Acme/app#${number}"]`).click();
       const openButton = page.locator('.pr-detail .pr-session-open-button');
       const openStatus = page.locator('.pr-detail .pr-session-open-status');
@@ -606,6 +649,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   await openReviewsView(page, layout);
   const status = createStatus();
   await applyStatus(page, status);
+  await showQueue(page);
   await page.getByRole('button', { name: 'Set aside', exact: true }).click();
   await page.evaluate(async () => { await document.fonts.ready; });
   await verifyRows(page);
@@ -628,6 +672,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
     });
   }
   const nitsRow = page.locator('.pr-queue-row[data-review-key="Acme/app#2"]');
+  await showQueue(page);
   await nitsRow.focus();
   await page.keyboard.press('Enter');
   assert.equal(await nitsRow.getAttribute('aria-current'), 'true');
@@ -650,6 +695,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   await verifyAnsweredThreadConversation(page, status);
   await verifyOpenInSession(page, layout, status, sessionId);
   await verifyCanonicalTeamPrFields(page, layout, status, sessionId);
+  if (layout === 'phone') await verifyPhoneDetailScreen(page, status);
   await verifyActionAdvancement(page, status);
   await verifyMyPrKeepMergeable(page);
 }

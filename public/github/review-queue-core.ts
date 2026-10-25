@@ -138,6 +138,13 @@ export function nextTurnKey({ capturedOrder, actedKey, groups }: { capturedOrder
   return nextKey ?? capturedOrder.find((key) => remainingKeySet.has(key)) ?? remainingKeys[0] ?? null;
 }
 
+export function turnPositionText(groups: readonly QueueGroup[], key: string | null): string {
+  const turnKeys = turnItems(groups).map((item) => item.key);
+  const position = key ? turnKeys.indexOf(key) : -1;
+  if (position === -1) return '';
+  return `${position + 1} of ${turnKeys.length} in Your turn`;
+}
+
 export function queueItemActivityEntry(item: QueueItem): string {
   if (item.source === 'mine') return `${item.key}@${item.pr.stage}`;
   if ('reviewedHead' in item.review) return `${item.review.key}@${item.review.reviewedHead}`;

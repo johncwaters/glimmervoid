@@ -10,7 +10,7 @@ import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createPrScopeTabs } from './pr-scope-tabs.ts';
 import {
   QUEUE_FILTERS, attentionCountsOf, attentionTilesOf, bannerTilesOf, buildReviewQueue, caughtUpText, chooseQueueSelection, combinedPollingStatus, decideTurnAttention, filterQueue, nextTurnKey,
-  queueItemActivityEntry, queueItemByKey, spansMultipleRepos, turnActivityEntries, turnItems,
+  queueItemActivityEntry, queueItemByKey, spansMultipleRepos, turnActivityEntries, turnItems, turnPositionText,
 } from './review-queue-core.ts';
 import type { QueueFilter, QueueGroup, QueueItem } from './review-queue-core.ts';
 import {
@@ -27,6 +27,9 @@ let root: HTMLElement | null = null;
 let queueElement: HTMLElement | null = null;
 let detailHost: HTMLElement | null = null;
 let banner: HTMLElement | null = null;
+let turnPosition: HTMLElement | null = null;
+let isDetailScreenOpen = false;
+const phoneScreenListeners = new Set<() => void>();
 let teamChipSlot: HTMLElement | null = null;
 let teamDetail: HTMLElement | null = null;
 let mineDetail: HTMLElement | null = null;
@@ -92,6 +95,31 @@ function markSeen(item: QueueItem, row: HTMLButtonElement): void {
   if (item.source === 'team') paintQueueRowTitle(row);
 }
 
+function setDetailScreenOpen(isOpen: boolean): void {
+  if (root) root.dataset.detailOpen = String(isOpen);
+  if (isOpen === isDetailScreenOpen) return;
+  isDetailScreenOpen = isOpen;
+  for (const listener of phoneScreenListeners) listener();
+}
+
+export function onPhoneReviewScreenChanged(listener: () => void): void {
+  phoneScreenListeners.add(listener);
+}
+
+export function canReturnToReviewQueue(): boolean {
+  return document.documentElement.dataset.layout === 'phone' && isDetailScreenOpen;
+}
+
+export function returnToReviewQueue(): void {
+  if (!canReturnToReviewQueue()) return;
+  setDetailScreenOpen(false);
+  if (selectedKey) rowsByKey.get(selectedKey)?.focus({ preventScroll: true });
+}
+
+function paintTurnPosition(): void {
+  if (turnPosition) turnPosition.textContent = turnPositionText(currentGroups, selectedKey);
+}
+
 function swapDetail(element: HTMLElement): void {
   if (!detailHost || (detailHost.childElementCount === 1 && detailHost.firstElementChild === element)) return;
   detailHost.replaceChildren(element);
@@ -132,10 +160,12 @@ function selectItem(key: string, { isFromQueue }: { isFromQueue: boolean }): voi
   if (item && row) markSeen(item, row);
   showSelectedDetail('clear');
   paintBanner();
-  if (isFromQueue && document.documentElement.dataset.layout === 'phone') detailHost?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  setDetailScreenOpen(true);
+  if (isFromQueue && document.documentElement.dataset.layout === 'phone') detailHost?.parentElement?.scrollIntoView({ block: 'start' });
 }
 
 function paintBanner(): void {
+  paintTurnPosition();
   if (!banner) return;
   const tiles = bannerTilesOf(currentGroups, selectedKey);
   paintAttentionBanner(banner, attentionCountsOf(attentionTilesOf(currentGroups)), tiles);
@@ -315,7 +345,13 @@ export function mountReviewQueue(parent: HTMLElement, queueNavigation?: ReviewQu
   const shell = createPrQueueColumns({ queueLabel: 'Review queue', scopeTabs: filterTabs.element, resizerLabel: 'Resize review queue' });
   queueElement = shell.queue;
   detailHost = el('div', 'review-queue-detail');
-  shell.detail.append(teamReviewActionNotice(), detailHost);
+  const phoneBar = el('div', 'review-queue-phone-bar');
+  const back = el('button', 'pr-action pr-action-ghost review-queue-back', 'Back to queue');
+  back.type = 'button';
+  back.addEventListener('click', returnToReviewQueue);
+  turnPosition = el('span', 'review-queue-position');
+  phoneBar.append(back, turnPosition);
+  shell.detail.append(phoneBar, teamReviewActionNotice(), detailHost);
   banner = buildAttentionBanner({
     onJump: () => {
       jumpToNextReview();
@@ -328,6 +364,7 @@ export function mountReviewQueue(parent: HTMLElement, queueNavigation?: ReviewQu
   teamChipSlot = el('span', 'review-team-chip-slot');
   shell.foot.append(teamChipSlot, pollingControls.control);
   root.append(shell.columns);
+  root.dataset.detailOpen = 'false';
   teamDetail = mountTeamReviewDetail(root, {
     onChange: queueRender,
     captureTurnOrder: () => turnItems(currentGroups).map((item) => item.key),
