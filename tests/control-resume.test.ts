@@ -5,6 +5,7 @@ import type { GlimmervoidConfig } from '../server/config-store.ts';
 import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
 import type { Session } from '../session/sessions.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
+import { STATES } from '../shared/states.ts';
 import { plainSession } from './helpers/fake-session.ts';
 
 interface ResumeFrame {
@@ -88,4 +89,20 @@ test('restart passes only boolean true as the fresh flag', () => {
 
   assert.deepEqual(restartOptions, [{ fresh: true }]);
   assert.deepEqual(forceRestartOptions, [{ fresh: false }]);
+});
+
+test('force-restart into an earlier conversation keeps the pick when the old agent reports its own conversation before exiting', () => {
+  const runningConversation = '11111111-1111-4111-8111-111111111111';
+  const earlierConversation = '22222222-2222-4222-8222-222222222222';
+  const s = plainSession('p1');
+  s.setResumeConversation(runningConversation);
+  s.state = STATES.RUNNING;
+  const cfg: GlimmervoidConfig = { projects: [{ id: 'p1', name: 'p1', path: 'C:/repo', resumeSessionId: runningConversation }] };
+  const h = harness(new Map([['p1', s]]), cfg);
+
+  h.send({ type: 'force-restart', id: 'p1', conversationId: earlierConversation });
+  s.ingestHookSignal({ signal: 'ready', source: 'hook', ts: Date.now(), payload: { session_id: runningConversation } });
+
+  assert.equal(s.resumeSessionId, earlierConversation);
+  assert.equal(cfg.projects[0].resumeSessionId, earlierConversation);
 });

@@ -1230,14 +1230,23 @@ class Session extends EventEmitter {
     return this._isSaneYoloActive;
   }
 
-  _prepareRestart(options: { fresh?: boolean } = {}): void {
-    if (options.fresh !== true) return;
+  _prepareRestart(options: { fresh?: boolean; conversationId?: string | null } = {}): void {
+    if (options.fresh !== true) {
+      this._bindRestartConversation(options.conversationId);
+      return;
+    }
 
     this._suppressResumeCapture = true;
     this.setResumeConversation(null);
     this._transcriptPath = null;
     this._resetAutomaticTaskTitle();
     this.emit("resume-cleared", { id: this.id });
+  }
+
+  _bindRestartConversation(conversationId: string | null | undefined): void {
+    if (!conversationId) return;
+    this._suppressResumeCapture = true;
+    this.setResumeConversation(conversationId);
   }
 
   toSnapshot() {
@@ -2354,7 +2363,7 @@ class Session extends EventEmitter {
     return this.transition("user_kill");
   }
 
-  restart(options: { fresh?: boolean } = {}): boolean {
+  restart(options: { fresh?: boolean; conversationId?: string | null } = {}): boolean {
     if (this._destroyed) return false;
 
     if (this._teardownPending()) return false;
@@ -2400,7 +2409,7 @@ class Session extends EventEmitter {
     return r;
   }
 
-  forceRestart(options: { fresh?: boolean; resumePrompt?: string | null } = {}): boolean {
+  forceRestart(options: { fresh?: boolean; conversationId?: string | null; resumePrompt?: string | null } = {}): boolean {
     if (this._destroyed) return false;
     if (this._teardownPending()) return false;
     if (KILLABLE_STATES.includes(this.state)) {

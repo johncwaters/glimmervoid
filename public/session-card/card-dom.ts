@@ -169,9 +169,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   sessionMenu.setAttribute('role', 'menu');
   btnSessionMenu.setAttribute('aria-controls', sessionMenu.id);
 
-  const btnRestart = buildMenuItem('Restart', 'Keeps this conversation', 'overflow-restart');
-  const btnRestartFresh = buildMenuItem('Restart fresh', 'Ends this conversation and starts a new one', 'overflow-restart-fresh');
-  const btnResume = buildMenuItem('Resume conversation...', 'Pick an earlier conversation', 'overflow-resume');
+  const btnRestart = buildMenuItem('Restart...', 'Into this conversation, a fresh one, or an earlier one', 'overflow-restart');
+  btnRestart.setAttribute('aria-haspopup', 'dialog');
   const btnWorkspaceRepos = buildMenuItem('Edit repositories...', 'Add or remove repositories in this workspace', 'overflow-workspace-repos');
   const btnLinkPr = buildMenuItem('Link pull request...', 'Link or unlink pull requests for this session', 'overflow-link-pr visible');
   const btnConversationView = buildMenuItem('Conversation view', 'Show this session as messages (experimental)', 'overflow-conversation-view');
@@ -202,7 +201,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openCardSessionSetup?.(sessionId);
   };
-  sessionMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnCoherenceJournal, btnSessionSetup, btnLinkPr);
+  sessionMenu.append(btnRestart, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnCoherenceJournal, btnSessionSetup, btnLinkPr);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug');
@@ -243,7 +242,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, taskTitleEl, btnRestart, btnRestartFresh, btnSessionMenu, btnResume, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, sessionMenu, termWrap };
+  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, sessionMenu, termWrap };
 }
 
 export function paintGuardrailsMenuItem(button: HTMLButtonElement, card: HTMLElement) {

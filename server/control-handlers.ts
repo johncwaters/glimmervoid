@@ -520,12 +520,26 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return { ok: true, repoRemoteUrl, baseBranch };
   }
 
-  async function restartSession(msg: ClientMessageOf<'restart'> | ClientMessageOf<'force-restart'>, ws: ControlSocket, restart: (session: Session) => void): Promise<void> {
+  async function restartSession(msg: ClientMessageOf<'restart'> | ClientMessageOf<'force-restart'>, ws: ControlSocket, restart: (session: Session, options: { fresh: boolean; conversationId?: string }) => boolean): Promise<void> {
     const sess = findSession(msg);
     if (!sess) return;
+    const fresh = msg.fresh === true;
+    const conversationId = fresh ? null : requestedConversationId(msg.conversationId);
+    if (!conversationId) {
+      await renewAndRestart(sess, ws, () => { restart(sess, { fresh }); });
+      return;
+    }
+    const refusal = resumeConversationRefusal(sess, conversationId);
+    if (refusal) { sendError(ws, refusal, { id: sess.id }); return; }
+    await renewAndRestart(sess, ws, () => {
+      if (restart(sess, { fresh, conversationId })) persistResumeConversation(sess.id, conversationId);
+    });
+  }
+
+  async function renewAndRestart(sess: Session, ws: ControlSocket, restart: () => void): Promise<void> {
     const project = config.projects.find((candidate) => candidate.id === sess.id);
     if (sess.state !== STATES.FAILED || !project?.environment || !coderEnv) {
-      restart(sess);
+      restart();
       return;
     }
     const source = await remoteRepoSource(project.path);
@@ -543,7 +557,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       sendError(ws, renewal.reason, { id: sess.id });
       return;
     }
-    restart(sess);
+    restart();
   }
 
   function liveWorkspaceCount(environmentName: string, excludedProjectId?: string): number {
@@ -842,25 +856,36 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }));
   }
 
-  function handleResumeConversation(msg: ClientMessageOf<'resume-conversation'>, ws: ControlSocket): void {
-    const sess = findSession(msg);
-    const requestId = typeof msg.requestId === 'string' ? msg.requestId : undefined;
-    if (!sess) { sendError(ws, 'Session not found', { requestId }); return; }
-    if (sess.ephemeral) { sendError(ws, 'This session cannot resume a conversation', { requestId }); return; }
-    const raw = typeof msg.conversationId === 'string' ? msg.conversationId.trim() : '';
-    const conversationId = raw || null;
-    if (conversationId && !RESUME_ID_RE.test(conversationId)) {
-      sendError(ws, 'Invalid conversation id', { requestId });
-      return;
-    }
+  function resumeConversationRefusal(sess: Session, conversationId: string | null): string | null {
+    if (sess.ephemeral) return 'This session cannot resume a conversation';
+    if (conversationId && !RESUME_ID_RE.test(conversationId)) return 'Invalid conversation id';
+    return null;
+  }
 
+  function persistResumeConversation(sessionId: string, conversationId: string | null): void {
     const freshConfig = configStore.save(cfg => {
-      const project = cfg.projects.find(p => p.id === sess.id);
+      const project = cfg.projects.find(p => p.id === sessionId);
       if (!project) return;
       if (conversationId) project.resumeSessionId = conversationId;
       else delete project.resumeSessionId;
     });
     if (freshConfig) applyConfigReload(freshConfig);
+  }
+
+  function requestedConversationId(conversationId: unknown): string | null {
+    const trimmed = typeof conversationId === 'string' ? conversationId.trim() : '';
+    return trimmed || null;
+  }
+
+  function handleResumeConversation(msg: ClientMessageOf<'resume-conversation'>, ws: ControlSocket): void {
+    const sess = findSession(msg);
+    const requestId = typeof msg.requestId === 'string' ? msg.requestId : undefined;
+    if (!sess) { sendError(ws, 'Session not found', { requestId }); return; }
+    const conversationId = requestedConversationId(msg.conversationId);
+    const refusal = resumeConversationRefusal(sess, conversationId);
+    if (refusal) { sendError(ws, refusal, { requestId }); return; }
+
+    persistResumeConversation(sess.id, conversationId);
 
     const live = sessions.get(sess.id) || sess;
     live.setResumeConversation(conversationId);
@@ -1555,8 +1580,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'delete-hook': handleDeleteHook,
     'kill':             (msg: ClientMessageOf<'kill'>) => { const s = findSession(msg); if (s) s.killSession(); },
     'start-session':    handleStartSession,
-    'restart':          (msg: ClientMessageOf<'restart'>, ws: ControlSocket) => restartSession(msg, ws, (s) => { s.restart({ fresh: msg.fresh === true }); }),
-    'force-restart':    (msg: ClientMessageOf<'force-restart'>, ws: ControlSocket) => restartSession(msg, ws, (s) => { s.forceRestart({ fresh: msg.fresh === true }); }),
+    'restart':          (msg: ClientMessageOf<'restart'>, ws: ControlSocket) => restartSession(msg, ws, (s, options) => s.restart(options)),
+    'force-restart':    (msg: ClientMessageOf<'force-restart'>, ws: ControlSocket) => restartSession(msg, ws, (s, options) => s.forceRestart(options)),
     'dismiss':          (msg: ClientMessageOf<'dismiss'>) => {
       const session = findSession(msg);
       if (!session) return;

@@ -32,12 +32,10 @@ import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress
 import type { SessionUi } from './card-registry.ts';
 import { container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
 import { decidePlanHeaderAction, preferredBorrowedFace, promptKindNeedWords } from './face-core.ts';
-import { runRestartChoice } from './restart-menu-core.ts';
-import type { RestartChoice } from './restart-menu-core.ts';
 import type { SessionCardFace } from './face-core.ts';
 import { openConfirmDialog } from './modal.ts';
 import { requestSessionRemoval } from '../session-actions.ts';
-import { openResumeDialog } from './resume-dialog.ts';
+import { openRestartDialog } from './resume-dialog.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { reportUnsourcedError } from '../action-status.ts';
 import { countAttentionByKind, needsAttention, sessionAttentionTier, titleAlertCount } from '../focus-view/attention-core.ts';
@@ -138,11 +136,7 @@ export function applyConversationTraceChanged(sessionId: unknown) {
 function updateButtonVisibility(ui: SessionUi) {
   paintConversationViewItem(ui);
   const state = ui.currentState;
-  const canRestart = isKillable(state) || isRestartable(state);
-  ui.btnRestart.classList.toggle('visible', canRestart);
-  ui.btnRestartFresh.classList.toggle('visible', canRestart);
-
-  ui.btnResume.classList.toggle('visible', ui.card.dataset.ephemeral === undefined);
+  ui.btnRestart.classList.toggle('visible', isKillable(state) || isRestartable(state) || state === STATES.DORMANT);
   ui.btnWorkspaceRepos.classList.toggle('visible', ui.card.dataset.workspace !== undefined);
   ui.btnTrace.classList.toggle('visible', isDebugModeEnabled());
   ui.btnPlan.classList.toggle('visible', decidePlanHeaderAction(ui) !== 'hidden');
@@ -173,22 +167,9 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     startInlineRename(ui, sessionId);
   });
 
-  function restartSession(action: RestartChoice) {
+  ui.btnRestart.addEventListener('click', () => {
     closeSessionMenu(ui);
-    ui.btnSessionMenu.focus();
-    runRestartChoice(action, sessionId, {
-      readState: () => ui.currentState,
-      send: (message) => { sendSessionAction(ui, message); },
-      confirm: openConfirmDialog,
-    });
-  }
-
-  ui.btnRestart.addEventListener('click', () => restartSession('restart'));
-  ui.btnRestartFresh.addEventListener('click', () => restartSession('restart-fresh'));
-
-  ui.btnResume.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    openResumeDialog(sessionId, { currentState: ui.currentState });
+    openRestartDialog(sessionId, { readState: () => ui.currentState, canListEarlier: ui.card.dataset.ephemeral === undefined });
   });
 
   ui.btnWorkspaceRepos.addEventListener('click', () => {
@@ -396,9 +377,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     termWrap: dom.termWrap,
     btnDebug: dom.btnDebug,
     btnRestart: dom.btnRestart,
-    btnRestartFresh: dom.btnRestartFresh,
     btnSessionMenu: dom.btnSessionMenu,
-    btnResume: dom.btnResume,
     btnWorkspaceRepos: dom.btnWorkspaceRepos,
     btnConversationView: dom.btnConversationView,
     btnGuardrails: dom.btnGuardrails,

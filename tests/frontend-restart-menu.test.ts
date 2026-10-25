@@ -5,19 +5,21 @@ import { decidePlanHeaderAction } from '../public/session-card/face-core.ts';
 import { restartConfirmation, runRestartChoice } from '../public/session-card/restart-menu-core.ts';
 import type { RestartChoice, RestartChoiceDeps } from '../public/session-card/restart-menu-core.ts';
 
-test('both restart choices confirm only while the agent is mid-turn', () => {
+test('every restart choice confirms only while the agent is mid-turn', () => {
   for (const state of Object.values(STATES)) {
-    for (const action of ['restart', 'restart-fresh'] as const) {
+    for (const action of ['restart', 'restart-fresh', 'restart-into'] as const) {
       const confirmation = restartConfirmation(action, state);
       if (state !== STATES.RUNNING) {
         assert.equal(confirmation, null);
         continue;
       }
       assert.ok(confirmation);
-      assert.equal(confirmation.danger, action === 'restart-fresh');
-      assert.equal(confirmation.title, action === 'restart' ? 'Restart' : 'Restart fresh');
+      assert.equal(confirmation.danger, action !== 'restart');
+      assert.equal(confirmation.title, action === 'restart-fresh' ? 'Restart fresh' : 'Restart');
       assert.equal(confirmation.confirmLabel, confirmation.title);
       assert.match(confirmation.message, /mid-turn/);
+      assert.equal(/keeps this conversation/.test(confirmation.message), action === 'restart');
+      assert.equal(/switches to the earlier conversation/.test(confirmation.message), action === 'restart-into');
     }
   }
 });
@@ -44,7 +46,7 @@ function recordRestartChoice(action: RestartChoice, state: string) {
     readState: () => state,
     send: (message) => { sent.push(message); },
     confirm: (confirmation) => { confirmations.push(confirmation); },
-  });
+  }, 'conversation-e');
   return { sent, confirmations };
 }
 
@@ -59,22 +61,24 @@ test('Restart fresh sends the same restart type with fresh set', () => {
 });
 
 test('a running session confirms first and sends only on confirm', () => {
-  for (const action of ['restart', 'restart-fresh'] as const) {
+  const expectedByAction = {
+    'restart': { type: 'force-restart', id: 'session-a' },
+    'restart-fresh': { type: 'force-restart', id: 'session-a', fresh: true },
+    'restart-into': { type: 'force-restart', id: 'session-a', conversationId: 'conversation-e' },
+  };
+  for (const action of ['restart', 'restart-fresh', 'restart-into'] as const) {
     const { sent, confirmations } = recordRestartChoice(action, STATES.RUNNING);
     assert.equal(confirmations.length, 1);
     assert.deepEqual(sent, []);
     confirmations[0].onConfirm();
-    const expected = action === 'restart-fresh'
-      ? { type: 'force-restart', id: 'session-a', fresh: true }
-      : { type: 'force-restart', id: 'session-a' };
-    assert.deepEqual(sent, [expected]);
+    assert.deepEqual(sent, [expectedByAction[action]]);
   }
 });
 
 test('a session that is not running sends immediately with no confirm', () => {
   for (const state of Object.values(STATES)) {
     if (state === STATES.RUNNING) continue;
-    for (const action of ['restart', 'restart-fresh'] as const) {
+    for (const action of ['restart', 'restart-fresh', 'restart-into'] as const) {
       const { sent, confirmations } = recordRestartChoice(action, state);
       assert.equal(confirmations.length, 0);
       assert.equal(sent.length, 1);

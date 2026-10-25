@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One Restart... item in the session menu**: Restart, Restart fresh and Resume conversation... are now a single Restart... item, on desktop and phone. It opens a dialog where you pick this conversation (the default), a fresh one, or an earlier conversation from any worktree of the repo, and Restart restarts into it right away. Picking an earlier conversation no longer waits for the session's next restart. A mid-turn restart still asks first, a session that has not started yet starts into your pick, and a session spawned by another agent offers only this and fresh.
 - **One-line attention banner**: the banner at the top of the Focus rail and the phone Board is now a single line. The separate "Next session" row is gone: on desktop the Cmd/Alt+J keys sit at the right of the same line, lit in the color of the session they would open and dimmed when everything is clear, so you can tell at a glance whether pressing them does anything. On the phone the line shows status only, and a tap anywhere on it still opens the next session.
 
 ### Fixed

@@ -181,7 +181,7 @@ export type OperatorAction = { [Surface in OperatorSurface]: (typeof OPERATOR_AC
 export type OperatorActionOf<Surface extends OperatorSurface> = (typeof OPERATOR_ACTIONS_BY_SURFACE)[Surface][number];
 
 const idOnlyClientTypes = [
-  'kill', 'start-session', 'restart', 'force-restart',
+  'kill', 'start-session',
   'merge-session', 'finish-session', 'merge-continue-session', 'discard-session-worktree',
   'resolve-session-merge', 'request-session-diff', 'request-change-map', 'request-branch-sync', 'resync-branch', 'debug-state',
 ] as const;
@@ -194,7 +194,11 @@ const idOnlyClientVariants = idOnlyClientTypes.map(idOnlyClientVariant) as {
   [Type in typeof idOnlyClientTypes[number]]: ReturnType<typeof idOnlyClientVariant<Type>>;
 }[typeof idOnlyClientTypes[number]][];
 
+const restartClientShape = { id: sessionId, force: z.unknown().optional(), fresh: z.unknown().optional(), conversationId: z.string().optional() };
+
 const clientVariants = [
+  loose('restart', restartClientShape),
+  loose('force-restart', restartClientShape),
   loose('add-session', {
     name: z.string(),
     path: z.string(),

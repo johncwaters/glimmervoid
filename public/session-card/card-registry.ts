@@ -32,9 +32,7 @@ export interface SessionUi {
   termWrap: HTMLDivElement;
   btnDebug: HTMLButtonElement;
   btnRestart: HTMLButtonElement;
-  btnRestartFresh: HTMLButtonElement;
   btnSessionMenu: HTMLButtonElement;
-  btnResume: HTMLButtonElement;
   btnWorkspaceRepos: HTMLButtonElement;
   btnConversationView: HTMLButtonElement;
   btnGuardrails: HTMLButtonElement;
