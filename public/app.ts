@@ -26,7 +26,7 @@ import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
 import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, setVisionsProjectNames } from './visions/visions-panel.ts';
 import { applyHooksReport, applyLateHookResult, setHooksRequestSender } from './hooks-panel.ts';
 import { showDesktopNotification } from './notifications.ts';
-import { clearUnsourcedError, reportUnsourcedError } from './action-status.ts';
+import { clearHeaderError, clearHeaderErrorsForSession, reportHeaderError } from './action-status.ts';
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, orderPhonePanels, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession, syncPhoneHistory } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
@@ -160,6 +160,9 @@ function showLivenessProbeState(state: string, label: string) {
 }
 
 const SERVER_UNREACHABLE_HINT_DELAY_MS = 10000;
+const SERVER_ERROR_SOURCE = 'Server';
+const WORKTREE_ERROR_SOURCE = 'Worktree';
+const WORKTREE_WARNING_SOURCE = 'Worktree warning';
 const SERVER_UNREACHABLE_TEXT = 'The server is not answering. Check the terminal running Glimmervoid for errors, or start it again with glimmervoid. This page reconnects on its own.';
 const SERVER_UNREACHABLE_LOADING_DETAIL = 'Server not answering. Check the Glimmervoid terminal for errors, or run glimmervoid. This page retries on its own.';
 let serverUnreachableHintTimer: number | null = null;
@@ -178,7 +181,7 @@ function showServerUnreachableHint() {
     showReconnectingLoadingStatus();
     return;
   }
-  reportUnsourcedError(SERVER_UNREACHABLE_TEXT, { hidesInStreamerMode: false });
+  reportHeaderError({ source: SERVER_ERROR_SOURCE, message: SERVER_UNREACHABLE_TEXT, hidesInStreamerMode: false });
 }
 
 function scheduleServerUnreachableHint() {
@@ -191,7 +194,7 @@ function clearServerUnreachableHint() {
   serverUnreachableHintTimer = null;
   isServerUnreachableHintShown = false;
   loadingDetail.hidden = true;
-  clearUnsourcedError(SERVER_UNREACHABLE_TEXT);
+  clearHeaderError(SERVER_ERROR_SOURCE);
 }
 
 setConnectionStateCallback((state, label) => {
@@ -414,7 +417,7 @@ const messageHandlers = {
 
   'state-change':       (msg) => handleStateChange(msg),
   'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
-  'session-removed':    (msg) => { removeSessionCard(msg.id); forgetSessionCoherence(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-removed':    (msg) => { clearHeaderErrorsForSession(msg.id); removeSessionCard(msg.id); forgetSessionCoherence(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
   'session-prs': (msg) => setSessionLinkedPrs(msg.id, msg.linkedPrs),
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
@@ -440,9 +443,9 @@ const messageHandlers = {
   'session-unseen':     (msg) => { setSessionUnseenOutcome(msg.id, msg.unseenOutcome); updateAttentionTitle(); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); },
   'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind, msg.isCompacting === true, msg.isWaitingForMemory === true); refreshAttentionSurfaces(); },
   'session-merge-status': (msg) => { setSessionMergeStatus(msg.id, msg.mergeStatus, msg.reason); setFocusMergeStatus(msg.id, msg.mergeStatus); refreshAttentionSurfaces(); },
-  'session-worktree-blocked': (msg) => { reportUnsourcedError(`${msg.session}: ${msg.notice || 'integration branch not found'}`); },
-  'session-worktree-warning': (msg) => { reportUnsourcedError(`${msg.session}: ${msg.notice || 'base branch warning'}`); },
-  'session-worktree-ready': (msg) => { setSessionEffectiveBase(msg.id, msg.base); },
+  'session-worktree-blocked': (msg) => { reportHeaderError({ source: WORKTREE_ERROR_SOURCE, sessionId: msg.id, message: `${msg.session}: ${msg.notice || 'The integration branch was not found. Check the integration branch in Settings, then restart the session.'}` }); },
+  'session-worktree-warning': (msg) => { reportHeaderError({ source: WORKTREE_WARNING_SOURCE, sessionId: msg.id, message: `${msg.session}: ${msg.notice || 'The base branch could not be synced. The session keeps working on its current base.'}` }); },
+  'session-worktree-ready': (msg) => { clearHeaderError(WORKTREE_ERROR_SOURCE, msg.id); setSessionEffectiveBase(msg.id, msg.base); },
   'session-diff':       (msg) => { setSessionDiff(msg.id, { committed: msg.committed, uncommitted: msg.uncommitted, hasCommits: msg.hasCommits }); },
   'session-diff-error': (msg) => { setReviewDiffError(msg.id, msg.message); },
   'change-map':         (msg) => setSessionChangeMap(msg.id, msg.map),
@@ -474,7 +477,8 @@ const messageHandlers = {
     applyConversationTraceError(msg);
     const isPlanErrorShownInline = applySessionPlanError(msg);
     if (isUpdateErrorShownInline || isTraceErrorShownInline || isPlanErrorShownInline) return;
-    reportUnsourcedError(msg.message);
+    if (msg.id) { reportSessionProblem(msg.id, msg.message); return; }
+    reportHeaderError({ source: SERVER_ERROR_SOURCE, message: msg.message });
   },
   'session-error':      (msg) => {
     releaseReviewMergeRequest(msg.id);
@@ -705,7 +709,8 @@ function activateSettingsHash(hash: string) {
   return activateSettingsTarget(resolveSettingsTarget(hash));
 }
 
-const NO_STORED_PLAN_TEXT = 'No plan is stored for this session yet.';
+const NO_STORED_PLAN_TEXT = 'No plan is stored for this session yet. It appears here once the agent writes one.';
+const PLAN_ERROR_SOURCE = 'Plan';
 
 function activatePlanHash(hash: string) {
   const sessionId = resolvePlanTarget(hash);
@@ -713,11 +718,11 @@ function activatePlanHash(hash: string) {
   if (!hasSession(sessionId)) return true;
   history.replaceState(history.state, '', `${location.pathname}${location.search}`);
   if (isPhoneShellActive()) {
-    if (!showPhonePlan(sessionId)) reportUnsourcedError(NO_STORED_PLAN_TEXT);
+    if (!showPhonePlan(sessionId)) reportHeaderError({ source: PLAN_ERROR_SOURCE, sessionId, message: NO_STORED_PLAN_TEXT });
     return true;
   }
   activateView('focus', { persist: false });
-  if (!openPlanInFocus(sessionId)) reportUnsourcedError(NO_STORED_PLAN_TEXT);
+  if (!openPlanInFocus(sessionId)) reportHeaderError({ source: PLAN_ERROR_SOURCE, sessionId, message: NO_STORED_PLAN_TEXT });
   return true;
 }
 

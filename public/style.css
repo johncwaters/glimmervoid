@@ -177,9 +177,30 @@ body {
 }
 
 .header-status {
-  flex: 1 1 0;
-  justify-content: flex-end;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  padding: 8px 16px;
+  background: linear-gradient(var(--state-failed-bg), var(--state-failed-bg)), var(--bg-header);
+  border-bottom: 2px solid var(--state-failed);
+  box-shadow: 0 6px 16px rgb(0 0 0 / 35%);
 }
+
+.header-status[hidden] { display: none; }
+
+.header-status-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.header-status-source { font-weight: 700; }
 
 .header-right {
   display: flex;

@@ -1,4 +1,4 @@
-import { DEFAULT_REPLY_TIMEOUT_MS, reportUnsourcedError, requestFailureText } from './action-status.ts';
+import { DEFAULT_REPLY_TIMEOUT_MS, clearHeaderError, reportHeaderError, requestFailureText } from './action-status.ts';
 import { sendControlRequest } from './control-ws.ts';
 import { getJSON, setJSON } from './local-store.ts';
 
@@ -42,13 +42,18 @@ export async function saveStreamerMode(isEnabled: boolean): Promise<string> {
   }
 }
 
+const STREAMER_ERROR_SOURCE = 'Streamer mode';
+
 async function toggleAndPersistStreamerMode() {
   const shouldEnable = !isStreamerMode();
   if (shouldEnable) setStreamerMode(true);
   const saveError = await saveStreamerMode(shouldEnable);
-  if (!saveError) return;
+  if (!saveError) {
+    clearHeaderError(STREAMER_ERROR_SOURCE);
+    return;
+  }
   const outcome = shouldEnable ? 'Streamer mode is on in this browser only. The server did not save it' : 'Streamer mode is still on. The server did not save the change';
-  reportUnsourcedError(`${outcome}: ${saveError}`, { hidesInStreamerMode: false });
+  reportHeaderError({ source: STREAMER_ERROR_SOURCE, message: `${outcome}: ${saveError} Toggle it again to retry.`, hidesInStreamerMode: false });
 }
 
 export function toggleStreamerMode() {

@@ -37,7 +37,7 @@ import { openConfirmDialog } from './modal.ts';
 import { requestSessionRemoval } from '../session-actions.ts';
 import { openRestartDialog } from './resume-dialog.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
-import { reportUnsourcedError } from '../action-status.ts';
+import { reportHeaderError } from '../action-status.ts';
 import { countAttentionByKind, needsAttention, sessionAttentionTier, titleAlertCount } from '../focus-view/attention-core.ts';
 import { closeSessionNotifications } from '../notifications.ts';
 
@@ -720,7 +720,7 @@ function _handleEndedTransition(ui: SessionUi, wasActive: boolean, state: string
 
 export function reportSessionProblem(sessionId: unknown, message: string) {
   const ui = findSessionUi(sessionId);
-  if (!ui) { reportUnsourcedError(message); return; }
+  if (!ui) { reportHeaderError({ source: 'Session', sessionId: typeof sessionId === 'string' ? sessionId : undefined, message }); return; }
   sessionActionStatus(ui).show('error', message);
 }
 

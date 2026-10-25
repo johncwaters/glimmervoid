@@ -1,4 +1,4 @@
-import { DEFAULT_REPLY_TIMEOUT_MS, reportUnsourcedError, requestFailureText } from './action-status.ts';
+import { clearHeaderError, DEFAULT_REPLY_TIMEOUT_MS, reportHeaderError, requestFailureText } from './action-status.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { addSessionRefusalText, openAddSessionDialogForFolderWithoutWorktree } from './dialogs.ts';
 import type { KeptWorkPath } from '#shared/contracts/control-messages.ts';
@@ -43,7 +43,7 @@ export function sendForSession(id: string, message: Record<string, unknown>): bo
   const ui = sessionUIs.get(id);
   if (ui) return sendSessionAction(ui, message);
   if (sendControlMsg(message)) return true;
-  reportUnsourcedError(NOT_CONNECTED_TEXT);
+  reportHeaderError({ source: 'Session action', sessionId: id, message: `${NOT_CONNECTED_TEXT} Try the action again once the header shows Connected.` });
   return false;
 }
 
@@ -51,14 +51,17 @@ async function requestQuickAdd(path: string, label: string | null | undefined) {
   try {
     const name = suggestSessionName(label);
     const reply = await sendControlRequest('add-session', { name, path }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
-    if (reply.type === 'add-session-result' && reply.ok) return;
+    if (reply.type === 'add-session-result' && reply.ok) {
+      clearHeaderError(ADD_SESSION_ERROR_SOURCE);
+      return;
+    }
     if (reply.type === 'add-session-result' && reply.reason === 'not-git') {
       openAddSessionDialogForFolderWithoutWorktree({ name, path });
       return;
     }
-    reportUnsourcedError(addSessionRefusalText(reply));
+    reportHeaderError({ source: ADD_SESSION_ERROR_SOURCE, message: addSessionRefusalText(reply) });
   } catch (reason) {
-    reportUnsourcedError(`The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}`);
+    reportHeaderError({ source: ADD_SESSION_ERROR_SOURCE, message: `The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)} Add it again once the server answers.` });
   }
 }
 
@@ -68,6 +71,8 @@ export function quickAddSession(path: string | null | undefined, label: string |
 }
 
 const SESSION_REMOVAL_TIMEOUT_MS = 65 * 60_000;
+const ADD_SESSION_ERROR_SOURCE = 'Add session';
+const REMOVE_SESSION_ERROR_SOURCE = 'Remove session';
 
 function unsavedWorkMessage(ui: SessionUi, reply: { error?: string | null; keptPaths?: KeptWorkPath[] }): string {
   if (!reply.keptPaths?.length) return `${reply.error}. Removing "${sessionName(ui)}" deletes its Coder workspace and that work with it. Push it from the session first to keep it.`;
@@ -80,7 +85,7 @@ async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWo
     const reply = await sendControlRequest('remove-session', { id, discardWork, confirmedKeptPaths }, { timeoutMs: SESSION_REMOVAL_TIMEOUT_MS });
     if (reply.type !== 'remove-session-result' || reply.ok) return;
     if (!reply.canDiscardWork) {
-      reportUnsourcedError(`The session was not removed: ${reply.error ?? 'unknown error'}`);
+      reportHeaderError({ source: REMOVE_SESSION_ERROR_SOURCE, sessionId: id, message: `"${sessionName(ui)}" was not removed: ${reply.error ?? 'the server gave no reason'}. Try Remove again from its actions menu.` });
       return;
     }
     openConfirmDialog({
@@ -91,7 +96,7 @@ async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWo
       onConfirm: () => { void requestCheckedSessionRemoval(ui, id, true, (reply.keptPaths ?? []).map((kept) => kept.path)); },
     });
   } catch (reason) {
-    reportUnsourcedError(`The session was not removed: ${requestFailureText(reason, SESSION_REMOVAL_TIMEOUT_MS)}`);
+    reportHeaderError({ source: REMOVE_SESSION_ERROR_SOURCE, sessionId: id, message: `"${sessionName(ui)}" was not removed: ${requestFailureText(reason, SESSION_REMOVAL_TIMEOUT_MS)} Try Remove again from its actions menu.` });
   }
 }
 

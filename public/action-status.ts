@@ -1,4 +1,5 @@
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
+import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import type { StatusIcon } from '#shared/state-icons.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
@@ -106,37 +107,75 @@ export async function requestWithStatus(type: string, payload: Record<string, un
   }
 }
 
+interface HeaderError {
+  source: string;
+  sessionId?: string;
+  message: string;
+  hidesInStreamerMode?: boolean;
+}
+
+interface ShownHeaderError {
+  source: string;
+  sessionId: string | null;
+  raisedAt: number;
+}
+
+let shownHeaderError: ShownHeaderError | null = null;
+const HEADER_ERROR_AGE_REPAINT_MS = 30_000;
+let headerAgeTimer: number | null = null;
+
 function headerStatusParts() {
   const line = document.getElementById('header-status');
   const text = document.getElementById('header-status-text');
+  const age = document.getElementById('header-status-age');
   const dismiss = document.getElementById('header-status-dismiss');
-  if (!line || !text || !dismiss) return null;
+  if (!line || !text || !age || !dismiss) return null;
   if (dismiss.dataset.wired === undefined) {
     dismiss.dataset.wired = '';
     dismiss.addEventListener('click', dismissHeaderStatus);
   }
-  return { line, text };
+  return { line, text, age };
 }
 
-export function reportUnsourcedError(message: string, { hidesInStreamerMode = true }: { hidesInStreamerMode?: boolean } = {}) {
+function paintHeaderErrorAge() {
+  const parts = headerStatusParts();
+  if (!parts || !shownHeaderError) return;
+  const ageText = elapsedText(Date.now() - shownHeaderError.raisedAt, { ...COMPACT_FLOORED_AGO, justNowBelowSeconds: 60 });
+  if (parts.age.textContent !== ageText) parts.age.textContent = ageText;
+}
+
+export function reportHeaderError({ source, sessionId, message, hidesInStreamerMode = true }: HeaderError) {
   const parts = headerStatusParts();
   if (!parts) return;
-  const shownText = hidesInStreamerMode ? streamerSafeText('error', message) : message;
-  parts.text.textContent = shownText;
-  parts.text.title = shownText;
+  const shownMessage = hidesInStreamerMode ? streamerSafeText('error', message) : message;
+  const sourceElement = el('strong', 'header-status-source', source);
+  parts.text.replaceChildren(sourceElement, ` ${shownMessage}`);
+  parts.text.title = `${source}: ${shownMessage}`;
+  shownHeaderError = { source, sessionId: sessionId ?? null, raisedAt: Date.now() };
+  paintHeaderErrorAge();
+  headerAgeTimer ??= window.setInterval(paintHeaderErrorAge, HEADER_ERROR_AGE_REPAINT_MS);
   parts.line.hidden = false;
 }
 
-export function clearUnsourcedError(message: string) {
-  const parts = headerStatusParts();
-  if (!parts || parts.text.textContent !== message) return;
+export function clearHeaderError(source: string, sessionId?: string) {
+  if (shownHeaderError?.source !== source) return;
+  if (sessionId !== undefined && shownHeaderError.sessionId !== sessionId) return;
+  dismissHeaderStatus();
+}
+
+export function clearHeaderErrorsForSession(sessionId: string) {
+  if (shownHeaderError?.sessionId !== sessionId) return;
   dismissHeaderStatus();
 }
 
 function dismissHeaderStatus() {
+  shownHeaderError = null;
+  if (headerAgeTimer !== null) window.clearInterval(headerAgeTimer);
+  headerAgeTimer = null;
   const parts = headerStatusParts();
   if (!parts) return;
   parts.line.hidden = true;
-  parts.text.textContent = '';
+  parts.text.replaceChildren();
   parts.text.title = '';
+  parts.age.textContent = '';
 }

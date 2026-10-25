@@ -1,4 +1,4 @@
-import { reportUnsourcedError } from './action-status.ts';
+import { clearHeaderError, reportHeaderError } from './action-status.ts';
 import { desktopNotificationOptions } from './desktop-notification-core.ts';
 import { el } from './dom-helpers.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
@@ -68,6 +68,7 @@ export function createNotificationPermissionControl(onAnswered: () => void = () 
   return { element: control, refresh: render };
 }
 
+const NOTIFICATIONS_ERROR_SOURCE = 'Notifications';
 const BLOCKED_NOTIFICATIONS_TEXT = 'Desktop notifications are blocked by the browser, so alerts show only in this tab. Allow notifications for this site to get them again.';
 
 const shownNotificationsBySession = new Map<string, Set<Notification>>();
@@ -76,7 +77,7 @@ let hasReportedBlockedNotifications = false;
 function reportBlockedNotificationsOnce() {
   if (hasReportedBlockedNotifications) return;
   hasReportedBlockedNotifications = true;
-  reportUnsourcedError(BLOCKED_NOTIFICATIONS_TEXT, { hidesInStreamerMode: false });
+  reportHeaderError({ source: NOTIFICATIONS_ERROR_SOURCE, message: BLOCKED_NOTIFICATIONS_TEXT, hidesInStreamerMode: false });
 }
 
 function rememberShownNotification(sessionId: string, notification: Notification) {
@@ -106,6 +107,7 @@ export function showDesktopNotification({
   if (!ignoreFocus && typeof document !== 'undefined' && typeof document.hasFocus === 'function' && document.hasFocus()) return;
   if (notificationApi.permission === 'denied') reportBlockedNotificationsOnce();
   if (notificationApi.permission !== 'granted') return;
+  clearHeaderError(NOTIFICATIONS_ERROR_SOURCE);
 
   if (!claimNotification(window.localStorage, claimKey(session, category), Date.now())) return;
   const sessionId = typeof session === 'string' ? session : '';
