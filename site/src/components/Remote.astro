@@ -4,24 +4,25 @@ const DEMO_PAIRING_TOKEN = 'q8Vf2LkT0xRw7mZc4NsY1bHd9GpJa6UeKo3iXt5WvQn';
 ---
 <section id="remote">
   <div class="section-head reveal">
-    <h2>Host it once. Steer from your phone.</h2>
-    <p>One machine runs it all. Your phone pairs in.</p>
+    <h2>Host it once. Steer from anywhere.</h2>
+    <p>One machine runs it all. Any device pairs in.</p>
   </div>
-  <div class="remote-route reveal" role="img" aria-label="Glimmervoid and your agents run on one machine. Your own HTTPS proxy, such as Tailscale, carries the dashboard to paired devices like your phone.">
+  <div class="remote-route reveal" role="img" aria-label="Glimmervoid and your agents run on one machine. Your own HTTPS proxy, such as Tailscale, carries the dashboard to paired devices: your phone, laptop or PC.">
     <div class="route-node host">
       <span class="route-label">Your machine</span>
       <span class="route-detail">Glimmervoid and your agents</span>
       <span class="route-extra">Agents can also run in Coder workspaces<span class="experimental-tag">Experimental</span></span>
     </div>
-    <span class="route-link" aria-hidden="true"></span>
-    <div class="route-node">
-      <span class="route-label">Tailscale</span>
-      <span class="route-detail">Or any HTTPS</span>
-    </div>
-    <span class="route-link" aria-hidden="true"></span>
-    <div class="route-node paired">
-      <span class="route-label">Your phone</span>
-      <span class="route-detail">Or any paired device</span>
+    <div class="route-link" aria-hidden="true"><span class="route-link-label">Tailscale or any HTTPS</span></div>
+    <div class="route-devices">
+      <div class="route-node paired">
+        <span class="route-label">Your phone</span>
+        <span class="route-detail">Or tablet</span>
+      </div>
+      <div class="route-node paired">
+        <span class="route-label">Your laptop or PC</span>
+        <span class="route-detail">Any browser</span>
+      </div>
     </div>
   </div>
   <figure class="reveal" aria-label="Pairing a phone in a terminal"><pre class="remote-term"><span class="prompt">$</span> tailscale serve --bg 3456
@@ -31,20 +32,30 @@ const DEMO_PAIRING_TOKEN = 'q8Vf2LkT0xRw7mZc4NsY1bHd9GpJa6UeKo3iXt5WvQn';
 </section>
 
 <style>
-  .remote-route { display: grid; grid-template-columns: minmax(0, 1.4fr) 32px minmax(0, 1fr) 32px minmax(0, 1fr); align-items: center; margin-bottom: 32px; }
+  .remote-route { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(120px, 0.8fr) minmax(0, 1fr); align-items: center; margin-bottom: 32px; }
   .route-node { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 16px 18px; min-width: 0; }
   .route-node.paired, .route-node.host { border-color: var(--accent-dim); }
   .route-extra { margin-top: 4px; color: var(--text-dim); font-size: 13px; }
   .route-extra .experimental-tag { margin-left: 8px; font-size: 11px; }
   .route-label { color: var(--text-head); font-weight: 700; font-size: 16px; }
   .route-detail { color: var(--text-dim); font-size: 14px; }
-  .route-link { height: 1px; background: repeating-linear-gradient(to right, var(--accent-dim) 0 6px, transparent 6px 10px); }
+  .route-link { position: relative; display: flex; justify-content: center; align-items: center; align-self: stretch; }
+  .route-link::before { content: ''; position: absolute; inset: 50% 0 auto; height: 1px; background: repeating-linear-gradient(to right, var(--accent-dim) 0 6px, transparent 6px 10px); }
+  .route-link-label { position: relative; padding: 2px 8px; background: var(--bg); color: var(--text-dim); font-size: 12px; text-align: center; }
+  .route-devices { --dash-x: repeating-linear-gradient(to right, var(--accent-dim) 0 6px, transparent 6px 10px); --dash-y: repeating-linear-gradient(to bottom, var(--accent-dim) 0 6px, transparent 6px 10px); position: relative; display: flex; flex-direction: column; gap: 12px; min-width: 0; padding-left: 16px; }
+  .route-devices::before { content: ''; position: absolute; left: 0; inset-block: 25%; width: 1px; background: var(--dash-y); }
+  .route-devices .route-node { position: relative; }
+  .route-devices .route-node::before { content: ''; position: absolute; top: 50%; right: 100%; width: 17px; height: 1px; background: var(--dash-x); }
   #remote figure { margin: 0; max-width: 640px; }
   .remote-term { margin: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 18px; font-family: var(--font-mono); font-size: 14px; line-height: 1.6; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
   .remote-term .pair-url { color: var(--accent); word-break: break-all; }
   .remote-term .prompt, .remote-term .dim { color: var(--text-dim); }
   @media (max-width: 820px) {
-    .remote-route { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 24px auto 24px auto; }
-    .route-link { width: 1px; height: 100%; justify-self: center; background: repeating-linear-gradient(to bottom, var(--accent-dim) 0 6px, transparent 6px 10px); }
+    .remote-route { grid-template-columns: minmax(0, 1fr); }
+    .route-link { min-height: 56px; }
+    .route-link::before { inset: 0 auto 0 50%; width: 1px; height: auto; background: repeating-linear-gradient(to bottom, var(--accent-dim) 0 6px, transparent 6px 10px); }
+    .route-devices { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 16px 0 0; }
+    .route-devices::before { top: 0; bottom: auto; inset-inline: 25%; width: auto; height: 1px; background: var(--dash-x); }
+    .route-devices .route-node::before { top: auto; bottom: 100%; right: auto; left: 50%; width: 1px; height: 17px; background: var(--dash-y); }
   }
 </style>
