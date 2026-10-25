@@ -24,8 +24,8 @@ export const GET: APIRoute = ({ site }) => {
     '## Features',
     [
       '- Status: read from each agent\'s own lifecycle hooks, with the terminal title as a fallback, never from reading the screen. Sessions waiting on you collect in a "needs you" queue, and Cmd+J jumps to the next one.',
+      '- Reviews: your team\'s pull requests get a review drafted by a sandboxed agent, and nothing posts to GitHub until you pick the comments and click Approve or Comment. Re-reviews after new commits raise only high findings. Your own pull requests show their merge readiness (checks, review, threads, conflicts, base); per pull request you can turn on Merge when ready, which merges it once it is ready, and Keep mergeable, which repairs conflicts and failing checks. Opt-in.',
       '- Worktrees: every session in a git repo runs in its own git worktree, so parallel agents never collide. One click merges a session\'s work back; a conflict goes back to the agent that wrote the code.',
-      '- Reviews: your team\'s pull requests are reviewed in a guarded session and you post the parts you agree with. Your own pull requests merge once they are ready. Opening GitHub is not required.',
       '- Helper agents: every session gets the `glimmervoid` CLI, so an agent can spawn a helper session, message it, and close it.',
       `- Guardrails: accident protection, not a security boundary, for ${GUARDED_AGENT_LABELS} on macOS and Linux. Safe commands run without prompts; destructive ones such as \`git reset --hard\` are blocked.`,
       '- Remote: one machine hosts everything; a phone or other device pairs once with a single-use link over your own HTTPS proxy, such as Tailscale.',
