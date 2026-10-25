@@ -1,3 +1,4 @@
+import { CHANGES_POLL_INTERVAL_MS } from '#shared/contracts/control-messages.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { ChangeMap } from '#shared/contracts/change-map.ts';
 import type { SessionState } from '#shared/states.ts';
@@ -145,6 +146,7 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
   handle.tabIndex = 0;
   mountedPanel.append(rail, head, controlsEl, bodyEl, handle);
   mountedPanel.toggleAttribute('data-collapsed', !isReviewSidebarExpanded());
+  watchChangesWhileOnScreen(bodyEl);
 
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || !isMoreMenuOpen) return;
@@ -195,6 +197,29 @@ function applyStatus(id: string, next: string) {
     if (id === getSelectedId()) requestChangeMap(id);
   }
   if (id === getSelectedId()) render();
+}
+
+function watchChangesWhileOnScreen(watchedBodyEl: HTMLElement) {
+  let isBodyOnScreen = false;
+  let watchedSessionId: string | null = null;
+  let renewTimer: ReturnType<typeof setInterval> | null = null;
+  const sendWatch = (id: string | null) => sendControlMsg({ type: 'watch-session-changes', id });
+  const syncWatch = () => {
+    const wantedSessionId = isBodyOnScreen && document.visibilityState === 'visible' ? getSelectedId() : null;
+    if (wantedSessionId === watchedSessionId) return;
+    if (renewTimer) clearInterval(renewTimer);
+    renewTimer = null;
+    watchedSessionId = wantedSessionId;
+    sendWatch(wantedSessionId);
+    if (!wantedSessionId) return;
+    renewTimer = setInterval(() => sendWatch(wantedSessionId), CHANGES_POLL_INTERVAL_MS);
+  };
+  new IntersectionObserver((entries) => {
+    isBodyOnScreen = entries[entries.length - 1]?.isIntersecting ?? false;
+    syncWatch();
+  }).observe(watchedBodyEl);
+  document.addEventListener('visibilitychange', syncWatch);
+  onSelectionChange(syncWatch);
 }
 
 export function reparentReviewPanel(parentEl: HTMLElement | null) {

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Changes panel stays current while you watch it**: while the Changes panel is open and the tab is in front, edits a session makes show up within about 4 seconds, mid-turn, for every agent, not just when the turn ends. Glimmervoid checks only the one session on screen, and stops as soon as the panel is collapsed, the phone leaves the Changes screen, or the tab is hidden.
+
 - **Changes screen on phone**: one title row with the session name instead of two stacked headers. A session with no changes yet shows a short note saying edits land here, ready to merge into the base branch, instead of an empty screen, on desktop too. The branch sync refresh button now always shows its sync state beside it on phone, since there is no hover tooltip to explain it.
 
 ### Fixed
