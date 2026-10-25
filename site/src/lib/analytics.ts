@@ -1,6 +1,13 @@
 import posthog from 'posthog-js';
+import type { InstallPlatform } from './install-platform.ts';
 
 export type ConsentChoice = 'pending' | 'accepted' | 'declined';
+export type InstallLocation = 'hero' | 'install';
+export type CopyOutcome = 'copied' | 'selected';
+type SiteEvent =
+  | { event: 'install_command_copied'; properties: { platform: InstallPlatform; location: InstallLocation; outcome: CopyOutcome } }
+  | { event: 'install_platform_picked'; properties: { platform: InstallPlatform; detected_platform: InstallPlatform | 'unknown'; location: InstallLocation } }
+  | { event: 'landing_section_viewed'; properties: { section: string; order: number } };
 
 const POSTHOG_PROJECT_TOKEN = 'phc_s68t9vWmeGcrWkx4NkLQaEiVZ9sMBxv8GjQBbAcix2Sf';
 export const CONSENT_CHANGE_EVENT = 'glimmervoid:consent-change';
@@ -18,6 +25,24 @@ export function initAnalytics(): void {
     capture_dead_clicks: true,
     capture_heatmaps: true,
   });
+  captureSectionViews();
+}
+
+export function captureSiteEvent(siteEvent: SiteEvent): void {
+  if (!isAnalyticsEnabled) return;
+  posthog.capture(siteEvent.event, siteEvent.properties);
+}
+
+function captureSectionViews(): void {
+  const sections = [...document.querySelectorAll<HTMLElement>('section[id]')];
+  const sectionObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting || !(entry.target instanceof HTMLElement)) continue;
+      sectionObserver.unobserve(entry.target);
+      captureSiteEvent({ event: 'landing_section_viewed', properties: { section: entry.target.id, order: sections.indexOf(entry.target) + 1 } });
+    }
+  }, { rootMargin: '0px 0px -40% 0px' });
+  for (const section of sections) sectionObserver.observe(section);
 }
 
 export function consentChoice(): ConsentChoice {
