@@ -273,6 +273,9 @@ function sendError(ws: ControlSocket, message: string, { type = 'error', request
   ws.send(JSON.stringify(payload));
 }
 
+const SESSION_GONE_TEXT = 'That session no longer exists. Reload the page to refresh the session list.';
+const UNREADABLE_REQUEST_TEXT = 'The server could not read a request from this page, most likely because the page is older than the server. Reload the page.';
+
 function myPrMergeKey(msg: Record<string, unknown> | null | undefined): string {
   return typeof msg?.repo === 'string' && typeof msg.number === 'number' ? prKey(msg.repo, msg.number) : '';
 }
@@ -329,7 +332,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'plan-decision',
     'request-health-snapshot',
   ]);
-  if (genericErrorRequests.has(requestType)) return { type: 'error', message };
+  if (genericErrorRequests.has(requestType)) return { type: 'error', message: UNREADABLE_REQUEST_TEXT };
   return null;
 }
 
@@ -690,20 +693,20 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const newName = (msg.newName || '').trim();
 
     if (!sess || !newName) {
-      sendError(ws, 'Session and new name are required');
+      sendError(ws, 'That session no longer exists or the new name was empty. Reload the page, then rename again with a name.');
       return;
     }
 
-    if (sess.ephemeral) { sendError(ws, 'This session cannot be renamed'); return; }
+    if (sess.ephemeral) { sendError(ws, 'Glimmervoid manages this session itself, so it cannot be renamed.', { id: sess.id }); return; }
 
     if (!SESSION_NAME_PATTERN.test(newName)) {
-      sendError(ws, SESSION_NAME_RULE_TEXT);
+      sendError(ws, `${SESSION_NAME_RULE_TEXT}. Pick another name.`, { id: sess.id });
       return;
     }
 
     for (const [, other] of sessions) {
       if (other !== sess && other.name === newName) {
-        sendError(ws, `Session "${newName}" already exists`);
+        sendError(ws, `A session named "${newName}" already exists. Pick another name.`, { id: sess.id });
         return;
       }
     }
@@ -786,12 +789,16 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   function handleSetSessionTitle(msg: ClientMessageOf<'set-session-title'>, ws: ControlSocket): void {
     const session = findSession(msg);
     const parsedTitle = TaskTitle.safeParse(msg.title);
-    if (!session || !parsedTitle.success) {
-      sendError(ws, `Session and a task of at most ${TASK_TITLE_MAX_LENGTH} characters without control characters are required`);
+    if (!session) {
+      sendError(ws, SESSION_GONE_TEXT);
+      return;
+    }
+    if (!parsedTitle.success) {
+      sendError(ws, `The task was not set: it must be at most ${TASK_TITLE_MAX_LENGTH} characters with no control characters. Shorten it and set it again.`, { id: session.id });
       return;
     }
     if (session.ephemeral) {
-      sendError(ws, 'This session cannot have a custom task');
+      sendError(ws, 'Glimmervoid manages this session itself, so it cannot have a custom task.', { id: session.id });
       return;
     }
     const freshConfig = configStore.save(config => {
@@ -1638,7 +1645,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     },
     'debug-state':      (msg: ClientMessageOf<'debug-state'>, ws: ControlSocket) => {
       const s = findSession(msg);
-      if (!s) { sendError(ws, 'Session not found'); return; }
+      if (!s) { sendError(ws, SESSION_GONE_TEXT); return; }
       ws.send(JSON.stringify({ type: 'debug-state-response', id: s.id, payload: s.getDebugState() }));
     },
     'session-trace':    async (message: ClientMessageOf<'session-trace'>, ws: ControlSocket) => {
