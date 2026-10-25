@@ -1,6 +1,5 @@
-import { access, chmod, copyFile, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, symlink } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, readlinkSync } from 'node:fs';
+import { access, chmod, copyFile, lstat, mkdir, readdir, realpath, rename, rm, stat, symlink } from 'node:fs/promises';
+import { readlinkSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,9 +14,10 @@ import { bridgeSocketLauncherEnv } from './core/guardrails-bridge-socket-core.ts
 import { buildGuardrailsLaunchPlan, GUARDRAILS_TEMP_FOLDER, lockedClaudeMountPoints, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates } from './core/guardrails-policy-core.ts';
 import type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, GuardrailsRole } from './core/guardrails-policy-core.ts';
 import { codexHomes, grokHomes, projectDirCandidates } from '../usage/core/usage-scan-core.ts';
-import { loadJsonStateFile, writeJsonAtomic, writeJsonAtomicSync } from '../json-file.ts';
+import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { relayPath, resolvePackageBin } from '../runtime-paths.ts';
 import { pruneAgedFiles } from '../prune-files.ts';
+import { createHeldSessionTempFolder, releaseSessionLock, sessionIdOfLockFile, trashSessionTempFolderOnceUnheld } from './session-temp-locks.ts';
 
 interface WrappedCommand {
   file: string;
@@ -47,14 +47,10 @@ const POLICY_FOLDER = 'guardrails-policies';
 const LAUNCH_HOME_FOLDER = 'guardrails-homes';
 const START_FOLDER = 'start';
 const OWNER_FILE_SUFFIX = '.owner.json';
-const LEASE_FILE_SUFFIX = '.lease.json';
-const LEASE_INSTANCE_SHAPE = /^\d+-[0-9a-f-]+$/;
-const GuardrailsSessionLease = GuardrailsLaunchOwner.pick({ ownerPid: true, ownerHost: true, ownerPidNamespace: true, ownerStartTime: true });
 const ENTER_FOLDER_SCRIPT = 'cd "$1" && shift && exec "$@"';
 const LOGIN_FILE_MODE = 0o600;
 const ABSENT_PATH_DENY_PLATFORM = 'darwin';
 const OWN_PID_NAMESPACE_LINK = '/proc/self/ns/pid';
-const START_TIME_INDEX_AFTER_COMMAND = 19;
 const SESSION_TEMP_RETAIN_DAYS = 7;
 
 async function isPresent(candidate: string): Promise<boolean> {
@@ -213,45 +209,12 @@ async function removeLaunch(folders: LaunchFolders, owner: GuardrailsLaunchOwner
   await rm(folders.ownerPath, { force: true });
 }
 
-type ProcessPresence = 'present' | 'absent' | 'unknown';
-
-function processPresenceOf(pid: number): ProcessPresence {
+function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
-    return 'present';
+    return true;
   } catch (error) {
-    if (errorCode(error) === 'EPERM') return 'present';
-    if (errorCode(error) === 'ESRCH') return 'absent';
-    return 'unknown';
-  }
-}
-
-function startTimeFromStat(statLine: string): string | null {
-  const fieldsAfterCommand = statLine.slice(statLine.lastIndexOf(')') + 1).trim().split(/\s+/);
-  return fieldsAfterCommand[START_TIME_INDEX_AFTER_COMMAND] ?? null;
-}
-
-function processStatPath(pid: number): string {
-  return `/proc/${pid}/stat`;
-}
-
-async function readProcessStartTime(pid: number): Promise<string | null> {
-  return readFile(processStatPath(pid), 'utf8').then(startTimeFromStat, () => null);
-}
-
-let ownStartTime: string | null | undefined;
-
-function readOwnStartTime(): string | null {
-  if (ownStartTime !== undefined) return ownStartTime;
-  ownStartTime = readOwnStatStartTime();
-  return ownStartTime;
-}
-
-function readOwnStatStartTime(): string | null {
-  try {
-    return startTimeFromStat(readFileSync(processStatPath(process.pid), 'utf8'));
-  } catch {
-    return null;
+    return errorCode(error) === 'EPERM';
   }
 }
 
@@ -271,59 +234,10 @@ function readPidNamespaceLink(): string | null {
   }
 }
 
-type ProcessOwner = Pick<GuardrailsLaunchOwner, 'ownerPid' | 'ownerHost' | 'ownerPidNamespace' | 'ownerStartTime'>;
+type ProcessOwner = Pick<GuardrailsLaunchOwner, 'ownerPid' | 'ownerHost' | 'ownerPidNamespace'>;
 
-type SessionLeaseState = 'live' | 'gone' | 'unverifiable';
-
-async function classifyOwnerProcess(owner: ProcessOwner): Promise<SessionLeaseState> {
-  if (owner.ownerHost !== os.hostname() || owner.ownerPidNamespace !== readOwnPidNamespace()) return 'unverifiable';
-  const presence = processPresenceOf(owner.ownerPid);
-  if (presence === 'absent') return 'gone';
-  if (presence === 'unknown') return 'unverifiable';
-  if (!owner.ownerStartTime) return 'live';
-  const currentStartTime = await readProcessStartTime(owner.ownerPid);
-  if (currentStartTime === null || currentStartTime === owner.ownerStartTime) return 'live';
-  return 'gone';
-}
-
-interface SessionLeaseFile {
-  sessionId: string;
-  leasePath: string;
-  state: SessionLeaseState;
-}
-
-async function sessionLeaseStateOf(lease: ProcessOwner | null): Promise<SessionLeaseState> {
-  if (lease === null) return 'unverifiable';
-  return classifyOwnerProcess(lease);
-}
-
-async function readSessionLease(leasePath: string): Promise<ProcessOwner | null> {
-  const outcome = await loadJsonStateFile({ filePath: leasePath, quarantine: false, parse: (raw) => GuardrailsSessionLease.safeParse(raw).data ?? null });
-  return outcome.status === 'loaded' ? outcome.value : null;
-}
-
-function sessionIdOfLeaseFile(entryName: string): string | null {
-  if (!entryName.endsWith(LEASE_FILE_SUFFIX)) return null;
-  const leaseName = entryName.slice(0, -LEASE_FILE_SUFFIX.length);
-  const instanceSeparatorIndex = leaseName.lastIndexOf('.');
-  if (instanceSeparatorIndex < 0) return null;
-  const sessionId = leaseName.slice(0, instanceSeparatorIndex);
-  if (!LAUNCH_ID_SHAPE.test(sessionId) || !LEASE_INSTANCE_SHAPE.test(leaseName.slice(instanceSeparatorIndex + 1))) return null;
-  return sessionId;
-}
-
-async function readSessionLeaseFiles(policyDir: string, entryNames: readonly string[]): Promise<SessionLeaseFile[]> {
-  const leaseEntries = entryNames.flatMap((entryName) => {
-    const sessionId = sessionIdOfLeaseFile(entryName);
-    return sessionId === null ? [] : [{ sessionId, leasePath: path.join(policyDir, entryName) }];
-  });
-  return Promise.all(leaseEntries.map(async (leaseEntry) => ({ ...leaseEntry, state: await sessionLeaseStateOf(await readSessionLease(leaseEntry.leasePath)) })));
-}
-
-function sessionIdsWhere(leaseFiles: readonly SessionLeaseFile[], isMatchingSession: (sessionLeaseFiles: SessionLeaseFile[]) => boolean): Set<string> {
-  const leaseFilesBySessionId = new Map<string, SessionLeaseFile[]>();
-  for (const leaseFile of leaseFiles) leaseFilesBySessionId.set(leaseFile.sessionId, [...(leaseFilesBySessionId.get(leaseFile.sessionId) ?? []), leaseFile]);
-  return new Set([...leaseFilesBySessionId].filter(([, sessionLeaseFiles]) => isMatchingSession(sessionLeaseFiles)).map(([sessionId]) => sessionId));
+function isOwnerProcessGone(owner: ProcessOwner): boolean {
+  return owner.ownerHost === os.hostname() && owner.ownerPidNamespace === readOwnPidNamespace() && !isProcessAlive(owner.ownerPid);
 }
 
 async function readOwnerFile(ownerPath: string): Promise<GuardrailsLaunchOwner | null> {
@@ -346,7 +260,7 @@ async function sweepOrphanedGuardrailsLaunches(log: Pick<Console, 'log' | 'warn'
       if (!LAUNCH_ID_SHAPE.test(launchId)) continue;
       const ownerPath = path.join(policyDir, entryName);
       const owner = await readOwnerFile(ownerPath);
-      if (owner === null || await classifyOwnerProcess(owner) !== 'gone') continue;
+      if (owner === null || !isOwnerProcessGone(owner)) continue;
       try {
         await removeLaunch({
           policyPath: path.join(policyDir, `${launchId}.json`),
@@ -365,48 +279,52 @@ async function sweepOrphanedGuardrailsLaunches(log: Pick<Console, 'log' | 'warn'
   }
 }
 
+function sessionIdsWithLockFilesIn(entryNames: readonly string[]): Set<string> {
+  return new Set(entryNames.map(sessionIdOfLockFile).filter((sessionId) => sessionId !== null));
+}
+
+async function deleteSessionTempFolderOnceUnheld(policyDir: string, sessionId: string, sessionTempFolder: string, keepWhenNoLockFiles: boolean, log: Pick<Console, 'warn'>): Promise<void> {
+  let trashFolder: string | null = null;
+  try {
+    trashFolder = trashSessionTempFolderOnceUnheld(policyDir, sessionId, sessionTempFolder, { keepWhenNoLockFiles });
+  } catch (error) {
+    log.warn(`[guardrails] could not delete session temp folder ${sessionTempFolder}: ${errorMessage(error)}`);
+    return;
+  }
+  if (trashFolder === null) return;
+  await rm(trashFolder, { recursive: true, force: true }).catch((error: unknown) => {
+    log.warn(`[guardrails] could not delete session temp folder ${trashFolder}: ${errorMessage(error)}`);
+  });
+}
+
 async function pruneLeftoverSessionTempFolders(glimmervoidHome: string, liveSessionIds: ReadonlySet<string>, log: Pick<Console, 'warn'> = console): Promise<void> {
-  const policyEntryNames = await readdir(path.join(glimmervoidHome, POLICY_FOLDER)).catch((error: unknown) => {
+  const policyDir = path.join(glimmervoidHome, POLICY_FOLDER);
+  const policyEntryNames = await readdir(policyDir).catch((error: unknown) => {
     if (isMissingFileError(error)) return [];
     log.warn(`[guardrails] kept every session temp folder because the launch list could not be read: ${errorMessage(error)}`);
     return null;
   });
   if (policyEntryNames === null) return;
   const ownerEntryNames = policyEntryNames.filter((entryName) => entryName.endsWith(OWNER_FILE_SUFFIX));
-  const owners = await Promise.all(ownerEntryNames.map((entryName) => readOwnerFile(path.join(glimmervoidHome, POLICY_FOLDER, entryName))));
+  const owners = await Promise.all(ownerEntryNames.map((entryName) => readOwnerFile(path.join(policyDir, entryName))));
   const tempFolderNamesWithOwners = new Set([
     ...ownerEntryNames.map((entryName) => entryName.slice(0, -OWNER_FILE_SUFFIX.length)),
     ...owners.flatMap((owner) => owner?.keptTempFolderName === undefined ? [] : [owner.keptTempFolderName]),
   ]);
-  const leasesReadAt = Date.now();
-  const leaseFiles = await readSessionLeaseFiles(path.join(glimmervoidHome, POLICY_FOLDER), policyEntryNames);
-  const releasableSessionIds = sessionIdsWhere(leaseFiles, (sessionLeaseFiles) => sessionLeaseFiles.every((leaseFile) => leaseFile.state === 'gone'));
-  const sessionIdsWithLiveLeases = sessionIdsWhere(leaseFiles, (sessionLeaseFiles) => sessionLeaseFiles.some((leaseFile) => leaseFile.state === 'live'));
   const isHeldHere = (id: string) => liveSessionIds.has(id) || tempFolderNamesWithOwners.has(id);
   const sessionTempRoot = path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER);
-  await pruneAgedFiles({
-    directory: sessionTempRoot,
-    suffixes: [''],
-    retainDays: 0,
-    now: leasesReadAt,
-    entryMode: 'directory',
-    isRetainedId: (id) => isHeldHere(id) || !releasableSessionIds.has(id),
-  });
+  const sessionIdsWithLockFiles = sessionIdsWithLockFilesIn(policyEntryNames);
+  for (const sessionId of sessionIdsWithLockFiles) {
+    if (isHeldHere(sessionId)) continue;
+    await deleteSessionTempFolderOnceUnheld(policyDir, sessionId, path.join(sessionTempRoot, sessionId), true, log);
+  }
   await pruneAgedFiles({
     directory: sessionTempRoot,
     suffixes: [''],
     retainDays: SESSION_TEMP_RETAIN_DAYS,
     entryMode: 'directory',
-    isRetainedId: (id) => isHeldHere(id) || sessionIdsWithLiveLeases.has(id) || releasableSessionIds.has(id),
+    isRetainedId: (id) => isHeldHere(id) || sessionIdsWithLockFiles.has(id),
   });
-  const discardableLeaseFiles = await Promise.all(leaseFiles.map(async (leaseFile) => {
-    if (leaseFile.state === 'gone') return leaseFile;
-    if (leaseFile.state === 'live' || isHeldHere(leaseFile.sessionId)) return null;
-    const hasSessionTempFolder = await lstat(path.join(sessionTempRoot, leaseFile.sessionId)).then(() => true, (error: unknown) => !isMissingFileError(error));
-    return hasSessionTempFolder ? null : leaseFile;
-  }));
-  await Promise.all(discardableLeaseFiles.flatMap((leaseFile) => leaseFile === null ? [] : [rm(leaseFile.leasePath, { force: true })
-    .catch((error: unknown) => log.warn(`[guardrails] could not delete the session lease ${leaseFile.leasePath}: ${errorMessage(error)}`))]));
 }
 
 function launcherCommand(plan: GuardrailsLaunchPlan, policyPath: string): WrappedCommand | null {
@@ -431,24 +349,10 @@ function sessionTempFolderFor(sessionId: string): string | null {
   return path.join(glimmervoidHomeDir(), GUARDRAILS_TEMP_FOLDER, sessionId);
 }
 
-let ownInstanceId: string | undefined;
-
-function readOwnInstanceId(): string {
-  ownInstanceId ??= randomUUID();
-  return ownInstanceId;
-}
-
-function ownSessionLeasePath(sessionId: string): string {
-  return path.join(glimmervoidHomeDir(), POLICY_FOLDER, `${sessionId}.${process.pid}-${readOwnInstanceId()}${LEASE_FILE_SUFFIX}`);
-}
-
 function ensureSessionTempFolder(sessionId: string): string | null {
   const sessionTempFolder = sessionTempFolderFor(sessionId);
   if (!sessionTempFolder) return null;
-  mkdirSync(path.join(glimmervoidHomeDir(), POLICY_FOLDER), { recursive: true, mode: 0o700 });
-  const lease: ProcessOwner = { ownerPid: process.pid, ownerHost: os.hostname(), ownerPidNamespace: readOwnPidNamespace(), ownerStartTime: readOwnStartTime() };
-  writeJsonAtomicSync(ownSessionLeasePath(sessionId), lease);
-  mkdirSync(sessionTempFolder, { recursive: true });
+  createHeldSessionTempFolder(path.join(glimmervoidHomeDir(), POLICY_FOLDER), sessionId, sessionTempFolder);
   return sessionTempFolder;
 }
 
@@ -456,20 +360,14 @@ async function removeSessionTempFolder(sessionId: string, log: Pick<Console, 'wa
   const sessionTempFolder = sessionTempFolderFor(sessionId);
   if (!sessionTempFolder) return;
   const policyDir = path.join(glimmervoidHomeDir(), POLICY_FOLDER);
-  await rm(ownSessionLeasePath(sessionId), { force: true })
-    .catch((error: unknown) => log.warn(`[guardrails] could not delete the lease of session ${sessionId}: ${errorMessage(error)}`));
-  const policyEntryNames = await readdir(policyDir).catch((error: unknown) => {
-    if (isMissingFileError(error)) return [];
-    log.warn(`[guardrails] kept session temp folder ${sessionTempFolder} because its leases could not be read: ${errorMessage(error)}`);
-    return null;
-  });
-  if (policyEntryNames === null) return;
-  const remainingLeaseFiles = await readSessionLeaseFiles(policyDir, policyEntryNames.filter((entryName) => sessionIdOfLeaseFile(entryName) === sessionId));
-  if (remainingLeaseFiles.some((leaseFile) => leaseFile.state === 'live')) return;
-  await rm(sessionTempFolder, { recursive: true, force: true })
-    .catch((error: unknown) => log.warn(`[guardrails] could not delete session temp folder ${sessionTempFolder}: ${errorMessage(error)}`));
-  await Promise.all(remainingLeaseFiles.map((leaseFile) => rm(leaseFile.leasePath, { force: true })
-    .catch((error: unknown) => log.warn(`[guardrails] could not delete the session lease ${leaseFile.leasePath}: ${errorMessage(error)}`))));
+  let didHoldSessionLock = true;
+  try {
+    didHoldSessionLock = releaseSessionLock(policyDir, sessionId);
+  } catch (error) {
+    log.warn(`[guardrails] could not delete the lock of session ${sessionId}: ${errorMessage(error)}`);
+  }
+  if (!didHoldSessionLock) return;
+  await deleteSessionTempFolderOnceUnheld(policyDir, sessionId, sessionTempFolder, false, log);
 }
 
 function launchTempDirFor(glimmervoidHome: string, launchId: string, tempDir: string | undefined, keptTempFolderName: string | undefined): string {
@@ -530,7 +428,6 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, keptTempFolder
       ownerPid: process.pid,
       ownerHost: os.hostname(),
       ownerPidNamespace: readOwnPidNamespace(),
-      ownerStartTime: readOwnStartTime(),
       ownsTempDir,
       ...(keptTempFolderName === undefined ? {} : { keptTempFolderName }),
       logins: plan.launchHomeLinks.filter((link) => link.isLogin).map(({ linkPath, targetPath }) => ({ linkPath, targetPath })),

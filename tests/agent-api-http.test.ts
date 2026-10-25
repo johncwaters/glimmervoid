@@ -9,6 +9,7 @@ import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
+import { ensureSessionTempFolder } from '../server/guardrails/guardrails-launch.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
 import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts';
 import { memoryReserveBytes } from '../server/core/memory-admission-core.ts';
@@ -803,7 +804,8 @@ test('closing a clean child discards its worktree and deletes its guardrails tem
     const childId = String(spawned.body.sessionId);
     const worktree = stubChildWorktree(fixture.created[0], { dirty: false });
     const childTempFolder = path.join(glimmervoidHomeDir(), 'guardrails-temp', childId);
-    fs.mkdirSync(path.join(childTempFolder, 'scratchpad'), { recursive: true });
+    ensureSessionTempFolder(childId);
+    fs.mkdirSync(path.join(childTempFolder, 'scratchpad'));
     assert.match(String(spawned.body.note), /--discard/);
 
     assert.deepEqual([(await fixture.wiring.handle(fixture.parent, 'close', { child: childId })).status, fixture.agentSessions.has(childId)], [200, false]);

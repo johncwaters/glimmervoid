@@ -107,6 +107,8 @@ Runtime: `express`, `ws` (no Socket.IO and no abstraction over WebSockets, ever)
 
 `@parcel/watcher` backs the fs ingest source only, chosen because it applies ignores BEFORE watch registration, which keeps a `node_modules` tree from exhausting `inotify.max_user_watches` on Linux. A load failure disables that one source and nothing else.
 
+`fs-native-extensions` gives the kernel file locks (`fcntl` OFD, `flock`, `LockFileEx`) that mark a session temp folder in use, because Node core has no file lock and the kernel drops one when its holder dies, which a pid record cannot tell from pid reuse. A load failure leaves folders to the 7-day age gate.
+
 Dev: `vite`, `tailwindcss` v4 with `@tailwindcss/vite`, and `@posthog/coherence`, this repository's own Coherence install.
 
 ## Parallel Agent Work
