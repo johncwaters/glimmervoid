@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-10-25
+
 ### Added
 
 - **Anonymous usage data covers the first-run checklist**: it now reports which checklist step a new install is on and when each step is done, plus clicks on the button that looks for agents again, on adding a repository root (typed or picked from the found list) and on + Session. No paths or folder names are sent.
