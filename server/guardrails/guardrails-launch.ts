@@ -1,6 +1,6 @@
-import { access, chmod, copyFile, lstat, mkdir, readdir, realpath, rename, rm, stat, symlink } from 'node:fs/promises';
+import { access, chmod, copyFile, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, symlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, readlinkSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -49,11 +49,12 @@ const START_FOLDER = 'start';
 const OWNER_FILE_SUFFIX = '.owner.json';
 const LEASE_FILE_SUFFIX = '.lease.json';
 const LEASE_INSTANCE_SHAPE = /^\d+-[0-9a-f-]+$/;
-const GuardrailsSessionLease = GuardrailsLaunchOwner.pick({ ownerPid: true, ownerHost: true, ownerPidNamespace: true });
+const GuardrailsSessionLease = GuardrailsLaunchOwner.pick({ ownerPid: true, ownerHost: true, ownerPidNamespace: true, ownerStartTime: true });
 const ENTER_FOLDER_SCRIPT = 'cd "$1" && shift && exec "$@"';
 const LOGIN_FILE_MODE = 0o600;
 const ABSENT_PATH_DENY_PLATFORM = 'darwin';
 const OWN_PID_NAMESPACE_LINK = '/proc/self/ns/pid';
+const START_TIME_INDEX_AFTER_COMMAND = 19;
 const SESSION_TEMP_RETAIN_DAYS = 7;
 
 async function isPresent(candidate: string): Promise<boolean> {
@@ -212,12 +213,45 @@ async function removeLaunch(folders: LaunchFolders, owner: GuardrailsLaunchOwner
   await rm(folders.ownerPath, { force: true });
 }
 
-function isProcessAlive(pid: number): boolean {
+type ProcessPresence = 'present' | 'absent' | 'unknown';
+
+function processPresenceOf(pid: number): ProcessPresence {
   try {
     process.kill(pid, 0);
-    return true;
+    return 'present';
   } catch (error) {
-    return errorCode(error) === 'EPERM';
+    if (errorCode(error) === 'EPERM') return 'present';
+    if (errorCode(error) === 'ESRCH') return 'absent';
+    return 'unknown';
+  }
+}
+
+function startTimeFromStat(statLine: string): string | null {
+  const fieldsAfterCommand = statLine.slice(statLine.lastIndexOf(')') + 1).trim().split(/\s+/);
+  return fieldsAfterCommand[START_TIME_INDEX_AFTER_COMMAND] ?? null;
+}
+
+function processStatPath(pid: number): string {
+  return `/proc/${pid}/stat`;
+}
+
+async function readProcessStartTime(pid: number): Promise<string | null> {
+  return readFile(processStatPath(pid), 'utf8').then(startTimeFromStat, () => null);
+}
+
+let ownStartTime: string | null | undefined;
+
+function readOwnStartTime(): string | null {
+  if (ownStartTime !== undefined) return ownStartTime;
+  ownStartTime = readOwnStatStartTime();
+  return ownStartTime;
+}
+
+function readOwnStatStartTime(): string | null {
+  try {
+    return startTimeFromStat(readFileSync(processStatPath(process.pid), 'utf8'));
+  } catch {
+    return null;
   }
 }
 
@@ -237,17 +271,20 @@ function readPidNamespaceLink(): string | null {
   }
 }
 
-type ProcessOwner = Pick<GuardrailsLaunchOwner, 'ownerPid' | 'ownerHost' | 'ownerPidNamespace'>;
-
-function isOwnerProcessGone(owner: ProcessOwner): boolean {
-  return owner.ownerHost === os.hostname() && owner.ownerPidNamespace === readOwnPidNamespace() && !isProcessAlive(owner.ownerPid);
-}
-
-function isOwnerProcessLive(owner: ProcessOwner): boolean {
-  return owner.ownerHost === os.hostname() && owner.ownerPidNamespace === readOwnPidNamespace() && isProcessAlive(owner.ownerPid);
-}
+type ProcessOwner = Pick<GuardrailsLaunchOwner, 'ownerPid' | 'ownerHost' | 'ownerPidNamespace' | 'ownerStartTime'>;
 
 type SessionLeaseState = 'live' | 'gone' | 'unverifiable';
+
+async function classifyOwnerProcess(owner: ProcessOwner): Promise<SessionLeaseState> {
+  if (owner.ownerHost !== os.hostname() || owner.ownerPidNamespace !== readOwnPidNamespace()) return 'unverifiable';
+  const presence = processPresenceOf(owner.ownerPid);
+  if (presence === 'absent') return 'gone';
+  if (presence === 'unknown') return 'unverifiable';
+  if (!owner.ownerStartTime) return 'live';
+  const currentStartTime = await readProcessStartTime(owner.ownerPid);
+  if (currentStartTime === null || currentStartTime === owner.ownerStartTime) return 'live';
+  return 'gone';
+}
 
 interface SessionLeaseFile {
   sessionId: string;
@@ -255,11 +292,9 @@ interface SessionLeaseFile {
   state: SessionLeaseState;
 }
 
-function sessionLeaseStateOf(lease: ProcessOwner | null): SessionLeaseState {
+async function sessionLeaseStateOf(lease: ProcessOwner | null): Promise<SessionLeaseState> {
   if (lease === null) return 'unverifiable';
-  if (isOwnerProcessLive(lease)) return 'live';
-  if (isOwnerProcessGone(lease)) return 'gone';
-  return 'unverifiable';
+  return classifyOwnerProcess(lease);
 }
 
 async function readSessionLease(leasePath: string): Promise<ProcessOwner | null> {
@@ -282,7 +317,7 @@ async function readSessionLeaseFiles(policyDir: string, entryNames: readonly str
     const sessionId = sessionIdOfLeaseFile(entryName);
     return sessionId === null ? [] : [{ sessionId, leasePath: path.join(policyDir, entryName) }];
   });
-  return Promise.all(leaseEntries.map(async (leaseEntry) => ({ ...leaseEntry, state: sessionLeaseStateOf(await readSessionLease(leaseEntry.leasePath)) })));
+  return Promise.all(leaseEntries.map(async (leaseEntry) => ({ ...leaseEntry, state: await sessionLeaseStateOf(await readSessionLease(leaseEntry.leasePath)) })));
 }
 
 function sessionIdsWhere(leaseFiles: readonly SessionLeaseFile[], isMatchingSession: (sessionLeaseFiles: SessionLeaseFile[]) => boolean): Set<string> {
@@ -311,7 +346,7 @@ async function sweepOrphanedGuardrailsLaunches(log: Pick<Console, 'log' | 'warn'
       if (!LAUNCH_ID_SHAPE.test(launchId)) continue;
       const ownerPath = path.join(policyDir, entryName);
       const owner = await readOwnerFile(ownerPath);
-      if (owner === null || !isOwnerProcessGone(owner)) continue;
+      if (owner === null || await classifyOwnerProcess(owner) !== 'gone') continue;
       try {
         await removeLaunch({
           policyPath: path.join(policyDir, `${launchId}.json`),
@@ -411,7 +446,7 @@ function ensureSessionTempFolder(sessionId: string): string | null {
   const sessionTempFolder = sessionTempFolderFor(sessionId);
   if (!sessionTempFolder) return null;
   mkdirSync(path.join(glimmervoidHomeDir(), POLICY_FOLDER), { recursive: true, mode: 0o700 });
-  const lease: ProcessOwner = { ownerPid: process.pid, ownerHost: os.hostname(), ownerPidNamespace: readOwnPidNamespace() };
+  const lease: ProcessOwner = { ownerPid: process.pid, ownerHost: os.hostname(), ownerPidNamespace: readOwnPidNamespace(), ownerStartTime: readOwnStartTime() };
   writeJsonAtomicSync(ownSessionLeasePath(sessionId), lease);
   mkdirSync(sessionTempFolder, { recursive: true });
   return sessionTempFolder;
@@ -495,6 +530,7 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, keptTempFolder
       ownerPid: process.pid,
       ownerHost: os.hostname(),
       ownerPidNamespace: readOwnPidNamespace(),
+      ownerStartTime: readOwnStartTime(),
       ownsTempDir,
       ...(keptTempFolderName === undefined ? {} : { keptTempFolderName }),
       logins: plan.launchHomeLinks.filter((link) => link.isLogin).map(({ linkPath, targetPath }) => ({ linkPath, targetPath })),

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, utimes, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
@@ -183,6 +184,7 @@ async function leaseFileNamesOf(glimmervoidHome: string, sessionId: string): Pro
 
 async function writeForeignLease(glimmervoidHome: string, sessionId: string, foreignLease: object): Promise<string> {
   const leasePath = path.join(glimmervoidHome, 'guardrails-policies', `${sessionId}.1-00000000-0000-0000-0000-000000000000.lease.json`);
+  await mkdir(path.dirname(leasePath), { recursive: true });
   await writeFile(leasePath, JSON.stringify(foreignLease));
   return leasePath;
 }
@@ -227,4 +229,35 @@ test('a session temp folder of a second instance survives this instance\'s prune
   await assert.rejects(lstat(agedForeignLeasePath), { code: 'ENOENT' });
   await lstat(sessionFolderOf('foreign-host-recent'));
   await lstat(recentForeignLeasePath);
+});
+
+test('a lease naming a live pid whose start time differs is a recycled pid and its folder goes, while a lease on a live pid with no start time keeps its folder past the age gate', { skip: process.platform !== 'linux' && 'process start times are read from /proc' }, async (context) => {
+  const glimmervoidHome = await realpath(glimmervoidHomeDir());
+  const sessionFolderOf = (sessionId: string) => path.join(glimmervoidHome, 'guardrails-temp', sessionId);
+  const sessionIds = ['recycled-pid-session', 'unknown-start-session'];
+  const reusingProcess = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  context.after(async () => {
+    reusingProcess.kill();
+    const leaseFileNames = (await Promise.all(sessionIds.map((sessionId) => leaseFileNamesOf(glimmervoidHome, sessionId)))).flat();
+    await Promise.all([
+      ...sessionIds.map((sessionId) => rm(sessionFolderOf(sessionId), { recursive: true, force: true })),
+      ...leaseFileNames.map((leaseFileName) => rm(path.join(glimmervoidHome, 'guardrails-policies', leaseFileName), { force: true })),
+    ]);
+  });
+  assert.ok(reusingProcess.pid);
+  const thisHostLease = { ownerPid: reusingProcess.pid, ownerHost: os.hostname(), ownerPidNamespace: await readlink('/proc/self/ns/pid').catch(() => null) };
+  const recycledLeasePath = await writeForeignLease(glimmervoidHome, 'recycled-pid-session', { ...thisHostLease, ownerStartTime: '1' });
+  const unknownStartLeasePath = await writeForeignLease(glimmervoidHome, 'unknown-start-session', { ...thisHostLease, ownerStartTime: null });
+  const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+  for (const sessionId of sessionIds) {
+    await mkdir(sessionFolderOf(sessionId), { recursive: true });
+    await utimes(sessionFolderOf(sessionId), eightDaysAgo, eightDaysAgo);
+  }
+
+  await pruneLeftoverSessionTempFolders(glimmervoidHome, new Set());
+
+  await assert.rejects(lstat(sessionFolderOf('recycled-pid-session')), { code: 'ENOENT' });
+  await assert.rejects(lstat(recycledLeasePath), { code: 'ENOENT' });
+  await lstat(sessionFolderOf('unknown-start-session'));
+  await lstat(unknownStartLeasePath);
 });
