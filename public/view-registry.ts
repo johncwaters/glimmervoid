@@ -6,11 +6,11 @@ import { applyBenchmarkConnectionState, mountBenchmarkView } from './benchmark-p
 import { mountHooksView, refreshHooksView, requestHooksReport } from './hooks-panel.ts';
 import { applyIssuesConnectionState, mountIssuesView, refreshIssuesViewOnShow } from './github/issues-panel.ts';
 import { applyMyPrsConnectionState } from './github/my-prs-panel.ts';
-import { acknowledgePrsViewAttention, mountPrsView } from './github/prs-view.ts';
+import { acknowledgeReviewQueueAttention, mountReviewQueue, setReviewQueueActivityCallback } from './github/review-queue-panel.ts';
 import { acknowledgeRadarAttention, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar/radar-panel.ts';
 import { onDebugModeChanged } from './session-card/card-dom.ts';
 import { mountSettingsView } from './settings/settings-panel.ts';
-import { applyTeamReviewConnectionState, setTeamReviewActivityCallback } from './github/team-review-panel.ts';
+import { applyTeamReviewConnectionState } from './github/team-review-panel.ts';
 import { applyTraceConnectionState, mountTraceView, openTraceForSession, refreshTraceView } from './trace-panel.ts';
 import { acknowledgeUsageAttention, applyUsageConnectionState, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback } from './usage/usage-panel.ts';
 import { acknowledgeVisionsAttention, applyVisionsConnectionState, mountVisionsView, refreshVisionsView, setVisionsActivityCallback } from './visions/visions-panel.ts';
@@ -33,7 +33,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
     { view: 'focus', label: 'Focus', panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView },
     { view: 'zen', label: 'Zen', panelClass: 'zen-view', hasOwnPhoneScreen: true, hasPanelChrome: false, gate: { fromSettings: FEATURE_SURFACE_RULES.zenView }, mount: mountZenView, activate: activateZenView, deactivate: deactivateZenView },
-    { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, mount: (panel) => mountPrsView(panel, { openTerminal: actions.openTerminal, openReviews: actions.openReviews }), attention: { subscribe: setTeamReviewActivityCallback, acknowledge: acknowledgePrsViewAttention }, onConnectionChange: (isConnected) => {
+    { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, mount: (panel) => mountReviewQueue(panel, { openTerminal: actions.openTerminal, openReviews: actions.openReviews }), attention: { subscribe: setReviewQueueActivityCallback, acknowledge: acknowledgeReviewQueueAttention }, onConnectionChange: (isConnected) => {
       applyMyPrsConnectionState(isConnected);
       applyTeamReviewConnectionState(isConnected);
     } },

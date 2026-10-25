@@ -1,37 +1,51 @@
-export function createPrScopeTabs(selectedMode: 'team' | 'mine', onSelectMode: (mode: 'team' | 'mine', isKeyboard: boolean) => void): HTMLElement {
+interface PrScopeTabsOptions<Scope extends string> {
+  label: string;
+  scopes: readonly { id: Scope; label: string }[];
+  selected: Scope;
+  onSelect: (scope: Scope) => void;
+}
+
+export function createPrScopeTabs<Scope extends string>({ label, scopes, selected, onSelect }: PrScopeTabsOptions<Scope>): { element: HTMLElement; select: (scope: Scope) => void } {
   const tabs = document.createElement('div');
   tabs.className = 'pr-scope-tabs';
   tabs.setAttribute('role', 'tablist');
-  tabs.setAttribute('aria-label', 'Reviews scope');
-  const modes = ['team', 'mine'] as const;
-  for (const mode of modes) {
+  tabs.setAttribute('aria-label', label);
+  const buttons = scopes.map((scope) => {
     const tab = document.createElement('button');
     tab.className = 'pr-scope-tab';
     tab.type = 'button';
-    tab.dataset.scope = mode;
+    tab.dataset.scope = scope.id;
     tab.setAttribute('role', 'tab');
-    tab.setAttribute('aria-selected', String(mode === selectedMode));
-    tab.tabIndex = mode === selectedMode ? 0 : -1;
-    tab.textContent = mode === 'team' ? 'Team' : 'Mine';
-    if (mode === 'team') {
-      const activity = document.createElement('span');
-      activity.className = 'tab-activity';
-      activity.setAttribute('aria-hidden', 'true');
-      tab.append(activity);
+    tab.textContent = scope.label;
+    return tab;
+  });
+  const select = (scope: Scope): void => {
+    for (const [index, tab] of buttons.entries()) {
+      const isSelected = scopes[index].id === scope;
+      tab.setAttribute('aria-selected', String(isSelected));
+      tab.tabIndex = isSelected ? 0 : -1;
     }
-    tab.addEventListener('click', () => onSelectMode(mode, false));
+  };
+  const choose = (index: number, isKeyboard: boolean): void => {
+    const scope = scopes[(index + scopes.length) % scopes.length];
+    select(scope.id);
+    onSelect(scope.id);
+    if (isKeyboard) buttons[(index + scopes.length) % scopes.length].focus();
+  };
+  for (const [index, tab] of buttons.entries()) {
+    tab.addEventListener('click', () => choose(index, false));
     tab.addEventListener('keydown', (event) => {
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        onSelectMode(modes[(modes.indexOf(mode) + modes.length - 1) % modes.length], true);
+        choose(index - 1, true);
         return;
       }
-      if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        onSelectMode(modes[(modes.indexOf(mode) + 1) % modes.length], true);
-      }
+      if (event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      choose(index + 1, true);
     });
-    tabs.append(tab);
   }
-  return tabs;
+  tabs.append(...buttons);
+  select(selected);
+  return { element: tabs, select };
 }

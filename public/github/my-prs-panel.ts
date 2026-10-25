@@ -9,23 +9,19 @@ import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden, query } from '../dom-helpers.ts';
 import { buildSessionRow, paintSessionRowStatus } from '../session-row.ts';
 import { formatAgo } from '../poll-ago.ts';
-import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
 import { nextRequestId, sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { queueMergeCelebration } from '../merge-celebration.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
-import { chooseSelectedKey, comparablePrKey, joinMyPrs, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, liveSessionsByPrKey, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import { joinMyPrs, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, liveSessionsByPrKey, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, readinessRows, reviewRows, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { LinkedLiveSession, LiveSessionLinks, MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 
-let root: HTMLDivElement | null = null;
-let scopeTabs: HTMLElement | null = null;
-let queue: HTMLElement | null = null;
 let detail: HTMLElement | null = null;
+let queueHooks: { onChange: () => void } | null = null;
 let latest: MyPrsStatus | null = null;
 let previousJoinedPrs: MyPr[] | null = null;
 let selectedKey: string | null = null;
-let pollingControls: ReturnType<typeof createGithubPollingControls> | null = null;
 const mergeAttempts = new Map<string, MergeAttempt>();
 const celebratedMergeKeys = new Set<string>();
 const pendingMergeRequests = new Map<string, { requestId: string; head: string; timer: number }>();
@@ -63,7 +59,8 @@ const GITHUB_REFRESH_REPLY_TIMEOUT_MS = 60000;
 const MERGE_NO_REPLY_TEXT = `The server did not answer within ${MERGE_REPLY_TIMEOUT_MS / 1000} s. Check GitHub before trying again.`;
 const MERGE_DISCONNECTED_TEXT = `${NOT_CONNECTED_TEXT} Check GitHub before trying again.`;
 
-export function createGithubPollingControls(lane: GithubPollingRefreshRequest['lane'], panel: HTMLElement) {
+export function createGithubPollingControls(lane: GithubPollingRefreshRequest['lane'] | readonly GithubPollingRefreshRequest['lane'][], panel: HTMLElement) {
+  const lanes = typeof lane === 'string' ? [lane] : lane;
   const control = el('div', 'reviews-refresh-control');
   const button = el('button', 'pr-action pr-action-ghost reviews-refresh-button', 'Refresh');
   button.type = 'button';
@@ -105,8 +102,10 @@ export function createGithubPollingControls(lane: GithubPollingRefreshRequest['l
     outcomeText = '';
     update(currentStatus);
     try {
-      const response = await sendControlRequest('github-polling-refresh', { lane }, { timeoutMs: GITHUB_REFRESH_REPLY_TIMEOUT_MS });
-      if (response.type === 'github-polling-refresh-result') outcomeText = response.ok ? 'Refreshed.' : response.error ?? 'Could not refresh from GitHub.';
+      const responses = await Promise.all(lanes.map((refreshedLane) => sendControlRequest('github-polling-refresh', { lane: refreshedLane }, { timeoutMs: GITHUB_REFRESH_REPLY_TIMEOUT_MS })));
+      const failedResponse = responses.find((response) => response.type === 'github-polling-refresh-result' && !response.ok);
+      if (failedResponse?.type === 'github-polling-refresh-result') outcomeText = failedResponse.error ?? 'Could not refresh from GitHub.';
+      if (!failedResponse && responses.some((response) => response.type === 'github-polling-refresh-result')) outcomeText = 'Refreshed.';
     } catch (error: unknown) {
       outcomeText = requestFailureText(error, GITHUB_REFRESH_REPLY_TIMEOUT_MS);
     } finally {
@@ -213,19 +212,6 @@ function requestedReviewers(pr: MyPr, text: string): HTMLElement {
   }
   requested.append(avatars, el('span', 'my-pr-requested-names', text.slice('Requested: '.length)));
   return requested;
-}
-
-function createShell(): void {
-  if (!root || !scopeTabs || queue?.isConnected) return;
-  const shell = createPrQueueColumns({
-    queueLabel: 'My pull requests',
-    scopeTabs,
-    resizerLabel: 'Resize pull request list',
-  });
-  queue = shell.queue;
-  detail = shell.detail;
-  root.replaceChildren(shell.columns);
-  if (pollingControls) shell.foot.append(pollingControls.control);
 }
 
 function renderDetail(pr: MyPr | undefined): void {
@@ -356,7 +342,7 @@ function createSessionFocusControls(linkedSessions: readonly LinkedLiveSession[]
 }
 
 export function refreshMyPrsSessionState(): void {
-  for (const pill of queue?.querySelectorAll<HTMLElement>('.my-pr-session-pill') ?? []) paintSessionPill(pill);
+  for (const pill of document.querySelectorAll<HTMLElement>('.my-pr-session-pill')) paintSessionPill(pill);
 }
 
 function queueRender(): void {
@@ -373,15 +359,43 @@ export function setMyPrsSessionLinks(linksBySessionId: ReadonlyMap<string, reado
   queueRender();
 }
 
-export function findMyPrRow(key: string): HTMLButtonElement | null {
-  const pr = joinMyPrs(latest?.prs ?? [], githubPrByKey).find((pr) => comparablePrKey(pr) === key.toLowerCase());
-  if (!pr) return null;
-  return queueRowForPrKey(pr.key);
+export function myPrsSnapshot(): { prs: MyPr[]; status: MyPrsStatus | null; sessionsByPrKey: Map<string, LinkedLiveSession[]> } {
+  return { prs: joinMyPrs(latest?.prs ?? [], githubPrByKey), status: latest, sessionsByPrKey: liveSessionsByPrKey(liveSessionLinks()) };
 }
 
-function queueRowForPrKey(prKey: string): HTMLButtonElement | null {
-  if (!queue) return null;
-  return [...queue.querySelectorAll<HTMLButtonElement>('button[data-pr-key]')].find((row) => row.dataset.prKey === prKey) ?? null;
+export function createMyPrQueueRow(pr: MyPr, stackedOn: string | null, linkedSessions: readonly LinkedLiveSession[] | undefined): { group: HTMLElement; row: HTMLButtonElement } {
+  const row = el('button', 'pr-queue-row');
+  row.type = 'button';
+  row.dataset.prKey = pr.key;
+  row.title = `${pr.key}: ${stageLabel(pr.stage)}`;
+  const glyph = el('span', 'pr-queue-glyph');
+  glyph.append(createPrStatusIcon(stageIcon(pr.stage), stageTone(pr.stage)));
+  const top = el('span', 'pr-queue-top');
+  top.append(el('strong', 'pr-queue-ref', pr.key), el('span', 'pr-queue-title', pr.title));
+  const bottom = el('span', 'pr-queue-bottom');
+  bottom.append(el('span', 'pr-queue-owner', 'Yours'), stageChip(pr, { hasGlyph: false }));
+  if (stackedOn) bottom.append(el('span', 'my-pr-stage', `Stacked on ${stackedOn}`));
+  const mergedAt = pr.state === 'MERGED' ? pr.mergedAt : null;
+  const ageText = mergedAt ? `merged ${formatAgo(Date.parse(mergedAt))}` : `opened ${formatAgo(Date.parse(pr.createdAt))}`;
+  bottom.append(el('span', 'pr-queue-elapsed', ageText));
+  const repairLabel = keepMergeableRowLabel(pr, keepMergeableToggle.isFeatureEnabled(latest), formatAgo(pr.keepMergeableAttempt?.at));
+  if (repairLabel) {
+    const repairChip = el('span', 'my-pr-stage', repairLabel.text);
+    repairChip.dataset.tone = repairLabel.tone;
+    repairChip.title = repairLabel.title;
+    bottom.append(repairChip);
+  }
+  row.append(glyph, top, bottom);
+  const group = el('div', 'my-pr-row-group');
+  group.append(row);
+  const sessionFocusControls = createSessionFocusControls(linkedSessions);
+  if (sessionFocusControls) group.append(sessionFocusControls);
+  return { group, row };
+}
+
+export function showMyPr(prKey: string): void {
+  selectedKey = prKey;
+  renderDetail(myPrsSnapshot().prs.find((pr) => pr.key === selectedKey));
 }
 
 function render(): void {
@@ -389,77 +403,17 @@ function render(): void {
   const mergedSinceLastRender = newlyMergedPrs(previousJoinedPrs, prs);
   previousJoinedPrs = prs;
   queueMergedPrCelebrations(mergedSinceLastRender);
-  createShell();
-  if (!queue) return;
-  const sections = sectionStackedMyPrs(prs);
-  selectedKey = chooseSelectedKey(sections, selectedKey);
-  const focusedKey = document.activeElement instanceof HTMLElement && queue.contains(document.activeElement) ? document.activeElement.dataset.prKey : null;
-  const sessionsByPrKey = liveSessionsByPrKey(liveSessionLinks());
-  const sectionElements = sections.filter((section) => section.rows.length > 0).map((section) => {
-    const sectionElement = el('section', 'pr-queue-section');
-    sectionElement.append(el('h3', 'pr-section-heading', `${section.title} ${section.rows.length}`));
-    for (const { pr, parentKey, depth } of section.rows) {
-      const row = el('button', 'pr-queue-row');
-      row.type = 'button';
-      row.dataset.prKey = pr.key;
-      if (parentKey) row.style.paddingInlineStart = `${12 + Math.min(depth, 6) * 16}px`;
-      row.setAttribute('aria-current', String(pr.key === selectedKey));
-      row.title = `${pr.key}: ${stageLabel(pr.stage)}`;
-      const glyph = el('span', 'pr-queue-glyph');
-      glyph.append(createPrStatusIcon(stageIcon(pr.stage), stageTone(pr.stage)));
-      const top = el('span', 'pr-queue-top');
-      top.append(el('strong', 'pr-queue-ref', pr.key), el('span', 'pr-queue-title', pr.title));
-      const bottom = el('span', 'pr-queue-bottom');
-      if (parentKey) bottom.append(el('span', 'my-pr-stage', `Stacked on ${parentKey}`));
-      const mergedAt = pr.state === 'MERGED' ? pr.mergedAt : null;
-      const ageText = mergedAt ? `merged ${formatAgo(Date.parse(mergedAt))}` : `opened ${formatAgo(Date.parse(pr.createdAt))}`;
-      bottom.append(stageChip(pr, { hasGlyph: false }), el('span', 'pr-queue-elapsed', ageText));
-      const repairLabel = keepMergeableRowLabel(pr, keepMergeableToggle.isFeatureEnabled(latest), formatAgo(pr.keepMergeableAttempt?.at));
-      if (repairLabel) {
-        const repairChip = el('span', 'my-pr-stage', repairLabel.text);
-        repairChip.dataset.tone = repairLabel.tone;
-        repairChip.title = repairLabel.title;
-        bottom.append(repairChip);
-      }
-      row.append(glyph, top, bottom);
-      row.addEventListener('click', () => {
-        selectedKey = pr.key;
-        for (const button of queue?.querySelectorAll<HTMLButtonElement>('button[data-pr-key]') ?? []) button.setAttribute('aria-current', String(button.dataset.prKey === selectedKey));
-        renderDetail(pr);
-        if (document.documentElement.dataset.layout === 'phone') detail?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-      });
-      const rowGroup = el('div', 'my-pr-row-group');
-      rowGroup.append(row);
-      sectionElement.append(rowGroup);
-      const sessionFocusControls = createSessionFocusControls(sessionsByPrKey.get(comparablePrKey(pr)));
-      if (!sessionFocusControls) continue;
-      if (parentKey) sessionFocusControls.style.paddingInlineStart = `${36 + Math.min(depth, 6) * 16}px`;
-      rowGroup.append(sessionFocusControls);
-    }
-    return sectionElement;
-  });
-  if (sectionElements.length === 0) queue.replaceChildren(el('p', 'pr-empty', emptyStateText(latest)));
-  if (sectionElements.length > 0) {
-    const noticeElements = queueNotices(latest, Date.now()).filter((notice) => notice.tone !== 'error').map((notice) => el('p', notice.tone === 'error' ? 'my-pr-error' : 'my-pr-note', notice.text));
-    queue.replaceChildren(...noticeElements, ...sectionElements);
-  }
-  if (pollingControls) {
-    queue.prepend(pollingControls.notice);
-    pollingControls.update(latest);
-  }
-  if (focusedKey) queueRowForPrKey(focusedKey)?.focus({ preventScroll: true });
-  renderDetail(prs.find((pr) => pr.key === selectedKey));
+  if (selectedKey) renderDetail(prs.find((pr) => pr.key === selectedKey));
+  queueHooks?.onChange();
 }
 
-export function mountMyPrsView(parent: HTMLElement, tabs: HTMLElement, navigation?: { openTerminal: (sessionId: string) => void }): HTMLDivElement {
+export function mountMyPrsDetail(hooks: { onChange: () => void }, navigation?: { openTerminal: (sessionId: string) => void }): HTMLElement {
   openTerminal = navigation?.openTerminal ?? null;
-  if (root) return root;
-  scopeTabs = tabs;
-  root = el('div', 'pr-content');
-  parent.append(root);
-  pollingControls = createGithubPollingControls('my-prs', root);
+  queueHooks = hooks;
+  if (detail) return detail;
+  detail = el('div', 'pr-detail-mine');
   render();
-  return root;
+  return detail;
 }
 
 export function applyMyPrsStatus(message: unknown): void {

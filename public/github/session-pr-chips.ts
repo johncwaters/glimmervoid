@@ -6,7 +6,7 @@ import { openExternalUrl } from '../external-link.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { sendForSession } from '../session-actions.ts';
 import { setMyPrsSessionLinks } from './my-prs-panel.ts';
-import { showPrInReviews } from './prs-view.ts';
+import { showPrInReviewQueue } from './review-queue-panel.ts';
 import { repaintSessionRowSignals } from '../session-row.ts';
 import { createSignal, paintSignalLine } from '../signal.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
@@ -30,7 +30,7 @@ export function sessionRowPrSignals(sessionId: string): PrSignal[] {
     ariaLabel: `Show pull request ${chip.key} in Reviews`,
     hoverText: `${chip.hoverText}. Show in Reviews; Cmd/Ctrl-click opens GitHub`,
     onActivate: () => {
-      if (showPrInReviews(chip.key)) return;
+      if (showPrInReviewQueue(chip.key)) return;
       openExternalUrl(chip.url);
     },
   }));

@@ -2,8 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  attentionOrder, nextAttentionKey, caughtUpSelectionView, planActionReply, viewerThreadsText, detailThreadItems, caughtUpDetail, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseInlineSegments, parseReviewComment, reviewCommentPreview, queueRowTitle, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyAttentionEntries, decideReadyAttention, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
+  planActionReply, viewerThreadsText, detailThreadItems, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, withReviewerNote, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, inFlightElapsedText, inFlightProgressText,   parseInlineSegments, parseReviewComment, reviewCommentPreview, queueRowTitle, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   threadBodyOverflowsPreview, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES,
   commentSeverity, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/github/team-review-view-core.ts';
@@ -69,33 +68,6 @@ test('queue row title retains the attention reason and names no verdict for a re
     'Acme/app#10: PR 10\nReview failed\nOpened 5d ago\nreview timed out');
 });
 
-test('queue refs omit the repo for empty and single-repo rendered groups', () => {
-  assert.equal(hasMultipleQueueRepos(groupDrafts(null)), false);
-  const sections = groupDrafts(status([draft(1), draft(2, { status: 'posted' })], [inFlightReview(3)]));
-  assert.equal(hasMultipleQueueRepos(sections), false);
-  assert.equal(queueRowRefLabel('Acme/app', 1, hasMultipleQueueRepos(sections)), '#1');
-});
-
-test('queue refs keep the repo when any rendered group contains another repo', () => {
-  const otherRepoDraft = draft(1, { key: 'Acme/docs#1', repo: 'Acme/docs' });
-  for (const draftStatus of ['ready', 'stale', 'error', 'posted', 'discarded'] as const) {
-    const sections = groupDrafts(status([draft(2), { ...otherRepoDraft, status: draftStatus }]));
-    assert.equal(hasMultipleQueueRepos(sections), true);
-    assert.equal(queueRowRefLabel('Acme/app', 2, hasMultipleQueueRepos(sections)), 'Acme/app#2');
-  }
-  const settled = draft(1, { ...otherRepoDraft, githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true }] });
-  assert.equal(hasMultipleQueueRepos(groupDrafts(status([draft(2), settled]))), true);
-  assert.equal(hasMultipleQueueRepos(groupDrafts(status([draft(2)], [inFlightReview(1, { repo: 'Acme/docs', key: 'Acme/docs#1' })]))), true);
-  const queued = { key: 'Acme/docs#1', repo: 'Acme/docs', number: 1, title: 'PR 1', url: 'https://github.com/Acme/docs/pull/1', author: 'teammate', requestSource: 'team' as const };
-  assert.equal(hasMultipleQueueRepos(groupDrafts({ ...status([draft(2)]), queued: [queued] })), true);
-});
-
-test('queue repo prefixes depend on rendered rows after older drafts are hidden', () => {
-  const sections = groupDrafts(status([draft(1, { repo: 'Acme/old' })], [inFlightReview(1)]));
-  assert.equal(sections.ready.length, 0);
-  assert.equal(hasMultipleQueueRepos(sections), false);
-});
-
 test('queue row titles retain the full repo ref, verdict and the inline comment count the detail shows', () => {
   const inlineComment = { path: 'src/a.ts', line: 1, side: 'RIGHT' as const, body: 'A finding.' };
   const review = draft(1, { verdict: 'APPROVE WITH NITS', body: '**[logic] HIGH**\n\nA body finding.', comments: [inlineComment] });
@@ -117,7 +89,6 @@ test('drafts group into ready, in review, needs attention, recently posted and d
   assert.deepEqual(sections.attention.map((row) => row.number), [2, 3]);
   assert.deepEqual(sections.posted.map((row) => row.number), [4]);
   assert.deepEqual(sections.discarded.map((row) => row.number), [5]);
-  assert.equal(hasAnyRow(sections), true);
 });
 
 test('a ready draft leaves Ready once a review at its head settles it', () => {
@@ -132,7 +103,6 @@ test('a ready draft leaves Ready once a review at its head settles it', () => {
   ]));
   assert.deepEqual(sections.noReviewNeeded.map((row) => row.number), [1, 3, 4]);
   assert.deepEqual(sections.ready.map((row) => row.number), [2, 5, 6]);
-  assert.equal(chooseSelectedReviewKey(sections, 'Acme/app#1'), 'Acme/app#1');
 });
 
 test('the GitHub summary names the operator first and flags a review of an older commit', () => {
@@ -200,12 +170,6 @@ test('each section keeps the server order, which is newest first', () => {
   assert.deepEqual(sections.ready.map((row) => row.number), [7, 3, 12]);
 });
 
-test('an absent or empty status has no rows', () => {
-  assert.equal(hasAnyRow(groupDrafts(null)), false);
-  assert.equal(hasAnyRow(groupDrafts(status([], [], true))), false);
-  assert.equal(hasAnyRow(groupDrafts(status([draft(1, { status: 'discarded' })]))), true);
-});
-
 test('a posted, failed, stale or discarded review offers a requeue footer, a ready one uses its action row', () => {
   for (const status of ['posted', 'error', 'stale', 'discarded'] as const) assert.equal(hasRequeueFooter(status), true, status);
   assert.equal(hasRequeueFooter('ready'), false);
@@ -228,30 +192,6 @@ test('a running lane surfaces its reason as a notice and an unconfigured lane ke
   assert.equal(laneNotice({ ...status([], [], false), reason: 'teamReview needs both org and team' }), null);
   assert.equal(laneNotice(null), null);
   assert.equal(emptyStateText({ ...status([]), reason: 'guardrails dependencies missing' }), 'No review drafts yet. New teammate pull requests show up here after the next poll.');
-});
-
-test('the badge signature tracks ready drafts by key and head only', () => {
-  const readyAtHead = status([draft(1), draft(2, { status: 'posted' }), draft(3, { status: 'error' })]);
-  assert.equal(readyAttentionSignature(readyAtHead), `Acme/app#1@${HEAD}`);
-  const reReviewed = status([draft(1, { reviewedHead: NEXT_HEAD })]);
-  assert.notEqual(readyAttentionSignature(reReviewed), readyAttentionSignature(readyAtHead));
-  assert.equal(readyAttentionSignature(status([draft(1, { status: 'posted' })])), '');
-  assert.equal(readyAttentionSignature(status([draft(1, { status: 'discarded' })])), '');
-  assert.equal(readyAttentionSignature(null), '');
-});
-
-test('ready attention marks arrivals without lighting for departures or marking arrivals while looking', () => {
-  const acknowledged = readyAttentionSignature(status([draft(1), draft(2)]));
-  const afterPosting = decideReadyAttention({ readyEntries: readyAttentionEntries(status([draft(1), draft(2, { status: 'posted' })])), acknowledged, unseen: acknowledged, isLooking: false });
-  assert.deepEqual(afterPosting, { isShown: false, acknowledged: `Acme/app#1@${HEAD}`, unseen: `Acme/app#1@${HEAD}` });
-  const afterArrival = decideReadyAttention({ readyEntries: readyAttentionEntries(status([draft(1), draft(3)])), acknowledged: afterPosting.acknowledged, unseen: '', isLooking: false });
-  assert.deepEqual(afterArrival, { isShown: true, acknowledged: afterPosting.acknowledged, unseen: `Acme/app#3@${HEAD}` });
-  const afterNewHead = decideReadyAttention({ readyEntries: readyAttentionEntries(status([draft(1, { reviewedHead: NEXT_HEAD }), draft(3)])), acknowledged: afterArrival.acknowledged, unseen: afterArrival.unseen, isLooking: false });
-  assert.deepEqual(afterNewHead, { isShown: true, acknowledged: '', unseen: `Acme/app#1@${NEXT_HEAD}|Acme/app#3@${HEAD}` });
-  const whileLooking = decideReadyAttention({ readyEntries: readyAttentionEntries(status([draft(1, { reviewedHead: NEXT_HEAD }), draft(3), draft(4)])), acknowledged: afterNewHead.acknowledged, unseen: afterNewHead.unseen, isLooking: true });
-  assert.deepEqual(whileLooking, { isShown: false, acknowledged: `Acme/app#1@${NEXT_HEAD}|Acme/app#3@${HEAD}|Acme/app#4@${HEAD}`, unseen: afterNewHead.unseen });
-  const firstArrival = decideReadyAttention({ readyEntries: readyAttentionEntries(status([draft(1)])), acknowledged: '', unseen: '', isLooking: false });
-  assert.deepEqual(firstArrival, { isShown: true, acknowledged: '', unseen: `Acme/app#1@${HEAD}` });
 });
 
 test('a ready row is rebuilt when its head or status changes', () => {
@@ -378,33 +318,6 @@ test('elapsed text is the leading part of the progress text on its own', () => {
 test('progress text drops the countdown once the wall-clock deadline passes', () => {
   const overdue = inFlightReview(1, { phase: 'reviewing', startedAt: 0, deadlineAt: 1000, toolCalls: 0 });
   assert.equal(inFlightProgressText(overdue, 5000), '0:05 elapsed, 0 tool calls');
-});
-
-test('a status that only advances in-flight progress is a progress-only change', () => {
-  const previous = status([draft(1)], [inFlightReview(2)]);
-  assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1)], [inFlightReview(2, { phase: 'reviewing', toolCalls: 3 })])), true);
-});
-
-test('a changed draft, in-flight set, configuration or missing previous status needs a full render', () => {
-  const previous = status([draft(1)], [inFlightReview(2)]);
-  assert.equal(isInFlightProgressOnlyChange(null, previous), false);
-  assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1, { body: 'edited' })], [inFlightReview(2)])), false);
-  assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1)], [inFlightReview(2), inFlightReview(3)])), false);
-  assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1)], [])), false);
-  assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1)], [inFlightReview(2)], false)), false);
-});
-
-test('selection favors ready, then in review, attention, posted and discarded, while keeping an available key', () => {
-  const sections = groupDrafts(status([draft(5, { status: 'discarded' }), draft(1), draft(2, { status: 'stale' }), draft(3, { status: 'posted' })], [inFlightReview(4)]));
-  assert.equal(chooseSelectedReviewKey(sections, null), 'Acme/app#1');
-  assert.equal(chooseSelectedReviewKey(sections, 'Acme/app#4'), 'Acme/app#4');
-  assert.equal(chooseSelectedReviewKey(sections, 'Acme/app#5'), 'Acme/app#5');
-  assert.equal(chooseSelectedReviewKey(sections, 'missing'), 'Acme/app#1');
-  assert.equal(chooseSelectedReviewKey(groupDrafts(status([draft(2, { status: 'error' })], [inFlightReview(4)])), null), 'Acme/app#4');
-  assert.equal(chooseSelectedReviewKey(groupDrafts(status([draft(2, { status: 'error' })])), null), 'Acme/app#2');
-  assert.equal(chooseSelectedReviewKey(groupDrafts(status([draft(5, { status: 'discarded' }), draft(3, { status: 'posted' })])), null), 'Acme/app#3');
-  assert.equal(chooseSelectedReviewKey(groupDrafts(status([draft(5, { status: 'discarded' })])), null), 'Acme/app#5');
-  assert.equal(chooseSelectedReviewKey(groupDrafts(status([])), null), null);
 });
 
 test('comment severity takes the highest finding header and falls back to structured severity', () => {
@@ -549,20 +462,12 @@ test('a queued pull request gets its own section and hides its older draft', () 
   const sections = groupDrafts(status);
   assert.deepEqual(sections.queued.map((review) => review.key), ['Acme/app#7']);
   assert.equal(sections.attention.length, 0);
-  assert.equal(hasAnyRow(sections), true);
 });
 
 test('the queued detail says what the pull request is waiting for', () => {
   assert.match(queuedDetailText(0), /next poll/);
   assert.match(queuedDetailText(1), /as soon as the review in progress finishes/);
   assert.match(queuedDetailText(2), /one of the 2 reviews in progress/);
-});
-
-test('a change to the queued list is never treated as progress only', () => {
-  const before = status([draft(1)], [inFlightReview(2)]);
-  const queuedItem = { key: 'Acme/app#3', repo: 'Acme/app', number: 3, title: 'PR 3', url: 'https://github.com/Acme/app/pull/3', author: 'teammate', requestSource: 'team' as const };
-  assert.equal(isInFlightProgressOnlyChange(before, { ...before, queued: [queuedItem] }), false);
-  assert.equal(isInFlightProgressOnlyChange(before, { ...before }), true);
 });
 
 test('About this PR paragraphs omit absent and blank assessments and preserve goal then change', () => {
@@ -580,13 +485,6 @@ test('queue row title puts a draft goal immediately after the PR title and omits
   const assessment = { goal: ' Avoid stuck requests. ', change: 'Re-arm the timer.', checked: [], gaps: [] };
   assert.equal(queueRowTitle(draft(1, { assessment }), 'ready', { opened: '1d ago' }), 'Acme/app#1: PR 1\nAvoid stuck requests.\nWaits on you\nOpened 1d ago\nAutomated review: Approve, 0 comments');
   assert.equal(queueRowTitle(draft(1, { assessment: { ...assessment, goal: ' ' } }), 'ready', {}), 'Acme/app#1: PR 1\nWaits on you\nAutomated review: Approve, 0 comments');
-});
-
-test('poll errors, retry schedules and refresh progress always render even when the drafts stay the same', () => {
-  const previous = status([]);
-  for (const patch of [{ error: 'offline' }, { nextAttemptAt: 11_000 }, { retry: { attempt: 1, limit: 3 } }, { isRefreshing: true }, { refreshNotice: 'A refresh is already running.' }]) {
-    assert.equal(isInFlightProgressOnlyChange(previous, { ...previous, ...patch }), false);
-  }
 });
 
 
@@ -825,9 +723,6 @@ test('hand review rows populate their section and keep a hand-only list visible'
   const snapshot = TeamReviewStatus.parse({ ...status([]), handReview: [review] });
   const sections = groupDrafts(snapshot);
   assert.deepEqual(sections.handReview, snapshot.handReview);
-  assert.equal(hasAnyRow(sections), true);
-  assert.equal(hasMultipleQueueRepos(groupDrafts({ ...snapshot, drafts: [draft(1)] })), true);
-  assert.equal(isInFlightProgressOnlyChange(status([]), snapshot), false);
 });
 
 test('a fork placeholder draft with an answered thread lands in Ready instead of its hand review row', () => {
@@ -845,7 +740,6 @@ test('hand review rows replace older drafts and queued rows while active reviews
   assert.equal(sections.handReview.length, 1);
   assert.deepEqual(sections.queued, []);
   assert.deepEqual(sections.attention, []);
-  assert.equal(chooseSelectedReviewKey(sections, review.key), null);
   const activeSections = groupDrafts({ ...snapshot, inFlight: [inFlightReview(5)] });
   assert.deepEqual(activeSections.handReview, []);
   assert.equal(activeSections.inReview.length, 1);
@@ -885,14 +779,6 @@ test('only exceptional priority reasons earn row text, so plain team and ready r
 test('comment counts read as words', () => {
   assert.equal(commentCountText(1), '1 comment');
   assert.equal(commentCountText(3), '3 comments');
-});
-
-test('the caught-up banner shows only when nothing is ready, failed or waiting on a hand review', () => {
-  assert.equal(caughtUpDetail(groupDrafts(status([draft(1, { status: 'posted' })]))), 'Nothing needs you right now.');
-  assert.equal(caughtUpDetail(groupDrafts(status([draft(1, { status: 'posted' })], [inFlightReview(2)]))), 'Nothing needs you right now. 1 review is still running.');
-  assert.equal(caughtUpDetail(groupDrafts(status([draft(1)]))), null);
-  assert.equal(caughtUpDetail(groupDrafts(status([draft(1, { status: 'error' })]))), null);
-  assert.equal(caughtUpDetail(groupDrafts(TeamReviewStatus.parse({ ...status([]), handReview: [draft(3)] }))), null);
 });
 
 
@@ -977,70 +863,6 @@ test('your approval at an older commit leaves resolved comments waiting on you',
   assert.deepEqual(queueRowGlyph(review, 'ready'), { meaning: 'Comments resolved', tone: 'warn', icon: 'your-turn' });
 });
 
-
-test('attention order contains selectable ready rows by priority followed by attention rows', () => {
-  const sections = groupDrafts({ ...status([
-    draft(1), draft(2, { requestSource: 'direct', reviewDecision: 'REVIEW_REQUIRED' }),
-    draft(3, { status: 'error' }), draft(4, { status: 'posted' }), draft(5, { status: 'discarded' }),
-  ], [inFlightReview(6)]), handReview: [draft(7)] });
-  assert.deepEqual(attentionOrder(sections), ['Acme/app#2', 'Acme/app#1', 'Acme/app#3']);
-});
-
-test('next attention key follows the captured order despite current priority changes', () => {
-  const capturedOrder = attentionOrder(groupDrafts(status([draft(1), draft(2), draft(3)])));
-  const groups = groupDrafts(status([draft(3, { requestSource: 'direct', reviewDecision: 'REVIEW_REQUIRED' }), draft(2), draft(1)]));
-  assert.equal(nextAttentionKey({ capturedOrder, actedKey: 'Acme/app#1', groups }), 'Acme/app#2');
-});
-
-test('next attention key skips reviews that are no longer actionable', () => {
-  const capturedOrder = attentionOrder(groupDrafts(status([draft(1), draft(2), draft(3), draft(4), draft(5)])));
-  const groups = groupDrafts(status([draft(1), draft(2, { status: 'posted' }), draft(3, { status: 'discarded' }), draft(5, { status: 'stale' })], [inFlightReview(4)]));
-  assert.equal(nextAttentionKey({ capturedOrder, actedKey: 'Acme/app#1', groups }), 'Acme/app#5');
-});
-
-test('next attention key falls back to the first remaining captured key after the last review', () => {
-  const capturedOrder = attentionOrder(groupDrafts(status([draft(1), draft(2), draft(3)])));
-  const groups = groupDrafts(status([draft(2), draft(1), draft(3, { status: 'discarded' })]));
-  assert.equal(nextAttentionKey({ capturedOrder, actedKey: 'Acme/app#3', groups }), 'Acme/app#1');
-});
-
-test('next attention key includes newly arrived attention when no captured key remains', () => {
-  const groups = groupDrafts(status([draft(1, { status: 'posted' }), draft(2, { status: 'error' })]));
-  assert.equal(nextAttentionKey({ capturedOrder: ['Acme/app#1'], actedKey: 'Acme/app#1', groups }), 'Acme/app#2');
-});
-
-test('next attention key excludes the acted review even before the status broadcast', () => {
-  const groups = groupDrafts(status([draft(1)]));
-  assert.equal(nextAttentionKey({ capturedOrder: ['Acme/app#1'], actedKey: 'Acme/app#1', groups }), null);
-  assert.equal(nextAttentionKey({ capturedOrder: ['Acme/app#1'], actedKey: 'Acme/app#1', groups: groupDrafts(status([draft(1, { status: 'posted' })], [inFlightReview(2)])) }), null);
-});
-
-test('caught-up selection survives posted rows and background arrivals until a row is selected', () => {
-  const groups = groupDrafts(status([draft(1, { status: 'posted' })]));
-  assert.equal(chooseSelectedReviewKey(groups, null, true), null);
-  assert.equal(chooseSelectedReviewKey(groups, null), 'Acme/app#1');
-  const withArrival = groupDrafts(status([draft(2), draft(1, { status: 'posted' })]));
-  assert.equal(chooseSelectedReviewKey(withArrival, null, true), null);
-  assert.equal(chooseSelectedReviewKey(withArrival, 'Acme/app#2'), 'Acme/app#2');
-});
-
-test('caught-up selection prompts a pick when new attention arrives but ignores the acted review', () => {
-  const pickPrompt = { kind: 'banner', title: 'New pull requests need you', detail: 'Pick one from the queue.' };
-  assert.deepEqual(caughtUpSelectionView(groupDrafts(status([draft(1, { status: 'posted' }), draft(2)])), null), pickPrompt);
-  assert.deepEqual(caughtUpSelectionView(groupDrafts(status([draft(2, { status: 'error' })])), null), pickPrompt);
-  assert.deepEqual(caughtUpSelectionView(groupDrafts(status([draft(1)])), 'Acme/app#1'), { kind: 'banner', title: 'All caught up', detail: 'Nothing needs you right now.' });
-});
-
-test('caught-up selection explains review by hand and counts reviews still running', () => {
-  const oneByHand = groupDrafts(TeamReviewStatus.parse({ ...status([draft(1, { status: 'posted' })]), handReview: [draft(3)] }));
-  assert.deepEqual(caughtUpSelectionView(oneByHand, null), { kind: 'handReview', detail: 'From a fork, so the agent cannot check out its branch. Review on GitHub.' });
-  const byHandWhileRunning = groupDrafts(TeamReviewStatus.parse({ ...status([], [inFlightReview(2), inFlightReview(5)]), handReview: [draft(3)] }));
-  assert.equal(caughtUpSelectionView(byHandWhileRunning, null).detail, 'From a fork, so the agent cannot check out its branch. Review on GitHub. 2 reviews are still running.');
-});
-
-test('caught-up selection counts reviews still running when nothing needs the operator', () => {
-  assert.deepEqual(caughtUpSelectionView(groupDrafts(status([], [inFlightReview(2)])), null), { kind: 'banner', title: 'All caught up', detail: 'Nothing needs you right now. 1 review is still running.' });
-});
 
 test('an ok action reply advances the selected review without carrying its outcome onto the next one', () => {
   assert.deepEqual(planActionReply({ action: 'approve', pullRequest: 'Acme/app#1', warning: '', isActedSelected: true }), {

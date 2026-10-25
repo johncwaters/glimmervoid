@@ -66,6 +66,7 @@ import { applyTraceChanged, applyTraceError, applyTraceResponse, setTraceNavigat
 import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
 import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isFlyingAnimalsEnabled, isPhoneArrowPad, isSessionUsageChips, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';
+import { jumpToNextReview } from './github/review-queue-panel.ts';
 import { updateBanner } from './updates-view-core.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
@@ -1084,6 +1085,7 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
         focusNextAttention();
         return true;
       }
+      if (getActiveView() === 'prs' && jumpToNextReview()) return true;
       activateFocusOnNextAttention(() => activateView('focus'));
       return true;
     case 'rail-step':

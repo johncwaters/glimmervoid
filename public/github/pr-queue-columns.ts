@@ -27,7 +27,7 @@ function applyStoredQueueLayout(columns: HTMLElement): void {
   columns.style.setProperty('--pr-queue-width', `${width}px`);
 }
 
-export function resyncPrQueueLayouts(): void {
+function resyncPrQueueLayouts(): void {
   for (const columns of liveQueueColumns) {
     if (!columns.isConnected) {
       liveQueueColumns.delete(columns);

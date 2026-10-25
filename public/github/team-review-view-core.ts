@@ -7,7 +7,6 @@ import type {
 } from '#shared/contracts/team-review.ts';
 import { shortSha } from '#shared/git-text.ts';
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
-import { attentionSignature } from '../attention-ack-core.ts';
 import { formatClockOffset } from '../radar/radar-core.ts';
 import { stageIcon, stageLabel, stageTone } from './my-prs-view-core.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
@@ -216,26 +215,6 @@ export interface TeamReviewSections {
   discarded: ReviewDraft[];
 }
 
-function runningReviewsText(sections: TeamReviewSections): string {
-  const runningCount = sections.inReview.length + sections.queued.length;
-  if (runningCount === 0) return '';
-  return ` ${runningCount} ${runningCount === 1 ? 'review is' : 'reviews are'} still running.`;
-}
-
-export function caughtUpDetail(sections: TeamReviewSections): string | null {
-  if (sections.ready.length + sections.attention.length + sections.handReview.length > 0) return null;
-  return `Nothing needs you right now.${runningReviewsText(sections)}`;
-}
-
-export type CaughtUpSelectionView = { kind: 'banner'; title: string; detail: string } | { kind: 'handReview'; detail: string };
-
-export function caughtUpSelectionView(sections: TeamReviewSections, actedKey: string | null): CaughtUpSelectionView {
-  const waitingCount = [...sections.ready, ...sections.attention].filter((review) => review.key !== actedKey).length;
-  if (waitingCount > 0) return { kind: 'banner', title: 'New pull requests need you', detail: 'Pick one from the queue.' };
-  if (sections.handReview.length > 0) return { kind: 'handReview', detail: `From a fork, so the agent cannot check out its branch. Review on GitHub.${runningReviewsText(sections)}` };
-  return { kind: 'banner', title: 'All caught up', detail: caughtUpDetail({ ...sections, ready: [], attention: [] }) ?? '' };
-}
-
 export interface ActionReplyNotice {
   text: string;
   tone: 'error';
@@ -257,12 +236,6 @@ export function planActionReply({ action, pullRequest, warning, isActedSelected 
   const outcome = `${pullRequest}: ${asSentence(statusText)}`;
   if (warning.trim()) return { statusText, shouldAdvance: false, notice: { text: `${outcome} ${asSentence(warning)}`, tone: 'error' } };
   return { statusText, shouldAdvance: isActedSelected, notice: null };
-}
-
-export function hasMultipleQueueRepos(sections: TeamReviewSections): boolean {
-  const reviews = [...sections.ready, ...sections.noReviewNeeded, ...sections.inReview, ...sections.queued, ...sections.handReview, ...sections.attention, ...sections.posted, ...sections.discarded];
-  const repos = new Set(reviews.map((review) => review.repo));
-  return repos.size > 1;
 }
 
 export function queueRowRefLabel(repo: string, number: number, hasMultipleRepos: boolean): string {
@@ -494,29 +467,6 @@ export function githubReviewTitle(text: string, age: string | null): string {
 export function githubReviewItems(draft: ReviewDraft, { isViewerShown = true }: { isViewerShown?: boolean } = {}): { login: string; tone: StateTone; text: string; submittedAt?: string | null }[] {
   const reviews = (draft.githubReviews ?? []).filter((review) => isViewerShown || !review.isViewer).sort((left, right) => Number(right.isViewer) - Number(left.isViewer));
   return reviews.map((review) => ({ login: review.login, tone: githubReviewTone(review.state), text: describeGithubReview(review, currentHead(draft)), submittedAt: review.submittedAt }));
-}
-
-export function hasAnyRow(sections: TeamReviewSections): boolean {
-  return sections.ready.length + sections.noReviewNeeded.length + sections.inReview.length + sections.queued.length + sections.handReview.length + sections.attention.length + sections.posted.length + sections.discarded.length > 0;
-}
-
-export function attentionOrder(sections: TeamReviewSections): string[] {
-  return [...sections.ready, ...sections.attention].map((review) => review.key);
-}
-
-export function nextAttentionKey({ capturedOrder, actedKey, groups }: { capturedOrder: readonly string[]; actedKey: string; groups: TeamReviewSections }): string | null {
-  const remainingKeys = attentionOrder(groups).filter((key) => key !== actedKey);
-  const remainingKeySet = new Set(remainingKeys);
-  const nextKey = capturedOrder.slice(capturedOrder.indexOf(actedKey) + 1).find((key) => remainingKeySet.has(key));
-  if (nextKey) return nextKey;
-  return capturedOrder.find((key) => remainingKeySet.has(key)) ?? remainingKeys[0] ?? null;
-}
-
-export function chooseSelectedReviewKey(sections: TeamReviewSections, selectedKey: string | null, isCaughtUp = false): string | null {
-  if (isCaughtUp && selectedKey === null) return null;
-  const rows = [...sections.ready, ...sections.inReview, ...sections.queued, ...sections.noReviewNeeded, ...sections.attention, ...sections.posted, ...sections.discarded];
-  if (selectedKey && rows.some((row) => row.key === selectedKey)) return selectedKey;
-  return rows[0]?.key ?? null;
 }
 
 export function severityPresentation(severity: FindingSeverity): { filledCount: number; colorToken: string } {
@@ -803,24 +753,6 @@ export function laneNotice(status: TeamReviewStatus | null | undefined): string 
   return status.reason || null;
 }
 
-export function readyAttentionEntries(status: TeamReviewStatus | null | undefined): string[] {
-  return groupDrafts(status).ready.map((draft) => `${draft.key}@${draft.reviewedHead}`);
-}
-
-export function readyAttentionSignature(status: TeamReviewStatus | null | undefined): string {
-  return attentionSignature(readyAttentionEntries(status));
-}
-
-export function decideReadyAttention({ readyEntries, acknowledged, unseen, isLooking }: { readyEntries: readonly string[]; acknowledged: string; unseen: string; isLooking: boolean }): { isShown: boolean; acknowledged: string; unseen: string } {
-  const readySet = new Set(readyEntries);
-  const acknowledgedSet = new Set(acknowledged.split('|').filter((entry) => readySet.has(entry)));
-  const unseenSet = new Set(unseen.split('|').filter((entry) => readySet.has(entry)));
-  const arrivals = [...readySet].filter((entry) => !acknowledgedSet.has(entry));
-  if (isLooking) return { isShown: false, acknowledged: attentionSignature([...readySet]), unseen: attentionSignature([...unseenSet]) };
-  for (const entry of arrivals) unseenSet.add(entry);
-  return { isShown: arrivals.length > 0, acknowledged: attentionSignature([...acknowledgedSet]), unseen: attentionSignature([...unseenSet]) };
-}
-
 export function readyRowSignature(draft: ReviewDraft): string {
   return `${draft.key}@${draft.reviewedHead}:${draft.status}:${draft.summary}:${githubReviewItems(draft).map((review) => review.text).join(', ')}`;
 }
@@ -830,16 +762,3 @@ export function detailHeadingSignature(review: ReviewDraft | InFlightReview): st
   return JSON.stringify([review.prCreatedAt, review.reviewedAt, review.postedAt, review.githubReviews, review.liveHead, review.priorReviewedHead, review.viewerThreads]);
 }
 
-export function isInFlightProgressOnlyChange(previous: TeamReviewStatus | null | undefined, next: TeamReviewStatus): boolean {
-  if (!previous) return false;
-  if (previous.error !== next.error || previous.nextAttemptAt !== next.nextAttemptAt || JSON.stringify(previous.retry) !== JSON.stringify(next.retry)) return false;
-  if (previous.isRefreshing !== next.isRefreshing || previous.refreshNotice !== next.refreshNotice) return false;
-  if (JSON.stringify(previous.team) !== JSON.stringify(next.team)) return false;
-  if (previous.configured !== next.configured || previous.reason !== next.reason) return false;
-  const previousKeys = previous.inFlight.map((review) => review.key).join('\n');
-  const nextKeys = next.inFlight.map((review) => review.key).join('\n');
-  if (previousKeys !== nextKeys) return false;
-  if (JSON.stringify(previous.handReview) !== JSON.stringify(next.handReview)) return false;
-  if (JSON.stringify(previous.queued) !== JSON.stringify(next.queued)) return false;
-  return JSON.stringify(previous.drafts) === JSON.stringify(next.drafts);
-}

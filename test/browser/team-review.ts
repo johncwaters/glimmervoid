@@ -172,7 +172,7 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
   const teamRow = page.locator('.pr-queue-row[data-review-key="Acme/app#1"]');
   const fallbackRow = page.locator('.pr-queue-row[data-review-key="Acme/app#2"]');
   const mineRow = page.locator('.pr-queue-row[data-pr-key="Acme/app#1"]');
-  const root = page.locator('.pr-mode-root:not([hidden])');
+  const root = page.locator('.review-queue');
   assert.equal(await teamRow.locator('.pr-queue-state').textContent(), 'Waits on you');
   const updates: { pr: GithubPr; stage: string; firstKey: string }[] = [
     { pr: { ...canonicalPr, rollupState: 'PENDING', checks: { state: 'PENDING', failing: [], pendingCount: 1 } }, stage: 'Checks running', firstKey: 'Acme/app#2' },
@@ -187,6 +187,7 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     assert.equal(await root.locator('.pr-queue-row').first().getAttribute('data-review-key'), firstKey);
     assert.equal(await fallbackRow.locator('.pr-queue-state').textContent(), 'Waits on you');
     const teamGlyph = await teamRow.locator('.pr-queue-glyph').innerHTML();
+    const teamIcon = await teamRow.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML);
     const unchangedTeamRow = await teamRow.elementHandle();
     assert.ok(unchangedTeamRow);
     await emitTeamReviewFrames(page, [frameFor({ ...pr, commentCount: pr.commentCount + 1 })]);
@@ -203,9 +204,9 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     const chip = page.locator(`${sessionRows} .session-row[data-id="${sessionId}"] .session-pr-chip`).filter({ hasText: '#1' });
     await chip.waitFor({ state: 'visible' });
     assert.equal(await chip.getAttribute('title'), `ACME/app: ${canonicalPr.title} (${stage}). Show in Reviews; Cmd/Ctrl-click opens GitHub`);
-    assert.equal(await chip.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML), await teamRow.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML));
+    assert.equal(await chip.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML), teamIcon);
     await openReviewsView(page, layout);
-    await root.getByRole('tab', { name: 'Team', exact: true }).click();
+    await root.getByRole('tab', { name: 'All', exact: true }).click();
   }
   await teamRow.click();
   await applyStatus(page, { ...laneSnapshot, drafts: [createDraft(1, { status: 'stale', liveHead: REVIEWED_HEAD }), createDraft(2)] });
@@ -220,7 +221,7 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
 
 async function verifyCollapsedRailShowsNumbers(page: Page): Promise<void> {
   const discardedRow = page.locator('.pr-queue-row[data-review-key="Acme/app#6"]');
-  await page.locator('.pr-mode-root:not([hidden]) .pr-queue-toggle').click();
+  await page.locator('.review-queue .pr-queue-toggle').click();
   const compactRef = discardedRow.locator('.pr-queue-ref-compact');
   assert.ok(await compactRef.isVisible());
   assert.equal(await compactRef.textContent(), '#6');
@@ -230,7 +231,7 @@ async function verifyCollapsedRailShowsNumbers(page: Page): Promise<void> {
   }, undefined, { timeout: 2_000 });
   assert.equal(await discardedRow.locator('.pr-queue-ref').isVisible(), false);
   assert.equal(await discardedRow.locator('.pr-queue-title').isVisible(), false);
-  await page.locator('.pr-mode-root:not([hidden]) .pr-queue-toggle').click();
+  await page.locator('.review-queue .pr-queue-toggle').click();
   await discardedRow.locator('.pr-queue-title').waitFor({ state: 'visible' });
   assert.equal(await compactRef.isVisible(), false);
   await verifyLayout(page);
@@ -286,26 +287,26 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   assert.doesNotMatch(await row.locator('.pr-queue-bottom').textContent() ?? '', /drafted|resolved/);
   assert.match(await row.getAttribute('title') ?? '', /2 of 5 of your comments resolved/);
   const sectionHeading = () => row.evaluate((element) => element.closest('.pr-queue-section')?.querySelector('.pr-section-heading')?.textContent);
-  assert.match(await sectionHeading() ?? '', /Already reviewed/);
+  assert.match(await sectionHeading() ?? '', /Waiting on others/);
   await row.click();
   assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), '2 of 5 of your comments resolved');
   const resolved = { ...review, viewerThreads: { total: 5, resolved: 5 } };
   await applyStatus(page, withDraft(resolved));
-  assert.doesNotMatch(await sectionHeading() ?? '', /Already reviewed/);
+  assert.doesNotMatch(await sectionHeading() ?? '', /Waiting on others/);
   assert.equal(await row.locator('.pr-queue-state').textContent(), 'Comments resolved');
   assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), 'All 5 of your comments resolved');
   assert.match(await row.getAttribute('title') ?? '', /All 5 of your comments resolved/);
   await applyStatus(page, withDraft({ ...resolved, viewerThreads: { total: 5, resolved: 3 } }));
   assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), '3 of 5 of your comments resolved');
   await applyStatus(page, withDraft({ ...resolved, reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: REVIEWED_HEAD, isViewer: true }] }));
-  assert.match(await sectionHeading() ?? '', /Already reviewed/);
+  assert.match(await sectionHeading() ?? '', /Waiting on others/);
   await applyStatus(page, withDraft({ ...resolved, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
-  assert.match(await sectionHeading() ?? '', /Ready/);
+  assert.match(await sectionHeading() ?? '', /Your turn/);
   assert.equal(await row.locator('.pr-queue-state').textContent(), 'Comments resolved');
   await row.click();
   assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), 'All 5 of your comments resolved');
   await applyStatus(page, withDraft({ ...review, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
-  assert.match(await sectionHeading() ?? '', /Waiting on author/);
+  assert.match(await sectionHeading() ?? '', /Waiting on others/);
   await applyStatus(page, snapshot);
 }
 
@@ -371,7 +372,7 @@ async function verifyAnsweredThreadConversation(page: Page, snapshot: TeamReview
 
 async function verifyThreadDisclosureAfterHiddenRebuild(page: Page, snapshot: TeamReviewStatus, thread: TeamReviewThread): Promise<void> {
   const setTeamRootHidden = (isHidden: boolean) => page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').evaluate((row, hidden) => {
-    const teamRoot = row.closest('.pr-mode-root');
+    const teamRoot = row.closest('.review-queue');
     if (teamRoot instanceof HTMLElement) teamRoot.hidden = hidden;
   }, isHidden);
   const longReply = 'Rebuilt while hidden.\n' + 'Hidden reply evidence.\n'.repeat(12);
@@ -444,7 +445,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
       await replyToCapturedAction(page, true);
       assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
       assert.equal(await actionNotice.isVisible(), false);
-      assert.equal(await page.locator('.pr-queue-section', { has: reviewRow(unreviewed) }).locator('.pr-section-heading').textContent(), 'Not mine 1');
+      assert.match(await page.locator('.pr-queue-section', { has: reviewRow(unreviewed) }).locator('.pr-section-heading').textContent() ?? '', /Set aside/);
     }
     for (const action of ['approve', 'approve-only', 'comment', 'discard', 'requeue'] as const) {
       await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
@@ -494,8 +495,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     assert.equal(await caughtUpTitle.textContent(), 'All caught up');
     assert.equal(await actionNotice.isVisible(), false);
     await applyStatus(page, { ...withDrafts([createDraft(1, { status: 'posted' }), createDraft(2, { status: 'discarded' })]), handReview: [createDraft(12)] });
-    assert.equal(await page.locator('.pr-detail-host .my-pr-note').textContent(), 'From a fork, so the agent cannot check out its branch. Review on GitHub.');
-    assert.equal(await page.locator('.pr-detail-host a.pr-queue-row').getAttribute('href'), 'https://github.com/Acme/app/pull/12');
+    assert.equal(await caughtUpTitle.textContent(), 'New pull requests need you');
     await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2)]));
     assert.equal(await page.locator('.pr-queue-row[aria-current="true"]').count(), 0);
     assert.equal(await caughtUpTitle.textContent(), 'New pull requests need you');
@@ -507,6 +507,9 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await replyToCapturedAction(page, true);
     await applyStatus(page, withDrafts([]));
     assert.equal(await caughtUpTitle.textContent(), 'All caught up');
+    await applyStatus(page, { ...withDrafts([]), handReview: [createDraft(12)] });
+    await reviewRow(12).click();
+    assert.equal(await page.locator('.pr-detail-host .pr-detail').getByRole('link', { name: 'Review on GitHub', exact: true }).getAttribute('href'), 'https://github.com/Acme/app/pull/12');
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     throw error;
@@ -591,16 +594,23 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   await openReviewsView(page, layout);
   const status = createStatus();
   await applyStatus(page, status);
+  await page.getByRole('button', { name: 'Set aside', exact: true }).click();
   await page.evaluate(async () => { await document.fonts.ready; });
   await verifyRows(page);
   await verifyLayout(page);
   if (layout === 'desktop') {
-    await page.locator('.pr-mode-root:not([hidden]) .pr-columns').evaluate((columns) => {
+    assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').getAttribute('aria-current'), 'true');
+    await page.keyboard.press('Alt+KeyJ');
+    assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#2"]').getAttribute('aria-current'), 'true');
+    assert.equal(await page.evaluate(() => document.body.dataset.activeView), 'prs');
+  }
+  if (layout === 'desktop') {
+    await page.locator('.review-queue .pr-columns').evaluate((columns) => {
       if (!(columns instanceof HTMLElement)) throw new Error('Missing queue columns');
       columns.style.setProperty('--pr-queue-width', '220px');
     });
     await verifyLayout(page);
-    await page.locator('.pr-mode-root:not([hidden]) .pr-columns').evaluate((columns) => {
+    await page.locator('.review-queue .pr-columns').evaluate((columns) => {
       if (!(columns instanceof HTMLElement)) throw new Error('Missing queue columns');
       columns.style.removeProperty('--pr-queue-width');
     });

@@ -13,7 +13,7 @@ async function applyStatus(page: Page, status: MyPrsStatus): Promise<void> {
 }
 
 export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
-  await page.locator('.pr-mode-root:not([hidden])').getByRole('tab', { name: 'Mine', exact: true }).click();
+  await page.locator('.review-queue').getByRole('tab', { name: 'Mine', exact: true }).click();
   const timestamp = Date.now();
   const canonicalPr = GithubPr.parse({
     key: 'acme/app#1322', id: 'PR_browser', repo: 'Acme/app', number: 1322, title: 'Repair merge conflicts', url: 'https://github.com/Acme/app/pull/1322',
@@ -32,7 +32,7 @@ export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
     }],
   });
   await emitControlMessages(page, [{ type: 'github-prs', ts: timestamp, prs: { [canonicalPr.key]: canonicalPr }, freshness: { lastRefreshedAt: timestamp, error: null } }]);
-  const panel = page.locator('.pr-mode-root:not([hidden])');
+  const panel = page.locator('.review-queue');
   const control = panel.getByRole('button', { name: 'Keep mergeable', exact: true });
   const detailStatus = panel.locator('.pr-detail .my-pr-merge').first().locator('.pr-action-status');
   const rowChip = panel.locator('.pr-queue-row .my-pr-stage[title]');
@@ -69,7 +69,7 @@ export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
 }
 
 async function verifyRefreshStatusKeepsLayout(page: Page, status: MyPrsStatus): Promise<void> {
-  const panel = page.locator('.pr-mode-root:not([hidden])');
+  const panel = page.locator('.review-queue');
   const head = panel.locator('.pr-queue-head');
   const refreshStatus = panel.locator('.reviews-refresh-status');
   assert.equal(await panel.locator('.pr-queue-foot .reviews-refresh-button').count(), 1);
@@ -125,7 +125,7 @@ async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus, initialP
     type: 'session-prs', id: sessionId,
     linkedPrs: [canonicalPr, teammatePr].map((pr) => ({ repo: 'ACME/app', number: pr.number, url: pr.url, source: 'manual', linkedAt: status.ts })),
   }]);
-  const panel = page.locator('.pr-mode-root:not([hidden])');
+  const panel = page.locator('.review-queue');
   const row = panel.locator('.pr-queue-row[data-pr-key="Acme/app#1322"]');
   const sessionPill = panel.locator(`.my-pr-session-pill[data-session-id="${sessionId}"]`);
   for (const checksState of ['PENDING', 'FAILURE', 'SUCCESS'] as const) {
