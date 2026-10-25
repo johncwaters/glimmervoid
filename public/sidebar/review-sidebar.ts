@@ -4,7 +4,7 @@ import type { SessionState } from '#shared/states.ts';
 import { MERGEABLE_LIVE_STATES, STATES } from '#shared/states.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { sendControlMsg } from '../control-ws.ts';
-import { el } from '../dom-helpers.ts';
+import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -193,6 +193,15 @@ function applyStatus(id: string, next: string) {
     if (id === getSelectedId()) requestChangeMap(id);
   }
   if (id === getSelectedId()) render();
+}
+
+export function reparentReviewPanel(parentEl: HTMLElement | null) {
+  if (!panelEl) return;
+  if (parentEl) {
+    adoptElement(panelEl, parentEl);
+    return;
+  }
+  releaseElement(panelEl);
 }
 
 export function setReviewMergeStatus(id: string, mergeStatus: string, reason: string | null = null) {

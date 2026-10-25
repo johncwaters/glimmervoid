@@ -5,12 +5,16 @@ import { getRestorableSessionId, requestSessionOpen, selectSession } from '../se
 import { addActivityRenderer } from '../session-card/activity.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
+import { reparentReviewPanel } from '../sidebar/review-sidebar.ts';
 import { uiState } from '../ui-state-core.ts';
 import { createBoardScreen } from './board-screen.ts';
 import type { PhonePanel } from './phone-panels-core.ts';
-import { createTerminalScreen } from './terminal-screen.ts';
+import { BACK_GLYPH, createTerminalScreen } from './terminal-screen.ts';
 
 const BOARD = 'board';
+const TERMINAL = 'terminal';
+const CHANGES = 'changes';
+const PARENT_SCREEN_BY_ID: Readonly<Record<string, string>> = Object.freeze({ [CHANGES]: TERMINAL });
 
 interface PhoneScreenSpec {
   id: string;
@@ -28,7 +32,7 @@ interface PhoneShellHooks {
 
 const NAV_SCREENS: readonly PhoneScreenSpec[] = Object.freeze([
   { id: BOARD, label: 'Focus', glyph: '▤' },
-  { id: 'terminal', label: 'Terminal', glyph: '▸' },
+  { id: TERMINAL, label: 'Terminal', glyph: '▸' },
 ]);
 let panels: PhonePanel<AdoptableElement>[] = [];
 const panelMountElById = new Map<string, HTMLDivElement>();
@@ -38,6 +42,7 @@ const screenElById = new Map<string, HTMLElement>();
 const screenAttentionById = new Map<string, string | boolean>();
 let boardScreen: ReturnType<typeof createBoardScreen> | null = null;
 let terminalScreen: ReturnType<typeof createTerminalScreen> | null = null;
+let reviewMountEl: HTMLDivElement | null = null;
 let moreButtonEl: HTMLButtonElement | null = null;
 let moreMenuEl: HTMLDivElement | null = null;
 const menuButtonById = new Map<string, HTMLButtonElement>();
@@ -172,16 +177,18 @@ function build() {
 
   boardScreen = createBoardScreen({ onSelectSession: openSession });
   addActivityRenderer((ui, kind) => { if (active) boardScreen?.renderActivity(ui, kind); });
-  terminalScreen = createTerminalScreen({ onBack: () => showScreen(BOARD) });
+  terminalScreen = createTerminalScreen({ onBack: () => showScreen(BOARD), onShowChanges: () => showScreen(CHANGES) });
+  reviewMountEl = el('div', 'phone-review');
 
   const screens = el('div', 'phone-screens');
   const contentByScreenId: Record<string, HTMLElement | null> = {
     [BOARD]: boardScreen.el,
-    terminal: terminalScreen.el,
+    [TERMINAL]: terminalScreen.el,
   };
   for (const screen of NAV_SCREENS) {
     screens.appendChild(wrapScreen(screen.id, screen.label, contentByScreenId[screen.id]));
   }
+  screens.appendChild(wrapScreen(CHANGES, 'Changes', buildChangesScreen(reviewMountEl)));
   for (const panel of panels) {
     const mountEl = el('div', `phone-panel phone-${panel.id}`);
     panelMountElById.set(panel.id, mountEl);
@@ -208,13 +215,25 @@ function build() {
   });
 }
 
+function buildChangesScreen(mountEl: HTMLDivElement) {
+  const changesScreen = el('div', 'phone-changes-screen');
+  const topBar = el('header', 'phone-topbar phone-changes-bar');
+  const backButton = el('button', 'phone-back', BACK_GLYPH);
+  backButton.type = 'button';
+  backButton.setAttribute('aria-label', 'Back to terminal');
+  backButton.addEventListener('click', () => showScreen(TERMINAL));
+  topBar.append(backButton, el('span', 'phone-changes-title', 'Changes'));
+  changesScreen.append(topBar, mountEl);
+  return changesScreen;
+}
+
 function openSession(sessionId: string) {
   if (!sessionUIs.has(sessionId)) return;
   if (!boardScreen || !terminalScreen) throw new Error('Phone shell is not built');
   requestSessionOpen(sessionId, 'dormant-fallback');
   selectSession(sessionId);
   terminalScreen.show(sessionId);
-  showScreen('terminal');
+  showScreen(TERMINAL);
 }
 
 interface PhoneHistoryState {
@@ -222,9 +241,13 @@ interface PhoneHistoryState {
   glimmervoidNested?: unknown;
 }
 
+function rootScreenOf(screenId: string) {
+  return PARENT_SCREEN_BY_ID[screenId] ?? screenId;
+}
+
 function historyStateFor(screenId: string, isNested: boolean) {
   if (isNested) return { glimmervoidScreen: screenId, glimmervoidNested: true };
-  return { glimmervoidScreen: screenId };
+  return { glimmervoidScreen: rootScreenOf(screenId) };
 }
 
 function screenIdFromHistoryState(state: unknown): string | null {
@@ -239,11 +262,13 @@ function historyDepthOf(state: unknown) {
 
 function desiredHistoryDepth(screenId: string) {
   if (screenId === BOARD) return 0;
+  if (PARENT_SCREEN_BY_ID[screenId]) return 2;
   return hooks.canGoBack?.(screenId) ? 2 : 1;
 }
 
 function isCurrentHistoryStateFor(screenId: string, isNested: boolean) {
-  return screenIdFromHistoryState(history.state) === screenId && historyDepthOf(history.state) === (isNested ? 2 : 1);
+  const expectedScreenId = isNested ? screenId : rootScreenOf(screenId);
+  return screenIdFromHistoryState(history.state) === expectedScreenId && historyDepthOf(history.state) === (isNested ? 2 : 1);
 }
 
 export function syncPhoneHistory() {
@@ -315,12 +340,12 @@ function applyScreen(screenId: string) {
     section.hidden = id !== screenId;
   }
   hooks.onScreenShown?.(screenId);
-  syncCurrent(navButtonById, screenId);
+  syncCurrent(navButtonById, rootScreenOf(screenId));
   const isNestedActive = menuButtonById.has(screenId);
   if (isNestedActive) moreButtonEl.setAttribute('aria-current', 'page');
   if (!isNestedActive) moreButtonEl.removeAttribute('aria-current');
   syncCurrent(menuButtonById, screenId);
-  if (screenId === 'terminal') {
+  if (screenId === TERMINAL) {
     terminalScreen.reveal();
     return;
   }
@@ -354,6 +379,7 @@ export function activatePhoneShell({ sessionId, linkedScreenId }: { sessionId?: 
   active = true;
   shellEl.hidden = false;
   for (const control of (hooks.headerControls || [])) adoptElement(control, boardScreen.topBarEl);
+  reparentReviewPanel(reviewMountEl);
   for (const panel of panels) {
     adoptElement(panel.el, panelMountElById.get(panel.id));
     panel.el.hidden = false;
@@ -367,7 +393,7 @@ export function activatePhoneShell({ sessionId, linkedScreenId }: { sessionId?: 
     return;
   }
   if (sessionId && startScreen === BOARD) {
-    showScreen('terminal');
+    showScreen(TERMINAL);
     return;
   }
   applyScreen(startScreen);
@@ -379,6 +405,7 @@ export function deactivatePhoneShell() {
   if (!shellEl || !terminalScreen) throw new Error('Phone shell is not built');
   active = false;
   terminalScreen.clear();
+  reparentReviewPanel(null);
   for (const panel of panels) releaseElement(panel.el);
   for (const control of (hooks.headerControls || [])) releaseElement(control);
   setMoreMenuOpen(false);
@@ -411,7 +438,8 @@ export function refreshPhoneBoard() {
   restoreShownSession();
   boardScreen.refresh();
   terminalScreen.refresh();
-  if (uiState.snapshot().phoneScreen === 'terminal' && !terminalScreen.getSessionId()) showScreen(BOARD);
+  const isSessionScreen = rootScreenOf(uiState.snapshot().phoneScreen || BOARD) === TERMINAL;
+  if (isSessionScreen && !terminalScreen.getSessionId()) showScreen(BOARD);
   const dot = dotOf(navButtonById.get(BOARD));
   if (dot) dot.hidden = boardScreen.getAttentionCount() === 0;
 }

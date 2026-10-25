@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **See a session's changes on your phone**: the phone Terminal screen has a Changes button next to the session menu. It opens that session's review panel full screen, with its diff, Merge and resolve controls, and Back or a swipe returns you to the terminal.
+
 ### Changed
 
 - **One-line attention banner**: the banner at the top of the Focus rail and the phone Board is now a single line. The separate "Next session" row is gone: on desktop the Cmd/Alt+J keys sit at the right of the same line, lit in the color of the session they would open and dimmed when everything is clear, so you can tell at a glance whether pressing them does anything. On the phone the line shows status only, and a tap anywhere on it still opens the next session.

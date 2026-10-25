@@ -12,9 +12,9 @@ import { paintSessionRowStatus } from '../session-row.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { controlBytesForCharacter, createMobileKeyStrip } from './mobile-key-strip.ts';
 
-const BACK_GLYPH = String.fromCharCode(0x2039);
+export const BACK_GLYPH = String.fromCharCode(0x2039);
 
-export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
+export function createTerminalScreen({ onBack, onShowChanges }: { onBack?: () => void; onShowChanges?: () => void }) {
   const screen = el('div', 'phone-terminal');
 
   const topBar = el('header', 'phone-topbar phone-terminal-bar');
@@ -39,9 +39,14 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   labelEl.before(nameEl);
   identity.append(taskTitleEl, badgeEl);
 
+  const changesButton = el('button', 'phone-changes', 'Changes');
+  changesButton.type = 'button';
+  changesButton.title = "Show this session's code changes";
+  changesButton.addEventListener('click', () => onShowChanges?.());
+
   const actionSlot = el('div', 'phone-terminal-actions');
 
-  topBar.append(backBtn, identity, actionSlot);
+  topBar.append(backBtn, identity, changesButton, actionSlot);
 
   const cardSlot = el('div', 'phone-card-slot');
 
@@ -118,6 +123,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     cardSlot.hidden = !hasSession;
     keyStrip.hidden = !hasSession;
     identity.hidden = !hasSession;
+    changesButton.hidden = !hasSession;
     if (!hasSession) {
       topBar.removeAttribute('data-state');
       topBar.removeAttribute('data-monitoring');

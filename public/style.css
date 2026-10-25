@@ -8295,7 +8295,8 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   .session-group-add::after,
   .session-group-forget::after { inset: -13px -6px; }
 
-  .phone-back { min-width: 44px; min-height: 44px; }
+  .phone-back,
+  .phone-changes { min-width: 44px; min-height: 44px; }
 
   .session-pr-chip-unlink,
   .review-branch-sync-button { position: relative; }
@@ -8379,7 +8380,8 @@ html[data-layout="phone"] .session-row-remove { flex-basis: 44px; min-width: 44p
 
 .phone-terminal { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
-.phone-back {
+.phone-back,
+.phone-changes {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -8396,8 +8398,12 @@ html[data-layout="phone"] .session-row-remove { flex-basis: 44px; min-width: 44p
   line-height: 1;
   cursor: pointer;
 }
-.phone-back:active { color: var(--text-head); border-color: var(--border-hover); }
-.phone-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.phone-back:active,
+.phone-changes:active { color: var(--text-head); border-color: var(--border-hover); }
+.phone-back:focus-visible,
+.phone-changes:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.phone-changes { width: auto; padding: 0 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.phone-changes[hidden] { display: none; }
 
 .phone-terminal-identity { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .phone-terminal-identity[hidden] { display: none; }
@@ -8514,7 +8520,14 @@ html[data-arrow-pad] .phone-arrow-pad { display: block; }
 html[data-arrow-pad] .phone-key-arrow { display: none; }
 .phone-key:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+.phone-review,
+.phone-changes-screen,
 .phone-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+.phone-changes-title { font: 700 11px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-head); }
+.phone-review > .app-sidebar { flex: 1 1 auto; border-left: none; }
+html[data-layout="phone"] .review-resize-handle { display: none; }
+html[data-layout="phone"] .review-sidebar-body { overscroll-behavior: contain; }
 
 .phone-panel > :not(.settings-view) { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 
