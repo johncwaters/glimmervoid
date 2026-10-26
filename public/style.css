@@ -8765,6 +8765,7 @@ html[data-layout="phone"] .pr-step { grid-template-columns: 5ch 8ch minmax(0, 1f
 
 .phone-nav {
   position: relative;
+  z-index: 3;
   flex: 0 0 auto;
   display: flex;
   align-items: stretch;
