@@ -48,6 +48,7 @@ function glimmervoidBackendPlugin(): Plugin {
 const brotliCompress = promisify(zlib.brotliCompress);
 const BROTLI_EXTENSIONS = new Set(['.html', '.js', '.css', '.svg', '.json', '.txt']);
 const MIN_BROTLI_BYTES = 1024;
+const FLYING_ANIMAL_SPRITE_PATH = /[\\/]public[\\/]animals[\\/][^\\/]+\.png$/;
 
 function brotliOutputPlugin(): Plugin {
   let outDir = '';
@@ -92,6 +93,7 @@ export default defineConfig({
     emptyOutDir: true,
     manifest: true,
     chunkSizeWarningLimit: 750,
+    assetsInlineLimit: (filePath) => (FLYING_ANIMAL_SPRITE_PATH.test(filePath) ? false : undefined),
     rolldownOptions: {
       output: {
         codeSplitting: {
