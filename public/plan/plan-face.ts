@@ -9,6 +9,7 @@ import type {
   PlanSectionComment,
 } from '#shared/contracts/plan-review.ts';
 import { el } from '../dom-helpers.ts';
+import { nextRovingIndex } from '../roving-keys-core.ts';
 import { trapTabWithin } from '../session-card/modal.ts';
 import { uiState } from '../ui-state-core.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
@@ -253,16 +254,11 @@ export function createPlanFace(deps: PlanFaceDeps) {
 
   function wireSelectionKeys(group: HTMLElement) {
     group.addEventListener('keydown', (event) => {
-      const directions: Record<string, number> = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
-      const direction = directions[event.key];
-      if (direction === undefined && event.key !== 'Home' && event.key !== 'End') return;
       const buttons = [...group.querySelectorAll<HTMLElement>('button:not(:disabled)')];
-      if (buttons.length === 0) return;
-      event.preventDefault();
       const currentIndex = buttons.indexOf(document.activeElement as HTMLElement);
-      let nextIndex = (currentIndex + (direction ?? 0) + buttons.length) % buttons.length;
-      if (event.key === 'Home') nextIndex = 0;
-      if (event.key === 'End') nextIndex = buttons.length - 1;
+      const nextIndex = nextRovingIndex(event.key, currentIndex, buttons.length, 'both');
+      if (nextIndex === null) return;
+      event.preventDefault();
       const wasSheetOpen = isSheetOpen;
       buttons[nextIndex].click();
       if (wasSheetOpen && group !== modes) return;

@@ -1,4 +1,5 @@
 import { el } from './dom-helpers.ts';
+import { nextRovingIndex } from './roving-keys-core.ts';
 
 export function buildMenuItem(label: string, hint: string, className: string) {
   const button = el('button', `popup-menu-item ${className}`);
@@ -16,6 +17,7 @@ export function isMenuArrowKey(event: KeyboardEvent) {
 export function focusAdjacentMenuItem(menuItems: readonly HTMLElement[], event: KeyboardEvent) {
   const focusedElement = document.activeElement;
   const focusedIndex = focusedElement instanceof HTMLElement ? menuItems.indexOf(focusedElement) : -1;
-  const nextIndex = event.key === 'ArrowDown' ? focusedIndex + 1 : focusedIndex < 0 ? menuItems.length - 1 : focusedIndex - 1;
-  menuItems[(nextIndex + menuItems.length) % menuItems.length]?.focus();
+  const nextIndex = nextRovingIndex(event.key, focusedIndex, menuItems.length, 'vertical');
+  if (nextIndex === null) return;
+  menuItems[nextIndex].focus();
 }

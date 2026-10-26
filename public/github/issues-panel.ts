@@ -5,6 +5,7 @@ import { el, externalLink, isPanelHidden, stateChip } from '../dom-helpers.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import { createGithubPollingControls } from './my-prs-panel.ts';
 import { createPrQueueFoot, createPrQueueHead } from './pr-queue-columns.ts';
+import { createPrScopeTabs } from './pr-scope-tabs.ts';
 import { issuePullRequestState, filterIssues, groupIssuesByRepo, issueFilterOptions, issueFilterSummary, issueAgo, issueRelativeAge, issueScopeCounts, issuesPlaceholder } from './issues-view-core.ts';
 import type { IssueFilters, IssueRow, IssueScope, IssueSort } from './issues-view-core.ts';
 import { selectSession } from '../session-actions.ts';
@@ -18,7 +19,7 @@ const scopes: { id: IssueScope; label: string }[] = [
 ];
 const filters: IssueFilters = { scope: 'all', repo: '', label: '', sort: 'updated', query: '', hasSession: false, hasPr: false, isUnassignedOnly: false };
 let root: HTMLDivElement | null = null;
-let scopeTabs: HTMLElement | null = null;
+let scopeTabs: ReturnType<typeof createPrScopeTabs<IssueScope>> | null = null;
 let queue: HTMLElement | null = null;
 let detailHost: HTMLElement | null = null;
 let filterSummary: HTMLElement | null = null;
@@ -226,11 +227,8 @@ function renderQueue(): void {
   const { latestStatus, selectedKey } = issuesSnapshot();
   const issues = latestStatus?.issues ?? [];
   const counts = issueScopeCounts(issues);
-  for (const scope of scopes) {
-    scopeTabs.querySelector(`[data-scope="${scope.id}"]`)?.setAttribute('aria-selected', String(scope.id === filters.scope));
-    const count = scopeTabs.querySelector(`[data-scope-count="${scope.id}"]`);
-    if (count) count.textContent = String(counts[scope.id]);
-  }
+  scopeTabs.select(filters.scope);
+  for (const [scope, count] of scopeTabs.countElementByScope) count.textContent = String(counts[scope]);
   const options = issueFilterOptions(issues);
   updateSelectOptions(repoSelect, 'All repos', options.repos, filters.repo);
   updateSelectOptions(labelSelect, 'All labels', options.labels, filters.label);
@@ -331,22 +329,14 @@ function mountIssuesView(parent: HTMLElement): void {
   const columns = el('div', 'pr-columns issues-columns');
   const pane = el('section', 'pr-queue-pane');
   pane.setAttribute('aria-label', 'Issue queue');
-  scopeTabs = el('div', 'pr-scope-tabs issues-scope-tabs');
-  scopeTabs.setAttribute('role', 'tablist');
-  scopeTabs.setAttribute('aria-label', 'Issue scope');
-  for (const scope of scopes) {
-    const wrapper = el('span', 'issues-scope');
-    wrapper.setAttribute('role', 'presentation');
-    const tab = el('button', 'pr-scope-tab', scope.label);
-    tab.type = 'button';
-    tab.dataset.scope = scope.id;
-    tab.setAttribute('role', 'tab');
-    tab.addEventListener('click', () => { reportIssuesAction('scope'); filters.scope = scope.id; render(); });
-    const count = el('span', 'issues-scope-count');
-    count.dataset.scopeCount = scope.id;
-    wrapper.append(tab, count);
-    scopeTabs.append(wrapper);
-  }
+  scopeTabs = createPrScopeTabs({
+    label: 'Issue scope',
+    scopes,
+    selected: filters.scope,
+    onSelect: (scope) => { reportIssuesAction('scope'); filters.scope = scope; render(); },
+    extraClassName: 'issues-scope-tabs',
+    countClassPrefix: 'issues-scope',
+  });
   queue = el('nav', 'pr-queue');
   queue.setAttribute('aria-label', 'Issues');
   const foot = createPrQueueFoot(pollingControls.control);
@@ -354,7 +344,7 @@ function mountIssuesView(parent: HTMLElement): void {
   syncStatus.setAttribute('role', 'status');
   foot.prepend(syncStatus);
   foot.append(pollingControls.notice);
-  pane.append(createPrQueueHead(scopeTabs), createFilters(), queue, foot);
+  pane.append(createPrQueueHead(scopeTabs.element), createFilters(), queue, foot);
   detailHost = el('section', 'pr-detail-host');
   detailHost.setAttribute('aria-label', 'Issue detail');
   columns.append(pane, detailHost);

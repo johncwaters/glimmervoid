@@ -34,6 +34,7 @@ import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTea
 import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-store.ts';
 import { forgetSessionLinkedPrs, paintSessionPrChips, sessionRowPrSignals, setSessionLinkedPrs } from './github/session-pr-chips.ts';
 import { addSessionRowSignalSource } from './session-row.ts';
+import { nextRovingIndex, wrapIndex } from './roving-keys-core.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-store.ts';
@@ -896,12 +897,20 @@ setTraceNavigate(() => {
   activateView('trace');
 });
 
-function stepViewTab(fromView: string, direction: number) {
-  const availableTabs = VIEW_TABS.filter((viewTab) => !viewTab.tab.hidden);
-  const fromIndex = availableTabs.findIndex((viewTab) => viewTab.view === fromView);
-  const nextTab = availableTabs[(fromIndex + direction + availableTabs.length) % availableTabs.length];
+function availableViewTabs() {
+  return VIEW_TABS.filter((viewTab) => !viewTab.tab.hidden);
+}
+
+function activateViewTabAt(availableTabs: typeof VIEW_TABS, index: number) {
+  const nextTab = availableTabs[index];
   activateView(nextTab.view);
   return nextTab.tab;
+}
+
+function stepViewTab(fromView: string, direction: number) {
+  const availableTabs = availableViewTabs();
+  const fromIndex = availableTabs.findIndex((viewTab) => viewTab.view === fromView);
+  return activateViewTabAt(availableTabs, wrapIndex(fromIndex, direction, availableTabs.length));
 }
 
 function focusViewTabIfFocused(tab: HTMLElement) {
@@ -950,10 +959,13 @@ for (let i = 0; i < VIEW_TABS.length; i++) {
   });
   tab.addEventListener('dragend', () => { draggedViewId = null; });
   tab.addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     if (e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return;
+    const availableTabs = availableViewTabs();
+    const activeIndex = availableTabs.findIndex((viewTab) => viewTab.view === getActiveView());
+    const nextIndex = nextRovingIndex(e.key, activeIndex, availableTabs.length, 'horizontal');
+    if (nextIndex === null) return;
     e.preventDefault();
-    stepViewTab(getActiveView(), e.key === 'ArrowRight' ? 1 : -1).focus();
+    activateViewTabAt(availableTabs, nextIndex).focus();
   });
 }
 
