@@ -9053,7 +9053,9 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
 
 @media (prefers-reduced-motion: no-preference) {
   .telemetry-banner-cat {
-    animation: telemetry-banner-cat-frames 0.9s steps(6) infinite;
+    --gait-lift: 1px;
+    --gait-tilt: 2deg;
+    animation: gait-glide-bob 0.9s ease-in-out infinite alternate, gait-glide-tilt 0.9s ease-in-out -0.45s infinite alternate, telemetry-banner-cat-frames 0.9s steps(6) infinite;
   }
 }
 

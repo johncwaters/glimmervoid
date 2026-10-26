@@ -46,7 +46,9 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
     .install-actions .copy-status { left: 50%; top: calc(100% + 6px); translate: -50% 0; }
   }
   .sky { position: absolute; inset-block: 0; inset-inline: calc(50% - 50vw); pointer-events: none; z-index: 1; overflow: hidden; }
-  .sky:not([data-on-screen="true"]) :is(.nyan-flight, .nyan-trail, .nyan-sprite) { animation-play-state: paused; }
+  .sky:not([data-on-screen="true"]) :global(:is(.nyan-flight, .nyan-trail, .nyan-sprite)),
+  .sky:not([data-on-screen="true"]) :global(.nyan-trail::before),
+  .sky:not([data-on-screen="true"]) :global(.nyan-sprite::after) { animation-play-state: paused; }
   @media (prefers-reduced-motion: reduce) {
     .sky { display: none; }
   }
