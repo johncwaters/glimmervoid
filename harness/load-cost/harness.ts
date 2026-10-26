@@ -180,12 +180,13 @@ function watchPageSockets(page: Page) {
 }
 
 function watchHttpSizes(page: Page) {
-  const pending: Promise<{ url: string; status: number; bodyBytes: number; headerBytes: number }>[] = [];
+  const pending: Promise<{ url: string; status: number; bodyBytes: number; headerBytes: number; decodedBytes: number }>[] = [];
   page.on('requestfinished', (request) => {
     pending.push((async () => {
       const sizes = await request.sizes();
       const response = await request.response();
-      return { url: request.url(), status: response?.status() ?? 0, bodyBytes: sizes.responseBodySize, headerBytes: sizes.responseHeadersSize };
+      const decodedBytes = response?.status() === 200 ? (await response.body()).length : 0;
+      return { url: request.url(), status: response?.status() ?? 0, bodyBytes: sizes.responseBodySize, headerBytes: sizes.responseHeadersSize, decodedBytes };
     })());
   });
   return async (proxyHttpBytes: number): Promise<ShellCheck> => {
@@ -200,7 +201,7 @@ function watchHttpSizes(page: Page) {
       if (entry.status !== 200 || !assetPath.startsWith(CLIENT_DIR) || !fs.existsSync(assetPath) || !fs.statSync(assetPath).isFile()) continue;
       assetFilesChecked += 1;
       const sizeOnDisk = fs.statSync(assetPath).size;
-      if (sizeOnDisk !== entry.bodyBytes) assetMismatches.push(`${pathname} ${entry.bodyBytes} != ${sizeOnDisk}`);
+      if (sizeOnDisk !== entry.decodedBytes) assetMismatches.push(`${pathname} ${entry.decodedBytes} != ${sizeOnDisk}`);
     }
     return decideShellCheck(proxyHttpBytes, browserReportedHttpBytes, assetFilesChecked, assetMismatches);
   };

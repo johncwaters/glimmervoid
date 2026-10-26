@@ -6,6 +6,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
+import zlib from 'node:zlib';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { MAX_UPLOAD_BYTES } from '../server/core/upload-core.ts';
@@ -19,6 +20,7 @@ const SESSION_ID = 'a0000000-0000-4000-8000-000000000001';
 
 interface UploadRouteContext {
   tmpDir: string;
+  clientDir: string;
   prevEnv: string | undefined;
   server: Server;
   backend: Backend;
@@ -27,6 +29,13 @@ interface UploadRouteContext {
 }
 
 const booted: { context: UploadRouteContext | null } = { context: null };
+
+const HASHED_ASSET = 'index-Ab12Cd34.js';
+
+function writeWithBrotliSibling(filePath: string, text: string): void {
+  fs.writeFileSync(filePath, text);
+  fs.writeFileSync(`${filePath}.br`, zlib.brotliCompressSync(Buffer.from(text)));
+}
 
 const ptyWrites: string[] = [];
 
@@ -84,8 +93,13 @@ test.before(async () => {
   const prevEnv = process.env.GLIMMERVOID_CONFIG;
   process.env.GLIMMERVOID_CONFIG = cfgPath;
 
+  const clientDir = path.join(tmpDir, 'client');
+  fs.mkdirSync(path.join(clientDir, 'assets'), { recursive: true });
+  writeWithBrotliSibling(path.join(clientDir, 'index.html'), `<!doctype html>${'<p>shell</p>'.repeat(200)}`);
+  writeWithBrotliSibling(path.join(clientDir, 'assets', HASHED_ASSET), `export const shell = '${'x'.repeat(4000)}';`);
+
   const server = http.createServer();
-  const backend = createBackend(server, { staticDir: null });
+  const backend = createBackend(server, { staticDir: clientDir });
 
   server.on('request', backend.app);
   await listenOnLoopback(server);
@@ -94,7 +108,7 @@ test.before(async () => {
   assert.ok(session, 'the configured project is a session in the backend map');
   assert.equal(session.pid, null, 'the session is dormant; no PTY was spawned by this test');
 
-  booted.context = { tmpDir, prevEnv, server, backend, base: `http://127.0.0.1:${boundPort(server)}`, session };
+  booted.context = { tmpDir, clientDir, prevEnv, server, backend, base: `http://127.0.0.1:${boundPort(server)}`, session };
 });
 
 test.after(async () => {
@@ -279,4 +293,28 @@ test('a session with no live terminal is refused 409 and keeps no orphan file', 
   assert.deepEqual(await res.json(), { error: 'session has no live terminal' });
   assert.equal(await waitForUploadCount(SESSION_ID, before), before, 'an upload nobody can paste is not left behind');
   assert.deepEqual(ptyWrites, []);
+});
+
+test('dashboard files are sent as their brotli sibling when br is accepted and hashed assets cache as immutable', async () => {
+  const assetUrl = `${ctx().base}/assets/${HASHED_ASSET}`;
+  const assetText = fs.readFileSync(path.join(ctx().clientDir, 'assets', HASHED_ASSET), 'utf8');
+
+  const compressedAsset = await fetch(assetUrl, { headers: { 'accept-encoding': 'br' } });
+  assert.equal(compressedAsset.status, 200);
+  assert.equal(compressedAsset.headers.get('content-encoding'), 'br');
+  assert.match(compressedAsset.headers.get('content-type') ?? '', /javascript/);
+  assert.match(compressedAsset.headers.get('cache-control') ?? '', /immutable/);
+  assert.equal(compressedAsset.headers.get('vary'), 'Accept-Encoding');
+  assert.equal(await compressedAsset.text(), assetText);
+
+  const plainAsset = await fetch(assetUrl, { headers: { 'accept-encoding': 'gzip, br;q=0' } });
+  assert.equal(plainAsset.headers.get('content-encoding'), null);
+  assert.match(plainAsset.headers.get('cache-control') ?? '', /immutable/);
+  assert.equal(await plainAsset.text(), assetText);
+
+  const shell = await fetch(`${ctx().base}/`, { headers: { 'accept-encoding': 'br' } });
+  assert.equal(shell.headers.get('content-encoding'), 'br');
+  assert.match(shell.headers.get('content-type') ?? '', /html/);
+  assert.doesNotMatch(shell.headers.get('cache-control') ?? '', /immutable/);
+  assert.match(await shell.text(), /<p>shell<\/p>/);
 });

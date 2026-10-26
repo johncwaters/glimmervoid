@@ -3,6 +3,8 @@ import http from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import zlib from 'node:zlib';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 import type { Plugin, ViteDevServer } from 'vite';
@@ -43,10 +45,38 @@ function glimmervoidBackendPlugin(): Plugin {
   };
 }
 
+const brotliCompress = promisify(zlib.brotliCompress);
+const BROTLI_EXTENSIONS = new Set(['.html', '.js', '.css', '.svg', '.json', '.txt']);
+const MIN_BROTLI_BYTES = 1024;
+
+function brotliOutputPlugin(): Plugin {
+  let outDir = '';
+  return {
+    name: 'glimmervoid-brotli',
+    apply: 'build',
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
+    async closeBundle() {
+      const entries = await fs.promises.readdir(outDir, { recursive: true, withFileTypes: true });
+      const compressibleFiles = entries
+        .filter((entry) => entry.isFile() && BROTLI_EXTENSIONS.has(path.extname(entry.name)))
+        .map((entry) => path.join(entry.parentPath, entry.name));
+      await Promise.all(compressibleFiles.map(async (filePath) => {
+        const original = await fs.promises.readFile(filePath);
+        if (original.length < MIN_BROTLI_BYTES) return;
+        const compressed = await brotliCompress(original, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: zlib.constants.BROTLI_MAX_QUALITY, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: original.length } });
+        await fs.promises.writeFile(`${filePath}.br`, compressed);
+      }));
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     tailwindcss(),
     glimmervoidBackendPlugin(),
+    brotliOutputPlugin(),
   ],
 
   define: {

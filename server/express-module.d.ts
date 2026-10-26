@@ -6,6 +6,13 @@ declare module "express" {
     readonly params: Record<string, string>;
     readonly query: Record<string, unknown>;
     readonly socket: Socket;
+    readonly path: string;
+  }
+
+  interface SendFileOptions {
+    root?: string;
+    maxAge?: number;
+    immutable?: boolean;
   }
 
   interface Response extends ServerResponse {
@@ -14,6 +21,11 @@ declare module "express" {
     type(contentType: string): Response;
     send(body?: unknown): Response;
     redirect(status: number, url: string): void;
+    sendFile(filePath: string, options: SendFileOptions, callback: (error?: Error) => void): void;
+  }
+
+  interface StaticOptions {
+    setHeaders?: (response: ServerResponse, filePath: string) => void;
   }
 
   type NextFunction = (error?: unknown) => void;
@@ -29,7 +41,7 @@ declare module "express" {
 
   interface ExpressFactory {
     (): Express;
-    static(root: string): RequestHandler;
+    static(root: string, options?: StaticOptions): RequestHandler;
   }
 
   const express: ExpressFactory;
