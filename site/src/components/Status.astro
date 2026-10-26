@@ -3,6 +3,10 @@ import { STATE_ICONS, STATUS_ICON_SHAPES } from '../../../shared/state-icons.ts'
 import { BADGE_LABELS, STATES } from '../../../shared/states.ts';
 import { AGENT_CARDS } from '../lib/product-facts.ts';
 
+const agentListJoiner = new Intl.ListFormat('en-GB', { type: 'conjunction' });
+const agentLabelsBySupport = Map.groupBy(AGENT_CARDS, ({ support }) => support);
+const AGENT_SUPPORT_GROUPS = [...agentLabelsBySupport].map(([support, cards]) => ({ support, labels: agentListJoiner.format(cards.map(({ label }) => label)) }));
+
 const SHOWN_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.FAILED];
 const DEMO_SESSIONS = [
   { task: 'fix-auth-redirect', state: STATES.RUNNING },
@@ -63,7 +67,7 @@ function terminalVariantsFor(task: string) {
     </div>
   </figure>
   <ul class="agent-list reveal" aria-label="Supported agents">
-    {AGENT_CARDS.map(({ label, support }) => <li><span class="agent-name">{label}</span> <span class="agent-support">{support}</span></li>)}
+    {AGENT_SUPPORT_GROUPS.map(({ support, labels }) => <li><span class="agent-name">{labels}</span> <span class="agent-support">{support}</span></li>)}
   </ul>
 </section>
 
@@ -238,7 +242,7 @@ function terminalVariantsFor(task: string) {
   .queue-question:hover { border-color: var(--accent); color: var(--text-head); }
   .agent-list { list-style: none; margin: 24px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 28px; font-size: 15px; }
   .agent-name { color: var(--text-head); font-weight: 700; }
-  .agent-support { color: var(--text-dim); }
+  .agent-support { color: var(--text-dim); white-space: nowrap; }
   [data-state="RUNNING"] { color: var(--state-running); }
   [data-state="WAITING"] { color: var(--state-waiting); }
   [data-state="COMPLETE"] { color: var(--state-complete); }
