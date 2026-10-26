@@ -15,7 +15,7 @@ test('a remote launch script run by a real shell exports the aliased token, drop
   try {
     const script = remoteLaunchScript({
       workingDirectory,
-      argv: ['sh', '-c', 'pwd; printf "%s\\n" "$CLAUDE_CODE_OAUTH_TOKEN" "${GV_CLAUDE_TOKEN-unset}"; printf "[%s]\\n" "$@"', 'sh', ...HOSTILE_ARGUMENTS],
+      argv: ['sh', '-c', 'pwd -P; printf "%s\\n" "$CLAUDE_CODE_OAUTH_TOKEN" "${GV_CLAUDE_TOKEN-unset}"; printf "[%s]\\n" "$@"', 'sh', ...HOSTILE_ARGUMENTS],
       tokenAliases: CLAUDE_TOKEN_ALIASES,
     });
     assert.ok(script);
