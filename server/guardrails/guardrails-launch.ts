@@ -17,6 +17,7 @@ import { codexHomes, grokHomes, projectDirCandidates } from '../usage/core/usage
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { relayPath, resolvePackageBin } from '../runtime-paths.ts';
 import { pruneAgedFiles } from '../prune-files.ts';
+import { recordSweptPath } from '../removal-journal.ts';
 import { createHeldSessionTempFolder, releaseSessionLock, sessionIdOfLockFile, trashSessionTempFolderOnceUnheld } from './session-temp-locks.ts';
 
 interface WrappedCommand {
@@ -261,12 +262,15 @@ async function sweepOrphanedGuardrailsLaunches(log: Pick<Console, 'log' | 'warn'
       const ownerPath = path.join(policyDir, entryName);
       const owner = await readOwnerFile(ownerPath);
       if (owner === null || !isOwnerProcessGone(owner)) continue;
+      const launchHomeDir = path.join(glimmervoidHome, LAUNCH_HOME_FOLDER, launchId);
+      const ownedTempDir = owner.ownsTempDir ? path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER, launchId) : null;
+      if (!(await recordSweptLaunchFolders([launchHomeDir, ownedTempDir], log))) continue;
       try {
         await removeLaunch({
           policyPath: path.join(policyDir, `${launchId}.json`),
           ownerPath,
-          launchHomeDir: path.join(glimmervoidHome, LAUNCH_HOME_FOLDER, launchId),
-          ownedTempDir: owner.ownsTempDir ? path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER, launchId) : null,
+          launchHomeDir,
+          ownedTempDir,
         }, owner, launchId, { onlyNewerLogins: true });
         removedLaunchCount += 1;
       } catch (error) {
@@ -277,6 +281,14 @@ async function sweepOrphanedGuardrailsLaunches(log: Pick<Console, 'log' | 'warn'
   } catch (error) {
     log.warn(`[guardrails] could not sweep leftover launch folders: ${errorMessage(error)}`);
   }
+}
+
+async function recordSweptLaunchFolders(folderPaths: (string | null)[], log: Pick<Console, 'warn'>): Promise<boolean> {
+  for (const folderPath of folderPaths) {
+    if (folderPath === null) continue;
+    if (!(await recordSweptPath({ cause: 'guardrails-temp', kind: 'folder', path: folderPath, checksPassed: ['owner-process-gone'], log }))) return false;
+  }
+  return true;
 }
 
 function sessionIdsWithLockFilesIn(entryNames: readonly string[]): Set<string> {
@@ -292,6 +304,12 @@ async function deleteSessionTempFolderOnceUnheld(policyDir: string, sessionId: s
     return;
   }
   if (trashFolder === null) return;
+  if (!(await recordSweptPath({ cause: 'guardrails-temp', kind: 'folder', path: sessionTempFolder, sessionId, checksPassed: ['no-lock-held'], log }))) {
+    await rename(trashFolder, sessionTempFolder).catch((error: unknown) => {
+      log.warn(`[guardrails] could not move session temp folder ${trashFolder} back to ${sessionTempFolder}: ${errorMessage(error)}`);
+    });
+    return;
+  }
   await rm(trashFolder, { recursive: true, force: true }).catch((error: unknown) => {
     log.warn(`[guardrails] could not delete session temp folder ${trashFolder}: ${errorMessage(error)}`);
   });

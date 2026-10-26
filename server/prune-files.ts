@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { recordSweptPath } from './removal-journal.ts';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -45,6 +46,8 @@ async function pruneAgedFiles({
     try {
       const stat = await fsPromises.stat(filePath);
       if (stat.mtimeMs >= cutoff) continue;
+      const removalKind = entryMode === 'directory' ? 'folder' : 'file';
+      if (!(await recordSweptPath({ cause: 'aged-files', kind: removalKind, path: filePath, checksPassed: [`untouched-${retainDays}d`] }))) continue;
       if (entryMode === 'directory') await fsPromises.rm(filePath, { recursive: true, force: true });
       if (entryMode === 'file') await fsPromises.unlink(filePath);
       removedIds.push(id);

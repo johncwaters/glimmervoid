@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const REMOVAL_CAUSES = [
+const REMOVAL_CAUSES = [
   'branch-gc', 'boot-reconcile', 'owned-paths', 'host-scratch', 'guardrails-temp', 'aged-files',
   'update-apply', 'team-review', 'benchmark', 'radar', 'session', 'session-create', 'merge',
 ] as const;

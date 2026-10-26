@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { glimmervoidHomeDir } from './config-store.ts';
 import { appendJsonLine } from './json-file.ts';
-import type { RemovalRecord } from '../shared/contracts/removal-record.ts';
+import type { RemovalCause, RemovalKind, RemovalRecord } from '../shared/contracts/removal-record.ts';
 import { errorMessage } from '../shared/text.ts';
 
 function removalsJournalPath(glimmervoidHome: string): string {
@@ -26,4 +27,18 @@ function appendRemovalRecordSync(journalPath: string, record: RemovalRecord, log
   }
 }
 
-export { appendRemovalRecord, appendRemovalRecordSync, removalsJournalPath };
+async function recordSweptPath({ cause, kind, path: sweptPath, checksPassed, sessionId = null, journalPath = removalsJournalPath(glimmervoidHomeDir()), log = console }: {
+  cause: RemovalCause;
+  kind: RemovalKind;
+  path: string;
+  checksPassed: string[];
+  sessionId?: string | null;
+  journalPath?: string;
+  log?: Pick<Console, 'warn'>;
+}): Promise<boolean> {
+  return appendRemovalRecord(journalPath, {
+    ts: Date.now(), cause, kind, path: sweptPath, branch: null, projectPath: null, sessionId, checksPassed, pid: process.pid,
+  }, log);
+}
+
+export { appendRemovalRecord, appendRemovalRecordSync, recordSweptPath, removalsJournalPath };
