@@ -54,7 +54,7 @@ import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, applySettingsUpdateError, onPhoneSettingsScreenChanged, refreshSettingsStatus, resolveSettingsTarget, returnToSettingsList, setFeatureTabViews } from './settings/settings-store.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
-import { requestSessionRemoval } from './session-actions.ts';
+import { requestSessionRemoval, selectSession, spawnQuickSession } from './session-actions.ts';
 import { getSelectedId } from './sidebar/selection.ts';
 import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
 import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from './shortcuts.ts';
@@ -1080,6 +1080,26 @@ function isRealInputOwningKey(event: KeyboardEvent) {
     && !a.classList.contains('xterm-helper-textarea');
 }
 
+function focusedTerminalSessionId() {
+  const focusedCard = document.activeElement?.closest<HTMLElement>('.session-card');
+  return focusedCard?.dataset.id ?? null;
+}
+
+function revealSpawnedSession(id: string) {
+  centerSessionQuietly(id);
+  selectSession(id);
+  requestAnimationFrame(() => requestAnimationFrame(() => sessionUIs.get(id)?.term?.focus()));
+}
+
+function addSessionLikeTheFocusedOne() {
+  const sourceId = focusedTerminalSessionId() ?? getSelectedId();
+  if (!sourceId) {
+    document.getElementById('btn-add-session-header')?.click();
+    return;
+  }
+  spawnQuickSession(sourceId, revealSpawnedSession);
+}
+
 function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
   switch (action) {
     case 'merge':
@@ -1096,6 +1116,9 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
       return true;
     case 'new-session':
       document.getElementById('btn-add-session-header')?.click();
+      return true;
+    case 'quick-session':
+      addSessionLikeTheFocusedOne();
       return true;
     case 'next-attention':
       if (isPhoneLayout()) return false;

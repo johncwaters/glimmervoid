@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Quick session from the one you are in**: Cmd+Option+0 on Mac, Alt+Shift+0 elsewhere, starts a new session right away on the same project as the session you are typing in (or the selected one), with the same agent, permission setting, guardrails (a session whose guardrails you released starts guarded), base branch, workspace repositories or Coder environment, and puts you in its terminal. It starts a fresh conversation, never the source's. With no session open it opens Add session instead. A refusal shows in the header like any Add session error. Alt+Shift+0 works from inside a terminal; Alt+0 still reaches the shell.
+
 - **A session closes itself when its agent quits**: typing `/quit` (or any clean exit of the agent) now removes the session instead of leaving a "Session complete" card. When the session still has unmerged worktree changes, or is a multi-repo workspace or Coder remote session, the usual Remove confirmation opens instead, so nothing is discarded without asking. A failed exit, Kill, Restart, Finish and merge, and stopping the server never remove a session. Cmd+K on Mac, Alt+K elsewhere, opens the same Remove confirmation for the selected session, as its X does.
 
 ## [0.44.2] - 2026-10-26

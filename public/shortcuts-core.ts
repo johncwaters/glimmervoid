@@ -13,6 +13,7 @@ type DashboardShortcutAction =
   | 'view-step'
   | 'session-nth'
   | 'new-session'
+  | 'quick-session'
   | 'merge'
   | 'close-session'
   | 'resolve-or-resync'
@@ -40,6 +41,7 @@ interface DashboardShortcut {
   unavailablePlatform?: ShortcutPlatform;
   isShellChord?: boolean;
   needsMacOption?: boolean;
+  needsShiftOffMac?: boolean;
 }
 
 interface ShortcutFocusContext {
@@ -75,6 +77,7 @@ const FIXED_DASHBOARD_SHORTCUTS: readonly DashboardShortcut[] = [
   { action: 'view-step', keyCaptions: ['PgUp', 'PgDn'], label: 'Previous / next view tab', stepByCode: new Map([['PageUp', -1], ['PageDown', 1]]), unavailablePlatform: 'mac' },
   { action: 'session-nth', keyCaptions: ['1..9'], label: 'Jump to session 1 to 9', stepByCode: new Map(SESSION_DIGIT_STEPS), isShellChord: true, needsMacOption: true },
   { action: 'new-session', keyCaptions: ['0'], label: 'Add a session', stepByCode: new Map([['Digit0', 0]]), isShellChord: true },
+  { action: 'quick-session', keyCaptions: ['0'], label: 'Add a session like the one you are in', stepByCode: new Map([['Digit0', 0]]), needsMacOption: true, needsShiftOffMac: true },
   { action: 'merge', keyCaptions: ['I'], label: 'Merge the selected session', stepByCode: new Map([['KeyI', 0]]) },
   { action: 'close-session', keyCaptions: ['K'], label: 'Close the selected session', stepByCode: new Map([['KeyK', 0]]) },
   { action: 'resolve-or-resync', keyCaptions: ['U'], label: 'Resolve a parked merge, or resync the base branch', stepByCode: new Map([['KeyU', 0]]), isShellChord: true },
@@ -117,9 +120,9 @@ export function shortcutPlatformFor(userAgent: string): ShortcutPlatform {
 }
 
 function holdsOnlyShortcutModifier(event: ShortcutKeyEvent, platform: ShortcutPlatform, shortcut: DashboardShortcut) {
-  if (event.ctrlKey || event.shiftKey) return false;
-  if (platform === 'mac') return event.metaKey && event.altKey === Boolean(shortcut.needsMacOption);
-  return event.altKey && !event.metaKey;
+  if (event.ctrlKey) return false;
+  if (platform === 'mac') return !event.shiftKey && event.metaKey && event.altKey === Boolean(shortcut.needsMacOption);
+  return event.altKey && !event.metaKey && event.shiftKey === Boolean(shortcut.needsShiftOffMac);
 }
 
 function yieldsToShell(shortcut: DashboardShortcut, platform: ShortcutPlatform, focus: ShortcutFocusContext) {
@@ -142,7 +145,7 @@ export function resolveDashboardShortcut(
   for (const shortcut of shortcutsOn(platform, nextAttentionKeyCode)) {
     const step = shortcut.stepByCode.get(catalogCode);
     if (step === undefined) continue;
-    if (!holdsOnlyShortcutModifier(event, platform, shortcut)) return null;
+    if (!holdsOnlyShortcutModifier(event, platform, shortcut)) continue;
     if (yieldsToShell(shortcut, platform, focus)) return null;
     return { action: shortcut.action, step };
   }
@@ -150,12 +153,12 @@ export function resolveDashboardShortcut(
 }
 
 export function escapesFocusedTerminal(shortcut: ResolvedDashboardShortcut, activeView: string | undefined) {
-  if (activeView === 'focus') return true;
+  if (activeView === 'focus' || shortcut.action === 'quick-session') return true;
   return activeView === 'zen' && shortcut.action === 'next-attention';
 }
 
 function shortcutModifierCaption(platform: ShortcutPlatform, shortcut?: DashboardShortcut) {
-  if (platform !== 'mac') return 'Alt';
+  if (platform !== 'mac') return shortcut?.needsShiftOffMac ? 'Alt+Shift' : 'Alt';
   return shortcut?.needsMacOption ? `${MAC_COMMAND}${MAC_OPTION}` : MAC_COMMAND;
 }
 

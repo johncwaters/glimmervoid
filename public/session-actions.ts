@@ -70,6 +70,24 @@ export function quickAddSession(path: string | null | undefined, label: string |
   void requestQuickAdd(path, label);
 }
 
+async function requestQuickSession(sourceId: string, revealSpawnedSession: (id: string) => void) {
+  try {
+    const reply = await sendControlRequest('quick-session', { id: sourceId }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+    if (reply.type === 'add-session-result' && reply.ok) {
+      clearHeaderError(ADD_SESSION_ERROR_SOURCE);
+      if (reply.sessionId) revealSpawnedSession(reply.sessionId);
+      return;
+    }
+    reportHeaderError({ source: ADD_SESSION_ERROR_SOURCE, sessionId: sourceId, message: addSessionRefusalText(reply) });
+  } catch (reason) {
+    reportHeaderError({ source: ADD_SESSION_ERROR_SOURCE, sessionId: sourceId, message: `The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)} Add it again once the server answers.` });
+  }
+}
+
+export function spawnQuickSession(sourceId: string, revealSpawnedSession: (id: string) => void) {
+  void requestQuickSession(sourceId, revealSpawnedSession);
+}
+
 const SESSION_REMOVAL_TIMEOUT_MS = 65 * 60_000;
 const ADD_SESSION_ERROR_SOURCE = 'Add session';
 const REMOVE_SESSION_ERROR_SOURCE = 'Remove session';
