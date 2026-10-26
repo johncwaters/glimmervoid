@@ -30,8 +30,8 @@ import { clearHeaderError, clearHeaderErrorsForSession, reportHeaderError } from
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, orderPhonePanels, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession, syncPhoneHistory } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
-import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-panel.ts';
-import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-panel.ts';
+import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-store.ts';
+import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-store.ts';
 import { forgetSessionLinkedPrs, paintSessionPrChips, sessionRowPrSignals, setSessionLinkedPrs } from './github/session-pr-chips.ts';
 import { addSessionRowSignalSource } from './session-row.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
@@ -66,7 +66,7 @@ import { applyTraceChanged, applyTraceError, applyTraceResponse, setTraceNavigat
 import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
 import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isFlyingAnimalsEnabled, isPhoneArrowPad, isSessionUsageChips, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';
-import { canReturnToReviewQueue, jumpToNextReview, onPhoneReviewScreenChanged, returnToReviewQueue } from './github/review-queue-panel.ts';
+import { canReturnToReviewQueue, jumpToNextReview, onPhoneReviewScreenChanged, returnToReviewQueue } from './github/review-queue-store.ts';
 import { updateBanner } from './updates-view-core.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';

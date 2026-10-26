@@ -1,7 +1,7 @@
 import { paintActionStatus } from '../action-status.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
-import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
+import { subscribeTeamReview, teamReviewStatusView } from './team-review-store.ts';
+import type { TeamReviewChange } from './team-review-store.ts';
 import type { DraftComment, EarlierReview, FindingSeverity, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
@@ -14,7 +14,7 @@ import { createSettingsLink } from '../settings/settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview,
   answeredNonNitThreads, changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, buildNotMineRequest,
-  buildReadyDecisionRequest, commentLocation, detailActionLayout, isIncludedByDefault, isSeverityIncludedByDefault, emptyStateText, generalFindingsOf, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, hasSelection, joinTeamReviews, parseInlineSegments, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText,
+  buildReadyDecisionRequest, commentLocation, detailActionLayout, isIncludedByDefault, isSeverityIncludedByDefault, emptyStateText, generalFindingsOf, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, hasSelection, parseInlineSegments, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText,
   parseReviewComment, postedOutcomeText, postingPreviewText, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, readyRowSignature, detailHeadingSignature,
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, severityPresentation, planActionReply, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice,
 } from './team-review-view-core.ts';
@@ -46,8 +46,7 @@ interface PendingAction {
 
 type DetailOrigin = 'ready' | 'other';
 
-let _latest: TeamReviewStatusType | null = null;
-let _view: TeamReviewStatusType | null = null;
+let _view: TeamReviewStatusType | null = teamReviewStatusView();
 let _root: HTMLElement | null = null;
 let _detailHost: HTMLElement | null = null;
 let _detail: HTMLElement | null = null;
@@ -993,14 +992,6 @@ function forgetDepartedDetails(readyKeys: Set<string>): void {
   }
 }
 
-export function teamReviewSections(): TeamReviewSections {
-  return groupDrafts(_view);
-}
-
-export function teamReviewStatusView(): TeamReviewStatusType | null {
-  return _view;
-}
-
 export function resetTeamQueueTickers(): void {
   _progressTicker.reset();
 }
@@ -1043,6 +1034,23 @@ function handleTeamReviewChange(): void {
   refreshTeamReviewAges();
 }
 
+function applyTeamReviewChange(change: TeamReviewChange): void {
+  switch (change.kind) {
+    case 'status':
+      _view = teamReviewStatusView();
+      handleTeamReviewChange();
+      return;
+    case 'action-result':
+      settleTeamReviewAction(change.message);
+      return;
+    case 'open-session-result':
+      settleOpenTeamReviewSession(change.message);
+      return;
+    case 'connection':
+      settlePendingOnDisconnect(change.isConnected);
+  }
+}
+
 export function mountTeamReviewDetail(root: HTMLElement, hooks: TeamReviewQueueHooks, navigation?: { openTerminal: (sessionId: string) => void }): HTMLElement {
   _openTerminal = navigation?.openTerminal ?? _openTerminal;
   _queueHooks = hooks;
@@ -1054,17 +1062,12 @@ export function mountTeamReviewDetail(root: HTMLElement, hooks: TeamReviewQueueH
   _progressTicker.ensure();
   _detailProgressTicker.ensure();
   _ageTicker.ensure();
+  _view = teamReviewStatusView();
+  subscribeTeamReview(applyTeamReviewChange);
   return _detailHost;
 }
 
-export function applyTeamReviewStatus(message: unknown): void {
-  const parsed = TeamReviewStatus.safeParse(message);
-  if (!parsed.success) return;
-  _latest = parsed.data;
-  _view = joinTeamReviews(_latest, githubPrByKey);
-  handleTeamReviewChange();
-}
-export function applyOpenTeamReviewSessionResult(message: ServerMessageOf<'open-team-review-session-result'>): void {
+function settleOpenTeamReviewSession(message: ServerMessageOf<'open-team-review-session-result'>): void {
   const key = message.key;
   if (!key) return;
   const opening = _sessionOpenByKey.get(key);
@@ -1079,7 +1082,7 @@ export function applyOpenTeamReviewSessionResult(message: ServerMessageOf<'open-
   _openTerminal?.(message.sessionId);
 }
 
-export function applyTeamReviewConnectionState(isConnected: boolean): void {
+function settlePendingOnDisconnect(isConnected: boolean): void {
   if (isConnected) return;
   for (const [key, opening] of _sessionOpenByKey) {
     if (opening.requestId) settleSessionOpen(key, NOT_CONNECTED_TEXT);
@@ -1092,7 +1095,7 @@ export function applyTeamReviewConnectionState(isConnected: boolean): void {
   }
 }
 
-export function applyTeamReviewActionResult(message: unknown): void {
+function settleTeamReviewAction(message: unknown): void {
   if (!message || typeof message !== 'object') return;
   const actionResult = message as { key?: unknown; requestId?: unknown; ok?: unknown; error?: unknown; warning?: unknown };
   if (typeof actionResult.key !== 'string') return;
@@ -1127,8 +1130,3 @@ export function applyTeamReviewActionResult(message: unknown): void {
   }
   (handle?.settle ?? pending.settle)?.(false, typeof actionResult.error === 'string' && actionResult.error ? actionResult.error : 'The action failed.');
 }
-
-subscribeGithubPrs(() => {
-  _view = joinTeamReviews(_latest, githubPrByKey);
-  handleTeamReviewChange();
-});

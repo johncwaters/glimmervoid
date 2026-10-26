@@ -4,12 +4,12 @@ import { activateFocusView, deactivateFocusView, mountFocusView } from './focus-
 import { activateZenView, deactivateZenView, mountZenView } from './zen-view/zen-view.ts';
 import { applyBenchmarkConnectionState } from './benchmark-store.ts';
 import { applyIssuesConnectionState } from './github/issues-store.ts';
-import { applyMyPrsConnectionState } from './github/my-prs-panel.ts';
-import { acknowledgeReviewQueueAttention, mountReviewQueue, setReviewQueueActivityCallback } from './github/review-queue-panel.ts';
+import { applyMyPrsConnectionState } from './github/my-prs-store.ts';
+import { acknowledgeReviewQueueAttention, setReviewQueueActivityCallback, setReviewQueueNavigation } from './github/review-queue-store.ts';
 import { acknowledgeRadarAttention, setRadarActivityCallback, setRadarTraceOpener } from './radar/radar-store.ts';
 import { onDebugModeChanged } from './session-card/card-dom.ts';
 import { mountSettingsView } from './settings/settings-panel.ts';
-import { applyTeamReviewConnectionState } from './github/team-review-panel.ts';
+import { applyTeamReviewConnectionState } from './github/team-review-store.ts';
 import { applyTraceConnectionState, openTraceForSession } from './trace-store.ts';
 import { view as usageView } from './usage/usage-panel.ts';
 import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback } from './usage/usage-store.ts';
@@ -72,10 +72,11 @@ export function reloadOnceOnPreloadError(readStorage: () => Storage): void {
 }
 
 export function createDashboardViews(actions: ViewRegistryActions): DashboardView[] {
+  setReviewQueueNavigation({ openTerminal: actions.openTerminal, openReviews: actions.openReviews });
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
     { view: 'focus', label: 'Focus', panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, module: { mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView } },
     { view: 'zen', label: 'Zen', panelClass: 'zen-view', hasOwnPhoneScreen: true, hasPanelChrome: false, gate: { fromSettings: FEATURE_SURFACE_RULES.zenView }, module: { mount: mountZenView, activate: activateZenView, deactivate: deactivateZenView } },
-    { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, module: { mount: (panel) => mountReviewQueue(panel, { openTerminal: actions.openTerminal, openReviews: actions.openReviews }) }, attention: { subscribe: setReviewQueueActivityCallback, acknowledge: acknowledgeReviewQueueAttention }, onConnectionChange: (isConnected) => {
+    { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, load: () => import('./github/review-queue-panel.ts').then((panel) => panel.view), attention: { subscribe: setReviewQueueActivityCallback, acknowledge: acknowledgeReviewQueueAttention }, onConnectionChange: (isConnected) => {
       applyMyPrsConnectionState(isConnected);
       applyTeamReviewConnectionState(isConnected);
     } },

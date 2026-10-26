@@ -63,7 +63,7 @@ function createStatus(): TeamReviewStatus {
 
 async function applyStatus(page: Page, status: TeamReviewStatus): Promise<void> {
   await page.evaluate(async (snapshot) => {
-    const panelUrl = '/github/team-review-panel.ts';
+    const panelUrl = '/github/team-review-store.ts';
     const panel: TeamReviewPanelModule = await import(panelUrl);
     panel.applyTeamReviewStatus(snapshot);
   }, status);
@@ -430,7 +430,7 @@ async function replyToCapturedAction(page: Page, ok: boolean, warning?: string):
     const requestText = document.documentElement.dataset.teamReviewAction;
     if (!requestText) throw new Error('No review action was sent');
     const request = JSON.parse(requestText) as { key: string; requestId: string };
-    const panelUrl = '/github/team-review-panel.ts';
+    const panelUrl = '/github/team-review-store.ts';
     const panel: TeamReviewPanelModule = await import(panelUrl);
     panel.applyTeamReviewActionResult({ type: 'team-review-action-result', key: request.key, requestId: request.requestId, ok: isOk, error: isOk ? undefined : 'Action rejected', warning });
     delete document.documentElement.dataset.teamReviewAction;
@@ -596,7 +596,7 @@ async function replyToSessionOpen(page: Page, reply: { ok: boolean; sessionId?: 
     if (!requestText) throw new Error('No open-team-review-session request was sent');
     const request = JSON.parse(requestText) as { key: string; requestId: string; type: string };
     delete document.documentElement.dataset.teamReviewSessionOpen;
-    const panelUrl = '/github/team-review-panel.ts';
+    const panelUrl = '/github/team-review-store.ts';
     const panel: TeamReviewPanelModule = await import(panelUrl);
     panel.applyOpenTeamReviewSessionResult({ type: 'open-team-review-session-result', requestId: request.requestId, key: request.key, ...outcome });
     return { key: request.key, type: request.type };

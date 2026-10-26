@@ -6,7 +6,7 @@ import { MyPrsStatus } from '../../shared/contracts/my-prs.ts';
 
 async function applyStatus(page: Page, status: MyPrsStatus): Promise<void> {
   await page.evaluate(async (snapshot) => {
-    const panelUrl = '/github/my-prs-panel.ts';
+    const panelUrl = '/github/my-prs-store.ts';
     const panel: { applyMyPrsStatus(message: unknown): void } = await import(panelUrl);
     panel.applyMyPrsStatus(snapshot);
   }, status);
