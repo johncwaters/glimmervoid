@@ -37,6 +37,15 @@ const FEATURES_SECTION: SettingsSection = Object.freeze({
   description: 'Optional tabs, each hidden until its own toggle is on.',
   settings: [],
 });
+export const SHORTCUTS_PAGE_ID = 'browser-shortcuts';
+export const STATUS_KEY_PAGE_ID = 'browser-status-key';
+const STATUS_KEY_SECTION: SettingsSection = Object.freeze({
+  id: STATUS_KEY_PAGE_ID,
+  level: 'browser',
+  title: 'Status key and about',
+  description: 'What each session status and pull request icon means, and build information.',
+  settings: [],
+});
 const OPTION_CATALOGS: Readonly<Record<string, () => { id: string; label: string }[]>> = Object.freeze({
   sounds: () => soundOptions(),
   themes: getThemeList,
@@ -74,8 +83,10 @@ export function buildSettingsViewMap(): readonly SettingsSection[] {
     ...section,
     settings: section.settings.map(resolveSettingOptions),
   }));
-  const firstLaneIndex = sections.findIndex((section) => section.level === 'lanes');
-  return Object.freeze([...sections.slice(0, firstLaneIndex), FEATURES_SECTION, ...sections.slice(firstLaneIndex)]);
+  const statusKeyIndex = sections.findIndex((section) => section.id === SHORTCUTS_PAGE_ID) + 1;
+  const withStatusKey = [...sections.slice(0, statusKeyIndex), STATUS_KEY_SECTION, ...sections.slice(statusKeyIndex)];
+  const firstLaneIndex = withStatusKey.findIndex((section) => section.level === 'lanes');
+  return Object.freeze([...withStatusKey.slice(0, firstLaneIndex), FEATURES_SECTION, ...withStatusKey.slice(firstLaneIndex)]);
 }
 
 export function subscribeSettings(listener: (change: SettingsChange) => void): void {

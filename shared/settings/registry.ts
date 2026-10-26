@@ -641,8 +641,8 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   {
     id: 'browser-shortcuts',
     level: 'browser',
-    title: 'Shortcuts and about',
-    description: 'Keyboard shortcuts, their reference and build information.',
+    title: 'Shortcuts',
+    description: 'Keyboard shortcuts and their reference.',
     legacyIds: ['shortcuts'],
     settings: [
       {

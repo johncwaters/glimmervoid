@@ -1776,53 +1776,42 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
 
 .shortcut-groups {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
-  align-items: start;
-  gap: 32px 48px;
+  gap: 28px;
 }
 
 .shortcut-group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.shortcut-group-title,
-.status-legend-title {
-  margin: 0;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border-dim);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  gap: 8px;
 }
 
 .shortcut-rows {
   display: grid;
-  grid-template-columns: var(--about-key-column) 1fr;
-  align-items: baseline;
-  column-gap: 14px;
-  row-gap: 8px;
+  grid-template-columns: 1fr auto;
   margin: 0;
+}
+
+.shortcut-label,
+.shortcut-keys {
+  margin: 0;
+  padding: 7px 0;
+  border-top: 1px solid var(--border-dim);
 }
 
 .shortcut-keys {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 4px;
+  padding-left: 24px;
 }
 
 .shortcut-label {
-  margin: 0;
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.4;
-  color: var(--text-dim);
+  color: var(--text);
 }
 
 .shortcut-sep {
@@ -1847,7 +1836,7 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
 .status-legend {
   display: grid;
   gap: 10px;
-  margin-top: 40px;
+  margin-top: 28px;
   font-family: var(--font-mono);
 }
 
@@ -1886,6 +1875,10 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   color: var(--text-dim);
 }
 
+.settings-view-content .status-legend-meaning {
+  color: var(--text);
+}
+
 [data-layout="phone"] .status-legend-row {
   grid-template-columns: 1fr;
   gap: 2px;
@@ -1896,9 +1889,8 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 40px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-dim);
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border-dim);
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
@@ -7462,7 +7454,8 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   padding: 28px 0 10px;
 }
 
-.settings-view-subsection-title {
+.settings-view-subsection-title,
+.status-legend-title {
   margin: 0;
   color: var(--text-head);
   font-family: var(--font-mono);

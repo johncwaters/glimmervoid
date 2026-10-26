@@ -85,7 +85,7 @@ import {
 } from '../ui-prefs.ts';
 import { usageStatusLines } from '../usage/usage-store.ts';
 import {
-  FEATURES_PAGE_ID, applySettingsBroadcast, buildSettingsViewMap, mergeSettingsPayload, notifyPhoneSettingsScreenChanged, requestUpdateApply, requestUpdateCheck, restartServer, setPhoneSettingsScreenProbe,
+  FEATURES_PAGE_ID, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, applySettingsBroadcast, buildSettingsViewMap, mergeSettingsPayload, notifyPhoneSettingsScreenChanged, requestUpdateApply, requestUpdateCheck, restartServer, setPhoneSettingsScreenProbe,
   settingsFeatureTabViews, settingsPayloadSnapshot, settingsUpdateState, subscribeSettings, takePendingSettingsActivation, returnToSettingsList,
 } from './settings-store.ts';
 import type { SettingsChange } from './settings-store.ts';
@@ -117,7 +117,6 @@ const COPY_STATUS_MS = 1600;
 const TELEMETRY_DELETION_TIMEOUT_MS = 15000;
 const WEBSITE_ORIGIN = 'https://glimmervoid.dev';
 const APPEARANCE_PAGE_ID = 'browser-appearance';
-const SHORTCUTS_PAGE_ID = 'browser-shortcuts';
 const FLYING_ANIMALS_SETTING_ID = 'flying-animals';
 const SEGMENT_STEP_BY_KEY: Readonly<Record<string, number>> = Object.freeze({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 });
 
@@ -209,15 +208,15 @@ function renderShortcutGroups(container: HTMLElement) {
   container.replaceChildren();
   for (const group of shortcutGroupsFor(SHORTCUT_PLATFORM, currentNextAttentionKeyCode())) {
     const groupEl = el('div', 'shortcut-group');
-    groupEl.appendChild(el('div', 'shortcut-group-title', group.title));
+    groupEl.appendChild(el('h2', 'settings-view-subsection-title', group.title));
     const rows = el('dl', 'shortcut-rows');
     for (const item of group.items) {
-      const keys = el('dt', 'shortcut-keys');
+      const keys = el('dd', 'shortcut-keys');
       item.combos.forEach((chord, chordIndex) => {
         if (chordIndex > 0) keys.appendChild(el('span', 'shortcut-sep', '/'));
         appendShortcutChord(keys, chord);
       });
-      rows.append(keys, el('dd', 'shortcut-label', item.label));
+      rows.append(el('dt', 'shortcut-label', item.label), keys);
     }
     groupEl.appendChild(rows);
     container.appendChild(groupEl);
@@ -1424,9 +1423,13 @@ function renderContent() {
     const groups = el('div', 'shortcut-groups settings-view-shortcuts');
     renderShortcutGroups(groups);
     contentEl.appendChild(groups);
+    return;
+  }
+
+  if (selectedPage.id === STATUS_KEY_PAGE_ID) {
+    renderAbout(contentEl);
     contentEl.appendChild(renderStatusLegend());
     contentEl.appendChild(renderPrStatusLegend());
-    renderAbout(contentEl);
     return;
   }
 
