@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-10-26
+
 ### Added
 
 - **Quick session from the one you are in**: Cmd+Option+0 on Mac, Alt+Shift+0 elsewhere, starts a new session right away on the same project as the session you are typing in (or the selected one), with the same agent, permission setting, guardrails (a session whose guardrails you released starts guarded), base branch, workspace repositories or Coder environment, and puts you in its terminal. It starts a fresh conversation, never the source's. With no session open it opens Add session instead. A refusal shows in the header like any Add session error. Alt+Shift+0 works from inside a terminal; Alt+0 still reaches the shell.
 
 - **A session closes itself when its agent quits**: typing `/quit` (or any clean exit of the agent) now removes the session instead of leaving a "Session complete" card. When removing the session would lose work, the Remove dialog opens instead and names that work, so nothing is discarded without asking. A failed exit, Kill, Restart, Finish and merge, and stopping the server never remove a session. Cmd+K on Mac, Alt+K elsewhere, removes the selected session the same way its X does.
+
 ### Changed
 
 - **Remove skips the confirmation when nothing would be lost**: Cmd+K, the card's X, the actions menu, focus view and the phone board now remove a session at once when its worktree has no uncommitted changes and no commits missing from its base branch, its workspace repositories and Coder workspace hold no unsaved work, and its agent is not working. The server checks the worktree at that moment, so edits made during a turn count even before the card shows them. Otherwise one Remove dialog opens and names the reason it stopped you. Agent-spawned sessions follow the same rule, and confirming the dialog now discards a spawned session's worktree too. An agent that quits with work the card had not shown yet opens that dialog instead of staying on the board silently.
