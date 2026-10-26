@@ -72,7 +72,7 @@ test('rebaseOnly (real git): replays the worktree onto a moved develop and leave
     assert.equal(git(['status', '--porcelain'], ws.cwd).trim(), '', 'worktree clean afterwards');
     assert.equal(git(['rev-list', '--count', 'HEAD..develop'], ws.cwd).trim(), '0', 'no longer behind');
 
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -88,7 +88,7 @@ test('rebaseOnly (real git): a worktree already on top of develop is upToDate an
     assert.deepEqual(r, { ok: true, upToDate: true });
     assert.equal(git(['rev-parse', 'HEAD'], ws.cwd).trim(), before, 'HEAD untouched: no ref churn for a no-op');
 
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -108,7 +108,7 @@ test('rebaseOnly (real git): a DIRTY worktree is refused and left exactly as it 
     assert.equal(read(ws.cwd, 'wip.js'), 'work in progress\n', 'the uncommitted work is untouched');
     assert.ok(!fs.existsSync(path.join(ws.cwd, 'other.js')), 'nothing from develop was pulled in');
 
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -130,7 +130,7 @@ test('rebaseOnly (real git): an unreplayable conflict aborts cleanly, reports th
     assert.equal(read(ws.cwd, 'conflict.txt'), 'session-side\n', 'the worktree still holds its own version');
     assert.equal(git(['status', '--porcelain'], ws.cwd).trim(), '', 'and is clean, with no markers left behind');
 
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -145,7 +145,7 @@ test('rebaseOnly (real git): a missing target branch is refused, no rebase attem
       targetBranch: 'nope',
     });
     assert.deepEqual(r, { ok: false, reason: 'no-target-branch' });
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -189,8 +189,8 @@ test('rerere (real git): rebaseOnly replays a resolution recorded in a sibling w
     assert.equal(rebaseInProgress(second.cwd), false, 'the rebase completed, nothing left in progress');
     assert.equal(git(['status', '--porcelain'], second.cwd).trim(), '', 'worktree clean');
 
-    await gw.discard({ projectPath: repo, workspace: first });
-    await gw.discard({ projectPath: repo, workspace: second });
+    await gw.discard({ projectPath: repo, workspace: first, cause: 'session' });
+    await gw.discard({ projectPath: repo, workspace: second, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -207,7 +207,7 @@ test('rerere (real git): mergeBack completes instead of parking when the resolut
     assert.equal(read(repo, 'conflict.txt'), 'both-sides\n', 'the resolution landed on develop');
     assert.ok(!fs.existsSync(second.cwd), 'a merged worktree is still torn down');
 
-    await gw.discard({ projectPath: repo, workspace: first });
+    await gw.discard({ projectPath: repo, workspace: first, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -230,8 +230,8 @@ test('rerere: a rerere:false engine never enables it and never replays a recorde
     assert.equal(on.rerereReplayed, true);
     assert.equal(read(second.cwd, 'conflict.txt'), 'both-sides\n', 'the same call with the flag on replays');
 
-    await gw.discard({ projectPath: repo, workspace: first });
-    await gw.discard({ projectPath: repo, workspace: second });
+    await gw.discard({ projectPath: repo, workspace: first, cause: 'session' });
+    await gw.discard({ projectPath: repo, workspace: second, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -271,8 +271,8 @@ test('rerere (real git): a BINARY conflict aborts and never reports success, eve
       'the binary file is still the session version, not develops',
     );
 
-    await gw.discard({ projectPath: repo, workspace: first });
-    await gw.discard({ projectPath: repo, workspace: second });
+    await gw.discard({ projectPath: repo, workspace: first, cause: 'session' });
+    await gw.discard({ projectPath: repo, workspace: second, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -297,8 +297,8 @@ test('rerere (real git): one recorded conflict beside one NEW conflict aborts, r
     assert.equal(git(['rev-parse', 'HEAD'], second.cwd).trim(), headBefore, 'nothing was committed');
     assert.equal(rebaseInProgress(second.cwd), false);
 
-    await gw.discard({ projectPath: repo, workspace: first });
-    await gw.discard({ projectPath: repo, workspace: second });
+    await gw.discard({ projectPath: repo, workspace: first, cause: 'session' });
+    await gw.discard({ projectPath: repo, workspace: second, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -329,8 +329,8 @@ test('rerere (real git): a replay that empties the patch skips that commit and s
     assert.equal(read(second.cwd, 'conflict.txt'), 'develop-side\n');
     assert.equal(git(['status', '--porcelain'], second.cwd).trim(), '', 'worktree clean');
 
-    await gw.discard({ projectPath: repo, workspace: first });
-    await gw.discard({ projectPath: repo, workspace: second });
+    await gw.discard({ projectPath: repo, workspace: first, cause: 'session' });
+    await gw.discard({ projectPath: repo, workspace: second, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -341,7 +341,7 @@ test('rerere: a rerere:false engine writes no rerere config when it creates a wo
     const ws = await gwOff.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'off', baseBranch: 'develop' });
     assert.equal(ws.isGit, true);
     assert.throws(() => git(['config', '--local', '--get', 'rerere.enabled'], repo), 'the key was never written');
-    await gwOff.discard({ projectPath: repo, workspace: ws });
+    await gwOff.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
@@ -353,6 +353,6 @@ test('rerere: an explicit rerere.enabled=false in the repo is respected, not ove
     const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'opted-out', baseBranch: 'develop' });
     assert.equal(git(['config', '--get', 'rerere.enabled'], repo).trim(), 'false', 'left as the operator set it');
     assert.throws(() => git(['config', '--get', 'rerere.autoUpdate'], repo), 'autoUpdate is never written');
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });

@@ -117,7 +117,7 @@ interface GitWorkspace {
   create: (args: WorkspaceArgs & { owner: OwnedPathOwner }) => Workspace | Promise<Workspace>;
   populate: (args: WorkspaceArgs) => unknown;
   hasUnmergedWork: (args: WorkspaceArgs) => boolean | Promise<boolean>;
-  discard: (args: WorkspaceArgs) => unknown;
+  discard: (args: WorkspaceArgs & { cause: 'session' }) => unknown;
   mergeBack: (args: WorkspaceArgs) => MergeResult | Promise<MergeResult>;
   mergeKeep: (args: WorkspaceArgs) => MergeResult | Promise<MergeResult>;
   rebaseOnly: (args: WorkspaceArgs) => Promise<RebaseResult>;
@@ -702,7 +702,7 @@ function createSessionWorktreeLifecycle({
     if (workspaceMembers?.ok) return releaseWorkspaceMembers(workspaceMembers.members);
     stopWatching();
     if (gitWorkspace && lifecycleState.workspace) {
-      try { await gitWorkspace.discard({ projectPath: currentProjectPath(), workspace: lifecycleState.workspace }); } catch {}
+      try { await gitWorkspace.discard({ projectPath: currentProjectPath(), workspace: lifecycleState.workspace, cause: 'session' }); } catch {}
     }
     clearWorktreeState("none");
   }

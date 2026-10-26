@@ -33,6 +33,10 @@ import { runGit } from './git-exec.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import type { OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
 import type { OwnedPathsLedgerHandle } from '../owned-paths-ledger.ts';
+import type { RemovalCause, RemovalKind, RemovalRecord } from '../../shared/contracts/removal-record.ts';
+import { decideRemovalKeep, isRecencyProbeNeeded, sessionIdFromOwner } from '../core/removal-guard-core.ts';
+import type { RemovalOwnershipFacts } from '../core/removal-guard-core.ts';
+import { appendRemovalRecord, appendRemovalRecordSync, removalsJournalPath } from '../removal-journal.ts';
 import { GLIMMERVOID_WORKTREE_LOCK_REASON, isOwnWorktreeLockLine, isWorktreeHiddenFromGuardedSessions, listHomeWorktreePathsMissingLock, listOwnLockedWorktreePaths } from './core/worktree-lock-core.ts';
 
 const fsp = fs.promises;
@@ -141,14 +145,18 @@ type MergeFastForwardResult = GitResult & {
   sampledHead: string | null;
   outcome: MergeFastForwardOutcome;
 };
-type QueuedGitResult = GitResult & { admissionRefused?: boolean };
+type QueuedGitResult = GitResult & { admissionRefused?: boolean; removalKept?: string };
 type WorktreeDirtyProbe = { ok: boolean; dirty: boolean; headSha: string | null; err?: string; admissionRefused?: boolean };
 type MergeProbeEnvArgs = { projectPath: string; timeoutMs?: number };
 type CheckoutDetachedArgs = { worktreePath: string; sha: string } & GitIsolationOptions;
 type StageDetachedWorktreeArgs = { projectPath: string; worktreePath?: string; sha?: string; owner: OwnedPathOwner } & GitIsolationOptions;
 type OwnedWorktreeArgs = WorktreeArgs & { owner: OwnedPathOwner };
 type WorktreeOwnership = { owner: OwnedPathOwner; projectPath: string; branch: string | null };
-type OwnedPathsRecorder = Pick<OwnedPathsLedgerHandle, 'record' | 'forget'>;
+type OwnedPathsRecorder = Pick<OwnedPathsLedgerHandle, 'record' | 'forget' | 'ownerOf'>;
+type RemovalGuardOptions = { protectedSessionIds?: () => ReadonlySet<string>; journalPath?: string; now?: () => number };
+type RemovalArgs = WorktreeArgs & { cause: RemovalCause };
+type RemovalTarget = { cause: RemovalCause; kind: RemovalKind; projectPath: string; path: string | null; branch: string | null; tipSha?: string | null };
+type RemovalAdmission = { admitted: true } | { admitted: false; reason: string };
 type StageIsolatedCheckoutArgs = { projectPath: string; checkoutPath?: string; sha?: string; baseSha?: string };
 type MergeFastForwardArgs = {
   projectPath: string;
@@ -309,6 +317,7 @@ function createGitWorkspace(opts: {
   isolation?: GitIsolationOptions;
   glimmervoidHome?: string;
   ownedPaths?: OwnedPathsRecorder;
+  removalGuard?: RemovalGuardOptions;
 } = {}) {
 
   const rawGit: GitRunner = opts.git || (async (args, cwd, extra) => {
@@ -335,6 +344,7 @@ function createGitWorkspace(opts: {
   const rerereEnabled = opts.rerere !== false;
   const glimmervoidHome = opts.glimmervoidHome ?? glimmervoidHomeDir();
   const glimmervoidHomes = comparableGlimmervoidHomes(glimmervoidHome);
+  const removalGuard = resolveRemovalGuard(opts.removalGuard, glimmervoidHome);
 
   const engineQueue = createSerialQueue();
   const isolatedCall = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>, args: TArgs) => (): Promise<TResult> =>
@@ -392,6 +402,42 @@ function createGitWorkspace(opts: {
   async function forgetRemovedPath(ownedPath: string): Promise<void> {
     if (await directoryExists(ownedPath)) return;
     await opts.ownedPaths?.forget(ownedPath);
+  }
+
+  async function admitRemoval(target: RemovalTarget): Promise<RemovalAdmission> {
+    const ledgerOwner = target.path === null ? null : await opts.ownedPaths?.ownerOf(target.path) ?? null;
+    const facts = removalOwnershipFacts(target, ledgerOwner, removalGuard.protectedSessionIds());
+    const lastTouchedMs = isRecencyProbeNeeded(facts) ? await probeLastTouchedMs(target) : null;
+    const verdict = decideRemovalKeep({ ...facts, lastTouchedMs, nowMs: removalGuard.now() });
+    if (verdict.keep) {
+      log.warn(`[removals] kept ${describeRemovalTarget(target)} from a ${target.cause} removal because of ${verdict.reason}`);
+      return { admitted: false, reason: verdict.reason };
+    }
+    const record = buildRemovalRecord(target, facts, verdict.checksPassed, removalGuard.now());
+    if (!(await appendRemovalRecord(removalGuard.journalPath, record, log))) return { admitted: false, reason: 'removal-record-unwritten' };
+    return { admitted: true };
+  }
+
+  async function probeLastTouchedMs({ projectPath, path: targetPath, branch, tipSha }: RemovalTarget): Promise<number | null> {
+    const touchedTimesMs: number[] = [];
+    const targetStat = targetPath === null ? 'missing' : await statUnlessMissing(targetPath);
+    if (targetStat === null) return null;
+    if (targetPath !== null && targetStat !== 'missing') {
+      touchedTimesMs.push(targetStat.mtimeMs);
+      const adminDir = await run(['rev-parse', '--absolute-git-dir'], targetPath);
+      const adminStat = adminDir.ok ? await fsp.stat(adminDir.out).catch(() => null) : null;
+      if (adminStat === null) return null;
+      touchedTimesMs.push(adminStat.mtimeMs);
+    }
+    const commitRef = tipSha ?? (branch ? `refs/heads/${branch}` : null);
+    if (commitRef !== null) {
+      const commitTime = await run(['log', '-1', '--format=%ct', commitRef], projectPath);
+      const commitTimeMs = commitTime.ok ? parseCommitTimeMs(commitTime.out) : null;
+      if (commitTimeMs === null) return null;
+      touchedTimesMs.push(commitTimeMs);
+    }
+    if (touchedTimesMs.length === 0) return null;
+    return Math.max(...touchedTimesMs);
   }
 
   async function recordOwnedFolder({ folderPath, owner }: { folderPath: string; owner: OwnedPathOwner }): Promise<void> {
@@ -583,7 +629,7 @@ function createGitWorkspace(opts: {
       : await run(['rev-parse', '--verify', '--quiet', `refs/heads/${base}`], projectPath);
     const baseSha = ref.ok ? ref.out : await ensureLocalBranch(projectPath, base);
     if (!baseSha) return { cwd: projectPath, isGit: false, reason: 'no-base-branch' };
-    await run(['branch', '-D', branch], projectPath);
+    await deleteStaleSessionBranch(projectPath, branch);
 
     if (worktreeBase) {
       try { fs.mkdirSync(worktreeBase, { recursive: true }); } catch {}
@@ -664,7 +710,16 @@ function createGitWorkspace(opts: {
     }
   }
 
+  async function deleteStaleSessionBranch(projectPath: string, branch: string): Promise<void> {
+    if (!(await readLocalBranchSha(projectPath, branch)).out) return;
+    const admission = await admitRemoval({ cause: 'session-create', kind: 'local-branch', projectPath, path: null, branch });
+    if (!admission.admitted) return;
+    await run(['branch', '-D', branch], projectPath);
+  }
+
   async function tearDownWorktree(projectPath: string, wt: string, branch: string | null | undefined): Promise<void> {
+    const admission = await admitRemoval({ cause: 'merge', kind: 'worktree', projectPath, path: wt, branch: branch ?? null });
+    if (!admission.admitted) return;
     removeWorktreeLinks(wt);
     await removeWorktreeEntry(runInProject(projectPath), wt, ['--force']);
     await pruneWorktreeEntries(runInProject(projectPath));
@@ -951,8 +1006,10 @@ function createGitWorkspace(opts: {
     };
   }
 
-  async function discardBody({ projectPath, workspace }: WorktreeArgs): Promise<void> {
+  async function discardBody({ projectPath, workspace, cause }: RemovalArgs): Promise<void> {
     if (!workspace || !workspace.isGit) return;
+    const admission = await admitRemoval({ cause, kind: 'worktree', projectPath, path: workspace.cwd || null, branch: workspace.branch || null });
+    if (!admission.admitted) return;
     if (workspace.cwd) {
       removeWorktreeLinks(workspace.cwd);
       await removeWorktreeEntry(runInProject(projectPath), workspace.cwd, ['--force']);
@@ -1077,7 +1134,9 @@ function createGitWorkspace(opts: {
     return run(hooklessArgs, cwd, { replaceEnv, disableRepoCommands });
   }
 
-  async function removeWorktreeByPathBody({ projectPath, cwd, branch, disableHooks, replaceEnv }: WorktreeArgs): Promise<QueuedGitResult> {
+  async function removeWorktreeByPathBody({ projectPath, cwd, branch, cause, disableHooks, replaceEnv }: RemovalArgs): Promise<QueuedGitResult> {
+    const admission = await admitRemoval({ cause, kind: cwd ? 'worktree' : 'local-branch', projectPath, path: cwd || null, branch: branch || null });
+    if (!admission.admitted) return keptRemovalResult(admission.reason);
     const isolation = { disableHooks, replaceEnv };
     let failure: GitResult | null = null;
     if (cwd) {
@@ -1110,10 +1169,10 @@ function createGitWorkspace(opts: {
     const listed = await run(['worktree', 'list', '--porcelain'], projectPath);
     if (!listed.ok) return listed;
     const worktreePath = findWorktreeForBranch(listed.out, branch);
-    if (worktreePath === null) return removeWorktreeByPathBody({ projectPath, branch, disableHooks, replaceEnv });
+    if (worktreePath === null) return removeWorktreeByPathBody({ projectPath, branch, cause: 'session', disableHooks, replaceEnv });
     const refusal = await foreignSessionWorktreeReason(worktreePath, listed.out, sessionWorktreeLocation(projectPath, teamId, worktreeBase));
     if (refusal !== null) return { ok: false, out: '', err: refusal };
-    return removeWorktreeByPathBody({ projectPath, cwd: worktreePath, branch, disableHooks, replaceEnv });
+    return removeWorktreeByPathBody({ projectPath, cwd: worktreePath, branch, cause: 'session', disableHooks, replaceEnv });
   }
 
   async function pruneWorktreesBody({ projectPath, disableHooks, replaceEnv }: WorktreeArgs): Promise<GitResult> {
@@ -1131,8 +1190,10 @@ function createGitWorkspace(opts: {
     }
   }
 
-  async function removeWorkspaceMemberBody({ projectPath, cwd, shareList, discardWork = false }: WorktreeArgs & { discardWork?: boolean }): Promise<GitResult> {
+  async function removeWorkspaceMemberBody({ projectPath, cwd, branch, shareList, cause, discardWork = false }: RemovalArgs & { discardWork?: boolean }): Promise<QueuedGitResult> {
     if (!cwd) return { ok: false, out: '', err: 'a workspace member removal needs a path' };
+    const admission = await admitRemoval({ cause, kind: 'worktree', projectPath, path: cwd, branch: branch || null });
+    if (!admission.admitted) return keptRemovalResult(admission.reason);
     await removeSharedLinks(cwd, shareList);
     const removed = await removeWorktreeEntry(runInProject(projectPath), cwd, discardWork ? ['--force', '--force'] : []);
     if (discardWork && await directoryExists(cwd)) await fsp.rm(cwd, { recursive: true, force: true });
@@ -1539,7 +1600,9 @@ function createGitWorkspace(opts: {
     return run(['rev-parse', `${sha ?? ''}^{tree}`], projectPath, { timeout: timeoutMs });
   }
 
-  async function deleteRemoteBranchBody({ projectPath, name, tipSha }: WorktreeArgs): Promise<GitResult> {
+  async function deleteRemoteBranchBody({ projectPath, name, tipSha, cause }: RemovalArgs): Promise<QueuedGitResult> {
+    const admission = await admitRemoval({ cause, kind: 'remote-branch', projectPath, path: null, branch: name ?? null, tipSha: tipSha ?? null });
+    if (!admission.admitted) return keptRemovalResult(admission.reason);
     const branchRef = `refs/heads/${name ?? ''}`;
     return run(['push', '--no-verify', 'origin', `--force-with-lease=${branchRef}:${tipSha ?? ''}`, `:${branchRef}`], projectPath);
   }
@@ -1555,7 +1618,7 @@ function createGitWorkspace(opts: {
     rebaseOnly: serialized(rebaseOnlyBody),
     populate: serialized(populateShare),
     originUrl: serialized(originUrl),
-    removeWorktreeByPath: admitted(removeWorktreeByPathBody, (args: WorktreeArgs): QueuedGitResult => ({
+    removeWorktreeByPath: admitted(removeWorktreeByPathBody, (args: RemovalArgs): QueuedGitResult => ({
       ok: false,
       out: '',
       err: `the git queue did not admit the worktree removal within ${args.admissionTimeoutMs}ms`,
@@ -1595,9 +1658,11 @@ function createGitWorkspace(opts: {
   };
 }
 
-function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => string; glimmervoidHome?: string; ownedPaths?: OwnedPathsRecorder } = {}) {
+function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => string; glimmervoidHome?: string; ownedPaths?: OwnedPathsRecorder; removalGuard?: RemovalGuardOptions; log?: Pick<Console, 'warn'> } = {}) {
   const glimmervoidHome = opts.glimmervoidHome ?? glimmervoidHomeDir();
   const glimmervoidHomes = comparableGlimmervoidHomes(glimmervoidHome);
+  const removalGuard = resolveRemovalGuard(opts.removalGuard, glimmervoidHome);
+  const log = opts.log || console;
   const git = opts.git || ((args: string[], cwd: string) => execFileSync('git', args, {
     cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000,
   }));
@@ -1661,7 +1726,43 @@ function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => s
     return out;
   }
 
-  function removeWorktreeByPath({ projectPath, cwd, branch }: WorktreeArgs): void {
+  function admitRemovalSync(target: RemovalTarget): RemovalAdmission {
+    const facts = removalOwnershipFacts(target, null, removalGuard.protectedSessionIds());
+    const lastTouchedMs = isRecencyProbeNeeded(facts) ? probeLastTouchedMsSync(target) : null;
+    const verdict = decideRemovalKeep({ ...facts, lastTouchedMs, nowMs: removalGuard.now() });
+    if (verdict.keep) {
+      log.warn(`[removals] kept ${describeRemovalTarget(target)} from a ${target.cause} removal because of ${verdict.reason}`);
+      return { admitted: false, reason: verdict.reason };
+    }
+    const record = buildRemovalRecord(target, facts, verdict.checksPassed, removalGuard.now());
+    if (!appendRemovalRecordSync(removalGuard.journalPath, record, log)) return { admitted: false, reason: 'removal-record-unwritten' };
+    return { admitted: true };
+  }
+
+  function probeLastTouchedMsSync({ projectPath, path: targetPath, branch }: RemovalTarget): number | null {
+    const touchedTimesMs: number[] = [];
+    const targetStat = targetPath === null ? 'missing' : statUnlessMissingSync(targetPath);
+    if (targetStat === null) return null;
+    if (targetPath !== null && targetStat !== 'missing') {
+      touchedTimesMs.push(targetStat.mtimeMs);
+      const adminDir = run(['rev-parse', '--absolute-git-dir'], targetPath);
+      const adminStat = adminDir.ok ? statUnlessMissingSync(adminDir.out) : null;
+      if (adminStat === null || adminStat === 'missing') return null;
+      touchedTimesMs.push(adminStat.mtimeMs);
+    }
+    if (branch) {
+      const commitTime = run(['log', '-1', '--format=%ct', `refs/heads/${branch}`], projectPath);
+      const commitTimeMs = commitTime.ok ? parseCommitTimeMs(commitTime.out) : null;
+      if (commitTimeMs === null) return null;
+      touchedTimesMs.push(commitTimeMs);
+    }
+    if (touchedTimesMs.length === 0) return null;
+    return Math.max(...touchedTimesMs);
+  }
+
+  function removeWorktreeByPath({ projectPath, cwd, branch, cause }: RemovalArgs): void {
+    const admission = admitRemovalSync({ cause, kind: cwd ? 'worktree' : 'local-branch', projectPath, path: cwd || null, branch: branch || null });
+    if (!admission.admitted) return;
     if (cwd) {
       removeWorktreeLinks(cwd);
       if (isWorktreeHiddenFromGuardedSessions(cwd, glimmervoidHomes)) run(['worktree', 'unlock', cwd], projectPath);
@@ -1682,6 +1783,63 @@ function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => s
   }
 
   return { listSessionWorktrees, removeWorktreeByPath };
+}
+
+function resolveRemovalGuard(guard: RemovalGuardOptions | undefined, glimmervoidHome: string): Required<RemovalGuardOptions> {
+  return {
+    protectedSessionIds: guard?.protectedSessionIds ?? (() => new Set<string>()),
+    journalPath: guard?.journalPath ?? removalsJournalPath(glimmervoidHome),
+    now: guard?.now ?? Date.now,
+  };
+}
+
+function removalOwnershipFacts(target: RemovalTarget, ledgerOwner: string | null, protectedSessionIds: ReadonlySet<string>): RemovalOwnershipFacts {
+  return {
+    cause: target.cause,
+    sessionId: target.branch === null ? null : sessionIdFromBranch(target.branch),
+    ledgerOwnerSessionId: sessionIdFromOwner(ledgerOwner),
+    protectedSessionIds,
+  };
+}
+
+function buildRemovalRecord(target: RemovalTarget, facts: RemovalOwnershipFacts, checksPassed: string[], nowMs: number): RemovalRecord {
+  return {
+    ts: nowMs,
+    cause: target.cause,
+    kind: target.kind,
+    path: target.path,
+    branch: target.branch,
+    projectPath: target.projectPath,
+    sessionId: facts.sessionId ?? facts.ledgerOwnerSessionId,
+    checksPassed,
+    pid: process.pid,
+  };
+}
+
+function describeRemovalTarget(target: RemovalTarget): string {
+  return target.path ?? `${target.kind} ${target.branch ?? ''}`;
+}
+
+function keptRemovalResult(reason: string): QueuedGitResult {
+  return { ok: false, out: '', err: `the removal guard kept it: ${reason}`, removalKept: reason };
+}
+
+function parseCommitTimeMs(commitTimeOutput: string): number | null {
+  const commitSeconds = Number.parseInt(commitTimeOutput, 10);
+  if (!Number.isFinite(commitSeconds)) return null;
+  return commitSeconds * 1000;
+}
+
+async function statUnlessMissing(targetPath: string): Promise<fs.Stats | 'missing' | null> {
+  return fsp.stat(targetPath).then((stats) => stats, (error: unknown) => (isMissingFileError(error) ? 'missing' : null));
+}
+
+function statUnlessMissingSync(targetPath: string): fs.Stats | 'missing' | null {
+  try {
+    return fs.statSync(targetPath);
+  } catch (error) {
+    return isMissingFileError(error) ? 'missing' : null;
+  }
 }
 
 function removeWorktreeLinks(wtDir: string | null | undefined): void {

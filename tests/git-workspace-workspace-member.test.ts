@@ -56,7 +56,7 @@ test('workspace members fork synced origin, reattach commits, detect conflicts a
     git(['add', '.'], wtDir);
     git(['commit', '-m', 'member work'], wtDir);
     const committedSha = git(['rev-parse', 'HEAD'], wtDir).trim();
-    assert.equal((await workspace.removeWorkspaceMember({ projectPath: repo, cwd: wtDir })).ok, true);
+    assert.equal((await workspace.removeWorkspaceMember({ projectPath: repo, cwd: wtDir, cause: 'session' })).ok, true);
     assert.equal(fs.existsSync(wtDir), false);
     assert.equal(git(['rev-parse', branch], repo).trim(), committedSha);
 
@@ -64,11 +64,11 @@ test('workspace members fork synced origin, reattach commits, detect conflicts a
     assert.equal(attached.isGit, true);
     assert.equal(git(['rev-parse', 'HEAD'], wtDir).trim(), committedSha);
     fs.writeFileSync(path.join(wtDir, 'dirty.txt'), 'keep\n');
-    assert.equal((await workspace.removeWorkspaceMember({ projectPath: repo, cwd: wtDir })).ok, false);
+    assert.equal((await workspace.removeWorkspaceMember({ projectPath: repo, cwd: wtDir, cause: 'session' })).ok, false);
     assert.equal(fs.readFileSync(path.join(wtDir, 'dirty.txt'), 'utf8'), 'keep\n');
     fs.rmSync(path.join(wtDir, 'dirty.txt'));
     fs.writeFileSync(path.join(wtDir, 'README.md'), 'tracked edit\n');
-    assert.equal((await workspace.removeWorkspaceMember({ projectPath: repo, cwd: wtDir })).ok, false);
+    assert.equal((await workspace.removeWorkspaceMember({ projectPath: repo, cwd: wtDir, cause: 'session' })).ok, false);
     assert.equal(fs.readFileSync(path.join(wtDir, 'README.md'), 'utf8'), 'tracked edit\n');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -101,7 +101,7 @@ test('workspace member release keeps tracked symlinks, unlinks ignored share lin
     assert.equal(fs.lstatSync(path.join(wtDir, 'CLAUDE.md')).isSymbolicLink(), true);
     assert.equal(fs.lstatSync(path.join(wtDir, 'node_modules')).isSymbolicLink(), true);
 
-    assert.equal((await workspace.removeWorkspaceMember({ projectPath: repo, cwd: wtDir, shareList })).ok, true);
+    assert.equal((await workspace.removeWorkspaceMember({ projectPath: repo, cwd: wtDir, shareList, cause: 'session' })).ok, true);
     assert.equal(fs.existsSync(wtDir), false);
     assert.equal(git(['rev-parse', '--verify', branch], repo).trim().length, 40);
     assert.equal(fs.readFileSync(path.join(repo, 'node_modules', 'dep', 'index.js'), 'utf8'), 'shared\n');
@@ -109,7 +109,7 @@ test('workspace member release keeps tracked symlinks, unlinks ignored share lin
     const reattached = await workspace.ensureWorkspaceMember({ owner: 'lane:test', projectPath: repo, wtDir, branch, shareList });
     assert.equal(reattached.isGit, true);
     fs.writeFileSync(path.join(wtDir, 'dirty.txt'), 'keep\n');
-    assert.equal((await workspace.removeWorkspaceMember({ projectPath: repo, cwd: wtDir, shareList })).ok, false);
+    assert.equal((await workspace.removeWorkspaceMember({ projectPath: repo, cwd: wtDir, shareList, cause: 'session' })).ok, false);
     assert.equal(fs.lstatSync(path.join(wtDir, 'CLAUDE.md')).isSymbolicLink(), true);
     assert.equal(git(['status', '--porcelain', '--', 'CLAUDE.md'], wtDir).trim(), '');
   } finally {

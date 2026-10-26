@@ -50,7 +50,7 @@ type ArmCommandRunner = (command: string, args: string[], options: { cwd: string
 
 interface BenchmarkGitWorkspace {
   stageIsolatedCheckout(args: { projectPath: string; checkoutPath?: string; sha?: string; baseSha?: string }): Promise<{ ok: boolean; err?: string }>;
-  removeWorktreeByPath(args: { projectPath: string; cwd?: string | null }): Promise<{ ok: boolean; err?: string }>;
+  removeWorktreeByPath(args: { projectPath: string; cwd?: string | null; cause: 'benchmark' }): Promise<{ ok: boolean; err?: string; removalKept?: string }>;
   probeWorktreeDirty(args: { projectPath: string; cwd: string; branch: string }): Promise<{ ok: boolean; dirty: boolean; headSha: string | null; err?: string }>;
 }
 
@@ -589,7 +589,8 @@ function createBenchmarkWiring({
   async function removeLeftoverWorktree(worktreePath: string): Promise<void> {
     const projectPath = worktreeOwnerRepo(await fs.readFile(path.join(worktreePath, '.git'), 'utf8').catch(() => ''));
     if (projectPath) {
-      const removal = await gitWorkspace.removeWorktreeByPath({ projectPath, cwd: worktreePath }).catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
+      const removal = await gitWorkspace.removeWorktreeByPath({ projectPath, cwd: worktreePath, cause: 'benchmark' }).catch((error: unknown) => ({ ok: false, err: errorMessage(error), removalKept: undefined }));
+      if (removal.removalKept) return;
       if (!removal.ok) log.warn(`[${BENCHMARK_LANE_ID}] could not remove leftover ${worktreePath}: ${firstLine(removal.err ?? '')}`);
     }
     await removeDirectoryOrWarn(worktreePath);

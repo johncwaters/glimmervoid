@@ -1041,7 +1041,7 @@ test('git helpers delete a remote ref with no-verify while retaining normalized 
     descendantSha: 'develop-sha',
   });
   await gitWorkspace.fetchOrigin({ projectPath: '/repo' });
-  await gitWorkspace.deleteRemoteBranch({ projectPath: '/repo', name: 'glimmervoid/session/abc', tipSha: 'abc-sha' });
+  await gitWorkspace.deleteRemoteBranch({ projectPath: '/repo', name: 'glimmervoid/session/abc', tipSha: 'abc-sha', cause: 'session' });
 
   assert.deepEqual(branches, {
     ok: true,

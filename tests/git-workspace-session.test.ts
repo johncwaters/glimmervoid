@@ -73,7 +73,7 @@ test('untrusted staging and removal run git with hooks pointed at the null devic
   const replaceEnv = { PATH: '/usr/bin', CI: '1' };
   const hookless = ['-c', `core.hooksPath=${os.devNull}`];
   const staging = gitWorkspace.stageDetachedWorktree({ owner: 'lane:test', projectPath: '/repo', worktreePath: '/checks', sha, disableHooks: true, replaceEnv });
-  const removal = gitWorkspace.removeWorktreeByPath({ projectPath: '/repo', cwd: '/checks', disableHooks: true, replaceEnv });
+  const removal = gitWorkspace.removeWorktreeByPath({ projectPath: '/repo', cwd: '/checks', disableHooks: true, replaceEnv, cause: 'session' });
   const pruning = gitWorkspace.pruneWorktrees({ projectPath: '/repo', disableHooks: true, replaceEnv });
   assert.equal((await staging).ok, true);
   assert.equal((await removal).ok, true);
@@ -238,7 +238,7 @@ test('mergeKeep (real git): lands on develop yet keeps the worktree alive for a 
     assert.ok(fs.existsSync(path.join(repo, 'a.js')), 'round 1 file still present on develop');
     assert.ok(fs.existsSync(ws.cwd), 'worktree still alive after the second merge');
 
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
@@ -262,7 +262,7 @@ test('mergeKeep (real git): committed work merges; uncommitted work is preserved
 
     assert.equal(fs.readFileSync(path.join(ws.cwd, 'wip.js'), 'utf8').replace(/\r\n/g, '\n'), 'work in progress\n', 'restored intact');
     assert.ok(git(['status', '--porcelain'], ws.cwd).includes('wip.js'), 'and it is still uncommitted after the merge');
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
@@ -300,7 +300,7 @@ test('mergeKeep (real git): restores its own saved work when another stash entry
     assert.equal(stashSubjects.length, 1, 'only the other entry remains on the stack');
     assert.match(stashSubjects[0], /: other-session$/);
     assert.equal(git(['show', 'stash@{0}^3:other-session.js'], repo).replace(/\r\n/g, '\n'), 'other session work\n');
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
@@ -320,7 +320,7 @@ test('mergeBack (real git): only-uncommitted work cannot merge and is preserved 
     assert.ok(fs.existsSync(ws.cwd), 'worktree preserved (uncommitted work is never destroyed)');
     assert.ok(fs.existsSync(path.join(ws.cwd, 'wip.js')), 'the uncommitted file survives');
     assert.ok(!fs.existsSync(path.join(repo, 'wip.js')), 'nothing landed on develop');
-    await gw.removeWorktreeByPath({ projectPath: repo, cwd: ws.cwd, branch: ws.branch });
+    await gw.removeWorktreeByPath({ projectPath: repo, cwd: ws.cwd, branch: ws.branch, cause: 'session' });
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
@@ -468,7 +468,7 @@ test('mergeBack (real git): a rebase conflict parks the branch and leaves develo
     assert.ok(fs.existsSync(ws.cwd), 'parked worktree preserved for manual resolution');
     assert.equal(git(['rev-parse', 'develop'], repo).trim(), developSha, 'develop untouched by the failed merge');
     assert.equal(git(['rev-parse', '--abbrev-ref', 'HEAD'], ws.cwd).trim(), branchOf(ws), 'worktree back on its branch (rebase aborted cleanly)');
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
@@ -565,7 +565,7 @@ test('discard is junction-safe: the real node_modules survives worktree teardown
     assert.equal(makeNodeModulesJunction(repo, ws.cwd), true, 'junction created');
     assert.ok(fs.existsSync(path.join(ws.cwd, 'node_modules', 'sentinel.txt')), 'junction resolves to the real node_modules');
 
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
 
     assert.ok(!fs.existsSync(ws.cwd), 'worktree removed');
     assert.ok(fs.existsSync(path.join(repo, 'node_modules', 'sentinel.txt')), 'the REAL node_modules sentinel survived teardown');
@@ -606,7 +606,7 @@ test('create (baseBranch): forks off the named branch even when the main checkou
     assert.equal(ws.baseSha, developSha, 'forked off develop HEAD, not main');
     assert.ok(fs.existsSync(path.join(ws.cwd, 'on-develop.txt')), 'worktree contains the develop-only commit');
     assert.equal(git(['rev-parse', '--abbrev-ref', 'HEAD'], dir).trim(), 'main', 'operator checkout untouched (still on main)');
-    await gw.discard({ projectPath: dir, workspace: ws });
+    await gw.discard({ projectPath: dir, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -622,7 +622,7 @@ test('create (baseBranch): a missing local integration branch is auto-created fr
     assert.equal(ws.base, 'develop');
     assert.equal(ws.baseSha, mainSha, 'new develop branch was seeded from main');
     assert.equal(git(['rev-parse', '--verify', '--quiet', 'refs/heads/develop'], repo).trim(), mainSha, 'local develop branch now exists, pointing at main');
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
@@ -645,7 +645,7 @@ test('create (baseBranch): a missing local integration branch prefers an existin
     assert.equal(ws.base, 'develop');
     assert.equal(ws.baseSha, firstSha, 'seeded from origin/develop, not the newer main');
     assert.equal(git(['rev-parse', '--verify', '--quiet', 'refs/heads/develop'], repo).trim(), firstSha);
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
@@ -672,7 +672,7 @@ test('create (real git): stamps the fork-base marker on the branch; branch delet
     assert.equal(ws.isGit, true);
     assert.equal(git(['config', '--get', `branch.${ws.branch}.glimmervoid-integration`], repo).trim(), 'develop');
 
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
     assert.throws(() => git(['config', '--get', `branch.${ws.branch}.glimmervoid-integration`], repo), 'git drops branch.<name>.* config on branch delete');
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
@@ -690,7 +690,7 @@ test('listSessionWorktrees (real git): resolves integrationBranch from the marke
     assert.equal(entry.integrationBranch, 'develop', 'resolved from the marker, not the passed integrationBranch');
     assert.equal(entry.hasWork, false, 'hasWork computed against the marker branch (develop), not the passed one (main)');
 
-    await gw.discard({ projectPath: dir, workspace: ws });
+    await gw.discard({ projectPath: dir, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -710,7 +710,7 @@ test('create (real git): creating the same session branch twice returns branch-i
     assert.ok(isSameDirectoryPath(ws2.conflictPath, ws1.cwd),
       `conflictPath ${ws2.conflictPath} names the first worktree ${ws1.cwd}`);
 
-    await gw.discard({ projectPath: repo, workspace: ws1 });
+    await gw.discard({ projectPath: repo, workspace: ws1, cause: 'session' });
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
@@ -742,7 +742,7 @@ test('create (worktreeBase + shareList): worktree lives under the base and gets 
     assert.equal(fs.readFileSync(path.join(ws.cwd, '.env'), 'utf8'), 'SECRET=1\n', '.env copied in');
     assert.ok(!fs.existsSync(path.join(ws.cwd, 'tracked.txt')), 'a NON-ignored entry is refused (no merge leak)');
 
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
     assert.ok(!fs.existsSync(ws.cwd), 'worktree removed');
     assert.ok(fs.existsSync(path.join(repo, 'node_modules', 'dep.txt')), 'real node_modules survived (junction-safe)');
     assert.ok(fs.existsSync(path.join(repo, '.omc', 'memory.json')), 'real .omc survived (junction-safe)');
@@ -779,7 +779,7 @@ test('populate re-shares stripped junctions into a surviving worktree (adopt-aft
     assert.ok(!fs.existsSync(path.join(ws.cwd, 'tracked.txt')), 'an entry git does not IGNORE is still refused');
     assert.ok(fs.existsSync(path.join(repo, 'node_modules', 'dep.txt')), 'real node_modules untouched');
 
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(base, { recursive: true, force: true });
@@ -821,7 +821,7 @@ test('create (worktreeBase + shareList, POSIX): dirs are SYMLINKED in, files cop
     assert.equal(fs.readFileSync(path.join(ws.cwd, '.env'), 'utf8'), 'SECRET=1\n', '.env copied in');
     assert.ok(!fs.existsSync(path.join(ws.cwd, 'tracked.txt')), 'a NON-ignored entry is refused (no merge leak)');
 
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
 
     assert.ok(!fs.existsSync(ws.cwd), 'worktree removed');
     assert.ok(fs.existsSync(path.join(repo, 'node_modules', 'dep.txt')), 'the REAL node_modules survived teardown');
@@ -882,7 +882,7 @@ test('create (shareList, POSIX): a trailing-slash ignore pattern cannot cover a 
     git(['add', '-A'], ws.cwd);
     assert.equal(git(['ls-files', 'node_modules', '.omc'], ws.cwd).trim(), '', 'nothing outside the repo can be staged');
 
-    await gw.discard({ projectPath: repo, workspace: ws });
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
     assert.ok(fs.existsSync(path.join(repo, 'node_modules', 'dep.txt')), 'the real node_modules is untouched by the refusal');
     assert.ok(fs.existsSync(path.join(repo, '.omc', 'memory.json')), 'and so is the real .omc');
   } finally {
@@ -906,14 +906,52 @@ test('listSessionWorktrees flags uncommitted work; removeWorktreeByPath removes 
     assert.equal(byId.clean.hasWork, false, 'a clean worktree has no work');
     assert.equal(byId.dirty.hasWork, true, 'uncommitted changes count as work');
 
-    await gw.removeWorktreeByPath({ projectPath: repo, cwd: clean.cwd, branch: clean.branch });
+    await gw.removeWorktreeByPath({ projectPath: repo, cwd: clean.cwd, branch: clean.branch, cause: 'session' });
     assert.ok(!fs.existsSync(clean.cwd), 'removeWorktreeByPath removes a specific worktree');
     assert.ok(fs.existsSync(path.join(dirty.cwd, 'wip.js')), 'the unmerged change is untouched');
 
-    await gw.removeWorktreeByPath({ projectPath: repo, cwd: dirty.cwd, branch: dirty.branch });
+    await gw.removeWorktreeByPath({ projectPath: repo, cwd: dirty.cwd, branch: dirty.branch, cause: 'session' });
     assert.ok(!fs.existsSync(dirty.cwd));
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('an automatic removal keeps protected or freshly touched session work, journals each removal first, and skips one it cannot journal', { skip: !GIT }, async () => {
+  const repo = initRepoOnDevelop();
+  const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-removals-'));
+  const journalPath = path.join(journalDir, 'removals.jsonl');
+  const unwritableJournalPath = path.join(journalPath, 'removals.jsonl');
+  let nowMs = Date.now();
+  const removalGuard = { protectedSessionIds: () => new Set(['configured']), now: () => nowMs };
+  const log = { warn: () => {} };
+  try {
+    const gw = createGitWorkspace({ removalGuard: { ...removalGuard, journalPath }, log });
+    const configured = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'configured', baseBranch: 'develop' });
+    const idle = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'idle', baseBranch: 'develop' });
+
+    const keptConfigured = await gw.removeWorktreeByPath({ projectPath: repo, cwd: configured.cwd, branch: configured.branch, cause: 'branch-gc' });
+    const keptFresh = await gw.removeWorktreeByPath({ projectPath: repo, cwd: idle.cwd, branch: idle.branch, cause: 'branch-gc' });
+    assert.equal(keptConfigured.removalKept, 'protected-session');
+    assert.equal(keptFresh.removalKept, 'recently-touched');
+    assert.equal(fs.existsSync(idle.cwd), true);
+    assert.equal(fs.existsSync(journalPath), false);
+
+    nowMs += 25 * 60 * 60 * 1000;
+    assert.equal((await gw.removeWorktreeByPath({ projectPath: repo, cwd: idle.cwd, branch: idle.branch, cause: 'branch-gc' })).ok, true);
+    assert.equal(fs.existsSync(idle.cwd), false);
+    const records = fs.readFileSync(journalPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    assert.deepEqual(records.map(({ cause, kind, path: removedPath, sessionId }) => ({ cause, kind, removedPath, sessionId })), [
+      { cause: 'branch-gc', kind: 'worktree', removedPath: idle.cwd, sessionId: 'idle' },
+    ]);
+
+    const unjournaled = createGitWorkspace({ removalGuard: { ...removalGuard, journalPath: unwritableJournalPath }, log });
+    const refused = await unjournaled.removeWorktreeByPath({ projectPath: repo, cwd: configured.cwd, branch: configured.branch, cause: 'session' });
+    assert.equal(refused.removalKept, 'removal-record-unwritten');
+    assert.equal(fs.existsSync(configured.cwd), true);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(journalDir, { recursive: true, force: true });
   }
 });
 
@@ -1053,7 +1091,7 @@ test('listSessionWorktrees flags a parked (committed-ahead) worktree as work eve
 
     const listed = await gw.listSessionWorktrees({ projectPath: repo, integrationBranch: 'develop' });
     assert.equal(listed[0].hasWork, true, 'commits ahead of develop count as work');
-    await gw.removeWorktreeByPath({ projectPath: repo, cwd: ws.cwd, branch: ws.branch });
+    await gw.removeWorktreeByPath({ projectPath: repo, cwd: ws.cwd, branch: ws.branch, cause: 'session' });
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
@@ -1079,7 +1117,7 @@ test('listSessionWorktrees (real git): an unconfigured base migrates a marker wh
     assert.equal(entry.integrationBranch, 'main', 'develop is an ancestor of main, so the base follows the default');
     assert.equal(entry.hasWork, false, 'hasWork computed against main, not the abandoned develop');
     assert.equal(git(['config', '--get', `branch.${ws.branch}.glimmervoid-integration`], dir).trim(), 'main', 'marker rewritten');
-    await gw.discard({ projectPath: dir, workspace: ws });
+    await gw.discard({ projectPath: dir, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -1093,7 +1131,7 @@ test('listSessionWorktrees (real git, sync): the startup reconcile path migrates
     const [entry] = createGitWorkspaceSync().listSessionWorktrees({ projectPath: dir, integrationBranch: null });
     assert.equal(entry.integrationBranch, 'main');
     assert.equal(git(['config', '--get', `branch.${ws.branch}.glimmervoid-integration`], dir).trim(), 'main');
-    await gw.discard({ projectPath: dir, workspace: ws });
+    await gw.discard({ projectPath: dir, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -1107,7 +1145,7 @@ test('listSessionWorktrees (real git): a marker whose branch holds commits main 
     const [entry] = await gw.listSessionWorktrees({ projectPath: dir, integrationBranch: null });
     assert.equal(entry.integrationBranch, 'develop', 'develop is not an ancestor of main, so retargeting would show its commits as session work');
     assert.equal(git(['config', '--get', `branch.${ws.branch}.glimmervoid-integration`], dir).trim(), 'develop');
-    await gw.discard({ projectPath: dir, workspace: ws });
+    await gw.discard({ projectPath: dir, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -1121,7 +1159,7 @@ test('create (real git): a branch-in-use adoption with no configured base report
     const adopted = await gw.create({ owner: 'lane:test', projectPath: dir, teamId: 'session', label: 'inuse', baseBranch: 'main', configuredIntegrationBranch: null });
     assert.equal(adopted.reason, 'branch-in-use');
     assert.equal(adopted.base, 'main');
-    await gw.discard({ projectPath: dir, workspace: ws });
+    await gw.discard({ projectPath: dir, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -1142,7 +1180,7 @@ test('hasUnmergedWork (real git): an already-resolved base argument does not blo
       'main',
       'the resolved base argument is a fallback, never a configured branch that pins the marker',
     );
-    await gw.discard({ projectPath: dir, workspace: ws });
+    await gw.discard({ projectPath: dir, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -1162,7 +1200,7 @@ test('listSessionWorktrees (real git): a marker whose branch was deleted migrate
     assert.equal(entry.integrationBranch, 'main', 'a marker that no longer resolves cannot measure anything');
     assert.equal(entry.hasWork, true, 'the commit counts against the default branch');
     assert.equal(git(['config', '--get', `branch.${ws.branch}.glimmervoid-integration`], dir).trim(), 'main');
-    await gw.discard({ projectPath: dir, workspace: ws });
+    await gw.discard({ projectPath: dir, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -1203,7 +1241,7 @@ test('listSessionWorktrees (real git): a marker branch alive only on origin keep
       Error,
       'no local branch was fabricated under the remote-tracking short name',
     );
-    await gw.discard({ projectPath: repoDir, workspace: ws });
+    await gw.discard({ projectPath: repoDir, workspace: ws, cause: 'session' });
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
@@ -1251,12 +1289,12 @@ test('deleteRemoteBranch (real git): a remote tip that moved after the listing i
     git(['push', 'origin', 'HEAD:refs/heads/glimmervoid/session/abc'], repoDir);
     const movedTipSha = git(['rev-parse', 'HEAD'], repoDir).trim();
 
-    const refused = await gitWorkspace.deleteRemoteBranch({ projectPath: repoDir, name: 'glimmervoid/session/abc', tipSha: listedTipSha });
+    const refused = await gitWorkspace.deleteRemoteBranch({ projectPath: repoDir, name: 'glimmervoid/session/abc', tipSha: listedTipSha, cause: 'session' });
 
     assert.equal(refused.ok, false);
     assert.equal(git(['rev-parse', 'refs/heads/glimmervoid/session/abc'], remoteDir).trim(), movedTipSha);
 
-    const deleted = await gitWorkspace.deleteRemoteBranch({ projectPath: repoDir, name: 'glimmervoid/session/abc', tipSha: movedTipSha });
+    const deleted = await gitWorkspace.deleteRemoteBranch({ projectPath: repoDir, name: 'glimmervoid/session/abc', tipSha: movedTipSha, cause: 'session' });
 
     assert.equal(deleted.ok, true);
     assert.throws(() => git(['rev-parse', '--verify', '--quiet', 'refs/heads/glimmervoid/session/abc'], remoteDir), Error);

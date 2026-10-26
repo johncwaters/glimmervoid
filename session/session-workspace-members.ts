@@ -105,7 +105,7 @@ export function createSessionWorkspaceMembers({ plan, owner, sessionName, shareL
     if (!(await pathExists(member.dir))) return null;
     const reason = discardWork ? null : await findMemberWork(member);
     if (reason) return { path: member.dir, reason };
-    const removed = await gitWorkspace.removeWorkspaceMember({ projectPath: member.repoPath, cwd: member.dir, shareList, discardWork });
+    const removed = await gitWorkspace.removeWorkspaceMember({ projectPath: member.repoPath, cwd: member.dir, shareList, discardWork, cause: 'session' });
     if (removed.ok) return null;
     return { path: member.dir, reason: removed.err?.split('\n')[0] || 'git refused to remove it' };
   }

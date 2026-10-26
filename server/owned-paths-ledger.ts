@@ -1,6 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createJsonStateStore } from './json-file.ts';
+import { glimmervoidHomeDir } from './config-store.ts';
+import { appendRemovalRecord, removalsJournalPath } from './removal-journal.ts';
+import { sessionIdFromOwner } from './core/removal-guard-core.ts';
 import { OwnedPathsLedger } from '../shared/contracts/owned-paths.ts';
 import type { OwnedPathEntry } from '../shared/contracts/owned-paths.ts';
 import { caseFoldedPathKey } from '../shared/paths.ts';
@@ -11,7 +14,7 @@ type OwnedPathsLedgerHandle = ReturnType<typeof createOwnedPathsLedger>;
 
 type OwnedPathsReconcileGit = {
   describeWorkspaceMemberWork: (args: { projectPath: string; cwd: string; branch: string }) => Promise<string | null>;
-  removeWorkspaceMember: (args: { projectPath: string; cwd: string; shareList: string[] }) => Promise<{ ok: boolean; err?: string }>;
+  removeWorkspaceMember: (args: { projectPath: string; cwd: string; branch: string; shareList: string[]; cause: 'owned-paths' }) => Promise<{ ok: boolean; err?: string; removalKept?: string }>;
 };
 
 function ledgerKey(ownedPath: string): string {
@@ -69,13 +72,18 @@ function createOwnedPathsLedger({ filePath, log = console }: { filePath: string;
     await persist();
   }
 
+  async function ownerOf(ownedPath: string): Promise<string | null> {
+    await store.load();
+    return entriesByPath.get(ledgerKey(await canonicalOwnedPath(ownedPath)))?.owner ?? null;
+  }
+
   async function loadEarlierRunEntries(): Promise<{ ok: true; entries: OwnedPathEntry[] } | { ok: false }> {
     await store.load();
     if (!isLoaded) return { ok: false };
     return { ok: true, entries: [...entriesByPath.entries()].filter(([key]) => !keysRecordedThisRun.has(key)).map(([, entry]) => entry) };
   }
 
-  return { loadEarlierRunEntries, record, forget, idle: () => store.idle() };
+  return { loadEarlierRunEntries, record, forget, ownerOf, idle: () => store.idle() };
 }
 
 async function pathExists(ownedPath: string): Promise<boolean> {
@@ -92,25 +100,32 @@ async function removeOrphanedWorktree(entry: OwnedPathEntry, git: OwnedPathsReco
   if (!entry.projectPath || !entry.branch) return 'it names no repository and branch to check its work against';
   const work = await git.describeWorkspaceMemberWork({ projectPath: entry.projectPath, cwd: entry.path, branch: entry.branch });
   if (work) return work;
-  const removed = await git.removeWorkspaceMember({ projectPath: entry.projectPath, cwd: entry.path, shareList });
+  const removed = await git.removeWorkspaceMember({ projectPath: entry.projectPath, cwd: entry.path, branch: entry.branch, shareList, cause: 'owned-paths' });
+  if (removed.removalKept) return `the removal guard kept it: ${removed.removalKept}`;
   if (!removed.ok || await pathExists(entry.path)) return `git could not remove it: ${removed.err || 'the folder is still there'}`;
   return null;
 }
 
-async function removeOrphanedFolder(entry: OwnedPathEntry, ledger: Pick<OwnedPathsLedgerHandle, 'forget'>, keptPaths: string[]): Promise<string | null> {
+async function removeOrphanedFolder(entry: OwnedPathEntry, ledger: Pick<OwnedPathsLedgerHandle, 'forget'>, keptPaths: string[], journalPath: string, log: Pick<Console, 'warn'>): Promise<string | null> {
   if (holdsKeptPath(entry.path, keptPaths)) return 'it holds a checkout that was kept';
   if (await holdsCheckout(entry.path)) return 'it still holds a checkout';
+  const isRecorded = await appendRemovalRecord(journalPath, {
+    ts: Date.now(), cause: 'owned-paths', kind: 'folder', path: entry.path, branch: null, projectPath: entry.projectPath,
+    sessionId: sessionIdFromOwner(entry.owner), checksPassed: ['session-not-configured', 'holds-no-checkout'], pid: process.pid,
+  }, log);
+  if (!isRecorded) return 'its removal record could not be written';
   const removal = await fs.rm(entry.path, { recursive: true, force: true }).then(() => null, (error: unknown) => `it could not be deleted: ${errorMessage(error)}`);
   if (removal) return removal;
   await ledger.forget(entry.path);
   return null;
 }
 
-async function reconcileOwnedPaths({ ledger, configuredSessionIds, git, shareList, log = console }: {
+async function reconcileOwnedPaths({ ledger, configuredSessionIds, git, shareList, journalPath = removalsJournalPath(glimmervoidHomeDir()), log = console }: {
   ledger: Pick<OwnedPathsLedgerHandle, 'loadEarlierRunEntries' | 'forget'>;
   configuredSessionIds: ReadonlySet<string>;
   git: OwnedPathsReconcileGit;
   shareList: string[];
+  journalPath?: string;
   log?: Pick<Console, 'log' | 'warn'>;
 }): Promise<void> {
   const loaded = await ledger.loadEarlierRunEntries();
@@ -125,7 +140,7 @@ async function reconcileOwnedPaths({ ledger, configuredSessionIds, git, shareLis
       continue;
     }
     const keepReason = entry.kind === 'folder'
-      ? await removeOrphanedFolder(entry, ledger, keptPaths)
+      ? await removeOrphanedFolder(entry, ledger, keptPaths, journalPath, log)
       : await removeOrphanedWorktree(entry, git, shareList);
     if (!keepReason) {
       log.log(`[owned-paths] deleted ${entry.path}, left by ${entry.owner}`);

@@ -227,6 +227,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     stagedDescriptor = null;
     await dependencies.gitWorkspace.removeWorktreeByPath({
       projectPath: dependencies.packageRoot,
+      cause: 'update-apply',
       cwd: stagingPath,
     });
     await publish(failRun(journal, { reason, now: clock() }), false);
@@ -385,6 +386,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     }
     const removed = await dependencies.gitWorkspace.removeWorktreeByPath({
       projectPath: dependencies.packageRoot,
+      cause: 'update-apply',
       cwd: stagingPath,
       admissionTimeoutMs: HANDOFF_QUEUE_ADMISSION_TIMEOUT_MS,
     });
@@ -448,6 +450,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
       }
       await dependencies.gitWorkspace.removeWorktreeByPath({
         projectPath: dependencies.packageRoot,
+        cause: 'update-apply',
         cwd: descriptor.stagingPath,
         admissionTimeoutMs: HANDOFF_QUEUE_ADMISSION_TIMEOUT_MS,
       });
@@ -464,6 +467,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     if (!descriptor || descriptor.state !== 'staged' || inFlight) {
       await dependencies.gitWorkspace.removeWorktreeByPath({
         projectPath: dependencies.packageRoot,
+        cause: 'update-apply',
         cwd: stagingPath,
         admissionTimeoutMs: HANDOFF_QUEUE_ADMISSION_TIMEOUT_MS,
       });
@@ -528,6 +532,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     if (wasRunInFlight || await isStagingCheckoutPresent()) {
       await dependencies.gitWorkspace.removeWorktreeByPath({
         projectPath: dependencies.packageRoot,
+        cause: 'update-apply',
         cwd: stagingPath,
       });
     }

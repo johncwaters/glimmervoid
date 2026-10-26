@@ -22,6 +22,7 @@ interface GitCallResult {
   err?: string;
 }
 
+type RemovalCallResult = GitCallResult & { removalKept?: string };
 type ListBranchesResult = GitCallResult & { branches?: RemoteBranchTip[] };
 type ListTipsResult = GitCallResult & { integrationTips?: IntegrationTip[] };
 type AncestorResult = GitCallResult & { isAncestor?: boolean };
@@ -41,10 +42,10 @@ interface BranchGcGitWorkspace {
     probeEnv: Record<string, string>;
   }): Promise<MergeTreeResult>;
   treeOid(args: { projectPath: string; sha: string }): Promise<GitCallResult>;
-  deleteRemoteBranch(args: { projectPath: string; name: string; tipSha: string }): Promise<GitCallResult>;
+  deleteRemoteBranch(args: { projectPath: string; name: string; tipSha: string; cause: 'branch-gc' }): Promise<RemovalCallResult>;
   listWorktrees(args: { projectPath: string; prefixes: string[]; integrationBranch: string | null; configuredIntegrationBranch: string | null }): Promise<LocalWorktreeTip[]>;
   probeWorktreeDirty(args: { projectPath: string; cwd: string; branch: string }): Promise<DirtyProbeResult>;
-  removeWorktreeByPath(args: { projectPath: string; cwd: string; branch: string }): Promise<GitCallResult>;
+  removeWorktreeByPath(args: { projectPath: string; cwd: string; branch: string; cause: 'branch-gc' }): Promise<RemovalCallResult>;
 }
 
 interface BranchGcConfig {
@@ -344,7 +345,12 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
       trace({ projectPath, name: decision.branch, cwd: decision.cwd, decision: 'kept', reason: 'tip-moved' });
       return;
     }
-    const removed = await callGit(gitWorkspace.removeWorktreeByPath, { projectPath, cwd: decision.cwd, branch: decision.branch });
+    const removed: RemovalCallResult = await callGit(gitWorkspace.removeWorktreeByPath, { projectPath, cwd: decision.cwd, branch: decision.branch, cause: 'branch-gc' });
+    if (removed.removalKept) {
+      summary.worktreesKept.push({ cwd: decision.cwd, branch: decision.branch, reason: removed.removalKept });
+      trace({ projectPath, name: decision.branch, cwd: decision.cwd, decision: 'kept', reason: removed.removalKept });
+      return;
+    }
     if (!removed.ok) {
       noteGitError({ projectPath, name: decision.branch, operation: 'remove-worktree', gitResult: removed });
       summary.errors += 1;
@@ -488,7 +494,12 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
         trace({ projectPath, name, decision: 'would-delete', reason });
         continue;
       }
-      const deleted = await callGit(gitWorkspace.deleteRemoteBranch, { projectPath, name, tipSha });
+      const deleted: RemovalCallResult = await callGit(gitWorkspace.deleteRemoteBranch, { projectPath, name, tipSha, cause: 'branch-gc' });
+      if (deleted.removalKept) {
+        summary.kept.push({ name, reason: deleted.removalKept });
+        trace({ projectPath, name, decision: 'kept', reason: deleted.removalKept });
+        continue;
+      }
       if (!deleted.ok) {
         noteGitError({ projectPath, name, operation: 'delete', gitResult: deleted });
         summary.errors += 1;

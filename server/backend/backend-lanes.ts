@@ -5,6 +5,7 @@ import type { HookRouter } from '../../detection/hook-source.ts';
 import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import { comparableDirectoryPath } from '../../shared/canonical-paths.ts';
+import { sanitizeWorktreeName } from '../../shared/paths.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import { createBenchmarkWiring } from '../benchmark-wiring.ts';
 import { STATES } from '../../shared/states.ts';
@@ -117,8 +118,12 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   });
   const spawnGate = createSpawnGate({ memoryAdmission });
   const ownedPaths = createOwnedPathsLedger({ filePath: configSiblingPath(configStore.configPath, 'owned-paths.json'), log: logger });
-  const gitWorkspace = createGitWorkspace({ rerere: config.worktreeRerere !== false, ownedPaths });
-  const gitWorkspaceSync = createGitWorkspaceSync({ ownedPaths });
+  const protectedSessionIds = (): ReadonlySet<string> => new Set([
+    ...config.projects.map((project) => project.id),
+    ...allLiveSessions().map((session) => session.id),
+  ].flatMap((sessionId) => [sessionId, sanitizeWorktreeName(sessionId)]));
+  const gitWorkspace = createGitWorkspace({ rerere: config.worktreeRerere !== false, ownedPaths, removalGuard: { protectedSessionIds }, log: logger });
+  const gitWorkspaceSync = createGitWorkspaceSync({ ownedPaths, removalGuard: { protectedSessionIds }, log: logger });
   const laneLedger = createLaneLedger({
     ledgerPath: configSiblingPath(configStore.configPath, 'usage-lanes.json'),
     retainDays: resolveUsageConfig(config.usage).warehouseRetainDays,

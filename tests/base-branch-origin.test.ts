@@ -126,7 +126,7 @@ test('auto create writes the detected marker and an existing worktree keeps it',
     });
     assert.equal(adopted.reason, 'branch-in-use');
     assert.equal(adopted.base, 'main');
-    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created });
+    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
   } finally {
     fixture.cleanup();
   }
@@ -147,7 +147,7 @@ test('merge continues with a warning when the base fetch fails', { skip: !GIT },
     assert.equal(merged.merged, true);
     assert.equal(merged.pushed, false);
     assert.match(merged.warning ?? '', /^could not fetch origin\/main; merged with local base: fatal:/);
-    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created });
+    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
   } finally {
     fixture.cleanup();
   }
@@ -175,7 +175,7 @@ test('M2 no-origin fork and merge skip sync without an operator warning', { skip
     assert.equal(merged.warning, undefined);
     assert.equal(merged.pushed, false);
     assert.deepEqual(serverWarnings, []);
-    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created });
+    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
   } finally {
     fixture.cleanup();
   }
@@ -204,7 +204,7 @@ test('M3 merge does not publish a local-only base branch', { skip: !GIT }, async
     assert.throws(() => git([
       'rev-parse', '--verify', '--quiet', 'refs/remotes/origin/local-base',
     ], fixture.repositoryPath));
-    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created });
+    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
   } finally {
     fixture.cleanup();
   }
@@ -249,7 +249,7 @@ test('merge fast-forwards and pushes a published base fetched outside a narrow r
     assert.equal(remoteSha, git(['rev-parse', 'published-base'], fixture.repositoryPath).trim());
     assert.equal(git(['show', 'published-base:remote.txt'], fixture.repositoryPath), 'remote advance\n');
     assert.equal(git(['show', 'published-base:session.txt'], fixture.repositoryPath), 'session\n');
-    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created });
+    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
   } finally {
     fixture.cleanup();
   }
@@ -285,7 +285,7 @@ test('merge does not recreate a remotely deleted base from a stale tracking ref'
     assert.equal(merged.merged, true);
     assert.equal(merged.pushed, false);
     assert.equal(git(['ls-remote', 'origin', 'refs/heads/published-base'], fixture.repositoryPath).trim(), '');
-    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created });
+    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
   } finally {
     fixture.cleanup();
   }
@@ -320,7 +320,7 @@ test('plain post-merge push is rejected when origin moves', { skip: !GIT }, asyn
       git(['ls-remote', 'origin', 'refs/heads/main'], fixture.repositoryPath).trim().split(/\s/)[0],
       git(['rev-parse', 'main'], fixture.writerPath).trim(),
     );
-    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created });
+    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
   } finally {
     fixture.cleanup();
   }
@@ -342,7 +342,7 @@ test('M4 omitted base options auto-detect instead of forking from HEAD', { skip:
     assert.equal(created.base, 'main');
     assert.equal(created.baseSha, mainSha);
     assert.notEqual(created.baseSha, topicSha);
-    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created });
+    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
   } finally {
     fixture.cleanup();
   }
@@ -364,7 +364,7 @@ test('L5 forkFromHead isolates a detached checkout at its exact SHA', { skip: !G
     assert.equal(created.base, 'HEAD');
     assert.equal(created.baseSha, detachedSha);
     assert.equal(git(['rev-parse', 'HEAD'], created.cwd).trim(), detachedSha);
-    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created });
+    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
   } finally {
     fixture.cleanup();
   }
@@ -388,7 +388,7 @@ for (const method of ['mergeBack', 'mergeKeep'] as const) {
       assert.equal(git(['rev-parse', 'main'], fixture.repositoryPath).trim(), git(['ls-remote', 'origin', 'refs/heads/main'], fixture.repositoryPath).trim().split(/\s/)[0]);
       assert.equal(fs.readFileSync(path.join(fixture.repositoryPath, 'remote.txt'), 'utf8'), 'remote\n');
       assert.equal(fs.readFileSync(path.join(fixture.repositoryPath, 'session.txt'), 'utf8'), 'session\n');
-      if (method === 'mergeKeep') await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created });
+      if (method === 'mergeKeep') await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
     } finally {
       fixture.cleanup();
     }
@@ -414,7 +414,7 @@ for (const method of ['mergeBack', 'mergeKeep'] as const) {
       assert.equal(merged.reason, 'base-diverged');
       assert.equal(git(['rev-parse', 'main'], fixture.repositoryPath).trim(), baseSha);
       assert.equal(git(['rev-parse', 'HEAD'], created.cwd).trim(), worktreeSha);
-      await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created });
+      await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
     } finally {
       fixture.cleanup();
     }
@@ -437,7 +437,7 @@ for (const method of ['mergeBack', 'mergeKeep'] as const) {
       assert.equal(merged.merged, true);
       assert.equal(merged.pushed, false);
       assert.equal(git(['rev-list', '--count', 'origin/main..main'], fixture.repositoryPath).trim(), '1');
-      if (method === 'mergeKeep') await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created });
+      if (method === 'mergeKeep') await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
     } finally {
       fixture.cleanup();
     }

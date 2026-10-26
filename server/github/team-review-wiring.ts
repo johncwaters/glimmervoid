@@ -121,7 +121,7 @@ interface TeamReviewGitWorkspace {
   stageDetachedWorktree(args: { projectPath: string; owner: OwnedPathOwner; worktreePath?: string; sha?: string }): Promise<{ ok: boolean; err?: string }>;
   originUrl(args: { projectPath: string }): Promise<string | null>;
   populate(args: { projectPath: string; wtDir: string; shareList: string[]; keepTrackableLinks?: boolean }): Promise<void>;
-  removeWorktreeByPath(args: { projectPath: string; cwd?: string | null }): Promise<{ ok: boolean; err?: string }>;
+  removeWorktreeByPath(args: { projectPath: string; cwd?: string | null; cause: 'team-review' }): Promise<{ ok: boolean; err?: string; removalKept?: string }>;
   pruneWorktrees(args: { projectPath: string }): Promise<{ ok: boolean; err?: string }>;
   forgetRemovedPath?(worktreePath: string): Promise<void>;
   seedBranchFromOrigin?(args: { projectPath: string; name: string }): Promise<{ ok: boolean; out: string; err?: string }>;
@@ -529,8 +529,9 @@ function createTeamReviewDispatcher({
   log = console,
 }: TeamReviewDispatchOptions) {
   async function removeCheckout({ projectPath, worktreePath }: { projectPath: string; worktreePath: string }): Promise<void> {
-    const removal = await gitWorkspace.removeWorktreeByPath({ projectPath, cwd: worktreePath })
-      .catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
+    const removal = await gitWorkspace.removeWorktreeByPath({ projectPath, cwd: worktreePath, cause: 'team-review' })
+      .catch((error: unknown) => ({ ok: false, err: errorMessage(error), removalKept: undefined }));
+    if (removal.removalKept) return;
     if (removal.ok && !(await pathExists(worktreePath))) return;
     log.warn(`[${core.TEAM_REVIEW_LANE_ID}] worktree removal failed for ${worktreePath}, deleting it directly: ${firstLine(removal.err ?? '') || 'the directory is still present'}`);
     await deleteCheckout(gitWorkspace, worktreePath, log);

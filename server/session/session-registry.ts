@@ -20,7 +20,7 @@ interface RegistryConfig extends Record<string, unknown> {
 
 interface RegistryGitWorkspace {
   listSessionWorktrees: (input: WorktreeArgs) => SessionWorktree[];
-  removeWorktreeByPath: (input: WorktreeArgs) => void;
+  removeWorktreeByPath: (input: WorktreeArgs & { cause: 'boot-reconcile' }) => void;
 }
 
 interface RegistrySpawnGate {
@@ -175,6 +175,7 @@ function reconcileSessionWorktrees({
         projectPath: project.path,
         cwd: worktree.cwd,
         branch: worktree.branch,
+        cause: 'boot-reconcile',
       });
     }
   }

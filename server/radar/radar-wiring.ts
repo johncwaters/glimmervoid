@@ -131,7 +131,7 @@ interface PosthogGitWorkspace {
     baseBranch?: string | null;
     forkFromHead?: boolean;
   }) => Promise<PosthogWorkspace | null> | PosthogWorkspace | null;
-  discard: (options: { projectPath: string; workspace: PosthogWorkspace }) => Promise<unknown> | unknown;
+  discard: (options: { projectPath: string; workspace: PosthogWorkspace; cause: 'radar' }) => Promise<unknown> | unknown;
 }
 
 interface CliResult {
@@ -737,7 +737,7 @@ function createRadarWiring({
       };
     } finally {
       if (resultFile) await resultFile.cleanup();
-      await Promise.resolve(gitWorkspace.discard({ projectPath: repoPath, workspace }))
+      await Promise.resolve(gitWorkspace.discard({ projectPath: repoPath, workspace, cause: 'radar' }))
         .catch((e: unknown) => console.warn(`[posthog-poller] fix worktree discard failed: ${errorMessage(e)}`));
     }
   }
