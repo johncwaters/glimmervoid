@@ -14,7 +14,7 @@ import { createSettingsLink } from '../settings/settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview,
   answeredNonNitThreads, changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, buildNotMineRequest,
-  buildReadyDecisionRequest, commentLocation, detailActionLayout, isIncludedByDefault, isSeverityIncludedByDefault, emptyStateText, generalFindingsOf, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, hasSelection, parseInlineSegments, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText,
+  buildReadyDecisionRequest, commentLocation, detailActionLayout, isIncludedByDefault, isSelectionRequired, isSeverityIncludedByDefault, emptyStateText, generalFindingsOf, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, hasSelection, parseInlineSegments, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText,
   parseReviewComment, postedOutcomeText, postingPreviewText, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, readyRowSignature, detailHeadingSignature,
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, severityPresentation, planActionReply, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice,
 } from './team-review-view-core.ts';
@@ -647,7 +647,7 @@ interface DecisionBar {
   buttons: HTMLButtonElement[];
 }
 
-function createDecisionBar(draft: Pick<ReviewDraft, 'status' | 'postedEvent'>, runAction: (action: TeamReviewAction) => void, statusText = ''): DecisionBar {
+function createDecisionBar(draft: Pick<ReviewDraft, 'status' | 'postedEvent' | 'verdict'>, runAction: (action: TeamReviewAction) => void, statusText = ''): DecisionBar {
   const layout = detailActionLayout(draft);
   const footer = el('footer', 'pr-footer pr-decision-bar');
   const status = el('span', 'pr-action-status', statusText);
@@ -705,7 +705,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const runAction = (action: TeamReviewAction) => {
     if (_pendingActions.has(draft.key)) return;
     const chosen = selection();
-    const request = action === 'approve' || action === 'comment' ? buildReadyDecisionRequest(draft, action, chosen) : buildActionRequest(draft, action, '', []);
+    const request = action === 'approve' || action === 'comment' || action === 'request-changes' ? buildReadyDecisionRequest(draft, action, chosen) : buildActionRequest(draft, action, '', []);
     setBusy(true);
     paintActionStatus(bar.status, 'busy', actionProgressText(request.action));
     if (sendAction('ready', draft, request, settle, postedOutcomeText(request.action, chosen))) return;
@@ -714,7 +714,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const bar = createDecisionBar(draft, runAction);
   function paintControls(): void {
     const isCommentReady = hasSelection(selection());
-    for (const button of bar.buttons) button.disabled = isBusy || (button.dataset.action === 'comment' && !isCommentReady);
+    for (const button of bar.buttons) button.disabled = isBusy || (isSelectionRequired(button.dataset.action) && !isCommentReady);
     detail.dataset.busy = String(isBusy);
   }
   function setBusy(nextIsBusy: boolean): void {

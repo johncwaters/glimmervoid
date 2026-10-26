@@ -8,13 +8,13 @@ import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../../shared/contracts/github
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
 import { secondaryRateLimitWaitMs } from '../lanes/core/lane-backoff.ts';
 import { z } from 'zod';
-import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, PrDetail, ReviewComment } from '../../shared/contracts/team-review.ts';
+import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, PrDetail, PostedReviewEvent, ReviewComment } from '../../shared/contracts/team-review.ts';
 import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../../shared/contracts/benchmark.ts';
 import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../../shared/contracts/benchmark.ts';
 import { MyPrCheckContext, MyPrCheckContextsResponse, MyPrMergeMethod, MyPrMergeStateResponse, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../../shared/contracts/my-prs.ts';
 import { WorkflowCommentBody, WorkflowLabelName } from '../../shared/contracts/workflows.ts';
-import type { PostedReviewEvent, PrDetail as PrDetailType, ReviewComment as ReviewCommentType, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
+import type { PrDetail as PrDetailType, ReviewComment as ReviewCommentType, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 
 import type { TeamReviewThreadNode as ThreadNode, TeamReviewCompareFiles as CompareFiles } from '../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -873,7 +873,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const parts = repoParts(repo);
       if (!parts || !isPrNumber(number)) return { ok: false, err: 'invalid repository or pull request number', reviewId: null };
       if (!CommitSha.safeParse(commitId).success) return { ok: false, err: 'invalid commit id', reviewId: null };
-      if (event !== 'APPROVE' && event !== 'COMMENT') return { ok: false, err: 'invalid review event', reviewId: null };
+      if (!PostedReviewEvent.safeParse(event).success) return { ok: false, err: 'invalid review event', reviewId: null };
       if (typeof body !== 'string' || !Array.isArray(comments)) return { ok: false, err: 'invalid review body or comments', reviewId: null };
       const parsedComments = z.array(ReviewComment).safeParse(comments);
       if (!parsedComments.success) return { ok: false, err: 'invalid review comments', reviewId: null };

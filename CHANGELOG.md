@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Request changes from Reviews**: a ready review now offers Request changes next to Approve and Comment, posting a change request on GitHub under your name with the findings you ticked and your note. It needs at least one finding or a note. When the agent's verdict is request changes or blocked, Request changes is the first button; otherwise Approve is.
+
 - **The server log survives a dashboard Restart**: Glimmervoid now copies its own output into `logs/server.log` under its home folder (`~/.glimmervoid` unless `GLIMMERVOID_HOME` says otherwise), so the log keeps going after a Restart from the dashboard, which used to discard it. The file rolls over at 10 MB and keeps the four previous files as `server.log.1` to `server.log.4`.
 
 - **Every cleanup leaves a record**: before Glimmervoid deletes a worktree, a branch, a workspace folder, a leftover scratch or guardrails temp folder, or an aged log file, it writes a line to `logs/removals.jsonl` naming what goes, why, and which checks it passed. If that line cannot be written, the deletion is skipped and the server log says so.

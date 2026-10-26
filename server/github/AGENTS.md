@@ -12,7 +12,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 ### Team PR Review (opt-in)
 
-- Only the operator's Approve or Comment posts, and only when the clicked head equals both the reviewed and the live head, since a review lands under the operator's name.
+- Only the operator's Approve, Comment or Request changes posts, and only when the clicked head equals both the reviewed and the live head, since a review lands under the operator's name.
 - Glimmervoid owns the report contract, not the procedure: skills differ per machine, so the review runs `teamReview.skill`; its cwd is an empty work dir and the untrusted checkout is never an `--add-dir`.
 - The review starts inside the sandbox runtime (`teamReviewRole`: closed egress, credential folders unreadable, a Codex home of its own, no secret in env); a session that cannot apply it never spawns.
 - The wrap still runs PR code (linked `node_modules`, tests, lint) as the operator, fork PRs from anyone included (operator-accepted 2026-10-26), and the linked clone's `.env` deny is root-level only. `api.github.com` stays reachable because Codex stalls at startup without it; no GitHub credential is readable inside.

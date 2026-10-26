@@ -105,7 +105,7 @@ export const PostingPlan = z.object({
 });
 export type PostingPlan = z.infer<typeof PostingPlan>;
 
-export const PostedReviewEvent = z.enum(['APPROVE', 'COMMENT']);
+export const PostedReviewEvent = z.enum(['APPROVE', 'COMMENT', 'REQUEST_CHANGES']);
 export type PostedReviewEvent = z.infer<typeof PostedReviewEvent>;
 
 export const GithubReviewState = z.enum(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED']);
@@ -263,7 +263,7 @@ export function canApproveAfterComment(draft: Pick<ReviewDraft, 'status' | 'post
   return draft.status === 'posted' && draft.postedEvent === 'COMMENT';
 }
 
-export const TeamReviewAction = z.enum(['approve', 'approve-only', 'comment', 'discard', 'requeue', 'resolve-thread']);
+export const TeamReviewAction = z.enum(['approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'resolve-thread']);
 export type TeamReviewAction = z.infer<typeof TeamReviewAction>;
 
 export function hasRequiredActionHead(request: { action: TeamReviewAction; head?: string }): boolean {

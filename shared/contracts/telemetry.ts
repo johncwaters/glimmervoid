@@ -6,7 +6,7 @@ import type { OperatorAction, OperatorSurface } from './control-messages.ts';
 const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
 const SESSION_END_CAUSES = Object.freeze(['removed', 'replaced', 'server_stopped'] as const);
 const SESSION_EXIT_KINDS = Object.freeze(['clean', 'error', 'signal', 'no_output', ...SESSION_END_CAUSES] as const);
-const TEAM_REVIEW_SETTLED_OUTCOMES = Object.freeze(['approve', 'comment', 'approve-only', 'discarded'] as const);
+const TEAM_REVIEW_SETTLED_OUTCOMES = Object.freeze(['approve', 'comment', 'request-changes', 'approve-only', 'discarded'] as const);
 const TEAM_REVIEW_POST_REFUSAL_REASONS = Object.freeze([
   'unknown-action', 'not-postable', 'comments-already-posted', 'empty-comment', 'rate-limited',
   'head-unreadable', 'head-moved', 'diff-unreadable', 'misplaced-comments', 'github-refused',

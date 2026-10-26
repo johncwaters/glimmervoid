@@ -218,7 +218,7 @@ interface TeamReviewActionOptions {
 }
 
 const SETTLED_OUTCOME_BY_ACTION: Partial<Record<TeamReviewActionRequest['action'], TeamReviewSettledOutcome>> = {
-  approve: 'approve', 'approve-only': 'approve-only', comment: 'comment',
+  approve: 'approve', 'approve-only': 'approve-only', comment: 'comment', 'request-changes': 'request-changes',
 };
 
 interface PostRefusal {
@@ -938,8 +938,8 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     const body = request.action === 'approve-only' ? '' : request.body;
     const comments = request.action === 'approve-only' ? [] : request.comments;
     if (isFollowUpApproval && comments.length > 0) return refusePost(timing, { reason: 'comments-already-posted', error: 'The inline comments were already posted, so the approval cannot carry them again' });
-    if (event === 'COMMENT' && !body.trim() && comments.length === 0) {
-      return refusePost(timing, { reason: 'empty-comment', error: 'A comment review needs a body or an inline comment' });
+    if (event !== 'APPROVE' && !body.trim() && comments.length === 0) {
+      return refusePost(timing, { reason: 'empty-comment', error: 'A comment or change request needs a body or an inline comment' });
     }
     const liveHeadRead = await readStep(timing, 'head-before-post', () => store.requestPrHead(draft.repo, draft.number, 'priority'));
     if (liveHeadRead.isRateLimited) return refusePost(timing, { reason: 'rate-limited', error: githubStoreRateLimitedError(liveHeadRead.waitMs) });

@@ -251,13 +251,13 @@ function canPost(draft: ReviewDraft, clickedHead: string, currentHead: string, e
   return isPostableStatus(draft, event) && draft.reviewedHead === clickedHead && draft.reviewedHead === currentHead;
 }
 
-const POSTED_NOTE_BY_EVENT: Record<PostedReviewEvent, string> = { APPROVE: HAND_APPROVED_REVIEW_NOTE, COMMENT: CREDITED_REVIEW_NOTE };
+const POSTED_NOTE_BY_EVENT: Record<PostedReviewEvent, string> = { APPROVE: HAND_APPROVED_REVIEW_NOTE, COMMENT: CREDITED_REVIEW_NOTE, REQUEST_CHANGES: CREDITED_REVIEW_NOTE };
 
 function postedReviewBody(event: PostedReviewEvent, body: string): string {
   const postedNote = POSTED_NOTE_BY_EVENT[event];
   if (body.includes(postedNote)) return body;
   const noteStart = body.indexOf(AUTOMATED_REVIEW_NOTE);
-  if (noteStart === -1 && event === 'COMMENT') return body;
+  if (noteStart === -1 && event !== 'APPROVE') return body;
   const operatorText = noteStart === -1 ? body.trim() : body.slice(0, noteStart).trim();
   const automatedText = noteStart === -1 ? '' : body.slice(noteStart + AUTOMATED_REVIEW_NOTE.length).trim();
   return [operatorText, postedNote, automatedText].filter(Boolean).join('\n\n');
@@ -266,6 +266,7 @@ function postedReviewBody(event: PostedReviewEvent, body: string): string {
 function eventForAction(action: string): PostedReviewEvent | null {
   if (action === 'approve' || action === 'approve-only') return 'APPROVE';
   if (action === 'comment') return 'COMMENT';
+  if (action === 'request-changes') return 'REQUEST_CHANGES';
   return null;
 }
 

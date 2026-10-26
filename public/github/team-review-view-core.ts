@@ -77,6 +77,7 @@ interface PostedOutcome {
 const POSTED_EVENT_OUTCOMES: Readonly<Record<PostedReviewEvent, PostedOutcome>> = {
   APPROVE: { label: 'You approved', tone: 'ok', icon: 'passed' },
   COMMENT: { label: 'You commented', tone: 'muted', icon: 'thread' },
+  REQUEST_CHANGES: { label: 'You requested changes', tone: 'wait', icon: 'changes-requested' },
 };
 
 const VIEWER_REVIEW_OUTCOMES: Readonly<Record<GithubReviewState, PostedOutcome>> = {
@@ -232,7 +233,7 @@ function asSentence(text: string): string {
   return trimmed.endsWith('.') ? trimmed : `${trimmed}.`;
 }
 
-const POSTING_ACTIONS: ReadonlySet<TeamReviewAction> = new Set(['approve', 'approve-only', 'comment']);
+const POSTING_ACTIONS: ReadonlySet<TeamReviewAction> = new Set(['approve', 'approve-only', 'comment', 'request-changes']);
 
 export function planActionReply({ action, outcomeText, pullRequest, warning, isActedSelected }: { action: TeamReviewAction; outcomeText: string; pullRequest: string; warning: string; isActedSelected: boolean }): ActionReplyPlan {
   const outcome = `${pullRequest}: ${asSentence(outcomeText)}`;
@@ -326,6 +327,7 @@ const ACTION_OUTCOME_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.f
   approve: 'Approved on GitHub',
   'approve-only': 'Approved on GitHub',
   comment: 'Comment posted on GitHub',
+  'request-changes': 'Changes requested on GitHub',
   discard: 'Marked not mine. Not reviewed again until you re-run it.',
   requeue: 'Queued. The review starts as soon as a slot is free.',
   'resolve-thread': 'Thread resolved on GitHub',
@@ -335,6 +337,7 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
   approve: 'Posting the approval',
   'approve-only': 'Posting the approval',
   comment: 'Posting the comment',
+  'request-changes': 'Requesting changes',
   discard: 'Marking not mine',
   requeue: 'Queueing the review',
   'resolve-thread': 'Resolving thread',
@@ -699,7 +702,9 @@ export function hasSelection(selection: ReviewSelection): boolean {
   return selection.note.trim() !== '' || selection.comments.length > 0 || selection.generalFindings.length > 0;
 }
 
-export function buildReadyDecisionRequest(draft: ReviewDraft, control: 'approve' | 'comment', selection: ReviewSelection): TeamReviewActionRequest {
+export type ReadyDecisionControl = 'approve' | 'comment' | 'request-changes';
+
+export function buildReadyDecisionRequest(draft: ReviewDraft, control: ReadyDecisionControl, selection: ReviewSelection): TeamReviewActionRequest {
   if (control === 'approve' && !hasSelection(selection)) return buildActionRequest(draft, 'approve-only', '', []);
   const body = withReviewerNote(selection.note, [AUTOMATED_REVIEW_NOTE, generalPreambleOf(draft.body), ...selection.generalFindings.map((finding) => finding.markdown)].filter(Boolean).join('\n\n'));
   return buildActionRequest(draft, control, body, selection.comments);
@@ -713,7 +718,7 @@ function selectionParts(selection: ReviewSelection): string {
 
 export function postingPreviewText(draft: Pick<ReviewDraft, 'reviewedHead'>, selection: ReviewSelection): string {
   const parts = selectionParts(selection);
-  if (!parts) return 'Nothing ticked: Approve posts a bare approval, Comment needs a finding or a note.';
+  if (!parts) return 'Nothing ticked: Approve posts a bare approval, Comment and Request changes need a finding or a note.';
   return `Posts ${parts}, labeled as an automated review, at ${shortSha(draft.reviewedHead)}.`;
 }
 
@@ -721,6 +726,7 @@ export function postedOutcomeText(action: TeamReviewAction, selection: ReviewSel
   const parts = selectionParts(selection);
   if (action === 'approve' && parts) return `Approved on GitHub with ${parts}`;
   if (action === 'comment' && parts) return `Commented on GitHub with ${parts}`;
+  if (action === 'request-changes' && parts) return `Requested changes on GitHub with ${parts}`;
   return actionOutcomeText(action);
 }
 
@@ -728,6 +734,7 @@ const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = Object.freeze(
   approve: 'Approve',
   'approve-only': 'Approve',
   comment: 'Comment',
+  'request-changes': 'Request changes',
   discard: 'Not mine',
   requeue: 'Re-run review',
   'resolve-thread': 'Resolve',
@@ -742,8 +749,18 @@ export function actionLabel(action: TeamReviewAction): string {
   return ACTION_LABELS[action];
 }
 
-export function detailActionLayout(draft: Pick<ReviewDraft, 'status' | 'postedEvent'>): DetailActionLayout {
-  if (draft.status === 'ready') return { primary: ['approve', 'comment'], secondary: ['requeue', 'discard'] };
+const CHANGES_LEAD_VERDICTS: ReadonlySet<ReviewDraft['verdict']> = new Set(['REQUEST CHANGES', 'BLOCKED']);
+
+export function readyDecisionOrder(verdict: ReviewDraft['verdict']): readonly ReadyDecisionControl[] {
+  return CHANGES_LEAD_VERDICTS.has(verdict) ? ['request-changes', 'approve', 'comment'] : ['approve', 'comment', 'request-changes'];
+}
+
+export function isSelectionRequired(control: string | undefined): boolean {
+  return control === 'comment' || control === 'request-changes';
+}
+
+export function detailActionLayout(draft: Pick<ReviewDraft, 'status' | 'postedEvent' | 'verdict'>): DetailActionLayout {
+  if (draft.status === 'ready') return { primary: readyDecisionOrder(draft.verdict), secondary: ['requeue', 'discard'] };
   if (canApproveAfterComment(draft)) return { primary: ['approve-only'], secondary: ['requeue'] };
   if (draft.status === 'error' || draft.status === 'stale') return { primary: ['requeue'], secondary: ['discard'] };
   if (hasRequeueFooter(draft.status)) return { primary: ['requeue'], secondary: [] };

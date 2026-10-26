@@ -185,7 +185,7 @@ export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   issues: ['scope', 'filter', 'search', 'filters-toggle', 'select', 'back', 'go-to-session', 'open-session', 'refresh'],
   radar: ['report', 'open-session', 'resolve', 'suppress', 'archive-investigation'],
   onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session'],
-  reviews: ['open-session', 'approve', 'approve-only', 'comment', 'discard', 'requeue', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh'],
+  reviews: ['open-session', 'approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh'],
 } as const);
 export const ONBOARDING_STEPS = Object.freeze(['agent', 'repo_roots', 'first_session'] as const);
 export const ONBOARDING_STEP_STATES = Object.freeze(['current', 'done'] as const);
