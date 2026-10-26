@@ -664,6 +664,10 @@ function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: Xterm
   });
 
   term.attachCustomKeyEventHandler((ev) => {
+    if (ev.shiftKey && ev.key === 'Enter') {
+      if (ev.type === 'keydown') sendTerminalInput(ui, '\x1b\r');
+      return false;
+    }
     if (ev.type !== 'keydown') return true;
     if (isDashboardShortcutInActiveView(ev)) return false;
     const ctrl = ev.ctrlKey || ev.metaKey;
