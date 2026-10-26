@@ -3,7 +3,7 @@ import InstallCommand from './InstallCommand.astro';
 import { buildUpdateCommand } from '../../../server/core/update-core.ts';
 import { INSTALL_COMMAND, LINUX_INSTALL_COMMAND } from '../lib/install-command.ts';
 import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../lib/install-platform.ts';
-import { DEFAULT_PORT, MINIMUM_NODE_VERSION, PRODUCT_VERSION } from '../lib/product-facts.ts';
+import { DEFAULT_PORT, MINIMUM_NODE_VERSION, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
 
 const BOOT_LINES = [
   { text: `GLIMMERVOID ${PRODUCT_VERSION}`, isBanner: true },
@@ -20,7 +20,7 @@ const NEXT_COMMANDS = [
   <div class="section-head reveal">
     <h2>Shipping in a minute.</h2>
     <p>One command. Needs Node {MINIMUM_NODE_VERSION}.</p>
-    <p>No account needed. Bring your own subscription.</p>
+    <p>No account needed. Bring your own subscription. <a href={REPOSITORY_URL}>Open source</a>, MIT.</p>
   </div>
   <div class="install-console reveal" id="install-console">
     <div class="console-bar">
