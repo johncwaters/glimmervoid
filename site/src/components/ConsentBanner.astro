@@ -7,7 +7,7 @@ const spriteSizeStyle = `--nyan-width: ${geometry.spriteWidthPx}px; --nyan-heigh
 ---
 <aside class="consent-banner" aria-label="Cookie choice" data-consent-banner style={spriteSizeStyle} hidden>
   <div class="flying-animal-preview consent-animal" aria-hidden="true">
-    <div class="nyan-sprite" data-consent-animal></div>
+    <div class="nyan-sprite is-owl"></div>
   </div>
   <p>We use a cookie to see how the site is used. <a href={sitePath('privacy/')}>Privacy</a></p>
   <div class="consent-actions">
@@ -17,13 +17,10 @@ const spriteSizeStyle = `--nyan-width: ${geometry.spriteWidthPx}px; --nyan-heigh
 </aside>
 
 <script>
-  import { ANIMALS } from '../../../public/nyan-animals-core.ts';
   import { acceptAnalytics, consentChoice, declineAnalytics, isAnalyticsEnabled } from '../lib/analytics.ts';
 
   const banner = document.querySelector<HTMLElement>('[data-consent-banner]');
-  const animal = document.querySelector<HTMLElement>('[data-consent-animal]');
-  if (banner && animal && isAnalyticsEnabled && consentChoice() === 'pending') {
-    animal.classList.add(ANIMALS[Math.floor(Math.random() * ANIMALS.length)].sprite);
+  if (banner && isAnalyticsEnabled && consentChoice() === 'pending') {
     banner.hidden = false;
     banner.addEventListener('click', (event) => {
       const choiceButton = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-consent-choice]') : null;
