@@ -32,6 +32,7 @@ import { willSessionRunGuarded } from './session/session-factory.ts';
 import * as radarLaneCore from './radar/core/radar-lane-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './github/core/github-issues-core.ts';
 import { machineSkipsPermissionsByDefault } from './session/core/session-registry-core.ts';
+import { planQuickSession } from './session/core/quick-session-core.ts';
 import { prKey, prSessionName, prSessionPrompt } from './github/core/team-review-core.ts';
 import type { PrSessionCheckout } from './github/team-review-wiring.ts';
 import { mergeWorkflowsUpdateOverStored } from './core/workflows-core.ts';
@@ -173,6 +174,7 @@ interface ControlHandlerDeps {
 
 type ScannedProject = { name: string; path: string; isGit: boolean };
 type AddSessionRefusal = { error: string; reason?: 'not-git' };
+type AddSessionRequest = ClientMessageOf<'add-session'> & { runSettings?: Partial<ProjectEntry> };
 
 function isInsideGitCheckout(folderPath: string): boolean {
   const resolvedFolder = path.resolve(folderPath);
@@ -315,6 +317,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
     'save-hook': () => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
     'add-session': () => ({ type: 'add-session-result', requestId, ok: false, error: message }),
+    'quick-session': () => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'remove-session': () => ({ type: 'remove-session-result', requestId, ok: false, error: message }),
     'delete-hook': () => ({ type: 'delete-hook-result', requestId, ok: false, error: message }),
     'session-doc-read': () => ({ type: 'session-doc-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
@@ -461,7 +464,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
 
-  function handleAddSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket): Promise<void> | undefined {
+  function handleAddSession(msg: AddSessionRequest, ws: ControlSocket): Promise<void> | undefined {
     const refusal = addSessionRefusal(msg);
     if (refusal) {
       refuseAddSession(msg, ws, refusal);
@@ -476,13 +479,27 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return createAddedSessionOnceWorktreeCapable(msg, ws);
   }
 
-  function needsOwnWorktreeCheck(msg: ClientMessageOf<'add-session'>): boolean {
+  function handleQuickSession(msg: ClientMessageOf<'quick-session'>, ws: ControlSocket): Promise<void> | undefined {
+    const source = findSession(msg);
+    if (!source) {
+      replyTo(ws, msg, 'add-session-result', { ok: false, error: 'The session to copy no longer exists.' });
+      return undefined;
+    }
+    const plan = planQuickSession({
+      live: source,
+      project: config.projects.find((project) => project.id === source.id) ?? null,
+      sessionNames: [...sessions.values(), ...agentSessions.values()].map((session) => session.name),
+    });
+    return handleAddSession({ type: 'add-session', requestId: msg.requestId, ...plan.request, runSettings: plan.runSettings }, ws);
+  }
+
+  function needsOwnWorktreeCheck(msg: AddSessionRequest): boolean {
     if (msg.repos || msg.runInPlace === true) return false;
     const projectPath = (msg.path || '').trim();
     return !config.projects.some((project) => isSameDirectoryPath(project.path, projectPath));
   }
 
-  async function createAddedSessionOnceWorktreeCapable(msg: ClientMessageOf<'add-session'>, ws: ControlSocket): Promise<void> {
+  async function createAddedSessionOnceWorktreeCapable(msg: AddSessionRequest, ws: ControlSocket): Promise<void> {
     const projectPath = (msg.path || '').trim();
     if (!(await hasCommittedGitCheckout(projectPath))) {
       refuseAddSession(msg, ws, { error: notGitRepositoryError(projectPath), reason: 'not-git' });
@@ -491,7 +508,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     createAddedSession(msg, ws);
   }
 
-  function createAddedSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket, remote?: { id: string; environment: NonNullable<ProjectEntry['environment']> }): ProjectEntry | null {
+  function createAddedSession(msg: AddSessionRequest, ws: ControlSocket, remote?: { id: string; environment: NonNullable<ProjectEntry['environment']> }): ProjectEntry | null {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
     const repos = msg.repos;
@@ -511,12 +528,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       unguarded: msg.unguarded === true,
       requireExistingPath: !repos,
       environment: remote?.environment,
+      runSettings: msg.runSettings,
     });
     if (!created.ok) {
       refuseAddSession(msg, ws, { error: created.error });
       return null;
     }
-    if (msg.requestId) replyTo(ws, msg, 'add-session-result', { ok: true, error: null });
+    if (msg.requestId) replyTo(ws, msg, 'add-session-result', { ok: true, error: null, sessionId: created.project.id });
     console.log(`[control] Added session via UI: ${name}${skipPerms ? ' (skip permissions)' : ' (permission prompts)'}${remote ? ` (Coder environment ${remote.environment.name})` : ''}`);
     return created.project;
   }
@@ -579,13 +597,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }).length;
   }
 
-  function remoteAddSessionRefusal(msg: ClientMessageOf<'add-session'>): AddSessionRefusal | null {
+  function remoteAddSessionRefusal(msg: AddSessionRequest): AddSessionRefusal | null {
     if (msg.repos) return { error: 'A workspace session cannot run in a Coder environment. Pick a single repository.' };
     if (msg.runInPlace === true) return { error: 'A session in a Coder environment always gets its own checkout, so it cannot run in this folder.' };
     return null;
   }
 
-  async function createRemoteAddedSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket, environmentName: string): Promise<void> {
+  async function createRemoteAddedSession(msg: AddSessionRequest, ws: ControlSocket, environmentName: string): Promise<void> {
     const refusal = remoteAddSessionRefusal(msg);
     if (refusal) {
       refuseAddSession(msg, ws, refusal);
@@ -619,7 +637,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     });
   }
 
-  function addSessionRefusal(msg: ClientMessageOf<'add-session'>): AddSessionRefusal | null {
+  function addSessionRefusal(msg: AddSessionRequest): AddSessionRefusal | null {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
     if (!name || (!projectPath && !msg.repos)) return { error: 'Name and path are required' };
@@ -633,7 +651,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return null;
   }
 
-  function refuseAddSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket, refusal: AddSessionRefusal): void {
+  function refuseAddSession(msg: AddSessionRequest, ws: ControlSocket, refusal: AddSessionRefusal): void {
     if (msg.requestId) {
       replyTo(ws, msg, 'add-session-result', { ok: false, ...refusal });
       return;
@@ -1119,7 +1137,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return entries;
   }
 
-  function createProjectSession({ id = generateProjectId(), name, path: projectPath, repos, baseBranch, agent, dangerouslySkipPermissions, unguarded, requireExistingPath, environment }: { id?: string; name: string; path: string; repos?: string[]; baseBranch?: string; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; unguarded?: boolean; requireExistingPath?: boolean; environment?: ProjectEntry['environment'] }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
+  function createProjectSession({ id = generateProjectId(), name, path: projectPath, repos, baseBranch, agent, dangerouslySkipPermissions, unguarded, requireExistingPath, environment, runSettings }: { id?: string; name: string; path: string; repos?: string[]; baseBranch?: string; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; unguarded?: boolean; requireExistingPath?: boolean; environment?: ProjectEntry['environment']; runSettings?: Partial<ProjectEntry> }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
     for (const [, session] of sessions) {
       if (session.name !== name) continue;
       return { ok: false, error: `Session "${name}" already exists` };
@@ -1136,7 +1154,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       workspaceRepos = planned.plan.members.map((member) => member.repoPath);
     }
     if (requireExistingPath && !fs.existsSync(resolvedPath)) return { ok: false, error: missingFolderError(projectPath) };
-    const project: ProjectEntry = { id, name, path: resolvedPath };
+    const project: ProjectEntry = { ...runSettings, id, name, path: resolvedPath };
     if (workspaceRepos) project.repos = workspaceRepos;
     if (baseBranch) project.baseBranch = baseBranch;
     if (typeof dangerouslySkipPermissions === 'boolean') project.dangerouslySkipPermissions = dangerouslySkipPermissions;
@@ -1556,6 +1574,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   const handlers = {
     'add-session':      handleAddSession,
+    'quick-session':    handleQuickSession,
     'list-conversations': handleListConversations,
     'resume-conversation': handleResumeConversation,
     'remove-session':   handleRemoveSession,
