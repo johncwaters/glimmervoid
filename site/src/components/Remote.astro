@@ -10,18 +10,14 @@ const DEMO_PAIRING_TOKEN = 'q8Vf2LkT0xRw7mZc4NsY1bHd9GpJa6UeKo3iXt5WvQn';
   <div class="remote-route reveal" role="img" aria-label="Glimmervoid and your agents run on one machine. Your own HTTPS proxy, such as Tailscale, carries the dashboard to paired devices: your phone, laptop or PC.">
     <div class="route-node host">
       <span class="route-label">Your machine</span>
-      <span class="route-detail">Glimmervoid and your agents</span>
-      <span class="route-extra">Agents can also run in Coder workspaces<span class="experimental-tag">Experimental</span></span>
     </div>
     <div class="route-link" aria-hidden="true"><span class="route-link-label">Tailscale or any HTTPS</span></div>
     <div class="route-devices">
       <div class="route-node paired">
-        <span class="route-label">Your phone</span>
-        <span class="route-detail">Or tablet</span>
+        <span class="route-label">Phone or tablet</span>
       </div>
       <div class="route-node paired">
-        <span class="route-label">Your laptop or PC</span>
-        <span class="route-detail">Any browser</span>
+        <span class="route-label">Laptop or PC</span>
       </div>
     </div>
   </div>
@@ -34,8 +30,6 @@ const DEMO_PAIRING_TOKEN = 'q8Vf2LkT0xRw7mZc4NsY1bHd9GpJa6UeKo3iXt5WvQn';
 <style>
   .remote-route { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(120px, 0.8fr) minmax(0, 1fr); align-items: center; margin-bottom: 32px; }
   .route-node.paired, .route-node.host { border-color: var(--accent-dim); }
-  .route-extra { margin-top: 4px; color: var(--text-dim); font-size: 13px; }
-  .route-extra .experimental-tag { margin-left: 8px; font-size: 11px; }
   .route-devices { --dash-x: repeating-linear-gradient(to right, var(--accent-dim) 0 6px, transparent 6px 10px); --dash-y: repeating-linear-gradient(to bottom, var(--accent-dim) 0 6px, transparent 6px 10px); position: relative; display: flex; flex-direction: column; gap: 12px; min-width: 0; padding-left: 16px; }
   .route-devices::before { content: ''; position: absolute; left: 0; inset-block: 25%; width: 1px; background: var(--dash-y); }
   .route-devices .route-node { position: relative; }
