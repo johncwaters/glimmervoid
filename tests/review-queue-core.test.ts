@@ -48,11 +48,11 @@ test('team reviews and own pull requests merge into one queue grouped by who act
     draft(3, { status: 'error', error: 'Review timed out' }),
     draft(4, { status: 'posted' }),
     draft(5, { status: 'discarded' }),
-  ], { inFlight: [inReview], handReview: [{ key: 'Acme/fork#7', repo: 'Acme/fork', number: 7, title: 'Fork', url: 'https://github.com/Acme/fork/pull/7', author: 'outsider', requestSource: 'team' }] });
+  ], { inFlight: [inReview] });
   const prs = [myPr(11, 'ready'), myPr(12, 'checks-failing'), myPr(13, 'checks-failing'), myPr(14, 'needs-approval'), myPr(15, 'draft')];
   const groups = buildReviewQueue(sections, prs, new Set(['acme/mine#13']));
   assert.deepEqual(keysByGroup(groups), {
-    turn: ['team:Acme/app#2', 'mine:Acme/mine#12', 'team:Acme/app#1', 'mine:Acme/mine#11', 'team:Acme/app#3', 'team:Acme/fork#7'],
+    turn: ['team:Acme/app#2', 'mine:Acme/mine#12', 'team:Acme/app#1', 'mine:Acme/mine#11', 'team:Acme/app#3'],
     working: ['team:Acme/app#9', 'mine:Acme/mine#13'],
     waiting: ['team:Acme/app#4', 'mine:Acme/mine#14'],
     aside: ['team:Acme/app#5', 'mine:Acme/mine#15'],

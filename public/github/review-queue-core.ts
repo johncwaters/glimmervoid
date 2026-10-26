@@ -34,7 +34,7 @@ const MINE_GROUP_BY_STAGE: Readonly<Record<MyPrStage, QueueGroupId>> = {
   draft: 'aside', merged: 'aside',
 };
 
-const TURN_RANK = { directAsk: 0, followUp: 1, mineNeedsYou: 2, teamReady: 3, mineReady: 4, failedReview: 5, staleReview: 6, fork: 7 } as const;
+const TURN_RANK = { directAsk: 0, followUp: 1, mineNeedsYou: 2, teamReady: 3, mineReady: 4, failedReview: 5, staleReview: 6 } as const;
 
 interface RankedItem { item: QueueItem; group: QueueGroupId; turnRank: number }
 
@@ -52,7 +52,6 @@ function teamItems(sections: TeamReviewSections): RankedItem[] {
   return [
     ...sections.ready.map((draft) => ({ item: teamItem(draft, 'ready'), group: 'turn' as const, turnRank: readyTurnRank(draft) })),
     ...sections.attention.map((draft) => ({ item: teamItem(draft, 'attention'), group: 'turn' as const, turnRank: draft.status === 'error' ? TURN_RANK.failedReview : TURN_RANK.staleReview })),
-    ...sections.handReview.map((review) => ({ item: teamItem(review, 'handReview'), group: 'turn' as const, turnRank: TURN_RANK.fork })),
     ...sections.inReview.map((review) => ({ item: teamItem(review, 'inReview'), group: 'working' as const, turnRank: 0 })),
     ...sections.queued.map((review) => ({ item: teamItem(review, 'queued'), group: 'working' as const, turnRank: 0 })),
     ...sections.noReviewNeeded.map((draft) => ({ item: teamItem(draft, 'settled'), group: 'waiting' as const, turnRank: 0 })),

@@ -164,7 +164,7 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
   const laneSnapshot = {
     ...snapshot,
     drafts: [createDraft(1, { requestSource: 'direct', reviewDecision: 'REVIEW_REQUIRED', checksState: 'SUCCESS', liveHead: REVIEWED_HEAD }), createDraft(2)],
-    inFlight: [], queued: [], handReview: [],
+    inFlight: [], queued: [],
   };
   await applyStatus(page, laneSnapshot);
   await emitTeamReviewFrames(page, [MyPrsStatus.parse({
@@ -548,7 +548,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     assert.equal(await page.locator('.pr-queue-row[aria-current="true"]').count(), 0);
     assert.equal(await caughtUpTitle.textContent(), 'All caught up');
     assert.equal(await actionNotice.textContent(), 'Acme/app#1: Approved on GitHub with 1 finding.');
-    await applyStatus(page, { ...withDrafts([createDraft(1, { status: 'posted' }), createDraft(2, { status: 'discarded' })]), handReview: [createDraft(12)] });
+    await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2, { status: 'discarded' }), createDraft(12)]));
     assert.equal(await caughtUpTitle.textContent(), 'New pull requests need you');
     await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2)]));
     assert.equal(await page.locator('.pr-queue-row[aria-current="true"]').count(), 0);
@@ -562,10 +562,6 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await replyToCapturedAction(page, true);
     await applyStatus(page, withDrafts([]));
     assert.equal(await caughtUpTitle.textContent(), 'All caught up');
-    await applyStatus(page, { ...withDrafts([]), handReview: [createDraft(12)] });
-    await showQueue(page);
-    await reviewRow(12).click();
-    assert.equal(await page.locator('.pr-detail-host .pr-detail').getByRole('link', { name: 'Review on GitHub', exact: true }).getAttribute('href'), 'https://github.com/Acme/app/pull/12');
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     throw error;

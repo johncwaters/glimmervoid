@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DraftComment, PrDetail, ReviewAssessment, ReviewComment, ReviewDraft, ReviewResult, TeamReviewActionRequest, TeamReviewStateEntry, TeamReviewStatus, TeamReviewThread } from '../shared/contracts/team-review.ts';
+import { shouldAutoReview } from '../server/github/core/team-review-core.ts';
 
 const HEAD = 'a'.repeat(40);
 
@@ -15,7 +16,7 @@ test('team review status accepts an optional team profile', () => {
 });
 
 test('saved review entries accept both legacy state and a resumable session', () => {
-  const oldEntry = { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000 };
+  const oldEntry = { draft: null, reviewedHead: null, inFlight: false, reviewAttempts: 0, updatedAt: 1000 };
   const resumable = { sessionId: 'claude-1', workDir: '/work/review', worktreePath: '/work/tree', head: HEAD, deadlineAt: 9000, savedAt: 1000 };
   assert.deepEqual(TeamReviewStateEntry.parse(oldEntry), oldEntry);
   assert.deepEqual(TeamReviewStateEntry.parse({ ...oldEntry, resumable }), { ...oldEntry, resumable });
@@ -25,7 +26,7 @@ test('saved review entries accept both legacy state and a resumable session', ()
 });
 
 test('saved review records parse with and without a remaining awake budget', () => {
-  const oldEntry = { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000 };
+  const oldEntry = { draft: null, reviewedHead: null, inFlight: false, reviewAttempts: 0, updatedAt: 1000 };
   const legacyResumable = { sessionId: 'claude-1', workDir: '/work/review', worktreePath: '/work/tree', head: HEAD, deadlineAt: 9000, savedAt: 1000 };
   const budgetedResumable = { ...legacyResumable, remainingAwakeMs: 120000 };
   assert.equal(TeamReviewStateEntry.parse({ ...oldEntry, resumable: legacyResumable }).resumable?.remainingAwakeMs, undefined);
@@ -94,7 +95,7 @@ test('editable review draft requires a repository, tier, status, and reviewed he
   };
   assert.deepEqual(ReviewDraft.parse(draft), { ...draft, requestSource: 'team' });
   assert.deepEqual(ReviewDraft.parse({ ...draft, comments: [{ ...draft.comments[0], severity: 'CRITICAL' }] }).comments, [{ ...draft.comments[0], severity: 'CRITICAL' }]);
-  const storedEntry = { draft, reviewedHead: HEAD, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000 };
+  const storedEntry = { draft, reviewedHead: HEAD, inFlight: false, reviewAttempts: 0, updatedAt: 1000 };
   assert.deepEqual(TeamReviewStateEntry.parse(storedEntry).draft?.comments, draft.comments);
   for (const invalid of [
     { ...draft, repo: 'wizard' },
@@ -122,14 +123,10 @@ test('request source and priority fields round trip through the review wire and 
 });
 
 
-test('hand review contracts parse new fields and default legacy status to no hand reviews', () => {
+test('a fork pull request skipped before fork review shipped is reviewed at its same head', () => {
   const handReview = { key: 'Acme/app#1', repo: 'Acme/app', number: 1, title: 'Fork change', url: 'https://github.com/Acme/app/pull/1', author: 'contributor', requestSource: 'team' };
-  const entry = { draft: null, reviewedHead: HEAD, inFlight: false, skipReason: 'fork', reviewAttempts: 0, updatedAt: 1000 };
-  assert.deepEqual(TeamReviewStateEntry.parse({ ...entry, handReview }).handReview, handReview);
-  assert.equal(TeamReviewStateEntry.parse(entry).handReview, undefined);
-  const snapshot = { type: 'team-review-status', ts: 1000, configured: true, drafts: [], inFlight: [] };
-  assert.deepEqual(TeamReviewStatus.parse({ ...snapshot, handReview: [handReview] }).handReview, [handReview]);
-  assert.deepEqual(TeamReviewStatus.parse(snapshot).handReview, []);
+  const legacyEntry = TeamReviewStateEntry.parse({ draft: null, reviewedHead: HEAD, inFlight: false, skipReason: 'fork', handReview, reviewAttempts: 0, updatedAt: 1000 });
+  assert.equal(shouldAutoReview(legacyEntry, HEAD, 2000, 60_000), true);
 });
 
 
@@ -138,7 +135,7 @@ test('viewer thread counts remain optional and round-trip through draft and save
     key: 'Acme/app#1', repo: 'Acme/app', number: 1, title: 'PR', url: 'https://github.com/Acme/app/pull/1',
     author: 'teammate', tier: 'full', reasons: [], reviewedHead: HEAD, verdict: 'APPROVE', summary: 'Fine', body: 'Fine', comments: [], status: 'ready',
   };
-  const entry = { draft: null, reviewedHead: null, inFlight: false, skipReason: null, updatedAt: 1000 };
+  const entry = { draft: null, reviewedHead: null, inFlight: false, updatedAt: 1000 };
   assert.equal(ReviewDraft.parse(draft).viewerThreads, undefined);
   assert.equal(TeamReviewStateEntry.parse(entry).viewerThreads, undefined);
   for (const viewerThreads of [{ total: 0, resolved: 0 }, { total: 5, resolved: 2 }, { total: 5, resolved: 5 }]) {
@@ -160,7 +157,7 @@ test('thread conversation bodies remain optional and reject invalid persisted sh
   assert.deepEqual(TeamReviewThread.parse(thread), thread);
   const bodies = { viewerComment: 'Check empty input.', lastReplyBody: 'Added a guard.\nCovered by a test.' };
   assert.deepEqual(TeamReviewThread.parse({ ...thread, ...bodies }), { ...thread, ...bodies });
-  const entry = { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000 };
+  const entry = { draft: null, reviewedHead: null, inFlight: false, reviewAttempts: 0, updatedAt: 1000 };
   for (const fields of [{}, bodies, { viewerComment: '' }, { lastReplyBody: 'r'.repeat(1500) }, { ...bodies, viewerCommentTruncated: true, lastReplyTruncated: true }]) {
     assert.deepEqual(TeamReviewStateEntry.parse({ ...entry, threads: [{ ...thread, ...fields }] }).threads, [{ ...thread, ...fields }]);
   }

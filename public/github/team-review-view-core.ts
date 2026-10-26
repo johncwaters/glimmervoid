@@ -37,11 +37,10 @@ export function joinTeamReviews(status: TeamReviewStatus | null, findGithubPr: (
     drafts: status.drafts.map(joinReview),
     inFlight: status.inFlight.map(joinReview),
     queued: status.queued.map(joinReview),
-    handReview: status.handReview.map(joinReview),
   };
 }
 
-export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded' | 'handReview';
+export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded';
 
 type ReviewPriorityBand = 'blocking-others' | 'actionable' | 'waiting-on-author' | 'not-ready';
 type ReviewPriorityReason = 'direct-request' | 'team-request' | 'changes-requested' | 'checks-failing' | 'checks-pending' | 'draft' | 'review-available' | 'approved';
@@ -121,7 +120,6 @@ function queueRowExceptionReason(review: ExceptionReviewFields): string | null {
 
 const FIXED_ROW_GLYPHS: Readonly<Partial<Record<QueueRowKind, QueueRowGlyph>>> = {
   discarded: { tone: 'muted', icon: 'discarded', meaning: 'Not mine' },
-  handReview: { tone: 'warn', icon: 'fork', meaning: 'From a fork' },
 };
 
 function withExceptionReason(stateWord: string, review: Parameters<typeof queueRowExceptionReason>[0]): string {
@@ -213,7 +211,6 @@ export interface TeamReviewSections {
   noReviewNeeded: ReviewDraft[];
   inReview: InFlightReview[];
   queued: QueuedReview[];
-  handReview: QueuedReview[];
   attention: ReviewDraft[];
   posted: ReviewDraft[];
   discarded: ReviewDraft[];
@@ -344,24 +341,21 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
 });
 
 export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamReviewSections {
-  const sections: TeamReviewSections = { ready: [], noReviewNeeded: [], inReview: [], queued: [], handReview: [], attention: [], posted: [], discarded: [] };
+  const sections: TeamReviewSections = { ready: [], noReviewNeeded: [], inReview: [], queued: [], attention: [], posted: [], discarded: [] };
   if (!status) return sections;
   const readyByBand: Record<ReviewPriorityBand, ReviewDraft[]> = { 'blocking-others': [], actionable: [], 'waiting-on-author': [], 'not-ready': [] };
   const queuedByBand: Record<ReviewPriorityBand, QueuedReview[]> = { 'blocking-others': [], actionable: [], 'waiting-on-author': [], 'not-ready': [] };
   const bandOrder: ReviewPriorityBand[] = ['blocking-others', 'actionable', 'waiting-on-author', 'not-ready'];
   const inFlightKeys = new Set(status.inFlight.map((review) => review.key));
   sections.inReview.push(...status.inFlight);
-  const answeredThreadDraftKeys = new Set(status.drafts.filter((draft) => answeredNonNitThreads(draft).length > 0).map((draft) => draft.key));
-  sections.handReview.push(...status.handReview.filter((review) => !inFlightKeys.has(review.key) && !answeredThreadDraftKeys.has(review.key)));
-  const handReviewKeys = new Set(sections.handReview.map((review) => review.key));
   for (const review of status.queued) {
-    if (inFlightKeys.has(review.key) || handReviewKeys.has(review.key)) continue;
+    if (inFlightKeys.has(review.key)) continue;
     queuedByBand[classifyReviewPriority(review).band].push(review);
   }
   for (const band of bandOrder) sections.queued.push(...queuedByBand[band]);
   const queuedKeys = new Set(sections.queued.map((review) => review.key));
   for (const draft of status.drafts) {
-    if (inFlightKeys.has(draft.key) || queuedKeys.has(draft.key) || handReviewKeys.has(draft.key)) continue;
+    if (inFlightKeys.has(draft.key) || queuedKeys.has(draft.key)) continue;
     if (answeredNonNitThreads(draft).length > 0 || isPostedAwaitingViewer(draft)) {
       readyByBand.actionable.push(draft);
       continue;

@@ -1,6 +1,6 @@
 export type PrStatusIcon =
   | 'merged' | 'draft' | 'conflict' | 'behind' | 'failed' | 'running' | 'passed' | 'ready' | 'changes-requested'
-  | 'thread' | 'reviewer' | 'your-turn' | 'queued' | 'fork' | 'discarded' | 'stale' | 'unknown' | 'none';
+  | 'thread' | 'reviewer' | 'your-turn' | 'queued' | 'discarded' | 'stale' | 'unknown' | 'none';
 
 interface PrStatusLegendEntry { label: string; meaning: string }
 
@@ -14,7 +14,6 @@ export const PR_STATUS_LEGEND: Readonly<Record<PrStatusIcon, PrStatusLegendEntry
   thread: { label: 'Threads', meaning: 'Unresolved review threads or comments.' },
   behind: { label: 'Behind', meaning: 'The branch is behind its base.' },
   stale: { label: 'Out of date', meaning: 'New commits landed since the automated review.' },
-  fork: { label: 'Fork', meaning: 'Opened from a fork, so it is reviewed by hand.' },
   running: { label: 'Running', meaning: 'Checks or an automated review in progress.' },
   reviewer: { label: 'Reviewer', meaning: 'Waiting on a reviewer.' },
   queued: { label: 'Queued', meaning: 'Waiting for an automated review slot.' },

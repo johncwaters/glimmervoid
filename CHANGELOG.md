@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Shift+Enter starts a new line in the terminal**: in a session terminal, Shift+Enter now starts a new line in the agent's prompt instead of submitting it, as it already did in the Conversation view. Enter alone still sends.
+- **Reviews covers pull requests from forks**: a pull request opened from a fork now gets the same sandboxed agent review as one from a branch in the repository, so open source contributions reach the Reviews queue as drafts ready to post. The "From a fork" row that sent you to GitHub is gone, and a fork pull request it was holding gets reviewed on the next poll. Keep mergeable still never pushes to a fork's branch.
 - **Approvals carry one combined note**: an approval posted from Reviews now opens with a single note reading "Automated review by Glimmervoid, not written by a human. Approved by hand after checking it." in place of the automated-review note plus a separate closing line. A comment posted from Reviews names Glimmervoid in its note too, and never claims a hand approval. Inline finding comments are unchanged.
 
 ### Fixed

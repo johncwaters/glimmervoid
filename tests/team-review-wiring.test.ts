@@ -1626,7 +1626,7 @@ test('state loading drops an invalid saved review while retaining a valid draft'
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-state-test-'));
   try {
     const statePath = path.join(homeDir, 'state.json');
-    const validEntry = { draft: actionDraft(), reviewedHead: HEAD, inFlight: false, skipReason: null, reviewAttempts: 1, updatedAt: 42 };
+    const validEntry = { draft: actionDraft(), reviewedHead: HEAD, inFlight: false, reviewAttempts: 1, updatedAt: 42 };
     fs.writeFileSync(statePath, JSON.stringify({ [ACTION_KEY]: validEntry, 'Acme/app#8': { draft: 'bad' } }));
     const warnings: string[] = [];
     const stateIo = createTeamReviewStateIo(statePath, { warn: (message) => { warnings.push(message); } });

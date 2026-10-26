@@ -152,7 +152,6 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     lastEmitAt = now();
     onTickComplete({ ...core.teamReviewStatus({
       ts: now(), configured: true, reason: guardrailsRefusal(), team: teamProfile, drafts: core.draftsNewestFirst(state), inFlight: inFlightReviews(),
-      handReview: core.handReviewRows(state),
       queued: waitingForSlot.filter((candidate) => !state[candidate.key]?.inFlight),
     }), error: pollingError, ...loop.scheduleStatus() });
   }
@@ -183,7 +182,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   function entryFor(key: string): TeamReviewStateEntry {
     const existing = state[key];
     if (existing) return existing;
-    const created: TeamReviewStateEntry = { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: now() };
+    const created: TeamReviewStateEntry = { draft: null, reviewedHead: null, inFlight: false, reviewAttempts: 0, updatedAt: now() };
     state[key] = created;
     return created;
   }
@@ -223,7 +222,6 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       ...(wasRequeuedAtReviewedHead ? { requeuedHead: draft.reviewedHead } : {}),
     };
     entry.reviewedHead = draft.reviewedHead;
-    entry.skipReason = null;
     entry.updatedAt = now();
     entry.reviewedAt = entry.updatedAt;
     entry.draft.reviewedAt = entry.reviewedAt;
@@ -239,7 +237,6 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const hasFinishedReview = !('kind' in outcome) && outcome.status !== 'error';
     entry.draft = hasFinishedReview ? { ...outcome, status: 'discarded' } : core.notMineDraft(args.candidate, args.detail.headRefOid);
     entry.reviewedHead = entry.draft.reviewedHead;
-    entry.skipReason = null;
     await settleNotMine(args.candidate.key, entry);
     if (waitingForSlot.length > 0 && !loop.isStopped()) void loop.tick();
   }
@@ -268,14 +265,6 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       if (!entry) {
         entry = entryFor(candidate.key);
         entry.reviewedHead = isReviewedByViewer ? head : null;
-        isDirty = true;
-      }
-      if (entry.handReview && (entry.skipReason !== 'fork' || entry.reviewedHead !== head)) {
-        delete entry.handReview;
-        isDirty = true;
-      }
-      if (entry.skipReason === 'fork' && entry.reviewedHead === head && entry.draft?.status !== 'discarded' && !core.isSameQueuedReview(entry.handReview, candidate)) {
-        entry.handReview = { ...candidate };
         isDirty = true;
       }
       if (entry.draft) {
@@ -493,18 +482,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         continue;
       }
       entry.updatedAt = now();
-      delete entry.handReview;
       isDirty = true;
-      if (triage.tier === 'skip') {
-        if (resume) await discardResumable(resume);
-        entry.reviewedHead = detail.headRefOid;
-        entry.liveHead = detail.headRefOid;
-        entry.skipReason = triage.reasons.join(', ') || 'skipped';
-        if (triage.reasons.includes('fork')) entry.handReview = { ...candidate };
-        delete entry.requeuedHead;
-        continue;
-      }
-      entry.skipReason = null;
       const priorReview = core.priorReviewFor(entry, detail.headRefOid) ?? undefined;
       const earlierReviewKept = core.earlierReviewToKeep(entry, detail.headRefOid);
       delete entry.priorReview;
@@ -778,7 +756,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       entry.draft = { ...entry.draft, status: 'discarded' };
       return settleNotMine(key, entry);
     }
-    const candidate = waitingForSlot.find((queued) => queued.key === key) ?? entry?.handReview ?? entry?.draft ?? undefined;
+    const candidate = waitingForSlot.find((queued) => queued.key === key) ?? entry?.draft ?? undefined;
     if (!candidate) return { ok: false, error: 'That pull request is no longer in the review queue' };
     const knownHead = entry?.liveHead ?? store.getSnapshot().prs[comparablePrKey(candidate)]?.headRefOid;
     const headRead = knownHead ? { isRateLimited: false as const, value: knownHead } : await store.requestPrHead(candidate.repo, candidate.number, 'no-wait');
@@ -789,7 +767,6 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const notMineEntry = entryFor(key);
     notMineEntry.draft = core.notMineDraft(candidate, head);
     notMineEntry.reviewedHead = head;
-    delete notMineEntry.handReview;
     return settleNotMine(key, notMineEntry);
   }
 
@@ -820,9 +797,6 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
 
   async function requestKnownReview(key: string, entry: TeamReviewStateEntry): Promise<ReviewRequestOutcome> {
     if (entry.inFlight) return { ok: true, key, status: 'running' };
-    if (entry.skipReason && entry.reviewedHead !== null && entry.reviewedHead === entry.liveHead) {
-      return { ok: false, error: `team review skips this pull request: ${entry.skipReason}` };
-    }
     if (entry.draft && !isThreadPlaceholderDraft(entry.draft)) {
       if (!await requeue(key, entry.draft.reviewedHead)) return { ok: false, error: REQUEUE_REFUSAL };
       await markAskedFor(key, entry);

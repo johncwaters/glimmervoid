@@ -317,8 +317,6 @@ export const TeamReviewStateEntry = z.object({
   draft: ReviewDraft.nullable(),
   reviewedHead: CommitSha.nullable(),
   inFlight: z.boolean(),
-  skipReason: z.string().nullable(),
-  handReview: QueuedReview.optional(),
   reviewAttempts: z.number().int().nonnegative().default(0),
   resumable: ResumableReview.nullable().optional(),
   reviewedAt: z.number().optional(),
@@ -380,7 +378,6 @@ export const TeamReviewStatus = z.object({
   drafts: z.array(ReviewDraft),
   inFlight: z.array(InFlightReview),
   queued: z.array(QueuedReview).default([]),
-  handReview: z.array(QueuedReview).default([]),
   team: z.object({ org: z.string(), slug: z.string(), name: z.string(), avatarUrl: z.string() }).nullable().optional(),
 }).passthrough();
 export type TeamReviewStatus = z.infer<typeof TeamReviewStatus>;

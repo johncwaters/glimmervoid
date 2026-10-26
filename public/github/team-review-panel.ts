@@ -902,24 +902,6 @@ function otherDetailFor(draft: ReviewDraft): HTMLElement {
   return createOtherDetail(draft);
 }
 
-function createHandReviewDetail(review: QueuedReview): HTMLElement {
-  const detail = el('article', 'pr-detail');
-  const heading = el('div', 'pr-detail-heading');
-  const title = el('div', 'pr-detail-title');
-  title.append(pullRequestLink(review), el('h2', null, review.title));
-  const metadata = el('div', 'pr-detail-meta');
-  metadata.append(createAuthor(review.author, 20, 'pr-detail-author'));
-  const openedAge = createAgeReadout('Opened', review.prCreatedAt);
-  if (openedAge) metadata.append(openedAge);
-  heading.append(title, metadata);
-  const footer = el('footer', 'pr-footer');
-  footer.append(externalLink('pr-action', 'Review on GitHub', review.url));
-  detail.append(heading, el('p', 'pr-attention-detail', HAND_REVIEW_DETAIL), footer);
-  return detail;
-}
-
-const HAND_REVIEW_DETAIL = 'From a fork, so the agent cannot check out its branch. Review it on GitHub.';
-
 function renderSelectedDetail(sections: TeamReviewSections): void {
   if (!_detail || !_selectedKey) return;
   const threadDraft = sections.ready.find((draft) => draft.key === _selectedKey && (answeredNonNitThreads(draft).length > 0 || isPostedAwaitingViewer(draft)));
@@ -952,14 +934,6 @@ function renderSelectedDetail(sections: TeamReviewSections): void {
     const signature = `queued:${queued.key}:${sections.inReview.length}`;
     if (_renderedDetailSignature === signature) return;
     _detail.replaceChildren(createQueuedDetail(queued, sections.inReview.length));
-    _renderedDetailSignature = signature;
-    return;
-  }
-  const handReview = sections.handReview.find((review) => review.key === _selectedKey);
-  if (handReview) {
-    const signature = `handReview:${handReview.key}`;
-    if (_renderedDetailSignature === signature) return;
-    _detail.replaceChildren(createHandReviewDetail(handReview));
     _renderedDetailSignature = signature;
     return;
   }
