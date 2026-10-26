@@ -101,7 +101,7 @@ interface BackendControlDependencies {
   logger: Pick<Console, 'warn'>;
 }
 
-function createBackendControl(dependencies: BackendControlDependencies): void {
+function createBackendControl(dependencies: BackendControlDependencies): { removeExitedSession: (id: string) => void } {
   const {
     controlWss,
     sessions,
@@ -119,7 +119,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     logger,
   } = dependencies;
 
-  registerControlHandlers(controlWss, {
+  const controlHandlers = registerControlHandlers(controlWss, {
     sessions,
     agentSessions: dependencies.agentSessions,
     config,
@@ -198,6 +198,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
   sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs, false);
   sendLaneSnapshotOnConnect('coherence-feed', () => dependencies.coherenceFeed, false);
 
+  return { removeExitedSession: controlHandlers.removeExitedSession };
 }
 
 export { createBackendControl };

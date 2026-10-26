@@ -4,6 +4,7 @@ import type { PersistedTaskTitle } from '../../shared/contracts/config.ts';
 import type { CoherenceHooksState } from '../../shared/contracts/session.ts';
 import type { SessionPrLinks } from '../../shared/contracts/my-prs.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../../shared/contracts/session.ts';
+import { decideExitClose } from '../../session/core/exit-close.ts';
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
@@ -50,6 +51,7 @@ interface SessionEventDependencies {
   getIngestLane: () => WiringIngestLane | null;
   tapIngestForSession: (session: Session) => void;
   closeSessionDataClients: (id: string) => void;
+  removeExitedSession?: (id: string) => void;
   taskTitleRefiner?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
   coherenceFeed?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
   traceWiring?: { attachSession: (session: Session) => void } | null;
@@ -196,7 +198,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       dependencies.logger.error(`[${session.name}] error: ${errorMessage(error)}`);
       dependencies.telemetry?.captureException(error, { handled: true });
     });
-    session.on('exit', ({ exitCode, signal, reason }: { exitCode: number | null; signal: unknown; reason?: string }) => {
+    session.on('exit', ({ exitCode, signal, reason, exitedOnItsOwn }: { exitCode: number | null; signal: unknown; reason?: string; exitedOnItsOwn?: boolean }) => {
       if (postTurnDebounce) {
         clearTimeout(postTurnDebounce);
         postTurnDebounce = null;
@@ -205,7 +207,24 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       const reasonText = reason ? `, reason=${reason}` : '';
       dependencies.logger.log(`[${session.name}] exited (code=${exitCode}, signal=${signal}${reasonText})`);
       captureSessionEnded(classifySessionExit({ exitCode, signal, reason }));
+      closeSessionAfterExit(exitedOnItsOwn === true);
     });
+    function closeSessionAfterExit(exitedOnItsOwn: boolean) {
+      const project = dependencies.config.projects.find((candidate) => candidate.id === session.id);
+      const exitClose = decideExitClose({
+        exitedOnItsOwn,
+        isConfiguredSession: project !== undefined,
+        mergeStatus: session.mergeStatus,
+        isWorkspace: session.isWorkspace,
+        hasRemoteEnvironment: Boolean(project?.environment),
+      });
+      if (exitClose === 'remove') {
+        dependencies.logger.log(`[${session.name}] agent quit on its own, removing the session`);
+        dependencies.removeExitedSession?.(session.id);
+        return;
+      }
+      if (exitClose === 'confirm') dependencies.broadcastControl({ type: 'session-close-confirm', id: session.id, mergeStatus: session.mergeStatus });
+    }
     session.on('teardown', ({ cause }: { id: string; cause: SessionEndCause }) => {
       clearCompactionConfirm();
       isAcknowledgeDeferredForCompaction = false;

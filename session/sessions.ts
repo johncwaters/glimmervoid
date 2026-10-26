@@ -2132,7 +2132,8 @@ class Session extends EventEmitter {
       const remoteExitReason = await pendingRemoteExitReason;
       if (remoteExitReason && this._isExitHeadedForFailure(event)) this.failureReason = remoteExitReason;
     }
-    this.transition(event, detail);
+    const didTransition = this.transition(event, detail);
+    const isUnsignalledCleanExit = didTransition && event === "process_exit_ok" && !signal;
 
     if (this._recorder) {
       this._recorder.writeFooter("pty_exit", exitCode);
@@ -2142,7 +2143,8 @@ class Session extends EventEmitter {
     try { await this._settleWorktreeOnExit(); }
     catch {}
 
-    this.emit("exit", { exitCode, signal, reason });
+    const exitedOnItsOwn = isUnsignalledCleanExit && this.state === STATES.DONE && !this._teardownPending() && !this._destroyed;
+    this.emit("exit", { exitCode, signal, reason, exitedOnItsOwn });
   }
 
   getScreenSnapshot(): ScreenSnapshot {

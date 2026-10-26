@@ -1900,7 +1900,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     });
   });
 
-  return { buildSnapshot };
+  function removeExitedSession(id: string): void {
+    void removeSession({ type: 'remove-session', id }).then((removal) => {
+      if (!removal.ok) console.warn(`[control] Could not remove session ${id} after its agent quit: ${removal.error}`);
+    });
+  }
+
+  return { buildSnapshot, removeExitedSession };
 }
 
 export {

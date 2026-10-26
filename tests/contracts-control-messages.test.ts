@@ -106,6 +106,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'state-change', id: 'session-1', session: 'glimmervoid', from: STATES.IDLE, to: STATES.RUNNING, event: 'user_input', timestamp: NOW },
   { type: 'session-added', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, guarded: true, resumeSessionId: null },
   { type: 'session-removed', id: 'session-1', session: 'glimmervoid' },
+  { type: 'session-close-confirm', id: 'session-1', mergeStatus: 'pending-review' },
   { type: 'session-renamed', id: 'session-1', oldName: 'old', newName: 'glimmervoid' },
   { type: 'session-title', id: 'session-1', taskTitle: 'Fix dashboard', isCustom: false },
   { type: 'session-prs', id: 'session-1', linkedPrs: [{ repo: 'PostHog/glimmervoid', number: 42, url: 'https://github.com/PostHog/glimmervoid/pull/42', source: 'hook', linkedAt: NOW }] },

@@ -61,3 +61,74 @@ test('a running session that Glimmervoid destroys reports session_ended once wit
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('an agent that quits on its own removes its configured session, and a kill does not', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-session-quit-'));
+  const configPath = path.join(directory, 'config.json');
+  const previousConfigPath = process.env.GLIMMERVOID_CONFIG;
+  const sessions: Session[] = [];
+  const stores: ConfigStore[] = [];
+  const removedSessionIds: string[] = [];
+  process.env.GLIMMERVOID_CONFIG = configPath;
+  try {
+    await writeFile(configPath, JSON.stringify({ recordSignals: false, projects: [{ id: 'quitting-session', name: 'project', path: directory }] }));
+    const makeSession = createSessionFactory({
+      configStore: { configPath }, hookRouter: null, getHookPort: () => null,
+      getGitWorkspace: () => null, getPlanReviewPort: () => null,
+      resolveHookTools: () => [], getUserHooks: () => [],
+    });
+    const startIdleWiredSession = () => {
+      const store = createConfigStore();
+      stores.push(store);
+      const session = makeSession(store.config.projects[0], store.config);
+      sessions.push(session);
+      createSessionEventWiring({
+        configStore: store, config: store.config, recordLane: () => {},
+        usage: { refreshSessions: () => {}, nudgeSession: () => {} },
+        broadcastControl: () => {},
+        telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
+        notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
+        getIngestLane: () => null, tapIngestForSession: () => {}, closeSessionDataClients: () => {},
+        removeExitedSession: (id: string) => { removedSessionIds.push(id); },
+        logger: { error: () => {}, log: () => {}, warn: () => {} },
+      })(session);
+      session.transition('user_start');
+      session.transition('spawn_success', { spawnCwdExists: true });
+      session.transition('first_output');
+      return session;
+    };
+
+    const killedSession = startIdleWiredSession();
+    killedSession.killSession();
+    await killedSession._handlePtyExit(0, null);
+    assert.deepEqual(removedSessionIds, []);
+
+    const failedSession = startIdleWiredSession();
+    await failedSession._handlePtyExit(1, null);
+    assert.deepEqual(removedSessionIds, []);
+
+    const signalKilledSession = startIdleWiredSession();
+    await signalKilledSession._handlePtyExit(0, 9);
+    assert.deepEqual(removedSessionIds, []);
+
+    const restartedDuringSettleSession = startIdleWiredSession();
+    let releaseSettle = () => {};
+    restartedDuringSettleSession._settleWorktreeOnExit = () => new Promise<void>((resolve) => { releaseSettle = resolve; });
+    restartedDuringSettleSession.start = async () => {};
+    const exitHandled = restartedDuringSettleSession._handlePtyExit(0, null);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(restartedDuringSettleSession.restart(), true);
+    releaseSettle();
+    await exitHandled;
+    assert.deepEqual(removedSessionIds, []);
+
+    await startIdleWiredSession()._handlePtyExit(0, null);
+    assert.deepEqual(removedSessionIds, ['quitting-session']);
+  } finally {
+    for (const session of sessions) session.destroy();
+    await Promise.all(stores.map((store) => store.idle()));
+    if (previousConfigPath === undefined) delete process.env.GLIMMERVOID_CONFIG;
+    if (previousConfigPath !== undefined) process.env.GLIMMERVOID_CONFIG = previousConfigPath;
+    await rm(directory, { recursive: true, force: true });
+  }
+});

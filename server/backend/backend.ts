@@ -130,6 +130,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const recordOutcome = outcomes.record;
 
   let broadcastControl: ControlBroadcast | null = null;
+  let removeExitedSession: ((id: string) => void) | null = null;
   let agentApi: AgentApiPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
   const guardrailsRefusal = checkGuardrailsDependencies({ log: console });
@@ -341,6 +342,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     coherenceFeed,
     planReview: laneAssembly.planReview,
     closeSessionDataClients,
+    removeExitedSession: (id: string) => removeExitedSession?.(id),
     telemetry,
     logger: console,
   });
@@ -535,7 +537,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     beforeHandOff: updateApply.handOffStagedUpdate,
   });
 
-  createBackendControl({
+  ({ removeExitedSession } = createBackendControl({
     controlWss,
     sessions,
     agentSessions,
@@ -581,7 +583,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     serverBuild: () => serverBuild,
     telemetry,
     logger: console,
-  });
+  }));
 
   webSockets.attachDataConnection();
   const { handleUpgrade } = webSockets;
