@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The dashboard works from the keyboard**: an open dialog now keeps Tab inside it, takes focus when it opens, blocks clicks and dashboard shortcuts behind it, closes only the top dialog on Escape, and hands focus back to whatever opened it. The power menu now works like the Session actions menu: the arrow keys open it and move through it, and Escape or moving focus away closes it. The Issues scope tabs move with the arrow keys, and every tab strip jumps with Home and End. The first Tab on the page offers Skip to main content.
+
 - **Automatic cleanups no longer delete a live session's worktree**: branch cleanup, the startup sweep of leftover workspaces, and the owned-paths sweep now keep any worktree or branch that belongs to a session in your config or one that is running, and anything touched in the last 24 hours. Work from a session you removed is still cleaned up once it has been idle for a day. Removing a session, discarding its work, or finishing and merging still deletes at once. A Glimmervoid started on a different config file (a test run, for example) can no longer sweep the worktrees of the one you use.
 
 ### Removed

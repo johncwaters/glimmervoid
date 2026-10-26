@@ -281,6 +281,23 @@ body {
   white-space: nowrap;
 }
 
+.skip-link:focus {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 1001;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 6px 12px;
+  overflow: visible;
+  clip-path: none;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--text);
+}
+
 .header-connection {
   transition: color var(--transition-med);
 }
