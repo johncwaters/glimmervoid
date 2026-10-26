@@ -13,14 +13,27 @@ import Features from '../components/Features.astro';
 import Celebrations from '../components/Celebrations.astro';
 import Install from '../components/Install.astro';
 import Footer from '../components/Footer.astro';
+import { PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
 
+const HOME_URL = new URL('/', Astro.site).href;
 const HOME_STRUCTURED_DATA = {
-  '@type': 'WebSite',
-  name: 'Glimmervoid',
-  url: new URL('/', Astro.site).href,
+  '@graph': [
+    { '@type': 'WebSite', name: 'Glimmervoid', url: HOME_URL },
+    {
+      '@type': 'SoftwareApplication',
+      name: 'Glimmervoid',
+      url: HOME_URL,
+      applicationCategory: 'DeveloperApplication',
+      operatingSystem: 'Windows, macOS, Linux',
+      softwareVersion: PRODUCT_VERSION,
+      license: 'https://opensource.org/licenses/MIT',
+      sameAs: REPOSITORY_URL,
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    },
+  ],
 };
 ---
-<Base title="Glimmervoid: mission control for Claude Code and Codex agents" structuredData={HOME_STRUCTURED_DATA} markdownPath="index.md">
+<Base title="Glimmervoid: open-source orchestrator for Claude Code and Codex" structuredData={HOME_STRUCTURED_DATA} markdownPath="index.md">
   <Nav />
   <Hero />
   <UsedBy />
