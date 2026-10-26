@@ -25,7 +25,17 @@ export const PtySizeFrame = z.object({
 });
 export type PtySizeFrame = z.infer<typeof PtySizeFrame>;
 
+export const OUTPUT_BEAT_INTERVAL_MS = 320;
+
+export const OutputBeatFrame = z.object({ type: z.literal('output-beat') });
+export type OutputBeatFrame = z.infer<typeof OutputBeatFrame>;
+
+const DataServerFrame = z.discriminatedUnion('type', [PtySizeFrame, OutputBeatFrame]);
+type DataServerFrame = z.infer<typeof DataServerFrame>;
+
 export const DATA_ATTACH_HISTORY_PARAM = 'history';
+export const DATA_ATTACH_OUTPUT_PARAM = 'output';
+export const DATA_ATTACH_PAUSED_OUTPUT = 'paused';
 
 export const DEEP_HISTORY_SCROLLBACK_LINES = 5000;
 
@@ -46,18 +56,29 @@ export function parseDataClientMessage(raw: string): DataClientMessage | null {
   return parsed.data;
 }
 
-export function parsePtySizeFrame(raw: string): PtySizeFrame | null {
-  const parsed = PtySizeFrame.safeParse(decodeJson(raw));
+export function parseDataServerFrame(raw: string): DataServerFrame | null {
+  const parsed = DataServerFrame.safeParse(decodeJson(raw));
   if (!parsed.success) return null;
   return parsed.data;
 }
 
-export function parseDataAttachHistory(rawUrl: unknown): DataAttachHistory {
-  if (typeof rawUrl !== 'string') return 'screen';
+interface DataAttachRequest {
+  history: DataAttachHistory;
+  isOutputPaused: boolean;
+}
+
+function attachQueryOf(rawUrl: unknown): URLSearchParams {
+  if (typeof rawUrl !== 'string') return new URLSearchParams();
   const queryAt = rawUrl.indexOf('?');
-  if (queryAt === -1) return 'screen';
-  const query = new URLSearchParams(rawUrl.slice(queryAt + 1).split('#')[0]);
-  const parsed = DataAttachHistory.safeParse(query.get(DATA_ATTACH_HISTORY_PARAM));
-  if (!parsed.success) return 'screen';
-  return parsed.data;
+  if (queryAt === -1) return new URLSearchParams();
+  return new URLSearchParams(rawUrl.slice(queryAt + 1).split('#')[0]);
+}
+
+export function parseDataAttach(rawUrl: unknown): DataAttachRequest {
+  const query = attachQueryOf(rawUrl);
+  const history = DataAttachHistory.safeParse(query.get(DATA_ATTACH_HISTORY_PARAM));
+  return {
+    history: history.success ? history.data : 'screen',
+    isOutputPaused: query.get(DATA_ATTACH_OUTPUT_PARAM) === DATA_ATTACH_PAUSED_OUTPUT,
+  };
 }

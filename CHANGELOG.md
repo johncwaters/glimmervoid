@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Opening a session no longer downloads its screen twice**: a session card you were not looking at used to receive its whole screen, throw it away, and download it again when you opened it. Hidden cards now ask the server to hold their output, and opening one catches it up in place over the same connection. On a slow link opening a session is back to its earlier speed, and sessions off screen no longer use bandwidth while they run. Their activity pulse in the rail still beats.
+
 - **More menu on phone sits above the all clear bar**: the bottom item of the More menu, such as Hooks, was hidden behind the attention bar on the Focus screen. The menu now opens on top of it.
 
 - **Typing on a phone no longer pushes the terminal out of view**: pressing a key, such as a number on a Claude question screen with a side preview, could slide the terminal's content up and leave the card blank until you left and reopened the session. The terminal now stays put while you type, and the key still lands.

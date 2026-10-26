@@ -1,13 +1,14 @@
 import {
   DATA_ATTACH_HISTORY_PARAM,
+  DATA_ATTACH_OUTPUT_PARAM,
+  DATA_ATTACH_PAUSED_OUTPUT,
   DEEP_HISTORY_SCROLLBACK_LINES,
-  parsePtySizeFrame,
+  parseDataServerFrame,
   VIEWER_MAX_COLS,
   VIEWER_MAX_ROWS,
   VIEWER_MIN_COLS,
   VIEWER_MIN_ROWS,
 } from '#shared/contracts/data-messages.ts';
-import type { PtySizeFrame } from '#shared/contracts/data-messages.ts';
 
 export interface TerminalGrid {
   cols: number;
@@ -69,6 +70,7 @@ type DataFrameDecision =
   | { kind: 'attach-size'; cols: number; rows: number; seq: number }
   | { kind: 'size'; cols: number; rows: number; seq: number }
   | { kind: 'bytes'; data: string }
+  | { kind: 'beat' }
   | { kind: 'stale' }
   | { kind: 'ignored' };
 
@@ -127,10 +129,13 @@ export function shouldRequestDeepHistory({
   return viewportTopLine === 0 && isLocalHistoryBelowServerCap && !isDeepHistoryLoadedOrPending;
 }
 
-export function dataAttachPath(sessionId: string, isDeepHistory: boolean): string {
+export function dataAttachPath(sessionId: string, isDeepHistory: boolean, isOutputPaused: boolean): string {
+  const query = new URLSearchParams();
+  if (isDeepHistory) query.set(DATA_ATTACH_HISTORY_PARAM, 'deep');
+  if (isOutputPaused) query.set(DATA_ATTACH_OUTPUT_PARAM, DATA_ATTACH_PAUSED_OUTPUT);
   const sessionPath = `/terminals/${encodeURIComponent(sessionId)}`;
-  if (!isDeepHistory) return sessionPath;
-  return `${sessionPath}?${DATA_ATTACH_HISTORY_PARAM}=deep`;
+  const queryText = query.toString();
+  return queryText ? `${sessionPath}?${queryText}` : sessionPath;
 }
 
 export function decideGridEngagementEdge({
@@ -180,17 +185,18 @@ function textOfBinaryFrame(frame: unknown): string | null {
   return null;
 }
 
-function sizeFrameOrNull(frame: unknown): PtySizeFrame | null {
+function serverFrameOrNull(frame: unknown) {
   const text = textOfBinaryFrame(frame);
   if (text === null) return null;
-  return parsePtySizeFrame(text);
+  return parseDataServerFrame(text);
 }
 
 export function readDataFrame(frame: unknown, state: DataFrameState): DataFrameDecision {
   if (typeof frame === 'string') return { kind: 'bytes', data: frame };
-  const size = sizeFrameOrNull(frame);
-  if (!size) return { kind: 'ignored' };
-  if (!state.hasSeenSize) return { kind: 'attach-size', cols: size.cols, rows: size.rows, seq: size.seq };
-  if (size.seq <= state.lastSeq) return { kind: 'stale' };
-  return { kind: 'size', cols: size.cols, rows: size.rows, seq: size.seq };
+  const serverFrame = serverFrameOrNull(frame);
+  if (!serverFrame) return { kind: 'ignored' };
+  if (serverFrame.type === 'output-beat') return { kind: 'beat' };
+  if (!state.hasSeenSize) return { kind: 'attach-size', cols: serverFrame.cols, rows: serverFrame.rows, seq: serverFrame.seq };
+  if (serverFrame.seq <= state.lastSeq) return { kind: 'stale' };
+  return { kind: 'size', cols: serverFrame.cols, rows: serverFrame.rows, seq: serverFrame.seq };
 }

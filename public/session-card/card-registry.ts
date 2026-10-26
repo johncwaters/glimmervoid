@@ -69,7 +69,6 @@ export interface SessionUi {
   _lastOutputAt?: number;
 
   _dataWsRetryAttempt?: number;
-  _hasMissedOutputWhileHidden?: boolean;
   _inputQueue?: string[];
   _syncGrid?: (options?: { isActivationEdge?: boolean }) => void;
   _resetGridClaim?: () => void;

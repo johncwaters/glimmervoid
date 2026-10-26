@@ -151,12 +151,11 @@ function watchPageSockets(page: Page) {
       socket.on('framereceived', ({ payload }) => { if (isMeasuring && !isReady) parsed.controlJsonBytes += Buffer.byteLength(payload); });
       return;
     }
-    const isViewSocket = isOpening;
     let viewText = '';
     socket.on('framereceived', ({ payload }) => {
       if (!isMeasuring || isReady) return;
       parsed.replayBytes += Buffer.byteLength(payload);
-      if (!isViewSocket || socketPath !== `/terminals/${readySessionId}`) return;
+      if (!isOpening || socketPath !== `/terminals/${readySessionId}`) return;
       viewText += payloadText(payload);
       isReady = viewText.includes(readyMarker);
     });

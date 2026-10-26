@@ -47,6 +47,7 @@ import {
   ensureTerminalSetup,
   setTerminalCursorBlink,
   setupTerminal,
+  syncTerminalOutputFlow,
   wireTerminalIO,
 } from './terminal.ts';
 import { releaseWebgl } from './webgl-pool.ts';
@@ -94,6 +95,7 @@ function showSessionConversationFace(sessionId: unknown) {
   ui.planFace.hide();
   ui.conversationFace.show(sessionIdOf(sessionId));
   updateButtonVisibility(ui);
+  syncTerminalOutputFlow(ui, sessionIdOf(sessionId));
   return true;
 }
 
@@ -457,6 +459,7 @@ export function showSessionPlanFace(sessionId: unknown) {
   ui.conversationFace.hide();
   ui.planFace.show(sessionIdOf(sessionId));
   updateButtonVisibility(ui);
+  syncTerminalOutputFlow(ui, sessionIdOf(sessionId));
   return true;
 }
 

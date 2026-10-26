@@ -5,7 +5,8 @@ import type { WebSocketError } from 'ws';
 import type { ScreenSnapshot } from '../../session/session-output.ts';
 import type { Session } from '../../session/sessions.ts';
 import { CONTROL_FRAME_MAX_BYTES } from '../../shared/contracts/control-messages.ts';
-import { parseDataAttachHistory, parseDataClientMessage } from '../../shared/contracts/data-messages.ts';
+import { OUTPUT_BEAT_INTERVAL_MS, parseDataAttach, parseDataClientMessage } from '../../shared/contracts/data-messages.ts';
+import type { OutputBeatFrame } from '../../shared/contracts/data-messages.ts';
 import type { PtySizeFrame } from '../../shared/contracts/data-messages.ts';
 import { createReplayLog } from '../core/control-replay-core.ts';
 import type { ControlMessageRecord, ReplayLog } from '../core/control-replay-core.ts';
@@ -79,6 +80,8 @@ function sendPtySizeFrame(sender: WsSender, size: { cols: number; rows: number; 
   sender.sendOutOfBand(Buffer.from(JSON.stringify(frame), 'utf8'));
 }
 
+const OUTPUT_BEAT_FRAME = Buffer.from(JSON.stringify({ type: 'output-beat' } satisfies OutputBeatFrame), 'utf8');
+
 function frameType(stamped: ControlMessageRecord): string {
   return typeof stamped.type === 'string' ? stamped.type : '';
 }
@@ -151,8 +154,9 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
         return;
       }
       socket.on('error', (error) => reportDataSocketError(session, error));
-      if (parseDataAttachHistory(request.url) === 'screen') {
-        wireDataSocket(socket, session, sessionId, session.getScreenSnapshot());
+      const attach = parseDataAttach(request.url);
+      if (attach.history === 'screen') {
+        wireDataSocket(socket, session, sessionId, session.getScreenSnapshot(), { isAttachedPaused: attach.isOutputPaused, isDeepAttach: false });
         return;
       }
       const messagesBeforeWiring: unknown[] = [];
@@ -168,7 +172,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
             socket.close(1008, 'Session not found');
             return;
           }
-          wireDataSocket(socket, session, sessionId, snapshot);
+          wireDataSocket(socket, session, sessionId, snapshot, { isAttachedPaused: attach.isOutputPaused, isDeepAttach: true });
           for (const raw of messagesBeforeWiring) socket.emit('message', raw, false);
         },
         (error: unknown) => {
@@ -192,7 +196,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     });
   }
 
-  function wireDataSocket(socket: WebSocket, session: Session, sessionId: string, snapshot: ScreenSnapshot): void {
+  function wireDataSocket(socket: WebSocket, session: Session, sessionId: string, snapshot: ScreenSnapshot, { isAttachedPaused, isDeepAttach }: { isAttachedPaused: boolean; isDeepAttach: boolean }): void {
     let viewerSizes = sessionDataClients.get(sessionId);
     if (!viewerSizes) {
       viewerSizes = new Map();
@@ -219,18 +223,28 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
       applyResolvedSize(true);
     };
 
+    let lastOutputBeatAt = 0;
+    const sendOutputBeat = (): void => {
+      const now = Date.now();
+      if (now - lastOutputBeatAt < OUTPUT_BEAT_INTERVAL_MS) return;
+      lastOutputBeatAt = now;
+      sender.sendDroppable(OUTPUT_BEAT_FRAME);
+    };
     const sender = createWsSender(socket, {
       source: { getBufferSince: (offset: number) => session.getBufferSince(offset) },
       startOffset: snapshot.offset,
+      isStartedPaused: isAttachedPaused,
+      heldAttachSnapshot: isAttachedPaused && isDeepAttach ? snapshot : null,
+      onPausedData: sendOutputBeat,
     });
     sendPtySizeFrame(sender, session.ptySize());
-    if (snapshot.data) sender.sendImmediate(snapshot.data, 0);
+    if (snapshot.data && !isAttachedPaused) sender.sendImmediate(snapshot.data, 0);
 
     const dataListener = (data: string) => sender.onData(data);
     session.on('data', dataListener);
     const resizeListener = (size: { cols: number; rows: number; seq: number }) => sendPtySizeFrame(sender, size);
     session.on('resize', resizeListener);
-    let resizeSeqAtPause: number | null = null;
+    let resizeSeqAtPause: number | null = isAttachedPaused ? session.ptySize().seq : null;
     socket.on('message', (raw) => {
       const message = parseDataClientMessage(String(raw));
       if (!message) return;

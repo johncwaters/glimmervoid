@@ -165,21 +165,28 @@ function requestDeepHistoryAtTop(ui: SessionUi, sessionId: string, viewportTopLi
   reconnectDataWs(sessionId);
 }
 
-function reattachIfMissedWhileHidden(ui: SessionUi, sessionId: string) {
-  if (!ui._hasMissedOutputWhileHidden) return;
-  if (isCardTerminalHiddenNow(ui, sessionId)) return;
-  ui._hasMissedOutputWhileHidden = false;
-  reconnectDataWs(sessionId);
+const isOutputFlowingBySocket = new WeakMap<WebSocket, boolean>();
+
+function isTerminalOutputWanted(ui: SessionUi, sessionId: string) {
+  return document.visibilityState === 'visible' && !isCardTerminalHiddenNow(ui, sessionId);
 }
 
-function sendOutputFlowForPageVisibility(socket: WebSocket | null) {
-  if (socket?.readyState !== WebSocket.OPEN) return;
-  const outputFlowMessage = document.visibilityState === 'visible' ? 'resume-output' : 'pause-output';
-  socket.send(JSON.stringify({ type: outputFlowMessage }));
+export function syncTerminalOutputFlow(ui: SessionUi | null | undefined, sessionId: string) {
+  const socket = ui?.dataWs;
+  if (!ui || socket?.readyState !== WebSocket.OPEN) return;
+  const isWanted = isTerminalOutputWanted(ui, sessionId);
+  if (isOutputFlowingBySocket.get(socket) === isWanted) return;
+  isOutputFlowingBySocket.set(socket, isWanted);
+  socket.send(JSON.stringify({ type: isWanted ? 'resume-output' : 'pause-output' }));
 }
 
-document.addEventListener('visibilitychange', () => {
-  for (const ui of sessionUIs.values()) sendOutputFlowForPageVisibility(ui.dataWs);
+function syncEveryTerminalOutputFlow() {
+  for (const [sessionId, ui] of sessionUIs) syncTerminalOutputFlow(ui, sessionId);
+}
+
+document.addEventListener('visibilitychange', syncEveryTerminalOutputFlow);
+uiState.subscribe((_state, changedKeys) => {
+  if (changedKeys.includes('borrowedCardId')) syncEveryTerminalOutputFlow();
 });
 
 function decodeOsc52Payload(b64: string) {
@@ -337,8 +344,10 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   const isDeepAttach = deepHistoryLinesFromBottom !== undefined;
   const linesFromBottomToRestore = deepHistoryLinesFromBottom ?? restoredLinesFromBottom;
   let isAwaitingSnapshotScroll = false;
-  const url = buildWebSocketUrl(location, withPageToken(dataAttachPath(sessionId, isDeepAttach)));
+  const isAttachedFlowing = isTerminalOutputWanted(ui, sessionId);
+  const url = buildWebSocketUrl(location, withPageToken(dataAttachPath(sessionId, isDeepAttach, !isAttachedFlowing)));
   const ws = new WebSocket(url);
+  isOutputFlowingBySocket.set(ws, isAttachedFlowing);
   ws.binaryType = 'arraybuffer';
   ui.dataWs = ws;
   refreshTerminalLink(ui);
@@ -354,10 +363,6 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
       noteSessionOutput(ui);
       const isSnapshotToScroll = isAwaitingSnapshotScroll;
       isAwaitingSnapshotScroll = false;
-      if (isCardTerminalHiddenNow(ui, sessionId)) {
-        ui._hasMissedOutputWhileHidden = true;
-        return;
-      }
       renderScheduler.enqueue(sessionId, frame.data);
       if (!isSnapshotToScroll) return;
       const linesFromBottom = linesFromBottomToRestore ?? 0;
@@ -366,8 +371,11 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
       });
       return;
     }
+    if (frame.kind === 'beat') {
+      noteSessionOutput(ui);
+      return;
+    }
     if (frame.kind === 'attach-size') {
-      ui._hasMissedOutputWhileHidden = false;
       isAwaitingSnapshotScroll = linesFromBottomToRestore !== undefined;
       if (!isDeepAttach) sessionUisWithDeepHistory.delete(ui);
       frameState.hasSeenSize = true;
@@ -401,7 +409,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     ui._dataWsRetryAttempt = 0;
     sessionUisReattachingQuietly.delete(ui);
     refreshTerminalLink(ui);
-    if (document.visibilityState !== 'visible') sendOutputFlowForPageVisibility(ws);
+    syncTerminalOutputFlow(ui, sessionId);
 
     ui._syncGrid?.({ isActivationEdge: true });
     ui._retryOwedGridClaim?.();
@@ -763,7 +771,11 @@ export function wireTerminalIO(ui: SessionUi, sessionId: string) {
   term.onScroll((viewportTopLine) => { requestDeepHistoryAtTop(ui, sessionId, viewportTopLine); });
 
   wireFileTransfer(ui.termWrap, sessionId, ui.abortController.signal);
-  connectDataWs(sessionId, ui, term);
+  refreshTerminalLink(ui);
+  queueMicrotask(() => {
+    if (!isStillCurrentAndDetached(sessionId, ui)) return;
+    connectDataWs(sessionId, ui, term);
+  });
 }
 
 function carriesFiles(transfer: DataTransfer | null): transfer is DataTransfer {
@@ -814,7 +826,7 @@ export function syncGridOnEngagementEdge(ui: SessionUi | null | undefined) {
 export function ensureTerminalReady(ui: SessionUi | null | undefined, sessionId: string) {
   if (!ui) return;
   ensureTerminalSetup(ui, sessionId);
-  reattachIfMissedWhileHidden(ui, sessionId);
+  syncTerminalOutputFlow(ui, sessionId);
   reacquireWebglIfStale(ui);
   const term = ui.term;
   if (!term) return;

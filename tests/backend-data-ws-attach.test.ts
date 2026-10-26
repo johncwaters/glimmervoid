@@ -216,6 +216,40 @@ test('a second socket attaching to the same session lands on the same screen', a
   secondReplay.dispose();
 });
 
+test('a hidden card attaching paused gets no screen until it resumes, then lands on the live screen without reconnecting', async () => {
+  attachFakePty();
+  const session = ctx().session;
+  for (let index = 300; index < 340; index += 1) session._handlePtyData(buildLine(index));
+  await settle(30);
+
+  const hidden = await openDataRecordingSocket(ctx().client, `/terminals/${SESSION_ID}?output=paused`);
+  for (let index = 340; index < 360; index += 1) session._handlePtyData(buildLine(index));
+  await settle(150);
+
+  assert.deepEqual(textFramesOf(hidden), [], 'no replay or live bytes reach a paused card');
+  const beatFrames = binaryFramesOf(hidden).filter((frame) => frame.includes('output-beat'));
+  assert.ok(beatFrames.length >= 1, 'output while paused still reaches the card as an activity beat');
+
+  hidden.ws.send(JSON.stringify({ type: 'resume-output' }));
+  await settle(150);
+  for (let index = 360; index < 380; index += 1) session._handlePtyData(buildLine(index));
+  await settle(150);
+  const live = await openViewer();
+  await settle(150);
+
+  assert.ok((textFramesOf(hidden)[0] ?? '').startsWith(SCREEN_RESET), 'resume opens with the shared reset prefix and the current screen');
+  const hiddenReplay = newTerminal(80, 24);
+  await write(hiddenReplay, textFramesOf(hidden).join(''));
+  const liveReplay = newTerminal(80, 24);
+  await write(liveReplay, textFramesOf(live).join(''));
+  assert.deepEqual(dump(hiddenReplay), dump(liveReplay), 'the resumed socket sees what a live socket sees');
+
+  await closeSocket(hidden.ws);
+  await closeSocket(live.ws);
+  hiddenReplay.dispose();
+  liveReplay.dispose();
+});
+
 test('a deep attach carries history past the attach depth, loses no live byte and keeps input sent while it serializes', async () => {
   const session = ctx().session;
   const ptyWrites: string[] = [];
@@ -258,6 +292,38 @@ test('a deep attach carries history past the attach depth, loses no live byte an
   await closeSocket(viewer.ws);
   reference.dispose();
   replay.dispose();
+});
+
+test('a deep attach made while hidden still carries its deep history once the card is revealed', async () => {
+  attachFakePty();
+  const session = ctx().session;
+  const historyLineCount = SCREEN_KEEPER_ATTACH_SCROLLBACK * 3;
+  for (let index = 0; index < historyLineCount; index += 1) session._handlePtyData(buildLine(index));
+  await settle(60);
+
+  const hidden = await openDataRecordingSocket(ctx().client, `/terminals/${SESSION_ID}?history=deep&output=paused`);
+  await settle(200);
+  assert.deepEqual(textFramesOf(hidden), [], 'no history reaches the card while it is hidden');
+  for (let index = historyLineCount; index < historyLineCount + 20; index += 1) session._handlePtyData(buildLine(index));
+  await settle(60);
+
+  hidden.ws.send(JSON.stringify({ type: 'resume-output' }));
+  await settle(300);
+
+  const size = PtySizeFrame.parse(JSON.parse(binaryFramesOf(hidden)[0] ?? ''));
+  const replay = newTerminal(size.cols, size.rows);
+  await write(replay, textFramesOf(hidden).join(''));
+  assert.ok(replay.buffer.active.length > SCREEN_KEEPER_ATTACH_SCROLLBACK + size.rows, 'the revealed card reaches past the attach depth');
+  const live = await openViewer();
+  await settle(150);
+  const liveReplay = newTerminal(size.cols, size.rows);
+  await write(liveReplay, textFramesOf(live).join(''));
+  assert.deepEqual(dump(replay).slice(-size.rows), dump(liveReplay).slice(-size.rows), 'and it ends on the live screen, output while hidden included');
+
+  await closeSocket(hidden.ws);
+  await closeSocket(live.ws);
+  replay.dispose();
+  liveReplay.dispose();
 });
 
 test('an oversized frame sent while a deep attach serializes closes that socket and reports it without crashing the server', async () => {
