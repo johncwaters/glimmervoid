@@ -1,8 +1,8 @@
-import { WebglAddon } from '@xterm/addon-webgl';
 import { uiState } from '../ui-state-core.ts';
 import type { SessionUi } from './card-registry.ts';
 import { sessionUIs } from './card-registry.ts';
 import { pickEvictionVictims, shouldReloadWebgl } from './webgl-core.ts';
+import { readLoadedXtermRuntime } from './xterm-runtime.ts';
 
 const MAX_WEBGL_CONTEXTS = window.matchMedia?.('(pointer: coarse)').matches ? 4 : 12;
 const _webglLru = new Map<SessionUi, true>();
@@ -90,8 +90,10 @@ export function tryLoadWebGL(ui: SessionUi, options: { isForced?: boolean } = {}
       _webglLru.delete(ui);
     }
 
+    const xtermRuntime = readLoadedXtermRuntime();
+    if (!xtermRuntime) return;
     evictWebglIfNeeded(ui);
-    const addon = new WebglAddon();
+    const addon = new xtermRuntime.WebglAddon();
     addon.onContextLoss(() => {
       addon.dispose();
       ui.webglAddon = null;

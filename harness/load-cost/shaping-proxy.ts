@@ -36,6 +36,7 @@ interface DeliveryQueue {
 export interface ShapingProxy {
   port: number;
   beginMeasure(): void;
+  readHttpBytesDown(): number;
   endMeasure(): Promise<ChannelTallies>;
   close(): Promise<void>;
 }
@@ -234,6 +235,9 @@ export async function createShapingProxy({ targetPort, profile }: { targetPort: 
     port: address.port,
     beginMeasure() {
       measure = openMeasure();
+    },
+    readHttpBytesDown() {
+      return measure.http.tally.wireBytesDown;
     },
     async endMeasure() {
       const finished = measure;

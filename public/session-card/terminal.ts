@@ -1,6 +1,5 @@
 
-import { FitAddon } from '@xterm/addon-fit';
-import { Terminal } from '@xterm/xterm';
+import type { Terminal } from '@xterm/xterm';
 import { createActionStatus } from '../action-status.ts';
 import type { ActionStatus, ActionStatusTone } from '../action-status.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
@@ -32,6 +31,8 @@ import { uploadFilesToSession } from '../session-upload.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { wireTouchScroll } from './touch-scroll.ts';
 import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.ts';
+import { loadXtermRuntime, readLoadedXtermRuntime } from './xterm-runtime.ts';
+import type { XtermRuntime } from './xterm-runtime.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from '../flying-animal-preview.ts';
 
 function isDashboardShortcutInActiveView(ev: KeyboardEvent) {
@@ -284,6 +285,7 @@ function swapConnectingAnimal(termWrap: HTMLElement) {
 }
 
 const terminalLinkSubscribers = new Set<() => void>();
+const sessionUisAwaitingXterm = new WeakSet<SessionUi>();
 
 export function onTerminalLinkChange(notify: () => void) {
   terminalLinkSubscribers.add(notify);
@@ -300,7 +302,7 @@ export function countShownConnectingTerminals() {
 
 function refreshTerminalLink(ui: SessionUi) {
   const decidedLinkState = decideTerminalLinkState({
-    hasTerminal: ui.term !== null,
+    hasTerminal: ui.term !== null || sessionUisAwaitingXterm.has(ui),
     isSocketOpen: ui.dataWs?.readyState === WebSocket.OPEN,
     isInputHeld: isInputHeldForWakeCheck,
   });
@@ -481,9 +483,9 @@ export function sendTerminalInput(ui: SessionUi | null | undefined, data: string
 }
 
 
-export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
+function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: XtermRuntime) {
   const fontSize = window.matchMedia?.(MOBILE_WIDTH_QUERY).matches ? MOBILE_FONT_SIZE : DESKTOP_FONT_SIZE;
-  const term = new Terminal({
+  const term = new xtermRuntime.Terminal({
     cursorBlink: _terminalCursorBlink,
     fontSize,
     fontFamily: currentTerminalFontFamily(),
@@ -493,7 +495,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
     linkHandler: osc8LinkHandler(),
   });
 
-  const fitAddon = new FitAddon();
+  const fitAddon = new xtermRuntime.FitAddon();
   term.loadAddon(fitAddon);
   ensureConnectingOverlay(termWrap);
   term.open(termWrap);
@@ -759,7 +761,7 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
   });
 }
 
-export function wireTerminalIO(ui: SessionUi, sessionId: string) {
+function wireTerminalIO(ui: SessionUi, sessionId: string) {
   ui._inputQueue = [];
 
   const term = ui.term;
@@ -814,8 +816,31 @@ function wireFileTransfer(termWrap: HTMLElement, sessionId: string, signal: Abor
 }
 
 export function ensureTerminalSetup(ui: SessionUi, sessionId: string) {
-  if (ui.term) return;
-  setupTerminal(ui.termWrap, ui);
+  if (ui.term || sessionUisAwaitingXterm.has(ui)) return;
+  const loadedRuntime = readLoadedXtermRuntime();
+  if (loadedRuntime) {
+    attachTerminal(ui, sessionId, loadedRuntime);
+    return;
+  }
+  sessionUisAwaitingXterm.add(ui);
+  let isActiveViewerRequested = ui._isActiveViewer?.() === true;
+  ui._isActiveViewer = () => isActiveViewerRequested;
+  ui._setActiveViewer = (isActive: boolean) => { isActiveViewerRequested = isActive; };
+  ensureConnectingOverlay(ui.termWrap);
+  refreshTerminalLink(ui);
+  loadXtermRuntime().then((xtermRuntime) => {
+    sessionUisAwaitingXterm.delete(ui);
+    if (ui.term || ui.abortController.signal.aborted || sessionUIs.get(sessionId) !== ui) return;
+    attachTerminal(ui, sessionId, xtermRuntime);
+    ui._setActiveViewer?.(isActiveViewerRequested);
+  }, () => {
+    sessionUisAwaitingXterm.delete(ui);
+    refreshTerminalLink(ui);
+  });
+}
+
+function attachTerminal(ui: SessionUi, sessionId: string, xtermRuntime: XtermRuntime) {
+  setupTerminal(ui.termWrap, ui, xtermRuntime);
   wireTerminalIO(ui, sessionId);
 }
 

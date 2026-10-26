@@ -46,9 +46,7 @@ import {
   ensureTerminalReady,
   ensureTerminalSetup,
   setTerminalCursorBlink,
-  setupTerminal,
   syncTerminalOutputFlow,
-  wireTerminalIO,
 } from './terminal.ts';
 import { releaseWebgl } from './webgl-pool.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
@@ -426,8 +424,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   if (state === STATES.RUNNING) setRunningActivity(sessionUi, true);
 
   if (!isDormant) {
-    setupTerminal(dom.termWrap, sessionUi);
-    wireTerminalIO(sessionUi, id);
+    ensureTerminalSetup(sessionUi, id);
   }
 
   updateAttentionTitle();

@@ -13,7 +13,7 @@ import { dashboardClient } from '../../tests/helpers/dashboard-ws.ts';
 import { addSession, createProject, listProcessesMentioning, quoteShell, runCommand, snapshotEnvironment } from '../site-capture/isolated-glimmervoid.ts';
 import { connectControl, prepareIsolatedEnvironment, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
 import { LoadCostResultSchema, decideShellCheck, renderComparison, renderMarkdown } from './report-core.ts';
-import type { LoadCostResult, ScenarioResult, ShellCheck } from './report-core.ts';
+import type { BoardReady, LoadCostResult, ScenarioResult, ShellCheck } from './report-core.ts';
 import { THREE_G_PROFILE, median, medianRunIndex } from './shaping-core.ts';
 import { PONG, fillCompleteMarker } from './scrollback-agent.ts';
 import { createShapingProxy } from './shaping-proxy.ts';
@@ -50,8 +50,15 @@ interface Fleet {
   sessionIdByKey: Map<string, string>;
 }
 
+interface BoardReadyMeasurement {
+  elapsedMs: number;
+  httpBytesDown: number;
+  requestPaths: string[];
+}
+
 interface RunMeasurement {
   elapsedMs: number;
+  boardReady: BoardReadyMeasurement | null;
   channels: ChannelTallies;
   parsed: { controlJsonBytes: number; replayBytes: number };
   shellCheck: ShellCheck | null;
@@ -179,9 +186,7 @@ function watchPageSockets(page: Page) {
   };
 }
 
-function watchHttpSizes(page: Page) {
-  const pending: Promise<{ url: string; status: number; bodyBytes: number; headerBytes: number; decodedBytes: number }>[] = [];
-  let isCollecting = true;
+function watchNetworkQuiet(page: Page) {
   const inFlightRequests = new Set<Request>();
   let notifyNetworkQuiet: (() => void) | null = null;
   let quietTimer: ReturnType<typeof setTimeout> | undefined;
@@ -195,13 +200,22 @@ function watchHttpSizes(page: Page) {
     armQuietTimer();
   };
   page.on('request', (request) => {
-    if (!isCollecting) return;
     inFlightRequests.add(request);
     clearTimeout(quietTimer);
   });
   page.on('requestfailed', forgetRequest);
+  page.on('requestfinished', forgetRequest);
+  return () => new Promise<void>((resolve) => {
+    notifyNetworkQuiet = resolve;
+    armQuietTimer();
+  });
+}
+
+function watchHttpSizes(page: Page) {
+  const pending: Promise<{ url: string; status: number; bodyBytes: number; headerBytes: number; decodedBytes: number }>[] = [];
+  let isCollecting = true;
+  const settleRequests = watchNetworkQuiet(page);
   page.on('requestfinished', (request) => {
-    forgetRequest(request);
     if (!isCollecting) return;
     pending.push((async () => {
       const sizes = await request.sizes();
@@ -209,10 +223,6 @@ function watchHttpSizes(page: Page) {
       const decodedBytes = response?.status() === 200 ? (await response.body()).length : 0;
       return { url: request.url(), status: response?.status() ?? 0, bodyBytes: sizes.responseBodySize, headerBytes: sizes.responseHeadersSize, decodedBytes };
     })());
-  });
-  const settleRequests = () => new Promise<void>((resolve) => {
-    notifyNetworkQuiet = resolve;
-    armQuietTimer();
   });
   const checkShell = async (proxyHttpBytes: number): Promise<ShellCheck> => {
     isCollecting = false;
@@ -265,15 +275,43 @@ async function waitForReplay(page: Page, sockets: ReturnType<typeof watchPageSoc
   await waitForPaint(page);
 }
 
+function recordAppReadyMoment(): void {
+  const appReadyWindow = window as Window & { appReadyAtMs?: number };
+  const observer = new MutationObserver(() => {
+    if (!document.body?.classList.contains('app-ready')) return;
+    appReadyWindow.appReadyAtMs = performance.now();
+    observer.disconnect();
+  });
+  observer.observe(document, { subtree: true, attributes: true, attributeFilter: ['class'] });
+}
+
+function listRequestsStartedBeforeAppReady(): string[] {
+  const appReadyAtMs = (window as Window & { appReadyAtMs?: number }).appReadyAtMs ?? Number.POSITIVE_INFINITY;
+  const resourcePaths = performance.getEntriesByType('resource')
+    .filter((entry) => entry.startTime <= appReadyAtMs)
+    .map((entry) => new URL(entry.name).pathname);
+  return [location.pathname, ...resourcePaths];
+}
+
+async function measureBoardReady(page: Page, port: number, proxy: ShapingProxy, startedAt: number): Promise<BoardReadyMeasurement> {
+  await page.addInitScript(recordAppReadyMoment);
+  await loadDashboard(page, port);
+  const elapsedMs = performance.now() - startedAt;
+  const httpBytesDown = proxy.readHttpBytesDown();
+  return { elapsedMs, httpBytesDown, requestPaths: await page.evaluate(listRequestsStartedBeforeAppReady) };
+}
+
 async function measureVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, fixture: FixtureSession, visit: Visit): Promise<RunMeasurement> {
   const sessionId = fleet.sessionIdByKey.get(fixture.key) ?? '';
   const context: BrowserContext = await browser.newContext(PHONE);
   try {
     const page = await context.newPage();
     const sockets = watchPageSockets(page);
+    const waitForNetworkQuiet = watchNetworkQuiet(page);
     if (visit !== 'cold') {
       sockets.beginWindow(sessionId, fixture);
       await loadDashboard(page, fleet.port);
+      if (visit === 'open') await waitForNetworkQuiet();
       if (visit === 'reconnect') await openSession(page, sockets, sessionId, fixture);
       sockets.endWindow();
     }
@@ -281,7 +319,7 @@ async function measureVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy,
     sockets.beginWindow(sessionId, fixture);
     proxy.beginMeasure();
     const startedAt = performance.now();
-    if (visit === 'cold') await loadDashboard(page, fleet.port);
+    const boardReady = visit === 'cold' ? await measureBoardReady(page, fleet.port, proxy, startedAt) : null;
     if (visit === 'reconnect') {
       sockets.markOpening();
       await page.reload({ waitUntil: 'commit', timeout: READY_TIMEOUT_MS });
@@ -293,7 +331,7 @@ async function measureVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy,
     await httpSizes?.settleRequests();
     const channels = await proxy.endMeasure();
     const shellCheck = httpSizes ? await httpSizes.checkShell(channels.http.wireBytesDown) : null;
-    return { elapsedMs, channels, parsed, shellCheck };
+    return { elapsedMs, boardReady, channels, parsed, shellCheck };
   } finally {
     await context.close();
   }
@@ -302,10 +340,18 @@ async function measureVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy,
 const SCENARIOS: Scenario[] = [
   { id: 'cold', label: 'Cold connect', detail: 'shell + session A', measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_A, 'cold') },
   { id: 'reconnect', label: 'Reconnect', detail: 'warm-cache reload, session A restores', measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_A, 'reconnect') },
-  { id: 'open-a', label: 'Open session A', detail: `${SESSION_A.fillLines} lines`, measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_A, 'open') },
-  { id: 'open-b', label: 'Open session B', detail: `${SESSION_B.fillLines} lines`, measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_B, 'open') },
-  { id: 'open-c', label: 'Open session C', detail: `${SESSION_C.fillLines} lines`, measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_C, 'open') },
+  { id: 'open-a', label: 'Open session A', detail: `${SESSION_A.fillLines} lines, settled board`, measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_A, 'open') },
+  { id: 'open-b', label: 'Open session B', detail: `${SESSION_B.fillLines} lines, settled board`, measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_B, 'open') },
+  { id: 'open-c', label: 'Open session C', detail: `${SESSION_C.fillLines} lines, settled board`, measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_C, 'open') },
 ];
+
+function summarizeBoardReady(measurements: readonly RunMeasurement[]): BoardReady | null {
+  const boardReadyRuns = measurements.flatMap((measurement) => (measurement.boardReady ? [measurement.boardReady] : []));
+  const runsMs = boardReadyRuns.map((boardReadyRun) => boardReadyRun.elapsedMs);
+  const representative = boardReadyRuns[medianRunIndex(runsMs)];
+  if (!representative) return null;
+  return { runsMs, medianMs: median(runsMs), httpBytesDown: representative.httpBytesDown, requestPaths: representative.requestPaths };
+}
 
 async function runScenario(scenario: Scenario, runs: number, fleet: Fleet, browser: Browser, proxy: ShapingProxy): Promise<{ result: ScenarioResult; shellCheck: ShellCheck | null }> {
   const measurements: RunMeasurement[] = [];
@@ -318,7 +364,7 @@ async function runScenario(scenario: Scenario, runs: number, fleet: Fleet, brows
   const representative = measurements[medianRunIndex(runsMs)] ?? measurements[0];
   if (!representative) throw new Error(`${scenario.label} produced no runs`);
   return {
-    result: { id: scenario.id, label: scenario.label, detail: scenario.detail, runsMs, medianMs: median(runsMs), channels: representative.channels, parsed: representative.parsed },
+    result: { id: scenario.id, label: scenario.label, detail: scenario.detail, runsMs, medianMs: median(runsMs), channels: representative.channels, parsed: representative.parsed, boardReady: summarizeBoardReady(measurements) },
     shellCheck: representative.shellCheck,
   };
 }

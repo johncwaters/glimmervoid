@@ -10,6 +10,13 @@ const ChannelTallySchema = z.object({
   serverTurns: z.number(),
 });
 
+const BoardReadySchema = z.object({
+  runsMs: z.array(z.number()),
+  medianMs: z.number(),
+  httpBytesDown: z.number(),
+  requestPaths: z.array(z.string()),
+});
+
 const ScenarioResultSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -18,6 +25,7 @@ const ScenarioResultSchema = z.object({
   medianMs: z.number(),
   channels: z.object({ http: ChannelTallySchema, control: ChannelTallySchema, data: ChannelTallySchema }),
   parsed: z.object({ controlJsonBytes: z.number(), replayBytes: z.number() }),
+  boardReady: BoardReadySchema.nullable().default(null),
 });
 
 const ShellCheckSchema = z.object({
@@ -42,6 +50,13 @@ export const LoadCostResultSchema = z.object({
 export type LoadCostResult = z.infer<typeof LoadCostResultSchema>;
 export type ScenarioResult = z.infer<typeof ScenarioResultSchema>;
 export type ShellCheck = z.infer<typeof ShellCheckSchema>;
+export type BoardReady = z.infer<typeof BoardReadySchema>;
+
+const XTERM_CHUNK_PATTERN = /\/assets\/xterm-[^/]*\.js$/;
+
+export function findXtermRequests(requestPaths: readonly string[]): string[] {
+  return requestPaths.filter((requestPath) => XTERM_CHUNK_PATTERN.test(requestPath));
+}
 
 const SHELL_CHECK_TOLERANCE = 0.02;
 
@@ -96,6 +111,11 @@ export function renderMarkdown(result: LoadCostResult): string {
   for (const scenario of result.scenarios) {
     const connections = CHANNELS.reduce((total, channel) => total + scenario.channels[channel].connections, 0);
     lines.push(`| ${scenario.label} (${scenario.detail}) | ${formatSeconds(scenario.medianMs)} | ${scenario.runsMs.map(formatSeconds).join(', ')} | ${channelCell(scenario, 'http')} | ${channelCell(scenario, 'control')} | ${channelCell(scenario, 'data')} | ${formatBytes(scenario.parsed.controlJsonBytes)} | ${formatBytes(scenario.parsed.replayBytes)} | ${serverWaitCell(scenario)} | ${connections} |`);
+  }
+  for (const scenario of result.scenarios) {
+    if (!scenario.boardReady) continue;
+    const xtermRequests = findXtermRequests(scenario.boardReady.requestPaths);
+    lines.push('', `Board ready (${scenario.label}, until body.app-ready): ${formatSeconds(scenario.boardReady.medianMs)} median, ${formatBytes(scenario.boardReady.httpBytesDown)} of HTTP over ${scenario.boardReady.requestPaths.length} requests; xterm chunk ${xtermRequests.length > 0 ? `requested: ${xtermRequests.join(', ')}` : 'not requested'}.`);
   }
   if (result.shellCheck) {
     const check = result.shellCheck;

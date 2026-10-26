@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The session board appears before the terminal code loads**: the terminal renderer now downloads after the board is on screen instead of before it. On a simulated 3G link a first visit shows the board after about 9.8 seconds instead of 12.2. Opening a session in the first moments after a first visit waits for that download.
+
 - **Live updates use less data on a slow connection**: the dashboard now compresses what it streams over its live connections, both the session list updates and each terminal's output. The dashboard also appears without waiting for sessions that are off screen. On a simulated 3G link, opening a session drops from about 2.1 to 1.15 seconds and reloading the dashboard from about 4.1 to 3.4 seconds.
 
 - **Flying animals move like animals**: each animal now has its own eased gait. Frogs and deer crouch, leap and squash on landing, trotters bounce on their feet, the penguin waddles, and flyers glide and tilt along their arc, as does the cat in the telemetry banner. The website cookie banner now always shows the owl instead of a random animal. Booping one squashes, springs and wobbles before it speeds off. Every trail is redrawn at the sprites' pixel size with four frames, a fainter slower layer drifting behind it, and a burst of its motif at the animal's tail, in the dashboard, the settings gallery and on the website.
