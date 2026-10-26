@@ -19,7 +19,7 @@ import {
 } from './review-queue-store.ts';
 import type { ReviewQueueChange } from './review-queue-store.ts';
 import {
-  createCaughtUpBanner, createTeamQueueRow, mountTeamReviewDetail, paintQueueRowTitle, refreshTeamReviewAges, releaseTeamReviewSelection, resetTeamQueueTickers, showTeamReview, teamReviewActionNotice, teamReviewEmptyState,
+  createCaughtUpBanner, createTeamQueueRow, mountTeamReviewDetail, paintQueueRowTitle, refreshTeamReviewAges, releaseTeamReviewSelection, resetTeamQueueTickers, showTeamReview, takePostedReceipt, teamReviewEmptyState,
   teamReviewLaneNotices,
 } from './team-review-panel.ts';
 import { teamReviewStatusView } from './team-review-store.ts';
@@ -42,6 +42,10 @@ let isCaughtUp = false;
 let isSetAsideOpen = false;
 let renderedSignature: string | null = null;
 let isRenderQueued = false;
+let caughtUpReceipt: string | null = null;
+let justActedKey: string | null = null;
+let justActedTimer = 0;
+const JUST_ACTED_MS = 2000;
 const rowsByKey = new Map<string, HTMLButtonElement>();
 
 function markSeen(item: QueueItem, row: HTMLButtonElement): void {
@@ -70,27 +74,29 @@ function swapDetail(element: HTMLElement): void {
   detailHost.replaceChildren(element);
 }
 
-function caughtUpElement(): HTMLElement {
+function caughtUpElement(receipt: string | null): HTMLElement {
   const hasNewTurn = turnItems(currentGroups).length > 0;
-  if (hasNewTurn) return createCaughtUpBanner({ title: 'New pull requests need you', detail: 'Pick one from the queue.' });
-  return createCaughtUpBanner({ title: 'All caught up', detail: caughtUpText(currentGroups) });
+  const receiptLead = receipt ? `${receipt} ` : '';
+  if (hasNewTurn) return createCaughtUpBanner({ title: 'New pull requests need you', detail: `${receiptLead}Pick one from the queue.` });
+  return createCaughtUpBanner({ title: 'All caught up', detail: `${receiptLead}${caughtUpText(currentGroups)}` });
 }
 
-function showSelectedDetail(notice: 'keep' | 'clear'): void {
+function showSelectedDetail(receiptMode: 'keep' | 'clear'): void {
   const item = queueItemByKey(currentGroups, selectedKey);
   shownKey = item?.key ?? null;
   if (!item) {
-    releaseTeamReviewSelection(notice);
-    if (detailHost) detailHost.replaceChildren(isCaughtUp ? caughtUpElement() : el('p', 'pr-empty', 'Pick a pull request from the queue.'));
+    caughtUpReceipt = takePostedReceipt() ?? caughtUpReceipt;
+    releaseTeamReviewSelection();
+    if (detailHost) detailHost.replaceChildren(isCaughtUp ? caughtUpElement(caughtUpReceipt) : el('p', 'pr-empty', 'Pick a pull request from the queue.'));
     return;
   }
   if (item.source === 'team' && teamDetail) {
-    showTeamReview(item.review.key, notice);
+    showTeamReview(item.review.key, receiptMode);
     swapDetail(teamDetail);
     return;
   }
   if (item.source === 'mine' && mineDetail) {
-    releaseTeamReviewSelection(notice);
+    releaseTeamReviewSelection();
     showMyPr(item.pr.key);
     swapDetail(mineDetail);
   }
@@ -99,6 +105,7 @@ function showSelectedDetail(notice: 'keep' | 'clear'): void {
 function selectItem(key: string, { isFromQueue }: { isFromQueue: boolean }): void {
   selectedKey = key;
   isCaughtUp = false;
+  caughtUpReceipt = null;
   for (const [rowKey, row] of rowsByKey) row.setAttribute('aria-current', String(rowKey === key));
   const item = queueItemByKey(currentGroups, key);
   const row = rowsByKey.get(key);
@@ -132,8 +139,19 @@ function revealItem(key: string): void {
   row?.scrollIntoView({ block: 'nearest' });
 }
 
+function markJustActed(queueKey: string): void {
+  window.clearTimeout(justActedTimer);
+  justActedKey = queueKey;
+  justActedTimer = window.setTimeout(() => {
+    justActedKey = null;
+    rowsByKey.get(queueKey)?.removeAttribute('data-just-acted');
+  }, JUST_ACTED_MS);
+}
+
 function advanceAfterAction(actedReviewKey: string, capturedOrder: readonly string[]): void {
-  const nextKey = nextTurnKey({ capturedOrder, actedKey: `team:${actedReviewKey}`, groups: currentGroups });
+  const actedKey = `team:${actedReviewKey}`;
+  markJustActed(actedKey);
+  const nextKey = nextTurnKey({ capturedOrder, actedKey, groups: currentGroups });
   selectedKey = nextKey;
   isCaughtUp = nextKey === null;
   renderedSignature = null;
@@ -155,6 +173,7 @@ function createItemRow(item: QueueItem, isTurn: boolean, hasMultipleRepos: boole
   const { container, row } = rowFor(item, hasMultipleRepos, sessionsByPrKey);
   row.dataset.queueKey = item.key;
   row.setAttribute('aria-current', String(item.key === selectedKey));
+  if (item.key === justActedKey) row.dataset.justActed = 'true';
   const entry = queueItemActivityEntry(item);
   if (isTurn && isQueueEntryUnseen(entry)) {
     const activity = el('span', 'tab-activity active pr-queue-unseen');
@@ -293,7 +312,7 @@ function mountReviewQueue(parent: HTMLElement): void {
   back.addEventListener('click', returnToReviewQueue);
   turnPosition = el('span', 'review-queue-position');
   phoneBar.append(back, turnPosition);
-  shell.detail.append(phoneBar, teamReviewActionNotice(), detailHost);
+  shell.detail.append(phoneBar, detailHost);
   banner = buildAttentionBanner({
     onJump: () => {
       jumpToNextReview();

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Reviews reads like a decision desk**: a ready review now puts the agent's call first ("Agent recommends: approve"), keeps the reading column narrow, and shows a Will post to GitHub panel that names the review type, how many findings post and whether your note goes with it, updating as you change anything. Each finding has Post and Drop buttons instead of a checkbox. On a wide pane that panel and the pull request's checks, threads and new commits sit in a column beside the review. Queue rows now read "Agent: approve" with how many findings would post. After you post, the next review's action bar says what was posted and where, and the row you just acted on lights up briefly; the banner that used to appear above the next review is gone. A post that comes back with a warning stays on screen with the warning until you move on.
+
 - **Code beside each Reviews finding**: an inline finding on a ready review now shows the few diff lines around the line it cites, with the cited line marked, so you can judge it without opening the pull request. Reviews drafted before this update show no excerpt until they are reviewed again.
 
 - **Request changes from Reviews**: a ready review now offers Request changes next to Approve and Comment, posting a change request on GitHub under your name with the findings you ticked and your note. It needs at least one finding or a note. When the agent's verdict is request changes or blocked, Request changes is the first button; otherwise Approve is.

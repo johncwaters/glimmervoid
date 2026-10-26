@@ -81,7 +81,7 @@ async function verifyRows(page: Page): Promise<void> {
     reviewerAvatars: button.querySelectorAll('.pr-queue-reviewers .avatar').length,
     title: button.getAttribute('title'),
     accessibleName: button.getAttribute('aria-label'),
-    children: button.children.length,
+    children: button.querySelectorAll(':scope > :not(.pr-queue-unseen)').length,
     removedParts: button.querySelectorAll('.pr-verdict-seal, .pr-severity-meter, .pr-rereview-tag').length,
   })));
   assert.equal(rows.length, 10);
@@ -97,7 +97,7 @@ async function verifyRows(page: Page): Promise<void> {
   }
   const nits = rows.find((row) => row.key === 'Acme/app#2');
   assert.ok(nits);
-  assert.equal(nits.stateWord, 'Waits on you');
+  assert.equal(nits.stateWord, `Agent: approve ${String.fromCharCode(0xb7)} 1 finding`);
   assert.doesNotMatch(nits.bottom ?? '', /since approval|drafted|resolved|Nits|Approve|Changes|Blocked/);
   assert.match(nits.title ?? '', /Acme\/app#2:.*\nWaits on you\n/s);
   assert.match(nits.accessibleName ?? '', /Nits, 2 comments/);
@@ -462,7 +462,9 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
   });
   const reviewRow = (number: number) => page.locator(`.pr-queue-row[data-review-key="Acme/app#${number}"]`);
   const withDrafts = (drafts: ReviewDraft[]) => ({ ...snapshot, drafts, inFlight: [], queued: [] });
-  const actionNotice = page.locator('.pr-detail-host .pr-action-notice');
+  const barStatus = page.locator('.pr-detail .pr-decision-bar > .pr-action-status');
+  const willPostDetail = page.locator('.pr-detail .pr-will-post-detail');
+  const findingChoice = (label: 'Post' | 'Drop') => page.locator('.pr-detail').getByRole('button', { name: label, exact: true });
   const caughtUpTitle = page.locator('.pr-detail-host .pr-caught-up-title');
   const caughtUpDetailText = page.locator('.pr-detail-host .pr-caught-up-detail');
   try {
@@ -477,11 +479,11 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
       await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(unreviewed, { status: 'discarded' })]));
       await replyToCapturedAction(page, true);
       assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
-      assert.equal(await actionNotice.isVisible(), false);
+      assert.equal(await barStatus.textContent(), '');
       assert.match(await page.locator('.pr-queue-section', { has: reviewRow(unreviewed) }).locator('.pr-section-heading').textContent() ?? '', /Set aside/);
     }
-    const postNotices: Partial<Record<TeamReviewAction, string>> = { approve: 'Acme/app#1: Approved on GitHub with 1 finding.', comment: 'Acme/app#1: Commented on GitHub with 1 finding.' };
-    for (const action of ['approve', 'comment', 'discard', 'requeue'] as const) {
+    const postReceipts: Partial<Record<TeamReviewAction, string>> = { approve: 'Posted to Acme/app#1: Approved on GitHub with 1 finding.', comment: 'Posted to Acme/app#1: Commented on GitHub with 1 finding.', 'request-changes': 'Posted to Acme/app#1: Requested changes on GitHub with 1 finding.' };
+    for (const action of ['approve', 'comment', 'request-changes', 'discard', 'requeue'] as const) {
       await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
       await showQueue(page);
       await reviewRow(1).click();
@@ -492,22 +494,25 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
       assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
       await replyToCapturedAction(page, true);
       assert.equal(await reviewRow(2).getAttribute('aria-current'), 'true');
-      const expectedNotice = postNotices[action];
-      assert.equal(await actionNotice.isVisible(), expectedNotice !== undefined);
-      if (expectedNotice) assert.equal(await actionNotice.textContent(), expectedNotice);
+      assert.equal(await page.locator('.pr-detail-host .pr-action-notice').count(), 0);
+      assert.equal(await barStatus.textContent(), postReceipts[action] ?? '');
+      assert.equal(await reviewRow(1).getAttribute('data-just-acted'), 'true');
     }
     await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
     await showQueue(page);
     await reviewRow(1).click();
-    await page.locator('.pr-detail .pr-comment-checkbox').uncheck();
+    assert.match(await willPostDetail.textContent() ?? '', /^no note, 1 in the review body, at /);
+    await findingChoice('Drop').click();
+    assert.equal(await findingChoice('Drop').getAttribute('aria-pressed'), 'true');
+    assert.match(await willPostDetail.textContent() ?? '', /^A bare approval at /);
     assert.equal(await page.locator('.pr-detail button[data-action="comment"]').isDisabled(), true);
     await clickReviewAction(page, 'approve');
     assert.equal((JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { action?: string }).action, 'approve-only');
     await replyToCapturedAction(page, false);
-    await page.locator('.pr-detail .pr-comment-checkbox').check();
+    await findingChoice('Post').click();
     await showQueue(page);
     await reviewRow(3).click();
-    assert.equal(await actionNotice.isVisible(), false);
+    assert.equal(await barStatus.textContent(), '');
     await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
     await showQueue(page);
     await reviewRow(1).click();
@@ -515,8 +520,26 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2), createDraft(3)]));
     await replyToCapturedAction(page, true, 'Could not confirm the pull request head after approving. Check the approval on GitHub');
     assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
-    assert.equal(await actionNotice.textContent(), 'Acme/app#1: Approved on GitHub with 1 finding. Could not confirm the pull request head after approving. Check the approval on GitHub.');
-    assert.equal(await actionNotice.getAttribute('data-tone'), 'error');
+    assert.equal(await barStatus.textContent(), 'Approved on GitHub with 1 finding. Could not confirm the pull request head after approving. Check the approval on GitHub.');
+    assert.equal(await barStatus.getAttribute('data-tone'), 'error');
+    const warning = 'Could not confirm the pull request head after approving. Check the approval on GitHub';
+    await applyStatus(page, withDrafts([createDraft(1, { summary: 'Warned while away' }), createDraft(2), createDraft(3)]));
+    await showQueue(page);
+    await reviewRow(2).click();
+    await showQueue(page);
+    await reviewRow(1).click();
+    await clickReviewAction(page, 'approve');
+    await showQueue(page);
+    await reviewRow(2).click();
+    await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2), createDraft(3)]));
+    await replyToCapturedAction(page, true, warning);
+    assert.equal(await barStatus.textContent(), `Acme/app#1: Approved on GitHub with 1 finding. ${warning}.`);
+    await showQueue(page);
+    await reviewRow(1).click();
+    assert.equal(await barStatus.textContent(), `Approved on GitHub with 1 finding. ${warning}.`);
+    await applyStatus(page, withDrafts([createDraft(1, { verdict: 'BLOCKED', summary: 'Re-reviewed' }), createDraft(2), createDraft(3)]));
+    assert.equal(await page.locator('.pr-detail .pr-verdict-recommendation').textContent(), 'Agent recommends: request changes');
+    assert.equal(await page.locator('.pr-detail button[data-action="approve"]').isDisabled(), false);
     await applyStatus(page, withDrafts([createDraft(4, { status: 'posted', threads: [{
       id: 'PRRT_acme_4', path: 'src/app.ts', line: 2, isResolved: false, viewerCanResolve: true,
       isNit: false, url: 'https://github.com/Acme/app/pull/4#discussion_r4',
@@ -541,19 +564,19 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await clickReviewAction(page, 'approve');
     await replyToCapturedAction(page, false);
     assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
-    assert.equal(await page.locator('.pr-detail .pr-footer > .pr-action-status').textContent(), 'Action rejected');
+    assert.equal(await barStatus.textContent(), 'Action rejected');
     await clickReviewAction(page, 'approve');
     await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2, { status: 'discarded' })]));
     await replyToCapturedAction(page, true);
     assert.equal(await page.locator('.pr-queue-row[aria-current="true"]').count(), 0);
     assert.equal(await caughtUpTitle.textContent(), 'All caught up');
-    assert.equal(await actionNotice.textContent(), 'Acme/app#1: Approved on GitHub with 1 finding.');
+    assert.match(await caughtUpDetailText.textContent() ?? '', /^Posted to Acme\/app#1: Approved on GitHub with 1 finding\. /);
     await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2, { status: 'discarded' }), createDraft(12)]));
     assert.equal(await caughtUpTitle.textContent(), 'New pull requests need you');
     await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2)]));
     assert.equal(await page.locator('.pr-queue-row[aria-current="true"]').count(), 0);
     assert.equal(await caughtUpTitle.textContent(), 'New pull requests need you');
-    assert.equal(await caughtUpDetailText.textContent(), 'Pick one from the queue.');
+    assert.match(await caughtUpDetailText.textContent() ?? '', /^Posted to Acme\/app#1: .* Pick one from the queue\.$/);
     await showQueue(page);
     await reviewRow(2).click();
     assert.equal(await reviewRow(2).getAttribute('aria-current'), 'true');
@@ -682,7 +705,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   await page.locator('.pr-queue-row[data-review-key="Acme/app#3"]').click();
   const handChecks = page.locator('.pr-detail .pr-hand-checks');
   assert.equal(await handChecks.locator('li').textContent(), 'Look at what these changed UI files render: public/header.css');
-  assert.deepEqual(await page.locator('.pr-detail > section').evaluateAll((sections) => sections.map((section) => section.getAttribute('aria-label')).filter((label) => label === 'Verdict' || label === 'Check by hand' || label === 'Findings')), ['Verdict', 'Check by hand', 'Findings']);
+  assert.deepEqual(await page.locator('.pr-detail .pr-desk-column > section').evaluateAll((sections) => sections.map((section) => section.getAttribute('aria-label')).filter((label) => label === 'Verdict' || label === 'Check by hand' || label === 'Findings')), ['Verdict', 'Check by hand', 'Findings']);
   await showQueue(page);
   await nitsRow.click();
   const mixed = { ...status, drafts: [...status.drafts, createDraft(11, { key: 'Acme/docs#11', repo: 'Acme/docs' })] };

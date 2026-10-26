@@ -3,10 +3,10 @@ import type { MyPrStage } from '#shared/contracts/my-prs.ts';
 import { myPrFromGithubPr } from '#shared/my-pr-merge.ts';
 import { canApproveAfterComment, decisionAsIfApprovalRequired, DECIDING_REVIEW_STATES, type FindingSeverity, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
 import type {
-  DraftComment, EarlierReview, GithubReview, GithubReviewState, InFlightReview, PostedReviewEvent, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread, ViewerThreadTally,
+  DraftComment, EarlierReview, GithubReview, GithubReviewState, InFlightReview, PostedReviewEvent, QueuedReview, ReviewAssessment, ReviewChecksState, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread, ViewerThreadTally,
 } from '#shared/contracts/team-review.ts';
 import { shortSha } from '#shared/git-text.ts';
-import { AUTOMATED_REVIEW_NOTE, findingSeveritiesIn, generalPreambleOf, parseLeadingFindingHeader, strongestFindingSeverity, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
+import { AUTOMATED_REVIEW_NOTE, findingSeveritiesIn, generalFindingsOf, generalPreambleOf, parseLeadingFindingHeader, strongestFindingSeverity, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import type { GeneralFinding } from '#shared/team-review-markdown.ts';
 import { formatClockOffset } from '../radar/radar-core.ts';
 import { stageIcon, stageLabel, stageTone } from './my-prs-view-core.ts';
@@ -217,15 +217,11 @@ export interface TeamReviewSections {
   discarded: ReviewDraft[];
 }
 
-export interface ActionReplyNotice {
-  text: string;
-  tone: 'ok' | 'error';
-}
-
 interface ActionReplyPlan {
   statusText: string;
+  tone: 'ok' | 'error';
   shouldAdvance: boolean;
-  notice: ActionReplyNotice | null;
+  receipt: string | null;
 }
 
 function asSentence(text: string): string {
@@ -236,10 +232,9 @@ function asSentence(text: string): string {
 const POSTING_ACTIONS: ReadonlySet<TeamReviewAction> = new Set(['approve', 'approve-only', 'comment', 'request-changes']);
 
 export function planActionReply({ action, outcomeText, pullRequest, warning, isActedSelected }: { action: TeamReviewAction; outcomeText: string; pullRequest: string; warning: string; isActedSelected: boolean }): ActionReplyPlan {
-  const outcome = `${pullRequest}: ${asSentence(outcomeText)}`;
-  if (warning.trim()) return { statusText: outcomeText, shouldAdvance: false, notice: { text: `${outcome} ${asSentence(warning)}`, tone: 'error' } };
+  if (warning.trim()) return { statusText: `${asSentence(outcomeText)} ${asSentence(warning)}`, tone: 'error', shouldAdvance: false, receipt: null };
   const isPostAdvance = isActedSelected && POSTING_ACTIONS.has(action);
-  return { statusText: outcomeText, shouldAdvance: isActedSelected, notice: isPostAdvance ? { text: outcome, tone: 'ok' } : null };
+  return { statusText: outcomeText, tone: 'ok', shouldAdvance: isActedSelected, receipt: isPostAdvance ? `Posted to ${pullRequest}: ${asSentence(outcomeText)}` : null };
 }
 
 export function queueRowRefLabel(repo: string, number: number, hasMultipleRepos: boolean): string {
@@ -716,10 +711,26 @@ function selectionParts(selection: ReviewSelection): string {
   return parts.filter(Boolean).join(' and ');
 }
 
-export function postingPreviewText(draft: Pick<ReviewDraft, 'reviewedHead'>, selection: ReviewSelection): string {
-  const parts = selectionParts(selection);
-  if (!parts) return 'Nothing ticked: Approve posts a bare approval, Comment and Request changes need a finding or a note.';
-  return `Posts ${parts}, labeled as an automated review, at ${shortSha(draft.reviewedHead)}.`;
+interface PostingPreview {
+  event: string;
+  detail: string;
+}
+
+function inlineCommentText(count: number): string {
+  return `${count} inline ${count === 1 ? 'comment' : 'comments'}`;
+}
+
+export function postingPreview(draft: Pick<ReviewDraft, 'reviewedHead'>, selection: ReviewSelection, control: ReadyDecisionControl): PostingPreview {
+  const event = actionLabel(control);
+  if (!hasSelection(selection)) {
+    return { event, detail: isSelectionRequired(control) ? 'Needs a ticked finding or a note.' : `A bare approval at ${shortSha(draft.reviewedHead)}, with no note or comments.` };
+  }
+  const parts = [
+    selection.note.trim() ? 'your note' : 'no note',
+    ...(selection.comments.length > 0 ? [inlineCommentText(selection.comments.length)] : []),
+    ...(selection.generalFindings.length > 0 ? [`${selection.generalFindings.length} in the review body`] : []),
+  ];
+  return { event, detail: `${parts.join(', ')}, at ${shortSha(draft.reviewedHead)}.` };
 }
 
 export function postedOutcomeText(action: TeamReviewAction, selection: ReviewSelection): string {
@@ -753,6 +764,34 @@ const CHANGES_LEAD_VERDICTS: ReadonlySet<ReviewDraft['verdict']> = new Set(['REQ
 
 function readyDecisionOrder(verdict: ReviewDraft['verdict']): readonly ReadyDecisionControl[] {
   return CHANGES_LEAD_VERDICTS.has(verdict) ? ['request-changes', 'approve', 'comment'] : ['approve', 'comment', 'request-changes'];
+}
+
+export function leadingDecision(verdict: ReviewDraft['verdict']): ReadyDecisionControl {
+  return CHANGES_LEAD_VERDICTS.has(verdict) ? 'request-changes' : 'approve';
+}
+
+export function verdictRecommendation(verdict: ReviewDraft['verdict']): string {
+  return `Agent recommends: ${actionLabel(leadingDecision(verdict)).toLowerCase()}`;
+}
+
+const AGENT_TEXT_SEPARATOR = ` ${String.fromCharCode(0xb7)} `;
+
+export function queueRowAgentText(draft: Pick<ReviewDraft, 'verdict' | 'comments' | 'body'>): string {
+  const action = `Agent: ${actionLabel(leadingDecision(draft.verdict)).toLowerCase()}`;
+  const postedSeverities = [
+    ...draft.comments.filter(isIncludedByDefault).map(commentSeverity),
+    ...generalFindingsOf(draft.body).map((finding) => finding.severity).filter(isSeverityIncludedByDefault),
+  ];
+  if (postedSeverities.length === 0) return `${action}${AGENT_TEXT_SEPARATOR}no findings`;
+  const strongest = strongestFindingSeverity(postedSeverities.flatMap((severity) => (severity ? [severity] : [])));
+  const count = `${postedSeverities.length} ${postedSeverities.length === 1 ? 'finding' : 'findings'}`;
+  return `${action}${AGENT_TEXT_SEPARATOR}${strongest ? `${count}, top ${strongest.toLowerCase()}` : count}`;
+}
+
+const CHECKS_TEXT: Readonly<Record<ReviewChecksState, string>> = Object.freeze({ SUCCESS: 'Passing', FAILURE: 'Failing', ERROR: 'Failing', PENDING: 'Running', EXPECTED: 'Running' });
+
+export function checksText(checksState: ReviewDraft['checksState']): string {
+  return checksState ? CHECKS_TEXT[checksState] : 'None reported';
 }
 
 export function isSelectionRequired(control: string | undefined): boolean {
