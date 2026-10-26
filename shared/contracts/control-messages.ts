@@ -170,6 +170,14 @@ export const ClientErrorReport = z.object({
 }).strict();
 export type ClientErrorReport = z.infer<typeof ClientErrorReport>;
 
+export const CLIENT_LOG_SCOPE_MAX_CHARS = 64;
+export const CLIENT_LOG_TEXT_MAX_CHARS = 1000;
+
+const ClientLogReport = z.object({
+  scope: z.string().min(1).max(CLIENT_LOG_SCOPE_MAX_CHARS),
+  text: z.string().min(1).max(CLIENT_LOG_TEXT_MAX_CHARS),
+}).strict();
+
 const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step'] as const);
 export const DASHBOARD_VIEWS = Object.freeze(['focus', 'zen', 'prs', 'issues', 'usage', 'radar', 'visions', 'hooks', 'trace', 'benchmarks', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
@@ -282,6 +290,7 @@ const clientVariants = [
   loose('session-coherence-journal', { id: sessionId, requestId }),
   loose('session-setup', { id: sessionId, requestId }),
   loose('client-error', ClientErrorReport.shape),
+  loose('client-log', ClientLogReport.shape),
   loose('dashboard-telemetry', { event: z.enum(DASHBOARD_TELEMETRY_EVENTS), properties: z.record(z.string(), z.unknown()) }),
   loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
   loose('watch-session-changes', { id: sessionId.nullable() }),

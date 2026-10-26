@@ -1,8 +1,11 @@
-import type { LinkedPr, MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
+import { MyPrsStatus } from '#shared/contracts/my-prs.ts';
+import type { LinkedPr, MyPr } from '#shared/contracts/my-prs.ts';
+import { describeSchemaIssues } from '../client-error-core.ts';
+import { reportToServerLog } from '../control-ws.ts';
 import { queueMergeCelebration } from '../merge-celebration.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
-import { joinMyPrs, liveSessionsByPrKey, mergeCelebrationText, newlyMergedPrs, parseMyPrsStatus } from './my-prs-view-core.ts';
+import { joinMyPrs, liveSessionsByPrKey, mergeCelebrationText, newlyMergedPrs } from './my-prs-view-core.ts';
 import type { LinkedLiveSession, LiveSessionLinks } from './my-prs-view-core.ts';
 
 export type MyPrsChange =
@@ -72,9 +75,12 @@ export function refreshMyPrsSessionState(): void {
 }
 
 export function applyMyPrsStatus(message: unknown): void {
-  const parsed = parseMyPrsStatus(message);
-  if (!parsed) return;
-  latest = parsed;
+  const parsed = MyPrsStatus.safeParse(message);
+  if (!parsed.success) {
+    reportToServerLog('reviews', `dropped my-prs-status: ${describeSchemaIssues(parsed.error.issues)}`);
+    return;
+  }
+  latest = parsed.data;
   celebrateNewlyMergedAndNotify();
 }
 

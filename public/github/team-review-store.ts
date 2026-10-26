@@ -1,6 +1,8 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
+import { describeSchemaIssues } from '../client-error-core.ts';
+import { reportToServerLog } from '../control-ws.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { groupDrafts, joinTeamReviews } from './team-review-view-core.ts';
 import type { TeamReviewSections } from './team-review-view-core.ts';
@@ -38,7 +40,10 @@ export function teamReviewSections(): TeamReviewSections {
 
 export function applyTeamReviewStatus(message: unknown): void {
   const parsed = TeamReviewStatus.safeParse(message);
-  if (!parsed.success) return;
+  if (!parsed.success) {
+    reportToServerLog('reviews', `dropped team-review-status: ${describeSchemaIssues(parsed.error.issues)}`);
+    return;
+  }
   latest = parsed.data;
   rejoinAndNotify();
 }

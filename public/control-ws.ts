@@ -4,6 +4,7 @@ import { buildWebSocketUrl } from './ws-url-core.ts';
 import { clearPageToken, loadPageToken, pageToken, withPageToken } from './ws-token.ts';
 import { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
+import { createClientLogReporter, describeSchemaIssues, frameTypeOf } from './client-error-core.ts';
 
 type ControlMessageHandler = (message: ServerMessage) => void;
 type ConnectionStateCallback = (state: string, label: string) => void;
@@ -42,6 +43,13 @@ export function sendControlMsg(msg: Record<string, unknown>): boolean {
   if (controlWs?.readyState !== WebSocket.OPEN) return false;
   controlWs.send(JSON.stringify(msg));
   return true;
+}
+
+const sendClientLog = createClientLogReporter(sendControlMsg);
+
+export function reportToServerLog(scope: string, text: string): void {
+  console.warn(`[${scope}] ${text}`);
+  sendClientLog(scope, text);
 }
 
 export function nextRequestId(prefix: string): string {
@@ -131,12 +139,12 @@ export function connectControl() {
     try {
       rawMessage = JSON.parse(event.data);
     } catch {
-      console.warn('[control] Dropped malformed server JSON message');
+      reportToServerLog('control', 'dropped a server message that is not JSON');
       return;
     }
     const parsedMessage = ServerMessage.safeParse(rawMessage);
     if (!parsedMessage.success) {
-      console.warn(`[control] Dropped invalid server message: ${parsedMessage.error.issues[0]?.message || 'invalid payload'}`);
+      reportToServerLog('control', `dropped ${frameTypeOf(rawMessage)}: ${describeSchemaIssues(parsedMessage.error.issues)}`);
       rejectUnreadableReply(rawMessage);
       return;
     }

@@ -2,7 +2,7 @@ import { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import type { GithubPr } from '#shared/contracts/github-prs.ts';
 export { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import { githubPollingErrorNotice } from './github-polling-retry-core.ts';
-import { MyPrMergeResult, MyPrsStatus } from '#shared/contracts/my-prs.ts';
+import { MyPrMergeResult } from '#shared/contracts/my-prs.ts';
 import { mergeMethodLabel, myPrFromGithubPr, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
 import type { LinkedPr, MyPr, MyPrLaneEntry, MyPrMergeKind, MyPrStage, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
@@ -94,11 +94,6 @@ const STAGE_ICONS: Record<MyPrStage, PrStatusIcon> = {
   'changes-requested': 'changes-requested', 'unresolved-threads': 'thread', 'checks-pending': 'running',
   'needs-approval': 'reviewer', ready: 'ready', unknown: 'unknown',
 };
-
-export function parseMyPrsStatus(message: unknown): MyPrsStatusType | null {
-  const parsed = MyPrsStatus.safeParse(message);
-  return parsed.success ? parsed.data : null;
-}
 
 interface MyPrStackRow { pr: MyPr; parentKey: string | null; depth: number }
 interface MyPrStack { root: MyPr; rows: MyPrStackRow[] }

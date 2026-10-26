@@ -51,7 +51,9 @@ import { PlanDecision } from '../shared/contracts/plan-review.ts';
 import { getRtkPath } from './rtk-resolver.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { ChangeMap } from '../shared/contracts/change-map.ts';
+import { CLIENT_LOG_SCOPE_MAX_CHARS, CLIENT_LOG_TEXT_MAX_CHARS } from '../shared/contracts/control-messages.ts';
 import type { KeptWorkPath } from '../shared/contracts/control-messages.ts';
+import { sanitizeOneLine } from './core/text-core.ts';
 import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import { BenchmarkActionRequest } from '../shared/contracts/benchmark.ts';
 import type { BenchmarkActionResult, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
@@ -1790,6 +1792,9 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'client-error':     (msg: ClientMessageOf<'client-error'>) => {
       if (typeof msg.name !== 'string' || typeof msg.stack !== 'string') return;
       deps.telemetry?.captureClientError({ name: msg.name, stack: msg.stack });
+    },
+    'client-log':       (msg: ClientMessageOf<'client-log'>) => {
+      console.warn(`[dashboard] ${sanitizeOneLine(msg.scope, CLIENT_LOG_SCOPE_MAX_CHARS)}: ${sanitizeOneLine(msg.text, CLIENT_LOG_TEXT_MAX_CHARS)}`);
     },
     'dashboard-telemetry': captureDashboardTelemetry,
     'request-telemetry-deletion': async (msg: ClientMessageOf<'request-telemetry-deletion'>, ws: ControlSocket) => {

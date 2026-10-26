@@ -30,6 +30,14 @@ test('visions-set-intent is not a control message', () => {
   assert.equal(h.sent.length, 0, 'no reply and no dispatch for the retired type');
 });
 
+test('a dashboard client-log lands as one [dashboard] server log line even when its text carries newlines', (t) => {
+  const h = harness();
+  const warnSpy = t.mock.method(console, 'warn', () => {});
+  h.send({ type: 'client-log', scope: 'reviews', text: 'dropped team-review-status: drafts.0.status: Invalid option\n[control] forged line' });
+  const dashboardLines = warnSpy.mock.calls.map((call) => String(call.arguments[0])).filter((line) => line.startsWith('[dashboard]'));
+  assert.deepEqual(dashboardLines, ['[dashboard] reviews: dropped team-review-status: drafts.0.status: Invalid option [control] forged line']);
+});
+
 test('inherited-key message types are ignored, not dispatched', () => {
   const h = harness();
   assert.doesNotThrow(() => h.send({ type: '__proto__' }));
