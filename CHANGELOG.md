@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The server log survives a dashboard Restart**: Glimmervoid now copies its own output into `logs/server.log` under its home folder (`~/.glimmervoid` unless `GLIMMERVOID_HOME` says otherwise), so the log keeps going after a Restart from the dashboard, which used to discard it. The file rolls over at 10 MB and keeps the four previous files as `server.log.1` to `server.log.4`.
+
+- **Every cleanup leaves a record**: before Glimmervoid deletes a worktree, a branch, a workspace folder, a leftover scratch or guardrails temp folder, or an aged log file, it writes a line to `logs/removals.jsonl` naming what goes, why, and which checks it passed. If that line cannot be written, the deletion is skipped and the server log says so.
+
+### Fixed
+
+- **Automatic cleanups no longer delete a live session's worktree**: branch cleanup, the startup sweep of leftover workspaces, and the owned-paths sweep now keep any worktree or branch that belongs to a session in your config or one that is running, and anything touched in the last 24 hours. Work from a session you removed is still cleaned up once it has been idle for a day. Removing a session, discarding its work, or finishing and merging still deletes at once. A Glimmervoid started on a different config file (a test run, for example) can no longer sweep the worktrees of the one you use.
+
 ### Changed
 
 - **Shift+Enter starts a new line in the terminal**: in a session terminal, Shift+Enter now starts a new line in the agent's prompt instead of submitting it, as it already did in the Conversation view. Enter alone still sends.
