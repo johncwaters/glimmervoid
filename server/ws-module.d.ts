@@ -37,6 +37,7 @@ declare module "ws" {
       noServer?: boolean;
       path?: string;
       maxPayload?: number;
+      perMessageDeflate?: boolean;
     });
     address(): AddressInfo | string;
     close(callback?: (error?: Error) => void): void;

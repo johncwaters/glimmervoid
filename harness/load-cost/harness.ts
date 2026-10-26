@@ -220,9 +220,18 @@ async function loadDashboard(page: Page, port: number): Promise<void> {
   await page.locator('body.app-ready').waitFor({ timeout: READY_TIMEOUT_MS });
 }
 
+function isRowTappable(rowSelector: string): boolean {
+  const row = document.querySelector(rowSelector);
+  if (!row) return false;
+  const rect = row.getBoundingClientRect();
+  return row.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+}
+
 async function openSession(page: Page, sockets: ReturnType<typeof watchPageSockets>, sessionId: string, fixture: FixtureSession): Promise<void> {
   sockets.markOpening();
-  await page.locator(`.phone-board-list button.session-row[data-id="${sessionId}"]`).click({ timeout: READY_TIMEOUT_MS });
+  const rowSelector = `.phone-board-list button.session-row[data-id="${sessionId}"]`;
+  await page.waitForFunction(isRowTappable, rowSelector, { polling: 'raf', timeout: READY_TIMEOUT_MS });
+  await page.locator(rowSelector).click({ timeout: READY_TIMEOUT_MS });
   await waitForReplay(page, sockets, fixture);
 }
 

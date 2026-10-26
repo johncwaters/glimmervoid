@@ -66,7 +66,7 @@ export async function createProject(tempDirectory: string, directoryName: string
   return projectPath;
 }
 
-const ControlFrame = z.object({ type: z.string(), session: z.string().optional(), message: z.string().optional(), error: z.string().optional() }).passthrough();
+const ControlFrame = z.object({ type: z.string(), session: z.string().optional(), message: z.string().nullish(), error: z.string().nullish() }).passthrough();
 
 export async function addSession(socket: WebSocket, name: string, projectPath: string, dangerouslySkipPermissions = false): Promise<string> {
   const card = await new Promise<SessionCardFields>((resolve, reject) => {

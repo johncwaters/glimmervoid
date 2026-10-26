@@ -99,8 +99,8 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     recordOutcome = () => {},
     logger,
   } = dependencies;
-  const controlWss = new WebSocketServer({ noServer: true, maxPayload: CONTROL_FRAME_MAX_BYTES });
-  const dataWss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
+  const controlWss = new WebSocketServer({ noServer: true, maxPayload: CONTROL_FRAME_MAX_BYTES, perMessageDeflate: true });
+  const dataWss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, perMessageDeflate: true });
   controlWss.on('connection', (socket) => {
     recordOutcome('controlWsOpened');
     socket.on('close', () => recordOutcome('controlWsClosed'));
