@@ -76,7 +76,7 @@ const demoStyles = extractDemoStyles(dashboardStylesheet);
     <style is:global>
       .sky .nyan-flight { position: absolute; z-index: 1; }
       .flying-animal-preview .nyan-trail { width: 100px; }
-      @media (prefers-reduced-motion: reduce) { .flying-animal-preview .nyan-sprite, .flying-animal-preview .nyan-trail { animation: none !important; } }
+      @media (prefers-reduced-motion: reduce) { .flying-animal-preview .nyan-sprite, .flying-animal-preview .nyan-trail { animation: none !important; } .flying-animal-preview .nyan-trail::before, .flying-animal-preview .nyan-sprite::after { display: none; } }
     </style>
     <script>
       import { initAnalytics } from '../lib/analytics.ts';
