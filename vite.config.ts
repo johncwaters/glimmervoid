@@ -90,6 +90,7 @@ export default defineConfig({
   build: {
     outDir: '../dist/client',
     emptyOutDir: true,
+    manifest: true,
     chunkSizeWarningLimit: 750,
     rolldownOptions: {
       output: {

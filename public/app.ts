@@ -36,7 +36,7 @@ import { forgetSessionLinkedPrs, paintSessionPrChips, sessionRowPrSignals, setSe
 import { addSessionRowSignalSource } from './session-row.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
-import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-panel.ts';
+import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-store.ts';
 import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './github/issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from './radar/radar-core.ts';
@@ -71,7 +71,7 @@ import { updateBanner } from './updates-view-core.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
 import { applyPlanLimits, applyUsageReport, applyUsageSessions, setUsageRequestSender } from './usage/usage-panel.ts';
-import { createDashboardViews } from './view-registry.ts';
+import { createDashboardViews, mountEagerViews, mountedViewModule, prefetchViewsWhenIdle, reloadOnceOnPreloadError, showView } from './view-registry.ts';
 import { isZenActive, refreshZenView, stageNextAttention } from './zen-view/zen-view.ts';
 import type { DashboardView } from './view-registry.ts';
 import { moveViewId, orderViewIds, refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings } from './view-registry-core.ts';
@@ -122,6 +122,7 @@ function revealApp() {
   if (appRevealed) return;
   appRevealed = true;
   loadingScreen.classList.add('fade-out');
+  prefetchViewsWhenIdle(VIEW_TABS);
 
   const removeLoading = () => loadingScreen.remove();
   loadingScreen.addEventListener('transitionend', removeLoading, { once: true });
@@ -403,7 +404,7 @@ setCardCoherenceJournal({ isReadable: isSessionJournalReadable, open: openCohere
 setCardSessionSetup(openSessionSetup);
 
 function refreshViewsIfVisible(reason: ViewRefreshReason) {
-  refreshVisibleViews(VIEW_TABS, { isPhoneShellActive: isPhoneShellActive(), activeView: getActiveView(), phoneScreen: uiState.snapshot().phoneScreen }, reason);
+  refreshVisibleViews(VIEW_TABS, { isPhoneShellActive: isPhoneShellActive(), activeView: getActiveView(), phoneScreen: uiState.snapshot().phoneScreen }, reason, mountedViewModule);
 }
 
 onStreamerModeChanged(() => refreshViewsIfVisible('settings-updated'));
@@ -778,7 +779,7 @@ function currentViewOrder() {
 const DEFAULT_VIEW_ORDER = currentViewOrder();
 setFeatureTabViews(VIEW_TABS);
 mountReviewSidebar({ panel: document.getElementById('review-sidebar') });
-for (const viewTab of VIEW_TABS) viewTab.mount(viewTab.el);
+mountEagerViews(VIEW_TABS);
 
 
 function findViewTab(view: string) {
@@ -804,8 +805,9 @@ function reportViewShown(view: string) {
 
 function refreshViewOnShow(view: string) {
   const viewTab = findViewTab(view);
-  refreshViewOnReason(viewTab, 'shown');
-  if (viewTab) reportViewShown(view);
+  if (!viewTab) return;
+  showView(viewTab, (module) => refreshViewOnReason(viewTab, module, 'shown'));
+  reportViewShown(view);
 }
 
 interface ActivateViewOptions {
@@ -815,14 +817,15 @@ interface ActivateViewOptions {
 }
 
 function activateView(view: string, { section, setting, persist = true }: ActivateViewOptions = {}) {
-  if (!isViewAvailable(view)) return;
+  const viewTab = findViewTab(view);
+  if (!viewTab || !isViewAvailable(view)) return;
   const prev = getActiveView();
   uiState.dispatch('setActiveView', view);
   shouldPersistActiveView = persist;
   if (persist) savedViewAwaitingSurface = null;
 
   document.body.dataset.activeView = view;
-  document.body.dataset.reviewSidebarHidden = String(findViewTab(view)?.hasReviewSidebar !== true);
+  document.body.dataset.reviewSidebarHidden = String(viewTab.hasReviewSidebar !== true);
 
   if (persist) setActiveView(view);
   for (const v of VIEW_TABS) {
@@ -832,12 +835,15 @@ function activateView(view: string, { section, setting, persist = true }: Activa
     v.tab.tabIndex = selected ? 0 : -1;
   }
 
-  if (prev !== view) findViewTab(prev)?.deactivate?.();
-  findViewTab(view)?.activate?.();
-
-  refreshViewOnShow(view);
+  if (prev !== view) mountedViewModule(prev)?.deactivate?.();
+  showView(viewTab, (module) => {
+    if (getActiveView() !== view) return;
+    module.activate?.();
+    refreshViewOnReason(viewTab, module, 'shown');
+    if (view === 'settings' && section) activateSettingsSection(section, setting ?? null);
+  });
+  reportViewShown(view);
   if (prev === 'settings' && view !== 'settings') clearSettingsHash();
-  if (view === 'settings' && section) activateSettingsSection(section, setting ?? null);
   acknowledgeViewAttention(view);
 }
 
@@ -1001,7 +1007,7 @@ onPhoneReviewScreenChanged(syncPhoneHistory);
 function applyFormFactorLayout(layout: string) {
   if (layout === 'phone') {
     const carriedSessionId = getFocusedSessionId();
-    for (const viewTab of VIEW_TABS) viewTab.deactivate?.();
+    for (const viewTab of VIEW_TABS) mountedViewModule(viewTab.view)?.deactivate?.();
     const settingsTarget = resolveSettingsTarget(location.hash);
     activatePhoneShell({
       sessionId: carriedSessionId ?? undefined,
@@ -1176,6 +1182,7 @@ window.addEventListener('online', checkWakeLiveness);
 const reportClientError = createClientErrorReporter(sendControlMsg);
 window.addEventListener('error', (event) => reportClientError(event.error));
 window.addEventListener('unhandledrejection', (event) => reportClientError(event.reason));
+reloadOnceOnPreloadError(() => window.sessionStorage);
 window.addEventListener('pageshow', (event) => {
   if (!event.persisted) return;
   rebuildWebglGlyphAtlases();

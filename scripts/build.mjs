@@ -53,9 +53,33 @@ function assertImportMetaSurvived() {
   }
 }
 
+function assertLazyViewsStayOutOfEntry() {
+  const viteMetadataDir = path.join(distDir, 'client', '.vite');
+  const manifest = JSON.parse(fs.readFileSync(path.join(viteMetadataDir, 'manifest.json'), 'utf8'));
+  fs.rmSync(viteMetadataDir, { recursive: true, force: true });
+  const entryKey = Object.keys(manifest).find((key) => manifest[key].isEntry);
+  if (!entryKey) fail('the client manifest names no entry chunk');
+  const staticallyReachedFiles = new Set();
+  const pendingKeys = [entryKey];
+  while (pendingKeys.length > 0) {
+    const chunk = manifest[pendingKeys.pop()];
+    if (!chunk || staticallyReachedFiles.has(chunk.file)) continue;
+    staticallyReachedFiles.add(chunk.file);
+    pendingKeys.push(...(chunk.imports ?? []));
+  }
+  const registrySource = fs.readFileSync(path.join(repoRoot, 'public', 'view-registry.ts'), 'utf8');
+  const lazyViewSources = [...registrySource.matchAll(/import\('\.\/([^']+)'\)/g)].map((match) => match[1]);
+  if (lazyViewSources.length === 0) fail('public/view-registry.ts loads no view through load()');
+  for (const source of lazyViewSources) {
+    const chunk = manifest[source];
+    if (!chunk?.isDynamicEntry || staticallyReachedFiles.has(chunk.file)) fail(`public/${source} is statically reachable from the entry chunk; import its store instead of the panel`);
+  }
+}
+
 fs.rmSync(distDir, { recursive: true, force: true });
 
 await build({ configFile: path.join(repoRoot, 'vite.config.ts') });
+assertLazyViewsStayOutOfEntry();
 await build({ configFile: path.join(repoRoot, 'vite.server.config.ts') });
 assertImportMetaSurvived();
 await build({ configFile: path.join(repoRoot, 'vite.extension.config.ts') });

@@ -1,19 +1,12 @@
-import { nextRequestId } from './control-ws.ts';
+import { benchmarkSnapshot, sendBenchmarkAction, subscribeBenchmarks } from './benchmark-store.ts';
 import { buildPanelSection, buildStatChip, el } from './dom-helpers.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
+import type { ViewModule } from './view-registry-core.ts';
 import type { BenchmarkAction, BenchmarkArmScore, BenchmarkReport, BenchmarkStatus, BenchmarkSuiteSummary } from '#shared/contracts/benchmark.ts';
 
-type BenchmarkRequestSender = (message: Record<string, unknown>) => boolean;
-
 const ACTION_LABELS: Readonly<Record<BenchmarkAction, string>> = { mine: 'Mine', run: 'Run', cancel: 'Cancel' };
-const ACTION_PENDING_TEXT: Readonly<Record<BenchmarkAction, string>> = { mine: 'Mining merged pull requests.', run: 'Starting the run.', cancel: 'Cancelling the run.' };
 
 let root: HTMLDivElement | null = null;
-let status: BenchmarkStatus | null = null;
-let requestSender: BenchmarkRequestSender | null = null;
-let isServerConnected = true;
-const pendingActionBySuite = new Map<string, BenchmarkAction>();
-const outcomeBySuite = new Map<string, string>();
 
 function percent(ratio: number | null): string {
   if (ratio === null) return 'n/a';
@@ -26,28 +19,16 @@ function signedPoints(delta: number | null): string {
   return points > 0 ? `+${points}` : String(points);
 }
 
-function sendAction(suiteId: string, action: BenchmarkAction): void {
-  const sent = requestSender?.({ type: 'benchmark-action', requestId: nextRequestId('benchmark'), suiteId, action }) === true;
-  if (!sent) {
-    outcomeBySuite.set(suiteId, NOT_CONNECTED_TEXT);
-    render();
-    return;
-  }
-  pendingActionBySuite.set(suiteId, action);
-  outcomeBySuite.set(suiteId, ACTION_PENDING_TEXT[action]);
-  render();
-}
-
 function buildActionButton(suite: BenchmarkSuiteSummary, action: BenchmarkAction, isDisabled: boolean): HTMLButtonElement {
   const button = el('button', 'bench-action-button', ACTION_LABELS[action]);
   button.type = 'button';
   button.disabled = isDisabled;
-  button.addEventListener('click', () => sendAction(suite.id, action));
+  button.addEventListener('click', () => sendBenchmarkAction(suite.id, action));
   return button;
 }
 
-function inFlightText(suite: BenchmarkSuiteSummary): string {
-  const cell = status?.inFlight;
+function inFlightText(status: BenchmarkStatus, suite: BenchmarkSuiteSummary): string {
+  const cell = status.inFlight;
   if (!cell || cell.suiteId !== suite.id) return '';
   const casePart = cell.caseId ? `case ${cell.caseId}, ` : '';
   return `Cell ${cell.cellIndex + 1} of ${cell.cellCount}: ${casePart}arm ${cell.armId}, trial ${cell.trial}, ${cell.phase}.`;
@@ -85,10 +66,11 @@ function buildReportTable(report: BenchmarkReport): HTMLTableElement {
   return table;
 }
 
-function buildSuite(suite: BenchmarkSuiteSummary): HTMLElement {
+function buildSuite(status: BenchmarkStatus, suite: BenchmarkSuiteSummary): HTMLElement {
+  const { isServerConnected, pendingActionBySuite, outcomeBySuite } = benchmarkSnapshot();
   const card = el('div', 'bench-suite');
-  const isThisSuiteRunning = status?.inFlight?.suiteId === suite.id;
-  const isAnotherSuiteRunning = Boolean(status?.inFlight) && !isThisSuiteRunning;
+  const isThisSuiteRunning = status.inFlight?.suiteId === suite.id;
+  const isAnotherSuiteRunning = Boolean(status.inFlight) && !isThisSuiteRunning;
   const isPending = pendingActionBySuite.has(suite.id) || !isServerConnected;
   const summary = el('div', 'bench-summary');
   summary.append(
@@ -99,14 +81,14 @@ function buildSuite(suite: BenchmarkSuiteSummary): HTMLElement {
   );
   card.append(summary);
   const controls = el('div', 'bench-controls');
-  const isConfigured = status?.configured === true && suite.error === null;
+  const isConfigured = status.configured === true && suite.error === null;
   controls.append(
     buildActionButton(suite, 'mine', !isConfigured || isPending || isThisSuiteRunning),
     buildActionButton(suite, 'run', !isConfigured || isPending || isThisSuiteRunning || isAnotherSuiteRunning || suite.caseCount === 0),
     buildActionButton(suite, 'cancel', isPending || !isThisSuiteRunning),
   );
   const offlineText = isServerConnected ? '' : NOT_CONNECTED_TEXT;
-  const statusText = el('span', 'bench-status', offlineText || inFlightText(suite) || outcomeBySuite.get(suite.id) || '');
+  const statusText = el('span', 'bench-status', offlineText || inFlightText(status, suite) || outcomeBySuite.get(suite.id) || '');
   statusText.setAttribute('role', 'status');
   controls.append(statusText);
   card.append(controls);
@@ -127,6 +109,7 @@ function buildSuite(suite: BenchmarkSuiteSummary): HTMLElement {
 function render(): void {
   if (!root) return;
   root.textContent = '';
+  const { status } = benchmarkSnapshot();
   const section = buildPanelSection('bench', 'Benchmarks', 'Suites from the benchmarks folder of the Glimmervoid home, one run at a time.');
   root.append(section);
   if (!status) {
@@ -141,39 +124,15 @@ function render(): void {
     root.append(el('p', 'bench-empty', 'No suites yet. Create a folder holding suite.json under benchmarks in the Glimmervoid home.'));
     return;
   }
-  for (const suite of status.suites) root.append(buildSuite(suite));
+  for (const suite of status.suites) root.append(buildSuite(status, suite));
 }
 
-export function setBenchmarkRequestSender(sender: BenchmarkRequestSender): void {
-  requestSender = sender;
-}
-
-export function mountBenchmarkView(parent: HTMLElement): HTMLDivElement {
-  if (root) return root;
+function mountBenchmarkView(parent: HTMLElement): void {
+  if (root) return;
   root = el('div', 'bench-content');
   parent.append(root);
-  render();
-  return root;
-}
-
-export function applyBenchmarkConnectionState(connected: boolean): void {
-  isServerConnected = connected;
-  if (!connected) {
-    for (const suiteId of pendingActionBySuite.keys()) outcomeBySuite.delete(suiteId);
-    pendingActionBySuite.clear();
-  }
+  subscribeBenchmarks(render);
   render();
 }
 
-export function applyBenchmarkStatus(message: BenchmarkStatus): void {
-  status = message;
-  render();
-}
-
-export function applyBenchmarkActionResult(message: { suiteId: string; action: BenchmarkAction; ok: boolean; error?: string; runId?: string }): void {
-  pendingActionBySuite.delete(message.suiteId);
-  const candidateCount = status?.suites.find((suite) => suite.id === message.suiteId)?.candidateCount ?? 0;
-  const doneText: Record<BenchmarkAction, string> = { mine: `Mining finished. ${candidateCount} candidate${candidateCount === 1 ? '' : 's'} awaiting approval in the candidates folder.`, run: `Run ${message.runId ?? ''} started.`, cancel: 'Run cancelled.' };
-  outcomeBySuite.set(message.suiteId, message.ok ? doneText[message.action] : message.error || 'The server refused the action.');
-  render();
-}
+export const view: ViewModule<HTMLElement> = { mount: mountBenchmarkView };
