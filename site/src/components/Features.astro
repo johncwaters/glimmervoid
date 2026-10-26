@@ -1,6 +1,11 @@
 ---
 const FEATURES = [
   { name: 'Notifications', line: 'Browser or Telegram' },
+  { name: 'Usage', line: 'What each session costs' },
+  { name: 'Trace', line: 'Every tool call, in order' },
+  { name: 'Issues', line: 'Open a session from an issue' },
+  { name: 'File upload', line: 'Paste or drop files into a session' },
+  { name: 'Radar', line: 'PostHog errors to PRs, opt-in' },
   { name: 'Plan review', line: 'Approve plans anywhere' },
   { name: 'glimmervoid spawn', line: 'Agents start their own helpers' },
   { name: 'Auto-resume', line: 'Survives restarts mid-turn' },
@@ -24,12 +29,14 @@ const FEATURES = [
 </section>
 
 <style>
-  .feature-chips { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-  .feature-chips li { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 12px 14px; min-width: 0; }
+  .feature-chips { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .feature-chips li { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 10px 12px; min-width: 0; }
   .feature-name { color: var(--text-head); font-weight: 700; font-size: 15px; }
   .feature-line { color: var(--text-dim); font-size: 13px; }
-  .feature-chips .experimental-tag { margin-left: 8px; font-size: 11px; }
+  .feature-chips .experimental-tag { margin-left: 8px; font-size: 11px; white-space: nowrap; }
   @media (max-width: 820px) {
     .feature-chips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .feature-line { display: none; }
+    .feature-chips .experimental-tag { display: block; margin: 2px 0 0; }
   }
 </style>
