@@ -10,6 +10,7 @@ const COMMANDS_IN_ORDER = [
   { command: 'git push', reason: null },
   { command: 'git push --force', reason: 'Rewrites shared history' },
 ].map((entry, index) => ({ ...entry, step: index + 1 }));
+const CREASE_PATHS = ['M4 10l6 1 3-6M10 11l2 8M12 19l7-5M13 12l7-2M3 15l6-2', 'M5 7l5 4 5-3M10 11l-2 8M10 11l6 5M15 8l5 4M4 14l4-1', 'M6 5l3 6-5 3M9 11l7-1 2-5M16 10l1 8M9 11l1 9'];
 const COMMAND_ICON_BY_KIND = { ran: STATUS_ICON_SHAPES.complete, caught: STATUS_ICON_SHAPES.failed };
 const RAN_COMMANDS = COMMANDS_IN_ORDER.filter(({ reason }) => reason === null);
 const CAUGHT_COMMANDS = COMMANDS_IN_ORDER.filter(({ reason }) => reason !== null);
@@ -46,9 +47,8 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
           <path class="yolo-net-edge" />
         </svg>
         {CAUGHT_COMMANDS.map(({ command, step }) => (
-          <span class="yolo-card" data-yolo-card={step}>
-            <svg class="yolo-icon is-caught" viewBox="0 0 16 16" aria-hidden="true">{STATUS_ICON_SHAPES.failed.map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>
-            {command}
+          <span class="yolo-ball" data-yolo-ball={step}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d={CREASE_PATHS[step % CREASE_PATHS.length]} /></svg>
           </span>
         ))}
       </div>
@@ -141,7 +141,9 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
   .yolo-terminal li[data-state="hidden"], .yolo-terminal li[data-state="gone"] { height: 0; opacity: 0; }
   .yolo-terminal li[data-state="clearing"] { opacity: 0; transition: opacity 320ms linear; }
   .yolo-terminal li[data-state="clearing"][data-kind="caught"] { height: 0; }
-  .yolo-terminal li[data-state="torn"] { height: 0; opacity: 0; transition: height 360ms var(--ease-out-expo) 120ms, opacity 0ms; }
+  .yolo-terminal li[data-state="torn"] { height: 0; opacity: 0; transition: height 360ms var(--ease-out-expo) 160ms, opacity 160ms linear; }
+  .yolo-terminal li[data-state="torn"] .yolo-command { scale: 0.2 0.6; transition: scale 200ms var(--ease-in-expo); }
+  .yolo-terminal .yolo-command { display: inline-block; transform-origin: 50% 50%; }
   .yolo-prompt { color: var(--text-dim); }
   .yolo-command { color: var(--text-head); }
   .yolo-terminal .yolo-icon { opacity: 0; scale: 0.4; transition: opacity 160ms linear, scale 320ms cubic-bezier(0.34, 1.56, 0.64, 1); }
@@ -155,8 +157,14 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
   .yolo-mesh { fill: none; stroke: var(--accent-dim); stroke-width: 1; }
   .yolo-mesh.is-strained { stroke: var(--accent); stroke-width: 1.5; }
   .yolo-net-edge { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-  .yolo-card { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 7px; padding: 4px 10px; border: 1px solid var(--state-waiting); border-radius: 4px; background: var(--bg); color: var(--state-waiting); font-family: var(--font-mono); font-size: 13px; line-height: 18px; white-space: nowrap; box-shadow: 0 6px 14px -6px rgb(0 0 0 / 0.7); opacity: 0; transition: opacity 320ms linear; will-change: transform; }
-  .yolo-card[data-on="true"] { opacity: 1; transition: none; }
+  .yolo-ball { position: absolute; left: 0; top: 0; width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 34% 30%, color-mix(in oklab, var(--state-waiting) 55%, white) 0, var(--state-waiting) 42%, color-mix(in oklab, var(--state-waiting) 50%, black) 100%); box-shadow: 0 5px 10px -4px rgb(0 0 0 / 0.75); opacity: 0; transition: opacity 320ms linear; will-change: translate, rotate; }
+  .yolo-ball svg { display: block; width: 100%; height: 100%; fill: none; stroke: color-mix(in oklab, var(--state-waiting) 45%, black); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+  .yolo-ball[data-on="true"] { opacity: 1; transition: none; }
+  .yolo-ball[data-crumpling="true"] { animation: yolo-crumple 280ms var(--ease-out-expo); }
+  @keyframes yolo-crumple {
+    0% { scale: 3.2 0.7; border-radius: 4px; }
+    100% { scale: 1; border-radius: 50%; }
+  }
   @keyframes yolo-flag-shake {
     0%, 100% { translate: 0; }
     20%, 60% { translate: -3px; }
@@ -183,7 +191,7 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
   type NetPoint = { x: number; y: number; previousX: number; previousY: number; restX: number; restY: number; isPinned: boolean };
   type Spring = { from: NetPoint; to: NetPoint; restLength: number; isDrawn: boolean };
   type Net = { rows: NetPoint[][]; springs: Spring[] };
-  type Card = {
+  type Ball = {
     element: HTMLElement;
     width: number;
     height: number;
@@ -195,7 +203,7 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
     startY: number;
     landingX: number;
     stackLevel: number;
-    tiltDeg: number;
+    spinDirection: number;
     isFalling: boolean;
     isLanded: boolean;
   };
@@ -209,15 +217,19 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
   const NET_RETURN_PULL = 0.004;
   const SPRING_PASSES = 4;
   const SPRING_STIFFNESS = 0.035;
-  const CARD_GRAVITY = 0.55;
-  const CARD_POP_VELOCITY = -4;
-  const CARD_LOAD = 7;
-  const CARD_IMPACT_SHARE = 1.6;
-  const STACK_OVERLAP = 1.08;
-  const MAX_TILT_DEG = 10;
+  const BALL_GRAVITY = 0.55;
+  const BALL_POP_VELOCITY = -4;
+  const BALL_LOAD = 4.2;
+  const BALL_WEIGHT_SPREAD = 1.8;
+  const BALL_IMPACT_SHARE = 1.6;
+  const STACK_OVERLAP = 0.84;
+  const FALL_SPIN_DEG = 420;
   const STRAIN_RATIO = 1.045;
-  const LANDING_OFFSETS_PX = [-10, 14, -4];
-  const LANDING_TILTS_DEG = [-1.5, 2.5, -2];
+  const LANDING_SPOTS = [
+    { offsetInBallWidths: -0.52, stackLevel: 0 },
+    { offsetInBallWidths: 0.52, stackLevel: 0 },
+    { offsetInBallWidths: 0, stackLevel: 1 },
+  ];
   const TYPE_MS_PER_CHARACTER = 42;
   const SETTLE_STEP_COUNT = 360;
 
@@ -257,24 +269,24 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
     return net.rows[net.rows.length - 1];
   }
 
-  function surfaceAt(net: Net, x: number): { y: number; slope: number } {
+  function surfaceAt(net: Net, x: number): number {
     const row = bottomRow(net);
     const segmentIndex = row.findIndex((point, index) => index > 0 && point.x >= x);
     const right = row[segmentIndex > 0 ? segmentIndex : row.length - 1];
     const left = row[segmentIndex > 0 ? segmentIndex - 1 : row.length - 2];
     const span = right.x - left.x || 1;
     const share = Math.min(1, Math.max(0, (x - left.x) / span));
-    return { y: left.y + (right.y - left.y) * share, slope: (right.y - left.y) / span };
+    return left.y + (right.y - left.y) * share;
   }
 
-  function pointsUnder(net: Net, card: Card): NetPoint[] {
+  function pointsUnder(net: Net, ball: Ball): NetPoint[] {
     const row = bottomRow(net);
-    const under = row.filter((point) => Math.abs(point.x - card.x) <= card.width / 2);
+    const under = row.filter((point) => Math.abs(point.x - ball.x) <= ball.width * BALL_WEIGHT_SPREAD);
     if (under.length > 0) return under;
-    return [row.reduce((nearest, point) => (Math.abs(point.x - card.x) < Math.abs(nearest.x - card.x) ? point : nearest))];
+    return [row.reduce((nearest, point) => (Math.abs(point.x - ball.x) < Math.abs(nearest.x - ball.x) ? point : nearest))];
   }
 
-  function stepNet(net: Net, cards: Card[]): void {
+  function stepNet(net: Net, balls: Ball[]): void {
     for (const point of net.rows.flat()) {
       if (point.isPinned) continue;
       const velocityX = (point.x - point.previousX) * NET_DAMPING;
@@ -284,10 +296,10 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
       point.x += velocityX + (point.restX - point.x) * NET_RETURN_PULL;
       point.y += velocityY + (point.restY - point.y) * NET_RETURN_PULL;
     }
-    for (const card of cards) {
-      if (!card.isLanded) continue;
-      const under = pointsUnder(net, card);
-      for (const point of under) point.y += CARD_LOAD / under.length;
+    for (const ball of balls) {
+      if (!ball.isLanded) continue;
+      const under = pointsUnder(net, ball);
+      for (const point of under) point.y += BALL_LOAD / under.length;
     }
     for (let pass = 0; pass < SPRING_PASSES; pass += 1) {
       for (const spring of net.springs) {
@@ -310,33 +322,29 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
     }
   }
 
-  function restingBottomY(net: Net, cards: Card[], card: Card): number {
-    const stackedHeight = cards.filter((other) => other.isLanded && other.stackLevel < card.stackLevel).length * card.height * STACK_OVERLAP;
-    return surfaceAt(net, card.x).y - stackedHeight;
+  function restingBottomY(net: Net, ball: Ball): number {
+    return surfaceAt(net, ball.x) - ball.stackLevel * ball.height * STACK_OVERLAP;
   }
 
-  function stepCard(net: Net, cards: Card[], card: Card): void {
-    if (card.isLanded) {
-      const surface = surfaceAt(net, card.x);
-      const surfaceTiltDeg = (Math.atan(surface.slope) * 180) / Math.PI;
-      card.y = restingBottomY(net, cards, card) - card.height / 2;
-      card.angleDeg = Math.max(-MAX_TILT_DEG, Math.min(MAX_TILT_DEG, surfaceTiltDeg + card.tiltDeg));
+  function stepBall(net: Net, ball: Ball): void {
+    if (ball.isLanded) {
+      ball.y = restingBottomY(net, ball) - ball.height / 2;
       return;
     }
-    if (!card.isFalling) return;
-    card.velocityY += CARD_GRAVITY;
-    card.y += card.velocityY;
-    const landingY = restingBottomY(net, cards, card) - card.height / 2;
-    const fallShare = Math.min(1, Math.max(0, (card.y - card.startY) / (landingY - card.startY || 1)));
+    if (!ball.isFalling) return;
+    ball.velocityY += BALL_GRAVITY;
+    ball.y += ball.velocityY;
+    const landingY = restingBottomY(net, ball) - ball.height / 2;
+    const fallShare = Math.min(1, Math.max(0, (ball.y - ball.startY) / (landingY - ball.startY || 1)));
     const easedShare = fallShare * fallShare * (3 - 2 * fallShare);
-    card.x = card.startX + (card.landingX - card.startX) * easedShare;
-    card.angleDeg = Math.sin(fallShare * Math.PI) * 14 * Math.sign(card.landingX - card.startX || 1) + card.tiltDeg * fallShare;
-    if (card.y < landingY) return;
-    card.y = landingY;
-    card.isFalling = false;
-    card.isLanded = true;
-    const under = pointsUnder(net, card);
-    for (const point of under) point.previousY -= (card.velocityY * CARD_IMPACT_SHARE) / Math.sqrt(under.length);
+    ball.x = ball.startX + (ball.landingX - ball.startX) * easedShare;
+    ball.angleDeg = fallShare * FALL_SPIN_DEG * ball.spinDirection;
+    if (ball.y < landingY) return;
+    ball.y = landingY;
+    ball.isFalling = false;
+    ball.isLanded = true;
+    const under = pointsUnder(net, ball);
+    for (const point of under) point.previousY -= (ball.velocityY * BALL_IMPACT_SHARE) / Math.sqrt(under.length);
   }
 
   function drawNet(net: Net, meshPath: Element, strainedPath: Element, edgePath: Element): void {
@@ -353,8 +361,9 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
     edgePath.setAttribute('d', `${outlinePath}M${rim[0].x} ${rim[0].y}L${rim[rim.length - 1].x} ${rim[rim.length - 1].y}`);
   }
 
-  function drawCard(card: Card): void {
-    card.element.style.transform = `translate(${(card.x - card.width / 2).toFixed(1)}px, ${(card.y - card.height / 2).toFixed(1)}px) rotate(${card.angleDeg.toFixed(2)}deg)`;
+  function drawBall(ball: Ball): void {
+    ball.element.style.translate = `${(ball.x - ball.width / 2).toFixed(1)}px ${(ball.y - ball.height / 2).toFixed(1)}px`;
+    ball.element.style.rotate = `${ball.angleDeg.toFixed(2)}deg`;
   }
 
   function startYoloDrop(): void {
@@ -366,11 +375,11 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
     if (!figure || !catchArea || !netSvg || !meshPath || !strainedPath || !edgePath) return;
     const lines = [...figure.querySelectorAll<HTMLElement>('.yolo-terminal li')];
     const caughtLines = lines.filter((line) => line.dataset.kind === 'caught');
-    const cards: Card[] = caughtLines.map((line, caughtIndex) => ({
-      element: figure.querySelector<HTMLElement>(`[data-yolo-card="${line.dataset.yoloStep}"]`) ?? line,
+    const balls: Ball[] = caughtLines.map((line, caughtIndex) => ({
+      element: figure.querySelector<HTMLElement>(`[data-yolo-ball="${line.dataset.yoloStep}"]`) ?? line,
       width: 0, height: 0, x: 0, y: 0, angleDeg: 0, velocityY: 0, startX: 0, startY: 0, landingX: 0,
-      stackLevel: caughtIndex,
-      tiltDeg: LANDING_TILTS_DEG[caughtIndex % LANDING_TILTS_DEG.length],
+      stackLevel: LANDING_SPOTS[caughtIndex % LANDING_SPOTS.length].stackLevel,
+      spinDirection: caughtIndex % 2 === 0 ? 1 : -1,
       isFalling: false,
       isLanded: false,
     }));
@@ -378,28 +387,33 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
 
     const draw = () => {
       drawNet(net, meshPath, strainedPath, edgePath);
-      cards.forEach(drawCard);
+      balls.forEach(drawBall);
     };
     const stepPhysics = () => {
-      stepNet(net, cards);
-      for (const card of cards) stepCard(net, cards, card);
+      stepNet(net, balls);
+      for (const ball of balls) stepBall(net, ball);
     };
     const measureCards = () => {
-      for (const [caughtIndex, card] of cards.entries()) {
-        card.width = card.element.offsetWidth;
-        card.height = card.element.offsetHeight;
-        card.landingX = catchArea.clientWidth / 2 + LANDING_OFFSETS_PX[caughtIndex % LANDING_OFFSETS_PX.length];
+      for (const [caughtIndex, ball] of balls.entries()) {
+        ball.width = ball.element.offsetWidth;
+        ball.height = ball.element.offsetHeight;
+        ball.landingX = catchArea.clientWidth / 2 + LANDING_SPOTS[caughtIndex % LANDING_SPOTS.length].offsetInBallWidths * ball.width;
       }
     };
     const showSettledScene = () => {
       net = buildNet(catchArea.clientWidth, catchArea.clientHeight);
       measureCards();
-      for (const line of lines) line.dataset.state = line.dataset.kind === 'ran' ? 'ran' : 'gone';
-      for (const card of cards) {
-        card.x = card.landingX;
-        card.isFalling = false;
-        card.isLanded = true;
-        card.element.dataset.on = 'true';
+      figure.dataset.clearing = 'false';
+      for (const line of lines) {
+        line.dataset.state = line.dataset.kind === 'ran' ? 'ran' : 'gone';
+        const commandText = line.querySelector<HTMLElement>('.yolo-command');
+        if (commandText) commandText.textContent = commandText.dataset.command ?? '';
+      }
+      for (const ball of balls) {
+        ball.x = ball.landingX;
+        ball.isFalling = false;
+        ball.isLanded = true;
+        ball.element.dataset.on = 'true';
       }
       for (let step = 0; step < SETTLE_STEP_COUNT; step += 1) stepPhysics();
       draw();
@@ -415,18 +429,20 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
       return;
     }
 
-    const tearOut = (line: HTMLElement, card: Card) => {
-      const lineBox = line.getBoundingClientRect();
+    const tearOut = (line: HTMLElement, ball: Ball) => {
+      const commandBox = (line.querySelector('.yolo-command') ?? line).getBoundingClientRect();
       const catchBox = catchArea.getBoundingClientRect();
-      card.startX = lineBox.left - catchBox.left + card.width / 2;
-      card.startY = lineBox.top - catchBox.top + lineBox.height / 2;
-      card.x = card.startX;
-      card.y = card.startY;
-      card.angleDeg = 0;
-      card.velocityY = CARD_POP_VELOCITY;
-      card.isFalling = true;
-      card.element.dataset.on = 'true';
-      drawCard(card);
+      ball.startX = commandBox.left - catchBox.left + commandBox.width / 2;
+      ball.startY = commandBox.top - catchBox.top + commandBox.height / 2;
+      ball.x = ball.startX;
+      ball.y = ball.startY;
+      ball.angleDeg = 0;
+      ball.velocityY = BALL_POP_VELOCITY;
+      ball.isFalling = true;
+      ball.element.dataset.on = 'true';
+      ball.element.dataset.crumpling = 'true';
+      ball.element.addEventListener('animationend', () => { ball.element.dataset.crumpling = 'false'; }, { once: true });
+      drawBall(ball);
       line.dataset.state = 'torn';
     };
     const commandSteps = lines.flatMap((line): SceneStep[] => {
@@ -448,25 +464,25 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
       if (line.dataset.kind === 'ran') {
         return [typing, { durationMs: 0.25 * BEAT_MS }, { durationMs: 0.75 * BEAT_MS, onStart: () => { settleText(); line.dataset.state = 'ran'; } }];
       }
-      const card = cards[caughtLines.indexOf(line)];
+      const ball = balls[caughtLines.indexOf(line)];
       return [
         typing,
         { durationMs: 0.25 * BEAT_MS },
         { durationMs: 0.7 * BEAT_MS, onStart: () => { settleText(); line.dataset.state = 'flagged'; } },
-        { durationMs: 1.6 * BEAT_MS, onStart: () => tearOut(line, card) },
+        { durationMs: 1.6 * BEAT_MS, onStart: () => tearOut(line, ball) },
       ];
     });
     const clearScene = () => {
       figure.dataset.clearing = 'true';
-      for (const card of cards) card.element.dataset.on = 'false';
+      for (const ball of balls) ball.element.dataset.on = 'false';
     };
     const resetScene = () => {
       net = buildNet(catchArea.clientWidth, catchArea.clientHeight);
       figure.dataset.clearing = 'false';
       for (const line of lines) line.dataset.state = 'hidden';
-      for (const card of cards) {
-        card.isLanded = false;
-        card.isFalling = false;
+      for (const ball of balls) {
+        ball.isLanded = false;
+        ball.isFalling = false;
       }
     };
     const sceneSteps: SceneStep[] = [
