@@ -39,7 +39,7 @@ import { openRestartDialog } from './resume-dialog.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { reportHeaderError } from '../action-status.ts';
 import { countAttentionByKind, needsAttention, sessionAttentionTier, titleAlertCount } from '../focus-view/attention-core.ts';
-import { closeSessionNotifications } from '../notifications.ts';
+import { canShowDesktopNotification, closeSessionNotifications } from '../notifications.ts';
 
 import {
   closeDataWs,
@@ -768,6 +768,10 @@ function isCompletionWatchedAt(ui: SessionUi, previousState: string, nextState: 
   });
 }
 
+function shouldPlayAlertChime() {
+  return isSoundEnabled() && !canShowDesktopNotification();
+}
+
 export function applyState(sessionId: unknown, nextState: unknown, stateSince: unknown, event = "") {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
@@ -796,7 +800,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
 
   if ((state === STATES.WAITING && prevState !== STATES.WAITING)
       || (state === STATES.COMPLETE && prevState !== STATES.COMPLETE)) {
-    if (!isCompactionRestoreEvent(event) && isSoundEnabled()) playAlertSound(getSoundId());
+    if (!isCompactionRestoreEvent(event) && shouldPlayAlertChime()) playAlertSound(getSoundId());
   }
 
   if (isCompletionWatchedAt(ui, prevState, state)) sendControlMsg({ type: 'dismiss', id: sessionIdOf(sessionId), expectedState: STATES.COMPLETE });
@@ -811,7 +815,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
         ui.card.addEventListener('animationend', () => ui.card.classList.remove('completion-flash'), { once: true });
       });
     });
-    if (isSoundEnabled()) playAlertSound(getSoundId());
+    if (shouldPlayAlertChime()) playAlertSound(getSoundId());
   }
 
   if (state === STATES.DONE || state === STATES.FAILED) {
