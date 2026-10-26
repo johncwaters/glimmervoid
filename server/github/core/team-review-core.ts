@@ -1,6 +1,6 @@
 import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
 import { decisionAsIfApprovalRequired, hasStandingViewerApproval, canApproveAfterComment, DECIDING_REVIEW_STATES, EarlierReview, FindingSeverity, GithubReviewState, PostingPlan, QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../../shared/contracts/team-review.ts';
-import { AUTOMATED_REVIEW_NOTE, HAND_APPROVED_REVIEW_NOTE, findingHeader as renderFindingHeader, foldedFindingSection, generalFindingBullet, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
+import { AUTOMATED_REVIEW_NOTE, CREDITED_REVIEW_NOTE, HAND_APPROVED_REVIEW_NOTE, findingHeader as renderFindingHeader, foldedFindingSection, generalFindingBullet, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import type {
   GithubReview, HandCheck, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
@@ -252,12 +252,16 @@ function canPost(draft: ReviewDraft, clickedHead: string, currentHead: string, e
   return isPostableStatus(draft, event) && draft.reviewedHead === clickedHead && draft.reviewedHead === currentHead;
 }
 
+const POSTED_NOTE_BY_EVENT: Record<PostedReviewEvent, string> = { APPROVE: HAND_APPROVED_REVIEW_NOTE, COMMENT: CREDITED_REVIEW_NOTE };
+
 function postedReviewBody(event: PostedReviewEvent, body: string): string {
-  if (event !== 'APPROVE' || body.includes(HAND_APPROVED_REVIEW_NOTE)) return body;
+  const postedNote = POSTED_NOTE_BY_EVENT[event];
+  if (body.includes(postedNote)) return body;
   const noteStart = body.indexOf(AUTOMATED_REVIEW_NOTE);
+  if (noteStart === -1 && event === 'COMMENT') return body;
   const operatorText = noteStart === -1 ? body.trim() : body.slice(0, noteStart).trim();
   const automatedText = noteStart === -1 ? '' : body.slice(noteStart + AUTOMATED_REVIEW_NOTE.length).trim();
-  return [operatorText, HAND_APPROVED_REVIEW_NOTE, automatedText].filter(Boolean).join('\n\n');
+  return [operatorText, postedNote, automatedText].filter(Boolean).join('\n\n');
 }
 
 function eventForAction(action: string): PostedReviewEvent | null {
