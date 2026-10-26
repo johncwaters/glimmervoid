@@ -14,6 +14,11 @@ function glimmervoidHomeDir(homeDirectory: string, env: { GLIMMERVOID_HOME?: str
   return path.join(homeDirectory, '.glimmervoid');
 }
 
+function isOperatorHomeUnderTest(homeDirectory: string, env: { GLIMMERVOID_HOME?: string; NODE_TEST_CONTEXT?: string }): boolean {
+  if (!env.NODE_TEST_CONTEXT) return false;
+  return glimmervoidHomeDir(homeDirectory, env) === glimmervoidHomeDir(homeDirectory, {});
+}
+
 function decideConfigPath(
   {
     env = {},
@@ -32,4 +37,4 @@ function decideConfigPath(
   return { path: null, source: 'none', homePath, envPath: null };
 }
 
-export { decideConfigPath, glimmervoidHomeDir };
+export { decideConfigPath, glimmervoidHomeDir, isOperatorHomeUnderTest };

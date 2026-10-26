@@ -145,7 +145,7 @@ const WHOLE_FILESYSTEM = '/';
 const GUARDRAILS_TEMP_FOLDER = 'guardrails-temp';
 const AGENT_LOGINS_SIBLING_ENTRY = 'agent-logins';
 const GLIMMERVOID_CONFIG_SIBLING_ENTRIES: readonly string[] = Object.freeze([
-  AGENT_LOGINS_SIBLING_ENTRY, 'bin', 'pairings.json', 'pairings-seen.json', 'plans', 'telegram-outbox.json', 'traces', 'uploads', 'usage-budget-state.json', 'usage-lanes.json', 'usage-warehouse.json',
+  AGENT_LOGINS_SIBLING_ENTRY, 'bin', 'owned-paths.json', 'pairings.json', 'pairings-seen.json', 'plans', 'telegram-outbox.json', 'traces', 'uploads', 'usage-budget-state.json', 'usage-lanes.json', 'usage-warehouse.json',
   'visions-intent.json',
 ]);
 const GLIMMERVOID_HOME_STATE_ENTRIES: readonly string[] = Object.freeze([

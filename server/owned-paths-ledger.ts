@@ -1,7 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createJsonStateStore } from './json-file.ts';
-import { glimmervoidHomeDir } from './config-store.ts';
 import { OwnedPathsLedger } from '../shared/contracts/owned-paths.ts';
 import type { OwnedPathEntry } from '../shared/contracts/owned-paths.ts';
 import { caseFoldedPathKey } from '../shared/paths.ts';
@@ -14,10 +13,6 @@ type OwnedPathsReconcileGit = {
   describeWorkspaceMemberWork: (args: { projectPath: string; cwd: string; branch: string }) => Promise<string | null>;
   removeWorkspaceMember: (args: { projectPath: string; cwd: string; shareList: string[] }) => Promise<{ ok: boolean; err?: string }>;
 };
-
-function ownedPathsLedgerPath(glimmervoidHome: string = glimmervoidHomeDir()): string {
-  return path.join(glimmervoidHome, 'owned-paths.json');
-}
 
 function ledgerKey(ownedPath: string): string {
   return caseFoldedPathKey(path.resolve(ownedPath));
@@ -141,5 +136,5 @@ async function reconcileOwnedPaths({ ledger, configuredSessionIds, git, shareLis
   }
 }
 
-export { createOwnedPathsLedger, ownedPathsLedgerPath, reconcileOwnedPaths };
+export { createOwnedPathsLedger, reconcileOwnedPaths };
 export type { OwnedPathsLedgerHandle };

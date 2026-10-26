@@ -54,7 +54,7 @@ import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
-import { glimmervoidHomeDir as resolveGlimmervoidHomeDir } from '../core/config-path-core.ts';
+import { glimmervoidHomeDir as resolveGlimmervoidHomeDir, isOperatorHomeUnderTest } from '../core/config-path-core.ts';
 import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
@@ -68,6 +68,9 @@ interface CreateBackendOptions extends BackendLaneOptions {
 const AGENT_INGRESS_HOST = '127.0.0.1';
 
 function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
+  if (isOperatorHomeUnderTest(os.homedir(), process.env)) {
+    throw new Error('createBackend refused to boot on the operator\'s Glimmervoid home under node:test; run tests through npm test or npm run test:files, which isolate GLIMMERVOID_HOME');
+  }
   const { staticDir = 'auto', settingsDefaults } = options;
   const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
     version: string;

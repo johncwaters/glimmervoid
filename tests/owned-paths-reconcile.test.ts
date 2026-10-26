@@ -3,11 +3,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
+import { createBackend } from '../server/backend/backend.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { createOwnedPathsLedger, reconcileOwnedPaths } from '../server/owned-paths-ledger.ts';
 import { planWorkspace } from '../session/core/workspace-core.ts';
 import { createSessionWorkspaceMembers } from '../session/session-workspace-members.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
+import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
+import { waitFor } from './helpers/wait-for.ts';
 
 function makeRepo(root: string, name: string): string {
   const repo = path.join(root, name);
@@ -80,6 +85,48 @@ test('startup reconcile deletes only ledgered leftovers of removed sessions and 
     assert.equal(fs.existsSync(liveWorkspace.folder), true);
     assert.notEqual(malformedRun.warnings.length, 0);
   } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a backend booted on a config outside its home sweeps only that config\'s ledger, never the home ledger', { skip: !hasGit() }, async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-foreign-config-')));
+  const homeDirectory = path.join(root, 'home');
+  const configDirectory = path.join(root, 'elsewhere');
+  fs.mkdirSync(homeDirectory);
+  fs.mkdirSync(configDirectory);
+  const previousHome = process.env.GLIMMERVOID_HOME;
+  const previousConfig = process.env.GLIMMERVOID_CONFIG;
+  const server = http.createServer();
+  let backend: ReturnType<typeof createBackend> | null = null;
+  try {
+    const first = makeRepo(root, 'first');
+    const second = makeRepo(root, 'second');
+    const homeRun = restartedServer(path.join(homeDirectory, 'owned-paths.json'));
+    const operatorWorkspace = await provisionWorkspace(root, 'operator-session', [first, second], homeRun.gitWorkspace);
+    await homeRun.ledger.idle();
+    const configRun = restartedServer(path.join(configDirectory, 'owned-paths.json'));
+    const goneWorkspace = await provisionWorkspace(root, 'gone-session', [first, second], configRun.gitWorkspace);
+    await configRun.ledger.idle();
+
+    const configPath = path.join(configDirectory, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({ projects: [{ id: 'other-session', name: 'other', path: first }], repoRoots: [], autoResume: false }));
+    process.env.GLIMMERVOID_HOME = homeDirectory;
+    process.env.GLIMMERVOID_CONFIG = configPath;
+    backend = createBackend(server, { staticDir: null });
+    server.on('request', backend.app);
+    await listenOnLoopback(server);
+
+    await waitFor(() => !fs.existsSync(goneWorkspace.members[0].dir));
+    assert.equal(fs.existsSync(operatorWorkspace.members[0].dir), true);
+  } finally {
+    if (backend) await settleBackendShutdown(backend);
+    server.closeAllConnections();
+    await closeServer(server);
+    if (previousHome === undefined) delete process.env.GLIMMERVOID_HOME;
+    if (previousHome !== undefined) process.env.GLIMMERVOID_HOME = previousHome;
+    if (previousConfig === undefined) delete process.env.GLIMMERVOID_CONFIG;
+    if (previousConfig !== undefined) process.env.GLIMMERVOID_CONFIG = previousConfig;
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
