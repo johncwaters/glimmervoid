@@ -111,6 +111,10 @@ const BenchmarksSettings = optionalObject('benchmarks', {
   enabled: optionalBoolean('benchmarks.enabled'),
 });
 
+const IssuesSettings = optionalObject('issues', {
+  enabled: optionalBoolean('issues.enabled'),
+});
+
 const CoherenceSettings = optionalObject('coherence', {
   enabled: optionalBoolean('coherence.enabled'),
 });
@@ -254,6 +258,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   teamReview: TeamReviewSettings,
   benchmarks: BenchmarksSettings,
   coherence: CoherenceSettings,
+  issues: IssuesSettings,
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,

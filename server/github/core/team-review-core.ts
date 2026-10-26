@@ -84,7 +84,7 @@ function readTeamReviewSettings(config: TeamReviewSettingsSource): TeamReviewSet
   const teams = readGithubTeams(config);
   const configuredOrg = typeof block?.org === 'string' ? block.org.trim() : '';
   return {
-    enabled: block?.enabled === true,
+    enabled: block?.enabled !== false,
     org: configuredOrg || teams[0]?.org || '',
     teams,
     reReviewAfterHours: positiveNumberOr(block?.reReviewAfterHours, DEFAULT_RE_REVIEW_AFTER_HOURS),

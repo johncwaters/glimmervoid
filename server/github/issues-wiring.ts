@@ -111,8 +111,8 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
   }
 
   const runner = createLaneRunner({
-    tag: core.ISSUES_LANE_ID, gate: () => ({ start: true }),
-    cfgKey: () => JSON.stringify({ projects: config.projects.map((project) => ({ id: project.id, path: project.path, repos: project.repos })), teams: teams() }),
+    tag: core.ISSUES_LANE_ID, gate: () => ({ start: config.issues?.enabled === true }),
+    cfgKey: () => JSON.stringify({ enabled: config.issues?.enabled === true, projects: config.projects.map((project) => ({ id: project.id, path: project.path, repos: project.repos })), teams: teams() }),
     emptyStatus, broadcast: () => broadcast(currentStatus()),
     createPoller: ({ onTickComplete }) => createIssuesPoller({
       teams: teams(), resolveProjects, store, clock, log, firstTickDelayMs: bootStaggerDelay,

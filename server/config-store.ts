@@ -549,6 +549,7 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId }: {
       teamReview: pickBlock('teamReview', config.teamReview),
       benchmarks: pickBlock('benchmarks', config.benchmarks),
       coherence: pickBlock('coherence', config.coherence),
+      issues: pickBlock('issues', config.issues),
       workflows: config.workflows ?? null,
 
       posthog: pickBlock('posthog', config.posthog),
@@ -598,6 +599,7 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId }: {
     if (newConfig.teamReview != null) config.teamReview = newConfig.teamReview;
     if (newConfig.benchmarks != null) config.benchmarks = newConfig.benchmarks;
     if (newConfig.coherence != null) config.coherence = newConfig.coherence;
+    if (newConfig.issues != null) config.issues = newConfig.issues;
     if (newConfig.posthog != null) config.posthog = newConfig.posthog;
     if (newConfig.usage != null) config.usage = newConfig.usage;
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;

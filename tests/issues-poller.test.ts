@@ -254,7 +254,7 @@ test('issues wiring resolves workspace members without enabling review lanes and
   const fetchedRepos: string[] = [];
   let viewer: string | null = 'alice';
   const sessionIds = new Set(['live-session']);
-  const config: GlimmervoidConfig = { projects: [{ id: 'workspace', name: 'workspace', path: '/workspace', repos: ['/repo/app', '/repo/docs'] }], github: { teams: ['acme/core'] } };
+  const config: GlimmervoidConfig = { projects: [{ id: 'workspace', name: 'workspace', path: '/workspace', repos: ['/repo/app', '/repo/docs'] }], github: { teams: ['acme/core'] }, issues: { enabled: true } };
   const wiring = createIssuesWiring({
     config, hasSession: (id) => sessionIds.has(id),
     homeDir: directory, broadcast: (status) => { statuses.push(status); },
@@ -302,6 +302,9 @@ test('issues wiring resolves workspace members without enabling review lanes and
     assert.equal(wiring.getStatus().configured, false);
     assert.match(wiring.getStatus().reason ?? '', /No GitHub sources/);
     assert.deepEqual(wiring.getStatus().issues, []);
+    config.issues = { enabled: false };
+    wiring.restartIfConfigChanged();
+    assert.equal((await wiring.refresh()).ok, false);
   } finally {
     await wiring.stopPoller();
     await fs.rm(directory, { recursive: true, force: true });

@@ -141,7 +141,7 @@ Draft reviews of teammates' pull requests for you to post from the Reviews tab.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `teamReview.enabled` | Enable team review | `false` | Poll open pull requests from the team and draft a review of each one. Nothing is posted until you choose Approve or Comment. |
+| `teamReview.enabled` | Enable team review | `true` | Poll open pull requests from the team and draft a review of each one. Nothing is posted until you choose Approve or Comment. |
 | `github.teams` | GitHub teams | `[]` | Teams to search for review requests and members, one org/slug per entry. Leave empty to fall back to the legacy teamReview.org and teamReview.team keys in config.json. |
 | `teamReview.reReviewAfterHours` | Re-review after | `24` | When a reviewed PR has a new head, review it again after this long since its last review. Re-run review runs it at any time. |
 | `teamReview.skipIdleAfterDays` | Skip PRs idle for | `14` | Leave pull requests without GitHub activity for this long out of automatic review. |
@@ -179,6 +179,14 @@ Per-session Coherence hook status and decision journal for agent sessions.
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `coherence.enabled` | Show session Coherence | `false` | Shows each session's Coherence hook status and decision journal when the repository installed @posthog/coherence 1.8 or newer. Off by default. |
+
+### Issues (experimental)
+
+GitHub issues from your projects and teams in their own dashboard tab.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `issues.enabled` | Show the Issues tab | `false` | Poll GitHub issues for your projects and teams and list them in an Issues tab. Off stops the polling and hides the tab. |
 
 ### Privacy
 

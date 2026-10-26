@@ -527,7 +527,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       {
         id: 'team-review-enabled', path: 'teamReview.enabled', title: 'Enable team review',
         description: 'Poll open pull requests from the team and draft a review of each one. Nothing is posted until you choose Approve or Comment.',
-        control: 'toggle', keywords: ['pull requests', 'github'], defaultValue: false, ...MACHINE_NOW,
+        control: 'toggle', keywords: ['pull requests', 'github'], defaultValue: true, ...MACHINE_NOW,
       },
       {
         id: 'github-teams', path: 'github.teams', title: 'GitHub teams',
@@ -621,6 +621,19 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         id: 'coherence-enabled', path: 'coherence.enabled', title: 'Show session Coherence',
         description: "Shows each session's Coherence hook status and decision journal when the repository installed @posthog/coherence 1.8 or newer. Off by default.",
         control: 'toggle', keywords: ['experimental', 'coherence', 'journal', 'decisions'], defaultValue: false, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'lanes-issues',
+    level: 'lanes',
+    title: 'Issues (experimental)',
+    description: 'GitHub issues from your projects and teams in their own dashboard tab.',
+    settings: [
+      {
+        id: 'issues-enabled', path: 'issues.enabled', title: 'Show the Issues tab',
+        description: 'Poll GitHub issues for your projects and teams and list them in an Issues tab. Off stops the polling and hides the tab.',
+        control: 'toggle', keywords: ['experimental', 'issues', 'github', 'tab'], defaultValue: false, ...MACHINE_NOW,
       },
     ],
   },
