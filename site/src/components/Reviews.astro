@@ -1,6 +1,8 @@
 ---
 import { actionLabel, severityPresentation } from '../../../public/github/team-review-view-core.ts';
-import { stageLabel } from '../../../public/github/my-prs-view-core.ts';
+import { stageIcon, stageLabel } from '../../../public/github/my-prs-view-core.ts';
+import { OCTICON_PATHS_BY_ICON } from '../../../public/github/pr-status-icon.ts';
+import type { PrStatusIcon } from '../../../public/github/pr-status-icon-core.ts';
 import { framePart } from '../lib/frame-parts.ts';
 
 const SHARD_PATH = 'M4.5 0.5L8.5 5.5L4.5 10.5L0.5 5.5Z';
@@ -11,17 +13,22 @@ const DRAFTED_COMMENTS = [
   { severity: 'LOW', text: 'Typo in the log line', untickedFrom: 1 },
 ] as const;
 const POST_ACTIONS = (['approve', 'approve-only', 'comment'] as const).map((action) => ({ action, label: actionLabel(action) }));
-const READINESS_ROWS = [
-  { label: 'Checks', steps: [{ text: 'Passing', tone: 'ok', from: 0 }] },
-  { label: 'Review', steps: [{ text: 'Approved', tone: 'ok', from: 0 }] },
-  { label: 'Conflicts', steps: [{ text: 'Conflicts with main', tone: 'danger', from: 0, until: 1 }, { text: 'Repairing', tone: 'warn', from: 1, until: 2 }, { text: 'None', tone: 'ok', from: 2 }] },
-  { label: 'Base', steps: [{ text: '2 behind main, update not required', tone: 'muted', from: 0, until: 2 }, { text: 'Up to date with main', tone: 'ok', from: 2 }] },
-  { label: 'Merge when ready', steps: [{ text: 'On, merges as soon as it is ready', tone: 'ok', from: 0 }] },
+const READINESS_ROWS: { label: string; steps: { text: string; tone: string; icon: PrStatusIcon; from: number; until?: number }[] }[] = [
+  { label: 'Checks', steps: [{ text: 'Passing', tone: 'ok', icon: 'passed', from: 0 }] },
+  { label: 'Review', steps: [{ text: 'Approved', tone: 'ok', icon: 'passed', from: 0 }] },
+  { label: 'Conflicts', steps: [{ text: 'Conflicts with main', tone: 'danger', icon: 'conflict', from: 0, until: 1 }, { text: 'Repairing', tone: 'warn', icon: 'running', from: 1, until: 2 }, { text: 'None', tone: 'ok', icon: 'passed', from: 2 }] },
+  { label: 'Base', steps: [{ text: '2 behind main', tone: 'muted', icon: 'behind', from: 0, until: 2 }, { text: 'Up to date', tone: 'ok', icon: 'passed', from: 2 }] },
+  { label: 'Merge when ready', steps: [{ text: 'On', tone: 'ok', icon: 'ready', from: 0 }] },
 ];
 const PARENT_STAGES = [
-  { text: stageLabel('conflicts'), tone: 'danger', from: 0, until: 2 },
-  { text: stageLabel('ready'), tone: 'ok', from: 2, until: 3 },
-  { text: stageLabel('merged'), tone: 'merged', from: 3 },
+  { stage: 'conflicts', tone: 'danger', from: 0, until: 2 },
+  { stage: 'ready', tone: 'ok', from: 2, until: 3 },
+  { stage: 'merged', tone: 'merged', from: 3 },
+] as const;
+const TEAM_PULL_STATES = [
+  { text: 'Your turn', tone: 'wait', icon: 'your-turn', from: 0, until: 2, isPopping: false },
+  { text: 'You approved', tone: 'ok', icon: 'passed', from: 2, until: 3, isPopping: true },
+  { text: 'Resolved', tone: 'ok', icon: 'ready', from: 3, until: undefined, isPopping: false },
 ];
 ---
 <section id="reviews">
@@ -33,24 +40,15 @@ const PARENT_STAGES = [
   <div class="review-act reveal">
     <div class="act-copy">
       <p class="act-label">Team</p>
-      <h3>Teammates' PRs, read before you open them.</h3>
-      <p class="act-lede">An agent drafts it. Keep what you agree with, click post.</p>
-      <ul class="act-points">
-        <li><strong>Only your click posts.</strong></li>
-        <li><strong>Re-reviews flag high findings only.</strong></li>
-        <li><strong>Answered threads resolve themselves.</strong></li>
-        <li><strong>Fix it in a session.</strong></li>
-      </ul>
-      <p class="act-note">Opt-in.</p>
+      <h3>Teammates' PRs, reviewed before you open them.</h3>
+      <p class="act-note">Nothing posts until you click. <span class="no-break">Opt-in.</span></p>
     </div>
     <figure class="act-demo" id="team-review-demo" role="img" aria-label="A drafted review of pull request 482 says approve with nits, with a high, a medium and a low finding, all included. You untick the low one and press Approve and comment, and the review posts as You approved. After new commits, the re-review raises no new high findings and both of your comments are resolved.">
       <div class="pull-card" aria-hidden="true">
         <p class="pull-head">
           <span class="pull-title"><span class="pull-number">#482</span> Retry webhook deliveries</span>
           <span class="stacked pull-state">
-            <span class="tone-wait" {...framePart(0, 2)}>Ready</span>
-            <span class="tone-ok pops-in" {...framePart(2, 3)}>You approved</span>
-            <span class="tone-ok" {...framePart(3)}>Comments resolved</span>
+            {TEAM_PULL_STATES.map(({ text, tone, icon, from, until, isPopping }) => <span class={`pull-status tone-${tone}${isPopping ? ' pops-in' : ''}`} {...framePart(from, until)}><svg class="pr-icon" viewBox="0 0 16 16" aria-hidden="true"><path d={OCTICON_PATHS_BY_ICON[icon]} fill="currentColor" /></svg>{text}</span>)}
           </span>
         </p>
         <p class="verdict"><span class="verdict-seal"></span>approve with nits</p>
@@ -94,20 +92,14 @@ const PARENT_STAGES = [
     <div class="act-copy">
       <p class="act-label">Mine</p>
       <h3>Your PRs, watched until they merge.</h3>
-      <p class="act-lede">See what blocks each merge. Turn on what you want handled.</p>
-      <ul class="act-points">
-        <li><strong>Merge readiness at a glance.</strong></li>
-        <li><strong>Merge when ready.</strong></li>
-        <li><strong>Keep mergeable.</strong></li>
-        <li><strong>Kept rebased, stacks grouped.</strong></li>
-      </ul>
+      <p class="act-note">Conflicts repaired, branches rebased, merged when green.</p>
     </div>
     <figure class="act-demo" id="my-prs-demo" role="img" aria-label="Your pull request 501 has merge conflicts and is 2 commits behind main, with Merge when ready and Keep mergeable on. Keep mergeable repairs the conflict, the branch is rebased, the PR becomes Ready to merge and then merges. Your stacked pull request 502 sits under it with its checks running.">
       <div class="pull-card" aria-hidden="true">
         <p class="pull-head">
           <span class="pull-title"><span class="pull-number">#501</span> Billing schema</span>
           <span class="stacked pull-state">
-            {PARENT_STAGES.map(({ text, tone, from, until }) => <span class={`tone-${tone}${tone === 'merged' ? ' pops-in' : ''}`} {...framePart(from, until)}>{text}</span>)}
+            {PARENT_STAGES.map(({ stage, tone, from, until }) => <span class={`pull-status tone-${tone}${tone === 'merged' ? ' pops-in' : ''}`} {...framePart(from, until)}><svg class="pr-icon" viewBox="0 0 16 16" aria-hidden="true"><path d={OCTICON_PATHS_BY_ICON[stageIcon(stage)]} fill="currentColor" /></svg>{stageLabel(stage)}</span>)}
           </span>
         </p>
         <p class="readiness-heading">Merge readiness</p>
@@ -116,7 +108,7 @@ const PARENT_STAGES = [
             <div class="readiness-row">
               <dt>{label}</dt>
               <dd class="stacked">
-                {steps.map(({ text, tone, from, until }) => <span class={`tone-${tone}`} {...(steps.length > 1 ? framePart(from, until) : {})}>{text}</span>)}
+                {steps.map(({ text, tone, icon, from, until }) => <span class={`pull-status tone-${tone}`} {...(steps.length > 1 ? framePart(from, until) : {})}><svg class="pr-icon" viewBox="0 0 16 16" aria-hidden="true"><path d={OCTICON_PATHS_BY_ICON[icon]} fill="currentColor" /></svg>{text}</span>)}
               </dd>
             </div>
           ))}
@@ -129,7 +121,7 @@ const PARENT_STAGES = [
       <div class="stacked-child" aria-hidden="true">
         <span class="tree-branch"></span>
         <span class="pull-title"><span class="pull-number">#502</span> Backfill invoices</span>
-        <span class="tone-wait">{stageLabel('checks-pending')}</span>
+        <span class="pull-status tone-wait"><svg class="pr-icon" viewBox="0 0 16 16" aria-hidden="true"><path d={OCTICON_PATHS_BY_ICON[stageIcon('checks-pending')]} fill="currentColor" /></svg>{stageLabel('checks-pending')}</span>
       </div>
     </figure>
   </div>
@@ -150,18 +142,17 @@ const PARENT_STAGES = [
   .review-act { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 32px; align-items: start; }
   .review-act + .review-act { margin-top: 64px; }
   .act-copy { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-  .act-lede { color: var(--text-dim); font-size: 16px; }
   .act-label { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
-  .act-points { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 15px; color: var(--text-dim); }
-  .act-points li { padding-left: 14px; border-left: 1px solid var(--border); }
-  .act-points strong { color: var(--text-head); }
-  .act-note { color: var(--text-dim); font-size: 13px; }
+  .act-note { color: var(--text-dim); font-size: 15px; }
+  .no-break { white-space: nowrap; }
   .act-demo { margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
   .pull-card { display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 16px; font-size: 14px; }
   .pull-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
   .pull-title { min-width: 0; color: var(--text-head); font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pull-number { color: var(--text-dim); font-weight: 400; }
   .pull-state { flex: none; justify-items: end; font-size: 13px; font-weight: 700; }
+  .pull-status { display: inline-flex; align-items: center; gap: 6px; }
+  .pr-icon { flex: none; width: 14px; height: 14px; }
   .tone-ok { color: var(--state-complete); }
   .tone-wait { color: var(--state-running); }
   .tone-warn { color: var(--state-waiting); }
