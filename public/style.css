@@ -9156,7 +9156,9 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
   background-size: calc(var(--nyan-width) * 6) var(--nyan-height);
   background-repeat: no-repeat;
   image-rendering: pixelated;
-  animation: nyan-bob 0.6s steps(1, end) infinite, nyan-frames 0.9s steps(6) infinite;
+  --gait-lift: 2px;
+  --gait-tilt: 2deg;
+  animation: gait-glide-bob 0.9s ease-in-out infinite alternate, gait-glide-tilt 0.9s ease-in-out -0.45s infinite alternate, nyan-frames 0.9s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-cat,
@@ -9169,125 +9171,163 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
 .flying-animal-preview .nyan-sprite.is-unicorn,
 .merge-strike-ball .nyan-sprite.is-unicorn {
   background-image: url("./animals/sprite-unicorn.png");
+  --gait-lift: 3px;
+  --gait-tilt: 3deg;
+  animation: gait-glide-bob 0.9s ease-in-out infinite alternate, gait-glide-tilt 0.9s ease-in-out -0.45s infinite alternate, nyan-frames 0.9s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-dragon,
 .flying-animal-preview .nyan-sprite.is-dragon,
 .merge-strike-ball .nyan-sprite.is-dragon {
   background-image: url("./animals/sprite-dragon.png");
-  animation: dragon-swoop 2.4s ease-in-out infinite, nyan-frames 0.6s steps(6) infinite;
+  --gait-lift: 5px;
+  --gait-tilt: 4deg;
+  animation: gait-glide-bob 1.2s ease-in-out infinite alternate, gait-glide-tilt 1.2s ease-in-out -0.6s infinite alternate, nyan-frames 0.6s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-pig,
 .flying-animal-preview .nyan-sprite.is-pig,
 .merge-strike-ball .nyan-sprite.is-pig {
   background-image: url("./animals/sprite-pig.png");
-  animation: pig-trot 0.5s steps(2) infinite, nyan-frames 0.3s steps(6) infinite;
+  --gait-lift: 2px;
+  transform-origin: 50% 100%;
+  animation: gait-trot 0.6s linear infinite, nyan-frames 0.3s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-whale,
 .flying-animal-preview .nyan-sprite.is-whale,
 .merge-strike-ball .nyan-sprite.is-whale {
   background-image: url("./animals/sprite-whale.png");
-  animation: whale-glide 3.2s ease-in-out infinite, nyan-frames 0.8s steps(6) infinite;
+  --gait-lift: 6px;
+  --gait-tilt: 3deg;
+  animation: gait-glide-bob 1.6s ease-in-out infinite alternate, gait-glide-tilt 1.6s ease-in-out -0.8s infinite alternate, nyan-frames 0.8s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-frog,
 .flying-animal-preview .nyan-sprite.is-frog,
 .merge-strike-ball .nyan-sprite.is-frog {
   background-image: url("./animals/sprite-frog.png");
-  animation: frog-hop 1.1s cubic-bezier(0.34, 1.56, 0.64, 1) infinite, nyan-frames 0.55s steps(6) infinite;
+  --gait-lift: 8px;
+  transform-origin: 50% 100%;
+  animation: gait-hop 1.1s linear infinite, nyan-frames 0.55s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-penguin,
 .flying-animal-preview .nyan-sprite.is-penguin,
 .merge-strike-ball .nyan-sprite.is-penguin {
   background-image: url("./animals/sprite-penguin.png");
-  animation: penguin-waddle 0.7s steps(1) infinite, nyan-frames 0.35s steps(6) infinite;
+  --gait-lift: 2px;
+  --gait-tilt: 4deg;
+  transform-origin: 50% 100%;
+  animation: gait-waddle 0.7s linear infinite, nyan-frames 0.35s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-bee,
 .flying-animal-preview .nyan-sprite.is-bee,
 .merge-strike-ball .nyan-sprite.is-bee {
   background-image: url("./animals/sprite-bee.png");
-  animation: bee-jitter 0.35s linear infinite, nyan-frames 0.12s steps(6) infinite;
+  --gait-lift: 3px;
+  --gait-tilt: 4deg;
+  animation: bee-jitter 0.36s linear infinite, gait-glide-bob 0.6s ease-in-out infinite alternate, gait-glide-tilt 0.6s ease-in-out -0.3s infinite alternate, nyan-frames 0.12s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-owl,
 .flying-animal-preview .nyan-sprite.is-owl,
 .merge-strike-ball .nyan-sprite.is-owl {
   background-image: url("./animals/sprite-owl.png");
-  animation: owl-glide 2.8s ease-in-out infinite, nyan-frames 0.7s steps(6) infinite;
+  --gait-lift: 3px;
+  --gait-tilt: 3deg;
+  animation: gait-glide-bob 1.4s ease-in-out infinite alternate, gait-glide-tilt 1.4s ease-in-out -0.7s infinite alternate, nyan-frames 0.7s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-cow,
 .flying-animal-preview .nyan-sprite.is-cow,
 .merge-strike-ball .nyan-sprite.is-cow {
   background-image: url("./animals/sprite-cow.png");
-  animation: cow-plod 1.4s ease-in-out infinite, nyan-frames 0.7s steps(6) infinite;
+  --gait-lift: 2px;
+  transform-origin: 50% 100%;
+  animation: gait-trot 1.4s linear infinite, nyan-frames 0.7s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-panda,
 .flying-animal-preview .nyan-sprite.is-panda,
 .merge-strike-ball .nyan-sprite.is-panda {
   background-image: url("./animals/sprite-panda.png");
-  animation: panda-amble 1.0s ease-in-out infinite, nyan-frames 0.5s steps(6) infinite;
+  --gait-lift: 2px;
+  transform-origin: 50% 100%;
+  animation: gait-trot 1s linear infinite, nyan-frames 0.5s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-red-panda,
 .flying-animal-preview .nyan-sprite.is-red-panda,
 .merge-strike-ball .nyan-sprite.is-red-panda {
   background-image: url("./animals/sprite-red-panda.png");
-  animation: redpanda-dash 0.5s steps(2) infinite, nyan-frames 0.3s steps(6) infinite;
+  --gait-lift: 2px;
+  transform-origin: 50% 100%;
+  animation: gait-trot 0.6s linear infinite, nyan-frames 0.3s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-fox,
 .flying-animal-preview .nyan-sprite.is-fox,
 .merge-strike-ball .nyan-sprite.is-fox {
   background-image: url("./animals/sprite-fox.png");
-  animation: fox-trot 0.6s steps(2) infinite, nyan-frames 0.3s steps(6) infinite;
+  --gait-lift: 2px;
+  transform-origin: 50% 100%;
+  animation: gait-trot 0.6s linear infinite, nyan-frames 0.3s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-deer,
 .flying-animal-preview .nyan-sprite.is-deer,
 .merge-strike-ball .nyan-sprite.is-deer {
   background-image: url("./animals/sprite-deer.png");
-  animation: deer-bound 1.1s cubic-bezier(0.34, 1.56, 0.64, 1) infinite, nyan-frames 0.55s steps(6) infinite;
+  --gait-lift: 7px;
+  transform-origin: 50% 100%;
+  animation: gait-hop 1.1s linear infinite, nyan-frames 0.55s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-horse,
 .flying-animal-preview .nyan-sprite.is-horse,
 .merge-strike-ball .nyan-sprite.is-horse {
   background-image: url("./animals/sprite-horse.png");
-  animation: horse-gallop 0.9s ease-in-out infinite, nyan-frames 0.45s steps(6) infinite;
+  --gait-lift: 3px;
+  transform-origin: 50% 100%;
+  animation: gait-trot 0.9s linear infinite, nyan-frames 0.45s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-sheep,
 .flying-animal-preview .nyan-sprite.is-sheep,
 .merge-strike-ball .nyan-sprite.is-sheep {
   background-image: url("./animals/sprite-sheep.png");
-  animation: sheep-bounce 1.0s ease-in-out infinite, nyan-frames 0.5s steps(6) infinite;
+  --gait-lift: 3px;
+  transform-origin: 50% 100%;
+  animation: gait-trot 1s linear infinite, nyan-frames 0.5s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-hamster,
 .flying-animal-preview .nyan-sprite.is-hamster,
 .merge-strike-ball .nyan-sprite.is-hamster {
   background-image: url("./animals/sprite-hamster.png");
-  animation: hamster-scurry 0.4s steps(2) infinite, nyan-frames 0.25s steps(6) infinite;
+  --gait-lift: 2px;
+  transform-origin: 50% 100%;
+  animation: gait-trot 0.5s linear infinite, nyan-frames 0.25s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-giraffe,
 .flying-animal-preview .nyan-sprite.is-giraffe,
 .merge-strike-ball .nyan-sprite.is-giraffe {
   background-image: url("./animals/sprite-giraffe.png");
-  animation: giraffe-sway 1.6s ease-in-out infinite, nyan-frames 0.8s steps(6) infinite;
+  --gait-lift: 2px;
+  transform-origin: 50% 100%;
+  animation: gait-trot 1.6s linear infinite, nyan-frames 0.8s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-sprite.is-hedgehog,
 .flying-animal-preview .nyan-sprite.is-hedgehog,
 .merge-strike-ball .nyan-sprite.is-hedgehog {
   background-image: url("./animals/sprite-hedgehog.png");
-  animation: hedgehog-scamper 0.5s steps(2) infinite, nyan-frames 0.3s steps(6) infinite;
+  --gait-lift: 3px;
+  transform-origin: 50% 100%;
+  animation: gait-trot 0.6s linear infinite, nyan-frames 0.3s steps(6) infinite;
 }
 
 :root[data-flying-animals="true"] .nyan-trail.is-hearts,
@@ -9485,56 +9525,6 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
   50% { background-image: url("./animals/trail-paws-frame2.png"); }
 }
 
-@keyframes cow-plod {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(3px); }
-}
-
-@keyframes panda-amble {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(3px); }
-}
-
-@keyframes redpanda-dash {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
-}
-
-@keyframes fox-trot {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
-}
-
-@keyframes deer-bound {
-  0%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-6px); }
-}
-
-@keyframes horse-gallop {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
-}
-
-@keyframes sheep-bounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
-}
-
-@keyframes hamster-scurry {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
-}
-
-@keyframes giraffe-sway {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(2px); }
-}
-
-@keyframes hedgehog-scamper {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
-}
-
 @keyframes daisies-sway {
   0% { background-image: url("./animals/trail-daisies.png"); }
   50% { background-image: url("./animals/trail-daisies-frame2.png"); }
@@ -9622,29 +9612,35 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
   to   { background-position: -96px 0, -120px 11px; }
 }
 
-@keyframes dragon-swoop {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(6px); }
+@keyframes gait-glide-bob {
+  from { translate: 0 calc(-1 * var(--gait-lift)); }
+  to { translate: 0 var(--gait-lift); }
 }
 
-@keyframes pig-trot {
-  0%, 100% { transform: rotate(-3deg); }
-  50% { transform: rotate(3deg); }
+@keyframes gait-glide-tilt {
+  from { rotate: calc(-1 * var(--gait-tilt)); }
+  to { rotate: var(--gait-tilt); }
 }
 
-@keyframes whale-glide {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(8px); }
+@keyframes gait-trot {
+  0%, 100% { translate: 0 0; scale: 1.04 0.96; animation-timing-function: cubic-bezier(0.25, 0.6, 0.4, 1); }
+  50% { translate: 0 calc(-1 * var(--gait-lift)); scale: 0.98 1.03; animation-timing-function: cubic-bezier(0.6, 0, 0.75, 0.4); }
 }
 
-@keyframes frog-hop {
-  0%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-7px); }
+@keyframes gait-hop {
+  0% { translate: 0 0; scale: 1 1; animation-timing-function: ease-in-out; }
+  15% { translate: 0 0; scale: 1.06 0.9; animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1); }
+  25% { translate: 0 calc(-0.4 * var(--gait-lift)); scale: 0.94 1.08; animation-timing-function: cubic-bezier(0.25, 0.6, 0.4, 1); }
+  50% { translate: 0 calc(-1 * var(--gait-lift)); scale: 0.98 1.03; animation-timing-function: cubic-bezier(0.6, 0, 0.75, 0.4); }
+  75% { translate: 0 0; scale: 1.1 0.88; animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1); }
+  87% { translate: 0 0; scale: 0.97 1.03; animation-timing-function: ease-in-out; }
+  100% { translate: 0 0; scale: 1 1; }
 }
 
-@keyframes penguin-waddle {
-  0%, 100% { transform: rotate(-4deg); }
-  50% { transform: rotate(4deg); }
+@keyframes gait-waddle {
+  0%, 100% { translate: 0 0; rotate: calc(-1 * var(--gait-tilt)); scale: 1.03 0.97; animation-timing-function: cubic-bezier(0.25, 0.6, 0.4, 1); }
+  25%, 75% { translate: 0 calc(-1 * var(--gait-lift)); rotate: 0deg; scale: 0.99 1.02; animation-timing-function: cubic-bezier(0.6, 0, 0.75, 0.4); }
+  50% { translate: 0 0; rotate: var(--gait-tilt); scale: 1.03 0.97; animation-timing-function: cubic-bezier(0.25, 0.6, 0.4, 1); }
 }
 
 @keyframes bee-jitter {
@@ -9652,11 +9648,6 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
   25% { transform: translate(1px, -1px); }
   50% { transform: translate(-1px, 1px); }
   75% { transform: translate(1px, 1px); }
-}
-
-@keyframes owl-glide {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(3px); }
 }
 
 @keyframes embers-twinkle {
@@ -9704,14 +9695,18 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
 }
 
 :root[data-flying-animals="true"] .nyan-boop.is-booped {
-  animation: nyan-boop 0.7s ease-out;
+  transform-origin: 50% 100%;
+  animation: nyan-boop 0.5s linear;
 }
 
 @keyframes nyan-boop {
-  0%   { transform: none; }
-  15%  { transform: scale(1.2, 0.8); }
-  60%  { transform: translateY(-18px) rotate(-300deg) scale(1.1); }
-  100% { transform: rotate(-360deg); }
+  0% { transform: none; animation-timing-function: cubic-bezier(0.5, 0, 0.9, 0.5); }
+  16% { transform: scale(1.18, 0.82); animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1); }
+  34% { transform: translateY(-12px) scale(0.9, 1.14); animation-timing-function: cubic-bezier(0.25, 0.6, 0.4, 1); }
+  48% { transform: translateY(-14px) scale(1, 1); animation-timing-function: cubic-bezier(0.6, 0, 0.75, 0.4); }
+  66% { transform: translateY(0) scale(1.1, 0.9); animation-timing-function: ease-out; }
+  82% { transform: scale(0.97, 1.04); animation-timing-function: ease-in-out; }
+  100% { transform: none; }
 }
 
 .flying-animals-gallery {

@@ -87,10 +87,14 @@ function launchFlight(isFirst: boolean, requestedSprite?: string) {
 }
 
 function boopFlight() {
-  if (!flightElement || !trailHoldElement || !boopElement) return;
+  if (!boopElement) return;
   boopElement.classList.remove('is-booped');
   void boopElement.offsetWidth;
   boopElement.classList.add('is-booped');
+}
+
+function speedUpBoopedFlight(event: AnimationEvent) {
+  if (!flightElement || !trailHoldElement || event.target !== boopElement) return;
   for (const animation of [...flightElement.getAnimations(), ...trailHoldElement.getAnimations()]) animation.playbackRate = BOOPED_FLIGHT_PLAYBACK_RATE;
 }
 
@@ -112,6 +116,7 @@ export function startNyanCat() {
   boopElement.className = 'nyan-boop';
   boopElement.append(spriteElement);
   boopElement.addEventListener('pointerdown', boopFlight);
+  boopElement.addEventListener('animationend', speedUpBoopedFlight);
   flightElement.append(trailWindowElement, boopElement);
   document.body.appendChild(flightElement);
   window.addEventListener('resize', updateFlightGeometry);
