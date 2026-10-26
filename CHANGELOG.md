@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Shift+Enter starts a new line in the terminal**: in a session terminal, Shift+Enter now starts a new line in the agent's prompt instead of submitting it, as it already did in the Conversation view. Enter alone still sends.
 
+### Fixed
+
+- A session needing you while the dashboard is in the background now sounds once: the desktop notification carries the alert sound and the dashboard chime stays quiet, instead of both playing. With the dashboard focused, or desktop notifications off or blocked, the chime plays as before.
+
 ## [0.45.0] - 2026-10-26
 
 ### Added

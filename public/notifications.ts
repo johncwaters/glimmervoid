@@ -94,6 +94,16 @@ export function closeSessionNotifications(sessionId: string) {
   for (const notification of shownForSession) notification.close();
 }
 
+function isDesktopNotificationWanted(ignoreFocus: boolean) {
+  if (!notificationsSupported() || !isNotificationsEnabled()) return false;
+  if (document.documentElement.hasAttribute('data-streamer')) return false;
+  return ignoreFocus || !document.hasFocus();
+}
+
+export function canShowDesktopNotification(ignoreFocus = false) {
+  return isDesktopNotificationWanted(ignoreFocus) && notificationPermission() === 'granted';
+}
+
 export function showDesktopNotification({
   session,
   category,
@@ -102,9 +112,7 @@ export function showDesktopNotification({
   ignoreFocus = false,
 }: { session?: unknown; category?: unknown; message?: unknown; kind?: unknown; ignoreFocus?: unknown; [key: string]: unknown } = {}) {
   const notificationApi = getNotificationApi();
-  if (!notificationApi || !isNotificationsEnabled()) return;
-  if (document.documentElement.hasAttribute('data-streamer')) return;
-  if (!ignoreFocus && typeof document !== 'undefined' && typeof document.hasFocus === 'function' && document.hasFocus()) return;
+  if (!notificationApi || !isDesktopNotificationWanted(!!ignoreFocus)) return;
   if (notificationApi.permission === 'denied') reportBlockedNotificationsOnce();
   if (notificationApi.permission !== 'granted') return;
   clearHeaderError(NOTIFICATIONS_ERROR_SOURCE);

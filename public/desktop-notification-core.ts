@@ -3,6 +3,5 @@ export function desktopNotificationOptions(session: unknown, category: unknown, 
     body: String(message || 'Session needs attention'),
     tag: `glimmervoid-${session || ''}-${category || ''}`,
     renotify: true,
-    silent: true,
   };
 }
