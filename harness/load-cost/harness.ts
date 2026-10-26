@@ -4,7 +4,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import type { Browser, BrowserContext, Page, WebSocket as PageWebSocket } from 'playwright-core';
+import type { Browser, BrowserContext, Page, Request, WebSocket as PageWebSocket } from 'playwright-core';
 import WebSocket from 'ws';
 
 import { createBackend } from '../../server/backend/backend.ts';
@@ -26,6 +26,7 @@ const CLIENT_SOURCES = ['public', 'shared', 'assets', 'vite.config.ts', 'package
 const DEFAULT_ARTIFACTS_DIR = path.join(import.meta.dirname, 'artifacts');
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const PHONE_LABEL = 'Phone viewport 390x844';
+const NETWORK_QUIET_MS = 500;
 const READY_TIMEOUT_MS = 240_000;
 const SEED_TIMEOUT_MS = 30_000;
 const AGENT_EXIT_TIMEOUT_MS = 15_000;
@@ -181,7 +182,26 @@ function watchPageSockets(page: Page) {
 function watchHttpSizes(page: Page) {
   const pending: Promise<{ url: string; status: number; bodyBytes: number; headerBytes: number; decodedBytes: number }>[] = [];
   let isCollecting = true;
+  const inFlightRequests = new Set<Request>();
+  let notifyNetworkQuiet: (() => void) | null = null;
+  let quietTimer: ReturnType<typeof setTimeout> | undefined;
+  const armQuietTimer = () => {
+    clearTimeout(quietTimer);
+    if (inFlightRequests.size > 0 || !notifyNetworkQuiet) return;
+    quietTimer = setTimeout(notifyNetworkQuiet, NETWORK_QUIET_MS);
+  };
+  const forgetRequest = (request: Request) => {
+    inFlightRequests.delete(request);
+    armQuietTimer();
+  };
+  page.on('request', (request) => {
+    if (!isCollecting) return;
+    inFlightRequests.add(request);
+    clearTimeout(quietTimer);
+  });
+  page.on('requestfailed', forgetRequest);
   page.on('requestfinished', (request) => {
+    forgetRequest(request);
     if (!isCollecting) return;
     pending.push((async () => {
       const sizes = await request.sizes();
@@ -190,7 +210,11 @@ function watchHttpSizes(page: Page) {
       return { url: request.url(), status: response?.status() ?? 0, bodyBytes: sizes.responseBodySize, headerBytes: sizes.responseHeadersSize, decodedBytes };
     })());
   });
-  return async (proxyHttpBytes: number): Promise<ShellCheck> => {
+  const settleRequests = () => new Promise<void>((resolve) => {
+    notifyNetworkQuiet = resolve;
+    armQuietTimer();
+  });
+  const checkShell = async (proxyHttpBytes: number): Promise<ShellCheck> => {
     isCollecting = false;
     const finished = await Promise.all(pending);
     let browserReportedHttpBytes = 0;
@@ -207,6 +231,7 @@ function watchHttpSizes(page: Page) {
     }
     return decideShellCheck(proxyHttpBytes, browserReportedHttpBytes, assetFilesChecked, assetMismatches);
   };
+  return { settleRequests, checkShell };
 }
 
 async function waitForPaint(page: Page): Promise<void> {
@@ -252,7 +277,7 @@ async function measureVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy,
       if (visit === 'reconnect') await openSession(page, sockets, sessionId, fixture);
       sockets.endWindow();
     }
-    const checkShell = visit === 'cold' ? watchHttpSizes(page) : null;
+    const httpSizes = visit === 'cold' ? watchHttpSizes(page) : null;
     sockets.beginWindow(sessionId, fixture);
     proxy.beginMeasure();
     const startedAt = performance.now();
@@ -265,8 +290,9 @@ async function measureVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy,
     if (visit !== 'reconnect') await openSession(page, sockets, sessionId, fixture);
     const elapsedMs = performance.now() - startedAt;
     const parsed = sockets.endWindow();
+    await httpSizes?.settleRequests();
     const channels = await proxy.endMeasure();
-    const shellCheck = checkShell ? await checkShell(channels.http.wireBytesDown) : null;
+    const shellCheck = httpSizes ? await httpSizes.checkShell(channels.http.wireBytesDown) : null;
     return { elapsedMs, channels, parsed, shellCheck };
   } finally {
     await context.close();

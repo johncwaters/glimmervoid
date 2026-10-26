@@ -290,12 +290,12 @@ export function onTerminalLinkChange(notify: () => void) {
   return () => terminalLinkSubscribers.delete(notify);
 }
 
-export function countConnectingTerminals() {
-  let connectingTerminalCount = 0;
-  for (const ui of sessionUIs.values()) {
-    if (ui.card.dataset.link === 'connecting') connectingTerminalCount++;
+export function countShownConnectingTerminals() {
+  let shownConnectingTerminalCount = 0;
+  for (const [sessionId, ui] of sessionUIs) {
+    if (ui.card.dataset.link === 'connecting' && isTerminalOutputWanted(ui, sessionId)) shownConnectingTerminalCount++;
   }
-  return connectingTerminalCount;
+  return shownConnectingTerminalCount;
 }
 
 function refreshTerminalLink(ui: SessionUi) {
