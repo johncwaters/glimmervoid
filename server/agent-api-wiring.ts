@@ -113,6 +113,7 @@ type AgentVerbHandlers = { readonly [V in AgentApiVerb]: (session: Session, requ
 
 interface AgentApiPort {
   handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply>;
+  markChildWorktreeDiscard(childId: string): void;
 }
 
 function createAgentApiWiring({
@@ -650,7 +651,11 @@ function createAgentApiWiring({
     return dispatch(session, parsed.verb, parsed.request);
   }
 
-  return { handle };
+  function markChildWorktreeDiscard(childId: string): void {
+    childIdsToDiscard.add(childId);
+  }
+
+  return { handle, markChildWorktreeDiscard };
 }
 
 export { createAgentApiWiring };

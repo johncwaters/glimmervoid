@@ -7,6 +7,9 @@ import type { ProjectEntry } from '../server/config-store.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import { Session } from '../session/sessions.ts';
+import { createGitWorkspace } from '../server/git/git-workspace.ts';
+import { git, hasGit } from './helpers/git-fixture.ts';
+import { waitFor } from './helpers/wait-for.ts';
 
 test('add-session persists the workspace folder and chosen repositories', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-workspace-'));
@@ -81,6 +84,43 @@ test('quick-session copies a workspace session under the next free name, guarded
       dangerouslySkipPermissions: true,
     });
     assert.deepEqual(connection.sent.find((frame) => frame.requestId === 'q1'), { type: 'add-session-result', requestId: 'q1', ok: true, error: null, sessionId: 'bbbbbbbb-copy' });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('remove-session refuses a worktree with uncommitted work its badge has not seen, even on a discard nobody confirmed, then removes it once clean', { skip: !hasGit() }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-remove-'));
+  try {
+    const repo = path.join(root, 'repo');
+    fs.mkdirSync(repo);
+    git(['init', '-b', 'main'], repo);
+    git(['-c', 'user.email=test@example.com', '-c', 'user.name=Remove Test', '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-m', 'initial'], repo);
+    const worktreeDir = path.join(root, 'worktree');
+    git(['worktree', 'add', '-b', 'session-branch', worktreeDir, 'main'], repo);
+    const session = new Session({ id: 'remove-probe-session', name: 'Remove Probe', path: repo, gitWorkspace: createGitWorkspace() });
+    session.adoptWorktree({ worktreeDir, branch: 'session-branch', base: 'main', hasUnmergedWork: false, watch: false, emit: false });
+    fs.writeFileSync(path.join(worktreeDir, 'unsaved.txt'), 'unsaved');
+    const config = { projects: [{ id: 'remove-probe-session', name: 'Remove Probe', path: repo }] };
+    const control = connectControl<{ type: string; requestId?: string; ok?: boolean; error?: string | null; canDiscardWork?: boolean }>(createControlServer(controlDeps(config, { sessions: new Map([['remove-probe-session', session]]) })));
+    const replyTo = (requestId: string) => control.sent.find((frame) => frame.requestId === requestId);
+
+    assert.equal(session.mergeStatus, 'none');
+    control.send({ type: 'remove-session', id: 'remove-probe-session', requestId: 'unseen-discard', discardWork: true });
+    await waitFor(() => replyTo('unseen-discard') !== undefined, 'unseen discard replied', 10000);
+    assert.equal(replyTo('unseen-discard')?.ok, false);
+    assert.deepEqual(config.projects.map((project) => project.id), ['remove-probe-session']);
+
+    control.send({ type: 'remove-session', id: 'remove-probe-session', requestId: 'dirty' });
+    await waitFor(() => replyTo('dirty') !== undefined, 'dirty removal replied', 10000);
+    assert.deepEqual(replyTo('dirty'), { type: 'remove-session-result', requestId: 'dirty', ok: false, error: '"Remove Probe" has uncommitted changes or commits not merged into its base branch. Removing it deletes them.', canDiscardWork: true });
+    assert.deepEqual(config.projects.map((project) => project.id), ['remove-probe-session']);
+
+    fs.rmSync(path.join(worktreeDir, 'unsaved.txt'));
+    control.send({ type: 'remove-session', id: 'remove-probe-session', requestId: 'clean' });
+    await waitFor(() => replyTo('clean') !== undefined, 'clean removal replied', 10000);
+    assert.equal(replyTo('clean')?.ok, true);
+    assert.deepEqual(config.projects, []);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

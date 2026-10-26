@@ -1,7 +1,6 @@
 import { clearHeaderError, DEFAULT_REPLY_TIMEOUT_MS, reportHeaderError, requestFailureText } from './action-status.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { addSessionRefusalText, openAddSessionDialogForFolderWithoutWorktree } from './dialogs.ts';
-import type { KeptWorkPath } from '#shared/contracts/control-messages.ts';
 import type { SessionRow } from './focus-view/attention-core.ts';
 import { buildSessionRows } from './focus-view/attention-core.ts';
 import type { SessionOpenStatePolicy } from './session-actions-core.ts';
@@ -92,12 +91,6 @@ const SESSION_REMOVAL_TIMEOUT_MS = 65 * 60_000;
 const ADD_SESSION_ERROR_SOURCE = 'Add session';
 const REMOVE_SESSION_ERROR_SOURCE = 'Remove session';
 
-function unsavedWorkMessage(ui: SessionUi, reply: { error?: string | null; keptPaths?: KeptWorkPath[] }): string {
-  if (!reply.keptPaths?.length) return `${reply.error}. Removing "${sessionName(ui)}" deletes its Coder workspace and that work with it. Push it from the session first to keep it.`;
-  const keptWork = reply.keptPaths.map((kept) => `${kept.path} (${kept.reason})`).join('; ');
-  return `Removing "${sessionName(ui)}" deletes work that is not saved: ${keptWork}. Commit and push it from the session first to keep it.`;
-}
-
 async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWork: boolean, confirmedKeptPaths: string[] = []) {
   try {
     const reply = await sendControlRequest('remove-session', { id, discardWork, confirmedKeptPaths }, { timeoutMs: SESSION_REMOVAL_TIMEOUT_MS });
@@ -107,9 +100,9 @@ async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWo
       return;
     }
     openConfirmDialog({
-      title: 'Work not saved',
-      message: unsavedWorkMessage(ui, reply),
-      confirmLabel: 'Discard work',
+      title: 'Remove Session',
+      message: reply.error ?? `Remove session "${sessionName(ui)}"?`,
+      confirmLabel: 'Remove',
       danger: true,
       onConfirm: () => { void requestCheckedSessionRemoval(ui, id, true, (reply.keptPaths ?? []).map((kept) => kept.path)); },
     });
@@ -118,25 +111,8 @@ async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWo
   }
 }
 
-export function requestSessionRemoval(id: string, mergeStatus?: string) {
+export function requestSessionRemoval(id: string) {
   const ui = sessionUIs.get(id);
   if (!ui) return;
-  const currentMergeStatus = mergeStatus || ui.card?.dataset.merge || 'none';
-  const hasUnmergedWork = currentMergeStatus === 'pending-review' || currentMergeStatus === 'parked';
-  const needsWorkCheck = ui.card?.dataset.remoteWorkspace !== undefined || ui.card?.dataset.workspace !== undefined;
-  openConfirmDialog({
-    title: 'Remove Session',
-    message: hasUnmergedWork
-      ? `"${sessionName(ui)}" has unmerged worktree changes that will be permanently discarded if you remove it. Merge or review them first to keep them. Remove anyway?`
-      : `Remove session "${sessionName(ui)}"?`,
-    confirmLabel: 'Remove',
-    danger: true,
-    onConfirm: () => {
-      if (needsWorkCheck) {
-        void requestCheckedSessionRemoval(ui, id, false);
-        return;
-      }
-      sendSessionAction(ui, { type: 'remove-session', id });
-    },
-  });
+  void requestCheckedSessionRemoval(ui, id, false);
 }

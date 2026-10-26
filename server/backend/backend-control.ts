@@ -57,6 +57,7 @@ interface BackendControlDependencies {
   controlWss: WebSocketServer;
   sessions: Map<string, Session>;
   agentSessions: Map<string, Session>;
+  markChildWorktreeDiscard: (childId: string) => void;
   config: GlimmervoidConfig;
   configStore: ConfigStore;
   broadcastControl: ControlBroadcast;
@@ -122,6 +123,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   const controlHandlers = registerControlHandlers(controlWss, {
     sessions,
     agentSessions: dependencies.agentSessions,
+    markChildWorktreeDiscard: dependencies.markChildWorktreeDiscard,
     config,
     configStore,
     broadcastControl,

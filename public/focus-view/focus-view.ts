@@ -156,7 +156,7 @@ function onRailKeydown(e: KeyboardEvent) {
     const id = target?.dataset.id;
     if (!id || pillById.get(id) !== target) return;
     e.preventDefault();
-    requestSessionRemoval(id, mergeStatusById.get(id));
+    requestSessionRemoval(id);
     return;
   }
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -186,7 +186,7 @@ function buildPill(id: string) {
   button.addEventListener('pointerenter', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, id); });
   button.addEventListener('pointerleave', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, null); });
 
-  const { item, removeButton } = wrapSessionRow(button, () => requestSessionRemoval(id, mergeStatusById.get(id)));
+  const { item, removeButton } = wrapSessionRow(button, () => requestSessionRemoval(id));
   item.setAttribute('role', 'presentation');
   removeButton.tabIndex = -1;
   return Object.assign(button, { _refs: refs, _row: item });

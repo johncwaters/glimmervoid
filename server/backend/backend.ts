@@ -541,6 +541,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     controlWss,
     sessions,
     agentSessions,
+    markChildWorktreeDiscard: (childId) => agentApi?.markChildWorktreeDiscard(childId),
     config,
     configStore,
     broadcastControl,

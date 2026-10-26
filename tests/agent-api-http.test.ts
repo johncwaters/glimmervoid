@@ -1231,7 +1231,7 @@ test('removing a spawned child from the dashboard destroys it and clears its car
       broadcastControl: (message) => { fixture.broadcasts.push(message); },
     }));
     const connection = connectControl<SnapshotFrame>(server);
-    connection.send({ type: 'remove-session', id: childId });
+    await connection.send({ type: 'remove-session', id: childId });
     assert.equal(fixture.agentSessions.size, 0, 'the child is gone from the live map');
     assert.equal(fixture.created[0]._destroyed, true, 'the child process was torn down');
     assert.deepEqual(
@@ -1252,7 +1252,7 @@ test('removing a child through the dashboard frees the parent slot for the next 
       agentSessions: fixture.agentSessions,
     }));
     const connection = connectControl<SnapshotFrame>(server);
-    connection.send({ type: 'remove-session', id: childId });
+    await connection.send({ type: 'remove-session', id: childId });
     assert.equal(fixture.created[0]._destroyed, true, 'the remove path tore the child down');
     assert.equal(fixture.parent.agentSpawnBudget().liveChildren, 0, 'the destroyed child released its slot');
     const admitted = await fixture.spawn(fixture.parent, { prompt: 'the next slice' });

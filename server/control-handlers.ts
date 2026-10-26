@@ -113,6 +113,7 @@ interface BenchmarkControl {
 interface ControlHandlerDeps {
   sessions: Map<string, Session>;
   agentSessions?: Map<string, Session>;
+  markChildWorktreeDiscard?: ((childId: string) => void) | null;
 
   makeSession?: (project: ProjectEntry, config: GlimmervoidConfig) => Session;
   wireSessionEvents?: (session: Session) => void;
@@ -356,6 +357,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   const {
     sessions,
     agentSessions = new Map<string, Session>(),
+    markChildWorktreeDiscard = null,
     config,
     configStore,
     broadcastControl,
@@ -670,28 +672,59 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     sess.start();
   }
 
-  async function removeSession(msg: ClientMessageOf<'remove-session'>): Promise<{ ok: true } | { ok: false; error: string; canDiscardWork?: boolean; keptPaths?: KeptWorkPath[] }> {
+  type RemovalRefusal = { ok: false; error: string; canDiscardWork?: boolean; keptPaths?: KeptWorkPath[] };
+  type SessionRemoval = { ok: true } | RemovalRefusal;
+
+  const lastRemovalRefusalBySessionId = new Map<string, string>();
+
+  function refuseRemoval(error: string, keptPaths?: KeptWorkPath[]): RemovalRefusal {
+    return keptPaths ? { ok: false, error, canDiscardWork: true, keptPaths } : { ok: false, error, canDiscardWork: true };
+  }
+
+  function keptWorkRefusal(sess: Session, firstKept: KeptWorkPath, otherKeptCount: number, keptPaths: KeptWorkPath[]): RemovalRefusal {
+    const more = otherKeptCount > 0 ? ` and ${otherKeptCount} more` : '';
+    return refuseRemoval(`"${sess.name}" has work not saved in ${firstKept.path} (${firstKept.reason})${more}. Removing it deletes that work.`, keptPaths);
+  }
+
+  async function findLocalRemovalRefusal(sess: Session, confirmedKeptPaths: ReadonlySet<string>): Promise<RemovalRefusal | null> {
+    if (!sess.isWorkspace && await sess.hasUnmergedWork()) {
+      return refuseRemoval(`"${sess.name}" has uncommitted changes or commits not merged into its base branch. Removing it deletes them.`);
+    }
+    const keptPaths = sess.isWorkspace ? await sess.findWorkspaceKeptWork() : [];
+    const [firstUnconfirmedKept, ...otherUnconfirmedKept] = keptPaths.filter((kept) => !confirmedKeptPaths.has(kept.path));
+    if (firstUnconfirmedKept) return keptWorkRefusal(sess, firstUnconfirmedKept, otherUnconfirmedKept.length, keptPaths);
+    if (sess.state === STATES.RUNNING) return refuseRemoval(`"${sess.name}" is working. Removing it stops the agent mid-task.`);
+    return null;
+  }
+
+  async function removeSession(msg: ClientMessageOf<'remove-session'>): Promise<SessionRemoval> {
     const sess = findSession(msg);
     if (!sess) return { ok: false, error: 'Session not found' };
+    const isDiscardingWork = msg.discardWork === true;
+    const isDiscardingWorkspaceWork = sess.isWorkspace && isDiscardingWork;
+    if (isDiscardingWorkspaceWork) sess.killSession();
+
+    const refusal = await findLocalRemovalRefusal(sess, new Set(isDiscardingWorkspaceWork ? msg.confirmedKeptPaths ?? [] : []));
+    const isRefusalConfirmed = isDiscardingWork && refusal?.error === lastRemovalRefusalBySessionId.get(sess.id);
+    if (refusal && !isRefusalConfirmed) {
+      lastRemovalRefusalBySessionId.set(sess.id, refusal.error);
+      return refusal;
+    }
 
     if (agentSessions.get(sess.id) === sess) {
+      if (isDiscardingWork) markChildWorktreeDiscard?.(sess.id);
+      lastRemovalRefusalBySessionId.delete(sess.id);
       sess.destroy();
       console.log(`[control] Removed spawned session via UI: ${sess.name}`);
       return { ok: true };
     }
 
-    const isDiscardingWorkspaceWork = sess.isWorkspace && msg.discardWork === true;
-    if (isDiscardingWorkspaceWork) sess.killSession();
-    const keptPaths = sess.isWorkspace ? await sess.findWorkspaceKeptWork() : [];
-    const confirmedKeptPaths = new Set(isDiscardingWorkspaceWork ? msg.confirmedKeptPaths ?? [] : []);
-    const hasUnconfirmedKeptWork = keptPaths.some((kept) => !confirmedKeptPaths.has(kept.path));
-    if (hasUnconfirmedKeptWork) return { ok: false, error: 'Workspace members hold work that is not saved', canDiscardWork: true, keptPaths };
-
     const hasRemoteWorkspace = config.projects.some((project) => project.id === sess.id && project.environment);
     if (hasRemoteWorkspace && coderEnv) {
       sess.killSession();
-      const settlement = await coderEnv.settleRemoval({ projectId: sess.id, discardRemoteWork: msg.discardWork === true });
-      if (!settlement.ok) return { ok: false, error: settlement.reason, canDiscardWork: settlement.canDiscardRemoteWork };
+      const settlement = await coderEnv.settleRemoval({ projectId: sess.id, discardRemoteWork: isDiscardingWork });
+      if (!settlement.ok && settlement.canDiscardRemoteWork) return refuseRemoval(`${settlement.reason}. Removing "${sess.name}" deletes its Coder workspace and that work with it.`);
+      if (!settlement.ok) return { ok: false, error: settlement.reason, canDiscardWork: false };
     }
 
     const freshConfig = configStore.save(cfg => {
@@ -699,6 +732,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     });
     if (!freshConfig) return { ok: false, error: `Could not save the removal of session "${sess.name}"` };
     if (isDiscardingWorkspaceWork) sess.confirmWorkspaceWorkDiscard();
+    lastRemovalRefusalBySessionId.delete(sess.id);
     applyConfigReload(freshConfig);
     console.log(`[control] Removed session via UI: ${sess.name}`);
     return { ok: true };
@@ -1921,7 +1955,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   function removeExitedSession(id: string): void {
     void removeSession({ type: 'remove-session', id }).then((removal) => {
-      if (!removal.ok) console.warn(`[control] Could not remove session ${id} after its agent quit: ${removal.error}`);
+      if (removal.ok) return;
+      const sess = sessions.get(id);
+      if (removal.canDiscardWork && sess) {
+        broadcastControl({ type: 'session-close-confirm', id, mergeStatus: sess.mergeStatus });
+        return;
+      }
+      console.warn(`[control] Could not remove session ${id} after its agent quit: ${removal.error}`);
     });
   }
 
