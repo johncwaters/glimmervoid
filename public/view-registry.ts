@@ -1,3 +1,5 @@
+import { describeFailure } from './client-error-core.ts';
+import { reportToServerLog } from './control-ws.ts';
 import { el, queryTag } from './dom-helpers.ts';
 import { FEATURE_SURFACE_RULES } from './feature-surfaces-core.ts';
 import { activateFocusView, deactivateFocusView, mountFocusView } from './focus-view/focus-view.ts';
@@ -38,7 +40,10 @@ export function showView(view: DashboardView, onShown: (module: ViewModule<HTMLE
     onShown(mountedModule);
     return;
   }
-  void viewLoader.show(view).then(onShown);
+  void viewLoader.show(view).then(onShown).catch((error: unknown) => {
+    reportToServerLog('view', `${view.view} failed to show: ${describeFailure(error)}`);
+    throw error;
+  });
 }
 
 export function mountedViewModule(view: string): ViewModule<HTMLElement> | null {

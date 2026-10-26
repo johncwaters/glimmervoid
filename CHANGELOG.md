@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The server log now says when the dashboard breaks**: when a dashboard tab receives an update it cannot read, hits an uncaught error, or fails to load a view such as Reviews, Glimmervoid's own log gets a `[dashboard]` line naming what failed, for example the update type and the field that did not match. Each distinct problem is logged once per page load, at most 32 per page.
+
 - **The board appears sooner on a slow connection**: the dashboard's stylesheet no longer carries the flying-animal pictures, which now download only when an animal flies, and the CommitMono font starts from a smaller file holding the characters the dashboard uses, fetching the rest only when a terminal shows a rarer one. On a simulated 3G link a first visit shows the board after about 8.3 seconds instead of 9.7, with 298 KB downloaded instead of 371. Italic text is gone: the italic font files are removed and everything renders upright.
 
 - **The session board appears before the terminal code loads**: the terminal renderer now downloads after the board is on screen instead of before it. On a simulated 3G link a first visit shows the board after about 9.8 seconds instead of 12.2. Opening a session in the first moments after a first visit waits for that download.

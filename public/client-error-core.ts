@@ -40,6 +40,12 @@ function createClientErrorReporter(sendReport: SendReport): (reason: unknown) =>
   };
 }
 
+function describeFailure(reason: unknown): string {
+  if (!(reason instanceof Error)) return `${typeof reason}: ${String(reason)}`;
+  const topFrame = stackFramesOnly(reason).split('\n')[0]?.trim() ?? '';
+  return [`${reason.name || 'Error'}: ${reason.message}`, topFrame].filter(Boolean).join(' ');
+}
+
 function describeSchemaIssues(issues: readonly { path: readonly PropertyKey[]; message: string }[]): string {
   return issues.slice(0, 5).map((issue) => `${issue.path.map(String).join('.') || '(root)'}: ${issue.message}`).join('; ');
 }
@@ -57,4 +63,4 @@ function createClientLogReporter(sendReport: SendReport): (scope: string, text: 
   };
 }
 
-export { createClientErrorReporter, createClientLogReporter, describeSchemaIssues, frameTypeOf };
+export { createClientErrorReporter, createClientLogReporter, describeFailure, describeSchemaIssues, frameTypeOf };

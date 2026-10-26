@@ -8,9 +8,9 @@ import { createCoalescedTimer } from '#shared/coalesce-timer.ts';
 import { STATES } from '#shared/states.ts';
 import { trackedReportNoticeText } from '#shared/post-turn-leftovers.ts';
 import { getBorrowedCardId } from './card-host.ts';
-import { createClientErrorReporter } from './client-error-core.ts';
+import { createClientErrorReporter, describeFailure } from './client-error-core.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
-import { checkControlLiveness, connectControl, onControlMessage, sendControlMsg, sendControlRequest, setConnectionStateCallback } from './control-ws.ts';
+import { checkControlLiveness, connectControl, onControlMessage, reportToServerLog, sendControlMsg, sendControlRequest, setConnectionStateCallback } from './control-ws.ts';
 import { applyAgentLogins, createAddSessionDialog } from './dialogs.ts';
 import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
@@ -1180,8 +1180,14 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('online', checkWakeLiveness);
 const reportClientError = createClientErrorReporter(sendControlMsg);
-window.addEventListener('error', (event) => reportClientError(event.error));
-window.addEventListener('unhandledrejection', (event) => reportClientError(event.reason));
+window.addEventListener('error', (event) => {
+  reportClientError(event.error);
+  reportToServerLog('uncaught', describeFailure(event.error ?? event.message));
+});
+window.addEventListener('unhandledrejection', (event) => {
+  reportClientError(event.reason);
+  reportToServerLog('unhandled-rejection', describeFailure(event.reason));
+});
 reloadOnceOnPreloadError(() => window.sessionStorage);
 window.addEventListener('pageshow', (event) => {
   if (!event.persisted) return;
