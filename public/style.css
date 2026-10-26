@@ -3557,6 +3557,9 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .my-pr-row-gro
 .pr-citation { color: var(--text-dim); font-size: 11px; overflow-wrap: anywhere; }
 .pr-comment-code { min-width: 0; max-width: 100%; max-height: 24em; margin: 0; padding: 10px 12px; overflow: auto; border-radius: var(--radius); background: var(--bg-surface); color: var(--text); font: 12px/1.5 var(--font-mono); }
 .pr-comment-code code { font: inherit; }
+.pr-diff-excerpt { margin-top: 10px; padding: 6px 0; overflow-x: auto; border-radius: var(--radius); background: var(--bg-surface); color: var(--text); font: 12px/1.5 var(--font-mono); }
+.pr-diff-excerpt .review-line[data-cited="true"] { box-shadow: inset 2px 0 0 var(--accent); }
+.pr-diff-excerpt-number { flex: 0 0 3.5em; padding-right: 6px; text-align: right; color: var(--text-muted); user-select: none; }
 .pr-comment-lead { color: var(--accent); }
 .pr-comment-lead-question { display: inline-flex; align-items: center; gap: 5px; color: var(--state-done); }
 

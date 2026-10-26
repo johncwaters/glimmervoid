@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Code beside each Reviews finding**: an inline finding on a ready review now shows the few diff lines around the line it cites, with the cited line marked, so you can judge it without opening the pull request. Reviews drafted before this update show no excerpt until they are reviewed again.
+
 - **Request changes from Reviews**: a ready review now offers Request changes next to Approve and Comment, posting a change request on GitHub under your name with the findings you ticked and your note. It needs at least one finding or a note. When the agent's verdict is request changes or blocked, Request changes is the first button; otherwise Approve is.
 
 - **The server log survives a dashboard Restart**: Glimmervoid now copies its own output into `logs/server.log` under its home folder (`~/.glimmervoid` unless `GLIMMERVOID_HOME` says otherwise), so the log keeps going after a Restart from the dashboard, which used to discard it. The file rolls over at 10 MB and keeps the four previous files as `server.log.1` to `server.log.4`.

@@ -2,7 +2,7 @@ import { paintActionStatus } from '../action-status.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { subscribeTeamReview, teamReviewStatusView } from './team-review-store.ts';
 import type { TeamReviewChange } from './team-review-store.ts';
-import type { DraftComment, EarlierReview, FindingSeverity, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
+import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAvatar, createReviewerStack, el, externalLink } from '../dom-helpers.ts';
@@ -508,10 +508,28 @@ interface FindingContent {
   severity: FindingSeverity | null;
   location: string;
   locationTitle: string;
+  excerpt?: readonly DiffExcerptLine[];
+  citedLine?: number;
 }
 
 function commentFindingContent(comment: DraftComment): FindingContent {
-  return { body: comment.body, severity: commentSeverity(comment), location: shortCommentLocation(comment), locationTitle: commentLocation(comment) };
+  return {
+    body: comment.body, severity: commentSeverity(comment), location: shortCommentLocation(comment), locationTitle: commentLocation(comment),
+    ...(comment.excerpt ? { excerpt: comment.excerpt, citedLine: comment.line } : {}),
+  };
+}
+
+const EXCERPT_GUTTERS: Readonly<Record<DiffExcerptLine['kind'], string>> = Object.freeze({ add: '+', del: '-', context: ' ' });
+
+function createDiffExcerpt(excerpt: readonly DiffExcerptLine[], citedLine: number | undefined): HTMLElement {
+  const block = el('div', 'pr-diff-excerpt');
+  for (const line of excerpt) {
+    const row = el('div', `review-line review-line-${line.kind}`);
+    if (line.line !== null && line.line === citedLine) row.dataset.cited = 'true';
+    row.append(el('span', 'pr-diff-excerpt-number', line.line === null ? '' : String(line.line)), el('span', 'review-line-gutter', EXCERPT_GUTTERS[line.kind]), el('span', 'review-line-text', line.text));
+    block.append(row);
+  }
+  return block;
 }
 
 function generalFindingContent(finding: GeneralFinding): FindingContent {
@@ -519,7 +537,7 @@ function generalFindingContent(finding: GeneralFinding): FindingContent {
   return { body: finding.body, severity: finding.severity, location: finding.location?.split('/').at(-1) ?? 'general', locationTitle };
 }
 
-function createCommentContent({ body, severity, location: locationText, locationTitle }: FindingContent): HTMLDetailsElement {
+function createCommentContent({ body, severity, location: locationText, locationTitle, excerpt, citedLine }: FindingContent): HTMLDetailsElement {
   const content = el('details', 'pr-comment-content');
   const header = el('summary', 'pr-comment-header');
   const parsed = parseReviewComment(body);
@@ -532,6 +550,7 @@ function createCommentContent({ body, severity, location: locationText, location
   const paragraphs = el('div', 'pr-comment-paragraphs');
   for (const paragraph of parsed.paragraphs) paragraphs.append(createCommentParagraph(paragraph));
   content.append(paragraphs);
+  if (excerpt && excerpt.length > 0) content.append(createDiffExcerpt(excerpt, citedLine));
   content.open = severity === 'HIGH' || severity === 'CRITICAL';
   return content;
 }

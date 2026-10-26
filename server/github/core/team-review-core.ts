@@ -3,7 +3,7 @@ import { decisionAsIfApprovalRequired, canApproveAfterComment, DECIDING_REVIEW_S
 import { AUTOMATED_REVIEW_NOTE, CREDITED_REVIEW_NOTE, HAND_APPROVED_REVIEW_NOTE, findingHeader as renderFindingHeader, foldedFindingSection, generalFindingBullet, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import type {
-  GithubReview, HandCheck, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
+  DiffExcerptLine, DraftComment, GithubReview, HandCheck, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
   ResumableReview, ReviewAssessment, ReviewResult as ReviewResultType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../../shared/contracts/team-review.ts';
 import { positiveNumberOr } from '../../../shared/coerce.ts';
@@ -270,9 +270,18 @@ function eventForAction(action: string): PostedReviewEvent | null {
   return null;
 }
 
+interface DiffRow {
+  kind: DiffExcerptLine['kind'];
+  text: string;
+  oldLine: number | null;
+  newLine: number | null;
+  hunk: number;
+}
+
 interface CommentableFileLines {
-  left: Set<number>;
-  right: Set<number>;
+  left: Map<number, number>;
+  right: Map<number, number>;
+  rows: DiffRow[];
 }
 
 type CommentableLines = Map<string, CommentableFileLines>;
@@ -296,6 +305,15 @@ function diffHeaderPath(line: string, sidePrefix: string): string | null {
   return unquoted.startsWith(sidePrefix) ? unquoted.slice(sidePrefix.length) : unquoted;
 }
 
+const MAX_EXCERPT_LINE_CHARS = 400;
+
+function addDiffRow(file: CommentableFileLines, row: DiffRow): void {
+  const rowIndex = file.rows.length;
+  file.rows.push({ ...row, text: row.text.replace(/\r$/, '').slice(0, MAX_EXCERPT_LINE_CHARS) });
+  if (row.oldLine !== null) file.left.set(row.oldLine, rowIndex);
+  if (row.newLine !== null) file.right.set(row.newLine, rowIndex);
+}
+
 function commentableLines(diffText: string): CommentableLines {
   const linesByPath: CommentableLines = new Map();
   let oldPath: string | null = null;
@@ -304,15 +322,16 @@ function commentableLines(diffText: string): CommentableLines {
   let newLine = 0;
   let oldRemaining = 0;
   let newRemaining = 0;
+  let hunk = 0;
   for (const line of diffText.split('\n')) {
     if (oldRemaining > 0 || newRemaining > 0) {
       if (!currentFile) continue;
       const marker = line.charAt(0);
+      const text = line.slice(1);
       if (marker === '\\') continue;
-      if (marker === '-') { currentFile.left.add(oldLine); oldLine += 1; oldRemaining -= 1; continue; }
-      if (marker === '+') { currentFile.right.add(newLine); newLine += 1; newRemaining -= 1; continue; }
-      currentFile.left.add(oldLine);
-      currentFile.right.add(newLine);
+      if (marker === '-') { addDiffRow(currentFile, { oldLine, newLine: null, kind: 'del', text, hunk }); oldLine += 1; oldRemaining -= 1; continue; }
+      if (marker === '+') { addDiffRow(currentFile, { oldLine: null, newLine, kind: 'add', text, hunk }); newLine += 1; newRemaining -= 1; continue; }
+      addDiffRow(currentFile, { oldLine, newLine, kind: 'context', text, hunk });
       oldLine += 1;
       newLine += 1;
       oldRemaining -= 1;
@@ -323,18 +342,35 @@ function commentableLines(diffText: string): CommentableLines {
     if (line.startsWith('--- ')) { oldPath = diffHeaderPath(line, 'a/'); continue; }
     if (line.startsWith('+++ ')) {
       const filePath = diffHeaderPath(line, 'b/') ?? oldPath;
-      currentFile = filePath === null ? null : linesByPath.get(filePath) ?? { left: new Set(), right: new Set() };
+      currentFile = filePath === null ? null : linesByPath.get(filePath) ?? { left: new Map(), right: new Map(), rows: [] };
       if (filePath !== null && currentFile) linesByPath.set(filePath, currentFile);
       continue;
     }
-    const hunk = HUNK_HEADER.exec(line);
-    if (!hunk || !currentFile) continue;
-    oldLine = Number(hunk[1]);
-    oldRemaining = hunk[2] === undefined ? 1 : Number(hunk[2]);
-    newLine = Number(hunk[3]);
-    newRemaining = hunk[4] === undefined ? 1 : Number(hunk[4]);
+    const hunkHeader = HUNK_HEADER.exec(line);
+    if (!hunkHeader || !currentFile) continue;
+    hunk += 1;
+    oldLine = Number(hunkHeader[1]);
+    oldRemaining = hunkHeader[2] === undefined ? 1 : Number(hunkHeader[2]);
+    newLine = Number(hunkHeader[3]);
+    newRemaining = hunkHeader[4] === undefined ? 1 : Number(hunkHeader[4]);
   }
   return linesByPath;
+}
+
+function diffExcerpt(commentable: CommentableLines, filePath: string, side: 'LEFT' | 'RIGHT', line: number, radius = 3): DiffExcerptLine[] | null {
+  const fileLines = commentable.get(filePath);
+  const rowIndex = fileLines ? (side === 'LEFT' ? fileLines.left : fileLines.right).get(line) : undefined;
+  if (!fileLines || rowIndex === undefined) return null;
+  const citedHunk = fileLines.rows[rowIndex]?.hunk;
+  return fileLines.rows
+    .slice(Math.max(0, rowIndex - radius), rowIndex + radius + 1)
+    .filter((row) => row.hunk === citedHunk)
+    .map((row) => ({ line: side === 'LEFT' ? row.oldLine : row.newLine, kind: row.kind, text: row.text }));
+}
+
+function withExcerpt(comment: ReviewComment, commentable: CommentableLines | null): DraftComment {
+  const excerpt = commentable ? diffExcerpt(commentable, comment.path, comment.side, comment.line) : null;
+  return excerpt ? { ...comment, excerpt } : comment;
 }
 
 function isLineCommentable(commentable: CommentableLines, filePath: string, side: 'LEFT' | 'RIGHT', line: number): boolean {
@@ -879,7 +915,7 @@ function readyDraft(
     ...draftBase(candidate, tier, reasons, result.head),
     ...(reviewedBase ? { reviewedBase } : {}),
     verdict: result.verdict, summary: result.summary, ...(assessment ? { assessment } : {}),
-    body: rendered.body, comments: rendered.comments, status: 'ready',
+    body: rendered.body, comments: rendered.comments.map((comment) => withExcerpt(comment, commentable)), status: 'ready',
   };
 }
 

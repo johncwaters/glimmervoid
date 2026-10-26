@@ -702,7 +702,7 @@ export function hasSelection(selection: ReviewSelection): boolean {
   return selection.note.trim() !== '' || selection.comments.length > 0 || selection.generalFindings.length > 0;
 }
 
-export type ReadyDecisionControl = 'approve' | 'comment' | 'request-changes';
+type ReadyDecisionControl = 'approve' | 'comment' | 'request-changes';
 
 export function buildReadyDecisionRequest(draft: ReviewDraft, control: ReadyDecisionControl, selection: ReviewSelection): TeamReviewActionRequest {
   if (control === 'approve' && !hasSelection(selection)) return buildActionRequest(draft, 'approve-only', '', []);
@@ -751,7 +751,7 @@ export function actionLabel(action: TeamReviewAction): string {
 
 const CHANGES_LEAD_VERDICTS: ReadonlySet<ReviewDraft['verdict']> = new Set(['REQUEST CHANGES', 'BLOCKED']);
 
-export function readyDecisionOrder(verdict: ReviewDraft['verdict']): readonly ReadyDecisionControl[] {
+function readyDecisionOrder(verdict: ReviewDraft['verdict']): readonly ReadyDecisionControl[] {
   return CHANGES_LEAD_VERDICTS.has(verdict) ? ['request-changes', 'approve', 'comment'] : ['approve', 'comment', 'request-changes'];
 }
 

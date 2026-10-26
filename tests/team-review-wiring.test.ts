@@ -802,7 +802,10 @@ test('a Step 4 posting plan from the skill becomes the draft verbatim, and a bad
   try {
     const draft = await withPlan.review(reviewArgs('full'));
     assert.equal(draft.body, `${AUTOMATED_REVIEW_NOTE}\n\nAutomated review. See inline comments.`);
-    assert.deepEqual(draft.comments, [{ path: 'src/a.ts', line: 2, side: 'RIGHT', body: inlineBody }]);
+    assert.deepEqual(draft.comments, [{
+      path: 'src/a.ts', line: 2, side: 'RIGHT', body: inlineBody,
+      excerpt: [{ line: 1, kind: 'context', text: 'one' }, { line: 2, kind: 'add', text: 'two' }, { line: 3, kind: 'context', text: 'three' }],
+    }]);
     assert.equal(draft.verdict, 'APPROVE WITH NITS');
     assert.ok(withPlan.spawns[0].prompt.includes(path.join(withPlan.spawns[0].workDir, REVIEW_POSTING_FILENAME)));
     const fallback = await badPlan.review(reviewArgs('full'));

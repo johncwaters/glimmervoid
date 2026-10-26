@@ -54,7 +54,10 @@ const storedVerdict = z.preprocess(
 export const FindingSeverity = z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
 export type FindingSeverity = z.infer<typeof FindingSeverity>;
 
-export const DraftComment = ReviewComment.extend({ severity: FindingSeverity.optional() });
+export const DiffExcerptLine = z.object({ line: z.number().int().positive().nullable(), kind: z.enum(['add', 'del', 'context']), text: z.string() });
+export type DiffExcerptLine = z.infer<typeof DiffExcerptLine>;
+
+export const DraftComment = ReviewComment.extend({ severity: FindingSeverity.optional(), excerpt: z.array(DiffExcerptLine).max(9).optional() });
 export type DraftComment = z.infer<typeof DraftComment>;
 
 export const ReviewFinding = z.object({
