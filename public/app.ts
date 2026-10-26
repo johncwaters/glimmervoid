@@ -23,7 +23,7 @@ import { activateFocusOnNextAttention, centerSessionQuietly, focusAdjacentInRail
 import { initFormFactor, isPhoneLayout, onLayoutChange } from './form-factor.ts';
 import type { HealthSnapshot } from './health-monitor.ts';
 import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
-import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, setVisionsProjectNames } from './visions/visions-panel.ts';
+import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, setVisionsProjectNames } from './visions/visions-store.ts';
 import { applyHooksReport, applyLateHookResult, setHooksRequestSender } from './hooks-panel.ts';
 import { showDesktopNotification } from './notifications.ts';
 import { clearHeaderError, clearHeaderErrorsForSession, reportHeaderError } from './action-status.ts';
@@ -40,7 +40,7 @@ import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSe
 import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './github/issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from './radar/radar-core.ts';
-import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from './radar/radar-panel.ts';
+import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from './radar/radar-store.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse, setCardCoherenceJournal, setLinkedPrsPainter, setCardSessionSetup, setSessionSaneYolo } from './session-card/card-dom.ts';
 import { applySessionSetupResponse, openSessionSetup } from './session-setup/setup-dialog.ts';
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
@@ -70,7 +70,7 @@ import { canReturnToReviewQueue, jumpToNextReview, onPhoneReviewScreenChanged, r
 import { updateBanner } from './updates-view-core.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
-import { applyPlanLimits, applyUsageReport, applyUsageSessions, setUsageRequestSender } from './usage/usage-panel.ts';
+import { applyPlanLimits, applyUsageReport, applyUsageSessions, setUsageRequestSender } from './usage/usage-store.ts';
 import { createDashboardViews, mountEagerViews, mountedViewModule, prefetchViewsWhenIdle, reloadOnceOnPreloadError, showView } from './view-registry.ts';
 import { isZenActive, refreshZenView, stageNextAttention } from './zen-view/zen-view.ts';
 import type { DashboardView } from './view-registry.ts';

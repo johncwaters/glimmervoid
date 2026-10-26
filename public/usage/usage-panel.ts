@@ -1,16 +1,15 @@
-import type { OperatorActionOf, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { createAttentionAck } from '../attention-ack-core.ts';
-import { nextRequestId } from '../control-ws.ts';
-import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { buildPanelSection, el, isPanelHidden } from '../dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from '../poll-ago.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
-import { getUsageAttentionAck, setUsageAttentionAck } from '../ui-prefs.ts';
+import type { ViewModule, ViewRefreshReason } from '../view-registry-core.ts';
+import { reportUsageAction, requestUsageReport, setUsageLookingProbe, setUsageRange, subscribeUsage, usageRefreshStatus, usageSnapshot } from './usage-store.ts';
+import type { UsageChange } from './usage-store.ts';
+
+export { usageStatusLines } from './usage-store.ts';
 import {
   DEFAULT_DAY_SORT,
   DEFAULT_MODEL_SORT,
   DEFAULT_PERIOD_VIEW,
-  DEFAULT_RANGE_VALUE,
   DEFAULT_SESSION_SORT,
   HEATMAP_DAY_LABELS,
   LANE_SCOPE_HINT,
@@ -19,7 +18,6 @@ import {
   PLAN_LIMIT_VENDORS,
   PLAN_WINDOWS,
   planLimitsSectionHint,
-  planLimitsVendorOf,
   RANGE_OPTIONS,
   SESSION_ROW_LIMIT,
   USAGE_CAVEAT_SHORT,
@@ -74,8 +72,6 @@ import {
   planLimitStaleNote,
   planWindowOf,
   planWindowUsedText,
-  pricingFetchedAtMs,
-  pricingSourceLine,
   prReviewsSpendTile,
   projectionLimitLine,
   projectionLine,
@@ -83,28 +79,21 @@ import {
   reportDayKey,
   resetCountdownText,
   rtkSavingsTile,
-  scanLine,
   sessionOverflowText,
   sessionRowLabel,
   shareBasis,
   shareLabel,
-  shouldApplyUsageReport,
   sortDailyRows,
   sortModelRows,
   sortSessionRows,
   tokenLimitLine,
   tokenLimitTone,
-  usageAttentionSignature,
   usageErrorLine,
   usageWarningLine,
   vendorTotalsRows,
   visibleSessionRows,
 } from './usage-view-core.ts';
-import type { PlanLimits, PlanLimitsVendor, SortState, UsageReport, UsageTotals, UsageWireRow } from './usage-view-core.ts';
-
-const REFRESH_STATUS_TIMEOUT_MS = 20000;
-
-type UsageSessionsPush = ServerMessageOf<'usage-sessions'>;
+import type { PlanLimits, SortState, UsageTotals, UsageWireRow } from './usage-view-core.ts';
 
 type FocusTarget =
   | { kind: 'sort'; table: string; key: string }
@@ -127,18 +116,8 @@ interface TableCell {
   span?: number;
 }
 
-let _report: UsageReport | null = null;
-let _sessions: UsageSessionsPush | null = null;
-let _planLimitsByVendor: Record<PlanLimitsVendor, PlanLimits | null> = { claude: null, codex: null };
+let _usage = usageSnapshot();
 let _root: HTMLDivElement | null = null;
-let _activityCallback: ((isActive: boolean) => void) | null = null;
-let _sendRequest: ((message: Record<string, unknown>) => boolean) | null = null;
-let _latestRequestId: string | null = null;
-let _rangeValue: string = DEFAULT_RANGE_VALUE;
-let _refreshPending = false;
-let _refreshTimer: number | null = null;
-let _refreshFailureText: string | null = null;
-let _isConnected = true;
 
 let _daySort: SortState = DEFAULT_DAY_SORT;
 let _modelSort: SortState = DEFAULT_MODEL_SORT;
@@ -147,12 +126,6 @@ let _sessionsExpanded = false;
 let _focusAfterRender: FocusTarget | null = null;
 let _periodView: string = DEFAULT_PERIOD_VIEW;
 const _expandedDays = new Set<string>();
-const _attention = createAttentionAck({
-  getAck: getUsageAttentionAck,
-  setAck: setUsageAttentionAck,
-  signature: () => usageAttentionSignature(_report, _planLimitsByVendor.claude),
-  isLooking: () => !isPanelHidden(_root),
-});
 
 let _reportAgeEl: HTMLParagraphElement | null = null;
 let _sessionsTsEl: HTMLParagraphElement | null = null;
@@ -263,28 +236,22 @@ function buildShareCell(pct: number | null) {
 
 function paintReportAge() {
   if (!_reportAgeEl?.isConnected) return;
-  const ts = Number(_report?.ts);
+  const ts = Number(_usage.report?.ts);
   _reportAgeEl.textContent = Number.isFinite(ts) && ts > 0 ? `Report ${formatAgo(ts)}` : '';
 }
 
 function paintSessionsTs() {
   if (!_sessionsTsEl?.isConnected) return;
-  const ts = Number(_sessions?.ts);
+  const ts = Number(_usage.sessions?.ts);
   _sessionsTsEl.textContent = Number.isFinite(ts) && ts > 0 ? `Sessions ${formatAgo(ts)}` : '';
 }
 
 function paintBlockProgress() {
-  const progress = blockProgress(_report?.activeBlock);
+  const progress = blockProgress(_usage.report?.activeBlock);
   if (!progress) return;
   if (_blockElapsedEl?.isConnected) _blockElapsedEl.textContent = `${progress.pct}%`;
   if (_blockRemainingEl?.isConnected) _blockRemainingEl.textContent = `${formatMinutes(progress.remainingMinutes)} left`;
   if (_blockMeterEl?.isConnected) paintMeter(_blockMeterEl, progress.pct);
-}
-
-function daysForRange(value: string) {
-  const option = RANGE_OPTIONS.find((entry) => entry.value === value);
-  if (!option) return null;
-  return option.days;
 }
 
 function buildControls() {
@@ -298,10 +265,10 @@ function buildControls() {
     opt.value = option.value;
     select.append(opt);
   }
-  select.value = _rangeValue;
+  select.value = _usage.rangeValue;
   select.addEventListener('change', () => {
     reportUsageAction('range');
-    _rangeValue = select.value;
+    setUsageRange(select.value);
     requestUsageReport();
   });
   rangeLabel.append(select);
@@ -317,14 +284,14 @@ function buildControls() {
   const status = el('span', 'usage-refresh-status', '');
   _refreshButtonEl = button;
   _refreshStatusEl = status;
-  applyRefreshPending();
+  paintRefreshStatus();
 
   controls.append(rangeLabel, button, status);
   return controls;
 }
 
 function buildHeaderSection() {
-  const section = buildSection('Usage', dayRangeLabel(_report?.daily || []));
+  const section = buildSection('Usage', dayRangeLabel(_usage.report?.daily || []));
   section.append(buildControls());
 
   _reportAgeEl = el('p', 'usage-meta', '');
@@ -332,22 +299,22 @@ function buildHeaderSection() {
   paintReportAge();
   _ticker.onTick(paintReportAge);
 
-  const warning = usageWarningLine(_report);
+  const warning = usageWarningLine(_usage.report);
   if (warning) section.append(el('p', 'usage-warning', warning));
 
-  const missing = missingPricingLine(_report?.pricing?.missing);
+  const missing = missingPricingLine(_usage.report?.pricing?.missing);
   if (missing) section.append(el('p', 'usage-warning', missing));
   return section;
 }
 
 function buildPlanLimitsSection() {
-  const shownVendors = PLAN_LIMIT_VENDORS.filter(({ vendor }) => hasOfficialPlanLimits(_planLimitsByVendor[vendor]));
+  const shownVendors = PLAN_LIMIT_VENDORS.filter(({ vendor }) => hasOfficialPlanLimits(_usage.planLimitsByVendor[vendor]));
   if (shownVendors.length === 0) return null;
-  const section = buildSection('Plan limits', planLimitsSectionHint(shownVendors.map(({ vendor }) => vendor), _report?.totals));
+  const section = buildSection('Plan limits', planLimitsSectionHint(shownVendors.map(({ vendor }) => vendor), _usage.report?.totals));
   const isSideBySide = shownVendors.length > 1;
   const columns = el('div', 'usage-plan-vendors');
   for (const { vendor, label } of shownVendors) {
-    columns.append(buildVendorPlanLimits(_planLimitsByVendor[vendor], isSideBySide ? label : null));
+    columns.append(buildVendorPlanLimits(_usage.planLimitsByVendor[vendor], isSideBySide ? label : null));
   }
   section.append(columns);
   return section;
@@ -403,7 +370,7 @@ function buildPlanWindow(spec: { key: 'fiveHour' | 'sevenDay'; label: string }, 
 }
 
 function buildOverheadSection() {
-  const windows = glimmervoidOverhead(_report, _planLimitsByVendor.claude);
+  const windows = glimmervoidOverhead(_usage.report, _usage.planLimitsByVendor.claude);
   const lanesTable = buildLanesTable();
   if (windows.length === 0 && !lanesTable) return null;
   const section = buildSection('Glimmervoid overhead', windows.length > 0 ? OVERHEAD_SCOPE_HINT : null);
@@ -427,8 +394,8 @@ function buildOverheadSection() {
 }
 
 function buildLanesTable() {
-  if (!hasLaneAttribution(_report)) return null;
-  const rows = laneRows(_report);
+  if (!hasLaneAttribution(_usage.report)) return null;
+  const rows = laneRows(_usage.report);
   const totalCost = rows.reduce((sum, row) => sum + (typeof row.costUSD === 'number' && Number.isFinite(row.costUSD) ? row.costUSD : 0), 0);
   const { wrap, body } = buildTable(
     [
@@ -458,11 +425,11 @@ function buildLanesTable() {
 }
 
 function buildActiveBlockSection() {
-  const block = _report?.activeBlock;
-  const blockHours = _report?.blockHours;
+  const block = _usage.report?.activeBlock;
+  const blockHours = _usage.report?.blockHours;
   const hours = typeof blockHours === 'number' && Number.isFinite(blockHours) ? blockHours : 5;
 
-  const claudeOnly = claudeOnlyHint(_report?.totals);
+  const claudeOnly = claudeOnlyHint(_usage.report?.totals);
   const section = buildSection('Current block', claudeOnly ? `${hours}h window, ${claudeOnly}` : `${hours}h window`);
   if (!block) {
     section.append(el('p', 'usage-empty', 'No active block.'));
@@ -471,7 +438,7 @@ function buildActiveBlockSection() {
     return section;
   }
 
-  const tone = blockAttentionTone(_report, _planLimitsByVendor.claude);
+  const tone = blockAttentionTone(_usage.report, _usage.planLimitsByVendor.claude);
   const tiles = el('div', 'usage-tiles');
   tiles.append(buildTile('block tokens', formatTokens(block.tokens ?? 0), formatUsd(block.costUSD ?? 0), tone).tile);
   for (const spec of burnTiles(block.burn)) {
@@ -502,17 +469,17 @@ function buildActiveBlockSection() {
   const anomalyLineEl = buildAnomalyLine();
   if (anomalyLineEl) section.append(anomalyLineEl);
 
-  const limit = tokenLimitLine(_report?.tokenLimit);
+  const limit = tokenLimitLine(_usage.report?.tokenLimit);
   if (!limit) return section;
 
-  const currentPct = limitPct(_report?.tokenLimit);
-  const heuristicTone = blockAttentionTone(_report);
+  const currentPct = limitPct(_usage.report?.tokenLimit);
+  const heuristicTone = blockAttentionTone(_usage.report);
   section.append(buildMeter(currentPct, heuristicTone, 'Share of the largest completed block seen, estimated'));
   const limitLine = el('p', 'usage-meta', limit);
   limitLine.dataset.tone = heuristicTone;
   section.append(limitLine);
   section.append(el('p', 'usage-provenance', provenanceLabel('estimated')));
-  const projected = projectionLimitLine(block.projection, _report?.tokenLimit);
+  const projected = projectionLimitLine(block.projection, _usage.report?.tokenLimit);
   if (projected) {
     const projectedEl = el('p', 'usage-meta', projected);
     projectedEl.dataset.tone = heuristicTone;
@@ -522,7 +489,7 @@ function buildActiveBlockSection() {
 }
 
 function buildAnomalyLine() {
-  const anomaly = _report?.anomaly;
+  const anomaly = _usage.report?.anomaly;
   if (!hasAnomaly(anomaly)) return null;
   const line = el('p', 'usage-meta', anomalyLine(anomaly));
   line.dataset.tone = anomalyTone(anomaly);
@@ -530,9 +497,9 @@ function buildAnomalyLine() {
 }
 
 function buildBlockHistorySection() {
-  const rows = blockHistoryRows(_report?.blocks);
+  const rows = blockHistoryRows(_usage.report?.blocks);
   if (rows.length === 0) return null;
-  const claudeOnly = claudeOnlyHint(_report?.totals);
+  const claudeOnly = claudeOnlyHint(_usage.report?.totals);
   const section = buildSection('Recent blocks', claudeOnly ? `newest first, ${claudeOnly}` : 'newest first');
   const list = el('div', 'usage-blocks');
   const peak = rows.reduce((best, row) => Math.max(best, row.tokens), 0);
@@ -553,15 +520,15 @@ function buildBlockHistorySection() {
 }
 
 function buildTotalsSection() {
-  const totals = _report?.totals || {};
-  const today = dailyRowForDay(_report?.daily, reportDayKey(_report));
-  const hint = [USAGE_CAVEAT_SHORT, _report?.tz ? `TZ ${_report.tz}` : ''].filter(Boolean).join(' ');
+  const totals = _usage.report?.totals || {};
+  const today = dailyRowForDay(_usage.report?.daily, reportDayKey(_usage.report));
+  const hint = [USAGE_CAVEAT_SHORT, _usage.report?.tz ? `TZ ${_usage.report.tz}` : ''].filter(Boolean).join(' ');
   const section = buildSection('Totals', hint);
-  const tone = blockAttentionTone(_report, _planLimitsByVendor.claude);
+  const tone = blockAttentionTone(_usage.report, _usage.planLimitsByVendor.claude);
   const tiles = el('div', 'usage-tiles');
   tiles.append(buildTile('today', formatTokens(today?.tokens ?? 0), formatUsd(today?.costUSD ?? 0), tone).tile);
   tiles.append(buildTile('range total', formatTokens(totals.tokens ?? 0), formatUsd(totals.costUSD ?? 0)).tile);
-  const prReviews = prReviewsSpendTile(_report);
+  const prReviews = prReviewsSpendTile(_usage.report);
   if (prReviews) tiles.append(buildTile(prReviews.label, prReviews.value, prReviews.sub).tile);
   section.append(tiles);
   const composition = buildCompositionRow(totals);
@@ -610,7 +577,7 @@ function buildCompositionRow(totals: UsageTotals | null | undefined) {
 }
 
 function buildSavingsSection() {
-  const savings = _report?.savings;
+  const savings = _usage.report?.savings;
   if (!hasSavings(savings)) return null;
   const section = buildSection('Savings', '');
   const tiles = el('div', 'usage-tiles');
@@ -623,7 +590,7 @@ function buildSavingsSection() {
 }
 
 function buildBudgetsSection() {
-  const rows = budgetRows(_report);
+  const rows = budgetRows(_usage.report);
   if (rows.length === 0) return null;
   const section = buildSection('Budgets', 'your own ceilings');
 
@@ -645,7 +612,7 @@ function buildBudgetsSection() {
 }
 
 function buildDailySection() {
-  const daily = _report?.daily || [];
+  const daily = _usage.report?.daily || [];
   const periodView = _periodView;
   const rows = sortDailyRows(periodRows(daily, periodView), _daySort);
   const columnLabel = PERIOD_VIEWS.find((view) => view.value === periodView)?.label || 'Day';
@@ -724,7 +691,7 @@ function buildPeriodCell(row: UsageWireRow, periodView: string) {
 }
 
 function buildHeatmap(daily: unknown) {
-  const { cells, max } = heatmapCells(daily, { today: reportDayKey(_report) });
+  const { cells, max } = heatmapCells(daily, { today: reportDayKey(_usage.report) });
   if (cells.length === 0 || max <= 0) return null;
   const wrap = el('div', 'usage-heatmap-scroll');
   const grid = el('div', 'usage-heatmap');
@@ -791,8 +758,8 @@ function buildModelCell(row: UsageWireRow, totals: UsageTotals) {
 }
 
 function buildModelsSection() {
-  const rows = sortModelRows(_report?.models, _modelSort);
-  const totals = _report?.totals || {};
+  const rows = sortModelRows(_usage.report?.models, _modelSort);
+  const totals = _usage.report?.totals || {};
   const basis = shareBasis(totals);
   const section = buildSection('By model', shareLabel(basis));
   if (rows.length === 0) {
@@ -836,9 +803,9 @@ function buildModelsSection() {
 }
 
 function buildSessionsSection() {
-  const rows = sortSessionRows(_report?.sessions, _sessionSort);
+  const rows = sortSessionRows(_usage.report?.sessions, _sessionSort);
   const visible = visibleSessionRows(rows, _sessionsExpanded);
-  const totals = _report?.totals || {};
+  const totals = _usage.report?.totals || {};
   const basis = shareBasis(totals);
   const section = buildSection('By session', shareLabel(basis));
   if (rows.length === 0) {
@@ -902,7 +869,7 @@ function buildSessionsOverflow(hiddenCount: number) {
 
 function buildUnavailableSection() {
   const section = buildSection('Not available', '');
-  section.append(el('p', 'usage-empty', usageErrorLine(_report)));
+  section.append(el('p', 'usage-empty', usageErrorLine(_usage.report)));
   section.append(el('p', 'usage-empty', USAGE_DISABLED_HINT));
   return section;
 }
@@ -920,6 +887,7 @@ function clearRefs() {
 function render({ force = false }: { force?: boolean } = {}) {
   if (!_root) return;
   if (!force && isPanelHidden(_root)) return;
+  _usage = usageSnapshot();
   const scroller = _root.parentElement;
   const scrollTop = scroller ? scroller.scrollTop : 0;
   _ticker.reset();
@@ -955,12 +923,12 @@ function buildBody() {
   _root.append(buildHeaderSection());
 
   const plan = buildPlanLimitsSection();
-  if (isUsageUnavailable(_report)) {
+  if (isUsageUnavailable(_usage.report)) {
     if (plan) _root.append(plan);
     _root.append(buildUnavailableSection());
     return;
   }
-  if (!_report) {
+  if (!_usage.report) {
     if (plan) _root.append(plan);
     _root.append(el('p', 'usage-empty', 'Waiting for scan.'));
     return;
@@ -994,128 +962,42 @@ function bandOf(
   return band;
 }
 
-function refreshActivity() {
-  if (!_activityCallback) return;
-  _activityCallback(_attention.refresh());
-}
-
-export function acknowledgeUsageAttention() {
-  _attention.acknowledge();
-  refreshActivity();
-}
-
-function refreshStatusText(): string {
-  if (!_isConnected) return _report ? `${NOT_CONNECTED_TEXT} The figures below are from before the connection dropped.` : NOT_CONNECTED_TEXT;
-  if (_refreshPending) return 'Refreshing';
-  return _refreshFailureText ?? '';
-}
-
-function applyRefreshPending() {
-  if (_refreshButtonEl) _refreshButtonEl.disabled = _refreshPending;
+function paintRefreshStatus() {
+  const status = usageRefreshStatus();
+  if (_refreshButtonEl) _refreshButtonEl.disabled = status.isPending;
   if (!_refreshStatusEl) return;
-  _refreshStatusEl.textContent = refreshStatusText();
-  const hasFailure = !_isConnected || (!_refreshPending && _refreshFailureText !== null);
-  if (hasFailure) { _refreshStatusEl.dataset.tone = 'error'; return; }
+  _refreshStatusEl.textContent = status.text;
+  if (status.hasFailure) { _refreshStatusEl.dataset.tone = 'error'; return; }
   delete _refreshStatusEl.dataset.tone;
 }
 
-function setRefreshPending(pending: boolean) {
-  _refreshPending = pending;
-  applyRefreshPending();
-  if (_refreshTimer) {
-    clearTimeout(_refreshTimer);
-    _refreshTimer = null;
+function applyUsageChange(change: UsageChange) {
+  if (change === 'refresh-status') {
+    paintRefreshStatus();
+    return;
   }
-  if (!pending) return;
-
-  _refreshTimer = setTimeout(() => {
-    _refreshTimer = null;
-    _refreshPending = false;
-    _refreshFailureText = `Usage did not answer within ${Math.round(REFRESH_STATUS_TIMEOUT_MS / 1000)} s. Refresh to try again.`;
-    applyRefreshPending();
-  }, REFRESH_STATUS_TIMEOUT_MS);
-}
-
-export function setUsageActivityCallback(callback: (isActive: boolean) => void) {
-  _activityCallback = callback;
-  refreshActivity();
-}
-
-function reportUsageAction(action: OperatorActionOf<'usage'>) {
-  _sendRequest?.({ type: 'dashboard-telemetry', event: 'operator_action', properties: { surface: 'usage', action } });
-}
-
-export function setUsageRequestSender(send: (message: Record<string, unknown>) => boolean) {
-  _sendRequest = send;
-}
-
-export function requestUsageReport({ force = false }: { force?: boolean } = {}) {
-  if (!_sendRequest) return;
-  _latestRequestId = nextRequestId('usage');
-  const msg: Record<string, unknown> = { type: 'request-usage-report', requestId: _latestRequestId };
-  if (force) msg.force = true;
-  const days = daysForRange(_rangeValue);
-  if (days !== null) msg.days = days;
-  _refreshFailureText = null;
-  setRefreshPending(true);
-  if (_sendRequest(msg)) return;
-  _refreshFailureText = NOT_CONNECTED_TEXT;
-  setRefreshPending(false);
-}
-
-export function applyUsageConnectionState(isConnected: boolean) {
-  _isConnected = isConnected;
-  applyRefreshPending();
-}
-
-export function mountUsageView(parent: HTMLElement) {
-  if (_root) return _root;
-  const root = el('div', 'usage-content');
-  parent.appendChild(root);
-  _root = root;
-  _ticker.ensure();
-  render({ force: true });
-  return root;
-}
-
-export function refreshUsageView() {
-  render({ force: true });
-}
-
-export function applyUsageSessions(msg: UsageSessionsPush) {
-  _sessions = msg;
-
-  if (_report && !isUsageUnavailable(_report) && _sessionsTsEl?.isConnected) {
+  _usage = usageSnapshot();
+  if (change === 'sessions' && _usage.report && !isUsageUnavailable(_usage.report) && _sessionsTsEl?.isConnected) {
     paintSessionsTs();
     return;
   }
   render();
 }
 
-export function applyPlanLimits(msg: unknown) {
-  const planLimits = msg as PlanLimits;
-  _planLimitsByVendor = { ..._planLimitsByVendor, [planLimitsVendorOf(planLimits)]: planLimits };
-  render();
-  refreshActivity();
+function mountUsageView(parent: HTMLElement) {
+  if (_root) return;
+  const root = el('div', 'usage-content');
+  parent.appendChild(root);
+  _root = root;
+  setUsageLookingProbe(() => !isPanelHidden(_root));
+  subscribeUsage(applyUsageChange);
+  _ticker.ensure();
+  render({ force: true });
 }
 
-export function applyUsageReport(msg: unknown) {
-  if (!shouldApplyUsageReport(msg, _latestRequestId)) return;
-  _refreshFailureText = null;
-  setRefreshPending(false);
-  _report = msg as UsageReport;
-  render();
-  refreshActivity();
+function refreshUsageView(reason: ViewRefreshReason) {
+  if (reason === 'shown') render({ force: true });
+  requestUsageReport();
 }
 
-export function usageStatusLines() {
-  const pricing = _report?.pricing || (_sessions ? { source: _sessions.pricingSource } : null);
-  const fetchedAt = pricingFetchedAtMs(pricing?.fetchedAt);
-  const agoText = fetchedAt !== null && fetchedAt > 0 ? formatAgo(fetchedAt) : '';
-  const lines = [pricingSourceLine(pricing, agoText)];
-  const error = usageErrorLine(_report);
-  if (error) lines.push(error);
-  const scan = scanLine(_report?.scan);
-  if (scan) lines.push(scan);
-  return lines;
-}
+export const view: ViewModule<HTMLElement> = { mount: mountUsageView, refresh: refreshUsageView };

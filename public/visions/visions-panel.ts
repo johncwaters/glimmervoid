@@ -1,81 +1,37 @@
 import { createActionStatus } from '../action-status.ts';
 import { el, isPanelHidden } from '../dom-helpers.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
-import { createAttentionAck } from '../attention-ack-core.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
-import { getVisionsAttentionAck, setVisionsAttentionAck } from '../ui-prefs.ts';
+import type { ViewModule } from '../view-registry-core.ts';
+import { setVisionsLookingProbe, subscribeVisions, visionsSnapshot } from './visions-store.ts';
+import type { VisionsChange } from './visions-store.ts';
 import {
   INGEST_EMPTY_TEXT,
   VISIONS_EMPTY_TEXT,
   VISIONS_FIXES_EMPTY_TEXT,
   activityAgeText,
   activityCountText,
-  activityOverflowCount,
   activityOverflowText,
   activityScopeText,
   activitySourceLabel,
-  applyActivityMessage,
-  applyActivitySnapshot,
-  applyCommentsMessage,
-  applyCommentsSnapshot,
-  applyFindingsMessage,
-  applyFindingsSnapshot,
-  applyFixMessage,
-  applyFixSnapshot,
-  applyHandMessage,
-  applyHandSnapshot,
-  applyIntentMessage,
   basenameOfUri,
   commentLineLabel,
-  decideVisionsAttention,
-  emptyIntentState,
   findingLineLabel,
   fixCountText,
   fixLineLabel,
   fixOutcomeText,
   intentRows,
-  intentStateOfMessage,
   visionsHandText,
   visionsSections,
   sectionCountText,
-  visionsAttentionState,
 } from './visions-view-core.ts';
-import type { ActivityEvent, IntentRow, IntentState, VisionsComment, VisionsFinding, VisionsFixEntry, VisionsSection } from './visions-view-core.ts';
+import type { ActivityEvent, IntentRow, VisionsComment, VisionsFinding, VisionsFixEntry, VisionsSection } from './visions-view-core.ts';
 
-type VisionsMessage = Record<string, unknown>;
-
-let _findingsByUri = new Map<string, VisionsFinding[]>();
-let _commentsByUri = new Map<string, VisionsComment[]>();
-let _handsByUri = new Map<string, string>();
-let _intent: IntentState = emptyIntentState();
-
-let _projectNames = new Map<string, string>();
 let _root: HTMLDivElement | null = null;
 let _feed: HTMLDivElement | null = null;
 let _intentUI: { list: HTMLDivElement } | null = null;
-let _activityCallback: ((level: string | null) => void) | null = null;
-let _isEnabled: boolean | null = null;
-
-let _activityEvents: ActivityEvent[] = [];
-
-let _activityOverflow = 0;
 let _activityUI: { count: HTMLSpanElement; list: HTMLDivElement; overflow: HTMLParagraphElement } | null = null;
-
-let _fixEntries: VisionsFixEntry[] = [];
 let _fixUI: { count: HTMLSpanElement; list: HTMLDivElement } | null = null;
-
-let _attentionState = visionsAttentionState(_findingsByUri, _commentsByUri, _handsByUri, _fixEntries, _intent);
-let _acknowledgedSignature = getVisionsAttentionAck();
-
-const _attention = createAttentionAck({
-  getAck: () => _acknowledgedSignature,
-  setAck: (next: string) => {
-    _acknowledgedSignature = next;
-    setVisionsAttentionAck(next);
-  },
-  signature: () => _attentionState.signature,
-  isLooking: () => !isPanelHidden(_root),
-});
 
 function buildIntentBlock() {
   const section = el('section', 'visions-intent');
@@ -100,12 +56,8 @@ function buildIntentRow(row: IntentRow) {
 
 function renderIntent() {
   if (!_intentUI) return;
-  _intentUI.list.replaceChildren(...intentRows(_intent, _projectNames).map(buildIntentRow));
-}
-
-export function setVisionsProjectNames(namesById: unknown) {
-  _projectNames = namesById instanceof Map ? namesById : new Map();
-  renderIntent();
+  const { intent, projectNamesById } = visionsSnapshot();
+  _intentUI.list.replaceChildren(...intentRows(intent, projectNamesById).map(buildIntentRow));
 }
 
 function buildSection(section: VisionsSection) {
@@ -167,11 +119,12 @@ function render({ force = false }: { force?: boolean } = {}) {
   if (!_feed) return;
   if (!force && isPanelHidden(_root)) return;
   _feed.textContent = '';
-  const sections = visionsSections(_findingsByUri, _commentsByUri, _handsByUri);
+  const { findingsByUri, commentsByUri, handsByUri, isEnabled } = visionsSnapshot();
+  const sections = visionsSections(findingsByUri, commentsByUri, handsByUri);
 
   if (sections.length === 0) {
     const empty = el('p', 'visions-empty', VISIONS_EMPTY_TEXT);
-    if (_isEnabled === false) {
+    if (isEnabled === false) {
       const link = createSettingsLink('lanes-visions', 'visions-enabled', 'Enable Visions');
       empty.append(document.createTextNode(' '), link);
     }
@@ -179,11 +132,6 @@ function render({ force = false }: { force?: boolean } = {}) {
     return;
   }
   for (const section of sections) _feed.append(buildSection(section));
-}
-
-export function applyVisionsSettings(settings: unknown) {
-  _isEnabled = (settings as { visions?: { enabled?: unknown } } | null | undefined)?.visions?.enabled === true;
-  render();
 }
 
 function buildActivityBlock() {
@@ -217,16 +165,17 @@ function renderActivity({ force = false }: { force?: boolean } = {}) {
   if (!_activityUI) return;
   if (!force && isPanelHidden(_root)) return;
   const { count, list, overflow } = _activityUI;
-  count.textContent = activityCountText(_activityEvents.length);
+  const { activityEvents, activityOverflow } = visionsSnapshot();
+  count.textContent = activityCountText(activityEvents.length);
   list.textContent = '';
-  if (_activityEvents.length === 0) {
+  if (activityEvents.length === 0) {
     list.append(el('p', 'visions-empty', INGEST_EMPTY_TEXT));
     overflow.textContent = '';
     return;
   }
   const now = Date.now();
-  for (const event of _activityEvents) list.append(buildActivityRow(event, now));
-  overflow.textContent = activityOverflowText(_activityOverflow);
+  for (const event of activityEvents) list.append(buildActivityRow(event, now));
+  overflow.textContent = activityOverflowText(activityOverflow);
 }
 
 function buildFixesBlock() {
@@ -264,39 +213,43 @@ function renderFixes({ force = false }: { force?: boolean } = {}) {
   if (!_fixUI) return;
   if (!force && isPanelHidden(_root)) return;
   const { count, list } = _fixUI;
-  count.textContent = fixCountText(_fixEntries.length);
+  const { fixEntries } = visionsSnapshot();
+  count.textContent = fixCountText(fixEntries.length);
   list.textContent = '';
-  if (_fixEntries.length === 0) {
+  if (fixEntries.length === 0) {
     list.append(el('p', 'visions-empty', VISIONS_FIXES_EMPTY_TEXT));
     return;
   }
-  for (const entry of _fixEntries) list.append(buildFixRow(entry));
-}
-
-function refreshActivity() {
-  _attentionState = visionsAttentionState(_findingsByUri, _commentsByUri, _handsByUri, _fixEntries, _intent);
-  if (_attentionState.signature !== '') _attention.refresh();
-  if (!_activityCallback) return;
-  _activityCallback(decideVisionsAttention(_attentionState, _acknowledgedSignature));
-}
-
-export function setVisionsActivityCallback(callback: (level: string | null) => void) {
-  _activityCallback = callback;
-  refreshActivity();
+  for (const entry of fixEntries) list.append(buildFixRow(entry));
 }
 
 const _connectionStatus = createActionStatus('visions-connection-status');
 
-export function applyVisionsConnectionState(isConnected: boolean) {
-  if (isConnected) {
+function renderConnection() {
+  if (visionsSnapshot().isConnected) {
     _connectionStatus.clear();
     return;
   }
   _connectionStatus.show('error', `${NOT_CONNECTED_TEXT} What you see below is from before the connection dropped.`);
 }
 
-export function mountVisionsView(parent: HTMLElement) {
-  if (_root) return _root;
+const RENDER_BY_CHANGE: Record<VisionsChange, () => void> = {
+  intent: renderIntent,
+  feed: () => render(),
+  fixes: () => renderFixes(),
+  activity: () => renderActivity(),
+  connection: renderConnection,
+};
+
+function refreshVisionsView() {
+  renderIntent();
+  render({ force: true });
+  renderFixes({ force: true });
+  renderActivity({ force: true });
+}
+
+function mountVisionsView(parent: HTMLElement) {
+  if (_root) return;
   const root = el('div', 'visions-content');
   root.append(_connectionStatus.element, buildIntentBlock());
   const feed = el('div', 'visions-feed');
@@ -306,77 +259,12 @@ export function mountVisionsView(parent: HTMLElement) {
   parent.appendChild(root);
   _root = root;
   _feed = feed;
-  renderIntent();
-  render({ force: true });
-  renderFixes({ force: true });
-  renderActivity({ force: true });
-  return root;
+  setVisionsLookingProbe(() => !isPanelHidden(_root));
+  subscribeVisions((changes) => {
+    for (const change of changes) RENDER_BY_CHANGE[change]();
+  });
+  renderConnection();
+  refreshVisionsView();
 }
 
-export function refreshVisionsView() {
-  renderIntent();
-  render({ force: true });
-  renderFixes({ force: true });
-  renderActivity({ force: true });
-}
-
-export function acknowledgeVisionsAttention() {
-  if (_attentionState.signature !== '') _attention.acknowledge();
-  refreshActivity();
-}
-
-export function applyVisionsFix(msg: VisionsMessage) {
-  _fixEntries = applyFixMessage(_fixEntries, msg);
-  renderFixes();
-  refreshActivity();
-}
-
-export function applyVisionsFindings(msg: VisionsMessage) {
-  _findingsByUri = applyFindingsMessage(_findingsByUri, msg);
-  render();
-  refreshActivity();
-}
-
-export function applyVisionsComments(msg: VisionsMessage) {
-  _commentsByUri = applyCommentsMessage(_commentsByUri, msg);
-  render();
-  refreshActivity();
-}
-
-export function applyVisionsHand(msg: VisionsMessage) {
-  _handsByUri = applyHandMessage(_handsByUri, msg);
-  render();
-  refreshActivity();
-}
-
-export function applyVisionsIntent(msg: VisionsMessage) {
-  _intent = applyIntentMessage(_intent, msg);
-  renderIntent();
-  refreshActivity();
-}
-
-export function applyIngestActivity(msg: VisionsMessage) {
-  _activityEvents = applyActivityMessage(_activityEvents, msg);
-  _activityOverflow = activityOverflowCount(msg);
-  renderActivity();
-  refreshActivity();
-}
-
-export function applyIngestSnapshot(msg: VisionsMessage) {
-  _activityEvents = applyActivitySnapshot(msg);
-  _activityOverflow = 0;
-  renderActivity();
-  refreshActivity();
-}
-
-export function applyVisionsSnapshot(msg: VisionsMessage) {
-  _findingsByUri = applyFindingsSnapshot(msg);
-  _commentsByUri = applyCommentsSnapshot(msg);
-  _handsByUri = applyHandSnapshot(msg);
-  _intent = intentStateOfMessage(msg);
-  _fixEntries = applyFixSnapshot(msg);
-  renderIntent();
-  render();
-  renderFixes();
-  refreshActivity();
-}
+export const view: ViewModule<HTMLElement> = { mount: mountVisionsView, refresh: refreshVisionsView };

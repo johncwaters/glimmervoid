@@ -7,13 +7,14 @@ import { mountHooksView, refreshHooksView, requestHooksReport } from './hooks-pa
 import { applyIssuesConnectionState, mountIssuesView, refreshIssuesViewOnShow } from './github/issues-panel.ts';
 import { applyMyPrsConnectionState } from './github/my-prs-panel.ts';
 import { acknowledgeReviewQueueAttention, mountReviewQueue, setReviewQueueActivityCallback } from './github/review-queue-panel.ts';
-import { acknowledgeRadarAttention, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar/radar-panel.ts';
+import { acknowledgeRadarAttention, setRadarActivityCallback, setRadarTraceOpener } from './radar/radar-store.ts';
 import { onDebugModeChanged } from './session-card/card-dom.ts';
 import { mountSettingsView } from './settings/settings-panel.ts';
 import { applyTeamReviewConnectionState } from './github/team-review-panel.ts';
 import { applyTraceConnectionState, mountTraceView, openTraceForSession, refreshTraceView } from './trace-panel.ts';
-import { acknowledgeUsageAttention, applyUsageConnectionState, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback } from './usage/usage-panel.ts';
-import { acknowledgeVisionsAttention, applyVisionsConnectionState, mountVisionsView, refreshVisionsView, setVisionsActivityCallback } from './visions/visions-panel.ts';
+import { view as usageView } from './usage/usage-panel.ts';
+import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback } from './usage/usage-store.ts';
+import { acknowledgeVisionsAttention, applyVisionsConnectionState, setVisionsActivityCallback } from './visions/visions-store.ts';
 import { createViewLoader, shouldReloadAfterPreloadError, viewAttentionState } from './view-registry-core.ts';
 import type { PrimaryView, PrimaryViewDefinition, ViewAttention, ViewModule } from './view-registry-core.ts';
 
@@ -80,12 +81,9 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
       applyTeamReviewConnectionState(isConnected);
     } },
     { view: 'issues', label: 'Issues', glyph: '#', panelClass: 'issues-view', module: { mount: mountIssuesView, refresh: refreshIssuesViewOnShow }, refreshOn: ['shown'], onConnectionChange: applyIssuesConnectionState },
-    { view: 'usage', label: 'Usage', glyph: '\u25d4', panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, module: { mount: mountUsageView, refresh: (reason) => {
-      if (reason === 'shown') refreshUsageView();
-      requestUsageReport();
-    } }, attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, onConnectionChange: applyUsageConnectionState, refreshOn: ['shown', 'connected', 'usage-sessions'] },
-    { view: 'radar', label: 'Radar', glyph: '\u25ce', panelClass: 'radar-view', gate: { fromSettings: FEATURE_SURFACE_RULES.posthog }, module: { mount: mountRadarView }, attention: { subscribe: setRadarActivityCallback, acknowledge: acknowledgeRadarAttention } },
-    { view: 'visions', label: 'Visions', glyph: '\u25c7', panelClass: 'visions-view', gate: { fromSettings: FEATURE_SURFACE_RULES.visions }, module: { mount: mountVisionsView }, attention: { subscribe: setVisionsActivityCallback, acknowledge: () => { acknowledgeVisionsAttention(); refreshVisionsView(); } }, onConnectionChange: applyVisionsConnectionState },
+    { view: 'usage', label: 'Usage', glyph: '\u25d4', panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, module: usageView, attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, onConnectionChange: applyUsageConnectionState, refreshOn: ['shown', 'connected', 'usage-sessions'] },
+    { view: 'radar', label: 'Radar', glyph: '\u25ce', panelClass: 'radar-view', gate: { fromSettings: FEATURE_SURFACE_RULES.posthog }, load: () => import('./radar/radar-panel.ts').then((panel) => panel.view), attention: { subscribe: setRadarActivityCallback, acknowledge: acknowledgeRadarAttention } },
+    { view: 'visions', label: 'Visions', glyph: '\u25c7', panelClass: 'visions-view', gate: { fromSettings: FEATURE_SURFACE_RULES.visions }, load: () => import('./visions/visions-panel.ts').then((panel) => panel.view), attention: { subscribe: setVisionsActivityCallback, acknowledge: acknowledgeVisionsAttention }, refreshOn: ['shown'], onConnectionChange: applyVisionsConnectionState },
     { view: 'hooks', label: 'Hooks', glyph: '\u25c8', panelClass: 'hooks-view', module: { mount: mountHooksView, refresh: (reason) => {
       if (reason === 'shown') refreshHooksView();
       requestHooksReport();

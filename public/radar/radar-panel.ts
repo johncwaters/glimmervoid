@@ -1,5 +1,4 @@
-import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { createAttentionAck } from '../attention-ack-core.ts';
+import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { buildPanelSection, buildStatChip, el, externalLink, isPanelHidden, projectsOf } from '../dom-helpers.ts';
 import { createInvestigationDialog, createRadarReportDialog } from '../dialogs.ts';
 import type { InvestigationDialog } from '../dialogs.ts';
@@ -9,11 +8,11 @@ import { openConfirmDialog } from '../session-card/modal.ts';
 import { createPollAgoTicker, formatAgo, formatDuration } from '../poll-ago.ts';
 import { createRenderHold } from './radar-hold-core.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
-import { getRadarAttentionAck, setRadarAttentionAck } from '../ui-prefs.ts';
+import type { ViewModule } from '../view-registry-core.ts';
+import { archiveInvestigationLocally, radarSnapshot, setRadarLookingProbe, subscribeRadar } from './radar-store.ts';
+import type { RadarChange } from './radar-store.ts';
 import { isStreamerMode, onStreamerModeChanged } from '../streamer-mode.ts';
 import {
-  applyInvestigationActivity as patchInvestigationActivity,
-  applyInvestigationFinished as patchInvestigationFinished,
   finishedViewOf,
   isOpenInvestigationFrame,
   findIssueInSnapshot,
@@ -23,11 +22,9 @@ import {
   issueLastSeenAtMs,
   issueStatusLabel,
   issueSummaryText,
-  retainKnownInvestigationIds,
   occurrenceDelta,
   occurrenceHistoryValues,
   partitionRadarProjects,
-  radarAttentionSignature,
   radarDisplayName,
   radarLoadPhase,
   radarPlaceholder,
@@ -56,21 +53,10 @@ interface InvestigationRow {
   at: number;
 }
 
-let _latest: RadarSnapshot | null = null;
 let _root: HTMLDivElement | null = null;
-let _activityCallback: ((unseen: boolean) => void) | null = null;
-let _openTrace: ((sessionId: string) => void) | null = null;
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const _attention = createAttentionAck({
-  getAck: getRadarAttentionAck,
-  setAck: setRadarAttentionAck,
-  signature: () => radarAttentionSignature({ posthog: _latest }),
-  isLooking: () => !isPanelHidden(_root),
-});
 
 const _hold = createRenderHold({ render });
-
-const _archivedLocally = new Set<string>();
 
 let _openInvestigation: { projectId: string; issueId: string; dialog: InvestigationDialog } | null = null;
 
@@ -194,7 +180,7 @@ function refreshOpenInvestigation() {
     _openInvestigation = null;
     return;
   }
-  const issue = findIssueInSnapshot(_latest, _openInvestigation.projectId, _openInvestigation.issueId);
+  const issue = findIssueInSnapshot(radarSnapshot().latest, _openInvestigation.projectId, _openInvestigation.issueId);
   if (!issue) return;
   _openInvestigation.dialog.update(investigationViewOf(issue));
 }
@@ -336,7 +322,7 @@ function buildIssueActions(issue: RadarIssue, projectId: unknown, projectLabel: 
             : `Prompt pasted into ${String(message.sessionName || 'the session')}; press Enter there`
         ),
         (message) => {
-          if (typeof message.sessionId !== 'string' || !_openTrace) return;
+          if (typeof message.sessionId !== 'string' || !radarSnapshot().traceOpener) return;
           showFollowUp(buildOpenTraceButton(message.sessionId));
         },
       );
@@ -587,16 +573,16 @@ function buildErrorsSection(projects: RadarProject[], loadPhase: RadarLoadPhase 
     return section;
   }
   if (loadPhase === 'placeholder' || projects.length === 0) {
-    const placeholder = el('p', 'radar-unconfigured', radarPlaceholder(_latest));
+    const placeholder = el('p', 'radar-unconfigured', radarPlaceholder(radarSnapshot().latest));
     const link = createSettingsLink('lanes-posthog', 'posthog-enabled', 'PostHog settings');
-    const settingsLeadIn = radarSettingsLeadIn(_latest);
+    const settingsLeadIn = radarSettingsLeadIn(radarSnapshot().latest);
     placeholder.append(document.createTextNode(settingsLeadIn ? ` ${settingsLeadIn} ` : ' '), link);
     section.append(placeholder);
     return section;
   }
   const globalTickEl = el('div', 'radar-global-tick');
-  const intervalMinutes = Number(_latest?.intervalMinutes);
-  _pollTicker.track(globalTickEl, _latest?.ts, (polledAtMs) => {
+  const intervalMinutes = Number(radarSnapshot().latest?.intervalMinutes);
+  _pollTicker.track(globalTickEl, radarSnapshot().latest?.ts, (polledAtMs) => {
     const polled = `polled ${formatAgo(polledAtMs)}`;
     if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return polled;
     return `${polled}, every ${intervalMinutes}m`;
@@ -628,7 +614,7 @@ function buildInvestigationActions(row: InvestigationRow) {
       { id: row.id },
       'Archiving',
       () => 'Archived',
-      () => _archivedLocally.add(row.id),
+      () => archiveInvestigationLocally(row.id),
     );
   });
 
@@ -691,8 +677,7 @@ function buildInvestigationsSection(rows: InvestigationRow[]) {
 }
 
 function openTraceView(sessionId: string) {
-  if (!_openTrace) return;
-  _openTrace(sessionId);
+  radarSnapshot().traceOpener?.(sessionId);
 }
 
 function render() {
@@ -700,9 +685,10 @@ function render() {
   _root.textContent = '';
   _issueRows.clear();
   _pollTicker.reset();
-  const projects = projectsOf<RadarProject>(_latest);
-  const investigations = investigationRows(_latest, _archivedLocally);
-  const loadPhase = radarLoadPhase(_latest, projects.length);
+  const { latest, archivedLocally } = radarSnapshot();
+  const projects = projectsOf<RadarProject>(latest);
+  const investigations = investigationRows(latest, archivedLocally);
+  const loadPhase = radarLoadPhase(latest, projects.length);
 
   _root.append(buildErrorsSection(projects, loadPhase));
   if (investigations.length > 0) _root.append(buildInvestigationsSection(investigations));
@@ -712,65 +698,42 @@ function renderOrDefer() {
   _hold.request();
 }
 
-function refreshActivity() {
-  if (!_activityCallback) return;
-  _activityCallback(_attention.refresh());
-}
-
-export function acknowledgeRadarAttention() {
-  _attention.acknowledge();
-  refreshActivity();
-}
-
-export function setRadarActivityCallback(callback: (unseen: boolean) => void) {
-  _activityCallback = callback;
-  refreshActivity();
-}
-
-export function setRadarTraceOpener(open: ((sessionId: string) => void) | null) {
-  _openTrace = open;
-}
-
-export function mountRadarView(parent: HTMLElement) {
-  if (_root) return _root;
-  const root = el('div', 'radar-content');
-  parent.appendChild(root);
-  _root = root;
-  _pollTicker.ensure();
-  render();
-  return root;
-}
-
-export function applyRadarStatus(msg: unknown) {
-  _latest = msg as RadarSnapshot;
-
-  retainKnownInvestigationIds(_latest, _archivedLocally);
-  renderOrDefer();
-  refreshActivity();
-  refreshOpenInvestigation();
-}
-
-export function applyInvestigationActivity(frame: ServerMessageOf<'radar-investigation-activity'>) {
-  const wasInFlight = findIssueInSnapshot(_latest, frame.projectId, frame.issueId)?.inFlight === true;
-  if (!patchInvestigationActivity(_latest, frame)) return;
-  refreshOpenInvestigation();
-  const issue = findIssueInSnapshot(_latest, frame.projectId, frame.issueId);
-  if (wasInFlight && patchIssueRowSummary(frame.projectId, frame.issueId, issue)) return;
-  renderOrDefer();
-}
-
 function finishOpenInvestigationFromFrame(frame: InvestigationFinishedFrame) {
   if (!_openInvestigation?.dialog.isOpen()) return;
   if (!isOpenInvestigationFrame(_openInvestigation, frame)) return;
   _openInvestigation.dialog.update(finishedViewOf(frame));
 }
 
-export function applyInvestigationFinished(frame: ServerMessageOf<'radar-investigation-finished'>) {
-  if (!patchInvestigationFinished(_latest, frame)) {
-    finishOpenInvestigationFromFrame(frame);
+function applyRadarChange(change: RadarChange) {
+  if (change.kind === 'status') {
+    renderOrDefer();
+    refreshOpenInvestigation();
+    return;
+  }
+  if (change.kind === 'investigation-activity') {
+    refreshOpenInvestigation();
+    const issue = findIssueInSnapshot(radarSnapshot().latest, change.projectId, change.issueId);
+    if (change.wasInFlight && patchIssueRowSummary(change.projectId, change.issueId, issue)) return;
+    renderOrDefer();
+    return;
+  }
+  if (!change.isPatched) {
+    finishOpenInvestigationFromFrame(change.frame);
     return;
   }
   refreshOpenInvestigation();
   renderOrDefer();
-  refreshActivity();
 }
+
+function mountRadarView(parent: HTMLElement) {
+  if (_root) return;
+  const root = el('div', 'radar-content');
+  parent.appendChild(root);
+  _root = root;
+  setRadarLookingProbe(() => !isPanelHidden(_root));
+  subscribeRadar(applyRadarChange);
+  _pollTicker.ensure();
+  render();
+}
+
+export const view: ViewModule<HTMLElement> = { mount: mountRadarView };
