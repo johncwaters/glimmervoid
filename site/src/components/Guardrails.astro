@@ -1,23 +1,32 @@
 ---
 import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, UNREADABLE_PATHS_KEY } from '../lib/product-facts.ts';
+
+const DEMO_TASK = 'flaky-upload-test';
+const COMMANDS_IN_ORDER = [
+  { command: 'npm test', reason: null },
+  { command: 'git reset --hard', reason: 'Eats uncommitted work' },
+  { command: 'git commit -m "wip"', reason: null },
+  { command: 'rm -rf "$BUILD_DIR"', reason: 'Unverifiable target' },
+  { command: 'git push', reason: null },
+  { command: 'git push --force', reason: 'Rewrites shared history' },
+].map((entry, index) => ({ ...entry, step: index + 1 }));
+const RAN_COMMANDS = COMMANDS_IN_ORDER.filter(({ reason }) => reason === null);
+const CAUGHT_COMMANDS = COMMANDS_IN_ORDER.flatMap(({ command, reason, step }) => (reason === null ? [] : [{ command, reason, step }]));
 ---
 <section id="guardrails">
   <div class="yolo reveal">
     <div class="yolo-copy">
       <h2>You only live once.<br>Your repo gets a net.</h2>
-      <p>Skip the prompts. Safe commands run. The rest land in the net.</p>
+      <p>Sane YOLO skips the prompts. Safe commands run. The rest land in the net.</p>
     </div>
-    <figure class="yolo-drop" aria-label="Safe commands run; git reset --hard, git push --force and an unverifiable rm -rf are caught by CC Safety Net">
-      <ul class="yolo-ran">
-        <li>npm test</li>
-        <li>git commit -m "wip"</li>
-        <li>git push</li>
+    <figure class="yolo-drop" id="yolo-drop" aria-label="A session in Sane YOLO mode runs commands without permission prompts. npm test, git commit and git push run. git reset --hard, an unverifiable rm -rf and git push --force are caught by Sane YOLO.">
+      <div class="yolo-session" aria-hidden="true"><span class="yolo-task">{DEMO_TASK}</span><span class="yolo-badge">Sane YOLO</span></div>
+      <ul class="yolo-ran" aria-hidden="true">
+        {RAN_COMMANDS.map(({ command, step }) => <li data-yolo-step={step}>{command}</li>)}
       </ul>
-      <div class="yolo-catch">
+      <div class="yolo-catch" aria-hidden="true">
         <ul class="yolo-caught">
-          <li><code>git reset --hard</code><span>Eats uncommitted work</span></li>
-          <li><code>rm -rf "$BUILD_DIR"</code><span>Unverifiable target</span></li>
-          <li><code>git push --force</code><span>Rewrites shared history</span></li>
+          {CAUGHT_COMMANDS.map(({ command, reason, step }) => <li data-yolo-step={step}><code>{command}</code><span>{reason}</span></li>)}
         </ul>
         <svg class="yolo-net" viewBox="0 0 400 100" preserveAspectRatio="none" aria-hidden="true">
           <defs>
@@ -30,7 +39,7 @@ import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, UNREADABLE_PATHS_KEY } from '.
           <path d="M2 4 L398 4" fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke" />
         </svg>
       </div>
-      <figcaption>Caught by CC Safety Net</figcaption>
+      <figcaption>Caught by Sane YOLO</figcaption>
     </figure>
   </div>
   <details class="ledger-details reveal">
@@ -108,26 +117,30 @@ import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, UNREADABLE_PATHS_KEY } from '.
   .ledger-intro { margin: 8px 0 20px; max-width: 70ch; color: var(--text-dim); }
   .yolo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: center; margin-top: 0; }
   .yolo-copy { display: flex; flex-direction: column; gap: 14px; max-width: 60ch; }
-  .yolo-drop { container-type: inline-size; margin: 0; min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 18px 18px 14px; font-family: var(--font-mono); font-size: 15px; }
-  .yolo-ran { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text-dim); }
+  .yolo-drop { container-type: inline-size; margin: 0; min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 14px 18px 14px; font-family: var(--font-mono); font-size: 15px; }
+  .yolo-session { display: flex; align-items: center; gap: 10px; margin: 0 -18px 16px; padding: 0 18px 12px; border-bottom: 1px solid var(--border-dim); }
+  .yolo-task { color: var(--text-head); font-size: 14px; font-weight: 700; }
+  .yolo-badge { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; line-height: 18px; padding: 0 6px; border-radius: 2px; color: var(--perms-warn); border: 1px solid color-mix(in oklab, var(--perms-warn) 55%, transparent); background: color-mix(in oklab, var(--perms-warn) 14%, transparent); }
+  .yolo-ran { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; min-height: 1.6em; color: var(--text-dim); }
   .yolo-ran li::before { content: '\2713  '; white-space: pre; color: var(--state-running); }
+  .yolo-ran li { transition: opacity 320ms var(--ease-out-expo); }
+  .yolo-ran li[data-on="false"] { opacity: 0; transition-duration: var(--leave-ms); }
   .yolo-catch { position: relative; }
   .yolo-caught { position: relative; z-index: 1; list-style: none; margin: 0; padding: 0 0 30px; display: flex; justify-content: center; align-items: flex-start; }
-  .yolo-caught li { display: flex; flex-direction: column; gap: 2px; margin-inline: 1px; border: 1px solid var(--state-waiting); border-radius: 4px; background: var(--bg); padding: 6px 9px; font-size: 14px; white-space: nowrap; rotate: var(--tilt); animation: yolo-fall linear both; animation-timeline: view(); animation-range: entry 20% cover 45%; }
+  .yolo-caught li { display: flex; flex-direction: column; gap: 2px; margin-inline: 1px; border: 1px solid var(--state-waiting); border-radius: 4px; background: var(--bg); padding: 6px 9px; font-size: 14px; white-space: nowrap; rotate: var(--tilt); transition: translate 560ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 200ms linear; }
+  .yolo-caught li[data-on="false"] { translate: 0 -140px; opacity: 0; transition: translate var(--leave-ms) var(--ease-in-expo), opacity var(--leave-ms) linear; }
   .yolo-caught li:nth-child(1) { --tilt: 6deg; }
-  .yolo-caught li:nth-child(2) { --tilt: -2deg; z-index: 1; margin-top: 18px; animation-range: entry 30% cover 50%; }
-  .yolo-caught li:nth-child(3) { --tilt: -6deg; animation-range: entry 25% cover 48%; }
+  .yolo-caught li:nth-child(2) { --tilt: -2deg; z-index: 1; margin-top: 18px; }
+  .yolo-caught li:nth-child(3) { --tilt: -6deg; }
   .yolo-caught code { font-size: inherit; color: var(--text-head); }
   .yolo-caught span { font-size: 14px; color: var(--state-waiting); }
-  .yolo-net { position: absolute; left: 0; bottom: 0; width: 100%; height: 72%; color: var(--accent-dim); }
+  .yolo-net { position: absolute; left: 0; bottom: 0; width: 100%; height: 72%; color: var(--accent-dim); transform-origin: 50% 0; }
+  .yolo-net.is-catching { animation: yolo-net-give 520ms var(--ease-out-expo); }
   .yolo-drop figcaption { margin-top: 8px; text-align: center; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
-  @keyframes yolo-fall {
-    from { translate: 0 -120px; opacity: 0; }
-    75% { translate: 0 8px; opacity: 1; }
-    to { translate: 0 0; opacity: 1; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .yolo-caught li { animation: none; }
+  @keyframes yolo-net-give {
+    0% { scale: 1 1; }
+    35% { scale: 1 1.12; }
+    100% { scale: 1 1; }
   }
   @media (max-width: 820px) { .yolo { grid-template-columns: minmax(0, 1fr); } }
   @container (max-width: 600px) {
@@ -149,3 +162,36 @@ import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, UNREADABLE_PATHS_KEY } from '.
     .ledger .detail { font-size: 14px; }
   }
 </style>
+
+<script>
+  import { runFramesWhileVisible } from '../lib/dom.ts';
+  import { BEAT_MS } from '../lib/feature-frames.ts';
+
+  const FULL_NET_HOLD_MS = 5 * BEAT_MS;
+  const COMMAND_HOLD_MS = 1.5 * BEAT_MS;
+
+  function startYoloDrop(): void {
+    const figure = document.getElementById('yolo-drop');
+    if (!figure) return;
+    const commandParts = [...figure.querySelectorAll<HTMLElement>('[data-yolo-step]')];
+    const commandCount = commandParts.length;
+    const net = figure.querySelector('.yolo-net');
+    const showFrame = (frameIndex: number) => {
+      const shownCommandCount = frameIndex === 0 ? commandCount : frameIndex;
+      for (const part of commandParts) {
+        const isShown = Number(part.dataset.yoloStep) <= shownCommandCount;
+        const isArrivingInNet = isShown && part.dataset.on === 'false' && part.closest('.yolo-caught') !== null;
+        part.dataset.on = String(isShown);
+        if (isArrivingInNet && net) {
+          net.classList.remove('is-catching');
+          requestAnimationFrame(() => net.classList.add('is-catching'));
+        }
+      }
+    };
+    showFrame(0);
+    const holdMsByFrame = Array.from({ length: commandCount }, (_, frameIndex) => (frameIndex === 0 ? FULL_NET_HOLD_MS : COMMAND_HOLD_MS));
+    runFramesWhileVisible(figure, holdMsByFrame, showFrame);
+  }
+
+  startYoloDrop();
+</script>
