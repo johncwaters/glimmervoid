@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.2] - 2026-10-26
+
 ### Changed
 
 - **The server log now says when the dashboard breaks**: when a dashboard tab receives an update it cannot read, hits an uncaught error, or fails to load a view such as Reviews, Glimmervoid's own log gets a `[dashboard]` line naming what failed, for example the update type and the field that did not match. Each distinct problem is logged once per page load, at most 32 per page.
