@@ -5,7 +5,8 @@ import { FilesystemConfigSchema, SandboxManager } from '@anthropic-ai/sandbox-ru
 import type { NetworkConfig, SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 import { spawn } from '../server/child-process-safe.ts';
 import { errorMessage } from '../shared/text.ts';
-import { confineToOwnTerminal } from './core/guardrails-terminal-core.ts';
+import { addMachRegisterRule, confineToOwnTerminal } from './core/guardrails-terminal-core.ts';
+import type { ProfileRewrite } from './core/guardrails-terminal-core.ts';
 
 const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
 const ANY_TERMINAL_SCOPE = 'any';
@@ -24,6 +25,7 @@ function shellQuote(word: string): string {
 interface OpenPolicy {
   runtimeConfig: SandboxRuntimeConfig;
   isAnyTerminalAllowed: boolean;
+  isMachRegisterAllowed: boolean;
 }
 
 function openNetworkOf(policy: unknown): Partial<NetworkConfig> {
@@ -42,6 +44,7 @@ function readOpenPolicy(policyPath: string): OpenPolicy {
       network: openNetworkOf(policy), filesystem, allowPty: fieldOf(policy, 'allowPty') === true, enableWeakerNetworkIsolation: true, allowAppleEvents: fieldOf(policy, 'allowAppleEvents') === true,
     } as SandboxRuntimeConfig,
     isAnyTerminalAllowed: fieldOf(policy, 'terminalScope') === ANY_TERMINAL_SCOPE,
+    isMachRegisterAllowed: fieldOf(policy, 'allowMachRegister') === true,
   };
 }
 
@@ -55,11 +58,16 @@ function ownTerminalPath(): string {
   return path.join(DEVICE_FOLDER, ownName);
 }
 
-function guardrailsArgv(argv: string[], { runtimeConfig, isAnyTerminalAllowed }: OpenPolicy): string[] {
-  if (runtimeConfig.allowPty !== true || isAnyTerminalAllowed || process.platform !== 'darwin') return argv;
-  const confinement = confineToOwnTerminal(argv, ownTerminalPath());
-  if (!confinement.ok) throw new Error(confinement.reason);
-  return confinement.argv;
+function rewrittenArgv(rewrite: ProfileRewrite): string[] {
+  if (!rewrite.ok) throw new Error(rewrite.reason);
+  return rewrite.argv;
+}
+
+function guardrailsArgv(argv: string[], { runtimeConfig, isAnyTerminalAllowed, isMachRegisterAllowed }: OpenPolicy): string[] {
+  if (process.platform !== 'darwin') return argv;
+  const registerArgv = isMachRegisterAllowed ? rewrittenArgv(addMachRegisterRule(argv)) : argv;
+  if (runtimeConfig.allowPty !== true || isAnyTerminalAllowed) return registerArgv;
+  return rewrittenArgv(confineToOwnTerminal(registerArgv, ownTerminalPath()));
 }
 
 function exitCodeFor(code: number | null, signal: NodeJS.Signals | null): number {

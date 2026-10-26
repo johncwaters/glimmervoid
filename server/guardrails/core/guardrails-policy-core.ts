@@ -72,6 +72,7 @@ interface GuardrailsPolicy {
   filesystem: FilesystemConfig;
   terminalScope: GuardrailsTerminalScope;
   allowAppleEvents: boolean;
+  allowMachRegister: boolean;
 }
 
 interface GuardrailsLaunchHomeLink {
@@ -405,6 +406,7 @@ function buildGuardrailsLaunchPlan(role: GuardrailsRole, host: GuardrailsHost): 
         },
         terminalScope: isStandardLevel(role) ? 'any' : 'own',
         allowAppleEvents: isStandardLevel(role),
+        allowMachRegister: isStandardLevel(role),
       },
       launchEnv: Object.assign({ CLAUDE_CODE_TMPDIR: host.tempDir }, ...role.vendors.map((vendor) => VENDOR_PROFILES[vendor].launchEnv), launchHomeEnv(role, host)),
       guardedEnv: guardedEnvFor(role, host),

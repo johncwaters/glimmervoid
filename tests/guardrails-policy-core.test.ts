@@ -107,10 +107,12 @@ test('an ordinary Claude session is guarded unless it or a folder above it is ma
   assert.deepEqual(network, { allowAllUnixSockets: true, allowMachLookup: ['*'] });
   assert.equal(policy.terminalScope, 'any');
   assert.equal(policy.allowAppleEvents, true);
+  assert.equal(policy.allowMachRegister, true);
   const strictPolicy = planFor(roleWith({ network: networkByName.open })).policy;
   assert.deepEqual(strictPolicy.network, { allowAllUnixSockets: false });
   assert.equal(strictPolicy.terminalScope, 'own');
   assert.equal(strictPolicy.allowAppleEvents, false);
+  assert.equal(strictPolicy.allowMachRegister, false);
   assert.equal(entryPaths(strictPolicy.filesystem.denyRead).includes(path.join(homeDir, 'Library/Keychains')), true);
 });
 

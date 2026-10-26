@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A session needing you while the dashboard is in the background now sounds once: the desktop notification carries the alert sound and the dashboard chime stays quiet, instead of both playing. With the dashboard focused, or desktop notifications off or blocked, the chime plays as before.
+- Headless Chromium and Playwright now start inside a guarded session on macOS instead of crashing on launch: the guardrails let a session register its own Mach services, which Chromium needs at startup. Lane guardrails stay as strict as before.
 - The attention bar at the top of the Reviews queue, with the Cmd+J hint, now fits inside the queue column instead of running past its right edge, and the bar and the queue below it use the same spacing as the Focus rail.
 
 ## [0.45.0] - 2026-10-26
