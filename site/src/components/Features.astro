@@ -2,10 +2,11 @@
 const USAGE_SHARES_BY_SESSION = [0.92, 0.64, 0.41, 0.23];
 const TRACE_STEP_LENGTHS = [0.7, 0.45, 0.85, 0.55, 0.3, 0.65];
 const HELPER_SESSION_COUNT = 3;
-const RADAR_STEPS = [
-  { tone: 'danger', length: 0.8 },
-  { tone: 'wait', length: 0.55 },
-  { tone: 'ok', length: 0.7 },
+const RADAR_BLIPS = [
+  { angleDeg: 48, distance: 0.62 },
+  { angleDeg: 140, distance: 0.34 },
+  { angleDeg: 228, distance: 0.74 },
+  { angleDeg: 312, distance: 0.48 },
 ];
 const FEATURES = [
   { area: 'notify', name: 'Notifications', line: 'Browser or Telegram' },
@@ -50,8 +51,11 @@ const FEATURES = [
           </span>
         )}
         {visual === 'radar' && (
-          <span class="tile-visual radar-steps" aria-hidden="true">
-            {RADAR_STEPS.map(({ tone, length }) => <span class={`radar-step tone-${tone}`} style={`--length: ${length}`}></span>)}
+          <span class="tile-visual radar-scope" aria-hidden="true">
+            <span class="radar-sweep"></span>
+            {RADAR_BLIPS.map(({ angleDeg, distance }) => (
+              <span class="radar-arm" style={`--turn: ${angleDeg / 360}; --distance: ${distance}`}><span class="radar-blip"></span></span>
+            ))}
           </span>
         )}
         {visual === 'masked' && <span class="tile-visual masked-secret" aria-hidden="true">API_KEY=<span class="mask"></span></span>}
@@ -88,12 +92,30 @@ const FEATURES = [
   .helper-sessions { display: flex; align-items: center; gap: 10px; }
   .helper-dot { display: block; width: 12px; height: 12px; border-radius: 50%; background: var(--state-running); opacity: 0.55; }
   .helper-dot.is-parent { width: 16px; height: 16px; opacity: 1; margin-right: 14px; box-shadow: 18px 0 0 -7px var(--border); }
-  .radar-steps { display: flex; flex-direction: column; gap: 12px; }
-  .radar-step { position: relative; display: block; height: 8px; margin-left: 18px; width: calc(var(--length) * (100% - 18px)); border-radius: 4px; background: var(--border); }
-  .radar-step::before { content: ''; position: absolute; left: -18px; top: 0; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-  .tone-danger { color: var(--state-failed); }
-  .tone-wait { color: var(--state-running); }
-  .tone-ok { color: var(--state-complete); }
+  .radar-scope {
+    --sweep-ms: 4000ms;
+    position: relative; display: block; align-self: center; width: min(100%, 136px); aspect-ratio: 1; margin-top: auto; padding: 0; border-radius: 50%;
+    border: 1px solid var(--accent-dim); overflow: hidden;
+    background:
+      radial-gradient(circle, var(--accent) 0 2px, transparent 2.5px),
+      radial-gradient(circle, transparent 0 32%, var(--border) 32% calc(32% + 1px), transparent calc(32% + 1px) 65%, var(--border) 65% calc(65% + 1px), transparent calc(65% + 1px)),
+      linear-gradient(var(--border), var(--border)) center / 1px 100% no-repeat,
+      linear-gradient(var(--border), var(--border)) center / 100% 1px no-repeat,
+      var(--bg);
+  }
+  .radar-sweep { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(transparent 0 270deg, color-mix(in oklab, var(--accent) 45%, transparent) 356deg, var(--accent) 359deg 360deg); animation: radar-spin var(--sweep-ms) linear infinite; }
+  .radar-arm { position: absolute; inset: 0; rotate: calc(var(--turn) * 1turn); }
+  .radar-blip { position: absolute; left: calc(50% - 3.5px); top: calc(50% - var(--distance) * 50% - 3.5px); width: 7px; height: 7px; border-radius: 50%; background: var(--state-failed); box-shadow: 0 0 8px var(--state-failed); opacity: 0.15; animation: radar-ping var(--sweep-ms) linear infinite; animation-delay: calc((var(--turn) - 1) * var(--sweep-ms)); }
+  @keyframes radar-spin { to { rotate: 360deg; } }
+  @keyframes radar-ping {
+    0% { opacity: 1; scale: 1.5; }
+    12% { opacity: 1; scale: 1; }
+    100% { opacity: 0.15; scale: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .radar-sweep, .radar-blip { animation: none; }
+    .radar-blip { opacity: 1; }
+  }
   .masked-secret { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 13px; color: var(--text-dim); }
   .mask { display: block; flex: 1; max-width: 160px; height: 14px; border-radius: 3px; background: repeating-linear-gradient(90deg, var(--text-dim) 0 6px, transparent 6px 10px); opacity: 0.5; }
   @media (max-width: 820px) {
@@ -112,7 +134,7 @@ const FEATURES = [
     }
     .tile { padding: 12px 14px; border-radius: 12px; }
     .tile:not(.is-feature) .feature-line { display: none; }
-    .radar-steps { display: none; }
+    .radar-scope { width: min(100%, 96px); }
     .tile-visual { padding-top: 12px; }
     .trace-steps { gap: 8px; }
     .trace-step:nth-child(n + 4) { display: none; }
