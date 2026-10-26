@@ -14,6 +14,7 @@ type DashboardShortcutAction =
   | 'session-nth'
   | 'new-session'
   | 'merge'
+  | 'close-session'
   | 'resolve-or-resync'
   | 'streamer-mode';
 
@@ -75,6 +76,7 @@ const FIXED_DASHBOARD_SHORTCUTS: readonly DashboardShortcut[] = [
   { action: 'session-nth', keyCaptions: ['1..9'], label: 'Jump to session 1 to 9', stepByCode: new Map(SESSION_DIGIT_STEPS), isShellChord: true, needsMacOption: true },
   { action: 'new-session', keyCaptions: ['0'], label: 'Add a session', stepByCode: new Map([['Digit0', 0]]), isShellChord: true },
   { action: 'merge', keyCaptions: ['I'], label: 'Merge the selected session', stepByCode: new Map([['KeyI', 0]]) },
+  { action: 'close-session', keyCaptions: ['K'], label: 'Close the selected session', stepByCode: new Map([['KeyK', 0]]) },
   { action: 'resolve-or-resync', keyCaptions: ['U'], label: 'Resolve a parked merge, or resync the base branch', stepByCode: new Map([['KeyU', 0]]), isShellChord: true },
   { action: 'streamer-mode', keyCaptions: ['\\'], label: 'Turn streamer mode on or off', stepByCode: new Map([['Backslash', 0]]), isShellChord: true },
 ];

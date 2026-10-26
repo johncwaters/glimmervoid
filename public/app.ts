@@ -55,6 +55,7 @@ import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects,
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { requestSessionRemoval } from './session-actions.ts';
+import { getSelectedId } from './sidebar/selection.ts';
 import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
 import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from './shortcuts.ts';
 import { resolveDashboardShortcut } from './shortcuts-core.ts';
@@ -1084,6 +1085,12 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
     case 'merge':
       mergeSelectedSession();
       return true;
+    case 'close-session': {
+      const selectedSessionId = getSelectedId();
+      if (!selectedSessionId) return false;
+      requestSessionRemoval(selectedSessionId);
+      return true;
+    }
     case 'resolve-or-resync':
       if (!resolveSelectedSession()) resyncSelectedSession();
       return true;

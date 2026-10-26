@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **A session closes itself when its agent quits**: typing `/quit` (or any clean exit of the agent) now removes the session instead of leaving a "Session complete" card. When the session still has unmerged worktree changes, or is a multi-repo workspace or Coder remote session, the usual Remove confirmation opens instead, so nothing is discarded without asking. A failed exit, Kill, Restart, Finish and merge, and stopping the server never remove a session.
+- **A session closes itself when its agent quits**: typing `/quit` (or any clean exit of the agent) now removes the session instead of leaving a "Session complete" card. When the session still has unmerged worktree changes, or is a multi-repo workspace or Coder remote session, the usual Remove confirmation opens instead, so nothing is discarded without asking. A failed exit, Kill, Restart, Finish and merge, and stopping the server never remove a session. Cmd+K on Mac, Alt+K elsewhere, opens the same Remove confirmation for the selected session, as its X does.
 
 ## [0.44.2] - 2026-10-26
 
