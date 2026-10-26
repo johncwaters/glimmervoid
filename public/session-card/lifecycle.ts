@@ -51,7 +51,7 @@ import {
 import { releaseWebgl } from './webgl-pool.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
 import { applyTerminalFontFamily } from '../mono-font-core.ts';
-import { focusAdjacentMenuItem, isMenuArrowKey } from '../menu.ts';
+import { wirePopupMenuKeys } from '../menu.ts';
 
 
 const asText = (value: unknown) => (value == null ? '' : String(value));
@@ -227,35 +227,32 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     requestSessionRemoval(sessionId);
   });
 
-  ui.btnSessionMenu.addEventListener('click', (event) => {
-    event.stopPropagation();
-    for (const [, other] of sessionUIs) {
-      if (other !== ui) closeSessionMenu(other);
-    }
-    const isOpen = ui.sessionMenu.classList.toggle('open');
-    ui.btnSessionMenu.setAttribute('aria-expanded', String(isOpen));
-  });
-
-  function moveMenuFocus(event: KeyboardEvent) {
-    if (!isMenuArrowKey(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
+  function openSessionMenu() {
     for (const [, other] of sessionUIs) {
       if (other !== ui) closeSessionMenu(other);
     }
     ui.sessionMenu.classList.add('open');
     ui.btnSessionMenu.setAttribute('aria-expanded', 'true');
-    focusAdjacentMenuItem([...ui.sessionMenu.querySelectorAll<HTMLElement>('.popup-menu-item.visible')], event);
   }
-  ui.btnSessionMenu.addEventListener('keydown', moveMenuFocus);
-  ui.sessionMenu.addEventListener('keydown', moveMenuFocus);
 
-  document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape' || !ui.sessionMenu.classList.contains('open')) return;
-    event.preventDefault();
-    closeSessionMenu(ui);
-    ui.btnSessionMenu.focus();
-  }, { signal: ui.abortController.signal });
+  ui.btnSessionMenu.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (ui.sessionMenu.classList.contains('open')) {
+      closeSessionMenu(ui);
+      return;
+    }
+    openSessionMenu();
+  });
+
+  wirePopupMenuKeys({
+    trigger: ui.btnSessionMenu,
+    menu: ui.sessionMenu,
+    menuItems: () => [...ui.sessionMenu.querySelectorAll<HTMLElement>('.popup-menu-item.visible')],
+    isOpen: () => ui.sessionMenu.classList.contains('open'),
+    open: openSessionMenu,
+    close: () => closeSessionMenu(ui),
+    signal: ui.abortController.signal,
+  });
 
   document.addEventListener('click', (event) => {
     const clicked = event.target instanceof Node ? event.target : null;

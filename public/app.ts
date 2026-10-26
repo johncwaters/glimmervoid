@@ -35,6 +35,7 @@ import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from
 import { forgetSessionLinkedPrs, paintSessionPrChips, sessionRowPrSignals, setSessionLinkedPrs } from './github/session-pr-chips.ts';
 import { addSessionRowSignalSource } from './session-row.ts';
 import { nextRovingIndex, wrapIndex } from './roving-keys-core.ts';
+import { wirePopupMenuKeys } from './menu.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-store.ts';
@@ -669,22 +670,30 @@ mountStreamerTextMask();
 const powerMenu = queryTag(document, '#power-menu', 'div');
 const btnPower = queryTag(document, '#btn-power', 'button');
 
-function syncPowerMenuAria() {
-  btnPower.setAttribute('aria-expanded', powerMenu.classList.contains('open') ? 'true' : 'false');
+const powerMenuDropdown = queryTag(document, '#power-menu-dropdown', 'div');
+
+function setPowerMenuOpen(isOpen: boolean) {
+  powerMenu.classList.toggle('open', isOpen);
+  btnPower.setAttribute('aria-expanded', String(isOpen));
 }
 
 btnPower.addEventListener('click', (e) => {
   e.stopPropagation();
-  powerMenu.classList.toggle('open');
-  syncPowerMenuAria();
+  setPowerMenuOpen(!powerMenu.classList.contains('open'));
+});
+
+wirePopupMenuKeys({
+  trigger: btnPower,
+  menu: powerMenuDropdown,
+  menuItems: () => [...powerMenuDropdown.querySelectorAll<HTMLElement>('[role="menuitem"]')].filter((menuItem) => !menuItem.hidden),
+  isOpen: () => powerMenu.classList.contains('open'),
+  open: () => setPowerMenuOpen(true),
+  close: () => setPowerMenuOpen(false),
 });
 
 document.addEventListener('click', (e) => {
   if (!(e.target instanceof Node)) return;
-  if (!powerMenu.contains(e.target)) {
-    powerMenu.classList.remove('open');
-    syncPowerMenuAria();
-  }
+  if (!powerMenu.contains(e.target)) setPowerMenuOpen(false);
 });
 
 observeHeaderHeight(document.querySelector('.header'));
@@ -1051,8 +1060,7 @@ interface ServerPowerAction {
 }
 
 function confirmServerPowerAction({ type, title, confirmLabel, danger, idleMessage, actionAfterKillingSessions }: ServerPowerAction) {
-  powerMenu.classList.remove('open');
-  syncPowerMenuAria();
+  setPowerMenuOpen(false);
   const count = getSessionCount();
   const suffix = count > 1 ? 's' : '';
   const message = count > 0 ? `Kill ${count} session${suffix} and ${actionAfterKillingSessions}?` : idleMessage;

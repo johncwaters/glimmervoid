@@ -1,4 +1,4 @@
-export type RovingOrientation = 'horizontal' | 'vertical' | 'both';
+type RovingOrientation = 'horizontal' | 'vertical' | 'both';
 
 const STEP_BY_KEY_BY_ORIENTATION: Readonly<Record<RovingOrientation, ReadonlyMap<string, number>>> = {
   horizontal: new Map([['ArrowLeft', -1], ['ArrowRight', 1]]),
