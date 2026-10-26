@@ -1,0 +1,57 @@
+a #ff0000
+b #ff9900
+c #ffff00
+d #33ff00
+e #0099ff
+f #6633ff
+g #ff6b6b
+h #ffc266
+i #ffff99
+j #8cff66
+k #66c2ff
+l #9f80ff
+halo #f0e8ff40
+wrap
+
+gggggggg........................
+aaaaaaaa........................
+aaaaaaaa........................
+aaaaaaaagggggggg........gggggggg
+aaaaaaaaaaaaaaaa........aaaaaaaa
+aaaaaaaaaaaaaaaa........aaaaaaaa
+hhhhhhhhaaaaaaaaggggggggaaaaaaaa
+bbbbbbbbaaaaaaaaaaaaaaaaaaaaaaaa
+bbbbbbbbaaaaaaaaaaaaaaaaaaaaaaaa
+bbbbbbbbhhhhhhhhaaaaaaaahhhhhhhh
+bbbbbbbbbbbbbbbbaaaaaaaabbbbbbbb
+bbbbbbbbbbbbbbbbaaaaaaaabbbbbbbb
+iiiiiiiibbbbbbbbhhhhhhhhbbbbbbbb
+ccccccccbbbbbbbbbbbbbbbbbbbbbbbb
+ccccccccbbbbbbbbbbbbbbbbbbbbbbbb
+cccccccciiiiiiiibbbbbbbbiiiiiiii
+ccccccccccccccccbbbbbbbbcccccccc
+ccccccccccccccccbbbbbbbbcccccccc
+jjjjjjjjcccccccciiiiiiiicccccccc
+ddddddddcccccccccccccccccccccccc
+ddddddddcccccccccccccccccccccccc
+ddddddddjjjjjjjjccccccccjjjjjjjj
+ddddddddddddddddccccccccdddddddd
+ddddddddddddddddccccccccdddddddd
+kkkkkkkkddddddddjjjjjjjjdddddddd
+eeeeeeeedddddddddddddddddddddddd
+eeeeeeeedddddddddddddddddddddddd
+eeeeeeeekkkkkkkkddddddddkkkkkkkk
+eeeeeeeeeeeeeeeeddddddddeeeeeeee
+eeeeeeeeeeeeeeeeddddddddeeeeeeee
+lllllllleeeeeeeekkkkkkkkeeeeeeee
+ffffffffeeeeeeeeeeeeeeeeeeeeeeee
+ffffffffeeeeeeeeeeeeeeeeeeeeeeee
+fffffffflllllllleeeeeeeellllllll
+ffffffffffffffffeeeeeeeeffffffff
+ffffffffffffffffeeeeeeeeffffffff
+........ffffffffllllllllffffffff
+........ffffffffffffffffffffffff
+........ffffffffffffffffffffffff
+................ffffffff........
+................ffffffff........
+................ffffffff........

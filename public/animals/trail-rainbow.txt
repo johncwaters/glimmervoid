@@ -4,27 +4,54 @@ c #ffff00
 d #33ff00
 e #0099ff
 f #6633ff
+g #ff6b6b
+h #ffc266
+i #ffff99
+j #8cff66
+k #66c2ff
+l #9f80ff
 halo #f0e8ff40
 wrap
 
-aaaaaaaa........
-aaaaaaaa........
-aaaaaaaa........
-bbbbbbbbaaaaaaaa
-bbbbbbbbaaaaaaaa
-bbbbbbbbaaaaaaaa
-ccccccccbbbbbbbb
-ccccccccbbbbbbbb
-ccccccccbbbbbbbb
-ddddddddcccccccc
-ddddddddcccccccc
-ddddddddcccccccc
-eeeeeeeedddddddd
-eeeeeeeedddddddd
-eeeeeeeedddddddd
-ffffffffeeeeeeee
-ffffffffeeeeeeee
-ffffffffeeeeeeee
-........ffffffff
-........ffffffff
-........ffffffff
+........................gggggggg
+........................aaaaaaaa
+........................aaaaaaaa
+gggggggg........ggggggggaaaaaaaa
+aaaaaaaa........aaaaaaaaaaaaaaaa
+aaaaaaaa........aaaaaaaaaaaaaaaa
+aaaaaaaaggggggggaaaaaaaahhhhhhhh
+aaaaaaaaaaaaaaaaaaaaaaaabbbbbbbb
+aaaaaaaaaaaaaaaaaaaaaaaabbbbbbbb
+hhhhhhhhaaaaaaaahhhhhhhhbbbbbbbb
+bbbbbbbbaaaaaaaabbbbbbbbbbbbbbbb
+bbbbbbbbaaaaaaaabbbbbbbbbbbbbbbb
+bbbbbbbbhhhhhhhhbbbbbbbbiiiiiiii
+bbbbbbbbbbbbbbbbbbbbbbbbcccccccc
+bbbbbbbbbbbbbbbbbbbbbbbbcccccccc
+iiiiiiiibbbbbbbbiiiiiiiicccccccc
+ccccccccbbbbbbbbcccccccccccccccc
+ccccccccbbbbbbbbcccccccccccccccc
+cccccccciiiiiiiiccccccccjjjjjjjj
+ccccccccccccccccccccccccdddddddd
+ccccccccccccccccccccccccdddddddd
+jjjjjjjjccccccccjjjjjjjjdddddddd
+ddddddddccccccccdddddddddddddddd
+ddddddddccccccccdddddddddddddddd
+ddddddddjjjjjjjjddddddddkkkkkkkk
+ddddddddddddddddddddddddeeeeeeee
+ddddddddddddddddddddddddeeeeeeee
+kkkkkkkkddddddddkkkkkkkkeeeeeeee
+eeeeeeeeddddddddeeeeeeeeeeeeeeee
+eeeeeeeeddddddddeeeeeeeeeeeeeeee
+eeeeeeeekkkkkkkkeeeeeeeellllllll
+eeeeeeeeeeeeeeeeeeeeeeeeffffffff
+eeeeeeeeeeeeeeeeeeeeeeeeffffffff
+lllllllleeeeeeeellllllllffffffff
+ffffffffeeeeeeeeffffffffffffffff
+ffffffffeeeeeeeeffffffffffffffff
+ffffffffllllllllffffffff........
+ffffffffffffffffffffffff........
+ffffffffffffffffffffffff........
+........ffffffff................
+........ffffffff................
+........ffffffff................
