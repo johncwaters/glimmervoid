@@ -24,7 +24,7 @@ import { initFormFactor, isPhoneLayout, onLayoutChange } from './form-factor.ts'
 import type { HealthSnapshot } from './health-monitor.ts';
 import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
 import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, setVisionsProjectNames } from './visions/visions-store.ts';
-import { applyHooksReport, applyLateHookResult, setHooksRequestSender } from './hooks-panel.ts';
+import { applyHooksReport, applyLateHookResult, setHooksRequestSender } from './hooks-store.ts';
 import { showDesktopNotification } from './notifications.ts';
 import { clearHeaderError, clearHeaderErrorsForSession, reportHeaderError } from './action-status.ts';
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
@@ -37,7 +37,7 @@ import { addSessionRowSignalSource } from './session-row.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-store.ts';
-import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './github/issues-panel.ts';
+import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './github/issues-store.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from './radar/radar-core.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from './radar/radar-store.ts';
@@ -62,7 +62,7 @@ import { applyFlyingAnimals } from './flying-animals.ts';
 import { mountStreamerToggle, onStreamerModeChanged, setStreamerMode, toggleStreamerMode } from './streamer-mode.ts';
 import { mountStreamerTextMask } from './streamer-text-mask.ts';
 import { applyPhoneArrowPad, applySessionUsageChips, applyTheme } from './theme.ts';
-import { applyTraceChanged, applyTraceError, applyTraceResponse, setTraceNavigate, setTraceRequestSender, setTraceSessions } from './trace-panel.ts';
+import { applyTraceChanged, applyTraceError, applyTraceResponse, setTraceNavigate, setTraceRequestSender, setTraceSessions } from './trace-store.ts';
 import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
 import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isFlyingAnimalsEnabled, isPhoneArrowPad, isSessionUsageChips, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';

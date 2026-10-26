@@ -1,60 +1,30 @@
-import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { buildPanelSection, el, isPanelHidden, query, writeClipboardText } from './dom-helpers.ts';
 import { createActionStatus } from './action-status.ts';
 import { formatTrailOffset } from './radar/radar-core.ts';
-import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 import {
-  appendTraceRecords,
-  createTraceGrouping,
-  earlierTraceRequest,
   formatTurnMetrics,
   hasEarlierTracePages,
   isKindHidden,
-  nextTraceRequest,
-  prependTraceRecords,
-  resolveTraceSessionId,
   shouldRebuildTraceView,
   traceEmptyState,
   traceRecordBody,
-  traceReplyOutcome,
-  traceResidentRowCount,
-  traceSessionOptions,
   traceSessionStartedAtMs,
   TRACE_FILTERABLE_KINDS,
   toggleHiddenKind,
-  trimTraceGrouping,
 } from './trace-view-core.ts';
 import { getTraceHiddenKinds, setTraceHiddenKinds } from './ui-prefs.ts';
-import type {
-  TraceGrouping,
-  TracePrepend,
-  TraceRequest,
-  TraceSessionOption,
-  TraceSessionSummary,
-  TraceTurn,
-  TraceTurnAppend,
-  TraceViewRow,
-} from './trace-view-core.ts';
-
-const TRACE_REQUEST_TIMEOUT_MS = 10000;
-
-interface SelectedTrace {
-  sessionId: string;
-  grouping: TraceGrouping;
-  firstOffset: number;
-  nextOffset: number;
-  hasDroppedEarliestRows: boolean;
-  filePath: string;
-  hasLoadedOnce: boolean;
-}
-
-interface PendingTraceRequest {
-  request: TraceRequest;
-  timeoutHandle: ReturnType<typeof setTimeout>;
-}
-
-type TraceReply = Pick<ServerMessageOf<'session-trace-response'>, 'id' | 'records' | 'start' | 'next' | 'reset' | 'path'>;
+import type { TracePrepend, TraceSessionOption, TraceTurn, TraceTurnAppend, TraceViewRow } from './trace-view-core.ts';
+import {
+  refreshTraceSelectionOnShow,
+  requestEarlierTrace,
+  selectTraceSession,
+  setTraceLookingProbe,
+  subscribeTrace,
+  traceEarlierPageInputs,
+  traceSnapshot,
+} from './trace-store.ts';
+import type { TraceChange, TraceTrim } from './trace-store.ts';
+import type { ViewModule } from './view-registry-core.ts';
 
 interface TurnSection {
   section: HTMLElement;
@@ -70,120 +40,23 @@ let turnSections: TurnSection[] = [];
 let isRenderedTraceStale = false;
 let hiddenTraceKinds = getTraceHiddenKinds();
 
-let sendRequest: ((message: Record<string, unknown>) => boolean) | null = null;
-let navigateToTrace: (() => void) | null = null;
-let sessionOptions: TraceSessionOption[] = [];
-let selectedSessionId: string | null = null;
-let preselectedSessionId: string | null = null;
-let selectedTrace: SelectedTrace | null = null;
-let pendingRequest: PendingTraceRequest | null = null;
-let isRefreshNeeded = false;
-let traceFailureText: string | null = null;
+let isRebuildDueAfterTrim = false;
+let pendingPrependLayout: { canPrependInPlace: boolean; scrollElement: HTMLElement | null; previousScrollHeight: number; previousScrollTop: number } | null = null;
 
 function isTraceVisible(): boolean {
   return !!rootElement && !isPanelHidden(rootElement);
 }
 
 function selectedSession(): TraceSessionOption | null {
+  const { sessionOptions, selectedSessionId } = traceSnapshot();
   return sessionOptions.find((option) => option.id === selectedSessionId) ?? null;
-}
-
-function clearPendingRequest(): void {
-  if (!pendingRequest) return;
-  clearTimeout(pendingRequest.timeoutHandle);
-  pendingRequest = null;
-}
-
-function abandonPendingRequest(): void {
-  pendingRequest = null;
-  traceFailureText = `The trace did not load within ${Math.round(TRACE_REQUEST_TIMEOUT_MS / 1000)} s.`;
-  renderPanel();
-}
-
-function startSelectedTrace(sessionId: string | null): void {
-  clearPendingRequest();
-  isRefreshNeeded = false;
-  traceFailureText = null;
-  selectedSessionId = sessionId;
-  selectedTrace = sessionId
-    ? {
-      sessionId,
-      grouping: createTraceGrouping(),
-      firstOffset: 0,
-      nextOffset: 0,
-      hasDroppedEarliestRows: false,
-      filePath: '',
-      hasLoadedOnce: false,
-    }
-    : null;
-  isRenderedTraceStale = true;
-}
-
-function applySelection(canFallBackToFirst: boolean): boolean {
-  const nextSelectedId = resolveTraceSessionId(sessionOptions, preselectedSessionId, selectedSessionId, canFallBackToFirst);
-  if (preselectedSessionId && nextSelectedId === preselectedSessionId) preselectedSessionId = null;
-  if (nextSelectedId === selectedSessionId) return false;
-  startSelectedTrace(nextSelectedId);
-  return true;
-}
-
-function sendTraceRequest(request: TraceRequest): void {
-  if (!sendRequest) return;
-  const wireMessage = request.endingAt === undefined
-    ? { type: 'session-trace', id: request.id, after: request.after }
-    : { type: 'session-trace', id: request.id, endingAt: request.endingAt };
-  if (!sendRequest(wireMessage)) {
-    traceFailureText = NOT_CONNECTED_TEXT;
-    renderHeader();
-    return;
-  }
-  pendingRequest = { request, timeoutHandle: setTimeout(abandonPendingRequest, TRACE_REQUEST_TIMEOUT_MS) };
-}
-
-function requestSelectedTrace(isSurfaceShown = false): void {
-  if (!sendRequest) return;
-  const request = nextTraceRequest({
-    selectedSessionId,
-    isPanelVisible: isSurfaceShown || isTraceVisible(),
-    hasPendingRequest: !!pendingRequest,
-    hasLoadedOnce: selectedTrace?.hasLoadedOnce ?? false,
-    nextOffset: selectedTrace?.nextOffset ?? 0,
-  });
-  if (!request) return;
-  sendTraceRequest(request);
-}
-
-function earlierPageInputs() {
-  return {
-    selectedSessionId,
-    hasPendingRequest: !!pendingRequest,
-    hasLoadedOnce: selectedTrace?.hasLoadedOnce ?? false,
-    hasDroppedEarliestRows: selectedTrace?.hasDroppedEarliestRows ?? false,
-    firstOffset: selectedTrace?.firstOffset ?? 0,
-    residentRowCount: selectedTrace ? traceResidentRowCount(selectedTrace.grouping) : 0,
-  };
-}
-
-function requestEarlierTrace(): void {
-  if (!sendRequest) return;
-  const request = earlierTraceRequest(earlierPageInputs());
-  if (!request) return;
-  sendTraceRequest(request);
-}
-
-function selectSession(sessionId: string): void {
-  if (!sessionOptions.some((option) => option.id === sessionId)) return;
-  if (sessionId === selectedSessionId) return;
-  preselectedSessionId = null;
-  startSelectedTrace(sessionId);
-  requestSelectedTrace();
-  renderPanel();
 }
 
 function buildSessionSelector(): HTMLLabelElement {
   const field = el('label', 'trace-session-field');
   const label = el('span', 'trace-session-label', 'Session');
   const select = el('select', 'trace-session-select');
+  const { sessionOptions, selectedSessionId } = traceSnapshot();
   select.disabled = sessionOptions.length === 0;
   for (const optionValue of sessionOptions) {
     const option = el('option', null, optionValue.label);
@@ -191,7 +64,7 @@ function buildSessionSelector(): HTMLLabelElement {
     option.selected = optionValue.id === selectedSessionId;
     select.append(option);
   }
-  select.addEventListener('change', () => selectSession(select.value));
+  select.addEventListener('change', () => selectTraceSession(select.value));
   field.append(label, select);
   return field;
 }
@@ -237,6 +110,7 @@ function buildTraceFilters(): HTMLElement {
 function buildHeader(): HTMLElement {
   const section = buildPanelSection('trace', 'Session trace', 'Bodies load from the local trace file only when requested.');
   const controls = el('div', 'trace-controls');
+  const { selectedTrace, traceFailureText } = traceSnapshot();
   controls.append(buildSessionSelector());
   const pathValue = selectedTrace?.filePath ?? '';
   const path = el('code', 'trace-path', pathValue);
@@ -355,7 +229,8 @@ function buildTurnSection(turn: TraceTurn): TurnSection {
 
 function emptyStateText(session: TraceSessionOption | null): string {
   if (!session) return traceEmptyState(null);
-  const isFirstPageLoading = pendingRequest?.request.id === session.id && !selectedTrace?.hasLoadedOnce;
+  const { pendingSessionId, selectedTrace } = traceSnapshot();
+  const isFirstPageLoading = pendingSessionId === session.id && !selectedTrace?.hasLoadedOnce;
   return isFirstPageLoading ? 'Loading trace.' : traceEmptyState(session);
 }
 
@@ -368,14 +243,14 @@ function buildPanelContent(): void {
   loadEarlierControlElement = null;
   turnSections = [];
   const session = selectedSession();
-  const turns = selectedTrace?.grouping.turns ?? [];
+  const turns = traceSnapshot().selectedTrace?.grouping.turns ?? [];
   if (!session || turns.length === 0) {
     content.append(el('p', 'trace-empty', emptyStateText(session)));
     rootElement.replaceChildren(content);
     isRenderedTraceStale = false;
     return;
   }
-  if (hasEarlierTracePages(earlierPageInputs())) {
+  if (hasEarlierTracePages(traceEarlierPageInputs())) {
     loadEarlierControlElement = buildLoadEarlierControl();
     content.append(loadEarlierControlElement);
   }
@@ -410,7 +285,7 @@ function renderHeader(): void {
 
 function applyTurnAppend(append: TraceTurnAppend): void {
   if (!turnsElement) return;
-  const turn = selectedTrace?.grouping.turns[append.turnIndex];
+  const turn = traceSnapshot().selectedTrace?.grouping.turns[append.turnIndex];
   if (!turn) return;
   if (append.isNewTurn) {
     const built = buildTurnSection(turn);
@@ -431,7 +306,7 @@ function markTurnRowsTrimmed(rowsElement: HTMLElement): void {
 }
 
 function syncLoadEarlierControl(): void {
-  const shouldShowControl = hasEarlierTracePages(earlierPageInputs());
+  const shouldShowControl = hasEarlierTracePages(traceEarlierPageInputs());
   if (!shouldShowControl) {
     loadEarlierControlElement?.remove();
     loadEarlierControlElement = null;
@@ -442,16 +317,12 @@ function syncLoadEarlierControl(): void {
   turnsElement.parentElement.insertBefore(loadEarlierControlElement, turnsElement);
 }
 
-function dropOldestRows(): void {
-  if (!selectedTrace) return;
-  const trim = trimTraceGrouping(selectedTrace.grouping);
+function applyTrimToRenderedTurns(trim: TraceTrim): void {
   const hasDroppedRows = trim.droppedTurnCount > 0 || trim.droppedRowCount > 0;
   if (!hasDroppedRows) {
     syncLoadEarlierControl();
     return;
   }
-  const hasJustDroppedEarliestRows = !selectedTrace.hasDroppedEarliestRows;
-  selectedTrace.hasDroppedEarliestRows = true;
   turnSections = turnSections.slice(trim.droppedTurnCount);
   if (turnsElement) {
     for (let removedCount = 0; removedCount < trim.droppedTurnCount; removedCount += 1) turnsElement.firstElementChild?.remove();
@@ -460,56 +331,27 @@ function dropOldestRows(): void {
   if (oldestSection && trim.droppedRowCount > 0) {
     for (let removedCount = 0; removedCount < trim.droppedRowCount; removedCount += 1) oldestSection.rowsElement.firstElementChild?.remove();
     markTurnRowsTrimmed(oldestSection.rowsElement);
-    paintTurnMetrics(selectedTrace.grouping.turns[0], oldestSection.metricsElement);
+    paintTurnMetrics(traceSnapshot().selectedTrace?.grouping.turns[0], oldestSection.metricsElement);
   }
-  if (hasJustDroppedEarliestRows) renderHeader();
+  if (trim.hasJustDroppedEarliestRows) renderHeader();
   syncLoadEarlierControl();
 }
 
-function showAppendedRecords(records: readonly TraceRecord[]): void {
-  if (!selectedTrace) return;
-  const appends = appendTraceRecords(selectedTrace.grouping, records);
+function showAppendedRecords(appends: readonly TraceTurnAppend[]): void {
   const canAppendInPlace = isTraceVisible() && !isRenderedTraceStale && !!turnsElement;
   if (canAppendInPlace) {
     for (const append of appends) applyTurnAppend(append);
-    dropOldestRows();
     return;
   }
   turnsElement = null;
-  dropOldestRows();
-  if (!isTraceVisible()) {
-    isRenderedTraceStale = true;
-    return;
-  }
-  buildPanelContent();
-}
-
-function traceReplyFrom(message: unknown): TraceReply | null {
-  if (!message || typeof message !== 'object') return null;
-  const reply = message as { id?: unknown; records?: unknown; start?: unknown; next?: unknown; reset?: unknown; path?: unknown };
-  if (typeof reply.id !== 'string' || !Array.isArray(reply.records)) return null;
-  if (typeof reply.next !== 'number' || typeof reply.start !== 'number') return null;
-  return {
-    id: reply.id,
-    records: reply.records as TraceRecord[],
-    start: reply.start,
-    next: reply.next,
-    reset: reply.reset === true,
-    path: typeof reply.path === 'string' ? reply.path : '',
-  };
-}
-
-function requestQueuedRefresh(): void {
-  if (!isRefreshNeeded || pendingRequest) return;
-  isRefreshNeeded = false;
-  requestSelectedTrace();
+  isRebuildDueAfterTrim = true;
 }
 
 function applyPrependToRenderedTurns(prepend: TracePrepend): void {
   if (!turnsElement) return;
   const firstResidentSection = turnSections[0] ?? null;
   const firstResidentSectionElement = firstResidentSection?.rowsElement.parentElement ?? null;
-  const firstResidentTurn = selectedTrace?.grouping.turns[prepend.newTurns.length] ?? null;
+  const firstResidentTurn = traceSnapshot().selectedTrace?.grouping.turns[prepend.newTurns.length] ?? null;
   if ((prepend.mergedHead || prepend.mergedRows.length > 0) && firstResidentSection && firstResidentSectionElement && firstResidentTurn) {
     const firstResidentRowsElement = firstResidentSection.rowsElement;
     if (prepend.mergedHead) {
@@ -536,139 +378,68 @@ function applyPrependToRenderedTurns(prepend: TracePrepend): void {
   turnSections.unshift(...newSections);
 }
 
-function showPrependedRecords(records: readonly TraceRecord[]): void {
-  if (!selectedTrace) return;
-  const prepend = prependTraceRecords(selectedTrace.grouping, records);
+function showPrependedRecords(prepend: TracePrepend): void {
   const canPrependInPlace = isTraceVisible() && !isRenderedTraceStale && !!turnsElement && !prepend.needsRerender;
   const scrollElement = rootElement?.parentElement ?? null;
-  const previousScrollHeight = scrollElement?.scrollHeight ?? 0;
-  const previousScrollTop = scrollElement?.scrollTop ?? 0;
+  pendingPrependLayout = { canPrependInPlace, scrollElement, previousScrollHeight: scrollElement?.scrollHeight ?? 0, previousScrollTop: scrollElement?.scrollTop ?? 0 };
   if (canPrependInPlace) applyPrependToRenderedTurns(prepend);
-  dropOldestRows();
-  if (!canPrependInPlace) renderPanel();
-  if (canPrependInPlace) renderHeader();
-  if (scrollElement) scrollElement.scrollTop = previousScrollTop + scrollElement.scrollHeight - previousScrollHeight;
 }
 
-export function mountTraceView(parent: HTMLElement): void {
+function finishAfterTrim(trim: TraceTrim): void {
+  applyTrimToRenderedTurns(trim);
+  if (isRebuildDueAfterTrim) {
+    isRebuildDueAfterTrim = false;
+    renderPanel();
+  }
+  const layout = pendingPrependLayout;
+  pendingPrependLayout = null;
+  if (!layout) return;
+  if (!layout.canPrependInPlace) renderPanel();
+  if (layout.canPrependInPlace) renderHeader();
+  if (layout.scrollElement) layout.scrollElement.scrollTop = layout.previousScrollTop + layout.scrollElement.scrollHeight - layout.previousScrollHeight;
+}
+
+function applyTraceChange(change: TraceChange): void {
+  switch (change.kind) {
+    case 'selection-reset':
+      isRenderedTraceStale = true;
+      return;
+    case 'rebuild':
+      renderPanel();
+      return;
+    case 'header':
+      renderHeader();
+      return;
+    case 'sessions':
+      if (change.hasSelectionChanged || !headerElement) renderPanel();
+      if (!change.hasSelectionChanged && headerElement) renderHeader();
+      return;
+    case 'records-appended':
+      showAppendedRecords(change.appends);
+      return;
+    case 'records-prepended':
+      showPrependedRecords(change.prepend);
+      return;
+    case 'trimmed':
+      finishAfterTrim(change.trim);
+      return;
+  }
+}
+
+function mountTraceView(parent: HTMLElement): void {
   if (rootElement) return;
   rootElement = el('div', 'trace-panel');
   parent.append(rootElement);
+  setTraceLookingProbe(isTraceVisible);
+  subscribeTrace(applyTraceChange);
   buildPanelContent();
 }
 
-export function setTraceRequestSender(sender: (message: Record<string, unknown>) => boolean): void {
-  sendRequest = sender;
-}
-
-export function setTraceNavigate(callback: () => void): void {
-  navigateToTrace = callback;
-}
-
-export function openTraceForSession(sessionId: string): void {
-  preselectedSessionId = sessionId;
-  navigateToTrace?.();
-}
-
-export function setTraceSessions(sessions: readonly TraceSessionSummary[]): void {
-  sessionOptions = traceSessionOptions(sessions);
-  const hasSelectionChanged = applySelection(isTraceVisible());
-  if (hasSelectionChanged) requestSelectedTrace();
-  if (hasSelectionChanged || !headerElement) renderPanel();
-  if (!hasSelectionChanged && headerElement) renderHeader();
-}
-
-export function refreshTraceView(): void {
+function refreshTraceView(): void {
   if (!rootElement) return;
-  const hasSelectionChanged = applySelection(true);
-  requestSelectedTrace(true);
+  const hasSelectionChanged = refreshTraceSelectionOnShow();
   if (!shouldRebuildTraceView({ hasSelectionChanged, isRenderedTraceStale, hasRenderedOnce: !!headerElement })) return;
   buildPanelContent();
 }
 
-export function applyTraceResponse(message: unknown): void {
-  const reply = traceReplyFrom(message);
-  if (!reply) return;
-  const outcome = traceReplyOutcome({
-    pendingRequest: pendingRequest?.request ?? null,
-    resident: selectedTrace
-      ? {
-        sessionId: selectedTrace.sessionId,
-        firstOffset: selectedTrace.firstOffset,
-        nextOffset: selectedTrace.nextOffset,
-        hasLoadedOnce: selectedTrace.hasLoadedOnce,
-      }
-      : null,
-    reply: { id: reply.id, start: reply.start, next: reply.next, reset: reply.reset },
-  });
-  if (outcome === 'ignore') {
-    requestQueuedRefresh();
-    return;
-  }
-  clearPendingRequest();
-  if (traceFailureText) {
-    traceFailureText = null;
-    renderHeader();
-  }
-  if (outcome === 'stale') {
-    requestQueuedRefresh();
-    return;
-  }
-  if (outcome === 'reset') {
-    startSelectedTrace(reply.id);
-    if (selectedTrace) selectedTrace.filePath = reply.path;
-    requestSelectedTrace();
-    renderPanel();
-    requestQueuedRefresh();
-    return;
-  }
-  if (!selectedTrace) return;
-  selectedTrace.filePath = reply.path;
-  if (outcome === 'prepend') {
-    selectedTrace.firstOffset = reply.start;
-    showPrependedRecords(reply.records);
-    requestQueuedRefresh();
-    return;
-  }
-  if (outcome === 'seed') {
-    selectedTrace.hasLoadedOnce = true;
-    selectedTrace.firstOffset = reply.start;
-  }
-  selectedTrace.nextOffset = reply.next;
-  showAppendedRecords(reply.records);
-  requestQueuedRefresh();
-}
-
-export function applyTraceChanged(message: unknown): void {
-  const sessionId = (message as { id?: unknown } | null)?.id;
-  if (typeof sessionId !== 'string' || sessionId !== selectedSessionId) return;
-  if (!isTraceVisible()) return;
-  if (pendingRequest) {
-    isRefreshNeeded = true;
-    return;
-  }
-  requestSelectedTrace();
-}
-
-export function applyTraceError(message: unknown): boolean {
-  const sessionId = (message as { id?: unknown } | null)?.id;
-  if (typeof sessionId !== 'string' || pendingRequest?.request.id !== sessionId) return false;
-  clearPendingRequest();
-  isRefreshNeeded = false;
-  const errorText = (message as { message?: unknown } | null)?.message;
-  traceFailureText = typeof errorText === 'string' && errorText ? errorText : 'The trace could not be read.';
-  renderPanel();
-  return true;
-}
-
-export function applyTraceConnectionState(isConnected: boolean): void {
-  clearPendingRequest();
-  isRefreshNeeded = false;
-  traceFailureText = isConnected ? null : NOT_CONNECTED_TEXT;
-  if (!isConnected) {
-    renderPanel();
-    return;
-  }
-  renderHeader();
-  requestSelectedTrace();
-}
+export const view: ViewModule<HTMLElement> = { mount: mountTraceView, refresh: refreshTraceView };

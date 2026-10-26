@@ -1,5 +1,4 @@
-import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { nextRequestId, sendControlRequest } from './control-ws.ts';
+import { sendControlRequest } from './control-ws.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 import { buildPanelSection, buildStatChip, el, isPanelHidden, projectsOf } from './dom-helpers.ts';
@@ -48,7 +47,6 @@ import {
   missingProjectIds,
   scopeLabel,
   settingsEntryPreview,
-  shouldApplyHooksReport,
   showsFilter,
   sortHooks,
   targetLine,
@@ -59,13 +57,12 @@ import {
   totalsChips,
   typeLabel,
 } from './hooks-view-core.ts';
-import type { HookBuiltinRow, HookDraft, HookEvent, HookProject, HookRecord, HooksReport } from './hooks-view-core.ts';
+import type { HookBuiltinRow, HookDraft, HookEvent, HookProject, HookRecord } from './hooks-view-core.ts';
+import { hooksSnapshot, requestHooksReport, subscribeHooks } from './hooks-store.ts';
+import type { ViewModule, ViewRefreshReason } from './view-registry-core.ts';
 
-let _report: HooksReport | null = null;
+let _hooks = hooksSnapshot();
 let _root: HTMLDivElement | null = null;
-let _sendRequest: ((message: Record<string, unknown>) => boolean) | null = null;
-let _reportSendFailed = false;
-let _latestRequestId: string | null = null;
 let _draft: HookDraft | null = null;
 
 let _draftOrigin: Record<string, unknown> | null = null;
@@ -239,8 +236,8 @@ function setEditorError(text: string | null) {
 }
 
 function buildEditor(draft: HookDraft) {
-  const events = eventsOf(_report);
-  const projects = projectsOf<HookProject>(_report);
+  const events = eventsOf(_hooks.report);
+  const projects = projectsOf<HookProject>(_hooks.report);
   const section = buildSection(draft.id ? EDIT_HOOK_TITLE : NEW_HOOK_TITLE, EDITOR_HINT);
   section.classList.add('hooks-editor');
   const form = el('form', 'hooks-form');
@@ -275,7 +272,7 @@ function buildEditor(draft: HookDraft) {
   timeoutInput.type = 'number';
   timeoutInput.inputMode = 'numeric';
   timeoutInput.min = '1';
-  timeoutInput.max = String(maxTimeoutOf(_report));
+  timeoutInput.max = String(maxTimeoutOf(_hooks.report));
   timeoutInput.value = draft.timeout;
   timeoutInput.addEventListener('input', () => { draft.timeout = timeoutInput.value; });
 
@@ -312,9 +309,9 @@ function buildEditor(draft: HookDraft) {
 }
 
 function openEditor(hook: HookRecord | null, draft: HookDraft | null = null) {
-  _draft = draft || (hook ? toDraft(hook) : emptyDraft(eventsOf(_report)));
+  _draft = draft || (hook ? toDraft(hook) : emptyDraft(eventsOf(_hooks.report)));
 
-  _draftOrigin = fromDraft(hook ? toDraft(hook) : emptyDraft(eventsOf(_report)));
+  _draftOrigin = fromDraft(hook ? toDraft(hook) : emptyDraft(eventsOf(_hooks.report)));
   _editorEl = buildEditor(_draft);
   render({ force: true });
   _editorEl.scrollIntoView({ block: 'nearest' });
@@ -340,7 +337,7 @@ function requestCloseEditor() {
 
 async function submitEditor() {
   if (!_draft || _saving) return;
-  const problem = draftProblem(_draft, eventsOf(_report), maxTimeoutOf(_report));
+  const problem = draftProblem(_draft, eventsOf(_hooks.report), maxTimeoutOf(_hooks.report));
   if (problem) { setEditorError(problem); return; }
   const savingStatus = _editorStatus;
   const saveButton = _editorSaveButton;
@@ -371,7 +368,7 @@ function buildPreview(hook: HookRecord) {
 }
 
 function buildRow(hook: HookRecord, { grouped = false }: { grouped?: boolean } = {}) {
-  const projects = projectsOf<HookProject>(_report);
+  const projects = projectsOf<HookProject>(_hooks.report);
   const row = el('article', 'hooks-row');
   row.setAttribute('aria-label', hook.name);
   if (hook.enabled === false) row.dataset.state = 'off';
@@ -440,7 +437,7 @@ function buildBuiltinRow(entry: HookBuiltinRow) {
 function buildTotalsSection() {
   const section = buildSection('Hooks', HOOKS_HINT);
   const chips = el('div', 'hooks-stats');
-  for (const chip of totalsChips(_report)) chips.append(buildStatChip('hooks', chip.label, chip.value, chip.tone));
+  for (const chip of totalsChips(_hooks.report)) chips.append(buildStatChip('hooks', chip.label, chip.value, chip.tone));
   section.append(chips, buildLine('hooks-meta', HOOKS_APPLY_NOTE));
   return section;
 }
@@ -461,18 +458,18 @@ function buildFilter() {
 
 function buildEmptyState() {
   const empty = el('div', 'hooks-empty-state');
-  empty.append(buildLine('hooks-empty', HOOKS_EMPTY_TEXT), buildTemplateRow(eventsOf(_report)));
+  empty.append(buildLine('hooks-empty', HOOKS_EMPTY_TEXT), buildTemplateRow(eventsOf(_hooks.report)));
   return empty;
 }
 
 function buildYoursList() {
   const wrap = el('div', 'hooks-list-yours');
-  const hooks = hooksOf(_report);
+  const hooks = hooksOf(_hooks.report);
   if (hooks.length === 0) {
     wrap.append(buildEmptyState());
     return wrap;
   }
-  const shown = filterHooks(sortHooks(hooks, eventsOf(_report)), _filter);
+  const shown = filterHooks(sortHooks(hooks, eventsOf(_hooks.report)), _filter);
   if (shown.length === 0) {
     wrap.append(buildLine('hooks-empty', FILTER_EMPTY_TEXT));
     return wrap;
@@ -494,7 +491,7 @@ function buildYoursSection() {
   add.disabled = !!_draft;
   const head = section.querySelector('.hooks-section-head');
   if (head) head.append(add);
-  if (showsFilter(hooksOf(_report))) section.append(buildFilter());
+  if (showsFilter(hooksOf(_hooks.report))) section.append(buildFilter());
   section.append(buildYoursList());
   return section;
 }
@@ -502,21 +499,21 @@ function buildYoursSection() {
 function buildBuiltinSection() {
   const details = el('details', 'hooks-builtin');
   const summary = el('summary', 'hooks-builtin-summary');
-  summary.append(el('span', 'hooks-section-title', `${BUILTIN_TITLE} (${builtinOf(_report).length})`), el('span', 'hooks-section-hint', BUILTIN_HINT));
+  summary.append(el('span', 'hooks-section-title', `${BUILTIN_TITLE} (${builtinOf(_hooks.report).length})`), el('span', 'hooks-section-hint', BUILTIN_HINT));
   const list = el('div', 'hooks-list');
-  for (const entry of builtinOf(_report)) list.append(buildBuiltinRow(entry));
+  for (const entry of builtinOf(_hooks.report)) list.append(buildBuiltinRow(entry));
   details.append(summary, list);
   return details;
 }
 
 function buildBody() {
   const content = el('div', 'hooks-content');
-  if (!_report) {
-    content.append(_reportSendFailed ? buildLine('hooks-warning', NOT_CONNECTED_TEXT) : buildLine('hooks-empty', HOOKS_LOADING_TEXT));
+  if (!_hooks.report) {
+    content.append(_hooks.hasReportSendFailed ? buildLine('hooks-warning', NOT_CONNECTED_TEXT) : buildLine('hooks-empty', HOOKS_LOADING_TEXT));
     return content;
   }
-  if (isHooksUnavailable(_report)) {
-    content.append(buildLine('hooks-warning', hooksErrorLine(_report)));
+  if (isHooksUnavailable(_hooks.report)) {
+    content.append(buildLine('hooks-warning', hooksErrorLine(_hooks.report)));
     return content;
   }
   content.append(buildTotalsSection());
@@ -528,6 +525,7 @@ function buildBody() {
 function render({ force = false }: { force?: boolean } = {}) {
   if (!_root) return;
   if (!force && isPanelHidden(_root)) return;
+  _hooks = hooksSnapshot();
   _root.replaceChildren(buildBody());
   if (!_focusAddOnRender) return;
   _focusAddOnRender = false;
@@ -535,37 +533,17 @@ function render({ force = false }: { force?: boolean } = {}) {
   if (add instanceof HTMLButtonElement) add.focus();
 }
 
-export function setHooksRequestSender(send: (message: Record<string, unknown>) => boolean) {
-  _sendRequest = send;
-}
-
-export function requestHooksReport() {
-  if (!_sendRequest) return;
-  _latestRequestId = nextRequestId('hooks-report');
-  const wasSent = _sendRequest({ type: 'request-hooks-report', requestId: _latestRequestId });
-  if (wasSent === !_reportSendFailed) return;
-  _reportSendFailed = !wasSent;
-  render();
-}
-
-export function mountHooksView(parent: HTMLElement) {
+function mountHooksView(parent: HTMLElement) {
   if (_root) return;
   _root = el('div', 'hooks-panel');
   parent.append(_root);
+  subscribeHooks(() => render());
   render({ force: true });
 }
 
-export function refreshHooksView() {
-  render({ force: true });
-}
-
-export function applyHooksReport(msg: ServerMessageOf<'hooks-report'>) {
-  if (!shouldApplyHooksReport(msg, _latestRequestId)) return;
-  _report = msg;
-  _reportSendFailed = false;
-  render();
-}
-
-export function applyLateHookResult() {
+function refreshHooksView(reason: ViewRefreshReason) {
+  if (reason === 'shown') render({ force: true });
   requestHooksReport();
 }
+
+export const view: ViewModule<HTMLElement> = { mount: mountHooksView, refresh: refreshHooksView };

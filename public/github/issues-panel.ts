@@ -1,10 +1,6 @@
-import { paintActionStatus, type ActionStatusTone } from '../action-status.ts';
-import type { OperatorActionOf, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import type { IssuesStatus } from '#shared/contracts/issues.ts';
+import { paintActionStatus } from '../action-status.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { STATES } from '#shared/states.ts';
-import { nextRequestId } from '../control-ws.ts';
-import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink, isPanelHidden, stateChip } from '../dom-helpers.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import { createGithubPollingControls } from './my-prs-panel.ts';
@@ -13,23 +9,10 @@ import { issuePullRequestState, filterIssues, groupIssuesByRepo, issueFilterOpti
 import type { IssueFilters, IssueRow, IssueScope, IssueSort } from './issues-view-core.ts';
 import { selectSession } from '../session-actions.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
+import type { ViewModule } from '../view-registry-core.ts';
+import { isOpeningIssue, issueBodyText, issuesSnapshot, openIssueSession, openOutcomeOfIssue, reportIssuesAction, requestIssueBody, selectIssue, subscribeIssues } from './issues-store.ts';
+import type { IssuesChange } from './issues-store.ts';
 
-type IssuesRequestSender = (message: Record<string, unknown>) => boolean;
-
-interface PendingOpenRequest {
-  issueKey: string;
-  issueNumber: number;
-  timeoutHandle: ReturnType<typeof setTimeout>;
-}
-
-interface PendingDetailRequest {
-  cacheKey: string;
-  timeoutHandle: ReturnType<typeof setTimeout>;
-}
-
-const ISSUES_REQUEST_TIMEOUT_MS = 45000;
-const ISSUES_NO_REPLY_TEXT = `The server did not answer within ${ISSUES_REQUEST_TIMEOUT_MS / 1000} s.`;
-const RELOAD_DESCRIPTION_HINT = 'Select the issue to load its description.';
 const scopes: { id: IssueScope; label: string }[] = [
   { id: 'all', label: 'All' }, { id: 'me', label: 'Mine' }, { id: 'team', label: 'Team' }, { id: 'project', label: 'Projects' },
 ];
@@ -42,21 +25,8 @@ let filterSummary: HTMLElement | null = null;
 let repoSelect: HTMLSelectElement | null = null;
 let labelSelect: HTMLSelectElement | null = null;
 let syncStatus: HTMLElement | null = null;
-let selectedKey: string | null = null;
-let latestStatus: IssuesStatus | null = null;
-let issueByKey = new Map<string, IssueRow>();
 let hasStaleSessionState = false;
 let pollingControls: ReturnType<typeof createGithubPollingControls> | null = null;
-let requestSender: IssuesRequestSender | null = null;
-const openRequestById = new Map<string, PendingOpenRequest>();
-const openOutcomeByIssue = new Map<string, { text: string; tone: ActionStatusTone }>();
-const detailRequestById = new Map<string, PendingDetailRequest>();
-const bodyByCacheKey = new Map<string, string>();
-const bodyErrorByCacheKey = new Map<string, string>();
-
-function issueBodyCacheKey(issue: IssueRow): string {
-  return `${issue.key}:${issue.updatedAt}`;
-}
 
 function liveIssueSession(issue: IssueRow) {
   return issue.sessionId ? sessionUIs.get(issue.sessionId) : undefined;
@@ -90,68 +60,16 @@ function issueSessionLabel(issue: IssueRow): string {
   return session ? sessionName(session) : 'none yet';
 }
 
-function isOpeningIssue(issue: IssueRow): boolean {
-  return [...openRequestById.values()].some((request) => request.issueKey === issue.key);
-}
-
-function abandonOpenRequest(requestId: string): void {
-  const request = openRequestById.get(requestId);
-  if (!request) return;
-  openRequestById.delete(requestId);
-  openOutcomeByIssue.set(request.issueKey, { text: ISSUES_NO_REPLY_TEXT, tone: 'error' });
-  renderDetail();
-}
-
-function resolveOpenRequest(requestId: string): PendingOpenRequest | null {
-  const request = openRequestById.get(requestId);
-  if (!request) return null;
-  clearTimeout(request.timeoutHandle);
-  openRequestById.delete(requestId);
-  return request;
-}
-
-function requestIssueBody(issue: IssueRow): void {
-  const cacheKey = issueBodyCacheKey(issue);
-  if (bodyByCacheKey.has(cacheKey) || [...detailRequestById.values()].some((request) => request.cacheKey === cacheKey)) return;
-  const requestId = nextRequestId('issue-detail');
-  bodyErrorByCacheKey.delete(cacheKey);
-  if (!requestSender?.({ type: 'issue-detail', requestId, repo: issue.repo, issueNumber: issue.number })) {
-    bodyErrorByCacheKey.set(cacheKey, `${NOT_CONNECTED_TEXT} ${RELOAD_DESCRIPTION_HINT}`);
-    return;
-  }
-  detailRequestById.set(requestId, {
-    cacheKey,
-    timeoutHandle: setTimeout(() => {
-      detailRequestById.delete(requestId);
-      bodyErrorByCacheKey.set(cacheKey, `${ISSUES_NO_REPLY_TEXT} ${RELOAD_DESCRIPTION_HINT}`);
-      renderDetail();
-    }, ISSUES_REQUEST_TIMEOUT_MS),
-  });
-}
-
-function openIssueSession(issue: IssueRow): void {
-  const projectId = issue.projectId;
-  if (!projectId || liveIssueSession(issue) || isOpeningIssue(issue)) return;
-  const requestId = nextRequestId('open-issue-session');
-  if (!requestSender?.({ type: 'open-issue-session', requestId, projectId, repo: issue.repo, issueNumber: issue.number })) {
-    openOutcomeByIssue.set(issue.key, { text: NOT_CONNECTED_TEXT, tone: 'error' });
-    renderDetail();
-    return;
-  }
-  openRequestById.set(requestId, {
-    issueKey: issue.key,
-    issueNumber: issue.number,
-    timeoutHandle: setTimeout(() => abandonOpenRequest(requestId), ISSUES_REQUEST_TIMEOUT_MS),
-  });
-  openOutcomeByIssue.set(issue.key, { text: 'Opening session.', tone: 'busy' });
-  renderDetail();
+function openIssueSessionUnlessLive(issue: IssueRow): void {
+  if (liveIssueSession(issue)) return;
+  openIssueSession(issue);
 }
 
 function buildIssueRow(issue: IssueRow): HTMLButtonElement {
   const row = el('button', 'pr-queue-row issue-row');
   row.type = 'button';
   row.dataset.issueKey = issue.key;
-  row.setAttribute('aria-current', String(issue.key === selectedKey));
+  row.setAttribute('aria-current', String(issue.key === issuesSnapshot().selectedKey));
   const top = el('span', 'pr-queue-top');
   top.append(el('span', 'pr-queue-ref', `#${issue.number}`), el('span', 'pr-queue-title', issue.title || 'Untitled issue'));
   const bottom = el('span', 'pr-queue-bottom');
@@ -169,7 +87,7 @@ function buildIssueRow(issue: IssueRow): HTMLButtonElement {
   row.append(createIssueState(issue), top, bottom);
   row.addEventListener('click', () => {
     reportIssuesAction('select');
-    selectedKey = issue.key;
+    selectIssue(issue.key);
     if (root) root.dataset.detailOpen = 'true';
     requestIssueBody(issue);
     render();
@@ -201,11 +119,11 @@ function buildDetailFooter(issue: IssueRow): HTMLElement {
     const button = el('button', 'pr-action', 'Open session');
     button.type = 'button';
     button.disabled = isOpeningIssue(issue);
-    button.addEventListener('click', () => openIssueSession(issue));
+    button.addEventListener('click', () => openIssueSessionUnlessLive(issue));
     footer.append(button);
   }
   footer.append(externalLink('pr-action pr-action-ghost', 'View on GitHub', issue.url));
-  const outcome = openOutcomeByIssue.get(issue.key);
+  const outcome = openOutcomeOfIssue(issue);
   const fallback = issue.projectId ? '' : `Add a project for ${issue.repo} in Settings to open sessions from here.`;
   const status = el('span', 'pr-action-status issue-open-status');
   status.setAttribute('role', 'status');
@@ -222,6 +140,7 @@ function createDetailAge(timestamp: string, nowMs: number): HTMLElement {
 
 function refreshDetailSessionState(): void {
   const article = detailHost?.querySelector<HTMLElement>('.issues-detail');
+  const { selectedKey, issueByKey } = issuesSnapshot();
   const issue = selectedKey ? issueByKey.get(selectedKey) : undefined;
   if (!article || !issue) return;
   const glyph = article.querySelector<HTMLElement>('.issues-facts .issues-state');
@@ -237,6 +156,7 @@ function refreshDetailSessionState(): void {
 
 function renderDetail(): void {
   if (!detailHost) return;
+  const { latestStatus, selectedKey } = issuesSnapshot();
   const issue = latestStatus?.issues.find((candidate) => candidate.key === selectedKey);
   if (!issue) {
     detailHost.replaceChildren(el('p', 'pr-empty', 'Pick an issue from the queue.'));
@@ -248,7 +168,7 @@ function renderDetail(): void {
   back.addEventListener('click', () => {
     reportIssuesAction('back');
     if (root) root.dataset.detailOpen = 'false';
-    [...queue?.querySelectorAll<HTMLButtonElement>('[data-issue-key]') ?? []].find((row) => row.dataset.issueKey === selectedKey)?.focus({ preventScroll: true });
+    [...queue?.querySelectorAll<HTMLButtonElement>('[data-issue-key]') ?? []].find((row) => row.dataset.issueKey === issuesSnapshot().selectedKey)?.focus({ preventScroll: true });
   });
   const heading = el('header', 'pr-detail-heading');
   const title = el('div', 'pr-detail-title');
@@ -277,9 +197,7 @@ function renderDetail(): void {
   });
   buildFact(facts, 'Pull request', pullRequests.length > 0 ? pullRequests : ['none linked']);
   const bodySection = el('section', 'issues-body-section');
-  const cacheKey = issueBodyCacheKey(issue);
-  const body = el('div', 'issue-body', bodyByCacheKey.get(cacheKey) ?? bodyErrorByCacheKey.get(cacheKey) ?? 'Loading description.');
-  if (bodyByCacheKey.get(cacheKey) === '') body.textContent = 'No description.';
+  const body = el('div', 'issue-body', issueBodyText(issue));
   body.setAttribute('role', 'status');
   bodySection.append(el('h3', 'pr-section-heading', 'Description'), body);
   article.append(back, heading, facts, bodySection, buildDetailFooter(issue));
@@ -305,6 +223,7 @@ function render(): void {
 
 function renderQueue(): void {
   if (!root || !queue || !scopeTabs) return;
+  const { latestStatus, selectedKey } = issuesSnapshot();
   const issues = latestStatus?.issues ?? [];
   const counts = issueScopeCounts(issues);
   for (const scope of scopes) {
@@ -330,7 +249,7 @@ function renderQueue(): void {
   if (visible.length === 0) queue.append(el('p', 'pr-empty', issues.length > 0 ? 'No open issues match these filters. Clear the search or pick All.' : issuesPlaceholder(latestStatus)));
   if (focusedKey) [...queue.querySelectorAll<HTMLButtonElement>('[data-issue-key]')].find((row) => row.dataset.issueKey === focusedKey)?.focus({ preventScroll: true });
   if (selectedKey && !issues.some((issue) => issue.key === selectedKey)) {
-    selectedKey = null;
+    selectIssue(null);
     root.dataset.detailOpen = 'false';
   }
   pollingControls?.update(latestStatus);
@@ -397,21 +316,14 @@ function createFilters(): HTMLElement {
 function updateAges(): void {
   if (!root || root.closest('[hidden]') || document.hidden) return;
   const nowMs = Date.now();
-  if (syncStatus) syncStatus.textContent = latestStatus?.lastSyncAt ? `Synced ${issueAgo(latestStatus.lastSyncAt, nowMs)}.` : 'Not synced yet.';
+  const lastSyncAt = issuesSnapshot().latestStatus?.lastSyncAt;
+  if (syncStatus) syncStatus.textContent = lastSyncAt ? `Synced ${issueAgo(lastSyncAt, nowMs)}.` : 'Not synced yet.';
   for (const age of root.querySelectorAll<HTMLElement>('[data-issue-age]')) age.textContent = issueRelativeAge(age.dataset.issueAge ?? '', nowMs);
   for (const age of root.querySelectorAll<HTMLElement>('[data-issue-ago]')) age.textContent = issueAgo(age.dataset.issueAgo ?? '', nowMs);
 }
 
-function reportIssuesAction(action: OperatorActionOf<'issues'>): void {
-  requestSender?.({ type: 'dashboard-telemetry', event: 'operator_action', properties: { surface: 'issues', action } });
-}
-
-export function setIssuesRequestSender(sender: IssuesRequestSender): void {
-  requestSender = sender;
-}
-
-export function mountIssuesView(parent: HTMLElement): HTMLDivElement {
-  if (root) return root;
+function mountIssuesView(parent: HTMLElement): void {
+  if (root) return;
   root = el('div', 'issues-content');
   root.dataset.detailOpen = 'false';
   parent.append(root);
@@ -448,16 +360,17 @@ export function mountIssuesView(parent: HTMLElement): HTMLDivElement {
   columns.append(pane, detailHost);
   root.append(columns);
   window.setInterval(updateAges, 30000);
+  subscribeIssues(applyIssuesChange);
+  subscribeGithubPrs(render);
   render();
-  return root;
 }
 
-export function refreshIssuesViewOnShow(): void {
+function refreshIssuesViewOnShow(): void {
   if (hasStaleSessionState) refreshIssuesSessionState();
   updateAges();
 }
 
-export function refreshIssuesSessionState(): void {
+function refreshIssuesSessionState(): void {
   if (isPanelHidden(root)) {
     hasStaleSessionState = true;
     return;
@@ -469,64 +382,20 @@ export function refreshIssuesSessionState(): void {
     return;
   }
   for (const row of queue?.querySelectorAll<HTMLElement>('[data-issue-key]') ?? []) {
-    const issue = issueByKey.get(row.dataset.issueKey ?? '');
+    const issue = issuesSnapshot().issueByKey.get(row.dataset.issueKey ?? '');
     const glyph = row.querySelector<HTMLElement>('.issues-state');
     if (issue && glyph) syncIssueState(glyph, issue, false);
   }
 }
 
-export function applyIssuesConnectionState(connected: boolean): void {
-  if (connected) return;
-  for (const request of openRequestById.values()) {
-    clearTimeout(request.timeoutHandle);
-    openOutcomeByIssue.set(request.issueKey, { text: NOT_CONNECTED_TEXT, tone: 'error' });
-  }
-  openRequestById.clear();
-  for (const request of detailRequestById.values()) {
-    clearTimeout(request.timeoutHandle);
-    bodyErrorByCacheKey.set(request.cacheKey, `${NOT_CONNECTED_TEXT} ${RELOAD_DESCRIPTION_HINT}`);
-  }
-  detailRequestById.clear();
-  render();
+const RENDER_BY_CHANGE: Record<IssuesChange, () => void> = {
+  status: render,
+  detail: renderDetail,
+  'session-state': refreshIssuesSessionState,
+};
+
+function applyIssuesChange(change: IssuesChange): void {
+  RENDER_BY_CHANGE[change]();
 }
 
-export function applyIssuesStatus(message: IssuesStatus): void {
-  const previousSelected = latestStatus?.issues.find((issue) => issue.key === selectedKey);
-  latestStatus = message;
-  issueByKey = new Map(message.issues.map((issue) => [issue.key, issue]));
-  const selected = message.issues.find((issue) => issue.key === selectedKey);
-  if (selected && selected.updatedAt !== previousSelected?.updatedAt) requestIssueBody(selected);
-  render();
-}
-
-export function applyIssueDetailResult(message: ServerMessageOf<'issue-detail-result'>): void {
-  const request = detailRequestById.get(message.requestId);
-  if (!request) return;
-  clearTimeout(request.timeoutHandle);
-  detailRequestById.delete(message.requestId);
-  if (message.ok && message.body !== null) bodyByCacheKey.set(request.cacheKey, message.body);
-  if (!message.ok || message.body === null) bodyErrorByCacheKey.set(request.cacheKey, message.error || 'Could not load description. Select the issue to try again.');
-  renderDetail();
-}
-
-export function applyOpenIssueSessionResult(message: Record<string, unknown>): void {
-  if (typeof message.requestId !== 'string') return;
-  const request = resolveOpenRequest(message.requestId);
-  if (!request) return;
-  const key = request.issueKey;
-  if (message.ok === true) {
-    const name = typeof message.sessionName === 'string' ? message.sessionName : `issue #${request.issueNumber}`;
-    const suffix = message.pending === true ? ' Prompt queued.' : '';
-    const outcome = message.existing === true ? 'already open' : 'created';
-    openOutcomeByIssue.set(key, { text: `Session "${name}" ${outcome}.${suffix}`, tone: 'ok' });
-    const issue = latestStatus?.issues.find((candidate) => candidate.key === key);
-    if (issue && typeof message.sessionId === 'string') issue.sessionId = message.sessionId;
-    render();
-    return;
-  }
-  const error = typeof message.error === 'string' && message.error ? message.error : 'Could not open session.';
-  openOutcomeByIssue.set(key, { text: error, tone: 'error' });
-  renderDetail();
-}
-
-subscribeGithubPrs(render);
+export const view: ViewModule<HTMLElement> = { mount: mountIssuesView, refresh: refreshIssuesViewOnShow };

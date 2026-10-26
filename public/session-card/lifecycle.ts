@@ -22,7 +22,7 @@ import { isCompletionWatchedByOperator } from '../session-actions-core.ts';
 import { seedReviewMergeStatus, setReviewDiff, setReviewMergeStatus } from '../sidebar/review-sidebar.ts';
 import { setSelectedId } from '../sidebar/selection.ts';
 import { getSoundId, isSoundEnabled } from '../ui-prefs.ts';
-import { openTraceForSession } from '../trace-panel.ts';
+import { openTraceForSession } from '../trace-store.ts';
 import type { UsageSessionUsage } from '../usage/usage-view-core.ts';
 import { sessionChipText, sessionChipTitle } from '../usage/usage-view-core.ts';
 import { setRunningActivity } from './activity.ts';

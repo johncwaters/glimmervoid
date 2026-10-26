@@ -10,7 +10,7 @@ type CapturedRequest = { type: string; requestId: string; repo: string; issueNum
 
 async function applyStatus(page: Page, status: IssuesStatus): Promise<void> {
   await page.evaluate(async (snapshot) => {
-    const panelUrl = '/github/issues-panel.ts';
+    const panelUrl = '/github/issues-store.ts';
     const panel: { applyIssuesStatus(message: IssuesStatus): void } = await import(panelUrl);
     panel.applyIssuesStatus(snapshot);
   }, status);
@@ -22,7 +22,7 @@ async function capturedRequests(page: Page): Promise<CapturedRequest[]> {
 
 async function replyToDetail(page: Page, request: CapturedRequest, body: string | null, error: string | null = null): Promise<void> {
   await page.evaluate(async (reply) => {
-    const panelUrl = '/github/issues-panel.ts';
+    const panelUrl = '/github/issues-store.ts';
     const panel: { applyIssueDetailResult(message: ServerMessageOf<'issue-detail-result'>): void } = await import(panelUrl);
     panel.applyIssueDetailResult(reply);
   }, { type: 'issue-detail-result' as const, requestId: request.requestId, ok: body !== null, body, error });
@@ -62,7 +62,7 @@ export async function verifyIssues(page: Page, layout: Layout, sessionId: string
   const viewOnly: IssueRow = { ...issue, key: 'Other/repo#9', repo: 'Other/repo', number: 9, title: 'External issue', labels: [], sources: ['team'], teams: ['Other/help'], projectId: null, sessionId: null, pullRequests: [], url: 'https://github.com/Other/repo/issues/9' };
   const status = IssuesStatus.parse({ type: 'issues-status', ts: timestamp, configured: true, reason: null, lastSyncAt: timestamp, issues: [issue, unassigned, viewOnly] });
   await page.evaluate(async () => {
-    const panelUrl = '/github/issues-panel.ts';
+    const panelUrl = '/github/issues-store.ts';
     const panel: { setIssuesRequestSender(sender: (message: Record<string, unknown>) => boolean): void } = await import(panelUrl);
     document.documentElement.dataset.issuesRequests = '[]';
     panel.setIssuesRequestSender((message) => {
@@ -171,7 +171,7 @@ export async function verifyIssues(page: Page, layout: Layout, sessionId: string
   const openRequest = (await capturedRequests(page)).find((request) => request.type === 'open-issue-session');
   assert.ok(openRequest);
   await page.evaluate(async ({ requestId, id }) => {
-    const panelUrl = '/github/issues-panel.ts';
+    const panelUrl = '/github/issues-store.ts';
     const panel: { applyOpenIssueSessionResult(message: Record<string, unknown>): void } = await import(panelUrl);
     panel.applyOpenIssueSessionResult({ requestId, ok: true, sessionId: id, sessionName: 'existing-issue-session', existing: true, pending: true });
   }, { requestId: openRequest.requestId, id: sessionId });
