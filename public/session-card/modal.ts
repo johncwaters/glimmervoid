@@ -1,7 +1,87 @@
 import { el } from '../dom-helpers.ts';
 
+const FOCUSABLE_SELECTOR = 'a[href], button, input, select, textarea, [tabindex]';
+const INERT_BY_MODAL = 'modalInert';
+
+const openModals: { overlay: HTMLElement; dialog: HTMLElement }[] = [];
+
+export function isModalOpen() {
+  return openModals.length > 0;
+}
+
 function isTopmostOverlay(overlay: HTMLElement) {
-  return [...document.querySelectorAll('.dialog-overlay')].at(-1) === overlay;
+  return openModals.at(-1)?.overlay === overlay;
+}
+
+function focusableWithin(container: HTMLElement) {
+  return [...container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)]
+    .filter((candidate) => candidate.tabIndex >= 0
+      && !candidate.matches(':disabled')
+      && !candidate.closest('[inert]')
+      && candidate.getClientRects().length > 0);
+}
+
+export function trapTabWithin(container: HTMLElement, event: KeyboardEvent) {
+  if (event.key !== 'Tab') return;
+  const focusable = focusableWithin(container);
+  if (focusable.length === 0) {
+    event.preventDefault();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const isFocusInside = container.contains(document.activeElement);
+  if (event.shiftKey && (document.activeElement === first || !isFocusInside)) {
+    event.preventDefault();
+    last.focus();
+    return;
+  }
+  if (!event.shiftKey && (document.activeElement === last || !isFocusInside)) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function focusFirstWithin(container: HTMLElement) {
+  const firstFocusable = focusableWithin(container)[0];
+  if (firstFocusable) {
+    firstFocusable.focus();
+    return;
+  }
+  container.focus();
+}
+
+function syncModalInert() {
+  const topmostOverlay = openModals.at(-1)?.overlay ?? null;
+  for (const child of document.body.children) {
+    if (!(child instanceof HTMLElement)) continue;
+    if (topmostOverlay && child !== topmostOverlay) {
+      if (child.inert) continue;
+      child.inert = true;
+      child.dataset[INERT_BY_MODAL] = 'true';
+      continue;
+    }
+    if (child.dataset[INERT_BY_MODAL] !== 'true') continue;
+    child.inert = false;
+    delete child.dataset[INERT_BY_MODAL];
+  }
+}
+
+function canReturnFocusTo(opener: Element | null): opener is HTMLElement {
+  return opener instanceof HTMLElement && opener.isConnected && !opener.closest('[inert]');
+}
+
+function returnFocusAfterClose(opener: Element | null) {
+  if (canReturnFocusTo(opener)) {
+    opener.focus();
+    return;
+  }
+  const topmostDialog = openModals.at(-1)?.dialog;
+  if (topmostDialog) {
+    focusFirstWithin(topmostDialog);
+    return;
+  }
+  document.getElementById('app-main')?.focus();
 }
 
 export function createModalOverlay({ dialogClass = 'dialog', closeOnBackdrop = true, onEscape }: {
@@ -16,24 +96,50 @@ export function createModalOverlay({ dialogClass = 'dialog', closeOnBackdrop = t
 
   const dialog = document.createElement('div');
   dialog.className = dialogClass;
+  dialog.tabIndex = -1;
 
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
+  const modal = { overlay, dialog };
+  openModals.push(modal);
+  syncModalInert();
+
+  dialog.addEventListener('keydown', (e) => trapTabWithin(dialog, e));
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.key !== 'Escape') return;
-    if (!onEscape) {
-      close();
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (!isTopmostOverlay(overlay)) return;
+    e.preventDefault();
+    if (onEscape) {
+      onEscape();
       return;
     }
-    if (isTopmostOverlay(overlay)) onEscape();
+    close();
   }
   document.addEventListener('keydown', onKeydown);
 
+  function keepFocusInside() {
+    if (!overlay.isConnected || !isTopmostOverlay(overlay)) return;
+    if (dialog.contains(document.activeElement)) return;
+    focusFirstWithin(dialog);
+  }
+
+  requestAnimationFrame(keepFocusInside);
+  const focusLossWatcher = new MutationObserver(() => {
+    if (document.activeElement !== document.body && document.activeElement !== null) return;
+    keepFocusInside();
+  });
+  focusLossWatcher.observe(dialog, { childList: true, subtree: true });
+
   function close() {
+    const modalIndex = openModals.indexOf(modal);
+    if (modalIndex < 0) return;
+    openModals.splice(modalIndex, 1);
+    focusLossWatcher.disconnect();
     overlay.remove();
     document.removeEventListener('keydown', onKeydown);
-    if (opener instanceof HTMLElement) opener.focus();
+    syncModalInert();
+    returnFocusAfterClose(opener);
   }
 
   if (closeOnBackdrop) {
@@ -50,7 +156,6 @@ export function applyDialogAria(dialog: HTMLElement, titleId: string) {
   dialog.setAttribute('role', 'dialog');
   dialog.setAttribute('aria-modal', 'true');
   dialog.setAttribute('aria-labelledby', titleId);
-  trapFocus(dialog);
 }
 
 export function buildDialogShell({ title, dialogClass = 'dialog', cancelLabel = 'Cancel' }: {
@@ -93,16 +198,4 @@ export function openConfirmDialog({ title, message, confirmLabel = 'Confirm', da
   btnConfirm.addEventListener('click', () => { close(); onConfirm?.(); });
 
   requestAnimationFrame(() => btnCancel.focus());
-}
-
-function trapFocus(dialog: HTMLElement) {
-  dialog.addEventListener('keydown', (e) => {
-    if (e.key !== 'Tab') return;
-    const focusable = [...dialog.querySelectorAll<HTMLElement>('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')];
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); return; }
-    if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-  });
 }

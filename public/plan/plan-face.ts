@@ -9,6 +9,7 @@ import type {
   PlanSectionComment,
 } from '#shared/contracts/plan-review.ts';
 import { el } from '../dom-helpers.ts';
+import { trapTabWithin } from '../session-card/modal.ts';
 import { uiState } from '../ui-state-core.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { diffPlanBodies } from './plan-diff-core.ts';
@@ -293,20 +294,7 @@ export function createPlanFace(deps: PlanFaceDeps) {
       setSheetOpen(false);
       return;
     }
-    if (event.key !== 'Tab') return;
-    const focusable = [...viewPanel.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
-      .filter((button) => button.getClientRects().length > 0 && button.tabIndex >= 0);
-    const first = focusable[0];
-    const last = focusable.at(-1);
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last?.focus();
-      return;
-    }
-    if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first?.focus();
-    }
+    trapTabWithin(viewPanel, event);
   });
 
   function scrollToHeading(id: string) {

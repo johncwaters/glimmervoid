@@ -48,7 +48,7 @@ import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
 import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, markSessionSeen, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUnseenOutcome, setSessionUsage, setSessionGuarded, setSessionWakeup, setSessionWorktree, updateAttentionTitle } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
-import { openConfirmDialog } from './session-card/modal.ts';
+import { isModalOpen, openConfirmDialog } from './session-card/modal.ts';
 import { countShownConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, applySettingsUpdateError, onPhoneSettingsScreenChanged, refreshSettingsStatus, resolveSettingsTarget, returnToSettingsList, setFeatureTabViews } from './settings/settings-store.ts';
@@ -1151,6 +1151,7 @@ document.addEventListener('keydown', (e) => {
   const isTerminalFocused = document.activeElement?.classList.contains('xterm-helper-textarea') ?? false;
   const shortcut = resolveDashboardShortcut(e, SHORTCUT_PLATFORM, { isTerminalFocused }, currentNextAttentionKeyCode());
   if (!shortcut) return;
+  if (isModalOpen()) return;
   if (runDashboardShortcut(shortcut)) e.preventDefault();
 });
 
