@@ -198,9 +198,8 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
     x: number;
     y: number;
     angleDeg: number;
+    velocityX: number;
     velocityY: number;
-    startX: number;
-    startY: number;
     landingX: number;
     stackLevel: number;
     spinDirection: number;
@@ -218,12 +217,13 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
   const SPRING_PASSES = 4;
   const SPRING_STIFFNESS = 0.035;
   const BALL_GRAVITY = 0.55;
-  const BALL_POP_VELOCITY = -4;
+  const BALL_TOSS_VELOCITY = -7;
   const BALL_LOAD = 4.2;
   const BALL_WEIGHT_SPREAD = 1.8;
   const BALL_IMPACT_SHARE = 1.6;
   const STACK_OVERLAP = 0.84;
-  const FALL_SPIN_DEG = 420;
+  const BALL_SPIN_DEG_PER_FRAME = 7;
+  const BALL_ROLL_DEG_PER_PX = 4.4;
   const STRAIN_RATIO = 1.045;
   const LANDING_SPOTS = [
     { offsetInBallWidths: -0.52, stackLevel: 0 },
@@ -322,8 +322,16 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
     }
   }
 
-  function restingBottomY(net: Net, ball: Ball): number {
-    return surfaceAt(net, ball.x) - ball.stackLevel * ball.height * STACK_OVERLAP;
+  function restingBottomY(net: Net, ball: Ball, x = ball.x): number {
+    return surfaceAt(net, x) - ball.stackLevel * ball.height * STACK_OVERLAP;
+  }
+
+  function tossTowardLanding(net: Net, ball: Ball): void {
+    const dropHeight = Math.max(0, restingBottomY(net, ball, ball.landingX) - ball.height / 2 - ball.y);
+    const flightFrames = (-BALL_TOSS_VELOCITY + Math.sqrt(BALL_TOSS_VELOCITY ** 2 + 2 * BALL_GRAVITY * dropHeight)) / BALL_GRAVITY;
+    ball.velocityY = BALL_TOSS_VELOCITY;
+    ball.velocityX = (ball.landingX - ball.x) / flightFrames;
+    ball.isFalling = true;
   }
 
   function stepBall(net: Net, ball: Ball): void {
@@ -333,13 +341,11 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
     }
     if (!ball.isFalling) return;
     ball.velocityY += BALL_GRAVITY;
+    ball.x += ball.velocityX;
     ball.y += ball.velocityY;
+    ball.angleDeg += BALL_SPIN_DEG_PER_FRAME * ball.spinDirection + ball.velocityX * BALL_ROLL_DEG_PER_PX;
     const landingY = restingBottomY(net, ball) - ball.height / 2;
-    const fallShare = Math.min(1, Math.max(0, (ball.y - ball.startY) / (landingY - ball.startY || 1)));
-    const easedShare = fallShare * fallShare * (3 - 2 * fallShare);
-    ball.x = ball.startX + (ball.landingX - ball.startX) * easedShare;
-    ball.angleDeg = fallShare * FALL_SPIN_DEG * ball.spinDirection;
-    if (ball.y < landingY) return;
+    if (ball.velocityY < 0 || ball.y < landingY) return;
     ball.y = landingY;
     ball.isFalling = false;
     ball.isLanded = true;
@@ -377,7 +383,7 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
     const caughtLines = lines.filter((line) => line.dataset.kind === 'caught');
     const balls: Ball[] = caughtLines.map((line, caughtIndex) => ({
       element: figure.querySelector<HTMLElement>(`[data-yolo-ball="${line.dataset.yoloStep}"]`) ?? line,
-      width: 0, height: 0, x: 0, y: 0, angleDeg: 0, velocityY: 0, startX: 0, startY: 0, landingX: 0,
+      width: 0, height: 0, x: 0, y: 0, angleDeg: 0, velocityX: 0, velocityY: 0, landingX: 0,
       stackLevel: LANDING_SPOTS[caughtIndex % LANDING_SPOTS.length].stackLevel,
       spinDirection: caughtIndex % 2 === 0 ? 1 : -1,
       isFalling: false,
@@ -432,16 +438,18 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
     const tearOut = (line: HTMLElement, ball: Ball) => {
       const commandBox = (line.querySelector('.yolo-command') ?? line).getBoundingClientRect();
       const catchBox = catchArea.getBoundingClientRect();
-      ball.startX = commandBox.left - catchBox.left + commandBox.width / 2;
-      ball.startY = commandBox.top - catchBox.top + commandBox.height / 2;
-      ball.x = ball.startX;
-      ball.y = ball.startY;
+      ball.x = commandBox.left - catchBox.left + commandBox.width / 2;
+      ball.y = commandBox.top - catchBox.top + commandBox.height / 2;
       ball.angleDeg = 0;
-      ball.velocityY = BALL_POP_VELOCITY;
-      ball.isFalling = true;
+      ball.isFalling = false;
+      ball.isLanded = false;
       ball.element.dataset.on = 'true';
       ball.element.dataset.crumpling = 'true';
-      ball.element.addEventListener('animationend', () => { ball.element.dataset.crumpling = 'false'; }, { once: true });
+      ball.element.addEventListener('animationend', () => {
+        ball.element.dataset.crumpling = 'false';
+        if (ball.isLanded || ball.element.dataset.on !== 'true') return;
+        tossTowardLanding(net, ball);
+      }, { once: true });
       drawBall(ball);
       line.dataset.state = 'torn';
     };
