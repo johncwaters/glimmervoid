@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A session needing you while the dashboard is in the background now sounds once: the desktop notification carries the alert sound and the dashboard chime stays quiet, instead of both playing. With the dashboard focused, or desktop notifications off or blocked, the chime plays as before.
+- The attention bar at the top of the Reviews queue, with the Cmd+J hint, now fits inside the queue column instead of running past its right edge.
 
 ## [0.45.0] - 2026-10-26
 

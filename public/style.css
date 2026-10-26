@@ -3230,7 +3230,7 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-row-
   cursor: pointer;
 }
 .pr-queue-row > .pr-queue-unseen { top: 4px; right: 4px; }
-.review-queue-banner { flex: 0 0 auto; margin: 8px 10px 0 14px; }
+.attention-banner.review-queue-banner { flex: 0 0 auto; width: auto; margin: 8px 10px 0 14px; }
 html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .review-queue-banner { display: none; }
 .review-group-heading { display: flex; align-items: center; gap: 8px; }
 .review-group-toggle { appearance: none; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
