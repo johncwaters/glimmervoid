@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The experimental Zen view is gone**: the Zen tab, its meadow of session pets and the Settings > Sessions > Zen view toggle no longer exist. Cmd+J (Alt+J off a Mac) still jumps to the next session that needs you, in Focus. A `zenView` key left in `config.json` is ignored, and a dashboard last left on Zen opens on Focus.
+
 ### Changed
 
 - **Shift+Enter starts a new line in the terminal**: in a session terminal, Shift+Enter now starts a new line in the agent's prompt instead of submitting it, as it already did in the Conversation view. Enter alone still sends.

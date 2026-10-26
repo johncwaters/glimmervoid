@@ -11,7 +11,7 @@ The Focus view: a watch-and-steer layout with a persistent left roster rail (one
 | File | Description |
 |------|-------------|
 | `focus-view.ts` | The DOM layout: rail, center re-parenting, attention header ("{n} NEED YOU, {n} FINISHED"), pill rendering |
-| `attention-core.ts` | Pure roster ordering (non-dormant first, then numeric/case-insensitive name), urgency-ordered attention queue (`orderAttentionQueue`, `pickNextAttention`), and THE shared "needs you" rule (`needsAttention` / `countAttentionByKind` / `attentionSummaryText`) that both the rail head and the phone Board render |
+| `attention-core.ts` | Pure roster ordering (non-dormant first, then numeric/case-insensitive name), urgency-ordered attention queue (`orderAttentionQueue`), and THE shared "needs you" rule (`needsAttention` / `countAttentionByKind` / `attentionSummaryText`) that both the rail head and the phone Board render |
 | `roster-groups-core.ts` | Pure project grouping over an already-ordered roster; stable partition, groups A->Z by basename. Optional 3rd arg `emptyKeys` adds session-less KEPT projects as empty groups (`rows: []`) |
 
 ## For AI Agents

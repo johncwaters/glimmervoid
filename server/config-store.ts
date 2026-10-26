@@ -38,7 +38,6 @@ const DEFAULT_CONFIG = {
   debugMode: false,
   conversationView: false,
   streamerMode: false,
-  zenView: false,
   viewTabOrder: [] as string[],
   remoteSessions: false,
 
@@ -519,7 +518,6 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId }: {
       debugMode: config.debugMode ?? effectiveDefaults.debugMode,
       conversationView: config.conversationView ?? effectiveDefaults.conversationView,
       streamerMode: config.streamerMode ?? effectiveDefaults.streamerMode,
-      zenView: config.zenView ?? effectiveDefaults.zenView,
       viewTabOrder: config.viewTabOrder ?? DEFAULT_CONFIG.viewTabOrder,
       remoteSessions: config.remoteSessions ?? effectiveDefaults.remoteSessions,
       detectBackgroundAgents: config.detectBackgroundAgents ?? effectiveDefaults.detectBackgroundAgents,
