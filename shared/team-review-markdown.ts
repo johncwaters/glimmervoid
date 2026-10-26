@@ -2,6 +2,7 @@ import { FindingSeverity } from './contracts/team-review.ts';
 import type { ReviewFinding } from './contracts/team-review.ts';
 
 export const AUTOMATED_REVIEW_NOTE = '> [!NOTE]\n> Automated review. Not written by a human.';
+export const HAND_APPROVED_REVIEW_NOTE = '> [!NOTE]\n> Automated review, not written by a human. Approved by hand after checking it.';
 
 const SEVERITY_ALTERNATION = FindingSeverity.options.join('|');
 const FINDING_HEADER_SOURCE = String.raw`\*\*(?:\[([^\]\n]+)\]\s+)?(${SEVERITY_ALTERNATION})\*\*`;
@@ -27,7 +28,8 @@ export function parseLeadingFindingHeader(body: string): { reviewer: string | nu
 
 export function withoutAutomatedNote(body: string): string {
   const trimmed = body.trimStart();
-  return trimmed.startsWith(AUTOMATED_REVIEW_NOTE) ? trimmed.slice(AUTOMATED_REVIEW_NOTE.length).trim() : body.trim();
+  const leadingNote = [AUTOMATED_REVIEW_NOTE, HAND_APPROVED_REVIEW_NOTE].find((note) => trimmed.startsWith(note));
+  return leadingNote ? trimmed.slice(leadingNote.length).trim() : body.trim();
 }
 
 export interface GeneralFinding {
