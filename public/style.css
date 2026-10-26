@@ -43,6 +43,8 @@
 :root {
 
   --header-control-height: 34px;
+  --rail-inset-block: 10px;
+  --rail-inset-inline: 8px;
 
   --bg:          #0a0810;
   --bg-card:     #100e18;
@@ -3166,7 +3168,7 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-team-chip 
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 8px 10px 32px 0;
+  padding: 6px var(--rail-inset-inline) 32px;
 }
 
 html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] { grid-template-columns: 48px minmax(0, 1fr); }
@@ -3230,7 +3232,7 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-row-
   cursor: pointer;
 }
 .pr-queue-row > .pr-queue-unseen { top: 4px; right: 4px; }
-.attention-banner.review-queue-banner { flex: 0 0 auto; width: auto; margin: 8px 10px 0 14px; }
+.attention-banner.review-queue-banner { flex: 0 0 auto; width: auto; margin: var(--rail-inset-block) var(--rail-inset-inline) 8px; }
 html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .review-queue-banner { display: none; }
 .review-group-heading { display: flex; align-items: center; gap: 8px; }
 .review-group-toggle { appearance: none; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
@@ -5845,7 +5847,7 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 8px;
+  padding: var(--rail-inset-block) var(--rail-inset-inline);
   overflow-y: auto;
   background: var(--bg-header);
   border-right: 1px solid var(--border);
