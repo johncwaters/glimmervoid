@@ -44,6 +44,15 @@ function linuxSandboxSkipReason(): string | false {
   return errors.length === 0 ? false : errors.join('; ');
 }
 
+const SEATBELT_ALREADY_APPLIED_EXIT_CODE = 71;
+
+function darwinSandboxSkipReason(): string | false {
+  if (process.platform !== 'darwin') return 'the terminal confinement exists on macOS only';
+  const probe = spawnSync('/usr/bin/sandbox-exec', ['-p', '(version 1)(allow default)', '/usr/bin/true']);
+  if (probe.status !== SEATBELT_ALREADY_APPLIED_EXIT_CODE) return false;
+  return 'the test process is already inside a Seatbelt sandbox, which macOS cannot nest';
+}
+
 for (const longTempFolderSource of ['inherited', 'caller'] as const) {
   test(`a guarded launch starts when the ${longTempFolderSource} temp folder leaves no room for a bridge socket, and the agent writes to its guarded temp folder`, { skip: linuxSandboxSkipReason() }, async (context) => {
     const launchFolder = await mkdtemp(path.join(glimmervoidHomeDir(), 'long-temp-'));
@@ -110,7 +119,7 @@ test('the startup sweep removes only the launch folders whose owning process has
   assert.deepEqual(await launchFolderNames('sweep-other-namespace-launch'), otherNamespaceFoldersBefore);
 });
 
-test('a guarded terminal launch can switch its own terminal to raw mode but cannot reach another terminal', { skip: process.platform !== 'darwin' }, async (context) => {
+test('a guarded terminal launch can switch its own terminal to raw mode but cannot reach another terminal', { skip: darwinSandboxSkipReason() }, async (context) => {
   const launchFolder = await mkdtemp(path.join(glimmervoidHomeDir(), 'terminal-'));
   context.after(() => rm(launchFolder, { recursive: true, force: true }));
   const checkout = path.join(launchFolder, 'repo');
