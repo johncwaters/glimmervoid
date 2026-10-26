@@ -4,19 +4,18 @@ import type { SettingsRange } from '#shared/settings-ranges.ts';
 import type { CustomAgentSummaryRow } from '#shared/contracts/control-messages.ts';
 import { TelegramDeliveryStatus } from '#shared/contracts/control-messages.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText, requestWithStatus } from '../action-status.ts';
-import type { UpdateJournal } from '#shared/contracts/update-journal.ts';
 import { REPO_SLUG } from '#shared/repo.ts';
-import { loadCustomSounds, playAlertSound, resolveSoundId, soundOptions } from '../alert-sound.ts';
-import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
+import { loadCustomSounds, playAlertSound, resolveSoundId } from '../alert-sound.ts';
+import { sendControlRequest } from '../control-ws.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
 import { createNotificationPermissionControl, ensureNotificationPermission, notificationsSupported } from '../notifications.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
-import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '#shared/settings/registry.ts';
+import { SETTINGS_REGISTRY } from '#shared/settings/registry.ts';
 import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
-import { parseSettingsHash, scoreSettingsSearch } from '#shared/settings/registry-core.ts';
+import { scoreSettingsSearch } from '#shared/settings/registry-core.ts';
 import {
   EFFECT_LABELS,
   SCOPE_LABELS,
@@ -51,14 +50,14 @@ import { createSettingsLink, settingsHash, settingsSearchHash } from './settings
 import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../feature-surfaces-core.ts';
 import type { FeatureSurfaceRule } from '../feature-surfaces-core.ts';
 import { moveViewId, orderViewIds } from '../view-registry-core.ts';
-import type { PrimaryViewDefinition } from '../view-registry-core.ts';
+import type { ViewModule } from '../view-registry-core.ts';
 import { projectSelectionChoices } from './settings-projects-core.ts';
 import { appendShortcutChord, applyNextAttentionKeyCode, buildShortcutKeys, currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { isStreamerMode, onStreamerModeChanged, saveStreamerMode } from '../streamer-mode.ts';
 import { recordNextAttentionKey, shortcutChord, shortcutGroupsFor } from '../shortcuts-core.ts';
 import { renderPrStatusLegend, renderStatusLegend } from '../status-legend.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
-import { applyPhoneArrowPad, applySessionUsageChips, applyTheme, getThemeList } from '../theme.ts';
+import { applyPhoneArrowPad, applySessionUsageChips, applyTheme } from '../theme.ts';
 import {
   isFlyingAnimalsEnabled,
   getFlyingAnimalsEnteredValues,
@@ -84,24 +83,25 @@ import {
   setThemeId,
   getNextAttentionKeyCode,
 } from '../ui-prefs.ts';
-import { usageStatusLines } from '../usage/usage-panel.ts';
+import { usageStatusLines } from '../usage/usage-store.ts';
+import {
+  FEATURES_PAGE_ID, applySettingsBroadcast, buildSettingsViewMap, mergeSettingsPayload, notifyPhoneSettingsScreenChanged, requestUpdateApply, requestUpdateCheck, restartServer, setPhoneSettingsScreenProbe,
+  settingsFeatureTabViews, settingsPayloadSnapshot, settingsUpdateState, subscribeSettings, takePendingSettingsActivation, returnToSettingsList,
+} from './settings-store.ts';
+import type { SettingsChange } from './settings-store.ts';
 import { applySoundEnabled, onSoundEnabledChange } from '../mute-button.ts';
 import {
-  IDLE_UPDATE_REQUEST,
-  NOT_CONNECTED_TEXT,
   installedUpdateText,
   lastUpdateCheckText,
   latestUpdateDetails,
   projectUpdateProgress,
-  reduceUpdateRequest,
   shouldAutoCheckUpdates,
   shouldShowLatestUpdate,
   updateControls,
-  updateErrorText,
   updateSummary,
 } from '../updates-view-core.ts';
-import { agentLoginOf, agentLoginSummary, applyAgentLogins, onAgentLoginsChanged, openAgentConnectDialog, openRemoteSetupDialog } from '../dialogs.ts';
-import type { UpdateActionId, UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from '../updates-view-core.ts';
+import { agentLoginOf, agentLoginSummary, onAgentLoginsChanged, openAgentConnectDialog, openRemoteSetupDialog } from '../dialogs.ts';
+import type { UpdateActionId } from '../updates-view-core.ts';
 
 type SectionSearchResult = SettingsSearchResult & { section: SettingsSection };
 
@@ -112,45 +112,14 @@ interface SaveStatus {
   text: string;
 }
 
-const OPTION_CATALOGS: Readonly<Record<string, () => { id: string; label: string }[]>> = Object.freeze({
-  sounds: () => soundOptions(),
-  themes: getThemeList,
-});
-
 const SAVED_STATUS_MS = 2200;
 const COPY_STATUS_MS = 1600;
 const TELEMETRY_DELETION_TIMEOUT_MS = 15000;
 const WEBSITE_ORIGIN = 'https://glimmervoid.dev';
 const APPEARANCE_PAGE_ID = 'browser-appearance';
 const SHORTCUTS_PAGE_ID = 'browser-shortcuts';
-const FEATURES_PAGE_ID = 'lanes-features';
-const FEATURES_SECTION: SettingsSection = Object.freeze({
-  id: FEATURES_PAGE_ID,
-  level: 'lanes',
-  title: 'Features',
-  description: 'Optional tabs, each hidden until its own toggle is on.',
-  settings: [],
-});
 const FLYING_ANIMALS_SETTING_ID = 'flying-animals';
 const SEGMENT_STEP_BY_KEY: Readonly<Record<string, number>> = Object.freeze({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 });
-
-function resolveSettingOptions(setting: SettingsSetting): SettingsSetting {
-  if (!setting.optionsFrom) return setting;
-  const catalog = OPTION_CATALOGS[setting.optionsFrom]?.() ?? [];
-  return {
-    ...setting,
-    options: catalog.map((option) => ({ value: option.id, label: option.label })),
-  };
-}
-
-function buildSettingsViewMap(): readonly SettingsSection[] {
-  const sections = SETTINGS_REGISTRY.sections.map((section) => ({
-    ...section,
-    settings: section.settings.map(resolveSettingOptions),
-  }));
-  const firstLaneIndex = sections.findIndex((section) => section.level === 'lanes');
-  return Object.freeze([...sections.slice(0, firstLaneIndex), FEATURES_SECTION, ...sections.slice(firstLaneIndex)]);
-}
 
 let SETTINGS_VIEW_MAP = buildSettingsViewMap();
 
@@ -165,7 +134,7 @@ let phoneSectionId: string | null = null;
 let backButtonEl: HTMLButtonElement | null = null;
 let contentEl: HTMLDivElement | null = null;
 let selectedPage: SettingsSection = SETTINGS_VIEW_MAP[0];
-let settingsPayload: SettingsPayload = {};
+let settingsPayload: SettingsPayload = settingsPayloadSnapshot();
 let storedValues: SettingsValues = {};
 const saveStatusById = new Map<string, SaveStatus>();
 const savedStatusTimerById = new Map<string, number>();
@@ -174,14 +143,7 @@ const draftByControl = new WeakMap<Element, ControlDraft>();
 let saveQueue = Promise.resolve();
 const fieldErrorById = new Map<string, string>();
 let searchQuery = '';
-let updateStatus: UpdateStatusView | null = null;
-let updateJournal: UpdateJournal | null = null;
-let updateRequest: UpdateRequestState = IDLE_UPDATE_REQUEST;
-let restartServer = () => {};
-let lastAutoUpdateCheckAt: number | null = null;
 let isAutoUpdateCheckAwaitingStatus = false;
-let isUpdateCheckInFlight = false;
-let updateCheckSendFailure: string | null = null;
 const pendingWorkflowRuleIds = new Set<string>();
 type WorkflowRuleFeedback = { tone: 'ok' | 'error'; text: string };
 
@@ -203,7 +165,6 @@ function browserPreferences() {
 
 function hydrate(payload: SettingsPayload) {
   storedValues = hydrateFromSettings(SETTINGS_VIEW_MAP, { ...payload, prefs: browserPreferences() });
-  applyAgentLogins(payload.agentLogins);
 }
 
 function storedValue(setting: SettingsSetting): unknown {
@@ -263,16 +224,8 @@ function renderShortcutGroups(container: HTMLElement) {
   }
 }
 
-type FeatureTabView = Pick<PrimaryViewDefinition<unknown>, 'view' | 'label' | 'gate'>;
-
-let featureTabViews: readonly FeatureTabView[] = [];
-
-export function setFeatureTabViews(views: readonly FeatureTabView[]) {
-  featureTabViews = [...views];
-}
-
 function featureTabLabel(rule: FeatureSurfaceRule) {
-  return featureTabViews.find((view) => view.gate !== undefined && 'fromSettings' in view.gate && view.gate.fromSettings === rule)?.label;
+  return settingsFeatureTabViews().find((view) => view.gate !== undefined && 'fromSettings' in view.gate && view.gate.fromSettings === rule)?.label;
 }
 
 function renderFeatureList(container: HTMLElement) {
@@ -760,11 +713,11 @@ function renderList(setting: SettingsSetting) {
 let lastTabOrderMoveKey: string | null = null;
 
 function renderTabOrder(setting: SettingsSetting) {
-  const orderedViewIds = orderViewIds(featureTabViews.map((view) => view.view), listValue(storedValue(setting)));
+  const orderedViewIds = orderViewIds(settingsFeatureTabViews().map((view) => view.view), listValue(storedValue(setting)));
   const list = el('ol', 'settings-view-tab-order');
   list.setAttribute('aria-labelledby', setting.id);
   for (const [index, viewId] of orderedViewIds.entries()) {
-    const label = featureTabViews.find((view) => view.view === viewId)?.label ?? viewId;
+    const label = settingsFeatureTabViews().find((view) => view.view === viewId)?.label ?? viewId;
     const item = el('li', 'settings-view-tab-order-item');
     item.append(
       el('span', 'settings-view-tab-order-label', label),
@@ -829,32 +782,14 @@ function buildUpdateActionStatus(reason: string | null) {
   return status;
 }
 
-function dispatchUpdateRequest(event: UpdateRequestEvent) {
-  const next = reduceUpdateRequest(updateRequest, event);
-  if (next === updateRequest) return;
-  updateRequest = next;
-  refreshUpdateRows();
-}
-
-function requestUpdateApply() {
-  const isSent = sendControlMsg({ type: 'update-apply' });
-  dispatchUpdateRequest(isSent ? 'request-sent' : 'request-unsent');
-}
-
-function requestUpdateCheck() {
-  lastAutoUpdateCheckAt = Date.now();
-  const isSent = sendControlMsg({ type: 'update-check' });
-  isUpdateCheckInFlight = isSent;
-  updateCheckSendFailure = isSent ? null : NOT_CONNECTED_TEXT;
-  refreshUpdateRows();
-}
-
 function updateCheckStatusText(): string | null {
-  if (isUpdateCheckInFlight) return 'Checking for updates.';
-  return updateCheckSendFailure;
+  const { isCheckInFlight, checkSendFailure } = settingsUpdateState();
+  if (isCheckInFlight) return 'Checking for updates.';
+  return checkSendFailure;
 }
 
 function checkUpdatesIfStale() {
+  const { status: updateStatus, lastAutoCheckAt } = settingsUpdateState();
   if (!updateStatus) {
     isAutoUpdateCheckAwaitingStatus = true;
     return;
@@ -864,7 +799,7 @@ function checkUpdatesIfStale() {
     status: updateStatus,
     checkForUpdates: settingsPayload.checkForUpdates,
     now: Date.now(),
-    lastAutoCheckAt: lastAutoUpdateCheckAt,
+    lastAutoCheckAt,
   });
   if (isStale) requestUpdateCheck();
 }
@@ -872,15 +807,12 @@ function checkUpdatesIfStale() {
 function buildUpdateAction(action: UpdateActionId) {
   if (action === 'update') return buildUpdateButton('Update', requestUpdateApply, { isPrimary: true });
   if (action === 'restart') return buildUpdateButton('Restart', restartServer, { isPrimary: true });
-  return buildUpdateButton('Check for updates', requestUpdateCheck, { isEnabled: !isUpdateCheckInFlight });
+  return buildUpdateButton('Check for updates', requestUpdateCheck, { isEnabled: !settingsUpdateState().isCheckInFlight });
 }
 
 function buildUpdateActions() {
-  const decided = updateControls({
-    status: updateStatus,
-    journal: updateJournal,
-    request: updateRequest,
-  });
+  const { status, journal, request } = settingsUpdateState();
+  const decided = updateControls({ status, journal, request });
   const actions = el('div', 'settings-update-actions');
   if (decided.actions.length > 0) {
     const buttons = el('div', 'settings-update-buttons');
@@ -901,7 +833,7 @@ function buildUpdateFact(label: string, ...content: (string | HTMLElement)[]) {
 }
 
 function buildUpdateProgress() {
-  const projection = projectUpdateProgress(updateJournal);
+  const projection = projectUpdateProgress(settingsUpdateState().journal);
   if (!projection) return null;
   const panel = el('div', 'settings-update-progress');
   panel.dataset.state = projection.state;
@@ -932,7 +864,7 @@ function buildUpdateProgress() {
 }
 
 function buildLatestUpdateFact() {
-  const latest = latestUpdateDetails(updateStatus);
+  const latest = latestUpdateDetails(settingsUpdateState().status);
   const latestParts: (string | HTMLElement)[] = [latest.label];
   if (latest.behind) latestParts.push(el('span', 'settings-update-behind', latest.behind));
   if (latest.releaseUrl) {
@@ -947,6 +879,7 @@ function buildLatestUpdateFact() {
 
 function buildUpdateStatusBlock() {
   const block = el('div', 'settings-view-status-block settings-update-status');
+  const { status: updateStatus, journal: updateJournal } = settingsUpdateState();
   const summary = updateSummary(updateStatus, updateJournal);
   const headline = el('div', 'settings-update-summary', summary.headline);
   headline.dataset.tone = summary.tone;
@@ -1156,7 +1089,7 @@ function buildTelegramDeliverySlot() {
     const reply = await requestWithStatus('telegram-test', {}, testStatus, { busyText: 'Sending a test message to Telegram.' });
     testButton.disabled = false;
     if (reply?.type !== 'telegram-test-result') return;
-    settingsPayload = { ...settingsPayload, telegramDelivery: reply.telegramDelivery };
+    settingsPayload = mergeSettingsPayload({ telegramDelivery: reply.telegramDelivery });
     renderTelegramDeliveryLines(deliveryLines);
     if (reply.ok) {
       testStatus.show('ok', 'Sent. Check the Telegram chat for the test message.');
@@ -1641,12 +1574,6 @@ function currentPhoneSettingsScreen() {
   return phoneSettingsScreenOf(SETTINGS_VIEW_MAP, phoneSectionId, searchQuery, isStreamerMode());
 }
 
-const phoneSettingsScreenListeners = new Set<() => void>();
-
-export function onPhoneSettingsScreenChanged(listener: () => void) {
-  phoneSettingsScreenListeners.add(listener);
-}
-
 function syncPhoneSettingsScreen() {
   if (!shellEl) return;
   const screen = currentPhoneSettingsScreen();
@@ -1654,15 +1581,10 @@ function syncPhoneSettingsScreen() {
   shellEl.dataset.settingsScreen = screen;
   if (backButtonEl) backButtonEl.hidden = screen !== 'section';
   if (!hasScreenChanged) return;
-  for (const listener of phoneSettingsScreenListeners) listener();
+  notifyPhoneSettingsScreenChanged();
 }
 
-export function canReturnToSettingsList() {
-  return isPhoneLayout() && currentPhoneSettingsScreen() === 'section';
-}
-
-export function returnToSettingsList() {
-  if (!canReturnToSettingsList()) return;
+function returnToList() {
   const previousPageId = selectedPage.id;
   setSearchQuery('');
   navigationEl?.querySelector<HTMLElement>(`[data-settings-section="${previousPageId}"]`)?.focus();
@@ -1727,13 +1649,7 @@ function handleNavigationKeydown(event: KeyboardEvent) {
   buttons[(currentIndex + direction + buttons.length) % buttons.length].focus();
 }
 
-export function mountSettingsView(
-  container: HTMLElement,
-  {
-    onRestart = () => {},
-  }: { onRestart?: () => void } = {},
-) {
-  restartServer = onRestart;
+function mountSettingsView(container: HTMLElement) {
   onSoundEnabledChange(syncSoundEnabledValue);
   rootEl = container;
   rootEl.textContent = '';
@@ -1763,7 +1679,10 @@ export function mountSettingsView(
   sidebar.append(searchEl, backButtonEl, navigationEl);
   shellEl.append(sidebar, contentEl);
   rootEl.appendChild(shellEl);
+  settingsPayload = settingsPayloadSnapshot();
   hydrate(settingsPayload);
+  setPhoneSettingsScreenProbe(currentPhoneSettingsScreen);
+  subscribeSettings(applySettingsChange);
   renderNavigation();
   reloadCustomSounds();
   settingsViewVisibilityObserver?.disconnect();
@@ -1771,6 +1690,7 @@ export function mountSettingsView(
     if (entries.some((entry) => entry.isIntersecting)) reloadCustomSounds();
   });
   settingsViewVisibilityObserver.observe(rootEl);
+  activatePendingSection();
 }
 
 function reloadCustomSounds() {
@@ -1793,8 +1713,8 @@ function refreshSoundOptions() {
   if (setting && isAlertSoundPage(selectedPage)) refreshRow(setting);
 }
 
-export function activateSettingsSection(sectionId: string | null = null, settingId: string | null = null) {
-  const search = parseSettingsSearchHash(sectionId ?? location.hash);
+function activateSection(sectionId: string | null, settingId: string | null, hashAtRequest: string) {
+  const search = parseSettingsSearchHash(sectionId ?? hashAtRequest);
   if (search) {
     setSearchQuery(search.query);
     return;
@@ -1807,28 +1727,19 @@ export function activateSettingsSection(sectionId: string | null = null, setting
   selectSection(sectionId || selectedPage.id, { settingId });
 }
 
-export function resolveSettingsTarget(hash: unknown) {
-  const search = parseSettingsSearchHash(hash);
-  if (search) {
-    const searchHash = settingsSearchHash(search.query);
-    return { sectionId: searchHash, settingId: null, hash: searchHash };
-  }
-  return parseSettingsHash(hash, SETTINGS_VIEW_MAP, SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS);
+function activatePendingSection() {
+  const activation = takePendingSettingsActivation();
+  if (activation) activateSection(activation.sectionId, activation.settingId, activation.hashAtRequest);
 }
 
-export function applySettingsBroadcast(freshSettings: unknown) {
-  if (!freshSettings) return;
-  settingsPayload = freshSettings as SettingsPayload;
+function showBroadcastSettings() {
+  settingsPayload = settingsPayloadSnapshot();
   hydrate(settingsPayload);
   if (searchQuery) {
     renderSearchContent();
     return;
   }
   refreshVisibleRows();
-}
-
-export function applySettingsProjects(_projects: unknown) {
-  refreshSettingsStatus();
 }
 
 function refreshRowStatusSlot(setting: SettingsSetting, row: Element) {
@@ -1839,7 +1750,7 @@ function refreshRowStatusSlot(setting: SettingsSetting, row: Element) {
   if (!currentStatus && nextStatus) row.appendChild(nextStatus);
 }
 
-export function refreshSettingsStatus() {
+function refreshSettingsStatus() {
   for (const setting of pageSettings(selectedPage)) {
     if (!setting.status) continue;
     const row = rowOf(setting);
@@ -1858,30 +1769,24 @@ function refreshUpdateRows() {
   if (setting) refreshReadout(setting);
 }
 
-export function applySettingsUpdateStatus(status: unknown) {
-  updateStatus = status as UpdateStatusView;
-  isUpdateCheckInFlight = false;
-  updateCheckSendFailure = null;
-  updateRequest = reduceUpdateRequest(updateRequest, 'status-frame');
-  refreshUpdateRows();
-  if (isAutoUpdateCheckAwaitingStatus && selectedPage.id === UPDATES_SECTION_ID) checkUpdatesIfStale();
-}
-
-export function applySettingsUpdateProgress(journal: unknown) {
-  updateJournal = journal as UpdateJournal;
-  updateRequest = reduceUpdateRequest(updateRequest, 'progress-frame');
-  refreshUpdateRows();
-}
-
-export function applySettingsUpdateError(message: { scope?: string; message: string }): boolean {
-  if (message.scope !== 'update') return false;
-  const errorText = updateErrorText(message.message);
-  const wasApplyRequested = updateRequest.requested;
-  updateRequest = reduceUpdateRequest(updateRequest, 'error-frame', errorText);
-  isUpdateCheckInFlight = false;
-  if (!wasApplyRequested) updateCheckSendFailure = errorText;
-  refreshUpdateRows();
-  return true;
+function applySettingsChange(change: SettingsChange) {
+  switch (change.kind) {
+    case 'broadcast':
+      showBroadcastSettings();
+      return;
+    case 'status':
+      refreshSettingsStatus();
+      return;
+    case 'update':
+      refreshUpdateRows();
+      if (change.frame === 'status' && isAutoUpdateCheckAwaitingStatus && selectedPage.id === UPDATES_SECTION_ID) checkUpdatesIfStale();
+      return;
+    case 'activate':
+      activatePendingSection();
+      return;
+    case 'return-to-list':
+      returnToList();
+  }
 }
 
 function refreshFlyingAnimalsAvailability() {
@@ -1897,3 +1802,5 @@ onLayoutChange(() => {
 });
 
 onAgentLoginsChanged(refreshSettingsStatus);
+
+export const view: ViewModule<HTMLElement> = { mount: mountSettingsView };

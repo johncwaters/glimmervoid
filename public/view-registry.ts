@@ -8,10 +8,9 @@ import { applyMyPrsConnectionState } from './github/my-prs-store.ts';
 import { acknowledgeReviewQueueAttention, setReviewQueueActivityCallback, setReviewQueueNavigation } from './github/review-queue-store.ts';
 import { acknowledgeRadarAttention, setRadarActivityCallback, setRadarTraceOpener } from './radar/radar-store.ts';
 import { onDebugModeChanged } from './session-card/card-dom.ts';
-import { mountSettingsView } from './settings/settings-panel.ts';
+import { setSettingsRestartHandler } from './settings/settings-store.ts';
 import { applyTeamReviewConnectionState } from './github/team-review-store.ts';
 import { applyTraceConnectionState, openTraceForSession } from './trace-store.ts';
-import { view as usageView } from './usage/usage-panel.ts';
 import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback } from './usage/usage-store.ts';
 import { acknowledgeVisionsAttention, applyVisionsConnectionState, setVisionsActivityCallback } from './visions/visions-store.ts';
 import { createViewLoader, shouldReloadAfterPreloadError, viewAttentionState } from './view-registry-core.ts';
@@ -73,6 +72,7 @@ export function reloadOnceOnPreloadError(readStorage: () => Storage): void {
 
 export function createDashboardViews(actions: ViewRegistryActions): DashboardView[] {
   setReviewQueueNavigation({ openTerminal: actions.openTerminal, openReviews: actions.openReviews });
+  setSettingsRestartHandler(actions.onRestart);
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
     { view: 'focus', label: 'Focus', panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, module: { mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView } },
     { view: 'zen', label: 'Zen', panelClass: 'zen-view', hasOwnPhoneScreen: true, hasPanelChrome: false, gate: { fromSettings: FEATURE_SURFACE_RULES.zenView }, module: { mount: mountZenView, activate: activateZenView, deactivate: deactivateZenView } },
@@ -81,13 +81,13 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
       applyTeamReviewConnectionState(isConnected);
     } },
     { view: 'issues', label: 'Issues', glyph: '#', panelClass: 'issues-view', load: () => import('./github/issues-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], onConnectionChange: applyIssuesConnectionState },
-    { view: 'usage', label: 'Usage', glyph: '\u25d4', panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, module: usageView, attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, onConnectionChange: applyUsageConnectionState, refreshOn: ['shown', 'connected', 'usage-sessions'] },
+    { view: 'usage', label: 'Usage', glyph: '\u25d4', panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, load: () => import('./usage/usage-panel.ts').then((panel) => panel.view), attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, onConnectionChange: applyUsageConnectionState, refreshOn: ['shown', 'connected', 'usage-sessions'] },
     { view: 'radar', label: 'Radar', glyph: '\u25ce', panelClass: 'radar-view', gate: { fromSettings: FEATURE_SURFACE_RULES.posthog }, load: () => import('./radar/radar-panel.ts').then((panel) => panel.view), attention: { subscribe: setRadarActivityCallback, acknowledge: acknowledgeRadarAttention } },
     { view: 'visions', label: 'Visions', glyph: '\u25c7', panelClass: 'visions-view', gate: { fromSettings: FEATURE_SURFACE_RULES.visions }, load: () => import('./visions/visions-panel.ts').then((panel) => panel.view), attention: { subscribe: setVisionsActivityCallback, acknowledge: acknowledgeVisionsAttention }, refreshOn: ['shown'], onConnectionChange: applyVisionsConnectionState },
     { view: 'hooks', label: 'Hooks', glyph: '\u25c8', panelClass: 'hooks-view', load: () => import('./hooks-panel.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'hooks-updated'] },
     { view: 'trace', label: 'Trace', panelClass: 'trace-view', gate: { subscribe: onDebugModeChanged }, load: () => import('./trace-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], onAvailabilityChange: (isAvailable) => setRadarTraceOpener(isAvailable ? openTraceForSession : null), onConnectionChange: applyTraceConnectionState },
     { view: 'benchmarks', label: 'Bench', panelClass: 'bench-view', gate: { fromSettings: FEATURE_SURFACE_RULES.benchmarks }, load: () => import('./benchmark-panel.ts').then((panel) => panel.view), onConnectionChange: applyBenchmarkConnectionState },
-    { view: 'settings', label: 'Settings', glyph: '@', panelClass: 'settings-view', hasPanelChrome: false, module: { mount: (panel) => mountSettingsView(panel, { onRestart: actions.onRestart }) } },
+    { view: 'settings', label: 'Settings', glyph: '@', panelClass: 'settings-view', hasPanelChrome: false, load: () => import('./settings/settings-panel.ts').then((panel) => panel.view) },
   ];
 
   const main = queryTag(document, '#app-main', 'main');

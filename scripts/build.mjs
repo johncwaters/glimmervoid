@@ -25,6 +25,8 @@ const REQUIRED_OUTPUTS = [
   'tools/vscode-visions/package.json',
 ];
 
+const ENTRY_CHUNK_BUDGET_BYTES = 512 * 1024;
+
 function fail(message) {
   console.error(`build: ${message}`);
   process.exit(1);
@@ -59,6 +61,8 @@ function assertLazyViewsStayOutOfEntry() {
   fs.rmSync(viteMetadataDir, { recursive: true, force: true });
   const entryKey = Object.keys(manifest).find((key) => manifest[key].isEntry);
   if (!entryKey) fail('the client manifest names no entry chunk');
+  const entryChunkBytes = fs.statSync(path.join(distDir, 'client', manifest[entryKey].file)).size;
+  if (entryChunkBytes > ENTRY_CHUNK_BUDGET_BYTES) fail(`the entry chunk is ${entryChunkBytes} bytes, over the ${ENTRY_CHUNK_BUDGET_BYTES} byte budget; load a view through load() or move code out of the entry`);
   const staticallyReachedFiles = new Set();
   const pendingKeys = [entryKey];
   while (pendingKeys.length > 0) {

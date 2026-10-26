@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Dashboard opens faster on a slow connection**: the build now compresses the dashboard ahead of time, so a phone over a slow link downloads about a quarter of the bytes it used to on first load, and a reload uses its cache instead of downloading the app again. On a simulated 3G link the first load dropped from about 40 seconds to about 15.
+- **Dashboard opens faster on a slow connection**: the build now compresses the dashboard ahead of time, so a phone over a slow link downloads about a quarter of the bytes it used to on first load, and a reload uses its cache instead of downloading the app again. On a simulated 3G link the first load dropped from about 40 seconds to about 15. Settings, Reviews, Usage, Issues, Hooks, Trace, Radar, Visions and Bench now load their code the first time you open them, so the app starts with less to download and parse; anything that arrived before then still shows when you open the tab.
 
 - **Changes panel stays current while you watch it**: while the Changes panel is open and the tab is in front, edits a session makes show up within about 4 seconds, mid-turn, for every agent, not just when the turn ends. Glimmervoid checks only the one session on screen, and stops as soon as the panel is collapsed, the phone leaves the Changes screen, or the tab is hidden.
 

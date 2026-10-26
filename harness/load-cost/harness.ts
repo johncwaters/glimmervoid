@@ -181,7 +181,9 @@ function watchPageSockets(page: Page) {
 
 function watchHttpSizes(page: Page) {
   const pending: Promise<{ url: string; status: number; bodyBytes: number; headerBytes: number; decodedBytes: number }>[] = [];
+  let isCollecting = true;
   page.on('requestfinished', (request) => {
+    if (!isCollecting) return;
     pending.push((async () => {
       const sizes = await request.sizes();
       const response = await request.response();
@@ -190,6 +192,7 @@ function watchHttpSizes(page: Page) {
     })());
   });
   return async (proxyHttpBytes: number): Promise<ShellCheck> => {
+    isCollecting = false;
     const finished = await Promise.all(pending);
     let browserReportedHttpBytes = 0;
     let assetFilesChecked = 0;

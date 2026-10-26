@@ -5,7 +5,6 @@ import type { ViewModule, ViewRefreshReason } from '../view-registry-core.ts';
 import { reportUsageAction, requestUsageReport, setUsageLookingProbe, setUsageRange, subscribeUsage, usageRefreshStatus, usageSnapshot } from './usage-store.ts';
 import type { UsageChange } from './usage-store.ts';
 
-export { usageStatusLines } from './usage-store.ts';
 import {
   DEFAULT_DAY_SORT,
   DEFAULT_MODEL_SORT,
