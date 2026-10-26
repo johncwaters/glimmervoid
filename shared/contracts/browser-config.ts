@@ -231,7 +231,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   debugMode: optionalBoolean('debugMode'),
   conversationView: optionalBoolean('conversationView'),
   streamerMode: optionalBoolean('streamerMode'),
-  zenView: optionalBoolean('zenView'),
   viewTabOrder: z.array(z.string({ error: 'viewTabOrder must be an array of view ids' }), { error: 'viewTabOrder must be an array of view ids' }).optional(),
   remoteSessions: optionalBoolean('remoteSessions'),
   detectBackgroundAgents: optionalBoolean('detectBackgroundAgents'),

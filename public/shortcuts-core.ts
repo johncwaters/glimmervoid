@@ -153,8 +153,7 @@ export function resolveDashboardShortcut(
 }
 
 export function escapesFocusedTerminal(shortcut: ResolvedDashboardShortcut, activeView: string | undefined) {
-  if (activeView === 'focus' || shortcut.action === 'quick-session') return true;
-  return activeView === 'zen' && shortcut.action === 'next-attention';
+  return activeView === 'focus' || shortcut.action === 'quick-session';
 }
 
 function shortcutModifierCaption(platform: ShortcutPlatform, shortcut?: DashboardShortcut) {

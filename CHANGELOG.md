@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Automatic cleanups no longer delete a live session's worktree**: branch cleanup, the startup sweep of leftover workspaces, and the owned-paths sweep now keep any worktree or branch that belongs to a session in your config or one that is running, and anything touched in the last 24 hours. Work from a session you removed is still cleaned up once it has been idle for a day. Removing a session, discarding its work, or finishing and merging still deletes at once. A Glimmervoid started on a different config file (a test run, for example) can no longer sweep the worktrees of the one you use.
 
+### Removed
+
+- **The experimental Zen view is gone**: the Zen tab, its meadow of session pets and the Settings > Sessions > Zen view toggle no longer exist. Cmd+J (Alt+J off a Mac) still jumps to the next session that needs you, in Focus. A `zenView` key left in `config.json` is ignored, and a dashboard last left on Zen opens on Focus.
+
 ### Changed
 
 - **Shift+Enter starts a new line in the terminal**: in a session terminal, Shift+Enter now starts a new line in the agent's prompt instead of submitting it, as it already did in the Conversation view. Enter alone still sends.

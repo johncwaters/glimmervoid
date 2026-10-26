@@ -2,7 +2,6 @@ import type { SessionState } from '#shared/states.ts';
 import { STATES } from '#shared/states.ts';
 import { UnseenOutcome } from '#shared/contracts/session.ts';
 import type { SessionStateSource } from '../session-actions-core.ts';
-import { promptKindNeedWords } from '../session-card/face-core.ts';
 
 type SessionAttentionTier = 'now' | 'later' | 'resting';
 interface SessionAttentionRow {
@@ -76,26 +75,6 @@ export function describeOwnership({ ownerName, ownedCount }: { ownerName: string
   return null;
 }
 
-export function pickNextAttention(orderedIds: readonly string[], currentId: string | null | undefined) {
-  if (!orderedIds.length) return null;
-  const i = currentId == null ? -1 : orderedIds.indexOf(currentId);
-  return orderedIds[(i + 1) % orderedIds.length];
-}
-
-export function pickStagedSession(queuedIds: readonly string[], stagedId: string | null) {
-  if (stagedId !== null && queuedIds.includes(stagedId)) return stagedId;
-  return queuedIds[0] ?? null;
-}
-
-const STAGE_NEED_WORDS_BY_STATE: ReadonlyMap<string, string> = new Map([
-  [STATES.FAILED, 'Failed'],
-  [STATES.COMPLETE, 'Finished'],
-]);
-
-export function stageNeedWords(state: string, pendingPromptKind: string | null) {
-  return STAGE_NEED_WORDS_BY_STATE.get(state) ?? promptKindNeedWords(pendingPromptKind ?? '');
-}
-
 export function pickAdjacent(orderedIds: readonly string[], currentId: string | null | undefined, dir: number) {
   if (!orderedIds.length) return null;
   const step = dir < 0 ? -1 : 1;
@@ -118,11 +97,6 @@ function attentionKindOf({ state, unseenOutcome }: SessionAttentionRow): Attenti
   return parsedUnseenOutcome.success ? parsedUnseenOutcome.data : null;
 }
 
-export function hasUnseenOutcomeAttention(row: SessionAttentionRow = {}) {
-  const kind = attentionKindOf(row);
-  return kind !== null && kind !== 'waiting';
-}
-
 export function needsAttention(row: SessionAttentionRow = {}) {
   return attentionKindOf(row) !== null;
 }
@@ -138,7 +112,7 @@ function jumpRankOf(row: SessionAttentionRow): number | undefined {
   return kind === null ? undefined : JUMP_RANK_BY_KIND.get(kind);
 }
 
-export function orderAttentionQueue<Row extends SessionAttentionRow & { id: string }>(rosterOrderedRows: readonly Row[]): string[] {
+function orderAttentionQueue<Row extends SessionAttentionRow & { id: string }>(rosterOrderedRows: readonly Row[]): string[] {
   return rosterOrderedRows
     .filter((row) => jumpRankOf(row) !== undefined)
     .sort((first, second) => (jumpRankOf(first) ?? 0) - (jumpRankOf(second) ?? 0))

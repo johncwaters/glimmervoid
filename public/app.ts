@@ -74,7 +74,6 @@ import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
 import { applyPlanLimits, applyUsageReport, applyUsageSessions, setUsageRequestSender } from './usage/usage-store.ts';
 import { createDashboardViews, mountEagerViews, mountedViewModule, prefetchViewsWhenIdle, reloadOnceOnPreloadError, showView } from './view-registry.ts';
-import { isZenActive, refreshZenView, stageNextAttention } from './zen-view/zen-view.ts';
 import type { DashboardView } from './view-registry.ts';
 import { moveViewId, orderViewIds, refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings } from './view-registry-core.ts';
 import type { ViewRefreshReason } from './view-registry-core.ts';
@@ -246,7 +245,6 @@ setConnectionStateCallback((state, label) => {
 });
 
 function refreshAttentionSurfaces() {
-  refreshZenView();
   refreshIssuesSessionState();
   refreshMyPrsSessionState();
   refreshPhoneBoard();
@@ -1122,10 +1120,6 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
       return true;
     case 'next-attention':
       if (isPhoneLayout()) return false;
-      if (isZenActive()) {
-        stageNextAttention();
-        return true;
-      }
       if (isFocusActive()) {
         focusNextAttention();
         return true;
