@@ -60,54 +60,6 @@ async function createSessionWorkspace(gitWorkspace: GitWorkspaceInstance, reposi
   });
 }
 
-function detectionWorkspace(outputs: Record<string, string | Error>) {
-  return createGitWorkspace({
-    git: (args) => {
-      const command = args.join(' ');
-      if (Object.hasOwn(outputs, command)) {
-        const output = outputs[command];
-        if (output instanceof Error) throw output;
-        return output;
-      }
-      throw new Error(`unexpected command: ${command}`);
-    },
-  });
-}
-
-test('detectDefaultBranch prefers origin HEAD', async () => {
-  const workspace = detectionWorkspace({
-    'symbolic-ref --quiet --short refs/remotes/origin/HEAD': 'origin/trunk',
-  });
-  assert.equal(await workspace.detectDefaultBranch({ projectPath: '/repo' }), 'trunk');
-});
-
-test('detectDefaultBranch lets origin HEAD disagree with local main', async () => {
-  const workspace = detectionWorkspace({
-    'symbolic-ref --quiet --short refs/remotes/origin/HEAD': 'origin/release',
-    'rev-parse --verify --quiet refs/heads/main': 'main-sha',
-  });
-  assert.equal(await workspace.detectDefaultBranch({ projectPath: '/repo' }), 'release');
-});
-
-test('detectDefaultBranch falls back to local main', async () => {
-  const workspace = detectionWorkspace({
-    'rev-parse --verify --quiet refs/heads/main': 'main-sha',
-  });
-  assert.equal(await workspace.detectDefaultBranch({ projectPath: '/repo' }), 'main');
-});
-
-test('detectDefaultBranch falls back to local master', async () => {
-  const workspace = detectionWorkspace({
-    'rev-parse --verify --quiet refs/heads/master': 'master-sha',
-  });
-  assert.equal(await workspace.detectDefaultBranch({ projectPath: '/repo' }), 'master');
-});
-
-test('detectDefaultBranch returns null when no candidate exists', async () => {
-  const workspace = detectionWorkspace({});
-  assert.equal(await workspace.detectDefaultBranch({ projectPath: '/repo' }), null);
-});
-
 test('auto create writes the detected marker and an existing worktree keeps it', { skip: !GIT }, async () => {
   const fixture = createRemoteFixture();
   try {

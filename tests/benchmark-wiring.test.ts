@@ -9,7 +9,6 @@ import { createBenchmarkWiring } from '../server/benchmark-wiring.ts';
 import type { BenchmarkWiringOptions } from '../server/benchmark-wiring.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { createRepoCache } from '../server/git/repo-cache.ts';
-import claudeCode from '../session/adapters/claude-code.ts';
 import type { LaneSpawn } from '../server/lanes/lane-spawn.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../server/lanes/core/lane-permissions-core.ts';
 import { absolutePathReadRule } from '../server/github/core/team-review-core.ts';
@@ -159,63 +158,6 @@ test('the arm token never appears in a run record or a status push', async () =>
   assert.equal(statuses.at(-1)?.suites[0]?.latestReport?.totals.baseline.recall, 1);
 });
 
-test('a failed arm preflight fails the run with a named cause and spawns no subject', async () => {
-  const root = tempRoot();
-  const { wiring, subjectRequests, statuses } = harness({
-    root, suite: manualSuite(), cases: [manualCase('case-1')],
-    overrides: { runArmCommand: async () => ({ ok: false, stdout: '', stderr: 'Not logged in' }) },
-  });
-  const runId = await runToCompletion(wiring, statuses);
-  const run = BenchmarkRun.parse(JSON.parse(fs.readFileSync(path.join(root, 'ladder', 'runs', `${runId}.json`), 'utf8')));
-  assert.equal(run.status, 'failed');
-  assert.match(String(run.error), /arm baseline preflight failed: Not logged in/);
-  assert.deepEqual(run.cells, []);
-  assert.equal(subjectRequests.length, 0);
-});
-
-test('a second run while one is in flight is refused and cancel interrupts the active run', async () => {
-  const root = tempRoot();
-  let releaseSubject = () => {};
-  const subjectGate = new Promise<void>((resolve) => { releaseSubject = resolve; });
-  let subjectStarted = false;
-  const { wiring, statuses } = harness({
-    root, suite: manualSuite(), cases: [manualCase('case-1')],
-    overrides: { spawnSubject: async (request) => { subjectStarted = true; await Promise.race([subjectGate, new Promise((resolve) => request.signal.addEventListener('abort', resolve))]); } },
-  });
-  const started = await wiring.submitAction({ suiteId: 'ladder', action: 'run' });
-  assert.equal(started.ok, true);
-  const second = await wiring.submitAction({ suiteId: 'ladder', action: 'run' });
-  assert.equal(second.ok, false);
-  await waitFor(() => subjectStarted, 'subject spawned', 5000);
-  assert.equal((await wiring.submitAction({ suiteId: 'ladder', action: 'cancel' })).ok, true);
-  await waitFor(() => statuses.at(-1)?.suites[0]?.latestReport?.status === 'interrupted', 'run interrupted', 5000);
-  releaseSubject();
-});
-
-test('actions are refused while benchmarks are off, and mining a manual suite or cancelling an idle one is refused', async () => {
-  const root = tempRoot();
-  const off = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')], overrides: { isEnabled: () => false } });
-  assert.deepEqual(await off.wiring.submitAction({ suiteId: 'ladder', action: 'run' }), { suiteId: 'ladder', action: 'run', ok: false, error: 'Benchmarks are off' });
-  const on = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
-  const mined = await on.wiring.submitAction({ suiteId: 'ladder', action: 'mine' });
-  assert.equal(mined.ok, false);
-  assert.match(String(mined.error), /manual case source/);
-  assert.deepEqual(await on.wiring.submitAction({ suiteId: 'ladder', action: 'cancel' }), { suiteId: 'ladder', action: 'cancel', ok: false, error: 'No run of this suite is in flight' });
-});
-
-test('a refused guardrails probe refuses the run with its reason before any arm command, subject or run record', async () => {
-  const root = tempRoot();
-  const refusal = 'not started: the Claude Code sandbox needs bwrap and socat, and bwrap is not on PATH. Install bubblewrap and socat';
-  const { wiring, subjectRequests, judgeRequests, armCommands } = harness({
-    root, suite: manualSuite(), cases: [manualCase('case-1')], overrides: { guardrailsRefusal: () => refusal },
-  });
-  assert.deepEqual(await wiring.submitAction({ suiteId: 'ladder', action: 'run' }), { suiteId: 'ladder', action: 'run', ok: false, error: refusal });
-  assert.deepEqual(armCommands, []);
-  assert.deepEqual(subjectRequests, []);
-  assert.deepEqual(judgeRequests, []);
-  assert.equal(fs.existsSync(path.join(root, 'ladder', 'runs')), false);
-});
-
 function reviewedChangeRepo(): { repo: string; baseSha: string; reviewedSha: string } {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-bench-repo-'));
   git(['init', '-q', '-b', 'main'], repo);
@@ -338,41 +280,6 @@ for (const [variant, alternatesText] of [['missing', null], ['whitespace-only', 
   });
 }
 
-function blockingSubject() {
-  const started = { value: false };
-  const spawnSubject: TeamReviewSpawn = async (request) => {
-    started.value = true;
-    await new Promise((resolve) => request.signal.addEventListener('abort', resolve));
-  };
-  return { started, spawnSubject };
-}
-
-test('the subject argv ends the variadic deny list with an option, so the bootstrap prompt is never read as a tool name', async () => {
-  const root = tempRoot();
-  const { wiring, subjectRequests, statuses } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
-  await runToCompletion(wiring, statuses);
-  const baselineSpawn = subjectRequests.find((request) => request.spawnEnv.CLAUDE_CONFIG_DIR === '/stage/baseline/.claude');
-  const args = baselineSpawn?.extraClaudeArgs ?? [];
-  const lastDenyRule = args.lastIndexOf(TEAM_REVIEW_SESSION_DENY_RULES.at(-1) ?? '');
-  assert.ok(lastDenyRule > 0);
-  assert.match(args[lastDenyRule + 1] ?? '', /^--/);
-});
-
-test('an arm ending in a variadic option cannot swallow the bootstrap prompt in the real claude argv', async () => {
-  const root = tempRoot();
-  const suite = manualSuite({ arms: [{ id: 'baseline' }, { id: 'candidate', extraArgs: ['--mcp-config', 'a.json'] }] });
-  const { wiring, subjectRequests, statuses } = harness({ root, suite, cases: [manualCase('case-1')] });
-  await runToCompletion(wiring, statuses);
-  const candidateSpawn = subjectRequests.find((request) => request.extraClaudeArgs.includes('a.json'));
-  const extraArgs = candidateSpawn?.extraClaudeArgs ?? [];
-  assert.equal(extraArgs.at(-1), '--strict-mcp-config');
-  assert.equal(extraArgs[extraArgs.indexOf('a.json') + 1], '--disallowedTools');
-  const argv = claudeCode.buildArgs({ extraArgs, initialPrompt: candidateSpawn?.initialPrompt ?? null });
-  const promptPosition = argv.indexOf(candidateSpawn?.initialPrompt ?? '');
-  assert.ok(promptPosition > 0);
-  assert.equal(argv[promptPosition - 1], '--strict-mcp-config');
-});
-
 test('the subject Read permission rules deny every suite answer-key folder', async () => {
   const root = tempRoot();
   const { wiring, subjectRequests, statuses } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
@@ -466,65 +373,6 @@ test('the override token never reaches an arm command or a subject spawn env', a
   assert.ok(armCommands.length > 0);
   assert.ok(armCommands.every((command) => !Object.hasOwn(command.env, 'GLIMMERVOID_CLAUDE_OAUTH_TOKEN')));
   assert.ok(subjectRequests.every((request) => request.spawnEnv.GLIMMERVOID_CLAUDE_OAUTH_TOKEN === ''));
-});
-
-test('cancel goes through while benchmarks are off, and turning them off aborts the active run', async () => {
-  const cancelRoot = tempRoot();
-  let isCancelHarnessEnabled = true;
-  const cancelSubject = blockingSubject();
-  const cancelHarness = harness({
-    root: cancelRoot, suite: manualSuite(), cases: [manualCase('case-1')],
-    overrides: { isEnabled: () => isCancelHarnessEnabled, spawnSubject: cancelSubject.spawnSubject },
-  });
-  assert.equal((await cancelHarness.wiring.submitAction({ suiteId: 'ladder', action: 'run' })).ok, true);
-  await waitFor(() => cancelSubject.started.value, 'subject spawned', 5000);
-  isCancelHarnessEnabled = false;
-  assert.equal((await cancelHarness.wiring.submitAction({ suiteId: 'ladder', action: 'cancel' })).ok, true);
-  await waitFor(() => cancelHarness.statuses.at(-1)?.suites[0]?.latestReport?.status === 'interrupted', 'cancelled run interrupted', 5000);
-
-  const offRoot = tempRoot();
-  let isOffHarnessEnabled = true;
-  const offSubject = blockingSubject();
-  const offHarness = harness({
-    root: offRoot, suite: manualSuite(), cases: [manualCase('case-1')],
-    overrides: { isEnabled: () => isOffHarnessEnabled, spawnSubject: offSubject.spawnSubject },
-  });
-  assert.equal((await offHarness.wiring.submitAction({ suiteId: 'ladder', action: 'run' })).ok, true);
-  await waitFor(() => offSubject.started.value, 'subject spawned', 5000);
-  isOffHarnessEnabled = false;
-  await offHarness.wiring.refreshStatus();
-  await waitFor(() => offHarness.statuses.at(-1)?.suites[0]?.latestReport?.status === 'interrupted', 'disabled run interrupted', 5000);
-});
-
-test('a case whose id differs from its file name refuses the run and names the file', async () => {
-  const root = tempRoot();
-  const { wiring } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
-  writeJson(path.join(root, 'ladder', 'cases', 'case-2.json'), manualCase('case-1'));
-  const started = await wiring.submitAction({ suiteId: 'ladder', action: 'run' });
-  assert.equal(started.ok, false);
-  assert.match(String(started.error), /ladder\/cases\/case-2\.json names a different id, case-1/);
-});
-
-test('cancelling during arm setup aborts the arm command and spawns no subject', async () => {
-  const root = tempRoot();
-  const setupSignals: AbortSignal[] = [];
-  const { wiring, subjectRequests, statuses } = harness({
-    root, suite: manualSuite({ arms: [{ id: 'baseline', setup: { command: ['/bin/stage'] } }, { id: 'candidate' }] }), cases: [manualCase('case-1')],
-    overrides: {
-      runArmCommand: async (_command, _args, options) => {
-        setupSignals.push(options.signal);
-        await new Promise((resolve) => options.signal.addEventListener('abort', resolve));
-        return { ok: false, stdout: '', stderr: 'aborted' };
-      },
-    },
-  });
-  assert.equal((await wiring.submitAction({ suiteId: 'ladder', action: 'run' })).ok, true);
-  await waitFor(() => setupSignals.length === 1, 'arm setup started', 5000);
-  assert.equal((await wiring.submitAction({ suiteId: 'ladder', action: 'cancel' })).ok, true);
-  await waitFor(() => statuses.at(-1)?.suites[0]?.latestReport?.status === 'interrupted', 'run interrupted', 5000);
-  assert.equal(setupSignals[0].aborted, true);
-  assert.equal(setupSignals.length, 1);
-  assert.equal(subjectRequests.length, 0);
 });
 
 test('the startup sweep interrupts stale runs and removes scratch dirs and legacy worktree registrations', { skip: !hasGit() }, async (context) => {

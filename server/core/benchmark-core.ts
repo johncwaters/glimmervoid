@@ -290,12 +290,6 @@ function pairedReport({ suite, run, referencesByCase }: {
   return { runId: run.id, suiteId: suite.id, status: run.status, baselineArm: suite.baselineArm, armIds, rows, totals };
 }
 
-function judgeAgreement(judgements: readonly BenchmarkJudgement[], handLabels: Record<string, BenchmarkMatchVerdict>): number {
-  const verdicts = new Map(judgements.map((judgement) => [judgement.referenceId, judgement.verdict]));
-  const agreements = [...verdicts].filter(([id]) => Object.hasOwn(handLabels, id)).map(([id, verdict]) => verdict === handLabels[id] ? 1 : 0);
-  return mean(agreements) ?? 0;
-}
-
 interface BenchmarkRunnerDependencies {
   suite: BenchmarkSuite;
   cases: BenchmarkCase[];
@@ -411,6 +405,6 @@ async function runBenchmark(dependencies: BenchmarkRunnerDependencies): Promise<
 }
 
 export {
-  buildJudgePrompt, extractFindings, judgeAgreement, pairedReport, planCells, renderSubjectPrompt, runBenchmark, scoreCell, subjectVariables, validateJudgeOutput,
+  buildJudgePrompt, pairedReport, runBenchmark, scoreCell,
 };
-export type { BenchmarkFinding, BenchmarkRunnerDependencies, PlannedCell };
+export type { BenchmarkRunnerDependencies, PlannedCell };

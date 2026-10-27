@@ -187,4 +187,4 @@ function planWorktreeGc({
   return { removals, kept };
 }
 
-export { DAY_MS, DEFAULT_BRANCH_GC_PREFIXES, UNMERGED_KEPT_REASON, matchedPrefix, planBranchGc, planWorktreeGc, sessionIdFromBranch, usablePrefixes, worktreeIntegrationTips };
+export { DAY_MS, DEFAULT_BRANCH_GC_PREFIXES, matchedPrefix, planBranchGc, planWorktreeGc, sessionIdFromBranch, usablePrefixes, worktreeIntegrationTips };

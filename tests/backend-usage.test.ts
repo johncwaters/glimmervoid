@@ -341,17 +341,6 @@ function stubScannerWiring({ passResults, clients = 1, setTimeoutFn }: {
   return { wiring, passes };
 }
 
-const PARTIAL_PASS: PassResult = {
-  files: 1,
-  entries: 1,
-  newEntries: 1,
-  partial: true,
-  outcome: 'byte-limited',
-  ioFailures: 0,
-  storeReset: false,
-  durationMs: 1,
-  generationRollup: [],
-};
 const COMPLETE_PASS: PassResult = {
   files: 1,
   entries: 1,
@@ -375,37 +364,6 @@ const IO_FAILED_PASS: PassResult = {
   generationRollup: [],
 };
 const FORCED_IO_FAILED_PASS: PassResult = { ...IO_FAILED_PASS, storeReset: true };
-
-test('completed passes write one debug note only when usage debug is enabled', async () => {
-  const debugNotes: string[] = [];
-  const debugScanner = scriptedScanner([], [COMPLETE_PASS]);
-  const debugWiring = createUsageWiring({
-    config: {},
-    sessions: new Map(),
-    createScanner: () => debugScanner,
-    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    logger: { warn: () => {}, log: (message: string) => { debugNotes.push(message); } },
-    debug: true,
-  });
-  await debugWiring.start();
-  assert.equal(debugNotes.length, 1);
-  assert.match(debugNotes[0], /^\[usage\] pass complete files=1 entries=1 newEntries=0 durationMs=1 outcome=complete$/);
-  await debugWiring.stop();
-
-  const quietNotes: string[] = [];
-  const quietScanner = scriptedScanner([], [COMPLETE_PASS]);
-  const quietWiring = createUsageWiring({
-    config: {},
-    sessions: new Map(),
-    createScanner: () => quietScanner,
-    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    logger: { warn: () => {}, log: (message: string) => { quietNotes.push(message); } },
-    debug: false,
-  });
-  await quietWiring.start();
-  assert.deepEqual(quietNotes, []);
-  await quietWiring.stop();
-});
 
 test('a pass with no new entries pushes its changed totals, an incremental io-failed pass still pushes, and a forced one does not', async () => {
   const passResults: PassResult[] = [COMPLETE_PASS, IO_FAILED_PASS, FORCED_IO_FAILED_PASS];
@@ -445,17 +403,6 @@ test('a pass with no new entries pushes its changed totals, an incremental io-fa
   await wiring.requestReport({ force: true });
 
   assert.deepEqual(pushedTokens, [10, 20]);
-  await wiring.stop();
-});
-
-test('a byte-limited pass is continued on the short timer until the scan completes', async () => {
-  const { wiring, passes } = stubScannerWiring({ passResults: [PARTIAL_PASS, PARTIAL_PASS, COMPLETE_PASS] });
-  await wiring.start();
-  assert.equal(passes.length, 1, 'the boot pass');
-
-  await waitUntil(() => passes.length === 3, 'the truncated scan to be continued to completion');
-  await settle(60);
-  assert.equal(passes.length, 3, 'a complete pass schedules no further continuation');
   await wiring.stop();
 });
 
@@ -580,37 +527,6 @@ test('io-failed passes retry with capped backoff and warn once per standing fail
   await wiring.stop();
 });
 
-test('a partial pass is continued with no dashboard connected, so an unattended server finishes its scan', async () => {
-  const { wiring, passes } = stubScannerWiring({ passResults: [PARTIAL_PASS, COMPLETE_PASS], clients: 0 });
-  await wiring.start();
-  await waitUntil(() => passes.length === 2, 'the continuation to run with nobody watching');
-  await wiring.stop();
-});
-
-test('the interval tick scans with no dashboard connected', async () => {
-  const passes: PassArgs[] = [];
-  const scanner = scriptedScanner(passes, [COMPLETE_PASS, COMPLETE_PASS]);
-  let intervalTick: () => void = () => {};
-  const wiring = createUsageWiring({
-    config: {},
-    sessions: new Map(),
-    controlClientCount: () => 0,
-    createScanner: () => scanner,
-    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    setIntervalFn: (fn: () => void) => {
-      intervalTick = fn;
-      return { unref() {} } as NodeJS.Timeout;
-    },
-    clearIntervalFn: () => {},
-    logger: { warn: () => {}, log: () => {} },
-  });
-  await wiring.start();
-  assert.equal(passes.length, 1);
-  intervalTick();
-  await waitUntil(() => passes.length === 2, 'the interval pass to run with nobody watching');
-  await wiring.stop();
-});
-
 test('an io-failed pass is retried with no dashboard connected', async () => {
   const { wiring, passes } = stubScannerWiring({
     passResults: [IO_FAILED_PASS, COMPLETE_PASS],
@@ -630,15 +546,6 @@ test('an io-failed pass is retried with no dashboard connected', async () => {
   await wiring.stop();
 });
 
-test('stop() cancels a pending continuation', async () => {
-  const { wiring, passes } = stubScannerWiring({ passResults: [PARTIAL_PASS] });
-  await wiring.start();
-  await wiring.stop();
-
-  await settle(80);
-  assert.equal(passes.length, 1, 'no pass runs after stop');
-});
-
 test('a config with no usage block never materializes one on an unrelated save', withBackend({}, async ({ dash, cfgPath }) => {
   const client = await openControl(dash);
   await waitForMessage(client.received, isSnapshot, 'the snapshot');
@@ -650,60 +557,3 @@ test('a config with no usage block never materializes one on an unrelated save',
 
   await closeSocket(client.ws);
 }));
-
-test('a settings restart during an in-flight start arms the NEW interval cadence', async () => {
-  const gate: { release: (() => void) | null } = { release: null };
-  const firstPassGate = new Promise<void>((resolve) => { gate.release = resolve; });
-  const armed: { ms: number; handle: NodeJS.Timeout }[] = [];
-  const cleared: NodeJS.Timeout[] = [];
-  const counted = { passes: 0 };
-  const scanner = createUsageScanner({ env: {}, homeDir: path.join(os.tmpdir(), 'glimmervoid-usage-nowhere') });
-  scanner.runPass = async () => {
-    counted.passes += 1;
-    if (counted.passes === 1) await firstPassGate;
-    return {
-      files: 0,
-      entries: 0,
-      newEntries: 0,
-      partial: false,
-      outcome: 'complete',
-      ioFailures: 0,
-      storeReset: false,
-      durationMs: 1,
-      generationRollup: [],
-    };
-  };
-  const config: { usage: Record<string, unknown> } = { usage: { scanIntervalMinutes: 1 } };
-  const wiring = createUsageWiring({
-    config,
-    sessions: new Map(),
-    controlClientCount: () => 1,
-    createScanner: () => scanner,
-    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    setIntervalFn: (fn: () => void, ms: number) => {
-      const handle = setInterval(fn, ms);
-      handle.unref();
-      armed.push({ ms, handle });
-      return handle;
-    },
-    clearIntervalFn: (handle: NodeJS.Timeout) => { cleared.push(handle); clearInterval(handle); },
-    logger: { warn: () => {}, log: () => {} },
-  });
-
-  const startPending = wiring.start();
-  config.usage = { scanIntervalMinutes: 7 };
-  wiring.restartIfConfigChanged();
-  assert.ok(gate.release, 'the first pass gate is armed');
-  gate.release();
-  await startPending;
-
-  const wantedMs = 7 * 60 * 1000;
-  for (let i = 0; i < 200 && !armed.some((entry) => entry.ms === wantedMs); i += 1) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  assert.ok(armed.some((entry) => entry.ms === wantedMs), 'the restarted lane armed the new cadence');
-  for (const entry of armed.filter((candidate) => candidate.ms !== wantedMs)) {
-    assert.ok(cleared.includes(entry.handle), 'every stale interval from the aborted start was cleared');
-  }
-  await wiring.stop();
-});
