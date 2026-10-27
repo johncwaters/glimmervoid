@@ -1934,6 +1934,7 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   border-radius: 50%;
   font-family: var(--font-mono);
   font-size: 10px;
+  font-weight: 700;
   color: var(--text-muted);
   text-decoration: none;
 }

@@ -1,7 +1,7 @@
 import { sendControlMsg } from './control-ws.ts';
 import { CLIENT_LOG_TEXT_MAX_CHARS } from '#shared/contracts/control-messages.ts';
 
-export type WakeMarkName =
+type WakeMarkName =
   | 'shown'
   | 'resumed'
   | 'control-connecting'
