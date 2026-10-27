@@ -39,7 +39,6 @@ export const SECRET_PRESENCE_SUFFIX = 'Configured';
 export const STORED_SECRET_MASK = String.fromCharCode(0x2022).repeat(12);
 const POSTHOG_PROJECTS_ERROR = 'Each line must be a positive whole-number PostHog project id, or the one word none.';
 const SEGMENTED_CHOICE_LIMIT = 3;
-const MAX_SEARCH_QUERY_LENGTH = 200;
 const PATHS_SUMMARIZED_IN_PAYLOAD: ReadonlySet<string> = new Set(['customAgents']);
 const INTEGER_TOLERANCE = 1e-9;
 const LANES_HEADING = 'Lanes';
@@ -139,13 +138,6 @@ export function settingsSearchBreadcrumb(sections: readonly SettingsSection[], s
   const parent = sections.find((entry) => entry.id === group.parent);
   if (parent) return `${parent.title} / ${group.title}`;
   return group.level === 'lanes' ? `${LANES_HEADING} / ${group.title}` : group.title;
-}
-
-export function parseSettingsSearchHash(hash: unknown): { query: string } | null {
-  const match = /^#settings(?:\?(.*))?$/.exec(String(hash ?? ''));
-  if (!match) return null;
-  const query = new URLSearchParams(match[1] ?? '').get('q') ?? '';
-  return { query: Array.from(query.trim()).slice(0, MAX_SEARCH_QUERY_LENGTH).join('').trim() };
 }
 
 export function childSectionsOf(sections: readonly SettingsSection[], sectionId: string): SettingsSection[] {

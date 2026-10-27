@@ -5,7 +5,7 @@ import type { CustomAgentSummaryRow } from '#shared/contracts/control-messages.t
 import { TelegramDeliveryStatus } from '#shared/contracts/control-messages.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText, requestWithStatus } from '../action-status.ts';
 import { REPO_SLUG } from '#shared/repo.ts';
-import { loadCustomSounds, playAlertSound, resolveSoundId } from '../alert-sound.ts';
+import { loadCustomSounds, playAlertSound, resolveSoundId, soundOptions } from '../alert-sound.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
 import { createNotificationPermissionControl, ensureNotificationPermission, notificationsSupported } from '../notifications.ts';
@@ -13,9 +13,9 @@ import { formatAgo } from '../poll-ago.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
-import { SETTINGS_REGISTRY } from '#shared/settings/registry.ts';
+import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '#shared/settings/registry.ts';
 import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
-import { scoreSettingsSearch } from '#shared/settings/registry-core.ts';
+import { parseSettingsHash, scoreSettingsSearch } from '#shared/settings/registry-core.ts';
 import {
   EFFECT_LABELS,
   SCOPE_LABELS,
@@ -32,7 +32,6 @@ import {
   numberDraftOf,
   pageSectionOf,
   phoneSettingsScreenOf,
-  parseSettingsSearchHash,
   resetConfirmationOf,
   resetValueOf,
   rtkInstallStatusText,
@@ -46,7 +45,7 @@ import {
   workflowRuleToggleRows,
 } from './settings-view-core.ts';
 import type { ControlDraft, SettingsPayload, SettingsValues, WorkflowRuleToggleRow } from './settings-view-core.ts';
-import { createSettingsLink, settingsHash, settingsSearchHash } from './settings-link.ts';
+import { createSettingsLink, parseSettingsSearchHash, settingsHash, settingsSearchHash } from './settings-link.ts';
 import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../feature-surfaces-core.ts';
 import type { FeatureSurfaceRule } from '../feature-surfaces-core.ts';
 import { moveViewId, orderViewIds } from '../view-registry-core.ts';
@@ -57,7 +56,7 @@ import { isStreamerMode, onStreamerModeChanged, saveStreamerMode } from '../stre
 import { recordNextAttentionKey, shortcutChord, shortcutGroupsFor } from '../shortcuts-core.ts';
 import { renderPrStatusLegend, renderStatusLegend } from '../status-legend.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
-import { applyPhoneArrowPad, applySessionUsageChips, applyTheme } from '../theme.ts';
+import { applyPhoneArrowPad, applySessionUsageChips, applyTheme, getThemeList } from '../theme.ts';
 import {
   isFlyingAnimalsEnabled,
   getFlyingAnimalsEnteredValues,
@@ -85,7 +84,7 @@ import {
 } from '../ui-prefs.ts';
 import { usageStatusLines } from '../usage/usage-store.ts';
 import {
-  FEATURES_PAGE_ID, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, applySettingsBroadcast, buildSettingsViewMap, mergeSettingsPayload, notifyPhoneSettingsScreenChanged, requestUpdateApply, requestUpdateCheck, restartServer, setPhoneSettingsScreenProbe,
+  applySettingsBroadcast, mergeSettingsPayload, notifyPhoneSettingsScreenChanged, requestUpdateApply, requestUpdateCheck, restartServer, setPhoneSettingsScreenProbe,
   settingsFeatureTabViews, settingsPayloadSnapshot, settingsUpdateState, subscribeSettings, takePendingSettingsActivation, returnToSettingsList,
 } from './settings-store.ts';
 import type { SettingsChange } from './settings-store.ts';
@@ -119,6 +118,48 @@ const WEBSITE_ORIGIN = 'https://glimmervoid.dev';
 const APPEARANCE_PAGE_ID = 'browser-appearance';
 const FLYING_ANIMALS_SETTING_ID = 'flying-animals';
 const SEGMENT_STEP_BY_KEY: Readonly<Record<string, number>> = Object.freeze({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 });
+
+const FEATURES_PAGE_ID = 'lanes-features';
+const FEATURES_SECTION: SettingsSection = Object.freeze({
+  id: FEATURES_PAGE_ID,
+  level: 'lanes',
+  title: 'Features',
+  description: 'Optional tabs, each hidden until its own toggle is on.',
+  settings: [],
+});
+const SHORTCUTS_PAGE_ID = 'browser-shortcuts';
+const STATUS_KEY_PAGE_ID = 'browser-status-key';
+const STATUS_KEY_SECTION: SettingsSection = Object.freeze({
+  id: STATUS_KEY_PAGE_ID,
+  level: 'browser',
+  title: 'Status key and about',
+  description: 'What each session status and pull request icon means, and build information.',
+  settings: [],
+});
+const OPTION_CATALOGS: Readonly<Record<string, () => { id: string; label: string }[]>> = Object.freeze({
+  sounds: () => soundOptions(),
+  themes: getThemeList,
+});
+
+function resolveSettingOptions(setting: SettingsSetting): SettingsSetting {
+  if (!setting.optionsFrom) return setting;
+  const catalog = OPTION_CATALOGS[setting.optionsFrom]?.() ?? [];
+  return {
+    ...setting,
+    options: catalog.map((option) => ({ value: option.id, label: option.label })),
+  };
+}
+
+function buildSettingsViewMap(): readonly SettingsSection[] {
+  const sections = SETTINGS_REGISTRY.sections.map((section) => ({
+    ...section,
+    settings: section.settings.map(resolveSettingOptions),
+  }));
+  const statusKeyIndex = sections.findIndex((section) => section.id === SHORTCUTS_PAGE_ID) + 1;
+  const withStatusKey = [...sections.slice(0, statusKeyIndex), STATUS_KEY_SECTION, ...sections.slice(statusKeyIndex)];
+  const firstLaneIndex = withStatusKey.findIndex((section) => section.level === 'lanes');
+  return Object.freeze([...withStatusKey.slice(0, firstLaneIndex), FEATURES_SECTION, ...withStatusKey.slice(firstLaneIndex)]);
+}
 
 let SETTINGS_VIEW_MAP = buildSettingsViewMap();
 
@@ -1730,9 +1771,19 @@ function activateSection(sectionId: string | null, settingId: string | null, has
   selectSection(sectionId || selectedPage.id, { settingId });
 }
 
+function activateLinkedSection(linkHash: string) {
+  const target = parseSettingsHash(linkHash, SETTINGS_VIEW_MAP, SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS);
+  activateSection(target?.sectionId ?? null, target?.settingId ?? null, linkHash);
+}
+
 function activatePendingSection() {
   const activation = takePendingSettingsActivation();
-  if (activation) activateSection(activation.sectionId, activation.settingId, activation.hashAtRequest);
+  if (!activation) return;
+  if (activation.isLink) {
+    activateLinkedSection(activation.hashAtRequest);
+    return;
+  }
+  activateSection(activation.sectionId, activation.settingId, activation.hashAtRequest);
 }
 
 function showBroadcastSettings() {

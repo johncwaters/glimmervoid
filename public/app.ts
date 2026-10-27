@@ -53,7 +53,7 @@ import { resolvePlanTarget } from './plan/plan-link.ts';
 import { isModalOpen, openConfirmDialog } from './session-card/modal.ts';
 import { countShownConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
-import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, applySettingsUpdateError, onPhoneSettingsScreenChanged, refreshSettingsStatus, resolveSettingsTarget, returnToSettingsList, setFeatureTabViews } from './settings/settings-store.ts';
+import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, applySettingsUpdateError, onPhoneSettingsScreenChanged, refreshSettingsStatus, returnToSettingsList, setFeatureTabViews } from './settings/settings-store.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { requestSessionRemoval, selectSession, spawnQuickSession } from './session-actions.ts';
@@ -709,16 +709,12 @@ function clearSettingsHash() {
   history.replaceState(history.state, '', `${location.pathname}${location.search}`);
 }
 
-function activateSettingsTarget(target: { sectionId: string; settingId: string | null } | null) {
-  if (!target) return false;
-  activateSettingsSection(target.sectionId, target.settingId);
-  if (showPhoneScreen('settings')) return true;
-  activateView('settings', { section: target.sectionId, setting: target.settingId, persist: false });
-  return true;
-}
-
 function activateSettingsHash(hash: string) {
-  return activateSettingsTarget(resolveSettingsTarget(hash));
+  if (!isSettingsHash(hash)) return false;
+  activateSettingsSection(null, null, hash);
+  if (showPhoneScreen('settings')) return true;
+  activateView('settings', { persist: false });
+  return true;
 }
 
 const NO_STORED_PLAN_TEXT = 'No plan is stored for this session yet. It appears here once the agent writes one.';
@@ -979,17 +975,14 @@ for (let i = 0; i < VIEW_TABS.length; i++) {
 }
 
 const savedView = getSavedActiveView();
-const initialSettingsTarget = resolveSettingsTarget(location.hash);
+const isInitialSettingsLink = isSettingsHash(location.hash);
 const initialPlanTarget = resolvePlanTarget(location.hash);
-if (initialSettingsTarget) {
-  activateView('settings', {
-    section: initialSettingsTarget.sectionId,
-    setting: initialSettingsTarget.settingId,
-    persist: false,
-  });
+if (isInitialSettingsLink) {
+  activateSettingsSection(null, null, location.hash);
+  activateView('settings', { persist: false });
 }
 if (initialPlanTarget) activateView('focus', { persist: false });
-if (!initialSettingsTarget && !initialPlanTarget) {
+if (!isInitialSettingsLink && !initialPlanTarget) {
   const canRestoreSavedView = isViewAvailable(savedView);
   if (!canRestoreSavedView) savedViewAwaitingSurface = savedView;
   activateView(canRestoreSavedView ? savedView : 'focus', { persist: canRestoreSavedView });
@@ -1030,12 +1023,12 @@ function applyFormFactorLayout(layout: string) {
   if (layout === 'phone') {
     const carriedSessionId = getFocusedSessionId();
     for (const viewTab of VIEW_TABS) mountedViewModule(viewTab.view)?.deactivate?.();
-    const settingsTarget = resolveSettingsTarget(location.hash);
+    const isSettingsLink = isSettingsHash(location.hash);
     activatePhoneShell({
       sessionId: carriedSessionId ?? undefined,
-      linkedScreenId: settingsTarget ? 'settings' : undefined,
+      linkedScreenId: isSettingsLink ? 'settings' : undefined,
     });
-    if (settingsTarget) activateSettingsSection(settingsTarget.sectionId, settingsTarget.settingId);
+    if (isSettingsLink) activateSettingsSection(null, null, location.hash);
     return;
   }
   const carriedSessionId = getPhoneSessionId();

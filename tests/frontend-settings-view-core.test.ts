@@ -9,11 +9,11 @@ import { SETTINGS_INDEX, displayValue, parseSettingsHash, scoreSettingsSearch, s
 import {
   STORED_SECRET_MASK, childSectionsOf, collectDirtyBlocks, displayRange, draftCommitOf,
   fileOnlyDefaultText, hydrateFromSettings, isAtDefault, listFromDraft, needsDangerConfirmation, numberDraftError, numberDraftOf, numberFromDraft,
-  pageSectionOf, phoneSettingsScreenOf, pairedSettingOf, parseSettingsSearchHash, resetConfirmationOf, resetValueOf, settingError, settingSavePayload, settingsNavigationGroupsOf, settingsSearchBreadcrumb, shouldShowDangerWarning, topLevelSectionsOf, validateLocally,
+  pageSectionOf, phoneSettingsScreenOf, pairedSettingOf, resetConfirmationOf, resetValueOf, settingError, settingSavePayload, settingsNavigationGroupsOf, settingsSearchBreadcrumb, shouldShowDangerWarning, topLevelSectionsOf, validateLocally,
   withoutWorkflowRuleDefinitions, workflowRuleSummaryLines, workflowRuleToggleRows,
 } from '../public/settings/settings-view-core.ts';
 import { settableFromDashboard } from './helpers/settings-allow-list.ts';
-import { settingsSearchHash } from '../public/settings/settings-link.ts';
+import { parseSettingsSearchHash, settingsSearchHash } from '../public/settings/settings-link.ts';
 
 const SECTIONS = SETTINGS_REGISTRY.sections;
 
