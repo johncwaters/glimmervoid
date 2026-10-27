@@ -6576,6 +6576,12 @@ html[data-layout="phone"] .doc-editor-body { padding: 12px; }
 .shown-thumb { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 72px; height: 54px; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); cursor: pointer; }
 .shown-thumb[aria-pressed="true"] { border-color: var(--accent); }
 .shown-thumb-media { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.shown-chip-slot { right: 0; pointer-events: auto; z-index: 7; }
+.shown-chip { display: flex; align-items: center; gap: 6px; width: 100%; height: 100%; padding: 0 6px 0 0; overflow: hidden; border: 1px solid var(--accent-dim); border-radius: var(--radius); background: var(--bg); color: var(--text); font: inherit; font-size: 11px; cursor: pointer; }
+.shown-chip:hover, .shown-chip:focus-visible { border-color: var(--accent); }
+.shown-chip-thumb { flex: 0 0 auto; height: 100%; aspect-ratio: 4 / 3; object-fit: cover; pointer-events: none; }
+.shown-chip-kind { flex: 0 0 auto; padding-left: 6px; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+.shown-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shown-thumb-page { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 4px; overflow: hidden; text-align: left; }
 .shown-thumb-page .shown-page-title { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .shown-lightbox button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

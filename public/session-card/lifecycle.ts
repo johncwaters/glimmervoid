@@ -8,7 +8,8 @@ import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
 import { playAlertSound } from '../alert-sound.ts';
 import { hasSessionDocs, openDocEditor } from '../doc-editor.ts';
-import { openShownLightbox, paintShownButton } from '../shown-files.ts';
+import { onShownFilesArrivedLive, openShownLightbox, paintShownButton } from '../shown-files.ts';
+import { placeShownChips } from './shown-chip.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el, isMonitoringState } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
@@ -60,6 +61,8 @@ const isRestartable = (state: string) => RESTARTABLE_STATES.includes(state as Se
 
 
 let isConversationViewEnabled = false;
+
+onShownFilesArrivedLive(placeShownChips);
 
 type PlanFaceModule = typeof import('../plan/plan-face.ts');
 type PlanFaceController = ReturnType<PlanFaceModule['createPlanFace']>;

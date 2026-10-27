@@ -22,6 +22,7 @@ type ShownFilesChangedListener = (sessionId: string, files: readonly ShownFile[]
 const shownFilesBySessionId = new Map<string, ShownFile[]>();
 const sessionIdsWithUnopenedFiles = new Set<string>();
 const changedListeners: ShownFilesChangedListener[] = [];
+const liveArrivalListeners: ShownFilesChangedListener[] = [];
 let openLightbox: OpenLightbox | null = null;
 let hasReceivedSnapshot = false;
 
@@ -39,6 +40,10 @@ export function hasUnopenedShownFiles(sessionId: string): boolean {
 
 export function onShownFilesChanged(listener: ShownFilesChangedListener): void {
   changedListeners.push(listener);
+}
+
+export function onShownFilesArrivedLive(listener: ShownFilesChangedListener): void {
+  liveArrivalListeners.push(listener);
 }
 
 export function paintShownButton(sessionId: string): void {
@@ -197,6 +202,8 @@ export function applySessionShown(message: ServerMessageOf<'session-shown'>): vo
   const arrivedFiles = message.files.filter((file) => !knownIds.has(file.id));
   shownFilesBySessionId.set(message.id, keepNewest([...shownFilesOf(message.id), ...arrivedFiles]));
   applyArrivedFiles(message.id, arrivedFiles);
+  if (arrivedFiles.length === 0) return;
+  for (const listener of liveArrivalListeners) listener(message.id, arrivedFiles);
 }
 
 export function applySessionShownSnapshot(message: ServerMessageOf<'session-shown-snapshot'>): void {
