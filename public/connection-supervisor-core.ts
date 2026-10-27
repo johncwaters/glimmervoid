@@ -2,7 +2,7 @@ export const LONG_HIDE_MS = 10_000;
 export const WAKE_PROBE_DEADLINE_MS = 1_500;
 export const HEARTBEAT_INTERVAL_MS = 15_000;
 export const HEARTBEAT_DEADLINE_MS = 3_000;
-export const HANDSHAKE_DEADLINE_MS = 7_500;
+export const HANDSHAKE_DEADLINE_MS = 2_000;
 export const SUSPENSION_GAP_MS = 5_000;
 
 export type ConnectionEvent =

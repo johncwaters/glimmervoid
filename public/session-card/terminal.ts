@@ -334,23 +334,30 @@ function detachDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   ui._resetGridClaim?.();
 }
 
+const pendingRetryTimerBySessionUi = new WeakMap<SessionUi, ReturnType<typeof setTimeout>>();
+
 function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, delayMs: number) {
   detachDataWs(sessionId, ui, term);
+  clearTimeout(pendingRetryTimerBySessionUi.get(ui));
+  pendingRetryTimerBySessionUi.delete(ui);
   if (delayMs === 0 && pageToken()) {
     connectDataWs(sessionId, ui, term);
     return;
   }
-  setTimeout(() => {
+  pendingRetryTimerBySessionUi.set(ui, setTimeout(() => {
+    pendingRetryTimerBySessionUi.delete(ui);
     if (!isStillCurrentAndDetached(sessionId, ui)) return;
     void loadPageToken().catch(() => {}).then(() => {
       if (!isStillCurrentAndDetached(sessionId, ui)) return;
       connectDataWs(sessionId, ui, term);
     });
-  }, delayMs);
+  }, delayMs));
 }
 
 function reconnectIfDeferredAndShown(ui: SessionUi, sessionId: string) {
-  if (!sessionUisReconnectingWhenShown.has(ui) || !ui.term || !isTerminalOutputWanted(ui, sessionId)) return false;
+  const isDeferred = sessionUisReconnectingWhenShown.has(ui);
+  const isWaitingOnRetry = !ui.dataWs && sessionUIs.get(sessionId) === ui;
+  if (!(isDeferred || isWaitingOnRetry) || !ui.term || !isTerminalOutputWanted(ui, sessionId)) return false;
   sessionUisReconnectingWhenShown.delete(ui);
   ui._dataWsRetryAttempt = 0;
   detachThenReconnect(sessionId, ui, ui.term, 0);
@@ -435,6 +442,10 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     if (!hasEverOpened && !isHandshakeAbandoned) clearPageToken();
     if (!isTerminalOutputWanted(ui, sessionId)) {
       detachUntilShown(sessionId, ui, term);
+      return;
+    }
+    if (isHandshakeAbandoned) {
+      detachThenReconnect(sessionId, ui, term, 0);
       return;
     }
     const retryDelayMs = nextReconnectDelayMs(ui._dataWsRetryAttempt || 0);
