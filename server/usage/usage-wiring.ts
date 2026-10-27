@@ -752,5 +752,5 @@ function createUsageWiring({
   };
 }
 
-export { DEFAULT_USAGE_CONFIG, budgetAlertText, createUsageWiring, resolveUsageConfig };
+export { createUsageWiring, resolveUsageConfig };
 export type { UsageWiringOptions };

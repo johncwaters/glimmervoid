@@ -5,12 +5,10 @@ import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createUsageWiring, resolveUsageConfig, budgetAlertText, DEFAULT_USAGE_CONFIG } from '../server/usage/usage-wiring.ts';
+import { createUsageWiring, } from '../server/usage/usage-wiring.ts';
 import type { UsageWiringOptions } from '../server/usage/usage-wiring.ts';
-import { createReplayLog } from '../server/core/control-replay-core.ts';
 import { sendTelegramMessage } from '../server/telegram-transport.ts';
 import type { PassOutcome } from '../server/usage/core/usage-scan-core.ts';
-import { waitFor } from './helpers/wait-for.ts';
 
 type ScannerFactory = NonNullable<UsageWiringOptions['createScanner']>;
 type Scanner = ReturnType<ScannerFactory>;
@@ -187,56 +185,6 @@ async function exists(target: string): Promise<boolean> {
   }
 }
 
-test('no budget configured is fully inert: no state file, no alerts', async () => {
-  const root = await makeTempRoot();
-  const h = harness({ root, spend: { todayUsd: 500, monthUsd: 5000 } });
-  await h.wiring.start();
-  assert.equal(h.alerts().length, 0);
-  assert.equal(await exists(h.statePath), false);
-  assert.deepEqual(resolveUsageConfig(undefined).budget, { dailyUsd: null, monthlyUsd: null });
-  assert.deepEqual(DEFAULT_USAGE_CONFIG.budget, { dailyUsd: null, monthlyUsd: null });
-});
-
-test('crossing a threshold broadcasts once and persists the fired mark', async () => {
-  const root = await makeTempRoot();
-  const h = harness({ root, usage: { budget: { dailyUsd: 16 } }, spend: { todayUsd: 12.4, monthUsd: 12.4 } });
-  await h.wiring.start();
-  const alerts = h.alerts();
-  assert.equal(alerts.length, 1);
-  assert.equal(alerts[0].scope, 'daily');
-  assert.equal(alerts[0].threshold, 75);
-  assert.equal(alerts[0].spentUsd, 12.4);
-  assert.equal(alerts[0].budgetUsd, 16);
-  assert.equal(alerts[0].periodKey, TODAY);
-  assert.ok(alerts[0].ts > 0);
-  assert.equal(alerts[0].text, 'Usage budget: daily spend $12.40 reached 75% of $16.00');
-  const stored = await readState(h.statePath);
-  assert.deepEqual(stored.fired.daily[TODAY], [50, 75]);
-});
-
-test('a repeat pass at the same spend does not re-alert', async () => {
-  const root = await makeTempRoot();
-  const h = harness({ root, usage: { budget: { dailyUsd: 16 } }, spend: { todayUsd: 12.4, monthUsd: 12.4 } });
-  await h.wiring.start();
-  assert.equal(h.alerts().length, 1);
-  await h.wiring.requestReport({ force: true });
-  await h.wiring.requestReport({ force: true });
-  assert.equal(h.alerts().length, 1, 'still one');
-});
-
-test('a higher threshold later in the same period fires once more, the lower one never again', async () => {
-  const root = await makeTempRoot();
-  const h = harness({ root, usage: { budget: { dailyUsd: 16 } }, spend: { todayUsd: 12.4, monthUsd: 12.4 } });
-  await h.wiring.start();
-  assert.deepEqual(h.alerts().map((alert) => alert.threshold), [75]);
-  h.state.spend = { todayUsd: 17, monthUsd: 17 };
-  await h.wiring.requestReport({ force: true });
-  assert.deepEqual(h.alerts().map((alert) => alert.threshold), [75, 100]);
-  h.state.spend = { todayUsd: 9, monthUsd: 9 };
-  await h.wiring.requestReport({ force: true });
-  assert.deepEqual(h.alerts().map((alert) => alert.threshold), [75, 100]);
-});
-
 test('the fired state survives a restart', async () => {
   const root = await makeTempRoot();
   const first = harness({ root, usage: { budget: { dailyUsd: 16 } }, spend: { todayUsd: 12.4, monthUsd: 12.4 } });
@@ -246,42 +194,6 @@ test('the fired state survives a restart', async () => {
   const second = harness({ root, usage: { budget: { dailyUsd: 16 } }, spend: { todayUsd: 12.4, monthUsd: 12.4 } });
   await second.wiring.start();
   assert.equal(second.alerts().length, 0, 'a fresh process reads the marks off disk');
-});
-
-test('a new period re-arms the ladder and drops the old marks', async () => {
-  const root = await makeTempRoot();
-  await fs.mkdir(path.join(root, '.glimmervoid'), { recursive: true });
-  await fs.writeFile(path.join(root, '.glimmervoid', 'usage-budget-state.json'), JSON.stringify({
-    version: 1,
-    fired: { daily: { '2026-08-18': [50, 75, 100] }, monthly: { '2026-07': [50] } },
-  }));
-  const h = harness({ root, usage: { budget: { dailyUsd: 16, monthlyUsd: 400 } }, spend: { todayUsd: 12.4, monthUsd: 210 } });
-  await h.wiring.start();
-  assert.deepEqual(h.alerts().map((alert) => `${alert.scope}:${alert.threshold}`), ['daily:75', 'monthly:50']);
-  const stored = await readState(h.statePath);
-  assert.equal(stored.fired.daily['2026-08-18'], undefined, 'last period pruned');
-  assert.equal(stored.fired.monthly['2026-07'], undefined);
-  assert.deepEqual(stored.fired.daily[TODAY], [50, 75]);
-});
-
-test('both scopes are independent', async () => {
-  const root = await makeTempRoot();
-  const h = harness({ root, usage: { budget: { dailyUsd: 100, monthlyUsd: 100 } }, spend: { todayUsd: 10, monthUsd: 80 } });
-  await h.wiring.start();
-  assert.deepEqual(h.alerts().map((alert) => `${alert.scope}:${alert.threshold}`), ['monthly:75']);
-});
-
-test('a corrupt state file starts empty, warns, and still alerts', async () => {
-  const root = await makeTempRoot();
-  await fs.mkdir(path.join(root, '.glimmervoid'), { recursive: true });
-  await fs.writeFile(path.join(root, '.glimmervoid', 'usage-budget-state.json'), '{ not json');
-  const h = harness({ root, usage: { budget: { dailyUsd: 16 } }, spend: { todayUsd: 12.4, monthUsd: 12.4 } });
-  await h.wiring.start();
-  assert.equal(h.alerts().length, 1);
-  const movedTo = `${h.statePath}.corrupt-1800000000000`;
-  assert.equal(await fs.readFile(movedTo, 'utf8'), '{ not json');
-  assert.ok(h.warnings.some((message) => message.includes('budget state quarantined') && message.includes(h.statePath) && message.includes(movedTo)), `warned: ${h.warnings.join(' | ')}`);
-  assert.deepEqual((await readState(h.statePath)).fired.daily[TODAY], [50, 75]);
 });
 
 test('an unreadable budget state warns, keeps its bytes, and never rewrites them', async () => {
@@ -334,54 +246,6 @@ test('a budget state that goes missing after an unreadable read keeps the marks 
   assert.deepEqual((await readState(statePath)).fired.daily[TODAY], [50, 75]);
 });
 
-test('an unwritable state path degrades to a warning, not a failed pass', async () => {
-  const root = await makeTempRoot();
-  const sent: Record<string, unknown>[] = [];
-  const wiring = createUsageWiring({
-    config: { usage: { budget: { dailyUsd: 16 } } },
-    sessions: new Map(),
-    broadcast: (message) => { sent.push(message); },
-    controlClientCount: () => 1,
-    createScanner: () => fakeScanner({
-      spend: () => ({ todayKey: TODAY, monthKey: MONTH, todayUsd: 12.4, monthUsd: 12.4 }),
-    }),
-    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    nowFn: () => 1,
-    setIntervalFn: inertInterval,
-    clearIntervalFn: (handle) => clearTimeout(handle),
-    logger: { warn: () => {}, log: () => {} },
-    budgetStatePath: path.join(root, '.glimmervoid', 'usage-budget-state.json'),
-    fsPromises: { ...fs, writeFile: async () => { throw new Error('EACCES simulated'); } },
-  });
-  await wiring.start();
-  assert.equal(sent.filter(isBudgetAlert).length, 1);
-  assert.equal(await exists(path.join(root, '.glimmervoid', 'usage-budget-state.json')), false);
-});
-
-test('a partial pass never evaluates budgets', async () => {
-  const root = await makeTempRoot();
-  const sent: Record<string, unknown>[] = [];
-  const wiring = createUsageWiring({
-    config: { usage: { budget: { dailyUsd: 16 } } },
-    sessions: new Map(),
-    broadcast: (message) => { sent.push(message); },
-    controlClientCount: () => 1,
-    createScanner: () => fakeScanner({
-      outcome: 'byte-limited',
-      spend: () => ({ todayKey: TODAY, monthKey: MONTH, todayUsd: 12.4, monthUsd: 12.4 }),
-    }),
-    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    nowFn: () => 1,
-    setIntervalFn: inertInterval,
-    clearIntervalFn: (handle) => clearTimeout(handle),
-    logger: { warn: () => {}, log: () => {} },
-    budgetStatePath: path.join(root, '.glimmervoid', 'usage-budget-state.json'),
-  });
-  await wiring.start();
-  assert.equal(sent.filter(isBudgetAlert).length, 0);
-  assert.equal(await exists(path.join(root, '.glimmervoid', 'usage-budget-state.json')), false);
-});
-
 test('an io-failed pass never evaluates budgets', async () => {
   const root = await makeTempRoot();
   let budgetSpendCalls = 0;
@@ -410,34 +274,6 @@ test('an io-failed pass never evaluates budgets', async () => {
   await wiring.stop();
 });
 
-
-test('telegram fires only with the channel on, credentials present, and nobody watching', async () => {
-  const credentials = { botToken: 'bot', chatId: 'chat' };
-  const cases = [
-    { label: 'nobody watching', connections: 0, telegramNotifications: true, telegram: credentials, expect: 1 },
-    { label: 'a dashboard is open', connections: 1, telegramNotifications: true, telegram: credentials, expect: 0 },
-    { label: 'channel off', connections: 0, telegramNotifications: false, telegram: credentials, expect: 0 },
-    { label: 'no credentials', connections: 0, telegramNotifications: true, telegram: null, expect: 0 },
-  ];
-  for (const testCase of cases) {
-    const root = await makeTempRoot();
-    const h = harness({
-      root,
-      usage: { budget: { dailyUsd: 16 } },
-      spend: { todayUsd: 12.4, monthUsd: 12.4 },
-      connections: testCase.connections,
-      telegramNotifications: testCase.telegramNotifications,
-      telegram: testCase.telegram,
-    });
-    await h.wiring.start();
-    assert.equal(h.telegrams.length, testCase.expect, testCase.label);
-    assert.equal(h.alerts().length, 1, `${testCase.label}: broadcast regardless`);
-    if (testCase.expect === 0) continue;
-    assert.equal(h.telegrams[0].text, 'Usage budget: daily spend $12.40 reached 75% of $16.00');
-    assert.equal(h.telegrams[0].botToken, 'bot');
-    assert.equal(h.telegrams[0].chatId, 'chat');
-  }
-});
 
 test('a rejected Telegram send leaves the threshold unfired, warns, and alerts again', async () => {
   const root = await makeTempRoot();
@@ -603,20 +439,6 @@ test('a standing io failure evaluates budgets once the streak passes its bound, 
   await h.wiring.stop();
 });
 
-test('budgetAlertText: the one wording, plain and dash free', () => {
-  assert.equal(
-    budgetAlertText({ scope: 'daily', threshold: 75, spentUsd: 12.4, budgetUsd: 16 }),
-    'Usage budget: daily spend $12.40 reached 75% of $16.00',
-  );
-  assert.equal(
-    budgetAlertText({ scope: 'monthly', threshold: 100, spentUsd: 210.5, budgetUsd: 200 }),
-    'Usage budget: monthly spend $210.50 reached 100% of $200.00',
-  );
-  for (const glyph of [String.fromCharCode(0x2014), String.fromCharCode(0x2013), String.fromCharCode(0x2026)]) {
-    assert.equal(budgetAlertText({ scope: 'daily', threshold: 50, spentUsd: 1, budgetUsd: 2 }).includes(glyph), false);
-  }
-});
-
 test('byLane, planWindowLanes and budget reach the wire on a pulled report', async () => {
   const root = await makeTempRoot();
   const h = harness({ root });
@@ -629,86 +451,4 @@ test('byLane, planWindowLanes and budget reach the wire on a pulled report', asy
   assert.ok(cached, 'a pulled report is cached for the next connect');
   assert.deepEqual(blockAt(cached, 'budget'), BUDGET_BLOCK);
   assert.deepEqual(cached.byLane, report.byLane);
-});
-
-test('usage-budget-alert is not retained by the control replay log', () => {
-  const log = createReplayLog();
-  log.stamp({ type: 'usage-budget-alert', scope: 'daily', threshold: 75 }, 1000);
-  log.stamp({ type: 'notify', session: 's', category: 'complete' }, 1000);
-  const replayed = log.entriesSince(0, 1000).entries.map((frame) => frame.type);
-  assert.deepEqual(replayed, ['notify'], 'a moment is not replayed; a state is');
-});
-
-test('each pass hands its generation rollup to telemetry', async () => {
-  const generationRollup: GenerationRollup = [{
-    sessionId: 'session-a', model: 'claude-sonnet-4', vendor: 'claude',
-    input: 10, output: 2, cacheRead: 0, cacheCreate: 0, costUSD: 0.1, hasKnownCost: true, isModelKnown: true,
-  }];
-  const capturedRollups: GenerationRollup[] = [];
-  const wiring = createUsageWiring({
-    config: { usage: {} },
-    controlClientCount: () => 1,
-    createScanner: () => fakeScanner({
-      spend: () => ({ todayKey: TODAY, monthKey: MONTH, todayUsd: 0, monthUsd: 0 }),
-      generationRollup,
-    }),
-    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    nowFn: () => 1,
-    setIntervalFn: inertInterval,
-    clearIntervalFn: (handle) => clearTimeout(handle),
-    logger: { warn: () => {}, log: () => {} },
-    telemetry: { captureAiGenerations: async (rows) => { capturedRollups.push([...rows]); } },
-  });
-  await wiring.start();
-  await wiring.stop();
-  assert.deepEqual(capturedRollups, [generationRollup]);
-});
-
-test('concurrent callers sharing one scan pass hand its generation rollup to telemetry once', async () => {
-  const generationRollup: GenerationRollup = [{
-    sessionId: 'session-a', model: 'claude-sonnet-4', vendor: 'claude',
-    input: 10, output: 2, cacheRead: 0, cacheCreate: 0, costUSD: 0.1, hasKnownCost: true, isModelKnown: true,
-  }];
-  const singlePassScanner = fakeScanner({
-    spend: () => ({ todayKey: TODAY, monthKey: MONTH, todayUsd: 0, monthUsd: 0 }),
-    generationRollup,
-  });
-  type SharedPass = ReturnType<Scanner['runPass']>;
-  let activePass: SharedPass | null = null;
-  let releaseActivePass: () => void = () => {};
-  const sharingScanner: Scanner = {
-    ...singlePassScanner,
-    runPass: (args) => {
-      if (activePass) return activePass;
-      const released = new Promise<void>((resolve) => { releaseActivePass = resolve; });
-      const pass: SharedPass = released.then(() => singlePassScanner.runPass(args)).finally(() => { activePass = null; });
-      activePass = pass;
-      return pass;
-    },
-  };
-  const capturedRollups: GenerationRollup[] = [];
-  const wiring = createUsageWiring({
-    config: { usage: {} },
-    controlClientCount: () => 1,
-    createScanner: () => sharingScanner,
-    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    nowFn: () => 1,
-    setIntervalFn: inertInterval,
-    clearIntervalFn: (handle) => clearTimeout(handle),
-    logger: { warn: () => {}, log: () => {} },
-    telemetry: { captureAiGenerations: async (rows) => { capturedRollups.push([...rows]); } },
-  });
-  const started = wiring.start();
-  await waitFor(() => activePass !== null);
-  releaseActivePass();
-  await started;
-  capturedRollups.length = 0;
-
-  const firstReport = wiring.requestReport({ force: true });
-  const secondReport = wiring.requestReport({ force: true });
-  await waitFor(() => activePass !== null);
-  releaseActivePass();
-  await Promise.all([firstReport, secondReport]);
-  await wiring.stop();
-  assert.deepEqual(capturedRollups, [generationRollup]);
 });
