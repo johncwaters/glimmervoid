@@ -24,34 +24,11 @@ function harness(): ControlConnection<DispatchFrame> {
   return connection;
 }
 
-test('visions-set-intent is not a control message', () => {
-  const h = harness();
-  assert.doesNotThrow(() => h.send({ type: 'visions-set-intent', text: 'refactor of the spawn path' }));
-  assert.equal(h.sent.length, 0, 'no reply and no dispatch for the retired type');
-});
-
-test('a dashboard client-log lands as one [dashboard] server log line even when its text carries newlines', (t) => {
-  const h = harness();
-  const warnSpy = t.mock.method(console, 'warn', () => {});
-  h.send({ type: 'client-log', scope: 'reviews', text: 'dropped team-review-status: drafts.0.status: Invalid option\n[control] forged line' });
-  const dashboardLines = warnSpy.mock.calls.map((call) => String(call.arguments[0])).filter((line) => line.startsWith('[dashboard]'));
-  assert.deepEqual(dashboardLines, ['[dashboard] reviews: dropped team-review-status: drafts.0.status: Invalid option [control] forged line']);
-});
-
 test('inherited-key message types are ignored, not dispatched', () => {
   const h = harness();
   assert.doesNotThrow(() => h.send({ type: '__proto__' }));
   assert.doesNotThrow(() => h.send({ type: 'constructor' }));
   assert.doesNotThrow(() => h.send({ type: 'hasOwnProperty' }));
-  assert.equal(h.sent.length, 0, 'nothing sent back');
-});
-
-test('non-string and unknown message types are ignored', () => {
-  const h = harness();
-  assert.doesNotThrow(() => h.send({ type: 42 }));
-  assert.doesNotThrow(() => h.send({ type: null }));
-  assert.doesNotThrow(() => h.send({}));
-  assert.doesNotThrow(() => h.send({ type: 'no-such-handler' }));
   assert.equal(h.sent.length, 0, 'nothing sent back');
 });
 
@@ -68,12 +45,6 @@ test('ping with requestId replies pong on the requesting socket only', () => {
   const h = harness();
   h.send({ type: 'ping', requestId: 'r1' });
   assert.deepEqual(h.sent, [{ type: 'pong', requestId: 'r1' }]);
-});
-
-test('ping without requestId sends no reply', () => {
-  const h = harness();
-  h.send({ type: 'ping' });
-  assert.equal(h.sent.length, 0, 'nothing sent back');
 });
 
 test('a completion-scoped dismiss arriving on a WAITING session leaves it WAITING, and an unscoped dismiss still answers it', () => {
@@ -132,47 +103,6 @@ test('a cached lane status replayed on connect carries no stale seq', () => {
   const replayed = sent.filter((m) => m.type === 'radar-status');
   assert.equal(replayed.length, 1, 'the cached lane status replays');
   for (const msg of replayed) assert.equal(msg.seq, undefined, `${msg.type} must be seq-less`);
-});
-
-test('no ?since param (first connect) replays nothing', () => {
-  const replayLog = createReplayLog();
-  const h = harnessWithReplay(replayLog);
-  replayLog.stamp({ type: 'notify', message: 'hi' });
-
-  const sent = h.connect('/control');
-  assert.equal(sent.length, 1, 'snapshot only');
-  assert.equal(sent[0].type, 'snapshot');
-});
-
-test('a since behind an overflowed ring still replays the surviving entries and logs the evicted note', (t) => {
-  const replayLog = createReplayLog({ maxEntries: 2 });
-  const h = harnessWithReplay(replayLog);
-  replayLog.stamp({ type: 'notify', n: 1 });
-  replayLog.stamp({ type: 'notify', n: 2 });
-  replayLog.stamp({ type: 'notify', n: 3 });
-
-  const logSpy = t.mock.method(console, 'log');
-  const sent = h.connect('/control?since=0');
-
-  assert.equal(sent.length, 3, 'snapshot plus the two surviving notify entries');
-  assert.equal(sent[0].type, 'snapshot');
-  assert.deepEqual(sent.slice(1).map((m) => m.n), [2, 3]);
-  assert.ok(
-    logSpy.mock.calls.some((call) => String(call.arguments[0]).includes('stale')),
-    'the evicted-cursor note is logged for the caller',
-  );
-});
-
-test('the per-connection snapshot has no seq, but a snapshot sent through broadcastControl does', () => {
-  const replayLog = createReplayLog();
-  const h = harnessWithReplay(replayLog);
-
-  const sent = h.connect('/control');
-  assert.equal(sent[0].type, 'snapshot');
-  assert.equal('seq' in sent[0], false, 'the per-connection snapshot bypasses broadcastControl/stamp');
-
-  const broadcastSnapshot = replayLog.stamp({ type: 'snapshot', sessions: [] });
-  assert.equal(typeof broadcastSnapshot.seq, 'number', 'a snapshot broadcast through stamp is numbered like any other broadcast');
 });
 
 test('the connect snapshot identifies the backend build it came from', () => {

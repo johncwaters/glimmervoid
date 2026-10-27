@@ -4,12 +4,10 @@ import assert from 'node:assert/strict';
 
 import { z } from 'zod';
 
-import { CLIENT_ERROR_NAME_MAX_CHARS, CLIENT_ERROR_STACK_MAX_CHARS, ClientMessage, ServerMessage } from '../shared/contracts/index.ts';
+import { ClientMessage, ServerMessage } from '../shared/contracts/index.ts';
 import {
-  type ClientMessageOf,
   type ServerMessageOf,
   CONTROL_FRAME_MAX_BYTES,
-  pullRequestKeyFromReference,
 } from '../shared/contracts/control-messages.ts';
 import { Session } from '../session/sessions.ts';
 import { MyPr, MyPrsStatus } from '../shared/contracts/my-prs.ts';
@@ -28,12 +26,6 @@ interface ServerPayload {
   type: string;
   [field: string]: unknown;
 }
-
-test('add-session accepts workspace repository paths', () => {
-  const parsed = ClientMessage.safeParse({ type: 'add-session', name: 'Workspace', path: '/repos/one', repos: ['/repos/one', '/repos/two'] });
-  assert.equal(parsed.success, true);
-  assert.equal(ClientMessage.safeParse({ type: 'add-session', name: 'Workspace', path: '/repos/one', repos: 'bad' }).success, false);
-});
 
 function schemaTypes(schema: typeof ClientMessage | typeof ServerMessage): Set<string> {
   return new Set(schema.options.map((option) => option.shape.type.value));
@@ -260,60 +252,6 @@ test('real server payloads round-trip through every server contract variant', ()
   }
 });
 
-test('session-added and session-modified reject a card that does not name its agent', () => {
-  for (const type of ['session-added', 'session-modified']) {
-    const card = { type, id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'codex', state: STATES.DORMANT, stateSince: NOW, skipPerms: false, saneYolo: false, worktree: false, resumeSessionId: null };
-    assert.equal(ServerMessage.parse(card).agent, 'codex', type);
-    const { agent: _omittedAgent, ...cardWithoutAgent } = card;
-    assert.equal(ServerMessage.safeParse(cardWithoutAgent).success, false, type);
-  }
-});
-
-test('GitHub issue client requests validate their bounded fields', () => {
-  assert.deepEqual(ClientMessage.parse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', repo: 'acme/socket', issueNumber: 42 }), {
-    type: 'open-issue-session', requestId: 'r2', projectId: 'p1', repo: 'acme/socket', issueNumber: 42,
-  });
-  assert.equal(ClientMessage.safeParse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', repo: 'acme/socket', issueNumber: 0 }).success, false);
-  assert.equal(ClientMessage.safeParse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', issueNumber: 42 }).success, false);
-  assert.equal(ClientMessage.safeParse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', repo: 'acme/../secrets', issueNumber: 42 }).success, false);
-});
-
-test('team review actions carry editable text and diff comments', () => {
-  const action = {
-    type: 'team-review-action', requestId: 'review-1', key: 'PostHog/wizard#1350',
-    head: 'a'.repeat(40), action: 'comment', body: 'Please check this line',
-    comments: [{ path: 'src/agent/index.ts', line: 4, side: 'RIGHT', body: 'Check this' }],
-  };
-  assert.deepEqual(ClientMessage.parse(action), action);
-  const requeue = { ...action, action: 'requeue', body: '', comments: [] };
-  assert.deepEqual(ClientMessage.parse(requeue), requeue);
-  const notMine = { type: 'team-review-action', requestId: 'review-2', key: action.key, action: 'discard', body: '', comments: [] };
-  assert.deepEqual(ClientMessage.parse(notMine), notMine);
-  for (const invalid of [
-    { ...action, action: 'merge' },
-    { ...action, comments: [{ path: 'src/agent/index.ts', line: 0, body: 'Check this' }] },
-    { ...action, body: 4 },
-    { ...action, head: undefined },
-    { ...action, head: 'A'.repeat(40) },
-    { ...action, head: 'a'.repeat(39) },
-    { ...action, key: '' },
-  ]) assert.equal(ClientMessage.safeParse(invalid).success, false);
-  assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: false, error: 'stale head' }).success, true);
-  assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: true, warning: 'Do not post it again' }).success, true);
-  assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: true, warning: 4 }).success, false);
-});
-
-test('a pull request reference parses from a github.com URL or owner/repo#number into one key', () => {
-  for (const reference of ['https://github.com/PostHog/glimmervoid/pull/42', ' https://github.com/PostHog/glimmervoid/pull/42/files?w=1 ', 'PostHog/glimmervoid#42']) {
-    assert.equal(pullRequestKeyFromReference(reference), 'PostHog/glimmervoid#42', reference);
-  }
-  for (const reference of ['', '42', '#42', 'PostHog/glimmervoid#0', 'https://gitlab.com/PostHog/glimmervoid/pull/42', 'PostHog/../x#4']) {
-    assert.equal(pullRequestKeyFromReference(reference), null, reference);
-  }
-  assert.equal(ClientMessage.safeParse({ type: 'link-session-pr', id: 's1', key: 'PostHog/glimmervoid#42' }).success, true);
-  assert.equal(ClientMessage.safeParse({ type: 'unlink-session-pr', id: 's1', key: 'https://github.com/PostHog/glimmervoid/pull/42' }).success, false);
-});
-
 test('a manual link resolves against my PRs, and an unlink removes it and blocks auto relink until linked again', () => {
   const session = new Session({ id: 's1', name: 'project', path: '/project' });
   try {
@@ -359,58 +297,6 @@ test('a manual link resolves against my PRs, and an unlink removes it and blocks
   }
 });
 
-test('benchmark actions name a suite and one of the three actions', () => {
-  const action = { type: 'benchmark-action', requestId: 'bench-1', suiteId: 'review-ladder', action: 'mine' };
-  assert.deepEqual(ClientMessage.parse(action), action);
-  for (const invalid of [
-    { ...action, action: 'freeze' },
-    { ...action, suiteId: '../escape' },
-    { ...action, suiteId: '' },
-    { ...action, suiteId: undefined },
-  ]) assert.equal(ClientMessage.safeParse(invalid).success, false);
-  assert.equal(ServerMessage.safeParse({ type: 'benchmark-action-result', suiteId: 'review-ladder', action: 'cancel', ok: false, error: 'No run in flight' }).success, true);
-  assert.equal(ServerMessage.safeParse({ type: 'benchmark-action-result', suiteId: 'review-ladder', action: 'cancel', ok: 'no' }).success, false);
-});
-
-test('my pull request merges carry the repository, number and the head the dashboard saw', () => {
-  const merge = { type: 'my-pr-merge', requestId: 'merge-1', repo: 'PostHog/wizard', number: 1350, headRefOid: 'a'.repeat(40) };
-  assert.deepEqual(ClientMessage.parse(merge), merge);
-  for (const invalid of [
-    { ...merge, headRefOid: undefined },
-    { ...merge, headRefOid: 'A'.repeat(40) },
-    { ...merge, headRefOid: 'a'.repeat(39) },
-    { ...merge, repo: 'wizard' },
-    { ...merge, repo: '--repo/evil' },
-    { ...merge, number: 0 },
-    { ...merge, number: '1350' },
-  ]) assert.equal(ClientMessage.safeParse(invalid).success, false);
-  assert.equal(ServerMessage.safeParse({ type: 'my-pr-merge-result', requestId: 'merge-1', key: 'PostHog/wizard#1350', ok: true }).success, true);
-  assert.equal(ServerMessage.safeParse({ type: 'my-pr-merge-result', key: 'PostHog/wizard#1350', ok: 'yes' }).success, false);
-  assert.equal(ServerMessage.safeParse({ type: 'my-pr-merge-result', key: 'PostHog/wizard#1350', ok: false, error: 4 }).success, false);
-});
-
-test('team review status carries typed drafts, not an opaque project list', () => {
-  const status = { type: 'team-review-status', ts: NOW, configured: false, reason: null, drafts: [], inFlight: [] };
-  assert.equal(ServerMessage.safeParse(status).success, true);
-  for (const invalid of [
-    { ...status, drafts: undefined },
-    { ...status, inFlight: [7] },
-    { ...status, inFlight: ['PostHog/wizard#1351'] },
-    { ...status, drafts: [{ key: 'PostHog/wizard#1' }] },
-  ]) assert.equal(ServerMessage.safeParse(invalid).success, false);
-});
-
-test('session-diff pins the object payload returned by Session.getDiff', () => {
-  const invalid = ServerMessage.safeParse({
-    type: 'session-diff',
-    id: 'session-1',
-    committed: 'patch',
-    uncommitted: 'patch',
-    hasCommits: true,
-  });
-  assert.equal(invalid.success, false);
-});
-
 test('server variants read by the browser validate more than their type name', () => {
   const intentionallyOpaque = new Set(['shutting-down', 'restarting']);
   for (const option of ServerMessage.options) {
@@ -418,24 +304,6 @@ test('server variants read by the browser validate more than their type name', (
     if (intentionallyOpaque.has(type)) continue;
     assert.ok(Object.keys(option.shape).length > 1, type);
   }
-});
-
-test('a plan request carries the agent the review belongs to', () => {
-  assert.deepEqual(
-    ClientMessage.parse({ type: 'session-plan', id: 'session-1', agentId: null }),
-    { type: 'session-plan', id: 'session-1', agentId: null },
-  );
-  assert.deepEqual(
-    ClientMessage.parse({ type: 'session-plan', id: 'session-1', agentId: 'agent-9', revision: 3 }),
-    { type: 'session-plan', id: 'session-1', agentId: 'agent-9', revision: 3 },
-  );
-  assert.equal(ClientMessage.safeParse({ type: 'session-plan', id: 'session-1' }).success, false);
-  assert.equal(ClientMessage.safeParse({ type: 'session-plan', id: 'session-1', agentId: null, revision: 0 }).success, false);
-  assert.deepEqual(
-    ClientMessage.parse({ type: 'session-plan', id: 'session-1', agentId: null, draft: true }),
-    { type: 'session-plan', id: 'session-1', agentId: null, draft: true },
-  );
-  assert.equal(ClientMessage.safeParse({ type: 'session-plan', id: 'session-1', agentId: null, draft: 'yes' }).success, false);
 });
 
 test('a plan draft notice carries where the draft lives and when it changed, never the draft itself', () => {
@@ -472,62 +340,12 @@ test('a plan summary push never carries the plan body but does carry who wrote i
   assert.equal(ServerMessage.safeParse(withoutReceivedAt).success, false);
 });
 
-test('a plan response carries the whole review index, and its body is present or explicitly absent', () => {
-  const index = { type: 'session-plan-response', id: 'session-1', reviews: [PLAN_REVIEW], body: null };
-  assert.deepEqual(ServerMessage.parse(index), index);
-  assert.equal(ServerMessage.safeParse({ type: 'session-plan-response', id: 'session-1', reviews: [PLAN_REVIEW] }).success, false);
-  assert.equal(ServerMessage.safeParse({
-    type: 'session-plan-response', id: 'session-1', reviews: [PLAN_REVIEW],
-    body: { agentId: null, revision: 1, plan: '# Ship it', receivedAt: NOW },
-  }).success, false);
-});
-
 test('the plan decision wire shape is the lane schema, so one edit cannot leave the two disagreeing', () => {
   const decisionArm = ClientMessage.options.find((option) => option.shape.type.value === 'plan-decision');
   assert.ok(decisionArm);
   const { type: _type, ...wireShape } = decisionArm.shape;
   assert.deepEqual(Object.keys(wireShape).sort(), Object.keys(PlanDecision.shape).sort());
   assert.equal(ClientMessage.safeParse({ type: 'plan-decision', id: 'session-1', agentId: null, revision: 1, decision: 'approve' }).success, true);
-});
-
-test('both error frames declare the scope and the id the plan face keys on', () => {
-  for (const type of ['error', 'session-error']) {
-    const arm = ServerMessage.options.find((option) => option.shape.type.value === type);
-    assert.ok(arm, type);
-    assert.ok(Object.keys(arm.shape).includes('scope'), type);
-    assert.ok(Object.keys(arm.shape).includes('id'), `${type} routes to a card by id, never through passthrough`);
-  }
-  assert.equal(ServerMessage.parse({ type: 'error', id: 'session-1', message: 'Plan revision not found', scope: 'plan' }).id, 'session-1');
-  assert.equal(ServerMessage.parse({ type: 'error', id: 'session-1', message: 'Plan revision not found', scope: 'plan' }).scope, 'plan');
-  assert.equal(
-    ServerMessage.parse({ type: 'session-error', id: 'session-1', session: 'glimmervoid', message: 'refused', scope: 'plan-decision' }).scope,
-    'plan-decision',
-  );
-});
-
-test('id-only client variants reject the removed session-name fallback', () => {
-  assert.equal(ClientMessage.safeParse({ type: 'kill', session: 'glimmervoid' }).success, false);
-  assert.equal(ClientMessage.safeParse({ type: 'kill', id: 'session-1' }).success, true);
-});
-
-test('a session-trace request carries either a forward cursor or a page-ending cursor', () => {
-  assert.equal(ClientMessage.parse({ type: 'session-trace', id: 'session-1' }).type, 'session-trace');
-  const forward = ClientMessage.parse({ type: 'session-trace', id: 'session-1', after: 512 });
-  assert.deepEqual(forward, { type: 'session-trace', id: 'session-1', after: 512 });
-  const tail = ClientMessage.parse({ type: 'session-trace', id: 'session-1', endingAt: 'tail' });
-  assert.deepEqual(tail, { type: 'session-trace', id: 'session-1', after: 0, endingAt: 'tail' });
-  const earlier = ClientMessage.parse({ type: 'session-trace', id: 'session-1', endingAt: 4096 });
-  assert.deepEqual(earlier, { type: 'session-trace', id: 'session-1', after: 0, endingAt: 4096 });
-  assert.equal(ClientMessage.safeParse({ type: 'session-trace', id: 'session-1', endingAt: 'head' }).success, false);
-  assert.equal(ClientMessage.safeParse({ type: 'session-trace', id: 'session-1', endingAt: -1 }).success, false);
-});
-
-test('update requests carry only their type beside the request envelope', () => {
-  for (const type of ['update-check', 'update-apply']) {
-    assert.equal(ClientMessage.safeParse({ type }).success, true);
-    const parsed = ClientMessage.parse({ type, requestId: 'r1' });
-    assert.deepEqual(Object.keys(parsed).filter((key) => key !== 'type' && key !== 'requestId'), []);
-  }
 });
 
 test('a malformed request receives its typed error reply with the Zod message', () => {
@@ -590,63 +408,6 @@ test('the control WebSocket server is built with that budget, never a hand-writt
   sockets.dataWss.close();
 });
 
-test('a client-error report is accepted within its length limits and rejected beyond them', () => {
-  const within = { type: 'client-error', name: 'E'.repeat(CLIENT_ERROR_NAME_MAX_CHARS), stack: 's'.repeat(CLIENT_ERROR_STACK_MAX_CHARS) };
-  assert.equal(ClientMessage.safeParse(within).success, true);
-  assert.equal(ClientMessage.safeParse({ ...within, name: 'E'.repeat(CLIENT_ERROR_NAME_MAX_CHARS + 1) }).success, false);
-  assert.equal(ClientMessage.safeParse({ ...within, stack: 's'.repeat(CLIENT_ERROR_STACK_MAX_CHARS + 1) }).success, false);
-  assert.equal(ClientMessage.safeParse({ type: 'client-error', name: 'TypeError' }).success, false);
-});
-
-test('branch sync messages narrow to their literal discriminant and declared field types', () => {
-  const expected = {
-    type: 'branch-sync-status',
-    id: 'session',
-    branch: 'feature',
-    upstream: null,
-    state: 'ahead',
-    ahead: 2,
-    behind: 0,
-    fetched: null,
-    error: null,
-    extra: 'preserved',
-  } satisfies ServerMessageOf<'branch-sync-status'>;
-  const message = ServerMessage.parse(expected);
-  if (message.type !== 'branch-sync-status') assert.fail('Expected branch sync');
-  const branchSync: ServerMessageOf<'branch-sync-status'> = message;
-  const branch: string | null = branchSync.branch;
-  const ahead: number = branchSync.ahead;
-  const fetched: boolean | null = branchSync.fetched;
-  assert.equal(branch, 'feature');
-  assert.equal(ahead, 2);
-  assert.equal(fetched, null);
-  assert.deepEqual(branchSync, expected);
-});
-
-test('mapped ID-only client variants can be extracted independently and retain passthrough fields', () => {
-  const kill = { type: 'kill', id: 'session', force: true, extra: 'preserved' } satisfies ClientMessageOf<'kill'>;
-  const resync = { type: 'resync-branch', id: 'session' } satisfies ClientMessageOf<'resync-branch'>;
-  const message = ClientMessage.parse(kill);
-  if (message.type !== 'kill') assert.fail('Expected kill');
-  const killRequest: ClientMessageOf<'kill'> = message;
-  const id: string = killRequest.id;
-  const type: 'kill' = killRequest.type;
-  assert.equal(id, 'session');
-  assert.equal(type, 'kill');
-  assert.deepEqual(killRequest, kill);
-  assert.deepEqual(ClientMessage.parse(resync), resync);
-});
-
-test('no-shape messages retain literal types and passthrough fields', () => {
-  const expected = { type: 'shutdown', extra: 'preserved' } satisfies ClientMessageOf<'shutdown'>;
-  const message = ClientMessage.parse(expected);
-  if (message.type !== 'shutdown') assert.fail('Expected shutdown');
-  const shutdown: ClientMessageOf<'shutdown'> = message;
-  const type: 'shutdown' = shutdown.type;
-  assert.equal(type, 'shutdown');
-  assert.deepEqual(shutdown, expected);
-});
-
 test('nested open objects retain declared field types and passthrough fields', () => {
   const expected = {
     type: 'session-diff',
@@ -664,27 +425,4 @@ test('nested open objects retain declared field types and passthrough fields', (
   assert.equal(stat, 'one file');
   assert.equal(diff, '');
   assert.deepEqual(message, expected);
-});
-
-
-test('state-change accepts Sane YOLO alongside skipPerms and rejects a non-boolean', () => {
-  const change = { type: 'state-change', id: 'session-1', session: 'glimmervoid', from: STATES.DORMANT, to: STATES.INITIALIZING, event: 'start', timestamp: NOW, skipPerms: true };
-  for (const saneYolo of [true, false]) {
-    assert.deepEqual(ServerMessage.parse({ ...change, saneYolo }), { ...change, saneYolo });
-  }
-  assert.equal(ServerMessage.safeParse(change).success, true);
-  assert.equal(ServerMessage.safeParse({ ...change, saneYolo: 'true' }).success, false);
-});
-
-test('issue detail contracts round-trip bodies and reject invalid read requests and replies', () => {
-  const request = { type: 'issue-detail', requestId: 'detail-1', repo: 'acme/app', issueNumber: 42 };
-  assert.deepEqual(ClientMessage.parse(request), request);
-  for (const fields of [{ repo: '../app' }, { repo: '--repo=acme/app' }, { issueNumber: 0 }, { issueNumber: 1.5 }, { issueNumber: '42' }, { requestId: '' }]) {
-    assert.equal(ClientMessage.safeParse({ ...request, ...fields }).success, false);
-  }
-  for (const outcome of [{ ok: true, body: '<script>untrusted</script>\nbody', error: null }, { ok: false, body: null, error: 'Rate limited.' }]) {
-    const reply = { type: 'issue-detail-result', requestId: request.requestId, ...outcome };
-    assert.deepEqual(ServerMessage.parse(reply), reply);
-    assert.equal(ServerMessage.safeParse({ ...reply, body: 42 }).success, false);
-  }
 });

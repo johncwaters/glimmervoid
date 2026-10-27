@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const PLAN_TITLE_MAX_CHARS = 120;
+const PLAN_TITLE_MAX_CHARS = 120;
 export const PLAN_FEEDBACK_MAX_CHARS = 20000;
 export const PLAN_COMMENT_MAX_CHARS = 4000;
 export const PLAN_COMMENTS_MAX = 40;
@@ -11,7 +11,7 @@ export const PLAN_HOOK_EVENT = 'permissionrequest-plan';
 export const PLAN_RESULT_HOOK_EVENT = 'posttooluse-plan';
 export const PLAN_TOOL_NAME = 'ExitPlanMode';
 
-export const HEADING_SCAN_MAX_CHARS = 4096;
+const HEADING_SCAN_MAX_CHARS = 4096;
 const ATX_HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/;
 
 interface AtxHeading {
@@ -25,7 +25,7 @@ function capPlanTitle(text: string): string {
   return trimmed.slice(0, PLAN_TITLE_MAX_CHARS);
 }
 
-export function withoutClosingHeadingMarks(text: string): string {
+function withoutClosingHeadingMarks(text: string): string {
   const trimmed = text.trimEnd();
   let textEnd = trimmed.length;
   while (textEnd > 0 && trimmed[textEnd - 1] === '#') textEnd--;
@@ -95,10 +95,10 @@ export const PlanRevision = ExitPlanModeRequest.extend({
   receivedAt: z.number().finite(),
 });
 
-export const PLAN_REVIEW_STATE_VALUES = Object.freeze(['open', 'released', 'decided', 'closed'] as const);
+const PLAN_REVIEW_STATE_VALUES = Object.freeze(['open', 'released', 'decided', 'closed'] as const);
 export const PlanReviewStateValue = z.enum(PLAN_REVIEW_STATE_VALUES);
 
-export const PLAN_DECISION_KINDS = Object.freeze(['approve', 'approve-accept-edits', 'revise', 'terminal'] as const);
+const PLAN_DECISION_KINDS = Object.freeze(['approve', 'approve-accept-edits', 'revise', 'terminal'] as const);
 export const PlanDecisionKind = z.enum(PLAN_DECISION_KINDS);
 
 export const PlanSectionComment = z.object({

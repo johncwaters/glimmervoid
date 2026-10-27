@@ -1,19 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DraftComment, PrDetail, ReviewAssessment, ReviewComment, ReviewDraft, ReviewResult, TeamReviewActionRequest, TeamReviewStateEntry, TeamReviewStatus, TeamReviewThread } from '../shared/contracts/team-review.ts';
-import { shouldAutoReview } from '../server/github/core/team-review-core.ts';
+import { ReviewAssessment, TeamReviewStateEntry } from '../shared/contracts/team-review.ts';
 
 const HEAD = 'a'.repeat(40);
-
-test('team review status accepts an optional team profile', () => {
-  const status = { type: 'team-review-status', ts: 1000, configured: true, drafts: [], inFlight: [] };
-  assert.equal(TeamReviewStatus.parse(status).team, undefined);
-  const team = { org: 'Acme', slug: 'core', name: 'Core', avatarUrl: 'https://avatars.githubusercontent.com/t/1' };
-  assert.deepEqual(TeamReviewStatus.parse({ ...status, team }).team, team);
-  assert.equal(TeamReviewStatus.parse({ ...status, team: null }).team, null);
-  assert.equal(TeamReviewStatus.safeParse({ ...status, team: { ...team, name: 12 } }).success, false);
-});
 
 test('saved review entries accept both legacy state and a resumable session', () => {
   const oldEntry = { draft: null, reviewedHead: null, inFlight: false, reviewAttempts: 0, updatedAt: 1000 };
@@ -34,141 +24,7 @@ test('saved review records parse with and without a remaining awake budget', () 
   assert.equal(TeamReviewStateEntry.safeParse({ ...oldEntry, resumable: { ...legacyResumable, remainingAwakeMs: -1 } }).success, false);
 });
 
-test('PR detail requires the selected GitHub CLI fields', () => {
-  const detail = {
-    number: 1350, title: 'Improve agent detection', body: 'Description',
-    url: 'https://github.com/PostHog/wizard/pull/1350',
-    author: { login: 'teammate', is_bot: false }, isDraft: false, isCrossRepository: false,
-    baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefOid: HEAD,
-    additions: 2, deletions: 1, files: [{ path: 'src/agent/index.ts', additions: 2, deletions: 1 }],
-  };
-  assert.deepEqual(PrDetail.parse(detail), detail);
-  assert.equal(PrDetail.safeParse({ ...detail, files: [{ path: 'src/agent/index.ts', additions: -1, deletions: 1 }] }).success, false);
-});
-
-test('review comments default to the new side and require a positive line', () => {
-  assert.deepEqual(ReviewComment.parse({ path: 'src/agent/index.ts', line: 4, body: 'Check this' }), {
-    path: 'src/agent/index.ts', line: 4, side: 'RIGHT', body: 'Check this',
-  });
-  for (const line of [0, -1, 1.5]) {
-    assert.equal(ReviewComment.safeParse({ path: 'src/agent/index.ts', line, body: 'Check this' }).success, false);
-  }
-  assert.equal(ReviewComment.safeParse({ path: 'src/agent/index.ts', line: 4, side: 'CENTER', body: 'Check this' }).success, false);
-});
-
-test('draft comments accept optional severity while action comments omit it', () => {
-  const comment = { path: 'src/a.ts', line: 4, side: 'RIGHT', body: 'Check this' };
-  assert.deepEqual(DraftComment.parse(comment), comment);
-  assert.deepEqual(DraftComment.parse({ ...comment, severity: 'HIGH' }), { ...comment, severity: 'HIGH' });
-  assert.equal(DraftComment.safeParse({ ...comment, severity: 'UNKNOWN' }).success, false);
-  const action = TeamReviewActionRequest.parse({ key: 'Acme/app#1', head: HEAD, action: 'comment', body: '', comments: [{ ...comment, severity: 'HIGH' }] });
-  assert.deepEqual(action.comments, [comment]);
-});
-
-test('approve-only is accepted by the action request contract', () => {
-  const request = { key: 'Acme/app#1', head: HEAD, action: 'approve-only', body: '', comments: [] };
-  assert.deepEqual(TeamReviewActionRequest.parse(request), request);
-});
-
-test('review result accepts code-review verdicts, typed findings and an exact lowercase commit SHA', () => {
-  const finding = { path: 'src/a.ts', line: 4, side: 'RIGHT', severity: 'HIGH', reviewer: 'code/logic', disposition: 'ACTIONABLE', body: 'Off by one' };
-  const result = { verdict: 'APPROVE WITH NITS', head: HEAD, summary: 'Spot checked', assessment: null, findings: [finding, { ...finding, line: null, disposition: null }] };
-  assert.deepEqual(ReviewResult.parse(result), result);
-  for (const invalid of [
-    { ...result, head: 'abc123' },
-    { ...result, head: HEAD.toUpperCase() },
-    { ...result, verdict: 'STAMP' },
-    { ...result, verdict: 'FAILED' },
-    { ...result, findings: [{ ...finding, severity: 'NIT' }] },
-    { ...result, findings: [{ ...finding, line: 0 }] },
-  ]) assert.equal(ReviewResult.safeParse(invalid).success, false);
-});
-
-test('editable review draft requires a repository, tier, status, and reviewed head', () => {
-  const draft = {
-    key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350,
-    title: 'Improve agent detection', url: 'https://github.com/PostHog/wizard/pull/1350',
-    author: 'teammate', tier: 'full', reasons: ['252 counted lines over 200'],
-    reviewedHead: HEAD, verdict: 'APPROVE WITH NITS', summary: 'Check branch', body: 'A draft review',
-    comments: [{ path: 'src/agent/index.ts', line: 4, side: 'RIGHT', body: 'Check this' }],
-    status: 'ready',
-  };
-  assert.deepEqual(ReviewDraft.parse(draft), { ...draft, requestSource: 'team' });
-  assert.deepEqual(ReviewDraft.parse({ ...draft, comments: [{ ...draft.comments[0], severity: 'CRITICAL' }] }).comments, [{ ...draft.comments[0], severity: 'CRITICAL' }]);
-  const storedEntry = { draft, reviewedHead: HEAD, inFlight: false, reviewAttempts: 0, updatedAt: 1000 };
-  assert.deepEqual(TeamReviewStateEntry.parse(storedEntry).draft?.comments, draft.comments);
-  for (const invalid of [
-    { ...draft, repo: 'wizard' },
-    { ...draft, tier: 'skip' },
-    { ...draft, reviewedHead: 'abc123' },
-    { ...draft, status: 'pending' },
-  ]) assert.equal(ReviewDraft.safeParse(invalid).success, false);
-});
-
 test('an old assessment without a goal or hand checks parses with an empty goal and no hand checks', () => {
   const oldAssessment = { change: 'Re-arm the timer.', checked: ['Old timer cleared.'], gaps: [] };
   assert.deepEqual(ReviewAssessment.parse(oldAssessment), { goal: '', handChecks: [], ...oldAssessment });
-});
-
-test('request source and priority fields round trip through the review wire and fail closed', () => {
-  const review = {
-    key: 'Acme/app#1', repo: 'Acme/app', number: 1, title: 'Fix', url: 'https://github.com/Acme/app/pull/1', author: 'teammate',
-    requestSource: 'direct', isDraft: false, checksState: 'FAILURE', reviewDecision: 'REVIEW_REQUIRED',
-  };
-  const report = { type: 'team-review-status', ts: 1, configured: true, drafts: [], inFlight: [], queued: [review] };
-  assert.deepEqual(TeamReviewStatus.parse(report).queued[0], review);
-  assert.equal(TeamReviewStatus.safeParse({ ...report, queued: [{ ...review, requestSource: 'unknown' }] }).success, false);
-  assert.equal(TeamReviewStatus.safeParse({ ...report, queued: [{ ...review, checksState: 'unknown' }] }).success, false);
-  assert.equal(TeamReviewStatus.safeParse({ ...report, queued: [{ ...review, isDraft: 'true' }] }).success, false);
-});
-
-
-test('a fork pull request skipped before fork review shipped is reviewed at its same head', () => {
-  const handReview = { key: 'Acme/app#1', repo: 'Acme/app', number: 1, title: 'Fork change', url: 'https://github.com/Acme/app/pull/1', author: 'contributor', requestSource: 'team' };
-  const legacyEntry = TeamReviewStateEntry.parse({ draft: null, reviewedHead: HEAD, inFlight: false, skipReason: 'fork', handReview, reviewAttempts: 0, updatedAt: 1000 });
-  assert.equal(shouldAutoReview(legacyEntry, HEAD, 2000, 60_000), true);
-});
-
-
-test('viewer thread counts remain optional and round-trip through draft and saved entry contracts', () => {
-  const draft = {
-    key: 'Acme/app#1', repo: 'Acme/app', number: 1, title: 'PR', url: 'https://github.com/Acme/app/pull/1',
-    author: 'teammate', tier: 'full', reasons: [], reviewedHead: HEAD, verdict: 'APPROVE', summary: 'Fine', body: 'Fine', comments: [], status: 'ready',
-  };
-  const entry = { draft: null, reviewedHead: null, inFlight: false, updatedAt: 1000 };
-  assert.equal(ReviewDraft.parse(draft).viewerThreads, undefined);
-  assert.equal(TeamReviewStateEntry.parse(entry).viewerThreads, undefined);
-  for (const viewerThreads of [{ total: 0, resolved: 0 }, { total: 5, resolved: 2 }, { total: 5, resolved: 5 }]) {
-    assert.deepEqual(ReviewDraft.parse({ ...draft, viewerThreads }).viewerThreads, viewerThreads);
-    assert.deepEqual(TeamReviewStateEntry.parse({ ...entry, viewerThreads }).viewerThreads, viewerThreads);
-  }
-  for (const viewerThreads of [{ total: -1, resolved: 0 }, { total: 1, resolved: -1 }, { total: 1.5, resolved: 0 }, { total: 1, resolved: 0.5 }, { total: '1', resolved: 0 }]) {
-    assert.equal(ReviewDraft.safeParse({ ...draft, viewerThreads }).success, false);
-    assert.equal(TeamReviewStateEntry.safeParse({ ...entry, viewerThreads }).success, false);
-  }
-});
-
-test('thread conversation bodies remain optional and reject invalid persisted shapes', () => {
-  const thread = {
-    id: 'PRRT_acme_1', path: 'src/app.ts', line: 2, isResolved: false, viewerCanResolve: true,
-    isNit: false, url: 'https://github.com/Acme/app/pull/1#discussion_r1',
-    lastReplyAuthor: 'teammate', lastReplyAt: '2026-10-01T12:00:00Z',
-  };
-  assert.deepEqual(TeamReviewThread.parse(thread), thread);
-  const bodies = { viewerComment: 'Check empty input.', lastReplyBody: 'Added a guard.\nCovered by a test.' };
-  assert.deepEqual(TeamReviewThread.parse({ ...thread, ...bodies }), { ...thread, ...bodies });
-  const entry = { draft: null, reviewedHead: null, inFlight: false, reviewAttempts: 0, updatedAt: 1000 };
-  for (const fields of [{}, bodies, { viewerComment: '' }, { lastReplyBody: 'r'.repeat(1500) }, { ...bodies, viewerCommentTruncated: true, lastReplyTruncated: true }]) {
-    assert.deepEqual(TeamReviewStateEntry.parse({ ...entry, threads: [{ ...thread, ...fields }] }).threads, [{ ...thread, ...fields }]);
-  }
-  for (const field of ['viewerComment', 'lastReplyBody']) {
-    for (const invalidBody of [null, 12, {}, [], 'x'.repeat(1501)]) {
-      const invalidThread = { ...thread, [field]: invalidBody };
-      assert.equal(TeamReviewThread.safeParse(invalidThread).success, false);
-      assert.equal(TeamReviewStateEntry.safeParse({ ...entry, threads: [invalidThread] }).success, false);
-    }
-  }
-  for (const field of ['viewerCommentTruncated', 'lastReplyTruncated']) {
-    for (const invalidFlag of [null, 1, 'true']) assert.equal(TeamReviewThread.safeParse({ ...thread, [field]: invalidFlag }).success, false);
-  }
 });

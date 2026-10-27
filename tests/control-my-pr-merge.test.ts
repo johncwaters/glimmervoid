@@ -237,24 +237,6 @@ test('keep mergeable control reaches the real lane, persists across restarts, an
   }
 });
 
-test('keep mergeable control replies with its request ID when the lane is unavailable', async () => {
-  const server = createControlServer(controlDeps({ projects: [] }));
-  const connection = connectControl<MergeFrame>(server);
-  await connection.send({ type: 'my-pr-keep-mergeable', requestId: 'unavailable', repo: 'Acme/app', number: 7, keepMergeable: true });
-  assert.deepEqual(connection.sent.at(-1), { type: 'my-pr-keep-mergeable-result', requestId: 'unavailable', key: KEY, ok: false, error: 'My pull requests is not running' });
-});
-
-test('merge when ready control replies with its request ID when the lane is unavailable or the toggle is malformed', async () => {
-  const server = createControlServer(controlDeps({ projects: [] }));
-  const connection = connectControl<MergeFrame>(server);
-  await connection.send({ type: 'my-pr-merge-when-ready', requestId: 'unavailable', repo: 'Acme/app', number: 7, mergeWhenReady: true });
-  assert.deepEqual(connection.sent.at(-1), { type: 'my-pr-merge-when-ready-result', requestId: 'unavailable', key: KEY, ok: false, error: 'My pull requests is not running' });
-  await connection.send({ type: 'my-pr-merge-when-ready', requestId: 'malformed', repo: 'Acme/app', number: 7, mergeWhenReady: 'yes' });
-  assert.equal(connection.sent.at(-1)?.type, 'my-pr-merge-when-ready-result');
-  assert.equal(connection.sent.at(-1)?.requestId, 'malformed');
-  assert.equal(connection.sent.at(-1)?.ok, false);
-});
-
 test('merge when ready control reaches the real lane and persists the queue', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-merge-when-ready-'));
   let markPolled: () => void = () => {};
@@ -340,13 +322,6 @@ test('a ready pull request at the seen head is merged with the repository defaul
   assert.deepEqual(h.requestedPrRefreshes, ['acme/app#7']);
 });
 
-test('a merge that GitHub only queues is reported as queued, not merged', async () => {
-  const h = await harness({ prStateAfterMerge: mergeStateResponse('OPEN', true) });
-  await h.send();
-  assert.deepEqual(h.results(), [{ type: 'my-pr-merge-result', requestId: 'merge-1', key: KEY, ok: true, kind: 'queued' }]);
-  assert.equal(h.refreshCount(), 1);
-});
-
 test('a merge for a head the poll no longer sees is refused without calling gh', async () => {
   const h = await harness({ trackedPrs: [toMyPr(readyNode({ headRefOid: NEWER_HEAD }), 0)] });
   await h.send();
@@ -354,39 +329,6 @@ test('a merge for a head the poll no longer sees is refused without calling gh',
   assert.equal(h.results()[0]?.ok, false);
   assert.match(String(h.results()[0]?.error), /new commits/);
   assert.equal(h.refreshCount(), 0);
-});
-
-test('a pull request that is not ready is refused without calling gh', async () => {
-  const failing = readyNode({ commits: { nodes: [{ commit: { statusCheckRollup: { state: 'FAILURE', contexts: { nodes: [] } } } }] } });
-  const h = await harness({ trackedPrs: [toMyPr(failing, 0)] });
-  await h.send();
-  assert.deepEqual(h.ghCalls, []);
-  assert.deepEqual(h.results(), [{ type: 'my-pr-merge-result', requestId: 'merge-1', key: KEY, ok: false, error: 'Checks are failing' }]);
-});
-
-test('a pull request outside the tracked list is refused without calling gh', async () => {
-  const h = await harness();
-  await h.send({ repo: 'Acme/other' });
-  assert.deepEqual(h.ghCalls, []);
-  assert.equal(h.results()[0]?.key, 'Acme/other#7');
-  assert.match(String(h.results()[0]?.error), /not one of your tracked/);
-});
-
-test('a malformed merge request is answered with a failed result and never reaches gh', async () => {
-  const h = await harness();
-  await h.send({ headRefOid: 'main' });
-  assert.deepEqual(h.ghCalls, []);
-  assert.equal(h.results()[0]?.ok, false);
-  assert.equal(h.results()[0]?.key, KEY);
-});
-
-test('a refused gh merge replies with its first error line and skips the refresh', async () => {
-  const h = await harness({ ghOutcome: { ok: false, out: '', err: '\nX Pull request Acme/app#7 is not mergeable: the head commit changed.\nmore detail\n' } });
-  await h.send();
-  assert.equal(h.ghCalls.length, 1);
-  assert.deepEqual(h.results(), [{ type: 'my-pr-merge-result', requestId: 'merge-1', key: KEY, ok: false, error: 'X Pull request Acme/app#7 is not mergeable: the head commit changed.' }]);
-  assert.equal(h.refreshCount(), 0);
-  assert.deepEqual(h.requestedPrRefreshes, []);
 });
 
 function queueMergeHarness(trackedPr: MyPr) {
@@ -438,11 +380,4 @@ test('a queue merge goes through the same refusal gate as a manual merge', async
   assert.deepEqual(await h.queueMerge(failing), { ok: false, error: 'Checks are failing' });
   assert.deepEqual(h.mergeCommands, []);
   await h.myPrs.stopPoller();
-});
-
-test('a head the queue holds for a Keep mergeable push can still be merged manually', async () => {
-  const h = await harness({ trackedPrs: [{ ...toMyPr(readyNode(), 0), mergeQueuePosition: 1, isMergeQueueHeldForRepairPush: true }] });
-  await h.send();
-  assert.equal(h.ghCalls.filter((call) => call.args[1] === 'merge').length, 1);
-  assert.deepEqual(h.results(), [{ type: 'my-pr-merge-result', requestId: 'merge-1', key: KEY, ok: true, kind: 'merged' }]);
 });

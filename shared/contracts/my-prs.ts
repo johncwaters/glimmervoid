@@ -171,7 +171,3 @@ export const MyPrCheckContextsResponse = z.object({ data: z.object({ node: z.obj
 export const MyPrMergeStateResponse = z.object({ data: z.object({ repository: z.object({ pullRequest: z.object({
   state: z.string(), isInMergeQueue: z.boolean(), autoMergeRequest: z.object({ enabledAt: z.string().nullable() }).nullable(),
 }).nullable() }).nullable() }), errors: z.array(z.unknown()).optional() });
-
-export const MyPrSearchResponse = z.object({ data: z.object({
-  open: z.object({ issueCount: nonnegativeInteger, nodes: z.array(z.unknown()) }), merged: z.object({ issueCount: nonnegativeInteger, nodes: z.array(z.unknown()) }),
-}), errors: z.array(z.unknown()).optional() });
