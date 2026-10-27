@@ -24,6 +24,7 @@ import type { SessionGroupHeader } from './roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group-header.ts';
 import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendAttentionTileToRow, tetherAttentionTile } from '../attention-banner.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
+import { hasUnopenedShownFiles } from '../shown-files.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
 
@@ -203,6 +204,7 @@ function paintPill(pill: FocusPill, { id, ui, state, name }: RosterRow, attentio
   const mergeStatus = mergeStatusById.get(id) || 'none';
   paintSessionRow(pill, pill._refs, { ui, state, name: name ?? '', mergeStatus: mergeStatus === 'none' ? '' : mergeStatus, attentionPosition });
   pill.classList.toggle('focused', id === getFocusedSessionId());
+  pill.classList.toggle('has-unopened-shown', hasUnopenedShownFiles(id));
   const isTabStop = id === railTabStopId;
   pill.setAttribute('aria-selected', String(isTabStop));
   pill.tabIndex = isTabStop ? 0 : -1;

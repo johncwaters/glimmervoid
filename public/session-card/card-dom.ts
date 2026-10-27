@@ -229,7 +229,15 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnDocs.type = 'button';
   btnDocs.title = 'Open docs the agent surfaced';
 
-  actions.append(btnDocs, btnPlan, btnDebug, btnTrace, sessionMenuWrap, btnRemove);
+  const btnShown = el('button', 'btn-action btn-face-plan btn-shown', 'Shown');
+  btnShown.type = 'button';
+  btnShown.title = 'Open files the agent showed you';
+
+  const shownUnopenedDot = el('span', 'shown-unopened-dot');
+  shownUnopenedDot.hidden = true;
+  shownUnopenedDot.title = 'New shown file';
+
+  actions.append(shownUnopenedDot, btnShown, btnDocs, btnPlan, btnDebug, btnTrace, sessionMenuWrap, btnRemove);
   const tags = el('div', 'session-card-tags');
   const usageBadge = buildTagIcon('usage-badge', 'Usage');
   usageBadge.append(createLineIcon(USAGE_ICON_PATH, '2.2'));
@@ -244,7 +252,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, sessionMenu, termWrap };
+  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnShown, shownUnopenedDot, btnDebug, sessionMenu, termWrap };
 }
 
 const GUARDRAILS_TIP_DETAIL = {

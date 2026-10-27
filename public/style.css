@@ -6545,6 +6545,47 @@ html[data-layout="phone"] .doc-editor .plan-control { min-height: 40px; }
 html[data-layout="phone"] .doc-editor-actions { flex: 1 1 100%; justify-content: flex-end; }
 html[data-layout="phone"] .doc-editor-status { margin-right: auto; }
 html[data-layout="phone"] .doc-editor-body { padding: 12px; }
+.shown-unopened-dot { flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.shown-unopened-dot[hidden] { display: none; }
+.session-row.has-unopened-shown .session-row-title::after { content: ""; flex: 0 0 auto; width: 6px; height: 6px; margin-left: 2px; border-radius: 50%; background: var(--accent); }
+.shown-lightbox {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(1200px, calc(100vw - 32px));
+  height: calc(100dvh - 32px);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  overflow: hidden;
+  font-family: var(--font-mono);
+}
+.shown-lightbox-header { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-header); }
+.shown-lightbox-title { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--text-head); font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.shown-stage { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg); }
+.shown-stage-media { max-width: 100%; max-height: 100%; object-fit: contain; }
+.shown-stage-page { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 60ch; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); }
+.shown-page-kind { color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.shown-page-title { color: var(--text-head); font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
+.shown-page-name { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.shown-details { flex: 0 0 auto; padding: 8px 12px; border-top: 1px solid var(--border); }
+.shown-caption { margin: 0 0 4px; color: var(--text); font-size: 12px; overflow-wrap: anywhere; }
+.shown-meta { margin: 0; color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }
+.shown-strip { flex: 0 0 auto; display: flex; gap: 8px; padding: 8px 12px; overflow-x: auto; border-top: 1px solid var(--border); }
+.shown-strip[hidden] { display: none; }
+.shown-thumb { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 72px; height: 54px; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); cursor: pointer; }
+.shown-thumb[aria-pressed="true"] { border-color: var(--accent); }
+.shown-thumb-media { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.shown-thumb-page { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 4px; overflow: hidden; text-align: left; }
+.shown-thumb-page .shown-page-title { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shown-lightbox button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) {
+  .shown-lightbox .plan-control:hover, .shown-thumb:hover { color: var(--text-head); border-color: var(--border-hover); }
+}
+html[data-layout="phone"] .shown-lightbox { width: 100vw; height: 100dvh; border: 0; border-radius: 0; }
+html[data-layout="phone"] .shown-lightbox-header { padding-top: max(8px, env(safe-area-inset-top)); }
+html[data-layout="phone"] .shown-lightbox .plan-control { min-height: 40px; }
+html[data-layout="phone"] .shown-thumb { width: 64px; height: 48px; }
 html[data-layout="phone"] .plan-revision-name { flex: 1 1 auto; }
 html[data-layout="phone"] .plan-revision-open { color: var(--state-waiting); font-size: 10px; font-weight: 700; }
 html[data-layout="phone"] .plan-action-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; padding: 4px 12px 10px; }

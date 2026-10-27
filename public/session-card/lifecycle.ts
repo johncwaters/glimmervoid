@@ -8,6 +8,7 @@ import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
 import { playAlertSound } from '../alert-sound.ts';
 import { hasSessionDocs, openDocEditor } from '../doc-editor.ts';
+import { openShownLightbox, paintShownButton } from '../shown-files.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el, isMonitoringState } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
@@ -263,6 +264,11 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     openDocEditor(sessionId);
   });
 
+  ui.btnShown.addEventListener('click', () => {
+    closeSessionMenu(ui);
+    openShownLightbox(sessionId);
+  });
+
   ui.btnConversationView.addEventListener('click', () => {
     closeSessionMenu(ui);
     sendSessionAction(ui, { type: 'set-session-conversation-view', id: sessionId, isOn: !ui.isConversationViewOn });
@@ -456,6 +462,8 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
     btnDocs: dom.btnDocs,
+    btnShown: dom.btnShown,
+    shownUnopenedDot: dom.shownUnopenedDot,
     btnRemove: dom.btnRemove,
     debugOverlay: null,
     debugOpen: false,
@@ -492,6 +500,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   wireCardEvents(sessionUi, id);
   updateButtonVisibility(sessionUi);
   sessionUi.btnDocs.classList.toggle('visible', hasSessionDocs(id));
+  paintShownButton(id);
 
   if (state === STATES.RUNNING) setRunningActivity(sessionUi, true);
 

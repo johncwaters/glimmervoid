@@ -39,6 +39,8 @@ export interface SessionUi {
   btnTrace: HTMLButtonElement;
   btnPlan: HTMLButtonElement;
   btnDocs: HTMLButtonElement;
+  btnShown: HTMLButtonElement;
+  shownUnopenedDot: HTMLSpanElement;
   btnRemove: HTMLButtonElement;
   debugOverlay: HTMLDivElement | null;
   debugOpen: boolean;

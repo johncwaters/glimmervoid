@@ -14,6 +14,7 @@ import { checkControlLiveness, connectControl, onControlMessage, reportToServerL
 import { applyAgentLogins } from './agent-logins.ts';
 import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
+import { applySessionShown, applySessionShownSnapshot, onShownFilesChanged } from './shown-files.ts';
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, forgetSessionCoherence, isSessionJournalReadable, openCoherenceJournal, sessionRowCoherenceSignals, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
 import { isRealInputOwningKey, observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
@@ -257,6 +258,8 @@ function refreshRosterAndAttentionSurfaces() {
   refreshAttentionSurfaces();
 }
 
+onShownFilesChanged(() => refreshFocusRoster());
+
 let knownServerBuild: string | null | undefined = null;
 
 function noteServerBuild(serverBuild: unknown) {
@@ -462,6 +465,8 @@ const messageHandlers = {
   'session-plan-response': (msg) => { applySessionPlanResponse(msg); },
   'session-docs-changed': (msg) => applySessionDocsChanged(msg),
   'session-docs-snapshot': (msg) => applySessionDocsSnapshot(msg),
+  'session-shown': (msg) => applySessionShown(msg),
+  'session-shown-snapshot': (msg) => applySessionShownSnapshot(msg),
   'session-coherence-hooks': (msg) => { setSessionCoherenceHooks(msg.id, msg.coherenceHooks); refreshRosterAndAttentionSurfaces(); },
   'session-coherence': (msg) => { applySessionCoherence(msg); refreshRosterAndAttentionSurfaces(); },
   'session-coherence-snapshot': (msg) => { applySessionCoherenceSnapshot(msg); refreshRosterAndAttentionSurfaces(); },
