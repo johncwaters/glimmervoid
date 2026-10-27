@@ -13,6 +13,15 @@ export function defaultBranchFromRemoteHead(remoteHead: string): string | null {
   return remoteHead.slice(REMOTE_HEAD_PREFIX.length) || null;
 }
 
+export function originTrackingRefProbe(base: string): string[] {
+  return ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}`];
+}
+
+export function unlandedCommitCountArgs({ tip, measuredBase, originBaseRef }: { tip: string; measuredBase: string; originBaseRef: string | null }): string[] {
+  const landedRefs = originBaseRef ? [measuredBase, originBaseRef] : [measuredBase];
+  return ['rev-list', '--count', tip, ...landedRefs.map((ref) => `^${ref}`)];
+}
+
 interface MarkerBaseDecision {
   base: string | null;
   migrateTo: string | null;

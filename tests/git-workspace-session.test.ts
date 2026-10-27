@@ -1263,6 +1263,36 @@ function initCloneWithPrefixedRemoteBranches(): { rootDir: string; repoDir: stri
   return { rootDir, repoDir, remoteDir };
 }
 
+test('hasUnmergedWork and both listSessionWorktrees (real git): commits pushed to origin main while local main is behind are landed', { skip: !GIT }, async () => {
+  const { rootDir, repoDir } = initCloneWithPrefixedRemoteBranches();
+  try {
+    const gw = createGitWorkspace();
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repoDir, teamId: 'session', label: 'landedonorigin', baseBranch: 'main' });
+    fs.writeFileSync(path.join(ws.cwd, 'session.txt'), 'work\n', 'utf8');
+    git(['add', '-A'], ws.cwd);
+    git(['commit', '-m', 'session work'], ws.cwd);
+    const workArgs = { projectPath: repoDir, workspace: ws, integrationBranch: 'main', configuredIntegrationBranch: null };
+    assert.equal(await gw.hasUnmergedWork(workArgs), true);
+
+    git(['push', 'origin', 'HEAD:main'], ws.cwd);
+    assert.notEqual(git(['rev-parse', 'main'], repoDir).trim(), git(['rev-parse', 'origin/main'], repoDir).trim());
+
+    assert.equal(await gw.hasUnmergedWork(workArgs), false);
+    const [asyncEntry] = await gw.listSessionWorktrees({ projectPath: repoDir, integrationBranch: null });
+    assert.equal(asyncEntry.hasWork, false);
+    const [syncEntry] = createGitWorkspaceSync().listSessionWorktrees({ projectPath: repoDir, integrationBranch: null });
+    assert.equal(syncEntry.hasWork, false);
+
+    fs.writeFileSync(path.join(ws.cwd, 'more.txt'), 'more\n', 'utf8');
+    git(['add', '-A'], ws.cwd);
+    git(['commit', '-m', 'unpushed work'], ws.cwd);
+    assert.equal(await gw.hasUnmergedWork(workArgs), true);
+    await gw.discard({ projectPath: repoDir, workspace: ws, cause: 'session' });
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test('listRemoteBranches (real git): lists every prefixed remote branch and nothing else', { skip: !GIT }, async () => {
   const { rootDir, repoDir } = initCloneWithPrefixedRemoteBranches();
   try {

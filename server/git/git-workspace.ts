@@ -21,7 +21,7 @@ import {
   firstGitErrorLine,
 } from '../core/branch-sync-core.ts';
 import { decideIntegrationSync, classifyRefusedIntegrationSync } from '../core/integration-sync-core.ts';
-import { DEFAULT_BRANCH_FALLBACKS, decideMarkerBase, defaultBranchFromRemoteHead, markerProbeCommands } from '../core/integration-branch-core.ts';
+import { DEFAULT_BRANCH_FALLBACKS, decideMarkerBase, defaultBranchFromRemoteHead, markerProbeCommands, originTrackingRefProbe, unlandedCommitCountArgs } from '../core/integration-branch-core.ts';
 import type { MarkerProbes } from '../core/integration-branch-core.ts';
 import { MERGE_DRIVER_KEY_PATTERN, driverEnumerationEnv, mergeProbeEnv, neutralGitConfigEnv } from '../core/merge-proof-core.ts';
 import type { MergeProbeEnvResult, MergeTreeOutcome } from '../core/merge-proof-core.ts';
@@ -1029,7 +1029,11 @@ function createGitWorkspace(opts: {
     const { base: resolvedIntegrationBranch, measureRef } = await migrateMarkerBase(projectPath, branch, integrationBranch, configuredIntegrationBranch);
     const dirty = await run(WORK_PRESENCE_STATUS_ARGS, cwd);
     const ahead = !isDirtyResult(dirty) && resolvedIntegrationBranch
-      ? await run(['rev-list', '--count', `${measureRef || resolvedIntegrationBranch}..${measuredTip}`], projectPath)
+      ? await run(unlandedCommitCountArgs({
+        tip: measuredTip,
+        measuredBase: measureRef || resolvedIntegrationBranch,
+        originBaseRef: markerFrom(await run(originTrackingRefProbe(resolvedIntegrationBranch), projectPath)),
+      }), projectPath)
       : null;
     return { dirty, ahead, integrationBranch: resolvedIntegrationBranch ?? null };
   }
@@ -1715,7 +1719,11 @@ function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => s
       const { base: resolvedIntegrationBranch, measureRef } = migrateMarkerBase(projectPath, name, integrationBranch, configuredIntegrationBranch);
       const dirty = run(['--no-optional-locks', 'status', '--porcelain', ...COHERENCE_BOOKKEEPING_PATHSPEC], wt);
       const ahead = !isDirtyResult(dirty) && resolvedIntegrationBranch
-        ? run(['rev-list', '--count', `${measureRef || resolvedIntegrationBranch}..${name}`], projectPath)
+        ? run(unlandedCommitCountArgs({
+          tip: name,
+          measuredBase: measureRef || resolvedIntegrationBranch,
+          originBaseRef: markerFrom(run(originTrackingRefProbe(resolvedIntegrationBranch), projectPath)),
+        }), projectPath)
         : null;
       out.push({
         cwd: wt, branch: name, id,
