@@ -6996,7 +6996,7 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 .review-sidebar-session[hidden] { display: none; }
 .review-sidebar-close { margin-left: auto; }
 .review-status-headline { display: flex; align-items: center; gap: 8px; color: var(--text-head); font-size: 12px; line-height: 1.5; }
-.review-status-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; min-width: 0; color: var(--text-muted); font: 11px var(--font-mono); }
+.review-status-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; min-width: 0; color: var(--text-muted); font: 11px/1.5 var(--font-mono); }
 .review-status-spacer { flex: 1; }
 .review-status-explanation { margin-top: 4px; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
 .review-action-controls { margin-top: 10px; }
@@ -7004,6 +7004,7 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 .review-more-menu { display: grid; gap: 4px; margin-top: 6px; padding: 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); }
 .review-more-menu .review-btn { width: 100%; text-align: left; }
 .review-branch-sync-refresh { opacity: 0; }
+html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh, .review-branch-sync-button) { margin-block: -8px; }
 .review-status-headline:is(:hover, :focus-within) .review-branch-sync-refresh { opacity: 1; }
 .review-branch-sync-text {
   display: inline-flex;
@@ -7143,7 +7144,7 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 .review-section[data-kind="committed"] .review-section-label { color: var(--state-done); }
 .review-section[data-kind="uncommitted"] .review-section-label { color: var(--state-waiting); }
 .review-section-meaning { font-size: 11px; color: var(--text); }
-.review-diff-base { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.review-diff-base { margin-top: 2px; color: var(--text-muted); font: 11px/1.5 var(--font-mono); }
 .review-diff-base-unverified { color: var(--state-waiting); }
 .review-section-meaning::before { content: '\2192\0020'; color: var(--text-muted); }
 .review-section-stat {
