@@ -3,9 +3,9 @@ import type { InFlightReview, QueuedReview, ReviewDraft } from '#shared/contract
 import { attentionSignature } from '../attention-ack-core.ts';
 import type { AttentionCounts, AttentionKind, AttentionTile } from '../focus-view/attention-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
-import { comparablePrKey, sectionStackedMyPrs } from './my-prs-view-core.ts';
-import { classifyReviewPriority, pullRequestLabel } from './team-review-view-core.ts';
-import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
+import { comparablePrKey } from '#shared/contracts/github-prs.ts';
+import { classifyReviewPriority, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
+import type { QueueRowKind, TeamReviewSections } from './github-store-core.ts';
 
 type QueueGroupId = 'turn' | 'working' | 'waiting' | 'aside';
 export type QueueFilter = 'all' | 'reviewing' | 'mine';

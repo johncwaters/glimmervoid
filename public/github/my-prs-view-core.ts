@@ -1,14 +1,13 @@
-import { comparablePrKey } from '#shared/contracts/github-prs.ts';
-import type { GithubPr } from '#shared/contracts/github-prs.ts';
-export { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import { githubPollingErrorNotice } from './github-polling-retry-core.ts';
 import { MyPrMergeResult } from '#shared/contracts/my-prs.ts';
-import { mergeMethodLabel, myPrFromGithubPr, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
-import type { LinkedPr, MyPr, MyPrLaneEntry, MyPrMergeKind, MyPrStage, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
+import { mergeMethodLabel, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
+import type { MyPr, MyPrMergeKind, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 
-interface MyPrSection { title: string; prs: MyPr[] }
+export { stageIcon, stageLabel, stageTone } from './github-store-core.ts';
+export type { LinkedLiveSession, MergeCelebrationText } from './github-store-core.ts';
+
 interface ThreadRow {
   location: string; url: string; author: string; excerpt: string; replySummary: string; lastActivityAt: string;
   waiting: { tone: StateTone; icon: PrStatusIcon; text: string } | null;
@@ -68,95 +67,6 @@ export function mergeWhenReadyControlState(pr: MyPr, isPending: boolean, errorTe
   const isQueued = pr.mergeQueuePosition !== null && pr.mergeQueuePosition !== undefined;
   return toggleControlState(pr, isQueued, isPending, errorText, mergeQueueStatusText(isQueued, !!pr.isMergeQueueHeldForRepairPush, !!pr.mergeQueueFailure), isFeatureEnabled);
 }
-
-const SECTION_TITLES_BY_URGENCY = ['Needs you', 'Waiting', 'Ready to merge', 'Drafts', 'Merged today'] as const;
-type SectionTitle = typeof SECTION_TITLES_BY_URGENCY[number];
-const SECTION_TITLES_IN_DISPLAY_ORDER: readonly SectionTitle[] = ['Ready to merge', 'Needs you', 'Waiting', 'Drafts', 'Merged today'];
-const SECTION_BY_STAGE: Record<MyPrStage, SectionTitle> = {
-  conflicts: 'Needs you', behind: 'Needs you', 'checks-failing': 'Needs you', 'changes-requested': 'Needs you', 'unresolved-threads': 'Needs you',
-  'checks-pending': 'Waiting', 'needs-approval': 'Waiting', unknown: 'Waiting',
-  ready: 'Ready to merge', draft: 'Drafts', merged: 'Merged today',
-};
-
-const STAGE_LABELS: Record<MyPrStage, string> = {
-  merged: 'Merged', draft: 'Draft', conflicts: 'Merge conflicts', behind: 'Behind base',
-  'checks-failing': 'Checks failing', 'changes-requested': 'Changes requested',
-  'unresolved-threads': 'Unresolved threads', 'checks-pending': 'Checks running',
-  'needs-approval': 'Needs approval', ready: 'Ready to merge', unknown: 'Status unknown',
-};
-const STAGE_TONES: Record<MyPrStage, StateTone> = {
-  merged: 'muted', draft: 'muted', conflicts: 'danger', behind: 'warn', 'checks-failing': 'danger',
-  'changes-requested': 'warn', 'unresolved-threads': 'warn', 'checks-pending': 'wait',
-  'needs-approval': 'wait', ready: 'ok', unknown: 'muted',
-};
-const STAGE_ICONS: Record<MyPrStage, PrStatusIcon> = {
-  merged: 'merged', draft: 'draft', conflicts: 'conflict', behind: 'behind', 'checks-failing': 'failed',
-  'changes-requested': 'changes-requested', 'unresolved-threads': 'thread', 'checks-pending': 'running',
-  'needs-approval': 'reviewer', ready: 'ready', unknown: 'unknown',
-};
-
-interface MyPrStackRow { pr: MyPr; parentKey: string | null; depth: number }
-interface MyPrStack { root: MyPr; rows: MyPrStackRow[] }
-
-function groupStackedMyPrs(prs: readonly MyPr[]): MyPrStack[] {
-  const stackParentCandidates = prs.filter((pr) => pr.state === 'OPEN' && !pr.isCrossRepository);
-  const prByHeadBranch = new Map(stackParentCandidates.map((pr) => [JSON.stringify([pr.repo.toLowerCase(), pr.headRefName]), pr]));
-  const childrenByParentKey = new Map<string, MyPr[]>();
-  const roots: MyPr[] = [];
-  for (const pr of prs) {
-    const parent = pr.state === 'OPEN' ? prByHeadBranch.get(JSON.stringify([pr.repo.toLowerCase(), pr.baseRefName])) : undefined;
-    if (!parent || parent.key === pr.key) {
-      roots.push(pr);
-      continue;
-    }
-    const children = childrenByParentKey.get(parent.key) ?? [];
-    children.push(pr);
-    childrenByParentKey.set(parent.key, children);
-  }
-  const stacks: MyPrStack[] = [];
-  const visitedKeys = new Set<string>();
-  for (const root of [...roots, ...prs]) {
-    if (visitedKeys.has(root.key)) continue;
-    const rows: MyPrStackRow[] = [];
-    const pendingRows: MyPrStackRow[] = [{ pr: root, parentKey: null, depth: 0 }];
-    while (pendingRows.length > 0) {
-      const row = pendingRows.pop();
-      if (!row || visitedKeys.has(row.pr.key)) continue;
-      visitedKeys.add(row.pr.key);
-      rows.push(row);
-      const children = childrenByParentKey.get(row.pr.key) ?? [];
-      for (let index = children.length - 1; index >= 0; index -= 1) {
-        pendingRows.push({ pr: children[index], parentKey: row.pr.key, depth: row.depth + 1 });
-      }
-    }
-    stacks.push({ root, rows });
-  }
-  return stacks;
-}
-
-interface MyPrStackSection extends MyPrSection { rows: MyPrStackRow[] }
-
-function mostUrgentSectionTitle(stack: MyPrStack): SectionTitle {
-  const mostUrgentIndex = stack.rows.reduce((urgentIndex, { pr }) => Math.min(urgentIndex, SECTION_TITLES_BY_URGENCY.indexOf(SECTION_BY_STAGE[pr.stage])), SECTION_TITLES_BY_URGENCY.length - 1);
-  return SECTION_TITLES_BY_URGENCY[mostUrgentIndex];
-}
-
-export function sectionStackedMyPrs(prs: readonly MyPr[]): MyPrStackSection[] {
-  const sectionsByTitle = new Map(SECTION_TITLES_BY_URGENCY.map((title): [SectionTitle, MyPrStackSection] => [title, { title, prs: [], rows: [] }]));
-  for (const stack of groupStackedMyPrs(prs)) {
-    const section = sectionsByTitle.get(mostUrgentSectionTitle(stack));
-    if (!section) continue;
-    for (const row of stack.rows) {
-      section.rows.push(row);
-      section.prs.push(row.pr);
-    }
-  }
-  return SECTION_TITLES_IN_DISPLAY_ORDER.flatMap((title) => sectionsByTitle.get(title) ?? []);
-}
-
-export function stageLabel(stage: MyPrStage): string { return STAGE_LABELS[stage]; }
-export function stageTone(stage: MyPrStage): StateTone { return STAGE_TONES[stage]; }
-export function stageIcon(stage: MyPrStage): PrStatusIcon { return STAGE_ICONS[stage]; }
 
 function checksReadiness(pr: MyPr): ReadinessRow {
   if (pr.checks.failing.length > 0) return { label: 'Checks', tone: 'danger', icon: 'failed', text: `${pr.checks.failing.length} failing`, items: pr.checks.failing };
@@ -293,50 +203,6 @@ export function queueNotices(status: MyPrsStatusType | null, nowMs = 0): QueueNo
   const errorNotice = githubPollingErrorNotice(status, nowMs);
   const notices: QueueNotice[] = errorNotice ? [{ text: errorNotice, tone: 'error' }] : [];
   return status.truncatedNote ? [...notices, { text: status.truncatedNote, tone: 'info' }] : notices;
-}
-
-export interface LiveSessionLinks { id: string; title: string; links: readonly Pick<LinkedPr, 'repo' | 'number'>[] }
-export interface LinkedLiveSession { id: string; title: string }
-
-export function joinMyPrs(entries: readonly MyPrLaneEntry[], findGithubPr: (key: string) => GithubPr | undefined): MyPr[] {
-  return entries.flatMap((entry) => {
-    const canonicalPr = findGithubPr(entry.key);
-    if (!canonicalPr) return [];
-    const repo = entry.key.slice(0, entry.key.lastIndexOf('#'));
-    return [{ ...myPrFromGithubPr({ ...canonicalPr, repo }), ...entry }];
-  });
-}
-
-export function liveSessionsByPrKey(sessions: Iterable<LiveSessionLinks>): Map<string, LinkedLiveSession[]> {
-  const sessionsByPrKey = new Map<string, LinkedLiveSession[]>();
-  for (const session of sessions) {
-    for (const link of session.links) {
-      const prKey = comparablePrKey(link);
-      const linkedSessions = sessionsByPrKey.get(prKey) ?? [];
-      if (linkedSessions.at(-1)?.id === session.id) continue;
-      linkedSessions.push({ id: session.id, title: session.title });
-      sessionsByPrKey.set(prKey, linkedSessions);
-    }
-  }
-  return sessionsByPrKey;
-}
-
-export function newlyMergedPrs(previous: readonly MyPr[] | null, next: readonly MyPr[]): MyPr[] {
-  if (!previous) return [];
-  const openKeys = new Set(previous.filter((pr) => pr.state === 'OPEN').map((pr) => pr.key));
-  return next.filter((pr) => pr.state === 'MERGED' && openKeys.has(pr.key));
-}
-
-const MAX_CELEBRATED_PR_LINES = 3;
-
-export interface MergeCelebrationText { message: string; detailLines: string[] }
-
-export function mergeCelebrationText(mergedPrs: readonly MyPr[]): MergeCelebrationText {
-  if (mergedPrs.length === 1) return { message: `Merged ${mergedPrs[0].key}`, detailLines: [mergedPrs[0].title] };
-  const listedPrLines = mergedPrs.slice(0, MAX_CELEBRATED_PR_LINES).map((mergedPr) => `${mergedPr.key} ${mergedPr.title}`);
-  const unlistedCount = mergedPrs.length - listedPrLines.length;
-  const detailLines = unlistedCount > 0 ? [...listedPrLines, `and ${unlistedCount} more`] : listedPrLines;
-  return { message: `Merged ${mergedPrs.length} pull requests`, detailLines };
 }
 
 export interface MergeAttempt { head: string; phase: 'pending' | 'failed' | MyPrMergeKind; text: string }

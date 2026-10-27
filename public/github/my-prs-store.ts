@@ -5,8 +5,8 @@ import { reportToServerLog } from '../control-ws.ts';
 import { queueMergeCelebration } from '../merge-celebration.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
-import { joinMyPrs, liveSessionsByPrKey, mergeCelebrationText, newlyMergedPrs } from './my-prs-view-core.ts';
-import type { LinkedLiveSession, LiveSessionLinks } from './my-prs-view-core.ts';
+import { joinMyPrs, liveSessionsByPrKey, mergeCelebrationText, newlyMergedPrs } from './github-store-core.ts';
+import type { LinkedLiveSession, LiveSessionLinks } from './github-store-core.ts';
 
 export type MyPrsChange =
   | { kind: 'prs' }

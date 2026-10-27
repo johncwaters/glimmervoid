@@ -1,7 +1,5 @@
-import type { GithubPr } from '#shared/contracts/github-prs.ts';
 import type { MyPrStage } from '#shared/contracts/my-prs.ts';
-import { myPrFromGithubPr } from '#shared/my-pr-merge.ts';
-import { canApproveAfterComment, decisionAsIfApprovalRequired, DECIDING_REVIEW_STATES, type FindingSeverity, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
+import { canApproveAfterComment, DECIDING_REVIEW_STATES, type FindingSeverity, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
 import type {
   DraftComment, EarlierReview, GithubReview, GithubReviewState, InFlightReview, PostedReviewEvent, QueuedReview, ReviewAssessment, ReviewChecksState, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread, ViewerThreadTally,
 } from '#shared/contracts/team-review.ts';
@@ -9,56 +7,23 @@ import { shortSha } from '#shared/git-text.ts';
 import { AUTOMATED_REVIEW_NOTE, findingSeveritiesIn, generalFindingsOf, generalPreambleOf, parseLeadingFindingHeader, strongestFindingSeverity, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import type { GeneralFinding } from '#shared/team-review-markdown.ts';
 import { formatClockOffset } from '../radar/radar-core.ts';
-import { stageIcon, stageLabel, stageTone } from './my-prs-view-core.ts';
+import { classifyReviewPriority, currentHead, isAwaitingViewerAfterResolvedComments, pullRequestLabel, stageIcon, stageLabel, stageTone } from './github-store-core.ts';
+import type { QueueRowKind, ReviewPriorityReason } from './github-store-core.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 
 export { generalFindingsOf } from '#shared/team-review-markdown.ts';
 export type { GeneralFinding } from '#shared/team-review-markdown.ts';
+export { answeredNonNitThreads, groupDrafts, hasAllViewerThreadsResolved, isPostedAwaitingViewer, pullRequestLabel } from './github-store-core.ts';
+export type { QueueRowKind, TeamReviewSections } from './github-store-core.ts';
 
 type TeamReviewPrView<Review> = Review & { prStage?: MyPrStage };
 
-export function joinTeamReviews(status: TeamReviewStatus | null, findGithubPr: (key: string) => GithubPr | undefined) {
-  if (!status) return null;
-  const joinReview = <Review extends ReviewDraft | InFlightReview | QueuedReview>(review: Review) => {
-    const pr = findGithubPr(review.key);
-    if (!pr) return review;
-    return {
-      ...review,
-      checksState: pr.rollupState,
-      reviewDecision: decisionAsIfApprovalRequired(pr.reviewDecision, pr.opinionatedWriterReviewStates),
-      isDraft: pr.isDraft,
-      liveHead: pr.headRefOid,
-      prStage: myPrFromGithubPr(pr).stage,
-    };
-  };
-  return {
-    ...status,
-    drafts: status.drafts.map(joinReview),
-    inFlight: status.inFlight.map(joinReview),
-    queued: status.queued.map(joinReview),
-  };
-}
-
-export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded';
-
-type ReviewPriorityBand = 'blocking-others' | 'actionable' | 'waiting-on-author' | 'not-ready';
-type ReviewPriorityReason = 'direct-request' | 'team-request' | 'changes-requested' | 'checks-failing' | 'checks-pending' | 'draft' | 'review-available' | 'approved';
 
 const REVIEW_PRIORITY_REASON_TEXT: Readonly<Record<ReviewPriorityReason, string>> = {
   'direct-request': 'Needs you', 'team-request': 'Ready',
   'changes-requested': 'Author to fix', 'checks-failing': 'Checks failing', 'checks-pending': 'Checks running', draft: 'Draft', 'review-available': 'Ready', approved: 'Approved',
 };
-
-export function classifyReviewPriority(review: Pick<QueuedReview, 'requestSource' | 'isDraft' | 'checksState' | 'reviewDecision'>): { band: ReviewPriorityBand; reason: ReviewPriorityReason } {
-  if (review.isDraft) return { band: 'not-ready', reason: 'draft' };
-  if (review.reviewDecision === 'CHANGES_REQUESTED') return { band: 'waiting-on-author', reason: 'changes-requested' };
-  if (review.checksState === 'FAILURE' || review.checksState === 'ERROR') return { band: 'waiting-on-author', reason: 'checks-failing' };
-  if (review.checksState === 'PENDING' || review.checksState === 'EXPECTED') return { band: 'not-ready', reason: 'checks-pending' };
-  if (review.requestSource === 'direct' && review.reviewDecision === 'REVIEW_REQUIRED') return { band: 'blocking-others', reason: 'direct-request' };
-  if (review.reviewDecision === 'APPROVED') return { band: 'actionable', reason: 'approved' };
-  return { band: 'actionable', reason: review.requestSource === 'direct' ? 'review-available' : 'team-request' };
-}
 
 interface QueueRowAges {
   opened?: string | null;
@@ -158,23 +123,6 @@ export function queueRowGlyph(review: TeamReviewPrView<ReviewDraft | InFlightRev
   return { tone: 'warn', icon: 'your-turn', meaning: 'Waits on you' };
 }
 
-export function hasAllViewerThreadsResolved(draft: Pick<ReviewDraft, 'viewerThreads'>): boolean {
-  const tally = draft.viewerThreads;
-  return tally !== undefined && tally.total > 0 && tally.resolved === tally.total;
-}
-
-export function isPostedAwaitingViewer(draft: ReviewDraft): boolean {
-  return draft.status === 'posted' && isAwaitingViewerAfterResolvedComments(draft);
-}
-
-function isAwaitingViewerAfterResolvedComments(draft: ReviewDraft): boolean {
-  if (!hasAllViewerThreadsResolved(draft)) return false;
-  if (hasStandingViewerApproval(draft)) return false;
-  const head = currentHead(draft);
-  if (draft.status === 'posted' && draft.postedEvent === 'APPROVE' && draft.reviewedHead === head) return false;
-  return !(draft.githubReviews ?? []).some((review) => review.isViewer && review.state === 'APPROVED' && review.commit === head);
-}
-
 export function viewerThreadsText(tally: ViewerThreadTally | undefined): string | null {
   if (!tally || tally.total === 0) return null;
   if (tally.total === 1) return tally.resolved === 1 ? 'Your 1 comment resolved' : 'Your 1 comment unresolved';
@@ -205,16 +153,6 @@ export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedRevie
   const githubReviews = githubReviewItems(review, { isViewerShown: kind !== 'posted' });
   for (const [index, githubReview] of githubReviews.entries()) lines.push(githubReviewTitle(githubReview.text, ages.githubReviews?.[index] ?? null));
   return lines.join('\n');
-}
-
-export interface TeamReviewSections {
-  ready: ReviewDraft[];
-  noReviewNeeded: ReviewDraft[];
-  inReview: InFlightReview[];
-  queued: QueuedReview[];
-  attention: ReviewDraft[];
-  posted: ReviewDraft[];
-  discarded: ReviewDraft[];
 }
 
 interface ActionReplyPlan {
@@ -338,50 +276,6 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
   'resolve-thread': 'Resolving thread',
 });
 
-export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamReviewSections {
-  const sections: TeamReviewSections = { ready: [], noReviewNeeded: [], inReview: [], queued: [], attention: [], posted: [], discarded: [] };
-  if (!status) return sections;
-  const readyByBand: Record<ReviewPriorityBand, ReviewDraft[]> = { 'blocking-others': [], actionable: [], 'waiting-on-author': [], 'not-ready': [] };
-  const queuedByBand: Record<ReviewPriorityBand, QueuedReview[]> = { 'blocking-others': [], actionable: [], 'waiting-on-author': [], 'not-ready': [] };
-  const bandOrder: ReviewPriorityBand[] = ['blocking-others', 'actionable', 'waiting-on-author', 'not-ready'];
-  const inFlightKeys = new Set(status.inFlight.map((review) => review.key));
-  sections.inReview.push(...status.inFlight);
-  for (const review of status.queued) {
-    if (inFlightKeys.has(review.key)) continue;
-    queuedByBand[classifyReviewPriority(review).band].push(review);
-  }
-  for (const band of bandOrder) sections.queued.push(...queuedByBand[band]);
-  const queuedKeys = new Set(sections.queued.map((review) => review.key));
-  for (const draft of status.drafts) {
-    if (inFlightKeys.has(draft.key) || queuedKeys.has(draft.key)) continue;
-    if (answeredNonNitThreads(draft).length > 0 || isPostedAwaitingViewer(draft)) {
-      readyByBand.actionable.push(draft);
-      continue;
-    }
-    const isSettled = (draft.status === 'ready' || draft.status === 'stale' || draft.status === 'error') && !isReviewNeeded(draft);
-    if (isSettled) sections.noReviewNeeded.push(draft);
-    if (draft.status === 'ready' && !isSettled) readyByBand[classifyReviewPriority(draft).band].push(draft);
-    if ((draft.status === 'stale' || draft.status === 'error') && !isSettled) sections.attention.push(draft);
-    if (draft.status === 'posted') sections.posted.push(draft);
-    if (draft.status === 'discarded') sections.discarded.push(draft);
-  }
-  for (const band of bandOrder) sections.ready.push(...readyByBand[band]);
-  return sections;
-}
-
-function settlesReview(review: GithubReview, head: string): boolean {
-  if (review.commit !== head) return false;
-  return review.isViewer || DECIDING_REVIEW_STATES.has(review.state);
-}
-
-function currentHead(draft: ReviewDraft): string {
-  return draft.liveHead ?? draft.reviewedHead;
-}
-
-export function answeredNonNitThreads(draft: Pick<ReviewDraft, 'threads'>): TeamReviewThread[] {
-  return (draft.threads ?? []).filter((thread) => !thread.isNit && !thread.isResolved);
-}
-
 function threadJudgement(thread: TeamReviewThread, head: string): { label: string; reason: string; tone: 'ok' | 'warn' | 'muted' } {
   if (thread.isNit) return { label: 'Automatic resolution failed', reason: '', tone: 'warn' };
   const judgement = thread.judgement?.head === head && thread.judgement.lastReplyAt === thread.lastReplyAt ? thread.judgement : undefined;
@@ -410,13 +304,6 @@ const NARROWEST_THREAD_LINE_CHARS = 40;
 export function threadBodyOverflowsPreview(body: string, previewLines: number): boolean {
   const wrappedLineCount = body.split('\n').reduce((total, line) => total + Math.max(1, Math.ceil(line.length / NARROWEST_THREAD_LINE_CHARS)), 0);
   return wrappedLineCount > previewLines;
-}
-
-function isReviewNeeded(draft: ReviewDraft): boolean {
-  if (answeredNonNitThreads(draft).length > 0) return true;
-  if (hasStandingViewerApproval(draft)) return false;
-  if (isAwaitingViewerAfterResolvedComments(draft)) return true;
-  return !(draft.githubReviews ?? []).some((review) => settlesReview(review, currentHead(draft)));
 }
 
 function describeGithubReview(review: GithubReview, head: string): string {
@@ -564,10 +451,6 @@ export function reviewProgressSteps(phase: ReviewProgressPhase): { label: string
   const labels = ['Fetch the diff', 'Check out the head', 'Review', 'Draft ready'];
   const activeIndex = { preparing: 0, checkout: 1, reviewing: 2 }[phase];
   return labels.map((label, index) => ({ label, state: index < activeIndex ? 'done' : index === activeIndex ? 'active' : 'todo' }));
-}
-
-export function pullRequestLabel(repo: string, number: number): string {
-  return `${repo}#${number}`;
 }
 
 function tierLabel(tier: ReviewDraft['tier']): string {

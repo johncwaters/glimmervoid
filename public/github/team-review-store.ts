@@ -4,8 +4,8 @@ import type { TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts
 import { describeSchemaIssues } from '../client-error-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
-import { groupDrafts, joinTeamReviews } from './team-review-view-core.ts';
-import type { TeamReviewSections } from './team-review-view-core.ts';
+import { groupDrafts, joinTeamReviews } from './github-store-core.ts';
+import type { TeamReviewSections } from './github-store-core.ts';
 
 export type TeamReviewChange =
   | { kind: 'status' }

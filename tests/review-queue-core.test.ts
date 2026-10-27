@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { buildReviewQueue, decideTurnAttention, nextTurnKey, turnActivityEntries } from '../public/github/review-queue-core.ts';
 import type { QueueGroup } from '../public/github/review-queue-core.ts';
-import { groupDrafts } from '../public/github/team-review-view-core.ts';
+import { groupDrafts } from '../public/github/github-store-core.ts';
 import { toMyPr } from '../server/github/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';

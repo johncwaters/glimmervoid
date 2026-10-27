@@ -4,7 +4,7 @@ import type { LinkedPr, MyPr } from '#shared/contracts/my-prs.ts';
 import { tierForTone } from '../signal-core.ts';
 import type { Signal } from '../signal-core.ts';
 import { myPrFromGithubPr } from '#shared/my-pr-merge.ts';
-import { stageIcon, stageLabel, stageTone } from './my-prs-view-core.ts';
+import { stageIcon, stageLabel, stageTone } from './github-store-core.ts';
 
 export interface SessionPrChip extends Signal {
   url: string;
