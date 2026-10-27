@@ -138,6 +138,7 @@ const ABORT_CONFIG_SAVE = 'abort-config-save';
 
 const CONFIG_DIR_MODE = 0o700;
 const CONFIG_FILE_MODE = 0o600;
+const CONFIG_RELOAD_DEBOUNCE_MS = 500;
 
 function glimmervoidHomeDir(): string {
   return resolveGlimmervoidHomeDir(os.homedir(), process.env);
@@ -627,7 +628,7 @@ function createConfigStore({
     }
   }
 
-  function watchForChanges(callback: (config: GlimmervoidConfig) => void): () => void {
+  function watchForChanges(callback: (config: GlimmervoidConfig) => void, { reloadDebounceMs = CONFIG_RELOAD_DEBOUNCE_MS }: { reloadDebounceMs?: number } = {}): () => void {
     let reloadTimer: TimerHandle | null = null;
     let watcher: fs.FSWatcher | null = null;
 
@@ -670,7 +671,7 @@ function createConfigStore({
         if (reloadTimer) clearTimeoutFn(reloadTimer);
         reloadTimer = setTimeoutFn(() => {
           fs.readFile(configPath, 'utf8', handleConfigChange);
-        }, 500);
+        }, reloadDebounceMs);
       });
       console.log('[config] Watching config.json for changes');
     } catch (watchErr) {

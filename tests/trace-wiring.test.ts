@@ -9,7 +9,6 @@ import { TraceCheckpoint, TraceRecord } from '../shared/contracts/trace.ts';
 import { createTraceWiring, } from '../server/trace-wiring.ts';
 import {
   MAX_PARTIAL_LINE_BYTES,
-  MAX_REMEMBERED_SUBAGENTS,
   MAX_TRANSCRIPT_READ_BYTES,
 } from '../server/core/trace-tail-core.ts';
 
@@ -40,11 +39,14 @@ function makeWorkspace(name: string): { configDirectory: string; projectDirector
   return { configDirectory, projectDirectory };
 }
 
+const REMEMBERED_SUBAGENTS_UNDER_TEST = 8;
+
 function createHarness(
   configDirectory: string,
   nowMs = 10,
   logger: Pick<Console, 'log' | 'warn'> = silentLogger(),
   debug = false,
+  maxRememberedSubagents: number | undefined = undefined,
 ) {
   const timers: { fn: () => void; ms: number }[] = [];
   const wiring = createTraceWiring({
@@ -52,6 +54,7 @@ function createHarness(
     logger,
     debug,
     nowFn: () => nowMs,
+    maxRememberedSubagents,
     setIntervalFn: (fn: () => void, ms: number) => {
       timers.push({ fn, ms });
       const handle = setTimeout(() => {}, 2 ** 30);
@@ -469,10 +472,10 @@ test('a subagent path evicted from the remembered offsets is tailed again instea
   const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
   fs.writeFileSync(transcriptPath, '', 'utf8');
   const crowdingPaths = Array.from(
-    { length: MAX_REMEMBERED_SUBAGENTS },
+    { length: REMEMBERED_SUBAGENTS_UNDER_TEST },
     (_unused, index) => path.join(projectDirectory, `agent-crowding-${index}.jsonl`),
   );
-  const harness = createHarness(configDirectory);
+  const harness = createHarness(configDirectory, 10, silentLogger(), false, REMEMBERED_SUBAGENTS_UNDER_TEST);
   await harness.wiring.start();
   const session = new TestTraceSession('glimmervoid-session-id');
   harness.wiring.attachSession(session);

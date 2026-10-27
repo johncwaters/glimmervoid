@@ -207,9 +207,9 @@ test('a session temp folder of a second instance survives this instance\'s prune
     runningInstance.kill();
     await removeSessionFoldersAndLocks(glimmervoidHome, sessionIds);
   });
-  await once(runningInstance.stdout, 'data');
-  const exitedInstance = spawnSync(process.execPath, ['--input-type=module', '-e', secondInstanceScript(['second-instance-exited', 'second-instance-shared'], { staysRunning: false })], { encoding: 'utf8' });
-  assert.equal(exitedInstance.status, 0, exitedInstance.stderr);
+  const exitedInstance = spawn(process.execPath, ['--input-type=module', '-e', secondInstanceScript(['second-instance-exited', 'second-instance-shared'], { staysRunning: false })], { stdio: ['ignore', 'ignore', 'inherit'] });
+  const [[exitedInstanceStatus]] = await Promise.all([once(exitedInstance, 'exit'), once(runningInstance.stdout, 'data')]);
+  assert.equal(exitedInstanceStatus, 0);
   await writeFile(path.join(sessionFolderOf('second-instance-exited'), 'scratchpad-note'), 'left behind');
   await writeFile(path.join(sessionFolderOf('second-instance-shared'), 'scratchpad-note'), 'still in use');
   await mkdir(sessionFolderOf('unlocked-aged'), { recursive: true });

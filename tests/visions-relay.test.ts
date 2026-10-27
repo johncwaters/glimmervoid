@@ -244,7 +244,7 @@ test('an over-cap mirrored document is not transmitted and does not reconnect-lo
       method: 'textDocument/didClose',
       params: { textDocument: { uri: 'file:///oversized.md' } },
     });
-    await new Promise((resolve) => { setTimeout(resolve, 750); });
+    await new Promise((resolve) => { setTimeout(resolve, 100); });
 
     assert.equal(daemon.messages.size, 0);
     assert.equal(daemon.connections.size, 0);

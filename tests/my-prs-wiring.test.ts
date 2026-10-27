@@ -678,7 +678,7 @@ test('the keep mergeable start sweep tolerates a missing work root and an empty 
 });
 
 test('keep mergeable refuses a workflow file whose name git would print C-quoted', async () => {
-  for (const workflowName of ['\u00e9.yml', 'tab\there.yml', '"quoted".yml']) {
+  await Promise.all(['\u00e9.yml', 'tab\there.yml', '"quoted".yml'].map(async (workflowName) => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-quoted-workflow-'));
     try {
       const harness = await fixHarness(root, {
@@ -690,7 +690,7 @@ test('keep mergeable refuses a workflow file whose name git would print C-quoted
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
-  }
+  }));
 });
 
 test('a staged pull request session writes only its work folder and reads its cached clone, and only keep mergeable gets open network', () => {

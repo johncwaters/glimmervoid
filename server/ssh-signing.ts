@@ -21,6 +21,7 @@ interface SshSignerOptions {
   agentSearchRoots?: readonly string[];
   ownerUid?: number | null;
   agentWaitMs?: number;
+  agentRescanIntervalMs?: number;
 }
 
 interface SshSigner {
@@ -51,7 +52,7 @@ async function forwardedSocketsIn(searchRoot: string, ownerUid: number | null): 
   return candidates.filter((candidate) => candidate !== null);
 }
 
-function createSshSigner({ env = process.env, agentSearchRoots = defaultAgentSearchRoots(), ownerUid = process.getuid?.() ?? null, agentWaitMs = FORWARDED_AGENT_RECONNECT_WAIT_MS }: SshSignerOptions = {}): SshSigner {
+function createSshSigner({ env = process.env, agentSearchRoots = defaultAgentSearchRoots(), ownerUid = process.getuid?.() ?? null, agentWaitMs = FORWARDED_AGENT_RECONNECT_WAIT_MS, agentRescanIntervalMs = AGENT_RESCAN_INTERVAL_MS }: SshSignerOptions = {}): SshSigner {
   async function agentHolds(socketPath: string, publicKey: SshPublicKey): Promise<boolean> {
     const listing = await execFileAsync('ssh-add', ['-L'], { env: { ...env, SSH_AUTH_SOCK: socketPath }, timeout: AGENT_LISTING_TIMEOUT_MS, encoding: 'utf8' })
       .then(({ stdout }) => stdout, () => '');
@@ -70,7 +71,7 @@ function createSshSigner({ env = process.env, agentSearchRoots = defaultAgentSea
   async function agentEnvBefore(publicKey: SshPublicKey, deadlineMs: number): Promise<{ SSH_AUTH_SOCK: string } | null> {
     const agentEnv = await agentEnvFor(publicKey);
     if (agentEnv || Date.now() >= deadlineMs) return agentEnv;
-    await new Promise((resolve) => { setTimeout(resolve, AGENT_RESCAN_INTERVAL_MS); });
+    await new Promise((resolve) => { setTimeout(resolve, agentRescanIntervalMs); });
     return agentEnvBefore(publicKey, deadlineMs);
   }
 

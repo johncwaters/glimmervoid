@@ -66,6 +66,7 @@ interface CreateBackendOptions extends BackendLaneOptions {
   checkForUpdate?: CheckForUpdate | null;
   onRestart?: (() => void) | null;
   downloadUpdatesInBackground?: boolean;
+  configReloadDebounceMs?: number;
 }
 
 const AGENT_INGRESS_HOST = '127.0.0.1';
@@ -606,7 +607,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   stopConfigWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
     broadcastSettings?.();
-  });
+  }, { reloadDebounceMs: options.configReloadDebounceMs });
   updateCheck.start();
 
   return {

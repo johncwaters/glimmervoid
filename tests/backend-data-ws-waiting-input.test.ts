@@ -110,7 +110,7 @@ async function bootHarness(session: Session): Promise<WaitingInputHarness> {
 }
 
 function claudeCodeAtPermissionPrompt(promptToolName: string | undefined = undefined, titleBeforePrompt: string | null = null): Session {
-  const session = new Session({ id: SESSION_ID, name: 'question lane', path: process.cwd() });
+  const session = new Session({ id: SESSION_ID, name: 'question lane', path: process.cwd(), titleStabilizationMs: 40 });
   session.state = STATES.RUNNING;
   if (titleBeforePrompt !== null) session._titleSource.feed(titleBeforePrompt);
   session.ingestHookSignal({ signal: 'awaiting-input', source: 'hook', event: 'PermissionRequest', promptKind: 'permission', promptToolName, ts: Date.now() });

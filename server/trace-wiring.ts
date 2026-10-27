@@ -81,6 +81,7 @@ interface TraceWiringOptions {
   nowFn?: () => number;
   setIntervalFn?: SetIntervalFn;
   clearIntervalFn?: ClearIntervalFn;
+  maxRememberedSubagents?: number;
 }
 
 interface TraceBinding {
@@ -176,6 +177,7 @@ function createTraceWiring({
   nowFn = Date.now,
   setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
   clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
+  maxRememberedSubagents = MAX_REMEMBERED_SUBAGENTS,
 }: TraceWiringOptions = {}) {
   const traceDirectory = configSiblingPath(configPath, 'traces');
   const emitter = new EventEmitter();
@@ -377,7 +379,7 @@ function createTraceWiring({
       didFallbackToTranscriptEnd: resume.didFallbackToTranscriptEnd,
       scannedBytes: traceTail.scannedBytes,
       committedOffsetByTranscriptPath: checkpoint ? checkpoint.offsetByTranscriptPath : {},
-      subagentPathsWithoutOffset: subagentPathsWithoutOffset.slice(-MAX_REMEMBERED_SUBAGENTS),
+      subagentPathsWithoutOffset: subagentPathsWithoutOffset.slice(-maxRememberedSubagents),
       subagentOffsetByPath,
     };
   }
@@ -746,7 +748,7 @@ function createTraceWiring({
         binding.subagentOffsetByPath,
         subagentPath,
         committedOffset,
-        { maxRemembered: MAX_REMEMBERED_SUBAGENTS },
+        { maxRemembered: maxRememberedSubagents },
       );
       binding.subagentPathsWithoutOffset.delete(subagentPath);
     } catch (error) {

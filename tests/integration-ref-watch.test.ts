@@ -10,7 +10,7 @@ import { waitFor, waitForFsWatchToArm } from './helpers/wait-for.ts';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const EVENT_DEADLINE_MS = 5000;
-const QUIET_WINDOW_MS = 300;
+const QUIET_WINDOW_MS = 150;
 
 function fakeCommonGitDir(branches = ['develop']) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-irw-'));
@@ -28,7 +28,7 @@ function fakeCommonGitDir(branches = ['develop']) {
 test('fires (debounced, coalesced) when the integration branch reflog is appended', async () => {
   const fx = fakeCommonGitDir(['develop']);
   let calls = 0;
-  const w = createIntegrationRefWatcher({ commonGitDir: fx.dir, branch: 'develop', onChange: () => { calls++; }, debounceMs: 200 });
+  const w = createIntegrationRefWatcher({ commonGitDir: fx.dir, branch: 'develop', onChange: () => { calls++; }, debounceMs: 50 });
   try {
     assert.equal(w.start(), true, 'started over a real reflog dir');
     assert.equal(w.active, true);

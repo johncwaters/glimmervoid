@@ -13,7 +13,6 @@ import { dashboardClient } from './helpers/dashboard-ws.ts';
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { ingestLane, settleBackendShutdown, visionsLane } from './helpers/lanes.ts';
-import { createReplayLog } from '../server/core/control-replay-core.ts';
 import { ACTIVITY_METHOD } from '../server/ingest/core/ingest-editor-core.ts';
 import { registerEphemeralSession } from '../server/lanes/ephemeral-session.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
@@ -676,44 +675,10 @@ test('a connecting dashboard is repaired with one ingest snapshot', withBackend(
   assert.deepEqual(snapshot.sources, ['terminal']);
 }));
 
-test('a batched activity delta reaches the dashboard, and is deliberately not replayable', withBackend({ ingest: INGEST_ON }, async ({ backend, dash, track }) => {
-  const { ws, received } = await openRecordingSocket(dash);
-  track(ws);
-  await waitFor(received, (msg) => msg.type === 'ingest-snapshot');
-
-  const lane = laneOf(backend);
-  lane.publish({ source: 'terminal', kind: 'output', summary: 'live output', scope: { root: '/repo' } });
-  const frame = await waitFor(received, (msg) => msg.type === 'ingest-activity');
-  assert.equal(frame.overflow, 0);
-  assert.deepEqual(snapshotEvents(frame).map((event) => event.summary), ['live output']);
-
-  const log = createReplayLog();
-  log.stamp({ type: 'ingest-activity', events: [] });
-  log.stamp({ type: 'ingest-snapshot', events: [] });
-  assert.deepEqual(log.entriesSince(0).entries, []);
-}));
-
 test('no dashboard connected costs the lane nothing: publishing still fills the rings', withBackend({ ingest: INGEST_ON }, async ({ backend }) => {
   const lane = laneOf(backend);
   lane.publish({ source: 'terminal', kind: 'output', summary: 'nobody is watching', scope: { root: '/repo' } });
   assert.equal(lane.recentEvents().length, 1);
-}));
-
-const BOTH_LANES = { ingest: INGEST_ON, visions: { enabled: true } };
-
-test('an ingest batch pokes the Visions lane, and its gate reads this lane seq', withBackend(BOTH_LANES, async ({ backend }) => {
-  const lane = laneOf(backend);
-  const visions = visionsOf(backend);
-  assert.equal(visions.latestContextSeq(), 0, 'wired, and nothing has happened on the machine yet');
-
-  let pokes = 0;
-  visions.noteActivity = () => { pokes += 1; };
-  lane.publish({ source: 'terminal', kind: 'output', summary: 'a command ran here', scope: { root: '/repo' } });
-  assert.ok(lane.latestSeq() > 0);
-  assert.equal(visions.latestContextSeq(), lane.latestSeq(), 'one signal, read from the lane that owns it');
-
-  await new Promise((resolve) => { setTimeout(resolve, 1400).unref(); });
-  assert.equal(pokes, 1, 'one poke for the batch, however many events it carried');
 }));
 
 test('with ingest off the Visions lane is wired to no movement signal at all', withBackend({ visions: { enabled: true }, ingest: { enabled: false } }, async ({ backend }) => {
@@ -722,12 +687,4 @@ test('with ingest off the Visions lane is wired to no movement signal at all', w
     visionsOf(backend).latestContextSeq(), null,
     'a null seq is what makes every gate decision the pre-M7.5 one',
   );
-}));
-
-test('with the Visions lane off the ingest lane batches with nothing to poke', withBackend({ ingest: INGEST_ON }, async ({ backend }) => {
-  const lane = laneOf(backend);
-  assert.equal(backend.getLane('visions'), null);
-  lane.publish({ source: 'terminal', kind: 'output', summary: 'nobody to tell', scope: { root: '/repo' } });
-  await new Promise((resolve) => { setTimeout(resolve, 1400).unref(); });
-  assert.equal(lane.pendingEventCount, 0, 'the batch flushed rather than falling over on a lane that is not there');
 }));

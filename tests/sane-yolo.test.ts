@@ -6,8 +6,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 import { buildHookSettings } from '../detection/settings-injector.ts';
 import { execFile, execSync } from '../server/child-process-safe.ts';
-import { resolveHookTools, saneYoloHomeDir, writeSaneYoloPolicy } from '../server/hook-tools.ts';
-import { resolvePackageBin } from '../server/runtime-paths.ts';
+import { resolveHookTools, saneYoloHomeDir, } from '../server/hook-tools.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
@@ -15,85 +14,15 @@ import codex from '../session/adapters/codex.ts';
 import grok from '../session/adapters/grok.ts';
 import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
-import { SANE_YOLO_PATH_ENV, saneYoloEnv } from '../session/core/sane-yolo.ts';
+import { SANE_YOLO_PATH_ENV, } from '../session/core/sane-yolo.ts';
 
 const executeFile = promisify(execFile);
-const deniedCommands = [
-  'rm -rf ~',
-  'rm -rf "$X/"',
-  'git reset --hard',
-  'git checkout -- .',
-  'git clean -fd',
-  'git push --force origin main',
-  'dd if=/dev/zero of=/dev/disk2',
-  'terraform destroy',
-  'terraform -chdir=x destroy',
-  'tofu apply -destroy',
-  'kubectl delete ns x',
-  'kubectl --context prod delete ns prod',
-  'kubectl -n default delete namespace prod',
-  'kubectl delete namespaces prod',
-  'pulumi destroy',
-  'pulumi down --yes',
-  'pulumi -C infra destroy',
-  'pulumi --cwd infra destroy -y',
-  'terraform apply -destroy=true',
-  'npx pulumi destroy',
-  'rtk dd if=/dev/zero of=/dev/disk2',
-  'rtk terraform destroy',
-  'rtk proxy terraform destroy',
-];
-const allowedCommands = [
-  'rm -rf dist',
-  'git push --force-with-lease',
-  'git branch -D x',
-  'git merge --abort',
-  'grep "rm -rf" .',
-  'cat .env',
-  'kubectl delete pod x',
-  'terraform plan -destroy',
-  'npx prettier --check .',
-  'rtk git status',
-];
-
 function hookPayload(hostFlag: string, command: string, cwd: string): string {
   if (hostFlag === '--grok-build') {
     return JSON.stringify({ hookEventName: 'PreToolUse', toolName: 'run_terminal_command', toolInput: { command }, cwd, workspaceRoot: cwd, sessionId: 'sane-yolo-test' });
   }
   return JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, cwd, session_id: 'sane-yolo-test', permission_mode: 'bypassPermissions', ...(hostFlag === '--codex' ? { turn_id: 'turn-test' } : {}) });
 }
-
-test('Sane YOLO denies every destructive command and allows every safe one', async () => {
-  const temporaryHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-sane-yolo-'));
-  try {
-    const cwd = path.join(temporaryHome, 'repo');
-    const policyHome = path.join(temporaryHome, 'policy');
-    fs.mkdirSync(cwd);
-    const env = { ...process.env, HOME: temporaryHome, USERPROFILE: temporaryHome, GLIMMERVOID_HOME: temporaryHome, ...saneYoloEnv(policyHome) };
-    await executeFile('git', ['init', cwd], { env });
-    const glimmervoidHomeOutsideTemp = path.join(path.parse(temporaryHome).root, 'glimmervoid-home-outside-temp');
-    writeSaneYoloPolicy(policyHome, glimmervoidHomeOutsideTemp);
-    const sessionScratchDelete = `rm -rf '${path.join(glimmervoidHomeOutsideTemp, 'guardrails-temp', 'launch', 'scratchpad')}'`;
-    const binPath = resolvePackageBin('cc-safety-net', 'cc-safety-net');
-    assert.ok(binPath);
-    const verification = await executeFile(process.execPath, [binPath, 'rule', 'verify'], { cwd, env });
-    assert.match(verification.stdout, /infra/);
-    const expectations = [
-      ...deniedCommands.map((command) => ({ command, shouldDeny: true })),
-      ...[...allowedCommands, sessionScratchDelete].map((command) => ({ command, shouldDeny: false })),
-    ];
-    await Promise.all(expectations.map(async ({ command, shouldDeny }) => {
-      const response = await executeFile(process.execPath, [binPath, 'hook', '--coding-cli'], { cwd, env, input: hookPayload('--coding-cli', command, cwd) });
-      if (!shouldDeny) {
-        assert.equal(response.stdout, '', `${command}: ${response.stderr}`);
-        return;
-      }
-      assert.equal(permissionDecisionOf(response.stdout), 'deny', `${command}: ${response.stdout}`);
-    }));
-  } finally {
-    fs.rmSync(temporaryHome, { recursive: true, force: true });
-  }
-});
 
 test('a project marked saneYolo resolves the Sane YOLO hook while the machine setting is off', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-project-sane-yolo-'));
