@@ -7,7 +7,7 @@ The automated suite `npm test` runs (node:test, no framework). It holds rules, n
 | Path | Role |
 |------|------|
 | `gates/` | Repo-wide rules: each walks the tracked tree or a whole catalog and fails on any entry that breaks the rule |
-| `*.test.ts` | Wire and persisted contracts, end-to-end runs through real components, hostile-input edges |
+| `*.test.ts` | Wire and persisted contracts, end-to-end runs through real components, regression tests for fixed bugs |
 | `fixtures/` | Recorded session JSONL replayed through the real adapters |
 | `helpers/` | Shared setup that is not itself a test (the `*.test.ts` glob skips it) |
 
@@ -17,3 +17,4 @@ The automated suite `npm test` runs (node:test, no framework). It holds rules, n
 - Outside `gates/`, drive real components: a booted backend, a temp git repo, real files, a PTY, a child process, or a replay fixture. A test that restates the code or wires fakes together is not added.
 - No real network and no live agent binary; a fake agent binary on PATH is fine.
 - `node --import ./tests/helpers/isolate-home.ts --test <file>` runs one file.
+- Run `npm run check:fast` before landing: it runs the spec, lexicon and unused-exports checks that only the full `npm test` reaches, which CI otherwise catches after the push.
