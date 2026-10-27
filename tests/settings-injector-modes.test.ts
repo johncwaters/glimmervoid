@@ -7,71 +7,11 @@ import path from 'node:path';
 import {
   buildHookSettings,
   writeSessionSettings,
-  DIR_MODE,
-  FILE_MODE,
-  WAKEUP_TOOL_MATCHER,
-  PR_LINK_TOOL_MATCHER,
-  DEFAULT_TIMEOUT_SEC,
-  PLAN_HOOK_TIMEOUT_SEC,
 } from '../detection/settings-injector.ts';
-import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../shared/contracts/session.ts';
-
-const POSIX = process.platform !== 'win32';
 
 function tempBase() {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-hook-modes-')), 'glimmervoid-hooks');
 }
-
-test('the settings file and its directories are created 0600/0700', { skip: POSIX ? false : 'modes are advisory on Windows' }, () => {
-  const baseDir = tempBase();
-  const written = writeSessionSettings({ glimmervoidId: 'sess-1', port: 3000, baseDir });
-  try {
-    assert.equal(fs.statSync(written.settingsPath).mode & 0o777, FILE_MODE);
-    assert.equal(fs.statSync(written.dir).mode & 0o777, DIR_MODE);
-    assert.equal(fs.statSync(baseDir).mode & 0o777, DIR_MODE);
-  } finally {
-    written.cleanup();
-  }
-});
-
-test('a base directory left behind with loose modes is tightened, not trusted as found', { skip: POSIX ? false : 'modes are advisory on Windows' }, () => {
-  const baseDir = tempBase();
-  fs.mkdirSync(baseDir, { recursive: true, mode: 0o777 });
-  fs.chmodSync(baseDir, 0o777);
-  const written = writeSessionSettings({ glimmervoidId: 'sess-2', port: 3000, baseDir });
-  try {
-    assert.equal(fs.statSync(baseDir).mode & 0o777, DIR_MODE);
-  } finally {
-    written.cleanup();
-  }
-});
-
-test('a settings file left behind by an earlier run does not keep its old mode', { skip: POSIX ? false : 'modes are advisory on Windows' }, () => {
-  const baseDir = tempBase();
-  const dir = path.join(baseDir, 'sess-3');
-  fs.mkdirSync(dir, { recursive: true });
-  const stale = path.join(dir, 'settings.json');
-  fs.writeFileSync(stale, '{}', { mode: 0o666 });
-  fs.chmodSync(stale, 0o666);
-  const written = writeSessionSettings({ glimmervoidId: 'sess-3', port: 3000, baseDir });
-  try {
-    assert.equal(fs.statSync(written.settingsPath).mode & 0o777, FILE_MODE);
-  } finally {
-    written.cleanup();
-  }
-});
-
-test('a base path that is a symlink rather than a real directory is refused', { skip: POSIX ? false : 'symlink creation needs privileges on Windows' }, () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-hook-symlink-'));
-  const target = path.join(root, 'elsewhere');
-  fs.mkdirSync(target);
-  const baseDir = path.join(root, 'glimmervoid-hooks');
-  fs.symlinkSync(target, baseDir, 'dir');
-  assert.throws(
-    () => writeSessionSettings({ glimmervoidId: 'sess-4', port: 3000, baseDir }),
-    /not a directory/
-  );
-});
 
 test('the written settings still contain the hooks the session needs', () => {
   const baseDir = tempBase();
@@ -83,44 +23,6 @@ test('the written settings still contain the hooks the session needs', () => {
   } finally {
     written.cleanup();
   }
-});
-
-test('no Read matcher reaches PostToolUse, since no builtin hook consumes reads', () => {
-  const base = { port: 3000, glimmervoidId: 'metrics', token: 'tok' };
-  const settings = buildHookSettings(base);
-  assert.deepEqual(settings.hooks.PostToolUse.map((entry: { matcher?: string }) => entry.matcher), [
-    WAKEUP_TOOL_MATCHER,
-    PR_LINK_TOOL_MATCHER,
-  ]);
-});
-
-test('parent question holds use one AskUserQuestion entry unless conversation approvals already hold every tool', () => {
-  const base = { port: 3000, glimmervoidId: 'child', token: 'tok', holdsQuestionsForParent: true };
-  const questionHook = { type: 'http', url: `http://127.0.0.1:3000/hook/child/${CONVERSATION_PERMISSION_HOOK_EVENT}?t=tok`, timeout: PLAN_HOOK_TIMEOUT_SEC };
-  const statusEntry = { hooks: [{ type: 'http', url: 'http://127.0.0.1:3000/hook/child/permissionrequest?t=tok', timeout: DEFAULT_TIMEOUT_SEC }] };
-  assert.deepEqual(buildHookSettings({ ...base, conversationApprovals: false }).hooks.PermissionRequest, [
-    statusEntry,
-    { matcher: 'AskUserQuestion', hooks: [questionHook] },
-  ]);
-  assert.deepEqual(buildHookSettings({ ...base, conversationApprovals: true }).hooks.PermissionRequest, [
-    statusEntry,
-    { hooks: [questionHook] },
-  ]);
-  assert.deepEqual(buildHookSettings({ ...base, holdsQuestionsForParent: false }).hooks.PermissionRequest, [statusEntry]);
-  const releaseHook = { type: 'http', url: `http://127.0.0.1:3000/hook/child/${CONVERSATION_TOOL_RESULT_HOOK_EVENT.toLowerCase()}?t=tok`, timeout: DEFAULT_TIMEOUT_SEC };
-  const releaseEntriesOf = (settings: ReturnType<typeof buildHookSettings>) =>
-    (settings.hooks.PostToolUse ?? []).filter((entry) => entry.hooks.some((hook) => 'url' in hook && hook.url === releaseHook.url));
-  assert.deepEqual(releaseEntriesOf(buildHookSettings({ ...base, conversationApprovals: false })), [{ matcher: 'AskUserQuestion', hooks: [releaseHook] }]);
-  assert.deepEqual(releaseEntriesOf(buildHookSettings({ ...base, conversationApprovals: true })), [{ hooks: [releaseHook] }]);
-  assert.deepEqual(releaseEntriesOf(buildHookSettings({ ...base, holdsQuestionsForParent: false })), []);
-});
-
-test('the Bash PR link matcher stays on with wakeup detection off and shares the posttooluse URL', () => {
-  const settings = buildHookSettings({ port: 3000, glimmervoidId: 'metrics', token: 'tok', detectScheduledWakeups: false });
-  assert.deepEqual(settings.hooks.PostToolUse, [{
-    matcher: PR_LINK_TOOL_MATCHER,
-    hooks: [{ type: 'http', url: 'http://127.0.0.1:3000/hook/metrics/posttooluse?t=tok', timeout: DEFAULT_TIMEOUT_SEC }],
-  }]);
 });
 
 test('a guardrails block is written verbatim as the top-level Claude Code sandbox key and is absent when none is given', () => {

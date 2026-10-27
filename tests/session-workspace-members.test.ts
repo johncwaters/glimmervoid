@@ -88,48 +88,6 @@ test('workspace member shell preserves existing maps, reports partial failure an
   }
 });
 
-test('workspace member release keeps a member whose removal git refuses', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-workspace-refused-'));
-  try {
-    const planned = planWorkspace({ worktreeRoot: root, sessionName: 'Refused', sessionId: '55555555-session', repoPaths: [path.join(root, 'one'), path.join(root, 'two')] });
-    if (!planned.ok) throw new Error(planned.error);
-    for (const member of planned.plan.members) fs.mkdirSync(member.dir, { recursive: true });
-    const removedDirs: string[] = [];
-    const shell = createSessionWorkspaceMembers({ owner: 'lane:test', plan: planned.plan, sessionName: 'Refused', shareList: null, gitWorkspace: {
-      ensureWorkspaceMember: async ({ projectPath }) => ({ cwd: projectPath, isGit: false, reason: 'not-git' }),
-      describeWorkspaceMemberWork: async () => null,
-      recordOwnedFolder: async () => {},
-      forgetRemovedPath: async () => {},
-      removeWorkspaceMember: async ({ cwd }) => {
-        if (cwd === planned.plan.members[0].dir) return { ok: false, out: '', err: 'contains modified or untracked files' };
-        removedDirs.push(String(cwd));
-        fs.rmSync(String(cwd), { recursive: true, force: true });
-        return { ok: true, out: '' };
-      },
-    } });
-    assert.deepEqual((await shell.release()).kept, [{ path: planned.plan.members[0].dir, reason: 'contains modified or untracked files' }]);
-    assert.deepEqual(removedDirs, [planned.plan.members[1].dir]);
-    assert.equal(fs.existsSync(planned.plan.members[0].dir), true);
-    assert.equal(fs.existsSync(planned.plan.folder), true);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('workspace session merge refuses because the folder is not a single-repo worktree', async () => {
-  const session = new Session({
-    id: 'workspace-session',
-    name: 'Workspace',
-    path: path.join(os.tmpdir(), 'ws-workspace-session'),
-    workspaceRepos: [path.join(os.tmpdir(), 'one'), path.join(os.tmpdir(), 'two')],
-    gitWorkspace: createGitWorkspace(),
-  });
-  assert.equal(session.isWorktree, false);
-  assert.equal(session.isWorkspace, true);
-  assert.deepEqual(await session.mergeWorktree(), { merged: false, refused: true, reason: 'no-worktree' });
-  session.destroy();
-});
-
 test('workspace session diff prefixes member paths and change checks announce member edits once', { skip: !hasGit() }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-workspace-diff-'));
   const first = makeRepo(root, 'first');

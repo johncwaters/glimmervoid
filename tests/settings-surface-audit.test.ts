@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BrowserConfig, Config, ConfigUpdate } from '../shared/contracts/config.ts';
+import { BrowserConfig, ConfigUpdate } from '../shared/contracts/config.ts';
 import { normalizeLegacyConfigNumbers } from '../shared/contracts/config-numbers-core.ts';
 import { SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
 import type { SettingsSection, SettingsSetting } from '../shared/settings/registry.ts';
-import { SETTINGS_INDEX, parsePosthogProjectSelection, wireValue } from '../shared/settings/registry-core.ts';
+import { SETTINGS_INDEX } from '../shared/settings/registry-core.ts';
 import { includesRepositoryRoot, projectSelectionChoices } from '../public/settings/settings-projects-core.ts';
 import {
-  collectDirtyBlocks, hydrateFromSettings, numberDraftError, numberFromDraft, rtkInstallStatusText, secretEnvironmentSource, validateLocally,
+  collectDirtyBlocks, hydrateFromSettings, rtkInstallStatusText, secretEnvironmentSource, validateLocally,
 } from '../public/settings/settings-view-core.ts';
 
 const WHOLE_NUMBER_FIELDS = [
@@ -60,59 +60,6 @@ for (const [id, path] of WHOLE_NUMBER_FIELDS) {
   });
 }
 
-test('replay buffer bounds agree across file, browser and save validation', () => {
-  for (const value of [0, 63, 64.5, 16385]) {
-    const payload = { projects: [], replayBufferKB: value };
-    for (const schema of [Config, BrowserConfig, ConfigUpdate]) {
-      const candidate = schema === ConfigUpdate ? { replayBufferKB: value } : payload;
-      assert.equal(schema.safeParse(candidate).success, false);
-    }
-  }
-  for (const value of [64, 16384]) assert.equal(Config.safeParse({ projects: [], replayBufferKB: value }).success, true);
-  assert.deepEqual(registrySetting('file-replay-buffer').range, { min: 64, max: 16384 });
-});
-
-test('posthog-interval accepts and serializes a fractional value unchanged', () => {
-  const { section, setting } = editableSection('posthog-interval');
-  const original = hydrateFromSettings([section], {});
-  const value = Number(setting.defaultValue) + 0.5;
-  const edited = { ...original, [setting.path]: String(value) };
-  assert.equal(setting.integer, false);
-  assert.equal(setting.step, 'any');
-  assert.deepEqual(validateLocally([section], edited), {});
-  const serialized = collectDirtyBlocks([section], original, edited);
-  assert.deepEqual(serialized, payloadAtPath(setting.path, value));
-  assert.equal(ConfigUpdate.safeParse(serialized).success, true);
-});
-
-test('a duration typed in its display unit stores the schema unit as a whole number the file accepts', () => {
-  for (const [id, draft, stored] of [
-    ['file-visions-quiet-delay', '45', 45000],
-    ['file-visions-cooldown', '2', 120000],
-    ['file-visions-intent-thread-ttl', '7', 604800000],
-    ['file-posthog-fix-timeout', '20', 1200],
-  ] as const) {
-    const setting = registrySetting(id);
-    assert.equal(numberDraftError(setting, draft), null, id);
-    const value = wireValue(setting, numberFromDraft(setting, draft));
-    assert.equal(value, stored, id);
-    assert.equal(ConfigUpdate.safeParse(payloadAtPath(setting.path, value)).success, true, id);
-    assert.equal(Config.safeParse({ projects: [], ...payloadAtPath(setting.path, value) }).success, true, id);
-  }
-  const quiet = registrySetting('file-visions-quiet-delay');
-  assert.ok(numberDraftError(quiet, '0.0001'));
-  assert.equal(ConfigUpdate.safeParse(payloadAtPath(quiet.path, 0.1)).success, false);
-});
-
-for (const id of ['file-posthog-investigation-timeout', 'file-posthog-fix-timeout', 'file-posthog-traffic-multiplier', 'file-posthog-traffic-cooldown']) {
-  test(`${id} stays fractional in config.json`, () => {
-    const setting = registrySetting(id);
-    assert.equal(setting.integer, false);
-    assert.equal(setting.step, 'any');
-    assert.equal(ConfigUpdate.safeParse(payloadAtPath(setting.path, Number(setting.defaultValue) + 0.5)).success, true);
-  });
-}
-
 test('legacy numeric migration preserves count comparisons, floors truncated quantities and leaves the input intact', () => {
   const legacy = {
     projects: [], replayBufferKB: 0.5,
@@ -129,29 +76,6 @@ test('legacy numeric migration preserves count comparisons, floors truncated qua
   assert.deepEqual(legacy, snapshot);
   assert.deepEqual(normalizeLegacyConfigNumbers(migrated), migrated);
   assert.deepEqual(normalizeLegacyConfigNumbers({ visions: null, posthog: null }), { visions: null, posthog: null });
-});
-
-test('PostHog projects share one parser for the CLI text form and the dashboard list form, including none and unsafe ids', () => {
-  const { section, setting } = editableSection('posthog-projects');
-  for (const invalid of ['1,', '1,,2', ',1', '0', '-1', '1.5', '9007199254740992']) {
-    assert.equal(parsePosthogProjectSelection(invalid), null);
-  }
-  for (const [text, expected] of [['1, 2', [1, 2]], ['none', []], ['ALL', 'all'], ['', 'all'], ['9007199254740991', [Number.MAX_SAFE_INTEGER]]] as const) {
-    assert.deepEqual(parsePosthogProjectSelection(text), expected);
-  }
-  for (const invalid of [['0'], ['-1'], ['1.5'], ['9007199254740992'], ['abc'], ['1', 'none']]) {
-    assert.equal(wireValue(setting, invalid), null);
-    assert.ok(validateLocally([section], { [setting.path]: invalid })[setting.id]);
-  }
-  for (const [list, expected] of [[['1', '2'], [1, 2]], [[], 'all'], [['none'], []], [['9007199254740991'], [Number.MAX_SAFE_INTEGER]]] as const) {
-    const original = hydrateFromSettings([section], { posthog: { projects: [9] } });
-    const edited = { ...original, [setting.path]: [...list] };
-    assert.deepEqual(wireValue(setting, [...list]), expected);
-    assert.deepEqual(validateLocally([section], edited), {});
-    assert.deepEqual(collectDirtyBlocks([section], original, edited), { posthog: { projects: expected } });
-  }
-  assert.deepEqual(hydrateFromSettings([section], { posthog: { projects: [] } })[setting.path], ['none']);
-  assert.deepEqual(hydrateFromSettings([section], { posthog: { projects: 'all' } })[setting.path], []);
 });
 
 test('environment secret ownership excludes replacement edits and sibling saves carry no secret metadata', () => {

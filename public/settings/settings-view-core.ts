@@ -292,12 +292,12 @@ function numberError(setting: SettingsSetting, rawValue: unknown) {
   return null;
 }
 
-export function numberDraftError(setting: SettingsSetting, draft: string, isUnparsable = false): string | null {
+function numberDraftError(setting: SettingsSetting, draft: string, isUnparsable = false): string | null {
   if (isUnparsable) return rangeMessage(setting);
   return numberError(setting, draft.trim());
 }
 
-export function numberFromDraft(setting: SettingsSetting, draft: string): number | null {
+function numberFromDraft(setting: SettingsSetting, draft: string): number | null {
   const text = draft.trim();
   if (setting.nullable && text === '') return null;
   const value = Number(text);

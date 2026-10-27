@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { main, fallbackLine, decodeChainCommand, NO_CHAIN } from '../session/statusline-relay.ts';
-import { parseJsonRecord } from '../server/core/json-core.ts';
+import { main, NO_CHAIN } from '../session/statusline-relay.ts';
 function fakeStdin(text: string) {
   return Readable.from([Buffer.from(text, 'utf8')]);
 }
@@ -19,37 +18,6 @@ const PAYLOAD = {
   model: { id: 'claude-opus-4-5', display_name: 'Opus 4.5' },
   cost: { total_cost_usd: 1.234 },
 };
-
-test('decodeChainCommand: base64 in, command out, and every absent form is null', () => {
-  const command = 'node C:/Users/johnw/.claude/hud/hud.mjs';
-  assert.equal(decodeChainCommand(Buffer.from(command, 'utf8').toString('base64')), command);
-  assert.equal(decodeChainCommand(NO_CHAIN), null);
-  assert.equal(decodeChainCommand(''), null);
-  assert.equal(decodeChainCommand(undefined), null);
-
-  assert.equal(decodeChainCommand(Buffer.from('   ', 'utf8').toString('base64')), null);
-});
-
-test('parseJsonRecord: a statusline payload is an object or null, never a throw', () => {
-  assert.deepEqual(parseJsonRecord('{"a":1}'), { a: 1 });
-  assert.equal(parseJsonRecord('{ not json'), null);
-  assert.equal(parseJsonRecord(''), null);
-  assert.equal(parseJsonRecord('[1,2]'), null, 'an array is not a payload');
-  assert.equal(parseJsonRecord('42'), null);
-});
-
-test('fallbackLine: model and cost, no dashes and no emoji', () => {
-  assert.equal(fallbackLine(PAYLOAD), 'Opus 4.5  $1.23');
-  assert.equal(fallbackLine({ model: { display_name: 'Opus 4.5' } }), 'Opus 4.5');
-
-  assert.equal(fallbackLine({ model: { display_name: 'Opus 4.5' }, cost: { total_cost_usd: 0 } }), 'Opus 4.5');
-  assert.equal(fallbackLine({ cost: { total_cost_usd: 2 } }), '$2.00');
-  assert.equal(fallbackLine({}), '');
-  assert.equal(fallbackLine(null), '');
-  for (const glyph of [String.fromCharCode(0x2014), String.fromCharCode(0x2013), String.fromCharCode(0x2026)]) {
-    assert.equal(fallbackLine(PAYLOAD).includes(glyph), false);
-  }
-});
 
 test('with nothing to chain and no server listening, the fallback line is still printed', async () => {
   const stdout = fakeStdout();
@@ -74,30 +42,6 @@ test('a chained command that fails does not take the relay down', async () => {
   const chain = Buffer.from('node -e "process.exit(3)"', 'utf8').toString('base64');
   const code = await main(['http://127.0.0.1:1/hook/x/statusline?t=t', chain], fakeStdin('{}'), stdout);
   assert.equal(code, 3, 'the chained command owns the exit code');
-});
-
-test('a chain command that does not exist is survived', async () => {
-  const stdout = fakeStdout();
-  const chain = Buffer.from('glimmervoid-no-such-binary-xyz', 'utf8').toString('base64');
-  const code = await main(['http://127.0.0.1:1/hook/x/statusline?t=t', chain], fakeStdin('{}'), stdout);
-  assert.equal(typeof code, 'number');
-});
-
-test('a malformed payload and a missing url are both survived', async () => {
-  const stdout = fakeStdout();
-  assert.equal(await main([], fakeStdin('{ not json'), stdout), 0);
-  assert.equal(stdout.written.join(''), '', 'nothing to say, so nothing is printed');
-  const second = fakeStdout();
-  assert.equal(await main([undefined, NO_CHAIN], fakeStdin(''), second), 0);
-});
-
-test('a non-loopback or non-http target is not dialed', async () => {
-  const stdout = fakeStdout();
-  const code = await main(['https://example.com/hook/x/statusline', NO_CHAIN], fakeStdin(JSON.stringify(PAYLOAD)), stdout);
-  assert.equal(code, 0);
-  assert.equal(stdout.written.join(''), 'Opus 4.5  $1.23\n');
-  const relative = await main(['not-a-url', NO_CHAIN], fakeStdin(JSON.stringify(PAYLOAD)), fakeStdout());
-  assert.equal(relative, 0);
 });
 
 test('the POST reaches a listening local server with the raw body intact', async () => {

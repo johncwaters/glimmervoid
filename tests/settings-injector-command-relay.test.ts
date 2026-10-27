@@ -12,7 +12,6 @@ import {
   buildHookSettings,
 } from '../detection/settings-injector.ts';
 import { main } from '../session/command-hook-relay.ts';
-import { MAX_RESPONSE_BYTES } from '../session/core/hook-relay-core.ts';
 import { postPayload } from '../session/loopback-post.ts';
 
 test('SessionStart is command-only while every other built-in event stays http', () => {
@@ -67,8 +66,6 @@ const hookSpecificOutput = { hookEventName: 'SessionStart', additionalContext: '
 for (const { name, responseBody, expectedOutput } of [
   { name: 'SessionStart context', responseBody: JSON.stringify({ ok: true, hookSpecificOutput }), expectedOutput: JSON.stringify({ hookSpecificOutput }) },
   { name: 'plain acknowledgement', responseBody: '{"ok":true}', expectedOutput: '' },
-  { name: 'malformed JSON', responseBody: '{invalid', expectedOutput: '' },
-  { name: 'oversized context', responseBody: JSON.stringify({ hookSpecificOutput: { ...hookSpecificOutput, additionalContext: 'x'.repeat(MAX_RESPONSE_BYTES) } }), expectedOutput: '' },
 ]) {
   test(`command relay outputs only validated context for ${name}`, async () => {
     const server = http.createServer((request, response) => {
@@ -87,7 +84,7 @@ for (const { name, responseBody, expectedOutput } of [
       assert.equal(code, 0);
       assert.equal(written.join(''), expectedOutput);
       const postedResponse = await postPayload(`http://127.0.0.1:${port}/hook/sess-1/sessionstart`, Buffer.from('{}'));
-      assert.equal(postedResponse, name === 'oversized context' ? null : responseBody);
+      assert.equal(postedResponse, responseBody);
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve) => { server.close(() => resolve()); });

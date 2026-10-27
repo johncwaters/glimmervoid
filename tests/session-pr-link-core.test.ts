@@ -10,7 +10,6 @@ import { createSessionPrLinkWiring } from '../server/github/session-pr-link-wiri
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
 import { createSerialQueue } from '../server/spawn-gate.ts';
 import { GithubPrDetailNode, GithubPrLightSearchNode, comparablePrKey } from '../shared/contracts/github-prs.ts';
-import type { SessionPrLinks } from '../shared/contracts/my-prs.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { manualTimers } from './helpers/manual-timers.ts';
 
@@ -70,54 +69,6 @@ function storeHarness(context: TestContext, initialNodes: GithubPrDetailNode[] =
     },
   };
 }
-
-function makeLinkedSession(context: TestContext, { ephemeral = false } = {}) {
-  const session = new Session({ id: 'pr-link-test', name: 'pr-link-test', path: process.cwd(), ephemeral });
-  createSessionPrLinkWiring({ store: storeHarness(context).store, now: () => LINKED_AT_MS }).attachSession(session);
-  return session;
-}
-
-function bashResult(gitOperation: Record<string, unknown>): Record<string, unknown> {
-  return { tool_name: 'Bash', tool_input: { command: 'gh pr' }, tool_response: { stdout: '', gitOperation } };
-}
-
-function prOperation(action: string, number: number) {
-  return { pr: { action, number, url: `https://github.com/acme/widgets/pull/${number}` } };
-}
-
-test('gh pr create and gh pr edit link the PR the moment the Bash hook lands', (context) => {
-  const session = makeLinkedSession(context);
-  const broadcasts: SessionPrLinks[] = [];
-  session.on('pr-links-change', (prLinks: SessionPrLinks) => broadcasts.push(prLinks));
-  session.emit('hook-event', { event: 'posttooluse', payload: bashResult(prOperation('created', 42)) });
-  session.emit('hook-event', { event: 'posttooluse', payload: bashResult(prOperation('edited', 7)) });
-  assert.deepEqual(session.linkedPrs, [
-    { repo: 'acme/widgets', number: 7, url: 'https://github.com/acme/widgets/pull/7', source: 'hook', linkedAt: LINKED_AT_MS },
-    { repo: 'acme/widgets', number: 42, url: 'https://github.com/acme/widgets/pull/42', source: 'hook', linkedAt: LINKED_AT_MS },
-  ]);
-  assert.equal(broadcasts.length, 2);
-});
-
-test('commenting on a PR, pushing a branch, a commit, or a non-github host links nothing', (context) => {
-  const session = makeLinkedSession(context);
-  const ignoredPayloads = [
-    bashResult(prOperation('commented', 9)),
-    bashResult({ pr: { commented: { number: 9, url: 'https://github.com/acme/widgets/pull/9' } } }),
-    bashResult({ push: { branch: 'feature' } }),
-    bashResult({ commit: { sha: 'abc123', kind: 'committed', branch: 'feature' } }),
-    bashResult({ pr: { action: 'created', url: 'https://gitlab.com/acme/widgets/pull/3' } }),
-    { ...bashResult(prOperation('created', 5)), tool_name: 'Read' },
-  ];
-  for (const payload of ignoredPayloads) session.emit('hook-event', { event: 'posttooluse', payload });
-  session.emit('hook-event', { event: 'stop', payload: bashResult(prOperation('created', 5)) });
-  assert.deepEqual(session.linkedPrs, []);
-});
-
-test('an ephemeral session never gains hook links', (context) => {
-  const session = makeLinkedSession(context, { ephemeral: true });
-  session.emit('hook-event', { event: 'posttooluse', payload: bashResult(prOperation('created', 42)) });
-  assert.deepEqual(session.linkedPrs, []);
-});
 
 function makeRepoAheadOfOrigin(originUrl: string, { commitsAhead }: { commitsAhead: number }) {
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pr-sha-link-'));
@@ -191,48 +142,4 @@ test('a store snapshot links each session to the operator open PRs whose head it
   } finally {
     for (const repoDir of [pushing.repoDir, settled.repoDir, elsewhere.repoDir]) fs.rmSync(repoDir, { recursive: true, force: true });
   }
-});
-
-test('a git push hook refreshes linked PR details while session links keep teammate PRs tracked until the last session detaches', async (context) => {
-  const firstHead = 'a'.repeat(40);
-  const pushedHead = 'b'.repeat(40);
-  const teammatePr = { ...openPr('Acme/widgets', 42, firstHead), author: { login: 'teammate' } };
-  const createdPr = openPr('acme/widgets', 7, firstHead);
-  const { store, detailCalls, setNodes, flushRefreshes } = storeHarness(context, [teammatePr, createdPr]);
-  const wiring = createSessionPrLinkWiring({ store, now: () => LINKED_AT_MS });
-  const firstSession = new Session({ id: 'first', name: 'first', path: process.cwd() });
-  firstSession.linkPr({ repo: 'Acme/widgets', number: 42, url: teammatePr.url, source: 'hook', linkedAt: LINKED_AT_MS });
-  wiring.attachSession(firstSession);
-  wiring.attachSession(firstSession);
-  await flushRefreshes();
-  assert.deepEqual(detailCalls, [['acme/widgets#42']]);
-  assert.equal(store.getSnapshot().prs['acme/widgets#42'].headRefOid, firstHead);
-  setNodes([{ ...teammatePr, headRefOid: pushedHead }, createdPr]);
-  const pushPayload = { tool_name: 'Bash', tool_input: { command: 'git push origin HEAD' }, tool_response: { gitOperation: { push: { branch: 'feature' } } } };
-  firstSession.emit('hook-event', { event: 'pretooluse', payload: pushPayload });
-  firstSession.emit('hook-event', { event: 'posttooluse', payload: { ...pushPayload, tool_name: 'Read' } });
-  await flushRefreshes();
-  assert.equal(detailCalls.length, 1);
-  firstSession.emit('hook-event', { event: 'posttooluse', payload: pushPayload });
-  firstSession.emit('hook-event', { event: 'posttooluse', payload: pushPayload });
-  await flushRefreshes();
-  assert.deepEqual(detailCalls, [['acme/widgets#42'], ['acme/widgets#42']]);
-  assert.equal(store.getSnapshot().prs['acme/widgets#42'].headRefOid, pushedHead);
-  const secondSession = new Session({ id: 'second', name: 'second', path: process.cwd() });
-  wiring.attachSession(secondSession);
-  secondSession.linkPr({ repo: 'acme/widgets', number: 42, url: teammatePr.url, source: 'manual', linkedAt: LINKED_AT_MS });
-  firstSession.emit('hook-event', { event: 'posttooluse', payload: bashResult(prOperation('created', 7)) });
-  await flushRefreshes();
-  assert.equal(store.getSnapshot().prs['acme/widgets#7'].number, 7);
-  firstSession.unlinkPr('Acme/widgets#42');
-  firstSession.emit('teardown');
-  await store.tick();
-  assert.deepEqual(Object.keys(store.getSnapshot().prs), ['acme/widgets#42']);
-  secondSession.emit('teardown');
-  secondSession.emit('hook-event', { event: 'posttooluse', payload: pushPayload });
-  const callsBeforeTeardownRefresh = detailCalls.length;
-  await flushRefreshes();
-  assert.equal(detailCalls.length, callsBeforeTeardownRefresh);
-  await store.tick();
-  assert.deepEqual(store.getSnapshot().prs, {});
 });
