@@ -2,8 +2,9 @@ import addSessionHTML from './components/add-session-dialog.html?raw';
 import agentConnectHTML from './components/agent-connect-dialog.html?raw';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
 import { sendControlRequest } from './control-ws.ts';
-import { AgentLoginStatuses, CoderEnvironmentOffers, ConnectableAgent } from '#shared/contracts/control-messages.ts';
+import { CoderEnvironmentOffers, ConnectableAgent } from '#shared/contracts/control-messages.ts';
 import type { AgentLoginStatus, CoderEnvironmentOffer, ServerMessage } from '#shared/contracts/control-messages.ts';
+import { agentLoginOf, applyAgentLogins, onAgentLoginsChanged } from './agent-logins.ts';
 import { el, query, queryTag } from './dom-helpers.ts';
 import { createRepoRootsAdder } from './onboarding/repo-roots-adder.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
@@ -12,8 +13,11 @@ import { DEFAULT_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './
 import { countSessionsByName, suggestSessionName } from './session-card/naming.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
 import { formatAgo } from './poll-ago.ts';
+import { addSessionRefusalText } from './session-actions.ts';
 import { formatTrailOffset, trailContentKey, trailStatusText, trailTimelineRows } from './radar/radar-core.ts';
 import type { InvestigationView } from './radar/radar-core.ts';
+
+export { agentLoginOf, onAgentLoginsChanged } from './agent-logins.ts';
 
 interface OptionSettings {
   value?: string;
@@ -51,25 +55,6 @@ function coderEnvironmentHint(environment: CoderEnvironmentOffer): string {
 }
 
 const CONNECTABLE_AGENT_NAMES: Readonly<Record<ConnectableAgent, string>> = Object.freeze({ 'claude-code': 'Claude Code', codex: 'Codex' });
-
-let latestAgentLogins: AgentLoginStatus[] = [];
-const agentLoginListeners = new Set<() => void>();
-
-export function applyAgentLogins(logins: unknown) {
-  const parsed = AgentLoginStatuses.safeParse(logins);
-  if (!parsed.success) return;
-  latestAgentLogins = parsed.data;
-  for (const listener of agentLoginListeners) listener();
-}
-
-export function agentLoginOf(agent: ConnectableAgent): AgentLoginStatus | null {
-  return latestAgentLogins.find((login) => login.agent === agent) ?? null;
-}
-
-export function onAgentLoginsChanged(listener: () => void): () => void {
-  agentLoginListeners.add(listener);
-  return () => { agentLoginListeners.delete(listener); };
-}
 
 function connectableAgentOf(agentId: string): ConnectableAgent | null {
   const parsed = ConnectableAgent.safeParse(agentId);
@@ -226,12 +211,6 @@ export function openRemoteSetupDialog() {
   const unsubscribe = onAgentLoginsChanged(renderAgentChoices);
   renderAgentChoices();
   refreshAgentLogins();
-}
-
-export function addSessionRefusalText(reply: ServerMessage): string {
-  if (reply.type === 'add-session-result' && reply.error) return reply.error;
-  if (reply.type === 'error') return reply.message;
-  return 'The session was not added.';
 }
 
 interface FolderWithoutWorktree {

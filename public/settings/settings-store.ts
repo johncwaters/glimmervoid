@@ -1,6 +1,6 @@
 import type { UpdateJournal } from '#shared/contracts/update-journal.ts';
 import { sendControlMsg } from '../control-ws.ts';
-import { applyAgentLogins } from '../dialogs.ts';
+import { applyAgentLogins } from '../agent-logins.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { IDLE_UPDATE_REQUEST, NOT_CONNECTED_TEXT, reduceUpdateRequest, updateErrorText } from '../updates-view-core.ts';
 import type { UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from '../updates-view-core.ts';

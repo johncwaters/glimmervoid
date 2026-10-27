@@ -1,11 +1,11 @@
 import { clearHeaderError, DEFAULT_REPLY_TIMEOUT_MS, reportHeaderError, requestFailureText } from './action-status.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
-import { addSessionRefusalText, openAddSessionDialogForFolderWithoutWorktree } from './dialogs.ts';
 import type { SessionRow } from './focus-view/attention-core.ts';
 import { buildSessionRows } from './focus-view/attention-core.ts';
 import type { SessionOpenStatePolicy } from './session-actions-core.ts';
 import { decideSessionOpenAction, pickRestorableSessionId } from './session-actions-core.ts';
 import { sendSessionAction } from './session-card/card-dom.ts';
+import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
@@ -46,6 +46,34 @@ export function sendForSession(id: string, message: Record<string, unknown>): bo
   return false;
 }
 
+const ADD_SESSION_ERROR_SOURCE = 'Add session';
+
+export function addSessionRefusalText(reply: ServerMessage): string {
+  if (reply.type === 'add-session-result' && reply.error) return reply.error;
+  if (reply.type === 'error') return reply.message;
+  return 'The session was not added.';
+}
+
+type DialogsModule = typeof import('./dialogs.ts');
+
+let isDialogOpening = false;
+
+function openWithDialogs(openDialog: (dialogs: DialogsModule) => void) {
+  if (isDialogOpening) return;
+  isDialogOpening = true;
+  import('./dialogs.ts').then((dialogs) => {
+    isDialogOpening = false;
+    openDialog(dialogs);
+  }, () => {
+    isDialogOpening = false;
+    reportHeaderError({ source: ADD_SESSION_ERROR_SOURCE, message: 'The Add session dialog did not load. Reload the page, then add the session again.' });
+  });
+}
+
+export function openAddSessionDialog() {
+  openWithDialogs((dialogs) => dialogs.createAddSessionDialog());
+}
+
 async function requestQuickAdd(path: string, label: string | null | undefined) {
   try {
     const name = suggestSessionName(label);
@@ -55,7 +83,7 @@ async function requestQuickAdd(path: string, label: string | null | undefined) {
       return;
     }
     if (reply.type === 'add-session-result' && reply.reason === 'not-git') {
-      openAddSessionDialogForFolderWithoutWorktree({ name, path });
+      openWithDialogs((dialogs) => dialogs.openAddSessionDialogForFolderWithoutWorktree({ name, path }));
       return;
     }
     reportHeaderError({ source: ADD_SESSION_ERROR_SOURCE, message: addSessionRefusalText(reply) });
@@ -88,7 +116,6 @@ export function spawnQuickSession(sourceId: string, revealSpawnedSession: (id: s
 }
 
 const SESSION_REMOVAL_TIMEOUT_MS = 65 * 60_000;
-const ADD_SESSION_ERROR_SOURCE = 'Add session';
 const REMOVE_SESSION_ERROR_SOURCE = 'Remove session';
 
 async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWork: boolean, confirmedKeptPaths: string[] = []) {

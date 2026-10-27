@@ -1,6 +1,6 @@
 import { createActionStatus, requestFailureText, DEFAULT_REPLY_TIMEOUT_MS } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { createAddSessionDialog } from '../dialogs.ts';
+import { openAddSessionDialog } from '../session-actions.ts';
 import { el } from '../dom-helpers.ts';
 import { createNotificationPermissionControl } from '../notifications.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
@@ -99,7 +99,7 @@ function firstSessionStepBody(): HTMLElement[] {
   addSessionButton.type = 'button';
   addSessionButton.addEventListener('click', () => {
     reportOnboardingAction('add-session');
-    createAddSessionDialog();
+    openAddSessionDialog();
   });
   const hint = el('span', 'first-run-step-hint', 'Folders and agents can change later in ');
   hint.append(createSettingsLink('machine-sessions', 'repository-roots', 'Settings > Sessions'), '.');

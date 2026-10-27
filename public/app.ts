@@ -11,7 +11,7 @@ import { getBorrowedCardId } from './card-host.ts';
 import { createClientErrorReporter, describeFailure } from './client-error-core.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
 import { checkControlLiveness, connectControl, onControlMessage, reportToServerLog, sendControlMsg, sendControlRequest, setConnectionStateCallback } from './control-ws.ts';
-import { applyAgentLogins, createAddSessionDialog } from './dialogs.ts';
+import { applyAgentLogins } from './agent-logins.ts';
 import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, forgetSessionCoherence, isSessionJournalReadable, openCoherenceJournal, sessionRowCoherenceSignals, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
@@ -56,7 +56,7 @@ import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, applySettingsUpdateError, onPhoneSettingsScreenChanged, refreshSettingsStatus, returnToSettingsList, setFeatureTabViews } from './settings/settings-store.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
-import { requestSessionRemoval, selectSession, spawnQuickSession } from './session-actions.ts';
+import { openAddSessionDialog, requestSessionRemoval, selectSession, spawnQuickSession } from './session-actions.ts';
 import { getSelectedId } from './sidebar/selection.ts';
 import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
 import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from './shortcuts.ts';
@@ -659,7 +659,7 @@ telemetrySettingsLink.href = createSettingsLink('privacy', 'telemetry-enabled', 
 telemetrySettingsLink.addEventListener('click', dismissTelemetryBanner);
 queryTag(document, '#telemetry-banner-dismiss', 'button').addEventListener('click', dismissTelemetryBanner);
 
-queryTag(document, '#btn-add-session-header', 'button').addEventListener('click', createAddSessionDialog);
+queryTag(document, '#btn-add-session-header', 'button').addEventListener('click', openAddSessionDialog);
 
 const btnMute = queryTag(document, '#btn-mute', 'button');
 mountMuteButton(btnMute);
