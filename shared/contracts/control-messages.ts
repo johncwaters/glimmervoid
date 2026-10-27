@@ -220,6 +220,7 @@ const clientVariants = [
     repos: z.array(z.string()).optional(),
     agent: z.string().optional(),
     dangerouslySkipPermissions: z.boolean().optional(),
+    saneYolo: z.boolean().optional(),
     unguarded: z.boolean().optional(),
     runInPlace: z.boolean().optional(),
     environment: z.string().optional(),

@@ -412,6 +412,7 @@ function createAgentApiWiring({
       name,
       path: parent.path,
       dangerouslySkipPermissions: parent.dangerouslySkipPermissions,
+      saneYolo: parent.saneYolo,
       unguarded: !parent.isGuarded,
     };
 

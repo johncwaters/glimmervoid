@@ -128,7 +128,8 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     overrides: SessionSpawnOverrides = {},
   ): Session {
     const skipPermissions = projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
-    const originalHookTools = dependencies.resolveHookTools(config, { skipPermissions });
+    const hookToolConfig = (currentConfig: GlimmervoidConfig): GlimmervoidConfig => project.saneYolo === true ? { ...currentConfig, saneYolo: true } : currentConfig;
+    const originalHookTools = dependencies.resolveHookTools(hookToolConfig(config), { skipPermissions });
     const prepareCoherence = overrides.ephemeral ? null : (cwd: string, confine: ConfineCommand | null) => resolveCoherence({
       worktree: cwd, confine, host: getAdapter(overrides.agent ?? project.agent)?.usageVendor,
       isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true,
@@ -163,7 +164,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       detectBackgroundAgents: config.detectBackgroundAgents,
       detectScheduledWakeups: config.detectScheduledWakeups,
       hookTools: originalHookTools,
-      getHookTools: () => refreshRtkHookTools(originalHookTools, dependencies.resolveHookTools(dependencies.getConfig?.() ?? config, { skipPermissions })),
+      getHookTools: () => refreshRtkHookTools(originalHookTools, dependencies.resolveHookTools(hookToolConfig(dependencies.getConfig?.() ?? config), { skipPermissions })),
       resumeSessionId: (project.resumeSessionId as string | null | undefined) || null,
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),

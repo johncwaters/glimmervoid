@@ -475,6 +475,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       repos,
       agent: requestedAgent && requestedAgent !== DEFAULT_AGENT_ID ? requestedAgent : undefined,
       dangerouslySkipPermissions: skipPerms,
+      saneYolo: skipPerms && msg.saneYolo === true,
       unguarded: msg.unguarded === true,
       requireExistingPath: !repos,
       environment: remote?.environment,
@@ -1119,7 +1120,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return entries;
   }
 
-  function createProjectSession({ id = generateProjectId(), name, path: projectPath, repos, baseBranch, agent, dangerouslySkipPermissions, unguarded, requireExistingPath, environment, runSettings }: { id?: string; name: string; path: string; repos?: string[]; baseBranch?: string; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; unguarded?: boolean; requireExistingPath?: boolean; environment?: ProjectEntry['environment']; runSettings?: Partial<ProjectEntry> }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
+  function createProjectSession({ id = generateProjectId(), name, path: projectPath, repos, baseBranch, agent, dangerouslySkipPermissions, saneYolo, unguarded, requireExistingPath, environment, runSettings }: { id?: string; name: string; path: string; repos?: string[]; baseBranch?: string; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; saneYolo?: boolean; unguarded?: boolean; requireExistingPath?: boolean; environment?: ProjectEntry['environment']; runSettings?: Partial<ProjectEntry> }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
     for (const [, session] of sessions) {
       if (session.name !== name) continue;
       return { ok: false, error: `Session "${name}" already exists` };
@@ -1140,6 +1141,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (workspaceRepos) project.repos = workspaceRepos;
     if (baseBranch) project.baseBranch = baseBranch;
     if (typeof dangerouslySkipPermissions === 'boolean') project.dangerouslySkipPermissions = dangerouslySkipPermissions;
+    if (saneYolo) project.saneYolo = true;
     if (unguarded) project.unguarded = true;
     if (agent) project.agent = agent;
     if (environment) project.environment = environment;

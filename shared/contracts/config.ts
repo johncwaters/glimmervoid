@@ -163,6 +163,7 @@ export const ProjectConfig = z.object({
   conversationView: z.boolean({ error: 'projects[].conversationView must be a boolean' }).optional(),
   dangerouslySkipPermissions: z.boolean({ error: 'projects[].dangerouslySkipPermissions must be a boolean' }).optional(),
   unguarded: z.boolean({ error: 'projects[].unguarded must be a boolean' }).optional(),
+  saneYolo: z.boolean({ error: 'projects[].saneYolo must be a boolean' }).optional(),
   environment: ProjectEnvironment.optional(),
 }).passthrough();
 const FILE_CONFIG_SHAPE = {

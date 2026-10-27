@@ -8,6 +8,9 @@ import { buildHookSettings } from '../detection/settings-injector.ts';
 import { execFile, execSync } from '../server/child-process-safe.ts';
 import { resolveHookTools, saneYoloHomeDir, writeSaneYoloPolicy } from '../server/hook-tools.ts';
 import { resolvePackageBin } from '../server/runtime-paths.ts';
+import { DEFAULT_CONFIG } from '../server/config-store.ts';
+import type { GlimmervoidConfig } from '../server/config-store.ts';
+import { createSessionFactory } from '../server/session/session-factory.ts';
 import codex from '../session/adapters/codex.ts';
 import grok from '../session/adapters/grok.ts';
 import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
@@ -89,6 +92,25 @@ test('Sane YOLO denies every destructive command and allows every safe one', asy
     }));
   } finally {
     fs.rmSync(temporaryHome, { recursive: true, force: true });
+  }
+});
+
+test('a project marked saneYolo resolves the Sane YOLO hook while the machine setting is off', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-project-sane-yolo-'));
+  const requestedSaneYoloSettings: (boolean | undefined)[] = [];
+  const makeSession = createSessionFactory({
+    configStore: { configPath: path.join(directory, 'config.json') }, hookRouter: null, getHookPort: () => null,
+    getGitWorkspace: () => null, getPlanReviewPort: () => null, getUserHooks: () => [],
+    resolveHookTools: (config) => { requestedSaneYoloSettings.push(config.saneYolo); return []; },
+  });
+  const project = { id: 'sane-yolo-project', name: 'project', path: directory, dangerouslySkipPermissions: true, saneYolo: true };
+  const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, saneYolo: false, recordSignals: false, projects: [project] };
+  const session = makeSession(project, config);
+  try {
+    assert.deepEqual(requestedSaneYoloSettings, [true]);
+  } finally {
+    session.destroy();
+    fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 
