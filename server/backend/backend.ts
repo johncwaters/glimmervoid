@@ -319,7 +319,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       requestReview: (reference) => teamReview.requestReview(reference),
       teamReviewStatus: () => teamReview.getStatus(),
       myPrsStatus: () => myPrs.getStatus(),
-      readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config, process.env)),
+      readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config, process.env, configStore.isExperimentalBuild)),
     },
     coderWorkspaceStatus: (workspace) => laneAssembly.coderEnv.workspaceStatus(workspace),
     logger: console,

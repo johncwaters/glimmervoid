@@ -20,6 +20,9 @@ import { isRecord } from '../shared/coerce.ts';
 import { normalizeLegacyConfigNumbers } from '../shared/contracts/config-numbers-core.ts';
 import { assetForPlatform } from './core/rtk-install-core.ts';
 import { DEFAULT_SESSION_MEMORY_RESERVE_MB } from './core/memory-admission-core.ts';
+import { withExperimentalFeaturesGated } from './core/experimental-gate-core.ts';
+import { isExperimentalBuild as isExperimentalVersion } from '../shared/build-channel.ts';
+import { packageRoot } from './runtime-paths.ts';
 
 type ProjectEntry = Config['projects'][number] & { id: string; name: string };
 interface GlimmervoidConfig extends Config {
@@ -361,9 +364,17 @@ function retiredGuardrailKeysWarning(config: GlimmervoidConfig): string | null {
   return `[guardrails] config.json still has ${retiredKeys.join(' and ')}. These keys are ignored, so their unreadable paths and opt-outs do not apply until you move them.`;
 }
 
-function createConfigStore({ settingsDefaults, readTelemetryInstallId }: {
+function readIsExperimentalBuild(): boolean {
+  const manifest: unknown = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
+  return isRecord(manifest) && isExperimentalVersion(manifest.version);
+}
+
+const IS_EXPERIMENTAL_BUILD = readIsExperimentalBuild();
+
+function createConfigStore({ settingsDefaults, readTelemetryInstallId, isExperimentalBuild = IS_EXPERIMENTAL_BUILD }: {
   settingsDefaults?: Partial<DefaultConfig>;
   readTelemetryInstallId?: () => string | null;
+  isExperimentalBuild?: boolean;
 } = {}) {
   const configPath = resolveConfigPath();
   const effectiveDefaults: Record<string, unknown> = { ...DEFAULT_CONFIG, ...(settingsDefaults || {}) };
@@ -387,6 +398,7 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId }: {
       console.warn('[config] Failed to persist auto-assigned project IDs:', errorMessage(err));
     }
   }
+  Object.assign(config, withExperimentalFeaturesGated(config, isExperimentalBuild));
 
   let _lastWrittenContent: string | null = null;
   let _lastAppliedContent: string | null = loadedConfig.loadedContent;
@@ -440,7 +452,7 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId }: {
     } catch (err) {
       return refuseSave(`[config] Failed to write config.json: ${errorLabel(err)}`);
     }
-    return effectiveConfig;
+    return withExperimentalFeaturesGated(effectiveConfig, isExperimentalBuild);
   }
 
   function saveAsync(mutatorFn: (config: GlimmervoidConfig) => unknown): Promise<GlimmervoidConfig | null> {
@@ -477,7 +489,7 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId }: {
           }
           _lastWrittenContent = nextContent;
           _lastAppliedContent = null;
-          return effectiveConfig;
+          return withExperimentalFeaturesGated(effectiveConfig, isExperimentalBuild);
         } catch (error) {
           console.warn('[config] Failed to save config.json asynchronously:', errorMessage(error));
           return null;
@@ -635,7 +647,7 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId }: {
       _lastAppliedContent = data;
 
       _lastWrittenContent = null;
-      callback(newConfig);
+      callback(withExperimentalFeaturesGated(newConfig, isExperimentalBuild));
       console.log('[config] Reloaded config.json');
     }
 
@@ -675,11 +687,12 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId }: {
     applySettings,
     isUnchosenLaunchDefault,
     watchForChanges,
+    isExperimentalBuild,
     DEFAULT_CONFIG,
   };
 }
 
 type ConfigStore = ReturnType<typeof createConfigStore>;
 
-export { createConfigStore, resolveConfigPath, glimmervoidHomeDir, generateProjectId, ensureProjectIds, validateConfig, loadConfigFile, saveConfigFileOnce, ABORT_CONFIG_SAVE, DEFAULT_CONFIG, CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX };
+export { IS_EXPERIMENTAL_BUILD, createConfigStore, resolveConfigPath, glimmervoidHomeDir, generateProjectId, ensureProjectIds, validateConfig, loadConfigFile, saveConfigFileOnce, ABORT_CONFIG_SAVE, DEFAULT_CONFIG, CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX };
 export type { ConfigStore, DefaultConfig, GlimmervoidConfig, ProjectEntry };

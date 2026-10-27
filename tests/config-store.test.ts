@@ -19,7 +19,7 @@ import { SECRET_PRESENCE_SUFFIX as CLIENT_SECRET_PRESENCE_SUFFIX } from '../publ
 import { waitForFsWatchToArm } from './helpers/wait-for.ts';
 
 type ConfigFileContent = Record<string, unknown>;
-type StoreOptions = { settingsDefaults?: Partial<DefaultConfig> };
+type StoreOptions = { settingsDefaults?: Partial<DefaultConfig>; isExperimentalBuild?: boolean };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -375,6 +375,27 @@ test('a config file on the retired main channel loads on the experimental channe
     assert.equal(store.config.updateChannel, 'experimental');
     assert.equal(store.getSettings().updateChannel, 'experimental');
   });
+});
+
+test('a stable build reads experimental features as off and keeps their stored values on save', () => {
+  const stored = { projects: [], conversationView: true, remoteSessions: true, coherence: { enabled: true }, issues: { enabled: true } };
+  withStore(stored, (store, configPath) => {
+    assert.deepEqual(
+      [store.config.conversationView, store.config.remoteSessions, store.config.coherence?.enabled, store.config.issues?.enabled],
+      [false, false, false, false],
+    );
+    const saved = store.save((config) => { config.debugMode = true; });
+    assert.equal(saved?.conversationView, false);
+    const onDisk = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    assert.deepEqual(
+      [onDisk.conversationView, onDisk.remoteSessions, onDisk.coherence.enabled, onDisk.issues.enabled, onDisk.debugMode],
+      [true, true, true, true, true],
+    );
+  }, { isExperimentalBuild: false });
+  withStore(stored, (store) => {
+    assert.equal(store.config.conversationView, true);
+    assert.equal(store.config.coherence?.enabled, true);
+  }, { isExperimentalBuild: true });
 });
 
 test('settingsDefaults overlays a key the config file omits', () => {

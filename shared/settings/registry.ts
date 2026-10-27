@@ -996,6 +996,12 @@ const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
 
 export const SETTINGS_REGISTRY: SettingsRegistry = Object.freeze({ sections: SECTIONS, fileOnly: FILE_ONLY_SETTINGS });
 
+const EXPERIMENTAL_KEYWORD = 'experimental';
+
+export function isExperimentalSetting(setting: Pick<SettingsSetting, 'keywords'>): boolean {
+  return setting.keywords.includes(EXPERIMENTAL_KEYWORD);
+}
+
 export const SETTINGS_SECTION_ALIASES: Readonly<Record<string, string>> = Object.freeze(Object.fromEntries(
   SECTIONS.flatMap((section) => (section.legacyIds ?? []).map((legacyId) => [legacyId, section.id])),
 ));

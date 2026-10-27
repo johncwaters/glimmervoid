@@ -11,13 +11,14 @@ import {
 import { SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
 import type { SettingsSetting } from '../shared/settings/registry.ts';
 import { errorCode, errorMessage } from '../shared/text.ts';
-import { loadConfigFile, saveConfigFileOnce, validateConfig } from './config-store.ts';
+import { IS_EXPERIMENTAL_BUILD, loadConfigFile, saveConfigFileOnce, validateConfig } from './config-store.ts';
 import type { GlimmervoidConfig } from './config-store.ts';
 import { renderTable } from './core/ascii-figure-core.ts';
+import { isSettingAvailable } from './core/experimental-gate-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
 import { ENV_SECRET_BINDINGS, readEnvSecrets, withEnvSecrets } from './core/config-secrets-core.ts';
 import {
-  ALL_SETTINGS, configFileViewOf, defaultText, describeSetting, fail, fitColumn, getSetting, listSettings, readSetting,
+  availableSettings, configFileViewOf, defaultText, describeSetting, fail, fitColumn, getSetting, listSettings, readSetting,
   renderSectionTables, requireConfigFileSetting, sectionOf, settingsRequestForServer, succeed, valueText,
 } from './core/settings-readout-core.ts';
 import type { ConfigFileView, Outcome } from './core/settings-readout-core.ts';
@@ -211,7 +212,7 @@ function openConfigFile(): Outcome<ConfigFileView> {
   if (!decided.path) return fail(`no config.json at ${decided.homePath}. Start Glimmervoid once to create it; glimmervoid settings schema needs no config file`);
   const loaded = readConfigFile(decided.path, homeDir);
   if (!loaded.ok) return fail(loaded.message);
-  return succeed(configFileViewOf(decided.path, loaded.value, env));
+  return succeed(configFileViewOf(decided.path, loaded.value, env, IS_EXPERIMENTAL_BUILD));
 }
 
 function print(context: CommandContext, jsonValue: unknown, text: string): number {
@@ -226,7 +227,7 @@ function requireView(): ConfigFileView {
 }
 
 function requireSetting(context: CommandContext, view: ConfigFileView): SettingsSetting {
-  const resolved = requireConfigFileSetting(requirePositional(context.positionals, 1, 'path'), view.configPath);
+  const resolved = requireConfigFileSetting(requirePositional(context.positionals, 1, 'path'), view);
   if (!resolved.ok) throw new Error(resolved.message);
   return resolved.value;
 }
@@ -293,7 +294,8 @@ const commands: Record<string, (context: CommandContext) => number> = {
   search: (context) => {
     const query = context.positionals.slice(1).join(' ');
     if (query.trim() === '') throw new Error(`missing <text>\n\n${usage}`);
-    const results = scoreSettingsSearch(SETTINGS_REGISTRY.sections, query, SETTINGS_REGISTRY.fileOnly);
+    const results = scoreSettingsSearch(SETTINGS_REGISTRY.sections, query, SETTINGS_REGISTRY.fileOnly)
+      .filter((result) => isSettingAvailable(result.setting, IS_EXPERIMENTAL_BUILD));
     const rows = results.map((result) => [
       result.setting.scope === 'browser' ? `${result.setting.id} (browser preference)` : result.setting.path,
       result.setting.title,
@@ -314,7 +316,8 @@ const commands: Record<string, (context: CommandContext) => number> = {
       setting.unit?.label ?? '',
       setting.takesEffect,
     ];
-    return print(context, ALL_SETTINGS.map(describeSetting), renderSectionTables(ALL_SETTINGS, ['Id', 'Path', 'Type', 'Default', 'Stored unit', 'Display unit', 'Effect'], rowOf));
+    const settings = availableSettings(IS_EXPERIMENTAL_BUILD);
+    return print(context, settings.map(describeSetting), renderSectionTables(settings, ['Id', 'Path', 'Type', 'Default', 'Stored unit', 'Display unit', 'Effect'], rowOf));
   },
 };
 
