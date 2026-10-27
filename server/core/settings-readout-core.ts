@@ -220,7 +220,7 @@ function settingsRequestForServer(commandArguments: readonly string[], env: Node
 }
 
 export {
-  ALL_SETTINGS, availableSettings, configFileViewOf, defaultText, describeSetting, fail, fitColumn, getSetting, listSettings, readSetting, readSettingsForAgent,
+  availableSettings, configFileViewOf, defaultText, describeSetting, fail, fitColumn, getSetting, listSettings, readSetting, readSettingsForAgent,
   renderSectionTables, requireConfigFileSetting, sectionOf, settingsRequestForServer, succeed, valueText,
 };
 export type { ConfigFileView, Outcome };

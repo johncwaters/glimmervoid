@@ -5,7 +5,7 @@ interface ReleaseVersion {
   experimentalBuildNumber: number | null;
 }
 
-export function parseReleaseVersion(version: unknown): ReleaseVersion | null {
+function parseReleaseVersion(version: unknown): ReleaseVersion | null {
   if (typeof version !== 'string') return null;
   const matched = RELEASE_VERSION_RE.exec(version.trim());
   if (!matched) return null;

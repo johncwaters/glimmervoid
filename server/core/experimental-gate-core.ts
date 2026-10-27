@@ -28,4 +28,4 @@ function isSettingAvailable(setting: Pick<SettingsSetting, 'keywords'>, isExperi
   return isExperimentalBuild || !isExperimentalSetting(setting);
 }
 
-export { EXPERIMENTAL_MACHINE_SETTINGS, isSettingAvailable, withExperimentalFeaturesGated };
+export { isSettingAvailable, withExperimentalFeaturesGated };
