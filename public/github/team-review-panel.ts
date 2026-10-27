@@ -855,6 +855,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     const control = pickedControl ?? (document.activeElement === note.input ? leadingDecision(draft.verdict) : null);
     const button = bar.buttons.find((candidate) => candidate.dataset.action === control);
     if (!control || !button) return false;
+    if (isBusy || _pendingActions.has(draft.key)) return true;
     if (button.disabled) {
       paintActionStatus(bar.status, 'error', postingPreview(draft, selection(), control).detail);
       return true;

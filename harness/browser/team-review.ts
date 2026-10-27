@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import type { Page } from 'playwright-core';
+import type { Locator, Page } from 'playwright-core';
 import { GithubPr, GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
 import type { ServerMessage } from '../../shared/contracts/control-messages.ts';
 import { MyPrsStatus } from '../../shared/contracts/my-prs.ts';
 import { ReviewDraft, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type { TeamReviewAction, TeamReviewThread } from '../../shared/contracts/team-review.ts';
 import type { Layout } from './cases-core.ts';
+import { shortcutPlatformFor } from '../../public/shortcuts-core.ts';
 import { showQueue, verifyMyPrKeepMergeable } from './my-prs.ts';
 
 const REVIEWED_HEAD = 'a'.repeat(40);
@@ -59,6 +60,11 @@ function createStatus(): TeamReviewStatus {
     }],
     queued: [{ key: 'Acme/app#10', repo: 'Acme/app', number: 10, title: 'Queued PR', url: 'https://github.com/Acme/app/pull/10', author: 'teammate' }],
   });
+}
+
+async function readRowMeaning(row: Locator): Promise<string | undefined> {
+  const [, meaningWithoutGoal] = (await row.getAttribute('title') ?? '').split('\n');
+  return meaningWithoutGoal;
 }
 
 async function applyStatus(page: Page, status: TeamReviewStatus): Promise<void> {
@@ -176,7 +182,7 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
   const fallbackRow = page.locator('.pr-queue-row[data-review-key="Acme/app#2"]');
   const mineRow = page.locator('.pr-queue-row[data-pr-key="Acme/app#1"]');
   const root = page.locator('.review-queue');
-  assert.equal(await teamRow.locator('.pr-queue-state').textContent(), 'Waits on you');
+  assert.equal(await readRowMeaning(teamRow), 'Waits on you');
   const updates: { pr: GithubPr; stage: string; firstKey: string }[] = [
     { pr: { ...canonicalPr, rollupState: 'PENDING', checks: { state: 'PENDING', failing: [], pendingCount: 1 } }, stage: 'Checks running', firstKey: 'Acme/app#2' },
     { pr: { ...canonicalPr, rollupState: 'FAILURE', checks: { state: 'FAILURE', failing: ['build'], pendingCount: 0 }, reviewDecision: 'CHANGES_REQUESTED' }, stage: 'Checks failing', firstKey: 'Acme/app#2' },
@@ -186,9 +192,9 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
   ];
   for (const { pr, stage, firstKey } of updates) {
     await emitTeamReviewFrames(page, [frameFor(pr)]);
-    assert.equal(await teamRow.locator('.pr-queue-state').textContent(), stage);
+    assert.equal(await readRowMeaning(teamRow), stage);
     assert.equal(await root.locator('.pr-queue-row').first().getAttribute('data-review-key'), firstKey);
-    assert.equal(await fallbackRow.locator('.pr-queue-state').textContent(), 'Waits on you');
+    assert.equal(await readRowMeaning(fallbackRow), 'Waits on you');
     const teamGlyph = await teamRow.locator('.pr-queue-glyph').innerHTML();
     const teamIcon = await teamRow.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML);
     const unchangedTeamRow = await teamRow.elementHandle();
@@ -221,7 +227,7 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
   assert.equal(await page.locator('.pr-detail .pr-changed-since-link').getAttribute('href'), `https://github.com/Acme/app/compare/${REVIEWED_HEAD}...${movedHead}`);
   await emitTeamReviewFrames(page, [frameFor()]);
   assert.equal(await page.locator('.pr-detail .pr-changed-since').count(), 0);
-  assert.equal(await teamRow.locator('.pr-queue-state').textContent(), 'Out of date');
+  assert.equal(await readRowMeaning(teamRow), 'Out of date');
   await applyStatus(page, snapshot);
 }
 
@@ -238,7 +244,7 @@ async function verifyPhoneDetailScreen(page: Page, status: TeamReviewStatus): Pr
   const navBox = await page.locator('.phone-nav').boundingBox();
   assert.ok(barBox && navBox && barBox.y + barBox.height <= navBox.y + 1);
   const buttonRows = await root.locator('.pr-decision-bar > .pr-action').evaluateAll((buttons) => new Set(buttons.map((button) => Math.round(button.getBoundingClientRect().top))).size);
-  assert.equal(buttonRows, 2);
+  assert.equal(buttonRows, 3);
   await page.goBack();
   await pane.waitFor({ state: 'visible' });
   assert.equal(await root.getAttribute('data-detail-open'), 'false');
@@ -306,6 +312,7 @@ async function verifyQueueRebuildsAfterEmptyStatus(page: Page, status: TeamRevie
 }
 
 async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus): Promise<void> {
+  const threadsFact = () => page.locator('.pr-detail .pr-desk-facts .pr-fact').filter({ has: page.locator('dt', { hasText: 'Threads' }) }).locator('dd').or(page.locator('.pr-detail-heading .pr-viewer-threads'));
   const review = createDraft(1, {
     viewerThreads: { total: 5, resolved: 2 },
     comments: [{ path: 'src/a.ts', line: 1, side: 'RIGHT', body: 'Drafted finding.' }],
@@ -320,23 +327,23 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   assert.match(await sectionHeading() ?? '', /Waiting on others/);
   await showQueue(page);
   await row.click();
-  assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), '2 of 5 of your comments resolved');
+  assert.equal(await threadsFact().textContent(), '2 of 5 of your comments resolved');
   const resolved = { ...review, viewerThreads: { total: 5, resolved: 5 } };
   await applyStatus(page, withDraft(resolved));
   assert.doesNotMatch(await sectionHeading() ?? '', /Waiting on others/);
-  assert.equal(await row.locator('.pr-queue-state').textContent(), 'Comments resolved');
-  assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), 'All 5 of your comments resolved');
+  assert.equal(await readRowMeaning(row), 'Comments resolved');
+  assert.equal(await threadsFact().textContent(), 'All 5 of your comments resolved');
   assert.match(await row.getAttribute('title') ?? '', /All 5 of your comments resolved/);
   await applyStatus(page, withDraft({ ...resolved, viewerThreads: { total: 5, resolved: 3 } }));
-  assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), '3 of 5 of your comments resolved');
+  assert.equal(await threadsFact().textContent(), '3 of 5 of your comments resolved');
   await applyStatus(page, withDraft({ ...resolved, reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: REVIEWED_HEAD, isViewer: true }] }));
   assert.match(await sectionHeading() ?? '', /Waiting on others/);
   await applyStatus(page, withDraft({ ...resolved, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
   assert.match(await sectionHeading() ?? '', /Your turn/);
-  assert.equal(await row.locator('.pr-queue-state').textContent(), 'Comments resolved');
+  assert.equal(await readRowMeaning(row), 'Comments resolved');
   await showQueue(page);
   await row.click();
-  assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), 'All 5 of your comments resolved');
+  assert.equal(await threadsFact().textContent(), 'All 5 of your comments resolved');
   await applyStatus(page, withDraft({ ...review, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
   assert.match(await sectionHeading() ?? '', /Waiting on others/);
   await applyStatus(page, snapshot);
@@ -716,7 +723,8 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   await verifyLayout(page);
   if (layout === 'desktop') {
     assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').getAttribute('aria-current'), 'true');
-    await page.keyboard.press('Alt+KeyJ');
+    const dashboardModifier = shortcutPlatformFor(await page.evaluate(() => navigator.userAgent)) === 'mac' ? 'Meta' : 'Alt';
+    await page.keyboard.press(`${dashboardModifier}+KeyJ`);
     assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#2"]').getAttribute('aria-current'), 'true');
     assert.equal(await page.evaluate(() => document.body.dataset.activeView), 'prs');
   }
