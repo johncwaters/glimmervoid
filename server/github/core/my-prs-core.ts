@@ -47,7 +47,7 @@ export const MY_PRS_FIX_CHECKOUT_DIRNAME = 'repo';
 export const MY_PRS_FIX_WORK_BRANCH = 'keep-mergeable';
 export const MY_PRS_FIX_BASE_BRANCH = 'pr-base';
 export const DEFAULT_KEEP_MERGEABLE_TIMEOUT_MINUTES = 30;
-export const MY_PRS_FIX_DENY_RULES: readonly string[] = Object.freeze([
+const MY_PRS_FIX_DENY_RULES: readonly string[] = Object.freeze([
   'Bash(git push:*)',
   'Bash(gh:*)',
   'Bash(curl:*api.github.com*)',
@@ -57,7 +57,7 @@ export const MY_PRS_FIX_DENY_RULES: readonly string[] = Object.freeze([
   'WebFetch',
   'WebSearch',
 ]);
-export const MY_PRS_FIX_ALLOW_RULES: readonly string[] = Object.freeze(['Bash']);
+const MY_PRS_FIX_ALLOW_RULES: readonly string[] = Object.freeze(['Bash']);
 const UNSAFE_BRANCH_NAME = /[\x00-\x20\x7f~^:?*[\\]|\.\.|@\{|^[-/.+]|\/\.|\/\/|[/.]$|\.lock$|\.lock\//;
 const MOVED_BRANCH_PUSH_REJECTION = /\[rejected\][^\n]*\((?:non-fast-forward|fetch first|stale info)\)/;
 

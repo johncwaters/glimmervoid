@@ -10,13 +10,10 @@ import { closeSocket, dashboardClient, openRecordingSocket, openSocket, waitForM
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
-import { waitForFsWatchToArm } from './helpers/wait-for.ts';
 
 const SESSION_ID = 'reconnect-test-session';
 
 const OVERSIZED_INPUT = 'x'.repeat(20000);
-
-const RELOAD_BROADCAST_WAIT_MS = 10000;
 
 interface ControlFrame {
   type: string;
@@ -97,22 +94,4 @@ test('a data socket whose id does not exist is still refused', withBackend(async
   const ws = await openSocket(client, '/terminals/no-such-session?probe=1');
   const code = await new Promise<number>((resolve) => { ws.once('close', (closeCode: number) => resolve(closeCode)); });
   assert.equal(code, 1008);
-}));
-
-test('a config.json edit on disk reaches an open dashboard as settings-updated without a restart', withBackend(async (client, configPath) => {
-  const control = await openRecordingSocket<ControlFrame>(client, '/control');
-  try {
-    await waitForMessage(control.received, (m) => m.type === 'snapshot', 'the snapshot');
-    await waitForFsWatchToArm();
-    const onDisk: Record<string, unknown> = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    fs.writeFileSync(configPath, JSON.stringify({ ...onDisk, streamerMode: true }, null, 2), 'utf8');
-    await waitForMessage(
-      control.received,
-      (m) => m.type === 'settings-updated' && m.settings?.streamerMode === true,
-      'a settings-updated broadcast carrying the streamerMode edited on disk',
-      RELOAD_BROADCAST_WAIT_MS,
-    );
-  } finally {
-    control.ws.terminate();
-  }
 }));

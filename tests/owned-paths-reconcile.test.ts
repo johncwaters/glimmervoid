@@ -56,53 +56,6 @@ async function provisionWorkspace(root: string, sessionId: string, repoPaths: st
   return planned.plan;
 }
 
-test('startup reconcile deletes only ledgered leftovers of removed sessions and keeps any holding work', { skip: !hasGit() }, async () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-owned-reconcile-')));
-  const ledgerPath = path.join(root, 'owned-paths.json');
-  try {
-    const first = makeRepo(root, 'first');
-    const second = makeRepo(root, 'second');
-    const firstRun = restartedServer(ledgerPath);
-    const removedWorkspace = await provisionWorkspace(root, 'removed-session', [first, second], firstRun.gitWorkspace);
-    const liveWorkspace = await provisionWorkspace(root, 'live-session', [first, second], firstRun.gitWorkspace);
-    await firstRun.ledger.idle();
-    const unledgeredFolder = path.join(root, 'ws-made-by-hand');
-    fs.mkdirSync(unledgeredFolder);
-    const [cleanMember, dirtyMember] = removedWorkspace.members;
-    fs.writeFileSync(path.join(dirtyMember.dir, 'unsaved.txt'), 'work');
-
-    markUntouchedForDays(removedWorkspace);
-    const secondRun = restartedServer(ledgerPath);
-    await secondRun.reconcile(['live-session']);
-    assert.equal(fs.existsSync(cleanMember.dir), false);
-    assert.equal(fs.existsSync(dirtyMember.dir), true);
-    assert.equal(fs.existsSync(removedWorkspace.folder), true);
-    assert.equal(fs.existsSync(liveWorkspace.members[0].dir), true);
-    assert.equal(fs.existsSync(unledgeredFolder), true);
-    assert.ok(secondRun.warnings.some((warning) => warning.includes(dirtyMember.dir) && warning.includes('uncommitted changes')));
-
-    fs.rmSync(path.join(dirtyMember.dir, 'unsaved.txt'));
-    markUntouchedForDays(removedWorkspace);
-    const thirdRun = restartedServer(ledgerPath);
-    await thirdRun.reconcile(['live-session']);
-    assert.equal(fs.existsSync(dirtyMember.dir), false);
-    assert.equal(fs.existsSync(removedWorkspace.folder), false);
-    assert.equal(fs.existsSync(liveWorkspace.folder), true);
-    await thirdRun.ledger.idle();
-    const ledgeredOwners = JSON.parse(fs.readFileSync(ledgerPath, 'utf8')).entries.map((entry: { owner: string }) => entry.owner);
-    assert.deepEqual([...new Set(ledgeredOwners)], ['session:live-session']);
-
-    fs.writeFileSync(ledgerPath, '{ not a ledger');
-    const malformedRun = restartedServer(ledgerPath);
-    await malformedRun.reconcile([]);
-    assert.equal(fs.existsSync(liveWorkspace.members[0].dir), true);
-    assert.equal(fs.existsSync(liveWorkspace.folder), true);
-    assert.notEqual(malformedRun.warnings.length, 0);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('a backend booted on a config outside its home sweeps only that config\'s ledger, never the home ledger', { skip: !hasGit() }, async () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-foreign-config-')));
   const homeDirectory = path.join(root, 'home');

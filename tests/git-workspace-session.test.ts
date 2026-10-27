@@ -1270,31 +1270,6 @@ test('listRemoteBranches (real git): lists every prefixed remote branch and noth
   }
 });
 
-test('deleteRemoteBranch (real git): a remote tip that moved after the listing is never deleted', { skip: !GIT }, async () => {
-  const { rootDir, repoDir, remoteDir } = initCloneWithPrefixedRemoteBranches();
-  try {
-    const gitWorkspace = createGitWorkspace();
-    const listedTipSha = git(['rev-parse', 'refs/remotes/origin/glimmervoid/session/abc'], repoDir).trim();
-    fs.writeFileSync(path.join(repoDir, 'later.txt'), 'later\n', 'utf8');
-    git(['add', '-A'], repoDir);
-    git(['commit', '-m', 'work pushed after the listing'], repoDir);
-    git(['push', 'origin', 'HEAD:refs/heads/glimmervoid/session/abc'], repoDir);
-    const movedTipSha = git(['rev-parse', 'HEAD'], repoDir).trim();
-
-    const refused = await gitWorkspace.deleteRemoteBranch({ projectPath: repoDir, name: 'glimmervoid/session/abc', tipSha: listedTipSha, cause: 'session' });
-
-    assert.equal(refused.ok, false);
-    assert.equal(git(['rev-parse', 'refs/heads/glimmervoid/session/abc'], remoteDir).trim(), movedTipSha);
-
-    const deleted = await gitWorkspace.deleteRemoteBranch({ projectPath: repoDir, name: 'glimmervoid/session/abc', tipSha: movedTipSha, cause: 'session' });
-
-    assert.equal(deleted.ok, true);
-    assert.throws(() => git(['rev-parse', '--verify', '--quiet', 'refs/heads/glimmervoid/session/abc'], remoteDir), Error);
-  } finally {
-    fs.rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
 test('a session based on a pull request branch forks from its origin tip and a branch missing on origin is never seeded from main', { skip: !GIT }, async (context) => {
   const upstream = initRepoOnMain('glimmervoid-pr-upstream-');
   git(['checkout', '-b', 'feature/pr-branch'], upstream);

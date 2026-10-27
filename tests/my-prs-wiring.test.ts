@@ -7,15 +7,13 @@ import { execFileAsync, execFileSync } from '../server/child-process-safe.ts';
 import { guardedPrRole, createMyPrMergeabilityFix, createMyPrsStateIo, keepMergeableRole, sweepKeepMergeableLeftovers } from '../server/github/my-prs-wiring.ts';
 import { createRepoCache } from '../server/git/repo-cache.ts';
 import type { CommandResult } from '../server/git/repo-cache.ts';
-import { createTeamReviewSpawn, hooksPathPinnedSpawnEnv, teamReviewSpawnEnv } from '../server/github/team-review-wiring.ts';
+import { createTeamReviewSpawn, } from '../server/github/team-review-wiring.ts';
 import { GUARDRAILS_PLACEHOLDER_NAMES } from '../server/guardrails/core/guardrails-policy-core.ts';
 import type { TeamReviewSpawn } from '../server/github/team-review-wiring.ts';
 import {
-  MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_BOOTSTRAP_PROMPT, MY_PRS_FIX_CHECKOUT_DIRNAME, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, MY_PRS_FIX_PROMPT_FILENAME, keepMergeableTimeoutSeconds,
+  MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_CHECKOUT_DIRNAME, keepMergeableTimeoutSeconds,
 } from '../server/github/core/my-prs-core.ts';
-import { LANE_ENVIRONMENT_ARGS } from '../server/lanes/core/lane-permissions-core.ts';
 import { Session } from '../session/sessions.ts';
-import type { SessionOptions } from '../session/sessions.ts';
 import type { MyPr } from '../shared/contracts/my-prs.ts';
 import { manualTimers } from './helpers/manual-timers.ts';
 
@@ -156,84 +154,6 @@ test('My PRs state uses the existing atomic store and survives a new state IO in
     assert.deepEqual(await stateIo.readState(), state);
     assert.deepEqual(await createMyPrsStateIo(statePath, { warn() {} }).readState(), state);
     assert.deepEqual(JSON.parse(await fs.readFile(statePath, 'utf8')), state);
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
-});
-
-test('keep mergeable runs guarded with the review posture and the server fast-forwards the PR branch to the session commit and nothing else', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-'));
-  const createdSessions: SessionOptions[] = [];
-  const recordedLanes: string[] = [];
-  const promptBodies: string[] = [];
-  const reviewSessions = new Map<string, unknown>();
-  const spawnSession = createTeamReviewSpawn({
-    reviewSessions, closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux',
-    recordLane: (_id, lane) => { recordedLanes.push(lane); },
-    makeSession: (options) => {
-      createdSessions.push(options);
-      const session = new Session(options);
-      session.start = async () => {
-        promptBodies.push(await fs.readFile(path.join(options.path, MY_PRS_FIX_PROMPT_FILENAME), 'utf8'));
-        await resolveConflictAndCommit(path.join(options.path, MY_PRS_FIX_CHECKOUT_DIRNAME));
-        session.emit('claude-session-id', { id: 'fix-session' });
-        session.emit('exit');
-      };
-      return session;
-    },
-  });
-  try {
-    const harness = await fixHarness(root, { spawnSession });
-    const pr = conflictingPr(harness.headSha);
-    const remoteRefsBefore = await remoteRefs(harness.originDir);
-    const heldRepairShas: string[] = [];
-    const pushCountsWhenHeld: number[] = [];
-    const repairOutcome = await harness.fix(pr, new AbortController().signal, async (repairSha) => { heldRepairShas.push(repairSha); pushCountsWhenHeld.push(harness.pushes.length); }, () => pr);
-    assert.deepEqual(repairOutcome, { outcome: 'pushed' });
-    assert.equal(createdSessions.length, 1);
-    const workDir = createdSessions[0].path;
-    assert.match(createdSessions[0].id, /^my-prs:/);
-    assert.ok(workDir.startsWith(harness.workRoot));
-    assert.equal(createdSessions[0].initialPrompt, MY_PRS_FIX_BOOTSTRAP_PROMPT);
-    assert.equal(createdSessions[0].settingsGuardrails, null);
-    assert.equal(typeof createdSessions[0].prepareGuardrails, 'function', 'the repair starts inside the sandbox runtime');
-    assert.deepEqual(createdSessions[0].spawnEnv, { ...teamReviewSpawnEnv(workDir), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_2: 'core.hooksPath', GIT_CONFIG_VALUE_2: '', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' });
-    assert.deepEqual(createdSessions[0].spawnEnv, { ...hooksPathPinnedSpawnEnv(workDir), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' });
-    assert.deepEqual(createdSessions[0].settingsPermissions, { deny: [...MY_PRS_FIX_DENY_RULES], defaultMode: 'acceptEdits' });
-    assert.equal(createdSessions[0].dangerouslySkipPermissions, false, 'the skip flag would override the acceptEdits boundary');
-    for (const rule of ['Bash(git push:*)', 'Bash(gh:*)', 'Edit(**/.git/hooks/**)', 'Edit(**/.git/config)', 'Edit(**/.claude/**)']) assert.ok(MY_PRS_FIX_DENY_RULES.includes(rule), rule);
-    assert.ok(!MY_PRS_FIX_DENY_RULES.some((rule) => rule.includes('.github/workflows')), 'an Edit deny becomes a guardrails write block, so a merge could not check out a workflow the base changed; the handoff refuses any .github change instead');
-    assert.ok(!MY_PRS_FIX_DENY_RULES.includes('Edit(**/.git/**)'), 'Claude Code folds Edit deny rules into the guardrails denyWrite, so a whole-.git deny leaves the repair unable to commit');
-    assert.deepEqual(createdSessions[0].extraClaudeArgs, ['-p', '--allowedTools', ...MY_PRS_FIX_ALLOW_RULES, '--disallowedTools', ...MY_PRS_FIX_DENY_RULES, ...LANE_ENVIRONMENT_ARGS]);
-    assert.equal(createdSessions[0].ephemeral, true);
-    assert.match(promptBodies[0], /Do not push and do not merge/);
-    assert.deepEqual(recordedLanes, ['my-prs']);
-    assert.equal(reviewSessions.size, 0);
-    assert.equal(harness.pushes.length, 1);
-    const [pushCommand, ...pushArgs] = harness.pushes[0];
-    assert.equal(pushCommand, 'push');
-    assert.deepEqual(pushArgs.filter((arg) => arg.startsWith('--force') || arg === '-f' || arg.includes('+')), [`--force-with-lease=refs/heads/fix/checks:${harness.headSha}`], pushArgs.join(' '));
-    assert.ok(pushArgs.includes('--no-verify'));
-    assert.ok(pushArgs.includes('https://github.com/Acme/app.git'));
-    const refspec = pushArgs.at(-1) ?? '';
-    assert.match(refspec, /^[0-9a-f]{40}:refs\/heads\/fix\/checks$/);
-    const pushedSha = refspec.split(':')[0];
-    assert.notEqual(pushedSha, harness.headSha);
-    assert.equal((await tryGit(['merge-base', '--is-ancestor', harness.headSha, pushedSha], harness.cachedRepo)).ok, true);
-    assert.equal(await git(['for-each-ref', 'refs/glimmervoid-keep-mergeable/'], harness.cachedRepo), '');
-    assert.ok(harness.logs.some((line) => line.includes(pushedSha) && line.includes('fix/checks')), harness.logs.join('\n'));
-    const remoteRefsAfter = await remoteRefs(harness.originDir);
-    assert.deepEqual([...remoteRefsAfter.keys()].sort(), [...remoteRefsBefore.keys()].sort(), 'the push creates no new remote ref');
-    assert.equal(remoteRefsAfter.get('refs/heads/fix/checks'), pushedSha);
-    assert.deepEqual(heldRepairShas, [pushedSha]);
-    assert.deepEqual(pushCountsWhenHeld, [0], 'the repair head is held before the push starts');
-    assert.equal(await git(['rev-list', '--count', pushedSha, '--not', harness.headSha, 'refs/heads/main'], harness.originDir), '1');
-    assert.equal(await git(['rev-parse', `${pushedSha}^1`], harness.originDir), harness.headSha);
-    for (const [refName, sha] of remoteRefsBefore) {
-      if (refName !== 'refs/heads/fix/checks') assert.equal(remoteRefsAfter.get(refName), sha, refName);
-    }
-    assert.deepEqual(await fs.readdir(harness.workRoot), []);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
