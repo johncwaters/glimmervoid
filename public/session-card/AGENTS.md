@@ -12,7 +12,7 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 |------|-------------|
 | `card-registry.ts` | Shared state owner: `sessionUIs` Map + `container` DOM singleton |
 | `lifecycle.ts` | `createSessionCard`, `removeSessionCard`, `applyState`, the tab title count over `focus-view/attention-core.ts` counts |
-| `agent-core.ts` | Pure `agentBadgeText(agent)`: which agent adapter id earns a card chip (never the default one) |
+| `agent-core.ts` | Pure `decideAgentPicker` and `decideAgentAvailability`: which agents the spawn picker offers and whether any can spawn |
 | `card-dom.ts` | Card builder, badge, inline rename, confirm dialog, debug overlay |
 | `terminal.ts` | xterm.js setup, data WebSocket, OSC-52 clipboard, key handling (consults `../shortcuts-core.ts` for which shortcuts bubble), phone soft-keyboard input takeover |
 | `grid-core.ts` | Pure `decideGridActions` (resize, claim, unview, follower flag; a non-finite or non-positive proposal claims nothing, and an unengaged document claims nothing) plus `decideGridEngagementEdge` (none, resync or rebid on a focus/visibility edge) and `readDataFrame` (text bytes versus a binary `pty-size` frame, first frame of a connection is the attach) |

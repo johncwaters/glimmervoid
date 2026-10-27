@@ -83,9 +83,6 @@ const SESSION = {
   resumeSessionId: null,
   activeAgents: 0,
   awaitingBackgroundTasks: false,
-  isCompacting: false,
-  isWaitingForMemory: false,
-  pendingWakeup: null,
   pendingPromptKind: null,
   conversationApproval: null,
   hasConversationBridge: false,
@@ -115,7 +112,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-coherence-hooks', id: 'session-1', coherenceHooks: { active: false, reason: 'check failed with exit code 1' } },
   { type: 'session-agents', id: 'session-1', activeAgents: 2, awaitingBackgroundTasks: true, session: 'glimmervoid', timestamp: NOW },
   { type: 'session-unseen', id: 'session-1', unseenOutcome: 'failed', session: 'glimmervoid', timestamp: NOW },
-  { type: 'session-wakeup', id: 'session-1', pendingWakeup: { at: NOW, kind: 'cron', reason: null }, session: 'glimmervoid', timestamp: NOW },
   { type: 'session-prompt', id: 'session-1', pendingPromptKind: 'permission', session: 'glimmervoid', timestamp: NOW },
   { type: 'session-conversation', id: 'session-1', hasConversationBridge: true, isConversationViewOn: true, conversationApproval: { requestId: 0, kind: 'command', summary: 'touch marker.txt', isSummaryTruncated: false }, session: 'glimmervoid', timestamp: NOW },
   { type: 'session-merge-status', id: 'session-1', session: 'glimmervoid', mergeStatus: 'pending-review', reason: null, parked: false, timestamp: NOW },
@@ -678,12 +674,6 @@ test('state-change accepts Sane YOLO alongside skipPerms and rejects a non-boole
   }
   assert.equal(ServerMessage.safeParse(change).success, true);
   assert.equal(ServerMessage.safeParse({ ...change, saneYolo: 'true' }).success, false);
-});
-
-test('session-prompt carries a validated compaction flag beside the prompt kind', () => {
-  const message = { type: 'session-prompt', id: 'session-1', pendingPromptKind: null, isCompacting: true, timestamp: NOW };
-  assert.equal(ServerMessage.safeParse(message).success, true);
-  assert.equal(ServerMessage.safeParse({ ...message, isCompacting: 'true' }).success, false);
 });
 
 test('issue detail contracts round-trip bodies and reject invalid read requests and replies', () => {

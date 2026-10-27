@@ -11,11 +11,6 @@ export const TaskTitle = z.string().refine((title) => !TASK_TITLE_CONTROL_CHARAC
 export const RefinedTaskTitle = z.object({ title: z.string().nullable(), name: z.string().nullable().optional() }).strict();
 export const SessionState = z.enum(STATES);
 export const UnseenOutcome = z.enum(['finished', 'failed']);
-export const PendingWakeup = z.object({
-  at: z.number().finite().nullable(),
-  kind: z.string(),
-  reason: z.string().nullable(),
-}).passthrough();
 
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
 
@@ -81,9 +76,6 @@ export const SessionSnapshot = z.object({
   resumeSessionId: z.string().nullable(),
   activeAgents: z.number().int().nonnegative(),
   awaitingBackgroundTasks: z.boolean(),
-  isCompacting: z.boolean().default(false),
-  isWaitingForMemory: z.boolean().default(false),
-  pendingWakeup: PendingWakeup.nullable(),
   pendingPromptKind: z.string().nullable(),
   conversationApproval: ConversationApproval.nullable().default(null),
   hasConversationBridge: z.boolean().default(false),
@@ -105,7 +97,6 @@ export type SessionState = z.infer<typeof SessionState>;
 export type UnseenOutcome = z.infer<typeof UnseenOutcome>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type CoherenceHooksState = z.infer<typeof CoherenceHooksState>;
-export type PendingWakeup = z.infer<typeof PendingWakeup>;
 export type ConversationApproval = z.infer<typeof ConversationApproval>;
 export type ConversationApprovalDecision = z.infer<typeof ConversationApprovalDecision>;
 export type ConversationQuestion = z.infer<typeof ConversationQuestion>;

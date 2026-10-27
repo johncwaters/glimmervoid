@@ -8,7 +8,6 @@ const QUEUE_ADMISSION_ABANDONED = 'serial-queue-admission-abandoned';
 interface SerialQueueRunOptions {
   admissionTimeoutMs?: number;
   isStillWanted?: () => boolean;
-  onMemoryWait?: (isWaiting: boolean) => void;
   signal?: AbortSignal;
 }
 
@@ -191,7 +190,6 @@ function createMemoryAdmission({
 
 interface QueuedStart {
   isStillWanted: () => boolean;
-  onMemoryWait: (isWaiting: boolean) => void;
 }
 
 function createSpawnGate({ memoryAdmission = null, kind = 'session' }: { memoryAdmission?: MemoryAdmission | null; kind?: MemoryStartKind } = {}): SerialQueue {
@@ -206,14 +204,12 @@ function createSpawnGate({ memoryAdmission = null, kind = 'session' }: { memoryA
     if (flaggedStarts.has(queuedStart) || !queuedStart.isStillWanted()) return;
     flaggedStarts.add(queuedStart);
     admission.noteStartHeld(true);
-    queuedStart.onMemoryWait(true);
   }
 
   function leaveQueue(queuedStart: QueuedStart): void {
     queuedStarts.delete(queuedStart);
     if (!flaggedStarts.delete(queuedStart)) return;
     admission.noteStartHeld(false);
-    queuedStart.onMemoryWait(false);
   }
 
   function noteHeadStartHeld(isHeld: boolean): void {
@@ -223,8 +219,8 @@ function createSpawnGate({ memoryAdmission = null, kind = 'session' }: { memoryA
   }
 
   function run<T>(fn: () => T | Promise<T>, options: SerialQueueRunOptions = {}): Promise<T> {
-    const { isStillWanted = () => true, onMemoryWait = () => {} } = options;
-    const queuedStart: QueuedStart = { isStillWanted, onMemoryWait };
+    const { isStillWanted = () => true } = options;
+    const queuedStart: QueuedStart = { isStillWanted };
     queuedStarts.add(queuedStart);
     if (isHeadStartHeld) flagWaitingForMemory(queuedStart);
     const release = () => leaveQueue(queuedStart);

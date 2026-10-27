@@ -201,6 +201,8 @@ for (const [fixture, expectedState, expectedNotifications] of [
     const notifications: string[] = [];
     const transitions: string[] = [];
     let postTurnChecks = 0;
+    let isCompacting = false;
+    session.on('prompt-kind-change', (detail: { isCompacting: boolean }) => { isCompacting = detail.isCompacting; });
     session.on('user-prompt', () => gate.reset());
     session.on('post-turn-check', () => postTurnChecks++);
     session.on('state-change', ({ to, event, detail }) => {
@@ -218,8 +220,8 @@ for (const [fixture, expectedState, expectedNotifications] of [
       const signal = claudeCode.hooks.mapSignal(record.event, record.payload);
       if (!signal) continue;
       session.ingestHookSignal({ signal, source: 'hook', event: record.event, payload: record.payload, ts: Date.now() });
-      if (record.event === 'PreCompact') assert.equal(session.toSnapshot().isCompacting, true);
-      if (record.event === 'PostCompact' || record.payload?.source === 'compact') assert.equal(session.toSnapshot().isCompacting, false);
+      if (record.event === 'PreCompact') assert.equal(isCompacting, true);
+      if (record.event === 'PostCompact' || record.payload?.source === 'compact') assert.equal(isCompacting, false);
     }
     t.mock.timers.tick(2000);
     assert.equal(session.state, expectedState);

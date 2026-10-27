@@ -17,7 +17,6 @@ function snapshotSource() {
     resumeSessionId: "resume-1",
     activeAgents: 0,
     awaitingBackgroundTasks: false,
-    pendingWakeup: null,
     pendingPromptKind: null,
     hasPlan: false,
     mergeStatus: "pending-review",

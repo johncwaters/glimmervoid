@@ -24,7 +24,7 @@ interface RegistryGitWorkspace {
 }
 
 interface RegistrySpawnGate {
-  run: (callback: () => unknown, options?: { isStillWanted?: () => boolean; onMemoryWait?: (isWaiting: boolean) => void }) => Promise<unknown>;
+  run: (callback: () => unknown, options?: { isStillWanted?: () => boolean }) => Promise<unknown>;
 }
 
 interface RegistryIngestLane {
@@ -94,7 +94,6 @@ function runAutoResume(
         return session.start({ resumePrompt });
       }, {
         isStillWanted: () => session.state === STATES.DORMANT,
-        onMemoryWait: (isWaiting) => session.setWaitingForMemory(isWaiting),
       }).catch((error: unknown) => {
         logger.warn(`[boot] auto-resume failed for ${session.name}: ${errorMessage(error)}`);
       }),

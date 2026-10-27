@@ -76,9 +76,6 @@ interface SnapshotSource {
   resumeSessionId: string | null;
   activeAgents: number;
   awaitingBackgroundTasks: boolean;
-  isCompacting?: boolean;
-  isWaitingForMemory?: boolean;
-  pendingWakeup: Record<string, unknown> | null;
   pendingPromptKind: string | null;
   conversationApproval?: ConversationApproval | null;
   hasConversationBridge?: boolean;
@@ -119,9 +116,6 @@ function projectSessionSnapshots(source: SnapshotSource) {
     resumeSessionId: source.resumeSessionId,
     activeAgents: source.activeAgents,
     awaitingBackgroundTasks: source.awaitingBackgroundTasks,
-    isCompacting: source.isCompacting ?? false,
-    isWaitingForMemory: source.isWaitingForMemory === true,
-    pendingWakeup: source.pendingWakeup,
     pendingPromptKind: source.pendingPromptKind,
     conversationApproval: source.conversationApproval ?? null,
     hasConversationBridge: source.hasConversationBridge === true,

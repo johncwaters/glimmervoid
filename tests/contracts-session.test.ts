@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentSpawnRequest, PendingWakeup, SessionSnapshot,
+  AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentSpawnRequest, SessionSnapshot,
 } from '../shared/contracts/session.ts';
 import { Session } from '../session/sessions.ts';
 test('SessionSnapshot preserves nested extension fields', () => {
@@ -19,7 +19,6 @@ test('SessionSnapshot preserves nested extension fields', () => {
     resumeSessionId: null,
     activeAgents: 0,
     awaitingBackgroundTasks: false,
-    pendingWakeup: { at: 2, kind: 'cron', reason: null, extension: true },
     pendingPromptKind: null,
     mergeStatus: 'none',
     mergeReason: null,
@@ -32,8 +31,6 @@ test('SessionSnapshot preserves nested extension fields', () => {
   assert.equal(parsed.saneYolo, true);
   assert.equal(parsed.hasPlan, false);
   assert.equal(parsed.extension, true);
-  assert.equal(parsed.pendingWakeup?.extension, true);
-  assert.equal(PendingWakeup.parse({ at: null, kind: 'cron', reason: null, extension: true }).extension, true);
 });
 
 test('hasPlan rides the snapshot and defaults off for a session with no stored plan', () => {
@@ -120,17 +117,3 @@ test('a board row is a strict subset of the snapshot that carries no path', () =
   assert.equal(AgentBoardRow.safeParse({ ...row, state: 'NOT-A-STATE' }).success, false);
 });
 
-test('compaction is a validated snapshot flag with a default for older snapshots', () => {
-  const session = new Session({ id: 'compaction-contract', name: 'compaction', path: process.cwd() });
-  try {
-    const snapshot = session.toSnapshot();
-    assert.equal(SessionSnapshot.parse(snapshot).isCompacting, false);
-    assert.equal(SessionSnapshot.parse({ ...snapshot, isCompacting: true }).isCompacting, true);
-    assert.equal(SessionSnapshot.safeParse({ ...snapshot, isCompacting: 'true' }).success, false);
-    const { isCompacting, ...olderSnapshot } = snapshot;
-    assert.equal(isCompacting, false);
-    assert.equal(SessionSnapshot.parse(olderSnapshot).isCompacting, false);
-  } finally {
-    session.destroy();
-  }
-});

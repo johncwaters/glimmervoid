@@ -376,9 +376,14 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         timestamp: Date.now(),
       });
     });
-    relay('wakeup-change', 'session-wakeup');
     session.on('wakeup-change', persistWasWorking);
-    relay('prompt-kind-change', 'session-prompt');
+    session.on('prompt-kind-change', ({ pendingPromptKind: nextKind }: { pendingPromptKind: string | null }) => dependencies.broadcastControl({
+      type: 'session-prompt',
+      id: session.id,
+      session: session.name,
+      pendingPromptKind: nextKind,
+      timestamp: Date.now(),
+    }));
     relay('unseen-outcome-change', 'session-unseen');
     relay('conversation-change', 'session-conversation');
 
