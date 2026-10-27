@@ -158,6 +158,10 @@ test('workspace session diff prefixes member paths and change checks announce me
     const diff = await session.getDiff();
     assert.match(diff.uncommitted.diff, /^diff --git a\/first\/README\.md b\/first\/README\.md$/m);
     assert.match(diff.uncommitted.diff, /^diff --git a\/second\/added\.txt b\/second\/added\.txt$/m);
+    assert.deepEqual(diff.bases.map((base) => [base.member, base.ref, base.sha]), [
+      ['first', 'main', git(['rev-parse', 'main'], first).trim()],
+      ['second', 'main', git(['rev-parse', 'main'], second).trim()],
+    ]);
     assert.deepEqual((await session.getChangeScopes()).map((scope) => scope.sessionPathPrefix), ['first/', 'second/']);
   } finally {
     session.destroy();

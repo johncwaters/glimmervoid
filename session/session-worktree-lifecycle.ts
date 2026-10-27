@@ -206,6 +206,8 @@ interface MemberDiff {
   committed: DiffSection;
   uncommitted: DiffSection;
   hasCommits: boolean;
+  baseRef: string | null;
+  baseSha: string;
 }
 
 interface AdoptWorktreeOptions {
@@ -804,14 +806,14 @@ function createSessionWorktreeLifecycle({
     };
   }
 
-  async function memberMergeBase(member: WorkspaceMember): Promise<string> {
+  async function memberMergeBase(member: WorkspaceMember): Promise<{ ref: string | null; sha: string }> {
     const opts = diffGitOptions(member.dir);
     const candidates = member.base ? [await freshestBaseRef(member.base, opts), `origin/${member.base}`, "origin/HEAD"] : ["origin/HEAD"];
     for (const candidate of candidates) {
       if (await gitLookup(["rev-parse", "--verify", "--quiet", candidate], opts) === null) continue;
-      return (await gitLookup(["merge-base", candidate, "HEAD"], opts))?.trim() ?? "";
+      return { ref: candidate, sha: (await gitLookup(["merge-base", candidate, "HEAD"], opts))?.trim() ?? "" };
     }
-    return "";
+    return { ref: null, sha: "" };
   }
 
   async function getChangeScopes(): Promise<ChangeScope[]> {
@@ -821,7 +823,7 @@ function createSessionWorktreeLifecycle({
       for (const member of members) {
         const memberDirStats = await fs.promises.stat(member.dir).catch(() => null);
         if (!memberDirStats?.isDirectory()) continue;
-        scopes.push(await readChangeScope(member.name, member.dir, await memberMergeBase(member), `${member.name}/`));
+        scopes.push(await readChangeScope(member.name, member.dir, (await memberMergeBase(member)).sha, `${member.name}/`));
       }
       return scopes;
     }
@@ -835,7 +837,7 @@ function createSessionWorktreeLifecycle({
     const run = (args: string[]): Promise<string> => gitOut(args, diffGitOptions(member.dir));
     const prefixArgs = [`--src-prefix=a/${member.name}/`, `--dst-prefix=b/${member.name}/`];
     await markUntrackedIntentToAdd(member.dir);
-    const base = await memberMergeBase(member);
+    const { ref: baseRef, sha: base } = await memberMergeBase(member);
     const aheadCount = base ? (await run(["rev-list", "--count", `${base}..HEAD`])).trim() : "0";
     const readPrefixedDiff = async (range: string): Promise<string> => prefixRenameAndCopyHeaders(await run(["diff", ...prefixArgs, range]), member.name);
     return {
@@ -845,6 +847,8 @@ function createSessionWorktreeLifecycle({
         : { stat: "", diff: "" },
       uncommitted: { stat: (await run(["diff", "--stat", "HEAD"])).trim(), diff: await readPrefixedDiff("HEAD") },
       hasCommits: aheadCount !== "" && aheadCount !== "0",
+      baseRef,
+      baseSha: base,
     };
   }
 
@@ -859,7 +863,14 @@ function createSessionWorktreeLifecycle({
       stat: memberDiffs.filter((memberDiff) => memberDiff[section].stat).map((memberDiff) => `${memberDiff.name}/\n${memberDiff[section].stat}`).join("\n"),
       diff: memberDiffs.map((memberDiff) => memberDiff[section].diff).join(""),
     });
-    return { committed: joinSection("committed"), uncommitted: joinSection("uncommitted"), hasCommits: memberDiffs.some((memberDiff) => memberDiff.hasCommits), bases: [] };
+    return {
+      committed: joinSection("committed"),
+      uncommitted: joinSection("uncommitted"),
+      hasCommits: memberDiffs.some((memberDiff) => memberDiff.hasCommits),
+      bases: memberDiffs
+        .filter((memberDiff) => memberDiff.baseSha)
+        .map((memberDiff) => ({ member: memberDiff.name, ref: memberDiff.baseRef, sha: memberDiff.baseSha, verified: true })),
+    };
   }
 
   async function markUntrackedIntentToAdd(dir: string): Promise<void> {
