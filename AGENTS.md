@@ -55,7 +55,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 
 ### Testing Requirements
 
-- Run `npm test` (the `node:test` suite in `tests/`) before claiming completion.
+- Before claiming completion, run `npm run typecheck` and the tests covering the changed files (`npm run test:files -- <files>`). The full `npm test` and `npm run build` run only when the operator asks: the dev host runs out of memory and kills them.
 - Detection changes must pass the replay fixtures.
 - Tests pin behavior better than prose: when a rule matters, add the test rather than a paragraph here.
 - Every operator-visible change (feature, fix, removal, dependency bump) lands with an entry under `## [Unreleased]` in `CHANGELOG.md`, written for the operator, because `scripts/release.ts` publishes that section verbatim as the GitHub release notes. Tests-only, refactor and internal docs changes need none.
