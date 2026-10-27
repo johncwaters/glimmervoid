@@ -13,7 +13,7 @@ import { HANDSHAKE_DEADLINE_MS } from '../connection-supervisor-core.ts';
 import { renderScheduler } from '../render-scheduler.ts';
 import { getTerminalTheme } from '../theme.ts';
 import { buildWebSocketUrl } from '../ws-url-core.ts';
-import { clearPageToken, loadPageToken, withPageToken } from '../ws-token.ts';
+import { clearPageToken, loadPageToken, pageToken, withPageToken } from '../ws-token.ts';
 import { noteSessionOutput } from './activity.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
 import type { DataFrameState, TerminalGrid } from './grid-core.ts';
@@ -336,6 +336,10 @@ function detachDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
 
 function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, delayMs: number) {
   detachDataWs(sessionId, ui, term);
+  if (delayMs === 0 && pageToken()) {
+    connectDataWs(sessionId, ui, term);
+    return;
+  }
   setTimeout(() => {
     if (!isStillCurrentAndDetached(sessionId, ui)) return;
     void loadPageToken().catch(() => {}).then(() => {
@@ -375,9 +379,12 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   ui.dataWs = ws;
   refreshTerminalLink(ui);
   let hasEverOpened = false;
+  let isHandshakeAbandoned = false;
   const frameState: DataFrameState = { hasSeenSize: false, lastSeq: 0 };
   const handshakeTimer = setTimeout(() => {
-    if (ws.readyState === WebSocket.CONNECTING) ws.close();
+    if (ws.readyState !== WebSocket.CONNECTING) return;
+    isHandshakeAbandoned = true;
+    ws.close();
   }, HANDSHAKE_DEADLINE_MS);
 
   renderScheduler.register(sessionId, (data, cb) => term.write(data, cb));
@@ -425,7 +432,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     clearTimeout(handshakeTimer);
     if (ui.dataWs !== ws) return;
     sessionUisReattachingQuietly.delete(ui);
-    if (!hasEverOpened) clearPageToken();
+    if (!hasEverOpened && !isHandshakeAbandoned) clearPageToken();
     if (!isTerminalOutputWanted(ui, sessionId)) {
       detachUntilShown(sessionId, ui, term);
       return;

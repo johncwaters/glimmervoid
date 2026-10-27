@@ -135,6 +135,7 @@ export async function createShapingProxy({ targetPort, profile }: { targetPort: 
   const upLink: SharedLink = { freeAtMs: 0 };
   const openSockets = new Set<net.Socket>();
   const stalledSockets = new Set<net.Socket>();
+  const wedgedSockets = new Set<net.Socket>();
   let isWedgingNewConnections = false;
   let measure = openMeasure();
 
@@ -189,7 +190,6 @@ export async function createShapingProxy({ targetPort, profile }: { targetPort: 
     openSockets.add(client);
     client.on('close', () => openSockets.delete(client));
     client.on('error', () => client.destroy());
-    if (isWedgingNewConnections) return;
     let buffered = Buffer.alloc(0);
     let hasGreeted = false;
     const onHandshake = (bytes: Buffer): void => {
@@ -210,6 +210,11 @@ export async function createShapingProxy({ targetPort, profile }: { targetPort: 
       const leftover = buffered.subarray(target.consumedBytes);
       if (buffered[1] !== SOCKS_CONNECT || !LOOPBACK_TARGETS.has(target.host) || target.port !== targetPort) {
         client.end(SOCKS_REFUSED);
+        return;
+      }
+      if (isWedgingNewConnections) {
+        client.write(SOCKS_SUCCEEDED);
+        wedgedSockets.add(client);
         return;
       }
       client.pause();
@@ -261,9 +266,12 @@ export async function createShapingProxy({ targetPort, profile }: { targetPort: 
     },
     setWedgingNewConnections(isWedging: boolean) {
       isWedgingNewConnections = isWedging;
+      if (isWedging) return;
+      for (const socket of wedgedSockets) socket.destroy();
+      wedgedSockets.clear();
     },
     async close() {
-      for (const socket of [...openSockets, ...stalledSockets]) socket.destroy();
+      for (const socket of [...openSockets, ...stalledSockets, ...wedgedSockets]) socket.destroy();
       await new Promise<void>((resolve) => { listener.close(() => resolve()); });
     },
   };

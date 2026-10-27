@@ -4,7 +4,7 @@ import { HEARTBEAT_DEADLINE_MS, HEARTBEAT_INTERVAL_MS, LONG_HIDE_MS, SUSPENSION_
 import type { ConnectionAction, ConnectionEvent, SupervisorState } from '../public/connection-supervisor-core.ts';
 
 const settled: SupervisorState = { isVisible: true, isFrozen: false, isProbing: false, isReplacing: false };
-const replaceEverything: ConnectionAction[] = [{ kind: 'replace-control' }, { kind: 'reconnect-shown-terminals' }];
+const replaceEverything: ConnectionAction[] = [{ kind: 'reconnect-shown-terminals' }, { kind: 'replace-control' }];
 
 const decisions: Array<{ name: string; state: SupervisorState; event: ConnectionEvent; actions: ConnectionAction[] }> = [
   { name: 'a long hide replaces without probing', state: { ...settled, isVisible: false }, event: { kind: 'shown', hiddenForMs: LONG_HIDE_MS + 1 }, actions: replaceEverything },

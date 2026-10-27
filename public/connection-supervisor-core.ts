@@ -40,7 +40,7 @@ interface Decision {
   actions: ConnectionAction[];
 }
 
-const REPLACE_EVERYTHING: ConnectionAction[] = [{ kind: 'replace-control' }, { kind: 'reconnect-shown-terminals' }];
+const REPLACE_EVERYTHING: ConnectionAction[] = [{ kind: 'reconnect-shown-terminals' }, { kind: 'replace-control' }];
 
 function replaceEverything(state: SupervisorState): Decision {
   if (state.isReplacing) return { state, actions: [] };

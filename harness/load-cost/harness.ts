@@ -43,6 +43,7 @@ const BROWSER_ENGINES: readonly BrowserEngine[] = ['chromium', 'webkit', 'firefo
 
 interface HarnessOptions {
   isWakeRun: boolean;
+  wakeCaseIds: string[];
   engine: BrowserEngine;
   runs: number;
   comparePath: string | null;
@@ -83,7 +84,7 @@ const IDLE_FILLERS: FixtureSession[] = [1, 2, 3, 4, 5].map((number) => ({ key: `
 const FIXTURES: FixtureSession[] = [SESSION_A, SESSION_B, SESSION_C, ...IDLE_FILLERS];
 
 function parseOptions(argv: readonly string[]): HarnessOptions {
-  const options: HarnessOptions = { isWakeRun: false, engine: 'chromium', runs: 3, comparePath: null, artifactsDir: DEFAULT_ARTIFACTS_DIR, executablePath: process.env.CHROME_PATH };
+  const options: HarnessOptions = { isWakeRun: false, wakeCaseIds: [], engine: 'chromium', runs: 3, comparePath: null, artifactsDir: DEFAULT_ARTIFACTS_DIR, executablePath: process.env.CHROME_PATH };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === '--wake') { options.isWakeRun = true; continue; }
@@ -99,6 +100,7 @@ function parseOptions(argv: readonly string[]): HarnessOptions {
     if (flag === '--artifacts') { options.artifactsDir = path.resolve(value); continue; }
     if (flag === '--executable') { options.executablePath = path.resolve(value); continue; }
     if (flag === '--engine') { options.engine = parseEngine(value); continue; }
+    if (flag === '--case') { options.wakeCaseIds.push(value); continue; }
     throw new Error(`unknown argument ${flag}`);
   }
   return options;
@@ -401,35 +403,64 @@ interface WakeVisit {
   show(): Promise<void>;
 }
 
+interface SocketMoment {
+  path: string;
+  moment: 'constructing' | 'created' | 'open' | 'closed' | 'shown' | 'hidden';
+  atMs: number;
+}
+
+function recordSocketMoments(): void {
+  const NativeWebSocket = window.WebSocket;
+  const socketMoments: SocketMoment[] = [];
+  Reflect.set(window, '__socketMoments', socketMoments);
+  document.addEventListener('visibilitychange', () => socketMoments.push({ path: 'page', moment: document.visibilityState === 'visible' ? 'shown' : 'hidden', atMs: performance.now() }), true);
+  window.WebSocket = class extends NativeWebSocket {
+    constructor(url: string | URL, protocols?: string | string[]) {
+      const constructingAtMs = performance.now();
+      super(url, protocols);
+      const path = new URL(url, location.href).pathname;
+      socketMoments.push({ path, moment: 'constructing', atMs: constructingAtMs });
+      socketMoments.push({ path, moment: 'created', atMs: performance.now() });
+      this.addEventListener('open', () => socketMoments.push({ path, moment: 'open', atMs: performance.now() }));
+      this.addEventListener('close', () => socketMoments.push({ path, moment: 'closed', atMs: performance.now() }));
+    }
+  };
+}
+
+function readSocketMoments(): SocketMoment[] {
+  const socketMoments: unknown = Reflect.get(window, '__socketMoments');
+  return Array.isArray(socketMoments) ? socketMoments : [];
+}
+
 function watchWakeSockets(page: Page, sessionId: string, marker: string) {
   let armedAtMs: number | null = null;
-  let controlCreatedMs: number[] = [];
+  let pageArmedAtMs = 0;
   let terminalLiveMs: number | null = null;
   page.on('websocket', (socket: PageWebSocket) => {
-    if (armedAtMs === null) return;
-    const startedAtMs = armedAtMs;
-    const socketPath = new URL(socket.url()).pathname;
-    if (socketPath === '/control') {
-      controlCreatedMs.push(performance.now() - startedAtMs);
-      return;
-    }
-    if (socketPath !== `/terminals/${sessionId}`) return;
+    if (new URL(socket.url()).pathname !== `/terminals/${sessionId}`) return;
     let viewText = '';
     socket.on('framereceived', ({ payload }) => {
-      if (terminalLiveMs !== null || armedAtMs !== startedAtMs) return;
+      if (armedAtMs === null || terminalLiveMs !== null) return;
       viewText += payloadText(payload);
-      if (viewText.includes(marker)) terminalLiveMs = performance.now() - startedAtMs;
+      if (viewText.includes(marker)) terminalLiveMs = performance.now() - armedAtMs;
     });
   });
   return {
-    arm() {
+    async arm() {
+      pageArmedAtMs = await page.evaluate(() => performance.now());
       armedAtMs = performance.now();
-      controlCreatedMs = [];
       terminalLiveMs = null;
     },
-    controlCreatedMs: () => controlCreatedMs,
+    async socketMomentsSinceArm(): Promise<SocketMoment[]> {
+      const socketMoments = await page.evaluate(readSocketMoments);
+      return socketMoments.filter((socketMoment) => socketMoment.atMs >= pageArmedAtMs).map((socketMoment) => ({ ...socketMoment, atMs: socketMoment.atMs - pageArmedAtMs }));
+    },
     terminalLiveMs: () => terminalLiveMs,
   };
+}
+
+function describeSocketMoments(socketMoments: readonly SocketMoment[]): string {
+  return socketMoments.map((socketMoment) => `${Math.round(socketMoment.atMs)} ${socketMoment.moment} ${socketMoment.path.startsWith('/terminals/') ? 'terminal' : socketMoment.path}`).join(', ');
 }
 
 function overrideVisibility(isHidden: boolean): void {
@@ -447,6 +478,17 @@ async function waitForTerminalLive(watch: WakeVisit['watch'], description: strin
   return watch.terminalLiveMs() ?? Number.POSITIVE_INFINITY;
 }
 
+async function waitForControlRetry(watch: WakeVisit['watch']): Promise<number> {
+  const deadline = Date.now() + WAKE_WAIT_MS;
+  while (Date.now() < deadline) {
+    const controlCreatedMs = (await watch.socketMomentsSinceArm()).filter((socketMoment) => socketMoment.path === '/control' && socketMoment.moment === 'created').map((socketMoment) => socketMoment.atMs);
+    const [firstAttemptMs, retryMs] = controlCreatedMs;
+    if (firstAttemptMs !== undefined && retryMs !== undefined) return retryMs - firstAttemptMs;
+    await sleep(100);
+  }
+  throw new Error(`a wedged control handshake was never retried within ${Math.round(WAKE_WAIT_MS / 1000)} s`);
+}
+
 const WAKE_CASES: WakeCase[] = [
   {
     id: 'healthy',
@@ -455,7 +497,6 @@ const WAKE_CASES: WakeCase[] = [
     async measure({ watch, hide, show }) {
       await hide();
       await sleep(WAKE_HIDDEN_MS);
-      watch.arm();
       await show();
       return waitForTerminalLive(watch, 'the shown terminal did not come back after a healthy wake');
     },
@@ -468,7 +509,6 @@ const WAKE_CASES: WakeCase[] = [
       await hide();
       proxy.stallOpenConnections();
       await sleep(WAKE_HIDDEN_MS);
-      watch.arm();
       await show();
       return waitForTerminalLive(watch, 'the shown terminal did not come back after a stalled wake');
     },
@@ -478,7 +518,7 @@ const WAKE_CASES: WakeCase[] = [
     detail: 'connection silently dead while shown, ms to shown terminal live',
     boundMs: 20_000,
     async measure({ proxy, watch }) {
-      watch.arm();
+      await watch.arm();
       proxy.stallOpenConnections();
       return waitForTerminalLive(watch, 'a connection that died while shown was never replaced');
     },
@@ -492,22 +532,21 @@ const WAKE_CASES: WakeCase[] = [
       proxy.stallOpenConnections();
       proxy.setWedgingNewConnections(true);
       await sleep(WAKE_HIDDEN_MS);
-      watch.arm();
       await show();
-      await waitFor(() => watch.controlCreatedMs().length >= 2, WAKE_WAIT_MS, 'a wedged control handshake was never retried');
-      const [firstAttemptMs = 0, retryMs = Number.POSITIVE_INFINITY] = watch.controlCreatedMs();
+      const retryAfterMs = await waitForControlRetry(watch);
       proxy.setWedgingNewConnections(false);
       await waitForTerminalLive(watch, 'the shown terminal did not come back once handshakes were answered again');
-      return retryMs - firstAttemptMs;
+      return retryAfterMs;
     },
   },
 ];
 
-async function measureWakeCase(wakeCase: WakeCase, engine: BrowserEngine, fleet: Fleet, browser: Browser, proxy: ShapingProxy): Promise<number> {
+async function measureWakeCase(wakeCase: WakeCase, engine: BrowserEngine, fleet: Fleet, browser: Browser, proxy: ShapingProxy): Promise<{ elapsedMs: number; socketMoments: SocketMoment[] }> {
   const sessionId = fleet.sessionIdByKey.get(SESSION_A.key) ?? '';
   const context = await browser.newContext(PHONE);
   try {
     const page = await context.newPage();
+    await page.addInitScript(recordSocketMoments);
     const sockets = watchPageSockets(page);
     const watch = watchWakeSockets(page, sessionId, fillCompleteMarker(SESSION_A.fillLines));
     sockets.beginWindow(sessionId, SESSION_A);
@@ -521,9 +560,14 @@ async function measureWakeCase(wakeCase: WakeCase, engine: BrowserEngine, fleet:
     };
     const show = async () => {
       await cdp?.send('Page.setWebLifecycleState', { state: 'active' });
+      await watch.arm();
       await page.evaluate(overrideVisibility, false);
     };
-    return await wakeCase.measure({ proxy, watch, hide, show });
+    const elapsedMs = await wakeCase.measure({ proxy, watch, hide, show }).catch(async (error: unknown) => {
+      console.log(`  sockets at failure: ${describeSocketMoments(await watch.socketMomentsSinceArm())}`);
+      throw error;
+    });
+    return { elapsedMs, socketMoments: await watch.socketMomentsSinceArm() };
   } finally {
     proxy.setWedgingNewConnections(false);
     await context.close();
@@ -532,11 +576,15 @@ async function measureWakeCase(wakeCase: WakeCase, engine: BrowserEngine, fleet:
 
 async function runWakeCases(options: HarnessOptions, fleet: Fleet, browser: Browser, proxy: ShapingProxy): Promise<string[]> {
   const missedBounds: string[] = [];
-  for (const wakeCase of WAKE_CASES) {
+  const unknownCaseIds = options.wakeCaseIds.filter((caseId) => !WAKE_CASES.some((wakeCase) => wakeCase.id === caseId));
+  if (unknownCaseIds.length > 0) throw new Error(`unknown --case ${unknownCaseIds.join(', ')}; known: ${WAKE_CASES.map((wakeCase) => wakeCase.id).join(', ')}`);
+  const wakeCases = options.wakeCaseIds.length > 0 ? WAKE_CASES.filter((wakeCase) => options.wakeCaseIds.includes(wakeCase.id)) : WAKE_CASES;
+  for (const wakeCase of wakeCases) {
     const runsMs: number[] = [];
     for (let run = 0; run < options.runs; run += 1) {
-      const elapsedMs = await measureWakeCase(wakeCase, options.engine, fleet, browser, proxy);
+      const { elapsedMs, socketMoments } = await measureWakeCase(wakeCase, options.engine, fleet, browser, proxy);
       console.log(`wake ${options.engine} ${wakeCase.id} run ${run + 1}: ${Math.round(elapsedMs)} ms (bound ${wakeCase.boundMs} ms; ${wakeCase.detail})`);
+      console.log(`  sockets: ${describeSocketMoments(socketMoments)}`);
       runsMs.push(elapsedMs);
     }
     const slowestMs = Math.max(...runsMs);

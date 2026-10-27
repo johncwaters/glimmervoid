@@ -1,3 +1,5 @@
+import { HANDSHAKE_DEADLINE_MS } from './connection-supervisor-core.ts';
+
 let token = '';
 let inflight: Promise<string> | null = null;
 
@@ -8,7 +10,7 @@ export function pageToken() {
 export function loadPageToken() {
   if (token) return Promise.resolve(token);
   if (inflight) return inflight;
-  inflight = fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' })
+  inflight = fetch('/control-token', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(HANDSHAKE_DEADLINE_MS) })
     .then((res) => (res.ok ? res.json() : null))
     .then((body: unknown) => {
       const tokenValue = (body as { token?: unknown } | null)?.token;
