@@ -885,4 +885,4 @@ function createTraceWiring({
   };
 }
 
-export { createTraceWiring, pruneTraceFiles };
+export { createTraceWiring };

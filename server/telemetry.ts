@@ -481,5 +481,5 @@ function createAccountIdReader({ env, homeDir, readTextFile = readTextFileOrNull
   };
 }
 
-export { createAccountIdReader, createTelemetry, MAX_QUEUED_EVENTS };
+export { createAccountIdReader, createTelemetry };
 export type { Telemetry, TelemetryOptions };

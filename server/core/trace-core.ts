@@ -288,7 +288,6 @@ function traceRecordsFromTranscriptLine(rawLine: string, context: TraceLineConte
 }
 
 export {
-  DROPPED_LINE_TYPES,
   MAX_TRACE_BODY_CHARS,
   traceRecordsFromTranscriptLine,
 };
