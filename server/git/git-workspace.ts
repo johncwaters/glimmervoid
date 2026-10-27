@@ -649,7 +649,10 @@ function createGitWorkspace(opts: {
   }
 
   async function populateShare({ projectPath, wtDir, shareList, keepTrackableLinks = false }: WorktreeArgs): Promise<void> {
-    if (!wtDir || !shareList || !shareList.length) return;
+    if (!wtDir) return;
+    const projectRealPath = await fs.promises.realpath(projectPath).catch(() => null);
+    if (projectRealPath) removeWorktreeLinks(wtDir, { projectRealPath, shareList: shareList ?? [] });
+    if (!shareList || !shareList.length) return;
     const ignored: string[] = [];
     for (const rel of shareList) {
       if (rel && !String(rel).includes('..') && (await run(['check-ignore', '-q', '--', rel], projectPath)).ok) {
@@ -1850,13 +1853,21 @@ function statUnlessMissingSync(targetPath: string): fs.Stats | 'missing' | null 
   }
 }
 
-function removeWorktreeLinks(wtDir: string | null | undefined): void {
+type RetiredShareLinks = { projectRealPath: string; shareList: readonly string[] };
+
+function isRetiredShareLink(linkPath: string, name: string, keep: RetiredShareLinks): boolean {
+  if (keep.shareList.includes(name)) return false;
+  try { return fs.realpathSync.native(linkPath) === path.join(keep.projectRealPath, name); } catch { return false; }
+}
+
+function removeWorktreeLinks(wtDir: string | null | undefined, keep?: RetiredShareLinks): void {
   if (!wtDir) return;
   let entries: fs.Dirent[];
   try { entries = fs.readdirSync(wtDir, { withFileTypes: true }); } catch { return; }
   for (const e of entries) {
     if (!e.isSymbolicLink()) continue;
     const p = path.join(wtDir, e.name);
+    if (keep && !isRetiredShareLink(p, e.name, keep)) continue;
     try { fs.rmSync(p, { recursive: false, force: true }); }
     catch { try { fs.rmdirSync(p); } catch {} }
   }

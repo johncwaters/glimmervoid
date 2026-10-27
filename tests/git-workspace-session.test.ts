@@ -832,6 +832,30 @@ test('create (worktreeBase + shareList, POSIX): dirs are SYMLINKED in, files cop
   }
 });
 
+test('populate (POSIX): a link the share list no longer names is removed, never its target, and a listed link stays', { skip: !GIT || WIN }, async () => {
+  const repo = initRepoWithLocalContext();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-wtroot-'));
+  try {
+    const gw = createGitWorkspace();
+    const ws = await gw.create({ owner: 'lane:test',
+      projectPath: repo, teamId: 'session', label: 'retired', baseBranch: 'develop',
+      worktreeBase: base, shareList: ['node_modules', '.omc'],
+    });
+    assert.equal(fs.lstatSync(path.join(ws.cwd, 'node_modules')).isSymbolicLink(), true);
+
+    await gw.populate({ projectPath: repo, wtDir: ws.cwd, shareList: ['.omc'] });
+
+    assert.ok(!fs.existsSync(path.join(ws.cwd, 'node_modules')), 'the retired node_modules link is gone');
+    assert.ok(fs.existsSync(path.join(repo, 'node_modules', 'dep.txt')), 'the main checkout node_modules is untouched');
+    assert.equal(fs.lstatSync(path.join(ws.cwd, '.omc')).isSymbolicLink(), true, 'a listed link stays');
+
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('mergeBack (POSIX): the shared symlink is never staged by `git add -A`, and the real dir survives the merge', { skip: !GIT || WIN }, async () => {
   const repo = initRepoWithLocalContext();
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-wtroot-'));

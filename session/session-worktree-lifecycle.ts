@@ -576,6 +576,11 @@ function createSessionWorktreeLifecycle({
     if (workspaceMembers) return provisionWorkspaceMembers(workspaceMembers);
     if (!gitWorkspace) return true;
     if (lifecycleState.worktreeDir && fs.existsSync(lifecycleState.worktreeDir)) {
+      await Promise.resolve(gitWorkspace.populate({
+        projectPath: currentProjectPath(),
+        wtDir: lifecycleState.worktreeDir,
+        shareList: worktreeShare,
+      })).catch(() => {});
       if (fresh) await syncFreshWorktree();
       return true;
     }
