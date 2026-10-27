@@ -34,7 +34,6 @@ const optionalObject = (field: string, shape: z.ZodRawShape) => z.object(shape, 
 export const optionalLooseObject = (field: string) => z.object({}, { error: `${field} must be an object` }).passthrough().nullable().optional();
 
 export const UPDATE_CHANNELS = Object.freeze(['release', 'main'] as const);
-export const POST_TURN_CHECK_MODES = Object.freeze(['report', 'fix'] as const);
 
 const TaskTitleSettings = z.object({
   refiner: z.object({
@@ -63,10 +62,6 @@ const BranchGcSettings = optionalObject('branchGc', BRANCH_GC_SETTINGS_SHAPE);
 export const BranchGcControlSettings = BranchGcFileSettings.omit({ prefixes: true, dryRun: true, worktrees: true }).nullable().optional();
 export const BRANCH_GC_CONTROL_BOOLEAN_KEYS = Object.freeze(['enabled', 'deleteUnmerged']);
 export const BRANCH_GC_CONTROL_NUMERIC_KEYS = Object.freeze(['staleDays', 'intervalMs']);
-
-const PostTurnChecksSettings = optionalObject('postTurnChecks', {
-  mode: z.enum(POST_TURN_CHECK_MODES, { error: 'postTurnChecks.mode must be one of report, fix' }).optional(),
-});
 
 const VisionsSettings = optionalObject('visions', {
   enabled: optionalBoolean('visions.enabled'),
@@ -252,7 +247,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   repoRoots: z.array(z.string()).optional(),
   taskTitle: TaskTitleSettings,
   branchGc: BranchGcSettings,
-  postTurnChecks: PostTurnChecksSettings,
   visions: VisionsSettings,
   github: GithubSettings,
   teamReview: TeamReviewSettings,

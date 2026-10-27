@@ -11,7 +11,6 @@ import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { decideWasActiveFlip, decideWasWorkingFlip, isTurnWorkHookEvent } from './core/session-registry-core.ts';
 import { adapterBucket, classifySessionExit } from '../core/telemetry-core.ts';
 import { INTERACTIVE_LANE } from '../usage/core/usage-lane-core.ts';
-import { resolveCheckConfig, runPostTurnChecks } from '../post-turn-checker.ts';
 import type { Telemetry } from '../telemetry.ts';
 import type { SessionEndCause, SessionExitKind } from '../../shared/contracts/telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -20,12 +19,10 @@ const IDLE_COMPACTION_CONFIRM_MS = 10000;
 
 interface WiringProject extends Record<string, unknown> {
   id?: string;
-  postTurnChecks?: unknown;
 }
 
 interface WiringConfig {
   projects: WiringProject[];
-  postTurnChecks?: unknown;
 }
 
 
@@ -114,7 +111,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     dependencies.taskTitleRefiner?.attachSession(session);
     dependencies.coherenceFeed?.attachSession(session);
     dependencies.planReview?.attachSession(session);
-    let postTurnDebounce: NodeJS.Timeout | null = null;
     let pendingPromptKind: string | null = null;
     let pendingAgentNote: string | null = null;
     const notifyGate = createNotifyGate();
@@ -199,10 +195,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       dependencies.telemetry?.captureException(error, { handled: true });
     });
     session.on('exit', ({ exitCode, signal, reason, exitedOnItsOwn }: { exitCode: number | null; signal: unknown; reason?: string; exitedOnItsOwn?: boolean }) => {
-      if (postTurnDebounce) {
-        clearTimeout(postTurnDebounce);
-        postTurnDebounce = null;
-      }
       clearCompactionConfirm();
       const reasonText = reason ? `, reason=${reason}` : '';
       dependencies.logger.log(`[${session.name}] exited (code=${exitCode}, signal=${signal}${reasonText})`);
@@ -232,31 +224,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       captureSessionEnded(cause);
     });
 
-    const resolvePostTurn = () => {
-      const project = dependencies.config.projects.find((candidate) => candidate.id === session.id);
-      return project ? resolveCheckConfig(dependencies.config.postTurnChecks, project.postTurnChecks) : null;
-    };
-    session.on('post-turn-check', () => {
-      const config = resolvePostTurn();
-      if (!config?.enabled) return;
-      if (postTurnDebounce) clearTimeout(postTurnDebounce);
-      postTurnDebounce = setTimeout(() => {
-        postTurnDebounce = null;
-        const runConfig = resolvePostTurn();
-        if (!runConfig?.enabled) return;
-        runPostTurnChecks({ cwd: session.effectiveCwd(), config: runConfig })
-          .then((report) => {
-            dependencies.broadcastControl({
-              type: 'post-turn-result',
-              id: session.id,
-              session: session.name,
-              ...report,
-              timestamp: Date.now(),
-            });
-          })
-          .catch((error: unknown) => dependencies.logger.warn(`[${session.name}] post-turn checks failed: ${errorMessage(error)}`));
-      }, config.debounceMs);
-    });
     session.on('post-turn-check', () => dependencies.usage.nudgeSession(liveTranscriptPath));
 
     session.on('state-change', ({ from, to, event, detail }: {

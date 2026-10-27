@@ -1,4 +1,4 @@
-import { POST_TURN_CHECK_MODES, UPDATE_CHANNELS } from '../contracts/browser-config.ts';
+import { UPDATE_CHANNELS } from '../contracts/browser-config.ts';
 import {
   FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_GAP_RANGE,
   FLYING_ANIMALS_SCALE_RANGE, KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, NON_NEGATIVE_NUMBER_RANGE, PORT_RANGE, POSITIVE_NUMBER_RANGE,
@@ -323,12 +323,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         description: 'Compress Bash output with the rtk executable.',
         control: 'toggle', keywords: ['bash', 'tokens'], danger: true, status: 'rtk-install',
         warning: 'Enabling this control permits Glimmervoid to install the pinned rtk executable automatically.', defaultValue: false, ...MACHINE_NEW_SESSIONS,
-      },
-      {
-        id: 'post-turn-checks-mode', path: 'postTurnChecks.mode', title: 'Post-turn checks mode',
-        description: 'Default mode for post-turn checks. Project and individual rule modes override it, so Report can still allow file fixes.',
-        control: 'select', options: capitalizedOptions(POST_TURN_CHECK_MODES),
-        keywords: ['quality', 'fixes'], defaultValue: 'report', ...MACHINE_NOW,
       },
       {
         id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
@@ -754,12 +748,6 @@ const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'file-phone-escalation-ms', path: 'phoneEscalationMs', title: 'Phone escalation delay', group: 'machine-detection-sessions',
     description: 'Delay before off-dashboard escalation.',
     control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MINUTES_STORED_AS_MS, keywords: ['timer', 'telegram'], defaultValue: 300000, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-post-turn-checks', path: 'postTurnChecks', title: 'Post-turn checks', group: 'machine-detection-sessions',
-    description: 'Deterministic checks run after eligible turns. The global mode is a default; project and individual rule modes can select fixes even when the global mode is report.',
-    control: 'json', keywords: ['quality', 'fixes'], defaultValue: { enabled: true, mode: 'report', rules: { trailingWs: true, finalNewline: true, bom: true, slop: false } },
-    takesEffect: 'now', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
   },
   {
     id: 'file-branch-gc-enabled', path: 'branchGc.enabled', title: 'Branch cleanup', group: 'machine-detection-sessions',

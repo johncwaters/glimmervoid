@@ -122,7 +122,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'change-map', id: 'session-1', map: { sessionId: 'session-1', sig: 'sig-1', generatedAt: NOW, repos: [] } },
   { type: 'branch-sync-status', id: 'session-1', branch: 'develop', upstream: 'origin/develop', state: 'ahead', ahead: 1, behind: 0, fetched: true },
   { type: 'session-changed', id: 'session-1', sig: 'sha' },
-  { type: 'post-turn-result', id: 'session-1', session: 'glimmervoid', mode: 'fix', skipped: null, filesFixed: 1, findings: [{ file: 'a.js', rule: 'finalNewline', count: 1 }], timestamp: NOW },
   { type: 'debug-state-response', id: 'session-1', payload: { state: STATES.RUNNING } },
   { type: 'session-trace-response', id: 'session-1', records: [], start: 0, next: 0, reset: false, path: '/traces/session-1.jsonl' },
   { type: 'session-trace-changed', id: 'session-1' },

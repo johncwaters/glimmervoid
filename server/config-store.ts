@@ -107,13 +107,6 @@ const DEFAULT_CONFIG = {
 
   customAgents: [] as CustomAgentDeclaration[],
 
-  postTurnChecks: {
-    enabled: true,
-    mode: 'report',
-
-    rules: { trailingWs: true, finalNewline: true, bom: true, slop: false },
-  },
-
   remote: {
     enabled: false,
 
@@ -543,7 +536,6 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId }: {
 
       taskTitle: pickBlock('taskTitle', config.taskTitle ?? DEFAULT_CONFIG.taskTitle),
       branchGc: pickBlock('branchGc', config.branchGc),
-      postTurnChecks: pickBlock('postTurnChecks', config.postTurnChecks ?? DEFAULT_CONFIG.postTurnChecks),
       visions: pickBlock('visions', config.visions),
       github: pickBlock('github', config.github),
       teamReview: pickBlock('teamReview', config.teamReview),
@@ -588,8 +580,6 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId }: {
     }
     config.repoRoots = newConfig.repoRoots || [];
 
-    if (newConfig.postTurnChecks == null) delete config.postTurnChecks;
-    if (newConfig.postTurnChecks != null) config.postTurnChecks = newConfig.postTurnChecks;
     if (newConfig.worktreeShare == null) delete config.worktreeShare;
     if (newConfig.worktreeShare != null) config.worktreeShare = newConfig.worktreeShare;
     if (newConfig.taskTitle != null) config.taskTitle = newConfig.taskTitle;

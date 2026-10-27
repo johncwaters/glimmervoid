@@ -22,14 +22,11 @@ Pure cores seam-extracted from `sessions.js`: no fs, no git, no async, no Sessio
 | `session-routes.ts` | The one supervision line a launch appends, the permission test that withholds it from a launch whose rules stop `glimmervoid --help` (the line would point at a command the session cannot run), plus the role rules for `push`, `spawn`, `attention` and `edit`. The line is the only always-on text Glimmervoid adds, so detail belongs in `glimmervoid --help`, never here. The server's refusals and `glimmervoid limits` both read these rules, so a rule written anywhere else lets help promise a command the server refuses |
 | `rebase-gate.ts` | Pure `decideAutoRebase(...)` -> `{ action: 'rebase' }` or a skip with its reason: may a worktree be rebased onto a moved integration branch right now, unattended. `AUTO_REBASE_STATES` excludes WAITING (a paused turn resumes into the files a rebase would rewrite); the guard order is stated only by its test |
 | `hook-relay-core.ts` | Pure rules for `../hook-relay.ts`: the `GLIMMERVOID_HOOK_URL` read, event-token normalization into the URL's last segment, the http/loopback/`/hook/` target refusals, and the payload size cap that matches the ingress body cap |
-| `post-turn-rules.ts` | Pure idempotent post-turn hygiene rules, `(content) -> { content, findings }`; applied by `server/post-turn-checker.ts` |
-| `slop-code-patterns.ts` | Pure regex-based code-slop detection (`detectCodeSlop`), Noise/Lies/Soul taxonomy, offsets only |
 
 ## For AI Agents
 
 ### Working In This Directory
-- Purity is the contract: no IO, no timers, no EventEmitter, no requires from `sessions.js`. If a change needs IO, it belongs in the root-level shell (`sessions.ts`, `post-turn-checker.ts`).
-- `post-turn-rules.ts`, `slop-code-patterns.ts` and their tests must contain no literal em dash, en dash, or ellipsis character; build them via `String.fromCharCode`.
+- Purity is the contract: no IO, no timers, no EventEmitter, no requires from `sessions.js`. If a change needs IO, it belongs in the root-level shell (`sessions.ts`).
 - Tracker modules (`agent-tracker.ts`, `wakeup-tracker.ts`) mutate the passed Map and return whether the set changed; follow that shape for any new tracker.
 - Strings destined for the cmd.exe shim spawn path must avoid embedded double quotes.
 
@@ -39,6 +36,6 @@ Pure cores seam-extracted from `sessions.js`: no fs, no git, no async, no Sessio
 ## Dependencies
 
 ### Internal
-- Consumed by `session/sessions.ts` and `server/post-turn-checker.ts`; depends only on siblings (e.g. `post-turn-rules.ts` -> `slop-code-patterns.ts`).
+- Consumed by `session/sessions.ts`; depends only on siblings.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

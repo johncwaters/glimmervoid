@@ -271,10 +271,9 @@ test('the control update keeps exactly the exported settable branchGc keys', () 
   );
 });
 
-test('the safe defaults ship permission prompts on, unmerged branches kept and post-turn checks report-only', () => {
+test('the safe defaults ship permission prompts on, and unmerged branches kept', () => {
   assert.equal(DEFAULT_CONFIG.skipPermissionsByDefault, false);
   assert.equal(DEFAULT_CONFIG.branchGc.deleteUnmerged, false);
-  assert.equal(DEFAULT_CONFIG.postTurnChecks.mode, 'report');
 });
 
 test('skipPermissionsByDefault is a dashboard-settable boolean and nothing else', () => {

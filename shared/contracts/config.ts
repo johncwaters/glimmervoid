@@ -192,7 +192,6 @@ export const Config = z.object({
   worktreeAutoRebase: optionalBoolean('worktreeAutoRebase'),
   worktreeSyncOnStart: optionalBoolean('worktreeSyncOnStart'),
   worktreeRerere: optionalBoolean('worktreeRerere'),
-  postTurnChecks: z.record(z.string(), z.unknown()).optional(),
   hooks: z.unknown().optional(),
   remote: z.object({
     enabled: z.boolean().optional(),
@@ -229,7 +228,7 @@ export const Config = z.object({
 });
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
-  'taskTitle', 'branchGc', 'postTurnChecks', 'visions', 'github', 'teamReview', 'benchmarks', 'coherence', 'issues', 'posthog', 'usage', 'telegram', 'ingest',
+  'taskTitle', 'branchGc', 'visions', 'github', 'teamReview', 'benchmarks', 'coherence', 'issues', 'posthog', 'usage', 'telegram', 'ingest',
   'guardrails', 'telemetry', 'workflows', 'coder',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {

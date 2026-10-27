@@ -430,14 +430,13 @@ test('workflow rules default to none, reach the dashboard whole and read-only ev
   });
 });
 
-test('a config.json reload without a key drops its live value, so a removed scalar, integration branch, worktreeShare, postTurnChecks or workflows block takes its default', () => {
+test('a config.json reload without a key drops its live value, so a removed scalar, integration branch, worktreeShare or workflows block takes its default', () => {
   withStore({ projects: [] }, (store) => {
     const removedKeys = {
       saneYolo: false,
       autoResume: false,
       integrationBranch: 'staging',
       worktreeShare: ['custom'],
-      postTurnChecks: { mode: 'off' },
       workflows: { rules: [{ id: 'greet', name: 'Greet', enabled: true, repos: ['acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] },
     };
     store.applySettings({ projects: [], ...removedKeys });
@@ -653,12 +652,9 @@ test('every block of the settings payload is picked through the registry spec, s
   });
 });
 
-test('the payload carries the whole post-turn checks block, which the registry lists as one structured value', () => {
+test('a config.json still carrying the retired postTurnChecks block loads and leaves it out of the payload', () => {
   withStore({ projects: [], postTurnChecks: { enabled: false, mode: 'fix', rules: { bom: false } } }, (store) => {
-    assert.deepEqual(store.getSettings().postTurnChecks, { enabled: false, mode: 'fix', rules: { bom: false } });
-  });
-  withStore({ projects: [] }, (store) => {
-    assert.deepEqual(store.getSettings().postTurnChecks, DEFAULT_CONFIG.postTurnChecks);
+    assert.equal('postTurnChecks' in store.getSettings(), false);
   });
 });
 

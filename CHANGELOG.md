@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Post-turn checks are gone**: Glimmervoid no longer scans files for trailing whitespace, a missing final newline or a byte order mark after each turn, and the Post-turn checks setting is gone from Settings. Their report showed only in the session header tag that was removed, so the default report mode did nothing you could see. A `postTurnChecks` block left in `config.json` is ignored.
 - **The experimental Zen view is gone**: the Zen tab, its meadow of session pets and the Settings > Sessions > Zen view toggle no longer exist. Cmd+J (Alt+J off a Mac) still jumps to the next session that needs you, in Focus. A `zenView` key left in `config.json` is ignored, and a dashboard last left on Zen opens on Focus.
 
 ### Changed

@@ -14,7 +14,6 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `control-handlers.ts` | Control-WebSocket message handlers (kill, restart, rename, settings) |
 | `server-lifecycle.ts` | Boot/shutdown helpers; restart strategy in `core/restart-strategy.ts` |
 | `ws-sender.ts` | Data-WebSocket sender: batching and backpressure |
-| `post-turn-checker.ts` | Post-turn hygiene IO runner (rules in `session/core/post-turn-rules.ts`) |
 | `data/claude-pricing.json` | Bundled LiteLLM pricing snapshot |
 | `spawn-gate.ts` | Process-wide async serialization of `pty.spawn` initiation (ConPTY wedge avoidance) |
 | `lanes/` | Ephemeral and interactive lane spawning, logging and status (`lanes/AGENTS.md`) |

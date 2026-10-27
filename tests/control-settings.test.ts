@@ -153,7 +153,7 @@ test('a valid branchGc payload is sanitized, persisted, and echoed, and file-onl
   assert.deepEqual(blockOf(echoed, 'prefixes'), ['glimmervoid/session/', 'worktree-agent-']);
 });
 
-test('dashboard saves branch deletion and post-turn fix mode while retaining sibling settings', () => {
+test('dashboard saves branch deletion while a stale postTurnChecks block from an older config stays on disk untouched', () => {
   const branchGc = { enabled: true, prefixes: ['custom/'], dryRun: true, staleDays: 21, deleteUnmerged: false, intervalMs: 3600000 };
   const postTurnChecks = { enabled: true, mode: 'report', rules: { trailingWs: false, finalNewline: true } };
   withRealStore({ projects: [], branchGc, postTurnChecks }, undefined, (h, store, readDisk) => {
@@ -162,19 +162,7 @@ test('dashboard saves branch deletion and post-turn fix mode while retaining sib
     assert.deepEqual(readDisk().branchGc, { ...branchGc, deleteUnmerged: true });
     assert.deepEqual(readDisk().postTurnChecks, postTurnChecks);
     assert.equal(blockOf(store.getSettings().branchGc, 'deleteUnmerged'), true);
-
-    h.sent.length = 0;
-    h.send({ type: 'update-settings', settings: { postTurnChecks: { mode: 'fix' } } });
-    assert.equal(errorFrom(h), undefined);
-    assert.deepEqual(readDisk().branchGc, { ...branchGc, deleteUnmerged: true });
-    assert.deepEqual(readDisk().postTurnChecks, { ...postTurnChecks, mode: 'fix' });
-    assert.equal(blockOf(updatedFrom(h)?.settings?.postTurnChecks, 'mode'), 'fix');
-
-    h.sent.length = 0;
-    h.send({ type: 'update-settings', settings: { postTurnChecks: { mode: 'banana' } } });
-    assert.match(String(errorFrom(h)?.message), /postTurnChecks.mode/);
-    assert.equal(updatedFrom(h), undefined);
-    assert.deepEqual(readDisk().postTurnChecks, { ...postTurnChecks, mode: 'fix' });
+    assert.equal('postTurnChecks' in (updatedFrom(h)?.settings ?? {}), false);
   });
 });
 

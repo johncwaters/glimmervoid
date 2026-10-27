@@ -292,5 +292,5 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
   return { onData, pauseOutput, resumeOutput, markInputFlush, sendImmediate, sendOutOfBand, sendDroppable, destroy };
 }
 
-export { createWsSender, DEFAULTS };
+export { createWsSender };
 export type { WsSender };

@@ -12,7 +12,7 @@ interface ReplayLog {
   currentSeq(): number;
 }
 
-const REPLAYABLE_EXACT = new Set(['notify', 'session-error', 'post-turn-result']);
+const REPLAYABLE_EXACT = new Set(['notify', 'session-error']);
 
 function isReplayable(type: unknown): boolean {
   return typeof type === 'string' && REPLAYABLE_EXACT.has(type);

@@ -36,7 +36,7 @@ const CHECKED_TREES = ['server', 'session', 'detection', 'notifications', 'share
 const SUPPRESSIONS = ['nocheck', 'ignore', 'expect-error'].map((tail) => `@ts-${tail}`).concat(['biome-' + 'ignore']);
 const CAST_ESCAPES = [/\bas\s+any\b/, /\bas\s+unknown\s+as\b/];
 const COMMENT_LINE = /^\s*(\/\/|\/\*)/;
-const SELF_EXEMPT = ['typecheck-gate.test', 'slop-code-patterns.test'];
+const SELF_EXEMPT = ['typecheck-gate.test'];
 
 interface TsconfigShape {
   extends?: string;

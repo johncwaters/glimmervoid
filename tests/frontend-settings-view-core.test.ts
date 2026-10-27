@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
-import { POST_TURN_CHECK_MODES } from '../shared/contracts/browser-config.ts';
 import type { SettingsLevel, SettingsSection, SettingsSetting } from '../shared/settings/registry.ts';
 import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '../shared/settings/registry.ts';
 import { SETTINGS_INDEX, displayValue, parseSettingsHash, scoreSettingsSearch, settingsOf, wireValue } from '../shared/settings/registry-core.ts';
@@ -390,20 +389,12 @@ test('guardrails expose branch deletion and post-turn mode as editable controls'
   assert.equal(branchDeletion.access, 'editable');
   assert.equal(settableFromDashboard(branchDeletion.path), true);
 
-  const postTurnMode = unattended.settings.find((setting) => setting.path === 'postTurnChecks.mode');
-  assert.ok(postTurnMode);
-  assert.equal(postTurnMode.control, 'select');
-  assert.deepEqual(postTurnMode.options, POST_TURN_CHECK_MODES.map((value) => ({ value, label: value === 'report' ? 'Report' : 'Fix' })));
-  assert.equal(postTurnMode.defaultValue, 'report');
-  assert.equal(postTurnMode.access, 'editable');
-  assert.equal(settableFromDashboard(postTurnMode.path), true);
   assert.equal(SETTINGS_INDEX.byId.has('file-branch-gc-delete-unmerged'), false);
 
   const original = hydrateFromSettings([unattended], DEFAULT_CONFIG);
-  const edited = { ...original, 'branchGc.deleteUnmerged': true, 'postTurnChecks.mode': 'fix' };
+  const edited = { ...original, 'branchGc.deleteUnmerged': true };
   assert.deepEqual(collectDirtyBlocks([unattended], original, edited), {
     branchGc: { ...DEFAULT_CONFIG.branchGc, deleteUnmerged: true },
-    postTurnChecks: { ...DEFAULT_CONFIG.postTurnChecks, mode: 'fix' },
   });
 });
 

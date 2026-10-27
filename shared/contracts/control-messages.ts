@@ -334,7 +334,6 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'change-map',
   'branch-sync-status',
   'session-changed',
-  'post-turn-result',
   'debug-state-response',
   'session-trace-response',
   'session-trace-changed',
@@ -499,18 +498,6 @@ const serverVariants = [
     error: optionalError,
   }),
   loose('session-changed', { id: sessionId }),
-  loose('post-turn-result', {
-    id: sessionId,
-    mode: z.string(),
-    skipped: nullableString,
-    filesFixed: z.number().int().nonnegative(),
-    findings: z.array(openObject({
-      file: z.string(),
-      rule: z.string(),
-      count: z.number().int().nonnegative(),
-    })),
-    timestamp,
-  }),
   loose('debug-state-response', { id: sessionId, payload: opaqueObject }),
   loose('session-trace-response', {
     id: sessionId,
