@@ -1,5 +1,4 @@
 import { nextReconnectDelayMs } from './reconnect-backoff.ts';
-import { decideLivenessAction } from './connection-liveness-core.ts';
 import { buildWebSocketUrl } from './ws-url-core.ts';
 import { clearPageToken, loadPageToken, pageToken, withPageToken } from './ws-token.ts';
 import { ServerMessage } from '#shared/contracts/control-messages.ts';
@@ -8,6 +7,8 @@ import { createClientLogReporter, describeSchemaIssues, frameTypeOf } from './cl
 
 type ControlMessageHandler = (message: ServerMessage) => void;
 type ConnectionStateCallback = (state: string, label: string) => void;
+type ControlSocketChange = 'connecting' | 'opened' | 'closed';
+type ControlSocketChangeListener = (change: ControlSocketChange) => void;
 
 interface PendingRequest {
   resolve: (message: ServerMessage) => void;
@@ -20,8 +21,6 @@ let controlRetryTimer: number | null = null;
 
 let controlRetryAttempt = 0;
 const pendingRequests = new Map<string, PendingRequest>();
-let livenessProbePromise: Promise<'ok' | 'dead'> | null = null;
-let connectingSince = 0;
 
 let tokenFetchPending = false;
 
@@ -30,9 +29,14 @@ let requestSequence = 0;
 
 let _messageHandler: ControlMessageHandler | null = null;
 let _connectionStateCallback: ConnectionStateCallback | null = null;
+let _controlSocketChangeListener: ControlSocketChangeListener | null = null;
 
 export function setConnectionStateCallback(fn: ConnectionStateCallback) {
   _connectionStateCallback = fn;
+}
+
+export function onControlSocketChange(listener: ControlSocketChangeListener) {
+  _controlSocketChangeListener = listener;
 }
 
 export function onControlMessage(handler: ControlMessageHandler) {
@@ -94,21 +98,39 @@ function rejectPendingRequests(reason: string) {
   pendingRequests.clear();
 }
 
-function replaceControlSocket() {
+function clearControlRetryTimer() {
+  if (controlRetryTimer !== null) clearTimeout(controlRetryTimer);
+  controlRetryTimer = null;
+}
+
+export function abandonControlSocket() {
   const abandonedSocket = controlWs;
   controlWs = null;
+  clearControlRetryTimer();
   rejectPendingRequests(NOT_CONNECTED_TEXT);
   if (_connectionStateCallback) _connectionStateCallback('disconnected', 'Reconnecting');
   abandonedSocket?.close();
+}
+
+export function replaceControlSocket() {
+  abandonControlSocket();
   controlRetryAttempt = 0;
   connectControl();
 }
 
+export function probeControl(deadlineMs: number, isAnnounced: boolean): Promise<boolean> {
+  if (isAnnounced && _connectionStateCallback) _connectionStateCallback('connecting', 'Connecting');
+  return sendControlRequest('ping', {}, { timeoutMs: deadlineMs }).then(
+    () => {
+      if (isAnnounced && _connectionStateCallback) _connectionStateCallback('verified', 'Connected');
+      return true;
+    },
+    () => false,
+  );
+}
+
 export function connectControl() {
-  if (controlRetryTimer !== null) {
-    if (controlRetryTimer !== null) clearTimeout(controlRetryTimer);
-    controlRetryTimer = null;
-  }
+  clearControlRetryTimer();
 
   if (!pageToken() && !tokenFetchPending) {
     tokenFetchPending = true;
@@ -124,13 +146,15 @@ export function connectControl() {
   const url = buildWebSocketUrl(location, withPageToken(`/control${since}`));
   const ws = new WebSocket(url);
   controlWs = ws;
-  connectingSince = Date.now();
+  _controlSocketChangeListener?.('connecting');
   let hasEverOpened = false;
 
   ws.addEventListener('open', () => {
+    if (controlWs !== ws) return;
     hasEverOpened = true;
     controlRetryAttempt = 0;
     if (_connectionStateCallback) _connectionStateCallback('connected', 'Connected');
+    _controlSocketChangeListener?.('opened');
   });
 
   ws.addEventListener('message', (event: MessageEvent<string>) => {
@@ -176,45 +200,9 @@ export function connectControl() {
 
     if (!hasEverOpened) clearPageToken();
     if (_connectionStateCallback) _connectionStateCallback('disconnected', 'Reconnecting');
+    _controlSocketChangeListener?.('closed');
     const retryDelayMs = nextReconnectDelayMs(controlRetryAttempt);
     controlRetryAttempt += 1;
     controlRetryTimer = setTimeout(connectControl, retryDelayMs);
   });
-}
-
-export async function checkControlLiveness() {
-  if (_connectionStateCallback) _connectionStateCallback('connecting', 'Connecting');
-  if (livenessProbePromise) return livenessProbePromise;
-  const action = decideLivenessAction({
-    hasSocket: !!controlWs,
-    readyState: controlWs?.readyState ?? null,
-    retryPending: controlRetryTimer !== null,
-    connectingAgeMs: Date.now() - connectingSince,
-  });
-  if (action === 'retry-now') {
-    if (controlRetryTimer !== null) clearTimeout(controlRetryTimer);
-    controlRetryTimer = null;
-    controlRetryAttempt = 0;
-    connectControl();
-    return 'reconnecting';
-  }
-  if (action === 'connect') {
-    replaceControlSocket();
-    return 'reconnecting';
-  }
-  if (action === 'wait') return 'reconnecting';
-  const probedSocket = controlWs;
-  livenessProbePromise = sendControlRequest('ping', {})
-    .then((): 'ok' => {
-      if (_connectionStateCallback) _connectionStateCallback('verified', 'Connected');
-      return 'ok';
-    })
-    .catch((): 'dead' => {
-      if (controlWs === probedSocket && probedSocket) replaceControlSocket();
-      return 'dead';
-    })
-    .finally(() => {
-      livenessProbePromise = null;
-    });
-  return livenessProbePromise;
 }

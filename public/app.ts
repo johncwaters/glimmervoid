@@ -10,7 +10,7 @@ import { trackedReportNoticeText } from '#shared/post-turn-leftovers.ts';
 import { getBorrowedCardId } from './card-host.ts';
 import { createClientErrorReporter, describeFailure } from './client-error-core.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
-import { checkControlLiveness, connectControl, onControlMessage, reportToServerLog, sendControlMsg, sendControlRequest, setConnectionStateCallback } from './control-ws.ts';
+import { connectControl, onControlMessage, reportToServerLog, sendControlMsg, sendControlRequest, setConnectionStateCallback } from './control-ws.ts';
 import { applyAgentLogins } from './agent-logins.ts';
 import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
@@ -52,7 +52,8 @@ import { buildSessionCardOptions } from './session-card/card-options-core.ts';
 import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, markSessionSeen, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPrompt, setSessionUnseenOutcome, setSessionUsage, setSessionGuarded, setSessionWorktree, updateAttentionTitle } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { isModalOpen, openConfirmDialog } from './session-card/modal.ts';
-import { countShownConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
+import { countShownConnectingTerminals, onTerminalLinkChange, reconnectDataWs, syncGridOnEngagementEdge } from './session-card/terminal.ts';
+import { superviseConnection } from './connection-supervisor.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, applySettingsUpdateError, onPhoneSettingsScreenChanged, refreshSettingsStatus, returnToSettingsList, setFeatureTabViews } from './settings/settings-store.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
@@ -1184,28 +1185,10 @@ window.addEventListener('focus', noteViewerFocusEdge);
 window.addEventListener('blur', noteViewerFocusEdge);
 document.addEventListener('visibilitychange', noteViewerFocusEdge);
 
-let _wakeLivenessCheckRunning = false;
-
-async function checkWakeLiveness() {
-  if (_wakeLivenessCheckRunning) return;
-  _wakeLivenessCheckRunning = true;
-  holdTerminalInputDuringWakeCheck();
-  try {
-    const state = await checkControlLiveness();
-    if (state === 'ok') return;
-    for (const id of sessionUIs.keys()) reconnectDataWs(id);
-  } finally {
-    releaseHeldTerminalInput();
-    _wakeLivenessCheckRunning = false;
-  }
-}
-
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   rebuildWebglGlyphAtlases();
-  checkWakeLiveness();
 });
-window.addEventListener('online', checkWakeLiveness);
 const reportClientError = createClientErrorReporter(sendControlMsg);
 window.addEventListener('error', (event) => {
   reportClientError(event.error);
@@ -1219,7 +1202,6 @@ reloadOnceOnPreloadError(() => window.sessionStorage);
 window.addEventListener('pageshow', (event) => {
   if (!event.persisted) return;
   rebuildWebglGlyphAtlases();
-  checkWakeLiveness();
 });
 
 mountHealthMonitor(queryTag(document, '#health-footer-mount', 'div'));
@@ -1227,4 +1209,5 @@ mountHealthMonitor(queryTag(document, '#health-footer-mount', 'div'));
 whenBundledMonoFontLoads(refreshTerminalFonts);
 
 scheduleServerUnreachableHint();
+superviseConnection();
 connectControl();

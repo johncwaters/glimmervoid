@@ -9,6 +9,7 @@ import { isPhoneLayout } from '../form-factor.ts';
 import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { escapesFocusedTerminal, resolveDashboardShortcut } from '../shortcuts-core.ts';
 import { nextReconnectDelayMs } from '../reconnect-backoff.ts';
+import { HANDSHAKE_DEADLINE_MS } from '../connection-supervisor-core.ts';
 import { renderScheduler } from '../render-scheduler.ts';
 import { getTerminalTheme } from '../theme.ts';
 import { buildWebSocketUrl } from '../ws-url-core.ts';
@@ -82,6 +83,7 @@ const deepHistoryLinesFromBottomBySessionUi = new WeakMap<SessionUi, number>();
 const restoredLinesFromBottomBySessionUi = new WeakMap<SessionUi, number>();
 const sessionUisWithDeepHistory = new WeakSet<SessionUi>();
 const sessionUisReattachingQuietly = new WeakSet<SessionUi>();
+const sessionUisReconnectingWhenShown = new WeakSet<SessionUi>();
 
 type TerminalNoticeKind = 'keys' | 'clipboard';
 
@@ -173,6 +175,7 @@ function isTerminalOutputWanted(ui: SessionUi, sessionId: string) {
 }
 
 export function syncTerminalOutputFlow(ui: SessionUi | null | undefined, sessionId: string) {
+  if (ui && reconnectIfDeferredAndShown(ui, sessionId)) return;
   const socket = ui?.dataWs;
   if (!ui || socket?.readyState !== WebSocket.OPEN) return;
   const isWanted = isTerminalOutputWanted(ui, sessionId);
@@ -323,12 +326,16 @@ function notifyTerminalLinkSubscribers() {
   for (const notify of terminalLinkSubscribers) notify();
 }
 
-function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, delayMs: number) {
+function detachDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   rememberScrollOffsetForReattach(ui, term);
   renderScheduler.unregister(sessionId);
   ui.dataWs = null;
   refreshTerminalLink(ui);
   ui._resetGridClaim?.();
+}
+
+function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, delayMs: number) {
+  detachDataWs(sessionId, ui, term);
   setTimeout(() => {
     if (!isStillCurrentAndDetached(sessionId, ui)) return;
     void loadPageToken().catch(() => {}).then(() => {
@@ -338,7 +345,21 @@ function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, d
   }, delayMs);
 }
 
+function reconnectIfDeferredAndShown(ui: SessionUi, sessionId: string) {
+  if (!sessionUisReconnectingWhenShown.has(ui) || !ui.term || !isTerminalOutputWanted(ui, sessionId)) return false;
+  sessionUisReconnectingWhenShown.delete(ui);
+  ui._dataWsRetryAttempt = 0;
+  detachThenReconnect(sessionId, ui, ui.term, 0);
+  return true;
+}
+
+function detachUntilShown(sessionId: string, ui: SessionUi, term: Terminal) {
+  detachDataWs(sessionId, ui, term);
+  sessionUisReconnectingWhenShown.add(ui);
+}
+
 function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
+  sessionUisReconnectingWhenShown.delete(ui);
   const deepHistoryLinesFromBottom = deepHistoryLinesFromBottomBySessionUi.get(ui);
   deepHistoryLinesFromBottomBySessionUi.delete(ui);
   const restoredLinesFromBottom = restoredLinesFromBottomBySessionUi.get(ui);
@@ -355,6 +376,9 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   refreshTerminalLink(ui);
   let hasEverOpened = false;
   const frameState: DataFrameState = { hasSeenSize: false, lastSeq: 0 };
+  const handshakeTimer = setTimeout(() => {
+    if (ws.readyState === WebSocket.CONNECTING) ws.close();
+  }, HANDSHAKE_DEADLINE_MS);
 
   renderScheduler.register(sessionId, (data, cb) => term.write(data, cb));
 
@@ -398,15 +422,21 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   });
 
   ws.addEventListener('close', () => {
+    clearTimeout(handshakeTimer);
     if (ui.dataWs !== ws) return;
     sessionUisReattachingQuietly.delete(ui);
     if (!hasEverOpened) clearPageToken();
+    if (!isTerminalOutputWanted(ui, sessionId)) {
+      detachUntilShown(sessionId, ui, term);
+      return;
+    }
     const retryDelayMs = nextReconnectDelayMs(ui._dataWsRetryAttempt || 0);
     ui._dataWsRetryAttempt = (ui._dataWsRetryAttempt || 0) + 1;
     detachThenReconnect(sessionId, ui, term, retryDelayMs);
   });
 
   ws.addEventListener('open', () => {
+    clearTimeout(handshakeTimer);
     hasEverOpened = true;
     ui._dataWsRetryAttempt = 0;
     sessionUisReattachingQuietly.delete(ui);
@@ -455,6 +485,30 @@ export function reconnectDataWs(id: unknown) {
   ui._dataWsRetryAttempt = 0;
   detachThenReconnect(id, ui, ui.term, 0);
   abandonedSocket?.close();
+}
+
+export function reconnectShownTerminals() {
+  for (const [sessionId, ui] of sessionUIs) {
+    if (!ui.term) continue;
+    if (isTerminalOutputWanted(ui, sessionId)) {
+      reconnectDataWs(sessionId);
+      continue;
+    }
+    closeUntilShown(sessionId, ui, ui.term);
+  }
+}
+
+function closeUntilShown(sessionId: string, ui: SessionUi, term: Terminal) {
+  const abandonedSocket = ui.dataWs;
+  if (!abandonedSocket) return;
+  detachUntilShown(sessionId, ui, term);
+  abandonedSocket.close();
+}
+
+export function closeEveryTerminalUntilShown() {
+  for (const [sessionId, ui] of sessionUIs) {
+    if (ui.term) closeUntilShown(sessionId, ui, ui.term);
+  }
 }
 
 export function closeDataWs(ui: SessionUi, sessionId: string) {

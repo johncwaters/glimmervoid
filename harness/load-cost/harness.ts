@@ -4,7 +4,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import type { Browser, BrowserContext, Page, Request, WebSocket as PageWebSocket } from 'playwright-core';
+import type { Browser, BrowserContext, BrowserType, Page, Request, WebSocket as PageWebSocket } from 'playwright-core';
 import WebSocket from 'ws';
 
 import { createBackend } from '../../server/backend/backend.ts';
@@ -38,7 +38,12 @@ interface FixtureSession {
   fillLines: number;
 }
 
+type BrowserEngine = 'chromium' | 'webkit' | 'firefox';
+const BROWSER_ENGINES: readonly BrowserEngine[] = ['chromium', 'webkit', 'firefox'];
+
 interface HarnessOptions {
+  isWakeRun: boolean;
+  engine: BrowserEngine;
   runs: number;
   comparePath: string | null;
   artifactsDir: string;
@@ -78,9 +83,10 @@ const IDLE_FILLERS: FixtureSession[] = [1, 2, 3, 4, 5].map((number) => ({ key: `
 const FIXTURES: FixtureSession[] = [SESSION_A, SESSION_B, SESSION_C, ...IDLE_FILLERS];
 
 function parseOptions(argv: readonly string[]): HarnessOptions {
-  const options: HarnessOptions = { runs: 3, comparePath: null, artifactsDir: DEFAULT_ARTIFACTS_DIR, executablePath: process.env.CHROME_PATH };
+  const options: HarnessOptions = { isWakeRun: false, engine: 'chromium', runs: 3, comparePath: null, artifactsDir: DEFAULT_ARTIFACTS_DIR, executablePath: process.env.CHROME_PATH };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
+    if (flag === '--wake') { options.isWakeRun = true; continue; }
     const value = argv[index + 1];
     if (value === undefined || value.startsWith('--')) throw new Error(`${flag} needs a value`);
     index += 1;
@@ -92,9 +98,16 @@ function parseOptions(argv: readonly string[]): HarnessOptions {
     if (flag === '--compare') { options.comparePath = path.resolve(value); continue; }
     if (flag === '--artifacts') { options.artifactsDir = path.resolve(value); continue; }
     if (flag === '--executable') { options.executablePath = path.resolve(value); continue; }
+    if (flag === '--engine') { options.engine = parseEngine(value); continue; }
     throw new Error(`unknown argument ${flag}`);
   }
   return options;
+}
+
+function parseEngine(value: string): BrowserEngine {
+  const engine = BROWSER_ENGINES.find((candidate) => candidate === value);
+  if (!engine) throw new Error(`--engine needs one of ${BROWSER_ENGINES.join(', ')}`);
+  return engine;
 }
 
 function payloadText(payload: string | Buffer): string {
@@ -369,6 +382,180 @@ async function runScenario(scenario: Scenario, runs: number, fleet: Fleet, brows
   };
 }
 
+const WAKE_HIDDEN_MS = 20_000;
+const WAKE_WAIT_MS = 30_000;
+
+type WakeCaseId = 'healthy' | 'stalled' | 'stalled-visible' | 'wedged-handshake';
+
+interface WakeCase {
+  id: WakeCaseId;
+  detail: string;
+  boundMs: number;
+  measure(visit: WakeVisit): Promise<number>;
+}
+
+interface WakeVisit {
+  proxy: ShapingProxy;
+  watch: ReturnType<typeof watchWakeSockets>;
+  hide(): Promise<void>;
+  show(): Promise<void>;
+}
+
+function watchWakeSockets(page: Page, sessionId: string, marker: string) {
+  let armedAtMs: number | null = null;
+  let controlCreatedMs: number[] = [];
+  let terminalLiveMs: number | null = null;
+  page.on('websocket', (socket: PageWebSocket) => {
+    if (armedAtMs === null) return;
+    const startedAtMs = armedAtMs;
+    const socketPath = new URL(socket.url()).pathname;
+    if (socketPath === '/control') {
+      controlCreatedMs.push(performance.now() - startedAtMs);
+      return;
+    }
+    if (socketPath !== `/terminals/${sessionId}`) return;
+    let viewText = '';
+    socket.on('framereceived', ({ payload }) => {
+      if (terminalLiveMs !== null || armedAtMs !== startedAtMs) return;
+      viewText += payloadText(payload);
+      if (viewText.includes(marker)) terminalLiveMs = performance.now() - startedAtMs;
+    });
+  });
+  return {
+    arm() {
+      armedAtMs = performance.now();
+      controlCreatedMs = [];
+      terminalLiveMs = null;
+    },
+    controlCreatedMs: () => controlCreatedMs,
+    terminalLiveMs: () => terminalLiveMs,
+  };
+}
+
+function overrideVisibility(isHidden: boolean): void {
+  Reflect.deleteProperty(document, 'visibilityState');
+  Reflect.deleteProperty(document, 'hidden');
+  if (isHidden) {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+  }
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
+async function waitForTerminalLive(watch: WakeVisit['watch'], description: string): Promise<number> {
+  await waitFor(() => watch.terminalLiveMs() !== null, WAKE_WAIT_MS, description);
+  return watch.terminalLiveMs() ?? Number.POSITIVE_INFINITY;
+}
+
+const WAKE_CASES: WakeCase[] = [
+  {
+    id: 'healthy',
+    detail: 'hidden 20 s, connection still working, ms to shown terminal live',
+    boundMs: 1500,
+    async measure({ watch, hide, show }) {
+      await hide();
+      await sleep(WAKE_HIDDEN_MS);
+      watch.arm();
+      await show();
+      return waitForTerminalLive(watch, 'the shown terminal did not come back after a healthy wake');
+    },
+  },
+  {
+    id: 'stalled',
+    detail: 'hidden 20 s, connection silently dead, ms to shown terminal live',
+    boundMs: 1500,
+    async measure({ proxy, watch, hide, show }) {
+      await hide();
+      proxy.stallOpenConnections();
+      await sleep(WAKE_HIDDEN_MS);
+      watch.arm();
+      await show();
+      return waitForTerminalLive(watch, 'the shown terminal did not come back after a stalled wake');
+    },
+  },
+  {
+    id: 'stalled-visible',
+    detail: 'connection silently dead while shown, ms to shown terminal live',
+    boundMs: 20_000,
+    async measure({ proxy, watch }) {
+      watch.arm();
+      proxy.stallOpenConnections();
+      return waitForTerminalLive(watch, 'a connection that died while shown was never replaced');
+    },
+  },
+  {
+    id: 'wedged-handshake',
+    detail: 'new connections never answer, ms from first control attempt to its retry',
+    boundMs: 8000,
+    async measure({ proxy, watch, hide, show }) {
+      await hide();
+      proxy.stallOpenConnections();
+      proxy.setWedgingNewConnections(true);
+      await sleep(WAKE_HIDDEN_MS);
+      watch.arm();
+      await show();
+      await waitFor(() => watch.controlCreatedMs().length >= 2, WAKE_WAIT_MS, 'a wedged control handshake was never retried');
+      const [firstAttemptMs = 0, retryMs = Number.POSITIVE_INFINITY] = watch.controlCreatedMs();
+      proxy.setWedgingNewConnections(false);
+      await waitForTerminalLive(watch, 'the shown terminal did not come back once handshakes were answered again');
+      return retryMs - firstAttemptMs;
+    },
+  },
+];
+
+async function measureWakeCase(wakeCase: WakeCase, engine: BrowserEngine, fleet: Fleet, browser: Browser, proxy: ShapingProxy): Promise<number> {
+  const sessionId = fleet.sessionIdByKey.get(SESSION_A.key) ?? '';
+  const context = await browser.newContext(PHONE);
+  try {
+    const page = await context.newPage();
+    const sockets = watchPageSockets(page);
+    const watch = watchWakeSockets(page, sessionId, fillCompleteMarker(SESSION_A.fillLines));
+    sockets.beginWindow(sessionId, SESSION_A);
+    await loadDashboard(page, fleet.port);
+    await openSession(page, sockets, sessionId, SESSION_A);
+    sockets.endWindow();
+    const cdp = engine === 'chromium' ? await context.newCDPSession(page) : null;
+    const hide = async () => {
+      await page.evaluate(overrideVisibility, true);
+      await cdp?.send('Page.setWebLifecycleState', { state: 'frozen' });
+    };
+    const show = async () => {
+      await cdp?.send('Page.setWebLifecycleState', { state: 'active' });
+      await page.evaluate(overrideVisibility, false);
+    };
+    return await wakeCase.measure({ proxy, watch, hide, show });
+  } finally {
+    proxy.setWedgingNewConnections(false);
+    await context.close();
+  }
+}
+
+async function runWakeCases(options: HarnessOptions, fleet: Fleet, browser: Browser, proxy: ShapingProxy): Promise<string[]> {
+  const missedBounds: string[] = [];
+  for (const wakeCase of WAKE_CASES) {
+    const runsMs: number[] = [];
+    for (let run = 0; run < options.runs; run += 1) {
+      const elapsedMs = await measureWakeCase(wakeCase, options.engine, fleet, browser, proxy);
+      console.log(`wake ${options.engine} ${wakeCase.id} run ${run + 1}: ${Math.round(elapsedMs)} ms (bound ${wakeCase.boundMs} ms; ${wakeCase.detail})`);
+      runsMs.push(elapsedMs);
+    }
+    const slowestMs = Math.max(...runsMs);
+    if (slowestMs > wakeCase.boundMs) missedBounds.push(`${wakeCase.id} took ${Math.round(slowestMs)} ms, bound ${wakeCase.boundMs} ms`);
+  }
+  return missedBounds;
+}
+
+function launchEngine(engine: BrowserEngine, proxyPort: number, executablePath: string | undefined): Promise<Browser> {
+  return import('playwright-core').then((playwright) => {
+    const browserTypeByEngine: Record<BrowserEngine, BrowserType> = { chromium: playwright.chromium, webkit: playwright.webkit, firefox: playwright.firefox };
+    const proxyServer = `socks5://127.0.0.1:${proxyPort}`;
+    if (engine === 'chromium') {
+      return browserTypeByEngine.chromium.launch({ headless: true, executablePath, args: [`--proxy-server=${proxyServer}`, '--proxy-bypass-list=<-loopback>'] });
+    }
+    return browserTypeByEngine[engine].launch({ headless: true, proxy: { server: proxyServer, bypass: '<-loopback>' } });
+  });
+}
+
 async function writeShim(tempDirectory: string): Promise<void> {
   const shimDirectory = path.join(tempDirectory, 'shim');
   await fs.promises.mkdir(shimDirectory);
@@ -417,7 +604,7 @@ function findStaleBuildReason(): string | null {
   return `dist/client is older than ${path.relative(REPO_ROOT, newest.path)}`;
 }
 
-async function measureAll(options: HarnessOptions): Promise<LoadCostResult> {
+async function withFleet<T>(options: HarnessOptions, work: (fleet: Fleet, browser: Browser, proxy: ShapingProxy) => Promise<T>): Promise<T> {
   const tempDirectory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-load-cost-'));
   const restoreEnvironment = snapshotEnvironment();
   let browser: Browser | undefined;
@@ -446,12 +633,24 @@ async function measureAll(options: HarnessOptions): Promise<LoadCostResult> {
       await seedScrollback(port, sessionId, fixture);
     }
     proxy = await createShapingProxy({ targetPort: port, profile: THREE_G_PROFILE });
-    const { chromium } = await import('playwright-core');
-    browser = await chromium.launch({
-      headless: true,
-      executablePath: options.executablePath,
-      args: [`--proxy-server=socks5://127.0.0.1:${proxy.port}`, '--proxy-bypass-list=<-loopback>'],
-    });
+    browser = await launchEngine(options.engine, proxy.port, options.executablePath);
+    return await work(fleet, browser, proxy);
+  } finally {
+    await browser?.close().catch(() => {});
+    await proxy?.close().catch(() => {});
+    controlSocket?.terminate();
+    if (backend) await stopBackend(backend, httpServer);
+    try {
+      await waitForAgentsToExit(tempDirectory);
+    } finally {
+      removeHarnessTempDirectory(tempDirectory);
+      restoreEnvironment();
+    }
+  }
+}
+
+function measureAll(options: HarnessOptions): Promise<LoadCostResult> {
+  return withFleet(options, async (fleet, browser, proxy) => {
     const scenarios: ScenarioResult[] = [];
     let shellCheck: ShellCheck | null = null;
     for (const scenario of SCENARIOS) {
@@ -469,18 +668,7 @@ async function measureAll(options: HarnessOptions): Promise<LoadCostResult> {
       scenarios,
       shellCheck,
     };
-  } finally {
-    await browser?.close().catch(() => {});
-    await proxy?.close().catch(() => {});
-    controlSocket?.terminate();
-    if (backend) await stopBackend(backend, httpServer);
-    try {
-      await waitForAgentsToExit(tempDirectory);
-    } finally {
-      removeHarnessTempDirectory(tempDirectory);
-      restoreEnvironment();
-    }
-  }
+  });
 }
 
 async function writeArtifacts(result: LoadCostResult, artifactsDir: string): Promise<string> {
@@ -508,6 +696,11 @@ async function main(): Promise<number> {
   if (staleBuildReason) {
     console.error(`${staleBuildReason}: run npm run build first`);
     return 1;
+  }
+  if (options.isWakeRun) {
+    const missedBounds = await withFleet(options, (fleet, browser, proxy) => runWakeCases(options, fleet, browser, proxy));
+    for (const missedBound of missedBounds) console.error(`wake bound missed: ${missedBound}`);
+    return missedBounds.length > 0 ? 1 : 0;
   }
   const baseline = options.comparePath ? LoadCostResultSchema.parse(JSON.parse(await fs.promises.readFile(options.comparePath, 'utf8'))) : null;
   const result = await measureAll(options);

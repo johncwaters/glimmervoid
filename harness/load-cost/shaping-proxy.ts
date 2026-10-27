@@ -38,6 +38,8 @@ export interface ShapingProxy {
   beginMeasure(): void;
   readHttpBytesDown(): number;
   endMeasure(): Promise<ChannelTallies>;
+  stallOpenConnections(): void;
+  setWedgingNewConnections(isWedging: boolean): void;
   close(): Promise<void>;
 }
 
@@ -132,6 +134,8 @@ export async function createShapingProxy({ targetPort, profile }: { targetPort: 
   const downLink: SharedLink = { freeAtMs: 0 };
   const upLink: SharedLink = { freeAtMs: 0 };
   const openSockets = new Set<net.Socket>();
+  const stalledSockets = new Set<net.Socket>();
+  let isWedgingNewConnections = false;
   let measure = openMeasure();
 
   const tunnel = (client: net.Socket, server: net.Socket, establishedAtMs: number, leftover: Buffer): void => {
@@ -185,6 +189,7 @@ export async function createShapingProxy({ targetPort, profile }: { targetPort: 
     openSockets.add(client);
     client.on('close', () => openSockets.delete(client));
     client.on('error', () => client.destroy());
+    if (isWedgingNewConnections) return;
     let buffered = Buffer.alloc(0);
     let hasGreeted = false;
     const onHandshake = (bytes: Buffer): void => {
@@ -246,8 +251,19 @@ export async function createShapingProxy({ targetPort, profile }: { targetPort: 
       await Promise.all(CHANNELS.map((channel) => finished[channel].gzipEnded));
       return { http: finished.http.tally, control: finished.control.tally, data: finished.data.tally };
     },
+    stallOpenConnections() {
+      for (const socket of openSockets) {
+        socket.pause();
+        socket.removeAllListeners('data');
+        stalledSockets.add(socket);
+      }
+      openSockets.clear();
+    },
+    setWedgingNewConnections(isWedging: boolean) {
+      isWedgingNewConnections = isWedging;
+    },
     async close() {
-      for (const socket of openSockets) socket.destroy();
+      for (const socket of [...openSockets, ...stalledSockets]) socket.destroy();
       await new Promise<void>((resolve) => { listener.close(() => resolve()); });
     },
   };
