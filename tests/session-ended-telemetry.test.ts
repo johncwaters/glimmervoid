@@ -132,3 +132,59 @@ test('an agent that quits on its own removes its configured session, and a kill 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('a session spawned by a parent session never notifies the operator, and an operator session still does', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-child-muted-'));
+  const configPath = path.join(directory, 'config.json');
+  const previousConfigPath = process.env.GLIMMERVOID_CONFIG;
+  const sessions: Session[] = [];
+  const stores: ConfigStore[] = [];
+  const triggeredCategoriesBySessionId = new Map<string, string[]>();
+  process.env.GLIMMERVOID_CONFIG = configPath;
+  try {
+    await writeFile(configPath, JSON.stringify({ recordSignals: false, projects: [{ id: 'notifying-session', name: 'project', path: directory }] }));
+    const makeSession = createSessionFactory({
+      configStore: { configPath }, hookRouter: null, getHookPort: () => null,
+      getGitWorkspace: () => null, getPlanReviewPort: () => null,
+      resolveHookTools: () => [], getUserHooks: () => [],
+    });
+    const startIdleWiredSession = (id: string, ownerId: string | null) => {
+      const store = createConfigStore();
+      stores.push(store);
+      const session = makeSession({ ...store.config.projects[0], id }, store.config, { ownerId });
+      sessions.push(session);
+      triggeredCategoriesBySessionId.set(id, []);
+      createSessionEventWiring({
+        configStore: store, config: store.config, recordLane: () => {},
+        usage: { refreshSessions: () => {}, nudgeSession: () => {} },
+        broadcastControl: () => {},
+        telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
+        notificationManager: {
+          acknowledge: () => {},
+          trigger: (sessionId: string, category: string) => { triggeredCategoriesBySessionId.get(sessionId)?.push(category); return true; },
+          noteOperatorActivity: () => {},
+        },
+        getIngestLane: () => null, tapIngestForSession: () => {}, closeSessionDataClients: () => {},
+        logger: { error: () => {}, log: () => {}, warn: () => {} },
+      })(session);
+      session.transition('user_start');
+      session.transition('spawn_success', { spawnCwdExists: true });
+      session.transition('first_output');
+      return session;
+    };
+
+    const operatorSession = startIdleWiredSession('operator-session', null);
+    const childSession = startIdleWiredSession('child-session', 'operator-session');
+    for (const session of [operatorSession, childSession]) session.noteAttention('the agent needs a decision');
+
+    assert.equal(childSession.state, 'WAITING');
+    assert.deepEqual(triggeredCategoriesBySessionId.get('operator-session'), ['waiting']);
+    assert.deepEqual(triggeredCategoriesBySessionId.get('child-session'), []);
+  } finally {
+    for (const session of sessions) session.destroy();
+    await Promise.all(stores.map((store) => store.idle()));
+    if (previousConfigPath === undefined) delete process.env.GLIMMERVOID_CONFIG;
+    if (previousConfigPath !== undefined) process.env.GLIMMERVOID_CONFIG = previousConfigPath;
+    await rm(directory, { recursive: true, force: true });
+  }
+});

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Spawned sessions stay quiet**: a session another session started with `glimmervoid spawn` no longer sends browser or Telegram notifications when it waits, finishes or fails. Its parent session is told instead and is the one that reaches you.
+
 - **Review shows what it compares against**: the review panel now names the branch and commit a session's committed changes are compared against, as `vs origin/main @ db44dc0` under the headline, with the full commit on hover. If the base branch cannot be found, the line reads `vs db44dc0, base branch not found` in amber, so a diff against a stale or missing base no longer looks like the session's own work.
 
 - **Review from the keyboard**: in Reviews, J and K move through the queue, N and P move between findings, X posts or drops the current finding, and O opens the pull request in a session. A, R and C pick Approve, Request changes or Comment without posting: the button lights up, the note box takes focus, and Cmd+Enter (Ctrl+Enter off a Mac) posts it, while Esc drops the pick. Cmd+Enter in the note box posts the action the agent recommends. No single key posts anything, and the keys do nothing while you type in a text field. Settings lists them under Reviews.

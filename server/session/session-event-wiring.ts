@@ -274,7 +274,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         to,
         notifyGate,
         event,
-        { signal: detail?.signal ?? undefined, hookSeen: session.hookSeen },
+        { signal: detail?.signal ?? undefined, hookSeen: session.hookSeen, isOwnedByParentSession: session.ownerId !== null },
       );
       session.recordNotifyDecision({
         ts: Date.now(),
