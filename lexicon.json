@@ -83,6 +83,14 @@
     {
       "name": "pairing",
       "definition": "Granting a device access to the remote listener with a single-use link from glimmervoid pair; a paired device has full control as the operator."
+    },
+    {
+      "name": "experimental",
+      "definition": "A Glimmervoid build published from a green push to main as X.Y.Z-next.N under the npm next tag, and the settings that run only on such a build"
+    },
+    {
+      "name": "channel",
+      "definition": "The update stream an install follows: release (npm latest) or experimental (the newer of npm next and latest)"
     }
   ]
 }
