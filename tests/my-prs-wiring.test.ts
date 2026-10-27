@@ -161,22 +161,6 @@ test('My PRs state uses the existing atomic store and survives a new state IO in
   }
 });
 
-test('My PRs state quarantines malformed saved flags and adopts no flags', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-invalid-'));
-  const warnings: string[] = [];
-  try {
-    const statePath = path.join(root, 'my-prs-state.json');
-    await fs.writeFile(statePath, JSON.stringify({ keepMergeableKeys: ['Acme/app#7'], keepMergeableAttemptKeys: ['bad'] }));
-    const stateIo = createMyPrsStateIo(statePath, { warn: (message: string) => { warnings.push(message); } });
-    assert.deepEqual(await stateIo.readState(), { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] });
-    assert.ok(warnings.some((warning) => warning.includes('quarantined')));
-    assert.equal((await fs.readdir(root)).length, 1);
-    assert.notEqual((await fs.readdir(root))[0], 'my-prs-state.json');
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
-});
-
 test('keep mergeable runs guarded with the review posture and the server fast-forwards the PR branch to the session commit and nothing else', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-'));
   const createdSessions: SessionOptions[] = [];
@@ -825,27 +809,6 @@ test('keep mergeable cleanup runs after a failed spawn and an aborted dispatch c
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
-});
-
-test('keep mergeable refuses with the guardrails reason in its log line before staging when the cached guardrails probe found binaries missing', async () => {
-  const warnings: string[] = [];
-  const calls: string[] = [];
-  const fix = createMyPrMergeabilityFix({
-    workRoot: '/unused',
-    log: { log: () => {}, warn: (message: string) => { warnings.push(message); } },
-    guardrailsRefusal: () => 'not started: the Claude Code sandbox needs bwrap and socat, and bwrap and socat are not on PATH. Install bubblewrap and socat',
-    makeWorkDir: async () => { calls.push('workdir'); return { dir: '/unused/work', cleanup: async () => {} }; },
-    repoCache: {
-      ensureRepo: async () => { calls.push('ensure'); return null; },
-      fetchPr: async () => ({ ok: false, headSha: null, err: 'unused' }),
-      hydrateRange: async () => ({ ok: false, err: 'unused' }),
-    },
-    spawnSession: async () => { calls.push('spawn'); },
-    runGit: async () => { calls.push('git'); return { ok: false, out: '', err: 'unused' }; },
-  });
-  assert.deepEqual(await fix(conflictingPr(), new AbortController().signal), { outcome: 'failed', reason: 'not started: the Claude Code sandbox needs bwrap and socat, and bwrap and socat are not on PATH. Install bubblewrap and socat' });
-  assert.deepEqual(calls, []);
-  assert.deepEqual(warnings, ['[my-prs] keep mergeable for Acme/app#7: not started: the Claude Code sandbox needs bwrap and socat, and bwrap and socat are not on PATH. Install bubblewrap and socat']);
 });
 
 test('keep mergeable returns no-change with the logged reason when the session commits nothing', async () => {

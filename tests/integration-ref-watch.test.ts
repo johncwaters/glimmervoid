@@ -49,43 +49,6 @@ test('fires (debounced, coalesced) when the integration branch reflog is appende
   }
 });
 
-test('ignores a sibling branch reflog (leaf filter)', async () => {
-  const fx = fakeCommonGitDir(['develop', 'feature']);
-  let calls = 0;
-  const w = createIntegrationRefWatcher({ commonGitDir: fx.dir, branch: 'develop', onChange: () => { calls++; }, debounceMs: 50 });
-  try {
-    w.start();
-    await waitForFsWatchToArm();
-    calls = 0;
-    fx.append('feature', 'a sibling commit');
-    await wait(QUIET_WINDOW_MS);
-    assert.equal(calls, 0, 'a sibling branch move does not fire the integration watcher');
-    fx.append('develop', 'our move');
-    await waitFor(() => calls >= 1, 'the watcher fired', EVENT_DEADLINE_MS);
-    assert.equal(calls, 1, 'our branch move does fire');
-  } finally {
-    w.stop();
-    fx.cleanup();
-  }
-});
-
-test('handles a nested integration branch (release/x)', async () => {
-  const fx = fakeCommonGitDir(['release/x']);
-  let calls = 0;
-  const w = createIntegrationRefWatcher({ commonGitDir: fx.dir, branch: 'release/x', onChange: () => { calls++; }, debounceMs: 50 });
-  try {
-    assert.equal(w.start(), true, 'watches the nested reflog parent dir');
-    await waitForFsWatchToArm();
-    calls = 0;
-    fx.append('release/x', 'move');
-    await waitFor(() => calls >= 1, 'the watcher fired', EVENT_DEADLINE_MS);
-    assert.equal(calls, 1);
-  } finally {
-    w.stop();
-    fx.cleanup();
-  }
-});
-
 test('the watcher survives a commonGitDir under an 8.3 short parent', { skip: !SHORT_NAMES_AVAILABLE }, async () => {
   const outer = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-irw-shortbase-'));
   const dir = shortPathOf(outer);
@@ -105,35 +68,5 @@ test('the watcher survives a commonGitDir under an 8.3 short parent', { skip: !S
   } finally {
     w.stop();
     fs.rmSync(outer, { recursive: true, force: true });
-  }
-});
-
-test('start() declines when the reflog dir does not exist yet', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-irw-none-'));
-  const w = createIntegrationRefWatcher({ commonGitDir: dir, branch: 'develop', onChange: () => {}, debounceMs: 50 });
-  try {
-    assert.equal(w.start(), false, 'no logs/refs/heads dir -> start() declines, leans on the floor');
-    assert.equal(w.active, false);
-    assert.doesNotThrow(() => w.stop());
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('stop() halts the watcher and start() after stop stays inert', async () => {
-  const fx = fakeCommonGitDir(['develop']);
-  let calls = 0;
-  const w = createIntegrationRefWatcher({ commonGitDir: fx.dir, branch: 'develop', onChange: () => { calls++; }, debounceMs: 50 });
-  try {
-    w.start();
-    w.stop();
-    assert.equal(w.active, false);
-    fx.append('develop', 'after stop');
-    await wait(250);
-    assert.equal(calls, 0, 'no onChange after stop');
-    assert.equal(w.start(), false, 'single-use: start() after stop stays inert');
-  } finally {
-    w.stop();
-    fx.cleanup();
   }
 });

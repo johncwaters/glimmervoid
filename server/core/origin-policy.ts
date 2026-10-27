@@ -96,4 +96,4 @@ function hostOfOrigin(str: unknown): string {
   return hostOf(normalized);
 }
 
-export { normalizeOrigin, decideOriginAllowed, hostOfOrigin };
+export { decideOriginAllowed, hostOfOrigin };

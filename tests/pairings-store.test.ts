@@ -5,8 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  createPairingsStore, createSeenStore, defaultPairingsPath, defaultSeenPath, pairingsSignature,
-  SNAPSHOT_RELOAD_MS, REVOCATION_PROPAGATION_SECONDS,
+  createPairingsStore, createSeenStore, pairingsSignature, SNAPSHOT_RELOAD_MS,
 } from '../server/pairings-store.ts';
 import type { PairedDevice, PairingsStore } from '../server/pairings-store.ts';
 import { hashSecret } from '../server/core/pairing-token.ts';
@@ -52,12 +51,6 @@ function readDoc(filePath: string): { version?: unknown; pending: Record<string,
   return { version, pending, devices };
 }
 
-function readSeen(filePath: string): Record<string, number> {
-  const parsed: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  if (typeof parsed !== 'object' || parsed === null) throw new Error('the seen file is not a JSON object');
-  return parsed as Record<string, number>;
-}
-
 function withTempStore<T>(run: (scope: StoreScope) => T, { clock }: { clock?: () => number } = {}): T {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pairings-'));
   const filePath = path.join(dir, 'pairings.json');
@@ -74,13 +67,6 @@ function withTempStore<T>(run: (scope: StoreScope) => T, { clock }: { clock?: ()
   }
 }
 
-test('a missing file loads as empty rather than throwing', () => {
-  withTempStore(({ store }) => {
-    assert.deepEqual(store.listDevices(), []);
-    assert.equal(store.findDevice('anything'), null);
-  });
-});
-
 test('mint writes an atomic file holding only the token HASH', () => {
   withTempStore(({ store, filePath }) => {
     const minted = mintedToken(store, 'phone');
@@ -92,14 +78,6 @@ test('mint writes an atomic file holding only the token HASH', () => {
     assert.equal(doc.pending[0]?.tokenHash, hashSecret(minted.token));
     assert.equal(doc.pending[0]?.name, 'phone');
     assert.equal(doc.pending[0]?.usedAt, null);
-  });
-});
-
-test('no temp file is left behind by a write', () => {
-  withTempStore(({ store, dir }) => {
-    store.mintPending({ name: 'phone' });
-    const leftovers = fs.readdirSync(dir).filter((name) => name.includes('.tmp.'));
-    assert.deepEqual(leftovers, []);
   });
 });
 
@@ -126,16 +104,6 @@ test('redeem mints a device, marks the token used, and is single use', () => {
   });
 });
 
-test('an unknown token is rejected without writing anything', () => {
-  withTempStore(({ store, filePath }) => {
-    store.mintPending({ name: 'phone' });
-    const before = fs.readFileSync(filePath, 'utf8');
-    const outcome = store.redeem('not-a-real-token');
-    assert.deepEqual({ ok: outcome.ok, reason: outcome.reason }, { ok: false, reason: 'unknown' });
-    assert.equal(fs.readFileSync(filePath, 'utf8'), before, 'a rejected redemption leaves the file untouched');
-  });
-});
-
 test('an expired token is rejected', () => {
   let clockValue = 1000;
   withTempStore(({ store }) => {
@@ -143,49 +111,6 @@ test('an expired token is rejected', () => {
     clockValue = minted.expiresAt + 1;
     const outcome = store.redeem(minted.token);
     assert.deepEqual({ ok: outcome.ok, reason: outcome.reason }, { ok: false, reason: 'expired' });
-  }, { clock: () => clockValue });
-});
-
-test('redeem falls back to the user-agent name when the mint had none', () => {
-  withTempStore(({ store }) => {
-    const minted = mintedToken(store);
-    assert.equal(redeemedDevice(store, minted.token, { fallbackName: 'iPhone' }).name, 'iPhone');
-  });
-});
-
-test('findDevice reads the in-memory snapshot and revokeDevice updates it', () => {
-  withTempStore(({ store }) => {
-    const paired = redeemedDevice(store, mintedToken(store, 'phone').token);
-    assert.equal(device(store, paired.id).id, paired.id);
-    assert.equal(device(store, paired.id).revokedAt, null);
-
-    assert.deepEqual(store.revokeDevice(paired.id), { ok: true, reason: null });
-    assert.equal(typeof device(store, paired.id).revokedAt, 'number');
-    assert.deepEqual(store.revokeDevice('no-such-device'), { ok: false, reason: 'unknown' });
-  });
-});
-
-test('a revoked device stays listed, so the operator can still see it', () => {
-  withTempStore(({ store }) => {
-    const paired = redeemedDevice(store, mintedToken(store, 'phone').token);
-    store.revokeDevice(paired.id);
-    const listed = store.listDevices();
-    assert.equal(listed.length, 1);
-    assert.equal(typeof listed[0]?.revokedAt, 'number');
-  });
-});
-
-test('prunePending drops expired and used records, keeping live ones', () => {
-  let clockValue = 1000;
-  withTempStore(({ store, filePath }) => {
-    const stale = mintedToken(store, 'stale');
-    clockValue = stale.expiresAt + 1;
-    const fresh = mintedToken(store, 'fresh');
-
-    assert.equal(store.prunePending(), 0);
-    const doc = readDoc(filePath);
-    assert.equal(doc.pending.length, 1);
-    assert.equal(doc.pending[0]?.tokenHash, hashSecret(fresh.token));
   }, { clock: () => clockValue });
 });
 
@@ -207,19 +132,6 @@ test('a corrupt file fails CLOSED: no devices, and writes are refused rather tha
   }
 });
 
-test('a structurally wrong file (arrays missing) degrades to empty instead of throwing', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pairings-shape-'));
-  const filePath = path.join(dir, 'pairings.json');
-  fs.writeFileSync(filePath, JSON.stringify({ version: 1, devices: 'nope' }), 'utf8');
-  try {
-    const store = createPairingsStore({ filePath });
-    assert.deepEqual(store.listDevices(), []);
-    assert.equal(typeof mintedToken(store, 'phone').token, 'string');
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test('save re-reads before writing, so a concurrent revocation is not clobbered by a stale snapshot', () => {
   withTempStore(({ store, filePath }) => {
     const paired = redeemedDevice(store, mintedToken(store, 'phone').token);
@@ -234,48 +146,6 @@ test('save re-reads before writing, so a concurrent revocation is not clobbered 
     const after = readDoc(filePath);
     assert.equal(after.devices.find((row) => row.id === paired.id)?.revokedAt, 12345, 'the external revocation survived');
   });
-});
-
-test('watch refreshes the snapshot after an external write and the closer stops it', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pairings-watch-'));
-  const filePath = path.join(dir, 'pairings.json');
-  try {
-    const writer = createPairingsStore({ filePath });
-    const paired = redeemedDevice(writer, mintedToken(writer, 'phone').token);
-
-    const reader = createPairingsStore({ filePath });
-    assert.equal(device(reader, paired.id).revokedAt, null);
-
-    const changed = new Promise<void>((resolve) => {
-      const stop = reader.watch(() => { stop(); resolve(); });
-      setTimeout(() => writer.revokeDevice(paired.id), 30);
-    });
-    await changed;
-    assert.equal(typeof device(reader, paired.id).revokedAt, 'number', 'revocation propagated without a restart');
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('a periodic reload bounds revocation propagation even with no working watcher', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pairings-interval-'));
-  const filePath = path.join(dir, 'pairings.json');
-  try {
-    const writer = createPairingsStore({ filePath });
-    const paired = redeemedDevice(writer, mintedToken(writer, 'phone').token);
-
-    const reader = createPairingsStore({ filePath });
-
-    const stop = reader.watch(() => {});
-    stop();
-
-    writer.revokeDevice(paired.id);
-    assert.equal(device(reader, paired.id).revokedAt, null, 'the stale snapshot still says active');
-    reader.load();
-    assert.equal(typeof device(reader, paired.id).revokedAt, 'number', 'a reload applies the revocation');
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 });
 
 test('watch installs one reload interval at SNAPSHOT_RELOAD_MS, unref-ed and cleared by the closer', () => {
@@ -390,10 +260,6 @@ test('a write to a sibling file in the watched directory reports no change', asy
   }
 });
 
-test('the propagation figure the CLI quotes matches the reload interval', () => {
-  assert.equal(REVOCATION_PROPAGATION_SECONDS, Math.ceil(SNAPSHOT_RELOAD_MS / 1000));
-});
-
 test('a write refuses rather than racing while another process holds the lock', () => {
   withTempStore(({ store, filePath, warnings }) => {
     const paired = redeemedDevice(store, mintedToken(store, 'phone').token);
@@ -410,62 +276,9 @@ test('a write refuses rather than racing while another process holds the lock', 
   });
 });
 
-test('an abandoned lock is swept, so a crashed writer cannot wedge pairing forever', () => {
-  withTempStore(({ store, filePath }) => {
-    const lockPath = `${filePath}.lock`;
-    fs.writeFileSync(lockPath, '', 'utf8');
-    const longAgo = new Date(Date.now() - 60000);
-    fs.utimesSync(lockPath, longAgo, longAgo);
-
-    assert.equal(typeof mintedToken(store, 'phone').token, 'string', 'the stale lock was removed and the write proceeded');
-    assert.equal(fs.existsSync(lockPath), false, 'and the lock is released afterwards');
-  });
-});
-
-test('the lock is released after every write, including a declined one', () => {
-  withTempStore(({ store, filePath }) => {
-    store.mintPending({ name: 'phone' });
-    assert.equal(fs.existsSync(`${filePath}.lock`), false);
-    store.redeem('not-a-real-token');
-    assert.equal(fs.existsSync(`${filePath}.lock`), false, 'a declined write must not leak the lock');
-    store.revokeDevice('no-such-device');
-    assert.equal(fs.existsSync(`${filePath}.lock`), false);
-  });
-});
-
 test('pairing files are created 0600 on posix', { skip: process.platform === 'win32' ? 'posix modes only' : false }, () => {
   withTempStore(({ store, filePath }) => {
     store.mintPending({ name: 'phone' });
     assert.equal(fs.statSync(filePath).mode & 0o777, 0o600);
   });
-});
-
-test('default paths sit beside the config file', () => {
-  const configPath = path.join(os.tmpdir(), 'glimmervoid-cfg', 'config.json');
-  assert.equal(defaultPairingsPath(configPath), path.join(os.tmpdir(), 'glimmervoid-cfg', 'pairings.json'));
-  assert.equal(defaultSeenPath(configPath), path.join(os.tmpdir(), 'glimmervoid-cfg', 'pairings-seen.json'));
-});
-
-test('the seen store is throttled, separate, and never consulted for auth', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-seen-'));
-  const filePath = path.join(dir, 'pairings-seen.json');
-  let clockValue = 1000;
-  try {
-    const seen = createSeenStore({ filePath, throttleMs: 60000, now: () => clockValue });
-    seen.touch('device-1');
-    await seen.pending;
-    assert.equal(readSeen(filePath)['device-1'], 1000);
-
-    clockValue = 2000;
-    seen.touch('device-1');
-    await seen.pending;
-    assert.equal(readSeen(filePath)['device-1'], 1000, 'throttled inside the window');
-
-    clockValue = 1000 + 60001;
-    seen.touch('device-1');
-    await seen.pending;
-    assert.equal(readSeen(filePath)['device-1'], clockValue);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 });

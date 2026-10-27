@@ -152,9 +152,6 @@ export {
   driverEnumerationEnv,
   mergeProbeEnv,
   neutralGitConfigEnv,
-  parseTreeOid,
-  proveMerged,
   proveMergedAcrossTips,
-  safeDirectoryEntries,
 };
 export type { MergeProbeEnvResult, MergeProof, MergeProofReason, MergeTreeOutcome, TipProbe };
