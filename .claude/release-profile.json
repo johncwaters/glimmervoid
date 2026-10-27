@@ -4,7 +4,7 @@
     "scheme": "semver",
     "version_file": "package.json",
     "tag_format": "vX.Y.Z",
-    "notes": "package.json hand-edited, lockfile synced in same commit. Historical anomalies: first tag 0.1.0 unprefixed; v0.11.0 gap exists."
+    "notes": "main always carries the upcoming release as X.Y.Z-next.0; the chore(release): vX.Y.Z commit sets package.json and the lockfile to X.Y.Z (dropping -next.0, or raising minor or major by hand), and npm run release then reopens main at X.Y.(Z+1)-next.0. Every green push to main publishes X.Y.Z-next.<run> to npm dist-tag next. Historical anomalies: first tag 0.1.0 unprefixed; v0.11.0 gap exists."
   },
   "changelog": {
     "path": "CHANGELOG.md",
@@ -38,8 +38,8 @@
     "trigger": "local_script",
     "detail": {
       "command": "npm run release",
-      "script_does": "dirty-tree check, tag-exists check, files check, build, git push, annotated tag plus push tag, gh release create from changelog section. It never runs npm publish.",
-      "no_registry": "no local registry publish; npm publishing happens only in .github/workflows/publish.yml on the tag push",
+      "script_does": "refuses a -next version, dirty-tree check, tag-exists check, files check, build, git push, annotated tag plus push tag, commits and pushes chore(release): open X.Y.(Z+1)-next.0, gh release create from changelog section. It never runs npm publish.",
+      "no_registry": "no local registry publish; npm publishing happens only in .github/workflows/publish.yml, on the tag push for releases and on a green test run on main for -next builds",
       "partial_failure_note": "script is not atomic; on mid-flight failure check what landed (pushed commits vs tag vs release) before any rerun",
       "registry_publish": "the vX.Y.Z tag push triggers .github/workflows/publish.yml, which checks the tag matches package.json, runs npm ci, build and test, then npm publish --provenance --access public via npm trusted publishing (OIDC, no NPM_TOKEN)"
     },

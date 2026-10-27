@@ -4,17 +4,24 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_run:
+    workflows:
+      - test
+    types:
+      - completed
+    branches:
+      - main
 
 permissions:
   contents: read
   id-token: write
 
-concurrency:
-  group: publish-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   publish:
+    if: github.event_name == 'push'
+    concurrency:
+      group: publish-${{ github.ref }}
+      cancel-in-progress: false
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
@@ -103,3 +110,47 @@ jobs:
             -H "Authorization: Bearer $POSTHOG_CLI_API_KEY" \
             -H "Content-Type: application/json" \
             -d "{\"content\":\"v$PACKAGE_VERSION released\",\"date_marker\":\"$DATE_MARKER\",\"scope\":\"project\"}"
+
+  publish-experimental:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    concurrency:
+      group: experimental-publish
+      cancel-in-progress: true
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - name: only an upcoming release on the tip of main publishes
+        id: experimental
+        shell: bash
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          if [[ "$PACKAGE_VERSION" != *-next.* ]]; then
+            echo "$PACKAGE_VERSION is a release, which the v$PACKAGE_VERSION tag publishes"
+            exit 0
+          fi
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if [ "$(git rev-parse origin/main)" != "$TESTED_SHA" ]; then
+            echo "main has moved past $TESTED_SHA, so its own run publishes the newer build"
+            exit 0
+          fi
+          echo "version=${PACKAGE_VERSION%-next.*}-next.$RUN_NUMBER" >> "$GITHUB_OUTPUT"
+      - if: steps.experimental.outputs.version != ''
+        run: npm version "${{ steps.experimental.outputs.version }}" --no-git-tag-version
+      - if: steps.experimental.outputs.version != ''
+        run: npm ci
+      - if: steps.experimental.outputs.version != ''
+        run: npm run build
+      - if: steps.experimental.outputs.version != ''
+        run: npm publish --provenance --access public --tag next

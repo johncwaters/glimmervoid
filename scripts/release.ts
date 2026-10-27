@@ -62,6 +62,15 @@ function deprecateVersionsBelowRelease(): void {
   }
 }
 
+function openNextPatch(releasedVersion: string): void {
+  const [major, minor, patch] = releasedVersion.split('.').map(Number);
+  const upcomingVersion = `${major}.${minor}.${patch + 1}-next.0`;
+  console.log(`\n==> Opening ${upcomingVersion} on ${RELEASE_BRANCH}...`);
+  run(`npm version ${upcomingVersion} --no-git-tag-version`);
+  run(`git commit -m "chore(release): open ${upcomingVersion}" -- package.json package-lock.json`);
+  run(`git push origin HEAD:refs/heads/${RELEASE_BRANCH}`);
+}
+
 const VERSION = pkg.version;
 const TAG = `v${VERSION}`;
 const RELEASE_BRANCH = 'main';
@@ -74,6 +83,11 @@ const releaseSectionPattern = new RegExp(String.raw`^## \[${versionEscaped}\].*\
 const releaseSection = changelog.match(releaseSectionPattern)?.[1].trim() ?? null;
 
 console.log(`==> Releasing glimmervoid ${TAG}\n`);
+
+if (!/^\d+\.\d+\.\d+$/.test(VERSION)) {
+  console.error(`ERROR: ${VERSION} is not a release version. Set package.json to X.Y.Z (drop the -next.0 suffix) in the release commit first.`);
+  process.exit(1);
+}
 
 const status = runCapture('git status --porcelain');
 if (status) {
@@ -147,7 +161,9 @@ if (!hasGhCli) {
 
 if (releaseSection && SECURITY_HEADING.test(releaseSection)) deprecateVersionsBelowRelease();
 
-console.log(`\n==> Done! Tagged and pushed glimmervoid ${TAG}.`);
+openNextPatch(VERSION);
+
+console.log(`\n==> Done! Tagged and pushed glimmervoid ${TAG}, and ${RELEASE_BRANCH} now carries the next patch as an upcoming prerelease.`);
 if (hasGhCli) {
   console.log(`   The release carries ${LATEST_ALIAS_ASSET_NAME} and ${versionedAssetName(VERSION)} to keep pre-0.29.1 tarball installs updatable.`);
 }
