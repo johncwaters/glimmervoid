@@ -15,11 +15,14 @@ import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview,
   answeredNonNitThreads, changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, buildNotMineRequest,
   buildReadyDecisionRequest, checksText, commentLocation, detailActionLayout, isIncludedByDefault, isSelectionRequired, isSeverityIncludedByDefault, emptyStateText, generalFindingsOf, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, hasSelection, parseInlineSegments, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText,
-  leadingDecision, parseReviewComment, postedOutcomeText, postingPreview, queueRowAgentText, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, readyRowSignature, detailHeadingSignature,
+  leadingDecision, parseReviewComment, pickedDecisionText, postedOutcomeText, postingPreview, queueRowAgentText, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, readyRowSignature, detailHeadingSignature,
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, severityPresentation, planActionReply, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictRecommendation, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice,
 } from './team-review-view-core.ts';
-import type { GeneralFinding, QueueRowKind, ReviewSelection, TeamReviewSections } from './team-review-view-core.ts';
+import type { GeneralFinding, QueueRowKind, ReadyDecisionControl, ReviewSelection, TeamReviewSections } from './team-review-view-core.ts';
 import { isStreamerMode, onStreamerModeChanged } from '../streamer-mode.ts';
+import { reviewPostChordText } from '../shortcuts-core.ts';
+import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import type { ReviewDetailKeyAction } from './review-queue-core.ts';
 
 const ACTION_REPLY_TIMEOUT_MS = 120000;
 const ACTION_NO_REPLY_TEXT = `The server did not answer within ${ACTION_REPLY_TIMEOUT_MS / 1000} s. Check GitHub before trying again.`;
@@ -35,7 +38,12 @@ interface ActionDetailHandle {
   settle: SettleAction;
   showReceipt?: (text: string, tone?: 'ok' | 'error') => void;
   clearReceipt?: () => void;
+  runKey?: (action: ReviewDetailKeyAction) => boolean;
 }
+
+const PICKED_CONTROL_BY_KEY: Partial<Readonly<Record<ReviewDetailKeyAction, ReadyDecisionControl>>> = Object.freeze({
+  'pick-approve': 'approve', 'pick-request-changes': 'request-changes', 'pick-comment': 'comment',
+});
 
 interface PendingAction {
   requestId: string;
@@ -778,9 +786,14 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   });
   let isBusy = false;
   let isShowingReceipt = false;
+  const findingCards: HTMLElement[] = [];
+  let currentFindingIndex = -1;
+  let pickedControl: ReadyDecisionControl | null = null;
   const runAction = (action: TeamReviewAction) => {
     if (_pendingActions.has(draft.key)) return;
     isShowingReceipt = false;
+    pickedControl = null;
+    paintPick();
     const chosen = selection();
     const request = action === 'approve' || action === 'comment' || action === 'request-changes' ? buildReadyDecisionRequest(draft, action, chosen) : buildActionRequest(draft, action, '', []);
     setBusy(true);
@@ -806,6 +819,66 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     willPostDetail.textContent = preview.detail;
     paintControls();
   }
+  function paintPick(): void {
+    for (const button of bar.buttons) button.dataset.picked = String(button.dataset.action === pickedControl);
+  }
+  function focusCurrentFinding(): void {
+    const card = findingCards[currentFindingIndex];
+    for (const [index, findingCard] of findingCards.entries()) findingCard.dataset.current = String(index === currentFindingIndex);
+    card.querySelector<HTMLButtonElement>('.pr-post-choice[aria-pressed="true"]')?.focus({ preventScroll: true });
+    card.scrollIntoView({ block: 'nearest' });
+  }
+  function moveFinding(step: 1 | -1): boolean {
+    if (findingCards.length === 0) return false;
+    currentFindingIndex = Math.min(findingCards.length - 1, Math.max(0, currentFindingIndex + step));
+    focusCurrentFinding();
+    return true;
+  }
+  function toggleCurrentFinding(): boolean {
+    if (currentFindingIndex === -1 && !moveFinding(1)) return false;
+    const card = findingCards[currentFindingIndex];
+    const nextChoice = card.dataset.included === 'true' ? 'Drop' : 'Post';
+    [...card.querySelectorAll<HTMLButtonElement>('.pr-post-choice')].find((button) => button.textContent === nextChoice)?.click();
+    focusCurrentFinding();
+    return true;
+  }
+  function pickDecision(control: ReadyDecisionControl): boolean {
+    if (isBusy) return false;
+    isShowingReceipt = false;
+    pickedControl = control;
+    paintPick();
+    note.input.focus();
+    paintActionStatus(bar.status, 'ok', pickedDecisionText(control, reviewPostChordText(SHORTCUT_PLATFORM)));
+    return true;
+  }
+  function postDecision(): boolean {
+    const control = pickedControl ?? (document.activeElement === note.input ? leadingDecision(draft.verdict) : null);
+    const button = bar.buttons.find((candidate) => candidate.dataset.action === control);
+    if (!control || !button) return false;
+    if (button.disabled) {
+      paintActionStatus(bar.status, 'error', postingPreview(draft, selection(), control).detail);
+      return true;
+    }
+    button.click();
+    return true;
+  }
+  function cancelPick(): boolean {
+    if (!pickedControl) return false;
+    pickedControl = null;
+    paintPick();
+    paintActionStatus(bar.status, null, '');
+    return true;
+  }
+  function runKey(action: ReviewDetailKeyAction): boolean {
+    const pickedByKey = PICKED_CONTROL_BY_KEY[action];
+    if (pickedByKey) return pickDecision(pickedByKey);
+    if (action === 'next-finding') return moveFinding(1);
+    if (action === 'previous-finding') return moveFinding(-1);
+    if (action === 'toggle-finding') return toggleCurrentFinding();
+    if (action === 'post') return postDecision();
+    if (action === 'cancel') return cancelPick();
+    return false;
+  }
   function clearReceipt(): void {
     if (!isShowingReceipt) return;
     isShowingReceipt = false;
@@ -824,13 +897,14 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     isShowingReceipt = true;
     paintActionStatus(bar.status, tone, text);
   };
-  for (const [index, comment] of draft.comments.entries()) findings.append(createTickableFinding(commentFindingContent(comment), includedComments, index, onEdit));
-  for (const [index, finding] of generalFindings.entries()) findings.append(createTickableFinding(generalFindingContent(finding), includedGeneral, index, onEdit));
+  for (const [index, comment] of draft.comments.entries()) findingCards.push(createTickableFinding(commentFindingContent(comment), includedComments, index, onEdit));
+  for (const [index, finding] of generalFindings.entries()) findingCards.push(createTickableFinding(generalFindingContent(finding), includedGeneral, index, onEdit));
+  findings.append(...findingCards);
   if (findingCount > 0) column.append(findings);
   detail.append(column, rail, bar.footer);
   refreshThreadDetails(detail, draft);
   paintDecision();
-  return { signature: readyRowSignature(draft), element: detail, settle, showReceipt, clearReceipt };
+  return { signature: readyRowSignature(draft), element: detail, settle, showReceipt, clearReceipt, runKey };
 }
 
 function readyDetailFor(draft: ReviewDraft): ActionDetailHandle {
@@ -1084,6 +1158,19 @@ function clearReceipts(nextReviewKey: string | null = null): void {
   _postedReceipt = null;
   if (_warnedReadyKey !== nextReviewKey) _warnedReadyKey = null;
   for (const handle of _readyDetails.values()) handle.clearReceipt?.();
+}
+
+export function runTeamReviewKey(action: ReviewDetailKeyAction): boolean {
+  if (!_detail || !_selectedKey) return false;
+  if (action === 'open-session') {
+    const openButton = _detail.querySelector<HTMLButtonElement>('.pr-session-open-button');
+    if (!openButton || openButton.disabled) return false;
+    openButton.click();
+    return true;
+  }
+  const shown = _readyDetails.get(_selectedKey);
+  if (!shown || _detail.firstElementChild !== shown.element) return false;
+  return shown.runKey?.(action) ?? false;
 }
 
 export function takePostedReceipt(): string | null {

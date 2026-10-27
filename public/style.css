@@ -3333,6 +3333,11 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .my-pr-row-gro
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+.pr-action[data-picked="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+}
 
 .pr-queue-top,
 .pr-queue-bottom {
@@ -3573,6 +3578,7 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .my-pr-row-gro
 }
 
 .pr-comment-card[data-included="false"] { opacity: 0.55; }
+.pr-comment-card[data-current="true"] { border-color: var(--accent); }
 .pr-comment-card:has(> .pr-post-toggle) { grid-template-columns: auto minmax(0, 1fr); }
 .pr-post-toggle { display: inline-flex; align-self: start; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .pr-post-choice { min-height: 22px; padding: 0 8px; border: 0; background: transparent; color: var(--text-muted); font: 700 11px/1 var(--font-mono); letter-spacing: 0.04em; cursor: pointer; }

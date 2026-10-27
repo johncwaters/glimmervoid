@@ -15,7 +15,7 @@ import { applyAgentLogins, createAddSessionDialog } from './dialogs.ts';
 import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, forgetSessionCoherence, isSessionJournalReadable, openCoherenceJournal, sessionRowCoherenceSignals, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
-import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
+import { isRealInputOwningKey, observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
 import type { FeatureSurfaceSettings } from './feature-surfaces-core.ts';
 import { refreshFavicon } from './favicon.ts';
@@ -1082,21 +1082,6 @@ function applyClientTrust(trust: unknown) {
 queryTag(document, '#btn-shutdown', 'button').addEventListener('click', () => {
   confirmServerPowerAction({ type: 'shutdown', title: 'Shut Down Server', confirmLabel: 'Shut Down', danger: true, idleMessage: 'Shut down the server?', actionAfterKillingSessions: 'shut down the server' });
 });
-
-const CURSOR_MOVEMENT_KEYS: ReadonlySet<string> = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown']);
-
-function isComposerOwningKey(composer: HTMLTextAreaElement, event: KeyboardEvent) {
-  return composer.value !== '' && CURSOR_MOVEMENT_KEYS.has(event.key);
-}
-
-function isRealInputOwningKey(event: KeyboardEvent) {
-  const a = document.activeElement;
-  if (!(a instanceof HTMLElement)) return false;
-  if (a.isContentEditable) return true;
-  if (a instanceof HTMLTextAreaElement && a.dataset.dashboardShortcuts === 'allowed') return isComposerOwningKey(a, event);
-  return (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')
-    && !a.classList.contains('xterm-helper-textarea');
-}
 
 function focusedTerminalSessionId() {
   const focusedCard = document.activeElement?.closest<HTMLElement>('.session-card');

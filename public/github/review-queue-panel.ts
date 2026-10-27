@@ -1,5 +1,6 @@
 import { buildAttentionBanner, paintAttentionBanner } from '../attention-banner.ts';
-import { createAvatar, el, isPanelHidden } from '../dom-helpers.ts';
+import { createAvatar, el, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
+import { isModalOpen } from '../session-card/modal.ts';
 import { buildNextAttentionKeys } from '../shortcuts.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createGithubPollingControls, createMyPrQueueRow, mountMyPrsDetail, showMyPr } from './my-prs-panel.ts';
@@ -10,16 +11,16 @@ import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createPrScopeTabs } from './pr-scope-tabs.ts';
 import {
   QUEUE_FILTERS, attentionCountsOf, attentionTilesOf, bannerTilesOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, filterQueue, nextTurnKey,
-  queueItemActivityEntry, queueItemByKey, spansMultipleRepos, turnItems, turnPositionText,
+  queueItemActivityEntry, queueItemByKey, reviewKeyActionOf, spansMultipleRepos, steppedRowKey, turnItems, turnPositionText,
 } from './review-queue-core.ts';
-import type { QueueFilter, QueueGroup, QueueItem } from './review-queue-core.ts';
+import type { QueueFilter, QueueGroup, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
 import {
   attachReviewQueueView, isQueueEntryUnseen, jumpToNextReview, markQueueEntrySeen, rebuildReviewQueue, returnToReviewQueue, reviewQueueNavigation, reviewQueueUnseenSignature, setReviewDetailScreenOpen,
   subscribeReviewQueue, takePendingReveal,
 } from './review-queue-store.ts';
 import type { ReviewQueueChange } from './review-queue-store.ts';
 import {
-  createCaughtUpBanner, createTeamQueueRow, mountTeamReviewDetail, paintQueueRowTitle, refreshTeamReviewAges, releaseTeamReviewSelection, resetTeamQueueTickers, showTeamReview, takePostedReceipt, teamReviewEmptyState,
+  createCaughtUpBanner, createTeamQueueRow, mountTeamReviewDetail, paintQueueRowTitle, refreshTeamReviewAges, releaseTeamReviewSelection, resetTeamQueueTickers, runTeamReviewKey, showTeamReview, takePostedReceipt, teamReviewEmptyState,
   teamReviewLaneNotices,
 } from './team-review-panel.ts';
 import { teamReviewStatusView } from './team-review-store.ts';
@@ -137,6 +138,33 @@ function revealItem(key: string): void {
   const row = rowsByKey.get(key);
   row?.focus({ preventScroll: true });
   row?.scrollIntoView({ block: 'nearest' });
+}
+
+function stepSelection(step: 1 | -1): boolean {
+  const nextKey = steppedRowKey([...rowsByKey.keys()], selectedKey, step);
+  if (!nextKey) return false;
+  if (nextKey !== selectedKey) revealItem(nextKey);
+  return true;
+}
+
+function runReviewKey(action: ReviewKeyAction): boolean {
+  if (action === 'next-row') return stepSelection(1);
+  if (action === 'previous-row') return stepSelection(-1);
+  return runTeamReviewKey(action);
+}
+
+function isReviewNoteFocused(): boolean {
+  return document.activeElement instanceof HTMLTextAreaElement && document.activeElement.classList.contains('pr-note-input');
+}
+
+function onReviewKey(event: KeyboardEvent): void {
+  if (event.repeat || event.defaultPrevented || !root || isPanelHidden(root) || isModalOpen()) return;
+  if (document.activeElement?.classList.contains('xterm-helper-textarea')) return;
+  const action = reviewKeyActionOf(event);
+  if (!action) return;
+  const isNoteChord = (action === 'post' || action === 'cancel') && isReviewNoteFocused();
+  if (isRealInputOwningKey(event) && !isNoteChord) return;
+  if (runReviewKey(action)) event.preventDefault();
 }
 
 function markJustActed(queueKey: string): void {
@@ -334,6 +362,7 @@ function mountReviewQueue(parent: HTMLElement): void {
   mineDetail = mountMyPrsDetail({ onChange: queueRender }, queueNavigation);
   attachReviewQueueView({ isLooking: () => !isPanelHidden(root), selectedKey: () => selectedKey });
   subscribeReviewQueue(applyReviewQueueChange);
+  document.addEventListener('keydown', onReviewKey);
   render();
   revealPendingItem();
 }

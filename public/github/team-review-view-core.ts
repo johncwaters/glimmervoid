@@ -697,7 +697,7 @@ export function hasSelection(selection: ReviewSelection): boolean {
   return selection.note.trim() !== '' || selection.comments.length > 0 || selection.generalFindings.length > 0;
 }
 
-type ReadyDecisionControl = 'approve' | 'comment' | 'request-changes';
+export type ReadyDecisionControl = 'approve' | 'comment' | 'request-changes';
 
 export function buildReadyDecisionRequest(draft: ReviewDraft, control: ReadyDecisionControl, selection: ReviewSelection): TeamReviewActionRequest {
   if (control === 'approve' && !hasSelection(selection)) return buildActionRequest(draft, 'approve-only', '', []);
@@ -768,6 +768,10 @@ function readyDecisionOrder(verdict: ReviewDraft['verdict']): readonly ReadyDeci
 
 export function leadingDecision(verdict: ReviewDraft['verdict']): ReadyDecisionControl {
   return CHANGES_LEAD_VERDICTS.has(verdict) ? 'request-changes' : 'approve';
+}
+
+export function pickedDecisionText(control: ReadyDecisionControl, postChordText: string): string {
+  return `${actionLabel(control)} selected. ${postChordText} posts, Esc cancels.`;
 }
 
 export function verdictRecommendation(verdict: ReviewDraft['verdict']): string {

@@ -182,3 +182,28 @@ export function combinedPollingStatus(statuses: readonly (GithubPollingStatus | 
   const representative = configuredStatuses.find((status) => status.error) ?? oldestFirst[0];
   return { ...representative, isRefreshing: configuredStatuses.some((status) => status.isRefreshing) };
 }
+
+export type ReviewDetailKeyAction = 'next-finding' | 'previous-finding' | 'toggle-finding' | 'open-session' | 'pick-approve' | 'pick-request-changes' | 'pick-comment' | 'post' | 'cancel';
+export type ReviewKeyAction = 'next-row' | 'previous-row' | ReviewDetailKeyAction;
+
+const REVIEW_LETTER_ACTIONS: ReadonlyMap<string, ReviewKeyAction> = new Map([
+  ['j', 'next-row'], ['k', 'previous-row'], ['n', 'next-finding'], ['p', 'previous-finding'], ['x', 'toggle-finding'], ['o', 'open-session'],
+  ['a', 'pick-approve'], ['r', 'pick-request-changes'], ['c', 'pick-comment'],
+]);
+
+interface ReviewKeyEvent { key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }
+
+export function reviewKeyActionOf(event: ReviewKeyEvent): ReviewKeyAction | null {
+  const isPostChord = event.key === 'Enter' && event.metaKey !== event.ctrlKey && !event.altKey && !event.shiftKey;
+  if (isPostChord) return 'post';
+  if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null;
+  if (event.key === 'Escape') return 'cancel';
+  return REVIEW_LETTER_ACTIONS.get(event.key) ?? null;
+}
+
+export function steppedRowKey(rowKeys: readonly string[], selectedKey: string | null, step: 1 | -1): string | null {
+  if (rowKeys.length === 0) return null;
+  const index = selectedKey === null ? -1 : rowKeys.indexOf(selectedKey);
+  if (index === -1) return step === 1 ? rowKeys[0] : rowKeys[rowKeys.length - 1];
+  return rowKeys[Math.min(rowKeys.length - 1, Math.max(0, index + step))];
+}

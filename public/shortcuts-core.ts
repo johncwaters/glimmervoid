@@ -182,6 +182,10 @@ export function railAriaKeyShortcuts(platform: ShortcutPlatform) {
   return `ArrowUp ArrowDown ${modifier}+ArrowUp ${modifier}+ArrowDown`;
 }
 
+export function reviewPostChordText(platform: ShortcutPlatform): string {
+  return platform === 'mac' ? 'Cmd+Enter' : 'Ctrl+Enter';
+}
+
 export function shortcutGroupsFor(platform: ShortcutPlatform, nextAttentionKeyCode = DEFAULT_NEXT_ATTENTION_KEY_CODE) {
   const terminalEditModifier = platform === 'mac' ? MAC_COMMAND : 'Ctrl';
   return [
@@ -197,6 +201,18 @@ export function shortcutGroupsFor(platform: ShortcutPlatform, nextAttentionKeyCo
       items: [
         { combos: [[UP], [DOWN]], label: 'Move rail highlight (rail focused)' },
         { combos: [[LEFT], [RIGHT]], label: 'Switch view tab (tab focused)' },
+      ],
+    },
+    {
+      title: 'Reviews',
+      items: [
+        { combos: [['J'], ['K']], label: 'Next / previous pull request in the queue' },
+        { combos: [['N'], ['P']], label: 'Next / previous finding' },
+        { combos: [['X']], label: 'Post or drop the current finding' },
+        { combos: [['O']], label: 'Open the pull request in a session' },
+        { combos: [['A'], ['R'], ['C']], label: 'Pick Approve, Request changes or Comment' },
+        { combos: [[terminalEditModifier, 'Enter']], label: 'Post the picked action, or the leading one from the note' },
+        { combos: [['Esc']], label: 'Drop the picked action' },
       ],
     },
     {
