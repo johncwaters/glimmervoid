@@ -21,6 +21,7 @@ import { isApprovedReview, mergePlanChanged } from '../plan/plan-view-core.ts';
 import type { PlanChangedMessage } from '../plan/plan-view-core.ts';
 import { isCompletionWatchedByOperator } from '../session-actions-core.ts';
 import { seedReviewMergeStatus, setReviewDiff, setReviewMergeStatus } from '../sidebar/review-sidebar.ts';
+import type { SessionDiffPayload } from '../sidebar/review-copy-core.ts';
 import { setSelectedId } from '../sidebar/selection.ts';
 import { getSoundId, isSoundEnabled } from '../ui-prefs.ts';
 import { openTraceForSession } from '../trace-store.ts';
@@ -690,7 +691,7 @@ export function seedSessionMergeStatus(sessionId: unknown, mergeStatus: unknown,
   seedReviewMergeStatus(sessionIdOf(sessionId), ms, asText(reason) || null);
 }
 
-export function setSessionDiff(sessionId: unknown, payload: Pick<ServerMessageOf<'session-diff'>, 'committed' | 'uncommitted' | 'hasCommits'> | null) {
+export function setSessionDiff(sessionId: unknown, payload: SessionDiffPayload | null) {
   setReviewDiff(sessionIdOf(sessionId), payload);
 }
 

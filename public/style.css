@@ -7143,6 +7143,8 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 .review-section[data-kind="committed"] .review-section-label { color: var(--state-done); }
 .review-section[data-kind="uncommitted"] .review-section-label { color: var(--state-waiting); }
 .review-section-meaning { font-size: 11px; color: var(--text); }
+.review-diff-base { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.review-diff-base-unverified { color: var(--state-waiting); }
 .review-section-meaning::before { content: '\2192\0020'; color: var(--text-muted); }
 .review-section-stat {
   display: inline-flex;

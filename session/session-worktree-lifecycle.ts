@@ -775,16 +775,18 @@ function createSessionWorktreeLifecycle({
     return { cwd, timeoutMs: 15000, maxBuffer: 64 * 1024 * 1024 };
   }
 
-  async function resolveDiffBase(opts: RunGitOptions): Promise<{ base: string; aheadCount: string }> {
+  async function resolveDiffBase(opts: RunGitOptions): Promise<{ base: string; aheadCount: string; ref: string | null; verified: boolean }> {
     const { ref: baseRef, verified } = await resolveVerifiedBaseRef(opts);
     if (verified) {
       return {
         base: (await gitLookup(["merge-base", baseRef, "HEAD"], opts))?.trim() ?? "",
         aheadCount: (await gitOut(["rev-list", "--count", `${baseRef}..HEAD`], opts)).trim(),
+        ref: baseRef,
+        verified,
       };
     }
-    if (!baseRef) return { base: "", aheadCount: "0" };
-    return { base: baseRef, aheadCount: (await gitOut(["rev-list", "--count", `${baseRef}..HEAD`], opts)).trim() };
+    if (!baseRef) return { base: "", aheadCount: "0", ref: null, verified };
+    return { base: baseRef, aheadCount: (await gitOut(["rev-list", "--count", `${baseRef}..HEAD`], opts)).trim(), ref: null, verified };
   }
 
   async function readChangeScope(name: string, root: string, base: string, sessionPathPrefix: string): Promise<ChangeScope> {
@@ -857,7 +859,7 @@ function createSessionWorktreeLifecycle({
       stat: memberDiffs.filter((memberDiff) => memberDiff[section].stat).map((memberDiff) => `${memberDiff.name}/\n${memberDiff[section].stat}`).join("\n"),
       diff: memberDiffs.map((memberDiff) => memberDiff[section].diff).join(""),
     });
-    return { committed: joinSection("committed"), uncommitted: joinSection("uncommitted"), hasCommits: memberDiffs.some((memberDiff) => memberDiff.hasCommits) };
+    return { committed: joinSection("committed"), uncommitted: joinSection("uncommitted"), hasCommits: memberDiffs.some((memberDiff) => memberDiff.hasCommits), bases: [] };
   }
 
   async function markUntrackedIntentToAdd(dir: string): Promise<void> {
@@ -871,18 +873,19 @@ function createSessionWorktreeLifecycle({
   async function getDiff() {
     const empty = { stat: "", diff: "" };
     if (lifecycleState.provisionedMembers) return getWorkspaceDiff(lifecycleState.provisionedMembers);
-    if (!lifecycleState.worktreeDir) return { committed: empty, uncommitted: empty, hasCommits: false };
+    if (!lifecycleState.worktreeDir) return { committed: empty, uncommitted: empty, hasCommits: false, bases: [] };
     const opts = diffGitOptions(lifecycleState.worktreeDir);
     const run = (args: string[]): Promise<string> => gitOut(args, opts);
     await markUntrackedIntentToAdd(lifecycleState.worktreeDir);
-    const { base, aheadCount } = await resolveDiffBase(opts);
+    const { base, aheadCount, ref, verified } = await resolveDiffBase(opts);
     const committed = base
       ? { stat: (await run(["diff", "--stat", `${base}..HEAD`])).trim(), diff: await run(["diff", `${base}..HEAD`]) }
       : empty;
     const uncommitted = { stat: (await run(["diff", "--stat", "HEAD"])).trim(), diff: await run(["diff", "HEAD"]) };
     const healed = decideDiffSelfHeal(lifecycleState.mergeStatus, committed.diff, uncommitted.diff);
     if (healed) setMergeStatus(healed);
-    return { committed, uncommitted, hasCommits: aheadCount !== "" && aheadCount !== "0" };
+    const bases = base ? [{ member: null, ref, sha: base, verified }] : [];
+    return { committed, uncommitted, hasCommits: aheadCount !== "" && aheadCount !== "0", bases };
   }
 
   function noUpstream(branch: string | null) {

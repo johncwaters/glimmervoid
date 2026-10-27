@@ -1,4 +1,5 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import { shortSha } from '#shared/git-text.ts';
 
 export interface MergeActionVerdict {
   isRendered: boolean;
@@ -129,6 +130,23 @@ export function mergeDisabledReason({
     return 'Starting up. Mergeable once the session is live.';
   }
   return null;
+}
+
+export type SessionDiffPayload = Pick<ServerMessageOf<'session-diff'>, 'committed' | 'uncommitted' | 'hasCommits' | 'bases'>;
+
+export interface DiffBaseCaption {
+  text: string;
+  fullSha: string;
+  isUnverified: boolean;
+}
+
+export function diffBaseCaptions(bases: SessionDiffPayload['bases']): DiffBaseCaption[] {
+  return bases.map((base) => {
+    const memberPrefix = base.member ? `${base.member}/ ` : '';
+    const sha = shortSha(base.sha);
+    if (!base.verified || !base.ref) return { text: `${memberPrefix}vs ${sha}, base branch not found`, fullSha: base.sha, isUnverified: true };
+    return { text: `${memberPrefix}vs ${base.ref} @ ${sha}`, fullSha: base.sha, isUnverified: false };
+  });
 }
 
 export type ReviewBranchSync = Pick<ServerMessageOf<'branch-sync-status'>, 'branch' | 'upstream' | 'state' | 'ahead' | 'behind' | 'fetched' | 'action' | 'error'>;

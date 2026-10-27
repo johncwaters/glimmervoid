@@ -1,5 +1,4 @@
 import { CHANGES_POLL_INTERVAL_MS } from '#shared/contracts/control-messages.ts';
-import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { ChangeMap } from '#shared/contracts/change-map.ts';
 import type { SessionState } from '#shared/states.ts';
 import { MERGEABLE_LIVE_STATES, STATES } from '#shared/states.ts';
@@ -27,6 +26,7 @@ import {
   committedMergeTargetText,
   decideMergeAction,
   decidePrimaryReviewAction,
+  diffBaseCaptions,
   hasReviewChanges,
   mergeActionTitle,
   mergeDisabledReason,
@@ -36,10 +36,9 @@ import {
   resyncOutcomeText,
   shouldShowBranchSyncLabel,
 } from './review-copy-core.ts';
-import type { MergeActionVerdict, ReviewBranchSync as BranchSync } from './review-copy-core.ts';
+import type { MergeActionVerdict, ReviewBranchSync as BranchSync, SessionDiffPayload } from './review-copy-core.ts';
 import { getSelectedId, onSelectionChange, setSelectedId } from './selection.ts';
 
-type SessionDiffPayload = Pick<ServerMessageOf<'session-diff'>, 'committed' | 'uncommitted' | 'hasCommits'>;
 type DiffSection = 'committed' | 'uncommitted';
 
 interface ParsedDiff {
@@ -631,6 +630,11 @@ function renderSidebar() {
     }
   }
   if (!isEmpty) controlsEl.append(statusLine);
+  if (committedFiles.length > 0) for (const caption of diffBaseCaptions(payload?.bases ?? [])) {
+    const captionLine = el('div', caption.isUnverified ? 'review-diff-base review-diff-base-unverified' : 'review-diff-base', caption.text);
+    captionLine.title = caption.fullSha;
+    controlsEl.append(captionLine);
+  }
 
   const metadata = el('div', 'review-status-meta');
   if (fetched && totals.files > 0) metadata.append(

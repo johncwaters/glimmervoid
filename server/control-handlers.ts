@@ -1617,8 +1617,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (!s) return;
 
       try {
-        const { committed, uncommitted, hasCommits } = await s.getDiff();
-        ws.send(JSON.stringify({ type: 'session-diff', id: s.id, committed, uncommitted, hasCommits }));
+        const diff = await s.getDiff();
+        ws.send(JSON.stringify({ ...diff, type: 'session-diff', id: s.id }));
       } catch (error) {
         console.warn(`[control] request-session-diff failed: id=${s.id}: ${errorMessage(error)}`);
         ws.send(JSON.stringify({ type: 'session-diff-error', id: s.id, message: firstGitErrorLine(error) }));

@@ -55,6 +55,7 @@ function openObject(shape: z.ZodRawShape = {}) {
   return z.looseObject(shape);
 }
 const nullableString = z.string().nullable();
+const DiffBase = z.object({ member: nullableString, ref: nullableString, sha: z.string(), verified: z.boolean() });
 const timestamp = z.number().finite();
 const optionalTimestamp = timestamp.optional();
 const optionalError = nullableString.optional();
@@ -482,6 +483,7 @@ const serverVariants = [
     committed: openObject({ stat: z.string(), diff: z.string() }),
     uncommitted: openObject({ stat: z.string(), diff: z.string() }),
     hasCommits: z.boolean(),
+    bases: z.array(DiffBase),
   }),
   loose('session-diff-error', { id: sessionId, message: z.string() }),
   loose('change-map', { id: sessionId, map: ChangeMap }),
