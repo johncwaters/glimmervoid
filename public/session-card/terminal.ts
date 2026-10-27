@@ -10,6 +10,7 @@ import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts'
 import { escapesFocusedTerminal, resolveDashboardShortcut } from '../shortcuts-core.ts';
 import { nextReconnectDelayMs } from '../reconnect-backoff.ts';
 import { HANDSHAKE_DEADLINE_MS } from '../connection-supervisor-core.ts';
+import { noteWakeMark } from '../wake-timeline.ts';
 import { renderScheduler } from '../render-scheduler.ts';
 import { getTerminalTheme } from '../theme.ts';
 import { buildWebSocketUrl } from '../ws-url-core.ts';
@@ -384,6 +385,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   isOutputFlowingBySocket.set(ws, isAttachedFlowing);
   ws.binaryType = 'arraybuffer';
   ui.dataWs = ws;
+  if (isAttachedFlowing) noteWakeMark('terminal-connecting');
   refreshTerminalLink(ui);
   let hasEverOpened = false;
   let isHandshakeAbandoned = false;
@@ -391,6 +393,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   const handshakeTimer = setTimeout(() => {
     if (ws.readyState !== WebSocket.CONNECTING) return;
     isHandshakeAbandoned = true;
+    if (isAttachedFlowing) noteWakeMark('terminal-abandoned');
     ws.close();
   }, HANDSHAKE_DEADLINE_MS);
 
@@ -401,6 +404,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     const frame = readDataFrame(event.data, frameState);
     if (frame.kind === 'bytes') {
       noteSessionOutput(ui);
+      if (isOutputFlowingBySocket.get(ws)) noteWakeMark('terminal-bytes');
       const isSnapshotToScroll = isAwaitingSnapshotScroll;
       isAwaitingSnapshotScroll = false;
       renderScheduler.enqueue(sessionId, frame.data);
@@ -438,6 +442,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   ws.addEventListener('close', () => {
     clearTimeout(handshakeTimer);
     if (ui.dataWs !== ws) return;
+    if (isAttachedFlowing && !isHandshakeAbandoned) noteWakeMark('terminal-closed');
     sessionUisReattachingQuietly.delete(ui);
     if (!hasEverOpened && !isHandshakeAbandoned) clearPageToken();
     if (!isTerminalOutputWanted(ui, sessionId)) {
@@ -456,6 +461,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   ws.addEventListener('open', () => {
     clearTimeout(handshakeTimer);
     hasEverOpened = true;
+    if (isAttachedFlowing) noteWakeMark('terminal-opened');
     ui._dataWsRetryAttempt = 0;
     sessionUisReattachingQuietly.delete(ui);
     refreshTerminalLink(ui);

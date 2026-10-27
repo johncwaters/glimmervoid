@@ -1,6 +1,7 @@
 import { HANDSHAKE_DEADLINE_MS, decideConnectionActions } from './connection-supervisor-core.ts';
 import type { ConnectionAction, ConnectionEvent, SupervisorState } from './connection-supervisor-core.ts';
 import { abandonControlSocket, onControlSocketChange, probeControl, replaceControlSocket } from './control-ws.ts';
+import { startWakeTimeline, noteWakeMark } from './wake-timeline.ts';
 import { closeEveryTerminalUntilShown, holdTerminalInputDuringWakeCheck, reconnectShownTerminals, releaseHeldTerminalInput } from './session-card/terminal.ts';
 
 let supervisorState: SupervisorState = { isVisible: document.visibilityState === 'visible', isFrozen: false, isProbing: false, isReplacing: false };
@@ -74,11 +75,13 @@ function noteVisibilityChange() {
   }
   const hiddenForMs = hiddenSinceMs === null ? 0 : Date.now() - hiddenSinceMs;
   hiddenSinceMs = null;
+  startWakeTimeline('shown', hiddenForMs);
   dispatchConnectionEvent({ kind: 'shown', hiddenForMs });
 }
 
 function noteControlSocketChange(change: 'connecting' | 'opened' | 'closed') {
   cancelHandshakeDeadline();
+  noteWakeMark(`control-${change}`);
   if (change === 'connecting') {
     handshakeTimer = window.setTimeout(() => {
       handshakeTimer = null;
@@ -87,6 +90,11 @@ function noteControlSocketChange(change: 'connecting' | 'opened' | 'closed') {
     return;
   }
   dispatchConnectionEvent({ kind: change === 'opened' ? 'control-opened' : 'control-closed' });
+}
+
+function noteResume() {
+  startWakeTimeline('resumed', hiddenSinceMs === null ? 0 : Date.now() - hiddenSinceMs);
+  dispatchConnectionEvent({ kind: 'resumed' });
 }
 
 function watchNetworkChanges() {
@@ -99,12 +107,12 @@ export function superviseConnection() {
   onControlSocketChange(noteControlSocketChange);
   document.addEventListener('visibilitychange', noteVisibilityChange);
   document.addEventListener('freeze', () => dispatchConnectionEvent({ kind: 'frozen' }));
-  document.addEventListener('resume', () => dispatchConnectionEvent({ kind: 'resumed' }));
+  document.addEventListener('resume', noteResume);
   window.addEventListener('pagehide', (event) => {
     if (event.persisted) dispatchConnectionEvent({ kind: 'frozen' });
   });
   window.addEventListener('pageshow', (event) => {
-    if (event.persisted) dispatchConnectionEvent({ kind: 'resumed' });
+    if (event.persisted) noteResume();
   });
   window.addEventListener('online', () => dispatchConnectionEvent({ kind: 'network-changed' }));
   watchNetworkChanges();
