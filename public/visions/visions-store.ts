@@ -17,8 +17,8 @@ import {
   emptyIntentState,
   intentStateOfMessage,
   visionsAttentionState,
-} from './visions-view-core.ts';
-import type { ActivityEvent, IntentState, VisionsComment, VisionsFinding, VisionsFixEntry } from './visions-view-core.ts';
+} from './visions-store-core.ts';
+import type { ActivityEvent, IntentState, VisionsComment, VisionsFinding, VisionsFixEntry } from './visions-store-core.ts';
 
 type VisionsMessage = Record<string, unknown>;
 export type VisionsChange = 'intent' | 'feed' | 'fixes' | 'activity' | 'connection';

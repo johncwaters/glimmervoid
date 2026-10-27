@@ -12,8 +12,8 @@ import {
   traceResidentRowCount,
   traceSessionOptions,
   trimTraceGrouping,
-} from './trace-view-core.ts';
-import type { TraceGrouping, TracePrepend, TraceRequest, TraceSessionOption, TraceSessionSummary, TraceTurnAppend } from './trace-view-core.ts';
+} from './trace-store-core.ts';
+import type { TraceGrouping, TracePrepend, TraceRequest, TraceSessionOption, TraceSessionSummary, TraceTurnAppend } from './trace-store-core.ts';
 
 const TRACE_REQUEST_TIMEOUT_MS = 10000;
 

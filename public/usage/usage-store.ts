@@ -14,8 +14,8 @@ import {
   shouldApplyUsageReport,
   usageAttentionSignature,
   usageErrorLine,
-} from './usage-view-core.ts';
-import type { PlanLimits, PlanLimitsVendor, UsageReport } from './usage-view-core.ts';
+} from './usage-store-core.ts';
+import type { PlanLimits, PlanLimitsVendor, UsageReport } from './usage-store-core.ts';
 
 const REFRESH_STATUS_TIMEOUT_MS = 20000;
 

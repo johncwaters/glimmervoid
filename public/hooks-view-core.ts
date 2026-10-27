@@ -107,13 +107,6 @@ export function maxTimeoutOf(report: { limits?: Partial<NonNullable<HooksReport[
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : MAX_TIMEOUT_SEC;
 }
 
-export function shouldApplyHooksReport(msg: unknown, latestRequestId: unknown) {
-  if (!msg || typeof msg !== 'object') return false;
-  const requestId = (msg as { requestId?: unknown }).requestId;
-  if (typeof requestId !== 'string' || !latestRequestId) return true;
-  return requestId === latestRequestId;
-}
-
 export function totalsChips(report: HooksReport | null | undefined): { label: string; value: string; tone: string | null }[] {
   const hooks = hooksOf(report);
   const enabled = hooks.filter((hook) => hook.enabled !== false).length;
