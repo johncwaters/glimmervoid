@@ -134,7 +134,7 @@ export function mergeDisabledReason({
 
 export type SessionDiffPayload = Pick<ServerMessageOf<'session-diff'>, 'committed' | 'uncommitted' | 'hasCommits' | 'bases'>;
 
-export interface DiffBaseCaption {
+interface DiffBaseCaption {
   text: string;
   fullSha: string;
   isUnverified: boolean;
