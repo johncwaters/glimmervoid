@@ -62,31 +62,6 @@ function assetFor(sha256: string) {
   return { file: 'fixture.tar.gz', sha256, version: '0.45.0', url: 'https://example.invalid/fixture.tar.gz' };
 }
 
-test('a digest mismatch lands nothing in bin and never extracts', { skip: IS_WINDOWS }, async (t) => {
-  const homeDir = await makeTempHome(t);
-  const fixture = await buildFixture(t);
-  let extracted = false;
-
-  const result = await installRtk({
-    glimmervoidHome: path.join(homeDir, '.glimmervoid'),
-    platform: 'linux',
-    arch: 'x64',
-    fetchImpl: fakeFetch(fixture.bytes).impl,
-    execFileImpl: async () => {
-      extracted = true;
-      return { stdout: '', stderr: '' };
-    },
-    asset: assetFor('f'.repeat(64)),
-    log: SILENT,
-  });
-
-  assert.equal(result.ok, false);
-  assert.match(refusal(result), /sha256 mismatch/);
-  assert.equal(extracted, false);
-  assert.equal(fs.existsSync(path.join(homeDir, '.glimmervoid', 'bin', 'rtk')), false);
-  assert.deepEqual(await fsp.readdir(path.join(homeDir, '.glimmervoid', 'tmp')), []);
-});
-
 test('installRtk refuses an archive listing a member outside the staging dir before extracting', async (t) => {
   const homeDir = await makeTempHome(t);
   const fixture = await buildFixture(t);

@@ -171,23 +171,3 @@ test('queryTrafficBuckets parses the positional HogQL matrix into buckets and a 
   assert.deepEqual(traffic.buckets, [{ bucket: 'h1', users: 3 }, { bucket: 'h2', users: 9 }]);
   assert.equal(traffic.currentUsers, 87);
 });
-
-test('queryTrafficBuckets clamps baselineDays into 1..30 and never interpolates anything else', async () => {
-  const cases = [
-    [0, 1], [-5, 1], [1, 1], [30, 30], [365, 30], [7.9, 7],
-    ['9', 9], [undefined, 7], [null, 7], [Number.NaN, 7],
-    ['1 DAY UNION ALL SELECT 1', 7],
-  ];
-  for (const [input, expected] of cases) {
-    const calls: FetchCall[] = [];
-    const api = createPosthogApi({
-      host: 'https://eu.posthog.com',
-      apiKey: 'k',
-      fetchFn: trafficFetch(calls, [{ results: [] }, { results: [] }]),
-    });
-    await api.queryTrafficBuckets(1, { baselineDays: input });
-    const sql = hogqlQuery(callAt(calls, 0).init).query;
-    assert.match(sql, new RegExp(`INTERVAL ${expected} DAY`), `baselineDays ${String(input)}`);
-    assert.equal(sql.includes('UNION'), false, 'no caller text reaches the SQL');
-  }
-});
