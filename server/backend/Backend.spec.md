@@ -9,6 +9,12 @@ The HTTP server and its routes, both WebSockets, health and lane wiring: the one
 - agent route: a session runs a glimmervoid agent verb (push, spawn, attention, board, limits) and the CLI posts it with the session token
   handler: backend-http.ts
   trust: agent-session
+- show route: a session runs glimmervoid show and the CLI streams one file's bytes with the session token, so a session can show only what its guardrails let it read
+  handler: backend-http.ts
+  trust: agent-session
+- shown read route: the dashboard reads back a file a session showed; every response carries a CSP sandbox without allow-same-origin, so a shown page or SVG runs with a null origin and cannot reach the control token
+  handler: backend-http.ts
+  trust: operator
 - sign route: a session asks the server to sign a payload for it, presenting the session token
   handler: backend-http.ts
   trust: agent-session

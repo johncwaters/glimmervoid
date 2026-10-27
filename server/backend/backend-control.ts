@@ -22,6 +22,7 @@ import type { TracePage, TracePageRequest } from '../trace-wiring.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
+import type { ShownFilesPort } from '../session/shown-files-wiring.ts';
 import type { CoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 
 interface SnapshotLane {
@@ -96,6 +97,7 @@ interface BackendControlDependencies {
   ) => Promise<PlanReadResult | null>) | null;
   decidePlanReview: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs: SessionDocsPort;
+  shownFiles: ShownFilesPort;
   coherenceFeed: CoherenceSessionFeed;
   serverBuild: () => string;
   telemetry: Pick<Telemetry, 'capture' | 'captureException' | 'captureClientError' | 'requestDataDeletion'>;
@@ -198,6 +200,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   sendLaneSnapshotOnConnect('visions', laneAssembly.currentVisions, false);
   sendLaneSnapshotOnConnect('ingest', laneAssembly.currentIngest, true);
   sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs, false);
+  sendLaneSnapshotOnConnect('session-shown', () => dependencies.shownFiles, false);
   sendLaneSnapshotOnConnect('coherence-feed', () => dependencies.coherenceFeed, false);
 
   return { removeExitedSession: controlHandlers.removeExitedSession };

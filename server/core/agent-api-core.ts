@@ -51,6 +51,7 @@ interface AgentRequestByVerb {
   board: EmptyRequest;
   push: EmptyRequest;
   edit: AgentEditRequest;
+  show: EmptyRequest;
   limits: EmptyRequest;
   review: PullRequestKeyRequest;
   reviews: EmptyRequest;
@@ -177,6 +178,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   board: parseEmptyBody,
   push: parseEmptyBody,
   edit: bodyParser(AgentEditRequest),
+  show: parseEmptyBody,
   limits: parseEmptyBody,
   review: parsePullRequestBody,
   reviews: parseEmptyBody,
@@ -334,6 +336,11 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     usage: 'edit <path>',
     summary: 'Open a text file for the operator to edit in the dashboard',
     missingArgumentHint: 'glimmervoid edit: this command needs a file path, for example "glimmervoid edit drafts/post.md"',
+  },
+  show: {
+    usage: 'show <path>... [--caption <text>]',
+    summary: "Show the operator an image, video or HTML page on this session's card",
+    missingArgumentHint: 'glimmervoid show: this command needs a file path, for example "glimmervoid show out/diagram.png --caption \'the new layout\'"',
   },
   review: {
     usage: 'review <pr>',

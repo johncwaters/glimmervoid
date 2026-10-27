@@ -52,6 +52,9 @@ import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts'
 import { assetRoot, bundled, packageRoot } from '../runtime-paths.ts';
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
+import { createShownFilesWiring, SHOWN_FOLDER_NAME } from '../session/shown-files-wiring.ts';
+import { configSiblingPath } from '../pairings-store.ts';
+import type { ShownFilesPort } from '../session/shown-files-wiring.ts';
 import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir, isOperatorHomeUnderTest } from '../core/config-path-core.ts';
@@ -135,6 +138,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   let broadcastControl: ControlBroadcast | null = null;
   let removeExitedSession: ((id: string) => void) | null = null;
   let agentApi: AgentApiPort | null = null;
+  let shownFiles: ShownFilesPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
   const guardrailsRefusal = checkGuardrailsDependencies({ log: console });
   warnWhenGitIsTooOld({ log: console });
@@ -165,6 +169,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       latestPlanTitle: laneAssembly.planReview?.latestPlanTitle(glimmervoidId) ?? null,
     }),
     getAgentApi: () => agentApi,
+    getShownFiles: () => shownFiles,
     sshSigner,
     recordOutcome,
     logger: console,
@@ -213,6 +218,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   } = webSockets;
   broadcastControl = broadcastControlFromWebSockets;
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
+  const shownFilesWiring = createShownFilesWiring({ shownRoot: configSiblingPath(configStore.configPath, SHOWN_FOLDER_NAME), broadcastControl: broadcastControlFromWebSockets });
+  shownFiles = shownFilesWiring;
   const coherenceFeed = createCoherenceSessionFeed({ broadcastControl: broadcastControlFromWebSockets });
 
   const sessions = new Map<string, Session>();
@@ -583,6 +590,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     readPlanRevision: laneAssembly.planReview?.readPlanRevision ?? null,
     decidePlanReview: laneAssembly.planReview?.decide ?? null,
     sessionDocs,
+    shownFiles: shownFilesWiring,
     coherenceFeed,
     serverBuild: () => serverBuild,
     telemetry,

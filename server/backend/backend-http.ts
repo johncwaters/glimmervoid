@@ -29,7 +29,12 @@ import { resolveCustomSoundsDir } from '../core/custom-sounds-core.ts';
 import { mountCustomSoundRoutes } from '../custom-sounds-routes.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { clientDir } from '../runtime-paths.ts';
+import { decideByteRange } from '../core/custom-sounds-core.ts';
+import { describeOverCap } from '../core/shown-files-core.ts';
+import { SHOWN_CAPTION_MAX_CHARS, SHOWN_FILE_CAP_BYTES } from '../../shared/contracts/session.ts';
+import type { ShownFilesPort } from '../session/shown-files-wiring.ts';
 import {
+  MAX_UPLOAD_BYTES,
   buildUploadFilename,
   decideUploadType,
   exceedsUploadCap,
@@ -143,6 +148,7 @@ interface BackendHttpDependencies {
   getPlanReview?: () => PlanReviewHookPort | null;
   refocusContextFor?: (glimmervoidId: string) => RefocusContext;
   getAgentApi?: () => AgentApiPort | null;
+  getShownFiles?: () => ShownFilesPort | null;
   sshSigner?: Pick<SshSigner, 'signWithAgent'> | null;
   recordOutcome?: OutcomeRecorder;
   logger?: Pick<Console, 'warn'>;
@@ -166,6 +172,70 @@ async function sweepSessionUploads(dir: string, justWritten: string): Promise<vo
   }
 }
 
+type StreamToFileOutcome =
+  | { ok: true; sizeBytes: number }
+  | { ok: false; reason: 'over-cap' | 'write-failed' | 'aborted' };
+
+function streamRequestToFile({ req, savedPath, capBytes }: {
+  req: Request;
+  savedPath: string;
+  capBytes: number;
+}): Promise<StreamToFileOutcome> {
+  return new Promise((resolve) => {
+    const writeStream = fs.createWriteStream(savedPath, { mode: 0o600 });
+    let bytesReceived = 0;
+    let settled = false;
+    const settle = (outcome: StreamToFileOutcome) => {
+      if (settled) return;
+      settled = true;
+      resolve(outcome);
+    };
+    let discardWanted = false;
+    let streamClosed = false;
+    const unlinkPartial = () => {
+      fsp.unlink(savedPath).catch(() => {});
+    };
+    const discardPartial = () => {
+      discardWanted = true;
+      if (streamClosed) unlinkPartial();
+    };
+    writeStream.on('close', () => {
+      streamClosed = true;
+      if (discardWanted) unlinkPartial();
+    });
+    writeStream.on('error', () => {
+      settle({ ok: false, reason: 'write-failed' });
+      discardPartial();
+    });
+    req.on('data', (chunk: Buffer) => {
+      bytesReceived += chunk.length;
+      if (!exceedsUploadCap(bytesReceived, capBytes)) return;
+      settle({ ok: false, reason: 'over-cap' });
+      req.destroy();
+      writeStream.destroy();
+      discardPartial();
+    });
+    pipeline(req, writeStream, (error) => {
+      if (error) {
+        settle({ ok: false, reason: 'aborted' });
+        discardPartial();
+        return;
+      }
+      if (settled) {
+        discardPartial();
+        return;
+      }
+      settle({ ok: true, sizeBytes: bytesReceived });
+    });
+  });
+}
+
+const UPLOAD_FAILURE_REPLIES = {
+  'over-cap': { status: 413, error: 'file is too large' },
+  'write-failed': { status: 500, error: 'could not store the upload' },
+  aborted: { status: 400, error: 'upload failed' },
+} as const;
+
 function receiveUpload({ req, res, sess, dir, filename, savedPath }: {
   req: Request;
   res: Response;
@@ -174,53 +244,18 @@ function receiveUpload({ req, res, sess, dir, filename, savedPath }: {
   filename: string;
   savedPath: string;
 }): void {
-  const writeStream = fs.createWriteStream(savedPath);
-  let bytesReceived = 0;
-  let settled = false;
-
   const answer = (status: number, body: Record<string, unknown>) => {
-    if (settled) return;
-    settled = true;
     if (!res.headersSent) res.status(status).json(body);
   };
-  let discardWanted = false;
-  let streamClosed = false;
-  const unlinkPartial = () => {
-    fsp.unlink(savedPath).catch(() => {});
-  };
-  const discardPartial = () => {
-    discardWanted = true;
-    if (streamClosed) unlinkPartial();
-  };
-  writeStream.on('close', () => {
-    streamClosed = true;
-    if (discardWanted) unlinkPartial();
-  });
-  writeStream.on('error', () => {
-    answer(500, { error: 'could not store the upload' });
-    discardPartial();
-  });
-  req.on('data', (chunk: Buffer) => {
-    bytesReceived += chunk.length;
-    if (!exceedsUploadCap(bytesReceived)) return;
-    answer(413, { error: 'file is too large' });
-    req.destroy();
-    writeStream.destroy();
-    discardPartial();
-  });
-  pipeline(req, writeStream, (error) => {
-    if (error) {
-      answer(400, { error: 'upload failed' });
-      discardPartial();
-      return;
-    }
-    if (settled) {
-      discardPartial();
+  void streamRequestToFile({ req, savedPath, capBytes: MAX_UPLOAD_BYTES }).then((outcome) => {
+    if (!outcome.ok) {
+      const failure = UPLOAD_FAILURE_REPLIES[outcome.reason];
+      answer(failure.status, { error: failure.error });
       return;
     }
     if (!sess.hasLivePty) {
       answer(409, { error: 'session has no live terminal' });
-      discardPartial();
+      fsp.unlink(savedPath).catch(() => {});
       return;
     }
     sess.write(framePathPaste(savedPath));
@@ -228,6 +263,89 @@ function receiveUpload({ req, res, sess, dir, filename, savedPath }: {
     answer(200, { ok: true, path: savedPath });
     void sweepSessionUploads(dir, filename);
   });
+}
+
+function decodeHeaderText(header: unknown): string | null {
+  if (typeof header !== 'string' || header.length === 0) return null;
+  try {
+    return decodeURIComponent(header);
+  } catch {
+    return null;
+  }
+}
+
+function declaredContentLength(req: Request): number | null {
+  const declared = Number(req.headers['content-length']);
+  return Number.isFinite(declared) && declared >= 0 ? declared : null;
+}
+
+function answerShow({ req, res, session, shownFiles }: {
+  req: Request;
+  res: Response;
+  session: Session;
+  shownFiles: ShownFilesPort;
+}): void {
+  const name = path.basename(decodeHeaderText(req.headers['x-glimmervoid-show-name']) ?? '');
+  if (!name) {
+    res.status(400).json({ ok: false, error: 'show needs the file name in x-glimmervoid-show-name' });
+    return;
+  }
+  const caption = decodeHeaderText(req.headers['x-glimmervoid-show-caption'])?.slice(0, SHOWN_CAPTION_MAX_CHARS) ?? null;
+  const declaredBytes = declaredContentLength(req);
+  if (declaredBytes !== null && declaredBytes > SHOWN_FILE_CAP_BYTES) {
+    res.status(413).json({ ok: false, error: describeOverCap(name, declaredBytes) });
+    req.resume();
+    return;
+  }
+  const answer = (status: number, body: Record<string, unknown>) => {
+    if (!res.headersSent) res.status(status).json(body);
+  };
+  void shownFiles.reserveIncomingPath(session.id).then(async (incomingPath) => {
+    const outcome = await streamRequestToFile({ req, savedPath: incomingPath, capBytes: SHOWN_FILE_CAP_BYTES });
+    if (!outcome.ok) {
+      const failure = UPLOAD_FAILURE_REPLIES[outcome.reason];
+      answer(failure.status, { ok: false, error: outcome.reason === 'over-cap' ? describeOverCap(name, declaredBytes) : failure.error });
+      return;
+    }
+    const admitted = await shownFiles.admit(session, { incomingPath, name, caption, sizeBytes: outcome.sizeBytes });
+    if (!admitted.ok) {
+      answer(admitted.status, { ok: false, error: admitted.error });
+      return;
+    }
+    answer(200, { ok: true, shown: { name: admitted.file.name, kind: admitted.file.kind } });
+  }).catch(() => {
+    answer(500, { ok: false, error: 'could not store the file' });
+  });
+}
+
+const SHOWN_FILE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
+
+function serveShownFile(req: Request, res: Response, shownFiles: ShownFilesPort | null): void {
+  const servable = shownFiles?.findServable(req.params.sessionId, req.params.filename) ?? null;
+  if (!servable) {
+    res.status(404).end();
+    return;
+  }
+  res.setHeader('Content-Security-Policy', SHOWN_FILE_SANDBOX_POLICY);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'private, max-age=604800, immutable');
+  res.setHeader('Accept-Ranges', 'bytes');
+  const byteRange = decideByteRange(req.headers.range, servable.sizeBytes);
+  if (byteRange.kind === 'unsatisfiable') {
+    res.status(416).setHeader('Content-Range', `bytes */${servable.sizeBytes}`);
+    res.end();
+    return;
+  }
+  res.setHeader('Content-Type', servable.mime);
+  if (byteRange.kind === 'partial') {
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${byteRange.start}-${byteRange.end}/${servable.sizeBytes}`);
+    res.setHeader('Content-Length', String(byteRange.end - byteRange.start + 1));
+    pipeline(fs.createReadStream(servable.path, { start: byteRange.start, end: byteRange.end }), res, () => {});
+    return;
+  }
+  res.setHeader('Content-Length', String(servable.sizeBytes));
+  pipeline(fs.createReadStream(servable.path), res, () => {});
 }
 
 function refuseAgentRequest(res: Response): void {
@@ -283,7 +401,7 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
 }
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
-  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'getAgentApi' | 'sshSigner' | 'recordOutcome' | 'logger'>;
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'getAgentApi' | 'getShownFiles' | 'sshSigner' | 'recordOutcome' | 'logger'>;
 
 function mountHostAllowList(app: Express, allowedHosts: string[]): void {
   app.use((req, res, next) => {
@@ -303,6 +421,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     getPlanReview = () => null,
     refocusContextFor = () => ({ taskTitle: null, latestPlanTitle: null }),
     getAgentApi = () => null,
+    getShownFiles = () => null,
     recordOutcome = () => {},
     logger = console,
   } = dependencies;
@@ -364,6 +483,30 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       });
       heldDecision.then(answer, () => { answer(null); });
     });
+  });
+
+  app.post('/agent/:glimmervoidId/show', (req, res) => {
+    const agentApi = getAgentApi();
+    const shownFiles = getShownFiles();
+    const session = getSession(req.params.glimmervoidId);
+    const verdict = decideAgentRequest({
+      sessionId: req.params.glimmervoidId,
+      presentedToken: presentedToken(req),
+      expectedToken: session?.agentToken ?? null,
+      isLoopback: isLoopbackRequest(req),
+    });
+    if (!verdict.ok || !session || !agentApi || !shownFiles) {
+      req.resume();
+      refuseAgentRequest(res);
+      return;
+    }
+    const roleRefusal = agentApi.refuseRole(session, 'show');
+    if (roleRefusal) {
+      req.resume();
+      res.status(roleRefusal.status).json(roleRefusal.body);
+      return;
+    }
+    answerShow({ req, res, session, shownFiles });
   });
 
   app.post('/agent/:glimmervoidId/:verb', (req, res) => {
@@ -541,6 +684,10 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       .catch(() => {
         if (!res.headersSent) res.status(404).end();
       });
+  });
+
+  app.get('/shown/:sessionId/:filename', (req, res) => {
+    serveShownFile(req, res, dependencies.getShownFiles?.() ?? null);
   });
 
   mountCustomSoundRoutes(app, { soundsDir: customSoundsDir });

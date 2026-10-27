@@ -4,6 +4,7 @@ import path from 'node:path';
 import { configSiblingPath } from './pairings-store.ts';
 import { pruneAgedFiles } from './prune-files.ts';
 import { pruneLeftoverSessionTempFolders } from './guardrails/guardrails-launch.ts';
+import { SHOWN_FOLDER_NAME } from './session/shown-files-wiring.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
 import type { ClearIntervalFn, SetIntervalFn } from '../shared/timer-deps.ts';
 
@@ -25,14 +26,16 @@ function createUploadsWiring({
   let timer: NodeJS.Timeout | null = null;
   async function prune(): Promise<void> {
     const retainedSessionIds = liveSessionIds();
-    await pruneAgedFiles({
-      directory: uploadsRoot,
-      suffixes: [''],
-      retainDays: UPLOAD_RETAIN_DAYS,
-      entryMode: 'directory',
-      isRetainedId: (id) => retainedSessionIds.has(id),
-      fsPromises: fs.promises,
-    });
+    for (const directory of [uploadsRoot, configSiblingPath(configPath, SHOWN_FOLDER_NAME)]) {
+      await pruneAgedFiles({
+        directory,
+        suffixes: [''],
+        retainDays: UPLOAD_RETAIN_DAYS,
+        entryMode: 'directory',
+        isRetainedId: (id) => retainedSessionIds.has(id),
+        fsPromises: fs.promises,
+      });
+    }
     await pruneLeftoverSessionTempFolders(path.dirname(uploadsRoot), retainedSessionIds);
   }
   async function start(): Promise<void> {

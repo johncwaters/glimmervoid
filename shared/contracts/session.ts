@@ -128,7 +128,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-export const SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings'] as const;
+export const SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'show', 'review', 'reviews', 'prs', 'link-pr', 'settings'] as const;
 export const AGENT_API_VERBS = [...SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
@@ -252,6 +252,25 @@ export const AgentEditRequest = z.object({
     .min(1, { error: 'path must not be empty' })
     .max(SESSION_DOC_PATH_MAX_CHARS, { error: `path must be at most ${SESSION_DOC_PATH_MAX_CHARS} characters` }),
 }).strict();
+
+export const SHOWN_FILE_CAP_BYTES = 200 * 1024 * 1024;
+export const SHOWN_FILES_KEPT_PER_SESSION = 50;
+export const SHOWN_CAPTION_MAX_CHARS = 500;
+const SHOWN_FILE_KINDS = ['image', 'video', 'page'] as const;
+
+export const ShownFile = z.object({
+  id: z.string(),
+  name: z.string(),
+  caption: z.string().max(SHOWN_CAPTION_MAX_CHARS).nullable(),
+  kind: z.enum(SHOWN_FILE_KINDS),
+  mime: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  pageTitle: z.string().nullable(),
+  shownAt: z.number().finite(),
+}).strict();
+
+export type ShownFile = z.infer<typeof ShownFile>;
+export type ShownFileKind = (typeof SHOWN_FILE_KINDS)[number];
 
 export const SessionDoc = z.object({
   path: z.string(),

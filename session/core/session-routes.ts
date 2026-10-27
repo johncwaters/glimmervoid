@@ -88,6 +88,11 @@ function editRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot surface a file, because it has no card for the operator to open the file from' };
 }
 
+function showRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot show a file, because it has no card for the operator to see it on' };
+}
+
 function operatorStateRoute(caller: SessionKindFacts): RouteVerdict {
   if (hasOperatorCard(caller)) return ANSWERS;
   return { answers: false, reason: "a lane session cannot read or queue the operator's reviews, pull requests or settings, because a lane runs on input the operator has not vetted" };
@@ -119,6 +124,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) =>
   attention: attentionRoute,
   board: () => ANSWERS,
   edit: editRoute,
+  show: showRoute,
   review: operatorStateRoute,
   reviews: operatorStateRoute,
   prs: operatorStateRoute,

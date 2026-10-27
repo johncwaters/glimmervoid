@@ -15,7 +15,7 @@ import { ChangeMap } from './change-map.ts';
 import {
   COHERENCE_JOURNAL_DRAWER_MAX_ROWS, CoherenceJournalEntry, SessionCoherence,
 } from './coherence.ts';
-import { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, SessionState, TaskTitle, UnseenOutcome } from './session.ts';
+import { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, ShownFile, SessionState, TaskTitle, UnseenOutcome } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { SessionSetup } from './session-setup.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
@@ -529,6 +529,8 @@ const serverVariants = [
   loose('session-plan-response', PlanResponseFrame.shape),
   loose('session-docs-changed', { id: sessionId, docs: z.array(SessionDoc) }),
   loose('session-docs-snapshot', { sessions: z.record(z.string(), z.array(SessionDoc)) }),
+  loose('session-shown', { id: sessionId, files: z.array(ShownFile) }),
+  loose('session-shown-snapshot', { sessions: z.record(z.string(), z.array(ShownFile)) }),
   loose('session-doc-response', { requestId, id: sessionId, path: z.string(), ok: z.boolean(), text: z.string().optional(), hash: z.string().optional(), error: optionalError }),
   loose('session-doc-save-result', { requestId, id: sessionId, path: z.string(), ok: z.boolean(), hash: z.string().optional(), conflict: z.boolean().optional(), error: optionalError }),
   loose('session-coherence', { id: sessionId, ...SessionCoherence.shape }),

@@ -113,6 +113,7 @@ type AgentVerbHandlers = { readonly [V in AgentApiVerb]: (session: Session, requ
 
 interface AgentApiPort {
   handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply>;
+  refuseRole(session: Session, verb: AgentApiVerb): AgentApiReply | null;
   markChildWorktreeDiscard(childId: string): void;
 }
 
@@ -630,6 +631,7 @@ function createAgentApiWiring({
     board: () => ({ status: 200, body: { ok: true, sessions: board() } }),
     push,
     edit,
+    show: () => refusal(400, 'show sends the file itself; run glimmervoid show <path>'),
     limits: (session) => ({ status: 200, body: limits(session) }),
     review: (_session, { pullRequestKey }) => review(pullRequestKey),
     reviews: () => (operatorState ? { status: 200, body: projectReviews(operatorState.teamReviewStatus()) } : githubLanesUnavailable()),
@@ -655,7 +657,11 @@ function createAgentApiWiring({
     childIdsToDiscard.add(childId);
   }
 
-  return { handle, markChildWorktreeDiscard };
+  function refuseRole(session: Session, verb: AgentApiVerb): AgentApiReply | null {
+    return describeRoleRefusal(verb, roleFactsOf(session));
+  }
+
+  return { handle, refuseRole, markChildWorktreeDiscard };
 }
 
 export { createAgentApiWiring };

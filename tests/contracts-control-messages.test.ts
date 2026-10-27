@@ -135,6 +135,8 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-plan-response', id: 'session-1', reviews: [PLAN_REVIEW], body: { agentId: 'agent-9', revision: 2, plan: '# Shrink the large owned files', planFilePath: '/home/u/.claude/plans/a.md', receivedAt: NOW } },
   { type: 'session-docs-changed', id: 'session-1', docs: [{ path: '/repo/drafts/post.md', name: 'drafts/post.md', surfacedAt: NOW }] },
   { type: 'session-docs-snapshot', sessions: { 'session-1': [{ path: '/repo/drafts/post.md', name: 'drafts/post.md', surfacedAt: NOW }] } },
+  { type: 'session-shown', id: 'session-1', files: [{ id: '1767225600000-ab12cd34.png', name: 'L11.png', caption: 'Bug report graphic', kind: 'image', mime: 'image/png', sizeBytes: 48213, pageTitle: null, shownAt: NOW }] },
+  { type: 'session-shown-snapshot', sessions: { 'session-1': [{ id: '1767225600000-ab12cd34.png', name: 'L11.png', caption: 'Bug report graphic', kind: 'image', mime: 'image/png', sizeBytes: 48213, pageTitle: null, shownAt: NOW }] } },
   { type: 'session-doc-response', requestId: 'session-doc-read-1', id: 'session-1', path: '/repo/drafts/post.md', ok: true, text: '# Draft', hash: 'abc' },
   { type: 'session-doc-save-result', requestId: 'session-doc-save-1', id: 'session-1', path: '/repo/drafts/post.md', ok: false, conflict: true, error: 'the file changed on disk since it was opened, so reload it before saving' },
   {
