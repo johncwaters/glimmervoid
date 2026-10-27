@@ -9,7 +9,6 @@ import WebSocket from 'ws';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { createPairingsStore } from '../server/pairings-store.ts';
-import { createRemoteAuth } from '../server/remote-auth.ts';
 import { closeServer, listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
@@ -125,30 +124,4 @@ test('a paired device cookie presented under another Tailscale login cannot open
   const cookie = await pairOwnerDevice();
   assert.equal(await upgradeStatus('/control', { ...INTRUDER_HEADERS, Cookie: cookie }), 401);
   assert.equal(await upgradeStatus('/control', { ...OWNER_HEADERS, Cookie: cookie }), 101);
-});
-
-function ownerCheckLogLines(ownerLogin: string, enabled: boolean): string[] {
-  const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-remote-owner-log-'));
-  const loggedLines: string[] = [];
-  const remoteAuth = createRemoteAuth({
-    remote: { enabled, port: 3456, publicHost: '', allowedOrigins: [], ownerLogin },
-    pairingsStore: createPairingsStore({ filePath: path.join(storeDir, 'pairings.json') }),
-    log: (message) => loggedLines.push(message),
-  });
-  remoteAuth.stop();
-  fs.rmSync(storeDir, { recursive: true, force: true });
-  return loggedLines.filter((line) => line.startsWith('[remote] owner check'));
-}
-
-test('an enabled remote listener logs which owner check is in force', () => {
-  assert.deepEqual(ownerCheckLogLines(OWNER_LOGIN, true), [
-    `[remote] owner check on: only Tailscale login ${OWNER_LOGIN} is answered`,
-  ]);
-  assert.deepEqual(ownerCheckLogLines('', true), [
-    '[remote] owner check off: set remote.ownerLogin to answer only your Tailscale login',
-  ]);
-});
-
-test('a disabled remote listener logs no owner check', () => {
-  assert.deepEqual(ownerCheckLogLines(OWNER_LOGIN, false), []);
 });

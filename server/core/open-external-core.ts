@@ -65,5 +65,4 @@ export {
   OPEN_EXTERNAL_BODY_CAP_BYTES,
   decideOpenExternalRequest,
   hostOpenerFor,
-  parseOpenableUrl,
 };

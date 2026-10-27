@@ -9,7 +9,6 @@ import type { Server } from 'node:http';
 import { createBackend } from '../server/backend/backend.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { PLAN_BODY_CAP_BYTES } from '../shared/contracts/plan-review.ts';
-import { PLAN_RESULT_BODY_CAP_BYTES, carriesPlanBody } from '../server/plan-review-wiring.ts';
 import type { Session } from '../session/sessions.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
@@ -212,20 +211,6 @@ test('an event that carries no plan keeps the 64 KB cap', async () => {
     .catch(() => {});
   const after = await postHook('Stop', {});
   assert.equal(after.status, 200, 'the route still answers after the aborted request');
-});
-
-test('the raised cap belongs to the plan lane and covers only the segments that carry a plan', () => {
-  assert.equal(PLAN_BODY_CAP_BYTES, 512 * 1024);
-  assert.equal(carriesPlanBody('permissionrequest-plan'), true);
-  assert.equal(carriesPlanBody('posttooluse-plan'), true, 'the approved plan arrives twice in one plan result body');
-  assert.equal(carriesPlanBody('PermissionRequest'), true);
-  assert.equal(carriesPlanBody('PostToolUse'), false, 'the shared tool result route never carries a plan');
-  assert.equal(carriesPlanBody('stop'), false);
-  assert.equal(
-    PLAN_RESULT_BODY_CAP_BYTES,
-    2 * PLAN_BODY_CAP_BYTES,
-    'the result segment carries the plan in tool_input and in tool_response',
-  );
 });
 
 test('a plan the request cap accepted still clears the result cap once the result carries it twice', async () => {

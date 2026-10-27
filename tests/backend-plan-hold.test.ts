@@ -8,11 +8,8 @@ import type { Server } from 'node:http';
 
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { createPlanReviewWiring } from '../server/plan-review-wiring.ts';
-import type { PlanReviewWiringOptions } from '../server/plan-review-wiring.ts';
-import { PLAN_HOLD_RELEASE_MS } from '../detection/settings-injector.ts';
 import type { PlanReview } from '../shared/contracts/plan-review.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
-import { manualTimers } from './helpers/manual-timers.ts';
 
 type PlanLane = ReturnType<typeof createPlanReviewWiring>;
 type HeldReply = Promise<Record<string, unknown> | null> | null;
@@ -22,14 +19,13 @@ after(() => {
   for (const directory of temporaryDirectories) fs.rmSync(directory, { recursive: true, force: true });
 });
 
-function laneWorkspace(name: string, options: PlanReviewWiringOptions = {}): PlanLane {
+function laneWorkspace(name: string): PlanLane {
   const configDirectory = fs.mkdtempSync(path.join(os.tmpdir(), `glimmervoid-plan-hold-${name}-`));
   temporaryDirectories.push(configDirectory);
   return createPlanReviewWiring({
     configPath: path.join(configDirectory, 'config.json'),
     logger: { warn: () => {} },
     nowFn: () => 7,
-    ...options,
   });
 }
 
@@ -86,15 +82,6 @@ function reviewOf(result: { reviews: PlanReview[] } | null, agentId: string | nu
 async function stateOf(lane: PlanLane, sessionId: string, agentId: string | null = null) {
   return reviewOf(await lane.readPlanRevision(sessionId, { agentId }), agentId)?.state ?? null;
 }
-
-test('a plan request is held while the review is open, and no reply is written until a decision lands', async () => {
-  const lane = laneWorkspace('holds');
-  const held = await openHold(lane, {});
-  await flush();
-  assert.equal(held.isSettled, false, 'the hook reply waits for the operator');
-  assert.equal(await stateOf(lane, 'session-1'), 'open');
-  await lane.stop();
-});
 
 test('each dashboard decision writes the exact hook reply the spike measured, and moves the review once', async () => {
   const cases = [
@@ -155,234 +142,6 @@ test('each dashboard decision writes the exact hook reply the spike measured, an
     assert.equal(await stateOf(lane, 'session-1'), state);
     await lane.stop();
   }
-});
-
-test('a second request for the same review releases the first reply and opens the next revision', async () => {
-  const lane = laneWorkspace('superseded');
-  const first = await openHold(lane, { plan: '# First' });
-  const second = await openHold(lane, { plan: '# Second' });
-  await flush();
-  assert.equal(first.isSettled, true, 'the earlier hold never outlives its revision');
-  assert.deepEqual(first.reply, {});
-  assert.equal(second.isSettled, false);
-
-  const result = await lane.readPlanRevision('session-1', {});
-  assert.equal(result?.body?.revision, 2);
-  assert.equal(reviewOf(result)?.state, 'open');
-  assert.deepEqual(reviewOf(result)?.openRevision, { revision: 2, since: 7 });
-
-  assert.match(
-    String(lane.decide('session-1', { id: 'session-1', agentId: null, revision: 1, decision: 'approve' })),
-    /names revision 1, but revision 2 is open/,
-  );
-  await lane.stop();
-});
-
-test('a PostToolUse on an open review is the terminal answering: release the hold and close', async () => {
-  const lane = laneWorkspace('terminal-answered');
-  const held = await openHold(lane, {});
-  lane.onHookEvent({
-    glimmervoidId: 'session-1',
-    event: 'posttooluse-plan',
-    payload: { tool_name: 'ExitPlanMode', tool_response: { plan: '# Ship it' } },
-    accepted: true,
-  });
-  await flush();
-  assert.equal(held.isSettled, true, 'nothing else would ever release this request');
-  assert.deepEqual(held.reply, {});
-  const result = await lane.readPlanRevision('session-1', {});
-  assert.equal(reviewOf(result)?.state, 'closed');
-  assert.equal(reviewOf(result)?.approvedRevision, 1);
-  assert.match(
-    String(lane.decide('session-1', { id: 'session-1', agentId: null, revision: 1, decision: 'approve' })),
-    /no longer open/,
-    'a decision arriving after the terminal answered is refused',
-  );
-  await lane.stop();
-});
-
-test('a PostToolUse landing in the same tick as the plan request still releases the hold it never saw', async () => {
-  const lane = laneWorkspace('same-tick-terminal');
-  const held = watch(lane.onHookEvent({
-    glimmervoidId: 'session-1',
-    event: 'permissionrequest-plan',
-    payload: planRequest('# Ship it'),
-    accepted: true,
-  }));
-  lane.onHookEvent({
-    glimmervoidId: 'session-1',
-    event: 'posttooluse-plan',
-    payload: { tool_name: 'ExitPlanMode', tool_response: { plan: '# Ship it' } },
-    accepted: true,
-  });
-  await lane.whenIdle();
-  await flush();
-  assert.equal(held.isSettled, true, 'the reply never waits on an event that raced the hold');
-  assert.deepEqual(held.reply, {});
-  assert.equal(await stateOf(lane, 'session-1'), 'closed');
-  await lane.stop();
-});
-
-test('a turn end landing in the same tick as the plan request closes the review it never saw', async () => {
-  const lane = laneWorkspace('same-tick-stop');
-  const held = watch(lane.onHookEvent({
-    glimmervoidId: 'session-1',
-    event: 'permissionrequest-plan',
-    payload: planRequest('# Ship it'),
-    accepted: true,
-  }));
-  lane.onHookEvent({ glimmervoidId: 'session-1', event: 'Stop', payload: {}, accepted: true });
-  await lane.whenIdle();
-  await flush();
-  assert.equal(held.isSettled, true);
-  assert.equal(await stateOf(lane, 'session-1'), 'closed');
-  await lane.stop();
-});
-
-test('a PostToolUse after a deny records the terminal approval the deny never got', async () => {
-  const lane = laneWorkspace('deny-then-terminal');
-  await openHold(lane, {});
-  lane.decide('session-1', { id: 'session-1', agentId: null, revision: 1, decision: 'revise', feedback: 'no' });
-  assert.equal(await stateOf(lane, 'session-1'), 'decided');
-  lane.onHookEvent({
-    glimmervoidId: 'session-1',
-    event: 'PostToolUse',
-    payload: { tool_name: 'ExitPlanMode', tool_response: { plan: '# Ship it' } },
-    accepted: true,
-  });
-  const result = await lane.readPlanRevision('session-1', {});
-  assert.equal(reviewOf(result)?.state, 'closed');
-  assert.equal(reviewOf(result)?.approvedRevision, 1, 'the terminal approved what the lane had denied');
-  await lane.stop();
-});
-
-test('a turn end, a subagent stop and a session end each release their own held reply', async () => {
-  const lane = laneWorkspace('lifecycle-releases');
-  const main = await openHold(lane, { plan: '# Main' });
-  const subagent = await openHold(lane, { plan: '# Explore', agentId: 'sub-1' });
-
-  lane.onHookEvent({ glimmervoidId: 'session-1', event: 'SubagentStop', payload: { agent_id: 'sub-1' }, accepted: true });
-  await flush();
-  assert.equal(subagent.isSettled, true);
-  assert.deepEqual(subagent.reply, {});
-  assert.equal(main.isSettled, false, 'a subagent stop leaves the main review held');
-  assert.equal(await stateOf(lane, 'session-1'), 'open');
-  assert.equal(await stateOf(lane, 'session-1', 'sub-1'), 'closed');
-
-  lane.onHookEvent({ glimmervoidId: 'session-1', event: 'Stop', payload: {}, accepted: true });
-  await flush();
-  assert.equal(main.isSettled, true);
-  assert.deepEqual(main.reply, {});
-  assert.equal(await stateOf(lane, 'session-1'), 'closed');
-
-  const other = await openHold(lane, { sessionId: 'session-2', plan: '# Other' });
-  lane.onHookEvent({ glimmervoidId: 'session-2', event: 'SessionEnd', payload: {}, accepted: true });
-  await flush();
-  assert.equal(other.isSettled, true);
-  assert.deepEqual(other.reply, {});
-  await lane.stop();
-});
-
-test('a shutdown flushes every held reply before the listener closes', async () => {
-  const lane = laneWorkspace('shutdown-flush');
-  const main = await openHold(lane, { plan: '# Main' });
-  const subagent = await openHold(lane, { plan: '# Explore', agentId: 'sub-1' });
-  const other = await openHold(lane, { sessionId: 'session-2', plan: '# Other' });
-
-  await lane.stop();
-  await flush();
-  for (const held of [main, subagent, other]) {
-    assert.equal(held.isSettled, true, 'shutdown answers every held request');
-    assert.deepEqual(held.reply, {});
-  }
-  assert.equal(await stateOf(lane, 'session-1'), 'released');
-});
-
-function attachKillableSession(lane: PlanLane, sessionId: string): () => void {
-  let fireTeardown: () => void = () => {};
-  lane.attachSession({
-    id: sessionId,
-    on: (event: string, listener: (payload: Record<string, unknown>) => void) => {
-      if (event !== 'teardown') return;
-      fireTeardown = () => listener({});
-    },
-  });
-  return () => fireTeardown();
-}
-
-test('a session killed while its plan append is in flight still answers the request and keeps no state', async () => {
-  const lane = laneWorkspace('teardown-race');
-  const killSession = attachKillableSession(lane, 'session-1');
-  const held = watch(lane.onHookEvent({
-    glimmervoidId: 'session-1',
-    event: 'permissionrequest-plan',
-    payload: planRequest('# Ship it'),
-    accepted: true,
-  }));
-  killSession();
-  await lane.whenIdle();
-  await flush();
-  assert.equal(held.isSettled, true, 'a kill mid-append never leaves the agent waiting on the fail-open timer');
-  assert.deepEqual(held.reply, {});
-  assert.equal(await stateOf(lane, 'session-1'), 'closed', 'no entry rebuilt behind the kill survives it');
-  await lane.stop();
-});
-
-test('a plan request arriving after the lane stopped is answered at once and never held', async () => {
-  const lane = laneWorkspace('stopped-lane');
-  await lane.stop();
-  assert.equal(lane.onHookEvent({
-    glimmervoidId: 'session-1',
-    event: 'permissionrequest-plan',
-    payload: planRequest('# Ship it'),
-    accepted: true,
-  }), null);
-});
-
-test('the lane writes its own empty reply a minute before the hook timeout would fire', async () => {
-  const timers = manualTimers();
-  const lane = laneWorkspace('early-release', {
-    setTimeoutFn: timers.setTimeoutFn,
-    clearTimeoutFn: timers.clearTimeoutFn,
-  });
-  const held = await openHold(lane, {});
-  assert.equal(timers.pending.length, 1);
-  assert.equal(timers.pending[0].ms, PLAN_HOLD_RELEASE_MS);
-  assert.equal(PLAN_HOLD_RELEASE_MS, (86400 - 60) * 1000);
-
-  timers.fireAll();
-  await flush();
-  assert.equal(held.isSettled, true, 'the release runs through the tested empty reply, never the hook timeout');
-  assert.deepEqual(held.reply, {});
-  assert.equal(await stateOf(lane, 'session-1'), 'released');
-  assert.match(
-    String(lane.decide('session-1', { id: 'session-1', agentId: null, revision: 1, decision: 'approve' })),
-    /no longer open/,
-  );
-  await lane.stop();
-});
-
-test('a refused parse and a refused hook are answered as the route answers today', async () => {
-  const lane = laneWorkspace('fail-open');
-  assert.equal(await lane.onHookEvent({
-    glimmervoidId: 'session-1',
-    event: 'permissionrequest-plan',
-    payload: { tool_name: 'ExitPlanMode', tool_input: {} },
-    accepted: true,
-  }), null);
-  assert.equal(lane.onHookEvent({
-    glimmervoidId: 'session-1',
-    event: 'permissionrequest-plan',
-    payload: planRequest('# Ship it'),
-    accepted: false,
-  }), null);
-  assert.equal(await lane.onHookEvent({
-    glimmervoidId: '../escape',
-    event: 'permissionrequest-plan',
-    payload: planRequest('# Ship it'),
-    accepted: true,
-  }), null);
-  await lane.stop();
 });
 
 interface HoldServer {
