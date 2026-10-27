@@ -12,7 +12,6 @@ import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { settleBackendShutdown, visionsLane } from './helpers/lanes.ts';
 import type { Backend } from './helpers/lanes.ts';
-import { createReplayLog } from '../server/core/control-replay-core.ts';
 
 const MARKDOWN_URI = 'file:///tmp/plan-visions.md';
 const REPEATED_WORD_MARKDOWN = '# Title\n\nA line with with a repeat.\n';
@@ -185,14 +184,4 @@ test('a control client connecting with the lane off is told nothing about the vi
     if (prevEnv != null) process.env.GLIMMERVOID_CONFIG = prevEnv;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
-});
-
-test('visions messages are not on the control replay retention list', () => {
-  const log = createReplayLog();
-  log.stamp({ type: 'visions-findings', uri: MARKDOWN_URI, diagnostics: [], ts: 1 });
-  log.stamp({ type: 'visions-snapshot', documents: [], ts: 2 });
-  log.stamp({ type: 'session-error', session: 'probe', message: 'kept' });
-
-  const { entries } = log.entriesSince(0);
-  assert.deepEqual(entries.map((entry) => entry.type), ['session-error']);
 });

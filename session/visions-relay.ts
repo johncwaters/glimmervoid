@@ -543,4 +543,4 @@ if (process.argv[1] === import.meta.filename) {
   main();
 }
 
-export { readConfiguredPort, CODE_ACTION_TIMEOUT_MS, SYNC_KIND_INCREMENTAL, createRelay, resolvePortPlan, sendWsFrame, sendWsJson };
+export { CODE_ACTION_TIMEOUT_MS, createRelay, sendWsFrame, sendWsJson };

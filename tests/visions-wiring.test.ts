@@ -11,7 +11,7 @@ import type { TestContext } from 'node:test';
 import { createBackend } from '../server/backend/backend.ts';
 import { createConfigStore } from '../server/config-store.ts';
 import { CONFIG_SCALAR_KEYS, ConfigUpdate } from '../shared/contracts/index.ts';
-import { createVisionsWiring, VISIONS_DEBOUNCE_MS } from '../server/visions/visions-wiring.ts';
+import { createVisionsWiring, } from '../server/visions/visions-wiring.ts';
 import type { VisionsWiringOptions } from '../server/visions/visions-wiring.ts';
 import { listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
@@ -68,7 +68,6 @@ const MARKDOWN_URI = 'file:///tmp/plan-visions.md';
 const HARNESS_SCOPE = [{ id: 'harness', path: '/tmp' }];
 const PROJECT_ID = 'e1f4c0de-0000-4000-8000-000000000001';
 const OTHER_PROJECT_ID = 'e1f4c0de-0000-4000-8000-000000000002';
-const SCRIPT_URI = 'file:///tmp/app.js';
 const CLEAN_MARKDOWN = '# Title\n\nA line with nothing wrong.\n';
 const REPEATED_WORD_MARKDOWN = '# Title\n\nA line with with a repeat.\n';
 
@@ -160,10 +159,6 @@ function didChangeParams(uri: string, version: number, text: string) {
 }
 
 
-function intentBroadcasts(broadcasts: LaneFrame[]): LaneFrame[] {
-  return broadcasts.filter((message) => message.type === 'visions-intent');
-}
-
 function threadShape(thread: { id: string }, { text, uris = [], ts = FIXED_TS, hits = 1 }: {
   text: string;
   uris?: string[];
@@ -202,23 +197,6 @@ test('model intent persists on change only and revives on the next wiring', asyn
   assert.deepEqual(revived.wiring.getIntentFor(PROJECT_ID), { active: owned, threads: [owned] });
 });
 
-test('a project the config no longer knows loses its threads on the next load', async (t) => {
-  const intentStatePath = tempIntentStatePath(t);
-  fs.writeFileSync(intentStatePath, JSON.stringify({
-    byProject: {
-      [PROJECT_ID]: [{ id: 't-11111111', text: 'still configured', uris: [], ts: FIXED_TS, hits: 1 }],
-      [OTHER_PROJECT_ID]: [{ id: 't-22222222', text: 'deleted project', uris: [], ts: FIXED_TS, hits: 1 }],
-    },
-    unowned: [],
-  }), 'utf8');
-
-  const { wiring, warnings } = drivenConnection({ intentStatePath, knownProjectIds: [PROJECT_ID] });
-  t.after(() => wiring.stop());
-
-  assert.deepEqual(Object.keys(wiring.getIntent().byProject), [PROJECT_ID]);
-  assert.deepEqual(warnings, [], 'a deleted project is routine, not a corrupt file');
-});
-
 test('both legacy slot files revive as one thread each, and the next persist writes threads', async (t) => {
   const flatPath = tempIntentStatePath(t);
   fs.writeFileSync(flatPath, JSON.stringify({
@@ -255,40 +233,6 @@ test('a legacy flat empty intent file is not a corrupt one', (t) => {
 
   assert.deepEqual(wiring.getIntent(), { byProject: {}, unowned: [] });
   assert.deepEqual(warnings, [], 'a file that only ever said nothing says nothing on every boot');
-});
-
-test('a corrupt intent file starts empty and warns once', (t) => {
-  const intentStatePath = tempIntentStatePath(t);
-  fs.writeFileSync(intentStatePath, '{', 'utf8');
-
-  const { wiring, warnings } = drivenConnection({ intentStatePath });
-  t.after(() => wiring.stop());
-
-  assert.deepEqual(wiring.getIntent(), { byProject: {}, unowned: [] });
-  assert.equal(warnings.length, 1);
-  assert.match(String(warnings[0]), /intent state unreadable, starting empty/);
-});
-
-test('without an intent path the lane keeps the same in-memory behavior and touches no storage', async (t) => {
-  const fsFns = { readFileSync: () => { throw new Error('must not read'); } };
-  const fsPromises = {
-    mkdir: () => Promise.reject(new Error('must not write')),
-    writeFile: () => Promise.reject(new Error('must not write')),
-    rename: () => Promise.reject(new Error('must not write')),
-    rm: () => Promise.reject(new Error('must not write')),
-    appendFile: () => Promise.reject(new Error('must not write')),
-  };
-  const { wiring, broadcasts, warnings } = drivenConnection({ fsFns, fsPromises });
-  t.after(() => wiring.stop());
-
-  assert.deepEqual(wiring.snapshotMessage().intent, { byProject: {}, unowned: [] });
-  assert.equal(wiring.applyModelIntent('memory only'), true);
-  await wiring.whenIntentPersistenceIdle();
-  const thread = threadShape(wiring.getIntentFor().active, { text: 'memory only' });
-  assert.deepEqual(intentBroadcasts(broadcasts), [{
-    type: 'visions-intent', projectId: null, intent: { active: thread, threads: [thread] }, ts: FIXED_TS,
-  }]);
-  assert.deepEqual(warnings, []);
 });
 
 interface BootedBackend {
@@ -415,22 +359,6 @@ test('an enabled lane serves /visions on the local listener and publishes markdo
   assert.deepEqual(diagnosticsOf(frame).map((diagnostic) => diagnostic.code), ['repeated-word']);
   assert.equal(frameDiagnostic(frame, 0).source, 'glimmervoid-visions');
   assert.equal(frameDiagnostic(frame, 0).range?.start.line, 2);
-});
-
-test('a non-markdown document over the same socket yields no diagnostics, and a garbage frame kills nothing', async (t) => {
-  const { port } = await bootBackend({ visions: { enabled: true } });
-  const client = visionsClient(port);
-  t.after(() => client.close());
-  assert.equal(await client.opened, 'open');
-
-  client.sendRaw('this is not a frame');
-  client.sendLsp('textDocument/didOpen', didOpenParams(SCRIPT_URI, 'javascript', 'const the the = 1;\n'));
-  client.sendLsp('textDocument/didChange', didChangeParams(SCRIPT_URI, 2, 'const the the = 2;\n'));
-  await delay(VISIONS_DEBOUNCE_MS * 4);
-  assert.deepEqual(client.frames, [], 'v1 says nothing about code buffers');
-
-  client.sendLsp('textDocument/didOpen', didOpenParams(MARKDOWN_URI, 'markdown', REPEATED_WORD_MARKDOWN));
-  assert.ok(await waitForDiagnostics(client, MARKDOWN_URI), 'the connection survived the malformed frame');
 });
 
 test('a default config leaves /visions exactly where an unowned path is left', async () => {

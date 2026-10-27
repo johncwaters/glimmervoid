@@ -1126,5 +1126,5 @@ function createVisionsWiring({
   };
 }
 
-export { VISIONS_DEBOUNCE_MS, createVisionsWiring };
+export { createVisionsWiring };
 export type { VisionsWiringOptions };
