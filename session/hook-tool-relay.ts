@@ -93,8 +93,4 @@ if (process.argv[1] === import.meta.filename) {
   main().then((result) => process.exit(result.code)).catch(() => process.exit(0));
 }
 
-function runRtk(binPath: string, body: Buffer): Promise<string> {
-  return runHookTool("rtk", binPath, body);
-}
-
-export { main, runRtk, runHookTool };
+export { main, runHookTool };

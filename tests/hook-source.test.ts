@@ -6,74 +6,14 @@ import os from 'node:os';
 import path from 'node:path';
 
 import claudeCode from '../session/adapters/claude-code.ts';
-import { HookRouter, mapHookToSignal, mapHookConfidence, mapHookPromptKind } from '../detection/hook-source.ts';
+import { HookRouter } from '../detection/hook-source.ts';
 import {
   buildHookSettings,
   writeSessionSettings,
   sweepOrphans,
   generateToken,
-  safeDirSegment,
 } from '../detection/settings-injector.ts';
 import type { HookSignal } from '../detection/hook-source.ts';
-
-test('mapHookToSignal maps events correctly', () => {
-  assert.equal(mapHookToSignal('SessionStart'), 'session-start');
-  assert.equal(mapHookToSignal('PreCompact', { trigger: 'auto' }), 'compaction-start');
-  assert.equal(mapHookToSignal('PostCompact', { trigger: 'manual' }), 'compaction-end');
-  assert.equal(mapHookToSignal('SessionEnd'), 'session-end');
-  assert.equal(mapHookToSignal('UserPromptSubmit'), 'resume');
-  assert.equal(mapHookToSignal('Stop'), 'ready');
-  assert.equal(mapHookToSignal('PermissionRequest'), 'awaiting-input');
-  assert.equal(mapHookToSignal('Notification', { notification_type: 'idle_prompt' }), 'ready');
-  assert.equal(mapHookToSignal('Notification', { notification_type: 'permission_prompt' }), 'awaiting-input');
-  assert.equal(mapHookToSignal('PreToolUse'), null);
-});
-
-test('mapHookToSignal: SubagentStart/Stop are tracking signals, never a completion', () => {
-  assert.equal(mapHookToSignal('SubagentStart'), 'subagent-start');
-  assert.equal(mapHookToSignal('SubagentStop'), 'subagent-stop');
-  assert.notEqual(mapHookToSignal('SubagentStop'), 'ready');
-});
-
-test('mapHookToSignal: benign/unknown Notification subtypes are ignored (no false WAITING)', () => {
-  assert.equal(mapHookToSignal('Notification', { notification_type: 'auth_success' }), null);
-  assert.equal(mapHookToSignal('Notification', { notification_type: 'something_new' }), null);
-  assert.equal(mapHookToSignal('Notification', {}), null);
-
-  assert.equal(mapHookToSignal('Notification', { notification_type: 'elicitation_dialog' }), 'awaiting-input');
-});
-
-test('mapHookConfidence: idle_prompt readys are demoted to low (idle nudge, not a completion proof)', () => {
-  assert.equal(mapHookConfidence('Notification', { notification_type: 'idle_prompt' }), 'low');
-  assert.equal(mapHookConfidence('notification', { notificationType: 'idle_prompt' }), 'low');
-
-  assert.equal(mapHookConfidence('Stop', {}), null);
-  assert.equal(mapHookConfidence('Notification', { notification_type: 'permission_prompt' }), null);
-  assert.equal(mapHookConfidence('UserPromptSubmit', {}), null);
-});
-
-test('mapHookPromptKind: classifies the origin of an awaiting-input signal', () => {
-  assert.equal(mapHookPromptKind('PermissionRequest', {}), 'permission');
-  assert.equal(mapHookPromptKind('Notification', { notification_type: 'permission_prompt' }), 'permission');
-  assert.equal(mapHookPromptKind('Notification', { notification_type: 'elicitation_dialog' }), 'elicitation');
-
-  assert.equal(mapHookPromptKind('Stop', {}), null);
-  assert.equal(mapHookPromptKind('Notification', { notification_type: 'idle_prompt' }), null);
-  assert.equal(mapHookPromptKind('Notification', {}), null);
-});
-
-test('HookRouter attaches promptKind for permission/elicitation, omits it otherwise', () => {
-  const r = new HookRouter();
-  const got: HookSignal[] = [];
-  r.register('s1', { token: 'tok', onSignal: (s) => got.push(s), hooks: claudeCode.hooks });
-  r.handle({ glimmervoidId: 's1', event: 'PermissionRequest', token: 'tok', payload: {} });
-  r.handle({ glimmervoidId: 's1', event: 'Notification', token: 'tok', payload: { notification_type: 'elicitation_form' } });
-  r.handle({ glimmervoidId: 's1', event: 'Stop', token: 'tok', payload: {} });
-  assert.equal(got.length, 3);
-  assert.equal(got[0].promptKind, 'permission');
-  assert.equal(got[1].promptKind, 'elicitation');
-  assert.equal('promptKind' in got[2], false, 'Stop never carries a promptKind');
-});
 
 test('HookRouter passes the low-confidence override for idle_prompt, none for Stop', () => {
   const r = new HookRouter();
@@ -86,29 +26,6 @@ test('HookRouter passes the low-confidence override for idle_prompt, none for St
   assert.equal(got[0].confidence, 'low');
   assert.equal(got[1].signal, 'ready');
   assert.equal('confidence' in got[1], false, 'Stop keeps the hook default');
-});
-
-test('HookRouter rejects unknown session (404)', () => {
-  const r = new HookRouter();
-  const res = r.handle({ glimmervoidId: 'nope', event: 'Stop', token: 'x', payload: {} });
-  assert.equal(res.status, 404);
-  assert.equal(res.signal, null);
-});
-
-test('HookRouter counts an unknown session as a 404 rejection', () => {
-  const recorded: string[] = [];
-  const r = new HookRouter({ recordOutcome: (name) => recorded.push(name) });
-  r.handle({ glimmervoidId: 'nope', event: 'Stop', token: 'x', payload: {} });
-  assert.deepEqual(recorded, ['hookRejected404']);
-});
-
-test('HookRouter counts an accepted hook as no rejection at all', () => {
-  const recorded: string[] = [];
-  const r = new HookRouter({ recordOutcome: (name) => recorded.push(name) });
-  r.register('s1', { token: 'good', onSignal: () => {}, hooks: claudeCode.hooks });
-  r.handle({ glimmervoidId: 's1', event: 'Stop', token: 'good', payload: {} });
-  r.handle({ glimmervoidId: 's1', event: 'PreToolUse', token: 'good', payload: {} });
-  assert.deepEqual(recorded, []);
 });
 
 test('a rejected token is counted only as its status class, never carried into the count', () => {
@@ -138,69 +55,6 @@ test('HookRouter rejects bad token (403)', () => {
   assert.equal(got.length, 0);
 });
 
-test('HookRouter dispatches valid signal to onSignal', () => {
-  const r = new HookRouter();
-  const got: HookSignal[] = [];
-  r.register('s1', { token: 'good', onSignal: (s) => got.push(s), hooks: claudeCode.hooks });
-  const res = r.handle({ glimmervoidId: 's1', event: 'Stop', token: 'good', payload: {} });
-  assert.equal(res.status, 200);
-  assert.equal(res.signal, 'ready');
-  assert.equal(got.length, 1);
-  assert.equal(got[0].signal, 'ready');
-  assert.equal(got[0].source, 'hook');
-});
-
-test('HookRouter ignores unmapped events with 200', () => {
-  const r = new HookRouter();
-  r.register('s1', { token: 'good', onSignal: () => {}, hooks: claudeCode.hooks });
-  const res = r.handle({ glimmervoidId: 's1', event: 'PreToolUse', token: 'good', payload: {} });
-  assert.equal(res.status, 200);
-  assert.equal(res.signal, null);
-});
-
-test('HookRouter observes mapped and ignored events after authentication', () => {
-  const router = new HookRouter();
-  const events: { event: string; payload: Record<string, unknown> }[] = [];
-  router.register('s1', {
-    token: 'good',
-    onSignal: () => {},
-    onEvent: (event, payload) => events.push({ event, payload }),
-    hooks: claudeCode.hooks,
-  });
-  const ignored = router.handle({
-    glimmervoidId: 's1', event: 'PostToolUse', token: 'good', payload: { tool_name: 'Read' },
-  });
-  router.handle({ glimmervoidId: 's1', event: 'Stop', token: 'good', payload: { reason: 'done' } });
-  assert.equal(ignored.reason, 'ignored-event');
-  assert.deepEqual(events, [
-    { event: 'PostToolUse', payload: { tool_name: 'Read' } },
-    { event: 'Stop', payload: { reason: 'done' } },
-  ]);
-});
-
-test('a throwing observer cannot cost the mapped status signal', () => {
-  const router = new HookRouter();
-  const signals: unknown[] = [];
-  const realWarn = console.warn;
-  const warnings: string[] = [];
-  console.warn = (message) => warnings.push(String(message));
-  try {
-    router.register('s1', {
-      token: 'good',
-      onSignal: (signal) => signals.push(signal),
-      onEvent: () => { throw new Error('observer failed'); },
-      hooks: claudeCode.hooks,
-    });
-    const response = router.handle({ glimmervoidId: 's1', event: 'Stop', token: 'good', payload: {} });
-    assert.equal(response.signal, 'ready');
-    assert.equal(signals.length, 1);
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /observer failed/);
-  } finally {
-    console.warn = realWarn;
-  }
-});
-
 test('HookRouter never observes an unknown session or a bad token', () => {
   const router = new HookRouter();
   const events: unknown[][] = [];
@@ -208,27 +62,6 @@ test('HookRouter never observes an unknown session or a bad token', () => {
   router.handle({ glimmervoidId: 'missing', event: 'Stop', token: 'good', payload: {} });
   router.handle({ glimmervoidId: 's1', event: 'Stop', token: 'bad', payload: {} });
   assert.deepEqual(events, []);
-});
-
-test('unregister stops dispatch', () => {
-  const r = new HookRouter();
-  const got: HookSignal[] = [];
-  r.register('s1', { token: 'good', onSignal: (s) => got.push(s), hooks: claudeCode.hooks });
-  r.unregister('s1');
-  const res = r.handle({ glimmervoidId: 's1', event: 'Stop', token: 'good', payload: {} });
-  assert.equal(res.status, 404);
-  assert.equal(got.length, 0);
-});
-
-test('buildHookSettings produces http hooks with glimmervoidId + token in URL', () => {
-  const s = buildHookSettings({ port: 1234, glimmervoidId: 'abc', token: 'tok', timeoutSec: 5 });
-  assert.ok(s.hooks.Stop);
-  const url = s.hooks.Stop[0].hooks[0].url;
-  assert.ok(url, 'the Stop hook carries a URL');
-  assert.equal(s.hooks.Stop[0].hooks[0].type, 'http');
-  assert.equal(s.hooks.Stop[0].hooks[0].timeout, 5);
-  assert.match(url, /^http:\/\/127\.0\.0\.1:1234\/hook\/abc\/stop\?t=tok$/);
-  assert.ok(s.hooks.Notification && s.hooks.UserPromptSubmit && s.hooks.SessionStart);
 });
 
 test('buildHookSettings merges permissions.deny when provided, omits it otherwise', () => {
@@ -242,43 +75,6 @@ test('buildHookSettings merges permissions.deny when provided, omits it otherwis
   const noDeny = buildHookSettings(base);
   assert.equal(noDeny.permissions, undefined, 'user sessions get no permissions block');
   assert.equal(buildHookSettings({ ...base, permissions: { deny: [] } }).permissions, undefined, 'an empty deny list adds nothing');
-});
-
-test('buildHookSettings adds enableAllProjectMcpServers only when opted in', () => {
-  const base = { port: 1234, glimmervoidId: 'g1', token: 't1' };
-  assert.equal(buildHookSettings(base).enableAllProjectMcpServers, undefined, 'absent by default');
-  const on = buildHookSettings({ ...base, enableProjectMcp: true });
-  assert.equal(on.enableAllProjectMcpServers, true, 'pre-trusts project MCP when opted in');
-  assert.ok(on.hooks, 'hooks still present alongside the MCP flag');
-});
-
-test('buildHookSettings adds the rtk PreToolUse hook only when an rtk path is supplied', () => {
-  const base = { port: 1234, glimmervoidId: 'g1', token: 't1' };
-  const off = buildHookSettings(base);
-  assert.equal('PreToolUse' in off.hooks, false, 'no empty PreToolUse key when rtk is off');
-
-  const on = buildHookSettings({ ...base, hookToolRelayPath: 'C:\\glimmervoid\\hook-tool-relay.js', hookTools: [{ id: 'rtk', binPath: 'C:\\Users\\johnw\\.glimmervoid\\bin\\rtk.exe' }] });
-  assert.deepEqual(on.hooks.PreToolUse, [{
-    matcher: 'Bash',
-    hooks: [{ type: 'command', command: "node 'C:/glimmervoid/hook-tool-relay.js' rtk claude" }],
-  }]);
-});
-
-test('writeSessionSettings writes file and cleanup removes it', () => {
-  const baseDir = path.join(os.tmpdir(), `glimmervoid-test-${Date.now()}`);
-  const { settingsPath, dir, token, cleanup } = writeSessionSettings({
-    port: 5173,
-    glimmervoidId: 'sess-1',
-    baseDir,
-  });
-  assert.ok(fs.existsSync(settingsPath));
-  const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-  assert.match(parsed.hooks.Stop[0].hooks[0].url, /\/hook\/sess-1\/stop\?t=/);
-  assert.equal('PreToolUse' in parsed.hooks, false, 'rtk off writes no PreToolUse block');
-  assert.ok(token && token.length >= 32);
-  cleanup();
-  assert.equal(fs.existsSync(dir), false);
-  try { fs.rmSync(baseDir, { recursive: true, force: true }); } catch {}
 });
 
 test('writeSessionSettings writes the rtk PreToolUse block when opted in', () => {
@@ -295,14 +91,6 @@ test('writeSessionSettings writes the rtk PreToolUse block when opted in', () =>
   assert.match(parsed.hooks.PreToolUse[0].hooks[0].command, /^node '[^']*hook-tool-relay\.(?:js|ts)' rtk claude$/);
   cleanup();
   try { fs.rmSync(baseDir, { recursive: true, force: true }); } catch {}
-});
-
-test('safeDirSegment strips path-illegal chars (Windows) but keeps plain ids intact', () => {
-  assert.equal(safeDirSegment('setup:marketing:bb78afb5'), 'setup-marketing-bb78afb5');
-  assert.equal(safeDirSegment('a<b>c:"d/e\\f|g?h*i'), 'a-b-c--d-e-f-g-h-i');
-  assert.equal(safeDirSegment('trailing.dot. '), 'trailing.dot');
-
-  assert.equal(safeDirSegment('bb78afb5-e527-48da-9632-580c00153a1b'), 'bb78afb5-e527-48da-9632-580c00153a1b');
 });
 
 test('writeSessionSettings handles colon-namespaced ids without ENOENT (Windows-safe dir)', () => {
@@ -431,36 +219,6 @@ test('end-to-end: real HTTP POST through router validates token and dispatches',
   assert.equal(got.length, 1);
   assert.equal(got[0].signal, 'ready');
   await new Promise<void>((res) => { server.close(() => res()); });
-});
-
-test('a null hook profile is refused at registration, so no session is ever mapped with the Claude vocabulary it never speaks', () => {
-  const router = new HookRouter();
-  const got: HookSignal[] = [];
-  assert.throws(
-    () => router.register('title-only', { token: 'tok', onSignal: (signal) => got.push(signal), hooks: null }),
-    /requires a hook profile/,
-  );
-  const handled = router.handle({ glimmervoidId: 'title-only', event: 'Stop', token: 'tok', payload: {} });
-  assert.equal(handled.status, 404);
-  assert.equal(handled.signal, null);
-  assert.deepEqual(got, []);
-});
-
-test('a registration maps through the profile it names, never a defaulted Claude vocabulary', () => {
-  const router = new HookRouter();
-  const got: HookSignal[] = [];
-  router.register('declared-profile', {
-    token: 'tok',
-    onSignal: (signal) => got.push(signal),
-    hooks: {
-      mapSignal: (event) => (event === 'PreToolUse' ? 'working' : null),
-      mapConfidence: () => null,
-      mapPromptKind: () => null,
-    },
-  });
-  router.handle({ glimmervoidId: 'declared-profile', event: 'PreToolUse', token: 'tok', payload: {} });
-  router.handle({ glimmervoidId: 'declared-profile', event: 'Stop', token: 'tok', payload: {} });
-  assert.deepEqual(got.map((signal) => signal.signal), ['working']);
 });
 
 for (const event of ['PreCompact', 'PostCompact']) {

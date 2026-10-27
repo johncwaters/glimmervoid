@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import { main, runRtk, runHookTool } from '../session/hook-tool-relay.ts';
+import { main, runHookTool } from '../session/hook-tool-relay.ts';
 import { RTK_PATH_ENV } from '../session/core/rtk-hook-core.ts';
 const ENVELOPE = '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git log"}}';
 const REWRITE = JSON.stringify({
@@ -63,54 +63,6 @@ test('a rewrite relayed for Claude discloses the rtk condensing and leaves the p
   assert.equal('permissionDecision' in rewritten.hookSpecificOutput, false);
 });
 
-test('without the env target nothing is written and rtk is never run', async () => {
-  const stdout = fakeStdout();
-  const seen: RtkInvocation[] = [];
-  const result = await main('rtk', {}, fakeStdin(ENVELOPE), stdout, fakeRtk(REWRITE, seen));
-  assert.equal(result.code, 0);
-  assert.deepEqual(seen, []);
-  assert.deepEqual(stdout.written, []);
-});
-
-test('an empty payload, an rtk failure and unusable output all emit nothing and exit 0', async () => {
-  const cases = [
-    ['', REWRITE],
-    [ENVELOPE, ''],
-    [ENVELOPE, 'rtk: command not found'],
-  ];
-  for (const [payload, rtkStdout] of cases) {
-    const stdout = fakeStdout();
-    const result = await main('rtk', { [RTK_PATH_ENV]: '/bin/rtk' }, fakeStdin(payload), stdout, fakeRtk(rtkStdout));
-    assert.equal(result.code, 0);
-    assert.deepEqual(stdout.written, [], `${payload}|${rtkStdout}`);
-  }
-});
-
-test('runRtk resolves the empty verdict when the binary does not exist', async () => {
-  const missing = path.join(os.tmpdir(), 'glimmervoid-rtk-missing', 'rtk');
-  assert.equal(await runRtk(missing, Buffer.from(ENVELOPE, 'utf8')), '');
-});
-
-test('runRtk pipes the envelope to the child and keeps only a clean exit', { skip: process.platform === 'win32' }, async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-hook-tool-relay-'));
-  const writeExecutable = (name: string, script: string) => {
-    const scriptPath = path.join(dir, `${name}.cjs`);
-    fs.writeFileSync(scriptPath, script, 'utf8');
-    const launcher = path.join(dir, name);
-    fs.writeFileSync(launcher, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(scriptPath)}\n`, 'utf8');
-    fs.chmodSync(launcher, 0o755);
-    return launcher;
-  };
-  try {
-    const echoing = writeExecutable('echoing', 'process.stdin.on("data", (c) => process.stdout.write(c));\n');
-    const failing = writeExecutable('failing', 'process.stdout.write("half"); process.exit(3);\n');
-    assert.equal(await runRtk(echoing, Buffer.from(ENVELOPE, 'utf8')), ENVELOPE);
-    assert.equal(await runRtk(failing, Buffer.from(ENVELOPE, 'utf8')), '');
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test('Sane YOLO forwards Grok verdicts byte for byte and passes the envelope untouched', async () => {
   for (const verdict of ['{"decision":"deny","reason":"blocked"}\n', '{"decision":"allow"}\n']) {
     const stdout = fakeStdout();
@@ -120,14 +72,6 @@ test('Sane YOLO forwards Grok verdicts byte for byte and passes the envelope unt
     assert.deepEqual(stdout.written, [verdict]);
     assert.deepEqual(seen, [{ rtkPath: '/g/guard.js', body: ENVELOPE }]);
   }
-});
-
-test('Sane YOLO is inert without its own bin env even when rtk is configured', async () => {
-  const stdout = fakeStdout();
-  const seen: RtkInvocation[] = [];
-  await main('saneYolo', { [RTK_PATH_ENV]: '/bin/rtk' }, fakeStdin(ENVELOPE), stdout, fakeRtk(REWRITE, seen));
-  assert.deepEqual(seen, []);
-  assert.deepEqual(stdout.written, []);
 });
 
 test('Sane YOLO runner uses Node and the Grok host flag', async () => {

@@ -30,4 +30,4 @@ function decideHostAllowed(hostHeader: string | undefined | null, allowedHosts: 
   return list.some((entry) => hostMatches(hostOnly(entry), host));
 }
 
-export { decideHostAllowed, hostOnly };
+export { decideHostAllowed };

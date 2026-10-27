@@ -40,7 +40,7 @@ export type IngestEvent = {
   detail: Record<string, string | number | boolean> | null;
 }
 
-export interface IngestRing {
+interface IngestRing {
   entries: { event: IngestEvent; bytes: number }[];
   totalBytes: number;
   maxEntries: number;
@@ -325,8 +325,6 @@ function buildContextDigest(
 
 export {
   DEFAULT_DIGEST_BUDGET_CHARS,
-  DIGEST_HEADER,
-  KINDS_BY_SOURCE,
   MAX_SUMMARY_CHARS,
   SCRUB_PLACEHOLDER,
   SOURCE_DEFAULTS,

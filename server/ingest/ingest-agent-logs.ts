@@ -741,4 +741,4 @@ function createAgentLogIngest({
 }
 
 export { createAgentLogIngest };
-export type { AgentLogIngestOptions, TranscriptFileSystem };
+export type { AgentLogIngestOptions };

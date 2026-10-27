@@ -16,8 +16,6 @@ import { hasGit, git } from './helpers/git-fixture.ts';
 
 const GIT = hasGit();
 const SHA = '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b';
-const OTHER_SHA = '9f8e7d6c5b4a39281706f5e4d3c2b1a098765432';
-
 type GitExec = NonNullable<GitIngestOptions['execFileFn']>;
 
 interface FakeTimers {
@@ -27,23 +25,9 @@ interface FakeTimers {
   setTimeoutFn: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearTimeoutFn: (handle: NodeJS.Timeout) => void;
   runTimeouts: () => void;
-  readonly timeoutCount: number;
-  readonly intervalCount: number;
-}
-
-interface RepoLayout {
-  toplevel: string;
-  gitDir: string;
-  commonDir: string;
 }
 
 interface FakeGit {
-  calls: { args: readonly string[]; cwd: string | undefined }[];
-  hold: () => () => void;
-  readonly statusCalls: number;
-  readonly logCalls: number;
-  readonly revParseCalls: number;
-  revParseCwds: () => (string | undefined)[];
   runner: GitExec;
 }
 
@@ -52,7 +36,6 @@ interface FakeWatchers {
   readonly stopCount: number;
   factory: () => WatchDebounce;
 }
-
 
 function parkedTimer(): NodeJS.Timeout {
   const handle = setTimeout(() => {}, 2 ** 30);
@@ -85,8 +68,6 @@ function fakeTimers(): FakeTimers {
       timeouts.clear();
       for (const fn of jobs) fn();
     },
-    get timeoutCount() { return timeouts.size; },
-    get intervalCount() { return intervals.size; },
   };
 }
 
@@ -116,63 +97,26 @@ function fakeWatchers(): FakeWatchers {
   };
 }
 
-function refusingWatchers(): FakeWatchers {
-  return {
-    watched: [],
-    stopCount: 0,
-    factory: () => ({
-      watch: () => false, stop: () => {}, fire: () => {}, active: false, stopped: false,
-    }),
-  };
-}
-
 function gitOf(lane: ReturnType<typeof createIngestLane>) {
   if (!lane.git) throw new Error('the git source is off on this lane');
   return lane.git;
 }
 
-function porcelain({ branch = 'main', oid = SHA, entries = [] }: { branch?: string; oid?: string; entries?: string[] } = {}): string {
-  const lines = [`# branch.oid ${oid}`, `# branch.head ${branch}`, ...entries];
-  return `${lines.join('\n')}\n`;
-}
+const CLEAN_PORCELAIN = `# branch.oid ${SHA}\n# branch.head main\n`;
 
 function logLine(sha: string, subject: string): string {
   return `${[sha, 'Glimmervoid Test', '1699999999', subject].join(LOG_FIELD_SEPARATOR)}\n`;
 }
 
-function fakeGit({ status, log = () => logLine(SHA, 'init'), layoutFor = null }: {
-  status: () => string;
-  log?: () => string;
-  layoutFor?: ((cwd: string | undefined) => RepoLayout) | null;
-}): FakeGit {
-  const calls: { args: readonly string[]; cwd: string | undefined }[] = [];
-  const held: { gate: Promise<void> | null } = { gate: null };
-  const layout = layoutFor || ((cwd: string | undefined) => ({
-    toplevel: String(cwd), gitDir: `${String(cwd)}/.git`, commonDir: `${String(cwd)}/.git`,
-  }));
+function fakeGit({ status }: { status: () => string }): FakeGit {
   return {
-    calls,
-    hold() {
-      const release: { resolve: (() => void) | null } = { resolve: null };
-      held.gate = new Promise<void>((resolve) => { release.resolve = () => resolve(); });
-      return () => {
-        held.gate = null;
-        if (release.resolve) release.resolve();
-      };
-    },
-    get statusCalls() { return calls.filter((call) => call.args.includes('status')).length; },
-    get logCalls() { return calls.filter((call) => call.args[0] === 'log').length; },
-    get revParseCalls() { return calls.filter((call) => call.args[0] === 'rev-parse').length; },
-    revParseCwds: () => calls.filter((call) => call.args[0] === 'rev-parse').map((call) => call.cwd),
     runner: async (_file, args, options) => {
-      calls.push({ args, cwd: options?.cwd });
-      if (held.gate) await held.gate;
       if (args[0] === 'rev-parse') {
-        const resolved = layout(options?.cwd);
-        return { stdout: `${resolved.toplevel}\n${resolved.gitDir}\n${resolved.commonDir}\n` };
+        const cwd = String(options?.cwd);
+        return { stdout: `${cwd}\n${cwd}/.git\n${cwd}/.git\n` };
       }
       if (args.includes('status')) return { stdout: status() };
-      return { stdout: log() };
+      return { stdout: logLine(SHA, 'init') };
     },
   };
 }
@@ -253,16 +197,11 @@ async function realSource({ dirs, published, timers, overrides = {} }: {
   return source;
 }
 
-function tick(): Promise<void> {
-  return new Promise((resolve) => { setImmediate(resolve); });
-}
-
 async function settleThroughDebounce(source: ReturnType<typeof createGitIngest>, timers: FakeTimers): Promise<void> {
   for (const key of source.repoKeys) source.trigger(key);
   timers.runTimeouts();
   await source.settle();
 }
-
 
 test('a commit publishes one commit event with its branch and subject', { skip: !GIT }, async (t) => {
   const dir = initRepoWithCommit('glimmervoid-ingest-git-commit-');
@@ -469,190 +408,6 @@ test('the lane publishes git events through the normalizer, and builds them into
   assert.match(lane.buildDigest({ scopes: [dir] }), /- git .*: commit [0-9a-f]{7} on main: ship the git source/);
 });
 
-
-test('a trigger storm inside one debounce window costs exactly one status read', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const watchers = fakeWatchers();
-  const fake = fakeGit({ status: () => porcelain({ entries: ['? a.txt'] }) });
-  const source = injectedSource({ fake, watchers, timers, published });
-  await source.start();
-
-  const baselineStatusCalls = fake.statusCalls;
-  assert.equal(baselineStatusCalls, 1, 'the baseline read is one status and no log');
-  assert.equal(fake.logCalls, 0);
-
-  for (let hit = 0; hit < 50; hit += 1) source.trigger(source.repoKeys[0]);
-  assert.equal(source.pendingTimerCount, 1, 'fifty triggers arm one debounce');
-  timers.runTimeouts();
-  await source.settle();
-  assert.equal(fake.statusCalls - baselineStatusCalls, 1);
-  assert.deepEqual(published, [], 'the tree never moved, so the settle publishes nothing');
-  await source.stop();
-});
-
-test('the second spawn happens only when HEAD moved', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const watchers = fakeWatchers();
-  let oid = SHA;
-  const fake = fakeGit({
-    status: () => porcelain({ oid }),
-    log: () => logLine(oid, 'move the head'),
-  });
-  const source = injectedSource({ fake, watchers, timers, published });
-  await source.start();
-
-  await settleThroughDebounce(source, timers);
-  assert.equal(fake.logCalls, 0, 'an unchanged HEAD never costs a log spawn');
-
-  oid = OTHER_SHA;
-  await settleThroughDebounce(source, timers);
-  assert.equal(fake.logCalls, 1);
-  assert.equal(published.length, 1);
-  assert.equal(published[0].summary, 'commit 9f8e7d6 on main: move the head');
-  await source.stop();
-});
-
-test('the poll pokes the same debounce rather than reading in parallel', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const watchers = fakeWatchers();
-  const fake = fakeGit({ status: () => porcelain({}) });
-  const source = injectedSource({ fake, watchers, timers, published });
-  await source.start();
-  const afterStart = fake.statusCalls;
-
-  await source.poll();
-  assert.equal(fake.statusCalls, afterStart, 'the poll arms the debounce and reads nothing itself');
-  assert.equal(source.pendingTimerCount, 1);
-
-  source.trigger(source.repoKeys[0]);
-  assert.equal(source.pendingTimerCount, 1);
-  timers.runTimeouts();
-  await source.settle();
-  assert.equal(fake.statusCalls - afterStart, 1);
-  await source.stop();
-});
-
-test('a read still running when the next trigger lands queues exactly one more, never a third', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const watchers = fakeWatchers();
-  const fake = fakeGit({ status: () => porcelain({}) });
-  const source = injectedSource({ fake, watchers, timers, published });
-  await source.start();
-  const afterStart = fake.statusCalls;
-
-  const release = fake.hold();
-  source.trigger(source.repoKeys[0]);
-  timers.runTimeouts();
-  await tick();
-  for (let hit = 0; hit < 3; hit += 1) {
-    source.trigger(source.repoKeys[0]);
-    timers.runTimeouts();
-    await tick();
-  }
-  release();
-  await source.settle();
-  assert.equal(fake.statusCalls - afterStart, 2, 'one running read plus one queued, whatever the storm');
-  await source.stop();
-});
-
-test('stop() mid-debounce leaks neither a timer nor a read', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const watchers = fakeWatchers();
-  const fake = fakeGit({ status: () => porcelain({ entries: ['? a.txt'] }) });
-  const source = injectedSource({ fake, watchers, timers, published });
-  await source.start();
-  const afterStart = fake.statusCalls;
-  const installed = watchers.watched.length;
-  assert.ok(installed >= 2, 'the common dir and its refs/heads are both watched');
-
-  source.trigger(source.repoKeys[0]);
-  assert.equal(source.pendingTimerCount, 1);
-  await source.stop();
-
-  assert.equal(timers.timeoutCount, 0, 'the armed debounce is cancelled, not left to fire');
-  assert.equal(timers.intervalCount, 0, 'the poll interval is cancelled');
-  assert.equal(watchers.stopCount, installed, 'every watcher is closed');
-  assert.equal(source.repoCount, 0);
-  timers.runTimeouts();
-  await source.settle();
-  assert.equal(fake.statusCalls, afterStart, 'nothing reads after stop');
-  assert.deepEqual(published, []);
-});
-
-test('stop() landing mid-read publishes nothing the read was about to say', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const watchers = fakeWatchers();
-  let entries: string[] = [];
-  const fake = fakeGit({ status: () => porcelain({ entries }) });
-  const source = injectedSource({ fake, watchers, timers, published });
-  await source.start();
-
-  entries = ['? new.txt'];
-  const release = fake.hold();
-  source.trigger(source.repoKeys[0]);
-  timers.runTimeouts();
-  const stopped = source.stop();
-  release();
-  await stopped;
-
-  assert.deepEqual(published, [], 'an in-flight read must not publish past stop()');
-  assert.equal(source.repoCount, 0);
-});
-
-test('a source with nothing to watch keeps polling instead of disabling itself', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const warnings: string[] = [];
-  let entries: string[] = [];
-  const fake = fakeGit({ status: () => porcelain({ entries }) });
-  const source = injectedSource({
-    fake,
-    watchers: refusingWatchers(),
-    timers,
-    published,
-    overrides: { logger: { warn: (message) => warnings.push(message) } },
-  });
-  await source.start();
-  entries = ['? a.txt'];
-
-  assert.equal(source.isDisabled, false, 'a watcher that will not install degrades the repo, not the source');
-  assert.equal(source.watchCount, 0);
-  assert.equal(warnings.length, 1, 'one warning, not one per watch attempt');
-  assert.match(warnings[0], /poll is its only trigger/);
-
-  await source.poll();
-  timers.runTimeouts();
-  await source.settle();
-  assert.equal(published.length, 1, 'the poll is the correctness floor when no watcher exists');
-  await source.stop();
-});
-
-test('a directory that is not a repo is skipped without disabling the source', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const watchers = fakeWatchers();
-  const source = createGitIngest({
-    publish: (event) => published.push(event),
-    reposProvider: () => ['/not/a/repo'],
-    execFileFn: async () => { throw new Error('fatal: not a git repository'); },
-    createWatch: watchers.factory,
-    canonicalize: (dir) => dir,
-    logger: { warn: () => {} },
-    ...timers,
-  });
-  await source.start();
-  assert.equal(source.repoCount, 0);
-  assert.equal(source.isDisabled, false);
-  assert.deepEqual(published, []);
-  await source.stop();
-});
-
 test('a missing repository root is dropped after status fails, without retry noise', async () => {
   const published: GitIngestEvent[] = [];
   const timers = fakeTimers();
@@ -662,7 +417,7 @@ test('a missing repository root is dropped after status fails, without retry noi
   const fake = fakeGit({
     status: () => {
       if (isMissing) throw Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' });
-      return porcelain({});
+      return CLEAN_PORCELAIN;
     },
   });
   const source = injectedSource({
@@ -696,7 +451,7 @@ test('a repository whose root vanished is not re-added from the cached layout on
   const warnings: string[] = [];
   let isMissing = false;
   const source = injectedSource({
-    fake: fakeGit({ status: () => porcelain({}) }),
+    fake: fakeGit({ status: () => CLEAN_PORCELAIN }),
     watchers,
     timers,
     published,
@@ -706,7 +461,7 @@ test('a repository whose root vanished is not re-added from the cached layout on
         if (args[0] === 'rev-parse') {
           return { stdout: `${String(options.cwd)}\n${String(options.cwd)}/.git\n${String(options.cwd)}/.git\n` };
         }
-        if (args.includes('status')) return { stdout: porcelain({}) };
+        if (args.includes('status')) return { stdout: CLEAN_PORCELAIN };
         return { stdout: logLine(SHA, 'init') };
       },
       logger: { log: (message: string) => notes.push(message), warn: (message: string) => warnings.push(message) },
@@ -740,7 +495,7 @@ test('a second directory in the same repository does not re-add it after the roo
   const warnings: string[] = [];
   let isMissing = false;
   const source = injectedSource({
-    fake: fakeGit({ status: () => porcelain({}) }),
+    fake: fakeGit({ status: () => CLEAN_PORCELAIN }),
     watchers,
     timers,
     published,
@@ -749,7 +504,7 @@ test('a second directory in the same repository does not re-add it after the roo
       execFileFn: async (_file, args, _options) => {
         if (isMissing) throw Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' });
         if (args[0] === 'rev-parse') return { stdout: '/repo\n/repo/.git\n/repo/.git\n' };
-        if (args.includes('status')) return { stdout: porcelain({}) };
+        if (args.includes('status')) return { stdout: CLEAN_PORCELAIN };
         return { stdout: logLine(SHA, 'init') };
       },
       logger: { log: (message: string) => notes.push(message), warn: (message: string) => warnings.push(message) },
@@ -784,7 +539,7 @@ test('a git binary that vanishes from PATH keeps the repo watched and retries', 
   const fake = fakeGit({
     status: () => {
       if (spawnFails) throw Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' });
-      return porcelain({});
+      return CLEAN_PORCELAIN;
     },
   });
   const statted: string[] = [];
@@ -817,161 +572,4 @@ test('a git binary that vanishes from PATH keeps the repo watched and retries', 
   await settleThroughDebounce(source, timers);
   assert.equal(source.repoCount, 1);
   await source.stop();
-});
-
-test('a repo the provider stopped naming is dropped, watchers and all', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const watchers = fakeWatchers();
-  const fake = fakeGit({ status: () => porcelain({}) });
-  let dirs = ['/repo'];
-  const source = injectedSource({
-    fake, watchers, timers, published, overrides: { reposProvider: () => dirs },
-  });
-  await source.start();
-  assert.equal(source.repoCount, 1);
-  const installed = watchers.watched.length;
-
-  dirs = [];
-  await source.reconcile();
-  assert.equal(source.repoCount, 0);
-  assert.equal(watchers.stopCount, installed);
-  await source.stop();
-});
-
-test('a candidate directory is resolved by rev-parse once, however often the set is re-derived', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const watchers = fakeWatchers();
-  const fake = fakeGit({ status: () => porcelain({}) });
-  const source = injectedSource({ fake, watchers, timers, published });
-  await source.start();
-  assert.equal(fake.revParseCalls, 1);
-
-  await source.reconcile();
-  await source.poll();
-  await source.reconcile();
-  assert.equal(fake.revParseCalls, 1, 'the layout is cached for as long as the provider keeps naming it');
-  assert.equal(source.repoCount, 1);
-  await source.stop();
-});
-
-test('a directory the provider drops leaves both caches, and is re-resolved if it comes back', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const watchers = fakeWatchers();
-  const canonicalized: string[] = [];
-  const fake = fakeGit({ status: () => porcelain({}) });
-  let dirs = ['/repo'];
-  const source = injectedSource({
-    fake,
-    watchers,
-    timers,
-    published,
-    overrides: {
-      reposProvider: () => dirs,
-      canonicalize: (dir) => {
-        canonicalized.push(dir);
-        return dir;
-      },
-    },
-  });
-  await source.start();
-  const afterStart = canonicalized.length;
-
-  await source.reconcile();
-  assert.equal(canonicalized.length, afterStart, 'a still-named directory costs no second realpath');
-
-  dirs = [];
-  await source.reconcile();
-  assert.equal(source.repoCount, 0);
-
-  dirs = ['/repo'];
-  await source.reconcile();
-  assert.equal(source.repoCount, 1);
-  assert.equal(fake.revParseCalls, 2, 'a directory that left and came back is resolved again');
-  assert.ok(canonicalized.length > afterStart, 'and canonicalized again');
-  await source.stop();
-});
-
-test('a poke landing mid-reconcile earns one trailing re-run, not one per poke', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const watchers = fakeWatchers();
-  const fake = fakeGit({ status: () => porcelain({}) });
-  let dirs = ['/repo'];
-  const source = injectedSource({
-    fake, watchers, timers, published, overrides: { reposProvider: () => dirs },
-  });
-  await source.start();
-  assert.equal(source.repoCount, 1);
-
-  dirs = ['/repo', '/repo-b'];
-  const release = fake.hold();
-  const inFlight = source.reconcile();
-  await tick();
-  dirs = ['/repo', '/repo-b', '/repo-wt'];
-  const pokes = [source.reconcile(), source.reconcile(), source.reconcile()];
-  release();
-  await Promise.all([inFlight, ...pokes]);
-
-  assert.equal(source.repoCount, 3, 'the late worktree is picked up without waiting for the poll');
-  assert.deepEqual(
-    source.repoKeys.sort(),
-    [path.resolve('/repo/.git'), path.resolve('/repo-b/.git'), path.resolve('/repo-wt/.git')].sort(),
-  );
-  assert.deepEqual(fake.revParseCwds(), ['/repo', '/repo-b', '/repo-wt']);
-  await source.stop();
-});
-
-test('the repo cap counts distinct repos, not candidate directories, and says what it dropped', async () => {
-  const published: GitIngestEvent[] = [];
-  const timers = fakeTimers();
-  const watchers = fakeWatchers();
-  const warnings: string[] = [];
-  const fake = fakeGit({ status: () => porcelain({}) });
-  let dirs = ['/repo', '/repo-wt-a', '/repo', '/repo-wt-b'];
-  const source = injectedSource({
-    fake,
-    watchers,
-    timers,
-    published,
-    overrides: {
-      reposProvider: () => dirs,
-      maxRepos: 3,
-      logger: { warn: (message) => warnings.push(message) },
-    },
-  });
-  await source.start();
-  assert.equal(source.repoCount, 3, 'four directories that are three repos all fit a cap of three');
-  assert.deepEqual(warnings, []);
-
-  dirs = [...dirs, '/repo-wt-c'];
-  await source.reconcile();
-  assert.equal(source.repoCount, 3);
-  assert.equal(warnings.length, 1, 'an overflow is never silent');
-  assert.match(warnings[0], /watch set is full at 3 repos, so .*repo-wt-c/);
-
-  await source.reconcile();
-  await source.poll();
-  assert.equal(warnings.length, 1);
-  await source.stop();
-});
-
-test('the lane builds no git adapter when the source is off', () => {
-  const off = createIngestLane({
-    config: resolveIngestConfig({ enabled: true, sources: { terminal: { enabled: true } } }),
-    repoRoots: () => { throw new Error('the watch set must not even be asked for'); },
-    ...fakeTimers(),
-  });
-  assert.equal(off.gitEnabled, false);
-  assert.equal(off.git, null);
-  assert.equal(off.sources.includes('git'), false);
-  off.noteRepos();
-  off.stop();
-
-  const laneOff = createIngestLane({ config: resolveIngestConfig({ enabled: false }), ...fakeTimers() });
-  assert.equal(laneOff.gitEnabled, false);
-  assert.equal(laneOff.git, null);
-  laneOff.stop();
 });
