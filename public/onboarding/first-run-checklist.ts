@@ -1,14 +1,13 @@
 import { createActionStatus, requestFailureText, DEFAULT_REPLY_TIMEOUT_MS } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { openAddSessionDialog } from '../session-actions.ts';
-import { el } from '../dom-helpers.ts';
+import { el, writeClipboardText } from '../dom-helpers.ts';
+import { isPhoneLayout } from '../form-factor.ts';
 import { createNotificationPermissionControl } from '../notifications.ts';
-import { createSettingsLink } from '../settings/settings-link.ts';
-import { buildNextAttentionKeys } from '../shortcuts.ts';
 import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
-import { agentSummaryText, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, UPCOMING_STEPS } from './first-run-checklist-core.ts';
+import { agentSummaryText, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, rootsToAutoSave, UPCOMING_STEPS } from './first-run-checklist-core.ts';
 import type { FirstRunStepState, FirstRunSteps } from './first-run-checklist-core.ts';
-import { createRepoRootsAdder } from './repo-roots-adder.ts';
+import { createRepoRootsAdder, saveRepoRoots } from './repo-roots-adder.ts';
 
 const AGENT_INSTALL_COMMAND = 'npm install -g @anthropic-ai/claude-code';
 
@@ -26,6 +25,8 @@ let rescanButton: HTMLButtonElement | null = null;
 let repoRootsAdder: ReturnType<typeof createRepoRootsAdder> | null = null;
 let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', repoRoots: [] };
 let loadSequence = 0;
+let hasRescanFoundNoAgent = false;
+let hasTriedSavingFoundRoots = false;
 const reportedStepKeys = new Set<string>();
 const loadStatus = createActionStatus('first-run-load-status');
 const notificationPermissionControl = createNotificationPermissionControl();
@@ -65,6 +66,27 @@ function buildStep({ title, state, summary, badge, body }: {
   return step;
 }
 
+function agentStepLeadText(): string {
+  if (isPhoneLayout()) return 'No supported agent is on PATH of the machine running Glimmervoid. Install Claude Code, Codex or Grok there, then rescan.';
+  return 'No supported agent is on PATH. Install Claude Code, Codex or Grok, then rescan.';
+}
+
+function installCommandRow(): HTMLElement {
+  const row = el('div', 'first-run-command-row');
+  row.append(el('code', 'first-run-command', AGENT_INSTALL_COMMAND));
+  if (!navigator.clipboard?.writeText) return row;
+  const copyButton = el('button', 'btn-dialog btn-dialog-cancel', 'Copy');
+  copyButton.type = 'button';
+  const copyStatus = el('span', 'first-run-copy-status');
+  copyStatus.setAttribute('role', 'status');
+  copyButton.addEventListener('click', async () => {
+    const write = writeClipboardText(AGENT_INSTALL_COMMAND);
+    copyStatus.textContent = write ? await write.then(() => 'Copied', () => 'Copy failed') : 'Copy failed';
+  });
+  row.append(copyButton, copyStatus);
+  return row;
+}
+
 function agentStepBody(): HTMLElement[] {
   const actions = el('div', 'first-run-step-actions');
   rescanButton = el('button', 'btn-dialog btn-dialog-cancel', 'Rescan');
@@ -73,12 +95,10 @@ function agentStepBody(): HTMLElement[] {
     reportOnboardingAction('rescan');
     void loadFirstRunState({ rescanAgents: true });
   });
-  actions.append(rescanButton, el('span', 'first-run-step-hint', 'Any other terminal agent can be added under customAgents.'));
-  return [
-    el('p', 'first-run-step-text', 'No supported agent is on PATH. Install Claude Code, Codex or Grok, then rescan. Rescan still finding nothing means the CLI went into a folder the server cannot see: restart Glimmervoid from a terminal where the command runs.'),
-    el('code', 'first-run-command', AGENT_INSTALL_COMMAND),
-    actions,
-  ];
+  actions.append(rescanButton);
+  const body = [el('p', 'first-run-step-text', agentStepLeadText()), installCommandRow(), actions];
+  if (!hasRescanFoundNoAgent) return body;
+  return [...body, el('p', 'first-run-step-hint', 'Still missing after a rescan? Restart Glimmervoid from a terminal where the command runs. Other terminal agents go under customAgents.')];
 }
 
 function repoRootsStepBody(): HTMLElement[] {
@@ -101,14 +121,9 @@ function firstSessionStepBody(): HTMLElement[] {
     reportOnboardingAction('add-session');
     openAddSessionDialog();
   });
-  const hint = el('span', 'first-run-step-hint', 'Folders and agents can change later in ');
-  hint.append(createSettingsLink('machine-sessions', 'repository-roots', 'Settings > Sessions'), '.');
-  actions.append(addSessionButton, hint);
-  const jumpHint = el('p', 'first-run-step-text', 'Run a few at once. When one needs you, ');
-  jumpHint.append(buildNextAttentionKeys(), ' jumps straight to it from any tab.');
+  actions.append(addSessionButton);
   return [
     el('p', 'first-run-step-text', 'Pick a project and an agent. The session runs in its own git worktree, so your checkout is never touched.'),
-    jumpHint,
     actions,
   ];
 }
@@ -135,11 +150,24 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
     if (sequenceAtStart !== loadSequence) return;
     const isRootsScan = rootsScan.type === 'repo-roots-scanned';
     const repoRoots = isRootsScan ? rootsScan.directories.map((directory) => directory.root) : [];
-    currentState = { steps: decideFirstRunSteps({ agentListing, repoRoots }), agentSummary: agentSummaryText(agentListing), repoRoots };
+    const suggestions = isRootsScan ? rootsScan.suggestions ?? [] : [];
+    const foundRoots = rootsToAutoSave(repoRoots, suggestions);
+    if (foundRoots.length > 0 && !hasTriedSavingFoundRoots) {
+      hasTriedSavingFoundRoots = true;
+      const saveError = await saveRepoRoots(foundRoots).catch((reason: unknown) => String(reason));
+      if (sequenceAtStart !== loadSequence) return;
+      if (!saveError) {
+        void loadFirstRunState({ rescanAgents: false });
+        return;
+      }
+    }
+    const steps = decideFirstRunSteps({ agentListing, repoRoots });
+    if (rescanAgents) hasRescanFoundNoAgent = steps.agent === 'current';
+    currentState = { steps, agentSummary: agentSummaryText(agentListing), repoRoots };
     loadStatus.clear();
     renderSteps();
     reportOnboardingStepChanges(currentState.steps);
-    repoRootsAdder?.setSuggestions(isRootsScan ? rootsScan.suggestions ?? [] : []);
+    repoRootsAdder?.setSuggestions(suggestions);
   } catch (reason) {
     if (rescanButton) rescanButton.disabled = false;
     if (sequenceAtStart !== loadSequence) return;
@@ -154,16 +182,14 @@ function ensureChecklist(): HTMLElement {
   const heading = el('h2', 'first-run-title', 'Get to your first session');
   heading.id = 'first-run-title';
   stepsEl = el('ol', 'first-run-steps');
-  const footer = el('p', 'first-run-footer', 'This list goes away once a session exists. Something off? Run ');
-  footer.append(el('code', null, 'glimmervoid doctor'), ' in a terminal.');
+  const optionalGroup = el('div', 'first-run-optional');
+  optionalGroup.append(el('span', 'first-run-eyebrow', 'OPTIONAL'), notificationPermissionControl.element);
   checklist.append(
     el('span', 'first-run-eyebrow', 'FIRST RUN'),
     heading,
-    el('p', 'first-run-intro', 'Glimmervoid runs the agent CLIs you already have, inside the repositories you point it at. Two checks, then start.'),
     stepsEl,
     loadStatus.element,
-    notificationPermissionControl.element,
-    footer,
+    optionalGroup,
   );
   checklistEl = checklist;
   renderSteps();

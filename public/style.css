@@ -9800,6 +9800,15 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
   html:not([data-layout="phone"]) .issues-content .pr-footer { margin-inline: 0; padding-inline: 0; }
 }
 
+.focus-empty:has(> .first-run-checklist:not([hidden])) {
+  width: 100%;
+  min-width: 0;
+}
+
+html:has(.first-run-checklist:not([hidden])) .btn-add-header {
+  display: none;
+}
+
 .phone-empty:has(> .first-run-checklist:not([hidden])) {
   width: 100%;
   min-width: 0;
@@ -9833,7 +9842,6 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
   color: var(--text-head);
 }
 
-.first-run-intro,
 .first-run-step-text {
   margin: 0;
   font-size: 12px;
@@ -9942,6 +9950,23 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
   white-space: nowrap;
 }
 
+.first-run-command-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.first-run-command-row .first-run-command {
+  flex: 1;
+  min-width: 0;
+}
+
+.first-run-copy-status {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .first-run-step-actions {
   display: flex;
   flex-wrap: wrap;
@@ -9949,20 +9974,30 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
   gap: 12px;
 }
 
-.first-run-step-hint,
-.first-run-footer {
+.first-run-step-hint {
+  margin: 0;
   font-size: 12px;
   line-height: 1.55;
   color: var(--text-muted);
 }
 
-.first-run-footer {
+.first-run-load-status {
   margin: 14px 0 0;
 }
 
-.first-run-load-status,
-.first-run-checklist .notification-permission {
-  margin: 14px 0 0;
+.first-run-optional {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.first-run-optional .notification-permission {
+  margin: 0;
+}
+
+[data-layout="phone"] .first-run-optional {
+  display: none;
 }
 
 .settings-telegram-test,

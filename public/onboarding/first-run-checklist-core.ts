@@ -53,11 +53,19 @@ function gitRepoCountText(gitRepoCount: number): string {
   return gitRepoCount === 1 ? '1 git repo' : `${gitRepoCount} git repos`;
 }
 
-function withRepoRootAdded(repoRoots: readonly string[], addedRoot: string): string[] | null {
-  const trimmedRoot = addedRoot.trim();
-  if (!trimmedRoot || repoRoots.includes(trimmedRoot)) return null;
-  return [...repoRoots, trimmedRoot];
+function withRepoRootsAdded(repoRoots: readonly string[], addedRoots: readonly string[]): string[] | null {
+  const nextRoots = [...repoRoots];
+  for (const addedRoot of addedRoots) {
+    const trimmedRoot = addedRoot.trim();
+    if (trimmedRoot && !nextRoots.includes(trimmedRoot)) nextRoots.push(trimmedRoot);
+  }
+  return nextRoots.length === repoRoots.length ? null : nextRoots;
 }
 
-export { decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, withRepoRootAdded, UPCOMING_STEPS };
+function rootsToAutoSave(configuredRoots: readonly string[], suggestions: readonly { path: string; gitRepoCount: number }[]): string[] {
+  if (configuredRoots.length > 0) return [];
+  return suggestions.filter((suggestion) => suggestion.gitRepoCount > 0).map((suggestion) => suggestion.path);
+}
+
+export { decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
 export type { FirstRunStepState, FirstRunSteps };

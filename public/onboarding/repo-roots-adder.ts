@@ -1,7 +1,7 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { gitRepoCountText, withRepoRootAdded } from './first-run-checklist-core.ts';
+import { gitRepoCountText, withRepoRootsAdded } from './first-run-checklist-core.ts';
 
 type RepoRootSuggestion = NonNullable<ServerMessageOf<'repo-roots-scanned'>['suggestions']>[number];
 
@@ -13,12 +13,12 @@ function isStringList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
-async function saveRepoRoot(addedRoot: string): Promise<string | null> {
+export async function saveRepoRoots(addedRoots: readonly string[]): Promise<string | null> {
   const settingsReply = await sendControlRequest('get-settings', {});
   if (settingsReply.type !== 'settings') return CURRENT_ROOTS_UNREADABLE_MESSAGE;
   const configuredRoots = settingsReply.settings.repoRoots;
   if (!isStringList(configuredRoots)) return CURRENT_ROOTS_UNREADABLE_MESSAGE;
-  const nextRoots = withRepoRootAdded(configuredRoots, addedRoot);
+  const nextRoots = withRepoRootsAdded(configuredRoots, addedRoots);
   if (!nextRoots) return null;
   const reply = await sendControlRequest('update-settings', { settings: { repoRoots: nextRoots } });
   if (reply.type === 'settings-error') return reply.message;
@@ -44,7 +44,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   const typedInput = el('input', 'dialog-input repo-roots-adder-input');
   typedInput.id = typedInputId;
   typedInput.type = 'text';
-  typedInput.placeholder = '~/src';
+  typedInput.placeholder = '/path/to/your/checkouts';
   typedInput.autocomplete = 'off';
   typedInput.spellcheck = false;
   const typedAddButton = el('button', 'btn-dialog btn-dialog-cancel', 'Add');
@@ -69,7 +69,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
     setSaving(true);
     errorEl.textContent = '';
     try {
-      const saveError = await saveRepoRoot(addedRoot);
+      const saveError = await saveRepoRoots([addedRoot]);
       if (saveError) {
         errorEl.textContent = saveError;
         return;
