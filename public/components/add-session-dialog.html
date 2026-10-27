@@ -3,6 +3,7 @@
   <button type="button" class="dialog-mode-button" id="add-session-single-mode" aria-pressed="true">Single repo</button>
   <button type="button" class="dialog-mode-button" id="add-session-workspace-mode" aria-pressed="false">Workspace</button>
 </fieldset>
+<p class="dialog-mode-hint">Workspace runs one session across several repos.</p>
 <label class="dialog-label" id="add-session-picker-label">
   Pick a project:
   <select class="dialog-input project-picker" id="add-session-picker">
@@ -38,16 +39,25 @@
     <input type="text" class="dialog-input" id="add-session-path" placeholder="Full path to the project folder" autocomplete="off" spellcheck="false">
   </label>
 </div>
-<label class="dialog-label dialog-checkbox-label" id="add-session-skip-perms-label">
-  <input type="checkbox" class="dialog-checkbox" id="add-session-skip-perms">
-  <span>Skip permission prompts</span>
-  <span class="dialog-hint">The agent edits files and runs shell commands without asking first, so a bad instruction or a hostile file in the repo can act on this machine unchecked. Leave this off unless you trust the repo and the task.</span>
-</label>
-<label class="dialog-label dialog-checkbox-label" id="add-session-unguarded-label">
-  <input type="checkbox" class="dialog-checkbox" id="add-session-unguarded">
-  <span>Run without guardrails</span>
-  <span class="dialog-hint">Claude Code sessions run with guardrails that block writes to credentials and Glimmervoid's own state and hide credentials and other agents' settings. Turn this on only for work the guardrails cannot serve.</span>
-</label>
+<div class="dialog-sane-yolo-row">
+  <label class="dialog-label dialog-checkbox-label" id="add-session-skip-perms-label">
+    <input type="checkbox" class="dialog-checkbox" id="add-session-skip-perms">
+    <span>Sane YOLO mode</span>
+  </label>
+  <a class="dialog-help-link" id="add-session-sane-yolo-help" aria-label="What Sane YOLO mode does" title="What Sane YOLO mode does">?</a>
+</div>
+<p class="dialog-hint dialog-hint-warning" id="add-session-sane-yolo-unavailable" hidden>Sane YOLO cannot protect this session here, so this mode skips permission prompts unprotected.</p>
+<div class="dialog-safety-row">
+  <button type="button" class="dialog-advanced-toggle" id="add-session-safety-toggle" aria-controls="add-session-safety" aria-expanded="false">Safety overrides</button>
+  <span class="dialog-safety-status" id="add-session-safety-status">guardrails on</span>
+</div>
+<div class="dialog-advanced-panel" id="add-session-safety" hidden>
+  <label class="dialog-label dialog-checkbox-label" id="add-session-unguarded-label">
+    <input type="checkbox" class="dialog-checkbox" id="add-session-unguarded">
+    <span>Run without guardrails</span>
+    <span class="dialog-hint">Claude Code sessions run with guardrails that block writes to credentials and Glimmervoid's own state and hide credentials and other agents' settings. Turn this on only for work the guardrails cannot serve.</span>
+  </label>
+</div>
 <div class="dialog-error" id="add-session-error"></div>
 <div class="dialog-actions">
   <button type="button" class="btn-dialog btn-dialog-cancel" id="add-session-cancel">Cancel</button>

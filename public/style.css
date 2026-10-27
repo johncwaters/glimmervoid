@@ -1875,6 +1875,7 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
 
 .dialog-checkbox-label {
   display: flex;
+  flex-direction: row;
   align-items: flex-start;
   gap: 8px;
   font-family: var(--font-mono);
@@ -1907,6 +1908,47 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
 .dialog-mode-button[aria-pressed="true"] {
   border-color: var(--accent);
   color: var(--text-head);
+}
+
+.dialog-mode-hint {
+  margin: -6px 0 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.dialog-sane-yolo-row,
+.dialog-safety-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dialog-help-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .dialog-help-link:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+}
+
+.dialog-safety-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .dialog-workspace-list {

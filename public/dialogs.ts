@@ -7,6 +7,7 @@ import type { AgentLoginStatus, CoderEnvironmentOffer, ServerMessage } from '#sh
 import { agentLoginOf, applyAgentLogins, onAgentLoginsChanged } from './agent-logins.ts';
 import { el, query, queryTag } from './dom-helpers.ts';
 import { createRepoRootsAdder } from './onboarding/repo-roots-adder.ts';
+import { settingsHash } from './settings/settings-link.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
 import { buildRepoCheckbox } from './session-card/workspace-repos-dialog.ts';
 import { DEFAULT_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './session-card/agent-core.ts';
@@ -33,9 +34,9 @@ function option(text: string, { value, disabled = false, selected = false }: Opt
   return optionEl;
 }
 
-function skipsPermissionsByDefault(settings: unknown): boolean {
+function isSaneYoloAvailable(settings: unknown): boolean {
   if (typeof settings !== 'object' || settings === null) return false;
-  return 'skipPermissionsByDefault' in settings && settings.skipPermissionsByDefault === true;
+  return 'saneYoloAvailable' in settings && settings.saneYoloAvailable === true;
 }
 
 function offeredCoderEnvironments(settings: unknown): CoderEnvironmentOffer[] {
@@ -240,6 +241,11 @@ export function createAddSessionDialog() {
   const pathLabelEl = query(dialog, '#add-session-path-label');
   const skipPermsCheckbox = queryTag(dialog, '#add-session-skip-perms', 'input');
   const unguardedCheckbox = queryTag(dialog, '#add-session-unguarded', 'input');
+  const saneYoloHelpLink = queryTag(dialog, '#add-session-sane-yolo-help', 'a');
+  const saneYoloUnavailableEl = query(dialog, '#add-session-sane-yolo-unavailable');
+  const safetyToggle = queryTag(dialog, '#add-session-safety-toggle', 'button');
+  const safetyPanel = query(dialog, '#add-session-safety');
+  const safetyStatusEl = query(dialog, '#add-session-safety-status');
   const errorEl = query(dialog, '#add-session-error');
   const btnCancel = queryTag(dialog, '#add-session-cancel', 'button');
   const btnConfirm = queryTag(dialog, '#add-session-confirm', 'button');
@@ -268,6 +274,17 @@ export function createAddSessionDialog() {
     advancedPanel.hidden = !expanded;
     advancedToggle.setAttribute('aria-expanded', String(expanded));
     if (expanded) requestAnimationFrame(() => nameInput.focus());
+  });
+
+  saneYoloHelpLink.href = settingsHash('machine-guardrails', 'sane-yolo');
+  saneYoloHelpLink.addEventListener('click', () => close());
+  safetyToggle.addEventListener('click', () => {
+    const expanded = safetyPanel.hidden;
+    safetyPanel.hidden = !expanded;
+    safetyToggle.setAttribute('aria-expanded', String(expanded));
+  });
+  unguardedCheckbox.addEventListener('change', () => {
+    safetyStatusEl.textContent = unguardedCheckbox.checked ? 'guardrails off' : 'guardrails on';
   });
 
   const repoRootsAdder = createRepoRootsAdder({ onAdded: fillProjectPicker });
@@ -396,15 +413,29 @@ export function createAddSessionDialog() {
   refreshAgentLogins();
 
   let hasOperatorChosenPermissions = false;
+  let isSaneYoloInstalled = false;
   skipPermsCheckbox.addEventListener('change', () => { hasOperatorChosenPermissions = true; });
+  function offerSaneYolo() {
+    const canProtectWithSaneYolo = isSaneYoloInstalled && selectedEnvironment === null;
+    saneYoloUnavailableEl.hidden = canProtectWithSaneYolo;
+    if (hasOperatorChosenPermissions) return;
+    skipPermsCheckbox.checked = canProtectWithSaneYolo;
+  }
   sendControlRequest('get-settings', {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
     .then((message) => {
-      if (message.type === 'settings-error') { showWarning(`Could not load your settings (${message.message}). Check Skip permissions yourself.`); return; }
+      if (message.type === 'settings-error') {
+        showWarning(`Could not load your settings (${message.message}). Check Sane YOLO mode yourself.`);
+        offerSaneYolo();
+        return;
+      }
       showCoderEnvironments(offeredCoderEnvironments(message.settings));
-      if (hasOperatorChosenPermissions) return;
-      skipPermsCheckbox.checked = skipsPermissionsByDefault(message.settings);
+      isSaneYoloInstalled = isSaneYoloAvailable(message.settings);
+      offerSaneYolo();
     })
-    .catch((reason) => { showWarning(`Could not load your settings (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}). Check Skip permissions yourself.`); });
+    .catch((reason) => {
+      showWarning(`Could not load your settings (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}). Check Sane YOLO mode yourself.`);
+      offerSaneYolo();
+    });
 
   function showCoderEnvironments(environments: CoderEnvironmentOffer[]) {
     if (environments.length === 0) return;
@@ -421,6 +452,7 @@ export function createAddSessionDialog() {
     environmentHintEl.hidden = selectedEnvironment === null;
     environmentHintEl.textContent = selectedEnvironment ? coderEnvironmentHint(selectedEnvironment) : '';
     showAgentLogin();
+    offerSaneYolo();
     if (selectedEnvironment === null) return;
     if (isWorkspaceMode) setWorkspaceMode(false);
   });
@@ -443,6 +475,7 @@ export function createAddSessionDialog() {
         path: repos[0],
         repos,
         dangerouslySkipPermissions: skipPermsCheckbox.checked,
+        saneYolo: skipPermsCheckbox.checked,
         unguarded: unguardedCheckbox.checked,
       };
       if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
@@ -457,6 +490,7 @@ export function createAddSessionDialog() {
       name: suggestSessionName(name),
       path: projectPath,
       dangerouslySkipPermissions: skipPermsCheckbox.checked,
+      saneYolo: skipPermsCheckbox.checked,
       unguarded: unguardedCheckbox.checked,
     };
     if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;

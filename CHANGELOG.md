@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Add Session offers Sane YOLO mode, on by default**: the Skip permission prompts box is now Sane YOLO mode, checked when a dialog opens on a machine where Sane YOLO can run, with a ? link to its setting. A session started with it skips permission prompts and always runs with the Sane YOLO hook, even when the machine `saneYolo` setting is off, across restarts, copies and the sessions it spawns. Where Sane YOLO cannot protect the session, because it is not installed, your settings did not load, or a Coder environment is picked, the box starts or turns unchecked and a note says checking it skips prompts unprotected. Run without guardrails moves under a Safety overrides toggle that shows its state beside it, the checkboxes now sit beside their labels, and a line under the mode buttons says what Workspace does.
+
 - **Spawned sessions stay quiet**: a session another session started with `glimmervoid spawn` no longer sends browser or Telegram notifications when it waits, finishes or fails. Its parent session is told instead and is the one that reaches you.
 
 - **Review shows what it compares against**: the review panel now names the branch and commit a session's committed changes are compared against, as `vs origin/main @ db44dc0` under the headline, with the full commit on hover. If the base branch cannot be found, the line reads `vs db44dc0, base branch not found` in amber, so a diff against a stale or missing base no longer looks like the session's own work.
