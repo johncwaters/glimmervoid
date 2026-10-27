@@ -821,12 +821,12 @@ body {
 
 .terminal-notices {
   position: absolute;
-  left: 8px;
-  bottom: 8px;
+  top: 8px;
+  right: 16px;
   z-index: 12;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 6px;
   max-width: calc(100% - 180px);
   pointer-events: none;
@@ -854,6 +854,11 @@ body {
   gap: 10px;
   font-size: 12px;
   color: var(--text-head);
+}
+
+.terminal-clipboard-prompt .btn-dialog {
+  flex: none;
+  white-space: nowrap;
 }
 
 .terminal-jump-latest {
