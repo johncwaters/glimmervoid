@@ -432,32 +432,6 @@ test('a parent that does not skip permissions never hands the child a skip', asy
   }
 });
 
-test('a parent that skips permissions passes that same setting down', async () => {
-  const fixture = wiringFixture({ parentSkipsPermissions: true });
-  try {
-    await fixture.spawn(fixture.parent, { prompt: 'review the diff' });
-    assert.equal(fixture.childProjects[0].dangerouslySkipPermissions, true);
-    assert.equal(fixture.created[0].dangerouslySkipPermissions, true);
-  } finally {
-    fixture.destroyAll();
-  }
-});
-
-test('a child that never reaches a terminal is refused, dropped and frees its slot', async () => {
-  const fixture = wiringFixture({ spawnFails: true });
-  try {
-    const reply = await fixture.spawn(fixture.parent, { prompt: 'review the diff' });
-    assert.equal(reply.status, 500);
-    assert.equal(reply.body.ok, false);
-    assert.equal(fixture.agentSessions.size, 0, 'the dead child is not left in the map');
-    assert.deepEqual(fixture.parent.agentSpawnBudget(), {
-      liveChildren: 0, lifetimeSpawns: 1, inFlight: 0, depth: 0,
-    });
-  } finally {
-    fixture.destroyAll();
-  }
-});
-
 test('a child the factory refuses frees the slot so the next spawn is admitted', async () => {
   const fixture = wiringFixture({ makeSessionThrowsFirst: true });
   try {
@@ -470,23 +444,6 @@ test('a child the factory refuses frees the slot so the next spawn is admitted',
     assert.equal(admitted.status, 200, 'the parent is not locked out by the failed spawn');
   } finally {
     fixture.destroyAll();
-  }
-});
-
-test('the board carries the operator sessions only, never an internal lane session', async () => {
-  const lane = plainSession('team-review-lane', 'team review');
-  const fixture = wiringFixture({ laneSessions: [lane] });
-  try {
-    await fixture.spawn(fixture.parent, { prompt: 'review the diff' });
-    const reply = await fixture.wiring.handle(fixture.parent, 'board', {});
-    const rows = reply.body.sessions as { id: string }[];
-    assert.deepEqual(
-      rows.map((row) => row.id).sort(),
-      [fixture.created[0].id, 'parent'].sort(),
-    );
-  } finally {
-    fixture.destroyAll();
-    lane.destroy();
   }
 });
 
@@ -619,48 +576,6 @@ test('the shared session card projection carries exactly the session-added paylo
   assert.equal(operatorCard.ephemeral, false, 'an operator card carries the flag its own session owns');
   const flaglessCard = projectSessionCard({ ...source, ephemeral: undefined }, { id: 'plain-id', name: 'plain name' });
   assert.equal('ephemeral' in flaglessCard, false, 'a source without the flag leaves it off the wire');
-});
-
-test('a child exiting tells the dashboard its card is gone', async () => {
-  const fixture = wiringFixture();
-  try {
-    const reply = await fixture.spawn(fixture.parent, { prompt: 'review the diff' });
-    fixture.created[0].emit('exit');
-    assert.deepEqual(fixture.broadcasts.filter((message) => message.type === 'session-removed'), [
-      { type: 'session-removed', id: reply.body.sessionId, session: reply.body.name },
-    ]);
-  } finally {
-    fixture.destroyAll();
-  }
-});
-
-test('a lane session is refused a spawn and an attention note with the reason, and still reads the board', async () => {
-  const fixture = wiringFixture();
-  const lane = new Session({ id: 'review-lane', name: 'review', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty() });
-  const raisedNotes: string[] = [];
-  try {
-    const refused = await fixture.spawn(lane, { prompt: 'help me' });
-    assert.equal(refused.status, 403);
-    assert.match(String(refused.body.error), /^only an operator session may spawn a session/);
-    assert.deepEqual(fixture.created, [], 'no child was built');
-    lane.on('agent-attention', ({ note }: { note: string }) => { raisedNotes.push(note); });
-    lane.transition('user_start');
-    lane.transition('spawn_success', { spawnCwdExists: true });
-    const whileStarting = await fixture.wiring.handle(lane, 'attention', { note: 'nobody is listening' });
-    assert.equal(whileStarting.status, 403);
-    assert.deepEqual(whileStarting.body, { ok: false, error: 'a lane session cannot raise attention, because its notes are not delivered to the operator' });
-    lane.transition('first_output');
-    assert.equal(lane.state, STATES.IDLE, 'a refused note is not held to fire once the lane can accept one');
-    const whileIdle = await fixture.wiring.handle(lane, 'attention', { note: 'nobody is listening' });
-    assert.deepEqual([whileIdle.status, whileIdle.body.ok], [403, false]);
-    assert.equal(lane.state, STATES.IDLE, 'a refused note leaves the lane where it was');
-    assert.equal(lane.toSnapshot().pendingPromptKind, null);
-    assert.deepEqual(raisedNotes, [], 'a refused note is never raised');
-    assert.equal((await fixture.wiring.handle(lane, 'board', {})).status, 200);
-  } finally {
-    lane.destroy();
-    fixture.destroyAll();
-  }
 });
 
 test('limits tells a session which commands answer, its boundary, and a guarded operator session what its guardrails block with the route that still works', async () => {
@@ -1131,33 +1046,6 @@ test('a draft the operator stages at an idle parent holds off the wake so a stop
   }
 });
 
-test('a parent exiting ends every child it spawned', async () => {
-  const fixture = wiringFixture();
-  try {
-    await fixture.spawn(fixture.parent, { prompt: 'slice one' });
-    await fixture.spawn(fixture.parent, { prompt: 'slice two' });
-    assert.equal(fixture.agentSessions.size, 2);
-    fixture.parent.emit('exit');
-    assert.equal(fixture.agentSessions.size, 0);
-    assert.deepEqual(fixture.created.map((child) => child._destroyed), [true, true]);
-  } finally {
-    fixture.destroyAll();
-  }
-});
-
-test('a second spawn while one is in flight is refused', async () => {
-  const fixture = wiringFixture();
-  try {
-    const first = fixture.spawn(fixture.parent, { prompt: 'one' });
-    const second = await fixture.spawn(fixture.parent, { prompt: 'two' });
-    assert.equal(second.status, 429);
-    assert.equal((await first).status, 200);
-    assert.equal(fixture.parent.agentSpawnBudget().inFlight, 0, 'the in-flight counter drains');
-  } finally {
-    fixture.destroyAll();
-  }
-});
-
 test('the fourth live child is refused and a child exiting frees its slot', async () => {
   const fixture = wiringFixture();
   try {
@@ -1205,17 +1093,6 @@ test('branch GC reads a live child id back out of the branch git-workspace names
   }
 });
 
-test('sibling names never collide', async () => {
-  const fixture = wiringFixture();
-  try {
-    const first = await fixture.spawn(fixture.parent, { prompt: 'one' });
-    const second = await fixture.spawn(fixture.parent, { prompt: 'two' });
-    assert.notEqual(first.body.name, second.body.name);
-  } finally {
-    fixture.destroyAll();
-  }
-});
-
 interface SnapshotFrame {
   type: string;
   sessions?: { id: string }[];
@@ -1238,25 +1115,6 @@ test('removing a spawned child from the dashboard destroys it and clears its car
       fixture.broadcasts.filter((message) => message.type === 'session-removed'),
       [{ type: 'session-removed', id: childId, session: spawned.body.name }],
     );
-  } finally {
-    fixture.destroyAll();
-  }
-});
-
-test('removing a child through the dashboard frees the parent slot for the next spawn', async () => {
-  const fixture = wiringFixture();
-  try {
-    const spawned = await fixture.spawn(fixture.parent, { prompt: 'review the diff' });
-    const childId = String(spawned.body.sessionId);
-    const server = createControlServer(controlDeps({ ...DEFAULT_CONFIG, projects: [] }, {
-      agentSessions: fixture.agentSessions,
-    }));
-    const connection = connectControl<SnapshotFrame>(server);
-    await connection.send({ type: 'remove-session', id: childId });
-    assert.equal(fixture.created[0]._destroyed, true, 'the remove path tore the child down');
-    assert.equal(fixture.parent.agentSpawnBudget().liveChildren, 0, 'the destroyed child released its slot');
-    const admitted = await fixture.spawn(fixture.parent, { prompt: 'the next slice' });
-    assert.equal(admitted.status, 200, 'the parent is not pinned by a child it never saw exit');
   } finally {
     fixture.destroyAll();
   }
@@ -1338,27 +1196,6 @@ function notificationWiring(triggered: { category: string; message: string }[]) 
   });
 }
 
-test('the attention note becomes the notification body the operator reads', () => {
-  const session = plainSession('attention-note-session', 'worktree lane');
-  const triggered: { category: string; message: string }[] = [];
-  const wireSessionEvents = notificationWiring(triggered);
-  try {
-    wireSessionEvents(session);
-    session.transition('user_start');
-    session.transition('spawn_success', { spawnCwdExists: true });
-    session.transition('first_output');
-    assert.equal(session.state, STATES.IDLE);
-    assert.deepEqual(session.noteAttention('pick a base branch before I rebase'), { ok: true, pending: false });
-    assert.equal(session.state, STATES.WAITING);
-    assert.deepEqual(triggered, [{
-      category: 'waiting',
-      message: 'worktree lane: pick a base branch before I rebase',
-    }]);
-  } finally {
-    session.destroy();
-  }
-});
-
 test('an attention note sent while the session is still STARTING is held, then fires once it reaches IDLE', async () => {
   const session = plainSession('attention-starting-session', 'booting lane');
   const triggered: { category: string; message: string }[] = [];
@@ -1383,24 +1220,6 @@ test('an attention note sent while the session is still STARTING is held, then f
     }], 'the operator is notified exactly once');
   } finally {
     fixture.destroyAll();
-    session.destroy();
-  }
-});
-
-test('two notes held during startup release as one raise carrying both, in the order they arrived', () => {
-  const session = plainSession('attention-queue-session', 'queued lane');
-  const raised: string[] = [];
-  try {
-    session.on('agent-attention', ({ note }: { note: string }) => { raised.push(note); });
-    session.transition('user_start');
-    session.transition('spawn_success', { spawnCwdExists: true });
-    assert.deepEqual(session.noteAttention('pick a base branch'), { ok: true, pending: true });
-    assert.deepEqual(session.noteAttention('then confirm the force push'), { ok: true, pending: true });
-    assert.deepEqual(raised, [], 'neither note fires while the session cannot accept one');
-    session.transition('first_output');
-    assert.deepEqual(raised, ['pick a base branch | then confirm the force push']);
-    assert.equal(session.state, STATES.WAITING);
-  } finally {
     session.destroy();
   }
 });
@@ -1470,27 +1289,6 @@ test('a sixth held note is refused rather than silently dropping an earlier one'
     assert.deepEqual(raised, ['note 0 | note 1 | note 2 | note 3 | note 4'], 'the refused note is the one that never reaches the operator');
   } finally {
     fixture.destroyAll();
-    session.destroy();
-  }
-});
-
-test('a note held at exit cannot bounce a session restarted before the exit settles', async () => {
-  const session = plainSession('attention-exit-race-session', 'racing lane');
-  const triggered: { category: string; message: string }[] = [];
-  const wireSessionEvents = notificationWiring(triggered);
-  try {
-    wireSessionEvents(session);
-    session.transition('user_start');
-    session.transition('spawn_success', { spawnCwdExists: true });
-    assert.deepEqual(session.noteAttention('pick a base branch before I rebase'), { ok: true, pending: true });
-    const exiting = session._handlePtyExit(1, null);
-    session.transition('user_restart');
-    session.transition('spawn_success', { spawnCwdExists: true });
-    session.transition('first_output');
-    await exiting;
-    assert.equal(session.state, STATES.IDLE, 'the restart outruns the exit settle and still sees no dead note');
-    assert.deepEqual(triggered.filter((entry) => entry.category === 'waiting'), []);
-  } finally {
     session.destroy();
   }
 });

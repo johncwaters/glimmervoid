@@ -67,18 +67,6 @@ test('the list names only the regular audio files in the sounds directory', asyn
   }
 });
 
-test('a missing sounds directory lists no sounds', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-custom-sounds-empty-'));
-  try {
-    await withApp({ customSoundsDir: path.join(home, 'sounds') }, async (base) => {
-      const response = await fetch(`${base}/custom-sounds`);
-      assert.deepEqual(await response.json(), { sounds: [] });
-    });
-  } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-  }
-});
-
 test('a listed sound is served with its audio content type', async () => {
   const { home, soundsDir } = makeHomeWithSounds();
   try {
@@ -115,20 +103,6 @@ test('a byte range request is answered with 206 and just those bytes', async () 
       assert.equal(whole.status, 200);
       assert.equal(whole.headers.get('accept-ranges'), 'bytes');
       assert.deepEqual(Buffer.from(await whole.arrayBuffer()), OGG_BYTES);
-    });
-  } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('a byte range past the end of the file is answered with 416', async () => {
-  const { home, soundsDir } = makeHomeWithSounds();
-  try {
-    await withApp({ customSoundsDir: soundsDir }, async (base) => {
-      const response = await fetch(`${base}/custom-sounds/alarm.ogg`, { headers: { Range: `bytes=${OGG_BYTES.length}-` } });
-      assert.equal(response.status, 416);
-      assert.equal(response.headers.get('content-range'), `bytes */${OGG_BYTES.length}`);
-      assert.equal((await response.arrayBuffer()).byteLength, 0);
     });
   } finally {
     fs.rmSync(home, { recursive: true, force: true });

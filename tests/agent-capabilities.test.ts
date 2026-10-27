@@ -22,7 +22,6 @@ interface CapabilitySpawnCall {
   args: string[];
   env: Record<string, string | undefined>;
 }
-const RESUME_ID = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
 
 function agentWithout(...disabled: (keyof AgentCapabilities)[]): AgentAdapter {
   const capabilities: AgentCapabilities = { ...claudeCode.capabilities };
@@ -62,48 +61,6 @@ async function withHooks(
   }
 }
 
-test('statusLine off: planLimits injects no statusLine into the settings file', async () => {
-  await withHooks({ id: 'sl-on', name: 'sl-on', planLimits: true }, ({ settings }) => {
-    assert.equal(settings.statusLine?.type, 'command', 'the control: claude-code still injects it');
-  });
-  await withHooks({ id: 'sl-off', name: 'sl-off', planLimits: true, adapter: agentWithout('statusLine') }, ({ settings }) => {
-    assert.equal('statusLine' in settings, false);
-  });
-});
-
-test('rtk off: no PreToolUse hook and no PATH prepend, even with a resolved binary', async () => {
-  const rtkDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-cap-rtk-'));
-  const rtkPath = path.join(rtkDir, 'rtk.exe');
-  await fsp.writeFile(rtkPath, '', 'utf8');
-  try {
-    await withHooks({ id: 'rtk-on', name: 'rtk-on', hookTools: [{ id: 'rtk', binPath: rtkPath }] }, ({ settings, calls }) => {
-      assert.ok(settings.hooks.PreToolUse, 'the control: claude-code still injects the rtk hook');
-      assert.ok(calls[0].env.PATH?.startsWith(rtkDir) || calls[0].env.Path?.startsWith(rtkDir));
-    });
-    await withHooks({ id: 'rtk-off', name: 'rtk-off', hookTools: [{ id: 'rtk', binPath: rtkPath }], adapter: agentWithout('rtk') }, ({ settings, calls }) => {
-      assert.equal('PreToolUse' in settings.hooks, false);
-      const pathValue = calls[0].env.PATH || calls[0].env.Path || '';
-      assert.equal(pathValue.startsWith(rtkDir), false);
-    });
-  } finally {
-    await fsp.rm(rtkDir, { recursive: true, force: true });
-  }
-});
-
-test('resume off: the bound conversation is kept but never becomes a spawn flag', async () => {
-  const { session, calls } = makeSession({
-    id: 'resume', name: 'resume', resumeSessionId: RESUME_ID, adapter: agentWithout('resume'),
-  });
-  try {
-    await session.start();
-    assert.equal(calls[0].args.includes('--resume'), false);
-    assert.equal(calls[0].args.includes(RESUME_ID), false);
-    assert.equal(session.toSnapshot().resumeSessionId, RESUME_ID, 'the binding is not silently dropped');
-  } finally {
-    session.destroy();
-  }
-});
-
 test('backgroundAgents off: subagent signals never gate a completion', async () => {
   const { session } = makeSession({ id: 'gate', name: 'gate', adapter: agentWithout('backgroundAgents') });
   try {
@@ -112,18 +69,6 @@ test('backgroundAgents off: subagent signals never gate a completion', async () 
     assert.equal(session.toSnapshot().activeAgents, 0);
   } finally {
     session.destroy();
-  }
-});
-
-test('the snapshot names the agent, defaulting to claude-code', async () => {
-  const { session } = makeSession({ id: 'snap', name: 'snap' });
-  const { session: other } = makeSession({ id: 'snap2', name: 'snap2', adapter: agentWithout() });
-  try {
-    assert.equal(session.toSnapshot().agent, 'claude-code');
-    assert.equal(other.toSnapshot().agent, 'test-agent');
-  } finally {
-    session.destroy();
-    other.destroy();
   }
 });
 

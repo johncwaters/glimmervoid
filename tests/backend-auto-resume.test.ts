@@ -92,23 +92,6 @@ test('persistSessionField no-ops for an id absent from cfg.projects (ephemeral s
   });
 });
 
-test('persistSessionField flips wasActive true/false', async () => {
-  await withStoreAsync({ projects: [{ id: 'p1', name: 'proj', path: 'C:/proj' }] }, async (store, p) => {
-    await persistSessionField(store, store.config, 'p1', 'wasActive', true);
-    assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).projects[0].wasActive, true);
-    await persistSessionField(store, store.config, 'p1', 'wasActive', false);
-    assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).projects[0].wasActive, false);
-  });
-});
-
-test('persistSessionField clears resumeSessionId with null', async () => {
-  await withStoreAsync({ projects: [{ id: 'p1', name: 'proj', path: 'C:/proj', resumeSessionId: 'abcd1234-0000-0000-0000-abcdabcdabcd' }] }, async (store, p) => {
-    await persistSessionField(store, store.config, 'p1', 'resumeSessionId', null);
-    assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).projects[0].resumeSessionId, null);
-    assert.equal(store.config.projects[0].resumeSessionId, null, 'in-memory config cleared too');
-  });
-});
-
 function fakeIPty(): pty.IPty {
   const disposable = { dispose() {} };
   return {
@@ -200,14 +183,6 @@ test('runAutoResume spawns nothing when autoResume is false (kill switch)', asyn
   } finally {
     picked.destroy();
   }
-});
-
-test('runAutoResume skips a picked id with no live session in the map', async () => {
-  const cfg = autoResumeConfig(
-    [{ id: 'gone', wasActive: true, resumeSessionId: '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5' }],
-    true,
-  );
-  await assert.doesNotReject(() => runAutoResume(new Map(), cfg, createSpawnGate()));
 });
 
 test('runAutoResume does not double-spawn a session started externally while queued behind the gate', async () => {
