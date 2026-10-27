@@ -1,18 +1,5 @@
 export const DEFAULT_AGENT_ID = 'claude-code';
 
-const BUILTIN_AGENT_BADGE_LABELS: Readonly<Record<string, string>> = Object.freeze({
-  'claude-code': '',
-  codex: 'Codex',
-  grok: 'Grok',
-});
-
-export function agentBadgeText(agent: unknown) {
-  if (typeof agent !== 'string') return '';
-  const id = agent.trim();
-  if (!id || id === DEFAULT_AGENT_ID) return '';
-  return BUILTIN_AGENT_BADGE_LABELS[id] || id;
-}
-
 interface AgentOption {
   id?: unknown;
   label?: unknown;

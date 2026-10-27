@@ -48,7 +48,7 @@ import { applySessionSetupResponse, openSessionSetup } from './session-setup/set
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
-import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, markSessionSeen, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUnseenOutcome, setSessionUsage, setSessionGuarded, setSessionWakeup, setSessionWorktree, updateAttentionTitle } from './session-card/lifecycle.ts';
+import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, markSessionSeen, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPrompt, setSessionUnseenOutcome, setSessionUsage, setSessionGuarded, setSessionWorktree, updateAttentionTitle } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { isModalOpen, openConfirmDialog } from './session-card/modal.ts';
 import { countShownConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -292,9 +292,8 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     setSessionEffectiveBase(s.id, s.effectiveBase);
 
     setSessionAgents(s.id, s.activeAgents, s.awaitingBackgroundTasks);
-    setSessionWakeup(s.id, s.pendingWakeup);
 
-    setSessionPrompt(s.id, s.pendingPromptKind, s.isCompacting, s.isWaitingForMemory);
+    setSessionPrompt(s.id, s.pendingPromptKind);
     setSessionUnseenOutcome(s.id, s.unseenOutcome);
     setSessionConversation(s.id, s);
 
@@ -443,9 +442,8 @@ const messageHandlers = {
   'session-git':        (msg) => setSessionWorktree(msg.id, !!msg.worktree),
 
   'session-agents':     (msg) => { setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks); refreshRosterAndAttentionSurfaces(); handleDebugStateRefresh(msg.id); },
-  'session-wakeup':     (msg) => setSessionWakeup(msg.id, msg.pendingWakeup),
   'session-unseen':     (msg) => { setSessionUnseenOutcome(msg.id, msg.unseenOutcome); updateAttentionTitle(); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); },
-  'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind, msg.isCompacting === true, msg.isWaitingForMemory === true); refreshAttentionSurfaces(); },
+  'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind); refreshAttentionSurfaces(); },
   'session-merge-status': (msg) => { setSessionMergeStatus(msg.id, msg.mergeStatus, msg.reason); setFocusMergeStatus(msg.id, msg.mergeStatus); refreshAttentionSurfaces(); },
   'session-worktree-blocked': (msg) => { reportHeaderError({ source: WORKTREE_ERROR_SOURCE, sessionId: msg.id, message: `${msg.session}: ${msg.notice || 'The integration branch was not found. Check the integration branch in Settings, then restart the session.'}` }); },
   'session-worktree-warning': (msg) => { reportHeaderError({ source: WORKTREE_WARNING_SOURCE, sessionId: msg.id, message: `${msg.session}: ${msg.notice || 'The base branch could not be synced. The session keeps working on its current base.'}` }); },
@@ -455,7 +453,6 @@ const messageHandlers = {
   'change-map':         (msg) => setSessionChangeMap(msg.id, msg.map),
   'branch-sync-status': (msg) => setReviewBranchSync(msg.id, msg),
   'session-changed':    (msg) => notifyWorktreeChanged(msg.id),
-  'post-turn-result':   (msg) => setSessionPostTurn(msg.id, msg),
   'debug-state-response': (msg) => handleDebugStateResponse(msg),
   'session-trace-response': (msg) => { if (applyConversationTraceResponse(msg)) return; applyTraceResponse(msg); },
   'session-trace-changed': (msg) => { applyConversationTraceChanged(msg.id); applyTraceChanged(msg); },

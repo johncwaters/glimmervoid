@@ -1,5 +1,4 @@
 import { isCompactionRestoreEvent } from '#shared/compaction-restore-events.ts';
-import { localHourMinuteText } from '#shared/display-text.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { PlanDraftPush } from '#shared/contracts/plan-review.ts';
 import type { ConversationApproval, UnseenOutcome } from '#shared/contracts/session.ts';
@@ -13,6 +12,7 @@ import { sendControlMsg } from '../control-ws.ts';
 import { el, isMonitoringState } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { setHealthMonitorDebugMode } from '../health-monitor.ts';
+import { refreshHoverTip } from '../hover-tip.ts';
 import type { PlanResponse } from '../plan/plan-face.ts';
 import { createPlanHash } from '../plan/plan-link.ts';
 import { isApprovedReview, mergePlanChanged } from '../plan/plan-view-core.ts';
@@ -25,12 +25,11 @@ import { openTraceForSession } from '../trace-store.ts';
 import type { UsageSessionUsage } from '../usage/usage-store-core.ts';
 import { sessionChipText, sessionChipTitle } from '../usage/usage-store-core.ts';
 import { setRunningActivity } from './activity.ts';
-import { agentBadgeText } from './agent-core.ts';
 import type { CardOptions } from './card-dom.ts';
-import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintGuardrailsMenuItem, paintTaskTitle, sendSessionAction, sessionActionStatus, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
+import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintGuardrailsToggle, paintTaskTitle, sendSessionAction, sessionActionStatus, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
 import { container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
-import { decidePlanHeaderAction, preferredBorrowedFace, promptKindNeedWords } from './face-core.ts';
+import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';
 import type { SessionCardFace } from './face-core.ts';
 import { openConfirmDialog } from './modal.ts';
 import { requestSessionRemoval } from '../session-actions.ts';
@@ -58,7 +57,6 @@ const asText = (value: unknown) => (value == null ? '' : String(value));
 const isKillable = (state: string) => KILLABLE_STATES.includes(state as SessionState);
 const isRestartable = (state: string) => RESTARTABLE_STATES.includes(state as SessionState);
 
-type PostTurnReport = ServerMessageOf<'post-turn-result'>;
 
 let isConversationViewEnabled = false;
 
@@ -271,8 +269,7 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
   });
 
   ui.btnGuardrails.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    ui.btnSessionMenu.focus();
+    if (ui.btnGuardrails.getAttribute('aria-disabled') === 'true') return;
     const sendGuardrails = (isOn: boolean) => () => { sendSessionAction(ui, { type: 'set-session-guardrails', id: sessionId, isOn }); };
     if (ui.card.dataset.guarded === undefined) {
       openConfirmDialog({
@@ -596,8 +593,6 @@ export function setSessionAgent(sessionId: unknown, agent: unknown) {
   if (!ui) return;
   ui.agent = typeof agent === 'string' ? agent : null;
   updateButtonVisibility(ui);
-  const text = agentBadgeText(agent);
-  paintCardBadge(ui, '.agent-badge', 'agent', { on: text !== '', value: text, text });
 }
 
 export function setSessionWorktree(sessionId: unknown, worktree: unknown) {
@@ -612,28 +607,12 @@ export function setSessionGuarded(sessionId: unknown, isGuarded: boolean, isGuar
   if (!ui) return;
   toggleCardFlag(ui.card, 'guarded', isGuarded);
   toggleCardFlag(ui.card, 'guardrailsReleased', isGuardrailsReleased);
-  paintGuardrailsMenuItem(ui.btnGuardrails, ui.card);
+  paintGuardrailsToggle(ui.btnGuardrails, ui.card);
 }
 
 function toggleCardFlag(card: HTMLElement, datasetKey: string, isOn: boolean) {
   if (isOn) { card.dataset[datasetKey] = ''; return; }
   delete card.dataset[datasetKey];
-}
-
-function paintCardBadge(ui: SessionUi, selector: string, datasetKey: string, badgeState: { on: boolean; value?: string; text?: string; title?: string }) {
-  const { on, value = '', text, title } = badgeState;
-  const badge = ui.card.querySelector<HTMLElement>(selector);
-  if (!on) {
-    delete ui.card.dataset[datasetKey];
-    if (!badge) return;
-    if (text !== undefined) badge.textContent = '';
-    if (title !== undefined) badge.removeAttribute('title');
-    return;
-  }
-  ui.card.dataset[datasetKey] = value;
-  if (!badge) return;
-  if (text !== undefined) badge.textContent = text;
-  if (title !== undefined) badge.title = title;
 }
 
 export function setSessionAgents(sessionId: unknown, activeAgents: unknown, awaitingBackgroundTasks: unknown = false) {
@@ -648,34 +627,26 @@ export function setSessionAgents(sessionId: unknown, activeAgents: unknown, awai
 export function setSessionUsage(sessionId: unknown, usage: UsageSessionUsage | null | undefined) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
-  const text = sessionChipText(usage);
-  paintCardBadge(ui, '.usage-badge', 'usage', {
-    on: !!text,
-    text: text || '',
-
-    title: text ? sessionChipTitle(usage) : undefined,
-  });
-}
-
-function promptBadgeState(kind: unknown, isCompacting: boolean, isWaitingForMemory: boolean) {
-  if (isCompacting) return { on: true, value: 'compacting', title: 'Context compaction in progress', text: 'compacting' };
-  if (kind) {
-    return {
-      on: true,
-      value: asText(kind),
-      title: 'Waiting on a permission or input prompt',
-      text: promptKindNeedWords(asText(kind)),
-    };
+  const usageText = sessionChipText(usage);
+  const usageBadge = ui.card.querySelector<HTMLElement>('.usage-badge');
+  if (!usageText) {
+    delete ui.card.dataset.usage;
+    if (!usageBadge) return;
+    delete usageBadge.dataset.tipLabel;
+    refreshHoverTip(usageBadge);
+    return;
   }
-  if (isWaitingForMemory) return { on: true, value: 'memory', title: 'Held until Glimmervoid has enough free memory to start it', text: 'Waiting for memory' };
-  return { on: false, title: '', text: '' };
+  ui.card.dataset.usage = '';
+  if (!usageBadge) return;
+  usageBadge.dataset.tipLabel = usageText;
+  usageBadge.dataset.tipDetail = sessionChipTitle(usage);
+  refreshHoverTip(usageBadge);
 }
 
-export function setSessionPrompt(sessionId: unknown, kind: unknown, isCompacting = false, isWaitingForMemory = false) {
+export function setSessionPrompt(sessionId: unknown, kind: unknown) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.pendingPromptKind = typeof kind === 'string' ? kind : null;
-  paintCardBadge(ui, '.prompt-badge', 'prompt', promptBadgeState(kind, isCompacting, isWaitingForMemory));
   ui.conversationFace.refresh();
   if (showPlanFaceWhenPreferred(sessionId)) return;
   const hasPendingPrompt = typeof kind === 'string' && kind !== '';
@@ -686,52 +657,6 @@ export function setSessionUnseenOutcome(sessionId: unknown, unseenOutcome: Unsee
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.unseenOutcome = unseenOutcome ?? null;
-}
-
-function formatWakeupChip(at: unknown) {
-  if (!at) return 'scheduled';
-  return `sleeping until ~${localHourMinuteText(new Date(at as string | number))}`;
-}
-
-export function setSessionWakeup(sessionId: unknown, pending: ServerMessageOf<'session-wakeup'>['pendingWakeup']) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-
-  paintCardBadge(ui, '.wakeup-badge', 'wakeup', {
-    on: !!pending,
-    value: pending?.kind || 'wakeup',
-    text: formatWakeupChip(pending?.at),
-    title: pending?.reason ? `Scheduled revival: ${pending.reason}` : 'Scheduled revival pending',
-  });
-}
-
-export function setSessionPostTurn(sessionId: unknown, report: PostTurnReport) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-
-  const findings = Array.isArray(report.findings) ? report.findings : [];
-  const fixed = report.filesFixed || 0;
-  let kind: 'fixed' | 'flagged' | null = null;
-  let count = 0;
-  if (!report.skipped && report.mode === 'fix' && fixed > 0) {
-    kind = 'fixed';
-    count = fixed;
-  }
-  if (!report.skipped && report.mode === 'report' && findings.length > 0) {
-    kind = 'flagged';
-    count = new Set(findings.map((f) => f.file)).size;
-  }
-  const perRule: Record<string, number> = {};
-  for (const f of findings) perRule[f.rule] = (perRule[f.rule] || 0) + (f.count || 0);
-  const detail = Object.keys(perRule).map((k) => `${k}: ${perRule[k]}`).join(', ');
-  const verb = kind === 'fixed' ? 'auto-fixed' : 'flagged';
-  const glyph = kind === 'fixed' ? String.fromCharCode(0x2713) : String.fromCharCode(0x26a0);
-  paintCardBadge(ui, '.post-turn-badge', 'pt', {
-    on: !!kind,
-    value: kind || undefined,
-    text: `${glyph} ${count}`,
-    title: `Post-turn ${verb} ${count} file(s)${detail ? ` (${detail})` : ''}`,
-  });
 }
 
 function applyMergeDataset(card: HTMLElement, ms: string) {

@@ -503,146 +503,68 @@ body {
   background: color-mix(in oklab, var(--perms-warn) 6%, var(--bg-surface));
 }
 
-.perms-badge,
-.agent-badge,
-.worktree-badge,
-.guardrails-badge,
-.cloud-badge,
-.post-turn-badge,
-.usage-badge,
-.wakeup-badge,
-.prompt-badge {
-  align-items: center;
-  font-size: 11px;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 0 6px;
-  border-radius: 2px;
-  line-height: 18px;
-  flex-shrink: 0;
+.tag-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  cursor: default;
 }
 
-.perms-badge {
-  display: inline-flex;
+.tag-icon .line-icon { width: 13px; height: 13px; overflow: visible; }
 
-  color: var(--perms-warn);
-  border: 1px solid color-mix(in oklab, var(--perms-warn) 55%, transparent);
-  background: color-mix(in oklab, var(--perms-warn) 14%, transparent);
+@media (hover: hover) {
+  .tag-icon:hover { background: color-mix(in oklab, var(--text-head) 6%, transparent); color: var(--text-head); }
+  .perms-badge:hover { color: var(--perms-warn); }
 }
 
-.worktree-badge {
-  display: none;
-  color: var(--accent);
-  border: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
-  background: color-mix(in oklab, var(--accent) 14%, transparent);
-}
+.tag-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-.session-card[data-worktree] .worktree-badge {
-  display: inline-flex;
-}
+.perms-badge { color: var(--perms-warn); }
 
-.guardrails-badge {
-  display: none;
-  color: var(--text-dim);
+.guardrails-badge { display: none; }
+
+.session-card:is([data-guarded], [data-guardrails-released]) .guardrails-badge { display: grid; }
+
+.session-card[data-guardrails-released] .guardrails-badge { color: var(--perms-warn); }
+
+.guardrails-badge[aria-disabled="false"] { cursor: pointer; }
+
+.usage-badge { display: none; }
+
+:root[data-show-usage] .session-card[data-usage] .usage-badge { display: grid; }
+
+.hover-tip {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  grid-template-columns: 12px auto;
+  column-gap: 7px;
+  align-items: start;
+  max-width: 280px;
+  padding: 6px 9px 7px;
+  background: var(--bg-surface);
   border: 1px solid var(--border-hover);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px color-mix(in oklab, black 65%, transparent);
+  font: 11px/1.45 var(--font-mono);
+  color: var(--text);
+  pointer-events: none;
 }
 
-.session-card[data-guarded] .guardrails-badge {
-  display: inline-flex;
-}
+.hover-tip[hidden] { display: none; }
 
-.cloud-badge {
-  display: none;
-  color: var(--accent);
-  border: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
-}
+.hover-tip > svg { width: 12px; height: 12px; margin-top: 2px; }
 
-.session-card[data-remote-workspace] .cloud-badge {
-  display: inline-flex;
-}
+.hover-tip-label { display: block; color: var(--text-head); font-weight: 700; letter-spacing: 0.02em; }
 
-.post-turn-badge {
-  display: none;
-  gap: 3px;
-}
-
-.session-card[data-pt] .post-turn-badge {
-  display: inline-flex;
-}
-
-.session-card[data-pt="fixed"] .post-turn-badge {
-  color: var(--state-complete);
-  border: 1px solid color-mix(in oklab, var(--state-complete) 55%, transparent);
-  background: color-mix(in oklab, var(--state-complete) 14%, transparent);
-}
-
-.session-card[data-pt="flagged"] .post-turn-badge {
-  color: var(--state-waiting);
-  border: 1px solid color-mix(in oklab, var(--state-waiting) 55%, transparent);
-  background: color-mix(in oklab, var(--state-waiting) 14%, transparent);
-}
-
-.agent-badge {
-  display: none;
-  text-transform: none;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  border: 1px solid var(--border-dim);
-  background: color-mix(in oklab, var(--bg) 60%, transparent);
-}
-
-.session-card[data-agent] .agent-badge {
-  display: inline-flex;
-}
-
-.usage-badge {
-  display: none;
-  text-transform: none;
-  letter-spacing: 0.04em;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-  border: 1px solid var(--border-dim);
-  background: color-mix(in oklab, var(--bg) 60%, transparent);
-}
-
-:root[data-show-usage] .session-card[data-usage] .usage-badge {
-  display: inline-flex;
-}
-
-.wakeup-badge {
-  display: none;
-  text-transform: lowercase;
-  color: var(--accent);
-  border: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
-  background: color-mix(in oklab, var(--accent) 14%, transparent);
-}
-
-.session-card[data-wakeup] .wakeup-badge {
-  display: inline-flex;
-}
-
-.prompt-badge {
-  display: none;
-}
-
-.session-card[data-prompt] .prompt-badge {
-  display: inline-flex;
-}
-
-.session-card[data-prompt="permission"] .prompt-badge {
-  color: var(--perms-warn);
-  border: 1px solid color-mix(in oklab, var(--perms-warn) 55%, transparent);
-  background: color-mix(in oklab, var(--perms-warn) 14%, transparent);
-}
-
-.session-card[data-prompt="elicitation"] .prompt-badge {
-  color: var(--accent);
-  border: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
-  background: color-mix(in oklab, var(--accent) 14%, transparent);
-}
+.hover-tip-detail { display: block; color: var(--text-dim); }
 
 .session-card-header {
   display: flex;
@@ -714,10 +636,8 @@ body {
 .session-card-tags {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex: 0 1 auto;
-  overflow: hidden;
+  gap: 2px;
+  flex: 0 0 auto;
 }
 
 .session-pr-chips {
@@ -1095,8 +1015,7 @@ body {
   white-space: nowrap;
 }
 
-.overflow-conversation-view .popup-menu-item-label::before,
-.overflow-guardrails .popup-menu-item-label::before {
+.overflow-conversation-view .popup-menu-item-label::before {
   content: "";
   display: inline-block;
   width: 8px;
@@ -1106,8 +1025,7 @@ body {
   vertical-align: middle;
 }
 
-.overflow-conversation-view[aria-checked="true"] .popup-menu-item-label::before,
-.overflow-guardrails[aria-checked="true"] .popup-menu-item-label::before {
+.overflow-conversation-view[aria-checked="true"] .popup-menu-item-label::before {
   border-color: var(--accent);
   background: var(--accent);
 }
@@ -6306,12 +6224,6 @@ html[data-layout="phone"] .conversation-face .conversation-icon-button { width: 
 .conversation-image-link { display: block; margin-top: 8px; }
 .conversation-image { display: block; max-width: 100%; max-height: 240px; border: 1px solid var(--border); border-radius: 4px; object-fit: contain; }
 
-.session-card[data-prompt="plan"] .prompt-badge {
-  color: var(--state-waiting);
-  border: 1px solid color-mix(in oklab, var(--state-waiting) 55%, transparent);
-  background: color-mix(in oklab, var(--state-waiting) 14%, transparent);
-}
-
 .plan-face {
   position: relative;
   flex: 1 1 auto;
@@ -6894,19 +6806,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   color: var(--text-muted);
 }
 
-.focus-center .session-card.focus-centered .perms-badge,
-.focus-center .session-card.focus-centered .agent-badge,
-.focus-center .session-card.focus-centered .worktree-badge,
-.focus-center .session-card.focus-centered .guardrails-badge,
-.focus-center .session-card.focus-centered .cloud-badge,
-.focus-center .session-card.focus-centered .usage-badge,
-.focus-center .session-card.focus-centered .wakeup-badge,
-.focus-center .session-card.focus-centered .prompt-badge,
-.focus-center .session-card.focus-centered .post-turn-badge {
-  font-size: 11px;
-  padding: 0 5px;
-  line-height: 16px;
-}
 
 .focus-center .session-card.focus-centered .session-card-header::after {
   content: '';

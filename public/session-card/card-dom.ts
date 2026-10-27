@@ -9,7 +9,8 @@ import { sendControlMsg } from '../control-ws.ts';
 import { escapeMarkup } from '#shared/escape-markup.ts';
 import { el } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
-import { CLOSE_ICON_PATH, createLineIcon, MORE_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH } from '../svg-dom.ts';
+import { refreshHoverTip, installHoverTips } from '../hover-tip.ts';
+import { BOLT_ICON_PATH, CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape, MORE_ICON_PATH, SETTINGS_ICON_PATH, SHIELD_ICON_PATH, SHIELD_OFF_ICON_PATH, SHIELDED_BOLT_FILL_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH } from '../svg-dom.ts';
 import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell } from './modal.ts';
 import type { SessionUi } from './card-registry.ts';
@@ -75,31 +76,25 @@ export function setCardSessionSetup(open: (sessionId: string) => void) {
   openCardSessionSetup = open;
 }
 
-interface TagBadgeSpec {
-  cls: string;
-  text?: string;
-  title?: string;
-  ariaLabel?: string;
-  ariaHidden?: boolean;
+function buildTagIcon(className: string, ariaLabel: string) {
+  const tagIcon = el('span', `tag-icon ${className}`);
+  tagIcon.tabIndex = 0;
+  tagIcon.setAttribute('role', 'img');
+  tagIcon.setAttribute('aria-label', ariaLabel);
+  return tagIcon;
 }
 
-const TAG_BADGES: TagBadgeSpec[] = [
-  { cls: 'agent-badge', title: 'Agent CLI this session supervises' },
-  { cls: 'worktree-badge', text: 'worktree', title: 'Running in a linked git worktree', ariaLabel: 'Linked git worktree' },
-  { cls: 'cloud-badge', text: 'cloud', ariaLabel: 'Runs in a Coder workspace' },
-  { cls: 'guardrails-badge', text: 'guardrails', title: 'Guardrails on: credentials, Glimmervoid state and blocked folders are off-limits to this session', ariaLabel: 'Guardrails on' },
-  { cls: 'post-turn-badge', ariaHidden: true },
-  { cls: 'usage-badge', title: 'Tokens and estimated API list-price cost for this conversation' },
-  { cls: 'wakeup-badge' },
-  { cls: 'prompt-badge', title: 'Waiting on a permission or input prompt' },
-];
+function createFilledIcon(fillPath: string) {
+  const icon = createSvgIcon(16, 16);
+  icon.classList.add('line-icon');
+  icon.append(createSvgShape('path', { d: fillPath, fill: 'currentColor' }));
+  return icon;
+}
 
-function buildTagBadge({ cls, text = '', title, ariaLabel, ariaHidden }: TagBadgeSpec) {
-  const badge = el('span', cls, text);
-  if (title) badge.title = title;
-  if (ariaLabel) badge.setAttribute('aria-label', ariaLabel);
-  if (ariaHidden) badge.setAttribute('aria-hidden', 'true');
-  return badge;
+function createSaneYoloIcon() {
+  const icon = createLineIcon(SHIELD_ICON_PATH, '1.5');
+  icon.append(createSvgShape('path', { d: SHIELDED_BOLT_FILL_PATH, fill: 'currentColor' }));
+  return icon;
 }
 
 export type { CardOptions };
@@ -109,10 +104,14 @@ export function remoteWorkspaceHoverText(remoteWorkspace: string): string {
 }
 
 function paintPermsBadge(permsBadge: HTMLElement, saneYolo: boolean) {
-  permsBadge.textContent = saneYolo ? 'SANE YOLO' : 'YOLO';
-  permsBadge.title = saneYolo
+  const label = saneYolo ? 'Sane YOLO' : 'YOLO';
+  permsBadge.setAttribute('aria-label', label);
+  permsBadge.dataset.tipLabel = label;
+  permsBadge.dataset.tipDetail = saneYolo
     ? 'Skips permission prompts; Sane YOLO blocks catastrophic commands'
     : 'Running with --dangerously-skip-permissions';
+  permsBadge.replaceChildren(saneYolo ? createSaneYoloIcon() : createFilledIcon(BOLT_ICON_PATH));
+  refreshHoverTip(permsBadge);
 }
 
 function applyCardSaneYolo(card: HTMLElement, saneYolo: boolean) {
@@ -149,7 +148,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const nameEl = el('span', 'session-name', sessionName);
   nameEl.title = 'Double-click or press F2 to rename';
   nameEl.tabIndex = 0;
-  const permsBadge = options.skipPerms ? el('span', 'perms-badge') : null;
+  const permsBadge = options.skipPerms ? buildTagIcon('perms-badge', 'YOLO') : null;
   if (permsBadge) paintPermsBadge(permsBadge, options.saneYolo === true);
   const taskTitleEl = el('span', 'session-task-title');
   paintTaskTitle(taskTitleEl, options.taskTitle);
@@ -176,9 +175,10 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const btnConversationView = buildMenuItem('Conversation view', 'Show this session as messages (experimental)', 'overflow-conversation-view');
   btnConversationView.setAttribute('role', 'menuitemcheckbox');
   btnConversationView.setAttribute('aria-checked', 'false');
-  const btnGuardrails = buildMenuItem('Guardrails', 'Limit what this session can read, write and reach', 'overflow-guardrails');
-  btnGuardrails.setAttribute('role', 'menuitemcheckbox');
-  paintGuardrailsMenuItem(btnGuardrails, card);
+  const btnGuardrails = el('button', 'tag-icon guardrails-badge');
+  btnGuardrails.type = 'button';
+  btnGuardrails.setAttribute('aria-label', 'Guardrails');
+  paintGuardrailsToggle(btnGuardrails, card);
   btnLinkPr.onclick = () => {
     sessionMenu.classList.remove('open');
     btnSessionMenu.setAttribute('aria-expanded', 'false');
@@ -201,7 +201,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openCardSessionSetup?.(sessionId);
   };
-  sessionMenu.append(btnRestart, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnCoherenceJournal, btnSessionSetup, btnLinkPr);
+  sessionMenu.append(btnRestart, btnWorkspaceRepos, btnConversationView, btnCoherenceJournal, btnSessionSetup, btnLinkPr);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug');
@@ -231,9 +231,11 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   actions.append(btnDocs, btnPlan, btnDebug, btnTrace, sessionMenuWrap, btnRemove);
   const tags = el('div', 'session-card-tags');
-  const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec.cls === 'cloud-badge' && options.remoteWorkspace ? { ...spec, title: remoteWorkspaceHoverText(options.remoteWorkspace) } : spec));
-  if (permsBadge) tagChildren.push(permsBadge);
-  tags.append(...tagChildren);
+  const usageBadge = buildTagIcon('usage-badge', 'Usage');
+  usageBadge.append(createLineIcon(USAGE_ICON_PATH, '2.2'));
+  if (permsBadge) tags.append(permsBadge);
+  tags.append(btnGuardrails, usageBadge);
+  installHoverTips();
   const ownershipEl = el('span', 'session-ownership');
   ownershipEl.hidden = true;
   header.append(nameEl, taskTitleEl, ownershipEl, tags, actions);
@@ -245,11 +247,21 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, sessionMenu, termWrap };
 }
 
-export function paintGuardrailsMenuItem(button: HTMLButtonElement, card: HTMLElement) {
+const GUARDRAILS_TIP_DETAIL = {
+  on: 'Credentials, Glimmervoid state and blocked folders are off-limits to this session.',
+  released: 'This session can read, write and reach anything your account can.',
+};
+
+export function paintGuardrailsToggle(button: HTMLButtonElement, card: HTMLElement) {
   const isGuarded = card.dataset.guarded !== undefined;
   const canChangeGuardrails = card.dataset.ephemeral === undefined && (isGuarded || card.dataset.guardrailsReleased !== undefined);
-  button.classList.toggle('visible', canChangeGuardrails);
-  button.setAttribute('aria-checked', String(isGuarded));
+  const clickHint = isGuarded ? ' Click to release.' : ' Click to restore.';
+  button.setAttribute('aria-pressed', String(isGuarded));
+  button.setAttribute('aria-disabled', String(!canChangeGuardrails));
+  button.dataset.tipLabel = isGuarded ? 'Guardrails on' : 'Guardrails released';
+  button.dataset.tipDetail = `${isGuarded ? GUARDRAILS_TIP_DETAIL.on : GUARDRAILS_TIP_DETAIL.released}${canChangeGuardrails ? clickHint : ''}`;
+  button.replaceChildren(createLineIcon(isGuarded ? SHIELD_ICON_PATH : SHIELD_OFF_ICON_PATH, '1.6'));
+  refreshHoverTip(button);
 }
 
 function openLinkPullRequestDialog(sessionId: string) {
