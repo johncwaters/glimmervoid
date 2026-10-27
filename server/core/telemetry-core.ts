@@ -431,6 +431,6 @@ export {
   FIRST_RUN_NOTICE, POSTHOG_PROJECT_TOKEN, TELEMETRY_BATCH_URL, TELEMETRY_FLAGS_URL,
   adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, buildPersonProperties, claudeAccountUuidOf,
   classifySessionExit, codexUserIdOf, decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion,
-  parseBrowserStackFrames, parsePosthogReleaseId, parseV8StackFrames, resolveProjectToken, scrubLocalPath, urlPathOnly,
+  parsePosthogReleaseId, resolveProjectToken,
 };
 export type { AccountIds, RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment };

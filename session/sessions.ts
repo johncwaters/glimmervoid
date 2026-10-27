@@ -2464,5 +2464,5 @@ function claudeCommand(): ResolvedCommand {
   return commandFor(DEFAULT_AGENT_ID);
 }
 
-export { GUARDRAILS_UNAPPLIED_ERROR, Session, claudeCommand };
+export { Session, claudeCommand };
 export type { ClaudeSessionIdEvent, PrepareSessionGuardrails, RemoteLaunch, SessionOptions, SessionPlanReviewPort, SessionGuardrailsFacts };

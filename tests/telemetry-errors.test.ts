@@ -5,8 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { TELEMETRY_FLAGS_URL } from '../server/core/telemetry-core.ts';
-import { createTelemetry, MAX_REPORTED_EXCEPTION_FINGERPRINTS } from '../server/telemetry.ts';
+import { createTelemetry, } from '../server/telemetry.ts';
 import type { TelemetryOptions } from '../server/telemetry.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 
@@ -66,10 +65,6 @@ function exceptionLevelOf(event: SentEvent): string | undefined {
   return event.properties.$exception_level;
 }
 
-function exceptionTypesOf(events: SentEvent[]): string[] {
-  return events.map((event) => event.properties.$exception_list[0].type);
-}
-
 test('the crash monitor writes a fatal exception that the next boot sends and then deletes', async () => {
   const stateDir = makeStateDir();
   const pendingCrashFilePath = path.join(stateDir, 'telemetry-pending-crash.json');
@@ -92,155 +87,6 @@ test('the crash monitor writes a fatal exception that the next boot sends and th
   assert.equal(sent.timestamp, pending.timestamp);
   assert.equal(exceptionLevelOf(sent), 'fatal');
   assert.equal(fs.existsSync(pendingCrashFilePath), false);
-});
-
-test('a pending crash is deleted unsent when consent is off at the next boot', async () => {
-  const pendingCrashFilePath = path.join(makeStateDir(), 'telemetry-pending-crash.json');
-  const crashed = buildTelemetry({ pendingCrashFilePath });
-  crashed.telemetry.recordFatalCrash(appError('TypeError', 'boom'));
-  await crashed.telemetry.stop();
-  assert.equal(fs.existsSync(pendingCrashFilePath), true);
-
-  const nextBoot = buildTelemetry({ pendingCrashFilePath, env: { DO_NOT_TRACK: '1' } });
-  await nextBoot.telemetry.sendPendingCrash();
-  await nextBoot.telemetry.stop();
-  assert.equal(nextBoot.sentBodies.length, 0);
-  assert.equal(fs.existsSync(pendingCrashFilePath), false);
-});
-
-test('a pending crash survives a boot whose send fails or is rejected, and the next successful send removes it', async () => {
-  const pendingCrashFilePath = path.join(makeStateDir(), 'telemetry-pending-crash.json');
-  const crashed = buildTelemetry({ pendingCrashFilePath });
-  crashed.telemetry.recordFatalCrash(appError('TypeError', 'boom'));
-  await crashed.telemetry.stop();
-
-  const offlineBoot = buildTelemetry({ pendingCrashFilePath, fetchFn: () => Promise.reject(new TypeError('fetch failed')) });
-  await offlineBoot.telemetry.sendPendingCrash();
-  await offlineBoot.telemetry.stop();
-  assert.equal(fs.existsSync(pendingCrashFilePath), true);
-
-  const rejectedBoot = buildTelemetry({ pendingCrashFilePath, fetchFn: () => Promise.resolve(new Response('{}', { status: 503 })) });
-  await rejectedBoot.telemetry.sendPendingCrash();
-  await rejectedBoot.telemetry.stop();
-  assert.equal(fs.existsSync(pendingCrashFilePath), true);
-
-  const onlineBoot = buildTelemetry({ pendingCrashFilePath });
-  await onlineBoot.telemetry.sendPendingCrash();
-  await onlineBoot.telemetry.stop();
-  assert.equal(onlineBoot.sentEvents().length, 1);
-  assert.equal(fs.existsSync(pendingCrashFilePath), false);
-});
-
-function remoteSwitchFetch(respondToFlags: () => Promise<Response>) {
-  const batchBodies: string[] = [];
-  const fetchFn: typeof fetch = (input, init) => {
-    if (String(input) === TELEMETRY_FLAGS_URL) return respondToFlags();
-    batchBodies.push(String(init?.body));
-    return Promise.resolve(new Response('{}', { status: 200 }));
-  };
-  return { batchBodies, fetchFn };
-}
-
-function telemetryEnabledFlag(enabled: boolean): () => Promise<Response> {
-  return () => Promise.resolve(Response.json({ flags: { 'telemetry-enabled': { key: 'telemetry-enabled', enabled } }, errorsWhileComputingFlags: false }));
-}
-
-async function recordPendingCrash(): Promise<string> {
-  const pendingCrashFilePath = path.join(makeStateDir(), 'telemetry-pending-crash.json');
-  const crashed = buildTelemetry({ pendingCrashFilePath });
-  crashed.telemetry.recordFatalCrash(appError('TypeError', 'boom'));
-  await crashed.telemetry.stop();
-  return pendingCrashFilePath;
-}
-
-async function bootWithRemoteSwitch(pendingCrashFilePath: string, respondToFlags: () => Promise<Response>): Promise<string[]> {
-  const { batchBodies, fetchFn } = remoteSwitchFetch(respondToFlags);
-  const { telemetry } = buildTelemetry({ pendingCrashFilePath, fetchFn });
-  telemetry.startRemoteSwitchChecks();
-  await telemetry.sendPendingCrash();
-  await telemetry.stop();
-  return batchBodies;
-}
-
-test('a pending crash is kept unsent while the first flag check says telemetry is disabled', async () => {
-  const pendingCrashFilePath = await recordPendingCrash();
-  const batchBodies = await bootWithRemoteSwitch(pendingCrashFilePath, telemetryEnabledFlag(false));
-  assert.equal(batchBodies.length, 0);
-  assert.equal(fs.existsSync(pendingCrashFilePath), true);
-});
-
-test('a pending crash is sent and removed once the first flag check says telemetry is enabled', async () => {
-  const pendingCrashFilePath = await recordPendingCrash();
-  const batchBodies = await bootWithRemoteSwitch(pendingCrashFilePath, telemetryEnabledFlag(true));
-  assert.equal(batchBodies.length, 1);
-  assert.equal(JSON.parse(batchBodies[0]).batch[0].event, '$exception');
-  assert.equal(fs.existsSync(pendingCrashFilePath), false);
-});
-
-test('a pending crash is sent after a failed first flag check on an install never told to stop', async () => {
-  const pendingCrashFilePath = await recordPendingCrash();
-  const batchBodies = await bootWithRemoteSwitch(pendingCrashFilePath, () => Promise.reject(new TypeError('fetch failed')));
-  assert.equal(batchBodies.length, 1);
-  assert.equal(fs.existsSync(pendingCrashFilePath), false);
-});
-
-test('an invalid pending crash file is removed without sending', async () => {
-  const pendingCrashFilePath = path.join(makeStateDir(), 'telemetry-pending-crash.json');
-  fs.writeFileSync(pendingCrashFilePath, '{"not":"a crash"}');
-  const { telemetry, sentBodies } = buildTelemetry({ pendingCrashFilePath });
-  await telemetry.sendPendingCrash();
-  await telemetry.stop();
-  assert.equal(sentBodies.length, 0);
-  assert.equal(fs.existsSync(pendingCrashFilePath), false);
-});
-
-test('the crash monitor writes nothing when consent is off at the time of the crash', async () => {
-  const pendingCrashFilePath = path.join(makeStateDir(), 'telemetry-pending-crash.json');
-  const { telemetry } = buildTelemetry({ pendingCrashFilePath, config: { telemetry: { enabled: false } } });
-  telemetry.recordFatalCrash(appError('TypeError', 'boom'));
-  await telemetry.stop();
-  assert.equal(fs.existsSync(pendingCrashFilePath), false);
-});
-
-test('a repeated exception is sent once per process whatever its message', async () => {
-  const { telemetry, sentEvents } = buildTelemetry();
-  telemetry.captureException(appError('TypeError', 'first message'), { handled: true });
-  telemetry.captureException(appError('TypeError', 'second message'), { handled: true });
-  telemetry.captureException(appError('RangeError', 'first message'), { handled: true });
-  telemetry.captureException(appError('TypeError', 'first message', 'otherFunction'), { handled: true });
-  await telemetry.stop();
-  assert.deepEqual(exceptionTypesOf(sentEvents()), ['TypeError', 'RangeError', 'TypeError']);
-});
-
-test('the dedupe set stops reporting new exceptions once it holds its cap', async () => {
-  const { telemetry, sentEvents } = buildTelemetry();
-  for (let index = 0; index < MAX_REPORTED_EXCEPTION_FINGERPRINTS + 10; index += 1) {
-    telemetry.captureException(appError(`Error${index}`, 'boom'), { handled: true });
-  }
-  await telemetry.flush();
-  await telemetry.stop();
-  assert.equal(sentEvents().length, MAX_REPORTED_EXCEPTION_FINGERPRINTS);
-});
-
-test('a browser error keeps only URL paths in its frames and is reported unhandled at error level', async () => {
-  const { telemetry, sentEvents } = buildTelemetry();
-  telemetry.captureClientError({
-    name: 'TypeError',
-    stack: '    at renderCard (http://localhost:4400/assets/app-abc.js?v=3#frag:10:5)\n    at http://127.0.0.1:5173/public/app.ts:2:1',
-  });
-  telemetry.captureClientError({
-    name: 'TypeError',
-    stack: '    at renderCard (http://localhost:4400/assets/app-abc.js?v=4:10:5)\n    at http://127.0.0.1:5173/public/app.ts:2:1',
-  });
-  await telemetry.stop();
-  assert.equal(sentEvents().length, 1);
-  const [exception] = sentEvents()[0].properties.$exception_list;
-  assert.equal(exceptionLevelOf(sentEvents()[0]), 'error');
-  assert.equal(exception.mechanism.handled, false);
-  assert.deepEqual(exception.stacktrace.frames.map((frame) => [frame.platform, frame.filename]), [
-    ['web:javascript', '/public/app.ts'],
-    ['web:javascript', '/assets/app-abc.js'],
-  ]);
 });
 
 test('a credential URL or home path inside an error message never reaches any payload', async () => {

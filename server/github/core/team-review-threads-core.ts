@@ -4,7 +4,6 @@ import { parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared
 import { contentMarker } from '../../visions/core/visions-dispatch-core.ts';
 
 export const THREAD_JUDGE_BACKOFF_MS = 15 * 60 * 1000;
-export const THREAD_PROMPT_MAX_CHARS = 48000;
 export const THREAD_PLACEHOLDER_ERROR = 'No local review draft. Review the answered threads below.';
 const THREAD_COMMENTS_MAX_CHARS = 20000;
 const THREAD_PATCH_MAX_CHARS = 24000;
