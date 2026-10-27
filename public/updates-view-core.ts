@@ -55,14 +55,7 @@ const UPDATE_STEP_LABELS: Readonly<Record<string, string>> = Object.freeze({
 });
 
 const CHECK_FAILURE_TEXT: Readonly<Record<string, string>> = Object.freeze({
-  'branch-count-unavailable': 'The last check could not compare the checked-out branch with its upstream.',
-  'branch-diverged': 'The checked-out branch has diverged from its upstream.',
-  'fetch-failed': 'The last update check could not fetch the upstream branch.',
-  'main-channel-requires-clone': 'The main channel requires a clone install.',
-  'no-branch': 'The last update check found no checked-out branch.',
-  'no-upstream': 'The checked-out branch has no upstream.',
   'release-check-failed': 'The last release check failed.',
-  'remote-tip-unavailable': 'The last update check could not resolve the upstream branch tip.',
   'update-check-failed': 'The last update check failed.',
 });
 
@@ -219,11 +212,6 @@ interface UpdateSummary {
   headline: string;
 }
 
-function behindText(status: UpdateStatusView): string {
-  if (status.channel !== 'main' || !Number.isInteger(status.behindCount)) return '';
-  return `${status.behindCount} ${status.behindCount === 1 ? 'commit' : 'commits'} behind`;
-}
-
 export function updateSummary(
   status: UpdateStatusView | null | undefined,
   journal: UpdateJournal | null | undefined,
@@ -263,12 +251,11 @@ export function installedUpdateText(status: UpdateStatusView | null | undefined)
 
 export function latestUpdateDetails(status: UpdateStatusView | null | undefined): {
   label: string;
-  behind: string;
   releaseUrl: string;
 } {
-  if (!status) return { label: 'Update status unavailable.', behind: '', releaseUrl: '' };
+  if (!status) return { label: 'Update status unavailable.', releaseUrl: '' };
   const label = versionLabel(status.latest, status.latestSha) || 'Latest target unknown';
-  return { label, behind: behindText(status), releaseUrl: textOr(status.releaseUrl, '') };
+  return { label, releaseUrl: textOr(status.releaseUrl, '') };
 }
 
 export function shouldAutoCheckUpdates({

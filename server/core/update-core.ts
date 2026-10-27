@@ -1,5 +1,6 @@
 import { InstallFlavor } from '../../shared/contracts/control-messages.ts';
-import type { UpdateChannel } from '../../shared/contracts/update-journal.ts';
+import { UpdateChannel } from '../../shared/contracts/update-journal.ts';
+import { compareReleaseVersions, isExperimentalBuild } from '../../shared/build-channel.ts';
 import { REPO_SLUG } from '../../shared/repo.ts';
 import { textOr } from '../../shared/coerce.ts';
 import { FULL_SHA_RE, shortSha as abbreviateSha } from '../../shared/git-text.ts';
@@ -10,8 +11,7 @@ const NODE_PTY_INSTALL_SCRIPT_FLAG = '--allow-scripts=node-pty';
 const NPX_CACHE_DIRECTORY_NAME = '_npx';
 const CLONE_COMMAND = 'git pull --ff-only && npm ci && npm run build';
 const INSTALL_FLAVORS = new Set<string>(InstallFlavor.options);
-const TAG_VERSION_RE = /^v(\d+\.\d+\.\d+)$/;
-const UPDATE_CHANNELS = new Set<string>(['release', 'main']);
+const TAG_VERSION_RE = /^v(\d+\.\d+\.\d+(?:-next\.\d+)?)$/;
 const DEPRECATION_MESSAGE_MAX_CHARS = 500;
 
 interface ReleaseTag {
@@ -88,7 +88,7 @@ function buildUpdateCommand(flavor: unknown, latestVersion: unknown, platform?: 
 
 function buildReleaseUrl(version: unknown): string | null {
   const releaseVersion = textOr(version, null);
-  if (!releaseVersion) return null;
+  if (!releaseVersion || isExperimentalBuild(releaseVersion)) return null;
   return `https://github.com/${REPO_SLUG}/releases/tag/v${releaseVersion}`;
 }
 
@@ -126,6 +126,16 @@ function parseRegistryLatest(doc: unknown): ReleaseTag | null {
   return { version, sha: normalizeSha(registryDocument.gitHead) };
 }
 
+function pickNewestPublished(...publishedVersions: (ReleaseTag | null)[]): ReleaseTag | null {
+  let newest: ReleaseTag | null = null;
+  for (const published of publishedVersions) {
+    if (!published) continue;
+    if (newest && compareReleaseVersions(published.version, newest.version) <= 0) continue;
+    newest = published;
+  }
+  return newest;
+}
+
 function parseRegistryDeprecation(doc: unknown): string | null {
   if (!doc || typeof doc !== 'object') return null;
   const deprecated = (doc as { deprecated?: unknown }).deprecated;
@@ -141,15 +151,8 @@ function normalizeFlavor(flavor: unknown): InstallFlavor {
 }
 
 function normalizeUpdateChannel(channel: unknown): UpdateChannel {
-  if (typeof channel === 'string' && UPDATE_CHANNELS.has(channel)) return channel as UpdateChannel;
-  return 'release';
-}
-
-function normalizeBehindCount(value: unknown): number | null {
-  if (!Number.isInteger(value)) return null;
-  const count = Number(value);
-  if (count < 0) return null;
-  return count;
+  const parsed = UpdateChannel.safeParse(channel);
+  return parsed.success ? parsed.data : 'release';
 }
 
 function decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }: {
@@ -160,7 +163,7 @@ function decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }: {
   return textOr(reason, null);
 }
 
-function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, platform, channel, behindCount, reason, isLatestReleaseAncestorOfHead, deprecation }: {
+function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, platform, channel, reason, isLatestReleaseAncestorOfHead, deprecation }: {
   installedSha?: unknown;
   latestSha?: unknown;
   currentVersion?: unknown;
@@ -168,7 +171,6 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
   flavor?: unknown;
   platform?: unknown;
   channel?: unknown;
-  behindCount?: unknown;
   reason?: unknown;
   isLatestReleaseAncestorOfHead?: unknown;
   deprecation?: unknown;
@@ -178,16 +180,12 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
   const current = textOr(currentVersion, null);
   const latest = textOr(latestVersion, null);
   const normalizedFlavor = normalizeFlavor(flavor);
-  const normalizedChannel = normalizeUpdateChannel(channel);
-  const normalizedBehindCount = normalizeBehindCount(behindCount);
-  const isReleaseAlreadyCheckedOut = normalizedChannel === 'release'
-    && normalizedFlavor === 'clone'
+  const isTargetInCheckout = normalizedFlavor === 'clone'
     && isLatestReleaseAncestorOfHead === true
-    && compareSemver(latest, current) > 0;
+    && compareReleaseVersions(latest, current) > 0;
+  const isReleaseAlreadyCheckedOut = isTargetInCheckout && !isExperimentalBuild(latest);
   return {
-    updateAvailable: normalizedChannel === 'main'
-      ? normalizedBehindCount !== null && normalizedBehindCount > 0 && currentSha !== latestSha
-      : !isReleaseAlreadyCheckedOut && compareSemver(latest, current) > 0,
+    updateAvailable: !isTargetInCheckout && compareReleaseVersions(latest, current) > 0,
     current,
     latest,
     currentSha,
@@ -195,8 +193,7 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
     releaseUrl: buildReleaseUrl(latest),
     command: buildUpdateCommand(flavor, latest, platform),
     flavor: normalizedFlavor,
-    channel: normalizedChannel,
-    behindCount: normalizedBehindCount,
+    channel: normalizeUpdateChannel(channel),
     reason: decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }),
     deprecation: isReleaseAlreadyCheckedOut ? null : parseRegistryDeprecation({ deprecated: deprecation }),
   };
@@ -212,4 +209,4 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
 }
 
 export type { InstallFlavor };
-export { normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseRegistryLatest, parseRegistryDeprecation, decideUpdateStatus, isCheckFresh };
+export { normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseRegistryLatest, pickNewestPublished, parseRegistryDeprecation, decideUpdateStatus, isCheckFresh };

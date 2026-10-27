@@ -202,8 +202,8 @@ test('dropping a custom agent declaration refuses the config that still points a
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, customAgents: [], projects }).success, false);
 });
 
-test('updateChannel accepts release and main across config boundaries', () => {
-  for (const updateChannel of ['release', 'main']) {
+test('updateChannel accepts release and experimental across config boundaries', () => {
+  for (const updateChannel of ['release', 'experimental']) {
     assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, updateChannel }).success, true);
     assert.equal(BrowserConfig.safeParse({ updateChannel }).success, true);
     assert.equal(ConfigUpdate.safeParse({ updateChannel }).success, true);

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { DEFAULT_CONFIG } from '../../server/config-store.ts';
 import { INGEST_SPEC } from '../../server/core/settings-block-core.ts';
-import { UPDATE_CHANNELS } from '../../shared/contracts/browser-config.ts';
+import { UPDATE_CHANNELS } from '../../shared/contracts/update-journal.ts';
 import { BranchGcFileSettings, Config, ConfigUpdate } from '../../shared/contracts/config.ts';
 import { FLYING_ANIMALS_DEFAULTS } from '../../shared/settings-ranges.ts';
 import { FILE_ONLY_GROUPS, SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '../../shared/settings/registry.ts';
@@ -51,6 +51,7 @@ interface SchemaDef {
   type: string;
   innerType?: unknown;
   in?: unknown;
+  out?: unknown;
   element?: unknown;
   shape?: Record<string, unknown>;
   entries?: Record<string, unknown>;
@@ -64,10 +65,14 @@ function defOf(schema: unknown): SchemaDef {
   return def;
 }
 
+function pipeValueSchema(pipe: SchemaDef): unknown {
+  return defOf(pipe.in).type === 'transform' ? pipe.out : pipe.in;
+}
+
 function leafDef(schema: unknown): SchemaDef {
   let def = defOf(schema);
   while (WRAPPER_TYPES.has(def.type) || def.type === 'pipe') {
-    def = defOf(def.type === 'pipe' ? def.in : def.innerType);
+    def = defOf(def.type === 'pipe' ? pipeValueSchema(def) : def.innerType);
   }
   return def;
 }
@@ -453,7 +458,7 @@ test('the machine Updates section owns its alias, channel, status rows, actions 
     'check-updates',
   ]);
   assert.deepEqual(settingById('update-channel').options,
-    UPDATE_CHANNELS.map((value) => ({ value, label: value === 'release' ? 'Release' : 'Main' })));
+    UPDATE_CHANNELS.map((value) => ({ value, label: value === 'release' ? 'Release' : 'Experimental' })));
   const toggleOwners = SECTIONS.filter((section) => section.settings.some((setting) => setting.id === 'check-updates'));
   assert.deepEqual(toggleOwners.map((section) => section.id), ['machine-updates']);
 });

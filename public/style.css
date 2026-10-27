@@ -7925,10 +7925,6 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   text-transform: uppercase;
 }
 
-.settings-update-behind {
-  color: var(--text-muted);
-}
-
 .settings-update-actions {
   display: flex;
   flex-direction: column;

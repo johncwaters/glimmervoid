@@ -4,7 +4,6 @@ import path from 'node:path';
 import type { UpdateChannel } from '../shared/contracts/update-journal.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
-import { parseLeftRightCount, parseRemoteFromUpstream } from './core/branch-sync-core.ts';
 import {
   decideInstallFlavor,
   decideUpdateStatus,
@@ -13,6 +12,7 @@ import {
   parseRegistryDeprecation,
   parseRegistryLatest,
   parseResolvedSha,
+  pickNewestPublished,
 } from './core/update-core.ts';
 import type { InstallFlavor } from './core/update-core.ts';
 import { loadJsonStateFileSync, loadedJsonValue, writeJsonAtomicSync } from './json-file.ts';
@@ -21,21 +21,17 @@ import { runGit } from './git/git-exec.ts';
 
 const NPM_REGISTRY_PACKAGE_URL = 'https://registry.npmjs.org/glimmervoid';
 const NPM_REGISTRY_LATEST_URL = `${NPM_REGISTRY_PACKAGE_URL}/latest`;
+const NPM_REGISTRY_EXPERIMENTAL_URL = `${NPM_REGISTRY_PACKAGE_URL}/next`;
 const REGISTRY_REQUEST_HEADERS = { Accept: 'application/json', 'User-Agent': 'glimmervoid-update-check' };
 const DEFAULT_TIMEOUT_MS = 8000;
 const GIT_HEAD_TIMEOUT_MS = 3000;
 const RELEASE_ANCESTRY_TIMEOUT_MS = 3000;
-const MAIN_CHANNEL_BUDGET_MS = DEFAULT_TIMEOUT_MS;
-const MAIN_FETCH_TIMEOUT_MS = Math.floor(MAIN_CHANNEL_BUDGET_MS / 2);
-const MAIN_REMOTE_TIP_TIMEOUT_MS = Math.floor(MAIN_CHANNEL_BUDGET_MS / 4);
-const MAIN_BEHIND_COUNT_TIMEOUT_MS = Math.floor(MAIN_CHANNEL_BUDGET_MS / 4);
 const STATE_FILE_NAME = 'update-check.json';
 const STATE_TTL_MS = 6 * 60 * 60 * 1000;
 const RELEASE_SOURCE = 'npm-registry';
 
 type RunCommand = typeof execFileAsync;
 type GitCallResult = { ok: boolean; out: string; err?: string };
-type FetchOrigin = (args: { projectPath: string; timeoutMs?: number }) => Promise<GitCallResult>;
 
 interface InstalledIdentity {
   flavor: InstallFlavor;
@@ -48,7 +44,6 @@ interface InstalledIdentity {
 interface LatestTarget {
   version: string | null;
   sha: string | null;
-  behindCount: number | null;
   reason: string | null;
   deprecation: string | null;
 }
@@ -59,7 +54,6 @@ interface CheckState {
   latestVersion?: string | null;
   latestSha?: string | null;
   releaseSource?: unknown;
-  behindCount?: unknown;
   reason?: unknown;
   installedVersion?: unknown;
   deprecation?: unknown;
@@ -73,7 +67,6 @@ interface CheckForUpdateOptions {
   abortController?: AbortController;
   packageRoot?: string;
   runCommand?: RunCommand;
-  fetchOrigin?: FetchOrigin;
   statePath?: string;
   ttlMs?: number;
   now?: number;
@@ -203,73 +196,16 @@ async function resolveInstalledDeprecation(
 }
 
 async function resolveLatestRegistryVersion(
-  { currentVersion, fetchFn, signal }: { currentVersion: string | undefined; fetchFn: typeof fetch; signal: AbortSignal },
+  { currentVersion, updateChannel, fetchFn, signal }: { currentVersion: string | undefined; updateChannel: UpdateChannel; fetchFn: typeof fetch; signal: AbortSignal },
 ): Promise<LatestTarget> {
-  const [latestDocument, deprecation] = await Promise.all([
+  const [latestDocument, experimentalDocument, deprecation] = await Promise.all([
     fetchRegistryDocument(NPM_REGISTRY_LATEST_URL, fetchFn, signal),
+    updateChannel === 'experimental' ? fetchRegistryDocument(NPM_REGISTRY_EXPERIMENTAL_URL, fetchFn, signal) : null,
     resolveInstalledDeprecation({ currentVersion, fetchFn, signal }),
   ]);
-  const published = parseRegistryLatest(latestDocument);
-  if (!published) return { version: null, sha: null, behindCount: null, reason: 'release-check-failed', deprecation };
-  return { ...published, behindCount: null, reason: null, deprecation };
-}
-
-function upstreamBranch(upstream: string): string | null {
-  const slashIndex = upstream.indexOf('/');
-  if (slashIndex < 0 || slashIndex === upstream.length - 1) return null;
-  return upstream.slice(slashIndex + 1);
-}
-
-async function fetchMainRemote(
-  packageRoot: string,
-  remote: string,
-  runCommand: RunCommand,
-  fetchOrigin: FetchOrigin | undefined,
-  signal: AbortSignal,
-): Promise<GitCallResult> {
-  if (remote === 'origin' && fetchOrigin) return fetchOrigin({ projectPath: packageRoot, timeoutMs: MAIN_FETCH_TIMEOUT_MS });
-  return runGitProbe(runCommand, ['fetch', '--prune', remote], {
-    cwd: packageRoot,
-    timeout: MAIN_FETCH_TIMEOUT_MS,
-    signal,
-  });
-}
-
-async function resolveLatestMain(
-  installed: InstalledIdentity,
-  packageRoot: string,
-  runCommand: RunCommand,
-  fetchOrigin: FetchOrigin | undefined,
-  signal: AbortSignal,
-): Promise<LatestTarget> {
-  if (installed.flavor !== 'clone') {
-    return { version: null, sha: null, behindCount: null, reason: 'main-channel-requires-clone', deprecation: null };
-  }
-  if (!installed.installedBranch) return { version: null, sha: null, behindCount: null, reason: 'no-branch', deprecation: null };
-  if (!installed.upstream) return { version: null, sha: null, behindCount: null, reason: 'no-upstream', deprecation: null };
-  const remote = parseRemoteFromUpstream(installed.upstream);
-  const branch = upstreamBranch(installed.upstream);
-  if (!branch) return { version: null, sha: null, behindCount: null, reason: 'no-upstream', deprecation: null };
-  const fetched = await fetchMainRemote(packageRoot, remote, runCommand, fetchOrigin, signal);
-  if (!fetched.ok) return { version: null, sha: null, behindCount: null, reason: 'fetch-failed', deprecation: null };
-  if (signal.aborted) return { version: null, sha: null, behindCount: null, reason: 'remote-tip-unavailable', deprecation: null };
-  const remoteTip = await runGitProbe(runCommand, ['ls-remote', remote, `refs/heads/${branch}`], {
-    cwd: packageRoot,
-    timeout: MAIN_REMOTE_TIP_TIMEOUT_MS,
-    signal,
-  });
-  const targetSha = normalizeSha(remoteTip.out.split(/\s+/)[0]);
-  if (!targetSha) return { version: null, sha: null, behindCount: null, reason: 'remote-tip-unavailable', deprecation: null };
-  if (signal.aborted) return { version: null, sha: targetSha, behindCount: null, reason: 'branch-count-unavailable', deprecation: null };
-  const countsProbe = await runGitProbe(runCommand, ['rev-list', '--left-right', '--count', `HEAD...${targetSha}`], {
-    cwd: packageRoot,
-    timeout: MAIN_BEHIND_COUNT_TIMEOUT_MS,
-    signal,
-  });
-  const counts = countsProbe.ok ? parseLeftRightCount(countsProbe.out) : null;
-  if (!counts) return { version: null, sha: targetSha, behindCount: null, reason: 'branch-count-unavailable', deprecation: null };
-  const reason = counts.behind > 0 && counts.ahead > 0 ? 'branch-diverged' : null;
-  return { version: null, sha: targetSha, behindCount: counts.ahead, reason, deprecation: null };
+  const published = pickNewestPublished(parseRegistryLatest(latestDocument), parseRegistryLatest(experimentalDocument));
+  if (!published) return { version: null, sha: null, reason: 'release-check-failed', deprecation };
+  return { ...published, reason: null, deprecation };
 }
 
 function readCheckState(statePath: string): CheckState | null {
@@ -296,7 +232,7 @@ async function finish(
 ): Promise<UpdateCheckStatus> {
   let isLatestReleaseAncestorOfHead = false;
   const latestSha = normalizeSha(latestTarget.sha);
-  if (channel === 'release' && installed.flavor === 'clone' && installed.installedSha && latestSha) {
+  if (installed.flavor === 'clone' && installed.installedSha && latestSha) {
     const ancestry = await runGitProbe(
       runCommand,
       ['merge-base', '--is-ancestor', latestSha, 'HEAD'],
@@ -313,7 +249,6 @@ async function finish(
       flavor: installed.flavor,
       platform,
       channel,
-      behindCount: latestTarget.behindCount,
       reason: latestTarget.reason,
       isLatestReleaseAncestorOfHead,
       deprecation: latestTarget.deprecation,
@@ -326,13 +261,9 @@ async function finish(
 }
 
 function targetFromCache(cached: CheckState, currentVersion: string | undefined): LatestTarget {
-  const behindCount = Number.isInteger(cached.behindCount) && Number(cached.behindCount) >= 0
-    ? Number(cached.behindCount)
-    : null;
   return {
     version: typeof cached.latestVersion === 'string' ? cached.latestVersion : null,
     sha: typeof cached.latestSha === 'string' ? cached.latestSha : null,
-    behindCount,
     reason: typeof cached.reason === 'string' ? cached.reason : null,
     deprecation: cached.installedVersion === currentVersion && typeof cached.deprecation === 'string' ? cached.deprecation : null,
   };
@@ -346,7 +277,6 @@ async function checkForUpdate({
   abortController = new AbortController(),
   packageRoot = resolvedPackageRoot,
   runCommand = execFileAsync,
-  fetchOrigin,
   statePath = defaultStatePath(),
   ttlMs = STATE_TTL_MS,
   now = Date.now(),
@@ -366,15 +296,12 @@ async function checkForUpdate({
     const cached = readCheckState(statePath);
     const cacheOutrunByInstall = normalizeSha(cached?.latestSha) !== null
       && normalizeSha(cached?.latestSha) === installed.installedSha;
-    const expectedReleaseSource = updateChannel === 'release' ? RELEASE_SOURCE : null;
-    const isCacheFromSameSource = expectedReleaseSource === null || cached?.releaseSource === expectedReleaseSource;
+    const isCacheFromSameSource = cached?.releaseSource === RELEASE_SOURCE;
     if (cached?.channel === updateChannel && isCacheFromSameSource && !cacheOutrunByInstall && isCheckFresh(cached.lastCheckAt, now, ttlMs)) {
       return finish(installed, targetFromCache(cached, currentVersion), currentVersion, updateChannel, platform, now, packageRoot, runCommand, signal);
     }
     signal.throwIfAborted();
-    const latestTarget = updateChannel === 'main'
-      ? await resolveLatestMain(installed, packageRoot, runCommand, fetchOrigin, signal)
-      : await resolveLatestRegistryVersion({ currentVersion, fetchFn, signal });
+    const latestTarget = await resolveLatestRegistryVersion({ currentVersion, updateChannel, fetchFn, signal });
     const hasCacheableTarget = latestTarget.reason === null
       && (latestTarget.version !== null || latestTarget.sha !== null);
     if (hasCacheableTarget) {
@@ -383,8 +310,7 @@ async function checkForUpdate({
         channel: updateChannel,
         latestVersion: latestTarget.version,
         latestSha: normalizeSha(latestTarget.sha),
-        releaseSource: expectedReleaseSource,
-        behindCount: latestTarget.behindCount,
+        releaseSource: RELEASE_SOURCE,
         reason: latestTarget.reason,
         installedVersion: currentVersion ?? null,
         deprecation: latestTarget.deprecation,
@@ -394,7 +320,7 @@ async function checkForUpdate({
   } catch {
     return finish(
       installed,
-      { version: null, sha: null, behindCount: null, reason: 'update-check-failed', deprecation: null },
+      { version: null, sha: null, reason: 'update-check-failed', deprecation: null },
       currentVersion,
       updateChannel,
       platform,
@@ -409,4 +335,4 @@ async function checkForUpdate({
 }
 
 export { checkForUpdate, detectInstallFlavor, probeBranchAndUpstream };
-export type { FetchOrigin, UpdateCheckStatus };
+export type { UpdateCheckStatus };
