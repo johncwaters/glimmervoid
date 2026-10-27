@@ -7,7 +7,6 @@ import type { AgentLoginStatus, CoderEnvironmentOffer, ServerMessage } from '#sh
 import { agentLoginOf, applyAgentLogins, onAgentLoginsChanged } from './agent-logins.ts';
 import { el, query, queryTag } from './dom-helpers.ts';
 import { createRepoRootsAdder } from './onboarding/repo-roots-adder.ts';
-import { settingsHash } from './settings/settings-link.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
 import { buildRepoCheckbox } from './session-card/workspace-repos-dialog.ts';
 import { DEFAULT_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './session-card/agent-core.ts';
@@ -276,7 +275,6 @@ export function createAddSessionDialog() {
     if (expanded) requestAnimationFrame(() => nameInput.focus());
   });
 
-  saneYoloHelpLink.href = settingsHash('machine-guardrails', 'sane-yolo');
   saneYoloHelpLink.addEventListener('click', () => close());
   safetyToggle.addEventListener('click', () => {
     const expanded = safetyPanel.hidden;

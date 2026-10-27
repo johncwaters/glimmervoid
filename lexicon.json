@@ -95,6 +95,14 @@
     {
       "name": "copy",
       "definition": "Text an agent or the operator puts on the browser clipboard from a terminal, offered through the Copy to clipboard prompt when the browser blocks the agent's own write."
+    },
+    {
+      "name": "rescan",
+      "definition": "The first-run checklist action that looks again for installed agents and repository roots without a restart."
+    },
+    {
+      "name": "skip",
+      "definition": "An operator choice to pass over a step Glimmervoid would otherwise take, as in skipping permission prompts or the skip-to-main link."
     }
   ]
 }
