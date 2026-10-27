@@ -59,7 +59,7 @@ import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects,
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { openAddSessionDialog, requestSessionRemoval, selectSession, spawnQuickSession } from './session-actions.ts';
-import { getSelectedId } from './sidebar/selection.ts';
+import { getSelectedId, setSelectedId } from './sidebar/selection.ts';
 import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
 import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from './shortcuts.ts';
 import { resolveDashboardShortcut } from './shortcuts-core.ts';
@@ -431,11 +431,13 @@ const messageHandlers = {
     if (!msg.ephemeral) noteKnownProjectPath(msg.path);
 
     const previousUi = sessionUIs.get(String(msg.id));
+    const wasSelected = getSelectedId() === String(msg.id);
     setSessionCoherenceHooks(msg.id, null);
     removeSessionCard(msg.id);
     forgetReviewSession(msg.id);
     setSessionLinkedPrs(msg.id, msg.linkedPrs);
     createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg));
+    if (wasSelected) setSelectedId(String(msg.id));
     setSessionAgent(msg.id, msg.agent);
     carryOverClientSessionFields(msg.id, previousUi);
     refreshFavicon(sessionUIs);

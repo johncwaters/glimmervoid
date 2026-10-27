@@ -390,11 +390,11 @@ function releaseCenter() {
 function focusSession(id: string) {
   if (!active || !sessionUIs.has(id)) return;
   markSessionSeen(id);
+  selectSession(id);
   if (id === getFocusedSessionId()) return;
   releaseCenter();
   uiState.dispatch('focusSession', id);
   railTabStopId = id;
-  selectSession(id);
   refreshFocusRoster();
 }
 

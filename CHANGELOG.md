@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Changes panel no longer says "No session selected" while a session is open**: editing or restarting a session cleared the panel's selection, and clicking the session that was already open could not bring it back. The panel now keeps the session through the rebuild, and clicking an open session in the rail always selects it.
 - **Closing a session whose work is already on origin no longer warns that it would be lost**: the check before removal compared the session's commits only with your local base branch, so work pushed straight to `origin/main` while your local `main` was behind (for example, checked out in another folder) looked unmerged. Commits on either your local base branch or `origin/<base>` now count as landed, and a restart no longer marks such a session as pending review. A commit on neither, uncommitted changes, or a check that fails still warns.
 - **The clipboard prompt no longer covers the agent's input line**: when an agent copies text and the browser needs a click first, the Copy to clipboard prompt now appears at the top-right of the terminal instead of over the bottom rows where the agent's prompt and status line sit. The clipboard copied and failed notices show there too.
 
