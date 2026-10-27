@@ -23,6 +23,8 @@ import { DEFAULT_SESSION_MEMORY_RESERVE_MB } from './core/memory-admission-core.
 import { withExperimentalFeaturesGated } from './core/experimental-gate-core.ts';
 import { isExperimentalBuild as isExperimentalVersion } from '../shared/build-channel.ts';
 import { packageRoot } from './runtime-paths.ts';
+import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../shared/timer-deps.ts';
 
 type ProjectEntry = Config['projects'][number] & { id: string; name: string };
 interface GlimmervoidConfig extends Config {
@@ -371,10 +373,15 @@ function readIsExperimentalBuild(): boolean {
 
 const IS_EXPERIMENTAL_BUILD = readIsExperimentalBuild();
 
-function createConfigStore({ settingsDefaults, readTelemetryInstallId, isExperimentalBuild = IS_EXPERIMENTAL_BUILD }: {
+function createConfigStore({
+  settingsDefaults, readTelemetryInstallId, isExperimentalBuild = IS_EXPERIMENTAL_BUILD,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
+}: {
   settingsDefaults?: Partial<DefaultConfig>;
   readTelemetryInstallId?: () => string | null;
   isExperimentalBuild?: boolean;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
 } = {}) {
   const configPath = resolveConfigPath();
   const effectiveDefaults: Record<string, unknown> = { ...DEFAULT_CONFIG, ...(settingsDefaults || {}) };
@@ -621,7 +628,7 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId, isExperim
   }
 
   function watchForChanges(callback: (config: GlimmervoidConfig) => void): () => void {
-    let reloadTimer: NodeJS.Timeout | null = null;
+    let reloadTimer: TimerHandle | null = null;
     let watcher: fs.FSWatcher | null = null;
 
     function handleConfigChange(err: NodeJS.ErrnoException | null, data: string): void {
@@ -660,8 +667,8 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId, isExperim
       watcher = fs.watch(watchDir, (_event, filename) => {
         if (filename != null && !equalsIgnoringCaseOnWindows(path.basename(String(filename)), targetName)) return;
 
-        if (reloadTimer) clearTimeout(reloadTimer);
-        reloadTimer = setTimeout(() => {
+        if (reloadTimer) clearTimeoutFn(reloadTimer);
+        reloadTimer = setTimeoutFn(() => {
           fs.readFile(configPath, 'utf8', handleConfigChange);
         }, 500);
       });
@@ -670,7 +677,7 @@ function createConfigStore({ settingsDefaults, readTelemetryInstallId, isExperim
       console.warn('[config] Failed to watch config.json:', errorMessage(watchErr));
     }
     return function stop(): void {
-      if (reloadTimer) clearTimeout(reloadTimer);
+      if (reloadTimer) clearTimeoutFn(reloadTimer);
       if (watcher) { try { watcher.close(); } catch {} }
       watcher = null;
     };

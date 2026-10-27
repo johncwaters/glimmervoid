@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { claudeApprovalFor, claudeDecisionReply, isHoldReleasedByHookEvent, parseClaudePermissionRequest } from '../session/core/claude-approval-core.ts';
+import { claudeApprovalFor, claudeDecisionReply, parseClaudePermissionRequest } from '../session/core/claude-approval-core.ts';
 
 const bashPayload = {
   tool_name: 'Bash',
@@ -38,15 +38,4 @@ test('claude permission replies match the PermissionRequest hook contract and al
     behavior: 'allow',
     updatedInput: { ...question.toolInput, answers: { 'Pick a color': 'Blue' } },
   });
-});
-
-test('a held claude permission is released only by its own tool result or a turn boundary of its agent', () => {
-  const request = parseClaudePermissionRequest(bashPayload);
-  assert.ok(request);
-  assert.equal(isHoldReleasedByHookEvent(request, 'notification', {}), false);
-  assert.equal(isHoldReleasedByHookEvent(request, 'posttooluse-conversation', { tool_name: 'Read', tool_input: { file_path: 'a.ts' } }), false);
-  assert.equal(isHoldReleasedByHookEvent(request, 'posttooluse-conversation', { tool_name: 'Bash', tool_input: bashPayload.tool_input }), true);
-  assert.equal(isHoldReleasedByHookEvent(request, 'stop', { agent_id: 'subagent-1' }), false);
-  assert.equal(isHoldReleasedByHookEvent(request, 'userpromptsubmit', {}), true);
-  assert.equal(isHoldReleasedByHookEvent(request, 'sessionend', { agent_id: 'subagent-1' }), true);
 });

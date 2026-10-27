@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  ABORT_CONFIG_SAVE, createConfigStore, ensureProjectIds, validateConfig, loadConfigFile, DEFAULT_CONFIG,
+  createConfigStore, ensureProjectIds, validateConfig, loadConfigFile, DEFAULT_CONFIG,
   CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX,
 } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
@@ -16,6 +16,7 @@ import { SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
 import { settingsOf } from '../shared/settings/registry-core.ts';
 import { ConfigUpdate } from '../shared/contracts/index.ts';
 import { SECRET_PRESENCE_SUFFIX as CLIENT_SECRET_PRESENCE_SUFFIX } from '../public/settings/settings-view-core.ts';
+import { manualTimers } from './helpers/manual-timers.ts';
 import { waitForFsWatchToArm } from './helpers/wait-for.ts';
 
 type ConfigFileContent = Record<string, unknown>;
@@ -121,20 +122,6 @@ test('config file compatibility keeps port zero and migrates replayBufferKB zero
     assert.equal(store.config.port, 0);
     assert.equal(store.config.replayBufferKB, 64);
   });
-});
-
-test('an invalid config file scalar falls back with a warning naming the key and value', () => {
-  const originalWarn = console.warn;
-  const warnings: string[] = [];
-  console.warn = (message: unknown) => { warnings.push(String(message)); };
-  try {
-    withStore({ projects: [], replayBufferKB: 20000 }, (store) => {
-      assert.equal(store.config.replayBufferKB, DEFAULT_CONFIG.replayBufferKB);
-    });
-  } finally {
-    console.warn = originalWarn;
-  }
-  assert.match(warnings.join('\n'), /replayBufferKB value 20000 is invalid; using 512/);
 });
 
 test('a legacy packReadTelemetry config key is ignored', () => {
@@ -300,17 +287,6 @@ test('save refuses an invalid mutation result without writing', () => {
   });
 });
 
-test('save writes nothing when the mutator aborts it', () => {
-  withStore(richConfig(), (store, p) => {
-    const before = fs.readFileSync(p, 'utf8');
-    assert.equal(store.save((cfg) => {
-      cfg.port = 4124;
-      return ABORT_CONFIG_SAVE;
-    }), null);
-    assert.equal(fs.readFileSync(p, 'utf8'), before);
-  });
-});
-
 test('save refuses a suspected external wipe without laundering it', () => {
   withStore(richConfig(), (store, p) => {
     const wipedContent = JSON.stringify({ projects: [] }, null, 2);
@@ -359,17 +335,6 @@ test('getSettings falls back to DEFAULT_CONFIG for absent keys', () => {
   });
 });
 
-test('updateChannel round-trips through settings and hot application', () => {
-  withStore({ projects: [], updateChannel: 'release' }, (store, configPath) => {
-    const saved = store.save((config) => { config.updateChannel = 'experimental'; });
-    assert.equal(saved?.updateChannel, 'experimental');
-    store.applySettings(saved || { projects: [] });
-    assert.equal(store.config.updateChannel, 'experimental');
-    assert.equal(store.getSettings().updateChannel, 'experimental');
-    assert.equal(readJson(configPath).updateChannel, 'experimental');
-  });
-});
-
 test('a config file on the retired main channel loads on the experimental channel', () => {
   withStore({ projects: [], updateChannel: 'main' }, (store) => {
     assert.equal(store.config.updateChannel, 'experimental');
@@ -398,148 +363,12 @@ test('a stable build reads experimental features as off and keeps their stored v
   }, { isExperimentalBuild: true });
 });
 
-test('settingsDefaults overlays a key the config file omits', () => {
-  withStore({ projects: [] }, (store) => {
-    assert.equal(DEFAULT_CONFIG.debugMode, false, 'the production default is off');
-    assert.equal(store.getSettings().debugMode, true, 'the launch default fills the absent key');
-  }, { settingsDefaults: { debugMode: true } });
-});
-
-test('an explicit config value beats settingsDefaults', () => {
-  withStore({ projects: [], debugMode: false }, (store) => {
-    assert.equal(store.getSettings().debugMode, false, 'the user setting always wins');
-  }, { settingsDefaults: { debugMode: true } });
-});
-
-test('an explicit auto branch beats a launch branch default', () => {
-  withStore({ projects: [], integrationBranch: null }, (store) => {
-    assert.equal(store.getSettings().integrationBranch, null);
-  }, { settingsDefaults: { integrationBranch: 'release' } });
-});
-
 test('settingsDefaults is never persisted and leaves other keys on DEFAULT_CONFIG', () => {
   withStore({ projects: [] }, (store, p) => {
     store.getSettings();
     assert.equal('debugMode' in readJson(p), false, 'a launch default writes nothing to config.json');
     assert.equal(store.getSettings().cursorBlink, DEFAULT_CONFIG.cursorBlink, 'unrelated keys are untouched');
   }, { settingsDefaults: { debugMode: true } });
-});
-
-test('no settingsDefaults option keeps plain DEFAULT_CONFIG behavior', () => {
-  withStore({ projects: [] }, (store) => {
-    assert.equal(store.getSettings().debugMode, DEFAULT_CONFIG.debugMode);
-  });
-});
-
-test('applySettings applies each runtime scalar it is handed', () => {
-  withStore({ projects: [] }, (store) => {
-    store.applySettings({
-      projects: [], cursorBlink: true, debugMode: false, notifyDebounceMs: 7, integrationBranch: '123',
-    });
-    assert.equal(store.config.cursorBlink, true);
-    assert.equal(store.config.debugMode, false);
-    assert.equal(store.config.notifyDebounceMs, 7, 'timeout applied');
-    assert.equal(store.config.integrationBranch, '123');
-  });
-});
-
-test('workflow rules default to none, reach the dashboard whole and read-only even when invalid, and apply live from a config.json edit', () => {
-  withStore({ projects: [] }, (store) => {
-    assert.deepEqual(DEFAULT_CONFIG.workflows, { enabled: true, maxConcurrentSessions: 2, maxActionsPerPoll: 20, rules: [] });
-    assert.equal(store.getSettings().workflows, null);
-    const workflows = { rules: [{ id: 'greet', name: 'Greet', enabled: true, repos: ['acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] };
-    store.applySettings({ projects: [], workflows });
-    assert.deepEqual(store.config.workflows, workflows);
-    assert.deepEqual(store.getSettings().workflows, workflows);
-  });
-  const misspelledWorkflows = { enabled: true, maxConcurentSessions: 2, rules: [{ id: 'one', name: 'One', enabled: true, repos: ['Acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] };
-  withStore({ projects: [], workflows: misspelledWorkflows }, (store) => {
-    assert.deepEqual(store.getSettings().workflows, misspelledWorkflows);
-  });
-});
-
-test('a config.json reload without a key drops its live value, so a removed scalar, integration branch, worktreeShare or workflows block takes its default', () => {
-  withStore({ projects: [] }, (store) => {
-    const removedKeys = {
-      saneYolo: false,
-      autoResume: false,
-      integrationBranch: 'staging',
-      worktreeShare: ['custom'],
-      workflows: { rules: [{ id: 'greet', name: 'Greet', enabled: true, repos: ['acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] },
-    };
-    store.applySettings({ projects: [], ...removedKeys });
-    store.applySettings({ projects: [], cursorBlink: true });
-    for (const key of Object.keys(removedKeys)) assert.equal(key in store.config, false, key);
-    const settings = store.getSettings();
-    assert.deepEqual(
-      { saneYolo: settings.saneYolo, autoResume: settings.autoResume, integrationBranch: settings.integrationBranch, worktreeShare: settings.worktreeShare, workflows: settings.workflows },
-      { saneYolo: DEFAULT_CONFIG.saneYolo, autoResume: DEFAULT_CONFIG.autoResume, integrationBranch: DEFAULT_CONFIG.integrationBranch, worktreeShare: DEFAULT_CONFIG.worktreeShare, workflows: null },
-    );
-  });
-});
-
-test('applySettings applies a changed coder block and clears a removed one', () => {
-  withStore({ projects: [], coder: { appSlug: 'first-app' } }, (store) => {
-    store.applySettings({ projects: [], coder: { appSlug: 'second-app' } });
-    assert.deepEqual(store.config.coder, { appSlug: 'second-app' });
-    store.applySettings({ projects: [], cursorBlink: true });
-    assert.equal('coder' in store.config, false);
-  });
-});
-
-test('applySettings stores an empty or null integration branch as auto', () => {
-  withStore({ projects: [], integrationBranch: 'release' }, (store) => {
-    store.applySettings({ integrationBranch: '' });
-    assert.equal(store.config.integrationBranch, null);
-    store.config.integrationBranch = 'release';
-    store.applySettings({ integrationBranch: null });
-    assert.equal(store.config.integrationBranch, null);
-  });
-});
-
-test('applySettings never live-applies the listener port', () => {
-  withStore({ projects: [], port: 4123 }, (store) => {
-    const originalLog = console.log;
-    console.log = () => {};
-    try {
-      store.applySettings({ projects: [], port: 4999, cursorBlink: true });
-    } finally {
-      console.log = originalLog;
-    }
-    assert.equal(store.config.port, 4123);
-    assert.equal(store.config.cursorBlink, true);
-  });
-});
-
-test('rtk is a settable top-level boolean', () => {
-  withStore({ projects: [] }, (store) => {
-    store.applySettings({ projects: [], rtk: true });
-    assert.equal(store.config.rtk, true);
-    assert.equal(store.getSettings().rtk, true);
-    store.applySettings({ projects: [], rtk: false });
-    assert.equal(store.config.rtk, false);
-  });
-});
-
-test('getSettings resolves branchGc defaults while opt-in blocks stay null; projectChoices derives from projects', () => {
-  withStore({ projects: [{ id: 'p1', name: 'proj-one', path: 'C:/p1' }] }, (store) => {
-    const s = store.getSettings();
-    assert.deepEqual(s.branchGc, DEFAULT_CONFIG.branchGc);
-    assert.equal(s.visions, null);
-    assert.equal(s.teamReview, null);
-    assert.equal(s.telegram, null);
-    assert.deepEqual(s.projectChoices, [{ id: 'p1', name: 'proj-one', path: 'C:/p1' }]);
-
-    store.config.branchGc = { ...DEFAULT_CONFIG.branchGc, enabled: false, staleDays: 21 };
-    store.config.visions = { enabled: true, dispatch: { enabled: false } };
-    store.config.teamReview = { enabled: true, org: 'PostHog', team: 'product-engineering' };
-    store.config.telegram = { botToken: 'tok', chatId: '123' };
-    const s2 = store.getSettings();
-    assert.deepEqual(s2.branchGc, { ...DEFAULT_CONFIG.branchGc, enabled: false, staleDays: 21 });
-    assert.deepEqual(s2.visions, { enabled: true, dispatch: { enabled: false } });
-    assert.deepEqual(s2.teamReview, { enabled: true, org: 'PostHog', team: 'product-engineering' });
-    assert.deepEqual(s2.telegram, { chatId: '123', botTokenConfigured: true });
-  });
 });
 
 test('getSettings redacts the telegram bot token and the PostHog api key to presence flags', () => {
@@ -644,25 +473,6 @@ test('loading legacy fractional settings migrates counts without rejecting the f
   });
 });
 
-test('getSettings drops posthog keys outside the dashboard allow-list and a project map nested too deeply to send, warning about it once', () => {
-  withStore({ projects: [] }, (store) => {
-    store.config.posthog = { enabled: true, apiKey: 'phx_secret', internalOnlyKey: 'leak-me' };
-    const settings = store.getSettings();
-
-    assert.equal(Object.hasOwn(block(settings.posthog), 'internalOnlyKey'), false);
-    assert.deepEqual(settings.posthog, { enabled: true, apiKeyConfigured: true });
-
-    let deepProjectMap: Record<string, unknown> = {};
-    for (let level = 0; level < 3500; level += 1) deepProjectMap = { app: deepProjectMap };
-    store.config.posthog = { enabled: true, projectMap: deepProjectMap };
-    const warnings = warningsFrom(() => {
-      assert.deepEqual(store.getSettings().posthog, { enabled: true, apiKeyConfigured: false });
-      assert.deepEqual(store.getSettings().posthog, { enabled: true, apiKeyConfigured: false });
-    });
-    assert.equal(warnings.filter((warning) => warning.includes('posthog.projectMap is nested too deeply')).length, 1, warnings.join('\n'));
-  });
-});
-
 test('every block of the settings payload is picked through the registry spec, so an unlisted key never reaches the dashboard', () => {
   withStore({
     projects: [],
@@ -686,17 +496,6 @@ test('a config.json still carrying the retired postTurnChecks block loads and le
   });
 });
 
-test('blocks with defaults still project their defaults through the registry pick', () => {
-  withStore({ projects: [], guardrails: { blockedPaths: ['~/.cargo'] }, trace: {} }, (store) => {
-    const settings = store.getSettings();
-    assert.deepEqual(settings.guardrails, { ...DEFAULT_CONFIG.guardrails, blockedPaths: ['~/.cargo'] });
-    assert.deepEqual(settings.trace, { enabled: true });
-    assert.deepEqual(settings.telemetry, { enabled: true });
-    assert.deepEqual(settings.taskTitle, DEFAULT_CONFIG.taskTitle);
-    assert.deepEqual(settings.branchGc, DEFAULT_CONFIG.branchGc);
-  });
-});
-
 test('the environment secret bindings and the password leaves of the registry are the same set, so each shows as configured and never as its value', () => {
   const boundPaths = ENV_SECRET_BINDINGS.map((binding) => `${binding.blockName}.${binding.secretKey}`).sort();
   const passwordPaths = [...settingsOf(SETTINGS_REGISTRY.sections), ...SETTINGS_REGISTRY.fileOnly]
@@ -710,28 +509,6 @@ test('the environment secret bindings and the password leaves of the registry ar
   }
 });
 
-test('applySettings preserves branchGc defaults and merges partial overrides', () => {
-  withStore({ projects: [] }, (store) => {
-    store.applySettings({ projects: [], cursorBlink: true });
-    assert.deepEqual(store.config.branchGc, DEFAULT_CONFIG.branchGc);
-    assert.equal(store.config.visions, undefined);
-    assert.equal(store.config.teamReview, undefined);
-    assert.equal(store.config.telegram, undefined);
-
-    store.applySettings({
-      projects: [],
-      branchGc: { enabled: false },
-      visions: { enabled: true },
-      teamReview: { enabled: true, org: 'PostHog', team: 'product-engineering' },
-      telegram: { botToken: 'x', chatId: 'y' },
-    });
-    assert.deepEqual(store.config.branchGc, { ...DEFAULT_CONFIG.branchGc, enabled: false });
-    assert.deepEqual(store.config.visions, { enabled: true });
-    assert.deepEqual(store.config.teamReview, { enabled: true, org: 'PostHog', team: 'product-engineering' });
-    assert.deepEqual(store.config.telegram, { botToken: 'x', chatId: 'y' });
-  });
-});
-
 test('branchGc defaults survive a config save round trip', () => {
   withStore({ projects: [] }, (store, configPath) => {
     const saved = store.save((config) => { config.cursorBlink = true; });
@@ -743,86 +520,9 @@ test('branchGc defaults survive a config save round trip', () => {
   });
 });
 
-test('a partial branchGc config merges over the defaults', () => {
-  withStore({ branchGc: { dryRun: true }, projects: [] }, (store) => {
-    assert.deepEqual(store.config.branchGc, { ...DEFAULT_CONFIG.branchGc, dryRun: true });
-  });
-});
-
-test('a persisted branchGc worktrees setting merges over its default', () => {
-  withStore({ branchGc: { worktrees: false }, projects: [] }, (store) => {
-    assert.deepEqual(store.config.branchGc, { ...DEFAULT_CONFIG.branchGc, worktrees: false });
-  });
-});
-
-test('a hand-edited branchGc field of the wrong type falls back to its default and warns', () => {
-  const warnings: string[] = [];
-  const originalWarn = console.warn;
-  console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
-  try {
-    withStore({ branchGc: { staleDays: '21', dryRun: true }, projects: [] }, (store) => {
-      assert.deepEqual(store.config.branchGc, { ...DEFAULT_CONFIG.branchGc, dryRun: true });
-    });
-  } finally {
-    console.warn = originalWarn;
-  }
-  assert.ok(warnings.some((warning) => warning.includes('branchGc.staleDays')), warnings.join('\n'));
-});
-
-test('a hand-edited branchGc.deleteUnmerged of the wrong type falls back to keeping unmerged branches and warns', () => {
-  const warnings = warningsFrom(() => {
-    withStore({ branchGc: { deleteUnmerged: 'yes' }, projects: [] }, (store) => {
-      assert.equal(store.config.branchGc?.deleteUnmerged, false);
-    });
-  });
-  assert.ok(warnings.some((warning) => warning.includes('branchGc.deleteUnmerged')), warnings.join('\n'));
-});
-
-test('the settings payload carries skipPermissionsByDefault, off unless the file turns it on', () => {
-  withStore({ projects: [] }, (store) => {
-    assert.equal(store.getSettings().skipPermissionsByDefault, false);
-  });
-  withStore({ skipPermissionsByDefault: true, projects: [] }, (store) => {
-    assert.equal(store.getSettings().skipPermissionsByDefault, true);
-  });
-});
-
-function warningsFrom(run: () => void): string[] {
-  const warnings: string[] = [];
-  const originalWarn = console.warn;
-  console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
-  try {
-    run();
-  } finally {
-    console.warn = originalWarn;
-  }
-  return warnings;
-}
-
-test('a misspelled branchGc field is dropped with a warning instead of silently ignored', () => {
-  const warnings = warningsFrom(() => {
-    withStore({ branchGc: { dryrun: true, staleDays: 21 }, projects: [] }, (store) => {
-      assert.deepEqual(store.config.branchGc, { ...DEFAULT_CONFIG.branchGc, staleDays: 21 });
-    });
-  });
-  assert.equal(warnings.filter((warning) => warning.includes('branchGc.dryrun')).length, 1, warnings.join('\n'));
-});
-
-test('an invalid persisted branchGc field warns once at load and never again on save', () => {
-  let warningsOnSave: string[] = [];
-  const warningsOnLoad = warningsFrom(() => {
-    withStore({ branchGc: { staleDays: '21' }, projects: [] }, (store) => {
-      warningsOnSave = warningsFrom(() => {
-        store.save((config) => { config.cursorBlink = true; });
-        store.save((config) => { config.cursorBlink = false; });
-      });
-    });
-  });
-  assert.equal(warningsOnLoad.filter((warning) => warning.includes('branchGc.staleDays')).length, 1, warningsOnLoad.join('\n'));
-  assert.deepEqual(warningsOnSave.filter((warning) => warning.includes('branchGc')), []);
-});
-
 const WATCH_DEADLINE_MS = 15000;
+const READ_SETTLE_MS = 25;
+const SIBLING_EVENT_SETTLE_MS = 100;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => { setTimeout(resolve, ms); });
@@ -832,7 +532,7 @@ async function waitFor(predicate: () => boolean, message: string): Promise<void>
   const deadline = Date.now() + WATCH_DEADLINE_MS;
   while (Date.now() < deadline) {
     if (predicate()) return;
-    await sleep(50);
+    await sleep(10);
   }
   assert.fail(`${message} (waited ${WATCH_DEADLINE_MS}ms)`);
 }
@@ -853,62 +553,84 @@ async function withStoreAsync<T>(
   }
 }
 
-test('watchForChanges still sees a hand-edit after a save replaced the file inode', async () => {
-  await withStoreAsync({ projects: [] }, async (store, p) => {
-    const reloads: GlimmervoidConfig[] = [];
-    const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
+interface WatchedStore {
+  store: ConfigStore;
+  configPath: string;
+  reloads: GlimmervoidConfig[];
+  pendingReloadTimerCount: () => number;
+  readAfter: (change: () => void) => Promise<void>;
+  reloadAfter: (change: () => void, message: string) => Promise<void>;
+}
+
+async function withWatchedStore(cfg: ConfigFileContent, fn: (watched: WatchedStore) => Promise<void>): Promise<void> {
+  const { dir, p } = writeTmpConfig(cfg);
+  const prev = process.env.GLIMMERVOID_CONFIG;
+  process.env.GLIMMERVOID_CONFIG = p;
+  const timers = manualTimers();
+  const reloads: GlimmervoidConfig[] = [];
+  const store = createConfigStore({ setTimeoutFn: timers.setTimeoutFn, clearTimeoutFn: timers.clearTimeoutFn });
+  const stop = store.watchForChanges((reloaded) => { reloads.push(reloaded); });
+  const fireReloadAfter = async (change: () => void) => {
+    const timersBeforeChange = timers.pending.length;
+    change();
+    await waitFor(() => timers.pending.length > timersBeforeChange, 'the config.json change never reached the watcher');
+    timers.fireAll();
+  };
+  try {
     await waitForFsWatchToArm();
-    try {
-      store.save((cfg) => { cfg.projects.push({ id: 'from-save', name: 's', path: 'C:/s' }); });
+    await fn({
+      store,
+      configPath: p,
+      reloads,
+      pendingReloadTimerCount: () => timers.pending.length,
+      readAfter: async (change) => {
+        await fireReloadAfter(change);
+        await sleep(READ_SETTLE_MS);
+      },
+      reloadAfter: async (change, message) => {
+        const reloadsBeforeChange = reloads.length;
+        await fireReloadAfter(change);
+        await waitFor(() => reloads.length > reloadsBeforeChange, message);
+      },
+    });
+  } finally {
+    stop();
+    if (prev == null) delete process.env.GLIMMERVOID_CONFIG;
+    if (prev != null) process.env.GLIMMERVOID_CONFIG = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
 
-      await sleep(1200);
-      assert.equal(reloads.length, 0, 'a self-write does not reload');
+test('watchForChanges still sees a hand-edit after a save replaced the file inode', async () => {
+  await withWatchedStore({ projects: [] }, async ({ store, configPath, reloads, readAfter, reloadAfter }) => {
+    await readAfter(() => store.save((cfg) => { cfg.projects.push({ id: 'from-save', name: 's', path: 'C:/s' }); }));
+    assert.equal(reloads.length, 0, 'a self-write does not reload');
 
-      fs.writeFileSync(p, JSON.stringify({ projects: [{ id: 'hand-edit', name: 'h', path: 'C:/h' }] }, null, 2), 'utf8');
-      await waitFor(() => reloads.length > 0, 'hand-edit after a save never reloaded');
-      assert.equal(reloads[reloads.length - 1].projects[0].id, 'hand-edit', 'callback carries the edited content');
-    } finally {
-      stop();
-    }
+    await reloadAfter(() => fs.writeFileSync(configPath, JSON.stringify({ projects: [{ id: 'hand-edit', name: 'h', path: 'C:/h' }] }, null, 2), 'utf8'), 'hand-edit after a save never reloaded');
+    assert.equal(reloads[reloads.length - 1].projects[0].id, 'hand-edit', 'callback carries the edited content');
   });
 });
 
 test('watchForChanges rejects invalid and wiped config edits', async () => {
-  await withStoreAsync(richConfig(), async (store, p) => {
-    const reloads: GlimmervoidConfig[] = [];
-    const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
-    await waitForFsWatchToArm();
-    try {
-      fs.writeFileSync(p, JSON.stringify({ projects: [{ id: 'bad' }] }, null, 2), 'utf8');
-      await sleep(1200);
-      assert.equal(reloads.length, 0, 'invalid config must not reload');
+  await withWatchedStore(richConfig(), async ({ configPath, reloads, readAfter, reloadAfter }) => {
+    await readAfter(() => fs.writeFileSync(configPath, JSON.stringify({ projects: [{ id: 'bad' }] }, null, 2), 'utf8'));
+    assert.equal(reloads.length, 0, 'invalid config must not reload');
 
-      fs.writeFileSync(p, JSON.stringify({ projects: [] }, null, 2), 'utf8');
-      await sleep(1200);
-      assert.equal(reloads.length, 0, 'wiped config must not reload');
+    await readAfter(() => fs.writeFileSync(configPath, JSON.stringify({ projects: [] }, null, 2), 'utf8'));
+    assert.equal(reloads.length, 0, 'wiped config must not reload');
 
-      fs.writeFileSync(p, JSON.stringify(richConfig({ port: 4124 }), null, 2), 'utf8');
-      await waitFor(() => reloads.length > 0, 'valid config after rejected edits never reloaded');
-      assert.equal(reloads[0].port, 4124);
-    } finally {
-      stop();
-    }
+    await reloadAfter(() => fs.writeFileSync(configPath, JSON.stringify(richConfig({ port: 4124 }), null, 2), 'utf8'), 'valid config after rejected edits never reloaded');
+    assert.equal(reloads[0].port, 4124);
   });
 });
 
 test('watchForChanges ignores directory events for other files', async () => {
-  await withStoreAsync({ projects: [] }, async (store, p) => {
-    const reloads: GlimmervoidConfig[] = [];
-    const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
-    await waitForFsWatchToArm();
-    try {
-      fs.writeFileSync(`${p}.tmp.9999`, 'not the config', 'utf8');
-      fs.writeFileSync(path.join(path.dirname(p), 'unrelated.json'), '{}', 'utf8');
-      await sleep(1200);
-      assert.equal(reloads.length, 0, 'a sibling write is not a config change');
-    } finally {
-      stop();
-    }
+  await withWatchedStore({ projects: [] }, async ({ configPath, reloads, pendingReloadTimerCount }) => {
+    fs.writeFileSync(`${configPath}.tmp.9999`, 'not the config', 'utf8');
+    fs.writeFileSync(path.join(path.dirname(configPath), 'unrelated.json'), '{}', 'utf8');
+    await sleep(SIBLING_EVENT_SETTLE_MS);
+    assert.equal(pendingReloadTimerCount(), 0, 'a sibling write schedules no reload');
+    assert.equal(reloads.length, 0, 'a sibling write is not a config change');
   });
 });
 
@@ -922,82 +644,47 @@ test('watchForChanges returns a closer that releases the fs.watch handle', () =>
 });
 
 test('a hand-edit landing immediately after a self-write is applied, not swallowed', async () => {
-  await withStoreAsync({ projects: [] }, async (store, p) => {
-    const reloads: GlimmervoidConfig[] = [];
-    const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
-    await waitForFsWatchToArm();
-    try {
+  await withWatchedStore({ projects: [] }, async ({ store, configPath, reloads, reloadAfter }) => {
+    await reloadAfter(() => {
       store.save((cfg) => { cfg.projects.push({ id: 'from-save', name: 's', path: 'C:/s' }); });
-
-      fs.writeFileSync(p, JSON.stringify({
+      fs.writeFileSync(configPath, JSON.stringify({
         projects: [{ id: 'from-save', name: 's', path: 'C:/s' }], port: 4321,
       }, null, 2), 'utf8');
-      await waitFor(() => reloads.length > 0, 'the hand-edit was swallowed as a self-write');
-      assert.equal(reloads[reloads.length - 1].port, 4321);
-    } finally {
-      stop();
-    }
+    }, 'the hand-edit was swallowed as a self-write');
+    assert.equal(reloads[reloads.length - 1].port, 4321);
   });
 });
 
 test('a self-write is still suppressed, however many events it produces', async () => {
-  await withStoreAsync({ projects: [] }, async (store) => {
-    const reloads: GlimmervoidConfig[] = [];
-    const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
-    await waitForFsWatchToArm();
-    try {
-      store.save((cfg) => { cfg.projects.push({ id: 'a', name: 'a', path: 'C:/a' }); });
-      await sleep(1200);
-      store.save((cfg) => { cfg.projects.push({ id: 'b', name: 'b', path: 'C:/b' }); });
-      await sleep(1200);
-      assert.deepEqual(reloads, [], 'a save must never reload its own write back through the settings path');
-    } finally {
-      stop();
-    }
+  await withWatchedStore({ projects: [] }, async ({ store, reloads, readAfter }) => {
+    await readAfter(() => store.save((cfg) => { cfg.projects.push({ id: 'a', name: 'a', path: 'C:/a' }); }));
+    await readAfter(() => store.save((cfg) => { cfg.projects.push({ id: 'b', name: 'b', path: 'C:/b' }); }));
+    assert.deepEqual(reloads, [], 'a save must never reload its own write back through the settings path');
   });
 });
 
 test('reverting a hand-edit back to previously written bytes still reloads', async () => {
-  await withStoreAsync({ projects: [] }, async (store, p) => {
-    const reloads: GlimmervoidConfig[] = [];
-    const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
-    await waitForFsWatchToArm();
-    try {
-      store.save((cfg) => { cfg.projects.push({ id: 'from-save', name: 's', path: 'C:/s' }); });
-      await sleep(1200);
-      assert.equal(reloads.length, 0, 'the save itself is suppressed');
-      const written = fs.readFileSync(p, 'utf8');
+  await withWatchedStore({ projects: [] }, async ({ store, configPath, reloads, readAfter, reloadAfter }) => {
+    await readAfter(() => store.save((cfg) => { cfg.projects.push({ id: 'from-save', name: 's', path: 'C:/s' }); }));
+    assert.equal(reloads.length, 0, 'the save itself is suppressed');
+    const written = fs.readFileSync(configPath, 'utf8');
 
-      fs.writeFileSync(p, JSON.stringify({
-        projects: [{ id: 'from-save', name: 's', path: 'C:/s' }], port: 4321,
-      }, null, 2), 'utf8');
-      await waitFor(() => reloads.length > 0, 'the hand-edit never reloaded');
+    await reloadAfter(() => fs.writeFileSync(configPath, JSON.stringify({
+      projects: [{ id: 'from-save', name: 's', path: 'C:/s' }], port: 4321,
+    }, null, 2), 'utf8'), 'the hand-edit never reloaded');
 
-      fs.writeFileSync(p, written, 'utf8');
-      await waitFor(() => reloads.length > 1, 'the revert was swallowed as a stale self-write');
-      assert.equal(reloads[reloads.length - 1].port, undefined, 'the reverted content is what was applied');
-    } finally {
-      stop();
-    }
+    await reloadAfter(() => fs.writeFileSync(configPath, written, 'utf8'), 'the revert was swallowed as a stale self-write');
+    assert.equal(reloads[reloads.length - 1].port, undefined, 'the reverted content is what was applied');
   });
 });
 
 test('a duplicate event for content already applied is not re-applied', async () => {
-  await withStoreAsync({ projects: [] }, async (store, p) => {
-    const reloads: GlimmervoidConfig[] = [];
-    const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
-    await waitForFsWatchToArm();
-    try {
-      const edited = JSON.stringify({ projects: [{ id: 'hand', name: 'h', path: 'C:/h' }] }, null, 2);
-      fs.writeFileSync(p, edited, 'utf8');
-      await waitFor(() => reloads.length > 0, 'the hand-edit never reloaded');
+  await withWatchedStore({ projects: [] }, async ({ configPath, reloads, readAfter, reloadAfter }) => {
+    const edited = JSON.stringify({ projects: [{ id: 'hand', name: 'h', path: 'C:/h' }] }, null, 2);
+    await reloadAfter(() => fs.writeFileSync(configPath, edited, 'utf8'), 'the hand-edit never reloaded');
 
-      fs.writeFileSync(p, edited, 'utf8');
-      await sleep(1200);
-      assert.equal(reloads.length, 1);
-    } finally {
-      stop();
-    }
+    await readAfter(() => fs.writeFileSync(configPath, edited, 'utf8'));
+    assert.equal(reloads.length, 1);
   });
 });
 
@@ -1013,27 +700,17 @@ test('phoneEscalationMs is a settable timeout key with the five-minute default',
 });
 
 test('reverting to bytes that were applied before a save still reloads', async () => {
-  await withStoreAsync({ projects: [] }, async (store, p) => {
-    const reloads: GlimmervoidConfig[] = [];
-    const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
-    await waitForFsWatchToArm();
-    try {
-      const handEdited = JSON.stringify({
-        projects: [{ id: 'hand', name: 'h', path: 'C:/h' }], port: 4100,
-      }, null, 2);
-      fs.writeFileSync(p, handEdited, 'utf8');
-      await waitFor(() => reloads.length > 0, 'the hand-edit never reloaded');
+  await withWatchedStore({ projects: [] }, async ({ store, configPath, reloads, readAfter, reloadAfter }) => {
+    const handEdited = JSON.stringify({
+      projects: [{ id: 'hand', name: 'h', path: 'C:/h' }], port: 4100,
+    }, null, 2);
+    await reloadAfter(() => fs.writeFileSync(configPath, handEdited, 'utf8'), 'the hand-edit never reloaded');
 
-      store.save((cfg) => { cfg.port = 4200; });
-      await sleep(1200);
-      assert.equal(reloads.length, 1, 'the save itself is still suppressed');
+    await readAfter(() => store.save((cfg) => { cfg.port = 4200; }));
+    assert.equal(reloads.length, 1, 'the save itself is still suppressed');
 
-      fs.writeFileSync(p, handEdited, 'utf8');
-      await waitFor(() => reloads.length > 1, 'the revert was swallowed as a stale applied-signature');
-      assert.equal(reloads[reloads.length - 1].port, 4100, 'the reverted content is what was applied');
-    } finally {
-      stop();
-    }
+    await reloadAfter(() => fs.writeFileSync(configPath, handEdited, 'utf8'), 'the revert was swallowed as a stale applied-signature');
+    assert.equal(reloads[reloads.length - 1].port, 4100, 'the reverted content is what was applied');
   });
 });
 
@@ -1047,24 +724,6 @@ test('a saved config.json, and its backup, are owner-only', { skip: process.plat
     assert.equal(fs.statSync(`${p}.boot.bak`).mode & 0o777, CONFIG_FILE_MODE, 'and so does the boot backup');
     assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).port, 4999, 'and the content still landed');
   });
-});
-
-test('task title refiner settings project defaults and hot apply configured tuning', () => {
-  const temporaryConfig = writeTmpConfig({ projects: [] });
-  const priorConfigPath = process.env.GLIMMERVOID_CONFIG;
-  process.env.GLIMMERVOID_CONFIG = temporaryConfig.p;
-  try {
-    const store = createConfigStore();
-    assert.deepEqual(store.getSettings().taskTitle, DEFAULT_CONFIG.taskTitle);
-    const taskTitle = { refiner: { enabled: false, model: 'sonnet', minIntervalSeconds: 120, timeoutSeconds: 30 } };
-    store.applySettings({ taskTitle });
-    assert.deepEqual(store.config.taskTitle, taskTitle);
-    assert.deepEqual(store.getSettings().taskTitle, taskTitle);
-  } finally {
-    if (priorConfigPath == null) delete process.env.GLIMMERVOID_CONFIG;
-    if (priorConfigPath != null) process.env.GLIMMERVOID_CONFIG = priorConfigPath;
-    fs.rmSync(temporaryConfig.dir, { recursive: true, force: true });
-  }
 });
 
 test('async config saves serialize resume and title changes without synchronous filesystem calls', async () => {

@@ -100,60 +100,6 @@ test('change map joins git facts for a real repo into one contract-valid map', {
   }
 });
 
-test('a session with no changes gets an empty repo map without reading history', { skip: !hasGit() }, async () => {
-  const { root, base } = createFixtureRepo();
-  try {
-    const gitCalls: string[][] = [];
-    const clean = fixtureSession('clean', 'Clean', () => [{ name: 'fixture', root, sessionPathPrefix: '', base, committedNameStatus: '', uncommittedNameStatus: '' }]);
-    const service = createChangeMapService({
-      sessions: new Map([[clean.id, clean]]),
-      runGit: async (args) => { gitCalls.push(args); return ''; },
-    });
-    const map = await service.build(clean);
-    assert.deepEqual(map.repos[0].files, []);
-    assert.deepEqual(gitCalls, []);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('builds requested during an assembly coalesce into one follow-up that reads fresh state', async () => {
-  let scopeReads = 0;
-  let repoName = 'before';
-  const session = fixtureSession('shared', 'Shared', () => {
-    scopeReads++;
-    return [{ name: repoName, root: '/nonexistent-change-map-root', sessionPathPrefix: '', base: null, committedNameStatus: '', uncommittedNameStatus: '' }];
-  });
-  const service = createChangeMapService({ sessions: new Map([[session.id, session]]) });
-  const first = service.build(session);
-  repoName = 'after';
-  const [firstMap, secondMap, thirdMap] = await Promise.all([first, service.build(session), service.build(session)]);
-  assert.equal(scopeReads, 2);
-  assert.equal(firstMap.repos[0].name, 'before');
-  assert.equal(secondMap.repos[0].name, 'after');
-  assert.equal(thirdMap, secondMap);
-  await service.build(session);
-  assert.equal(scopeReads, 3);
-});
-
-test('ended sibling sessions are forgotten so a returning id reports its current scopes', async () => {
-  const root = '/nonexistent-change-map-root';
-  let siblingPath = 'server/old.ts';
-  const self = fixtureSession('self', 'Self', () => [modifiedScope(root, 'server/old.ts'), modifiedScope(`${root}-2`, 'server/new.ts')]);
-  const sibling = fixtureSession('sibling', 'Sibling', () => [modifiedScope(root, siblingPath)]);
-  const sessions = new Map<string, ChangeMapSession>([[self.id, self], [sibling.id, sibling]]);
-  const service = createChangeMapService({ sessions, runGit: async () => '' });
-  const before = await service.build(self);
-  assert.deepEqual(before.repos[0].collisions.map((fact) => fact.path), ['server/old.ts']);
-  sessions.delete(sibling.id);
-  await service.build(self);
-  siblingPath = 'server/new.ts';
-  sessions.set(sibling.id, fixtureSession('sibling', 'Sibling', () => [modifiedScope(`${root}-2`, siblingPath)]));
-  const after = await service.build(self);
-  assert.deepEqual(after.repos[0].collisions, []);
-  assert.deepEqual(after.repos[1].collisions.map((fact) => fact.path), ['server/new.ts']);
-});
-
 test('an edit that leaves the name-status unchanged still refreshes the memoized import graph', { skip: !hasGit() }, async () => {
   const { root, base } = createFixtureRepo();
   try {

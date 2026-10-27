@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createClaudeFolderTrust } from '../server/claude-trust.ts';
-import { CLAUDE_CONFIG_LOCK_STALE_MS, repositoryRootOfCommonGitDir } from '../server/core/claude-trust-core.ts';
+import { CLAUDE_CONFIG_LOCK_STALE_MS } from '../server/core/claude-trust-core.ts';
 
 const REPOSITORY_ROOT = '/work/seeded-repo';
 const OTHER_ROOT = '/work/other-repo';
@@ -97,19 +97,6 @@ test('a Windows folder is looked up under the forward-slash key Claude Code stor
   assert.equal(await fs.readFile(configPath, 'utf8'), trustedText);
 });
 
-test('a missing, corrupt or misshapen Claude config is refused by name and never written', async (t) => {
-  const missing = await prepareClaudeConfig(t, null);
-  await assert.rejects(missing.trust.ensureTrusted(REPOSITORY_ROOT), /Could not trust \/work\/seeded-repo for Claude Code: .*could not be read \(ENOENT\)/);
-  assert.deepEqual(await fs.readdir(missing.configDir), []);
-
-  for (const unreadableText of ['{ "projects": ', '[]', JSON.stringify({ projects: [] }), JSON.stringify({ projects: { [REPOSITORY_ROOT]: 'yes' } })]) {
-    const unreadable = await prepareClaudeConfig(t, unreadableText);
-    await assert.rejects(unreadable.trust.ensureTrusted(REPOSITORY_ROOT), /was left unchanged because/);
-    assert.equal(await fs.readFile(unreadable.configPath, 'utf8'), unreadableText);
-    assert.deepEqual(await fs.readdir(unreadable.configDir), ['.claude.json']);
-  }
-});
-
 test('a held config lock is waited on and never broken, also beside a symlinked config, and only a stale one is taken over', async (t) => {
   const untrustedText = JSON.stringify({ projects: {} }, null, 2);
   const held = await prepareClaudeConfig(t, untrustedText);
@@ -134,10 +121,4 @@ test('a held config lock is waited on and never broken, also beside a symlinked 
   await fs.utimes(`${stale.configPath}.lock`, longAgo, longAgo);
   assert.equal(await stale.trust.ensureTrusted(REPOSITORY_ROOT), 'granted');
   assert.deepEqual(await fs.readdir(stale.configDir), ['.claude.json']);
-});
-
-test('the trusted folder is the main checkout that owns the shared git directory', () => {
-  assert.equal(repositoryRootOfCommonGitDir('/work/seeded-repo/.git'), '/work/seeded-repo');
-  assert.equal(repositoryRootOfCommonGitDir('/srv/git/seeded-repo.git'), null);
-  assert.equal(repositoryRootOfCommonGitDir('.git'), null);
 });

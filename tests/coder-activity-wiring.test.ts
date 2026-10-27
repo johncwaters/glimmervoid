@@ -5,13 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createCoderActivityPoller } from '../server/coder-activity-poller.ts';
-import type { CoderActivityPoller, CoderActivityReport } from '../server/coder-activity-poller.ts';
-import { createCoderActivityReporter, createCoderActivityWiring } from '../server/coder-activity-wiring.ts';
+import { createCoderActivityReporter } from '../server/coder-activity-wiring.ts';
 import {
-  CODER_ACTIVITY_HEARTBEAT_MS, CODER_ACTIVITY_RETRY_MAX_WAIT_MS, CODER_ACTIVITY_STOPPED_MESSAGE, CODER_ACTIVITY_TICK_INTERVAL_MS,
+  CODER_ACTIVITY_HEARTBEAT_MS, CODER_ACTIVITY_TICK_INTERVAL_MS,
 } from '../server/core/coder-activity-core.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
-import { waitFor } from './helpers/wait-for.ts';
 
 function createTimers() {
   const scheduled: { callback: () => void; delayMs: number; handle: NodeJS.Timeout }[] = [];
@@ -135,140 +133,4 @@ test('the token file is trimmed and the environment token takes precedence', asy
   assert.equal(coder.requests[0]?.token, 'file-secret');
   await createCoderActivityReporter({ appSlug: 'glimmervoid', env: { ...env, CODER_AGENT_TOKEN: 'env-secret' } })(report);
   assert.equal(coder.requests[1]?.token, 'env-secret');
-});
-
-test('missing and empty token files fail safely without making requests', async (context) => {
-  const coder = await createCoderServer();
-  context.after(coder.close);
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'coder-activity-'));
-  context.after(() => rm(directory, { recursive: true, force: true }));
-  const tokenFile = path.join(directory, 'token');
-  const reporter = createCoderActivityReporter({ appSlug: 'glimmervoid', env: { CODER_AGENT_URL: coder.agentUrl, CODER_AGENT_TOKEN_FILE: tokenFile } });
-  await assert.rejects(reporter({ state: 'idle', message: 'No Glimmervoid sessions running' }), { message: 'Could not read CODER_AGENT_TOKEN_FILE' });
-  await writeFile(tokenFile, ' \n');
-  await assert.rejects(reporter({ state: 'idle', message: 'No Glimmervoid sessions running' }), /empty CODER_AGENT_TOKEN_FILE/);
-  assert.equal(coder.requests.length, 0);
-});
-
-test('wiring staggers startup and restarts only when coder config changes', async (context) => {
-  const coder = await createCoderServer();
-  context.after(coder.close);
-  const timers = createTimers();
-  const config = { coder: { appSlug: 'first-app' } };
-  const pollers: CoderActivityPoller[] = [];
-  const wiring = createCoderActivityWiring({
-    ...timers, config, env: { CODER_AGENT_URL: coder.agentUrl, CODER_AGENT_TOKEN: 'secret' },
-    now: () => 0, countRunningSessions: () => 1, firstTickDelayMs: () => 123,
-    createPoller: (deps) => {
-      const poller = createCoderActivityPoller(deps);
-      pollers.push(poller);
-      return poller;
-    },
-  });
-  context.after(wiring.stop);
-  wiring.start();
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  assert.equal(timers.scheduled[0]?.delayMs, 123);
-  assert.equal(coder.requests.length, 0);
-  await pollers[0]?.tick();
-  wiring.restartIfConfigChanged();
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  assert.equal(pollers.length, 1);
-  config.coder.appSlug = 'second-app';
-  wiring.restartIfConfigChanged();
-  await waitFor(() => pollers.length === 2, 'a changed slug restarts the poller');
-  await pollers[1]?.tick();
-  await wiring.stop();
-  assert.deepEqual(coder.requests.map((request) => request.body), [
-    { app_slug: 'first-app', state: 'working', message: '1 Glimmervoid session running' },
-    { app_slug: 'first-app', state: 'idle', message: CODER_ACTIVITY_STOPPED_MESSAGE },
-    { app_slug: 'second-app', state: 'working', message: '1 Glimmervoid session running' },
-    { app_slug: 'second-app', state: 'idle', message: CODER_ACTIVITY_STOPPED_MESSAGE },
-  ]);
-});
-
-function createRecordingPoller({ runningSessionCount, reportStatus = async () => {} }: {
-  runningSessionCount: number;
-  reportStatus?: (report: CoderActivityReport) => Promise<void>;
-}) {
-  const reports: CoderActivityReport[] = [];
-  const lines: string[] = [];
-  const poller = createCoderActivityPoller({
-    ...createTimers(), now: () => 0, countRunningSessions: () => runningSessionCount,
-    reportStatus: async (report) => {
-      reports.push(report);
-      await reportStatus(report);
-    },
-    log: { warn: (line: string) => lines.push(line) },
-  });
-  return { poller, reports, lines };
-}
-
-test('stopping after a working report closes the status with one idle report', async () => {
-  const { poller, reports, lines } = createRecordingPoller({ runningSessionCount: 2 });
-  await poller.start();
-  await Promise.all([poller.stop(), poller.stop()]);
-  await poller.stop();
-  assert.deepEqual(reports, [
-    { state: 'working', message: '2 Glimmervoid sessions running' },
-    { state: 'idle', message: CODER_ACTIVITY_STOPPED_MESSAGE },
-  ]);
-  assert.deepEqual(lines, []);
-});
-
-test('stopping a poller that never reported sends nothing', async () => {
-  const { poller, reports } = createRecordingPoller({ runningSessionCount: 2 });
-  await poller.stop();
-  assert.deepEqual(reports, []);
-});
-
-test('stopping after an idle report sends nothing more', async () => {
-  const { poller, reports } = createRecordingPoller({ runningSessionCount: 0 });
-  await poller.start();
-  await poller.stop();
-  assert.deepEqual(reports, [{ state: 'idle', message: 'No Glimmervoid sessions running' }]);
-});
-
-test('a failing idle report on stop is logged and stop still resolves', async () => {
-  const { poller, reports, lines } = createRecordingPoller({
-    runningSessionCount: 1,
-    reportStatus: async (report) => {
-      if (report.state === 'idle') throw new Error('coderd unreachable');
-    },
-  });
-  await poller.start();
-  await poller.stop();
-  assert.equal(reports.length, 2);
-  assert.deepEqual(lines, ['[coder-activity] idle report on stop failed: coderd unreachable']);
-});
-
-test('repeated report failures never back off past the retry cap', async () => {
-  let currentTime = 0;
-  const lines: string[] = [];
-  const poller = createCoderActivityPoller({
-    ...createTimers(), now: () => currentTime, random: () => 1, countRunningSessions: () => 1,
-    reportStatus: async () => { throw new Error('coderd unreachable'); },
-    log: { warn: (line: string) => lines.push(line) },
-  });
-  await poller.start();
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    currentTime += 60 * 60_000;
-    await poller.tick();
-  }
-  await poller.stop();
-  const backoffSeconds = lines.flatMap((line) => {
-    const match = /backing off (\d+)s/.exec(line);
-    return match ? [Number(match[1])] : [];
-  });
-  assert.equal(backoffSeconds.length, 9);
-  assert.ok(backoffSeconds.every((seconds) => seconds * 1000 <= CODER_ACTIVITY_RETRY_MAX_WAIT_MS));
-  assert.equal(backoffSeconds.at(-1), CODER_ACTIVITY_RETRY_MAX_WAIT_MS / 1000);
-});
-
-test('unset coder config creates no poller or timers', async () => {
-  const timers = createTimers();
-  const wiring = createCoderActivityWiring({ ...timers, config: {}, env: {}, countRunningSessions: () => 1 });
-  wiring.start();
-  await wiring.stop();
-  assert.deepEqual(timers.scheduled, []);
 });

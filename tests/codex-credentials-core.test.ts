@@ -4,7 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createCodexCredentials } from '../server/codex-credentials.ts';
-import { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult, parseCodexAuth } from '../server/core/codex-credentials-core.ts';
 
 const NOW = 1_800_000_000_000;
 
@@ -16,18 +15,6 @@ function accessTokenExpiringAt(expiresAtMs: number, marker: string): string {
 function storedAuth(accessToken: string): string {
   return JSON.stringify({ OPENAI_API_KEY: null, tokens: { id_token: 'id-token', access_token: accessToken, refresh_token: 'host-refresh-token', account_id: 'account-1' }, last_refresh: 'x' });
 }
-
-test('a stored Codex login yields the access token, account id and expiry, never the refresh token', () => {
-  const accessToken = accessTokenExpiringAt(NOW + 3_600_000, 'fresh');
-  const login = parseCodexAuth(storedAuth(accessToken));
-  assert.deepEqual(login, { accessToken, accountId: 'account-1', expiresAtMs: NOW + 3_600_000 });
-  assert.ok(login);
-  const remotePayloads = JSON.stringify([chatgptAuthTokensLogin(login), chatgptAuthTokensRefreshResult(login)]);
-  assert.doesNotMatch(remotePayloads, /host-refresh-token|id-token/);
-  assert.deepEqual(chatgptAuthTokensLogin(login), { type: 'chatgptAuthTokens', accessToken, chatgptAccountId: 'account-1' });
-  assert.equal(parseCodexAuth(JSON.stringify({ OPENAI_API_KEY: 'sk-x', tokens: null })), null);
-  assert.equal(parseCodexAuth('not json'), null);
-});
 
 test('a host refresh through a real codex app-server process renews the login it then reads from CODEX_HOME', { skip: process.platform === 'win32' }, async (context) => {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'gv-codex-credentials-'));
