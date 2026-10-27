@@ -91,6 +91,10 @@
     {
       "name": "channel",
       "definition": "The update stream an install follows: release (npm latest) or experimental (the newer of npm next and latest)"
+    },
+    {
+      "name": "copy",
+      "definition": "Text an agent or the operator puts on the browser clipboard from a terminal, offered through the Copy to clipboard prompt when the browser blocks the agent's own write."
     }
   ]
 }
