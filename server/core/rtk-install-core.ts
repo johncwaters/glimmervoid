@@ -100,4 +100,4 @@ function findEscapingArchiveMember(listingText: unknown): string | null {
   return null;
 }
 
-export { findEscapingArchiveMember, RTK_VERSION, RTK_ASSETS, INSTALL_FAILURE_COOLDOWN_MS, assetForPlatform, decideRtkInstall, verifyDigest, installTargetPath, isRtkBinaryName };
+export { findEscapingArchiveMember, assetForPlatform, decideRtkInstall, verifyDigest, installTargetPath, isRtkBinaryName };

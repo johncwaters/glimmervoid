@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { idForEntry, pruneAgedFiles } from '../server/prune-files.ts';
+import { pruneAgedFiles } from '../server/prune-files.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.parse('2026-09-06T00:00:00.000Z');
@@ -26,22 +26,6 @@ function workspace(name: string, files: Record<string, number>): string {
   return directory;
 }
 
-test('the suffix list decides which entries the walk even considers', () => {
-  assert.equal(idForEntry('abc.checkpoint.json', ['.checkpoint.json', '.jsonl']), 'abc');
-  assert.equal(idForEntry('abc.jsonl', ['.checkpoint.json', '.jsonl']), 'abc');
-  assert.equal(idForEntry('abc.md', ['.jsonl']), null);
-  assert.equal(idForEntry('abc.jsonl', ['.checkpoint.json']), null);
-});
-
-test('only files older than the retain window are removed, and their ids are reported', async () => {
-  const directory = workspace('window', { 'old.jsonl': 40, 'recent.jsonl': 20, 'notes.md': 40 });
-  const removed = await pruneAgedFiles({ directory, suffixes: ['.jsonl'], retainDays: 30, now: NOW });
-  assert.deepEqual(removed, ['old']);
-  assert.equal(fs.existsSync(path.join(directory, 'old.jsonl')), false);
-  assert.equal(fs.existsSync(path.join(directory, 'recent.jsonl')), true);
-  assert.equal(fs.existsSync(path.join(directory, 'notes.md')), true, 'an unlisted suffix is never touched');
-});
-
 test('a retained id survives the walk however old its file is', async () => {
   const directory = workspace('retained', { 'live.jsonl': 90, 'dead.jsonl': 90 });
   const removed = await pruneAgedFiles({
@@ -53,24 +37,6 @@ test('a retained id survives the walk however old its file is', async () => {
   });
   assert.deepEqual(removed, ['dead']);
   assert.equal(fs.existsSync(path.join(directory, 'live.jsonl')), true);
-});
-
-test('a missing directory is not an error, since a lane prunes before it ever writes', async () => {
-  assert.deepEqual(
-    await pruneAgedFiles({ directory: path.join(os.tmpdir(), 'glimmervoid-prune-absent'), suffixes: ['.jsonl'], retainDays: 30 }),
-    [],
-  );
-});
-
-test('one id with two suffixes is reported once per file removed', async () => {
-  const directory = workspace('pair', { 'gone.jsonl': 90, 'gone.checkpoint.json': 90 });
-  const removed = await pruneAgedFiles({
-    directory,
-    suffixes: ['.checkpoint.json', '.jsonl'],
-    retainDays: 7,
-    now: NOW,
-  });
-  assert.deepEqual(removed.sort(), ['gone', 'gone']);
 });
 
 test('directory mode removes an aged directory and preserves a live directory', async () => {

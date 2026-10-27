@@ -242,9 +242,6 @@ function createPosthogApi({ host, apiKey, fetchFn }: {
 }
 
 export {
-  DEFAULT_BASELINE_DAYS,
-  MAX_BASELINE_DAYS,
-  clampBaselineDays,
   createPosthogApi,
   normalizeIssue,
   normalizeIssues,

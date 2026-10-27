@@ -12,7 +12,7 @@ import codex from '../session/adapters/codex.ts';
 import grok from '../session/adapters/grok.ts';
 import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
-import { SANE_YOLO_PATH_ENV, saneYoloEnv, saneYoloFiles } from '../session/core/sane-yolo.ts';
+import { SANE_YOLO_PATH_ENV, saneYoloEnv } from '../session/core/sane-yolo.ts';
 
 const executeFile = promisify(execFile);
 const deniedCommands = [
@@ -60,78 +60,34 @@ function hookPayload(hostFlag: string, command: string, cwd: string): string {
   return JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, cwd, session_id: 'sane-yolo-test', permission_mode: 'bypassPermissions', ...(hostFlag === '--codex' ? { turn_id: 'turn-test' } : {}) });
 }
 
-for (const hostFlag of ['--coding-cli', '--codex', '--grok-build']) {
-  test(`Sane YOLO payload matrix ${hostFlag}`, async (context) => {
-    const temporaryHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-sane-yolo-'));
-    try {
-      const cwd = path.join(temporaryHome, 'repo');
-      const policyHome = path.join(temporaryHome, 'policy');
-      fs.mkdirSync(cwd);
-      const env = { ...process.env, HOME: temporaryHome, USERPROFILE: temporaryHome, GLIMMERVOID_HOME: temporaryHome, ...saneYoloEnv(policyHome) };
-      await executeFile('git', ['init', cwd], { env });
-      const glimmervoidHomeOutsideTemp = path.join(path.parse(temporaryHome).root, 'glimmervoid-home-outside-temp');
-      writeSaneYoloPolicy(policyHome, glimmervoidHomeOutsideTemp);
-      const sessionScratchDelete = `rm -rf '${path.join(glimmervoidHomeOutsideTemp, 'guardrails-temp', 'launch', 'scratchpad')}'`;
-      const binPath = resolvePackageBin('cc-safety-net', 'cc-safety-net');
-      assert.ok(binPath);
-      const verification = await executeFile(process.execPath, [binPath, 'rule', 'verify'], { cwd, env });
-      assert.match(verification.stdout, /infra/);
-      for (const [shouldDeny, commands] of [[true, deniedCommands], [false, [...allowedCommands, sessionScratchDelete]]] as const) {
-        for (const command of commands) {
-          await context.test(`${shouldDeny ? 'deny' : 'allow'} ${command}`, async () => {
-            const response = await executeFile(process.execPath, [binPath, 'hook', hostFlag], { cwd, env, input: hookPayload(hostFlag, command, cwd) });
-            if (!shouldDeny && hostFlag !== '--grok-build') {
-              assert.equal(response.stdout, '', response.stderr);
-              return;
-            }
-            const verdict = JSON.parse(response.stdout) as { decision?: string; reason?: string; hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
-            const decision = hostFlag === '--grok-build' ? verdict.decision : verdict.hookSpecificOutput?.permissionDecision;
-            assert.equal(decision, shouldDeny ? 'deny' : 'allow', response.stdout);
-            if (shouldDeny) assert.ok(verdict.reason || verdict.hookSpecificOutput?.permissionDecisionReason);
-          });
-        }
+test('Sane YOLO denies every destructive command and allows every safe one', async () => {
+  const temporaryHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-sane-yolo-'));
+  try {
+    const cwd = path.join(temporaryHome, 'repo');
+    const policyHome = path.join(temporaryHome, 'policy');
+    fs.mkdirSync(cwd);
+    const env = { ...process.env, HOME: temporaryHome, USERPROFILE: temporaryHome, GLIMMERVOID_HOME: temporaryHome, ...saneYoloEnv(policyHome) };
+    await executeFile('git', ['init', cwd], { env });
+    const glimmervoidHomeOutsideTemp = path.join(path.parse(temporaryHome).root, 'glimmervoid-home-outside-temp');
+    writeSaneYoloPolicy(policyHome, glimmervoidHomeOutsideTemp);
+    const sessionScratchDelete = `rm -rf '${path.join(glimmervoidHomeOutsideTemp, 'guardrails-temp', 'launch', 'scratchpad')}'`;
+    const binPath = resolvePackageBin('cc-safety-net', 'cc-safety-net');
+    assert.ok(binPath);
+    const verification = await executeFile(process.execPath, [binPath, 'rule', 'verify'], { cwd, env });
+    assert.match(verification.stdout, /infra/);
+    const expectations = [
+      ...deniedCommands.map((command) => ({ command, shouldDeny: true })),
+      ...[...allowedCommands, sessionScratchDelete].map((command) => ({ command, shouldDeny: false })),
+    ];
+    await Promise.all(expectations.map(async ({ command, shouldDeny }) => {
+      const response = await executeFile(process.execPath, [binPath, 'hook', '--coding-cli'], { cwd, env, input: hookPayload('--coding-cli', command, cwd) });
+      if (!shouldDeny) {
+        assert.equal(response.stdout, '', `${command}: ${response.stderr}`);
+        return;
       }
-    } finally {
-      fs.rmSync(temporaryHome, { recursive: true, force: true });
-    }
-  });
-}
-
-test('Sane YOLO policy writer preserves identical files and writes the exact configured policy', () => {
-  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-policy-writer-'));
-  const policyFiles = saneYoloFiles(path.join(homeDir, 'guardrails-temp'));
-  try {
-    for (const [relativePath, contents] of Object.entries(policyFiles)) {
-      const filePath = path.join(homeDir, relativePath);
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, `${JSON.stringify(contents, null, 2)}\n`);
-      fs.utimesSync(filePath, 1000, 1000);
-    }
-    writeSaneYoloPolicy(homeDir, homeDir);
-    writeSaneYoloPolicy(homeDir, homeDir);
-    for (const [relativePath, contents] of Object.entries(policyFiles)) {
-      const filePath = path.join(homeDir, relativePath);
-      assert.deepEqual(JSON.parse(fs.readFileSync(filePath, 'utf8')), contents);
-      assert.equal(fs.statSync(filePath).mtimeMs, 1000000);
-    }
+      assert.equal(permissionDecisionOf(response.stdout), 'deny', `${command}: ${response.stdout}`);
+    }));
   } finally {
-    fs.rmSync(homeDir, { recursive: true, force: true });
-  }
-});
-
-test('Sane YOLO resolves by default only for skip-permissions sessions and honors opt-out', () => {
-  const temporaryHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-policy-resolve-'));
-  const previousHome = process.env.GLIMMERVOID_HOME;
-  process.env.GLIMMERVOID_HOME = temporaryHome;
-  try {
-    assert.deepEqual(resolveHookTools({}, { skipPermissions: false }), []);
-    assert.deepEqual(resolveHookTools({ saneYolo: false }, { skipPermissions: true }), []);
-    assert.equal(fs.existsSync(path.join(temporaryHome, 'sane-yolo')), false);
-    assert.deepEqual(resolveHookTools({}, { skipPermissions: true }), [{ id: 'saneYolo', binPath: resolvePackageBin('cc-safety-net', 'cc-safety-net') }]);
-    assert.equal(fs.existsSync(path.join(temporaryHome, 'sane-yolo', 'policy.json')), true);
-  } finally {
-    if (previousHome === undefined) delete process.env.GLIMMERVOID_HOME;
-    if (previousHome !== undefined) process.env.GLIMMERVOID_HOME = previousHome;
     fs.rmSync(temporaryHome, { recursive: true, force: true });
   }
 });

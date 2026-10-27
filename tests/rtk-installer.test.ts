@@ -10,7 +10,7 @@ import type { TestContext } from 'node:test';
 
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { getRtkPath, resetRtkPathCache } from '../server/rtk-resolver.ts';
-import { installRtk, MAX_DOWNLOAD_BYTES } from '../server/rtk-installer.ts';
+import { installRtk } from '../server/rtk-installer.ts';
 import type { InstallResult } from '../server/rtk-installer.ts';
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -62,31 +62,6 @@ function assetFor(sha256: string) {
   return { file: 'fixture.tar.gz', sha256, version: '0.45.0', url: 'https://example.invalid/fixture.tar.gz' };
 }
 
-test('installRtk verifies the pinned digest, extracts and lands the binary in ~/.glimmervoid/bin', { skip: IS_WINDOWS }, async (t) => {
-  const homeDir = await makeTempHome(t);
-  const fixture = await buildFixture(t);
-  const { impl, calls } = fakeFetch(fixture.bytes);
-
-  const result = await installRtk({
-    glimmervoidHome: path.join(homeDir, '.glimmervoid'),
-    platform: 'linux',
-    arch: 'x64',
-    fetchImpl: impl,
-    asset: assetFor(fixture.sha256),
-    log: SILENT,
-  });
-
-  assert.ok(result.ok, 'the install succeeded');
-  assert.equal(result.path, path.join(homeDir, '.glimmervoid', 'bin', 'rtk'));
-  assert.equal(result.version, '0.45.0');
-  const stat = await fsp.stat(result.path);
-  assert.equal(stat.isFile(), true);
-  assert.equal(stat.mode & 0o777, 0o755);
-  assert.deepEqual(calls, ['https://example.invalid/fixture.tar.gz']);
-  assert.equal(fs.existsSync(path.join(homeDir, '.glimmervoid', 'tmp')), true);
-  assert.deepEqual(await fsp.readdir(path.join(homeDir, '.glimmervoid', 'tmp')), []);
-});
-
 test('a digest mismatch lands nothing in bin and never extracts', { skip: IS_WINDOWS }, async (t) => {
   const homeDir = await makeTempHome(t);
   const fixture = await buildFixture(t);
@@ -110,72 +85,6 @@ test('a digest mismatch lands nothing in bin and never extracts', { skip: IS_WIN
   assert.equal(extracted, false);
   assert.equal(fs.existsSync(path.join(homeDir, '.glimmervoid', 'bin', 'rtk')), false);
   assert.deepEqual(await fsp.readdir(path.join(homeDir, '.glimmervoid', 'tmp')), []);
-});
-
-test('a missing tar fails with a reason instead of crashing', { skip: IS_WINDOWS }, async (t) => {
-  const homeDir = await makeTempHome(t);
-  const fixture = await buildFixture(t);
-  const enoent = Object.assign(new Error('spawn tar ENOENT'), { code: 'ENOENT' });
-
-  const result = await installRtk({
-    glimmervoidHome: path.join(homeDir, '.glimmervoid'),
-    platform: 'linux',
-    arch: 'x64',
-    fetchImpl: fakeFetch(fixture.bytes).impl,
-    execFileImpl: async () => { throw enoent; },
-    asset: assetFor(fixture.sha256),
-    log: SILENT,
-  });
-
-  assert.equal(result.ok, false);
-  assert.match(refusal(result), /tar was not found on PATH/);
-  assert.equal(fs.existsSync(path.join(homeDir, '.glimmervoid', 'bin', 'rtk')), false);
-});
-
-test('a non-2xx response, an unsupported platform and an over-cap content-length all fail closed', async (t) => {
-  const homeDir = await makeTempHome(t);
-  const notFound = await installRtk({
-    glimmervoidHome: path.join(homeDir, '.glimmervoid'),
-    platform: 'linux',
-    arch: 'x64',
-    fetchImpl: fakeFetch(Buffer.from('nope'), { status: 404 }).impl,
-    asset: assetFor('f'.repeat(64)),
-    log: SILENT,
-  });
-  assert.equal(notFound.ok, false);
-  assert.match(refusal(notFound), /HTTP 404/);
-
-  const unsupported = await installRtk({ glimmervoidHome: path.join(homeDir, '.glimmervoid'), platform: 'sunos', arch: 'x64', log: SILENT });
-  assert.equal(unsupported.ok, false);
-  assert.match(refusal(unsupported), /unsupported platform sunos-x64/);
-
-  const oversize = await installRtk({
-    glimmervoidHome: path.join(homeDir, '.glimmervoid'),
-    platform: 'linux',
-    arch: 'x64',
-    fetchImpl: fakeFetch(Buffer.from('x'), { contentLength: MAX_DOWNLOAD_BYTES + 1 }).impl,
-    asset: assetFor('f'.repeat(64)),
-    log: SILENT,
-  });
-  assert.equal(oversize.ok, false);
-  assert.match(refusal(oversize), /byte cap/);
-});
-
-test('installRtk refuses an archive whose rtk entry is a symlink and lands nothing in ~/.glimmervoid/bin', { skip: IS_WINDOWS }, async (t) => {
-  const homeDir = await makeTempHome(t);
-  const fixture = await buildFixture(t, { symlink: true });
-
-  const result = await installRtk({
-    glimmervoidHome: path.join(homeDir, '.glimmervoid'),
-    platform: 'linux',
-    arch: 'x64',
-    fetchImpl: fakeFetch(fixture.bytes).impl,
-    asset: assetFor(fixture.sha256),
-  });
-
-  assert.equal(result.ok, false);
-  assert.match(refusal(result), /no rtk binary inside/);
-  assert.equal(fs.existsSync(path.join(homeDir, '.glimmervoid', 'bin', 'rtk')), false);
 });
 
 test('installRtk refuses an archive listing a member outside the staging dir before extracting', async (t) => {

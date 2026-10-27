@@ -190,5 +190,5 @@ async function installRtk({
   }
 }
 
-export { MAX_DOWNLOAD_BYTES, installRtk };
+export { installRtk };
 export type { InstallResult };

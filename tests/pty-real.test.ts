@@ -108,11 +108,14 @@ test('Session carries real pty output and a real exit code through its events', 
 });
 
 test('kill() takes down a real pty process group, not just the direct child', { skip: isWindows }, async () => {
-  const { session, spawned } = makeRealSession({ script: 'sleep 30 & sleep 30', id: 'pty-real-kill' });
+  const { session, spawned } = makeRealSession({ script: 'sleep 30 & echo glimmervoid-group-ready; sleep 30', id: 'pty-real-kill' });
   const exits: Record<string, unknown>[] = [];
+  let output = '';
   session.on('exit', (detail) => exits.push(detail));
+  session.on('data', (chunk) => { output += chunk; });
   try {
     await session.start();
+    assert.ok(await waitFor(() => output.includes('glimmervoid-group-ready')), 'the pty never forked its background child');
     const groupPid = spawned[0].pid;
     session.kill();
     assert.ok(await waitFor(() => exits.length > 0), 'killed pty never reported exit');

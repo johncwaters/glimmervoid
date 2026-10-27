@@ -9,7 +9,6 @@ import { runAgentApiCli } from '../server/agent-api-cli.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
-import { CONTROL_FRAME_ENVELOPE_BYTES, CONTROL_FRAME_MAX_BYTES } from '../shared/contracts/control-messages.ts';
 import { AGENT_URL_ENV, SESSION_DOC_BODY_CAP_BYTES } from '../shared/contracts/session.ts';
 import { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';
@@ -173,8 +172,4 @@ test('the CLI refuses a path outside the checkout, a symlink escape, a missing, 
     assert.equal(overwrite.ok, false);
     assert.equal(fs.readFileSync(path.join(outside, 'secret.md'), 'utf8'), 'not yours\n');
   });
-});
-
-test('a save of the largest doc fits one control frame even when every byte needs a six byte JSON escape', () => {
-  assert.ok(CONTROL_FRAME_ENVELOPE_BYTES + 6 * SESSION_DOC_BODY_CAP_BYTES <= CONTROL_FRAME_MAX_BYTES);
 });

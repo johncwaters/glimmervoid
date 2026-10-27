@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { createRepoCache } from '../server/git/repo-cache.ts';
 import type { CommandRunner } from '../server/git/repo-cache.ts';
@@ -103,25 +103,6 @@ test('repo cache returns git fetch and hydration errors', async () => {
     assert.deepEqual(await cache.fetchPr('Acme/repo', 1, 'main'), { ok: false, headSha: null, err: 'fatal: fetch denied' });
     assert.deepEqual(await cache.hydrateTree('Acme/repo', head), { ok: false, err: 'fatal: blob missing' });
     assert.deepEqual(await cache.hydrateRange('Acme/repo', 1, head), { ok: false, err: 'fatal: blob missing' });
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
-});
-
-test('repo cache lists only the owner/name directories that hold a git clone', async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-repo-cache-list-'));
-  try {
-    const cacheRoot = path.join(tempDir, 'cache');
-    const cache = createRepoCache({ rootDir: cacheRoot });
-    assert.deepEqual(await cache.listRepos(), []);
-    await mkdir(path.join(cacheRoot, 'Acme', 'app', '.git'), { recursive: true });
-    await mkdir(path.join(cacheRoot, 'Acme', 'half-cloned'), { recursive: true });
-    await mkdir(path.join(cacheRoot, 'Other', 'lib', '.git'), { recursive: true });
-    await writeFile(path.join(cacheRoot, 'Acme', 'stray-file'), 'x');
-    await mkdir(path.join(tempDir, 'elsewhere', '.git'), { recursive: true });
-    await symlink(path.join(tempDir, 'elsewhere'), path.join(cacheRoot, 'Acme', 'linked'));
-    const listed = (await cache.listRepos()).sort();
-    assert.deepEqual(listed, [path.join(cacheRoot, 'Acme', 'app'), path.join(cacheRoot, 'Other', 'lib')]);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

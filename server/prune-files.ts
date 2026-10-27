@@ -57,4 +57,4 @@ async function pruneAgedFiles({
   return removedIds;
 }
 
-export { idForEntry, pruneAgedFiles };
+export { pruneAgedFiles };

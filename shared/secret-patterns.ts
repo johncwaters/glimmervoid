@@ -61,7 +61,7 @@ const INDEPENDENT_PATTERNS = [
   ...PEM_KEY_LINE_PATTERNS,
 ];
 
-export type SecretRange = { start: number; end: number };
+type SecretRange = { start: number; end: number };
 
 type MatchSpan = { matchStart: number; valueStart: number; end: number };
 

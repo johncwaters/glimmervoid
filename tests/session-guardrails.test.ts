@@ -45,21 +45,25 @@ test('a guarded session in a linked worktree cannot edit or commit in the main c
   const prepared = await prepare({ launchId: 'main-checkout-proof', cwd: sessionWorktree, hookPort: null, readablePaths: [], writablePaths: [sessionWorktree], agentSessionId: null });
   assert.ok(prepared.ok, prepared.ok ? '' : prepared.reason);
   context.after(() => prepared.launch.dispose());
-  const runGuarded = async (script: string) => {
-    const wrapped = await prepared.launch.wrap('/bin/sh', ['-c', script], { hasTerminal: false });
-    return spawnSync(wrapped.file, wrapped.args, { cwd: sessionWorktree, env: { ...process.env, ...prepared.launch.env }, encoding: 'utf8' });
-  };
   const identity = 'git -c user.name=t -c user.email=t@t';
-
-  assert.notEqual((await runGuarded(`printf stray >> ${mainCheckout}/.coherence/journal.jsonl`)).status, 0);
-  assert.notEqual((await runGuarded(`printf stray > ${mainCheckout}/.coherence/defect.jsonl`)).status, 0);
-  assert.notEqual((await runGuarded(`git -C ${mainCheckout} rm --quiet --cached .gitignore && ${identity} -C ${mainCheckout} commit --quiet -m stray`)).status, 0);
-  const ignoredWrite = await runGuarded(`printf cache > ${mainCheckout}/node_modules/probe`);
-  assert.equal(ignoredWrite.status, 0, ignoredWrite.stderr);
-  const ownFileWrite = await runGuarded('printf own > own.txt');
-  assert.equal(ownFileWrite.status, 0, ownFileWrite.stderr);
-  const ownWork = await runGuarded(`printf second >> .coherence/journal.jsonl && ${identity} commit --quiet -am own && git push --quiet origin session-branch:main`);
-  assert.equal(ownWork.status, 0, ownWork.stderr);
+  const commandByProbe = {
+    mainJournalAppend: `printf stray >> ${mainCheckout}/.coherence/journal.jsonl`,
+    mainLedgerCreate: `printf stray > ${mainCheckout}/.coherence/defect.jsonl`,
+    mainCommit: `git -C ${mainCheckout} rm --quiet --cached .gitignore && ${identity} -C ${mainCheckout} commit --quiet -m stray`,
+    mainIgnoredWrite: `printf cache > ${mainCheckout}/node_modules/probe`,
+    ownFileWrite: 'printf own > own.txt',
+    ownCommitAndPush: `printf second >> .coherence/journal.jsonl && ${identity} commit --quiet -am own && git push --quiet origin session-branch:main`,
+  };
+  const probeScript = Object.entries(commandByProbe).map(([probe, command]) => `(${command}) >&2; echo "${probe}=$?"`).join('\n');
+  const wrapped = await prepared.launch.wrap('/bin/sh', ['-c', probeScript], { hasTerminal: false });
+  const ran = spawnSync(wrapped.file, wrapped.args, { cwd: sessionWorktree, env: { ...process.env, ...prepared.launch.env }, encoding: 'utf8' });
+  assert.equal(ran.status, 0, ran.stderr);
+  const exitStatusByProbe = Object.fromEntries([...ran.stdout.matchAll(/^(\w+)=(\d+)$/gm)].map(([, probe, status]) => [probe, Number(status)]));
+  const isRefused = (status: number | undefined) => status !== undefined && status !== 0;
+  assert.equal(isRefused(exitStatusByProbe.mainJournalAppend), true, ran.stderr);
+  assert.equal(isRefused(exitStatusByProbe.mainLedgerCreate), true, ran.stderr);
+  assert.equal(isRefused(exitStatusByProbe.mainCommit), true, ran.stderr);
+  assert.deepEqual([exitStatusByProbe.mainIgnoredWrite, exitStatusByProbe.ownFileWrite, exitStatusByProbe.ownCommitAndPush], [0, 0, 0], ran.stderr);
 
   assert.equal(await readFile(path.join(mainCheckout, '.coherence', 'journal.jsonl'), 'utf8'), 'first\n');
   assert.equal(git(mainCheckout, ['status', '--porcelain', '--untracked-files=no']), '');

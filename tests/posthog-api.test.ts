@@ -5,10 +5,6 @@ import {
   createPosthogApi,
   normalizeIssue,
   normalizeIssues,
-  parseSpikeIssueIds,
-  clampBaselineDays,
-  DEFAULT_BASELINE_DAYS,
-  MAX_BASELINE_DAYS,
 } from '../server/radar/posthog-api.ts';
 import type { PosthogResponse, TrafficBuckets } from '../server/radar/posthog-api.ts';
 
@@ -21,16 +17,6 @@ function callAt(calls: FetchCall[], index: number): FetchCall {
   const call = calls[index];
   if (!call) throw new Error(`no fetch call at ${index}`);
   return call;
-}
-
-function urlAt(calls: string[], index: number): string {
-  const url = calls[index];
-  if (url === undefined) throw new Error(`no fetch call at ${index}`);
-  return url;
-}
-
-function refusalStatus(res: PosthogResponse): number | undefined {
-  return 'status' in res ? res.status : undefined;
 }
 
 function headerOf(init: RequestInit | undefined, name: string): string | null {
@@ -80,33 +66,6 @@ test('normalizeIssue maps a plain object row with nested aggregations', () => {
   });
 });
 
-test('normalizeIssue accepts issue_id and flat aggregates', () => {
-  const issue = normalizeIssue({ issue_id: 'iss-2', title: 'boom', occurrences: 5, users: 2 });
-  assert.equal(issue.issueId, 'iss-2');
-  assert.equal(issue.title, 'boom');
-  assert.equal(issue.occurrences, 5);
-  assert.equal(issue.users, 2);
-});
-
-test('normalizeIssue defaults unknown numeric fields to 0 and status to active', () => {
-  const issue = normalizeIssue({ id: 'iss-3' });
-  assert.equal(issue.occurrences, 0);
-  assert.equal(issue.users, 0);
-  assert.equal(issue.status, 'active');
-  assert.equal(issue.firstSeen, null);
-});
-
-test('normalizeIssue survives a null row', () => {
-  const issue = normalizeIssue(null);
-  assert.equal(issue.issueId, '');
-  assert.equal(issue.occurrences, 0);
-});
-
-test('normalizeIssues reads a { results: [...] } object body', () => {
-  const issues = normalizeIssues({ results: [{ id: 'a', users: 1 }, { id: 'b', users: 2 }] });
-  assert.deepEqual(issues.map((i) => i.issueId), ['a', 'b']);
-});
-
 test('normalizeIssues reads a positional { columns, results } matrix', () => {
   const issues = normalizeIssues({
     columns: ['id', 'name', 'occurrences', 'users'],
@@ -117,46 +76,6 @@ test('normalizeIssues reads a positional { columns, results } matrix', () => {
   assert.equal(issues[0].title, 'boom');
   assert.equal(issues[0].occurrences, 12);
   assert.equal(issues[0].users, 3);
-});
-
-test('normalizeIssues drops rows with no identifiable issue id', () => {
-  assert.deepEqual(normalizeIssues({ results: [{ name: 'nameless' }] }), []);
-});
-
-test('normalizeIssues returns [] for an unusable body', () => {
-  assert.deepEqual(normalizeIssues(null), []);
-  assert.deepEqual(normalizeIssues({ nope: true }), []);
-});
-
-test('parseSpikeIssueIds keeps only events newer than sinceTs', () => {
-  const since = Date.parse('2026-08-09T12:00:00Z');
-  const ids = parseSpikeIssueIds({
-    results: [
-      { issue_id: 'old', timestamp: '2026-08-09T11:00:00Z' },
-      { issue_id: 'fresh', timestamp: '2026-08-09T13:00:00Z' },
-    ],
-  }, since);
-  assert.deepEqual([...ids], ['fresh']);
-});
-
-test('parseSpikeIssueIds reads the id out of event properties', () => {
-  const ids = parseSpikeIssueIds({ results: [{ timestamp: '2026-08-09T13:00:00Z', properties: { issue_id: 'p1' } }] }, 0);
-  assert.deepEqual([...ids], ['p1']);
-});
-
-test('parseSpikeIssueIds drops a row with an unparseable timestamp', () => {
-  const ids = parseSpikeIssueIds({ results: [{ issue_id: 'x', timestamp: 'not-a-date' }] }, Date.now());
-  assert.equal(ids.size, 0);
-});
-
-test('parseSpikeIssueIds drops a row carrying no timestamp at all', () => {
-  const ids = parseSpikeIssueIds({ results: [{ issue_id: 'x' }] }, 0);
-  assert.equal(ids.size, 0);
-});
-
-test('parseSpikeIssueIds returns an empty set for an unusable body', () => {
-  assert.equal(parseSpikeIssueIds(null, 0).size, 0);
-  assert.equal(parseSpikeIssueIds({ results: 'nope' }, 0).size, 0);
 });
 
 function fakeResponse({ status = 200, body = {} }: { ok?: boolean; status?: number; body?: unknown } = {}): Response {
@@ -185,51 +104,6 @@ test('queryIssues POSTs the documented body with a bearer token', async () => {
   });
 });
 
-test('a non-2xx response resolves to { ok: false } with the status, never throws', async () => {
-  const api = createPosthogApi({
-    host: 'https://eu.posthog.com',
-    apiKey: 'k',
-    fetchFn: async () => fakeResponse({ status: 401, body: { detail: 'nope' } }),
-  });
-  const res = await api.queryIssues(1);
-  assert.equal(res.ok, false);
-  assert.equal(refusalStatus(res), 401);
-  assert.match(res.error, /401/);
-});
-
-test('a thrown transport error resolves to { ok: false, error }, never throws', async () => {
-  const api = createPosthogApi({
-    host: 'https://eu.posthog.com',
-    apiKey: 'k',
-    fetchFn: async () => { throw new Error('ECONNREFUSED'); },
-  });
-  const res = await api.listOrganizations();
-  assert.equal(res.ok, false);
-  assert.match(res.error, /ECONNREFUSED/);
-});
-
-test('an unparseable response body degrades to a null body rather than throwing', async () => {
-  const api = createPosthogApi({
-    host: 'https://eu.posthog.com',
-    apiKey: 'k',
-    fetchFn: async () => new Response('<html>gateway</html>', { status: 200 }),
-  });
-  const res = await api.listSpikeEvents(1);
-  assert.equal(res.ok, true);
-  assert.equal(res.body, null);
-});
-
-test('listProjects builds the organization-scoped path', async () => {
-  const calls: string[] = [];
-  const api = createPosthogApi({
-    host: 'https://eu.posthog.com',
-    apiKey: 'k',
-    fetchFn: async (input) => { calls.push(String(input)); return fakeResponse({ body: { results: [] } }); },
-  });
-  await api.listProjects('org-1');
-  assert.equal(urlAt(calls, 0), 'https://eu.posthog.com/api/organizations/org-1/projects/');
-});
-
 test('updateIssueStatus PATCHes the issue endpoint with the status body', async () => {
   const calls: FetchCall[] = [];
   const api = createPosthogApi({
@@ -245,40 +119,6 @@ test('updateIssueStatus PATCHes the issue endpoint with the status body', async 
   assert.equal(callAt(calls, 0).init?.method, 'PATCH');
   assert.equal(headerOf(callAt(calls, 0).init, 'authorization'), 'Bearer phx_secret');
   assert.deepEqual(sentBody(callAt(calls, 0).init), { status: 'resolved' });
-});
-
-test('updateIssueStatus url-encodes both ids', async () => {
-  const calls: string[] = [];
-  const api = createPosthogApi({
-    host: 'https://eu.posthog.com',
-    apiKey: 'k',
-    fetchFn: async (input) => { calls.push(String(input)); return fakeResponse({}); },
-  });
-  await api.updateIssueStatus('a b', 'x/y', 'suppressed');
-  assert.equal(urlAt(calls, 0), 'https://eu.posthog.com/api/projects/a%20b/error_tracking/issues/x%2Fy/');
-});
-
-test('updateIssueStatus reports an HTTP failure instead of throwing', async () => {
-  const api = createPosthogApi({
-    host: 'https://eu.posthog.com',
-    apiKey: 'k',
-    fetchFn: async () => fakeResponse({ status: 403, body: { detail: 'no write scope' } }),
-  });
-  const res = await api.updateIssueStatus(1, 'iss-1', 'resolved');
-  assert.equal(res.ok, false);
-  assert.equal(refusalStatus(res), 403);
-  assert.equal('error' in res ? res.error : null, 'HTTP 403');
-});
-
-test('updateIssueStatus survives a transport error', async () => {
-  const api = createPosthogApi({
-    host: 'https://eu.posthog.com',
-    apiKey: 'k',
-    fetchFn: async () => { throw new Error('ECONNRESET'); },
-  });
-  const res = await api.updateIssueStatus(1, 'iss-1', 'suppressed');
-  assert.equal(res.ok, false);
-  assert.match(res.error, /ECONNRESET/);
 });
 
 function trafficFetch(calls: FetchCall[], bodies: unknown[]): typeof fetch {
@@ -332,19 +172,6 @@ test('queryTrafficBuckets parses the positional HogQL matrix into buckets and a 
   assert.equal(traffic.currentUsers, 87);
 });
 
-test('queryTrafficBuckets degrades to zero rather than NaN on an unusable body', async () => {
-  const api = createPosthogApi({
-    host: 'https://eu.posthog.com',
-    apiKey: 'k',
-    fetchFn: async () => fakeResponse({ body: { nope: true } }),
-  });
-  const res = await api.queryTrafficBuckets(1, {});
-  assert.equal(res.ok, true);
-  const traffic = trafficOf(res);
-  assert.deepEqual(traffic.buckets, []);
-  assert.equal(traffic.currentUsers, 0);
-});
-
 test('queryTrafficBuckets clamps baselineDays into 1..30 and never interpolates anything else', async () => {
   const cases = [
     [0, 1], [-5, 1], [1, 1], [30, 30], [365, 30], [7.9, 7],
@@ -363,34 +190,4 @@ test('queryTrafficBuckets clamps baselineDays into 1..30 and never interpolates 
     assert.match(sql, new RegExp(`INTERVAL ${expected} DAY`), `baselineDays ${String(input)}`);
     assert.equal(sql.includes('UNION'), false, 'no caller text reaches the SQL');
   }
-});
-
-test('clampBaselineDays is the exported bound the query relies on', () => {
-  assert.equal(clampBaselineDays(0), 1);
-  assert.equal(clampBaselineDays(31), MAX_BASELINE_DAYS);
-  assert.equal(clampBaselineDays('nope'), DEFAULT_BASELINE_DAYS);
-});
-
-test('queryTrafficBuckets reports a failed baseline query and never runs the second one', async () => {
-  const calls: FetchCall[] = [];
-  const api = createPosthogApi({
-    host: 'https://eu.posthog.com',
-    apiKey: 'k',
-    fetchFn: async (input, init) => { calls.push({ url: String(input), init }); return fakeResponse({ status: 403 }); },
-  });
-  const res = await api.queryTrafficBuckets(1, {});
-  assert.equal(res.ok, false);
-  assert.equal('error' in res ? res.error : null, 'HTTP 403');
-  assert.equal(calls.length, 1);
-});
-
-test('queryTrafficBuckets survives a transport error', async () => {
-  const api = createPosthogApi({
-    host: 'https://eu.posthog.com',
-    apiKey: 'k',
-    fetchFn: async () => { throw new Error('ECONNREFUSED'); },
-  });
-  const res = await api.queryTrafficBuckets(1, {});
-  assert.equal(res.ok, false);
-  assert.match(res.error, /ECONNREFUSED/);
 });

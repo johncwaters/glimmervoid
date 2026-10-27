@@ -66,4 +66,4 @@ function decideBindHost({ envHost, insecureBind }: { envHost?: unknown; insecure
   return { host, allowed: false, reason: 'non-loopback' };
 }
 
-export { normalizeRemoteConfig, validateRemoteConfig, isLoopbackHost, decideBindHost };
+export { normalizeRemoteConfig, validateRemoteConfig, decideBindHost };

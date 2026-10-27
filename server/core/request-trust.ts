@@ -148,7 +148,6 @@ export {
   decideOwnerAccess,
   decideRequestAccess,
   decideUpgradeAccess,
-  isPairPath,
   normalizePathname,
   normalizeClientTrust,
 };

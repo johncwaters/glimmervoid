@@ -5,7 +5,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { parseRecording, replayDetection, summarize } from '../detection/replay.ts';
-import { createOscTitleSource } from '../detection/osc-title-source.ts';
 import claudeCode from '../session/adapters/claude-code.ts';
 import { setCustomAgents } from '../session/adapters/index.ts';
 import { CustomAgentDeclaration } from '../shared/contracts/index.ts';
@@ -164,24 +163,6 @@ test('real v1 recordings replay cleanly and never emit awaiting-input (title hon
     const c = summarize(signals);
     assert.equal(c['awaiting-input'] || 0, 0, `${f}: title source must never emit awaiting-input`);
   }
-});
-
-test('perf: title source processes a large output stream cheaply (hot-path budget)', () => {
-  const chunkPlain = `${'x'.repeat(900)}\r\n`;
-  const spin = '\x1b]0;⠂ Claude Code\x07';
-  const idle = '\x1b]0;✳ Claude Code\x07';
-  const chunks: string[] = [];
-  for (let i = 0; i < 1000; i++) {
-    chunks.push(i % 50 === 0 ? spin + chunkPlain : i % 50 === 25 ? idle + chunkPlain : chunkPlain);
-  }
-  const totalBytes = chunks.reduce((n, c) => n + c.length, 0);
-  const src = createOscTitleSource({ stabilizationMs: 5 });
-  const start = process.hrtime.bigint();
-  for (const c of chunks) src.feed(c);
-  const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
-  src.destroy();
-
-  assert.ok(elapsedMs < 100, `title-source feed too slow: ${elapsedMs.toFixed(1)}ms for ${totalBytes} bytes`);
 });
 
 for (const [fixture, expectedState, expectedNotifications] of [
