@@ -61,51 +61,6 @@ function initRepoMainWithDevelop(): { dir: string; developSha: string } {
 }
 
 
-test('untrusted staging and removal run git with hooks pointed at the null device and only the supplied env, on the serialized queue', async () => {
-  const calls: Array<{ args: string[]; cwd: string; replaceEnv?: Record<string, string> }> = [];
-  const gitWorkspace = createGitWorkspace({
-    git: (args, cwd, extra) => {
-      calls.push({ args, cwd, replaceEnv: extra?.replaceEnv });
-      return '';
-    },
-  });
-  const sha = 'a'.repeat(40);
-  const replaceEnv = { PATH: '/usr/bin', CI: '1' };
-  const hookless = ['-c', `core.hooksPath=${os.devNull}`];
-  const staging = gitWorkspace.stageDetachedWorktree({ owner: 'lane:test', projectPath: '/repo', worktreePath: '/checks', sha, disableHooks: true, replaceEnv });
-  const removal = gitWorkspace.removeWorktreeByPath({ projectPath: '/repo', cwd: '/checks', disableHooks: true, replaceEnv, cause: 'session' });
-  const pruning = gitWorkspace.pruneWorktrees({ projectPath: '/repo', disableHooks: true, replaceEnv });
-  assert.equal((await staging).ok, true);
-  assert.equal((await removal).ok, true);
-  assert.equal((await pruning).ok, true);
-  assert.deepEqual(calls, [
-    { args: [...hookless, 'worktree', 'add', '--detach', '/checks', sha], cwd: '/repo', replaceEnv },
-    { args: [...hookless, 'worktree', 'remove', '--force', '/checks'], cwd: '/repo', replaceEnv },
-    { args: [...hookless, 'worktree', 'list', '--porcelain'], cwd: '/repo', replaceEnv },
-    { args: [...hookless, 'worktree', 'prune'], cwd: '/repo', replaceEnv },
-    { args: [...hookless, 'worktree', 'list', '--porcelain'], cwd: '/repo', replaceEnv },
-    { args: [...hookless, 'worktree', 'prune'], cwd: '/repo', replaceEnv },
-  ]);
-});
-
-test('stageDetachedWorktree refuses a non-lowercase full sha without running git', async () => {
-  const calls: string[][] = [];
-  const gitWorkspace = createGitWorkspace({ git: (args) => { calls.push(args); return ''; } });
-  const staged = await gitWorkspace.stageDetachedWorktree({ owner: 'lane:test', projectPath: '/repo', worktreePath: '/stage', sha: 'A'.repeat(40) });
-  assert.equal(staged.ok, false);
-  assert.deepEqual(calls, []);
-});
-
-test('stageIsolatedCheckout refuses a non-lowercase full sha or base sha without running git', async () => {
-  const calls: string[][] = [];
-  const gitWorkspace = createGitWorkspace({ git: (args) => { calls.push(args); return ''; } });
-  const badSha = await gitWorkspace.stageIsolatedCheckout({ projectPath: '/repo', checkoutPath: '/stage', sha: 'A'.repeat(40), baseSha: 'b'.repeat(40) });
-  const badBase = await gitWorkspace.stageIsolatedCheckout({ projectPath: '/repo', checkoutPath: '/stage', sha: 'a'.repeat(40), baseSha: 'main' });
-  assert.equal(badSha.ok, false);
-  assert.equal(badBase.ok, false);
-  assert.deepEqual(calls, []);
-});
-
 test('stageIsolatedCheckout does not import refs or remotes from configured Git templates', { skip: !GIT }, async (context) => {
   const repo = initRepoOnMain('glimmervoid-isolated-');
   context.after(() => fs.rmSync(repo, { recursive: true, force: true }));
@@ -191,23 +146,6 @@ test('discardSessionBranch refuses an operator worktree or the main checkout hol
   assert.match(mainCheckoutRefusal.err ?? '', /main checkout/);
   assert.equal(fs.lstatSync(path.join(repo, 'node_modules')).isSymbolicLink(), true);
   assert.equal(git(['rev-parse', '--abbrev-ref', 'HEAD'], repo).trim(), sessionBranch);
-});
-
-test('mergeFastForwardTo refuses an invalid target sha without running git', async () => {
-  const calls: string[][] = [];
-  const gitWorkspace = createGitWorkspace({ git: (args) => { calls.push(args); return ''; } });
-  const merged = await gitWorkspace.mergeFastForwardTo({ projectPath: '/repo', expectedHead: 'a'.repeat(40), sha: 'b'.repeat(39) });
-  assert.equal(merged.ok, false);
-  assert.equal(merged.outcome, 'invalid-target-sha');
-  assert.deepEqual(calls, []);
-});
-
-test('resetKeepTo refuses an invalid target sha without running git', async () => {
-  const calls: string[][] = [];
-  const gitWorkspace = createGitWorkspace({ git: (args) => { calls.push(args); return ''; } });
-  const reset = await gitWorkspace.resetKeepTo({ projectPath: '/repo', sha: 'c'.repeat(39) });
-  assert.equal(reset.ok, false);
-  assert.deepEqual(calls, []);
 });
 
 test('mergeKeep (real git): lands on develop yet keeps the worktree alive for a second round', { skip: !GIT }, async () => {

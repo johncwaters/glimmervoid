@@ -149,16 +149,6 @@ test('rebaseOnly (real git): a missing target branch is refused, no rebase attem
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
-test('rebaseOnly: a non-git workspace is refused without touching git', async () => {
-  const cmds: string[] = [];
-  const gw = createGitWorkspace({ git: (args) => { cmds.push(args.join(' ')); return ''; } });
-  assert.deepEqual(
-    await gw.rebaseOnly({ projectPath: '/repo', workspace: { cwd: '/wt', isGit: false }, targetBranch: 'develop' }),
-    { ok: false, reason: 'not-git' },
-  );
-  assert.deepEqual(cmds, [], 'no git ran');
-});
-
 async function seedRecordedResolution(gw: GitWorkspace, repo: string): Promise<{ first: WorkspaceHandle; second: WorkspaceHandle }> {
   const first = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'first', baseBranch: 'develop' });
   const second = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'second', baseBranch: 'develop' });

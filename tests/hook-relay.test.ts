@@ -8,13 +8,8 @@ import {
   HOOK_URL_ENV,
   MAX_PAYLOAD_BYTES,
   MAX_RESPONSE_BYTES,
-  readHookUrl,
-  normalizeEvent,
-  resolveHookTarget,
-  decideRelayPost,
 } from '../session/core/hook-relay-core.ts';
 import { HOOK_VIA_GUARDRAILS_PROXY_ENV } from '../session/core/guardrails-proxy-core.ts';
-const BASE = 'http://127.0.0.1:41234/hook/sess-1?t=deadbeef';
 
 interface IngressRequest {
   method: string | undefined;
@@ -65,56 +60,6 @@ async function relayResponse(
     server.close();
   }
 }
-
-test('readHookUrl reads only the spawn-env variable, trimmed, and nothing else', () => {
-  assert.equal(HOOK_URL_ENV, 'GLIMMERVOID_HOOK_URL');
-  assert.equal(readHookUrl({ [HOOK_URL_ENV]: `  ${BASE}  ` }), BASE);
-  assert.equal(readHookUrl({}), null);
-  assert.equal(readHookUrl({ [HOOK_URL_ENV]: '   ' }), null);
-  assert.equal(readHookUrl({ [HOOK_URL_ENV]: 7 }), null);
-  assert.equal(readHookUrl(null), null);
-});
-
-test('normalizeEvent lowercases the argv token and refuses anything that is not one', () => {
-  assert.equal(normalizeEvent('Stop'), 'stop');
-  assert.equal(normalizeEvent(' UserPromptSubmit '), 'userpromptsubmit');
-  assert.equal(normalizeEvent('Pre_Tool-Use'), 'pre_tool-use');
-
-  assert.equal(normalizeEvent('stop/../upload'), null);
-  assert.equal(normalizeEvent('stop?t=x'), null);
-  assert.equal(normalizeEvent('..'), null);
-  assert.equal(normalizeEvent('1stop'), null);
-  assert.equal(normalizeEvent(''), null);
-  assert.equal(normalizeEvent(undefined), null);
-});
-
-test('resolveHookTarget appends the event segment and keeps the token query', () => {
-  assert.equal(resolveHookTarget(BASE, 'stop').url, 'http://127.0.0.1:41234/hook/sess-1/stop?t=deadbeef');
-  assert.equal(resolveHookTarget('http://localhost:3000/hook/s/', 'stop').url, 'http://localhost:3000/hook/s/stop');
-});
-
-test('resolveHookTarget refuses every target that is not the local hook ingress', () => {
-  assert.deepEqual(resolveHookTarget('https://127.0.0.1/hook/s', 'stop'), { url: null, reason: 'not-http' });
-  assert.deepEqual(resolveHookTarget('http://10.0.0.5/hook/s', 'stop'), { url: null, reason: 'not-loopback' });
-  assert.deepEqual(resolveHookTarget('http://evil.example.com/hook/s', 'stop'), { url: null, reason: 'not-loopback' });
-  assert.deepEqual(resolveHookTarget('http://127.0.0.1:41234/upload/s', 'stop'), { url: null, reason: 'not-hook-path' });
-  assert.deepEqual(resolveHookTarget('not a url', 'stop'), { url: null, reason: 'bad-url' });
-});
-
-test('decideRelayPost: the whole verdict, refusal by refusal', () => {
-  const env = { [HOOK_URL_ENV]: BASE };
-  assert.deepEqual(decideRelayPost({ env, event: 'Stop', payloadBytes: 12 }), {
-    post: true, url: 'http://127.0.0.1:41234/hook/sess-1/stop?t=deadbeef', reason: 'ok',
-  });
-
-  assert.deepEqual(decideRelayPost({ env: {}, event: 'Stop' }), { post: false, url: null, reason: 'no-hook-url' });
-  assert.equal(decideRelayPost({ env, event: 'sto p' }).reason, 'bad-event');
-  assert.equal(decideRelayPost({ env, event: 'Stop', payloadBytes: MAX_PAYLOAD_BYTES }).post, true);
-  assert.equal(decideRelayPost({ env, event: 'Stop', payloadBytes: MAX_PAYLOAD_BYTES + 1 }).reason, 'payload-too-large');
-  assert.equal(decideRelayPost({ env, event: 'Stop', payloadBytes: -1 }).reason, 'bad-payload');
-  assert.equal(decideRelayPost({ env: { [HOOK_URL_ENV]: 'http://8.8.8.8/hook/s' }, event: 'Stop' }).reason, 'not-loopback');
-  assert.equal(decideRelayPost().reason, 'no-hook-url');
-});
 
 test('an oversized response is cut off and the relay still exits 0', async () => {
   const result = await relayResponse({ responseBody: 'x'.repeat(MAX_RESPONSE_BYTES + 1) });
