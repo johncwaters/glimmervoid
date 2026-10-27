@@ -89,15 +89,17 @@ test('the relay POSTs the stdin bytes untouched to /hook/:glimmervoidId/:event',
 test('a refused target posts nothing and still exits 0', async () => {
   const { server, received, port } = await startIngress();
   try {
-    const refusals: [string[], Record<string, string>][] = [
-      [['Stop'], {}],
-      [[], { [HOOK_URL_ENV]: `http://127.0.0.1:${port}/hook/s?t=t` }],
-      [['Stop'], { [HOOK_URL_ENV]: `http://127.0.0.1:${port}/upload/s?t=t` }],
-      [['Stop'], { [HOOK_URL_ENV]: 'https://example.com/hook/s?t=t' }],
+    const refusals: [string[], Record<string, string>, string][] = [
+      [['Stop'], {}, 'no-hook-url'],
+      [[], { [HOOK_URL_ENV]: `http://127.0.0.1:${port}/hook/s?t=t` }, 'bad-event'],
+      [['Stop'], { [HOOK_URL_ENV]: `http://127.0.0.1:${port}/upload/s?t=t` }, 'not-hook-path'],
+      [['Stop'], { [HOOK_URL_ENV]: 'https://example.com/hook/s?t=t' }, 'not-http'],
+      [['Stop'], { [HOOK_URL_ENV]: 'http://0.0.0.0:1/hook/s?t=t' }, 'not-loopback'],
     ];
-    for (const [argv, env] of refusals) {
+    for (const [argv, env, expectedReason] of refusals) {
       const result = await main(argv, fakeStdin('{}'), env);
       assert.equal(result.code, 0);
+      assert.equal(result.reason, expectedReason);
     }
     assert.equal(received.length, 0);
   } finally {
