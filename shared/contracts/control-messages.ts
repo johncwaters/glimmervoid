@@ -151,7 +151,6 @@ const updateStatusShape = {
   isTreeClean: z.boolean().nullable(),
   lastCheckAt: timestamp,
   channel: UpdateChannel,
-  behindCount: z.number().int().nonnegative().nullable(),
   reason: nullableString,
   deprecation: nullableString,
   journalSummary: UpdateJournalSummary.nullable(),

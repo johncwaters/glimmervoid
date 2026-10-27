@@ -5,7 +5,7 @@ import type { UpdateApplyOutcome } from '../update-apply.ts';
 import { decideFastForward, decidePreflight } from '../core/update-apply-core.ts';
 import { decideUpdateStatus, normalizeUpdateChannel, shortSha } from '../core/update-core.ts';
 import { checkForUpdate as defaultCheckForUpdate } from '../update-check.ts';
-import type { FetchOrigin, UpdateCheckStatus } from '../update-check.ts';
+import type { UpdateCheckStatus } from '../update-check.ts';
 
 const UPDATE_RECHECK_MS = 24 * 60 * 60 * 1000;
 
@@ -13,7 +13,6 @@ type CheckForUpdate = (options: {
   currentVersion: string;
   updateChannel: UpdateChannel;
   abortController: AbortController;
-  fetchOrigin?: FetchOrigin;
   ttlMs?: number;
 }) => Promise<UpdateCheckStatus | null>;
 
@@ -22,7 +21,6 @@ interface BackendUpdateDependencies {
   currentVersion: string;
   platform?: NodeJS.Platform;
   checkForUpdate: CheckForUpdate | undefined;
-  fetchOrigin?: FetchOrigin;
   getUpdateJournal?: () => UpdateJournal | null;
   isRestartRequested?: () => boolean;
   getControlClientCount: () => number;
@@ -97,12 +95,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
       restartRequested: dependencies.isRestartRequested?.() === true,
     });
     if (!decision.ok) return { reason: decision.reason, message: decision.message };
-    const fastForward = decideFastForward({
-      canFastForward: recorded.reason !== 'branch-diverged',
-      isTargetAncestorOfHead: false,
-    });
-    if (fastForward.ok) return null;
-    return { reason: fastForward.reason, message: fastForward.message };
+    return null;
   }
 
   function projectStatus(recorded: RecordedUpdateStatus): UpdateStatus {
@@ -211,7 +204,6 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
       currentVersion: dependencies.currentVersion,
       updateChannel: channel,
       abortController: updateAbort,
-      ...(dependencies.fetchOrigin ? { fetchOrigin: dependencies.fetchOrigin } : {}),
       ...(ttlMs === undefined ? {} : { ttlMs }),
     })
       .catch(() => null)

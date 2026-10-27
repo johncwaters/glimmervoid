@@ -361,12 +361,19 @@ test('getSettings falls back to DEFAULT_CONFIG for absent keys', () => {
 
 test('updateChannel round-trips through settings and hot application', () => {
   withStore({ projects: [], updateChannel: 'release' }, (store, configPath) => {
-    const saved = store.save((config) => { config.updateChannel = 'main'; });
-    assert.equal(saved?.updateChannel, 'main');
+    const saved = store.save((config) => { config.updateChannel = 'experimental'; });
+    assert.equal(saved?.updateChannel, 'experimental');
     store.applySettings(saved || { projects: [] });
-    assert.equal(store.config.updateChannel, 'main');
-    assert.equal(store.getSettings().updateChannel, 'main');
-    assert.equal(readJson(configPath).updateChannel, 'main');
+    assert.equal(store.config.updateChannel, 'experimental');
+    assert.equal(store.getSettings().updateChannel, 'experimental');
+    assert.equal(readJson(configPath).updateChannel, 'experimental');
+  });
+});
+
+test('a config file on the retired main channel loads on the experimental channel', () => {
+  withStore({ projects: [], updateChannel: 'main' }, (store) => {
+    assert.equal(store.config.updateChannel, 'experimental');
+    assert.equal(store.getSettings().updateChannel, 'experimental');
   });
 });
 

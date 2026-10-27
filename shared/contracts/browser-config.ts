@@ -5,6 +5,7 @@ import type { SettingsRange } from '../settings-ranges.ts';
 import { USAGE_COST_MODES, USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../usage-config.ts';
 import { WorkflowsSettings } from './workflows.ts';
 import { repoParts } from './github-ids.ts';
+import { UpdateChannel } from './update-journal.ts';
 
 export const optionalBoolean = (field: string) => z.boolean({ error: `${field} must be a boolean` }).optional();
 const optionalString = (field: string, trim = false) => {
@@ -33,7 +34,6 @@ const optionalInteger = (field: string, range: { min: number; max: number }) => 
 const optionalObject = (field: string, shape: z.ZodRawShape) => z.object(shape, { error: `${field} must be an object` }).nullable().optional();
 export const optionalLooseObject = (field: string) => z.object({}, { error: `${field} must be an object` }).passthrough().nullable().optional();
 
-export const UPDATE_CHANNELS = Object.freeze(['release', 'main'] as const);
 export const POST_TURN_CHECK_MODES = Object.freeze(['report', 'fix'] as const);
 
 const TaskTitleSettings = z.object({
@@ -243,7 +243,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   saneYolo: optionalBoolean('saneYolo'),
   skipPermissionsByDefault: optionalBoolean('skipPermissionsByDefault'),
   checkForUpdates: optionalBoolean('checkForUpdates'),
-  updateChannel: z.enum(UPDATE_CHANNELS, { error: 'updateChannel must be one of release, main' }).optional(),
+  updateChannel: UpdateChannel.optional(),
   autoResume: optionalBoolean('autoResume'),
   telegramNotifications: optionalBoolean('telegramNotifications'),
   integrationBranch: optionalString('integrationBranch').nullable(),

@@ -124,9 +124,9 @@ test('worktree conflict switches remain settable while withheld from settings', 
 
 test('updateChannel persists, echoes, and hot-applies', () => {
   const h = harness({ projects: [], updateChannel: 'release' });
-  h.send({ type: 'update-settings', settings: { updateChannel: 'main' } });
-  assert.equal(h.cfg.updateChannel, 'main');
-  assert.equal(updatedFrom(h)?.settings?.updateChannel, 'main');
+  h.send({ type: 'update-settings', settings: { updateChannel: 'experimental' } });
+  assert.equal(h.cfg.updateChannel, 'experimental');
+  assert.equal(updatedFrom(h)?.settings?.updateChannel, 'experimental');
   assert.equal(h.reloadCalls.length, 1);
 });
 

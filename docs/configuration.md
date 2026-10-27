@@ -62,7 +62,7 @@ See which Glimmervoid version is running, which one is newest, and update in one
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `updateChannel` | Channel | `"release"` | Track tagged releases or the upstream of the checked-out branch. |
+| `updateChannel` | Channel | `"release"` | Track stable releases, or Experimental builds published from every change to main before it reaches a release. |
 | `checkForUpdates` | Check for updates automatically | `true` | Check for a newer Glimmervoid at launch, while a dashboard is connected, and when this page opens. |
 
 ### Usage

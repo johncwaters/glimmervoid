@@ -149,7 +149,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     type: 'update-status', updateAvailable: true, current: '0.23.1', latest: '0.24.0', currentSha: null,
     latestSha: '0123456789abcdef0123456789abcdef01234567', releaseUrl: 'https://example.test/release',
     command: 'npm install', flavor: 'npm-global', platform: 'linux', installedBranch: null, upstream: null, isTreeClean: null,
-    lastCheckAt: NOW, channel: 'release', behindCount: null, reason: null, deprecation: 'Versions below 0.24.0 are unsafe.',
+    lastCheckAt: NOW, channel: 'release', reason: null, deprecation: 'Versions below 0.24.0 are unsafe.',
     journalSummary: { state: 'staged', activeStep: null, reason: null, startedAt: NOW, finishedAt: NOW + 2 },
     applyRefusal: { reason: 'already-staged', message: 'Restart to apply the staged update.' },
   },

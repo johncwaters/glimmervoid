@@ -906,7 +906,6 @@ function buildUpdateProgress() {
 function buildLatestUpdateFact() {
   const latest = latestUpdateDetails(settingsUpdateState().status);
   const latestParts: (string | HTMLElement)[] = [latest.label];
-  if (latest.behind) latestParts.push(el('span', 'settings-update-behind', latest.behind));
   if (latest.releaseUrl) {
     const release = el('a', 'settings-link', 'View release');
     release.href = latest.releaseUrl;

@@ -1,4 +1,5 @@
-import { POST_TURN_CHECK_MODES, UPDATE_CHANNELS } from '../contracts/browser-config.ts';
+import { POST_TURN_CHECK_MODES } from '../contracts/browser-config.ts';
+import { UPDATE_CHANNELS } from '../contracts/update-journal.ts';
 import {
   FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_GAP_RANGE,
   FLYING_ANIMALS_SCALE_RANGE, KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, NON_NEGATIVE_NUMBER_RANGE, PORT_RANGE, POSITIVE_NUMBER_RANGE,
@@ -374,9 +375,9 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'update-channel', path: 'updateChannel', title: 'Channel',
-        description: 'Track tagged releases or the upstream of the checked-out branch.',
+        description: 'Track stable releases, or Experimental builds published from every change to main before it reaches a release.',
         control: 'select', options: capitalizedOptions(UPDATE_CHANNELS),
-        keywords: ['release', 'branch'], defaultValue: 'release', ...MACHINE_NOW,
+        keywords: ['release', 'prerelease', 'next', 'beta', 'early'], defaultValue: 'release', ...MACHINE_NOW,
       },
       {
         id: 'check-updates', path: 'checkForUpdates', title: 'Check for updates automatically',

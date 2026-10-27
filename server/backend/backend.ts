@@ -436,7 +436,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     currentVersion: packageJson.version,
     platform: process.platform,
     checkForUpdate: options.checkForUpdate || undefined,
-    fetchOrigin: (args) => assembledGitWorkspace.fetchOrigin(args),
     getUpdateJournal: () => updateApply.getJournal(),
     isRestartRequested: () => updateApply.isRestartRequested(),
     getControlClientCount: () => controlWss.clients.size,
