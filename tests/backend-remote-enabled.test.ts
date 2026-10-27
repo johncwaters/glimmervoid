@@ -96,7 +96,7 @@ test.before(async () => {
   const cfgPath = path.join(tmpDir, 'config.json');
   fs.writeFileSync(cfgPath, JSON.stringify({
     projects: [], teams: [], repoRoots: [],
-    remote: { enabled: true, port: remotePort, publicHost: 'glimmervoid.test', allowedOrigins: ['https://glimmervoid.test'] },
+    remote: { enabled: true, port: remotePort, publicHost: 'glimmervoid.test', allowedOrigins: ['https://glimmervoid.test', 'https://*.box.test'] },
   }, null, 2), 'utf8');
   const prevEnv = process.env.GLIMMERVOID_CONFIG;
   process.env.GLIMMERVOID_CONFIG = cfgPath;
@@ -132,6 +132,31 @@ test('the backend reports the configured remote listener', () => {
   assert.equal(backend.remote.port, remotePort);
   assert.equal(boundPort(remoteServer), remotePort, 'the second listener really took the configured port');
   assert.equal(backend.remote.publicHost, 'glimmervoid.test');
+});
+
+function localStatusWithHost(hostHeader: string): Promise<number | undefined> {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1', port: ctx().localPort, path: '/control-token', method: 'GET', headers: { Host: hostHeader },
+    }, (res) => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+test('the remote allow-list admits its hosts and a wildcard below its apex only, refusing every other Host', async () => {
+  const { localPort } = ctx();
+  assert.equal(await localStatusWithHost('glimmervoid.test'), 200);
+  assert.equal(await localStatusWithHost(`GLIMMERVOID.test:${localPort}`), 200);
+  assert.equal(await localStatusWithHost('a.box.test'), 200);
+  assert.equal(await localStatusWithHost('a.b.box.test'), 200);
+  assert.equal(await localStatusWithHost('box.test'), 403);
+  assert.equal(await localStatusWithHost('evilbox.test'), 403);
+  assert.equal(await localStatusWithHost('evil.example'), 403);
+  assert.equal(await localStatusWithHost(`:${localPort}`), 403);
 });
 
 test('the local listener is untouched by remote mode', async () => {
