@@ -6084,6 +6084,7 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+html[data-layout="phone"] .btn-face-plan { min-width: 44px; }
 
 .conversation-face {
   flex: 1 1 auto;
