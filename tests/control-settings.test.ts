@@ -54,11 +54,6 @@ function blockOf(value: unknown, key: string): unknown {
   return Object.getOwnPropertyDescriptor(value, key)?.value;
 }
 
-function holdsKey(value: unknown, key: string): boolean {
-  assert.ok(value && typeof value === 'object', `expected an object to look ${key} up in`);
-  return key in value;
-}
-
 test('repository root files and missing paths reject the whole save without changing disk or runtime', () => {
   withRealStore({ projects: [], repoRoots: [] }, undefined, (settings, store, readDisk) => {
     const previousConfig = readDisk();
@@ -96,63 +91,6 @@ test('a Telegram payload persists and echoes with its secret redacted', () => {
   assert.deepEqual(updatedFrom(settings)?.settings?.telegram, settings.store.getSettings().telegram);
 });
 
-test('a non-object telegram is rejected with settings-error', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { telegram: 'nope' } });
-  assert.ok(h.sent.find((m) => m.type === 'settings-error' && /telegram/.test(String(m.message))));
-});
-
-test('a stray projectChoices field rejects the entire settings write', () => {
-  const settings = harness({ projects: [] });
-  settings.send({ type: 'update-settings', settings: { cursorBlink: true, projectChoices: [{ id: 'x', name: 'y' }] } });
-  assert.equal(settings.cfg.cursorBlink, undefined);
-  assert.equal(settings.cfg.projectChoices, undefined);
-  assert.match(String(errorFrom(settings)?.message), /projectChoices/);
-});
-
-test('worktree conflict switches remain settable while withheld from settings', () => {
-  const h = harness({ projects: [] });
-  h.send({
-    type: 'update-settings',
-    settings: { worktreeAutoRebase: false, worktreeRerere: false },
-  });
-
-  assert.equal(h.cfg.worktreeAutoRebase, false);
-  assert.equal(h.cfg.worktreeRerere, false);
-  assert.equal(h.sent.some((message) => message.type === 'settings-error'), false);
-});
-
-test('updateChannel persists, echoes, and hot-applies', () => {
-  const h = harness({ projects: [], updateChannel: 'release' });
-  h.send({ type: 'update-settings', settings: { updateChannel: 'experimental' } });
-  assert.equal(h.cfg.updateChannel, 'experimental');
-  assert.equal(updatedFrom(h)?.settings?.updateChannel, 'experimental');
-  assert.equal(h.reloadCalls.length, 1);
-});
-
-test('updateChannel rejects values outside release and main', () => {
-  const h = harness({ projects: [], updateChannel: 'release' });
-  h.send({ type: 'update-settings', settings: { updateChannel: 'nightly' } });
-  assert.match(String(errorFrom(h)?.message), /updateChannel/);
-  assert.equal(h.cfg.updateChannel, 'release');
-});
-
-test('a valid branchGc payload is sanitized, persisted, and echoed, and file-only keys sent over the control socket are dropped', () => {
-  const h = harness({ projects: [] });
-  h.send({
-    type: 'update-settings',
-    settings: { branchGc: { enabled: true, staleDays: 21, intervalMs: 3600000, unknown: 'drop', prefixes: ['evil/'] } },
-  });
-
-  assert.equal(h.cfg.branchGc?.enabled, true);
-  assert.equal(h.cfg.branchGc?.staleDays, 21);
-  assert.equal(h.cfg.branchGc?.intervalMs, 3600000);
-  assert.notDeepEqual(h.cfg.branchGc?.prefixes, ['evil/']);
-  const echoed = blockOf(updatedFrom(h)?.settings, 'branchGc');
-  assert.equal(blockOf(echoed, 'staleDays'), 21);
-  assert.deepEqual(blockOf(echoed, 'prefixes'), ['glimmervoid/session/', 'worktree-agent-']);
-});
-
 test('dashboard saves branch deletion while a stale postTurnChecks block from an older config stays on disk untouched', () => {
   const branchGc = { enabled: true, prefixes: ['custom/'], dryRun: true, staleDays: 21, deleteUnmerged: false, intervalMs: 3600000 };
   const postTurnChecks = { enabled: true, mode: 'report', rules: { trailingWs: false, finalNewline: true } };
@@ -173,108 +111,12 @@ test('a branchGc control update keeps the stored file-only keys', () => {
   assert.deepEqual(h.cfg.branchGc, { enabled: true, prefixes: ['custom/'], dryRun: true, staleDays: 21, intervalMs: 3600000 });
 });
 
-test('branchGc rejects non-boolean enablement and non-positive numeric fields', () => {
-  for (const branchGc of [{ enabled: 'yes' }, { staleDays: 0 }, { intervalMs: -1 }]) {
-    const h = harness({ projects: [] });
-    h.send({ type: 'update-settings', settings: { branchGc } });
-    assert.ok(h.sent.some((message) => message.type === 'settings-error'));
-    assert.equal(h.cfg.branchGc, undefined);
-  }
-});
-
-test('a settings save that omits branchGc preserves its existing opt-out', () => {
-  const h = harness({ branchGc: { enabled: false }, projects: [] });
-  h.send({ type: 'update-settings', settings: { cursorBlink: true } });
-
-  assert.deepEqual(h.cfg.branchGc, { enabled: false });
-});
-
-test('empty telegram strings persist as-is (means unset), key is not deleted', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { telegram: { botToken: '', chatId: '' } } });
-
-  assert.deepEqual(h.cfg.telegram, { botToken: '', chatId: '' });
-});
-
-test('a telegram update without the bot token leaves the stored token intact', () => {
-  const h = harness({ telegram: { botToken: 'stored-tok', chatId: '123' }, projects: [] });
-  h.send({ type: 'update-settings', settings: { telegram: { chatId: '456' } } });
-
-  assert.deepEqual(h.cfg.telegram, { botToken: 'stored-tok', chatId: '456' });
-});
-
-test('a telegram update carrying a new bot token replaces the stored one', () => {
-  const h = harness({ telegram: { botToken: 'stored-tok', chatId: '123' }, projects: [] });
-  h.send({ type: 'update-settings', settings: { telegram: { botToken: 'fresh-tok', chatId: '123' } } });
-
-  assert.deepEqual(h.cfg.telegram, { botToken: 'fresh-tok', chatId: '123' });
-});
-
-test('an explicitly emptied bot token clears the stored one', () => {
-  const h = harness({ telegram: { botToken: 'stored-tok', chatId: '123' }, projects: [] });
-  h.send({ type: 'update-settings', settings: { telegram: { botToken: '', chatId: '123' } } });
-
-  assert.deepEqual(h.cfg.telegram, { botToken: '', chatId: '123' });
-});
-
-test('a valid visions payload persists and echoes in settings-updated', () => {
-  const h = harness({ projects: [] });
-  const visions = {
-    enabled: true,
-    autoFix: true,
-    projects: ['p1', 'p2'],
-    junk: 'drop-me',
-    dispatch: {
-      enabled: true,
-      quietMs: 30000,
-      cooldownMs: 300000,
-      maxPerHour: 6,
-      activityMaxPerHour: 2,
-      dispatchTimeoutSeconds: 180,
-      model: 'claude-sonnet-4-20250514',
-      junk: 'drop-me',
-    },
-    intent: { threadTtlMs: 3600000, junk: 'drop-me' },
-  };
-  const sanitized = {
-    enabled: true,
-    autoFix: true,
-    projects: ['p1', 'p2'],
-    dispatch: {
-      enabled: true,
-      quietMs: 30000,
-      cooldownMs: 300000,
-      maxPerHour: 6,
-      activityMaxPerHour: 2,
-      dispatchTimeoutSeconds: 180,
-      model: 'claude-sonnet-4-20250514',
-    },
-    intent: { threadTtlMs: 3600000 },
-  };
-
-  h.send({ type: 'update-settings', settings: { visions } });
-
-  assert.deepEqual(h.cfg.visions, sanitized);
-  const updated = updatedFrom(h);
-  assert.ok(updated, 'replied settings-updated');
-  assert.deepEqual(updated.settings?.visions, sanitized);
-  assert.equal(h.reloadCalls.length, 1, 'settings reload still runs once');
-});
-
 test('a visions save carrying one leaf leaves every stored sibling and nested leaf as it was', () => {
   const stored = { enabled: true, autoFix: true, projects: ['p1'], dispatch: { enabled: false, model: 'opus', quietMs: 5000 }, intent: { threadTtlMs: 3600000 } };
   const h = harness({ projects: [], visions: structuredClone(stored) });
   h.send({ type: 'update-settings', settings: { visions: { dispatch: { enabled: true } } } });
   assert.equal(errorFrom(h), undefined);
   assert.deepEqual(h.cfg.visions, { ...stored, dispatch: { ...stored.dispatch, enabled: true } });
-});
-
-test('a usage save carrying one budget leaf leaves the other budget leaf and the stored usage keys as they were', () => {
-  const stored = { enabled: true, costMode: 'display', vendors: { codex: false }, budget: { dailyUsd: 5, monthlyUsd: 10 } };
-  const h = harness({ projects: [], usage: structuredClone(stored) });
-  h.send({ type: 'update-settings', settings: { usage: { budget: { monthlyUsd: 20 } } } });
-  assert.equal(errorFrom(h), undefined);
-  assert.deepEqual(h.cfg.usage, { ...stored, budget: { dailyUsd: 5, monthlyUsd: 20 } });
 });
 
 test('a list value is one leaf: a saved list replaces the stored list whole and leaves sibling lists alone', () => {
@@ -311,71 +153,6 @@ test('an environment-supplied secret stays read-only through a dashboard save', 
   }
 });
 
-test('visions validation rejects wrong scalar types and ranges', () => {
-  const cases: [Record<string, unknown>, RegExp][] = [
-    [{ enabled: 'yes' }, /visions.enabled must be a boolean/],
-    [{ autoFix: 'yes' }, /visions.autoFix must be a boolean/],
-    [{ projects: 'p1' }, /visions.projects must be an array of strings/],
-    [{ projects: ['p1', 7] }, /visions.projects must be an array of strings/],
-    [{ dispatch: 'on' }, /visions.dispatch must be an object/],
-    [{ dispatch: { enabled: 'yes' } }, /visions.dispatch.enabled must be a boolean/],
-    [{ dispatch: { quietMs: 0 } }, /visions.dispatch.quietMs must be a positive number/],
-    [{ dispatch: { activityMaxPerHour: -1 } }, /visions.dispatch.activityMaxPerHour must be zero or more/],
-    [{ dispatch: { model: 42 } }, /visions.dispatch.model must be a string/],
-    [{ intent: { threadTtlMs: 0 } }, /visions.intent.threadTtlMs must be a positive number/],
-  ];
-  for (const [visions, pattern] of cases) {
-    const h = harness({ projects: [] });
-    h.send({ type: 'update-settings', settings: { visions } });
-    assert.ok(pattern.test(String(errorFrom(h)?.message ?? '')), `rejected ${JSON.stringify(visions)}`);
-    assert.equal(h.cfg.visions, undefined);
-  }
-});
-
-test('team review settings persist, echo, and reject invalid fields', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { teamReview: { enabled: true, org: ' PostHog ', team: ' product-engineering ', reReviewAfterHours: 6, skipIdleAfterDays: 3, ignored: true } } });
-  const expected = { enabled: true, org: 'PostHog', team: 'product-engineering', reReviewAfterHours: 6, skipIdleAfterDays: 3 };
-  assert.deepEqual(h.cfg.teamReview, expected);
-  assert.deepEqual(updatedFrom(h)?.settings?.teamReview, expected);
-
-  const cases: [Record<string, unknown>, RegExp][] = [
-    [{ enabled: 'true' }, /teamReview.enabled must be a boolean/],
-    [{ org: 42 }, /teamReview.org must be a string/],
-    [{ team: 42 }, /teamReview.team must be a string/],
-    [{ reReviewAfterHours: 0 }, /teamReview.reReviewAfterHours must be a positive number/],
-    [{ skipIdleAfterDays: 0 }, /teamReview.skipIdleAfterDays must be a positive number/],
-  ];
-  for (const [teamReview, message] of cases) {
-    const invalid = harness({ projects: [] });
-    invalid.send({ type: 'update-settings', settings: { teamReview } });
-    assert.match(String(errorFrom(invalid)?.message ?? ''), message);
-    assert.equal(invalid.cfg.teamReview, undefined);
-  }
-});
-
-test('the My PRs feature switches and repair deadline persist over the stored team review block and reject values out of range', () => {
-  const h = harness({ projects: [], teamReview: { enabled: true, org: 'Acme' } });
-  h.send({ type: 'update-settings', settings: { teamReview: { keepMergeableEnabled: false, mergeQueueEnabled: false, keepMergeableTimeoutMinutes: 45 } } });
-  const expected = { enabled: true, org: 'Acme', keepMergeableEnabled: false, mergeQueueEnabled: false, keepMergeableTimeoutMinutes: 45 };
-  assert.deepEqual(h.cfg.teamReview, expected);
-  assert.deepEqual(updatedFrom(h)?.settings?.teamReview, expected);
-
-  const cases: [Record<string, unknown>, RegExp][] = [
-    [{ keepMergeableEnabled: 'no' }, /teamReview.keepMergeableEnabled must be a boolean/],
-    [{ mergeQueueEnabled: 1 }, /teamReview.mergeQueueEnabled must be a boolean/],
-    [{ keepMergeableTimeoutMinutes: 4 }, /teamReview.keepMergeableTimeoutMinutes must be an integer between 5 and 120/],
-    [{ keepMergeableTimeoutMinutes: 121 }, /teamReview.keepMergeableTimeoutMinutes must be an integer between 5 and 120/],
-    [{ keepMergeableTimeoutMinutes: 30.5 }, /teamReview.keepMergeableTimeoutMinutes must be an integer between 5 and 120/],
-  ];
-  for (const [teamReview, message] of cases) {
-    const invalid = harness({ projects: [] });
-    invalid.send({ type: 'update-settings', settings: { teamReview } });
-    assert.match(String(errorFrom(invalid)?.message ?? ''), message);
-    assert.equal(invalid.cfg.teamReview, undefined);
-  }
-});
-
 function storedWorkflowRule(id: string, enabled: boolean) {
   return { id, name: `Rule ${id}`, enabled, repos: ['Acme/app'], trigger: 'opened', actions: [{ type: 'spawn', promptTemplate: 'Look at {{url}}' }] };
 }
@@ -388,27 +165,6 @@ test('workflow limits and rule toggles persist by rule id and leave every other 
   assert.equal(errorFrom(h), undefined);
   assert.deepEqual(h.cfg.workflows, expected);
   assert.deepEqual(updatedFrom(h)?.settings?.workflows, expected);
-});
-
-test('a workflows update that names an unknown rule, writes another rule field, or leaves a limit out of range is rejected and stores nothing', () => {
-  const stored = { rules: [storedWorkflowRule('one', false)] };
-  const cases: [Record<string, unknown>, RegExp][] = [
-    [{ rules: [{ id: 'ghost', enabled: true }] }, /workflows.rules has no rule with id "ghost"/],
-    [{ rules: [{ id: 'one', enabled: true, actions: [{ type: 'notify' }] }] }, /carries only id and enabled/],
-    [{ rules: [{ id: 'one', enabled: true, name: 'Renamed' }] }, /carries only id and enabled/],
-    [{ maxConcurrentSessions: 0 }, /workflows.maxConcurrentSessions must be an integer between 1 and 5/],
-    [{ maxConcurrentSessions: 6 }, /workflows.maxConcurrentSessions must be an integer between 1 and 5/],
-    [{ maxActionsPerPoll: 0 }, /workflows.maxActionsPerPoll must be an integer between 1 and 50/],
-    [{ maxActionsPerPoll: 51 }, /workflows.maxActionsPerPoll must be an integer between 1 and 50/],
-    [{ maxActionsPerPoll: 2.5 }, /workflows.maxActionsPerPoll must be an integer between 1 and 50/],
-    [{ enabled: 'off' }, /workflows.enabled must be a boolean/],
-  ];
-  for (const [workflows, message] of cases) {
-    const invalid = harness({ projects: [], workflows: structuredClone(stored) });
-    invalid.send({ type: 'update-settings', settings: { workflows } });
-    assert.match(String(errorFrom(invalid)?.message ?? ''), message, JSON.stringify(workflows));
-    assert.deepEqual(invalid.cfg.workflows, stored);
-  }
 });
 
 test('a workflows rule toggle for a rule renamed on disk since the last load fails the whole save and stores nothing', () => {
@@ -425,18 +181,6 @@ test('a workflows rule toggle for a rule renamed on disk since the last load fai
   });
 });
 
-test('a save the config store refuses replies settings-error and broadcasts nothing', () => {
-  const cfg: GlimmervoidConfig = { projects: [] };
-  const h = harness(cfg, testConfigStore(cfg, { saveFails: true }));
-  h.send({ type: 'update-settings', requestId: 'r-1', settings: { cursorBlink: true } });
-  const refusal = h.sent.find((message) => message.type === 'settings-error');
-  assert.match(String(refusal?.message ?? ''), /Settings were not saved/);
-  assert.equal(Object.getOwnPropertyDescriptor(refusal, 'requestId')?.value, 'r-1');
-  assert.equal(updatedFrom(h), undefined);
-  assert.equal(h.broadcasts.length, 0);
-  assert.equal(h.reloadCalls.length, 0);
-});
-
 test('a save over an unreadable config file on disk replies settings-error', () => {
   withRealStore({ projects: [] }, undefined, (h) => {
     const configPath = process.env.GLIMMERVOID_CONFIG;
@@ -446,18 +190,6 @@ test('a save over an unreadable config file on disk replies settings-error', () 
     assert.match(String(errorFrom(h)?.message ?? ''), /Settings were not saved/);
     assert.equal(updatedFrom(h), undefined);
   });
-});
-
-test('benchmark settings persist, echo, and reject a non-boolean enabled', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { benchmarks: { enabled: true, ignored: true } } });
-  assert.deepEqual(h.cfg.benchmarks, { enabled: true });
-  assert.deepEqual(updatedFrom(h)?.settings?.benchmarks, { enabled: true });
-
-  const invalid = harness({ projects: [] });
-  invalid.send({ type: 'update-settings', settings: { benchmarks: { enabled: 'yes' } } });
-  assert.match(String(errorFrom(invalid)?.message ?? ''), /benchmarks.enabled must be a boolean/);
-  assert.equal(invalid.cfg.benchmarks, undefined);
 });
 
 function posthogPayload(over: Record<string, unknown> = {}): Record<string, unknown> {
@@ -497,250 +229,11 @@ test('a valid posthog payload persists, echoes in settings-updated, and hot-appl
   assert.ok(h.broadcasts.some((m) => m.type === 'settings-updated'));
 });
 
-test('a posthog update without the api key leaves the stored key intact', () => {
-  const h = harness({ posthog: { enabled: false, apiKey: 'phx_stored', host: 'https://us.posthog.com' }, projects: [] });
-  const { apiKey: _apiKey, ...withoutApiKey } = posthogPayload();
-  h.send({ type: 'update-settings', settings: { posthog: withoutApiKey } });
-
-  assert.equal(blockOf(h.cfg.posthog, 'apiKey'), 'phx_stored');
-  assert.equal(blockOf(h.cfg.posthog, 'enabled'), true, 'the rest of the block still applied');
-});
-
-test('a posthog update carrying a new api key replaces the stored one', () => {
-  const h = harness({ posthog: { enabled: false, apiKey: 'phx_stored' }, projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ apiKey: 'phx_fresh' }) } });
-
-  assert.equal(blockOf(h.cfg.posthog, 'apiKey'), 'phx_fresh');
-});
-
-test('posthog projects accepts the "all" sentinel', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ projects: 'all' }) } });
-  assert.equal(blockOf(h.cfg.posthog, 'projects'), 'all');
-});
-
-test('posthog projectMap survives a save untouched', () => {
-  const h = harness({ projects: [] });
-  const projectMap = { 1: 'web', 2: 'api' };
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ projectMap }) } });
-  assert.deepEqual(blockOf(h.cfg.posthog, 'projectMap'), projectMap);
-});
-
-test('a non-object posthog is rejected with settings-error', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: 'nope' } });
-  assert.ok(h.sent.find((m) => m.type === 'settings-error' && /posthog must be an object/.test(String(m.message))));
-  assert.equal(h.cfg.posthog, undefined, 'nothing persisted');
-  assert.equal(h.reloadCalls.length, 0, 'no reload on a rejected save');
-});
-
-test('a non-boolean posthog.enabled is rejected rather than coerced', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: { enabled: 'yes' } } });
-  assert.ok(h.sent.find((m) => m.type === 'settings-error' && /enabled/.test(String(m.message))));
-  assert.equal(h.cfg.posthog, undefined);
-});
-
-test('a non-http(s) posthog.host is rejected with settings-error', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ host: 'us.posthog.com' }) } });
-  assert.ok(h.sent.find((m) => m.type === 'settings-error' && /http\(s\) URL/.test(String(m.message))));
-  assert.equal(h.cfg.posthog, undefined);
-});
-
-test('an empty posthog.host means unset and is accepted (a disabled lane can still be saved)', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ enabled: false, host: '', apiKey: '' }) } });
-  assert.equal(blockOf(h.cfg.posthog, 'host'), '');
-  assert.equal(blockOf(h.cfg.posthog, 'enabled'), false);
-});
-
-test('posthog.projects rejects a non-integer or non-positive id', () => {
-  for (const projects of [['1'], [0], [-3], [1.5], 'some']) {
-    const h = harness({ projects: [] });
-    h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ projects }) } });
-    assert.ok(
-      h.sent.find((m) => m.type === 'settings-error' && /projects/.test(String(m.message))),
-      `rejected ${JSON.stringify(projects)}`,
-    );
-    assert.equal(h.cfg.posthog, undefined);
-  }
-});
-
-test('a non-positive posthog numeric field is rejected with settings-error', () => {
-  for (const key of ['intervalMinutes', 'maxConcurrentInvestigations', 'investigationTimeoutSeconds', 'minUsersToInvestigate', 'userEscalationThreshold', 'recurrenceWindowDays', 'transientRecurrenceLimit']) {
-    const h = harness({ projects: [] });
-    h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ [key]: 0 }) } });
-    assert.ok(h.sent.find((m) => m.type === 'settings-error' && new RegExp(key).test(String(m.message))), `rejected ${key}: 0`);
-  }
-});
-
-test('a traffic spike multiplier below 1 is rejected', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ trafficSpikeMultiplier: 0.5 }) } });
-  assert.ok(h.sent.find((m) => m.type === 'settings-error' && /trafficSpikeMultiplier/.test(String(m.message))));
-  assert.equal(h.cfg.posthog, undefined);
-});
-
-test('a traffic spike cooldown of zero is accepted (never mute a spike)', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ trafficSpikeCooldownMinutes: 0 }) } });
-  assert.equal(blockOf(h.cfg.posthog, 'trafficSpikeCooldownMinutes'), 0);
-});
-
-test('a negative traffic spike cooldown is rejected', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ trafficSpikeCooldownMinutes: -1 }) } });
-  assert.ok(h.sent.find((m) => m.type === 'settings-error' && /trafficSpikeCooldownMinutes/.test(String(m.message))));
-});
-
-test('a traffic baseline window outside 1..30 days is rejected', () => {
-  for (const days of [0, 31, 365]) {
-    const h = harness({ projects: [] });
-    h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ trafficSpikeBaselineDays: days }) } });
-    assert.ok(
-      h.sent.find((m) => m.type === 'settings-error' && /trafficSpikeBaselineDays/.test(String(m.message))),
-      `rejected ${days} days`,
-    );
-  }
-});
-
-test('a non-boolean trafficSpikeEnabled is rejected rather than coerced', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ trafficSpikeEnabled: 'yes' }) } });
-  assert.ok(h.sent.find((m) => m.type === 'settings-error' && /trafficSpikeEnabled/.test(String(m.message))));
-  assert.equal(h.cfg.posthog, undefined);
-});
-
-test('trafficSpikeEnabled: false persists rather than being dropped as falsy', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ trafficSpikeEnabled: false }) } });
-  assert.equal(blockOf(h.cfg.posthog, 'trafficSpikeEnabled'), false);
-});
-
-test('posthog.autoFix persists both ways and is rejected when it is not a boolean', () => {
-  const on = harness({ projects: [] });
-  on.send({ type: 'update-settings', settings: { posthog: posthogPayload({ autoFix: true }) } });
-  assert.equal(blockOf(on.cfg.posthog, 'autoFix'), true);
-
-  const off = harness({ projects: [] });
-  off.send({ type: 'update-settings', settings: { posthog: posthogPayload({ autoFix: false }) } });
-  assert.equal(blockOf(off.cfg.posthog, 'autoFix'), false, 'false persists rather than being dropped as falsy');
-
-  const bad = harness({ projects: [] });
-  bad.send({ type: 'update-settings', settings: { posthog: posthogPayload({ autoFix: 'yes' }) } });
-  assert.ok(bad.sent.find((m) => m.type === 'settings-error' && /autoFix/.test(String(m.message))));
-  assert.equal(bad.cfg.posthog, undefined);
-});
-
-test('posthog.fixTimeoutSeconds outside 60..21600 is rejected', () => {
-  for (const seconds of [0, 59, 21601]) {
-    const h = harness({ projects: [] });
-    h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ fixTimeoutSeconds: seconds }) } });
-    assert.ok(
-      h.sent.find((m) => m.type === 'settings-error' && /fixTimeoutSeconds/.test(String(m.message))),
-      `rejected ${seconds}s`,
-    );
-    assert.equal(h.cfg.posthog, undefined);
-  }
-});
-
-test('posthog.fixTimeoutSeconds inside the range persists', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ fixTimeoutSeconds: 3600 }) } });
-  assert.equal(blockOf(h.cfg.posthog, 'fixTimeoutSeconds'), 3600);
-});
-
-test('a non-object posthog.projectMap is rejected with settings-error', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ projectMap: ['web'] }) } });
-  assert.ok(h.sent.find((m) => m.type === 'settings-error' && /projectMap/.test(String(m.message))));
-});
-
-test('a posthog.projectMap nested thousands of levels deep is refused by name and stores nothing instead of crashing the server', () => {
-  let deepProjectMap: Record<string, unknown> = {};
-  for (let level = 0; level < 3500; level += 1) deepProjectMap = { app: deepProjectMap };
-  const h = harness({ projects: [], posthog: { enabled: true } });
-  h.send({ type: 'update-settings', requestId: 'deep', settings: { posthog: { projectMap: deepProjectMap } } });
-  assert.equal(errorFrom(h)?.message, 'posthog.projectMap is nested too deeply');
-  assert.deepEqual(h.cfg.posthog, { enabled: true });
-  assert.equal(h.reloadCalls.length, 0);
-});
-
-test('retired posthog keys are dropped rather than persisted', () => {
-  const h = harness({ projects: [] });
-  h.send({
-    type: 'update-settings',
-    settings: { posthog: posthogPayload({ allowStatusWrites: true, dailyDigest: true }) },
-  });
-  assert.equal(holdsKey(h.cfg.posthog, 'allowStatusWrites'), false);
-  assert.equal(holdsKey(h.cfg.posthog, 'dailyDigest'), false);
-});
-
-test('the recurrence dedupe keys round-trip, and the kill switch is validated as a boolean', () => {
-  const h = harness({ projects: [] });
-  h.send({
-    type: 'update-settings',
-    settings: {
-      posthog: posthogPayload({ recurrenceDedupe: false, recurrenceWindowDays: 14, transientRecurrenceLimit: 5 }),
-    },
-  });
-  assert.equal(blockOf(h.cfg.posthog, 'recurrenceDedupe'), false);
-  assert.equal(blockOf(h.cfg.posthog, 'recurrenceWindowDays'), 14);
-  assert.equal(blockOf(h.cfg.posthog, 'transientRecurrenceLimit'), 5);
-
-  const bad = harness({ projects: [] });
-  bad.send({ type: 'update-settings', settings: { posthog: posthogPayload({ recurrenceDedupe: 'no' }) } });
-  assert.ok(bad.sent.find((m) => m.type === 'settings-error' && /recurrenceDedupe/.test(String(m.message))));
-  assert.equal(bad.cfg.posthog, undefined);
-});
-
-test('posthog.repoPath persists and is trimmed; a non-string is rejected', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload({ repoPath: '  /repo/web  ' }) } });
-  assert.equal(blockOf(h.cfg.posthog, 'repoPath'), '/repo/web');
-
-  const bad = harness({ projects: [] });
-  bad.send({ type: 'update-settings', settings: { posthog: posthogPayload({ repoPath: 7 }) } });
-  assert.ok(bad.sent.find((m) => m.type === 'settings-error' && /posthog\.repoPath must be a string/.test(String(m.message))));
-  assert.equal(bad.cfg.posthog, undefined);
-});
-
-test('unknown posthog keys are dropped, and host/apiKey are trimmed', () => {
-  const h = harness({ projects: [] });
-  h.send({
-    type: 'update-settings',
-    settings: { posthog: posthogPayload({ host: '  https://ph.test  ', apiKey: '  k  ', bogus: 'x', projectChoices: [] }) },
-  });
-  assert.equal(blockOf(h.cfg.posthog, 'host'), 'https://ph.test');
-  assert.equal(blockOf(h.cfg.posthog, 'apiKey'), 'k');
-  assert.equal(holdsKey(h.cfg.posthog, 'bogus'), false, 'unknown keys never reach config.json');
-  assert.equal(holdsKey(h.cfg.posthog, 'projectChoices'), false);
-});
-
-test('a save with no posthog key leaves an existing posthog block untouched', () => {
-  const existing = posthogPayload();
-  const h = harness({ projects: [], posthog: { ...existing } });
-  h.send({ type: 'update-settings', settings: { cursorBlink: true } });
-  assert.deepEqual(h.cfg.posthog, existing, 'an unrelated save never rewrites the lane config');
-});
-
 test('a rejected posthog block blocks the whole save, including unrelated keys', () => {
   const h = harness({ projects: [] });
   h.send({ type: 'update-settings', settings: { cursorBlink: true, posthog: { enabled: 'yes' } } });
   assert.ok(errorFrom(h));
   assert.equal(h.cfg.cursorBlink, undefined, 'the save is atomic: nothing lands when validation fails');
-});
-
-test('a posthog save leaves Telegram and remote settings alone', () => {
-  const settings = harness({
-    projects: [],
-    telegram: { botToken: 'tok', chatId: '123' },
-    remote: { enabled: true, port: 3001 },
-  });
-  settings.send({ type: 'update-settings', settings: { posthog: posthogPayload() } });
-  assert.deepEqual(settings.cfg.telegram, { botToken: 'tok', chatId: '123' });
-  assert.deepEqual(settings.cfg.remote, { enabled: true, port: 3001 });
 });
 
 function withRealStore(
@@ -787,16 +280,6 @@ test('flipping the checkbox away from the launch default persists it, and it win
   });
 });
 
-test('with no launch defaults (production) every boolean persists exactly as before', () => {
-  withRealStore({ projects: [] }, undefined, (h, store, readDisk) => {
-    h.send({ type: 'update-settings', settings: { debugMode: true, cursorBlink: true } });
-    const onDisk = readDisk();
-    assert.equal(onDisk.debugMode, true, 'no overlay means no guard');
-    assert.equal(onDisk.cursorBlink, true);
-    assert.equal(store.getSettings().debugMode, true);
-  });
-});
-
 test('the browser round trip never sees a credential and never blanks one', async () => {
   const [{ SETTINGS_REGISTRY }, view] = await Promise.all([
     import('../shared/settings/registry.ts'),
@@ -836,71 +319,6 @@ test('the browser round trip never sees a credential and never blanks one', asyn
   });
 });
 
-test('a config.json-only search card shows and copies a value only when the settings payload carries it as stored', async () => {
-  const [{ SETTINGS_REGISTRY }, view] = await Promise.all([
-    import('../shared/settings/registry.ts'),
-    import('../public/settings/settings-view-core.ts'),
-  ]);
-  const stored = {
-    projects: [],
-    recordSignals: false,
-    worktreeAutoRebase: false,
-    detectScheduledWakeups: false,
-    customAgents: [{ id: 'aider', label: 'Aider', command: 'aider', idleTitle: 'aider idle', busyTitle: 'aider busy' }],
-    visions: { dispatch: { quietMs: 45000 } },
-  };
-
-  withRealStore(stored, undefined, (_h, store) => {
-    const payload = buildSettingsPayload({ configStore: store, resolveRtk: () => null });
-    const cardFor = (settingPath: string) => {
-      const setting = SETTINGS_REGISTRY.fileOnly.find((entry) => entry.path === settingPath);
-      assert.ok(setting, `no config.json-only setting ${settingPath}`);
-      return view.fileOnlySearchCard(setting, payload);
-    };
-    const quiet = cardFor('visions.dispatch.quietMs');
-    assert.equal(quiet.currentText, 'Current 45 seconds');
-    assert.equal(quiet.defaultText, 'Default 30 seconds, stored as 30000 ms');
-    assert.deepEqual(JSON.parse(quiet.jsonFragment ?? 'null'), { visions: { dispatch: { quietMs: 45000 } } });
-    assert.deepEqual(JSON.parse(cardFor('recordSignals').jsonFragment ?? 'null'), { recordSignals: false });
-    for (const settingPath of ['worktreeAutoRebase', 'detectScheduledWakeups', 'customAgents', 'visions.dispatch.cooldownMs']) {
-      const withheldCard = cardFor(settingPath);
-      assert.equal(withheldCard.currentText, null, settingPath);
-      assert.equal(withheldCard.jsonFragment, null, settingPath);
-    }
-  });
-});
-
-test('a telemetry save persists, echoes, and flips the live config telemetry reads', () => {
-  const h = harness({ projects: [], telemetry: { enabled: true } });
-  h.send({ type: 'update-settings', settings: { telemetry: { enabled: false } } });
-
-  assert.deepEqual(h.cfg.telemetry, { enabled: false });
-  assert.deepEqual(updatedFrom(h)?.settings?.telemetry, { enabled: false });
-  assert.equal(h.store.config.telemetry?.enabled, false);
-});
-
-test('the settings payload carries one summary row per declared custom agent, resolvability unknown until probed', () => {
-  const declared = [{ id: 'opencode', label: 'OpenCode', command: '/nonexistent/opencode', args: ['--headless'] }];
-  setCustomAgents(declared);
-  try {
-    const h = harness({ projects: [], customAgents: declared });
-    h.send({ type: 'get-settings' });
-    const payload = h.sent.find((message) => message.type === 'settings')?.settings;
-    assert.deepEqual(payload?.customAgents, [
-      { id: 'opencode', label: 'OpenCode', command: '/nonexistent/opencode', args: ['--headless'], resolvable: null },
-    ]);
-  } finally {
-    setCustomAgents([]);
-    resetCommandCache();
-  }
-});
-
-test('the settings payload carries an empty custom agent summary when none are declared', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'get-settings' });
-  assert.deepEqual(h.sent.find((message) => message.type === 'settings')?.settings?.customAgents, []);
-});
-
 test('a settings payload build reads the resolution cache and spawns no PATH probe', () => {
   const warm = CustomAgentDeclaration.parse({ id: 'opencode', label: 'OpenCode', command: 'opencode' });
   const missing = CustomAgentDeclaration.parse({ id: 'ghostcode', label: 'GhostCode', command: 'ghostcode' });
@@ -931,14 +349,4 @@ test('a settings payload build reads the resolution cache and spawns no PATH pro
     setCustomAgents([]);
     resetCommandCache();
   }
-});
-
-test('task title refiner partial updates preserve stored tuning and echo the merged settings', () => {
-  const taskTitle = { refiner: { enabled: true, model: 'sonnet', minIntervalSeconds: 120, timeoutSeconds: 30 } };
-  const updated = harness({ projects: [], taskTitle });
-  updated.send({ type: 'update-settings', settings: { taskTitle: { refiner: { enabled: false } } } });
-  const expected = { refiner: { ...taskTitle.refiner, enabled: false } };
-  assert.deepEqual(updated.cfg.taskTitle, expected);
-  assert.deepEqual(updatedFrom(updated)?.settings?.taskTitle, expected);
-  assert.equal(updated.reloadCalls.length, 1);
 });

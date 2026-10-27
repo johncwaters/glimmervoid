@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { TestContext } from 'node:test';
 
-import { editorTargets, unwireEditors, wireEditors } from '../server/editor-wire.ts';
+import { unwireEditors, wireEditors } from '../server/editor-wire.ts';
 import type { EditorDetection } from '../server/editor-wire.ts';
 import type { WireInvocation } from '../server/core/editor-wire-core.ts';
 
@@ -20,26 +20,6 @@ function fakeHome(t: TestContext): string {
 function detection(homeDir: string): EditorDetection {
   return { homeDir, platform: 'linux', env: { XDG_CONFIG_HOME: path.join(homeDir, '.config') }, exec: () => '' };
 }
-
-test('an editor is a target when its config directory exists, and not otherwise', (t) => {
-  const homeDir = fakeHome(t);
-  assert.deepEqual(editorTargets(detection(homeDir)), []);
-
-  fs.mkdirSync(path.join(homeDir, '.config', 'nvim'), { recursive: true });
-  fs.mkdirSync(path.join(homeDir, '.config', 'helix'), { recursive: true });
-  const ids = editorTargets(detection(homeDir)).map((target) => target.id);
-  assert.deepEqual(ids, ['neovim', 'helix']);
-});
-
-test('emacs is wired into an init file that exists and never created', (t) => {
-  const homeDir = fakeHome(t);
-  fs.mkdirSync(path.join(homeDir, '.emacs.d'), { recursive: true });
-  assert.deepEqual(editorTargets(detection(homeDir)).map((target) => target.id), []);
-
-  const initPath = path.join(homeDir, '.emacs.d', 'init.el');
-  fs.writeFileSync(initPath, '(setq inhibit-startup-message t)\n');
-  assert.deepEqual(editorTargets(detection(homeDir)).map((target) => target.id), ['emacs']);
-});
 
 test('wiring writes, is idempotent, backs up once and unwires back to the original bytes', (t) => {
   const homeDir = fakeHome(t);

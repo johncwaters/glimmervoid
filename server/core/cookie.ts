@@ -64,4 +64,4 @@ function decideCookieFlags({ forwardedProto }: { forwardedProto?: unknown; [key:
   return { secure: first === 'https', sameSite: 'Lax' };
 }
 
-export { COOKIE_NAME, parseCookieHeader, serializeSetCookie, readDeviceCookie, decideCookieFlags };
+export { COOKIE_NAME, serializeSetCookie, readDeviceCookie, decideCookieFlags };

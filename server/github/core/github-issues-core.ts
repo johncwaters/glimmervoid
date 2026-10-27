@@ -8,7 +8,7 @@ interface GithubIssueInput {
   updatedAt?: unknown;
 }
 
-export const GITHUB_ISSUE_BODY_MAX_CHARS = 12000;
+const GITHUB_ISSUE_BODY_MAX_CHARS = 12000;
 
 function fencedBody(body: string): string {
   const longestBacktickRun = Math.max(0, ...Array.from(body.matchAll(/`+/g), (match) => match[0].length));

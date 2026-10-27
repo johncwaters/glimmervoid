@@ -174,7 +174,7 @@ function parsePlanInline(source: string): PlanInline[] {
   return nodes;
 }
 
-export function planInlineText(nodes: readonly PlanInline[]): string {
+function planInlineText(nodes: readonly PlanInline[]): string {
   return nodes.map((node) => {
     if (node.type === 'text' || node.type === 'code') return node.text;
     return planInlineText(node.children);

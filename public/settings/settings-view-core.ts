@@ -36,7 +36,7 @@ type DraftCommit =
 const payloadByHydratedValues = new WeakMap<object, unknown>();
 
 export const SECRET_PRESENCE_SUFFIX = 'Configured';
-export const STORED_SECRET_MASK = String.fromCharCode(0x2022).repeat(12);
+const STORED_SECRET_MASK = String.fromCharCode(0x2022).repeat(12);
 const POSTHOG_PROJECTS_ERROR = 'Each line must be a positive whole-number PostHog project id, or the one word none.';
 const SEGMENTED_CHOICE_LIMIT = 3;
 const PATHS_SUMMARIZED_IN_PAYLOAD: ReadonlySet<string> = new Set(['customAgents']);
@@ -100,7 +100,7 @@ export function listValue(value: unknown): string[] {
   return (value as unknown[]).map((entry) => String(entry));
 }
 
-export function listFromDraft(draft: string): string[] {
+function listFromDraft(draft: string): string[] {
   return draft.split('\n').map((entry) => entry.trim()).filter((entry) => entry !== '');
 }
 
@@ -113,7 +113,7 @@ export function displayRange(setting: SettingsSetting): SettingsRange | null {
   return scaled;
 }
 
-export function fileOnlyDefaultText(setting: SettingsSetting): string {
+function fileOnlyDefaultText(setting: SettingsSetting): string {
   const shown = `Default ${displayText(setting, setting.defaultValue)}`;
   if (!hasScaledUnit(setting)) return shown;
   return `${shown}, stored as ${JSON.stringify(setting.defaultValue)} ${setting.unit?.storedLabel ?? ''}`.trimEnd();
@@ -346,11 +346,11 @@ function addReversedPairErrors(settings: readonly SettingsSetting[], values: Set
   }
 }
 
-export function pairedSettingOf(sections: readonly SettingsSection[], setting: SettingsSetting): SettingsSetting | undefined {
+function pairedSettingOf(sections: readonly SettingsSection[], setting: SettingsSetting): SettingsSetting | undefined {
   return settingsOf(sections).find((candidate) => candidate.id === setting.maximumSettingId || candidate.maximumSettingId === setting.id);
 }
 
-export function settingError(sections: readonly SettingsSection[], setting: SettingsSetting, values: SettingsValues): string | null {
+function settingError(sections: readonly SettingsSection[], setting: SettingsSetting, values: SettingsValues): string | null {
   const pair = pairedSettingOf(sections, setting);
   const scoped: SettingsSection = { id: 'scoped', level: 'machine', title: '', description: '', settings: pair ? [setting, pair] : [setting] };
   return validateLocally([scoped], values)[setting.id] ?? null;
@@ -439,7 +439,7 @@ export function workflowRuleToggleRows(workflows: unknown): WorkflowRuleToggleRo
   return parsed.data.rules.map((rule) => ({ id: rule.id, name: rule.name, isEnabled: rule.enabled, summary: workflowRuleSummary(rule) }));
 }
 
-export function withoutWorkflowRuleDefinitions(settings: Record<string, unknown>): Record<string, unknown> {
+function withoutWorkflowRuleDefinitions(settings: Record<string, unknown>): Record<string, unknown> {
   const workflows = settings.workflows;
   if (typeof workflows !== 'object' || workflows === null || Array.isArray(workflows)) return settings;
   return { ...settings, workflows: Object.fromEntries(Object.entries(workflows).filter(([key]) => key !== 'rules')) };

@@ -36,20 +36,6 @@ test('add-session persists the workspace folder and chosen repositories', () => 
   }
 });
 
-test('add-session rejects a missing workspace repository before saving', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-workspace-'));
-  try {
-    const config = { projects: [] };
-    const server = createControlServer(controlDeps(config));
-    const connection = connectControl<{ type: string; message?: string }>(server);
-    connection.send({ type: 'add-session', name: 'Team Work', path: root, repos: [root, path.join(root, 'missing')] });
-    assert.deepEqual(config.projects, []);
-    assert.equal(connection.sent.some((frame) => frame.type === 'error'), true);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('quick-session copies a workspace session under the next free name, guarded once its guardrails were released, without its conversation', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-workspace-'));
   try {

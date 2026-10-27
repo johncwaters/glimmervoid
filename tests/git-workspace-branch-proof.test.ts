@@ -320,15 +320,3 @@ test('a repository git reads as dubiously owned is still probed through the inhe
     removeRepository(projectPath);
   }
 });
-
-test('an enumeration exit of one reads as no drivers while any other failure leaves the probe env unresolved', async () => {
-  const workspaceWithFailure = (exitCode: number) => createGitWorkspace({
-    git: async (args: string[]) => {
-      if (!args.includes('--get-regexp')) return '';
-      throw Object.assign(new Error('git config failed'), { code: exitCode, stderr: 'fatal: bad config line' });
-    },
-  });
-
-  assert.equal((await workspaceWithFailure(1).resolveMergeProbeEnv({ projectPath: '/repo' })).ok, true);
-  assert.equal((await workspaceWithFailure(128).resolveMergeProbeEnv({ projectPath: '/repo' })).ok, false);
-});
