@@ -38,11 +38,6 @@
     <input type="text" class="dialog-input" id="add-session-path" placeholder="Full path to the project folder" autocomplete="off" spellcheck="false">
   </label>
 </div>
-<label class="dialog-label dialog-checkbox-label" id="add-session-run-in-place-label" hidden>
-  <input type="checkbox" class="dialog-checkbox" id="add-session-run-in-place">
-  <span>Run in this folder, no worktree</span>
-  <span class="dialog-hint">This folder is not a git repository with a commit, so the session cannot get its own worktree. The agent changes the folder itself, and nothing keeps its edits apart from yours. Run git init in it and make a first commit to keep them apart.</span>
-</label>
 <label class="dialog-label dialog-checkbox-label" id="add-session-skip-perms-label">
   <input type="checkbox" class="dialog-checkbox" id="add-session-skip-perms">
   <span>Skip permission prompts</span>

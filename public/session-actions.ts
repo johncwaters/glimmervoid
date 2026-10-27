@@ -82,10 +82,6 @@ async function requestQuickAdd(path: string, label: string | null | undefined) {
       clearHeaderError(ADD_SESSION_ERROR_SOURCE);
       return;
     }
-    if (reply.type === 'add-session-result' && reply.reason === 'not-git') {
-      openWithDialogs((dialogs) => dialogs.openAddSessionDialogForFolderWithoutWorktree({ name, path }));
-      return;
-    }
     reportHeaderError({ source: ADD_SESSION_ERROR_SOURCE, message: addSessionRefusalText(reply) });
   } catch (reason) {
     reportHeaderError({ source: ADD_SESSION_ERROR_SOURCE, message: `The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)} Add it again once the server answers.` });

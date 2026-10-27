@@ -1,6 +1,5 @@
 import { toMyPrsWireStatus } from './github/core/my-prs-core.ts';
 import type { IssuesStatus } from '../shared/contracts/issues.ts';
-import { isSameDirectoryPath } from '../shared/canonical-paths.ts';
 import { createKeyedSerialQueue } from './spawn-gate.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
@@ -173,37 +172,8 @@ interface ControlHandlerDeps {
   remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
 }
 
-type ScannedProject = { name: string; path: string; isGit: boolean };
-type AddSessionRefusal = { error: string; reason?: 'not-git' };
+type AddSessionRefusal = { error: string };
 type AddSessionRequest = ClientMessageOf<'add-session'> & { runSettings?: Partial<ProjectEntry> };
-
-function isInsideGitCheckout(folderPath: string): boolean {
-  const resolvedFolder = path.resolve(folderPath);
-  if (fs.existsSync(path.join(resolvedFolder, '.git'))) return true;
-  const parentFolder = path.dirname(resolvedFolder);
-  if (parentFolder === resolvedFolder) return false;
-  return isInsideGitCheckout(parentFolder);
-}
-
-async function hasCommittedGitCheckout(folderPath: string): Promise<boolean> {
-  const insideWorkTree = await runGit(['rev-parse', '--is-inside-work-tree'], { cwd: folderPath });
-  if (!insideWorkTree.ok || insideWorkTree.out !== 'true') return false;
-  const head = await runGit(['rev-parse', 'HEAD'], { cwd: folderPath });
-  return head.ok;
-}
-
-async function canHaveOwnWorktree(folderPath: string): Promise<boolean> {
-  if (!isInsideGitCheckout(folderPath)) return false;
-  return hasCommittedGitCheckout(folderPath);
-}
-
-async function markWorktreeCapableProjects(projects: { name: string; path: string }[]): Promise<ScannedProject[]> {
-  const scannedProjects: ScannedProject[] = [];
-  for (const project of projects) {
-    scannedProjects.push({ ...project, isGit: await canHaveOwnWorktree(project.path) });
-  }
-  return scannedProjects;
-}
 
 function scanRepoRoots(roots: string[] | undefined): { root: string; projects: { name: string; path: string }[] }[] {
   const results: { root: string; projects: { name: string; path: string }[] }[] = [];
@@ -258,10 +228,6 @@ async function runGitForConversationHistory(args: string[], cwd: string): Promis
   const result = await runGit(args, { cwd, timeoutMs: CONVERSATION_HISTORY_GIT_TIMEOUT_MS, trim: false });
   if (!result.ok) throw result.error;
   return result.out;
-}
-
-function notGitRepositoryError(folderPath: string): string {
-  return `${folderPath} is not a git repository with a commit, so the session cannot get its own worktree. Tick "Run in this folder, no worktree" to let the agent work in the folder directly, or run git init there and make a first commit.`;
 }
 
 function missingFolderError(folderPath: string): string {
@@ -474,11 +440,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }
     const environmentName = typeof msg.environment === 'string' ? msg.environment.trim() : '';
     if (environmentName) return createRemoteAddedSession(msg, ws, environmentName);
-    if (!needsOwnWorktreeCheck(msg)) {
-      createAddedSession(msg, ws);
-      return undefined;
-    }
-    return createAddedSessionOnceWorktreeCapable(msg, ws);
+    createAddedSession(msg, ws);
+    return undefined;
   }
 
   function handleQuickSession(msg: ClientMessageOf<'quick-session'>, ws: ControlSocket): Promise<void> | undefined {
@@ -493,21 +456,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       sessionNames: [...sessions.values(), ...agentSessions.values()].map((session) => session.name),
     });
     return handleAddSession({ type: 'add-session', requestId: msg.requestId, ...plan.request, runSettings: plan.runSettings }, ws);
-  }
-
-  function needsOwnWorktreeCheck(msg: AddSessionRequest): boolean {
-    if (msg.repos || msg.runInPlace === true) return false;
-    const projectPath = (msg.path || '').trim();
-    return !config.projects.some((project) => isSameDirectoryPath(project.path, projectPath));
-  }
-
-  async function createAddedSessionOnceWorktreeCapable(msg: AddSessionRequest, ws: ControlSocket): Promise<void> {
-    const projectPath = (msg.path || '').trim();
-    if (!(await hasCommittedGitCheckout(projectPath))) {
-      refuseAddSession(msg, ws, { error: notGitRepositoryError(projectPath), reason: 'not-git' });
-      return;
-    }
-    createAddedSession(msg, ws);
   }
 
   function createAddedSession(msg: AddSessionRequest, ws: ControlSocket, remote?: { id: string; environment: NonNullable<ProjectEntry['environment']> }): ProjectEntry | null {
@@ -1100,7 +1048,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
   async function handleScanRepoRoots(msg: ClientMessageOf<'scan-repo-roots'>, ws: ControlSocket): Promise<void> {
-    const directories = await Promise.all(scanRepoRoots(config.repoRoots).map(async ({ root, projects }) => ({ root, projects: await markWorktreeCapableProjects(projects) })));
+    const directories = scanRepoRoots(config.repoRoots);
     const suggestions = msg.includeSuggestions ? await suggestRepoRoots({ homeDir: os.homedir(), configuredRoots: config.repoRoots || [] }) : undefined;
     ws.send(JSON.stringify({
       type: 'repo-roots-scanned',

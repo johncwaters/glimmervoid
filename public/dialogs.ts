@@ -213,20 +213,7 @@ export function openRemoteSetupDialog() {
   refreshAgentLogins();
 }
 
-interface FolderWithoutWorktree {
-  name: string;
-  path: string;
-}
-
 export function createAddSessionDialog() {
-  buildAddSessionDialog(null);
-}
-
-export function openAddSessionDialogForFolderWithoutWorktree(folder: FolderWithoutWorktree) {
-  buildAddSessionDialog(folder);
-}
-
-function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | null) {
   const { dialog, close } = createModalOverlay();
   dialog.innerHTML = addSessionHTML;
   applyDialogAria(dialog, 'add-session-title');
@@ -253,15 +240,12 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
   const pathLabelEl = query(dialog, '#add-session-path-label');
   const skipPermsCheckbox = queryTag(dialog, '#add-session-skip-perms', 'input');
   const unguardedCheckbox = queryTag(dialog, '#add-session-unguarded', 'input');
-  const runInPlaceLabelEl = query(dialog, '#add-session-run-in-place-label');
-  const runInPlaceCheckbox = queryTag(dialog, '#add-session-run-in-place', 'input');
   const errorEl = query(dialog, '#add-session-error');
   const btnCancel = queryTag(dialog, '#add-session-cancel', 'button');
   const btnConfirm = queryTag(dialog, '#add-session-confirm', 'button');
   let isWorkspaceMode = false;
   let coderEnvironments: CoderEnvironmentOffer[] = [];
   let selectedEnvironment: CoderEnvironmentOffer | null = null;
-  let isRunInPlaceOffered = false;
 
   function setWorkspaceMode(enabled: boolean) {
     isWorkspaceMode = enabled;
@@ -335,8 +319,7 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
           for (const project of directory.projects) {
             const existingCount = countSessionsByName(project.name);
             const openLabel = existingCount > 0 ? `${project.name} (${existingCount} open)` : project.name;
-            const label = project.isGit === false ? `${openLabel} (not a git repo)` : openLabel;
-            group.appendChild(option(label, { value: JSON.stringify({ name: project.name, path: project.path, isGit: project.isGit !== false }) }));
+            group.appendChild(option(openLabel, { value: JSON.stringify({ name: project.name, path: project.path }) }));
             workspaceListEl.appendChild(buildRepoCheckbox(project.name, project.path));
             hasProjects = true;
           }
@@ -354,10 +337,9 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
 
   pickerEl.addEventListener('change', () => {
     try {
-      const project = JSON.parse(pickerEl.value) as { name: string; path: string; isGit: boolean };
+      const project = JSON.parse(pickerEl.value) as { name: string; path: string };
       nameInput.value = suggestSessionName(project.name);
       pathInput.value = project.path;
-      showRunInPlaceChoice(!project.isGit);
     } catch {}
   });
 
@@ -424,12 +406,6 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
     })
     .catch((reason) => { showWarning(`Could not load your settings (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}). Check Skip permissions yourself.`); });
 
-  function showRunInPlaceChoice(isShown: boolean) {
-    isRunInPlaceOffered = isShown;
-    runInPlaceLabelEl.hidden = !isShown || selectedEnvironment !== null;
-    runInPlaceCheckbox.checked = false;
-  }
-
   function showCoderEnvironments(environments: CoderEnvironmentOffer[]) {
     if (environments.length === 0) return;
     coderEnvironments = environments;
@@ -444,17 +420,13 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
     workspaceModeButton.hidden = selectedEnvironment !== null;
     environmentHintEl.hidden = selectedEnvironment === null;
     environmentHintEl.textContent = selectedEnvironment ? coderEnvironmentHint(selectedEnvironment) : '';
-    showRunInPlaceChoice(isRunInPlaceOffered);
     showAgentLogin();
     if (selectedEnvironment === null) return;
     if (isWorkspaceMode) setWorkspaceMode(false);
   });
 
   nameInput.addEventListener('input', () => { pickerEl.selectedIndex = 0; });
-  pathInput.addEventListener('input', () => {
-    pickerEl.selectedIndex = 0;
-    showRunInPlaceChoice(false);
-  });
+  pathInput.addEventListener('input', () => { pickerEl.selectedIndex = 0; });
 
   function submit() {
     if (isSpawnBlocked) return;
@@ -486,7 +458,6 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
       path: projectPath,
       dangerouslySkipPermissions: skipPermsCheckbox.checked,
       unguarded: unguardedCheckbox.checked,
-      runInPlace: runInPlaceCheckbox.checked,
     };
     if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
     if (selectedEnvironment) message.environment = selectedEnvironment.name;
@@ -503,7 +474,6 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
           return;
         }
         errorEl.textContent = addSessionRefusalText(reply);
-        if (reply.type === 'add-session-result' && reply.reason === 'not-git') runInPlaceLabelEl.hidden = false;
       })
       .catch((reason) => { errorEl.textContent = `The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}`; })
       .finally(() => { btnConfirm.disabled = isSpawnBlocked; });
@@ -519,16 +489,7 @@ function buildAddSessionDialog(folderWithoutWorktree: FolderWithoutWorktree | nu
   pathInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') submit();
   });
-  if (!folderWithoutWorktree) {
-    requestAnimationFrame(() => pickerEl.focus());
-    return;
-  }
-  advancedPanel.hidden = false;
-  advancedToggle.setAttribute('aria-expanded', 'true');
-  nameInput.value = folderWithoutWorktree.name;
-  pathInput.value = folderWithoutWorktree.path;
-  showRunInPlaceChoice(true);
-  requestAnimationFrame(() => runInPlaceCheckbox.focus());
+  requestAnimationFrame(() => pickerEl.focus());
 }
 
 export function createRadarReportDialog({
