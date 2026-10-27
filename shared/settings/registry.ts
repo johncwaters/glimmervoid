@@ -1002,6 +1002,15 @@ export function isExperimentalSetting(setting: Pick<SettingsSetting, 'keywords'>
   return setting.keywords.includes(EXPERIMENTAL_KEYWORD);
 }
 
+export function settingsSectionsAvailableOn(sections: readonly SettingsSection[], isExperimentalBuild: boolean): readonly SettingsSection[] {
+  if (isExperimentalBuild) return sections;
+  return sections.flatMap((section) => {
+    const availableSettings = section.settings.filter((setting) => !isExperimentalSetting(setting));
+    if (availableSettings.length === 0 && section.settings.length > 0) return [];
+    return [{ ...section, settings: availableSettings }];
+  });
+}
+
 export const SETTINGS_SECTION_ALIASES: Readonly<Record<string, string>> = Object.freeze(Object.fromEntries(
   SECTIONS.flatMap((section) => (section.legacyIds ?? []).map((legacyId) => [legacyId, section.id])),
 ));

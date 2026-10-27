@@ -13,7 +13,7 @@ import { formatAgo } from '../poll-ago.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
-import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '#shared/settings/registry.ts';
+import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES, settingsSectionsAvailableOn } from '#shared/settings/registry.ts';
 import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
 import { parseSettingsHash, scoreSettingsSearch } from '#shared/settings/registry-core.ts';
 import {
@@ -150,8 +150,16 @@ function resolveSettingOptions(setting: SettingsSetting): SettingsSetting {
   };
 }
 
+function isExperimentalBuildPayload(payload: SettingsPayload): boolean {
+  return payload.isExperimentalBuild === true;
+}
+
+function availableSettingsSections(): readonly SettingsSection[] {
+  return settingsSectionsAvailableOn(SETTINGS_REGISTRY.sections, isExperimentalBuildPayload(settingsPayloadSnapshot()));
+}
+
 function buildSettingsViewMap(): readonly SettingsSection[] {
-  const sections = SETTINGS_REGISTRY.sections.map((section) => ({
+  const sections = availableSettingsSections().map((section) => ({
     ...section,
     settings: section.settings.map(resolveSettingOptions),
   }));
@@ -162,6 +170,7 @@ function buildSettingsViewMap(): readonly SettingsSection[] {
 }
 
 let SETTINGS_VIEW_MAP = buildSettingsViewMap();
+let isSettingsViewMapExperimental = isExperimentalBuildPayload(settingsPayloadSnapshot());
 
 let isAdvancedSettingsExpanded = false;
 
@@ -1528,7 +1537,7 @@ function chooseSearchResult(searchResult: SectionSearchResult) {
 }
 
 function searchSettings(query: string) {
-  return scoreSettingsSearch(SETTINGS_REGISTRY.sections, query, SETTINGS_REGISTRY.fileOnly);
+  return scoreSettingsSearch(availableSettingsSections(), query, SETTINGS_REGISTRY.fileOnly);
 }
 
 function highlightedSearchText(
@@ -1723,6 +1732,7 @@ function mountSettingsView(container: HTMLElement) {
   shellEl.append(sidebar, contentEl);
   rootEl.appendChild(shellEl);
   settingsPayload = settingsPayloadSnapshot();
+  syncSettingsViewMapToBuild();
   hydrate(settingsPayload);
   setPhoneSettingsScreenProbe(currentPhoneSettingsScreen);
   subscribeSettings(applySettingsChange);
@@ -1744,9 +1754,20 @@ function isAlertSoundPage(page: SettingsSection) {
   return pageSettings(page).some((setting) => setting.path === 'pref:soundId');
 }
 
-function refreshSoundOptions() {
+function rebuildSettingsViewMap() {
   SETTINGS_VIEW_MAP = buildSettingsViewMap();
+  isSettingsViewMapExperimental = isExperimentalBuildPayload(settingsPayloadSnapshot());
   selectedPage = pageSectionOf(SETTINGS_VIEW_MAP, selectedPage.id) ?? SETTINGS_VIEW_MAP[0];
+}
+
+function syncSettingsViewMapToBuild(): boolean {
+  if (isExperimentalBuildPayload(settingsPayload) === isSettingsViewMapExperimental) return false;
+  rebuildSettingsViewMap();
+  return true;
+}
+
+function refreshSoundOptions() {
+  rebuildSettingsViewMap();
   storedValues['pref:soundId'] = resolveSoundId(getSoundId());
   if (searchQuery) {
     renderSearchContent();
@@ -1787,9 +1808,15 @@ function activatePendingSection() {
 
 function showBroadcastSettings() {
   settingsPayload = settingsPayloadSnapshot();
+  const isViewMapRebuilt = syncSettingsViewMapToBuild();
   hydrate(settingsPayload);
   if (searchQuery) {
     renderSearchContent();
+    return;
+  }
+  if (isViewMapRebuilt) {
+    renderNavigation();
+    renderContent();
     return;
   }
   refreshVisibleRows();

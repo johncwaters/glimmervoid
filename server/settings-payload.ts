@@ -7,6 +7,7 @@ interface SettingsPayloadOptions {
   configStore: {
     getSettings: () => Record<string, unknown>;
     config: { customAgents?: CustomAgentDeclaration[] };
+    isExperimentalBuild?: boolean;
   };
   rtkInstallStatus?: Record<string, unknown> | null;
   telegramDelivery?: TelegramDeliveryStatus | null;
@@ -30,6 +31,7 @@ function buildSettingsPayload({
 }: SettingsPayloadOptions): Record<string, unknown> {
   return {
     ...configStore.getSettings(),
+    isExperimentalBuild: configStore.isExperimentalBuild === true,
     rtkAvailable: !!resolveRtk(),
     saneYoloAvailable: !!resolvePackageBin('cc-safety-net', 'cc-safety-net'),
     rtkInstall: rtkInstallStatus || { status: 'idle' },

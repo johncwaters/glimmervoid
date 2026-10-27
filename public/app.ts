@@ -83,7 +83,6 @@ import type { ViewRefreshReason } from './view-registry-core.ts';
 
 applyTheme(getThemeId());
 applySessionUsageChips(isSessionUsageChips());
-applyPhoneArrowPad(isPhoneArrowPad());
 applyFlyingAnimals(isFlyingAnimalsEnabled());
 
 initFormFactor();
@@ -881,7 +880,8 @@ function applyTabOrder(savedViewOrder: readonly string[] | undefined) {
   orderPhonePanels(orderedViewIds);
 }
 
-function applyDashboardSettings(settings: FeatureSurfaceSettings & Pick<BrowserConfig, 'coherence' | 'viewTabOrder'> & { streamerMode?: boolean; conversationView?: boolean }) {
+function applyDashboardSettings(settings: FeatureSurfaceSettings & Pick<BrowserConfig, 'coherence' | 'viewTabOrder'> & { streamerMode?: boolean; conversationView?: boolean; isExperimentalBuild?: boolean }) {
+  applyPhoneArrowPad(settings.isExperimentalBuild === true && isPhoneArrowPad());
   applyTerminalSettings(settings);
   applySettingsBroadcast(settings);
   applyVisionsSettings(settings);
