@@ -7,7 +7,7 @@ import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
-import type { BenchmarkControl, ControlHandlerDeps, MyPrMergeControl, TeamReviewActionControl } from '../control-handlers.ts';
+import type { BenchmarkControl, CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, TeamReviewActionControl } from '../control-handlers.ts';
 import type { ReplayLog } from '../core/control-replay-core.ts';
 import type { TelegramDeliveryControl } from '../core/telegram-delivery-core.ts';
 import type { PlanDecision } from '../../shared/contracts/plan-review.ts';
@@ -42,6 +42,10 @@ interface RadarControl {
   getStatus: () => Record<string, unknown> | null;
   setIssueStatus: (args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>;
   archiveInvestigation: (args: { id: string }) => Promise<Record<string, unknown>>;
+}
+
+interface CommunityControl extends CommunityActionControl {
+  getStatus: () => Record<string, unknown> | null;
 }
 
 interface TeamReviewControl extends TeamReviewActionControl {
@@ -86,6 +90,7 @@ interface BackendControlDependencies {
   laneAssembly: LaneReader;
   posthog: RadarControl;
   teamReview: TeamReviewControl;
+  community: CommunityControl;
   myPrs: MyPrMergeControl & { getStatus: () => MyPrsSnapshot };
   issues: { getStatus: () => IssuesStatus; refresh: () => Promise<GithubPollingRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]>; getLinkedSessionId: (issueKey: string) => Promise<string | null>; linkSession: (issueKey: string, sessionId: string) => Promise<void> };
   benchmarks: BenchmarkControl;
@@ -115,6 +120,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     laneAssembly,
     posthog,
     teamReview,
+    community,
     myPrs,
     issues,
     benchmarks,
@@ -152,12 +158,14 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     posthogSetIssueStatus: (args) => posthog.setIssueStatus(args),
     radarArchiveInvestigation: (args) => posthog.archiveInvestigation(args),
     getTeamReviewStatus: () => teamReview.getStatus(),
+    getCommunityStatus: () => community.getStatus(),
     getMyPrsStatus: () => myPrs.getStatus(),
     getIssuesStatus: () => issues.getStatus(),
     issueProjectRepos: (projectId) => issues.projectRepoSlugs(projectId),
     getBenchmarkStatus: () => benchmarks.getStatus(),
     benchmarks,
     teamReview,
+    community,
     myPrs,
     issues,
     githubStore: laneAssembly.githubStore,

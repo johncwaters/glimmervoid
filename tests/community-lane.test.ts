@@ -118,3 +118,52 @@ test('community lane runs each queued question once, oldest first, keeping a rea
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
+
+async function drainPendingWork(): Promise<void> {
+  for (let turn = 0; turn < 50; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+test('community lane set-aside stops a running question for good and re-run researches a finished one again', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'community-lane-'));
+  const statePath = path.join(directory, 'community-state.json');
+  let currentMs = ENABLED_AT;
+  let forumRows: Record<string, unknown>[] = [];
+  const queryForum = async (): Promise<SourceRows> => ({ ok: true, rows: forumRows });
+  const ranKeys: string[] = [];
+  const readyRun: CommunityRunResult = { report: HIGH_REPORT, posting: null, error: null };
+  const runItem: RunItem = (entry, signal) => {
+    ranKeys.push(entry.item.key);
+    const isFirstRunOfOldest = entry.item.key === 'forum:4' && ranKeys.filter((key) => key === 'forum:4').length === 1;
+    if (!isFirstRunOfOldest) return Promise.resolve(readyRun);
+    return new Promise((resolve) => signal.addEventListener('abort', () => resolve({ report: null, posting: null, error: 'aborted' })));
+  };
+  try {
+    const poller = startPoller(statePath, () => currentMs, queryForum, runItem);
+    await poller.start();
+    currentMs += 5 * 60000;
+    forumRows = [forumRow(5, '2026-10-28T12:02:00Z', 'second question'), forumRow(4, '2026-10-28T12:01:00Z', 'first question')];
+    await poller.tick();
+    assert.equal(poller.state().entries['forum:4']?.status, 'running');
+
+    assert.deepEqual(await poller.applyAction('forum:4', 'set-aside'), { ok: true });
+    await drainPendingWork();
+    assert.equal(poller.state().entries['forum:4']?.status, 'aside');
+    assert.equal(poller.state().entries['forum:5']?.status, 'ready');
+
+    assert.deepEqual(await poller.applyAction('forum:4', 'rerun'), { ok: true });
+    await drainPendingWork();
+    const rerun = poller.state().entries['forum:4'];
+    assert.equal(rerun?.status, 'ready');
+    assert.equal(rerun?.verdict, 'HIGH');
+    assert.equal(rerun?.attempts, 2);
+    assert.deepEqual(ranKeys, ['forum:4', 'forum:5', 'forum:4']);
+
+    const unknown = await poller.applyAction('forum:99', 'rerun');
+    assert.equal(unknown.ok, false);
+    await poller.stop();
+    const saved = JSON.parse(await fs.readFile(statePath, 'utf8'));
+    assert.equal(saved.entries['forum:4'].status, 'ready');
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});

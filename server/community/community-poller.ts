@@ -1,7 +1,7 @@
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { TickOutcome } from '../lanes/lane-runner.ts';
 import * as core from './core/community-core.ts';
-import type { CommunityState, CommunityStateEntry } from '../../shared/contracts/community.ts';
+import type { CommunityAction, CommunityState, CommunityStateEntry } from '../../shared/contracts/community.ts';
 import { errorMessage } from '../../shared/text.ts';
 
 type SourceRows = { ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string };
@@ -24,6 +24,7 @@ interface CommunityPoller {
   stop(): Promise<void>;
   tick(): Promise<void>;
   state(): CommunityState;
+  applyAction(key: string, action: CommunityAction): Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 function createCommunityPoller({
@@ -69,6 +70,10 @@ function createCommunityPoller({
     runAborts.delete(key);
     const entry = state.entries[key];
     if (loop.isStopped() || !entry) return;
+    if (entry.status !== 'running') {
+      dispatchRuns();
+      return;
+    }
     const finished = core.entryFromRun(entry, run, new Date(now()).toISOString());
     if (finished.warning) log.warn(`[${core.COMMUNITY_LANE_ID}] ${finished.warning}`);
     replaceEntry(finished.entry);
@@ -103,6 +108,21 @@ function createCommunityPoller({
     return {};
   }
 
+  async function applyAction(key: string, action: CommunityAction): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (loop.isStopped()) return { ok: false, error: 'The community lane is not running' };
+    const entry = state.entries[key];
+    if (!entry) return { ok: false, error: 'That question is no longer tracked' };
+    if (action === 'rerun' && runAborts.has(key)) return { ok: false, error: 'The last research run for this question is still stopping' };
+    const applied = core.applyCommunityAction(entry, action);
+    if (!applied.ok) return applied;
+    if (action === 'set-aside') runAborts.get(key)?.abort();
+    replaceEntry(applied.entry);
+    dispatchRuns();
+    await loop.persist();
+    publishStatus(null);
+    return { ok: true };
+  }
+
   async function start(): Promise<void> {
     await loop.start(async () => {
       state = core.requeueInterruptedRuns(await readState());
@@ -116,7 +136,7 @@ function createCommunityPoller({
     await stopping;
   }
 
-  return { start, stop, tick: loop.tick, state: () => state };
+  return { start, stop, tick: loop.tick, state: () => state, applyAction };
 }
 
 export { createCommunityPoller };

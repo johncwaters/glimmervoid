@@ -56,3 +56,32 @@ export const CommunityState = z.strictObject({
   entries: z.record(z.string().regex(COMMUNITY_ITEM_KEY_RE), CommunityStateEntry),
 });
 export type CommunityState = z.infer<typeof CommunityState>;
+
+export const CommunityStatus = z.object({
+  type: z.literal('community-status'),
+  ts: z.number().finite(),
+  configured: z.boolean().optional(),
+  reason: z.string().nullable().optional(),
+  intervalMinutes: z.number().int().positive().optional(),
+  error: z.string().nullable().optional(),
+  entries: z.array(CommunityStateEntry),
+}).passthrough();
+export type CommunityStatus = z.infer<typeof CommunityStatus>;
+
+export const CommunityAction = z.enum(['rerun', 'set-aside']);
+export type CommunityAction = z.infer<typeof CommunityAction>;
+
+export const CommunityItemKey = z.string().regex(COMMUNITY_ITEM_KEY_RE);
+
+export const CommunityActionRequest = z.object({
+  key: CommunityItemKey,
+  action: CommunityAction,
+});
+export type CommunityActionRequest = z.infer<typeof CommunityActionRequest>;
+
+export const CommunityActionResult = z.object({
+  key: z.string(),
+  ok: z.boolean(),
+  error: z.string().optional(),
+});
+export type CommunityActionResult = z.infer<typeof CommunityActionResult>;

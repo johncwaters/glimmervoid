@@ -55,6 +55,8 @@ import { CLIENT_LOG_SCOPE_MAX_CHARS, CLIENT_LOG_TEXT_MAX_CHARS } from '../shared
 import type { KeptWorkPath } from '../shared/contracts/control-messages.ts';
 import { sanitizeOneLine, showHomeAsTilde } from './core/text-core.ts';
 import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
+import { CommunityActionRequest } from '../shared/contracts/community.ts';
+import type { CommunityActionResult } from '../shared/contracts/community.ts';
 import { BenchmarkActionRequest } from '../shared/contracts/benchmark.ts';
 import type { BenchmarkActionResult, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
 import type { FeatureHintsWiring } from './feature-hints-wiring.ts';
@@ -90,6 +92,11 @@ interface RadarLaneStatus {
 }
 
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
+
+interface CommunityActionControl {
+  submitAction(request: CommunityActionRequest): Promise<Omit<CommunityActionResult, 'key'>>;
+  sessionPromptFor(key: string): { ok: true; title: string; prompt: string } | { ok: false; error: string };
+}
 
 interface TeamReviewActionControl {
   refresh?: () => Promise<GithubPollingRefreshResult>;
@@ -139,6 +146,8 @@ interface ControlHandlerDeps {
   posthogSetIssueStatus?: ((args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>) | null;
   radarArchiveInvestigation?: ((args: { id: string }) => Promise<Record<string, unknown>>) | null;
   getTeamReviewStatus?: (() => TeamReviewStatus | null) | null;
+  getCommunityStatus?: (() => Record<string, unknown> | null) | null;
+  community?: CommunityActionControl | null;
   getMyPrsStatus?: (() => MyPrsSnapshot | null) | null;
   getIssuesStatus?: (() => IssuesStatus | null) | null;
   githubStore?: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness } | null;
@@ -275,6 +284,8 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'radar-archive-investigation': () => ({ type: 'radar-archive-investigation-result', requestId, ok: false, error: message }),
     'telegram-test': () => ({ type: 'telegram-test-result', requestId, ok: false, error: message, telegramDelivery: null }),
     'team-review-action': () => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
+    'community-action': () => ({ type: 'community-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
+    'open-community-session': () => ({ type: 'open-community-session-result', requestId, ok: false, error: message }),
     'github-polling-refresh': () => ({ type: 'github-polling-refresh-result', requestId, ok: false, error: message }),
     'my-pr-merge': () => ({ type: 'my-pr-merge-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'my-pr-keep-mergeable': () => ({ type: 'my-pr-keep-mergeable-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
@@ -349,6 +360,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     posthogSetIssueStatus = null,
     radarArchiveInvestigation = null,
     getTeamReviewStatus = null,
+    getCommunityStatus = null,
+    community = null,
     getMyPrsStatus = null,
     getIssuesStatus = null,
     githubStore = null,
@@ -1395,6 +1408,39 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply(await teamReview.submitAction(parsed.data));
   }
 
+  async function handleCommunityAction(msg: ClientMessageOf<'community-action'>, ws: ControlSocket): Promise<void> {
+    const reply = (outcome: Omit<CommunityActionResult, 'key'>) => replyTo(ws, msg, 'community-action-result', { key: msg.key, ...outcome });
+    const parsed = CommunityActionRequest.safeParse(msg);
+    if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    captureOperatorAction('community', parsed.data.action);
+    if (!community) { reply({ ok: false, error: 'The community lane is not running' }); return; }
+    reply(await community.submitAction(parsed.data));
+  }
+
+  function handleOpenCommunitySession(msg: ClientMessageOf<'open-community-session'>, ws: ControlSocket): void {
+    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'open-community-session-result', { ok: false, error: null, key: msg.key, ...payload });
+    captureOperatorAction('community', 'open-session');
+    if (!community) { reply({ error: 'The community lane is not running' }); return; }
+    const seeded = community.sessionPromptFor(msg.key);
+    if (!seeded.ok) { reply({ error: seeded.error }); return; }
+    const project = config.projects.find((candidate) => candidate.id === msg.projectId && !candidate.repos);
+    if (!project) { reply({ error: 'Pick a single-repository session to start from' }); return; }
+    const isGuarded = willSessionRunGuarded({ path: project.path, agent: project.agent }, config, null);
+    const created = createProjectSession({
+      name: `Community: ${seeded.title}`.slice(0, 80),
+      path: project.path,
+      agent: project.agent,
+      dangerouslySkipPermissions: isGuarded ? project.dangerouslySkipPermissions : false,
+    });
+    if (!created.ok) { reply({ error: created.error }); return; }
+    const session = sessions.get(created.project.id);
+    if (!session) { reply({ error: `Session "${created.project.name}" is not loaded` }); return; }
+    const pasted = session.pasteTextWhenReady(seeded.prompt);
+    if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
+    reply({ ok: true, sessionId: session.id, sessionName: session.name, pending: pasted.deferred === true });
+    console.log(`[control] open-community-session: item=${msg.key} -> session=${session.name}`);
+  }
+
   async function handleGithubPollingRefresh(msg: ClientMessageOf<'github-polling-refresh'>, ws: ControlSocket): Promise<void> {
     captureOperatorAction(msg.lane === 'issues' ? 'issues' : 'reviews', 'refresh');
     const lane = { 'my-prs': myPrs, 'team-review': teamReview, issues }[msg.lane];
@@ -1620,6 +1666,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'radar-archive-investigation': handleRadarArchiveInvestigation,
     'telegram-test': handleTelegramTest,
     'team-review-action': handleTeamReviewAction,
+    'community-action': handleCommunityAction,
+    'open-community-session': handleOpenCommunitySession,
     'my-pr-merge': handleMyPrMerge,
     'my-pr-keep-mergeable': handleMyPrKeepMergeable,
     'my-pr-merge-when-ready': handleMyPrMergeWhenReady,
@@ -1857,6 +1905,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const teamReviewStatus = typeof getTeamReviewStatus === 'function' ? getTeamReviewStatus() : null;
     if (githubStore) ws.send(JSON.stringify(githubStore.snapshotMessage()));
     if (teamReviewStatus) ws.send(JSON.stringify(teamReviewStatus));
+    const communityStatus = getCommunityStatus?.() ?? null;
+    if (communityStatus) ws.send(JSON.stringify(communityStatus));
     const myPrsStatus = typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null;
     if (myPrsStatus) ws.send(JSON.stringify(toMyPrsWireStatus(myPrsStatus)));
     const issuesStatus = getIssuesStatus?.();
@@ -1934,4 +1984,4 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 export {
   registerControlHandlers,
 };
-export type { BenchmarkControl, ControlHandlerDeps, MyPrMergeControl, TeamReviewActionControl };
+export type { BenchmarkControl, CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, TeamReviewActionControl };

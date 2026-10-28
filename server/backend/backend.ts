@@ -583,6 +583,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     laneAssembly,
     posthog,
     teamReview,
+    community,
     myPrs,
     issues,
     benchmarks: laneAssembly.benchmarks,

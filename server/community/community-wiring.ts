@@ -13,7 +13,7 @@ import * as core from './core/community-core.ts';
 import { createCommunityPoller } from './community-poller.ts';
 import type { SourceRows } from './community-poller.ts';
 import { CommunityState } from '../../shared/contracts/community.ts';
-import type { CommunityStateEntry } from '../../shared/contracts/community.ts';
+import type { CommunityActionRequest, CommunityActionResult, CommunityStateEntry } from '../../shared/contracts/community.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { createTeamReviewSpawn } from '../github/team-review-wiring.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
@@ -213,7 +213,25 @@ function createCommunityWiring({
     },
   });
 
+  const notRunning = 'The community lane is not running';
+
+  async function submitAction(request: CommunityActionRequest): Promise<Omit<CommunityActionResult, 'key'>> {
+    const poller = runner.getPoller();
+    if (!poller) return { ok: false, error: notRunning };
+    return poller.applyAction(request.key, request.action);
+  }
+
+  function sessionPromptFor(key: string): { ok: true; title: string; prompt: string } | { ok: false; error: string } {
+    const poller = runner.getPoller();
+    if (!poller) return { ok: false, error: notRunning };
+    const entry = poller.state().entries[key];
+    if (!entry) return { ok: false, error: 'That question is no longer tracked' };
+    return { ok: true, title: entry.item.title, prompt: core.communitySessionPrompt(entry) };
+  }
+
   return {
+    submitAction,
+    sessionPromptFor,
     startPoller: runner.startPoller,
     stopPoller: runner.stopPoller,
     restartIfConfigChanged: runner.restartIfConfigChanged,

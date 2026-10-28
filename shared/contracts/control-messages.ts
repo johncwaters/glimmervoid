@@ -20,6 +20,7 @@ import { TraceRecord } from './trace.ts';
 import { SessionSetup } from './session-setup.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus, hasRequiredActionHead } from './team-review.ts';
+import { CommunityActionRequest, CommunityActionResult, CommunityItemKey, CommunityStatus } from './community.ts';
 import { LinkedPr, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus, SessionPrLinks } from './my-prs.ts';
 import { GithubPrsFrame } from './github-prs.ts';
 import { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } from './benchmark.ts';
@@ -203,11 +204,12 @@ export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session', 'open-shell'],
   reviews: ['open-session', 'approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh'],
   hints: ['shown', 'open', 'dismiss'],
+  community: ['open-session', 'rerun', 'set-aside'],
 } as const);
 export const ONBOARDING_STEPS = Object.freeze(['agent', 'repo_roots', 'first_session'] as const);
 export const ONBOARDING_STEP_STATES = Object.freeze(['current', 'done'] as const);
 export type OnboardingStepReport = { step: (typeof ONBOARDING_STEPS)[number]; state: (typeof ONBOARDING_STEP_STATES)[number] };
-export const OPERATOR_SURFACES = Object.freeze(['usage', 'issues', 'radar', 'onboarding', 'reviews', 'hints'] as const);
+export const OPERATOR_SURFACES = Object.freeze(['usage', 'issues', 'radar', 'onboarding', 'reviews', 'hints', 'community'] as const);
 export type OperatorSurface = (typeof OPERATOR_SURFACES)[number];
 export type OperatorAction = { [Surface in OperatorSurface]: (typeof OPERATOR_ACTIONS_BY_SURFACE)[Surface][number] }[OperatorSurface];
 export type OperatorActionOf<Surface extends OperatorSurface> = (typeof OPERATOR_ACTIONS_BY_SURFACE)[Surface][number];
@@ -269,6 +271,8 @@ const clientVariants = [
   loose('radar-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
   loose('open-team-review-session', { requestId, key: PullRequestKey }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }).refine(hasRequiredActionHead, { message: 'only discard may omit head', path: ['head'] }),
+  loose('open-community-session', { requestId, key: CommunityItemKey, projectId: z.string().min(1) }),
+  loose('community-action', { ...CommunityActionRequest.shape, requestId }),
   loose('benchmark-action', { ...BenchmarkActionRequest.shape, requestId }),
   loose('my-pr-merge', { ...MyPrMergeRequest.shape, requestId }),
   loose('my-pr-keep-mergeable', { ...MyPrKeepMergeableRequest.shape, requestId }),
@@ -542,6 +546,16 @@ const serverVariants = [
     status: nullableString.optional(),
   }),
   loose('team-review-action-result', { ...TeamReviewActionResult.shape, requestId }),
+  loose('community-action-result', { ...CommunityActionResult.shape, requestId }),
+  loose('open-community-session-result', {
+    requestId,
+    ok: z.boolean(),
+    error: optionalError,
+    key: z.string().optional(),
+    sessionId: z.string().optional(),
+    sessionName: z.string().optional(),
+    pending: z.boolean().optional(),
+  }),
   loose('telemetry-deletion-result', { requestId, ok: z.boolean() }),
   loose('benchmark-action-result', { ...BenchmarkActionResult.shape, requestId }),
   loose('my-pr-merge-result', { ...MyPrMergeResult.shape, requestId }),
@@ -551,6 +565,7 @@ const serverVariants = [
   loose('radar-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('telegram-test-result', { requestId, ok: z.boolean(), error: optionalError, telegramDelivery: TelegramDeliveryStatus.nullable() }),
   TeamReviewStatus,
+  CommunityStatus,
   BenchmarkStatus,
   MyPrsStatus,
   GithubPrsFrame,
