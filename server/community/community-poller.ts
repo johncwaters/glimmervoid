@@ -1,7 +1,8 @@
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { TickOutcome } from '../lanes/lane-runner.ts';
 import * as core from './core/community-core.ts';
-import type { CommunityState } from '../../shared/contracts/community.ts';
+import type { CommunityState, CommunityStateEntry } from '../../shared/contracts/community.ts';
+import { errorMessage } from '../../shared/text.ts';
 
 type SourceRows = { ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string };
 
@@ -10,6 +11,8 @@ interface CommunityPollerDependencies {
   queryForum: (sinceIso: string) => Promise<SourceRows>;
   readState: () => Promise<CommunityState>;
   writeState: (state: CommunityState) => Promise<void>;
+  runItem?: (entry: CommunityStateEntry, signal: AbortSignal) => Promise<core.CommunityRunResult>;
+  maxConcurrentRuns?: number;
   onTickComplete?: (summary: Record<string, unknown>) => void;
   firstTickDelayMs?: () => number;
   now?: () => number;
@@ -24,10 +27,11 @@ interface CommunityPoller {
 }
 
 function createCommunityPoller({
-  intervalMinutes, queryForum, readState, writeState,
+  intervalMinutes, queryForum, readState, writeState, runItem, maxConcurrentRuns = core.MAX_CONCURRENT_RUNS,
   onTickComplete = () => {}, firstTickDelayMs, now = Date.now, log = console,
 }: CommunityPollerDependencies): CommunityPoller {
   let state: CommunityState = core.emptyCommunityState();
+  const runAborts = new Map<string, AbortController>();
 
   const loop = createTickLoop({
     tag: core.COMMUNITY_LANE_ID,
@@ -57,9 +61,42 @@ function createCommunityPoller({
     return null;
   }
 
+  function replaceEntry(entry: CommunityStateEntry): void {
+    state = { ...state, entries: { ...state.entries, [entry.item.key]: entry } };
+  }
+
+  async function finishRun(key: string, run: core.CommunityRunResult): Promise<void> {
+    runAborts.delete(key);
+    const entry = state.entries[key];
+    if (loop.isStopped() || !entry) return;
+    const finished = core.entryFromRun(entry, run, new Date(now()).toISOString());
+    if (finished.warning) log.warn(`[${core.COMMUNITY_LANE_ID}] ${finished.warning}`);
+    replaceEntry(finished.entry);
+    dispatchRuns();
+    await loop.persist();
+    publishStatus(null);
+  }
+
+  function startRun(key: string): void {
+    const entry = state.entries[key];
+    if (!runItem || !entry) return;
+    const running = core.markRunning(entry);
+    replaceEntry(running);
+    const controller = new AbortController();
+    runAborts.set(key, controller);
+    const failed = (error: unknown): core.CommunityRunResult => ({ report: null, posting: null, error: errorMessage(error) || 'the research run failed' });
+    void loop.track(runItem(running, controller.signal).catch(failed).then((run) => finishRun(key, run)));
+  }
+
+  function dispatchRuns(): void {
+    if (!runItem || loop.isStopped()) return;
+    for (const key of core.selectRuns(state, maxConcurrentRuns - runAborts.size)) startRun(key);
+  }
+
   async function runTick(): Promise<TickOutcome> {
     const forumError = await pollForum();
     state = core.prunedState(state, now());
+    dispatchRuns();
     await loop.persist();
     publishStatus(forumError);
     if (forumError) return { failed: true, error: forumError };
@@ -68,12 +105,18 @@ function createCommunityPoller({
 
   async function start(): Promise<void> {
     await loop.start(async () => {
-      state = await readState();
+      state = core.requeueInterruptedRuns(await readState());
       publishStatus(null);
     });
   }
 
-  return { start, stop: () => loop.stop(), tick: loop.tick, state: () => state };
+  async function stop(): Promise<void> {
+    const stopping = loop.stop();
+    for (const controller of runAborts.values()) controller.abort();
+    await stopping;
+  }
+
+  return { start, stop, tick: loop.tick, state: () => state };
 }
 
 export { createCommunityPoller };
