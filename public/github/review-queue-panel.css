@@ -124,6 +124,8 @@
 .pr-posts-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
 .pr-posts-heading h3, .pr-steps h3 { padding: 0; }
 .pr-posts-heading > span { color: var(--text-muted); font-size: 11px; }
+.pr-finding-keys { margin-left: auto; }
+.pr-finding-keys > .review-shortcut:first-child { margin-left: 0; }
 
 .pr-disclosure {
   min-width: 0;
@@ -179,8 +181,6 @@
   font-size: 12px;
   line-height: 1.5;
 }
-
-.pr-note-input { min-height: 52px; }
 
 .pr-comment-card {
   display: grid;

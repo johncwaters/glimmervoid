@@ -41,6 +41,17 @@ interface ActionDetailHandle {
   runKey?: (action: ReviewDetailKeyAction) => boolean;
 }
 
+const READY_DESK_SHORTCUTS: Partial<Readonly<Record<TeamReviewAction, string>>> = Object.freeze({
+  approve: 'A', 'request-changes': 'R', comment: 'C',
+});
+
+function appendShortcutKey(button: HTMLButtonElement, key: string): void {
+  const keyCap = el('kbd', 'review-shortcut', key);
+  keyCap.setAttribute('aria-hidden', 'true');
+  button.append(keyCap);
+  button.setAttribute('aria-keyshortcuts', key);
+}
+
 const PICKED_CONTROL_BY_KEY: Partial<Readonly<Record<ReviewDetailKeyAction, ReadyDecisionControl>>> = Object.freeze({
   'pick-approve': 'approve', 'pick-request-changes': 'request-changes', 'pick-comment': 'comment',
 });
@@ -352,6 +363,7 @@ function createOpenSessionControl(review: Pick<ReviewDraft, 'key'>): HTMLElement
   const row = el('div', 'pr-session-open');
   const button = el('button', 'pr-action pr-session-open-button', OPEN_SESSION_LABEL);
   button.type = 'button';
+  appendShortcutKey(button, 'O');
   const opening = _sessionOpenByKey.get(review.key);
   button.disabled = Boolean(opening?.requestId);
   const status = el('span', 'pr-action-status pr-session-open-status', opening?.text ?? '');
@@ -671,9 +683,10 @@ function createNotMineFooter(review: QueuedReview | InFlightReview): HTMLElement
   return footer;
 }
 
-function createFooterButton(action: TeamReviewAction, runAction: (action: TeamReviewAction) => void, isSecondary = false): HTMLButtonElement {
+function createFooterButton(action: TeamReviewAction, runAction: (action: TeamReviewAction) => void, isSecondary = false, shortcutKey?: string): HTMLButtonElement {
   const button = el('button', isSecondary ? 'pr-action pr-action-ghost' : 'pr-action', actionLabel(action));
   button.type = 'button';
+  if (shortcutKey) appendShortcutKey(button, shortcutKey);
   button.dataset.action = action;
   button.addEventListener('click', () => runAction(action));
   return button;
@@ -685,16 +698,23 @@ interface DecisionBar {
   buttons: HTMLButtonElement[];
 }
 
-function createDecisionBar(draft: Pick<ReviewDraft, 'status' | 'postedEvent' | 'verdict'>, runAction: (action: TeamReviewAction) => void, statusText = ''): DecisionBar {
+function createDecisionBar(draft: Pick<ReviewDraft, 'status' | 'postedEvent' | 'verdict'>, runAction: (action: TeamReviewAction) => void, statusText = '', shortcutByAction: Partial<Readonly<Record<TeamReviewAction, string>>> = {}): DecisionBar {
   const layout = detailActionLayout(draft);
   const footer = el('footer', 'pr-footer pr-decision-bar');
   const status = el('span', 'pr-action-status', statusText);
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  const primary = layout.primary.map((action) => createFooterButton(action, runAction));
-  const secondary = layout.secondary.map((action) => createFooterButton(action, runAction, true));
+  const primary = layout.primary.map((action) => createFooterButton(action, runAction, false, shortcutByAction[action]));
+  const secondary = layout.secondary.map((action) => createFooterButton(action, runAction, true, shortcutByAction[action]));
   footer.append(...primary, el('span', 'pr-decision-spacer'), ...secondary, status);
   return { footer, status, buttons: [...primary, ...secondary] };
+}
+
+function createFindingKeysHint(): HTMLElement {
+  const hint = el('span', 'pr-finding-keys');
+  hint.setAttribute('aria-hidden', 'true');
+  hint.append(el('kbd', 'review-shortcut', 'N'), el('kbd', 'review-shortcut', 'P'), ' move', el('kbd', 'review-shortcut', 'X'), ' post or drop');
+  return hint;
 }
 
 let _noteFieldCount = 0;
@@ -770,6 +790,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const findingsHeading = el('div', 'pr-posts-heading');
   const findingsTally = el('span', null);
   findingsHeading.append(el('h3', null, 'Findings'), findingsTally);
+  if (findingCount > 0) findingsHeading.append(createFindingKeysHint());
   findings.append(findingsHeading);
   const note = createNoteField(onEdit);
   const willPost = el('section', 'pr-will-post');
@@ -801,7 +822,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     if (sendAction('ready', draft, request, settle, postedOutcomeText(request.action, chosen))) return;
     settle(false, NOT_CONNECTED_TEXT);
   };
-  const bar = createDecisionBar(draft, runAction);
+  const bar = createDecisionBar(draft, runAction, '', READY_DESK_SHORTCUTS);
   function paintControls(): void {
     const isCommentReady = hasSelection(selection());
     for (const button of bar.buttons) button.disabled = isBusy || (isSelectionRequired(button.dataset.action) && !isCommentReady);

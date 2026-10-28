@@ -2796,7 +2796,7 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .my-pr-row-gro
 .pr-detail.pr-desk { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
 .pr-desk > .pr-decision-bar { grid-column: 1 / -1; }
 @container review-detail (min-width: 1100px) {
-  .pr-detail.pr-desk { grid-template-columns: minmax(0, 76ch) minmax(260px, 340px); column-gap: 32px; }
+  .pr-detail.pr-desk { grid-template-columns: minmax(0, 1fr) minmax(280px, 420px); column-gap: 32px; }
 }
 
 .pr-detail-title {
@@ -4395,6 +4395,7 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
   border-color: currentColor;
 }
 .review-btn:disabled .review-shortcut { opacity: 0.6; }
+.pr-action .review-shortcut { color: inherit; border-color: currentColor; opacity: 0.7; }
 
 .health-table {
   width: 100%;

@@ -685,11 +685,12 @@ async function verifyOpenInSession(page: Page, layout: Layout, snapshot: TeamRev
       await applyStatus(page, snapshot);
       await showQueue(page);
       await page.locator(`.pr-queue-row[data-review-key="Acme/app#${number}"]`).click();
-      const openButton = page.locator('.pr-detail .pr-session-open-button');
+      const openButton = page.locator('.pr-detail .pr-session-open-button').and(page.getByRole('button', { name: 'Open in session', exact: true }));
+      assert.equal(await openButton.getAttribute('aria-keyshortcuts'), 'O');
       const openStatus = page.locator('.pr-detail .pr-session-open-status');
-      assert.equal(await openButton.textContent(), 'Open in session');
+      assert.equal(await openButton.count(), 1);
       await openButton.click();
-      assert.equal(await openButton.textContent(), 'Open in session');
+      assert.equal(await openButton.count(), 1);
       assert.equal(await openButton.isDisabled(), true);
       assert.equal(await openStatus.textContent(), 'Preparing the branch and session.');
       assert.deepEqual(await replyToSessionOpen(page, { ok: false, error: 'Could not fetch branch feature' }), { key: `Acme/app#${number}`, type: 'open-team-review-session' });
