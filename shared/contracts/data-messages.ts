@@ -62,7 +62,10 @@ export function parseDataServerFrame(raw: string): DataServerFrame | null {
   return parsed.data;
 }
 
-interface DataAttachRequest {
+export const FAST_TERMINAL_CLOSE_MS = 1000;
+export const LOGGED_FAST_CLOSE_COUNTS: ReadonlySet<number> = new Set([1, 5, 25, 100]);
+
+export interface DataAttachRequest {
   history: DataAttachHistory;
   isOutputPaused: boolean;
 }
@@ -81,4 +84,8 @@ export function parseDataAttach(rawUrl: unknown): DataAttachRequest {
     history: history.success ? history.data : 'screen',
     isOutputPaused: query.get(DATA_ATTACH_OUTPUT_PARAM) === DATA_ATTACH_PAUSED_OUTPUT,
   };
+}
+
+export function describeDataAttach(attach: DataAttachRequest): string {
+  return attach.isOutputPaused ? `${attach.history} paused` : attach.history;
 }

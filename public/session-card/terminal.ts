@@ -30,7 +30,8 @@ import { osc8LinkHandler, registerUrlLinkProvider } from './terminal-links.ts';
 import { installTerminalSecretMask, resetTerminalSecretMask } from './terminal-secret-mask.ts';
 import { decideTerminalLinkState } from './terminal-link-core.ts';
 import { uploadFilesToSession } from '../session-upload.ts';
-import { sendControlMsg } from '../control-ws.ts';
+import { reportToServerLog, sendControlMsg } from '../control-ws.ts';
+import { describeDataAttach, FAST_TERMINAL_CLOSE_MS, LOGGED_FAST_CLOSE_COUNTS } from '#shared/contracts/data-messages.ts';
 import { wireTouchScroll } from './touch-scroll.ts';
 import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.ts';
 import { loadXtermRuntime, readLoadedXtermRuntime } from './xterm-runtime.ts';
@@ -425,6 +426,30 @@ function claimPrewarmedDataSocket(sessionId: string, attachPath: string): Prewar
   return prewarmed;
 }
 
+const fastCloseCountBySessionUi = new WeakMap<SessionUi, number>();
+
+interface TerminalSocketLife {
+  sessionId: string;
+  attachDescription: string;
+  openedAtMs: number | null;
+  hasReceivedBytes: boolean;
+}
+
+function reportFastTerminalClose(ui: SessionUi, life: TerminalSocketLife, event: CloseEvent) {
+  if (life.openedAtMs === null) return;
+  const openMs = Math.round(performance.now() - life.openedAtMs);
+  if (openMs >= FAST_TERMINAL_CLOSE_MS) {
+    fastCloseCountBySessionUi.delete(ui);
+    return;
+  }
+  const fastCloseCount = (fastCloseCountBySessionUi.get(ui) ?? 0) + 1;
+  fastCloseCountBySessionUi.set(ui, fastCloseCount);
+  if (!LOGGED_FAST_CLOSE_COUNTS.has(fastCloseCount)) return;
+  const cleanliness = event.wasClean ? 'clean' : 'unclean';
+  const bytesSeen = life.hasReceivedBytes ? 'yes' : 'no';
+  reportToServerLog('terminal', `fast close ${fastCloseCount}x, session ${life.sessionId}, code ${event.code}, reason '${event.reason}', ${cleanliness}, open ${openMs} ms, bytes ${bytesSeen}, attach ${life.attachDescription}`);
+}
+
 function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   sessionUisReconnectingWhenShown.delete(ui);
   const deepHistoryLinesFromBottom = deepHistoryLinesFromBottomBySessionUi.get(ui);
@@ -445,6 +470,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   refreshTerminalLink(ui);
   let hasEverOpened = false;
   let isHandshakeAbandoned = false;
+  const socketLife: TerminalSocketLife = { sessionId, attachDescription: describeDataAttach({ history: isDeepAttach ? 'deep' : 'screen', isOutputPaused: !isAttachedFlowing }), openedAtMs: null, hasReceivedBytes: false };
   const frameState: DataFrameState = { hasSeenSize: false, lastSeq: 0 };
   const handshakeTimer = setTimeout(() => {
     if (ws.readyState !== WebSocket.CONNECTING) return;
@@ -459,6 +485,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     if (ui.dataWs !== ws) return;
     const frame = readDataFrame(event.data, frameState);
     if (frame.kind === 'bytes') {
+      socketLife.hasReceivedBytes = true;
       noteSessionOutput(ui);
       if (isOutputFlowingBySocket.get(ws)) noteWakeMark('terminal-bytes');
       const isSnapshotToScroll = isAwaitingSnapshotScroll;
@@ -496,9 +523,10 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   };
   ws.addEventListener('message', handleMessage);
 
-  ws.addEventListener('close', () => {
+  ws.addEventListener('close', (event) => {
     clearTimeout(handshakeTimer);
     if (ui.dataWs !== ws) return;
+    reportFastTerminalClose(ui, socketLife, event);
     if (isAttachedFlowing && !isHandshakeAbandoned) noteWakeMark('terminal-closed');
     sessionUisReattachingQuietly.delete(ui);
     if (!hasEverOpened && !isHandshakeAbandoned) clearPageToken();
@@ -518,6 +546,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   const handleOpen = () => {
     clearTimeout(handshakeTimer);
     hasEverOpened = true;
+    socketLife.openedAtMs = performance.now();
     if (isAttachedFlowing) noteWakeMark('terminal-opened');
     ui._dataWsRetryAttempt = 0;
     sessionUisReattachingQuietly.delete(ui);
