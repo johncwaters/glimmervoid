@@ -4,7 +4,7 @@ import { createAvatar, el, isPanelHidden, isRealInputOwningKey } from '../dom-he
 import { isModalOpen } from '../session-card/modal.ts';
 import { buildNextAttentionKeys } from '../shortcuts.ts';
 import type { ViewModule } from '../view-registry-core.ts';
-import { createGithubPollingControls, createMyPrQueueRow, mountMyPrsDetail, showMyPr } from './my-prs-panel.ts';
+import { createGithubPollingControls, createMyPrQueueRow, mountMyPrsDetail, repaintSessionPills, showMyPr } from './my-prs-panel.ts';
 import { myPrsSnapshot } from './my-prs-store.ts';
 import type { LinkedLiveSession } from './my-prs-view-core.ts';
 import { emptyStateText as myPrsEmptyStateText, queueNotices as myPrsQueueNotices } from './my-prs-view-core.ts';
@@ -368,4 +368,4 @@ function mountReviewQueue(parent: HTMLElement): void {
   revealPendingItem();
 }
 
-export const view: ViewModule<HTMLElement> = { mount: mountReviewQueue };
+export const view: ViewModule<HTMLElement> = { mount: mountReviewQueue, refresh: repaintSessionPills };

@@ -10,6 +10,7 @@ import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden, query } from '../dom-helpers.ts';
 import { buildSessionRow, paintSessionRowStatus } from '../session-row.ts';
 import { formatAgo } from '../poll-ago.ts';
+import { writeAttributeIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
 import { nextRequestId, sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -322,12 +323,12 @@ function paintSessionPill(pill: HTMLElement): void {
   const sessionId = pill.dataset.sessionId ?? '';
   const ui = sessionUIs.get(sessionId);
   const nameElement = query(pill, '.session-row-name');
-  if (ui) nameElement.textContent = sessionName(ui) || sessionId;
+  if (ui) writeTextIfChanged(nameElement, sessionName(ui) || sessionId);
   const refs = { glyph: query(pill, '.session-row-glyph'), label: query(pill, '.session-row-label') };
   const stateLabel = paintSessionRowStatus(pill, refs, ui?.currentState || STATES.DORMANT, ui?.awaitingBackgroundTasks, ui?.pendingPromptKind);
   const accessibleLabel = `Focus session ${nameElement.textContent}, ${stateLabel}`;
-  pill.title = accessibleLabel;
-  pill.setAttribute('aria-label', accessibleLabel);
+  writeAttributeIfChanged(pill, 'title', accessibleLabel);
+  writeAttributeIfChanged(pill, 'aria-label', accessibleLabel);
 }
 
 function createSessionPill(session: LinkedLiveSession): HTMLElement {
@@ -347,8 +348,11 @@ function createSessionFocusControls(linkedSessions: readonly LinkedLiveSession[]
   return controls;
 }
 
-function repaintSessionPills(): void {
-  for (const pill of document.querySelectorAll<HTMLElement>('.my-pr-session-pill')) paintSessionPill(pill);
+export function repaintSessionPills(): void {
+  for (const pill of document.querySelectorAll<HTMLElement>('.my-pr-session-pill')) {
+    if (isPanelHidden(pill)) continue;
+    paintSessionPill(pill);
+  }
 }
 
 export function createMyPrQueueRow(pr: MyPr, stackedOn: string | null, linkedSessions: readonly LinkedLiveSession[] | undefined): { group: HTMLElement; row: HTMLButtonElement } {
