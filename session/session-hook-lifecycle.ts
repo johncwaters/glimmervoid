@@ -13,6 +13,7 @@ import { hookProfileOf } from "./adapters/index.ts";
 import type {
   AgentAdapter,
   ArgvConfigInjection,
+  GeneratedHomeInjection,
   HomeHooksFileInjection,
   ProjectConfigCandidate,
 } from "./adapters/index.ts";
@@ -21,6 +22,7 @@ interface HookInjectionResult {
   args: readonly string[];
   env: Readonly<Record<string, string>>;
   isSaneYoloActive: boolean;
+  refusal?: string;
 }
 
 const NO_HOOK_INJECTION: HookInjectionResult = Object.freeze({
@@ -255,6 +257,14 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     return registerRelayHooks(port, [], saneYoloTool() !== undefined && isSaneYoloHookInFile);
   }
 
+  function injectGeneratedHomeHooks(port: number, injection: GeneratedHomeInjection): HookInjectionResult {
+    const prepared = injection.prepareHome(process.env);
+    if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
+    const relayHooks = registerRelayHooks(port, [], saneYoloTool() !== undefined);
+    if (relayHooks === NO_HOOK_INJECTION) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: its hooks could not be registered` };
+    return { ...relayHooks, env: { ...relayHooks.env, [injection.homeEnvName]: prepared.home } };
+  }
+
   function resolveListenerPort(): number | null {
     if (!options.getHookPort) return null;
     try {
@@ -275,6 +285,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     const injection = hookProfile.injection;
     if (injection?.kind === "argv-config") return injectRelayHooks(port, injection);
     if (injection?.kind === "home-hooks-file") return injectHomeRelayHooks(port, injection);
+    if (injection?.kind === "generated-home") return injectGeneratedHomeHooks(port, injection);
     try {
       const buildSettingsArgs = options.adapter.settingsArgs;
       if (typeof buildSettingsArgs !== "function") {

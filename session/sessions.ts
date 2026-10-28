@@ -1572,6 +1572,10 @@ class Session extends EventEmitter {
     }
     const isRemoteCodex = remoteLaunch !== null && this.agentId === "codex";
     const hookInjection = this._hooks.inject();
+    if (hookInjection.refusal) {
+      this._abandonSpawn(new Error(hookInjection.refusal));
+      return;
+    }
     this._isSaneYoloActive = remoteLaunch === null && hookInjection.isSaneYoloActive;
     if (this._hooks.isRequiredGuardrailsMissing()) {
       this._abandonSpawn(new Error(GUARDRAILS_UNAPPLIED_ERROR));

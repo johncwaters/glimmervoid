@@ -4,9 +4,9 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-import { runAgentSetupCli } from "../server/agent-setup-cli.ts";
 import { createBackend } from "../server/backend/backend.ts";
 import kimi from "../session/adapters/kimi.ts";
+import { generatedKimiHomePath } from "../session/kimi-home.ts";
 import { projectHookPayload } from "../session/core/hook-payload-projection.ts";
 import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
@@ -119,7 +119,7 @@ async function runProbe(tempDirectory: string): Promise<void> {
   writeProbeConfig(configPath, projectDirectory);
   process.env.GLIMMERVOID_CONFIG = configPath;
   process.env.KIMI_CODE_HOME = makeProbeKimiHome(tempDirectory);
-  if (runAgentSetupCli(["setup", "kimi"]) !== 0) throw new Error("The isolated Kimi Code hook setup failed.");
+  process.env.GLIMMERVOID_HOME = path.join(tempDirectory, "glimmervoid-home");
 
   const server = http.createServer();
   const backend = createBackend(server, { staticDir: null });
@@ -194,11 +194,11 @@ async function runProbe(tempDirectory: string): Promise<void> {
     await session.start();
     check("the spawn used the kimi adapter", session.agentId === "kimi");
     await delay(BOOT_SETTLE_MS);
-    check("the folder starts untrusted", !kimi.isWorkspaceTrusted(projectDirectory, process.env));
+    check("the folder starts untrusted", !kimi.isWorkspaceTrusted(projectDirectory, { ...process.env, KIMI_CODE_HOME: generatedKimiHomePath() }));
     check("nothing was typed into the trust dialog", ptyWrites.length === 0);
     session.write("\r");
     await delay(3000);
-    check("kimi's own trust record matches the computed key", kimi.isWorkspaceTrusted(projectDirectory, process.env));
+    check("kimi's own trust record matches the computed key", kimi.isWorkspaceTrusted(projectDirectory, { ...process.env, KIMI_CODE_HOME: generatedKimiHomePath() }));
     session.kill();
     await waitForState(session, ["DONE", "FAILED"], "untrusted PTY reap");
 

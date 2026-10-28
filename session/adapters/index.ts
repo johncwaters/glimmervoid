@@ -67,7 +67,13 @@ interface HomeHooksFileInjection {
   mayContributeHooks(configText: unknown): boolean;
 }
 
-type HookInjection = SettingsFileInjection | ArgvConfigInjection | HomeHooksFileInjection;
+interface GeneratedHomeInjection {
+  kind: "generated-home";
+  homeEnvName: string;
+  prepareHome(env: Record<string, string | undefined>): { home: string } | { refusal: string };
+}
+
+type HookInjection = SettingsFileInjection | ArgvConfigInjection | HomeHooksFileInjection | GeneratedHomeInjection;
 
 interface AgentHookProfile extends HookProfile {
   injection: HookInjection;
@@ -251,4 +257,4 @@ export {
   resetCommandCache,
   setCustomAgents,
 };
-export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentLaunchSession, AgentLaunchSessionOptions, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, HomeHooksFileInjection, ProjectConfigCandidate };
+export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentLaunchSession, AgentLaunchSessionOptions, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, GeneratedHomeInjection, HomeHooksFileInjection, ProjectConfigCandidate };

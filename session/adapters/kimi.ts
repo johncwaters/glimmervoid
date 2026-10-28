@@ -1,16 +1,16 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 import { execFileSync } from "../../server/child-process-safe.ts";
 import { relayPath } from "../../server/runtime-paths.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
-import { classifyKimiConfig, renderKimiHooksBlock } from "../core/kimi-hooks-block-core.ts";
+import { renderKimiHooksBlock } from "../core/kimi-hooks-block-core.ts";
 import { KIMI_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
+import { prepareKimiHome, realKimiHome } from "../kimi-home.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import type {
   AgentAdapterShape,
@@ -23,7 +23,7 @@ import type { HookPayload } from "../../shared/contracts/index.ts";
 
 const ID = "kimi";
 const COMMAND_NAME = "kimi";
-const SETUP_COMMAND = "glimmervoid agent setup kimi";
+const HOME_ENV_NAME = "KIMI_CODE_HOME";
 const RELAY_PATH = relayPath("hook-relay");
 const HOOK_TOOL_RELAY_PATH = relayPath("hook-tool-relay");
 const HOOK_EVENTS: readonly string[] = Object.freeze([
@@ -127,20 +127,11 @@ const titleProfile: AgentTitleProfile = {
   taskTitle: { readsTranscriptTitle: false, genericTitles: [ID, "Kimi Code"], agentSuffix: null },
 };
 
-function kimiHome(
-  env: Record<string, string | undefined> = process.env,
-  homedir: string = os.homedir(),
-): string {
-  const configuredHome = typeof env.KIMI_CODE_HOME === "string" ? env.KIMI_CODE_HOME.trim() : "";
-  if (configuredHome) return path.resolve(configuredHome);
-  return path.join(homedir, ".kimi-code");
-}
-
 function configFilePath(
   env: Record<string, string | undefined> = process.env,
-  homedir: string = os.homedir(),
+  homedir?: string,
 ): string {
-  return path.join(kimiHome(env, homedir), "config.toml");
+  return path.join(realKimiHome(env, homedir), "config.toml");
 }
 
 function expectedHooksBlock(): string | null {
@@ -153,10 +144,10 @@ function expectedHooksBlock(): string | null {
   });
 }
 
-function classifyConfigContents(contents: string): string {
-  const expectedBlock = expectedHooksBlock();
-  if (expectedBlock === null) return "unrenderable";
-  return classifyKimiConfig(contents, expectedBlock);
+function prepareHome(env: Record<string, string | undefined>): { home: string } | { refusal: string } {
+  const hooksBlock = expectedHooksBlock();
+  if (hooksBlock === null) return { refusal: "the hook relay path cannot be written into a kimi hooks block" };
+  return prepareKimiHome({ env, hooksBlock });
 }
 
 const WINDOWS_SHAPED_ROOT = /^(?:[A-Za-z]:\/|\/\/)/;
@@ -189,7 +180,7 @@ function physicalPathOf(cwd: string): string | null {
 function isWorkspaceTrusted(cwd: string, env: Record<string, string | undefined> = process.env): boolean {
   const physicalCwd = physicalPathOf(cwd);
   if (physicalCwd === null) return false;
-  return fs.existsSync(path.join(kimiHome(env), "workspace-trust", workspaceTrustKey(physicalCwd)));
+  return fs.existsSync(path.join(realKimiHome(env), "workspace-trust", workspaceTrustKey(physicalCwd)));
 }
 
 function resolveCommand(
@@ -239,14 +230,9 @@ const hooks: AgentHookProfile = {
   mapPromptKind: mapHookPromptKind,
   mapPayload: mapHookPayload,
   injection: {
-    kind: "home-hooks-file",
-    setupCommand: SETUP_COMMAND,
-    filePath: configFilePath,
-    classifyContents: classifyConfigContents,
-    isSaneYoloReady: (contents: string) => classifyConfigContents(contents) === "current",
-    projectConfigCandidates: [],
-    userConfigFolders: () => [],
-    mayContributeHooks: () => false,
+    kind: "generated-home",
+    homeEnvName: HOME_ENV_NAME,
+    prepareHome,
   },
 };
 
