@@ -17,6 +17,13 @@ const BoardReadySchema = z.object({
   requestPaths: z.array(z.string()),
 });
 
+const StatusBurstSchema = z.object({
+  sessionRows: z.number(),
+  changes: z.number(),
+  mutationsPerChange: z.number(),
+  scriptMsPerChange: z.number().nullable(),
+});
+
 const ScenarioResultSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -26,6 +33,7 @@ const ScenarioResultSchema = z.object({
   channels: z.object({ http: ChannelTallySchema, control: ChannelTallySchema, data: ChannelTallySchema }),
   parsed: z.object({ controlJsonBytes: z.number(), replayBytes: z.number() }),
   boardReady: BoardReadySchema.nullable().default(null),
+  statusBurst: StatusBurstSchema.nullable().default(null),
 });
 
 const ShellCheckSchema = z.object({
@@ -51,6 +59,7 @@ export type LoadCostResult = z.infer<typeof LoadCostResultSchema>;
 export type ScenarioResult = z.infer<typeof ScenarioResultSchema>;
 export type ShellCheck = z.infer<typeof ShellCheckSchema>;
 export type BoardReady = z.infer<typeof BoardReadySchema>;
+export type StatusBurst = z.infer<typeof StatusBurstSchema>;
 
 const XTERM_CHUNK_PATTERN = /\/assets\/xterm-[^/]*\.js$/;
 
@@ -117,11 +126,20 @@ export function renderMarkdown(result: LoadCostResult): string {
     const xtermRequests = findXtermRequests(scenario.boardReady.requestPaths);
     lines.push('', `Board ready (${scenario.label}, until body.app-ready): ${formatSeconds(scenario.boardReady.medianMs)} median, ${formatBytes(scenario.boardReady.httpBytesDown)} of HTTP over ${scenario.boardReady.requestPaths.length} requests; xterm chunk ${xtermRequests.length > 0 ? `requested: ${xtermRequests.join(', ')}` : 'not requested'}.`);
   }
+  for (const scenario of result.scenarios) {
+    if (!scenario.statusBurst) continue;
+    lines.push('', `${scenario.label}: ${statusBurstText(scenario.statusBurst)}.`);
+  }
   if (result.shellCheck) {
     const check = result.shellCheck;
     lines.push('', `Shell check: proxy counted ${formatBytes(check.proxyHttpBytes)} of HTTP, the browser reported ${formatBytes(check.browserReportedHttpBytes)}; ${check.assetFilesChecked} dist/client files matched their size on disk${check.assetMismatches.length > 0 ? `, mismatches: ${check.assetMismatches.join(', ')}` : ''}. ${check.isConsistent ? 'Consistent.' : 'INCONSISTENT.'}`);
   }
   return `${lines.join('\n')}\n`;
+}
+
+function statusBurstText(burst: StatusBurst): string {
+  const scriptText = burst.scriptMsPerChange === null ? 'script time n/a on this engine' : `${burst.scriptMsPerChange.toFixed(2)} ms script`;
+  return `${burst.changes} changes over ${burst.sessionRows} sessions, ${burst.mutationsPerChange.toFixed(1)} DOM mutation records and ${scriptText} per change`;
 }
 
 export function renderComparison(before: LoadCostResult, after: LoadCostResult): string {
@@ -138,6 +156,11 @@ export function renderComparison(before: LoadCostResult, after: LoadCostResult):
       continue;
     }
     lines.push(`| ${scenario.label} | ${formatSeconds(previous.medianMs)} | ${formatSeconds(scenario.medianMs)} | ${formatFactor(previous.medianMs, scenario.medianMs)} | ${formatBytes(wireBytesDown(previous))} | ${formatBytes(wireBytesDown(scenario))} | ${formatFactor(wireBytesDown(previous), wireBytesDown(scenario))} | ${formatBytes(parsedBytes(previous))} | ${formatBytes(parsedBytes(scenario))} | ${formatFactor(parsedBytes(previous), parsedBytes(scenario))} |`);
+  }
+  for (const scenario of after.scenarios) {
+    const previousBurst = before.scenarios.find((candidate) => candidate.id === scenario.id)?.statusBurst;
+    if (!scenario.statusBurst || !previousBurst) continue;
+    lines.push('', `${scenario.label} was: ${statusBurstText(previousBurst)}.`, `${scenario.label} now: ${statusBurstText(scenario.statusBurst)}.`);
   }
   return `${lines.join('\n')}\n`;
 }

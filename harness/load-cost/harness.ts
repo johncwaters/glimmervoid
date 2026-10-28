@@ -13,7 +13,7 @@ import { dashboardClient } from '../../tests/helpers/dashboard-ws.ts';
 import { addSession, createProject, listProcessesMentioning, quoteShell, runCommand, snapshotEnvironment } from '../site-capture/isolated-glimmervoid.ts';
 import { connectControl, prepareIsolatedEnvironment, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
 import { LoadCostResultSchema, decideShellCheck, renderComparison, renderMarkdown } from './report-core.ts';
-import type { BoardReady, LoadCostResult, ScenarioResult, ShellCheck } from './report-core.ts';
+import type { BoardReady, LoadCostResult, ScenarioResult, ShellCheck, StatusBurst } from './report-core.ts';
 import { THREE_G_PROFILE, median, medianRunIndex } from './shaping-core.ts';
 import { PONG, fillCompleteMarker } from './scrollback-agent.ts';
 import { createShapingProxy } from './shaping-proxy.ts';
@@ -26,6 +26,10 @@ const CLIENT_SOURCES = ['public', 'shared', 'assets', 'vite.config.ts', 'package
 const DEFAULT_ARTIFACTS_DIR = path.join(import.meta.dirname, 'artifacts');
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const PHONE_LABEL = 'Phone viewport 390x844';
+const DESKTOP = { viewport: { width: 1440, height: 900 } };
+const STATUS_BURST_DORMANT_ROWS = 22;
+const STATUS_BURST_CHANGES = 120;
+const STATUS_BURST_CYCLE = ['RUNNING', 'WAITING', 'RUNNING', 'IDLE'] as const;
 const NETWORK_QUIET_MS = 500;
 const READY_TIMEOUT_MS = 240_000;
 const SEED_TIMEOUT_MS = 30_000;
@@ -53,6 +57,7 @@ interface HarnessOptions {
 
 interface Fleet {
   port: number;
+  projectPath: string;
   sessionIdByKey: Map<string, string>;
 }
 
@@ -68,6 +73,7 @@ interface RunMeasurement {
   channels: ChannelTallies;
   parsed: { controlJsonBytes: number; replayBytes: number };
   shellCheck: ShellCheck | null;
+  statusBurst: StatusBurst | null;
 }
 
 interface Scenario {
@@ -335,7 +341,7 @@ async function collectMeasurement(sockets: ReturnType<typeof watchPageSockets>, 
   await stoppedTimer.httpSizes?.settleRequests();
   const channels = await proxy.endMeasure();
   const shellCheck = stoppedTimer.httpSizes ? await stoppedTimer.httpSizes.checkShell(channels.http.wireBytesDown) : null;
-  return { elapsedMs: stoppedTimer.elapsedMs, boardReady: stoppedTimer.boardReady, channels, parsed, shellCheck };
+  return { elapsedMs: stoppedTimer.elapsedMs, boardReady: stoppedTimer.boardReady, channels, parsed, shellCheck, statusBurst: null };
 }
 
 function measureColdVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, fixture: FixtureSession): Promise<RunMeasurement> {
@@ -387,12 +393,125 @@ function measureOpenVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, f
   });
 }
 
+interface BurstSession {
+  id: string;
+  name: string;
+}
+
+interface BurstFrame {
+  id: string;
+  name: string;
+  from: string;
+  to: string;
+}
+
+function recordControlSockets(): void {
+  const NativeWebSocket = window.WebSocket;
+  const controlSockets: InstanceType<typeof window.WebSocket>[] = [];
+  Reflect.set(window, '__controlSockets', controlSockets);
+  window.WebSocket = class extends NativeWebSocket {
+    constructor(url: string | URL, protocols?: string | string[]) {
+      super(url, protocols);
+      if (new URL(url, location.href).pathname === '/control') controlSockets.push(this);
+    }
+  };
+}
+
+function statusBurstFrames(sessions: readonly BurstSession[]): BurstFrame[] {
+  const stepBySessionId = new Map<string, number>();
+  const frames: BurstFrame[] = [];
+  for (let change = 0; change < STATUS_BURST_CHANGES; change += 1) {
+    const session = sessions[change % sessions.length];
+    if (!session) break;
+    const step = stepBySessionId.get(session.id) ?? 0;
+    const from = step === 0 ? 'IDLE' : STATUS_BURST_CYCLE[(step - 1) % STATUS_BURST_CYCLE.length] ?? 'IDLE';
+    const to = STATUS_BURST_CYCLE[step % STATUS_BURST_CYCLE.length] ?? 'IDLE';
+    stepBySessionId.set(session.id, step + 1);
+    frames.push({ id: session.id, name: session.name, from, to });
+  }
+  const restingFrames = [...stepBySessionId.keys()].flatMap((id): BurstFrame[] => {
+    const lastFrame = frames.findLast((frame) => frame.id === id);
+    if (!lastFrame || lastFrame.to === 'IDLE') return [];
+    return [{ id, name: lastFrame.name, from: lastFrame.to, to: 'IDLE' }];
+  });
+  return [...frames, ...restingFrames];
+}
+
+function controlFrameOf(frame: BurstFrame, timestamp: number): Record<string, unknown> {
+  return { type: 'state-change', id: frame.id, session: frame.name, from: frame.from, to: frame.to, event: 'load-cost', timestamp };
+}
+
+function dormantRowFrames(projectPath: string, timestamp: number): Record<string, unknown>[] {
+  return Array.from({ length: STATUS_BURST_DORMANT_ROWS }, (_, index) => ({
+    type: 'session-added', id: `load-cost-dormant-${index + 1}`, session: `dormant-${index + 1}`, path: projectPath, agent: 'claude-code',
+    state: 'DORMANT', stateSince: timestamp, skipPerms: false, saneYolo: false, worktree: false, resumeSessionId: null,
+  }));
+}
+
+async function injectStatusBurst({ dormantFrames, burstFrames }: { dormantFrames: readonly Record<string, unknown>[]; burstFrames: readonly Record<string, unknown>[] }): Promise<{ mutationRecords: number; elapsedMs: number }> {
+  const sockets: unknown = Reflect.get(window, '__controlSockets');
+  const controlSocket = Array.isArray(sockets) ? sockets.at(-1) : undefined;
+  if (!(controlSocket instanceof window.WebSocket)) throw new Error('the dashboard opened no control socket');
+  const deliver = (frame: Record<string, unknown>) => controlSocket.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(frame) }));
+  const nextPaint = () => new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); });
+  for (const frame of dormantFrames) deliver(frame);
+  await nextPaint();
+  let mutationRecords = 0;
+  const observer = new MutationObserver((records) => { mutationRecords += records.length; });
+  observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+  const startedAtMs = performance.now();
+  for (const frame of burstFrames) {
+    deliver(frame);
+    await nextPaint();
+  }
+  mutationRecords += observer.takeRecords().length;
+  observer.disconnect();
+  return { mutationRecords, elapsedMs: performance.now() - startedAtMs };
+}
+
+function scriptSecondsOf(metrics: readonly { name: string; value: number }[]): number {
+  return metrics.find((metric) => metric.name === 'ScriptDuration')?.value ?? 0;
+}
+
+async function measureStatusBurst(fleet: Fleet, browser: Browser, proxy: ShapingProxy): Promise<RunMeasurement> {
+  const sessions = FIXTURES.map((fixture): BurstSession => ({ id: fleet.sessionIdByKey.get(fixture.key) ?? '', name: fixture.name }));
+  const context = await browser.newContext(DESKTOP);
+  try {
+    const page = await context.newPage();
+    await page.addInitScript(recordControlSockets);
+    await loadDashboard(page, fleet.port);
+    await waitForPaint(page);
+    const timestamp = Date.now();
+    const burstFrames = statusBurstFrames(sessions);
+    const cdp = browser.browserType().name() === 'chromium' ? await context.newCDPSession(page) : null;
+    await cdp?.send('Performance.enable');
+    const scriptSecondsBefore = cdp ? scriptSecondsOf((await cdp.send('Performance.getMetrics')).metrics) : 0;
+    proxy.beginMeasure();
+    const burst = await page.evaluate(injectStatusBurst, {
+      dormantFrames: dormantRowFrames(fleet.projectPath, timestamp),
+      burstFrames: burstFrames.map((frame) => controlFrameOf(frame, timestamp)),
+    });
+    const channels = await proxy.endMeasure();
+    const scriptSecondsAfter = cdp ? scriptSecondsOf((await cdp.send('Performance.getMetrics')).metrics) : 0;
+    const statusBurst: StatusBurst = {
+      sessionRows: sessions.length + STATUS_BURST_DORMANT_ROWS,
+      changes: burstFrames.length,
+      mutationsPerChange: burst.mutationRecords / burstFrames.length,
+      scriptMsPerChange: cdp ? ((scriptSecondsAfter - scriptSecondsBefore) * 1000) / burstFrames.length : null,
+    };
+    return { elapsedMs: burst.elapsedMs, boardReady: null, channels, parsed: { controlJsonBytes: 0, replayBytes: 0 }, shellCheck: null, statusBurst };
+  } finally {
+    await context.close();
+  }
+}
+
 const SCENARIOS: Scenario[] = [
   { id: 'cold', label: 'Cold connect', detail: 'shell + session A', measure: (fleet, browser, proxy) => measureColdVisit(fleet, browser, proxy, SESSION_A) },
   { id: 'reconnect', label: 'Reconnect', detail: 'warm-cache reload, session A restores', measure: (fleet, browser, proxy) => measureReconnectVisit(fleet, browser, proxy, SESSION_A) },
   { id: 'open-a', label: 'Open session A', detail: `${SESSION_A.fillLines} lines, settled board`, measure: (fleet, browser, proxy) => measureOpenVisit(fleet, browser, proxy, SESSION_A) },
   { id: 'open-b', label: 'Open session B', detail: `${SESSION_B.fillLines} lines, settled board`, measure: (fleet, browser, proxy) => measureOpenVisit(fleet, browser, proxy, SESSION_B) },
   { id: 'open-c', label: 'Open session C', detail: `${SESSION_C.fillLines} lines, settled board`, measure: (fleet, browser, proxy) => measureOpenVisit(fleet, browser, proxy, SESSION_C) },
+  { id: 'status-burst', label: 'Status burst', detail: `desktop, ${FIXTURES.length + STATUS_BURST_DORMANT_ROWS} sessions, one status change per frame`, measure: measureStatusBurst },
 ];
 
 function summarizeBoardReady(measurements: readonly RunMeasurement[]): BoardReady | null {
@@ -414,7 +533,7 @@ async function runScenario(scenario: Scenario, runs: number, fleet: Fleet, brows
   const representative = measurements[medianRunIndex(runsMs)] ?? measurements[0];
   if (!representative) throw new Error(`${scenario.label} produced no runs`);
   return {
-    result: { id: scenario.id, label: scenario.label, detail: scenario.detail, runsMs, medianMs: median(runsMs), channels: representative.channels, parsed: representative.parsed, boardReady: summarizeBoardReady(measurements) },
+    result: { id: scenario.id, label: scenario.label, detail: scenario.detail, runsMs, medianMs: median(runsMs), channels: representative.channels, parsed: representative.parsed, boardReady: summarizeBoardReady(measurements), statusBurst: representative.statusBurst },
     shellCheck: representative.shellCheck,
   };
 }
@@ -707,7 +826,7 @@ async function withFleet<T>(options: HarnessOptions, work: (fleet: Fleet, browse
       httpServer.listen(port, '127.0.0.1', () => resolve());
     });
     controlSocket = await connectControl(port);
-    const fleet: Fleet = { port, sessionIdByKey: new Map() };
+    const fleet: Fleet = { port, projectPath, sessionIdByKey: new Map() };
     for (const fixture of FIXTURES) {
       const hasStarted = watchFirstOutput(controlSocket, fixture.name);
       const sessionId = await addSession(controlSocket, fixture.name, projectPath);
