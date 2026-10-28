@@ -147,6 +147,7 @@ interface BackendHttpDependencies {
   getUsage: () => { ingestStatusline: (payload: object) => void };
   getPlanReview?: () => PlanReviewHookPort | null;
   refocusContextFor?: (glimmervoidId: string) => RefocusContext;
+  takePromptSupervision?: (glimmervoidId: string) => string | null;
   getAgentApi?: () => AgentApiPort | null;
   getShownFiles?: () => ShownFilesPort | null;
   sshSigner?: Pick<SshSigner, 'signWithAgent'> | null;
@@ -401,7 +402,7 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
 }
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
-  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'getAgentApi' | 'getShownFiles' | 'sshSigner' | 'recordOutcome' | 'logger'>;
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getShownFiles' | 'sshSigner' | 'recordOutcome' | 'logger'>;
 
 function mountHostAllowList(app: Express, allowedHosts: string[]): void {
   app.use((req, res, next) => {
@@ -420,6 +421,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     getUsage,
     getPlanReview = () => null,
     refocusContextFor = () => ({ taskTitle: null, latestPlanTitle: null }),
+    takePromptSupervision = () => null,
     getAgentApi = () => null,
     getShownFiles = () => null,
     recordOutcome = () => {},
@@ -456,6 +458,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         event: req.params.event,
         payload,
         readContext: () => refocusContextFor(req.params.glimmervoidId),
+        takePromptSupervision: () => takePromptSupervision(req.params.glimmervoidId),
       });
       const reply: Record<string, unknown> = { ok: output.status === 200, reason: output.reason, ...refocusReply };
       const answer = (decision: Record<string, unknown> | null) => {

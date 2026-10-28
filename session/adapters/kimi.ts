@@ -278,6 +278,7 @@ const kimi = {
     headless: true,
     subagentTurnStops: true,
     ptyInitialPrompt: true,
+    promptContextSupervision: true,
   },
 } satisfies AgentAdapterShape;
 

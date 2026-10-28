@@ -10,6 +10,8 @@ import { createBackend } from '../server/backend/backend.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import type { OutcomeName } from '../shared/outcome-names.ts';
 import type { Session } from '../session/sessions.ts';
+import { main as relayHook } from '../session/hook-relay.ts';
+import { Readable } from 'node:stream';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
@@ -271,6 +273,41 @@ test('refocus lookups run only for accepted compact SessionStart and preserve pl
       });
     }
     assert.deepEqual(lookedUpSessionIds, [SESSION_ID]);
+  } finally {
+    server.closeAllConnections();
+    await closeServer(server);
+  }
+});
+
+test('the first accepted UserPromptSubmit of a launch prints the supervision line for the agent, and only that once', async () => {
+  const pendingLines = ['You run under Glimmervoid.'];
+  const app = createBackendHttpApp({
+    staticDir: null,
+    configStore: { configPath: path.join(ctx().tmpDir, 'config.json') },
+    remote: { allowedOrigins: [] },
+    remoteAuth: null,
+    allowedHosts: [],
+    listenerPortsFor: () => [],
+    pageToken: 'page-token',
+    hookRouter: { handle: (input) => ({ status: input.token === 'accepted' ? 200 : 403, reason: 'test' }) },
+    getSession: () => null,
+    getUsage: () => ({ ingestStatusline: () => {} }),
+    takePromptSupervision: () => pendingLines.shift() ?? null,
+  });
+  const server = http.createServer(app);
+  await listenOnLoopback(server);
+  async function relayedOutput(event: string, token: string): Promise<string> {
+    let printed = '';
+    await relayHook([event], Readable.from([Buffer.from('{}', 'utf8')]), {
+      GLIMMERVOID_HOOK_URL: `http://127.0.0.1:${boundPort(server)}/hook/${SESSION_ID}?t=${token}`,
+    }, { write: (text: string) => { printed += text; } });
+    return printed;
+  }
+  try {
+    assert.equal(await relayedOutput('UserPromptSubmit', 'rejected'), '');
+    assert.equal(await relayedOutput('Stop', 'accepted'), '');
+    assert.deepEqual(JSON.parse(await relayedOutput('UserPromptSubmit', 'accepted')), { message: 'You run under Glimmervoid.' });
+    assert.equal(await relayedOutput('UserPromptSubmit', 'accepted'), '');
   } finally {
     server.closeAllConnections();
     await closeServer(server);

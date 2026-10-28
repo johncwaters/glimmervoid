@@ -27,7 +27,7 @@ import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
 import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
 import { commitSigningEnv } from "./core/commit-signing-env.ts";
-import { permitsHelpCommand } from "./core/session-routes.ts";
+import { permitsHelpCommand, supervisionLine } from "./core/session-routes.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply } from "../shared/contracts/session.ts";
 import { buildHookSettings, generateToken } from "../detection/settings-injector.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
@@ -356,6 +356,7 @@ class Session extends EventEmitter {
   _titleQuiet: boolean;
   _spawnCommand: ResolvedCommand | null;
   _initialPrompt: string | null;
+  _pendingPromptSupervisionLine: string | null;
   _extraClaudeArgs: string[];
   _resumeSessionId: string | null;
   readonly workspaceRepos: string[] | null;
@@ -596,6 +597,7 @@ class Session extends EventEmitter {
     this._spawnCommand = spawnCommand;
     this._requiresWorktree = requireWorktree;
     this._initialPrompt = initialPrompt;
+    this._pendingPromptSupervisionLine = null;
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
     this._resumeSessionId = resumeSessionId || null;
     this.workspaceRepos = workspaceRepos ? [...workspaceRepos] : null;
@@ -1701,6 +1703,15 @@ class Session extends EventEmitter {
       this._handleSpawnedPtyExit(guardrailsLaunch, exitCode, signal),
     );
     this._deliverPtyInitialPrompt(launchPrompt, env);
+    this._pendingPromptSupervisionLine = this._can("promptContextSupervision") && this._canRunHelpCommand
+      ? supervisionLine({ isGuarded: isSpawnGuarded, canSpawn: !this.ephemeral })
+      : null;
+  }
+
+  takePromptSupervisionLine(): string | null {
+    const line = this._pendingPromptSupervisionLine;
+    this._pendingPromptSupervisionLine = null;
+    return line;
   }
 
   _deliverPtyInitialPrompt(prompt: string | null, env: SpawnEnv): void {

@@ -169,6 +169,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       taskTitle: getSessionAny(glimmervoidId)?.refocusTaskTitle ?? null,
       latestPlanTitle: laneAssembly.planReview?.latestPlanTitle(glimmervoidId) ?? null,
     }),
+    takePromptSupervision: (glimmervoidId) => getSessionAny(glimmervoidId)?.takePromptSupervisionLine() ?? null,
     getAgentApi: () => agentApi,
     getShownFiles: () => shownFiles,
     sshSigner,

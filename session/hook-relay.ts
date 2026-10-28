@@ -3,17 +3,21 @@ import type { StdinLike } from "./relay-stdin.ts";
 
 import { decideRelayPost } from "./core/hook-relay-core.ts";
 import { postToLoopback } from "./loopback-post.ts";
+import { promptSupervisionOutput } from "./core/refocus-core.ts";
 
 async function main(
   argv: string[] = process.argv.slice(2),
   stdin: StdinLike = process.stdin,
   env: Record<string, string | undefined> = process.env,
+  stdout: { write(text: string): unknown } = process.stdout,
 ): Promise<{ code: number; reason: string }> {
   const [event] = argv;
   const body = await readStdin(stdin);
   const verdict = decideRelayPost({ env, event, payloadBytes: body.length });
   if (!verdict.post || !verdict.url) return { code: 0, reason: verdict.reason };
   const response = await postToLoopback(verdict.url, body, env);
+  const supervisionOutput = promptSupervisionOutput(response.responseBody);
+  if (supervisionOutput !== null) stdout.write(supervisionOutput);
   return { code: 0, reason: response.reason };
 }
 

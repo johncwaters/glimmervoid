@@ -26,6 +26,7 @@ interface AgentCapabilities {
   headless: boolean;
   subagentTurnStops?: boolean;
   ptyInitialPrompt?: boolean;
+  promptContextSupervision?: boolean;
 }
 
 interface ProjectConfigCandidate {
