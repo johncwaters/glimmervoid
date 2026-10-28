@@ -295,6 +295,7 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
 
   ui.btnDebug.addEventListener('click', (e) => {
     e.stopPropagation();
+    closeSessionMenu(ui);
     openDebugOverlay(ui, sessionId);
   });
 

@@ -11,7 +11,7 @@ import { escapeMarkup } from '#shared/escape-markup.ts';
 import { el } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
 import { refreshHoverTip, installHoverTips } from '../hover-tip.ts';
-import { BOLT_ICON_PATH, CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape, MORE_ICON_PATH, SETTINGS_ICON_PATH, SHIELD_ICON_PATH, SHIELD_OFF_ICON_PATH, SHIELDED_BOLT_FILL_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH } from '../svg-dom.ts';
+import { BOLT_ICON_PATH, CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape, MORE_ICON_PATH, SHIELD_ICON_PATH, SHIELD_OFF_ICON_PATH, SHIELDED_BOLT_FILL_PATH, USAGE_ICON_PATH } from '../svg-dom.ts';
 import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell } from './modal.ts';
 import type { SessionUi } from './card-registry.ts';
@@ -195,19 +195,10 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openCardSessionSetup?.(sessionId);
   };
-  sessionMenu.append(btnRestart, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnLinkPr);
+  const btnDebug = buildMenuItem('Debug state', 'State transitions and detection signals', 'overflow-debug');
+  const btnTrace = buildMenuItem('Trace', 'Turns, tool calls and thinking this session recorded', 'overflow-trace');
+  sessionMenu.append(btnRestart, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnLinkPr, btnDebug, btnTrace);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
-
-  const btnDebug = el('button', 'btn-action btn-debug');
-  btnDebug.append(createLineIcon(SETTINGS_ICON_PATH));
-  btnDebug.title = 'Debug state';
-  btnDebug.setAttribute('aria-label', 'Debug session state');
-
-  const btnTrace = el('button', 'btn-action btn-trace');
-  btnTrace.append(createLineIcon(TRACE_ICON_PATH));
-  btnTrace.type = 'button';
-  btnTrace.title = 'Trace';
-  btnTrace.setAttribute('aria-label', 'Trace');
 
   const btnRemove = el('button', 'btn-action btn-remove visible');
   btnRemove.append(createLineIcon(CLOSE_ICON_PATH));
@@ -231,7 +222,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   shownUnopenedDot.hidden = true;
   shownUnopenedDot.title = 'New shown file';
 
-  actions.append(shownUnopenedDot, btnShown, btnDocs, btnPlan, btnDebug, btnTrace, sessionMenuWrap, btnRemove);
+  actions.append(shownUnopenedDot, btnShown, btnDocs, btnPlan, sessionMenuWrap, btnRemove);
   const tags = el('div', 'session-card-tags');
   const usageBadge = buildTagIcon('usage-badge', 'Usage');
   usageBadge.append(createLineIcon(USAGE_ICON_PATH, '2.2'));
