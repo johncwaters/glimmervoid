@@ -1,5 +1,5 @@
 # Adapters
 
-Per-agent vocabulary: one adapter per CLI (Claude Code, Codex, Grok, custom), tables and pure functions only
+Per-CLI vocabulary: one adapter per CLI (Claude Code, Codex, Grok, Kimi Code, the machine shell, custom), tables and pure functions only
 
 ## invariants

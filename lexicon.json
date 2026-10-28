@@ -103,6 +103,10 @@
     {
       "name": "skip",
       "definition": "An operator choice to pass over a step Glimmervoid would otherwise take, as in skipping permission prompts or the skip-to-main link."
+    },
+    {
+      "name": "kimi code",
+      "definition": "Moonshot's Kimi Code CLI, one of the agent CLIs glimmervoid supervises through its kimi agent adapter"
     }
   ]
 }
