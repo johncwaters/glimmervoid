@@ -8,6 +8,7 @@ import { REPO_SLUG } from '#shared/repo.ts';
 import { loadCustomSounds, playAlertSound, resolveSoundId, soundOptions } from '../alert-sound.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
+import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { createNotificationPermissionControl, ensureNotificationPermission, notificationsSupported } from '../notifications.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
@@ -1727,6 +1728,7 @@ function mountSettingsView(container: HTMLElement) {
   navigationEl.setAttribute('role', 'navigation');
   navigationEl.setAttribute('aria-label', 'Settings sections');
   backButtonEl = el('button', 'settings-view-back', 'Settings');
+  backButtonEl.prepend(createLineIcon(BACK_ICON_PATH));
   backButtonEl.type = 'button';
   backButtonEl.hidden = true;
   backButtonEl.setAttribute('aria-label', 'Back to settings sections');

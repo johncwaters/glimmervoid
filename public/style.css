@@ -8211,13 +8211,6 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
   cursor: pointer;
 }
 
-[data-layout="phone"] .settings-view-back::before {
-  content: "\2039";
-  font-size: 22px;
-  line-height: 1;
-  transform: translateY(-1px);
-}
-
 @media (hover: hover) {
   [data-layout="phone"] .settings-view .settings-view-back:hover {
     color: var(--text-head);
