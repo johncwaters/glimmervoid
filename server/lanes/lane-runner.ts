@@ -49,6 +49,7 @@ interface TickLoop {
   refresh(beforeTick?: () => Promise<GithubPollingRefreshResult>): Promise<GithubPollingRefreshResult>;
   scheduleStatus(): { nextAttemptAt: number | null; retry: GithubPollingRetry | null; isRefreshing: boolean; refreshNotice: string | null; lastRefreshedAt: number | null; incident: string | null };
   persist(): Promise<void>;
+  save(): Promise<boolean>;
   track<T>(promise: Promise<T>): Promise<T>;
   isStopped(): boolean;
   backoffUntil(): number;
@@ -96,10 +97,15 @@ function createTickLoop({
 
   const running = new Set<Promise<unknown>>();
 
-  function persist(): Promise<void> {
-    return persistQueue.run(() => writeState()).catch((e: unknown) => {
+  function save(): Promise<boolean> {
+    return persistQueue.run(() => writeState()).then(() => true, (e: unknown) => {
       log.warn(`[${tag}] state write failed: ${errorMessage(e)}`);
+      return false;
     });
+  }
+
+  function persist(): Promise<void> {
+    return save().then(() => {});
   }
 
   function track<T>(promise: Promise<T>): Promise<T> {
@@ -262,7 +268,7 @@ function createTickLoop({
     await persistQueue.idle();
   }
 
-  return { start, stop, tick, tickSoon, refresh, scheduleStatus, persist, track, isStopped: () => stopped, backoffUntil: () => backoffUntil };
+  return { start, stop, tick, tickSoon, refresh, scheduleStatus, persist, save, track, isStopped: () => stopped, backoffUntil: () => backoffUntil };
 }
 
 interface LaneRunnerGate {

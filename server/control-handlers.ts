@@ -1427,7 +1427,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (!project) { reply({ error: 'Pick a single-repository session to start from' }); return; }
     const isGuarded = willSessionRunGuarded({ path: project.path, agent: project.agent }, config, null);
     const created = createProjectSession({
-      name: `Community: ${seeded.title}`.slice(0, 80),
+      name: radarLaneCore.sanitizeSessionName(`Community ${seeded.title}`) ?? 'Community question',
       path: project.path,
       agent: project.agent,
       dangerouslySkipPermissions: isGuarded ? project.dangerouslySkipPermissions : false,

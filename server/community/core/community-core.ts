@@ -289,7 +289,7 @@ function buildCommunityPrompt({ item, skill, reportPath, postingPath }: { item: 
 }
 
 function researchForSession(entry: CommunityStateEntry): string[] {
-  if (entry.status !== 'ready') return [];
+  if (entry.verdict === null) return [];
   const report = [
     `VERDICT: ${entry.verdict ?? 'none'}`,
     `GOAL: ${entry.goal}`,

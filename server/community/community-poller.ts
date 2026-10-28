@@ -118,8 +118,9 @@ function createCommunityPoller({
     if (action === 'set-aside') runAborts.get(key)?.abort();
     replaceEntry(applied.entry);
     dispatchRuns();
-    await loop.persist();
+    const isSaved = await loop.save();
     publishStatus(null);
+    if (!isSaved) return { ok: false, error: 'The change applies now but could not be saved, so a restart would undo it' };
     return { ok: true };
   }
 
