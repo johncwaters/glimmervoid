@@ -84,3 +84,62 @@ test('a kimi spawn refuses a real config whose own hooks key a [[hooks]] block w
     assert.equal(fs.readFileSync(path.join(realHome, 'config.toml'), 'utf8'), inlineHooks);
   });
 });
+
+test('a kimi spawn heals a file kimi replaced and adopts a private folder once the real home grows it', () => {
+  withKimiHomes(({ realHome, env }) => {
+    const generatedHome = prepare(env);
+    const realDevicePath = path.join(realHome, 'device_id');
+    const generatedDevicePath = path.join(generatedHome, 'device_id');
+
+    fs.rmSync(generatedDevicePath);
+    fs.writeFileSync(generatedDevicePath, 'device-2\n');
+    prepare(env);
+    assert.equal(fs.readFileSync(realDevicePath, 'utf8'), 'device-2\n');
+    assert.equal(fs.lstatSync(generatedDevicePath).isSymbolicLink(), true);
+
+    fs.rmSync(generatedDevicePath);
+    fs.writeFileSync(generatedDevicePath, 'device-3\n');
+    fs.writeFileSync(realDevicePath, 'device-from-operator\n');
+    prepare(env);
+    assert.equal(fs.readFileSync(realDevicePath, 'utf8'), 'device-from-operator\n');
+    assert.equal(fs.readFileSync(generatedDevicePath, 'utf8'), 'device-from-operator\n');
+
+    fs.rmSync(generatedDevicePath);
+    fs.writeFileSync(generatedDevicePath, 'device-4\n');
+    fs.writeFileSync(realDevicePath, 'device-from-operator-again\n');
+    prepare(env);
+    const conflictsFolder = path.join(generatedHome, '.glimmervoid-conflicts');
+    const setAsideContents = fs.readdirSync(conflictsFolder).map((name) => fs.readFileSync(path.join(conflictsFolder, name), 'utf8'));
+    assert.deepEqual(setAsideContents.sort(), ['device-3\n', 'device-4\n']);
+
+    const dotfilesDevicePath = path.join(path.dirname(realHome), 'dotfiles-device_id');
+    fs.writeFileSync(dotfilesDevicePath, 'device-dotfiles\n');
+    fs.rmSync(realDevicePath);
+    fs.symlinkSync(dotfilesDevicePath, realDevicePath);
+    prepare(env);
+    fs.rmSync(generatedDevicePath);
+    fs.writeFileSync(generatedDevicePath, 'device-5\n');
+    prepare(env);
+    assert.equal(fs.lstatSync(realDevicePath).isSymbolicLink(), true);
+    assert.equal(fs.readFileSync(dotfilesDevicePath, 'utf8'), 'device-5\n');
+    assert.deepEqual(fs.readdirSync(realHome).filter((name) => name.includes('glimmervoid')), []);
+
+    fs.mkdirSync(path.join(generatedHome, 'sessions', 'session_b'), { recursive: true });
+    fs.mkdirSync(path.join(generatedHome, 'logs'));
+    fs.writeFileSync(path.join(generatedHome, 'logs', 'kimi.log'), 'private\n');
+    fs.mkdirSync(path.join(realHome, 'sessions', 'session_a'), { recursive: true });
+    fs.mkdirSync(path.join(realHome, 'logs'));
+    fs.writeFileSync(path.join(realHome, 'logs', 'kimi.log'), 'real\n');
+    prepare(env);
+    assert.deepEqual(fs.readdirSync(path.join(realHome, 'sessions')).sort(), ['session_a', 'session_b']);
+    assert.equal(fs.lstatSync(path.join(generatedHome, 'sessions')).isSymbolicLink(), true);
+    assert.equal(fs.lstatSync(path.join(generatedHome, 'logs')).isDirectory(), true);
+    assert.equal(fs.readFileSync(path.join(realHome, 'logs', 'kimi.log'), 'utf8'), 'real\n');
+
+    fs.mkdirSync(path.join(generatedHome, 'cache', 'blob'), { recursive: true });
+    fs.mkdirSync(path.join(realHome, 'cache'), { mode: 0o555 });
+    prepare(env);
+    assert.equal(fs.lstatSync(path.join(generatedHome, 'cache')).isDirectory(), true);
+    fs.chmodSync(path.join(realHome, 'cache'), 0o755);
+  });
+});

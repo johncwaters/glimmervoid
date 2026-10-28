@@ -132,19 +132,24 @@ function spliceKimiHooksBlock(configText: string | null, block: string): KimiSpl
 
 const KIMI_CONFIG_NAME = "config.toml";
 const KIMI_SOURCES_NAME = ".glimmervoid-sources.json";
-const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([KIMI_CONFIG_NAME, KIMI_SOURCES_NAME]);
+const KIMI_CONFLICTS_NAME = ".glimmervoid-conflicts";
+const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([KIMI_CONFIG_NAME, KIMI_SOURCES_NAME, KIMI_CONFLICTS_NAME]);
+const FILE_STAMP_PREFIX = "file:";
 
 type KimiLinkKind = "symlink" | "junction" | "hardlink";
 
 interface RealKimiEntry {
   name: string;
   kind: "folder" | "file";
+  fileStamp: string | null;
+  childNames: readonly string[];
 }
 
 interface GeneratedKimiEntry {
   name: string;
   kind: "link" | "folder" | "file";
   linkTarget: string | null;
+  childNames: readonly string[];
 }
 
 interface KimiHomeInputs {
@@ -161,6 +166,9 @@ interface KimiHomeInputs {
 type KimiHomeStep =
   | { kind: "link"; name: string; target: string; linkKind: KimiLinkKind }
   | { kind: "unlink"; name: string }
+  | { kind: "promote"; name: string; target: string }
+  | { kind: "set-aside"; name: string }
+  | { kind: "adopt"; name: string; target: string; childNames: readonly string[] }
   | { kind: "write-config"; text: string };
 
 type KimiHomePlan =
@@ -187,13 +195,31 @@ function linkKindFor(kind: RealKimiEntry["kind"], platform: NodeJS.Platform): Ki
   return kind === "folder" ? "junction" : "hardlink";
 }
 
-function planEntryLink(real: RealKimiEntry, generated: GeneratedKimiEntry | undefined, realHome: string, platform: NodeJS.Platform): KimiHomeStep[] | "private" {
-  const target = path.join(realHome, real.name);
-  const link: KimiHomeStep = { kind: "link", name: real.name, target, linkKind: linkKindFor(real.kind, platform) };
+function fileStampKey(name: string): string {
+  return `${FILE_STAMP_PREFIX}${name}`;
+}
+
+function planReplacedFile(real: RealKimiEntry, target: string, lastFileStamp: string | undefined): KimiHomeStep {
+  const isRealUnchanged = real.fileStamp !== null && real.fileStamp === lastFileStamp;
+  if (isRealUnchanged) return { kind: "promote", name: real.name, target };
+  return { kind: "set-aside", name: real.name };
+}
+
+function planPrivateFolder(real: RealKimiEntry, generated: GeneratedKimiEntry, target: string): KimiHomeStep | "private" {
+  const realChildNames = new Set(real.childNames);
+  if (generated.childNames.some((childName) => realChildNames.has(childName))) return "private";
+  return { kind: "adopt", name: real.name, target, childNames: generated.childNames };
+}
+
+function planEntryLink(real: RealKimiEntry, generated: GeneratedKimiEntry | undefined, inputs: KimiHomeInputs): KimiHomeStep[] | "private" {
+  const target = path.join(inputs.realHome, real.name);
+  const link: KimiHomeStep = { kind: "link", name: real.name, target, linkKind: linkKindFor(real.kind, inputs.platform) };
   if (!generated) return [link];
-  if (generated.kind !== "link") return "private";
-  if (generated.linkTarget === target) return [];
-  return [{ kind: "unlink", name: real.name }, link];
+  if (generated.kind === "link") return generated.linkTarget === target ? [] : [{ kind: "unlink", name: real.name }, link];
+  if (generated.kind === "file" && real.kind === "file") return [planReplacedFile(real, target, inputs.sourceStamps[fileStampKey(real.name)]), link];
+  if (generated.kind !== "folder" || real.kind !== "folder") return "private";
+  const adoption = planPrivateFolder(real, generated, target);
+  return adoption === "private" ? adoption : [adoption, link];
 }
 
 function planKimiHome(inputs: KimiHomeInputs): KimiHomePlan {
@@ -211,7 +237,7 @@ function planKimiHome(inputs: KimiHomeInputs): KimiHomePlan {
   for (const real of inputs.realEntries) {
     if (GENERATED_ONLY_NAMES.has(real.name)) continue;
     realNames.add(real.name);
-    const entrySteps = planEntryLink(real, generatedByName.get(real.name), inputs.realHome, inputs.platform);
+    const entrySteps = planEntryLink(real, generatedByName.get(real.name), inputs);
     if (entrySteps === "private") {
       privateNames.push(real.name);
       continue;
@@ -224,11 +250,11 @@ function planKimiHome(inputs: KimiHomeInputs): KimiHomePlan {
   return {
     kind: "ready",
     steps,
-    sourceStamps: { ...inputs.sourceStamps, [KIMI_CONFIG_NAME]: configStamp },
+    sourceStamps: { [KIMI_CONFIG_NAME]: configStamp },
     privateNames,
     hasStaleBlockInRealConfig: config.hadBlock,
   };
 }
 
-export { BLOCK_START, BLOCK_END, KIMI_CONFIG_NAME, KIMI_SOURCES_NAME, renderKimiHooksBlock, classifyKimiConfig, spliceKimiHooksBlock, generatedKimiConfig, planKimiHome };
+export { BLOCK_START, BLOCK_END, KIMI_CONFIG_NAME, KIMI_CONFLICTS_NAME, KIMI_SOURCES_NAME, fileStampKey, renderKimiHooksBlock, classifyKimiConfig, spliceKimiHooksBlock, generatedKimiConfig, planKimiHome };
 export type { GeneratedKimiEntry, KimiBlockClassification, KimiHomeInputs, KimiHomePlan, KimiHomeStep, KimiHooksBlockOptions, KimiLinkKind, RealKimiEntry };

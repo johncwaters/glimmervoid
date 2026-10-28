@@ -5,7 +5,7 @@ import path from "node:path";
 import { glimmervoidHomeDir } from "../server/core/config-path-core.ts";
 import { writeTextAtomicSync } from "../server/json-file.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
-import { KIMI_CONFIG_NAME, KIMI_SOURCES_NAME, planKimiHome } from "./core/kimi-hooks-block-core.ts";
+import { KIMI_CONFIG_NAME, KIMI_CONFLICTS_NAME, KIMI_SOURCES_NAME, fileStampKey, planKimiHome } from "./core/kimi-hooks-block-core.ts";
 import type { GeneratedKimiEntry, KimiHomePlan, KimiHomeStep, RealKimiEntry } from "./core/kimi-hooks-block-core.ts";
 
 const GENERATED_HOME_MODE = 0o700;
@@ -39,19 +39,34 @@ function listFolder(folder: string): fs.Dirent[] {
   }
 }
 
-function realEntryKind(entryPath: string): RealKimiEntry["kind"] | null {
+function statOrNull(entryPath: string): fs.Stats | null {
   try {
-    return fs.statSync(entryPath).isDirectory() ? "folder" : "file";
+    return fs.statSync(entryPath);
   } catch {
     return null;
   }
 }
 
-function listRealEntries(realHome: string): RealKimiEntry[] {
+function fileStampOf(entryStat: fs.Stats): string {
+  return `${entryStat.size}:${entryStat.mtimeMs}`;
+}
+
+function childNamesOf(folder: string): string[] {
+  return listFolder(folder).map((dirent) => dirent.name);
+}
+
+function listRealEntries(realHome: string, privateFolderNames: ReadonlySet<string>): RealKimiEntry[] {
   const entries: RealKimiEntry[] = [];
   for (const dirent of listFolder(realHome)) {
-    const kind = realEntryKind(path.join(realHome, dirent.name));
-    if (kind) entries.push({ name: dirent.name, kind });
+    const entryPath = path.join(realHome, dirent.name);
+    const entryStat = statOrNull(entryPath);
+    if (!entryStat) continue;
+    if (entryStat.isDirectory()) {
+      const childNames = privateFolderNames.has(dirent.name) ? childNamesOf(entryPath) : [];
+      entries.push({ name: dirent.name, kind: "folder", fileStamp: null, childNames });
+      continue;
+    }
+    entries.push({ name: dirent.name, kind: "file", fileStamp: fileStampOf(entryStat), childNames: [] });
   }
   return entries;
 }
@@ -73,11 +88,11 @@ function hardLinkTarget(entryStat: fs.Stats, realHome: string, name: string): st
 function describeGeneratedEntry(generatedHome: string, realHome: string, name: string): GeneratedKimiEntry {
   const entryPath = path.join(generatedHome, name);
   const entryStat = fs.lstatSync(entryPath);
-  if (entryStat.isSymbolicLink()) return { name, kind: "link", linkTarget: path.resolve(generatedHome, fs.readlinkSync(entryPath)) };
-  if (entryStat.isDirectory()) return { name, kind: "folder", linkTarget: null };
+  if (entryStat.isSymbolicLink()) return { name, kind: "link", linkTarget: path.resolve(generatedHome, fs.readlinkSync(entryPath)), childNames: [] };
+  if (entryStat.isDirectory()) return { name, kind: "folder", linkTarget: null, childNames: childNamesOf(entryPath) };
   const hardLinkedTo = hardLinkTarget(entryStat, realHome, name);
-  if (hardLinkedTo) return { name, kind: "link", linkTarget: hardLinkedTo };
-  return { name, kind: "file", linkTarget: null };
+  if (hardLinkedTo) return { name, kind: "link", linkTarget: hardLinkedTo, childNames: [] };
+  return { name, kind: "file", linkTarget: null, childNames: [] };
 }
 
 function readOptionalText(filePath: string): string | null {
@@ -128,11 +143,12 @@ function inspectKimiHome(options: KimiHomeOptions): KimiHomeReading {
 function planFromDisk({ hooksBlock, platform = process.platform }: KimiHomeOptions, realHome: string, generatedHome: string): KimiHomePlan {
   const realConfig = readRealConfig(realHome);
   if ("refusal" in realConfig) return { kind: "refused", reason: realConfig.refusal };
-  const generatedNames = listFolder(generatedHome).map((dirent) => dirent.name);
+  const generatedEntries = childNamesOf(generatedHome).map((name) => describeGeneratedEntry(generatedHome, realHome, name));
+  const privateFolderNames = new Set(generatedEntries.filter((entry) => entry.kind === "folder").map((entry) => entry.name));
   return planKimiHome({
     realHome,
-    realEntries: listRealEntries(realHome),
-    generatedEntries: generatedNames.map((name) => describeGeneratedEntry(generatedHome, realHome, name)),
+    realEntries: listRealEntries(realHome, privateFolderNames),
+    generatedEntries,
     realConfigText: realConfig.text,
     generatedConfigText: readOptionalText(path.join(generatedHome, KIMI_CONFIG_NAME)),
     hooksBlock,
@@ -145,15 +161,61 @@ function stepEntryPath(generatedHome: string, step: KimiHomeStep): string {
   return path.join(generatedHome, step.kind === "write-config" ? KIMI_CONFIG_NAME : step.name);
 }
 
+function promoteIntoRealHome(entryPath: string, target: string): void {
+  const resolvedTarget = fs.realpathSync(target);
+  const stagedPath = `${resolvedTarget}.glimmervoid-${process.pid}`;
+  try {
+    fs.copyFileSync(entryPath, stagedPath);
+    fs.chmodSync(stagedPath, fs.statSync(resolvedTarget).mode & 0o777);
+    fs.renameSync(stagedPath, resolvedTarget);
+  } catch (error) {
+    fs.rmSync(stagedPath, { force: true });
+    throw error;
+  }
+  fs.unlinkSync(entryPath);
+}
+
+function setAside(generatedHome: string, entryPath: string, name: string): void {
+  const conflictsFolder = path.join(generatedHome, KIMI_CONFLICTS_NAME);
+  fs.mkdirSync(conflictsFolder, { recursive: true, mode: GENERATED_HOME_MODE });
+  let copyNumber = 1;
+  while (fs.existsSync(path.join(conflictsFolder, `${name}.${copyNumber}`))) copyNumber += 1;
+  fs.renameSync(entryPath, path.join(conflictsFolder, `${name}.${copyNumber}`));
+}
+
+function moveAcrossVolumes(source: string, destination: string): void {
+  try {
+    fs.renameSync(source, destination);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "EXDEV")) throw error;
+    fs.cpSync(source, destination, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true });
+    fs.rmSync(source, { recursive: true });
+  }
+}
+
+function adoptFolder(entryPath: string, target: string, childNames: readonly string[]): void {
+  for (const childName of childNames) moveAcrossVolumes(path.join(entryPath, childName), path.join(target, childName));
+  fs.rmdirSync(entryPath);
+}
+
 function applyStep(generatedHome: string, step: KimiHomeStep): void {
   const entryPath = stepEntryPath(generatedHome, step);
-  if (step.kind === "write-config") {
-    writeTextAtomicSync(entryPath, step.text, { mode: GENERATED_FILE_MODE, enforceMode: true });
-    return;
-  }
-  if (step.kind === "unlink") {
-    fs.unlinkSync(entryPath);
-    return;
+  switch (step.kind) {
+    case "write-config":
+      writeTextAtomicSync(entryPath, step.text, { mode: GENERATED_FILE_MODE, enforceMode: true });
+      return;
+    case "unlink":
+      fs.unlinkSync(entryPath);
+      return;
+    case "promote":
+      promoteIntoRealHome(entryPath, step.target);
+      return;
+    case "set-aside":
+      setAside(generatedHome, entryPath, step.name);
+      return;
+    case "adopt":
+      adoptFolder(entryPath, step.target, step.childNames);
+      return;
   }
   if (step.linkKind === "hardlink") {
     fs.linkSync(step.target, entryPath);
@@ -165,7 +227,16 @@ function applyStep(generatedHome: string, step: KimiHomeStep): void {
 function stepFailure(generatedHome: string, step: KimiHomeStep, error: unknown): string {
   const entryPath = stepEntryPath(generatedHome, step);
   if (step.kind === "link") return `${entryPath} cannot be linked to ${step.target}: ${errorMessage(error)}`;
+  if (step.kind === "promote") return `${entryPath} cannot be moved into ${step.target}: ${errorMessage(error)}`;
   return `${entryPath} cannot be written: ${errorMessage(error)}`;
+}
+
+function realFileStamps(realHome: string): Record<string, string> {
+  const stamps: Record<string, string> = {};
+  for (const entry of listRealEntries(realHome, new Set())) {
+    if (entry.fileStamp !== null) stamps[fileStampKey(entry.name)] = entry.fileStamp;
+  }
+  return stamps;
 }
 
 function prepareKimiHome(options: KimiHomeOptions): { home: string } | { refusal: string } {
@@ -178,15 +249,20 @@ function prepareKimiHome(options: KimiHomeOptions): { home: string } | { refusal
   }
   const { plan } = inspectKimiHome(options);
   if (plan.kind === "refused") return { refusal: plan.reason };
+  const keptPrivateNames = new Set<string>();
   for (const step of plan.steps) {
+    if (step.kind !== "write-config" && keptPrivateNames.has(step.name)) continue;
     try {
       applyStep(generatedHome, step);
     } catch (error) {
-      return { refusal: stepFailure(generatedHome, step, error) };
+      if (step.kind !== "adopt") return { refusal: stepFailure(generatedHome, step, error) };
+      keptPrivateNames.add(step.name);
     }
   }
+  const realHome = realKimiHome(options.env, options.homeDir);
   try {
-    writeTextAtomicSync(path.join(generatedHome, KIMI_SOURCES_NAME), `${JSON.stringify(plan.sourceStamps, null, 2)}\n`, { mode: GENERATED_FILE_MODE });
+    const sourceStamps = { ...plan.sourceStamps, ...realFileStamps(realHome) };
+    writeTextAtomicSync(path.join(generatedHome, KIMI_SOURCES_NAME), `${JSON.stringify(sourceStamps, null, 2)}\n`, { mode: GENERATED_FILE_MODE });
   } catch (error) {
     return { refusal: `${path.join(generatedHome, KIMI_SOURCES_NAME)} cannot be written: ${errorMessage(error)}` };
   }
