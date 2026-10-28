@@ -14,6 +14,7 @@ import { createNotificationPermissionControl, ensureNotificationPermission, noti
 import { formatAgo } from '../poll-ago.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
+import { isReviewAgentOffered, isSkillChoicePending, readTeamReviewEnvironment, teamReviewSandboxLines, teamReviewSuggestions } from './team-review-settings-core.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
 import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES, settingsSectionsAvailableOn } from '#shared/settings/registry.ts';
 import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
@@ -146,6 +147,9 @@ const ABOUT_SECTION: SettingsSection = Object.freeze({
   description: 'The running build and where the project lives.',
   settings: [],
 });
+const TEAM_REVIEW_ENABLED_ID = 'team-review-enabled';
+const TEAM_REVIEW_ENVIRONMENT_RETRY_MS = 2000;
+let isTeamReviewEnvironmentRequested = false;
 const OPTION_CATALOGS: Readonly<Record<string, () => { id: string; label: string }[]>> = Object.freeze({
   sounds: () => soundOptions(),
   themes: getThemeList,
@@ -416,8 +420,17 @@ function markSaved(setting: SettingsSetting) {
   savedStatusTimerById.set(setting.id, window.setTimeout(() => setSaveStatus(setting, null), SAVED_STATUS_MS));
 }
 
+function isTeamReviewTurningOnWithoutSkill(setting: SettingsSetting, value: unknown): boolean {
+  return setting.id === TEAM_REVIEW_ENABLED_ID && value === true && storedValue(setting) !== true && isSkillChoicePending(settingsPayload.teamReview);
+}
+
 function commitSetting(setting: SettingsSetting, value: unknown) {
   fieldErrorById.delete(setting.id);
+  if (isTeamReviewTurningOnWithoutSkill(setting, value)) {
+    refreshRow(setting, { force: true });
+    confirmTeamReviewWithoutSkill(setting);
+    return;
+  }
   if (setting.path.startsWith('pref:')) {
     storedValues[setting.path] = value;
     applyBrowserPreference(setting, value);
@@ -510,6 +523,51 @@ function renderToggle(setting: SettingsSetting) {
   label.append(input, state);
   wrapper.appendChild(label);
   return wrapper;
+}
+
+function confirmTeamReviewWithoutSkill(enabledSetting: SettingsSetting) {
+  openConfirmDialog({
+    title: enabledSetting.title,
+    message: 'No review skill is chosen yet. Pick one in Review skill below and turn team review on again, or turn it on now to review with no skill, where the agent uses whatever skills it has.',
+    confirmLabel: 'Turn on with no skill',
+    onConfirm: () => { void saveTeamReviewEnabledWithoutSkill(enabledSetting); },
+  });
+}
+
+async function saveTeamReviewEnabledWithoutSkill(enabledSetting: SettingsSetting) {
+  const storedBlock = settingsPayload.teamReview;
+  const teamReview = { ...(storedBlock && typeof storedBlock === 'object' ? storedBlock : {}), enabled: true, skill: '' };
+  setSaveStatus(enabledSetting, { tone: 'saving', text: 'Saving' });
+  try {
+    const message = await sendControlRequest('update-settings', { settings: { teamReview } });
+    if (message.type !== 'settings-updated') {
+      setSaveStatus(enabledSetting, { tone: 'error', text: message.type === 'settings-error' ? String(message.message) : 'The server did not confirm the save.' });
+      return;
+    }
+    applySettingsBroadcast(message.settings);
+    markSaved(enabledSetting);
+  } catch (error) {
+    setSaveStatus(enabledSetting, { tone: 'error', text: (error as Error)?.message || 'Failed to save the setting.' });
+  }
+}
+
+function attachSuggestions(setting: SettingsSetting, input: HTMLInputElement) {
+  if (!setting.suggestionsFrom) return;
+  const suggestions = teamReviewSuggestions(setting.suggestionsFrom, readTeamReviewEnvironment(settingsPayload.teamReviewEnvironment), storedValues);
+  const listId = `${setting.id}-suggestions`;
+  document.getElementById(listId)?.remove();
+  const datalist = el('datalist');
+  datalist.id = listId;
+  for (const suggestion of suggestions) {
+    const option = el('option');
+    option.value = suggestion.value;
+    option.label = suggestion.label;
+    datalist.appendChild(option);
+  }
+  document.body.appendChild(datalist);
+  input.setAttribute('list', listId);
+  input.placeholder = 'Agent default';
+  if (setting.suggestionsFrom === 'review-skills') input.placeholder = 'No skill';
 }
 
 function renderShortcutKey(setting: SettingsSetting) {
@@ -639,6 +697,7 @@ function renderInput(setting: SettingsSetting) {
   input.autocomplete = 'off';
   input.spellcheck = false;
   input.setAttribute('aria-labelledby', setting.id);
+  attachSuggestions(setting, input);
   trackDraft(setting, input);
   const commitInputDraft = () => {
     if (setting.control === 'password') {
@@ -724,7 +783,10 @@ function renderSegmented(setting: SettingsSetting) {
 function renderSelect(setting: SettingsSetting) {
   const select = el('select', 'settings-view-input');
   select.setAttribute('aria-labelledby', setting.id);
-  for (const choice of setting.options ?? []) {
+  const storedChoice = String(storedValue(setting));
+  const environment = setting.availableFrom ? readTeamReviewEnvironment(settingsPayload.teamReviewEnvironment) : null;
+  const offeredChoices = (setting.options ?? []).filter((choice) => !setting.availableFrom || choice.value === storedChoice || isReviewAgentOffered(environment, choice.value));
+  for (const choice of offeredChoices) {
     const option = el('option', null, choice.label);
     option.value = choice.value;
     select.appendChild(option);
@@ -1079,12 +1141,35 @@ function buildRemoteSetupStatus() {
   return block;
 }
 
+function requestTeamReviewEnvironmentOnce() {
+  if (isTeamReviewEnvironmentRequested) return;
+  isTeamReviewEnvironmentRequested = true;
+  window.setTimeout(() => {
+    sendControlRequest('get-settings', {})
+      .then((message) => { if (message.settings) applySettingsBroadcast(message.settings); })
+      .catch(() => { isTeamReviewEnvironmentRequested = false; });
+  }, TEAM_REVIEW_ENVIRONMENT_RETRY_MS);
+}
+
+function buildTeamReviewSandboxStatus() {
+  const block = el('div', 'settings-view-status-block');
+  const environment = readTeamReviewEnvironment(settingsPayload.teamReviewEnvironment);
+  if (!environment) {
+    block.appendChild(el('div', 'settings-readonly', 'Not available'));
+    return block;
+  }
+  if (environment.agents.length === 0) requestTeamReviewEnvironmentOnce();
+  for (const line of teamReviewSandboxLines(environment.sandbox)) block.appendChild(el('div', 'settings-readonly', line));
+  return block;
+}
+
 function renderReadout(setting: SettingsSetting) {
   if (setting.status === 'agent-logins') return buildAgentLoginsStatus();
   if (setting.status === 'remote-setup') return buildRemoteSetupStatus();
   if (setting.status === 'update-actions') return buildUpdateStatusBlock();
   if (setting.status === 'custom-agents') return buildCustomAgentsStatus();
   if (setting.status === 'workflows') return buildWorkflowsStatus();
+  if (setting.status === 'team-review-sandbox') return buildTeamReviewSandboxStatus();
   return el('div', 'settings-readonly', 'Not available');
 }
 

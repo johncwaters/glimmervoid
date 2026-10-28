@@ -144,7 +144,7 @@ Draft reviews of teammates' pull requests for you to post from the Reviews tab.
 | `github.teams` | GitHub teams | `[]` | Teams to search for review requests and members, one org/slug per entry. Leave empty to fall back to the legacy teamReview.org and teamReview.team keys in config.json. |
 | `teamReview.reReviewAfterHours` | Re-review after | `24` | When a reviewed PR has a new head, review it again after this long since its last review. Re-run review runs it at any time. |
 | `teamReview.skipIdleAfterDays` | Skip PRs idle for | `14` | Leave pull requests without GitHub activity for this long out of automatic review. |
-| `teamReview.skill` | Review skill | `""` | Name of a Claude Code skill installed for the review agent, for example your own PR review skill. Leave empty to let the agent review with whatever skills it has. |
+| `teamReview.skill` | Review skill | `""` | Skill the review agent follows for each review, picked from the skills that agent loads or typed by name. Leave empty for no skill: the agent reviews with whatever skills it has. |
 | `teamReview.reviewer.agent` | Review agent | `"claude"` | Agent CLI that drafts each review and judges replies to its threads. |
 | `teamReview.reviewer.model` | Review model | `""` | Model the review agent runs. Leave empty to use the agent's own default model. |
 | `teamReview.reviewer.effort` | Review effort | `""` | Effort level the review agent runs at. Leave empty to use the agent's own default effort. |

@@ -47,6 +47,8 @@ export interface SettingsSetting {
   legacyIds?: readonly SettingsLegacyId[];
   options?: readonly SettingsOption[];
   optionsFrom?: string;
+  suggestionsFrom?: string;
+  availableFrom?: string;
   presentation?: SettingsChoicePresentation;
   listPlaceholder?: string;
   listEmptyText?: string;
@@ -536,38 +538,43 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'team-review-skill', path: 'teamReview.skill', title: 'Review skill',
-        description: 'Name of a Claude Code skill installed for the review agent, for example your own PR review skill. Leave empty to let the agent review with whatever skills it has.',
-        control: 'text', keywords: ['skill', 'claude code', 'pr review'], defaultValue: '', ...MACHINE_NOW,
+        description: 'Skill the review agent follows for each review, picked from the skills that agent loads or typed by name. Leave empty for no skill: the agent reviews with whatever skills it has.',
+        control: 'text', keywords: ['skill', 'claude code', 'codex', 'kimi', 'pr review'], defaultValue: '', suggestionsFrom: 'review-skills', ...MACHINE_NOW,
       },
       {
         id: 'team-review-reviewer-agent', path: 'teamReview.reviewer.agent', title: 'Review agent',
         description: 'Agent CLI that drafts each review and judges replies to its threads.',
-        control: 'select', options: [{ value: 'claude', label: 'Claude Code' }], keywords: ['agent', 'reviewer', 'claude code'], defaultValue: 'claude', ...MACHINE_NOW,
+        control: 'select', options: [{ value: 'claude', label: 'Claude Code' }], availableFrom: 'review-agents', keywords: ['agent', 'reviewer', 'claude code'], defaultValue: 'claude', ...MACHINE_NOW,
       },
       {
         id: 'team-review-reviewer-model', path: 'teamReview.reviewer.model', title: 'Review model',
         description: "Model the review agent runs. Leave empty to use the agent's own default model.",
-        control: 'text', keywords: ['model', 'opus', 'sonnet', 'reviewer'], defaultValue: '', ...MACHINE_NOW,
+        control: 'text', keywords: ['model', 'opus', 'sonnet', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-models', ...MACHINE_NOW,
       },
       {
         id: 'team-review-reviewer-effort', path: 'teamReview.reviewer.effort', title: 'Review effort',
         description: "Effort level the review agent runs at. Leave empty to use the agent's own default effort.",
-        control: 'text', keywords: ['effort', 'thinking', 'reasoning', 'reviewer'], defaultValue: '', ...MACHINE_NOW,
+        control: 'text', keywords: ['effort', 'thinking', 'reasoning', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-efforts', ...MACHINE_NOW,
       },
       {
         id: 'team-review-stamp-reviewer-agent', path: 'teamReview.stampReviewer.agent', title: 'Small PR agent',
         description: 'Agent for small pull requests. Same as review agent uses the review agent, model and effort above.',
-        control: 'select', options: [{ value: '', label: 'Same as review agent' }, { value: 'claude', label: 'Claude Code' }], keywords: ['stamp', 'small pull requests', 'agent'], defaultValue: '', ...MACHINE_NOW,
+        control: 'select', options: [{ value: '', label: 'Same as review agent' }, { value: 'claude', label: 'Claude Code' }], availableFrom: 'review-agents', keywords: ['stamp', 'small pull requests', 'agent'], defaultValue: '', ...MACHINE_NOW,
       },
       {
         id: 'team-review-stamp-reviewer-model', path: 'teamReview.stampReviewer.model', title: 'Small PR model',
         description: 'Model for small pull requests. Leave empty to use the small PR agent default model.',
-        control: 'text', keywords: ['stamp', 'model', 'small pull requests'], defaultValue: '', ...MACHINE_NOW,
+        control: 'text', keywords: ['stamp', 'model', 'small pull requests'], defaultValue: '', suggestionsFrom: 'review-stamp-models', ...MACHINE_NOW,
       },
       {
         id: 'team-review-stamp-reviewer-effort', path: 'teamReview.stampReviewer.effort', title: 'Small PR effort',
         description: 'Effort for small pull requests. Leave empty to use the small PR agent default effort.',
-        control: 'text', keywords: ['stamp', 'effort', 'small pull requests'], defaultValue: '', ...MACHINE_NOW,
+        control: 'text', keywords: ['stamp', 'effort', 'small pull requests'], defaultValue: '', suggestionsFrom: 'review-stamp-efforts', ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-sandbox', path: 'status:team-review-sandbox', title: 'Review sandbox',
+        description: 'What the review agent can reach and read, from the same values each review launches with.',
+        control: 'readonly', keywords: ['sandbox', 'network', 'egress', 'mcp', 'credentials', 'tools', 'restricted'], status: 'team-review-sandbox', ...READOUT,
       },
       {
         id: 'team-review-sandbox-extra-domains', path: 'teamReview.sandbox.extraDomains', title: 'Extra allowed domains',

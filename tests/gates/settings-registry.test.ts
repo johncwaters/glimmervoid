@@ -524,6 +524,7 @@ test('the Team review lane section owns its settings and deep link, with org and
     ['team-review-stamp-reviewer-agent', 'teamReview.stampReviewer.agent', 'select'],
     ['team-review-stamp-reviewer-model', 'teamReview.stampReviewer.model', 'text'],
     ['team-review-stamp-reviewer-effort', 'teamReview.stampReviewer.effort', 'text'],
+    ['team-review-sandbox', 'status:team-review-sandbox', 'readonly'],
     ['team-review-sandbox-extra-domains', 'teamReview.sandbox.extraDomains', 'list'],
     ['team-review-sandbox-open-network', 'teamReview.sandbox.openNetwork', 'toggle'],
     ['team-review-sandbox-load-mcp-servers', 'teamReview.sandbox.loadMcpServers', 'toggle'],
@@ -533,7 +534,7 @@ test('the Team review lane section owns its settings and deep link, with org and
     ['team-review-merge-queue-enabled', 'teamReview.mergeQueueEnabled', 'toggle'],
   ]);
   assert.equal(section.settings.some((setting) => setting.id === TEAM_REVIEW_SETTINGS_SETTING_ID), true);
-  for (const setting of section.settings) assert.equal(settableFromDashboard(setting.path), true, setting.path);
+  for (const setting of section.settings.filter((entry) => entry.control !== 'readonly')) assert.equal(settableFromDashboard(setting.path), true, setting.path);
   assert.deepEqual(SETTINGS_REGISTRY.fileOnly.filter((setting) => setting.path.startsWith('teamReview.')).map((setting) => setting.path), ['teamReview.org', 'teamReview.team']);
 });
 
