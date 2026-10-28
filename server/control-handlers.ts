@@ -58,6 +58,7 @@ import { sanitizeOneLine, showHomeAsTilde } from './core/text-core.ts';
 import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import { BenchmarkActionRequest } from '../shared/contracts/benchmark.ts';
 import type { BenchmarkActionResult, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
+import type { FeatureHintsWiring } from './feature-hints-wiring.ts';
 import type { TeamReviewActionResult, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import { MyPrKeepMergeableRequest, MyPrMergeRequest, MyPrMergeWhenReadyRequest } from '../shared/contracts/my-prs.ts';
 import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsSnapshot } from '../shared/contracts/my-prs.ts';
@@ -171,6 +172,7 @@ interface ControlHandlerDeps {
   agentConnect?: Pick<ReturnType<typeof createAgentConnect>, 'logins' | 'refresh' | 'start' | 'cancel' | 'submitCode'> | null;
   remoteSetup?: { start: (agent: RemoteSetupAgent) => Promise<RemoteSetupOutcome> } | null;
   remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
+  featureHints?: Pick<FeatureHintsWiring, 'noteViewShown' | 'settle' | 'pendingHintMessage'> | null;
 }
 
 type AddSessionRefusal = { error: string };
@@ -339,6 +341,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     getUpdateJournal = null,
     getPostTurnLeftoversNotice = null,
     recheckPostTurnLeftovers = null,
+    featureHints = null,
     checkNow = null,
     applyUpdate = null,
     noteRestartRequested = null,
@@ -1065,9 +1068,21 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     deps.telemetry?.capture?.('operator_action', { surface, action });
   }
 
+  function noteFeatureHintReport(report: DashboardTelemetryReport): void {
+    if (!featureHints) return;
+    if (report.event === 'view_shown') {
+      void featureHints.noteViewShown(report.properties.view);
+      return;
+    }
+    if (report.event !== 'operator_action' || report.properties.surface !== 'hints' || !report.properties.feature) return;
+    if (report.properties.action === 'open') void featureHints.settle(report.properties.feature, 'opened');
+    if (report.properties.action === 'dismiss') void featureHints.settle(report.properties.feature, 'dismissed');
+  }
+
   function captureDashboardTelemetry(msg: ClientMessageOf<'dashboard-telemetry'>): void {
     const report = DashboardTelemetryReport.safeParse(msg);
     if (!report.success) return;
+    noteFeatureHintReport(report.data);
     if (report.data.event === 'header_error_shown') {
       const { source, message } = report.data.properties;
       deps.telemetry?.capture?.('header_error_shown', { source, message: showHomeAsTilde(message, os.homedir()) });
@@ -1820,6 +1835,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
     const postTurnLeftoversNotice = getPostTurnLeftoversNotice?.() ?? null;
     if (postTurnLeftoversNotice) ws.send(JSON.stringify(postTurnLeftoversNotice));
+    const featureHintMessage = featureHints?.pendingHintMessage() ?? null;
+    if (featureHintMessage) ws.send(JSON.stringify(featureHintMessage));
     recheckPostTurnLeftovers?.();
 
     const radarStatus = typeof getRadarStatus === 'function' ? getRadarStatus() : null;

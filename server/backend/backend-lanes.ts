@@ -40,6 +40,7 @@ import { commandFor } from '../../session/adapters/index.ts';
 import { createMyPrMergeabilityFix, createMyPrsWiring, createGuardedPrStaging, sweepKeepMergeableLeftovers } from '../github/my-prs-wiring.ts';
 import { keepMergeableTimeoutSeconds } from '../github/core/my-prs-core.ts';
 import { createSessionPrLinkWiring } from '../github/session-pr-link-wiring.ts';
+import { createFeatureHintsWiring } from '../feature-hints-wiring.ts';
 import { createWorkflowSpawn, createWorkflowsWiring } from '../workflows-wiring.ts';
 import { createGithubClock } from '../github/github-clock.ts';
 import { createGithubStatus } from '../github/github-status.ts';
@@ -239,6 +240,9 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     telemetry: laneTelemetry,
   });
   const sessionPrLink = createSessionPrLinkWiring({ store: githubStore.laneStore, git: gitWorkspace, log: logger });
+  const featureHints = createFeatureHintsWiring({
+    statePath: configSiblingPath(configStore.configPath, 'feature-hints.json'), broadcast: broadcastControl, log: logger,
+  });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
     config, github, store: githubStore.laneStore, log: logger, clock: githubClock,
@@ -424,6 +428,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
 
   function tapIngestForSession(session: Session): void {
     sessionPrLink.attachSession(session);
+    featureHints.attachSession(session);
     if (ingestLane?.terminalEnabled) ingestLane.attachSessionTap(session);
     if (ingestLane?.fsEnabled) ingestLane.noteSessionRoots(session);
   }
@@ -553,6 +558,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     taskTitleSessions,
     current,
     currentIngest,
+    featureHints,
     currentVisions,
     gitWorkspace,
     gitWorkspaceSync,

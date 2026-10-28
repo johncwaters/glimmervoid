@@ -35,6 +35,7 @@ interface LaneReader {
   currentVisions: () => SnapshotLane | null;
   coderEnv: NonNullable<ControlHandlerDeps['coderEnv']>;
   gitWorkspace: NonNullable<ControlHandlerDeps['remoteRepoGit']>;
+  featureHints: NonNullable<ControlHandlerDeps['featureHints']>;
 }
 
 interface RadarControl {
@@ -144,6 +145,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     getUpdateStatus: dependencies.getUpdateStatus,
     getUpdateJournal: dependencies.getUpdateJournal,
     getPostTurnLeftoversNotice: dependencies.getPostTurnLeftoversNotice,
+    featureHints: laneAssembly.featureHints,
     recheckPostTurnLeftovers: dependencies.recheckPostTurnLeftovers,
     checkNow: dependencies.checkNow,
     applyUpdate: dependencies.applyUpdate,

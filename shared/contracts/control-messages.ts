@@ -23,6 +23,7 @@ import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus, hasR
 import { LinkedPr, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus, SessionPrLinks } from './my-prs.ts';
 import { GithubPrsFrame } from './github-prs.ts';
 import { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } from './benchmark.ts';
+import { FeatureHint } from './feature-hints.ts';
 
 export const CHANGES_POLL_INTERVAL_MS = 4_000;
 export const CHANGES_WATCH_LEASE_MS = 10_000;
@@ -199,11 +200,12 @@ export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   radar: ['report', 'open-session', 'resolve', 'suppress', 'archive-investigation'],
   onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session'],
   reviews: ['open-session', 'approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh'],
+  hints: ['shown', 'open', 'dismiss'],
 } as const);
 export const ONBOARDING_STEPS = Object.freeze(['agent', 'repo_roots', 'first_session'] as const);
 export const ONBOARDING_STEP_STATES = Object.freeze(['current', 'done'] as const);
 export type OnboardingStepReport = { step: (typeof ONBOARDING_STEPS)[number]; state: (typeof ONBOARDING_STEP_STATES)[number] };
-export const OPERATOR_SURFACES = Object.freeze(['usage', 'issues', 'radar', 'onboarding', 'reviews'] as const);
+export const OPERATOR_SURFACES = Object.freeze(['usage', 'issues', 'radar', 'onboarding', 'reviews', 'hints'] as const);
 export type OperatorSurface = (typeof OPERATOR_SURFACES)[number];
 export type OperatorAction = { [Surface in OperatorSurface]: (typeof OPERATOR_ACTIONS_BY_SURFACE)[Surface][number] }[OperatorSurface];
 export type OperatorActionOf<Surface extends OperatorSurface> = (typeof OPERATOR_ACTIONS_BY_SURFACE)[Surface][number];
@@ -614,6 +616,7 @@ const serverVariants = [
   loose('client-trust', { trust: z.enum(['local', 'remote']) }),
   loose('shutting-down'),
   loose('restarting'),
+  loose('feature-hint', { hint: FeatureHint }),
 ] as const;
 
 export const ServerMessage = z.discriminatedUnion('type', serverVariants);

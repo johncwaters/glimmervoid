@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { BUILTIN_AGENT_IDS } from './config.ts';
 import { DASHBOARD_VIEWS, ONBOARDING_STEP_STATES, ONBOARDING_STEPS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES, TELEMETRY_TEXT_MAX_CHARS } from './control-messages.ts';
 import type { OperatorAction, OperatorSurface } from './control-messages.ts';
+import { HintFeature } from './feature-hints.ts';
 
 const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
 const SESSION_END_CAUSES = Object.freeze(['removed', 'replaced', 'server_stopped'] as const);
@@ -62,10 +63,17 @@ function isActionOfSurface({ surface, action }: { surface: OperatorSurface; acti
   return surfaceActions.includes(action);
 }
 
+function isFeatureKeyedOnlyForHints({ surface, feature }: { surface: OperatorSurface; feature?: HintFeature | undefined }): boolean {
+  return (surface === 'hints') === (feature !== undefined);
+}
+
 const OperatorActionProperties = z.object({
   surface: z.enum(OPERATOR_SURFACES),
   action: z.enum(OPERATOR_ACTIONS),
-}).strict().refine(isActionOfSurface, { message: 'action does not belong to its surface' });
+  feature: HintFeature.optional(),
+}).strict()
+  .refine(isActionOfSurface, { message: 'action does not belong to its surface' })
+  .refine(isFeatureKeyedOnlyForHints, { message: 'feature is required for hints and only for hints' });
 
 const HeaderErrorShownProperties = z.object({
   source: boundedText,
@@ -109,6 +117,7 @@ export const DashboardTelemetryReport = z.discriminatedUnion('event', [
   z.object({ event: z.literal('onboarding_step'), properties: OnboardingStepProperties }),
   z.object({ event: z.literal('header_error_shown'), properties: HeaderErrorShownProperties }),
 ]);
+export type DashboardTelemetryReport = z.infer<typeof DashboardTelemetryReport>;
 
 export const ExceptionFrame = z.object({
   platform: z.enum(['node:javascript', 'web:javascript']),
@@ -178,7 +187,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: '$exception', description: 'An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start.' },
   { name: '$ai_generation', description: 'Per agent session and model, after each usage scan, for usage recorded in the last 24 hours: token counts, the model name and estimated cost, under a one-way hash of the session. A model name outside the shipped pricing table is sent as unknown. No prompts or output.' },
   { name: 'view_shown', description: 'A dashboard tab opened, on desktop or phone, with which tab. Sent on every open.' },
-  { name: 'operator_action', description: 'An action taken in the Usage, Issues, Radar or Reviews tab or the first-run checklist: which tab and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on.' },
+  { name: 'operator_action', description: 'An action taken in the Usage, Issues, Radar or Reviews tab, the first-run checklist or a feature hint: which surface and which action, from a fixed list, and for a feature hint which tab it pointed at. Never which repository, pull request, issue or session it was taken on.' },
   { name: 'onboarding_step', description: 'The first-run checklist moved a step to current or done, with which step. Sent once per change while the page is open.' },
   { name: 'header_error_shown', description: 'An error the dashboard showed in its header line: which part of the dashboard raised it and the message text, cut to 512 characters, with your home folder shown as ~. The message can name a session, folder or branch. Each distinct message is sent once per page load.' },
   { name: 'team_review_drafted', description: 'A team review draft became ready, with how many inline comments it drafted.' },
