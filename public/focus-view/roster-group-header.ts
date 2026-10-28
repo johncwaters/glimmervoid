@@ -1,3 +1,4 @@
+import { writeAttributeIfChanged, writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { el } from '../dom-helpers.ts';
 import type { RosterGroup } from './roster-groups-core.ts';
 import { NO_PATH_KEY } from './roster-groups-core.ts';
@@ -35,21 +36,21 @@ export function paintSessionGroupHeader(refs: SessionGroupHeader, group: RosterG
   const { header, label, count, addButton, forgetButton } = refs;
   const isPathless = group.key === NO_PATH_KEY;
   const isEmpty = group.rows.length === 0;
-  header.dataset.path = group.key;
-  header.dataset.label = group.label;
-  header.title = group.title;
+  writeDataIfChanged(header, 'path', group.key);
+  writeDataIfChanged(header, 'label', group.label);
+  writeAttributeIfChanged(header, 'title', group.title);
   header.toggleAttribute('data-empty', isEmpty);
-  label.textContent = group.label;
-  count.textContent = String(group.rows.length);
-  count.title = `${group.rows.length} ${group.rows.length === 1 ? 'session' : 'sessions'}`;
-  addButton.hidden = isPathless;
-  forgetButton.hidden = isPathless || !isEmpty;
+  writeTextIfChanged(label, group.label);
+  writeTextIfChanged(count, String(group.rows.length));
+  writeAttributeIfChanged(count, 'title', `${group.rows.length} ${group.rows.length === 1 ? 'session' : 'sessions'}`);
+  writeHiddenIfChanged(addButton, isPathless);
+  writeHiddenIfChanged(forgetButton, isPathless || !isEmpty);
   if (!isPathless) {
-    addButton.title = `Add a session to ${group.label}`;
-    addButton.setAttribute('aria-label', `Add a session to ${group.label}`);
+    writeAttributeIfChanged(addButton, 'title', `Add a session to ${group.label}`);
+    writeAttributeIfChanged(addButton, 'aria-label', `Add a session to ${group.label}`);
   }
   if (!isPathless && isEmpty) {
-    forgetButton.title = `Remove ${group.label} from the ${surfaceName}`;
-    forgetButton.setAttribute('aria-label', `Remove ${group.label} from the ${surfaceName}`);
+    writeAttributeIfChanged(forgetButton, 'title', `Remove ${group.label} from the ${surfaceName}`);
+    writeAttributeIfChanged(forgetButton, 'aria-label', `Remove ${group.label} from the ${surfaceName}`);
   }
 }

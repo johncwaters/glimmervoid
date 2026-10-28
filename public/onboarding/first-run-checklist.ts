@@ -198,7 +198,7 @@ function ensureChecklist(): HTMLElement {
 
 export function showFirstRunChecklist(host: HTMLElement, isShown: boolean) {
   if (!isShown) {
-    if (checklistEl?.parentElement === host) checklistEl.hidden = true;
+    if (checklistEl?.parentElement === host && !checklistEl.hidden) checklistEl.hidden = true;
     return;
   }
   const checklist = ensureChecklist();

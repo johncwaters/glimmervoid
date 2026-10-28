@@ -12,6 +12,32 @@ export function sessionElapsedText(ui: SessionUi) {
 }
 
 const tickSubscribers = new Set<() => void>();
+const liveTickVisitors = new Set<(id: string, ui: SessionUi) => void>();
+const liveSessionIds = new Set<string>();
+
+export function syncLiveSession(id: string, ui: SessionUi | undefined) {
+  if (ui && showsElapsed(ui.currentState)) {
+    liveSessionIds.add(id);
+    return;
+  }
+  liveSessionIds.delete(id);
+}
+
+export function onLiveSessionTick(visit: (id: string, ui: SessionUi) => void) {
+  liveTickVisitors.add(visit);
+  return () => liveTickVisitors.delete(visit);
+}
+
+function visitLiveSessions() {
+  for (const id of liveSessionIds) {
+    const ui = sessionUIs.get(id);
+    if (!ui) continue;
+    refreshSessionActivity(ui);
+    for (const visit of liveTickVisitors) {
+      try { visit(id, ui); } catch {  }
+    }
+  }
+}
 
 export function onSessionTick(notify: () => void) {
   tickSubscribers.add(notify);
@@ -19,7 +45,7 @@ export function onSessionTick(notify: () => void) {
 }
 
 function runSessionTick() {
-  for (const [, ui] of sessionUIs) refreshSessionActivity(ui);
+  visitLiveSessions();
   for (const notify of tickSubscribers) {
     try { notify(); } catch {  }
   }

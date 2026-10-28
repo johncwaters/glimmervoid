@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Status lights cost far less to update**: when a session's status changes, the dashboard now repaints only that session's row and card, once per frame, instead of every row in the rail, and the server sends one status message per session per moment instead of up to four. With 30 sessions, one status change now touches the page about 27 times instead of about 494, and takes about 3.2 ms of script instead of 4.2. The tab title, the favicon and the alert chime still update immediately, even while the tab is in the background; the rail catches up when you come back to it. The elapsed-time clocks now tick only for sessions that are running, waiting or starting.
+
 - **Desktop no longer downloads the phone layout**: the phone screens now download only when the dashboard is in the phone layout, at load or when you switch to it, so a desktop load moves about 4 KB less before the board appears. On a phone the screens appear once that download finishes.
 - **Rarely used extras download on first use**: the merge celebration, the first-run checklist, the Restart dialog, alert sounds and the flying animals now download the first time they appear instead of before the board, so a cold load moves about 10 KB less before the board appears. Each one appears a moment later the first time on a slow link.
 - **The doc editor and shown-file viewer download on first open**: the Docs and Shown buttons still appear as soon as an agent surfaces a file, and the editor or viewer downloads the first time you open it, so a cold load moves about 2 KB less before the board appears.

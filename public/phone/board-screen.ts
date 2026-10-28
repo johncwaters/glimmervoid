@@ -2,7 +2,7 @@ import { el, observeHeaderHeight } from '../dom-helpers.ts';
 import type { SessionRowRefs } from '../session-row.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import type { SessionRow } from '../focus-view/attention-core.ts';
-import { countAttentionByKind, jumpTargetCount, orderAttentionLine, orderRoster } from '../focus-view/attention-core.ts';
+import { countAttentionByKind, orderAttentionLine, orderRoster } from '../focus-view/attention-core.ts';
 import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendAttentionTileToRow } from '../attention-banner.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { groupRoster, visibleOrder } from '../focus-view/roster-groups-core.ts';
@@ -15,7 +15,8 @@ import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { pulseActivityGlyph } from '../session-card/activity.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
-import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
+import { writeTextIfChanged } from '../status-paint.ts';
+import { onLiveSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 
 type BoardRow = SessionRow<SessionUi>;
 
@@ -69,7 +70,6 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
   const rowState = new WeakMap<HTMLButtonElement, { refs: SessionRowRefs; item: HTMLDivElement }>();
   const groupRefs = new WeakMap<HTMLElement, GroupRefs>();
   const orderKeys = new WeakMap<HTMLElement, string>();
-  let attentionCount = 0;
 
   observeHeaderHeight(topBar);
 
@@ -122,7 +122,6 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     const orderedRows = currentOrderedRows();
     const boardGroups = groupRoster(orderedRows, projectPathOf, emptyProjectKeys(orderedRows, projectPathOf));
     const attentionCounts = countAttentionByKind(orderedRows);
-    attentionCount = jumpTargetCount(attentionCounts);
     const attentionLine = orderAttentionLine(orderedRows, null);
     const attentionPositionById = new Map(attentionLine.map(({ id }, index) => [id, index + 1]));
     paintAttentionBanner(attentionEl, attentionCounts, attentionLine);
@@ -192,12 +191,10 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     pulseActivityGlyph(rowState.get(row)?.refs.glyph);
   }
 
-  onSessionTick(() => {
-    for (const [id, row] of rowById) {
-      const ui = sessionUIs.get(id);
-      const state = rowState.get(row);
-      if (ui && state) state.refs.elapsed.textContent = sessionElapsedText(ui);
-    }
+  onLiveSessionTick((id, ui) => {
+    const row = rowById.get(id);
+    const state = row ? rowState.get(row) : undefined;
+    if (state) writeTextIfChanged(state.refs.elapsed, sessionElapsedText(ui));
   });
 
   return {
@@ -205,6 +202,5 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     topBarEl: topBar,
     refresh,
     renderActivity,
-    getAttentionCount: () => attentionCount,
   };
 }

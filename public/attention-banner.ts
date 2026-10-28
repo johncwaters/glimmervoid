@@ -1,3 +1,4 @@
+import { writeAttributeIfChanged, writeHiddenIfChanged, writeTextIfChanged } from './status-paint.ts';
 import type { StatusIcon } from '#shared/state-icons.ts';
 import { STATE_ICONS } from '#shared/state-icons.ts';
 import { STATES } from '#shared/states.ts';
@@ -143,7 +144,7 @@ export function buildAttentionBanner(hooks: AttentionBannerHooks, jumpKeys?: HTM
 export function paintAttentionBanner(banner: HTMLElement, counts: AttentionCounts, tiles: readonly AttentionTile[]) {
   const motion = motionOf(banner);
   motion.tiles = tiles;
-  query(banner, '.attention-banner-count').textContent = attentionSummaryText(counts);
+  writeTextIfChanged(query(banner, '.attention-banner-count'), attentionSummaryText(counts));
   const isJumpable = tiles.length > 0;
   banner.toggleAttribute('data-empty', !isJumpable);
   banner.toggleAttribute('data-jumpable', isJumpable);
@@ -186,9 +187,9 @@ function renderTiles(banner: HTMLElement) {
     precedingTile = tile;
   });
   const hiddenCount = motion.tiles.length - visibleTiles.length;
-  overflow.hidden = hiddenCount === 0;
-  overflow.textContent = `+${hiddenCount}`;
-  overflow.title = `${hiddenCount} more after these`;
+  writeHiddenIfChanged(overflow, hiddenCount === 0);
+  writeTextIfChanged(overflow, `+${hiddenCount}`);
+  writeAttributeIfChanged(overflow, 'title', `${hiddenCount} more after these`);
   motion.headId = visibleTiles[0]?.id ?? null;
   const headKind = motion.tiles[0]?.kind;
   if (headKind) banner.dataset.headKind = headKind;

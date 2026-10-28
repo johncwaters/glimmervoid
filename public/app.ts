@@ -32,6 +32,7 @@ import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, orderPhonePanels, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession, syncPhoneHistory } from './phone/phone-shell-gate.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-store.ts';
+import { markStatusDirty, setStatusPainter } from './status-paint.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-store.ts';
 import { forgetSessionLinkedPrs, paintSessionPrChips, sessionRowPrSignals, setSessionLinkedPrs } from './github/session-pr-chips.ts';
 import { addSessionRowSignalSource } from './session-row.ts';
@@ -269,6 +270,11 @@ function refreshRosterAndAttentionSurfaces() {
 
 onShownFilesChanged(() => refreshFocusRoster());
 
+setStatusPainter((dirtySessionIds) => {
+  refreshFocusRoster(dirtySessionIds);
+  refreshAttentionSurfaces();
+});
+
 let knownServerBuild: string | null | undefined = null;
 
 function noteServerBuild(serverBuild: unknown) {
@@ -390,7 +396,7 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   if (msg.pendingPromptKind !== undefined) setSessionPrompt(msg.id, msg.pendingPromptKind);
   if (msg.unseenOutcome !== undefined) updateAttentionTitle();
   refreshFavicon(attentionTally.counts);
-  refreshRosterAndAttentionSurfaces();
+  markStatusDirty(msg.id);
   handleDebugStateRefresh(msg.id);
 }
 

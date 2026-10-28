@@ -1,3 +1,4 @@
+import { writeAttributeIfChanged, writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from './status-paint.ts';
 import { el, query, stateChip } from './dom-helpers.ts';
 import { describeOwnership } from './focus-view/attention-core.ts';
 import { paintCardOwnership, remoteWorkspaceHoverText } from './session-card/card-dom.ts';
@@ -92,18 +93,18 @@ export function paintSessionRowStatus(
   awaitingBackgroundTasks = false,
   pendingPromptKind: string | null = null,
 ) {
-  row.dataset.state = state;
-  row.dataset.prompt = pendingPromptKind ?? '';
+  writeDataIfChanged(row, 'state', state);
+  writeDataIfChanged(row, 'prompt', pendingPromptKind ?? '');
   const { icon, label, isMonitoring } = stateChip(state, awaitingBackgroundTasks);
   const statusLabel = pendingPromptKind === PLAN_PROMPT_KIND ? 'Plan ready' : label;
   row.toggleAttribute('data-monitoring', isMonitoring);
   paintStatusIcon(refs.glyph, icon);
-  refs.label.textContent = statusLabel;
+  writeTextIfChanged(refs.label, statusLabel);
   return statusLabel;
 }
 
 function paintSessionRowCloud(cloud: HTMLElement, remoteWorkspace: string | undefined): string | null {
-  cloud.hidden = !remoteWorkspace;
+  writeHiddenIfChanged(cloud, !remoteWorkspace);
   if (!remoteWorkspace) return null;
   cloud.title = remoteWorkspaceHoverText(remoteWorkspace);
   if (!cloud.firstChild) cloud.append(createLineIcon(CLOUD_ICON_PATH));
@@ -119,8 +120,8 @@ function describeSessionOwnership(ui: SessionUi): string | null {
 
 function paintSessionRowOwnership(row: HTMLElement, refs: SessionRowRefs, ui: SessionUi) {
   const ownershipText = describeSessionOwnership(ui);
-  refs.ownership.textContent = ownershipText ?? '';
-  refs.ownership.hidden = ownershipText === null;
+  writeTextIfChanged(refs.ownership, ownershipText ?? '');
+  writeHiddenIfChanged(refs.ownership, ownershipText === null);
   row.closest<HTMLElement>('.session-row-item')?.toggleAttribute('data-owned', ui.ownerId !== null && sessionUIs.has(ui.ownerId));
   paintCardOwnership(ui.card, ownershipText);
   return ownershipText;
@@ -132,8 +133,8 @@ function attentionPositionText(attentionPosition: number | null): string | null 
 }
 
 function paintSessionRowAttentionTab(row: HTMLElement, attentionTab: HTMLElement, attentionPosition: number | null) {
-  attentionTab.hidden = attentionPosition === null;
-  attentionTab.textContent = attentionPosition === null ? '' : String(attentionPosition);
+  writeHiddenIfChanged(attentionTab, attentionPosition === null);
+  writeTextIfChanged(attentionTab, attentionPosition === null ? '' : String(attentionPosition));
   row.toggleAttribute('data-attention-head', attentionPosition === 1);
 }
 
@@ -143,18 +144,18 @@ export function paintSessionRow(
   { ui, state, name, mergeStatus, attentionPosition }: { ui: SessionUi; state: string; name: string; mergeStatus: string; attentionPosition: number | null },
 ) {
   const statusLabel = paintSessionRowStatus(row, refs, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
-  refs.name.textContent = name;
+  writeTextIfChanged(refs.name, name);
   const cloudText = paintSessionRowCloud(refs.cloud, ui.card.dataset.remoteWorkspace);
-  refs.task.textContent = ui.taskTitle;
-  refs.task.hidden = !ui.taskTitle || ui.taskTitle === name;
-  row.dataset.merge = mergeStatus;
+  writeTextIfChanged(refs.task, ui.taskTitle ?? '');
+  writeHiddenIfChanged(refs.task, !ui.taskTitle || ui.taskTitle === name);
+  writeDataIfChanged(row, 'merge', mergeStatus);
   paintSessionRowSignals(refs.signals);
-  row.dataset.activity = ui._activity || '';
-  refs.elapsed.textContent = sessionElapsedText(ui);
+  writeDataIfChanged(row, 'activity', ui._activity || '');
+  writeTextIfChanged(refs.elapsed, sessionElapsedText(ui));
   const ownershipText = paintSessionRowOwnership(row, refs, ui);
   paintSessionRowAttentionTab(row, refs.attentionTab, attentionPosition);
   const accessibleLabel = [name, cloudText, ui.taskTitle, statusLabel, ownershipText, attentionPositionText(attentionPosition)].filter(Boolean).join(', ');
-  row.setAttribute('aria-label', accessibleLabel);
-  row.title = accessibleLabel;
+  writeAttributeIfChanged(row, 'aria-label', accessibleLabel);
+  writeAttributeIfChanged(row, 'title', accessibleLabel);
   return statusLabel;
 }

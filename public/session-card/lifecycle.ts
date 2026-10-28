@@ -31,6 +31,8 @@ import { setRunningActivity } from './activity.ts';
 import type { CardOptions } from './card-dom.ts';
 import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintGuardrailsToggle, paintTaskTitle, sendSessionAction, sessionActionStatus, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
+import { syncLiveSession } from './session-tick.ts';
+import { writeAttributeIfChanged } from '../status-paint.ts';
 import { attentionTally, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
 import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';
 import type { SessionCardFace } from './face-core.ts';
@@ -182,7 +184,7 @@ function isConversationFaceAvailable(ui: SessionUi) {
 
 function paintConversationViewItem(ui: SessionUi) {
   ui.btnConversationView.classList.toggle('visible', canUseConversationView(ui));
-  ui.btnConversationView.setAttribute('aria-checked', String(ui.isConversationViewOn));
+  writeAttributeIfChanged(ui.btnConversationView, 'aria-checked', String(ui.isConversationViewOn));
 }
 
 export function setConversationViewEnabled(isEnabled: boolean) {
@@ -249,7 +251,6 @@ function updateButtonVisibility(ui: SessionUi) {
   ui.btnWorkspaceRepos.classList.toggle('visible', ui.card.dataset.workspace !== undefined);
   ui.btnTrace.classList.toggle('visible', isDebugModeEnabled());
   ui.btnPlan.classList.toggle('visible', decidePlanHeaderAction(ui) !== 'hidden');
-  ui.btnRemove.classList.add('visible');
 }
 
 function closeSessionMenu(ui: SessionUi) {
@@ -535,6 +536,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   if (replacedUi) tallyRemove(attentionTally, tallyRowOf(replacedUi));
   sessionUIs.set(id, sessionUi);
   tallyAdd(attentionTally, tallyRowOf(sessionUi));
+  syncLiveSession(id, sessionUi);
 
   wireCardEvents(sessionUi, id);
   updateButtonVisibility(sessionUi);
@@ -748,6 +750,7 @@ export function removeSessionCard(sessionId: unknown) {
   closeDebugOverlay(ui);
   tallyRemove(attentionTally, tallyRowOf(ui));
   sessionUIs.delete(sessionIdOf(sessionId));
+  syncLiveSession(sessionIdOf(sessionId), undefined);
   loadedPlanFaceModule?.dropPlanBodyCache(sessionIdOf(sessionId));
 
   if (ui.resizeObserver) ui.resizeObserver.disconnect();
@@ -832,6 +835,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
   tallyRemove(attentionTally, tallyRowOf(ui));
   ui.currentState = state;
   tallyAdd(attentionTally, tallyRowOf(ui));
+  syncLiveSession(sessionIdOf(sessionId), ui);
   if (state !== STATES.RUNNING) ui.awaitingBackgroundTasks = false;
   ui.conversationFace.refresh();
 

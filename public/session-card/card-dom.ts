@@ -1,4 +1,5 @@
 
+import { writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { pullRequestKeyFromReference } from '#shared/contracts/control-messages.ts';
 import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH } from '#shared/contracts/session.ts';
 import { localClockText } from '#shared/display-text.ts';
@@ -328,8 +329,8 @@ export function makeTitleEditable(titleEl: HTMLElement, onActivate: () => void) 
 export function paintCardOwnership(card: HTMLElement, ownershipText: string | null) {
   const ownershipEl = card.querySelector<HTMLElement>('.session-ownership');
   if (!ownershipEl) return;
-  ownershipEl.textContent = ownershipText ?? '';
-  ownershipEl.hidden = ownershipText === null;
+  writeTextIfChanged(ownershipEl, ownershipText ?? '');
+  writeHiddenIfChanged(ownershipEl, ownershipText === null);
 }
 
 export function paintTaskTitle(titleEl: HTMLElement, taskTitle: string | null | undefined) {

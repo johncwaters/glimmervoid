@@ -12,7 +12,8 @@ import { buildNextAttentionKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { railAriaKeyShortcuts } from '../shortcuts-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
-import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
+import { placeRowsInOrder, writeAttributeIfChanged, writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
+import { onLiveSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { getRailWidth, setRailWidth } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
@@ -93,7 +94,7 @@ function ensureGroup(group: RosterGroup<RosterRow>) {
     groupListById.set(group.key, list);
   }
   paintSessionGroupHeader(groupHeader, group, 'rail');
-  list.setAttribute('aria-label', `${group.label} sessions`);
+  writeAttributeIfChanged(list, 'aria-label', `${group.label} sessions`);
   return { header: groupHeader.header, list };
 }
 
@@ -206,8 +207,8 @@ function paintPill(pill: FocusPill, { id, ui, state, name }: RosterRow, attentio
   pill.classList.toggle('focused', id === getFocusedSessionId());
   pill.classList.toggle('has-unopened-shown', hasUnopenedShownFiles(id));
   const isTabStop = id === railTabStopId;
-  pill.setAttribute('aria-selected', String(isTabStop));
-  pill.tabIndex = isTabStop ? 0 : -1;
+  writeAttributeIfChanged(pill, 'aria-selected', String(isTabStop));
+  writeAttributeIfChanged(pill, 'tabindex', isTabStop ? '0' : '-1');
 }
 
 function renderPillActivity(ui: SessionUi, kind: ActivityRenderKind) {
@@ -223,15 +224,15 @@ function renderPillActivity(ui: SessionUi, kind: ActivityRenderKind) {
 }
 addActivityRenderer(renderPillActivity);
 
-onSessionTick(() => {
+onLiveSessionTick((id, ui) => {
   if (!active) return;
-  for (const [id, pill] of pillById) {
-    const ui = sessionUIs.get(id);
-    if (ui) pill._refs.elapsed.textContent = sessionElapsedText(ui);
-  }
+  const pill = pillById.get(id);
+  if (pill) writeTextIfChanged(pill._refs.elapsed, sessionElapsedText(ui));
 });
 
-export function refreshFocusRoster() {
+const paintedAttentionPositionById = new Map<string, number | null>();
+
+export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   if (!active) return;
   const mountedRail = railEl;
   if (!mountedRail) return;
@@ -248,10 +249,14 @@ export function refreshFocusRoster() {
       const { id } = row;
       seen.add(id);
       let pill = pillById.get(id);
+      const isNewPill = !pill;
       if (!pill) { pill = buildPill(id); pillById.set(id, pill); }
-      paintPill(pill, row, attentionPositionById.get(id) ?? null);
-      if (!orderUnchanged) listEl.appendChild(pill._row);
+      const attentionPosition = attentionPositionById.get(id) ?? null;
+      const isPaintNeeded = !dirtySessionIds || isNewPill || dirtySessionIds.has(id) || paintedAttentionPositionById.get(id) !== attentionPosition;
+      if (isPaintNeeded) paintPill(pill, row, attentionPosition);
+      paintedAttentionPositionById.set(id, attentionPosition);
     }
+    if (!orderUnchanged) placeRowsInOrder(listEl, rows.flatMap(({ id }) => pillById.get(id)?._row ?? []));
     listEl._lastOrderKey = newKey;
   };
 
@@ -278,6 +283,7 @@ export function refreshFocusRoster() {
     if (!seen.has(id)) {
       pill._row.remove();
       pillById.delete(id);
+      paintedAttentionPositionById.delete(id);
       if (id === railTabStopId) railTabStopId = null;
     }
   }
@@ -403,14 +409,14 @@ function updateCenter() {
   const centeredId = getFocusedSessionId();
   const has = !!(centeredId && sessionUIs.has(centeredId));
   const hasSessions = sessionUIs.size > 0;
-  emptyEl.hidden = has;
+  writeHiddenIfChanged(emptyEl, has);
   showFirstRunChecklist(emptyEl, !hasSessions);
-  emptyTitleEl.hidden = !hasSessions;
-  emptyDescEl.hidden = !hasSessions;
+  writeHiddenIfChanged(emptyTitleEl, !hasSessions);
+  writeHiddenIfChanged(emptyDescEl, !hasSessions);
   if (has || !hasSessions) return;
 
-  emptyTitleEl.textContent = 'No session selected';
-  emptyDescEl.textContent = 'Select a session from the rail on the left to focus it here.';
+  writeTextIfChanged(emptyTitleEl, 'No session selected');
+  writeTextIfChanged(emptyDescEl, 'Select a session from the rail on the left to focus it here.');
 }
 
 export function setFocusMergeStatus(id: unknown, mergeStatus: unknown) {

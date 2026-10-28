@@ -1,9 +1,9 @@
 import type { AdoptableElement } from '../dom-helpers.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
-import { pickStrongestAttention } from '../focus-view/attention-core.ts';
+import { jumpTargetCount, pickStrongestAttention } from '../focus-view/attention-core.ts';
 import { getRestorableSessionId, requestSessionOpen, selectSession } from '../session-actions.ts';
 import { addActivityRenderer } from '../session-card/activity.ts';
-import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
+import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
 import { reparentReviewPanel } from '../sidebar/review-sidebar.ts';
 import { uiState } from '../ui-state-core.ts';
@@ -50,6 +50,7 @@ const menuButtonById = new Map<string, HTMLButtonElement>();
 const unavailableScreenIds = new Set<string>();
 let hooks: PhoneShellHooks = {};
 let active = false;
+let isBoardStale = false;
 const SOFT_KEYBOARD_OPEN_DELTA_PX = 120;
 let keyboardClosedBaselineHeightPx = 0;
 let baselineViewportWidthPx = 0;
@@ -342,6 +343,10 @@ function applyScreen(screenId: string) {
   for (const [id, section] of screenElById) {
     section.hidden = id !== screenId;
   }
+  if (screenId === BOARD && isBoardStale) {
+    isBoardStale = false;
+    boardScreen?.refresh();
+  }
   hooks.onScreenShown?.(screenId);
   syncCurrent(navButtonById, rootScreenOf(screenId));
   const isNestedActive = menuButtonById.has(screenId);
@@ -448,13 +453,14 @@ export function refreshPhoneBoard() {
   if (!active) return;
   if (!boardScreen || !terminalScreen) throw new Error('Phone shell is not built');
   restoreShownSession();
-  boardScreen.refresh();
+  const visibleRootScreen = rootScreenOf(uiState.snapshot().phoneScreen || BOARD);
+  isBoardStale = visibleRootScreen !== BOARD;
+  if (!isBoardStale) boardScreen.refresh();
   terminalScreen.refresh();
   paintChangesSessionName();
-  const isSessionScreen = rootScreenOf(uiState.snapshot().phoneScreen || BOARD) === TERMINAL;
-  if (isSessionScreen && !terminalScreen.getSessionId()) showScreen(BOARD);
+  if (visibleRootScreen === TERMINAL && !terminalScreen.getSessionId()) showScreen(BOARD);
   const dot = dotOf(navButtonById.get(BOARD));
-  if (dot) dot.hidden = boardScreen.getAttentionCount() === 0;
+  if (dot) dot.hidden = jumpTargetCount(attentionTally.counts) === 0;
 }
 
 export function showPhoneSession(sessionId: string) {
