@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Safety badges show on your phone**: the phone Terminal screen now shows the session's YOLO or Sane YOLO badge and its Guardrails badge next to its status. Tap a badge to read what it means; tap Guardrails to release or restore them, as on desktop.
 - **The review desk fills a wide screen and shows its keys**: on a wide Reviews pane the pull request column now stretches to the edge instead of stopping partway and leaving an empty band, the right-hand panel grows up to 420px, and the Your note box starts about four lines tall. Approve, Request changes and Comment now show their keys (A, R, C), Open in session shows O, and the Findings heading shows N and P to move between findings and X to post or drop the current one.
 - **Answering an agent's question clears Needs input right away**: after you answer a Claude Code question (AskUserQuestion) or a Codex question (request_user_input, Codex 0.163.0 or newer), the card now leaves Needs input the moment the answer is submitted. Before, it waited for the terminal title to start spinning again, which could take half a minute or never happen while the agent ran a command, leaving the card on `?` until you dismissed it. Sessions pick this up on their next start.
 - **Card safety icons now agree on color**: the Sane YOLO badge is now plain like the Guardrails on badge, since both mean a safety net is active. Orange now marks only a session without one: plain YOLO, or guardrails released.

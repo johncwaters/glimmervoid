@@ -4891,6 +4891,13 @@ html[data-layout="phone"] .session-row-remove { flex-basis: 44px; min-width: 44p
 
 .phone-card-slot .session-card.phone-centered .session-card-header { display: none; }
 
+.phone-terminal-badge .tag-icon { position: relative; }
+.phone-terminal-badge .tag-icon::after { content: ""; position: absolute; inset: -12px -2px; }
+.phone-terminal:has(.session-card:not([data-sane-yolo])) .phone-terminal-badge .perms-badge { color: var(--perms-warn); }
+.phone-terminal:has(.session-card:is([data-guarded], [data-guardrails-released])) .phone-terminal-badge .guardrails-badge { display: grid; }
+.phone-terminal:has(.session-card[data-guardrails-released]) .phone-terminal-badge .guardrails-badge { color: var(--perms-warn); }
+:root[data-show-usage] .phone-terminal:has(.session-card[data-usage]) .phone-terminal-badge .usage-badge { display: grid; }
+
 .phone-card-slot .session-card.phone-centered .terminal-wrap {
   flex: 1 1 auto;
   min-height: 0;

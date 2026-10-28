@@ -115,17 +115,13 @@ function paintPermsBadge(permsBadge: HTMLElement, saneYolo: boolean) {
   refreshHoverTip(permsBadge);
 }
 
-function applyCardSaneYolo(card: HTMLElement, saneYolo: boolean) {
-  if (saneYolo) card.dataset.saneYolo = '';
-  if (!saneYolo) delete card.dataset.saneYolo;
-  const permsBadge = card.querySelector<HTMLElement>('.perms-badge');
-  if (permsBadge) paintPermsBadge(permsBadge, saneYolo);
-}
-
 export function setSessionSaneYolo(sessionId: unknown, saneYolo: boolean) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
-  applyCardSaneYolo(ui.card, saneYolo);
+  if (saneYolo) ui.card.dataset.saneYolo = '';
+  if (!saneYolo) delete ui.card.dataset.saneYolo;
+  const permsBadge = ui.tags.querySelector<HTMLElement>('.perms-badge');
+  if (permsBadge) paintPermsBadge(permsBadge, saneYolo);
 }
 
 export function buildCardDOM(sessionId: string, sessionName: string, initialState: string, options: CardOptions = {}) {
@@ -250,7 +246,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnShown, shownUnopenedDot, btnDebug, sessionMenu, termWrap };
+  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, btnGuardrails, tags, btnTrace, btnRemove, btnPlan, btnDocs, btnShown, shownUnopenedDot, btnDebug, sessionMenu, termWrap };
 }
 
 const GUARDRAILS_TIP_DETAIL = {

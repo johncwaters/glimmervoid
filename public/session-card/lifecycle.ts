@@ -405,6 +405,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnSessionMenu: dom.btnSessionMenu,
     btnWorkspaceRepos: dom.btnWorkspaceRepos,
     btnGuardrails: dom.btnGuardrails,
+    tags: dom.tags,
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
     btnDocs: dom.btnDocs,
@@ -581,7 +582,7 @@ export function setSessionUsage(sessionId: unknown, usage: UsageSessionUsage | n
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   const usageText = sessionChipText(usage);
-  const usageBadge = ui.card.querySelector<HTMLElement>('.usage-badge');
+  const usageBadge = ui.tags.querySelector<HTMLElement>('.usage-badge');
   if (!usageText) {
     delete ui.card.dataset.usage;
     if (!usageBadge) return;

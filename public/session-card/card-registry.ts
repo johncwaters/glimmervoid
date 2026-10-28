@@ -35,6 +35,7 @@ export interface SessionUi {
   btnSessionMenu: HTMLButtonElement;
   btnWorkspaceRepos: HTMLButtonElement;
   btnGuardrails: HTMLButtonElement;
+  tags: HTMLDivElement;
   btnTrace: HTMLButtonElement;
   btnPlan: HTMLButtonElement;
   btnDocs: HTMLButtonElement;

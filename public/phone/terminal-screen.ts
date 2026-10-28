@@ -68,6 +68,7 @@ export function createTerminalScreen({ onBack, onShowChanges }: { onBack?: () =>
   let shownId: string | null = null;
 
   let adoptedActions: HTMLDivElement | null = null;
+  let adoptedTags: HTMLDivElement | null = null;
   let renameTargetUi: SessionUi | null = null;
 
   function sendToShownTerminal(data: string | null | undefined) {
@@ -151,11 +152,16 @@ export function createTerminalScreen({ onBack, onShowChanges }: { onBack?: () =>
     }
 
     nameEl.replaceChildren();
-    if (!adoptedActions) return;
-    releaseElement(adoptedActions);
-
-    if (adoptedActions.parentElement === actionSlot) adoptedActions.remove();
+    returnToCard(adoptedTags, badgeEl);
+    adoptedTags = null;
+    returnToCard(adoptedActions, actionSlot);
     adoptedActions = null;
+  }
+
+  function returnToCard(adopted: HTMLElement | null, borrowingSlot: HTMLElement) {
+    if (!adopted) return;
+    releaseElement(adopted);
+    if (adopted.parentElement === borrowingSlot) adopted.remove();
   }
 
   function show(sessionId: string) {
@@ -173,6 +179,8 @@ export function createTerminalScreen({ onBack, onShowChanges }: { onBack?: () =>
     borrowCard(ui, sessionId, cardSlot, { className: 'phone-centered' });
     adoptedActions = queryTag(ui.card, '.session-actions', 'div');
     adoptElement(adoptedActions, actionSlot);
+    adoptedTags = ui.tags;
+    adoptElement(adoptedTags, badgeEl);
 
     ui.renameTargetEl = nameEl;
     ui.titleTargetEl = taskTitleEl;
