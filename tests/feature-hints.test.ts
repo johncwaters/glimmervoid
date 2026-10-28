@@ -48,9 +48,22 @@ function slashCommandEnvelope(prompt: string): string {
   return `<command-name>${commandName}</command-name>\n<command-args>${commandArgs.join(' ')}</command-args>`;
 }
 
+function claudeProjectDir(homes: TranscriptHomes): string {
+  return path.join(homes.env.CLAUDE_CONFIG_DIR, 'projects', '-work-repo');
+}
+
 function claudeAgent(homes: TranscriptHomes, sessionId: string, clock: Clock): TranscriptAgent {
-  const transcript = createTranscript(path.join(homes.env.CLAUDE_CONFIG_DIR, 'projects', '-work-repo', `${sessionId}.jsonl`), null);
-  const line = (type: string, content: unknown) => ({ type, message: { role: type, content }, cwd: '/work/repo', sessionId, timestamp: new Date(clock.nowMs).toISOString() });
+  return claudeTranscriptAgent(path.join(claudeProjectDir(homes), `${sessionId}.jsonl`), sessionId, clock, false);
+}
+
+function claudeSubagent(homes: TranscriptHomes, parentSessionId: string, subagentFolders: readonly string[], clock: Clock): TranscriptAgent {
+  const transcript = path.join(claudeProjectDir(homes), parentSessionId, 'subagents', ...subagentFolders, 'agent-a1b2c3.jsonl');
+  return claudeTranscriptAgent(transcript, parentSessionId, clock, true);
+}
+
+function claudeTranscriptAgent(transcriptPath: string, sessionId: string, clock: Clock, isSidechain: boolean): TranscriptAgent {
+  const transcript = createTranscript(transcriptPath, null);
+  const line = (type: string, content: unknown) => ({ type, message: { role: type, content }, cwd: '/work/repo', sessionId, isSidechain, timestamp: new Date(clock.nowMs).toISOString() });
   return {
     runCommand: (command) => appendLine(transcript, line('assistant', [{ type: 'tool_use', id: 'tool-1', name: 'Bash', input: { command } }])),
     submitPrompt: (prompt) => appendLine(transcript, line('user', prompt.startsWith('/') ? slashCommandEnvelope(prompt) : prompt)),
@@ -88,17 +101,19 @@ interface HintSources {
   homes?: TranscriptHomes | null;
   laneMap?: () => Map<string, string>;
   shellHistory?: ShellHistoryOptions | null;
+  maxActiveFiles?: number;
 }
 
-function agentLogOptionsFor(homes: TranscriptHomes, laneMap: (() => Map<string, string>) | undefined): Omit<AgentLogIngestOptions, 'publish'> {
-  return { env: homes.env, homeDir: homes.homeDirectory, logger: null, pollIntervalMs: 20, discoverIntervalMs: 20, laneMap: laneMap ?? null };
+function agentLogOptionsFor(homes: TranscriptHomes, { laneMap, maxActiveFiles }: HintSources): Omit<AgentLogIngestOptions, 'publish'> {
+  return { env: homes.env, homeDir: homes.homeDirectory, logger: null, pollIntervalMs: 20, discoverIntervalMs: 20, laneMap: laneMap ?? null, ...(maxActiveFiles ? { maxActiveFiles } : {}) };
 }
 
-function startHints(statePath: string, clock: Clock, { homes = null, laneMap, shellHistory = null }: HintSources = {}) {
+function startHints(statePath: string, clock: Clock, sources: HintSources = {}) {
+  const { homes = null, shellHistory = null } = sources;
   const broadcastHints: FeatureHint[] = [];
   const featureHints = createFeatureHintsWiring({
     statePath, log: { warn: () => {} }, now: () => clock.nowMs, shellHistory,
-    agentLogs: homes ? agentLogOptionsFor(homes, laneMap) : null,
+    agentLogs: homes ? agentLogOptionsFor(homes, sources) : null,
     broadcast: (message) => { broadcastHints.push(message.hint); },
   });
   test.after(() => featureHints.stop());
@@ -147,6 +162,21 @@ test('Codex reviewing three distinct PRs raises one Reviews hint that a settle s
   await settled(restarted.featureHints);
   assert.equal(restarted.featureHints.pendingHintMessage(), null);
   assert.deepEqual(restarted.broadcastHints, []);
+});
+
+test('a subagent started after its idle parent left the active set still counts', async () => {
+  const clock = { nowMs: START_MS };
+  const homes = transcriptHomes();
+  const operatorAgent = claudeAgent(homes, 'operator-session', clock);
+  const { featureHints, broadcastHints } = startHints(tempStatePath(), clock, { homes, maxActiveFiles: 2 });
+  operatorAgent.submitPrompt('fan the review out to a workflow');
+  await settled(featureHints);
+  claudeSubagent(homes, 'operator-session', ['workflows', 'wf_1'], clock).runCommand('gh pr view 1');
+  claudeSubagent(homes, 'operator-session', ['workflows', 'wf_2'], clock).runCommand('gh pr view 2');
+  await settled(featureHints);
+  claudeSubagent(homes, 'operator-session', ['workflows', 'wf_3'], clock).runCommand('gh pr view 3');
+  await settled(featureHints);
+  assert.deepEqual(broadcastHints.map((hint) => hint.feature), ['teamReview']);
 });
 
 test('Codex function_call exec_command and shell commands count toward a hint', async () => {
@@ -198,17 +228,31 @@ test('opening the hinted tab settles its hint so the next feature can surface', 
   assert.deepEqual(broadcastHints.map((hint) => hint.feature), ['teamReview', 'issues']);
 });
 
-test('a lane session never counts toward a hint', async () => {
+test('subagents of an operator session count, and a lane session and its subagents never do', async () => {
   const clock = { nowMs: START_MS };
   const homes = transcriptHomes();
+  const operatorAgent = claudeAgent(homes, 'operator-session', clock);
   const laneAgent = claudeAgent(homes, 'lane-session', clock);
   const { featureHints, broadcastHints } = startHints(tempStatePath(), clock, {
     homes, laneMap: () => new Map([['claude:lane-session', 'team-review']]),
   });
+  operatorAgent.submitPrompt('split the review across subagents');
   await settled(featureHints);
-  for (const prNumber of [1, 2, 3]) laneAgent.runCommand(`gh pr view ${prNumber}`);
+  const laneSubagent = claudeSubagent(homes, 'lane-session', [], clock);
+  const operatorSubagent = claudeSubagent(homes, 'operator-session', [], clock);
+  const operatorWorkflowSubagent = claudeSubagent(homes, 'operator-session', ['workflows', 'wf_1'], clock);
+  for (const prNumber of [1, 2, 3]) {
+    laneAgent.runCommand(`gh pr view ${prNumber}`);
+    laneSubagent.runCommand(`gh pr view ${prNumber + 10}`);
+  }
   await settled(featureHints);
-  assert.deepEqual(broadcastHints, []);
+  assert.equal(broadcastHints.length, 0);
+
+  operatorSubagent.runCommand('gh pr view 21');
+  operatorSubagent.runCommand('gh pr view 22');
+  operatorWorkflowSubagent.runCommand('gh pr view 23');
+  await settled(featureHints);
+  assert.deepEqual(broadcastHints.map((hint) => hint.feature), ['teamReview']);
 });
 
 const PROMPT_TRIGGERS: readonly { feature: HintFeature; vendor: keyof typeof AGENT_BY_VENDOR; prompts: readonly string[] }[] = [
