@@ -55,24 +55,20 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
 </style>
 
 <script>
-  import { deriveNyanGeometry, nyanFlightStyleProperties } from '../../../public/nyan-geometry-core.ts';
-  import { createElement, markWhileOnScreen, prefersReducedMotion } from '../lib/dom.ts';
+  import { launchAnimalFlight } from '../lib/animal-flight.ts';
+  import type { FlyingAnimalLook } from '../lib/animal-flight.ts';
+  import { markWhileOnScreen, prefersReducedMotion } from '../lib/dom.ts';
   import { wireInstallPicker } from '../lib/install-picker.ts';
-
-  interface SkyAnimal {
-    sprite: string;
-    trail: string;
-  }
 
   const FIRST_FLIGHT_DELAY_MS = 1500;
   const FLIGHT_INTERVAL_MS = 11000;
 
-  function isSkyAnimal(candidate: unknown): candidate is SkyAnimal {
+  function isSkyAnimal(candidate: unknown): candidate is FlyingAnimalLook {
     if (typeof candidate !== 'object' || candidate === null) return false;
     return 'sprite' in candidate && typeof candidate.sprite === 'string' && 'trail' in candidate && typeof candidate.trail === 'string';
   }
 
-  function readSkyAnimals(sky: HTMLElement): SkyAnimal[] {
+  function readSkyAnimals(sky: HTMLElement): FlyingAnimalLook[] {
     const parsed: unknown = JSON.parse(sky.dataset.animals ?? '[]');
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(isSkyAnimal);
@@ -86,23 +82,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
     if (skyAnimals.length === 0) return;
     const flyAnimal = () => {
       if (document.hidden || sky.dataset.onScreen !== 'true' || sky.childElementCount > 0) return;
-      const { sprite, trail } = skyAnimals[Math.floor(Math.random() * skyAnimals.length)];
-      const flight = createElement('div', 'nyan-flight');
-      flight.append(createElement('div', `nyan-trail ${trail}`), createElement('div', `nyan-sprite ${sprite}`));
-      const geometry = deriveNyanGeometry({ viewportWidthPx: sky.clientWidth, viewportHeightPx: sky.clientHeight, verticalProgress: 0 });
-      const skyGeometry = { ...geometry, scale: 1, topPx: 20 + Math.random() * 120 };
-      for (const [propertyName, value] of nyanFlightStyleProperties(skyGeometry, 1, window.devicePixelRatio)) flight.style.setProperty(propertyName, value);
-      flight.style.top = 'var(--nyan-top)';
-      flight.style.left = '0';
-      flight.style.width = 'var(--nyan-width)';
-      flight.style.height = 'var(--nyan-height)';
-      flight.style.animationName = 'nyan-fly';
-      flight.style.animationDuration = `${7 + Math.random() * 4}s`;
-      flight.style.animationTimingFunction = 'linear';
-      flight.addEventListener('animationend', (event) => {
-        if (event.target === flight) flight.remove();
-      });
-      sky.append(flight);
+      launchAnimalFlight(sky, skyAnimals[Math.floor(Math.random() * skyAnimals.length)], 20 + Math.random() * 120);
     };
     setTimeout(flyAnimal, FIRST_FLIGHT_DELAY_MS);
     setInterval(flyAnimal, FLIGHT_INTERVAL_MS);

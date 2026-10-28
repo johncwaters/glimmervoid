@@ -10,7 +10,7 @@ const spriteSizeStyle = `--nyan-width: ${geometry.spriteWidthPx}px; --nyan-heigh
   <p class="animals-intro">{ANIMALS.length} pixel animals cross your dashboard while agents work.</p>
   <div class="animal-grid">
     {ANIMALS.slice(0, SHOWN_ANIMAL_COUNT).map(({ name, sprite, trail }) => (
-      <div class="animal-tile">
+      <div class="animal-tile" data-animal={name} data-sprite={sprite} data-trail={trail}>
         <div class="flying-animal-preview" aria-hidden="true" style={spriteSizeStyle}>
           <div class="flying-animal-preview-stage">
             <div class={`nyan-trail ${trail}`}></div>
@@ -22,7 +22,31 @@ const spriteSizeStyle = `--nyan-width: ${geometry.spriteWidthPx}px; --nyan-heigh
     ))}
   </div>
   <p class="animals-more">And {ANIMALS.length - SHOWN_ANIMAL_COUNT} more.</p>
+  <div class="sky egg-sky" id="egg-sky" aria-hidden="true"></div>
 </div>
+
+<script>
+  import { launchAnimalFlight } from '../lib/animal-flight.ts';
+  import { captureSiteEvent } from '../lib/analytics.ts';
+  import { prefersReducedMotion } from '../lib/dom.ts';
+
+  const animalGrid = document.querySelector<HTMLElement>('.animal-grid');
+  const eggSky = document.getElementById('egg-sky');
+  let hasReportedEgg = false;
+
+  function flyTappedAnimal(event: MouseEvent, sky: HTMLElement): void {
+    if (prefersReducedMotion()) return;
+    const tile = event.target instanceof Element ? event.target.closest<HTMLElement>('.animal-tile') : null;
+    const { animal, sprite, trail } = tile?.dataset ?? {};
+    if (!animal || !sprite || !trail) return;
+    launchAnimalFlight(sky, { sprite, trail }, 20 + Math.random() * sky.clientHeight * 0.6);
+    if (hasReportedEgg) return;
+    hasReportedEgg = true;
+    captureSiteEvent({ event: 'easter_egg_found', properties: { egg: 'animal_flight', animal } });
+  }
+
+  if (animalGrid && eggSky) animalGrid.addEventListener('click', (event) => flyTappedAnimal(event, eggSky));
+</script>
 
 <style>
   .animals-intro { margin-bottom: 16px; color: var(--text-dim); }
@@ -31,5 +55,6 @@ const spriteSizeStyle = `--nyan-width: ${geometry.spriteWidthPx}px; --nyan-heigh
   .animal-tile { border: 1px solid var(--border-dim); border-radius: 5px; background: var(--bg-card); padding: 10px 12px 12px; min-width: 0; }
   .animal-tile .name { font-size: 14px; color: var(--text-dim); }
   .flying-animal-preview { position: relative; height: 64px; overflow: hidden; }
+  .egg-sky { position: fixed; inset: 0; pointer-events: none; z-index: 40; overflow: hidden; }
   .flying-animal-preview-stage { position: absolute; left: calc(65% - var(--nyan-width) / 2); top: 13px; width: var(--nyan-width); height: var(--nyan-height); }
 </style>

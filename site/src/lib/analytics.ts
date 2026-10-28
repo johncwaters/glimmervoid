@@ -7,7 +7,8 @@ export type CopyOutcome = 'copied' | 'selected';
 type SiteEvent =
   | { event: 'install_command_copied'; properties: { platform: InstallPlatform; location: InstallLocation; outcome: CopyOutcome } }
   | { event: 'install_platform_picked'; properties: { platform: InstallPlatform; detected_platform: InstallPlatform | 'unknown'; location: InstallLocation } }
-  | { event: 'landing_section_viewed'; properties: { section: string; order: number } };
+  | { event: 'landing_section_viewed'; properties: { section: string; order: number } }
+  | { event: 'easter_egg_found'; properties: { egg: 'animal_flight'; animal: string } };
 
 const POSTHOG_PROJECT_TOKEN = 'phc_s68t9vWmeGcrWkx4NkLQaEiVZ9sMBxv8GjQBbAcix2Sf';
 export const CONSENT_CHANGE_EVENT = 'glimmervoid:consent-change';
