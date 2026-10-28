@@ -132,8 +132,16 @@ const STATUS_KEY_PAGE_ID = 'browser-status-key';
 const STATUS_KEY_SECTION: SettingsSection = Object.freeze({
   id: STATUS_KEY_PAGE_ID,
   level: 'browser',
-  title: 'Status key and about',
-  description: 'What each session status and pull request icon means, and build information.',
+  title: 'Status key',
+  description: 'What each session status and pull request icon means.',
+  settings: [],
+});
+const ABOUT_PAGE_ID = 'browser-about';
+const ABOUT_SECTION: SettingsSection = Object.freeze({
+  id: ABOUT_PAGE_ID,
+  level: 'browser',
+  title: 'About',
+  description: 'The running build and where the project lives.',
   settings: [],
 });
 const OPTION_CATALOGS: Readonly<Record<string, () => { id: string; label: string }[]>> = Object.freeze({
@@ -166,7 +174,7 @@ function buildSettingsViewMap(): readonly SettingsSection[] {
   const statusKeyIndex = sections.findIndex((section) => section.id === SHORTCUTS_PAGE_ID) + 1;
   const withStatusKey = [...sections.slice(0, statusKeyIndex), STATUS_KEY_SECTION, ...sections.slice(statusKeyIndex)];
   const firstLaneIndex = withStatusKey.findIndex((section) => section.level === 'lanes');
-  return Object.freeze([...withStatusKey.slice(0, firstLaneIndex), FEATURES_SECTION, ...withStatusKey.slice(firstLaneIndex)]);
+  return Object.freeze([...withStatusKey.slice(0, firstLaneIndex), FEATURES_SECTION, ...withStatusKey.slice(firstLaneIndex), ABOUT_SECTION]);
 }
 
 let SETTINGS_VIEW_MAP = buildSettingsViewMap();
@@ -1475,8 +1483,12 @@ function renderContent() {
     return;
   }
 
-  if (selectedPage.id === STATUS_KEY_PAGE_ID) {
+  if (selectedPage.id === ABOUT_PAGE_ID) {
     renderAbout(contentEl);
+    return;
+  }
+
+  if (selectedPage.id === STATUS_KEY_PAGE_ID) {
     contentEl.appendChild(renderStatusLegend());
     contentEl.appendChild(renderPrStatusLegend());
     return;
@@ -1714,7 +1726,7 @@ function mountSettingsView(container: HTMLElement) {
   navigationEl = el('nav', 'settings-view-nav');
   navigationEl.setAttribute('role', 'navigation');
   navigationEl.setAttribute('aria-label', 'Settings sections');
-  backButtonEl = el('button', 'settings-view-back', 'Back');
+  backButtonEl = el('button', 'settings-view-back', 'Settings');
   backButtonEl.type = 'button';
   backButtonEl.hidden = true;
   backButtonEl.setAttribute('aria-label', 'Back to settings sections');
