@@ -594,7 +594,7 @@ function createAgentApiWiring({
       return { status: 200, body: { ok: true } };
     }
     if (approval.isSummaryTruncated) return refusal(409, `${owned.channel.childName}'s question is too large to answer here; pass it to the operator with glimmervoid answer ${request.child} --operator`);
-    if (!child.answerConversationApproval(approval.requestId, 'accept', request.answers)) {
+    if (!child.answerConversationApproval(approval.requestId, request.answers)) {
       const expectedQuestions = (approval.questions ?? []).map((question) => question.question);
       return refusal(409, `answers must match the expected question texts: ${JSON.stringify(expectedQuestions)}`);
     }

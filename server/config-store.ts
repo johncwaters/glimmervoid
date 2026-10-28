@@ -41,7 +41,6 @@ const DEFAULT_CONFIG = {
   phoneEscalationMs: 300000,
   cursorBlink: false,
   debugMode: false,
-  conversationView: false,
   streamerMode: false,
   viewTabOrder: [] as string[],
   remoteSessions: false,
@@ -195,7 +194,6 @@ function validateConfig(candidate: unknown): ConfigValidation {
       if (!field) return `projects[${index}] must be a plain object`;
       if (field === 'agent') return `projects[${index}].agent must be ${AGENT_ID_SHAPE_MESSAGE}`;
       if (field === 'codexBypassHookTrust') return `projects[${index}].codexBypassHookTrust must be a boolean`;
-      if (field === 'conversationView') return `projects[${index}].conversationView must be a boolean`;
       if (field === 'environment') return issue.message;
       return `projects[${index}].${String(field)} must be a string`;
     });
@@ -529,7 +527,6 @@ function createConfigStore({
       replayBufferKB: config.replayBufferKB,
       cursorBlink: config.cursorBlink ?? effectiveDefaults.cursorBlink,
       debugMode: config.debugMode ?? effectiveDefaults.debugMode,
-      conversationView: config.conversationView ?? effectiveDefaults.conversationView,
       streamerMode: config.streamerMode ?? effectiveDefaults.streamerMode,
       viewTabOrder: config.viewTabOrder ?? DEFAULT_CONFIG.viewTabOrder,
       remoteSessions: config.remoteSessions ?? effectiveDefaults.remoteSessions,

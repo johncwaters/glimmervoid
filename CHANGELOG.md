@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- **The Conversation view is gone**: the experimental Conversation face and its "Conversation view" card menu item no longer exist, so a session card shows its terminal or its plan. A child session's questions still reach its parent as before.
+- **The Conversation view is gone**: the experimental Conversation face, its "Conversation view" card menu item and its Settings toggle no longer exist, so a session card shows its terminal or its plan. Claude Code sessions no longer get the hooks that held every permission prompt for the dashboard, and a local Codex session no longer starts its own app-server. A `conversationView` key left in `config.json` is ignored. A child session's questions still reach its parent as before, and Codex in a Coder workspace runs as before.
 
 ### Changed
 

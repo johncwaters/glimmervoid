@@ -11,10 +11,8 @@ import {
   isFollowableThread,
   isNoRolloutError,
   parseListenUrl,
-  pendingApprovalFromServerRequest,
   traceRecordsForItemEvent,
 } from './core/codex-app-server-core.ts';
-import type { CodexPendingApproval } from './core/codex-app-server-core.ts';
 import { coderPortForwardArgs } from './core/remote-launch-core.ts';
 
 interface CodexRemoteAppServer {
@@ -44,8 +42,6 @@ const PORT_FORWARD_POLL_MS = 200;
 export interface CodexAppServerBridge extends EventEmitter {
   url: string;
   token: string;
-  answerApproval(requestId: number | string, decision: 'accept' | 'acceptForSession' | 'decline'): boolean;
-  pendingApproval(): CodexPendingApproval | null;
   stop(): Promise<void>;
 }
 
@@ -61,13 +57,6 @@ const itemNotification = notificationParams.extend({ item: z.unknown(), turnId: 
 const historyTurn = z.object({ id: z.string().min(1), items: z.array(z.unknown()) }).passthrough();
 const resumeResponse = z.object({ thread: threadIdentity.extend({ turns: z.array(historyTurn) }) }).passthrough();
 const itemIdentity = z.object({ id: z.string().min(1), status: z.string().optional() }).passthrough();
-const requestedPermissions = z.object({
-  permissions: z.object({
-    network: z.object({ enabled: z.boolean().nullable() }).passthrough().nullable(),
-    fileSystem: z.record(z.string(), z.unknown()).nullable(),
-  }).passthrough(),
-}).passthrough();
-
 const JOIN_RETRY_WINDOW_MS = 15000;
 
 function toError(failure: unknown): Error {
@@ -105,8 +94,6 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
     let isStopped = false;
     let hasExited = false;
     let stopPromise: Promise<void> | null = null;
-    let activeApproval: CodexPendingApproval | null = null;
-    let approvalPermissions: z.infer<typeof requestedPermissions>['permissions'] | null = null;
     let nextRequestId = 1;
     let followedThreadId: string | null = null;
     let hasJoined = false;
@@ -125,7 +112,7 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
     let resolveExit: () => void = () => {};
     const exited = new Promise<void>((resolveChildExit) => { resolveExit = resolveChildExit; });
     const bridge: CodexAppServerBridge = Object.assign(new EventEmitter(), {
-      url: '', token, answerApproval, pendingApproval: () => activeApproval, stop,
+      url: '', token, stop,
     });
     bridge.on('error', (failure: Error) => logger.warn('Codex app-server bridge:', failure.message));
     const startupTimer = setTimeout(() => failStartup(new Error('Codex app-server startup timed out')), options.startupTimeoutMs ?? 15000);
@@ -145,13 +132,6 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
       } catch (failure) {
         reportError(failure);
       }
-    }
-
-    function clearApproval(): void {
-      if (!activeApproval) return;
-      activeApproval = null;
-      approvalPermissions = null;
-      bridge.emit('approval', null);
     }
 
     function failStartup(error: Error): void {
@@ -179,7 +159,6 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
       cancelRequests();
       stopPromise = Promise.resolve().then(async () => {
         try {
-          guard(clearApproval);
           if (socket) guard(() => socket?.close());
           if (hasExited) return;
           child.kill('SIGTERM');
@@ -219,28 +198,6 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
           rejectResponse(toError(failure));
         }
       });
-    }
-
-    function answerApproval(requestId: number | string, decision: 'accept' | 'acceptForSession' | 'decline'): boolean {
-      if (!activeApproval || activeApproval.requestId !== requestId || isStopped || socket?.readyState !== WebSocket.OPEN) return false;
-      try {
-        if (activeApproval.kind === 'permissions') {
-          if (!approvalPermissions) return false;
-          const permissions = decision === 'decline' ? {} : {
-            ...(approvalPermissions.network ? { network: approvalPermissions.network } : {}),
-            ...(approvalPermissions.fileSystem ? { fileSystem: approvalPermissions.fileSystem } : {}),
-          };
-          send({ jsonrpc: '2.0', id: requestId, result: { permissions, scope: decision === 'acceptForSession' ? 'session' : 'turn' } });
-          clearApproval();
-          return true;
-        }
-        send({ jsonrpc: '2.0', id: requestId, result: { decision } });
-        clearApproval();
-        return true;
-      } catch (failure) {
-        reportError(failure);
-        return false;
-      }
     }
 
     function recordsForItem(phase: 'started' | 'completed', item: unknown, threadId: string, turnId: string): TraceRecord[] {
@@ -308,7 +265,6 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
       if (!parsedThread.success || !isFollowableThread(thread) || followedThreadId === parsedThread.data.id) return;
       clearTimeout(retryTimer);
       retryTimer = undefined;
-      clearApproval();
       followedThreadId = parsedThread.data.id;
       joinGeneration++;
       hasJoined = false;
@@ -349,11 +305,6 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
         joinDeadlineMs = Math.max(joinDeadlineMs, now() + JOIN_RETRY_WINDOW_MS);
         scheduleJoin();
       }
-      if (method === 'turn/completed') clearApproval();
-      if (method === 'serverRequest/resolved') {
-        const resolvedRequest = notificationParams.extend({ requestId: requestIdSchema }).safeParse(params);
-        if (resolvedRequest.success && resolvedRequest.data.requestId === activeApproval?.requestId) clearApproval();
-      }
       if (method !== 'item/started' && method !== 'item/completed') return;
       const parsedItem = itemNotification.safeParse(params);
       if (!parsedItem.success) return;
@@ -371,16 +322,7 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
         answerTokenRefresh(message.id);
         return;
       }
-      if (message.method && message.id !== undefined) {
-        const approval = pendingApprovalFromServerRequest(message.method, message.params, message.id);
-        if (!approval || approval.threadId !== followedThreadId) return;
-        const permissions = requestedPermissions.safeParse(message.params);
-        if (approval.kind === 'permissions' && !permissions.success) return;
-        activeApproval = approval;
-        approvalPermissions = permissions.success ? permissions.data.permissions : null;
-        bridge.emit('approval', approval);
-        return;
-      }
+      if (message.method && message.id !== undefined) return;
       if (message.method) {
         handleNotification(message.method, message.params);
         return;
@@ -443,7 +385,6 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
       socket.on('error', (failure) => guard(() => reportError(failure)));
       socket.on('message', (frame, isBinary) => guard(() => handleMessage(frame, isBinary)));
       socket.on('close', () => guard(() => {
-        clearApproval();
         cancelRequests();
         if (isStarting) failStartup(new Error('Codex app-server socket closed during startup'));
         void stop().catch(reportError);

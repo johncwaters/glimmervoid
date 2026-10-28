@@ -38,7 +38,6 @@ test('a parent reads and answers held child questions through the agent API or r
       ...project,
       spawnCommand: { path: process.execPath, kind: 'exe' },
       prepareGuardrails: null,
-      isConversationViewEnabled: () => false,
       ...overrides,
     }),
     wireSessionEvents: () => {},
@@ -79,7 +78,6 @@ test('a parent reads and answers held child questions through the agent API or r
     const held = child.holdClaudePermission(payload, new AbortController().signal);
     assert.ok(held);
     assert.match(parentWrites.join(''), new RegExp(`glimmervoid read ${child.id}`));
-    child.announceConversationView();
     child.transition('prompt_detected');
     const read = await post('read', { child: child.id });
     assert.equal(read.status, 200);

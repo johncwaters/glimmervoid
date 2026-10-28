@@ -40,10 +40,10 @@ import { DEFAULT_AGENT_ID, resolveAdapter, commandFor } from "./adapters/index.t
 import { startCodexAppServerBridge, startCoderPortForward } from "./codex-app-server-bridge.ts";
 import { remoteCodexAppServerScript } from "./core/codex-app-server-core.ts";
 import type { CodexAppServerBridge } from "./codex-app-server-bridge.ts";
-import { CODEX_REMOTE_TOKEN_ENV, needsAppServerRefusedFlag, remoteTuiArgs, splitCodexRemoteLaunch } from "./core/codex-remote-launch-core.ts";
+import { CODEX_REMOTE_TOKEN_ENV, remoteTuiArgs, splitCodexRemoteLaunch } from "./core/codex-remote-launch-core.ts";
 import type { CoherenceAttachment, ConfineCommand, ConfinedCommand } from '../server/coherence/coherence-runtime.ts';
-import type { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision, UnseenOutcome } from "../shared/contracts/session.ts";
-import { claudeApprovalFor, claudeDecisionReply, isHoldReleasedByHookEvent, parseClaudePermissionRequest } from "./core/claude-approval-core.ts";
+import type { CoherenceHooksState, ConversationAnswers, ConversationApproval, UnseenOutcome } from "../shared/contracts/session.ts";
+import { claudeAnswerReply, claudeApprovalFor, isHoldReleasedByHookEvent, parseClaudePermissionRequest } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities } from "./adapters/index.ts";
 
@@ -244,8 +244,6 @@ interface SessionOptions {
   bypassHookTrust?: boolean;
   isMarkedUnguarded?: boolean;
   isGuardrailsReleased?: boolean;
-  isConversationViewEnabled?: (() => boolean) | null;
-  isConversationViewSettingOn?: (() => boolean) | null;
   holdsQuestionsForParent?: boolean;
   startCodexBridge?: typeof startCodexAppServerBridge;
   titleQuietFallbackMs?: number;
@@ -321,7 +319,6 @@ class Session extends EventEmitter {
   bypassHookTrust: boolean;
   isMarkedUnguarded: boolean;
   isGuardrailsReleased: boolean;
-  _isConversationViewEnabled: () => boolean;
   _holdsQuestionsForParent: boolean;
   _startCodexBridge: typeof startCodexAppServerBridge;
   _codexBridge: CodexAppServerBridge | null;
@@ -433,8 +430,6 @@ class Session extends EventEmitter {
     bypassHookTrust = false,
     isMarkedUnguarded = false,
     isGuardrailsReleased = false,
-    isConversationViewEnabled = null,
-    isConversationViewSettingOn = null,
     holdsQuestionsForParent = false,
     startCodexBridge = startCodexAppServerBridge,
 
@@ -561,8 +556,6 @@ class Session extends EventEmitter {
     this.bypassHookTrust = bypassHookTrust === true;
     this.isMarkedUnguarded = isMarkedUnguarded === true;
     this.isGuardrailsReleased = isGuardrailsReleased === true;
-    const isConversationViewConfigured = isConversationViewEnabled ?? (() => false);
-    this._isConversationViewEnabled = () => isConversationViewConfigured() && !this.isConversationBridgeRefused();
     this._holdsQuestionsForParent = holdsQuestionsForParent;
     this._startCodexBridge = startCodexBridge;
     this._codexBridge = null;
@@ -635,7 +628,6 @@ class Session extends EventEmitter {
       hookTools: this._hookTools,
       planLimits: this._planLimits,
       planReview: planReviewPort !== null,
-      conversationApprovals: () => this.agentId === "claude-code" && (isConversationViewSettingOn ?? isConversationViewConfigured)(),
       holdsQuestionsForParent: this._holdsQuestionsForParent,
       getUserHooks,
       extraUserHooks,
@@ -1383,9 +1375,6 @@ class Session extends EventEmitter {
       activeAgents: active,
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
       pendingPromptKind: this._pendingPromptKind,
-      conversationApproval: this._conversationApproval,
-      hasConversationBridge: this._codexBridge !== null,
-      isConversationViewOn: this._isConversationViewEnabled(),
       hasPlan: this._planReviewPort?.hasPlan(this.id) === true,
       mergeStatus: this.mergeStatus,
       mergeReason: this.mergeReason,
@@ -1625,22 +1614,22 @@ class Session extends EventEmitter {
 
     const bridgedLaunch = isRemoteCodex && remoteLaunch !== null
       ? await this._startRemoteCodexBridge(remoteLaunch, agentArgs, env)
-      : await this._startConversationBridge(settingsArgs, agentArgs, env);
+      : null;
     if (isRemoteCodex && !bridgedLaunch) return;
     if (isStartSuperseded()) {
       this._hooks.cleanup();
-      await this._stopConversationBridge();
+      await this._stopCodexBridge();
       return;
     }
     const spawnCommand = await this._spawnCommandFor({ remoteLaunch, isRemoteCodex, settingsArgs, agentArgs, bridgedLaunch, agentSessionId: launchSession?.agentSessionId ?? null });
     if (!spawnCommand) {
-      await this._stopConversationBridge();
+      await this._stopCodexBridge();
       return;
     }
     if (isStartSuperseded()) {
       this._hooks.cleanup();
       this._disposeGuardrailsLaunch(this._guardrailsLaunch);
-      await this._stopConversationBridge();
+      await this._stopCodexBridge();
       return;
     }
     if (bridgedLaunch) env[CODEX_REMOTE_TOKEN_ENV] = bridgedLaunch.token;
@@ -1703,38 +1692,10 @@ class Session extends EventEmitter {
     return this._prepareGuardrails !== null && this._getRemoteLaunch() === null;
   }
 
-  isConversationBridgeRefused(settingsArgs: readonly string[] = [], agentArgs: readonly string[] = this._extraClaudeArgs): boolean {
-    if (this.agentId !== "codex") return false;
-    return this._prepareGuardrails !== null || this.bypassHookTrust || needsAppServerRefusedFlag(settingsArgs, agentArgs);
-  }
-
-  async _startConversationBridge(settingsArgs: string[], agentArgs: string[], env: SpawnEnv): Promise<{ tuiArgs: string[]; token: string } | null> {
-    await this._stopConversationBridge();
-    if (this.agentId !== "codex" || !this._isConversationViewEnabled()) return null;
-    if (this.isConversationBridgeRefused(settingsArgs, agentArgs)) return null;
-    const launch = splitCodexRemoteLaunch(settingsArgs, agentArgs);
-    const prefix = this._adapter.buildSpawnCommand({ platform: this._platform, resolved: this._spawnCommand || commandFor(this._adapter), settingsArgs: [], agentArgs: [] });
-    try {
-      const bridge = await this._startCodexBridge({
-        command: { file: prefix.file, argsBeforeAppServer: prefix.args },
-        configArgs: launch.appServerConfigArgs,
-        cwd: this.effectiveCwd(),
-        env: { ...env },
-        tokenParentDirectory: os.tmpdir(),
-      });
-      this._attachCodexBridge(bridge);
-      return { tuiArgs: remoteTuiArgs(bridge.url, launch.tuiArgs), token: bridge.token };
-    } catch (error) {
-      console.warn(`[session:${this.name}] codex app-server bridge unavailable, using the plain terminal: ${errorMessage(error)}`);
-      return null;
-    }
-  }
-
-  async _stopConversationBridge(): Promise<void> {
+  async _stopCodexBridge(): Promise<void> {
     const bridge = this._codexBridge;
     if (!bridge) return;
     this._codexBridge = null;
-    this._setConversationApproval(null);
     await bridge.stop().catch((error: unknown) => console.warn(`[session:${this.name}] codex app-server stop failed: ${errorMessage(error)}`));
   }
 
@@ -1744,22 +1705,14 @@ class Session extends EventEmitter {
   }
 
   _emitConversationChange(): void {
-    this.emit("conversation-change", {
-      hasConversationBridge: this._codexBridge !== null,
-      isConversationViewOn: this._isConversationViewEnabled(),
-      conversationApproval: this._conversationApproval,
-    });
-  }
-
-  announceConversationView(): void {
-    this._emitConversationChange();
+    this.emit("conversation-change", { conversationApproval: this._conversationApproval });
   }
 
   holdClaudePermission(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null {
     if (this.agentId !== "claude-code") return null;
     const request = parseClaudePermissionRequest(payload);
     if (!request) return null;
-    if (!this._isConversationViewEnabled() && !(this._holdsQuestionsForParent && request.toolName === ASK_USER_QUESTION_TOOL_NAME)) return null;
+    if (!this._holdsQuestionsForParent || request.toolName !== ASK_USER_QUESTION_TOOL_NAME) return null;
     this._releaseClaudeHolds((hold) => hold.request.agentKey === request.agentKey);
     const requestId = `claude-${this._nextClaudeApprovalNumber}`;
     this._nextClaudeApprovalNumber += 1;
@@ -1788,10 +1741,10 @@ class Session extends EventEmitter {
     this._setConversationApproval(this._claudeApprovalHolds[0]?.approval ?? null);
   }
 
-  _answerClaudeApproval(requestId: number | string, decision: ConversationApprovalDecision, answers: ConversationAnswers | undefined): boolean {
+  answerConversationApproval(requestId: number | string, answers: ConversationAnswers): boolean {
     const hold = this._claudeApprovalHolds.find((candidate) => candidate.approval.requestId === requestId);
     if (!hold) return false;
-    const reply = claudeDecisionReply(hold.request, hold.approval, decision, answers);
+    const reply = claudeAnswerReply(hold.request, hold.approval, answers);
     if (!reply) return false;
     this._claudeApprovalHolds = this._claudeApprovalHolds.filter((candidate) => candidate !== hold);
     hold.resolve(reply);
@@ -1800,25 +1753,17 @@ class Session extends EventEmitter {
   }
 
   releaseQuestionHold(requestId: string): boolean {
-    const hold = this._claudeApprovalHolds.find((candidate) => candidate.approval.requestId === requestId && candidate.approval.kind === "question");
+    const hold = this._claudeApprovalHolds.find((candidate) => candidate.approval.requestId === requestId);
     if (!hold) return false;
     this._releaseClaudeHolds((candidate) => candidate === hold);
     return true;
-  }
-
-  answerConversationApproval(requestId: number | string, decision: ConversationApprovalDecision, answers?: ConversationAnswers): boolean {
-    if (this.agentId === "claude-code") return this._answerClaudeApproval(requestId, decision, answers);
-    const bridge = this._codexBridge;
-    if (!bridge || this._conversationApproval?.requestId !== requestId) return false;
-    if (this._conversationApproval.isSummaryTruncated && decision !== "decline") return false;
-    return bridge.answerApproval(requestId, decision);
   }
 
   _abandonSpawn(cause: unknown): void {
     this._isSaneYoloActive = false;
     this._hooks.cleanup();
     this._disposeGuardrailsLaunch(this._guardrailsLaunch);
-    void this._stopConversationBridge();
+    void this._stopCodexBridge();
     this._releaseClaudeHolds(() => true);
     this.transition("spawn_fail", { error: errorMessage(cause) });
     this.emit("error", cause);
@@ -1854,11 +1799,11 @@ class Session extends EventEmitter {
   }
 
   async _startRemoteCodexBridge(remote: RemoteLaunch, agentArgs: string[], env: SpawnEnv): Promise<{ tuiArgs: string[]; token: string } | null> {
-    await this._stopConversationBridge();
+    await this._stopCodexBridge();
     const prepared = await this._prepareRemoteCodexBridge(remote, agentArgs, env).catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
     if (this._destroyed) {
       this._hooks.cleanup();
-      await this._stopConversationBridge();
+      await this._stopCodexBridge();
       return null;
     }
     if (!prepared.ok) {
@@ -1873,7 +1818,7 @@ class Session extends EventEmitter {
     if (!running.ok) return running;
     const version = await remote.codexVersion();
     if (version === null) return { ok: false, reason: "the host codex version could not be read, so the workspace cannot install a matching codex" };
-    const launch = splitCodexRemoteLaunch([], agentArgs);
+    const launch = splitCodexRemoteLaunch(agentArgs);
     const bridge = await this._startCodexBridge({
       command: { file: "coder", argsBeforeAppServer: [] },
       configArgs: launch.appServerConfigArgs,
@@ -1900,16 +1845,11 @@ class Session extends EventEmitter {
   _attachCodexBridge(bridge: CodexAppServerBridge): void {
     this._codexBridge = bridge;
     bridge.on("records", (records: unknown) => this.emit("conversation-records", { records }));
-    bridge.on("approval", (approval: { requestId: number | string; kind: ConversationApproval["kind"]; summary: string; isSummaryTruncated: boolean } | null) => {
-      this._setConversationApproval(approval ? { requestId: approval.requestId, kind: approval.kind, summary: approval.summary, isSummaryTruncated: approval.isSummaryTruncated } : null);
-    });
     bridge.on("error", (error: unknown) => console.warn(`[session:${this.name}] codex app-server bridge: ${errorMessage(error)}`));
     bridge.on("exit", () => {
       if (this._codexBridge !== bridge) return;
       this._codexBridge = null;
-      this._setConversationApproval(null);
     });
-    this._emitConversationChange();
   }
 
   async _remoteSpawnCommand(remote: RemoteLaunch, agentArgs: string[]): Promise<SpawnCommand | null> {
@@ -2094,7 +2034,7 @@ class Session extends EventEmitter {
 
   _handleSpawnedPtyExit(guardrailsLaunch: GuardrailsLaunch | null, exitCode: number, signal: ExitSignal): Promise<void> {
     this._disposeGuardrailsLaunch(guardrailsLaunch);
-    void this._stopConversationBridge();
+    void this._stopCodexBridge();
     this._releaseClaudeHolds(() => true);
     return this._handlePtyExit(exitCode, signal);
   }
@@ -2437,7 +2377,7 @@ class Session extends EventEmitter {
 
     this._hooks.cleanup();
     this._disposeGuardrailsLaunch(this._guardrailsLaunch);
-    void this._stopConversationBridge();
+    void this._stopCodexBridge();
     this._releaseClaudeHolds(() => true);
 
     this.kill();

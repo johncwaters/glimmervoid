@@ -34,7 +34,6 @@ export const GET: APIRoute = ({ site }) => {
       '- Plan review: approve an agent\'s plan from any device.',
       '- Auto-resume: sessions that were live when Glimmervoid stopped come back on the next start, mid-turn included.',
       '- Streamer mode: hides secrets on screen.',
-      '- Conversation view (experimental): read a session like a chat.',
     ].join('\n'),
     '## Commands inside a session',
     Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => `- \`glimmervoid ${usage}\`: ${summary}`).join('\n'),

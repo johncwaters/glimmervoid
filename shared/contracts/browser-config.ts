@@ -227,7 +227,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   sessionMemoryReserveMB: optionalWholeNumber('sessionMemoryReserveMB', ranges.MEMORY_RESERVE_MB_RANGE),
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
-  conversationView: optionalBoolean('conversationView'),
   streamerMode: optionalBoolean('streamerMode'),
   viewTabOrder: z.array(z.string({ error: 'viewTabOrder must be an array of view ids' }), { error: 'viewTabOrder must be an array of view ids' }).optional(),
   remoteSessions: optionalBoolean('remoteSessions'),

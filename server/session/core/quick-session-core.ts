@@ -26,7 +26,7 @@ interface QuickSessionPlan {
   runSettings: Partial<ProjectConfig>;
 }
 
-const COPIED_RUN_SETTINGS = ['baseBranch', 'codexBypassHookTrust', 'conversationView', 'saneYolo'] as const;
+const COPIED_RUN_SETTINGS = ['baseBranch', 'codexBypassHookTrust', 'saneYolo'] as const;
 
 const AUTO_NAME_SUFFIX = / \(\d+\)$/;
 

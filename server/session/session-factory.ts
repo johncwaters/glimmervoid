@@ -49,11 +49,6 @@ interface CoderWorkspacePort {
   uploadFile: (file: { workspace: string; remotePath: string; contents: string; mode: number }) => Promise<void>;
 }
 
-function isConversationViewOnFor(config: GlimmervoidConfig, projectId: string): boolean {
-  if (config.conversationView !== true) return false;
-  return config.projects.some((project) => project.id === projectId && project.conversationView === true);
-}
-
 interface GuardedSessionProject {
   path: string;
   repos?: string[];
@@ -149,8 +144,6 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       bypassHookTrust: project.codexBypassHookTrust === true,
       isMarkedUnguarded: project.unguarded === true,
       isGuardrailsReleased: isReleasedOnlyByMark(project, config, overrides),
-      isConversationViewEnabled: () => isConversationViewOnFor(dependencies.getConfig?.() ?? config, project.id),
-      isConversationViewSettingOn: () => (dependencies.getConfig?.() ?? config).conversationView === true,
       replayBufferKB: config.replayBufferKB,
       hookRouter: dependencies.hookRouter,
       getHookPort: dependencies.getHookPort,

@@ -15,7 +15,7 @@ import { ChangeMap } from './change-map.ts';
 import {
   COHERENCE_JOURNAL_DRAWER_MAX_ROWS, CoherenceJournalEntry, SessionCoherence,
 } from './coherence.ts';
-import { CoherenceHooksState, ConversationAnswers, ConversationApproval, ConversationApprovalDecision, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, ShownFile, SessionState, TaskTitle, UnseenOutcome } from './session.ts';
+import { CoherenceHooksState, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, ShownFile, SessionState, TaskTitle, UnseenOutcome } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { SessionSetup } from './session-setup.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
@@ -296,9 +296,7 @@ const clientVariants = [
     draft: z.boolean().optional(),
   }),
   loose('plan-decision', PlanDecision.shape),
-  loose('set-session-conversation-view', { id: sessionId, isOn: z.boolean() }),
   loose('set-session-guardrails', { id: sessionId, isOn: z.boolean() }),
-  loose('conversation-approval', { id: sessionId, requestId: ConversationApproval.shape.requestId, decision: ConversationApprovalDecision, answers: ConversationAnswers.optional() }),
   loose('session-doc-read', { id: sessionId, path: sessionDocPath, requestId }),
   loose('session-doc-save', { id: sessionId, path: sessionDocPath, text: z.string(), baseHash: z.string().min(1), requestId }),
   loose('session-coherence-journal', { id: sessionId, requestId }),
@@ -347,7 +345,6 @@ const serverVariants = [
   loose('session-prs', { id: sessionId, linkedPrs: z.array(LinkedPr) }),
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-coherence-hooks', { id: sessionId, coherenceHooks: CoherenceHooksState.nullable() }),
-  loose('session-conversation', { id: sessionId, hasConversationBridge: z.boolean(), isConversationViewOn: z.boolean(), conversationApproval: ConversationApproval.nullable() }),
 
   loose('session-merge-status', {
     id: sessionId,

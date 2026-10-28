@@ -1460,7 +1460,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       detectScheduledWakeups: config.detectScheduledWakeups !== false,
       hookTools,
       planReview: config.planReview?.enabled !== false,
-      conversationApprovals: config.conversationView === true,
       holdsQuestionsForParent: true,
     });
   }
@@ -1686,29 +1685,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       } catch (error) {
         sendError(ws, `Plan read failed: ${errorMessage(error)}`, { id: requestedSessionId, scope: 'plan' });
       }
-    },
-    'conversation-approval': (message: ClientMessageOf<'conversation-approval'>, ws: ControlSocket) => {
-      const session = findSession(message);
-      if (!session) return sendError(ws, 'Session not found', { id: message.id, scope: 'conversation-approval' });
-      if (session.answerConversationApproval(message.requestId, message.decision, message.answers)) return;
-      sendError(ws, 'That approval is no longer pending', { id: session.id, scope: 'conversation-approval' });
-    },
-    'set-session-conversation-view': (message: ClientMessageOf<'set-session-conversation-view'>, ws: ControlSocket) => {
-      const session = findSession(message);
-      if (!session) return sendError(ws, 'Session not found', { id: message.id, scope: 'conversation-view' });
-      if (session.ephemeral) return sendError(ws, 'This session cannot use the conversation view', { id: session.id, scope: 'conversation-view' });
-      if (message.isOn && session.isConversationBridgeRefused()) return sendError(ws, 'This Codex session is guarded or bypasses hook trust, so it can only use the terminal.', { id: session.id, scope: 'conversation-view' });
-      const freshConfig = configStore.save((config) => {
-        const project = config.projects.find((candidate) => candidate.id === session.id);
-        if (!project) return;
-        if (!message.isOn) {
-          delete project.conversationView;
-          return;
-        }
-        project.conversationView = true;
-      });
-      if (freshConfig) applyConfigReload(freshConfig);
-      session.announceConversationView();
     },
     'set-session-guardrails': (message: ClientMessageOf<'set-session-guardrails'>, ws: ControlSocket) => {
       const session = findSession(message);

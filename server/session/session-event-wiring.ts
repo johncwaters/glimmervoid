@@ -331,13 +331,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       pendingPromptKind = nextKind;
       isCompacting = isNowCompacting;
     });
-    const relay = (event: string, type: string) => session.on(event, (payload: Record<string, unknown> | undefined) => dependencies.broadcastControl({
-      ...payload,
-      type,
-      id: session.id,
-      session: session.name,
-      timestamp: Date.now(),
-    }));
     session.on('agents-change', (payload: { activeAgents: number; awaitingBackgroundTasks: boolean }) => {
       persistWasWorking();
       dependencies.telegramChannel.recheck(session.id);
@@ -346,7 +339,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('wakeup-change', persistWasWorking);
     session.on('prompt-kind-change', ({ pendingPromptKind: nextKind }: { pendingPromptKind: string | null }) => noteStatus({ pendingPromptKind: nextKind }));
     session.on('unseen-outcome-change', ({ unseenOutcome }: { unseenOutcome: UnseenOutcome | null }) => noteStatus({ unseenOutcome }));
-    relay('conversation-change', 'session-conversation');
 
     session.on('merge-status', ({ mergeStatus, reason, parked }: {
       mergeStatus: string;

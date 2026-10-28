@@ -211,7 +211,7 @@ test('an image is saved under the config dir and its path is bracket-pasted into
   assert.equal(served.status, 200);
   assert.equal(served.headers.get('content-type'), 'image/png');
   assert.equal(served.headers.get('x-content-type-options'), 'nosniff');
-  assert.deepEqual(Buffer.from(await served.arrayBuffer()), bytes, 'the conversation view reads back the same bytes');
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), bytes, 'the session reads back the same bytes');
 
   const plantedName = path.basename(body.path).replace(/\.png$/, '.txt');
   fs.writeFileSync(path.join(uploadsDirFor(SESSION_ID), plantedName), 'not an image');

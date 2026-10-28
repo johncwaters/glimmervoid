@@ -160,7 +160,6 @@ export const ProjectConfig = z.object({
   baseBranch: z.string().refine(isGitBranchName, { error: 'projects[].baseBranch must be a git branch name' }).optional(),
   agent: z.string({ error: 'projects[].agent must be a string' }).regex(AGENT_ID_RE, { error: `projects[].agent must be ${AGENT_ID_SHAPE_MESSAGE}` }).optional(),
   codexBypassHookTrust: z.boolean().optional(),
-  conversationView: z.boolean({ error: 'projects[].conversationView must be a boolean' }).optional(),
   dangerouslySkipPermissions: z.boolean({ error: 'projects[].dangerouslySkipPermissions must be a boolean' }).optional(),
   unguarded: z.boolean({ error: 'projects[].unguarded must be a boolean' }).optional(),
   saneYolo: z.boolean({ error: 'projects[].saneYolo must be a boolean' }).optional(),

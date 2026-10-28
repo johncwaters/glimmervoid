@@ -32,17 +32,13 @@ export const ConversationQuestion = z.object({
 
 export const ConversationApproval = z.object({
   requestId: z.union([z.string().min(1).max(128), z.number().int()]),
-  kind: z.enum(['command', 'fileChange', 'permissions', 'tool', 'question']),
+  kind: z.literal('question'),
   summary: z.string().max(CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS),
   isSummaryTruncated: z.boolean(),
-  toolName: z.string().max(200).optional(),
   questions: z.array(ConversationQuestion).min(1).max(4).optional(),
-  alwaysAllowSummary: z.string().max(CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS).optional(),
 });
 
 export const ConversationAnswers = z.record(z.string().max(CONVERSATION_QUESTION_MAX_CHARS), z.string().max(CONVERSATION_ANSWER_MAX_CHARS));
-
-export const ConversationApprovalDecision = z.enum(['accept', 'acceptForSession', 'decline']);
 
 const COHERENCE_HOOKS_REASON_MAX_CHARS = 80;
 export const COHERENCE_HOOKS_INACTIVE = Object.freeze({
@@ -77,9 +73,6 @@ export const SessionSnapshot = z.object({
   activeAgents: z.number().int().nonnegative(),
   awaitingBackgroundTasks: z.boolean(),
   pendingPromptKind: z.string().nullable(),
-  conversationApproval: ConversationApproval.nullable().default(null),
-  hasConversationBridge: z.boolean().default(false),
-  isConversationViewOn: z.boolean().default(false),
   hasPlan: z.boolean().default(false),
   mergeStatus: z.string().nullable(),
   mergeReason: z.string().nullable(),
@@ -98,7 +91,6 @@ export type UnseenOutcome = z.infer<typeof UnseenOutcome>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type CoherenceHooksState = z.infer<typeof CoherenceHooksState>;
 export type ConversationApproval = z.infer<typeof ConversationApproval>;
-export type ConversationApprovalDecision = z.infer<typeof ConversationApprovalDecision>;
 export type ConversationQuestion = z.infer<typeof ConversationQuestion>;
 export type ConversationAnswers = z.infer<typeof ConversationAnswers>;
 

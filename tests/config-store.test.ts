@@ -342,15 +342,15 @@ test('a config file on the retired main channel loads on the experimental channe
   });
 });
 
-test('a stable build reads experimental features as off and keeps their stored values on save', () => {
+test('a stable build reads experimental features as off and keeps their stored values and a retired conversationView key on save', () => {
   const stored = { projects: [], conversationView: true, remoteSessions: true, coherence: { enabled: true }, issues: { enabled: true } };
   withStore(stored, (store, configPath) => {
     assert.deepEqual(
-      [store.config.conversationView, store.config.remoteSessions, store.config.coherence?.enabled, store.config.issues?.enabled],
-      [false, false, false, false],
+      [store.config.remoteSessions, store.config.coherence?.enabled, store.config.issues?.enabled],
+      [false, false, false],
     );
     const saved = store.save((config) => { config.debugMode = true; });
-    assert.equal(saved?.conversationView, false);
+    assert.ok(saved);
     const onDisk = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     assert.deepEqual(
       [onDisk.conversationView, onDisk.remoteSessions, onDisk.coherence.enabled, onDisk.issues.enabled, onDisk.debugMode],
@@ -358,7 +358,6 @@ test('a stable build reads experimental features as off and keeps their stored v
     );
   }, { isExperimentalBuild: false });
   withStore(stored, (store) => {
-    assert.equal(store.config.conversationView, true);
     assert.equal(store.config.coherence?.enabled, true);
   }, { isExperimentalBuild: true });
 });

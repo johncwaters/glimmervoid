@@ -65,7 +65,6 @@ interface BuildHookSettingsOptions {
   hookTools?: ResolvedHookTool[];
   planLimits?: boolean;
   planReview?: boolean;
-  conversationApprovals?: boolean;
   holdsQuestionsForParent?: boolean;
   userSettingsPath?: string | null;
   relayPath?: string;
@@ -159,7 +158,7 @@ function buildRemoteCommandHookCommand({ nodePath, postUrl }: { nodePath: string
   return `${shellQuote(nodePath)} -e ${shellQuote(inlineRelay)} ${shellQuote(postUrl)}`;
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, guardrails = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, conversationApprovals = false, holdsQuestionsForParent = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, guardrails = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, holdsQuestionsForParent = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -185,9 +184,9 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
       hooks: [{ type: 'http', url: hookUrl(PLAN_HOOK_EVENT), timeout: PLAN_HOOK_TIMEOUT_SEC }],
     });
   }
-  if ((conversationApprovals || holdsQuestionsForParent) && permissionRequestEntries) {
+  if (holdsQuestionsForParent && permissionRequestEntries) {
     permissionRequestEntries.push({
-      ...(conversationApprovals ? {} : { matcher: ASK_USER_QUESTION_TOOL_NAME }),
+      matcher: ASK_USER_QUESTION_TOOL_NAME,
       hooks: [{ type: 'http', url: hookUrl(CONVERSATION_PERMISSION_HOOK_EVENT), timeout: PLAN_HOOK_TIMEOUT_SEC }],
     });
   }
@@ -203,9 +202,9 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
       hooks: [{ type: 'http', url: hookUrl(PLAN_RESULT_HOOK_EVENT), timeout: timeoutSec }],
     });
   }
-  if (conversationApprovals || holdsQuestionsForParent) {
+  if (holdsQuestionsForParent) {
     postToolUse.push({
-      ...(conversationApprovals ? {} : { matcher: ASK_USER_QUESTION_TOOL_NAME }),
+      matcher: ASK_USER_QUESTION_TOOL_NAME,
       hooks: [{ type: 'http', url: hookUrl(CONVERSATION_TOOL_RESULT_HOOK_EVENT), timeout: timeoutSec }],
     });
   }
@@ -256,19 +255,15 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
 }
 
 function describeBuiltinHooks(
-  { detectScheduledWakeups = true, observeToolCalls = false, hookTools = [], planReview = false, conversationApprovals = false, holdsQuestionsForParent = false }:
-    { detectScheduledWakeups?: boolean; observeToolCalls?: boolean; hookTools?: ResolvedHookTool[]; planReview?: boolean; conversationApprovals?: boolean; holdsQuestionsForParent?: boolean } = {},
+  { detectScheduledWakeups = true, observeToolCalls = false, hookTools = [], planReview = false, holdsQuestionsForParent = false }:
+    { detectScheduledWakeups?: boolean; observeToolCalls?: boolean; hookTools?: ResolvedHookTool[]; planReview?: boolean; holdsQuestionsForParent?: boolean } = {},
 ): { event: string; matcher: string | null; purpose: string }[] {
   const rows = HOOK_EVENTS.map((event) => ({ event, matcher: null as string | null, purpose: 'Status detection: POST to the Glimmervoid hook router' }));
   if (planReview) rows.push({ event: 'PermissionRequest', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: POST the plan to the Glimmervoid plan endpoint' });
   if (detectScheduledWakeups) rows.push({ event: 'PostToolUse', matcher: WAKEUP_TOOL_MATCHER, purpose: 'Scheduled wakeup tracking' });
   rows.push({ event: 'PostToolUse', matcher: PR_LINK_TOOL_MATCHER, purpose: 'Pull request linking: read the git operation a shell command reports' });
   if (planReview) rows.push({ event: 'PostToolUse', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: record the approved plan' });
-  if (conversationApprovals) {
-    rows.push({ event: 'PermissionRequest', matcher: null, purpose: 'Conversation view: hold a permission prompt so the dashboard can answer it' });
-    rows.push({ event: 'PostToolUse', matcher: null, purpose: 'Conversation view: release a held prompt the terminal answered' });
-  }
-  if (holdsQuestionsForParent && !conversationApprovals) {
+  if (holdsQuestionsForParent) {
     rows.push({ event: 'PermissionRequest', matcher: ASK_USER_QUESTION_TOOL_NAME, purpose: 'Spawned session: hold a question so the parent can answer it' });
     rows.push({ event: 'PostToolUse', matcher: ASK_USER_QUESTION_TOOL_NAME, purpose: 'Spawned session: release a held question the terminal answered' });
   }

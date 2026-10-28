@@ -8,14 +8,9 @@ interface CodexRemoteLaunch {
   tuiArgs: string[];
 }
 
-export function needsAppServerRefusedFlag(settingsArgs: readonly string[], agentArgs: readonly string[]): boolean {
-  return [...settingsArgs, ...agentArgs].some((launchArg) => APP_SERVER_REFUSED_FLAGS.has(launchArg));
-}
-
-export function splitCodexRemoteLaunch(settingsArgs: readonly string[], agentArgs: readonly string[]): CodexRemoteLaunch {
+export function splitCodexRemoteLaunch(launchArgs: readonly string[]): CodexRemoteLaunch {
   const appServerConfigArgs: string[] = [];
   const tuiArgs: string[] = [];
-  const launchArgs = [...settingsArgs, ...agentArgs];
   for (let index = 0; index < launchArgs.length; index += 1) {
     const launchArg = launchArgs[index];
     if (APP_SERVER_REFUSED_FLAGS.has(launchArg)) continue;

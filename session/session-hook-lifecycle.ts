@@ -51,7 +51,6 @@ interface SessionHookOptions {
   hookTools: ResolvedHookTool[];
   planLimits: boolean;
   planReview: boolean;
-  conversationApprovals: () => boolean;
   holdsQuestionsForParent: boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
@@ -293,7 +292,6 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         hookTools: options.hookTools,
         planLimits: options.planLimits,
         planReview: options.planReview,
-        conversationApprovals: options.conversationApprovals(),
         holdsQuestionsForParent: options.holdsQuestionsForParent,
         userHooks: [
           ...(typeof options.getUserHooks === "function" ? options.getUserHooks() : []),
