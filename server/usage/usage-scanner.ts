@@ -26,6 +26,7 @@ import {
 } from './core/usage-entry-core.ts';
 import type { UsageEntry, UsageGenerationRollupRow } from './core/usage-entry-core.ts';
 import { grokDedupIdentity, parseGrokUsageLine } from './core/usage-grok-core.ts';
+import { kimiDedupIdentity, parseKimiUsageLine } from './core/usage-kimi-core.ts';
 import { FIVE_HOUR_WINDOW_MS, SEVEN_DAY_WINDOW_MS, laneRollup, laneRollupSince } from './core/usage-lane-core.ts';
 import type { PlanWindowStarts } from './core/usage-lane-core.ts';
 import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
@@ -38,7 +39,8 @@ import {
   decideFileRead,
   dedupeCodexFiles,
   grokHomes,
-  grokRootCandidates,
+  kimiHomes,
+  sessionsRootCandidates,
   isUsageFile,
   passOutcome,
   projectDirCandidates,
@@ -141,7 +143,7 @@ interface UsageScannerOptions {
   blockHours?: number;
   retainDays?: number;
   extraProjectsDirs?: string[];
-  vendors?: { codex?: boolean; grok?: boolean };
+  vendors?: { codex?: boolean; grok?: boolean; kimi?: boolean };
   warehousePath?: string | null;
   warehouseRetainDays?: number;
   budget?: { dailyUsd?: unknown; monthlyUsd?: unknown } | null;
@@ -268,6 +270,7 @@ function relativeToProjects(file: string, dirs: string[]): string {
 function keysForEntry(entry: StoredEntry, syntheticPrimary: string | null = null): EntryKeys {
   if (entry?.vendor === 'codex') return { primary: codexDedupIdentity(entry), collision: null };
   if (entry?.vendor === 'grok') return { primary: grokDedupIdentity(entry), collision: null };
+  if (entry?.vendor === 'kimi') return { primary: kimiDedupIdentity(entry), collision: null };
   const keys = dedupKeys(entry);
   return { primary: keys.primary || syntheticPrimary || entry?.[SYNTHETIC_PRIMARY] || null, collision: keys.collision };
 }
@@ -332,7 +335,7 @@ async function resolveVendorRootsAsync(
     fsPromises: ScannerFileSystem;
     env: NodeJS.ProcessEnv;
     homeDir: string;
-    vendors: { codex?: boolean; grok?: boolean } | null | undefined;
+    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean } | null | undefined;
     laneLog: LaneLog;
   },
 ): Promise<{ roots: ScanRoot[]; ioFailures: number }> {
@@ -346,9 +349,14 @@ async function resolveVendorRootsAsync(
     for (const root of [...surviving.roots, ...fallback.roots]) roots.push({ vendor: 'codex', dir: root.dir, kind: root.kind });
   }
   if (vendors?.grok !== false) {
-    const surviving = await existingRoots(grokRootCandidates(grokHomes(env, homeDir)), fsPromises, laneLog);
+    const surviving = await existingRoots(sessionsRootCandidates(grokHomes(env, homeDir)), fsPromises, laneLog);
     ioFailures += surviving.ioFailures;
     for (const root of surviving.roots) roots.push({ vendor: 'grok', dir: root.dir, kind: root.kind });
+  }
+  if (vendors?.kimi !== false) {
+    const surviving = await existingRoots(sessionsRootCandidates(kimiHomes(env, homeDir)), fsPromises, laneLog);
+    ioFailures += surviving.ioFailures;
+    for (const root of surviving.roots) roots.push({ vendor: 'kimi', dir: root.dir, kind: root.kind });
   }
   return { roots, ioFailures };
 }
@@ -414,7 +422,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     blockHours = 5,
     retainDays = 90,
     extraProjectsDirs = [],
-    vendors = { codex: true, grok: true },
+    vendors = { codex: true, grok: true, kimi: true },
     warehousePath = null,
     warehouseRetainDays = 365,
     budget: budgetDep = null,
@@ -604,6 +612,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       return ingestVendorLine({ ...parsedCodexEntry, sessionId: codexSessionIdFromPath(file) }, file);
     }
     if (vendor === 'grok') return ingestVendorLine(parseGrokUsageLine(line), file);
+    if (vendor === 'kimi') return ingestVendorLine(parseKimiUsageLine(line, file), file);
     const parsed = parseUsageLine(line);
     if (!parsed) return 0;
     const relPath = relativeToProjects(file, claudeRoots);

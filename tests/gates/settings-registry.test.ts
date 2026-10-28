@@ -476,7 +476,7 @@ test('the tuning knobs, diagnostics and legacy team keys are the file-only listi
     'posthog.investigationTimeoutSeconds', 'posthog.fixTimeoutSeconds', 'posthog.userEscalationThreshold',
     'posthog.trafficSpikeMultiplier', 'posthog.trafficSpikeMinUsers', 'posthog.trafficSpikeCooldownMinutes', 'posthog.trafficSpikeBaselineDays',
     'workflows.maxActionsPerPoll',
-    'usage.scanIntervalMinutes', 'usage.fetchPricing', 'usage.costMode', 'usage.vendors.codex', 'usage.vendors.grok',
+    'usage.scanIntervalMinutes', 'usage.fetchPricing', 'usage.costMode', 'usage.vendors.codex', 'usage.vendors.grok', 'usage.vendors.kimi',
     'replayBufferKB', 'cursorBlink',
     'ingest.sources.terminal.enabled', 'ingest.sources.agentLogs.enabled', 'ingest.sources.git.enabled', 'ingest.sources.fs.enabled', 'ingest.sources.shellHistory.enabled', 'ingest.sources.editor.enabled',
     'debugMode', 'recordSignals', 'trace.enabled', 'detectScheduledWakeups',

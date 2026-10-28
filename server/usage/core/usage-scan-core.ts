@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
 import { rawTextOr } from '../../../shared/coerce.ts';
+import { KIMI_USAGE_FILENAME } from './usage-kimi-core.ts';
 
 export type PassOutcome = 'complete' | 'byte-limited' | 'io-failed';
 
@@ -197,6 +198,10 @@ function grokHomes(env: NodeJS.ProcessEnv = process.env, homeDir: string | null 
   return vendorHomes(env, 'GROK_HOME', '.grok', homeDir);
 }
 
+function kimiHomes(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): string[] {
+  return vendorHomes(env, 'KIMI_CODE_HOME', '.kimi-code', homeDir);
+}
+
 function codexRootCandidates(homes: string[]): VendorRoot[] {
   const candidates: VendorRoot[] = [];
   for (const home of homes) {
@@ -211,7 +216,7 @@ function codexFallbackRoots(homes: string[], survivingRoots: VendorRoot[]): Vend
   return homes.filter((home) => !covered.has(home)).map((home) => ({ dir: home, kind: 'flat', home }));
 }
 
-function grokRootCandidates(homes: string[]): VendorRoot[] {
+function sessionsRootCandidates(homes: string[]): VendorRoot[] {
   return homes.map((home) => ({ dir: path.join(home, 'sessions'), kind: 'active', home }));
 }
 
@@ -220,6 +225,7 @@ const GROK_USAGE_FILENAME = 'updates.jsonl';
 function isUsageFile(vendor: string, fileName: unknown): boolean {
   if (typeof fileName !== 'string') return false;
   if (vendor === 'grok') return fileName === GROK_USAGE_FILENAME;
+  if (vendor === 'kimi') return fileName === KIMI_USAGE_FILENAME;
   return fileName.endsWith('.jsonl');
 }
 
@@ -244,4 +250,4 @@ function codexSessionIdFromPath(filePath: unknown): string | null {
   return base || null;
 }
 
-export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, scopedClaudeRoots, splitLines, passOutcome, shouldPersistWarehouse, continuationDelayMs, shouldEvaluateDespiteIoFailures, codexHomes, grokHomes, codexRootCandidates, codexFallbackRoots, grokRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };
+export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, scopedClaudeRoots, splitLines, passOutcome, shouldPersistWarehouse, continuationDelayMs, shouldEvaluateDespiteIoFailures, codexHomes, grokHomes, kimiHomes, codexRootCandidates, codexFallbackRoots, sessionsRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };

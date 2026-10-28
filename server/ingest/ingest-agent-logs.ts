@@ -7,7 +7,7 @@ import type { FileHandle } from 'node:fs/promises';
 import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { claudeProjectsDir } from '../../session/core/conversation-history.ts';
 import {
-  codexHomes, codexRootCandidates, codexSessionIdFromPath, grokHomes, grokRootCandidates, isUsageFile,
+  codexHomes, codexRootCandidates, codexSessionIdFromPath, grokHomes, sessionsRootCandidates, isUsageFile,
 } from '../usage/core/usage-scan-core.ts';
 import { INTERACTIVE_LANE, laneKey } from '../usage/core/usage-lane-core.ts';
 import {
@@ -173,7 +173,7 @@ function transcriptRootCandidates(
     }
   }
   if (wanted.grok !== false) {
-    for (const candidate of grokRootCandidates(grokHomes(env, homeDir))) {
+    for (const candidate of sessionsRootCandidates(grokHomes(env, homeDir))) {
       candidates.push({ vendor: 'grok', dir: candidate.dir, maxDepth: 2 });
     }
   }

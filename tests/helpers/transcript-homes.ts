@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VENDOR_HOME_VARS = Object.freeze(['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'GROK_HOME']);
+const VENDOR_HOME_VARS = Object.freeze(['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'GROK_HOME', 'KIMI_CODE_HOME']);
 
 function isolateTranscriptHomes(dir: string, env: NodeJS.ProcessEnv = process.env): () => void {
   const previous = new Map<string, string | undefined>(VENDOR_HOME_VARS.map((name) => [name, env[name]]));

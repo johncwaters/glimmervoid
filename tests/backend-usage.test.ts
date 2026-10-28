@@ -557,3 +557,38 @@ test('a config with no usage block never materializes one on an unrelated save',
 
   await closeSocket(client.ws);
 }));
+
+test('kimi usage is read only from wire.jsonl usage records, keyed to the session folder, and counted once across passes', async () => {
+  const directory = await realFsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-usage-kimi-'));
+  try {
+    const kimiHome = path.join(directory, 'kimi-home');
+    const sessionId = 'session_6442c213-af31-4eef-a846-093cfc5851a4';
+    const sessionFolder = path.join(kimiHome, 'sessions', 'wd_repo_1137a7e482d8', sessionId);
+    const now = Date.now();
+    const usageRecord = (agentId: string, time: number, usageScope: string) => JSON.stringify({
+      type: 'usage.record', agentId, model: 'kimi-code/kimi-for-coding', usage: { inputOther: 900, output: 70, inputCacheRead: 19000, inputCacheCreation: 0 }, usageScope, time,
+    });
+    for (const [agent, lines] of [
+      ['main', [usageRecord('main', now - 2000, 'turn'), '{"type":"turn.ended"}', usageRecord('main', now - 1000, 'session')]],
+      ['explore-1', [usageRecord('explore-1', now - 1500, 'turn')]],
+    ] as const) {
+      await realFsp.mkdir(path.join(sessionFolder, 'agents', agent), { recursive: true });
+      await realFsp.writeFile(path.join(sessionFolder, 'agents', agent, 'wire.jsonl'), `${lines.join('\n')}\n`);
+    }
+    await realFsp.writeFile(path.join(sessionFolder, 'agents', 'main', 'context.jsonl'), `${usageRecord('main', now - 500, 'turn')}\n`);
+    const scanner = createUsageScanner({
+      env: { KIMI_CODE_HOME: kimiHome, CLAUDE_CONFIG_DIR: path.join(directory, 'no-claude'), CODEX_HOME: path.join(directory, 'no-codex'), GROK_HOME: path.join(directory, 'no-grok') },
+      homeDir: directory,
+      pricingTable: new Map(),
+    });
+    await scanner.runPass({ force: true });
+    await scanner.runPass({ force: true });
+    const kimiEntries = scanner._entriesForTest().filter((entry) => entry.vendor === 'kimi');
+    assert.deepEqual(kimiEntries.map((entry) => [entry.sessionId, entry.input, entry.output, entry.cacheRead]), [
+      [sessionId, 900, 70, 19000],
+      [sessionId, 900, 70, 19000],
+    ]);
+  } finally {
+    await realFsp.rm(directory, { recursive: true, force: true });
+  }
+});

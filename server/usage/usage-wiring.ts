@@ -52,7 +52,7 @@ const DEFAULT_USAGE_CONFIG = Object.freeze({
 
   budget: { dailyUsd: null, monthlyUsd: null },
 
-  vendors: { codex: true, grok: true },
+  vendors: { codex: true, grok: true, kimi: true },
 });
 
 const OFFICIAL_COST_CAP = 200;
