@@ -79,7 +79,7 @@ import { updateBanner } from './updates-view-core.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
 import { applyPlanLimits, applyUsageReport, applyUsageSessions, setUsageRequestSender } from './usage/usage-store.ts';
-import { createDashboardViews, mountEagerViews, mountedViewModule, prefetchViewsWhenIdle, reloadOnceOnPreloadError, showView } from './view-registry.ts';
+import { createDashboardViews, mountEagerViews, mountedViewModule, prefetchViewsWhenIdle, reloadOnceIfBundleRetired, reloadOnceOnPreloadError, showView } from './view-registry.ts';
 import type { DashboardView } from './view-registry.ts';
 import { moveViewId, orderViewIds, refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings } from './view-registry-core.ts';
 import type { ViewRefreshReason } from './view-registry-core.ts';
@@ -223,6 +223,7 @@ setConnectionStateCallback((state, label) => {
 
   if (state === 'connected') {
     clearServerUnreachableHint();
+    reloadOnceIfBundleRetired(import.meta.url, () => window.sessionStorage);
     if (unsentShownView) reportViewShown(unsentShownView);
     if (shutdownScreen.classList.contains('active')) {
       location.reload();

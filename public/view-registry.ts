@@ -64,14 +64,24 @@ export function prefetchViewsWhenIdle(views: readonly DashboardView[]): void {
   setTimeout(prefetchAvailableViews, PREFETCH_FALLBACK_DELAY_MS);
 }
 
+function reloadOnceWithinWindow(storage: Storage): void {
+  const nowMs = Date.now();
+  if (!shouldReloadAfterPreloadError(storage.getItem(PRELOAD_RELOAD_KEY), nowMs, PRELOAD_RELOAD_WINDOW_MS)) return;
+  storage.setItem(PRELOAD_RELOAD_KEY, String(nowMs));
+  location.reload();
+}
+
 export function reloadOnceOnPreloadError(readStorage: () => Storage): void {
-  window.addEventListener('vite:preloadError', () => {
-    const storage = readStorage();
-    const nowMs = Date.now();
-    if (!shouldReloadAfterPreloadError(storage.getItem(PRELOAD_RELOAD_KEY), nowMs, PRELOAD_RELOAD_WINDOW_MS)) return;
-    storage.setItem(PRELOAD_RELOAD_KEY, String(nowMs));
-    location.reload();
-  });
+  window.addEventListener('vite:preloadError', () => reloadOnceWithinWindow(readStorage()));
+}
+
+export function reloadOnceIfBundleRetired(entryChunkUrl: string, readStorage: () => Storage): void {
+  fetch(entryChunkUrl, { method: 'HEAD', cache: 'no-store' })
+    .then((response) => {
+      if (response.status !== 404) return;
+      reloadOnceWithinWindow(readStorage());
+    })
+    .catch(() => {});
 }
 
 export function createDashboardViews(actions: ViewRegistryActions): DashboardView[] {

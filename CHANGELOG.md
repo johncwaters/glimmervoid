@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A restored dashboard tab no longer shows an empty board**: when your browser reopens a tab from its cache (say after a restart) holding a dashboard older than the running server, the dashboard now notices on connect and reloads itself onto the current version, instead of showing no sessions until you refresh. A tab already open on an older dashboard needs one manual refresh to pick this up.
+
 ### Added
 
 - **The website's pixel animals take off**: on glimmervoid.dev, tapping one of the pixel animal tiles sends that animal flying across the screen, as often as you like. Nothing happens when your system asks for reduced motion.
