@@ -3688,10 +3688,10 @@ html[data-layout="phone"] .doc-editor-body { padding: 12px; }
 .shown-lightbox-title { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--text-head); font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .shown-stage { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg); }
 .shown-stage-media { max-width: 100%; max-height: 100%; object-fit: contain; }
-.shown-stage-page { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 60ch; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); }
+.shown-stage:has(.shown-stage-frame) { padding: 0; overscroll-behavior: contain; }
+.shown-stage-frame { width: 100%; height: 100%; border: 0; background: #fff; }
 .shown-page-kind { color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .shown-page-title { color: var(--text-head); font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
-.shown-page-name { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .shown-details { flex: 0 0 auto; padding: 8px 12px; border-top: 1px solid var(--border); }
 .shown-caption { margin: 0 0 4px; color: var(--text); font-size: 12px; overflow-wrap: anywhere; }
 .shown-meta { margin: 0; color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }

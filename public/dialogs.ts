@@ -7,6 +7,7 @@ import type { AgentLoginStatus, CoderEnvironmentOffer, ServerMessage } from '#sh
 import { agentLoginOf, applyAgentLogins, onAgentLoginsChanged } from './agent-logins.ts';
 import { el, query, queryTag } from './dom-helpers.ts';
 import { createRepoRootsAdder } from './onboarding/repo-roots-adder.ts';
+import { createSandboxedFrame } from './sandboxed-frame.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
 import { buildRepoCheckbox } from './session-card/workspace-repos-dialog.ts';
 import { DEFAULT_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './session-card/agent-core.ts';
@@ -547,10 +548,7 @@ export function createRadarReportDialog({
   const metaEl = el('div', 'dialog-report-meta', issueTitle || issueId || '');
   let bodyEl: HTMLIFrameElement | HTMLPreElement | null = null;
   if (format === 'html' && !error && !message) {
-    const reportFrame = el('iframe', 'dialog-report-frame');
-    reportFrame.setAttribute('sandbox', '');
-    reportFrame.srcdoc = content || '';
-    bodyEl = reportFrame;
+    bodyEl = createSandboxedFrame({ source: { kind: 'srcdoc', html: content || '' }, className: 'dialog-report-frame', title: 'Investigation report', allowsScripts: false });
   }
   if (!bodyEl) {
     bodyEl = el('pre', error ? 'dialog-report-body dialog-report-error' : 'dialog-report-body', error || message || content || '');

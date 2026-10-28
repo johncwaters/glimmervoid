@@ -1,6 +1,7 @@
 import type { ShownFile } from '#shared/contracts/session.ts';
 import { el } from './dom-helpers.ts';
 import { formatAgo } from './poll-ago.ts';
+import { createSandboxedFrame } from './sandboxed-frame.ts';
 import { applyDialogAria, createModalOverlay } from './session-card/modal.ts';
 import { markShownFilesOpened, shownFilesOf } from './shown-files.ts';
 
@@ -48,13 +49,9 @@ function buildMedia(sessionId: string, file: ShownFile, isThumbnail: boolean): H
     video.playsInline = true;
     return video;
   }
-  const page = el('div', isThumbnail ? 'shown-thumb-page' : 'shown-stage-page');
+  if (!isThumbnail) return createSandboxedFrame({ source: { kind: 'url', url }, className: 'shown-stage-frame', title: displayTitleOf(file), allowsScripts: true });
+  const page = el('div', 'shown-thumb-page');
   page.append(el('span', 'shown-page-kind', 'HTML page'), el('span', 'shown-page-title', displayTitleOf(file)));
-  if (isThumbnail) return page;
-  const btnOpenPage = el('button', 'plan-control shown-open-page', 'Open page');
-  btnOpenPage.type = 'button';
-  btnOpenPage.addEventListener('click', () => openInNewTab(url));
-  page.append(el('span', 'shown-page-name', file.name), btnOpenPage);
   return page;
 }
 
@@ -86,7 +83,10 @@ function paintLightbox(lightbox: OpenLightbox): void {
   }
   lightbox.selectedFileId = selectedFile.id;
   lightbox.title.textContent = displayTitleOf(selectedFile);
-  lightbox.stage.replaceChildren(buildMedia(lightbox.sessionId, selectedFile, false));
+  if (lightbox.stage.dataset.fileId !== selectedFile.id) {
+    lightbox.stage.replaceChildren(buildMedia(lightbox.sessionId, selectedFile, false));
+    lightbox.stage.dataset.fileId = selectedFile.id;
+  }
   const caption = selectedFile.caption ? [el('p', 'shown-caption', selectedFile.caption)] : [];
   lightbox.details.replaceChildren(...caption, el('p', 'shown-meta', `${selectedFile.name}, shown ${formatAgo(selectedFile.shownAt)}`));
   paintStrip(lightbox, selectedFile);

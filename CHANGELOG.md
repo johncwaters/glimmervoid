@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Shown HTML pages play right in the viewer**: when a session runs `glimmervoid show` on an HTML page, the viewer now shows the page itself, live and clickable, filling the box on desktop and on a phone, instead of a card with an Open page button. Open full size still opens it in its own tab. The page stays walled off from the dashboard: it can run its own scripts and forms, but cannot read the dashboard, pop up alerts, or use the camera, microphone or location.
 - **The website's pixel animals take off**: on glimmervoid.dev, tapping one of the pixel animal tiles sends that animal flying across the screen, as often as you like. Nothing happens when your system asks for reduced motion.
 
 ### Removed
