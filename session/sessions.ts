@@ -830,6 +830,11 @@ class Session extends EventEmitter {
     this[field] = null;
   }
 
+  _isSubagentTurnStop(raw: HookSignal): boolean {
+    if (raw?.signal !== "ready" || String(raw.event || "").toLowerCase() !== "stop") return false;
+    return this._can("subagentTurnStops") && this.backgroundTracking.activeAgentCount() > 0;
+  }
+
   ingestHookSignal(raw: HookSignal): void {
     if (this._destroyed) return;
     if (raw?.signal === "auth-failed") {
@@ -855,6 +860,11 @@ class Session extends EventEmitter {
 
     if (raw && (raw.signal === "wakeup-scheduled" || raw.signal === "cron-created" || raw.signal === "cron-deleted")) {
       this.backgroundTracking.trackWakeup(raw);
+      return;
+    }
+
+    if (this._isSubagentTurnStop(raw)) {
+      this._recordDecision({ ts: Date.now(), kind: "signal", signal: raw.signal, source: raw.source, state: this.state, active: this.backgroundTracking.activeAgentCount(), action: "subagent-stop-dropped" });
       return;
     }
 

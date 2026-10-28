@@ -5,8 +5,8 @@ type KimiBlockClassification = "absent" | "current" | "managed-stale" | "foreign
 interface KimiHooksBlockOptions {
   relayPath: string;
   events: readonly string[];
-  askToolEvents: readonly string[];
-  askToolName: string;
+  toolEvents: readonly string[];
+  matchedToolNames: readonly string[];
 }
 
 type KimiSpliceResult = { contents: string; changed: boolean } | { refused: "foreign" | "conflicting" };
@@ -35,10 +35,10 @@ function renderKimiHooksBlock(options: KimiHooksBlockOptions): string | null {
     if (!command) return null;
     lines.push(...hookTable(event, command));
   }
-  for (const event of options.askToolEvents) {
+  for (const event of options.toolEvents) {
     const command = buildHookCommand(options.relayPath, event);
     if (!command) return null;
-    lines.push(...hookTable(event, command, `^${options.askToolName}$`));
+    for (const toolName of options.matchedToolNames) lines.push(...hookTable(event, command, `^${toolName}$`));
   }
   lines.push(BLOCK_END);
   return `${lines.join("\n")}\n`;

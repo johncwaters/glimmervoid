@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { parseRecording, replayDetection, summarize } from '../detection/replay.ts';
 import claudeCode from '../session/adapters/claude-code.ts';
+import kimi from '../session/adapters/kimi.ts';
 import { setCustomAgents } from '../session/adapters/index.ts';
 import { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { parseExitPlanModeHookPayload } from '../shared/contracts/plan-review.ts';
@@ -235,5 +236,59 @@ for (const [fixture, expectedState, expectedNotifications] of [
     assert.deepEqual(notifications, expectedNotifications);
     assert.equal(postTurnChecks, expectedNotifications.length);
     if (expectedState === STATES.COMPLETE) assert.deepEqual(transitions, [STATES.RUNNING, STATES.COMPLETE, STATES.RUNNING, STATES.COMPLETE]);
+  });
+}
+
+for (const fixture of ['v2-kimi-approval-turn.jsonl', 'v2-kimi-ask-question.jsonl']) {
+  test(`kimi fixture ${fixture}: the prompt reaches the card as awaiting-input before the Stop completes the turn`, async () => {
+    const { version, agent, records } = load(fixture);
+    assert.equal(version, 2);
+    assert.equal(agent, 'kimi');
+    const { signals } = await replayDetection(records, { ...FAST, agent });
+    const order = signals.map((signal) => signal.signal);
+    const awaitingAt = order.indexOf('awaiting-input');
+    assert.ok(awaitingAt >= 0, 'the prompt reaches the card');
+    assert.ok(order.lastIndexOf('ready') > awaitingAt, 'the Stop completes after the prompt is answered');
+  });
+}
+
+test('kimi subagent fixture: the subagent Stop inside the open Agent call is dropped and only the main Stop completes the card', (t) => {
+  const { agent, records } = load('v2-kimi-subagent.jsonl');
+  assert.equal(agent, 'kimi');
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = new Session({ id: 'fixture-kimi-subagent', name: 'kimi', path: process.cwd(), agent: 'kimi', statusConflictMs: 20, statusDedupMs: 10 });
+  t.after(() => session.destroy());
+  session.state = STATES.IDLE;
+  const hookStops = records.filter((record) => record.type === 'hook' && record.event === 'stop');
+  assert.equal(hookStops.length, 2, 'the recording holds the subagent Stop and the main Stop');
+  const completedAfterStop: number[] = [];
+  let stopsSeen = 0;
+  session.on('state-change', ({ to }) => { if (to === STATES.COMPLETE) completedAfterStop.push(stopsSeen); });
+  for (const record of records) {
+    if (record.type !== 'hook' || !record.event) continue;
+    const payload = kimi.mapHookPayload(record.event, record.payload ?? {});
+    const signal = kimi.hooks.mapSignal(record.event, payload);
+    if (record.event === 'stop') stopsSeen++;
+    if (!signal) continue;
+    session.ingestHookSignal({ signal, source: 'hook', event: record.event, payload, ts: Date.now() });
+    t.mock.timers.tick(15000);
+  }
+  assert.deepEqual(completedAfterStop, [2]);
+});
+
+for (const endingEvent of ['Interrupt', 'StopFailure']) {
+  test(`kimi ${endingEvent} under an open Agent call still completes the card`, (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const session = new Session({ id: `kimi-${endingEvent}`, name: 'kimi', path: process.cwd(), agent: 'kimi', statusConflictMs: 20, statusDedupMs: 10 });
+    t.after(() => session.destroy());
+    session.state = STATES.IDLE;
+    const agentCall = { tool_name: 'Agent', tool_call_id: 'tool_1' };
+    for (const [event, payload] of [['UserPromptSubmit', {}], ['PreToolUse', agentCall], [endingEvent, {}], ['PostToolUse', agentCall]] as const) {
+      const mappedPayload = kimi.mapHookPayload(event, { ...payload });
+      const signal = kimi.hooks.mapSignal(event, mappedPayload);
+      if (signal) session.ingestHookSignal({ signal, source: 'hook', event, payload: mappedPayload, ts: Date.now() });
+      t.mock.timers.tick(15000);
+    }
+    assert.equal(session.state, STATES.COMPLETE);
   });
 }

@@ -32,12 +32,12 @@ const HOOK_EVENTS: readonly string[] = Object.freeze([
   "Interrupt",
   "PermissionRequest",
   "PermissionResult",
-  "SubagentStart",
-  "SubagentStop",
   "PreCompact",
   "PostCompact",
 ]);
-const ASK_TOOL_EVENTS: readonly string[] = Object.freeze(["PreToolUse", "PostToolUse"]);
+const TOOL_EVENTS: readonly string[] = Object.freeze(["PreToolUse", "PostToolUse"]);
+const SUBAGENT_TOOL_NAME = "Agent";
+const MATCHED_TOOL_NAMES: readonly string[] = Object.freeze([ASK_USER_QUESTION_TOOL_NAME, SUBAGENT_TOOL_NAME]);
 
 const envProfile: AgentEnvProfile = {
   scrub: [],
@@ -48,8 +48,31 @@ function isAskUserQuestion(payload?: HookPayload): boolean {
   return payload?.tool_name === ASK_USER_QUESTION_TOOL_NAME;
 }
 
+function isSubagentToolCall(payload?: HookPayload): boolean {
+  return payload?.tool_name === SUBAGENT_TOOL_NAME && typeof payload.tool_call_id === "string";
+}
+
+const TOOL_EVENT_SIGNALS: Record<string, { question: string; subagent: string }> = {
+  pretooluse: { question: "awaiting-input", subagent: "subagent-start" },
+  posttooluse: { question: "working", subagent: "subagent-stop" },
+};
+
+function mapToolEventSignal(normalizedEvent: string, payload?: HookPayload): string | null {
+  const signals = TOOL_EVENT_SIGNALS[normalizedEvent];
+  if (!signals) return null;
+  if (isAskUserQuestion(payload)) return signals.question;
+  if (isSubagentToolCall(payload)) return signals.subagent;
+  return null;
+}
+
+function mapHookPayload(_event: string, payload: HookPayload): HookPayload {
+  if (!isSubagentToolCall(payload)) return payload;
+  return { ...payload, agent_id: payload.tool_call_id };
+}
+
 function mapHookToSignal(event: string, payload?: HookPayload): string | null {
-  switch (String(event || "").toLowerCase()) {
+  const normalizedEvent = String(event || "").toLowerCase();
+  switch (normalizedEvent) {
     case "sessionstart":
       return "session-start";
     case "sessionend":
@@ -65,13 +88,8 @@ function mapHookToSignal(event: string, payload?: HookPayload): string | null {
     case "permissionresult":
       return "working";
     case "pretooluse":
-      return isAskUserQuestion(payload) ? "awaiting-input" : null;
     case "posttooluse":
-      return isAskUserQuestion(payload) ? "working" : null;
-    case "subagentstart":
-      return "subagent-start";
-    case "subagentstop":
-      return "subagent-stop";
+      return mapToolEventSignal(normalizedEvent, payload);
     case "precompact":
       return "compaction-start";
     case "postcompact":
@@ -125,8 +143,8 @@ function expectedHooksBlock(): string | null {
   return renderKimiHooksBlock({
     relayPath: RELAY_PATH,
     events: HOOK_EVENTS,
-    askToolEvents: ASK_TOOL_EVENTS,
-    askToolName: ASK_USER_QUESTION_TOOL_NAME,
+    toolEvents: TOOL_EVENTS,
+    matchedToolNames: MATCHED_TOOL_NAMES,
   });
 }
 
@@ -181,6 +199,7 @@ const hooks: AgentHookProfile = {
   mapSignal: mapHookToSignal,
   mapConfidence: mapHookConfidence,
   mapPromptKind: mapHookPromptKind,
+  mapPayload: mapHookPayload,
   injection: {
     kind: "home-hooks-file",
     setupCommand: SETUP_COMMAND,
@@ -206,6 +225,8 @@ const kimi = {
   buildEnv,
   buildArgs,
   sessionIdOf,
+  mapHookToSignal,
+  mapHookPayload,
   configFilePath,
   expectedHooksBlock,
   capabilities: {
@@ -219,6 +240,7 @@ const kimi = {
     compactQuiet: true,
     skipPermissionsFlag: true,
     headless: true,
+    subagentTurnStops: true,
   },
 } satisfies AgentAdapterShape;
 

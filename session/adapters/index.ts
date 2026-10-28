@@ -24,6 +24,7 @@ interface AgentCapabilities {
   compactQuiet: boolean;
   skipPermissionsFlag: boolean;
   headless: boolean;
+  subagentTurnStops?: boolean;
 }
 
 interface ProjectConfigCandidate {
