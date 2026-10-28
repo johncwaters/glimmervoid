@@ -46,6 +46,7 @@ interface PosthogApi {
   listSpikeEvents(projectId: ProjectId): Promise<PosthogResponse>;
   listRecommendations(projectId: ProjectId): Promise<PosthogResponse>;
   updateIssueStatus(projectId: ProjectId, issueId: string, status: string): Promise<PosthogResponse>;
+  runHogQL(projectId: ProjectId, query: string, values?: Record<string, unknown>): Promise<PosthogResponse>;
 }
 
 function timestampOrNull(value: unknown): string | null {
@@ -181,10 +182,10 @@ function createPosthogApi({ host, apiKey, fetchFn }: {
     });
   }
 
-  function runHogQL(projectId: ProjectId, query: string): Promise<PosthogResponse> {
+  function runHogQL(projectId: ProjectId, query: string, values?: Record<string, unknown>): Promise<PosthogResponse> {
     return request(`/api/projects/${encodeURIComponent(projectId)}/query/`, {
       method: 'POST',
-      body: { query: { kind: 'HogQLQuery', query } },
+      body: { query: { kind: 'HogQLQuery', query, ...(values ? { values } : {}) } },
     });
   }
 
@@ -238,11 +239,13 @@ function createPosthogApi({ host, apiKey, fetchFn }: {
     listSpikeEvents,
     listRecommendations,
     updateIssueStatus,
+    runHogQL,
   };
 }
 
 export {
   createPosthogApi,
+  extractRows,
   normalizeIssue,
   normalizeIssues,
   parseSpikeIssueIds,

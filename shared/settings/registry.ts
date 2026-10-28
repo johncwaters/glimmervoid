@@ -4,7 +4,7 @@ import {
   FLYING_ANIMALS_SCALE_RANGE, KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, NON_NEGATIVE_NUMBER_RANGE, PORT_RANGE, POSITIVE_NUMBER_RANGE,
   POSTHOG_FIX_TIMEOUT_RANGE, POSTHOG_TRAFFIC_BASELINE_RANGE, POSTHOG_TRAFFIC_MIN_USERS_RANGE, POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
   MEMORY_RESERVE_MB_RANGE, REPLAY_BUFFER_KB_RANGE, TASK_TITLE_TIMEOUT_RANGE, USAGE_BUDGET_RANGE, USAGE_INTEGER_RANGES, USAGE_RETAIN_DAYS_RANGE, USAGE_SCAN_INTERVAL_RANGE,
-  WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE, WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE,
+  WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE, WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE, COMMUNITY_INTERVAL_MINUTES_RANGE, POSTHOG_PROJECT_ID_RANGE,
 } from '../settings-ranges.ts';
 import type { SettingsRange } from '../settings-ranges.ts';
 import { USAGE_COST_MODES } from '../usage-config.ts';
@@ -679,6 +679,34 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         id: 'issues-enabled', path: 'issues.enabled', title: 'Show the Issues tab',
         description: 'Poll GitHub issues for your projects and teams and list them in an Issues tab. Off stops the polling and hides the tab.',
         control: 'toggle', keywords: ['experimental', 'issues', 'github', 'tab'], defaultValue: false, ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
+    id: 'lanes-community',
+    level: 'lanes',
+    title: 'Community (experimental)',
+    description: 'New posthog.com community questions researched by your own skill, with a draft reply you post yourself.',
+    settings: [
+      {
+        id: 'community-enabled', path: 'community.enabled', title: 'Show the Community tab',
+        description: 'Poll new community questions through the PostHog key above and research each one in a sandboxed lane. Only questions asked after you turn this on run. Off stops the polling and hides the tab.',
+        control: 'toggle', keywords: ['experimental', 'community', 'questions', 'forum', 'tab'], defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'community-skill', path: 'community.skill', title: 'Research skill',
+        description: 'Skill the research agent follows for each question, typed by name. Leave empty for no skill: the agent researches with whatever skills it has.',
+        control: 'text', keywords: ['skill', 'answering', 'claude code'], defaultValue: '', ...MACHINE_NOW,
+      },
+      {
+        id: 'community-project-id', path: 'community.projectId', title: 'PostHog project',
+        description: 'PostHog project id that holds the synced community forum table and the Discord bot events.',
+        control: 'number', integer: true, range: POSTHOG_PROJECT_ID_RANGE, keywords: ['project id', 'warehouse'], defaultValue: 2, ...MACHINE_NOW,
+      },
+      {
+        id: 'community-interval', path: 'community.intervalMinutes', title: 'Poll interval',
+        description: 'Delay between community polling passes.',
+        control: 'number', integer: true, range: COMMUNITY_INTERVAL_MINUTES_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 5, ...MACHINE_NOW,
       },
     ],
   },

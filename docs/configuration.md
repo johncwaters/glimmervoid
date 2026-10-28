@@ -196,6 +196,17 @@ GitHub issues from your projects and teams in their own dashboard tab.
 |-----|---------|---------|-------|
 | `issues.enabled` | Show the Issues tab | `false` | Poll GitHub issues for your projects and teams and list them in an Issues tab. Off stops the polling and hides the tab. |
 
+### Community (experimental)
+
+New posthog.com community questions researched by your own skill, with a draft reply you post yourself.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `community.enabled` | Show the Community tab | `false` | Poll new community questions through the PostHog key above and research each one in a sandboxed lane. Only questions asked after you turn this on run. Off stops the polling and hides the tab. |
+| `community.skill` | Research skill | `""` | Skill the research agent follows for each question, typed by name. Leave empty for no skill: the agent researches with whatever skills it has. |
+| `community.projectId` | PostHog project | `2` | PostHog project id that holds the synced community forum table and the Discord bot events. |
+| `community.intervalMinutes` | Poll interval | `5` | Delay between community polling passes. |
+
 ### Privacy
 
 What Glimmervoid sends about itself.

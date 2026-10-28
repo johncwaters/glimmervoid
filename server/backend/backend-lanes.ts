@@ -28,6 +28,7 @@ import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-ref
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import { createPlanReviewWiring } from '../plan-review-wiring.ts';
 import { createRadarWiring } from '../radar/radar-wiring.ts';
+import { createCommunityWiring } from '../community/community-wiring.ts';
 import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 import { createMemoryAdmission, createSpawnGate } from '../spawn-gate.ts';
 import { readMemoryHeadroom } from '../memory-probe.ts';
@@ -207,6 +208,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     broadcast: broadcastControl,
     telemetry: laneTelemetry,
   });
+  const community = createCommunityWiring({ config, broadcast: broadcastControl, homeDir: glimmervoidHomeDir(), log: logger });
   const githubStatus = createGithubStatus({ log: logger });
   const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger, githubStatus });
   const glimmervoidHome = glimmervoidHomeDir();
@@ -489,6 +491,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const fixedLaneEntries = {
     'branch-gc': branchGc,
     posthog,
+    community,
     'team-review': teamReview,
     'my-prs': myPrs,
     issues,
@@ -518,6 +521,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => coderActivity.start(),
       () => coderEnv.start(),
       () => posthog.startPoller(),
+      () => community.startPoller(),
       () => teamReview.startPoller(),
       () => myPrs.startPoller(),
       () => issues.startPoller(),
@@ -536,6 +540,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => coderActivity.restartIfConfigChanged(),
       () => coderEnv.restartIfConfigChanged(),
       () => posthog.restartIfConfigChanged(),
+      () => community.restartIfConfigChanged(),
       () => teamReview.restartIfConfigChanged(),
       () => myPrs.restartIfConfigChanged(),
       () => issues.restartIfConfigChanged(),
@@ -576,6 +581,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     teamReview,
     myPrs,
     issues,
+    community,
     workflows,
     startRuntimeLanes,
     tapIngestForSession,

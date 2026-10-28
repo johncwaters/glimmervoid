@@ -127,6 +127,13 @@ const IssuesSettings = optionalObject('issues', {
   enabled: optionalBoolean('issues.enabled'),
 });
 
+const CommunitySettings = optionalObject('community', {
+  enabled: optionalBoolean('community.enabled'),
+  skill: optionalString('community.skill', true),
+  projectId: optionalInteger('community.projectId', ranges.POSTHOG_PROJECT_ID_RANGE),
+  intervalMinutes: optionalInteger('community.intervalMinutes', ranges.COMMUNITY_INTERVAL_MINUTES_RANGE),
+});
+
 const CoherenceSettings = optionalObject('coherence', {
   enabled: optionalBoolean('coherence.enabled'),
 });
@@ -269,6 +276,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   benchmarks: BenchmarksSettings,
   coherence: CoherenceSettings,
   issues: IssuesSettings,
+  community: CommunitySettings,
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,
