@@ -88,6 +88,17 @@ export const GithubSettings = z.object({
   ).optional(),
 }, { error: 'github must be an object' }).nullable().optional();
 
+const SANDBOX_DOMAIN_PATTERN = /^(?:\*\.(?=[^.]+\.[^.]+))?(?:[a-z0-9-]+\.)+[a-z0-9-]+(?::\d{1,5})?$/i;
+export const REVIEW_AGENT_IDS = Object.freeze(['claude'] as const);
+export const ReviewAgentId = z.enum(REVIEW_AGENT_IDS, { error: `review agent must be one of ${REVIEW_AGENT_IDS.join(', ')}` });
+export type ReviewAgentId = z.infer<typeof ReviewAgentId>;
+
+const reviewerChoiceSettings = (field: string, agentChoices: readonly [string, ...string[]]) => optionalObject(field, {
+  agent: z.enum(agentChoices, { error: `${field}.agent must be one of ${REVIEW_AGENT_IDS.join(', ')}` }).optional(),
+  model: optionalString(`${field}.model`, true),
+  effort: optionalString(`${field}.effort`, true),
+});
+
 const TeamReviewSettings = optionalObject('teamReview', {
   enabled: optionalBoolean('teamReview.enabled'),
   autoRebaseMyPrs: optionalBoolean('teamReview.autoRebaseMyPrs'),
@@ -97,6 +108,13 @@ const TeamReviewSettings = optionalObject('teamReview', {
   org: optionalString('teamReview.org', true),
   team: optionalString('teamReview.team', true),
   skill: optionalString('teamReview.skill', true),
+  reviewer: reviewerChoiceSettings('teamReview.reviewer', REVIEW_AGENT_IDS),
+  stampReviewer: reviewerChoiceSettings('teamReview.stampReviewer', ['', ...REVIEW_AGENT_IDS]),
+  sandbox: optionalObject('teamReview.sandbox', {
+    extraDomains: z.array(z.string({ error: 'teamReview.sandbox.extraDomains must be an array of domain strings' }).trim().regex(SANDBOX_DOMAIN_PATTERN, { error: 'teamReview.sandbox.extraDomains entries must be bare domains like registry.npmjs.org or *.example.com, with no scheme or path' }), { error: 'teamReview.sandbox.extraDomains must be an array of domain strings' }).optional(),
+    openNetwork: optionalBoolean('teamReview.sandbox.openNetwork'),
+    loadMcpServers: optionalBoolean('teamReview.sandbox.loadMcpServers'),
+  }),
   reReviewAfterHours: optionalNumber('teamReview.reReviewAfterHours'),
   skipIdleAfterDays: optionalNumber('teamReview.skipIdleAfterDays'),
 });

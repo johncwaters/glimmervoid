@@ -10,10 +10,11 @@ import { positiveNumberOr } from '../../../shared/coerce.ts';
 import { GH_SEGMENT } from '../../../shared/contracts/github-ids.ts';
 import type { Config } from '../../../shared/contracts/config.ts';
 import { readGithubTeams } from './github-teams-core.ts';
+import { ReviewAgentId } from '../../../shared/contracts/browser-config.ts';
 import { sanitizeSessionName } from '../../radar/core/radar-lane-core.ts';
 
-const STAMP_MODEL = 'sonnet';
-const FULL_MODEL = 'opus';
+const DEFAULT_REVIEWER: ReviewerChoice = Object.freeze({ agent: 'claude', model: null, effort: null });
+const DEFAULT_SANDBOX: TeamReviewSandboxSettings = Object.freeze({ extraDomains: [], openNetwork: false, loadMcpServers: false });
 const STAMP_MAX_LINES = 200;
 const STAMP_MAX_FILES = 10;
 const MAX_CONCURRENT_REVIEWS = 2;
@@ -75,13 +76,60 @@ interface TeamReviewSettings {
   reReviewAfterHours: number;
   skipIdleAfterDays: number;
   skill: string;
+  reviewer: ReviewerChoice;
+  stampReviewer: ReviewerChoice | null;
+  sandbox: TeamReviewSandboxSettings;
   autoRebaseMyPrs: boolean;
+}
+
+interface ReviewerChoice {
+  agent: ReviewAgentId;
+  model: string | null;
+  effort: string | null;
+}
+
+interface TeamReviewSandboxSettings {
+  extraDomains: string[];
+  openNetwork: boolean;
+  loadMcpServers: boolean;
+}
+
+function trimmedTextOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function readReviewerChoice(block: unknown, inheritedAgent: ReviewAgentId): ReviewerChoice | null {
+  if (!block || typeof block !== 'object') return null;
+  const choice = block as Record<string, unknown>;
+  const chosenAgent = trimmedTextOrNull(choice.agent);
+  const model = trimmedTextOrNull(choice.model);
+  const effort = trimmedTextOrNull(choice.effort);
+  if (chosenAgent === null && model === null && effort === null) return null;
+  const parsedAgent = ReviewAgentId.safeParse(chosenAgent ?? inheritedAgent);
+  if (!parsedAgent.success) return null;
+  return { agent: parsedAgent.data, model, effort };
+}
+
+function readSandboxSettings(block: unknown): TeamReviewSandboxSettings {
+  const sandbox = block && typeof block === 'object' ? block as Record<string, unknown> : {};
+  const extraDomains = Array.isArray(sandbox.extraDomains)
+    ? sandbox.extraDomains.map(trimmedTextOrNull).filter((domain): domain is string => domain !== null)
+    : [];
+  return { extraDomains, openNetwork: sandbox.openNetwork === true, loadMcpServers: sandbox.loadMcpServers === true };
+}
+
+function reviewerFor(settings: Pick<TeamReviewSettings, 'reviewer' | 'stampReviewer'>, tier: ReviewTier): ReviewerChoice {
+  if (tier === 'stamp' && settings.stampReviewer) return settings.stampReviewer;
+  return settings.reviewer;
 }
 
 
 function readTeamReviewSettings(config: TeamReviewSettingsSource): TeamReviewSettings {
   const block = config.teamReview;
   const teams = readGithubTeams(config);
+  const reviewer = readReviewerChoice(block?.reviewer, DEFAULT_REVIEWER.agent) ?? DEFAULT_REVIEWER;
   const configuredOrg = typeof block?.org === 'string' ? block.org.trim() : '';
   return {
     enabled: block?.enabled !== false,
@@ -90,6 +138,9 @@ function readTeamReviewSettings(config: TeamReviewSettingsSource): TeamReviewSet
     reReviewAfterHours: positiveNumberOr(block?.reReviewAfterHours, DEFAULT_RE_REVIEW_AFTER_HOURS),
     skipIdleAfterDays: positiveNumberOr(block?.skipIdleAfterDays, DEFAULT_SKIP_IDLE_AFTER_DAYS),
     skill: typeof block?.skill === 'string' ? block.skill.trim() : '',
+    reviewer,
+    stampReviewer: readReviewerChoice(block?.stampReviewer, reviewer.agent),
+    sandbox: readSandboxSettings(block?.sandbox),
     autoRebaseMyPrs: block?.autoRebaseMyPrs === true,
   };
 }
@@ -1185,5 +1236,5 @@ function absolutePathReadRule(absolutePath: string): string {
   return `Read(/${posixPath}/**)`;
 }
 
-export { reviewSnapshotFromGithubPr, STAMP_MODEL, FULL_MODEL, MAX_CONCURRENT_REVIEWS, MAX_ASKED_FOR_REVIEWS, ASKED_FOR_FETCH_GRACE_MS, askedForRefusal, advanceAwakeElapsed, REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, uiFilesOf, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
-export type { CommentableLines, NewWorkPointer, NewWorkRange, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };
+export { reviewSnapshotFromGithubPr, DEFAULT_REVIEWER, DEFAULT_SANDBOX, reviewerFor, MAX_CONCURRENT_REVIEWS, MAX_ASKED_FOR_REVIEWS, ASKED_FOR_FETCH_GRACE_MS, askedForRefusal, advanceAwakeElapsed, REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, uiFilesOf, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
+export type { CommentableLines, NewWorkPointer, NewWorkRange, ReviewerChoice, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSandboxSettings, TeamReviewSettings, TeamReviewSettingsSource };

@@ -540,6 +540,55 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'text', keywords: ['skill', 'claude code', 'pr review'], defaultValue: '', ...MACHINE_NOW,
       },
       {
+        id: 'team-review-reviewer-agent', path: 'teamReview.reviewer.agent', title: 'Review agent',
+        description: 'Agent CLI that drafts each review and judges replies to its threads.',
+        control: 'select', options: [{ value: 'claude', label: 'Claude Code' }], keywords: ['agent', 'reviewer', 'claude code'], defaultValue: 'claude', ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-reviewer-model', path: 'teamReview.reviewer.model', title: 'Review model',
+        description: "Model the review agent runs. Leave empty to use the agent's own default model.",
+        control: 'text', keywords: ['model', 'opus', 'sonnet', 'reviewer'], defaultValue: '', ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-reviewer-effort', path: 'teamReview.reviewer.effort', title: 'Review effort',
+        description: "Effort level the review agent runs at. Leave empty to use the agent's own default effort.",
+        control: 'text', keywords: ['effort', 'thinking', 'reasoning', 'reviewer'], defaultValue: '', ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-stamp-reviewer-agent', path: 'teamReview.stampReviewer.agent', title: 'Small PR agent',
+        description: 'Agent for small pull requests. Same as review agent uses the review agent, model and effort above.',
+        control: 'select', options: [{ value: '', label: 'Same as review agent' }, { value: 'claude', label: 'Claude Code' }], keywords: ['stamp', 'small pull requests', 'agent'], defaultValue: '', ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-stamp-reviewer-model', path: 'teamReview.stampReviewer.model', title: 'Small PR model',
+        description: 'Model for small pull requests. Leave empty to use the small PR agent default model.',
+        control: 'text', keywords: ['stamp', 'model', 'small pull requests'], defaultValue: '', ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-stamp-reviewer-effort', path: 'teamReview.stampReviewer.effort', title: 'Small PR effort',
+        description: 'Effort for small pull requests. Leave empty to use the small PR agent default effort.',
+        control: 'text', keywords: ['stamp', 'effort', 'small pull requests'], defaultValue: '', ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-sandbox-extra-domains', path: 'teamReview.sandbox.extraDomains', title: 'Extra allowed domains',
+        description: 'Domains the review sandbox may reach on top of the agent API and api.github.com.',
+        control: 'list', keywords: ['sandbox', 'network', 'egress', 'allowlist'], danger: true,
+        warning: 'The review runs code from the pull request under review. Every domain added here is a place that code can send what it reads.',
+        listPlaceholder: 'registry.npmjs.org', listEmptyText: 'No extra domains.', defaultValue: [], ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-sandbox-open-network', path: 'teamReview.sandbox.openNetwork', title: 'Open network egress',
+        description: 'Let the review sandbox reach any domain instead of the allowlist.',
+        control: 'toggle', keywords: ['sandbox', 'network', 'egress', 'open'], danger: true,
+        warning: 'Enabling this control lets code from the pull request under review reach any address, including the Glimmervoid dashboard on this machine, which it can use to start sessions outside the sandbox. Treat it as running the pull request author\'s code as you, unsandboxed.', defaultValue: false, ...MACHINE_NOW,
+      },
+      {
+        id: 'team-review-sandbox-load-mcp-servers', path: 'teamReview.sandbox.loadMcpServers', title: 'Load my MCP servers',
+        description: 'Give the review agent your own MCP servers instead of none.',
+        control: 'toggle', keywords: ['sandbox', 'mcp', 'servers', 'tools'], danger: true,
+        warning: 'Enabling this control gives the review agent, which reads untrusted pull request text, every tool your MCP servers expose.', defaultValue: false, ...MACHINE_NOW,
+      },
+      {
         id: 'team-review-auto-rebase-my-prs', path: 'teamReview.autoRebaseMyPrs', title: 'Keep my pull requests rebased',
         description: 'On each poll, rebase your open, non-draft pull requests that are behind their base branch. A pull request with conflicts or checks still running is left alone, and a failed rebase is not retried until you push again.',
         control: 'toggle', keywords: ['rebase', 'update branch', 'behind', 'my prs'], danger: true,

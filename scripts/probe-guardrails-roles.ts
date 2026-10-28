@@ -62,6 +62,7 @@ const { createVisionsSpawn, makeVisionsWorkDir, PROMPT_FILE: VISIONS_PROMPT_FILE
 const { MY_PRS_FIX_CHECKOUT_DIRNAME } = await import('../server/github/core/my-prs-core.ts');
 const { createGuardedPrStaging, keepMergeableRole } = await import('../server/github/my-prs-wiring.ts');
 const { createTeamReviewSpawn, describeTeamReviewRole, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions, teamReviewClaudeArgs } = await import('../server/github/team-review-wiring.ts');
+const { DEFAULT_SANDBOX } = await import('../server/github/core/team-review-core.ts');
 const { prepareGuardrailsLaunch } = await import('../server/guardrails/guardrails-launch.ts');
 const { createSessionGuardrails } = await import('../server/guardrails/session-guardrails.ts');
 const { Session } = await import('../session/sessions.ts');
@@ -345,7 +346,7 @@ async function probeTeamReview(roleRoot: string): Promise<void> {
     await record(roleName, 'team review run', async () => {
       await spawnReview({
         id: sessionId, name: sessionId, cwd: workDir, spawnEnv: hooksPathPinnedSpawnEnv(workDir),
-        extraClaudeArgs: teamReviewClaudeArgs('stamp', { checkoutPath, linkedCheckout }), settingsPermissions: teamReviewAcceptEditsPermissions(),
+        extraClaudeArgs: teamReviewClaudeArgs({ agent: 'claude', model: 'sonnet', effort: null }, DEFAULT_SANDBOX, { checkoutPath, linkedCheckout }), settingsPermissions: teamReviewAcceptEditsPermissions(),
         guardrailsRole: await describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout }), signal: AbortSignal.timeout(AGENT_RUN_TIMEOUT_MS),
         initialPrompt: 'This is a guardrails contract probe. Run exactly this shell command once and do not work around a denial or retry: sh probe.sh. Then reply with the single word done.',
       });
