@@ -163,37 +163,37 @@ async function seedScrollback(port: number, sessionId: string, fixture: FixtureS
 
 function watchPageSockets(page: Page) {
   let parsed = { controlJsonBytes: 0, replayBytes: 0 };
-  let readySessionId = '';
-  let readyMarker = '';
+  let watchedSessionId = '';
+  let fullScrollbackMarker = '';
   let isMeasuring = false;
   let isOpening = false;
-  let isReady = false;
+  let hasFullScrollbackArrived = false;
   page.on('websocket', (socket: PageWebSocket) => {
     const socketPath = new URL(socket.url()).pathname;
     if (socketPath === '/control') {
-      socket.on('framereceived', ({ payload }) => { if (isMeasuring && !isReady) parsed.controlJsonBytes += Buffer.byteLength(payload); });
+      socket.on('framereceived', ({ payload }) => { if (isMeasuring && !hasFullScrollbackArrived) parsed.controlJsonBytes += Buffer.byteLength(payload); });
       return;
     }
     let viewText = '';
     socket.on('framereceived', ({ payload }) => {
-      if (!isMeasuring || isReady) return;
+      if (!isMeasuring || hasFullScrollbackArrived) return;
       parsed.replayBytes += Buffer.byteLength(payload);
-      if (!isOpening || socketPath !== `/terminals/${readySessionId}`) return;
+      if (!isOpening || socketPath !== `/terminals/${watchedSessionId}`) return;
       viewText += payloadText(payload);
-      isReady = viewText.includes(readyMarker);
+      hasFullScrollbackArrived = viewText.includes(fullScrollbackMarker);
     });
   });
   return {
     beginWindow(sessionId: string, fixture: FixtureSession) {
       parsed = { controlJsonBytes: 0, replayBytes: 0 };
-      readySessionId = sessionId;
-      readyMarker = fillCompleteMarker(fixture.fillLines);
+      watchedSessionId = sessionId;
+      fullScrollbackMarker = fillCompleteMarker(fixture.fillLines);
       isMeasuring = true;
       isOpening = false;
-      isReady = false;
+      hasFullScrollbackArrived = false;
     },
     markOpening() { isOpening = true; },
-    hasReplayArrived: () => isReady,
+    hasFullScrollbackArrived: () => hasFullScrollbackArrived,
     endWindow() {
       isMeasuring = false;
       return parsed;
@@ -263,8 +263,6 @@ async function waitForPaint(page: Page): Promise<void> {
   await page.evaluate(() => new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
 }
 
-type Visit = 'cold' | 'reconnect' | 'open';
-
 async function loadDashboard(page: Page, port: number): Promise<void> {
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'commit', timeout: READY_TIMEOUT_MS });
   await page.locator('body.app-ready').waitFor({ timeout: READY_TIMEOUT_MS });
@@ -282,11 +280,11 @@ async function openSession(page: Page, sockets: ReturnType<typeof watchPageSocke
   const rowSelector = `.phone-board-list button.session-row[data-id="${sessionId}"]`;
   await page.waitForFunction(isRowTappable, rowSelector, { polling: 'raf', timeout: READY_TIMEOUT_MS });
   await page.locator(rowSelector).click({ timeout: READY_TIMEOUT_MS });
-  await waitForReplay(page, sockets, fixture);
+  await waitForFullScrollbackPainted(page, sockets, fixture);
 }
 
-async function waitForReplay(page: Page, sockets: ReturnType<typeof watchPageSockets>, fixture: FixtureSession): Promise<void> {
-  await waitFor(sockets.hasReplayArrived, READY_TIMEOUT_MS, `${fixture.name} replay never reached ready`);
+async function waitForFullScrollbackPainted(page: Page, sockets: ReturnType<typeof watchPageSockets>, fixture: FixtureSession): Promise<void> {
+  await waitFor(sockets.hasFullScrollbackArrived, READY_TIMEOUT_MS, `${fixture.name} replay never reached ready`);
   await waitForPaint(page);
 }
 
@@ -308,56 +306,93 @@ function listRequestsStartedBeforeAppReady(): string[] {
   return [location.pathname, ...resourcePaths];
 }
 
-async function measureBoardReady(page: Page, port: number, proxy: ShapingProxy, startedAt: number): Promise<BoardReadyMeasurement> {
+async function measureBoardReady(page: Page, port: number, proxy: ShapingProxy, timerStartedAt: number): Promise<BoardReadyMeasurement> {
   await page.addInitScript(recordAppReadyMoment);
   await loadDashboard(page, port);
-  const elapsedMs = performance.now() - startedAt;
+  const elapsedMs = performance.now() - timerStartedAt;
   const httpBytesDown = proxy.readHttpBytesDown();
   return { elapsedMs, httpBytesDown, requestPaths: await page.evaluate(listRequestsStartedBeforeAppReady) };
 }
 
-async function measureVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, fixture: FixtureSession, visit: Visit): Promise<RunMeasurement> {
-  const sessionId = fleet.sessionIdByKey.get(fixture.key) ?? '';
+async function withPhonePage<T>(browser: Browser, work: (page: Page, sockets: ReturnType<typeof watchPageSockets>) => Promise<T>): Promise<T> {
   const context: BrowserContext = await browser.newContext(PHONE);
   try {
     const page = await context.newPage();
-    const sockets = watchPageSockets(page);
-    const waitForNetworkQuiet = watchNetworkQuiet(page);
-    if (visit !== 'cold') {
-      sockets.beginWindow(sessionId, fixture);
-      await loadDashboard(page, fleet.port);
-      if (visit === 'open') await waitForNetworkQuiet();
-      if (visit === 'reconnect') await openSession(page, sockets, sessionId, fixture);
-      sockets.endWindow();
-    }
-    const httpSizes = visit === 'cold' ? watchHttpSizes(page) : null;
-    sockets.beginWindow(sessionId, fixture);
-    proxy.beginMeasure();
-    const startedAt = performance.now();
-    const boardReady = visit === 'cold' ? await measureBoardReady(page, fleet.port, proxy, startedAt) : null;
-    if (visit === 'reconnect') {
-      sockets.markOpening();
-      await page.reload({ waitUntil: 'commit', timeout: READY_TIMEOUT_MS });
-      await waitForReplay(page, sockets, fixture);
-    }
-    if (visit !== 'reconnect') await openSession(page, sockets, sessionId, fixture);
-    const elapsedMs = performance.now() - startedAt;
-    const parsed = sockets.endWindow();
-    await httpSizes?.settleRequests();
-    const channels = await proxy.endMeasure();
-    const shellCheck = httpSizes ? await httpSizes.checkShell(channels.http.wireBytesDown) : null;
-    return { elapsedMs, boardReady, channels, parsed, shellCheck };
+    return await work(page, watchPageSockets(page));
   } finally {
     await context.close();
   }
 }
 
+interface StoppedTimer {
+  elapsedMs: number;
+  boardReady: BoardReadyMeasurement | null;
+  httpSizes: ReturnType<typeof watchHttpSizes> | null;
+}
+
+async function collectMeasurement(sockets: ReturnType<typeof watchPageSockets>, proxy: ShapingProxy, stoppedTimer: StoppedTimer): Promise<RunMeasurement> {
+  const parsed = sockets.endWindow();
+  await stoppedTimer.httpSizes?.settleRequests();
+  const channels = await proxy.endMeasure();
+  const shellCheck = stoppedTimer.httpSizes ? await stoppedTimer.httpSizes.checkShell(channels.http.wireBytesDown) : null;
+  return { elapsedMs: stoppedTimer.elapsedMs, boardReady: stoppedTimer.boardReady, channels, parsed, shellCheck };
+}
+
+function measureColdVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, fixture: FixtureSession): Promise<RunMeasurement> {
+  const sessionId = fleet.sessionIdByKey.get(fixture.key) ?? '';
+  return withPhonePage(browser, async (page, sockets) => {
+    const httpSizes = watchHttpSizes(page);
+    sockets.beginWindow(sessionId, fixture);
+    proxy.beginMeasure();
+    const timerStartedAt = performance.now();
+    const boardReady = await measureBoardReady(page, fleet.port, proxy, timerStartedAt);
+    await openSession(page, sockets, sessionId, fixture);
+    const elapsedMs = performance.now() - timerStartedAt;
+    return collectMeasurement(sockets, proxy, { elapsedMs, boardReady, httpSizes });
+  });
+}
+
+function measureReconnectVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, fixture: FixtureSession): Promise<RunMeasurement> {
+  const sessionId = fleet.sessionIdByKey.get(fixture.key) ?? '';
+  return withPhonePage(browser, async (page, sockets) => {
+    sockets.beginWindow(sessionId, fixture);
+    await loadDashboard(page, fleet.port);
+    await openSession(page, sockets, sessionId, fixture);
+    sockets.endWindow();
+    sockets.beginWindow(sessionId, fixture);
+    proxy.beginMeasure();
+    const timerStartedAt = performance.now();
+    sockets.markOpening();
+    await page.reload({ waitUntil: 'commit', timeout: READY_TIMEOUT_MS });
+    await waitForFullScrollbackPainted(page, sockets, fixture);
+    const elapsedMs = performance.now() - timerStartedAt;
+    return collectMeasurement(sockets, proxy, { elapsedMs, boardReady: null, httpSizes: null });
+  });
+}
+
+function measureOpenVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, fixture: FixtureSession): Promise<RunMeasurement> {
+  const sessionId = fleet.sessionIdByKey.get(fixture.key) ?? '';
+  return withPhonePage(browser, async (page, sockets) => {
+    const waitForNetworkQuiet = watchNetworkQuiet(page);
+    sockets.beginWindow(sessionId, fixture);
+    await loadDashboard(page, fleet.port);
+    await waitForNetworkQuiet();
+    sockets.endWindow();
+    sockets.beginWindow(sessionId, fixture);
+    proxy.beginMeasure();
+    const timerStartedAt = performance.now();
+    await openSession(page, sockets, sessionId, fixture);
+    const elapsedMs = performance.now() - timerStartedAt;
+    return collectMeasurement(sockets, proxy, { elapsedMs, boardReady: null, httpSizes: null });
+  });
+}
+
 const SCENARIOS: Scenario[] = [
-  { id: 'cold', label: 'Cold connect', detail: 'shell + session A', measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_A, 'cold') },
-  { id: 'reconnect', label: 'Reconnect', detail: 'warm-cache reload, session A restores', measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_A, 'reconnect') },
-  { id: 'open-a', label: 'Open session A', detail: `${SESSION_A.fillLines} lines, settled board`, measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_A, 'open') },
-  { id: 'open-b', label: 'Open session B', detail: `${SESSION_B.fillLines} lines, settled board`, measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_B, 'open') },
-  { id: 'open-c', label: 'Open session C', detail: `${SESSION_C.fillLines} lines, settled board`, measure: (fleet, browser, proxy) => measureVisit(fleet, browser, proxy, SESSION_C, 'open') },
+  { id: 'cold', label: 'Cold connect', detail: 'shell + session A', measure: (fleet, browser, proxy) => measureColdVisit(fleet, browser, proxy, SESSION_A) },
+  { id: 'reconnect', label: 'Reconnect', detail: 'warm-cache reload, session A restores', measure: (fleet, browser, proxy) => measureReconnectVisit(fleet, browser, proxy, SESSION_A) },
+  { id: 'open-a', label: 'Open session A', detail: `${SESSION_A.fillLines} lines, settled board`, measure: (fleet, browser, proxy) => measureOpenVisit(fleet, browser, proxy, SESSION_A) },
+  { id: 'open-b', label: 'Open session B', detail: `${SESSION_B.fillLines} lines, settled board`, measure: (fleet, browser, proxy) => measureOpenVisit(fleet, browser, proxy, SESSION_B) },
+  { id: 'open-c', label: 'Open session C', detail: `${SESSION_C.fillLines} lines, settled board`, measure: (fleet, browser, proxy) => measureOpenVisit(fleet, browser, proxy, SESSION_C) },
 ];
 
 function summarizeBoardReady(measurements: readonly RunMeasurement[]): BoardReady | null {
@@ -432,30 +467,30 @@ function readSocketMoments(): SocketMoment[] {
   return Array.isArray(socketMoments) ? socketMoments : [];
 }
 
-function watchWakeSockets(page: Page, sessionId: string, marker: string) {
+function watchWakeSockets(page: Page, sessionId: string, fullScrollbackMarker: string) {
   let armedAtMs: number | null = null;
   let pageArmedAtMs = 0;
-  let terminalLiveMs: number | null = null;
+  let fullScrollbackArrivedMs: number | null = null;
   page.on('websocket', (socket: PageWebSocket) => {
     if (new URL(socket.url()).pathname !== `/terminals/${sessionId}`) return;
     let viewText = '';
     socket.on('framereceived', ({ payload }) => {
-      if (armedAtMs === null || terminalLiveMs !== null) return;
+      if (armedAtMs === null || fullScrollbackArrivedMs !== null) return;
       viewText += payloadText(payload);
-      if (viewText.includes(marker)) terminalLiveMs = performance.now() - armedAtMs;
+      if (viewText.includes(fullScrollbackMarker)) fullScrollbackArrivedMs = performance.now() - armedAtMs;
     });
   });
   return {
     async arm() {
       pageArmedAtMs = await page.evaluate(() => performance.now());
       armedAtMs = performance.now();
-      terminalLiveMs = null;
+      fullScrollbackArrivedMs = null;
     },
     async socketMomentsSinceArm(): Promise<SocketMoment[]> {
       const socketMoments = await page.evaluate(readSocketMoments);
       return socketMoments.filter((socketMoment) => socketMoment.atMs >= pageArmedAtMs).map((socketMoment) => ({ ...socketMoment, atMs: socketMoment.atMs - pageArmedAtMs }));
     },
-    terminalLiveMs: () => terminalLiveMs,
+    fullScrollbackArrivedMs: () => fullScrollbackArrivedMs,
   };
 }
 
@@ -473,12 +508,12 @@ function overrideVisibility(isHidden: boolean): void {
   document.dispatchEvent(new Event('visibilitychange'));
 }
 
-async function waitForTerminalLive(watch: WakeVisit['watch'], description: string): Promise<number> {
-  await waitFor(() => watch.terminalLiveMs() !== null, WAKE_WAIT_MS, description);
-  return watch.terminalLiveMs() ?? Number.POSITIVE_INFINITY;
+async function waitForFullScrollbackArrived(watch: WakeVisit['watch'], description: string): Promise<number> {
+  await waitFor(() => watch.fullScrollbackArrivedMs() !== null, WAKE_WAIT_MS, description);
+  return watch.fullScrollbackArrivedMs() ?? Number.POSITIVE_INFINITY;
 }
 
-async function waitForControlRetry(watch: WakeVisit['watch']): Promise<number> {
+async function measureControlRetryGap(watch: WakeVisit['watch']): Promise<number> {
   const deadline = Date.now() + WAKE_WAIT_MS;
   while (Date.now() < deadline) {
     const controlCreatedMs = (await watch.socketMomentsSinceArm()).filter((socketMoment) => socketMoment.path === '/control' && socketMoment.moment === 'created').map((socketMoment) => socketMoment.atMs);
@@ -498,7 +533,7 @@ const WAKE_CASES: WakeCase[] = [
       await hide();
       await sleep(WAKE_HIDDEN_MS);
       await show();
-      return waitForTerminalLive(watch, 'the shown terminal did not come back after a healthy wake');
+      return waitForFullScrollbackArrived(watch, 'the shown terminal did not come back after a healthy wake');
     },
   },
   {
@@ -510,7 +545,7 @@ const WAKE_CASES: WakeCase[] = [
       proxy.stallOpenConnections();
       await sleep(WAKE_HIDDEN_MS);
       await show();
-      return waitForTerminalLive(watch, 'the shown terminal did not come back after a stalled wake');
+      return waitForFullScrollbackArrived(watch, 'the shown terminal did not come back after a stalled wake');
     },
   },
   {
@@ -520,7 +555,7 @@ const WAKE_CASES: WakeCase[] = [
     async measure({ proxy, watch }) {
       await watch.arm();
       proxy.stallOpenConnections();
-      return waitForTerminalLive(watch, 'a connection that died while shown was never replaced');
+      return waitForFullScrollbackArrived(watch, 'a connection that died while shown was never replaced');
     },
   },
   {
@@ -533,10 +568,10 @@ const WAKE_CASES: WakeCase[] = [
       proxy.setWedgingNewConnections(true);
       await sleep(WAKE_HIDDEN_MS);
       await show();
-      const retryAfterMs = await waitForControlRetry(watch);
+      const controlRetryGapMs = await measureControlRetryGap(watch);
       proxy.setWedgingNewConnections(false);
-      await waitForTerminalLive(watch, 'the shown terminal did not come back once handshakes were answered again');
-      return retryAfterMs;
+      await waitForFullScrollbackArrived(watch, 'the shown terminal did not come back once handshakes were answered again');
+      return controlRetryGapMs;
     },
   },
 ];
