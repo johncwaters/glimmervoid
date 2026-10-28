@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Codex commands show in the activity stream again**: current Codex versions run shell commands through an `exec` tool call, which the activity stream skipped, so a Codex session's commands never appeared there. Each command that call runs now shows as its own `exec_command` line, and one the call builds at run time shows as `exec_command` without its text. Your prompts to an agent are still never published to the stream.
 - **Debug state and Trace moved into the session menu**: with debug mode on, a session's Debug state and Trace now sit in its `...` Session actions menu instead of as two extra icons in the card header, on desktop and on your phone. The phone Terminal top bar gets the room back for the title, session name and safety badges.
 - **Safety badges show on your phone**: the phone Terminal screen now shows the session's YOLO or Sane YOLO badge and its Guardrails badge next to its status. Tap a badge to read what it means; tap Guardrails to release or restore them, as on desktop.
 - **The review desk fills a wide screen and shows its keys**: on a wide Reviews pane the pull request column now stretches to the edge instead of stopping partway and leaving an empty band, the right-hand panel grows up to 420px, and the Your note box starts about four lines tall. Approve, Request changes and Comment now show their keys (A, R, C), Open in session shows O, and the Findings heading shows N and P to move between findings and X to post or drop the current one.

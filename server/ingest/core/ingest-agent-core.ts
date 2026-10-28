@@ -37,6 +37,8 @@ type KimiToolCall = { name?: unknown; arguments?: unknown };
 
 type KimiMessage = { role?: unknown; content?: unknown; toolCalls?: unknown };
 
+type KimiMessageMeta = { origin?: { kind?: unknown } };
+
 type TranscriptLine = {
   type?: unknown;
   cwd?: unknown;
@@ -45,7 +47,8 @@ type TranscriptLine = {
   time?: unknown;
   isMeta?: unknown;
   isCompactSummary?: unknown;
-  message?: { content?: unknown; message?: KimiMessage };
+  isSidechain?: unknown;
+  message?: { content?: unknown; message?: KimiMessage; meta?: KimiMessageMeta };
   environmentDisclosure?: { cwd?: unknown };
   payload?: Record<string, unknown>;
   params?: { update?: GrokUpdate; sessionId?: unknown };
@@ -135,6 +138,19 @@ function turnEvent({ ts, root, sessionId, vendor, text }: EventBase & { text: un
   };
 }
 
+function promptEvent({ ts, root, sessionId, vendor, text }: EventBase & { text: unknown }): AgentIngestEvent | null {
+  const prompt = boundRaw(text).trim();
+  if (!prompt) return null;
+  return {
+    source: SOURCE,
+    kind: 'agent-prompt',
+    ts,
+    scope: { root, sessionId },
+    summary: `${vendor}: ${prompt}`,
+    detail: { vendor },
+  };
+}
+
 function toolEvent({ ts, root, sessionId, vendor, name, target }: EventBase & { name: unknown; target: string }): AgentIngestEvent {
   const tool = boundRaw(textOr(name, null) || 'tool');
   const suffix = target ? ` ${target}` : '';
@@ -166,7 +182,38 @@ function firstTextBlock(content: ContentBlock[]): string | null {
   return null;
 }
 
+const SLASH_COMMAND_ENVELOPE = /<command-name>\s*([^<]*?)\s*<\/command-name>/i;
+const SLASH_COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/i;
+const HARNESS_RECORD = /^\s*(?:<local-command-(?:caveat|stdout|stderr)>|<task-notification>|<bash-(?:input|stdout|stderr)>|\[Request interrupted by user)/i;
+
+function claudePromptText(content: unknown): string | null {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return null;
+  if (content.some((block: ContentBlock) => block?.type === 'tool_result')) return null;
+  return firstTextBlock(content);
+}
+
+function unwrapSlashCommand(text: string): string | null {
+  if (HARNESS_RECORD.test(text)) return null;
+  const commandName = SLASH_COMMAND_ENVELOPE.exec(text)?.[1];
+  if (!commandName) return text;
+  const commandArgs = SLASH_COMMAND_ARGS.exec(text)?.[1]?.trim() ?? '';
+  return commandArgs ? `${commandName} ${commandArgs}` : commandName;
+}
+
+function mapClaudePromptLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | null {
+  if (line.isMeta === true || line.isSidechain === true || line.isCompactSummary === true) return null;
+  const text = claudePromptText(line.message?.content);
+  const prompt = text ? unwrapSlashCommand(text) : null;
+  if (!prompt) return null;
+  const root = textOr(line.cwd, null) || ctx.root;
+  const sessionId = textOr(line.sessionId, null) || ctx.sessionId;
+  const event = promptEvent({ ts: parseTimestamp(line.timestamp) || ctx.now, root, sessionId, vendor: 'claude', text: prompt });
+  return event ? result([event], root, sessionId, ctx.vendorState) : null;
+}
+
 function mapClaudeLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | null {
+  if (line.type === 'user') return mapClaudePromptLine(line, ctx);
   if (line.type !== 'assistant') return null;
   const content = line.message?.content;
   if (!Array.isArray(content)) return null;
@@ -186,6 +233,44 @@ function mapClaudeLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | 
   return result(events, root, sessionId, ctx.vendorState);
 }
 
+const EXEC_COMMAND_CALL = /exec_command\(/g;
+const EXEC_CMD_ARGUMENT = /\bcmd\s*:\s*("(?:[^"\\]|\\.)*"|`(?:[^`\\$]|\\.)*`)/;
+
+function parsedJsonString(literal: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(literal);
+    return typeof parsed === 'string' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function commandLiteralValue(literal: string): string | null {
+  if (literal.startsWith('"')) return parsedJsonString(literal);
+  return literal.slice(1, -1).replace(/\\(.)/g, '$1');
+}
+
+function execCommandsOf(input: unknown): string[] {
+  if (typeof input !== 'string') return [];
+  const callStarts = [...input.matchAll(EXEC_COMMAND_CALL)].map((match) => match.index);
+  return callStarts.map((callStart, callNumber) => {
+    const callText = input.slice(callStart, callStarts[callNumber + 1] ?? input.length);
+    const literal = EXEC_CMD_ARGUMENT.exec(callText)?.[1];
+    const command = literal ? commandLiteralValue(literal) : null;
+    return command ? boundRaw(command) : '';
+  });
+}
+
+function codexPromptText(payload: Record<string, unknown>): string | null {
+  if (payload.type === 'user_message') return textOr(payload.message, null);
+  if (payload.type !== 'item_completed') return null;
+  const item = payload.item;
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+  const record = item as Record<string, unknown>;
+  if (record.type !== 'UserMessage' || !Array.isArray(record.content)) return null;
+  return firstTextBlock(record.content);
+}
+
 function mapCodexLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | null {
   const payload = line.payload;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
@@ -199,6 +284,15 @@ function mapCodexLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | n
     const turn = turnEvent({ ...base, text: payload.message });
     if (!turn) return null;
     return result([turn], ctx.root, ctx.sessionId, ctx.vendorState);
+  }
+  const prompt = line.type === 'event_msg' ? codexPromptText(payload) : null;
+  if (prompt) {
+    const event = promptEvent({ ...base, text: prompt });
+    return event ? result([event], ctx.root, ctx.sessionId, ctx.vendorState) : null;
+  }
+  if (line.type === 'response_item' && payload.type === 'custom_tool_call' && payload.name === 'exec') {
+    const events = execCommandsOf(payload.input).map((command) => toolEvent({ ...base, name: 'exec_command', target: command }));
+    return events.length > 0 ? result(events, ctx.root, ctx.sessionId, ctx.vendorState) : null;
   }
   if (line.type === 'response_item' && payload.type === 'function_call') {
     const target = toolTarget(parseJsonRecord(payload.arguments));
@@ -279,14 +373,22 @@ function kimiToolEvents(toolCalls: unknown, base: EventBase): AgentIngestEvent[]
   }));
 }
 
+function mapKimiPrompt(line: TranscriptLine, content: ContentBlock[], base: EventBase, ctx: MapContext): AgentMapResult | null {
+  const originKind = line.message?.meta?.origin?.kind;
+  if (originKind !== undefined && originKind !== 'user') return null;
+  const event = promptEvent({ ...base, text: firstTextBlock(content) });
+  return event ? result([event], ctx.root, ctx.sessionId, ctx.vendorState) : null;
+}
+
 function mapKimiLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | null {
   const announcedRoot = kimiRootOf(line);
   if (announcedRoot) return result([], announcedRoot, ctx.sessionId, ctx.vendorState);
   if (line.type !== 'agent.message.appended') return null;
   const message = line.message?.message;
-  if (message?.role !== 'assistant') return null;
   const base: EventBase = { ts: parseTimestamp(line.time) || ctx.now, root: ctx.root, sessionId: ctx.sessionId, vendor: 'kimi' };
-  const content = Array.isArray(message.content) ? message.content : [];
+  const content = Array.isArray(message?.content) ? message.content : [];
+  if (message?.role === 'user') return mapKimiPrompt(line, content, base, ctx);
+  if (message?.role !== 'assistant') return null;
   const turn = turnEvent({ ...base, text: firstTextBlock(content) });
   const events = [...(turn ? [turn] : []), ...kimiToolEvents(message.toolCalls, base)];
   return result(events, ctx.root, ctx.sessionId, ctx.vendorState);

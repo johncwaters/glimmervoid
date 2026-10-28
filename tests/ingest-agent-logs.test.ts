@@ -301,3 +301,69 @@ test('a secret past a long prefix in a turn summary is scrubbed whole, and the r
     lane.stop();
   }
 }));
+
+function seedCodexRollout(codexSessions: string): string {
+  const dayDir = path.join(codexSessions, '2026', '10', '28');
+  fs.mkdirSync(dayDir, { recursive: true });
+  const filePath = path.join(dayDir, 'rollout-2026-10-28T08-00-00-01a16ade-273d-7be0-9cea-423da1d1a4bb.jsonl');
+  fs.writeFileSync(filePath, codexRecord('session_meta', { cwd: '/work/repo', session_id: '01a16ade-273d-7be0-9cea-423da1d1a4bb' }), 'utf8');
+  return filePath;
+}
+
+function codexRecord(type: string, payload: Record<string, unknown>): string {
+  return `${JSON.stringify({ timestamp: new Date().toISOString(), type, payload })}\n`;
+}
+
+const CODEX_EXEC_INPUT = 'const [diff, view] = await Promise.all([tools.exec_command({cmd:"gh pr diff 412","workdir":"/r"}), tools.exec_command({ cmd: "gh pr view \\"418\\"" })]); await tools.exec_command({workdir:"/r",cmd:`git log -1`}); for (const cmd of checks) await tools.exec_command({cmd,max_output_tokens:3000});';
+
+test('each vendor publishes its operator prompts, and a Codex exec call publishes every command it runs', withHomes(async ({ projects, codexSessions, kimiSessions, events, build }) => {
+  const claudeFile = seedClaudeTranscript(projects, { sessionId: 'sess-prompt' });
+  const codexFile = seedCodexRollout(codexSessions);
+  const kimiDir = path.join(kimiSessions, 'wd_repo_1bd23b510277', 'session_766a47d0-9cb9-4af9-8f5e-1eaf9374b85e', 'agents', 'main');
+  fs.mkdirSync(kimiDir, { recursive: true });
+  const kimiFile = path.join(kimiDir, 'wire.jsonl');
+  fs.writeFileSync(kimiFile, `${JSON.stringify({ type: 'profile.bind', agentId: 'main', environmentDisclosure: { cwd: '/work/repo' }, time: 1793212054320 })}\n`, 'utf8');
+  const adapter = build();
+  await adapter.start();
+
+  const claudeUser = (content: unknown, extra: Record<string, unknown> = {}) => `${JSON.stringify({ type: 'user', message: { role: 'user', content }, cwd: '/r', sessionId: 'sess-prompt', timestamp: new Date().toISOString(), ...extra })}\n`;
+  append(claudeFile, claudeUser('<command-message>code-review</command-message>\n<command-name>/code-review</command-name>\n<command-args>13</command-args>'));
+  append(claudeFile, claudeUser('<local-command-stdout>cleared</local-command-stdout>'));
+  append(claudeFile, claudeUser([{ type: 'tool_result', tool_use_id: 'tu-1', content: 'ok' }]));
+  append(claudeFile, claudeUser('subagent brief', { isSidechain: true }));
+  append(claudeFile, claudeUser('<task-notification>\n<task-id>w1</task-id>\n</task-notification>'));
+  append(claudeFile, claudeUser('<bash-stdout>output</bash-stdout><bash-stderr></bash-stderr>'));
+  append(claudeFile, claudeUser('[Request interrupted by user]'));
+  append(codexFile, codexRecord('event_msg', { type: 'item_completed', item: { type: 'UserMessage', content: [{ type: 'text', text: 'review PR 12 please' }] } }));
+  append(codexFile, codexRecord('response_item', { type: 'custom_tool_call', name: 'exec', input: CODEX_EXEC_INPUT }));
+  append(kimiFile, `${JSON.stringify({ type: 'agent.message.appended', time: 1793214428508, message: { message: { role: 'user', content: [{ type: 'text', text: 'fix issue #3' }] }, meta: { origin: { kind: 'user' } } } })}\n`);
+  await adapter.poll();
+
+  assert.deepEqual(events.map((event) => [event.kind, event.summary]).sort(), [
+    ['agent-prompt', 'claude: /code-review 13'],
+    ['agent-prompt', 'codex: review PR 12 please'],
+    ['agent-prompt', 'kimi: fix issue #3'],
+    ['agent-tool', 'codex: exec_command'],
+    ['agent-tool', 'codex: exec_command gh pr diff 412'],
+    ['agent-tool', 'codex: exec_command gh pr view "418"'],
+    ['agent-tool', 'codex: exec_command git log -1'],
+  ]);
+}));
+
+test('the activity stream shows Codex exec commands but never an operator prompt, and a prompt never swallows the dropped-lines marker', withHomes(async (homes) => {
+  const codexFile = seedCodexRollout(homes.codexSessions);
+  const { lane } = laneWith(homes, { enabled: true, sources: { agentLogs: { enabled: true } } }, { maxLinesPerDrain: 2 });
+  try {
+    await agentLogsOf(lane).start();
+    append(codexFile, codexRecord('event_msg', { type: 'agent_message', message: 'one' }));
+    append(codexFile, codexRecord('event_msg', { type: 'user_message', message: 'review PR 12 please' }));
+    append(codexFile, codexRecord('response_item', { type: 'custom_tool_call', name: 'exec', input: 'tools.exec_command({cmd:"gh pr diff 412"})' }));
+    await agentLogsOf(lane).poll();
+
+    assert.deepEqual(lane.recentEvents().map((event) => [event.kind, event.summary]), [
+      ['agent-tool', 'codex: exec_command gh pr diff 412 [1 earlier lines dropped]'],
+    ]);
+  } finally {
+    lane.stop();
+  }
+}));

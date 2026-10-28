@@ -600,7 +600,7 @@ function createAgentLogIngest({
       if (isDispatchWorkdir(context.root)) continue;
       for (const event of mapped.events) {
         if (!event.scope.root) continue;
-        if (droppedLines > 0) {
+        if (droppedLines > 0 && event.kind !== 'agent-prompt') {
           event.summary = `${event.summary} [${droppedLines} earlier lines dropped]`;
           event.detail = { ...event.detail, droppedLines };
           droppedLines = 0;
