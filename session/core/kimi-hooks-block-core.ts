@@ -363,5 +363,5 @@ function planKimiHome(inputs: KimiHomeInputs): KimiHomePlan {
   };
 }
 
-export { BLOCK_START, BLOCK_END, KIMI_BASE_NAME, KIMI_CONFIG_NAME, KIMI_CONFLICTS_NAME, KIMI_IN_USE_LOCK_NAME, KIMI_SOURCES_NAME, fileStampKey, renderKimiHooksBlock, classifyKimiConfig, spliceKimiHooksBlock, generatedKimiConfig, mergeTopLevelKeys, planKimiHome };
-export type { GeneratedKimiEntry, KimiBlockClassification, KimiHomeInputs, KimiHomePlan, KimiHomeStep, KimiHooksBlockOptions, KimiLinkKind, RealKimiEntry };
+export { BLOCK_START, BLOCK_END, KIMI_BASE_NAME, KIMI_CONFIG_NAME, KIMI_CONFLICTS_NAME, KIMI_IN_USE_LOCK_NAME, KIMI_SOURCES_NAME, fileStampKey, renderKimiHooksBlock, planKimiHome };
+export type { GeneratedKimiEntry, KimiHomePlan, KimiHomeStep, RealKimiEntry };

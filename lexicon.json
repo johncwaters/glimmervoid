@@ -107,6 +107,10 @@
     {
       "name": "kimi code",
       "definition": "Moonshot's Kimi Code CLI, one of the agent CLIs glimmervoid supervises through its kimi agent adapter"
+    },
+    {
+      "name": "question",
+      "definition": "An agent's request for the operator's answer (Claude Code AskUserQuestion, Codex request_user_input, Kimi Code AskUserQuestion), carried as the question kind of a session's ConversationApproval and putting the session in waiting until answered"
     }
   ]
 }

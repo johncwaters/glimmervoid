@@ -13,7 +13,7 @@ export const HINT_VIEW_BY_FEATURE = Object.freeze({
   benchmarks: 'benchmarks',
 } as const satisfies Record<HintFeature, string>);
 
-export const HINT_OUTCOMES = Object.freeze(['opened', 'dismissed'] as const);
+const HINT_OUTCOMES = Object.freeze(['opened', 'dismissed'] as const);
 export type HintOutcome = (typeof HINT_OUTCOMES)[number];
 
 const timestamp = z.number().int().nonnegative();

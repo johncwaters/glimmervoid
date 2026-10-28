@@ -48,4 +48,4 @@ function mergeCodexPreToolUse(groups: readonly string[]): string[] {
 }
 
 export { HOOK_TOOLS, mergeCodexPreToolUse };
-export type { HookToolId, ResolvedHookTool };
+export type { ResolvedHookTool };

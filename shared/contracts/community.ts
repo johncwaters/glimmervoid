@@ -1,12 +1,11 @@
 import { z } from 'zod';
 
-export const CommunitySource = z.enum(['forum', 'discord']);
-export type CommunitySource = z.infer<typeof CommunitySource>;
+const CommunitySource = z.enum(['forum', 'discord']);
 
 export const CommunityVerdict = z.enum(['HIGH', 'MEDIUM', 'LOW']);
 export type CommunityVerdict = z.infer<typeof CommunityVerdict>;
 
-export const COMMUNITY_ITEM_KEY_RE = /^(forum|discord):[A-Za-z0-9_-]{1,128}$/;
+const COMMUNITY_ITEM_KEY_RE = /^(forum|discord):[A-Za-z0-9_-]{1,128}$/;
 
 export const CommunityItem = z.strictObject({
   key: z.string().regex(COMMUNITY_ITEM_KEY_RE),
@@ -26,8 +25,7 @@ export const CommunityDraft = z.strictObject({
 });
 export type CommunityDraft = z.infer<typeof CommunityDraft>;
 
-export const CommunityRunStatus = z.enum(['queued', 'running', 'ready', 'error', 'aside']);
-export type CommunityRunStatus = z.infer<typeof CommunityRunStatus>;
+const CommunityRunStatus = z.enum(['queued', 'running', 'ready', 'error', 'aside']);
 
 export const CommunityStateEntry = z.strictObject({
   item: CommunityItem,
@@ -45,11 +43,10 @@ export const CommunityStateEntry = z.strictObject({
 });
 export type CommunityStateEntry = z.infer<typeof CommunityStateEntry>;
 
-export const CommunityWatermarks = z.strictObject({
+const CommunityWatermarks = z.strictObject({
   forum: z.string().nullable(),
   discord: z.string().nullable(),
 });
-export type CommunityWatermarks = z.infer<typeof CommunityWatermarks>;
 
 export const CommunityState = z.strictObject({
   watermarks: CommunityWatermarks,

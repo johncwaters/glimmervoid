@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { realKimiHome } from '../../session/kimi-home.ts';
+import { createLaneLog } from '../lanes/lane-log.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { kimiUsagesSource, parseKimiUsages, pickKimiAccessToken } from './core/usage-kimi-limits-core.ts';
 import type { KimiPlanLimitsSnapshot } from './core/usage-kimi-limits-core.ts';
@@ -20,6 +21,7 @@ interface KimiPlanLimitsReaderOptions {
   fetchFn?: typeof fetch;
   timeoutMs?: number;
   nowFn?: () => number;
+  logger?: Pick<Console, 'warn' | 'log'>;
 }
 
 async function readTextOrNull(fsPromises: Pick<typeof nodeFsPromises, 'readFile'>, filePath: string): Promise<string | null> {
@@ -37,8 +39,11 @@ function createKimiPlanLimitsReader({
   fetchFn = fetch,
   timeoutMs = KIMI_USAGES_TIMEOUT_MS,
   nowFn = Date.now,
+  logger = console,
 }: KimiPlanLimitsReaderOptions = {}) {
-  async function readPlanLimits(): Promise<KimiPlanLimitsPoll> {
+  const laneLog = createLaneLog({ prefix: '[usage]', logger });
+
+  async function pollUsages(): Promise<KimiPlanLimitsPoll> {
     const kimiHome = realKimiHome(env, homeDir);
     const source = kimiUsagesSource(await readTextOrNull(fsPromises, path.join(kimiHome, 'config.toml')), env);
     if (!source) return { kind: 'unavailable', reason: 'no kimi OAuth login in the kimi config' };
@@ -60,8 +65,14 @@ function createKimiPlanLimitsReader({
     }
   }
 
+  async function readPlanLimits(): Promise<KimiPlanLimitsSnapshot | null> {
+    const poll = await pollUsages();
+    if (poll.kind === 'limits') return poll.snapshot;
+    laneLog.warnOnce(`kimi-plan-limits:${poll.reason}`, 'kimi plan limits unavailable', { reason: poll.reason });
+    return null;
+  }
+
   return { readPlanLimits };
 }
 
 export { createKimiPlanLimitsReader };
-export type { KimiPlanLimitsPoll };

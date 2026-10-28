@@ -695,7 +695,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       {
         id: 'community-project-id', path: 'community.projectId', title: 'PostHog project',
         description: 'PostHog project id that holds the synced community forum table and the Discord bot events.',
-        control: 'number', integer: true, range: POSTHOG_PROJECT_ID_RANGE, keywords: ['project id', 'warehouse'], defaultValue: 2, ...MACHINE_NOW,
+        control: 'number', integer: true, range: POSTHOG_PROJECT_ID_RANGE, unit: { label: 'project id', storedPerDisplay: 1 }, keywords: ['project id', 'warehouse'], defaultValue: 2, ...MACHINE_NOW,
       },
       {
         id: 'community-interval', path: 'community.intervalMinutes', title: 'Poll interval',

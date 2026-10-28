@@ -140,4 +140,4 @@ function createCommunityPoller({
 }
 
 export { createCommunityPoller };
-export type { CommunityPoller, SourceRows };
+export type { SourceRows };

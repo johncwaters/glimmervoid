@@ -8,7 +8,7 @@ import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-ani
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { ANIMALS } from './nyan-animals-core.ts';
 
-export interface FeatureHintHost {
+interface FeatureHintHost {
   isFeatureEnabled: (feature: HintFeature) => boolean;
   openView: (view: string) => void;
   openSetting: (sectionId: string, settingId: string) => void;

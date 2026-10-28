@@ -20,7 +20,7 @@ import {
 import type { PlanLimitsVendor, RateLimitWindows, StatuslineSnapshot } from './core/usage-statusline-core.ts';
 import type { CodexRateLimitSnapshot } from './core/usage-codex-core.ts';
 import { createKimiPlanLimitsReader } from './usage-kimi-limits.ts';
-import type { KimiPlanLimitsPoll } from './usage-kimi-limits.ts';
+import type { KimiPlanLimitsSnapshot } from './core/usage-kimi-limits-core.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { createLaneLog } from '../lanes/lane-log.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
@@ -130,7 +130,7 @@ interface UsageWiringOptions {
   fsPromises?: typeof nodeFsPromises;
   createScanner?: (deps?: UsageScannerOptions) => UsageScannerApi;
   loadPricingFn?: typeof loadPricing;
-  readKimiPlanLimits?: () => Promise<KimiPlanLimitsPoll>;
+  readKimiPlanLimits?: () => Promise<KimiPlanLimitsSnapshot | null>;
   scannerDeps?: Record<string, unknown>;
   nowFn?: () => number;
   partialContinueMs?: number;
@@ -219,7 +219,7 @@ function createUsageWiring({
   fsPromises = nodeFsPromises,
   createScanner = createUsageScanner,
   loadPricingFn = loadPricing,
-  readKimiPlanLimits = createKimiPlanLimitsReader().readPlanLimits,
+  readKimiPlanLimits,
   scannerDeps = {},
   nowFn = Date.now,
   partialContinueMs = PARTIAL_CONTINUE_MS,
@@ -231,6 +231,7 @@ function createUsageWiring({
   debug = false,
 }: UsageWiringOptions) {
   const laneLog = createLaneLog({ prefix: '[usage]', logger, debugFlag: debug });
+  const readKimiLimits = readKimiPlanLimits ?? createKimiPlanLimitsReader({ logger }).readPlanLimits;
   let cfg = resolveUsageConfig(config.usage);
   let lastKey = usageCfgKey(config);
   let scanner: UsageScannerApi | null = null;
@@ -512,13 +513,9 @@ function createUsageWiring({
 
   async function runKimiPoll(): Promise<void> {
     lastKimiPollMs = nowFn();
-    const poll = await readKimiPlanLimits();
-    if (stopped) return;
-    if (poll.kind === 'unavailable') {
-      laneLog.warnOnce(`kimi-plan-limits:${poll.reason}`, 'kimi plan limits unavailable', { reason: poll.reason });
-      return;
-    }
-    adoptPlanLimits('kimi', poll.snapshot, { isFreshPoll: true });
+    const snapshot = await readKimiLimits();
+    if (stopped || snapshot === null) return;
+    adoptPlanLimits('kimi', snapshot, { isFreshPoll: true });
   }
 
   function pollKimiPlanLimits(minIntervalMs: number): Promise<void> {

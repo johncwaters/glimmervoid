@@ -72,4 +72,4 @@ function parsePostingFile<Plan>(json: string, schema: z.ZodType<Plan>, label: st
   return { ok: true, plan: parsed.data };
 }
 
-export { bulletsIn, fencedUntrusted, isHeadingAmong, parsePostingFile, sectionAfter, textAfterHeading, withoutControlCharacters };
+export { bulletsIn, fencedUntrusted, isHeadingAmong, parsePostingFile, sectionAfter, withoutControlCharacters };

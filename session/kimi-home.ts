@@ -384,5 +384,5 @@ function releaseUnheldKimiHomeSecrets(generatedHome: string): void {
   releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "keep" });
 }
 
-export { describeKimiHome, generatedKimiHomePath, holdKimiHome, inspectKimiHome, kimiHomeLinkRefusal, prepareKimiHome, realKimiHome, releaseKimiHome, releaseKimiHomeSecrets, releaseUnheldKimiHomeSecrets };
-export type { KimiHomeOptions, KimiHomeReading };
+export { describeKimiHome, generatedKimiHomePath, holdKimiHome, kimiHomeLinkRefusal, prepareKimiHome, realKimiHome, releaseKimiHome, releaseUnheldKimiHomeSecrets };
+

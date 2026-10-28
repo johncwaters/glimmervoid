@@ -630,7 +630,7 @@ test('kimi plan limits poll /usages read-only while a kimi session is live, rare
     },
     createScanner: () => scriptedScanner([], [COMPLETE_PASS]),
     loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    readKimiPlanLimits: createKimiPlanLimitsReader({ env: { KIMI_CODE_HOME: kimiHome }, homeDir: directory, fetchFn, nowFn: () => nowMs }).readPlanLimits,
+    readKimiPlanLimits: createKimiPlanLimitsReader({ env: { KIMI_CODE_HOME: kimiHome }, homeDir: directory, fetchFn, nowFn: () => nowMs, logger: { warn: () => {}, log: () => {} } }).readPlanLimits,
     nowFn: () => nowMs,
     setIntervalFn: (run) => {
       intervalTick = run;
