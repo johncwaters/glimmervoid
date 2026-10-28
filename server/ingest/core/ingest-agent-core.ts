@@ -69,7 +69,7 @@ interface EventBase {
 }
 
 const TOOL_TARGET_KEYS: readonly string[] = Object.freeze([
-  'file_path', 'notebook_path', 'path', 'command', 'pattern', 'url', 'query', 'to', 'subagent_type',
+  'file_path', 'notebook_path', 'path', 'command', 'cmd', 'pattern', 'url', 'query', 'to', 'subagent_type',
   'description', 'prompt',
 ]);
 
@@ -114,11 +114,16 @@ function parseTimestamp(value: unknown): number | null {
 }
 
 
+function commandWordsJoined(value: unknown): unknown {
+  if (!Array.isArray(value) || !value.every((word) => typeof word === 'string')) return value;
+  return value.join(' ');
+}
+
 function toolTarget(input: unknown): string {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return '';
   const record = input as Record<string, unknown>;
   for (const key of TOOL_TARGET_KEYS) {
-    const value = textOr(record[key], null);
+    const value = textOr(commandWordsJoined(record[key]), null);
     if (!value) continue;
     return boundRaw(value);
   }

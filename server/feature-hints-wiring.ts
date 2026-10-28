@@ -1,24 +1,14 @@
 import { FeatureHintState } from '../shared/contracts/feature-hints.ts';
 import type { FeatureHint, HintFeature, HintOutcome } from '../shared/contracts/feature-hints.ts';
 import { createJsonStateStore } from './json-file.ts';
+import { createAgentLogIngest } from './ingest/ingest-agent-logs.ts';
+import type { AgentLogIngestOptions } from './ingest/ingest-agent-logs.ts';
+import type { AgentIngestEvent } from './ingest/core/ingest-agent-core.ts';
 import { createShellHistoryIngest } from './ingest/ingest-shell-history.ts';
 import type { ShellHistoryOptions } from './ingest/ingest-shell-history.ts';
 import type { ShellIngestEvent } from './ingest/core/ingest-shell-core.ts';
 import * as core from './core/feature-hints-core.ts';
 import type { FeatureSignal, RecentPrompt } from './core/feature-hints-core.ts';
-
-interface HookEventNotice {
-  event: string;
-  payload: Record<string, unknown>;
-}
-
-interface HintableSession {
-  id: string;
-  on(event: 'hook-event', listener: (notice: HookEventNotice) => void): unknown;
-  on(event: 'teardown', listener: () => void): unknown;
-  off(event: 'hook-event', listener: (notice: HookEventNotice) => void): unknown;
-  off(event: 'teardown', listener: () => void): unknown;
-}
 
 interface FeatureHintsWiringOptions {
   statePath: string | null;
@@ -26,25 +16,34 @@ interface FeatureHintsWiringOptions {
   log: Pick<Console, 'warn'>;
   now?: () => number;
   shellHistory?: Omit<ShellHistoryOptions, 'publish'> | null;
+  agentLogs?: Omit<AgentLogIngestOptions, 'publish'> | null;
 }
 
-function bashCommandOf(payload: Record<string, unknown>): string | null {
-  if (payload.tool_name !== 'Bash') return null;
-  const toolInput = payload.tool_input;
-  if (typeof toolInput !== 'object' || toolInput === null || !('command' in toolInput)) return null;
-  return typeof toolInput.command === 'string' ? toolInput.command : null;
+const SHELL_TOOLS = new Set(['Bash', 'exec_command', 'shell']);
+const HINTED_VENDORS = { claude: true, codex: true, kimi: true, grok: false };
+
+function textAfterPrefix(text: string, prefix: string): string | null {
+  return text.startsWith(prefix) ? text.slice(prefix.length) : null;
+}
+
+function toolCommandOf(event: AgentIngestEvent): string | null {
+  if (event.kind !== 'agent-tool' || !SHELL_TOOLS.has(String(event.detail.tool))) return null;
+  return textAfterPrefix(event.summary, `${event.detail.vendor}: ${event.detail.tool} `);
+}
+
+function promptOf(event: AgentIngestEvent): string | null {
+  if (event.kind !== 'agent-prompt') return null;
+  return textAfterPrefix(event.summary, `${event.detail.vendor}: `);
 }
 
 function shellCommandOf(event: ShellIngestEvent): string | null {
   if (event.kind !== 'command') return null;
-  const shellPrefix = `${event.detail.shell}: `;
-  return event.summary.startsWith(shellPrefix) ? event.summary.slice(shellPrefix.length) : null;
+  return textAfterPrefix(event.summary, `${event.detail.shell}: `);
 }
 
-function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now, shellHistory = {} }: FeatureHintsWiringOptions) {
+function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now, shellHistory = {}, agentLogs = {} }: FeatureHintsWiringOptions) {
   let state = core.emptyFeatureHintState();
   let recentPrompts: readonly RecentPrompt[] = [];
-  const attachedSessions = new WeakSet<HintableSession>();
   let isStopped = false;
   const store = createJsonStateStore({
     name: 'feature hints', filePath: statePath,
@@ -71,31 +70,14 @@ function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now, s
     return update((current) => core.recordSignals(current, signals, now()));
   }
 
-  function signalsFromHookEvent(session: HintableSession, { event, payload }: HookEventNotice): FeatureSignal[] {
-    const ts = now();
-    if (event === 'PostToolUse') {
-      const command = bashCommandOf(payload);
-      return command ? core.classifyCommand(command, 'agent-command', ts) : [];
-    }
-    if (event !== 'UserPromptSubmit' || typeof payload.prompt !== 'string') return [];
-    const repeated = core.noteRecentPrompt(recentPrompts, { prompt: payload.prompt, sessionId: session.id, ts });
+  function signalsFromAgentEvent(event: AgentIngestEvent): FeatureSignal[] {
+    const command = toolCommandOf(event);
+    if (command) return core.classifyCommand(command, 'agent-command', event.ts);
+    const prompt = promptOf(event);
+    if (!prompt) return [];
+    const repeated = core.noteRecentPrompt(recentPrompts, { prompt, sessionId: event.scope.sessionId ?? '', ts: event.ts });
     recentPrompts = repeated.recentPrompts;
-    return [...core.classifyPrompt(payload.prompt, ts), ...repeated.signals];
-  }
-
-  function attachSession(session: HintableSession): void {
-    if (attachedSessions.has(session)) return;
-    attachedSessions.add(session);
-    function onHookEvent(notice: HookEventNotice): void {
-      void recordSignals(signalsFromHookEvent(session, notice));
-    }
-    function detach(): void {
-      attachedSessions.delete(session);
-      session.off('hook-event', onHookEvent);
-      session.off('teardown', detach);
-    }
-    session.on('hook-event', onHookEvent);
-    session.on('teardown', detach);
+    return [...core.classifyPrompt(prompt, event.ts), ...repeated.signals];
   }
 
   const shellHistoryIngest = shellHistory && createShellHistoryIngest({
@@ -107,6 +89,15 @@ function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now, s
     },
   });
   void shellHistoryIngest?.start();
+
+  const agentLogIngest = agentLogs && createAgentLogIngest({
+    logger: log,
+    vendors: HINTED_VENDORS,
+    readsFilesBornAfterStart: true,
+    ...agentLogs,
+    publish: (event) => { void recordSignals(signalsFromAgentEvent(event)); },
+  });
+  void agentLogIngest?.start();
 
   function noteViewShown(view: string): Promise<void> {
     return update((current) => core.noteViewShown(current, view, now()));
@@ -125,15 +116,15 @@ function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now, s
   }
 
   async function stop(): Promise<void> {
-    await shellHistoryIngest?.stop();
+    await Promise.all([shellHistoryIngest?.stop(), agentLogIngest?.stop()]);
     isStopped = true;
     await idle();
   }
 
-  return { attachSession, noteViewShown, settle, pendingHintMessage, stop, idle };
+  return { noteViewShown, settle, pendingHintMessage, stop, idle };
 }
 
 type FeatureHintsWiring = ReturnType<typeof createFeatureHintsWiring>;
 
 export { createFeatureHintsWiring };
-export type { FeatureHintsWiring, HintableSession };
+export type { FeatureHintsWiring };

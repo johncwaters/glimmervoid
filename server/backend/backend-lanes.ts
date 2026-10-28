@@ -242,6 +242,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const sessionPrLink = createSessionPrLinkWiring({ store: githubStore.laneStore, git: gitWorkspace, log: logger });
   const featureHints = createFeatureHintsWiring({
     statePath: configSiblingPath(configStore.configPath, 'feature-hints.json'), broadcast: broadcastControl, log: logger,
+    agentLogs: { laneMap: () => laneLedger.laneMap() },
   });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
@@ -428,7 +429,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
 
   function tapIngestForSession(session: Session): void {
     sessionPrLink.attachSession(session);
-    featureHints.attachSession(session);
     if (ingestLane?.terminalEnabled) ingestLane.attachSessionTap(session);
     if (ingestLane?.fsEnabled) ingestLane.noteSessionRoots(session);
   }

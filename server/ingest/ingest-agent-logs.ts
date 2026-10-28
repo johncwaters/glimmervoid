@@ -108,6 +108,7 @@ interface AgentLogIngestOptions {
   maxLinesPerDrain?: number;
   maxCatchUpBytes?: number;
   vendors?: Record<string, boolean> | null;
+  readsFilesBornAfterStart?: boolean;
 }
 
 function decodeGrokRoot(name: string): string {
@@ -227,6 +228,7 @@ function createAgentLogIngest({
   maxLinesPerDrain = 200,
   maxCatchUpBytes = MAX_CATCH_UP_BYTES,
   vendors = null,
+  readsFilesBornAfterStart = false,
 }: AgentLogIngestOptions) {
   const pollMs = positiveIntOr(sourceConfig.pollMs, positiveIntOr(pollIntervalMs, DEFAULT_POLL_MS));
   const wanted = vendors && typeof vendors === 'object' ? vendors : {};
@@ -246,6 +248,7 @@ function createAgentLogIngest({
   let drainInFlight: Promise<void> | null = null;
   let sweepInFlight: Promise<void> | null = null;
   let startPromise: Promise<void> | null = null;
+  let startedAtMs = Number.POSITIVE_INFINITY;
   let watchSupportChecked = false;
 
   function alive(): boolean {
@@ -442,7 +445,9 @@ function createAgentLogIngest({
     const scopeRoot = headRootReader ? await readHeadRoot(filePath, headRootReader, fsPromises) : rootFromPath(root.vendor, dir);
     if (!alive()) return;
     if (isDispatchWorkdir(scopeRoot)) return;
-    tails.set(filePath, createTailState(stat, { path: filePath }));
+    const tailState = createTailState(stat, { path: filePath });
+    const isBornAfterStart = readsFilesBornAfterStart && stat.birthtimeMs >= startedAtMs;
+    tails.set(filePath, isBornAfterStart ? { ...tailState, offset: 0 } : tailState);
     contexts.set(filePath, {
       vendor: root.vendor, dir, root: scopeRoot, sessionId,
     });
@@ -725,6 +730,7 @@ function createAgentLogIngest({
     if (startPromise) return startPromise;
     if (disabled) return Promise.resolve();
     running = true;
+    startedAtMs = nowFn();
     pollTimer = unrefTimer(setIntervalFn(() => { void runGuarded(poll); }, pollMs));
     discoverTimer = unrefTimer(setIntervalFn(
       () => { void runGuarded(discover); },
