@@ -4,7 +4,7 @@
 # sidebar
 
 ## Purpose
-The review sidebar: the single home for the worktree review gate of the selected session. One view with no tabs: a status sentence with the actions, a short Worth a look list, then the file list whose rows open their diff inline. Shows the actions (Merge into the integration branch without ending the session; Discard for a settled worktree). App-level, shared by every view. Right-docked on the desktop layout; the SAME element is re-parented into the phone Review screen (`reparentReviewPanel`), so both layouts are one review surface with one set of caches and listeners.
+The review sidebar: the single home for the worktree review gate of the selected session. One view with no tabs: a status sentence with the actions, the file list whose rows open their diff inline, then a short Worth a look list. Shows the actions (Merge into the integration branch without ending the session; Discard for a settled worktree). App-level, shared by every view. Right-docked on the desktop layout; the SAME element is re-parented into the phone Review screen (`reparentReviewPanel`), so both layouts are one review surface with one set of caches and listeners.
 
 ## Key Files
 

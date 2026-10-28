@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Worth a look sits under the changed files**: the review panel now lists the changed files first and the Worth a look list after them, so the files are the first thing you see.
 - **Reviews session pills rest while hidden**: the session pills on your own pull requests no longer repaint while the Reviews view is in the background, and catch up the moment you open it. While it is open, a status change rewrites only the pill text that actually changed.
 - **Status lights cost far less to update**: when a session's status changes, the dashboard now repaints only that session's row and card, once per frame, instead of every row in the rail, and the server sends one status message per session per moment instead of up to four. With 30 sessions, one status change now touches the page about 27 times instead of about 494, and takes about 3.2 ms of script instead of 4.2. The tab title, the favicon and the alert chime still update immediately, even while the tab is in the background; the rail catches up when you come back to it. The elapsed-time clocks now tick only for sessions that are running, waiting or starting.
 

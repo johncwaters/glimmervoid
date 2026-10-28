@@ -699,7 +699,6 @@ function renderSidebar() {
   const worthALook = changeMapView
     ? renderWorthALook(changeMapView, { isShowingAll: isWorthALookShowingAll, onShowAll: showAllWorthALook, onOpenFile: openFileFromWorthALook })
     : null;
-  if (worthALook) bodyEl.append(worthALook);
   const hasBothSections = committedFiles.length > 0 && uncommittedFiles.length > 0;
   if (committedFiles.length > 0) bodyEl.append(renderSection({
     kind: 'committed', label: hasBothSections ? 'Committed' : null, meaning: committedMergeTargetText(headline, effectiveBase), files: committedFiles, changeMapView,
@@ -707,6 +706,7 @@ function renderSidebar() {
   if (uncommittedFiles.length > 0) bodyEl.append(renderSection({
     kind: 'uncommitted', label: hasBothSections ? 'Not committed yet' : null, meaning: null, files: uncommittedFiles, changeMapView,
   }));
+  if (worthALook) bodyEl.append(worthALook);
 }
 
 function statusNote(text: string, isError: boolean) {
