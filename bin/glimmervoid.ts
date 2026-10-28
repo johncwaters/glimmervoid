@@ -36,7 +36,6 @@ Commands:
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
-  agent setup kimi    Add the Kimi Code hook relay block to its config.toml, inert outside Glimmervoid
 
 Editor integration (Visions):
   visions install     Install the Visions extension into every VS Code family editor on PATH
@@ -255,11 +254,12 @@ async function runDoctor(): Promise<void> {
       const { label, path: resolvedPath } = describeAgentResolvability(id);
       line(`${id} (${label})`, resolvedPath ?? missingAgentText(id));
     }
-    const { inspectGrokAgentSetup, inspectKimiAgentSetup } = await import('../server/agent-setup-cli.ts');
+    const { inspectGrokAgentSetup } = await import('../server/agent-setup-cli.ts');
     const grokSetup = inspectGrokAgentSetup();
     line('grok hook setup', `${grokSetup.classification}: ${grokSetup.filePath}`);
-    const kimiSetup = inspectKimiAgentSetup();
-    line('kimi hook setup', `${kimiSetup.classification}: ${kimiSetup.filePath}`);
+    const { default: kimi } = await import('../session/adapters/kimi.ts');
+    const { describeKimiHome } = await import('../session/kimi-home.ts');
+    line('kimi home', describeKimiHome(kimi.expectedHooksBlock()));
   } catch (err) {
     line('agents', `probe failed: ${firstLine(errorText(err))}`);
   }

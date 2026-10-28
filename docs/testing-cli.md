@@ -50,7 +50,6 @@ Commands:
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
-  agent setup kimi    Add the Kimi Code hook relay block to its config.toml, inert outside Glimmervoid
 
 Editor integration (Visions):
   visions install     Install the Visions extension into every VS Code family editor on PATH

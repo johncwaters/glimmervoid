@@ -19,7 +19,7 @@ test('doctor reports every builtin agent and a loading node-pty', () => {
     assert.match(stdout, /codex \(Codex CLI\)/);
     assert.match(stdout, /grok \(Grok Build\)/);
     assert.match(stdout, /kimi \(Kimi Code\)/);
-    assert.match(stdout, /kimi hook setup\s+absent: /);
+    assert.match(stdout, /kimi home\s+ready: .*agent-homes.kimi \(real /);
     assert.match(stdout, /Sane YOLO/);
     assert.match(stdout, /cc-safety-net version\s+2\.6\.16/);
     assert.match(stdout, /inactive unless Codex trusts/);

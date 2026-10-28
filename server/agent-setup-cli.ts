@@ -2,14 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 import grok from "../session/adapters/grok.ts";
-import kimi from "../session/adapters/kimi.ts";
 import { renderGrokHooksFile, classifyGrokHooksFile } from "../session/core/grok-hooks-file-core.ts";
-import { classifyKimiConfig, spliceKimiHooksBlock } from "../session/core/kimi-hooks-block-core.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
 import { writeTextAtomicSync } from "./json-file.ts";
 import type { SyncFileSystem } from "./json-file.ts";
 
-const USAGE = "Usage: glimmervoid agent setup <grok|kimi>";
+const USAGE = "Usage: glimmervoid agent setup grok";
 
 type SetupFileSystem = Pick<
   typeof fs,
@@ -138,62 +136,6 @@ function runGrokSetup({ env, fileSystem, log, error }: Required<AgentSetupDeps>)
   return 0;
 }
 
-const KIMI_REFUSAL_MESSAGES = {
-  foreign: (filePath: string) => `Refusing to edit ${filePath}: its glimmervoid hooks block was edited by hand. Delete the block between the glimmervoid markers and run setup again.`,
-  conflicting: (filePath: string) => `Refusing to edit ${filePath}: it defines hooks as a key or [hooks] table, which a [[hooks]] block would break. Rewrite those hooks as [[hooks]] tables and run setup again.`,
-};
-
-function readKimiConfig(filePath: string, readFileSync: ReadTextFile): { contents: string | null } | { reason: string } {
-  try {
-    return { contents: readFileSync(filePath, "utf8") };
-  } catch (error) {
-    if (isMissingFileError(error, { includeNotDir: false })) return { contents: null };
-    return { reason: errorMessage(error) };
-  }
-}
-
-function inspectKimiAgentSetup({ env = process.env, readFileSync = fs.readFileSync }: {
-  env?: NodeJS.ProcessEnv;
-  readFileSync?: ReadTextFile;
-} = {}): AgentSetupInspection {
-  const filePath = kimi.configFilePath(env);
-  const expectedBlock = kimi.expectedHooksBlock();
-  if (expectedBlock === null) return { filePath, classification: "unrenderable" };
-  const config = readKimiConfig(filePath, readFileSync);
-  if ("reason" in config) return { filePath, classification: "unreadable", reason: config.reason };
-  return { filePath, classification: classifyKimiConfig(config.contents, expectedBlock) };
-}
-
-function runKimiSetup({ env, fileSystem, log, error }: Required<AgentSetupDeps>): number {
-  const filePath = kimi.configFilePath(env);
-  const expectedBlock = kimi.expectedHooksBlock();
-  if (expectedBlock === null) {
-    error("Could not render the Kimi Code hooks block. Nothing was written.");
-    return 1;
-  }
-  const config = readKimiConfig(filePath, fileSystem.readFileSync);
-  if ("reason" in config) {
-    error(`Refusing to edit ${filePath}: the existing file is unreadable (${config.reason}).`);
-    return 1;
-  }
-  const splice = spliceKimiHooksBlock(config.contents, expectedBlock);
-  if ("refused" in splice) {
-    error(KIMI_REFUSAL_MESSAGES[splice.refused](filePath));
-    return 1;
-  }
-  if (!splice.changed) {
-    log(`Kimi Code hooks are already current in ${filePath}`);
-    return 0;
-  }
-  const writeFailure = writeAgentHooksFile(filePath, splice.contents, fileSystem);
-  if (writeFailure) {
-    error(writeFailure);
-    return 1;
-  }
-  log(`Installed Kimi Code hooks in ${filePath}`);
-  return 0;
-}
-
 function runAgentSetupCli(args: string[], deps: AgentSetupDeps = {}): number {
   const {
     env = process.env,
@@ -204,11 +146,8 @@ function runAgentSetupCli(args: string[], deps: AgentSetupDeps = {}): number {
   if (args[0] === "setup" && args[1] === "grok" && args.length === 2) {
     return runGrokSetup({ env, fileSystem, log, error });
   }
-  if (args[0] === "setup" && args[1] === "kimi" && args.length === 2) {
-    return runKimiSetup({ env, fileSystem, log, error });
-  }
   error(USAGE);
   return 1;
 }
 
-export { USAGE, runAgentSetupCli, inspectGrokAgentSetup, inspectKimiAgentSetup };
+export { USAGE, runAgentSetupCli, inspectGrokAgentSetup };

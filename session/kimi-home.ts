@@ -273,6 +273,22 @@ function prepareKimiHome(options: KimiHomeOptions): { home: string } | { refusal
   return { home: generatedHome };
 }
 
+function kimiHomeNotes(generatedHome: string, plan: Extract<KimiHomePlan, { kind: "ready" }>): string[] {
+  const notes: string[] = [];
+  if (plan.hasStaleBlockInRealConfig) notes.push("the real config.toml still holds an old Glimmervoid hooks block, which kimi sessions here ignore and you can delete");
+  if (plan.privateNames.length > 0) notes.push(`kept only in the generated home: ${plan.privateNames.join(", ")}`);
+  const conflictNames = childNamesOf(path.join(generatedHome, KIMI_CONFLICTS_NAME));
+  if (conflictNames.length > 0) notes.push(`${conflictNames.length} kimi copies set aside after a conflict in ${path.join(generatedHome, KIMI_CONFLICTS_NAME)}`);
+  return notes;
+}
+
+function describeKimiHome(hooksBlock: string | null, env: KimiEnv = process.env): string {
+  if (hooksBlock === null) return "refused: the hook relay path cannot be written into a kimi hooks block";
+  const { generatedHome, realHome, plan } = inspectKimiHome({ env, hooksBlock });
+  if (plan.kind === "refused") return `refused: ${plan.reason}`;
+  return [`ready: ${generatedHome} (real ${realHome})`, ...kimiHomeNotes(generatedHome, plan)].join("; ");
+}
+
 const liveSessionCountByHome = new Map<string, number>();
 const inUseLockDescriptorByHome = new Map<string, number>();
 
@@ -354,5 +370,5 @@ function releaseUnheldKimiHomeSecrets(generatedHome: string): void {
   releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "keep" });
 }
 
-export { generatedKimiHomePath, holdKimiHome, inspectKimiHome, prepareKimiHome, realKimiHome, releaseKimiHome, releaseKimiHomeSecrets, releaseUnheldKimiHomeSecrets };
+export { describeKimiHome, generatedKimiHomePath, holdKimiHome, inspectKimiHome, prepareKimiHome, realKimiHome, releaseKimiHome, releaseKimiHomeSecrets, releaseUnheldKimiHomeSecrets };
 export type { KimiHomeOptions, KimiHomeReading };
