@@ -86,6 +86,16 @@ test('the production Claude settings command denies git reset --hard through a s
   });
 });
 
+test('the production Claude settings command denies infra teardown hidden behind an rtk prefix', async () => {
+  await withProductionHookFixture(async ({ cwd, env, saneYoloTool }) => {
+    const settings = buildHookSettings({ port: 1, glimmervoidId: 'sane-yolo-e2e', token: 'token', hookTools: [saneYoloTool] });
+    const command = settings.hooks.PreToolUse?.find((entry) => entry.matcher === 'Bash|PowerShell|Monitor')?.hooks[0]?.command;
+    assert.ok(command);
+    const stdout = execSync(command, { cwd, env, encoding: 'utf8', input: hookPayload('--coding-cli', 'rtk terraform destroy', cwd) });
+    assert.equal(permissionDecisionOf(stdout), 'deny', stdout);
+  });
+});
+
 test('the production Codex PreToolUse override command denies git reset --hard through a shell', async () => {
   await withProductionHookFixture(async ({ cwd, env, saneYoloTool }) => {
     const injection = codex.hooks.injection;

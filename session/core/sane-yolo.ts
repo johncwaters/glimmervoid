@@ -23,7 +23,7 @@ function saneYoloPolicy(guardrailsTempRoot: string) {
   };
 }
 
-const SANE_YOLO_RULES = { version: 1, rules: ['infra'], overrides: {}, transparent_wrappers: ['npx'] };
+const SANE_YOLO_RULES = { version: 1, rules: ['infra'], overrides: {}, transparent_wrappers: ['rtk', 'npx'] };
 const INFRA_REASON = 'Sane YOLO blocks infrastructure teardown; run this command by hand.';
 const TERRAFORM_DESTROY_FLAGS = ['-destroy', '--destroy', '-destroy=true', '--destroy=true'];
 const SANE_YOLO_INFRA_RULEBOOK = {
