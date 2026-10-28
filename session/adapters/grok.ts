@@ -243,8 +243,9 @@ const hooks: AgentHookProfile = {
   mapPayload: mapHookPayload,
   injection: {
     kind: "home-hooks-file",
+    setupCommand: "glimmervoid agent setup grok",
     filePath: hooksFilePath,
-    expectedContents: () => renderGrokHooksFile({ relayPath: RELAY_PATH, events: HOOK_EVENTS, hookToolRelayPath: HOOK_TOOL_RELAY_PATH }),
+    isSaneYoloReady: (contents: string) => contents === renderGrokHooksFile({ relayPath: RELAY_PATH, events: HOOK_EVENTS, hookToolRelayPath: HOOK_TOOL_RELAY_PATH }),
     classifyContents: (contents: string) => classifyGrokHooksFile(contents, {
       relayPath: RELAY_PATH,
       events: HOOK_EVENTS,

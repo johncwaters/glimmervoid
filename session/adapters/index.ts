@@ -3,6 +3,7 @@ import type { UserHook } from '../core/user-hooks-core.ts';
 import claudeCode from "./claude-code.ts";
 import codex from "./codex.ts";
 import grok from "./grok.ts";
+import kimi from "./kimi.ts";
 import { createCustomAdapter } from "./custom.ts";
 
 import type { HookProfile } from "../../detection/hook-source.ts";
@@ -54,9 +55,10 @@ interface ArgvConfigInjection {
 
 interface HomeHooksFileInjection {
   kind: "home-hooks-file";
+  setupCommand: string;
   filePath(env?: Record<string, string | undefined>, homedir?: string): string;
-  expectedContents(): string | null;
   classifyContents(contents: string): string;
+  isSaneYoloReady(contents: string): boolean;
   projectConfigCandidates: readonly ProjectConfigCandidate[];
   userConfigFolders(env: Record<string, string | undefined>): string[];
   mayContributeHooks(configText: unknown): boolean;
@@ -136,6 +138,7 @@ const adapterEntries: [string, AgentAdapter][] = [
   [claudeCode.id, claudeCode],
   [codex.id, codex],
   [grok.id, grok],
+  [kimi.id, kimi],
 ];
 const ADAPTERS = new Map(adapterEntries);
 const customAdapters = new Map<string, AgentAdapter>();

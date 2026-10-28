@@ -213,9 +213,9 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   function warnIfSaneYoloHookMissing(hooksPath: string, contents: string, injection: HomeHooksFileInjection): void {
     if (hasWarnedSaneYoloHookMissing) return;
     if (!saneYoloTool()) return;
-    if (contents === injection.expectedContents()) return;
+    if (injection.isSaneYoloReady(contents)) return;
     hasWarnedSaneYoloHookMissing = true;
-    console.warn(`[session:${options.name}] Sane YOLO is not active: ${hooksPath} has no Sane YOLO PreToolUse hook; run "glimmervoid agent setup grok"`);
+    console.warn(`[session:${options.name}] Sane YOLO is not active: ${hooksPath} has no Sane YOLO PreToolUse hook; run "${injection.setupCommand}"`);
   }
 
   function injectHomeRelayHooks(port: number, injection: HomeHooksFileInjection): HookInjectionResult {
@@ -242,16 +242,16 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
       contents = fs.readFileSync(resolvedHooksPath, "utf8");
     } catch (error) {
       const reason = isMissingFileError(error, { includeNotDir: false }) ? "not installed" : errorMessage(error);
-      console.warn(`[session:${options.name}] Grok hook injection skipped: ${reason}; run "glimmervoid agent setup grok"`);
+      console.warn(`[session:${options.name}] ${options.agentId} hook injection skipped: ${reason}; run "${injection.setupCommand}"`);
       return NO_HOOK_INJECTION;
     }
     const classification = injection.classifyContents(contents);
     if (classification !== "current") {
-      console.warn(`[session:${options.name}] Grok hook injection skipped: ${hooksPath} is ${classification}; run "glimmervoid agent setup grok"`);
+      console.warn(`[session:${options.name}] ${options.agentId} hook injection skipped: ${hooksPath} is ${classification}; run "${injection.setupCommand}"`);
       return NO_HOOK_INJECTION;
     }
     warnIfSaneYoloHookMissing(hooksPath, contents, injection);
-    const isSaneYoloHookInFile = contents === injection.expectedContents();
+    const isSaneYoloHookInFile = injection.isSaneYoloReady(contents);
     return registerRelayHooks(port, [], saneYoloTool() !== undefined && isSaneYoloHookInFile);
   }
 

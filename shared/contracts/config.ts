@@ -27,7 +27,7 @@ export const ConfigUpdate = z.object({
   workflows: WorkflowsSettingsUpdate.optional(),
 }).omit({ port: true, worktreeShare: true }).strict();
 const AGENT_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
-export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'grok'] as const);
+export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'grok', 'kimi'] as const);
 export const AGENT_ID_SHAPE_MESSAGE = 'an agent id of 2 to 32 characters of lowercase letters, digits and dashes, starting with a letter';
 
 const AGENT_COMMAND_BASENAME_RE = /^[A-Za-z0-9._+-]+$/;

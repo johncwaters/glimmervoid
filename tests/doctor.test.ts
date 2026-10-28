@@ -13,11 +13,13 @@ test('doctor reports every builtin agent and a loading node-pty', () => {
     const stdout = execFileSync(process.execPath, ['bin/glimmervoid.ts', 'doctor'], {
       cwd: ROOT,
       encoding: 'utf8',
-      env: { ...process.env, HOME: npmPrefix, USERPROFILE: npmPrefix, GLIMMERVOID_HOME: npmPrefix, npm_config_prefix: npmPrefix },
+      env: { ...process.env, HOME: npmPrefix, USERPROFILE: npmPrefix, GLIMMERVOID_HOME: npmPrefix, KIMI_CODE_HOME: '', npm_config_prefix: npmPrefix },
     });
     assert.match(stdout, /claude-code \(Claude Code\)/);
     assert.match(stdout, /codex \(Codex CLI\)/);
     assert.match(stdout, /grok \(Grok Build\)/);
+    assert.match(stdout, /kimi \(Kimi Code\)/);
+    assert.match(stdout, /kimi hook setup\s+absent: /);
     assert.match(stdout, /Sane YOLO/);
     assert.match(stdout, /cc-safety-net version\s+2\.6\.16/);
     assert.match(stdout, /inactive unless Codex trusts/);
