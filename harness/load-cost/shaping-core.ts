@@ -14,6 +14,13 @@ export const THREE_G_PROFILE: LinkProfile = {
   initialWindowBytes: 10 * SEGMENT_BYTES,
 };
 
+export const UNSHAPED_PROFILE: LinkProfile = {
+  name: 'unshaped',
+  bytesPerSecond: Number.POSITIVE_INFINITY,
+  oneWayDelayMs: 0,
+  initialWindowBytes: Number.POSITIVE_INFINITY,
+};
+
 export interface SharedLink {
   freeAtMs: number;
 }

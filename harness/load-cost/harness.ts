@@ -4,7 +4,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import type { Browser, BrowserContext, BrowserType, Page, Request, WebSocket as PageWebSocket } from 'playwright-core';
+import type { Browser, BrowserContext, BrowserContextOptions, BrowserType, Page, Request, WebSocket as PageWebSocket } from 'playwright-core';
 import WebSocket from 'ws';
 
 import { createBackend } from '../../server/backend/backend.ts';
@@ -12,9 +12,9 @@ import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts'
 import { dashboardClient } from '../../tests/helpers/dashboard-ws.ts';
 import { addSession, createProject, listProcessesMentioning, quoteShell, runCommand, snapshotEnvironment } from '../site-capture/isolated-glimmervoid.ts';
 import { connectControl, prepareIsolatedEnvironment, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
-import { LoadCostResultSchema, decideShellCheck, renderComparison, renderMarkdown } from './report-core.ts';
-import type { BoardReady, LoadCostResult, ScenarioResult, ShellCheck, StatusBurst } from './report-core.ts';
-import { THREE_G_PROFILE, median, medianRunIndex } from './shaping-core.ts';
+import { LoadCostResultSchema, T3_PROFILE_NAME, T3_ROWS, decideShellCheck, renderComparison, renderMarkdown, renderT3Markdown } from './report-core.ts';
+import type { BoardReady, LoadCostResult, ScenarioResult, ShellCheck, StatusBurst, T3ProfileResult, T3Row, T3RowResult } from './report-core.ts';
+import { CHANNELS, THREE_G_PROFILE, UNSHAPED_PROFILE, median, medianRunIndex } from './shaping-core.ts';
 import { PONG, fillCompleteMarker } from './scrollback-agent.ts';
 import { createShapingProxy } from './shaping-proxy.ts';
 import type { ChannelTallies, ShapingProxy } from './shaping-proxy.ts';
@@ -30,6 +30,9 @@ const DESKTOP = { viewport: { width: 1440, height: 900 } };
 const STATUS_BURST_DORMANT_ROWS = 22;
 const STATUS_BURST_CHANGES = 120;
 const STATUS_BURST_CYCLE = ['RUNNING', 'WAITING', 'RUNNING', 'IDLE'] as const;
+const T3_DESKTOP: BrowserContextOptions = { viewport: { width: 1280, height: 800 } };
+const T3_DESKTOP_LABEL = 'Desktop viewport 1280x800';
+const T3_THROTTLE = { offline: false, latency: 100, downloadThroughput: 20_000_000 / 8, uploadThroughput: -1 };
 const NETWORK_QUIET_MS = 500;
 const READY_TIMEOUT_MS = 240_000;
 const SEED_TIMEOUT_MS = 30_000;
@@ -45,10 +48,14 @@ interface FixtureSession {
 type BrowserEngine = 'chromium' | 'webkit' | 'firefox';
 const BROWSER_ENGINES: readonly BrowserEngine[] = ['chromium', 'webkit', 'firefox'];
 
+type ProfileName = '3g' | typeof T3_PROFILE_NAME;
+const PROFILE_NAMES: readonly ProfileName[] = ['3g', T3_PROFILE_NAME];
+
 interface HarnessOptions {
   isWakeRun: boolean;
   wakeCaseIds: string[];
   engine: BrowserEngine;
+  profileName: ProfileName;
   runs: number;
   comparePath: string | null;
   artifactsDir: string;
@@ -90,7 +97,7 @@ const IDLE_FILLERS: FixtureSession[] = [1, 2, 3, 4, 5].map((number) => ({ key: `
 const FIXTURES: FixtureSession[] = [SESSION_A, SESSION_B, SESSION_C, ...IDLE_FILLERS];
 
 function parseOptions(argv: readonly string[]): HarnessOptions {
-  const options: HarnessOptions = { isWakeRun: false, wakeCaseIds: [], engine: 'chromium', runs: 3, comparePath: null, artifactsDir: DEFAULT_ARTIFACTS_DIR, executablePath: process.env.CHROME_PATH };
+  const options: HarnessOptions = { isWakeRun: false, wakeCaseIds: [], engine: 'chromium', profileName: '3g', runs: 3, comparePath: null, artifactsDir: DEFAULT_ARTIFACTS_DIR, executablePath: process.env.CHROME_PATH };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === '--wake') { options.isWakeRun = true; continue; }
@@ -106,6 +113,7 @@ function parseOptions(argv: readonly string[]): HarnessOptions {
     if (flag === '--artifacts') { options.artifactsDir = path.resolve(value); continue; }
     if (flag === '--executable') { options.executablePath = path.resolve(value); continue; }
     if (flag === '--engine') { options.engine = parseEngine(value); continue; }
+    if (flag === '--profile') { options.profileName = parseProfileName(value); continue; }
     if (flag === '--case') { options.wakeCaseIds.push(value); continue; }
     throw new Error(`unknown argument ${flag}`);
   }
@@ -116,6 +124,12 @@ function parseEngine(value: string): BrowserEngine {
   const engine = BROWSER_ENGINES.find((candidate) => candidate === value);
   if (!engine) throw new Error(`--engine needs one of ${BROWSER_ENGINES.join(', ')}`);
   return engine;
+}
+
+function parseProfileName(value: string): ProfileName {
+  const profileName = PROFILE_NAMES.find((candidate) => candidate === value);
+  if (!profileName) throw new Error(`--profile needs one of ${PROFILE_NAMES.join(', ')}`);
+  return profileName;
 }
 
 function payloadText(payload: string | Buffer): string {
@@ -294,10 +308,18 @@ async function waitForFullScrollbackPainted(page: Page, sockets: ReturnType<type
   await waitForPaint(page);
 }
 
-function recordAppReadyMoment(): void {
+interface AppReadySignal {
+  selector: string;
+  className: string;
+}
+
+const BOARD_READY_SIGNAL: AppReadySignal = { selector: 'body', className: 'app-ready' };
+const APP_REVEALED_SIGNAL: AppReadySignal = { selector: '#loading-screen', className: 'fade-out' };
+
+function recordAppReadyMoment(readySignal: AppReadySignal): void {
   const appReadyWindow = window as Window & { appReadyAtMs?: number };
   const observer = new MutationObserver(() => {
-    if (!document.body?.classList.contains('app-ready')) return;
+    if (!document.querySelector(readySignal.selector)?.classList.contains(readySignal.className)) return;
     appReadyWindow.appReadyAtMs = performance.now();
     observer.disconnect();
   });
@@ -313,15 +335,15 @@ function listRequestsStartedBeforeAppReady(): string[] {
 }
 
 async function measureBoardReady(page: Page, port: number, proxy: ShapingProxy, timerStartedAt: number): Promise<BoardReadyMeasurement> {
-  await page.addInitScript(recordAppReadyMoment);
+  await page.addInitScript(recordAppReadyMoment, BOARD_READY_SIGNAL);
   await loadDashboard(page, port);
   const elapsedMs = performance.now() - timerStartedAt;
   const httpBytesDown = proxy.readHttpBytesDown();
   return { elapsedMs, httpBytesDown, requestPaths: await page.evaluate(listRequestsStartedBeforeAppReady) };
 }
 
-async function withPhonePage<T>(browser: Browser, work: (page: Page, sockets: ReturnType<typeof watchPageSockets>) => Promise<T>): Promise<T> {
-  const context: BrowserContext = await browser.newContext(PHONE);
+async function withFreshPage<T>(browser: Browser, contextOptions: BrowserContextOptions, work: (page: Page, sockets: ReturnType<typeof watchPageSockets>) => Promise<T>): Promise<T> {
+  const context: BrowserContext = await browser.newContext(contextOptions);
   try {
     const page = await context.newPage();
     return await work(page, watchPageSockets(page));
@@ -346,7 +368,7 @@ async function collectMeasurement(sockets: ReturnType<typeof watchPageSockets>, 
 
 function measureColdVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, fixture: FixtureSession): Promise<RunMeasurement> {
   const sessionId = fleet.sessionIdByKey.get(fixture.key) ?? '';
-  return withPhonePage(browser, async (page, sockets) => {
+  return withFreshPage(browser, PHONE, async (page, sockets) => {
     const httpSizes = watchHttpSizes(page);
     sockets.beginWindow(sessionId, fixture);
     proxy.beginMeasure();
@@ -360,7 +382,7 @@ function measureColdVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, f
 
 function measureReconnectVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, fixture: FixtureSession): Promise<RunMeasurement> {
   const sessionId = fleet.sessionIdByKey.get(fixture.key) ?? '';
-  return withPhonePage(browser, async (page, sockets) => {
+  return withFreshPage(browser, PHONE, async (page, sockets) => {
     sockets.beginWindow(sessionId, fixture);
     await loadDashboard(page, fleet.port);
     await openSession(page, sockets, sessionId, fixture);
@@ -378,7 +400,7 @@ function measureReconnectVisit(fleet: Fleet, browser: Browser, proxy: ShapingPro
 
 function measureOpenVisit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, fixture: FixtureSession): Promise<RunMeasurement> {
   const sessionId = fleet.sessionIdByKey.get(fixture.key) ?? '';
-  return withPhonePage(browser, async (page, sockets) => {
+  return withFreshPage(browser, PHONE, async (page, sockets) => {
     const waitForNetworkQuiet = watchNetworkQuiet(page);
     sockets.beginWindow(sessionId, fixture);
     await loadDashboard(page, fleet.port);
@@ -536,6 +558,61 @@ async function runScenario(scenario: Scenario, runs: number, fleet: Fleet, brows
     result: { id: scenario.id, label: scenario.label, detail: scenario.detail, runsMs, medianMs: median(runsMs), channels: representative.channels, parsed: representative.parsed, boardReady: summarizeBoardReady(measurements), statusBurst: representative.statusBurst },
     shellCheck: representative.shellCheck,
   };
+}
+
+async function throttleLikeT3(page: Page): Promise<void> {
+  const cdpSession = await page.context().newCDPSession(page);
+  await cdpSession.send('Network.enable');
+  await cdpSession.send('Network.emulateNetworkConditions', T3_THROTTLE);
+}
+
+async function waitForAppRevealed(page: Page): Promise<void> {
+  await page.waitForFunction(() => (window as Window & { appReadyAtMs?: number }).appReadyAtMs !== undefined, undefined, { polling: 'raf', timeout: READY_TIMEOUT_MS });
+}
+
+function navigateForVisit(page: Page, visit: T3Row['visit'], dashboardUrl: string): Promise<unknown> {
+  if (visit === 'warm') return page.reload({ waitUntil: 'commit', timeout: READY_TIMEOUT_MS });
+  return page.goto(dashboardUrl, { waitUntil: 'commit', timeout: READY_TIMEOUT_MS });
+}
+
+function measureT3Visit(fleet: Fleet, browser: Browser, proxy: ShapingProxy, row: T3Row): Promise<{ elapsedMs: number; wireBytesDown: number }> {
+  const dashboardUrl = `http://127.0.0.1:${fleet.port}/`;
+  return withFreshPage(browser, T3_DESKTOP, async (page) => {
+    await page.addInitScript(recordAppReadyMoment, APP_REVEALED_SIGNAL);
+    if (row.isThrottled) await throttleLikeT3(page);
+    if (row.visit === 'warm') {
+      await page.goto(dashboardUrl, { waitUntil: 'commit', timeout: READY_TIMEOUT_MS });
+      await waitForAppRevealed(page);
+    }
+    proxy.beginMeasure();
+    const timerStartedAt = performance.now();
+    await navigateForVisit(page, row.visit, dashboardUrl);
+    await waitForAppRevealed(page);
+    const elapsedMs = performance.now() - timerStartedAt;
+    const channels = await proxy.endMeasure();
+    return { elapsedMs, wireBytesDown: CHANNELS.reduce((total, channel) => total + channels[channel].wireBytesDown, 0) };
+  });
+}
+
+async function runT3Row(row: T3Row, runs: number, fleet: Fleet, browser: Browser, proxy: ShapingProxy): Promise<T3RowResult> {
+  const measurements: { elapsedMs: number; wireBytesDown: number }[] = [];
+  for (let run = 0; run < runs; run += 1) {
+    const measurement = await measureT3Visit(fleet, browser, proxy, row);
+    console.log(`${row.label} run ${run + 1}: ${(measurement.elapsedMs / 1000).toFixed(2)} s`);
+    measurements.push(measurement);
+  }
+  const runsMs = measurements.map((measurement) => measurement.elapsedMs);
+  const representative = measurements[medianRunIndex(runsMs)] ?? measurements[0];
+  if (!representative) throw new Error(`${row.label} produced no runs`);
+  return { id: row.id, label: row.label, runsMs, medianMs: median(runsMs), wireBytesDown: representative.wireBytesDown, t3PublishedMs: row.t3PublishedMs };
+}
+
+function measureT3Profile(options: HarnessOptions): Promise<T3ProfileResult> {
+  return withFleet(options, async (fleet, browser, proxy) => {
+    const rows: T3RowResult[] = [];
+    for (const row of T3_ROWS) rows.push(await runT3Row(row, options.runs, fleet, browser, proxy));
+    return { schemaVersion: 1, profile: T3_PROFILE_NAME, commit: await currentCommit(), recordedAt: new Date().toISOString(), viewport: T3_DESKTOP_LABEL, runs: options.runs, rows };
+  });
 }
 
 const WAKE_HIDDEN_MS = 20_000;
@@ -834,7 +911,7 @@ async function withFleet<T>(options: HarnessOptions, work: (fleet: Fleet, browse
       fleet.sessionIdByKey.set(fixture.key, sessionId);
       await seedScrollback(port, sessionId, fixture);
     }
-    proxy = await createShapingProxy({ targetPort: port, profile: THREE_G_PROFILE });
+    proxy = await createShapingProxy({ targetPort: port, profile: options.profileName === T3_PROFILE_NAME ? UNSHAPED_PROFILE : THREE_G_PROFILE });
     browser = await launchEngine(options.engine, proxy.port, options.executablePath);
     return await work(fleet, browser, proxy);
   } finally {
@@ -873,15 +950,27 @@ function measureAll(options: HarnessOptions): Promise<LoadCostResult> {
   });
 }
 
-async function writeArtifacts(result: LoadCostResult, artifactsDir: string): Promise<string> {
+async function writeArtifacts(result: LoadCostResult | T3ProfileResult, markdown: string, artifactsDir: string, nameSuffix: string): Promise<string> {
   await fs.promises.mkdir(artifactsDir, { recursive: true });
   const stamp = result.recordedAt.replace(/[:.]/g, '-');
   const serialized = `${JSON.stringify(result, null, 2)}\n`;
-  const resultPath = path.join(artifactsDir, `${stamp}-${result.commit.slice(0, 8)}.json`);
+  const resultPath = path.join(artifactsDir, `${stamp}-${result.commit.slice(0, 8)}${nameSuffix}.json`);
   await fs.promises.writeFile(resultPath, serialized);
-  await fs.promises.writeFile(path.join(artifactsDir, 'latest.json'), serialized);
-  await fs.promises.writeFile(path.join(artifactsDir, 'latest.md'), renderMarkdown(result));
+  await fs.promises.writeFile(path.join(artifactsDir, `latest${nameSuffix}.json`), serialized);
+  await fs.promises.writeFile(path.join(artifactsDir, `latest${nameSuffix}.md`), markdown);
   return resultPath;
+}
+
+async function runT3Profile(options: HarnessOptions): Promise<number> {
+  if (options.isWakeRun || options.comparePath || options.engine !== 'chromium') {
+    console.error(`--profile ${T3_PROFILE_NAME} runs on chromium only, without --wake or --compare: its throttle is CDP network emulation`);
+    return 2;
+  }
+  const result = await measureT3Profile(options);
+  const resultPath = await writeArtifacts(result, renderT3Markdown(result), options.artifactsDir, `-${T3_PROFILE_NAME}`);
+  console.log(`\n${renderT3Markdown(result)}`);
+  console.log(`result: ${resultPath}`);
+  return 0;
 }
 
 async function main(): Promise<number> {
@@ -899,6 +988,7 @@ async function main(): Promise<number> {
     console.error(`${staleBuildReason}: run npm run build first`);
     return 1;
   }
+  if (options.profileName === T3_PROFILE_NAME) return runT3Profile(options);
   if (options.isWakeRun) {
     const missedBounds = await withFleet(options, (fleet, browser, proxy) => runWakeCases(options, fleet, browser, proxy));
     for (const missedBound of missedBounds) console.error(`wake bound missed: ${missedBound}`);
@@ -906,7 +996,7 @@ async function main(): Promise<number> {
   }
   const baseline = options.comparePath ? LoadCostResultSchema.parse(JSON.parse(await fs.promises.readFile(options.comparePath, 'utf8'))) : null;
   const result = await measureAll(options);
-  const resultPath = await writeArtifacts(result, options.artifactsDir);
+  const resultPath = await writeArtifacts(result, renderMarkdown(result), options.artifactsDir, '');
   console.log(`\n${renderMarkdown(result)}`);
   if (baseline) console.log(renderComparison(baseline, result));
   console.log(`result: ${resultPath}`);

@@ -164,3 +164,58 @@ export function renderComparison(before: LoadCostResult, after: LoadCostResult):
   }
   return `${lines.join('\n')}\n`;
 }
+
+export const T3_PROFILE_NAME = 't3-22776';
+const T3_SOURCE_URL = 'https://github.com/pingdotgg/t3code/pull/22776';
+
+export interface T3Row {
+  id: 'cold' | 'cold-throttled' | 'warm' | 'warm-throttled';
+  label: string;
+  visit: 'cold' | 'warm';
+  isThrottled: boolean;
+  t3PublishedMs: number;
+}
+
+export const T3_ROWS: readonly T3Row[] = [
+  { id: 'cold', label: 'Cold load, app ready', visit: 'cold', isThrottled: false, t3PublishedMs: 960 },
+  { id: 'cold-throttled', label: 'Cold load, app ready, throttled', visit: 'cold', isThrottled: true, t3PublishedMs: 2960 },
+  { id: 'warm', label: 'Warm reload, app ready', visit: 'warm', isThrottled: false, t3PublishedMs: 350 },
+  { id: 'warm-throttled', label: 'Warm reload, app ready, throttled', visit: 'warm', isThrottled: true, t3PublishedMs: 940 },
+];
+
+const T3RowResultSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  runsMs: z.array(z.number()),
+  medianMs: z.number(),
+  wireBytesDown: z.number(),
+  t3PublishedMs: z.number(),
+});
+
+export const T3ProfileResultSchema = z.object({
+  schemaVersion: z.literal(1),
+  profile: z.literal(T3_PROFILE_NAME),
+  commit: z.string(),
+  recordedAt: z.string(),
+  viewport: z.string(),
+  runs: z.number(),
+  rows: z.array(T3RowResultSchema),
+});
+
+export type T3ProfileResult = z.infer<typeof T3ProfileResultSchema>;
+export type T3RowResult = z.infer<typeof T3RowResultSchema>;
+
+export function renderT3Markdown(result: T3ProfileResult): string {
+  const lines = [
+    `# Dashboard load time, t3code method`,
+    '',
+    `Method of ${T3_SOURCE_URL}: headless Chromium, fresh context per run, throttled rows use CDP network emulation at 100 ms latency and 20 Mbps down, app ready when the loading screen fades out. ${result.viewport}. Median of ${result.runs} run(s). Commit ${result.commit.slice(0, 8)}, ${result.recordedAt}.`,
+    '',
+    '| Row | glimmervoid | Runs | Wire down | t3code after #22776 |',
+    '|---|---:|---|---:|---:|',
+  ];
+  for (const row of result.rows) {
+    lines.push(`| ${row.label} | ${formatSeconds(row.medianMs)} | ${row.runsMs.map(formatSeconds).join(', ')} | ${formatBytes(row.wireBytesDown)} | ${formatSeconds(row.t3PublishedMs)} |`);
+  }
+  return `${lines.join('\n')}\n`;
+}
