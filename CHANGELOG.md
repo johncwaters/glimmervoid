@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Reloading the dashboard no longer rechecks its fonts**: the CommitMono font files now carry a content hash in their name, so the browser keeps them cached until an update changes them instead of asking the server about each one on every reload.
+
 - **Each secondary view brings its own styles**: the styles for Settings, Usage, Reviews, My PRs, Radar, Visions, Hooks, Trace, Benchmarks and the plan view now download with that view instead of with the board, so the board's stylesheet shrinks from 39 KB to 30 KB compressed. On a simulated 3G link the board still appears after about 8.3 seconds, because the fonts take the freed bandwidth.
 
 ## [0.46.1] - 2026-10-27

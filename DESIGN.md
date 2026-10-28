@@ -160,7 +160,7 @@ Always paired with a status icon; never carried by hue alone.
 ## 3. Typography
 
 **Display Font:** none. The system is mono-forward.
-**Body / UI Font:** CommitMono, bundled as woff2 in `assets/fonts/` under the SIL OFL 1.1 so every machine renders the same face (Cascadia Code, Fira Code, Consolas, Menlo, monospace remain as fallbacks).
+**Body / UI Font:** CommitMono, bundled as woff2 in `public/fonts/` under the SIL OFL 1.1 (licence in `assets/fonts/`) so every machine renders the same face (Cascadia Code, Fira Code, Consolas, Menlo, monospace remain as fallbacks).
 **Sans fallback:** Segoe UI / system-ui, available via a `--font-ui` token but rarely used; the console speaks in monospace.
 
 **Character:** One programmer's-typeface voice for everything. It reads as an instrument readout, not a document. Because the family is fixed and the size range is narrow, hierarchy is carried by weight, letter-spacing, color, and uppercase, not by large type.

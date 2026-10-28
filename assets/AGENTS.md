@@ -10,7 +10,7 @@ Repo-level static assets for documentation, served as Vite's `publicDir`. The on
 
 | Directory | Purpose |
 |-----------|---------|
-| `fonts/` | CommitMono woff2 faces (400/700 upright, each a `-core` subset loaded first and the full file for the remaining glyphs) plus `CommitMono-OFL.txt`; the OFL requires the licence to travel with the files |
+| `fonts/` | `CommitMono-OFL.txt`, shipped to `dist/` through publicDir because the OFL requires the licence to travel with the CommitMono faces, which live in `public/fonts/` so Vite hashes them |
 | `pictures/` | Screenshots and demo media for README/docs (`glimmervoid-demo.gif` README hero: a real Claude Code session mid-run, captured via Playwright driving an actual Glimmervoid instance) |
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

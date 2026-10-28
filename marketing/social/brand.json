@@ -7,7 +7,7 @@
     "accentInk": "#0a0810"
   },
   "fonts": {
-    "display": { "family": "CommitMono", "files": ["../../assets/fonts/commit-mono-700-regular.woff2"], "weight": 700 },
-    "body": { "family": "CommitMono", "files": ["../../assets/fonts/commit-mono-400-regular.woff2"], "weight": 400 }
+    "display": { "family": "CommitMono", "files": ["../../public/fonts/commit-mono-700-regular.woff2"], "weight": 700 },
+    "body": { "family": "CommitMono", "files": ["../../public/fonts/commit-mono-400-regular.woff2"], "weight": 400 }
   }
 }
