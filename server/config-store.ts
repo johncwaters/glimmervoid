@@ -18,7 +18,6 @@ import { writeJsonAtomicSync, writeTextAtomic, writeTextAtomicSync } from './jso
 import { errorLabel, errorMessage } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { normalizeLegacyConfigNumbers } from '../shared/contracts/config-numbers-core.ts';
-import { assetForPlatform } from './core/rtk-install-core.ts';
 import { DEFAULT_SESSION_MEMORY_RESERVE_MB } from './core/memory-admission-core.ts';
 import { withExperimentalFeaturesGated } from './core/experimental-gate-core.ts';
 import { isExperimentalBuild as isExperimentalVersion } from '../shared/build-channel.ts';
@@ -83,7 +82,6 @@ const DEFAULT_CONFIG = {
 
   skipPermissionsByDefault: false,
 
-  rtk: false,
   saneYolo: true,
 
   telegramNotifications: false,
@@ -537,8 +535,6 @@ function createConfigStore({
       telemetry: pickBlock('telemetry', { ...DEFAULT_CONFIG.telemetry, ...config.telemetry }),
       telemetryForcedOff: isTelemetryForcedOff(process.env),
       telemetryInstallId: readTelemetryInstallId?.() ?? null,
-      rtk: config.rtk ?? effectiveDefaults.rtk,
-      rtkInstallSupported: assetForPlatform(process.platform, process.arch) !== null,
       saneYolo: config.saneYolo ?? effectiveDefaults.saneYolo,
       checkForUpdates: config.checkForUpdates ?? effectiveDefaults.checkForUpdates,
       updateChannel: config.updateChannel ?? effectiveDefaults.updateChannel,

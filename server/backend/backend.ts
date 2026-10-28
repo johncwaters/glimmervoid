@@ -154,7 +154,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     recordOutcome,
     logger: console,
   });
-  const { agentConnect, agentIngressServer, getHookPort, hookRouter, makeSession, rtkInstall, sshSigner } = sessionRuntime;
+  const { agentConnect, agentIngressServer, getHookPort, hookRouter, makeSession, sshSigner } = sessionRuntime;
 
   const getCurrentIngestLane = () => laneAssembly.currentIngest();
   const getCurrentVisionsLane = () => laneAssembly.currentVisions();
@@ -388,7 +388,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   sessionRegistry.initialize();
   const reconcileProjectsOnReload = sessionRegistry.applyConfigReload;
 
-  void rtkInstall.maybeInstall();
   void sweepOrphanedGuardrailsLaunches();
   void reconcileOwnedPaths({
     ledger: laneAssembly.ownedPaths,
@@ -432,7 +431,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }
     notifications.applySettings();
     laneAssembly.restartServiceLanes();
-    void rtkInstall.maybeInstall();
     void visionsSetup.maybeApply();
     void laneAssembly.restartDynamicLanes();
   }
@@ -560,7 +558,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     configStore,
     broadcastControl,
     controlReplayLog,
-    getRtkInstallStatus: () => rtkInstall.getStatus(),
     agentConnect,
     remoteSetup,
     telegramDelivery: notifications.telegramDelivery,
@@ -607,7 +604,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   updateApply.startAfterListening(httpServer);
   httpServer.once('listening', startPostTurnLeftoverCleanup);
 
-  broadcastSettings = () => broadcastControl?.({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, rtkInstallStatus: rtkInstall.getStatus(), coderEnvironments: laneAssembly.coderEnv.availableEnvironments(), agentLogins: agentConnect.logins() }) });
+  broadcastSettings = () => broadcastControl?.({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, coderEnvironments: laneAssembly.coderEnv.availableEnvironments(), agentLogins: agentConnect.logins() }) });
   stopConfigWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
     broadcastSettings?.();

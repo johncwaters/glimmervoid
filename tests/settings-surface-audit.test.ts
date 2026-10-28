@@ -7,7 +7,7 @@ import type { SettingsSection, SettingsSetting } from '../shared/settings/regist
 import { SETTINGS_INDEX } from '../shared/settings/registry-core.ts';
 import { includesRepositoryRoot, projectSelectionChoices } from '../public/settings/settings-projects-core.ts';
 import {
-  collectDirtyBlocks, hydrateFromSettings, rtkInstallStatusText, secretEnvironmentSource, validateLocally,
+  collectDirtyBlocks, hydrateFromSettings, secretEnvironmentSource, validateLocally,
 } from '../public/settings/settings-view-core.ts';
 
 const WHOLE_NUMBER_FIELDS = [
@@ -110,9 +110,3 @@ test('repository roots preserve case distinctions under the server path policy a
   assert.equal(includesRepositoryRoot(['C:/repos/Case'], 'C:/repos/Other', true), false);
 });
 
-test('RTK installation copy exposes platform refusal and conditional cooldown retry', () => {
-  assert.match(rtkInstallStatusText({ rtkInstallSupported: false }), /unavailable on this server platform/);
-  assert.match(rtkInstallStatusText({ rtkInstallSupported: true, rtkInstall: { status: 'failed', reason: 'fetch failed' } }), /fetch failed.*ten-minute failure cooldown/);
-  assert.match(rtkInstallStatusText({ rtkInstall: { status: 'installing' } }), /installing.*now/);
-  assert.match(rtkInstallStatusText({}), /supported server platforms.*eligibility/);
-});

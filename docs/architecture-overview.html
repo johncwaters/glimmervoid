@@ -256,7 +256,7 @@
   </figure>
 
   <ul>
-    <li><strong>Spawn.</strong> <code>pty.spawn</code> launches <code>claude</code> (resolved once at module load; <code>.exe</code> direct, shim installs via <code>cmd.exe /c</code>), through a process-wide spawn gate that serializes ConPTY creation. A per-session managed <code>--settings</code> file injects HTTP hooks, an optional statusLine relay, and optional rtk compression. The env is scrubbed before spawn.</li>
+    <li><strong>Spawn.</strong> <code>pty.spawn</code> launches <code>claude</code> (resolved once at module load; <code>.exe</code> direct, shim installs via <code>cmd.exe /c</code>), through a process-wide spawn gate that serializes ConPTY creation. A per-session managed <code>--settings</code> file injects HTTP hooks and an optional statusLine relay. The env is scrubbed before spawn.</li>
     <li><strong>Crash safety.</strong> Every hook payload carries Claude's session id; Glimmervoid persists it immediately, so after a crash or restart, boot auto-resume respawns previously active sessions with <code>--resume</code>. There is deliberately no shutdown flush.</li>
     <li><strong>Forensics.</strong> An always-on JSONL recorder writes every hook payload, transition, and gate decision to <code>~/.glimmervoid/recordings</code>; raw PTY bytes are opt-in.</li>
     <li><strong>Pure cores.</strong> Every decision that matters (state transitions, gate releases, merge demotions, notification categories) is a pure function in <code>session/core/</code> with unit tests; <code>sessions.js</code> is the IO shell around them.</li>
@@ -755,7 +755,7 @@
   <table>
     <tr><th>Moment</th><th>What runs</th></tr>
     <tr><td>boot</td><td>Config load, project id assignment, worktree reconciliation, then auto-resume of sessions whose <code>wasActive</code> marker survived, each through the spawn gate. Lane pollers wire up after.</td></tr>
-    <tr><td>spawn</td><td>Settings file written (hooks, statusLine, rtk hook), env scrubbed, PTY created, recorder armed.</td></tr>
+    <tr><td>spawn</td><td>Settings file written (hooks, statusLine, PreToolUse hook tools), env scrubbed, PTY created, recorder armed.</td></tr>
     <tr><td>per turn</td><td>Hook callbacks move the state machine; turn end triggers worktree diff recheck, post-turn hygiene checks, a debounced usage refresh, and possibly a notification.</td></tr>
     <tr><td>continuous</td><td>fs watchers on worktree gitdirs, integration-branch reflog, and the pairings file; xterm renders whatever bytes arrive.</td></tr>
     <tr><td>intervals</td><td>PR poller (15 min), usage scans (5 min, dashboard-gated), TTL prunes on agent tracking.</td></tr>

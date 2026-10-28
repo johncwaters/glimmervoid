@@ -1,20 +1,18 @@
 import { SANE_YOLO_PATH_ENV, saneYoloHostFlag } from "./core/sane-yolo.ts";
-import type { HookToolId } from "./core/hook-tools.ts";
 
 import { readStdin } from "./relay-stdin.ts";
 import type { StdinLike } from "./relay-stdin.ts";
 
 import { spawn } from "../server/child-process-safe.ts";
 
-import { CLAUDE_RELAY_FLAVOR, MAX_RTK_STDOUT_BYTES, RTK_PATH_ENV, normalizeRtkHookResponse } from "./core/rtk-hook-core.ts";
-
-const RTK_TIMEOUT_MS = 3000;
+const HOOK_TOOL_TIMEOUT_MS = 3000;
+const MAX_HOOK_TOOL_STDOUT_BYTES = 65536;
 
 interface StdoutLike {
   write(text: string): unknown;
 }
 
-function runHookTool(toolId: HookToolId, binPath: string, body: Buffer, agentFlavor = ""): Promise<string> {
+function runHookTool(binPath: string, body: Buffer, agentFlavor = ""): Promise<string> {
   return new Promise((resolve) => {
     let settled = false;
     let timer: NodeJS.Timeout | null = null;
@@ -26,9 +24,7 @@ function runHookTool(toolId: HookToolId, binPath: string, body: Buffer, agentFla
     };
     let child: ReturnType<typeof spawn>;
     try {
-      const command = toolId === "rtk" ? binPath : process.execPath;
-      const args = toolId === "rtk" ? ["hook", "claude"] : [binPath, "hook", saneYoloHostFlag(agentFlavor)];
-      child = spawn(command, args, { stdio: ["pipe", "pipe", "ignore"] });
+      child = spawn(process.execPath, [binPath, "hook", saneYoloHostFlag(agentFlavor)], { stdio: ["pipe", "pipe", "ignore"] });
     } catch {
       done("");
       return;
@@ -43,13 +39,13 @@ function runHookTool(toolId: HookToolId, binPath: string, body: Buffer, agentFla
     timer = setTimeout(() => {
       try { child.kill(); } catch {}
       done("");
-    }, RTK_TIMEOUT_MS);
+    }, HOOK_TOOL_TIMEOUT_MS);
     const chunks: Buffer[] = [];
     let stdoutBytes = 0;
     childStdout.on("data", (chunk: Buffer) => {
       const bytes = Buffer.from(chunk);
       stdoutBytes += bytes.length;
-      if (stdoutBytes > MAX_RTK_STDOUT_BYTES) {
+      if (stdoutBytes > MAX_HOOK_TOOL_STDOUT_BYTES) {
         try { child.kill(); } catch {}
         done("");
         return;
@@ -73,19 +69,18 @@ async function main(
   env: Record<string, string | undefined> = process.env,
   stdin: StdinLike = process.stdin,
   stdout: StdoutLike = process.stdout,
-  runner: (binPath: string, body: Buffer) => Promise<string> = (binPath, body) => runHookTool(toolId === "rtk" ? "rtk" : "saneYolo", binPath, body, agentFlavor),
+  runner: (binPath: string, body: Buffer) => Promise<string> = (binPath, body) => runHookTool(binPath, body, agentFlavor),
   agentFlavor: string = process.argv[3] ?? "",
 ): Promise<{ code: number; reason: string }> {
-  if (toolId !== "rtk" && toolId !== "saneYolo") return { code: 0, reason: "unknown-tool" };
-  const configuredPath = env[toolId === "rtk" ? RTK_PATH_ENV : SANE_YOLO_PATH_ENV];
+  if (toolId !== "saneYolo") return { code: 0, reason: "unknown-tool" };
+  const configuredPath = env[SANE_YOLO_PATH_ENV];
   const binPath = typeof configuredPath === "string" ? configuredPath.trim() : "";
   if (!binPath) return { code: 0, reason: "no-tool-path" };
   const body = await readStdin(stdin);
   if (body.length === 0) return { code: 0, reason: "empty-payload" };
   const toolOutput = await runner(binPath, body);
-  const response = toolId === "rtk" ? normalizeRtkHookResponse(toolOutput, { isForClaude: agentFlavor === CLAUDE_RELAY_FLAVOR }) : toolOutput;
-  if (!response) return { code: 0, reason: "no-response" };
-  try { stdout.write(toolId === "rtk" ? `${response}\n` : response); } catch {}
+  if (!toolOutput) return { code: 0, reason: "no-response" };
+  try { stdout.write(toolOutput); } catch {}
   return { code: 0, reason: "forwarded" };
 }
 

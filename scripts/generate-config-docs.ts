@@ -31,7 +31,6 @@ export const ENVIRONMENT_VARIABLES: readonly EnvironmentVariable[] = Object.free
   { name: 'GLIMMERVOID_TELEMETRY_PROJECT_TOKEN', audience: 'internal', description: 'Sends telemetry to another PostHog project instead of the Glimmervoid one, so end-to-end checks of a development build stay out of real usage data. Not an operator setting.' },
   { name: 'GLIMMERVOID_DEBUG_SPAWN', audience: 'operator', description: 'Any non-empty value logs which executable each agent command resolved to at spawn.' },
   { name: 'GLIMMERVOID_SANE_YOLO_PATH', audience: 'internal', description: 'Names the Sane YOLO binary only in supervised sessions, so an installed Grok hook stays inert outside Glimmervoid. Not an operator setting.' },
-  { name: 'GLIMMERVOID_RTK_PATH', audience: 'internal', description: 'Set by Glimmervoid in the rtk hook relay environment to name the rtk binary. Not an operator setting.' },
   { name: 'GLIMMERVOID_HOOK_URL', audience: 'internal', description: 'Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting.' },
   { name: 'GLIMMERVOID_AGENT_URL', audience: 'internal', description: 'Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `board` read it. Not an operator setting.' },
   { name: 'GLIMMERVOID_CODEX_REMOTE_TOKEN', audience: 'internal', description: 'Set by Glimmervoid in the environment of a Codex session that runs in a Coder workspace; the Codex TUI sends it as the bearer token to the forwarded app-server. Not an operator setting.' },

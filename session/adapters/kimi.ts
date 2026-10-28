@@ -266,7 +266,6 @@ const kimi = {
     backgroundAgents: true,
     resume: true,
     statusLine: false,
-    rtk: false,
     saneYolo: true,
     compactQuiet: true,
     skipPermissionsFlag: true,

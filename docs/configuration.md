@@ -48,7 +48,6 @@ What a guarded session may touch, and which unattended actions automated work ma
 |-----|---------|---------|-------|
 | `skipPermissionsByDefault` | Skip permission prompts by default | `false` | Start sessions whose project sets no permission choice with the agent CLI permission bypass flag. |
 | `saneYolo` | Sane YOLO | `true` | Block catastrophic commands in sessions that skip permission prompts when the cc-safety-net executable is available and trusted hooks are installed. Missing or untrusted hooks leave a session unprotected. Applies to new sessions. |
-| `rtk` | rtk output compression | `false` | Compress Bash output with the rtk executable. Applies to new sessions. |
 | `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no merge proof. Off keeps every unmerged branch. |
 | `guardrails.unguardedRepos` | Unguarded repositories | `[]` | Folders whose sessions run without guardrails. A session started in one of these folders, or below it, is not guarded. Applies to new sessions. |
 | `guardrails.blockedPaths` | Blocked folders | `[]` | Extra folders and files a guarded session cannot write, on top of credentials and Glimmervoid's own state. A leading ~ means the home folder. Applies to new sessions. |
@@ -78,7 +77,6 @@ Local transcript accounting and estimated-cost budgets.
 | `usage.vendors.kimi` | Track Kimi Code usage | `true` | Include local Kimi Code transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.fetchPricing` | Fetch current model prices | `true` | Load public model prices when usage tracking starts, using a cached table for up to one day. Falls back to cached or bundled prices if the fetch fails; no daily refresh runs while tracking continues. Needs a server restart. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.planLimits` | Show plan limits | `true` | Read the Claude plan limit the CLI reports and show it beside usage. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `usage.rtkSavings` | Estimate rtk savings | `true` | Estimate the tokens rtk output compression saved and show it in the Usage view. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.scanIntervalMinutes` | Scan interval | `5` | Periodic transcript polling interval. Session activity can also trigger scans between timer ticks. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.warehouseRetainDays` | Retain usage history | `365` | How long the daily usage warehouse keeps rolled-up totals after transcript detail expires. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.sessionBlockHours` | Session block length | `5` | Length of the rolling block the Usage view groups activity into. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -298,7 +296,6 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_TELEMETRY_PROJECT_TOKEN` | internal | Sends telemetry to another PostHog project instead of the Glimmervoid one, so end-to-end checks of a development build stay out of real usage data. Not an operator setting. |
 | `GLIMMERVOID_DEBUG_SPAWN` | operator | Any non-empty value logs which executable each agent command resolved to at spawn. |
 | `GLIMMERVOID_SANE_YOLO_PATH` | internal | Names the Sane YOLO binary only in supervised sessions, so an installed Grok hook stays inert outside Glimmervoid. Not an operator setting. |
-| `GLIMMERVOID_RTK_PATH` | internal | Set by Glimmervoid in the rtk hook relay environment to name the rtk binary. Not an operator setting. |
 | `GLIMMERVOID_HOOK_URL` | internal | Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting. |
 | `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `board` read it. Not an operator setting. |
 | `GLIMMERVOID_CODEX_REMOTE_TOKEN` | internal | Set by Glimmervoid in the environment of a Codex session that runs in a Coder workspace; the Codex TUI sends it as the bearer token to the forwarded app-server. Not an operator setting. |

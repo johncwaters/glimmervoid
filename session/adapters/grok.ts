@@ -293,7 +293,6 @@ const grok = {
     backgroundAgents: true,
     resume: true,
     statusLine: false,
-    rtk: false,
     saneYolo: true,
     compactQuiet: false,
     skipPermissionsFlag: true,

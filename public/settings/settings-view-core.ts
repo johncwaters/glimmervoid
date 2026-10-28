@@ -61,14 +61,6 @@ export function secretEnvironmentSource(setting: SettingsSetting, payload: Setti
   return typeof source === 'string' ? source : null;
 }
 
-export function rtkInstallStatusText(payload: SettingsPayload): string {
-  const install = payload.rtkInstall as { status?: string; reason?: string } | undefined;
-  if (install?.status === 'installing') return 'No rtk binary found. Glimmervoid is installing it into ~/.glimmervoid/bin now.';
-  if (payload.rtkInstallSupported === false) return 'No rtk binary found. Automatic installation is unavailable on this server platform; install a compatible binary manually.';
-  if (install?.status === 'failed') return `No rtk binary found. The last install attempt failed: ${install.reason || 'unknown reason'}. A save can retry after the ten-minute failure cooldown; saves during the cooldown skip installation.`;
-  return 'No rtk binary found. Saving requests installation into ~/.glimmervoid/bin on supported server platforms, subject to installer eligibility.';
-}
-
 function isSecretSetting(setting: SettingsSetting) {
   return setting.control === 'password';
 }

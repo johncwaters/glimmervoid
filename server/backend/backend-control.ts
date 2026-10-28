@@ -64,7 +64,6 @@ interface BackendControlDependencies {
   configStore: ConfigStore;
   broadcastControl: ControlBroadcast;
   controlReplayLog: ReplayLog;
-  getRtkInstallStatus: () => Record<string, unknown> | null;
   agentConnect: NonNullable<ControlHandlerDeps['agentConnect']>;
   remoteSetup: NonNullable<ControlHandlerDeps['remoteSetup']>;
   telegramDelivery: TelegramDeliveryControl;
@@ -131,7 +130,6 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     configStore,
     broadcastControl,
     controlReplayLog,
-    getRtkInstallStatus: dependencies.getRtkInstallStatus,
     telegramDelivery: dependencies.telegramDelivery,
     generateProjectId: dependencies.generateProjectId,
     makeSession: dependencies.makeSession,

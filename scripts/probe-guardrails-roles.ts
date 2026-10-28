@@ -99,7 +99,7 @@ const POSTHOG_INVESTIGATION_EXPECTATIONS: Readonly<Record<string, Expectation>> 
   report_write: 'succeeds', result_write: 'succeeds', repo_read: 'succeeds', repo_write: 'fails', home_read: 'fails', outside_write: 'fails', web: 'succeeds',
 };
 const SESSION_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
-  starts_in_worktree: 'succeeds', commit_everything: 'succeeds', status_clean: 'succeeds', shared_folder_write: 'succeeds', listed_blocked_write: 'fails', hook_tool_data_write: 'succeeds', listed_secret_read: 'fails',
+  starts_in_worktree: 'succeeds', commit_everything: 'succeeds', status_clean: 'succeeds', shared_folder_write: 'succeeds', listed_blocked_write: 'fails', listed_secret_read: 'fails',
   hooks_write: 'succeeds', git_config_write: 'succeeds', repo_write: 'succeeds', home_read: 'fails', upload_read: 'succeeds', outside_write: 'succeeds', web: 'succeeds',
   glimmervoid_state_write: 'fails', credential_write: 'fails',
 };
@@ -196,7 +196,7 @@ async function runAgent(roleName: ContractRoleName, checkout: string, evidenceDi
     hookRouter: { register: () => {}, unregister: () => {} },
     getHookPort: () => hookPort,
     hooksBaseDir: path.join(probeHome, 'scratch', 'glimmervoid-hooks'),
-    hookTools: resolveRequiredSaneYoloHookTools({}) ?? [],
+    hookTools: resolveRequiredSaneYoloHookTools() ?? [],
     prepareGuardrails: (facts) => prepareGuardrailsLaunch({ role: describeRole(roleName, checkout, evidenceDir, facts), launchId: facts.launchId }),
   });
   let output = '';
@@ -596,10 +596,7 @@ async function probeSession(roleRoot: string): Promise<void> {
   const listedBlockedFolder = path.join(roleRoot, 'blocked');
   const listedSecretFolder = path.join(roleRoot, 'secrets');
   const sharedFolder = path.join(repository, 'node_modules');
-  const hookToolDataDir = path.join(roleRoot, 'hook-tool-data');
-  const quietHookTool = path.join(roleRoot, 'quiet-hook-tool');
-  for (const folder of [repository, listedBlockedFolder, listedSecretFolder, sharedFolder, hookToolDataDir]) await mkdir(folder, { recursive: true });
-  await writeFile(quietHookTool, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  for (const folder of [repository, listedBlockedFolder, listedSecretFolder, sharedFolder]) await mkdir(folder, { recursive: true });
   await writeFile(path.join(listedSecretFolder, 'token.txt'), `${HOME_SECRET_TEXT}\n`);
   const runGit = (gitArguments: string[], cwd = repository) => runHardenedGit(gitArguments, { cwd, timeout: 30_000 });
   await runGit(['init', '-b', 'main']);
@@ -632,7 +629,6 @@ async function probeSession(roleRoot: string): Promise<void> {
     status_clean: 'test -z "$(git status --porcelain)"',
     shared_folder_write: 'printf shared > node_modules/role-probe.txt',
     listed_blocked_write: `printf blocked > ${shellQuoted(path.join(listedBlockedFolder, 'entry.txt'))}`,
-    hook_tool_data_write: `printf tracked > ${shellQuoted(path.join(hookToolDataDir, 'entry.txt'))}`,
     listed_secret_read: `cat ${shellQuoted(path.join(listedSecretFolder, 'token.txt'))}`,
     hooks_write: `printf hooks > ${shellQuoted(hooksFile)}`,
     git_config_write: 'git config role.probe written',
@@ -651,7 +647,6 @@ async function probeSession(roleRoot: string): Promise<void> {
     initialPrompt: 'This is a guardrails contract probe. Run exactly this shell command once and do not work around a denial or retry: sh probe.sh. Then reply with the single word done.',
     hookRouter: { register: () => {}, unregister: () => {} }, getHookPort: () => hookPort,
     hooksBaseDir: path.join(probeHome, 'scratch', 'glimmervoid-hooks'),
-    hookTools: [{ id: 'rtk', binPath: quietHookTool, dataDir: hookToolDataDir }],
     prepareGuardrails: createSessionGuardrails({
       getSettings: () => ({ blockedPaths: [listedBlockedFolder], unreadablePaths: [listedSecretFolder] }),
       uploadsRoot,

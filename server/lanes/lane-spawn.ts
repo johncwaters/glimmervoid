@@ -106,7 +106,7 @@ function createLaneSpawn({
     if (!isWrapped && (hasClaudeShell || isKimi)) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
     const guardrailsRefusalReason = isWrapped ? guardrailsRefusal() : null;
     if (guardrailsRefusalReason !== null) throw new Error(guardrailsRefusalReason);
-    const guardHookTools = hasClaudeShell && hookRouter ? resolveRequiredSaneYoloHookTools({}) ?? [] : null;
+    const guardHookTools = hasClaudeShell && hookRouter ? resolveRequiredSaneYoloHookTools() ?? [] : null;
     if (guardHookTools && !guardHookTools.some((tool) => tool.id === 'saneYolo')) throw new Error(GUARD_HOOK_UNAVAILABLE_ERROR);
       await runLaneSession();
 
@@ -119,7 +119,7 @@ function createLaneSpawn({
       const extraClaudeArgs = laneAgentArgs({ isClaude, isWrapped, isCodex, extraArgs, model, postureArgs: posture?.args ?? [], standaloneArgs: standalone?.args ?? [] });
       extraClaudeArgs.push(...promptLaunch.args);
       const options: SessionOptions = {
-        ...(guardHookTools ? { hookTools: guardHookTools, getHookTools: null } : {}),
+        ...(guardHookTools ? { hookTools: guardHookTools } : {}),
         id,
         name,
         path: cwd,

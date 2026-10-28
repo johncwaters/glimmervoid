@@ -264,14 +264,6 @@ async function runDoctor(): Promise<void> {
     line('agents', `probe failed: ${firstLine(errorText(err))}`);
   }
 
-  switchSection('rtk');
-  try {
-    const { getRtkPath } = await import('../server/rtk-resolver.ts');
-    line('rtk', getRtkPath() || 'not installed (Glimmervoid installs it when the rtk setting is on)');
-  } catch (err) {
-    line('rtk', `probe failed: ${firstLine(errorText(err))}`);
-  }
-
   switchSection('Sane YOLO');
   try {
     const { resolvePackageBin } = await import('../server/runtime-paths.ts');

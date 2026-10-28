@@ -337,7 +337,6 @@ test('a settings payload build reads the resolution cache and spawns no PATH pro
     probes = 0;
     const payload = buildSettingsPayload({
       configStore: { getSettings: () => ({}), config: { customAgents: [warm, missing, unprobed] } },
-      resolveRtk: () => null,
     });
     assert.equal(probes, 0, 'a settings payload build never probes PATH');
     assert.ok(TeamReviewEnvironment.safeParse(payload.teamReviewEnvironment).success, 'the team review environment matches its wire contract');

@@ -5,16 +5,12 @@ import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { saneYoloFiles } from '../session/core/sane-yolo.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
 import { GUARDRAILS_TEMP_FOLDER } from './guardrails/core/guardrails-policy-core.ts';
-import { dataHome } from './ingest/core/ingest-shell-core.ts';
-import { getRtkPath } from './rtk-resolver.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 import { writeTextAtomicSync } from './json-file.ts';
 import { isMissingFileError } from '../shared/text.ts';
 
 const writtenHomes = new Set<string>();
 const warnedTools = new Set<string>();
-const ensuredDataDirs = new Set<string>();
-const RTK_DATA_FOLDER = 'rtk';
 
 function currentGlimmervoidHome(): string {
   return glimmervoidHomeDir(os.homedir(), process.env);
@@ -41,30 +37,6 @@ function writeSaneYoloPolicy(homeDir: string, glimmervoidHome = currentGlimmervo
   writtenHomes.add(homeDir);
 }
 
-function rtkDataDir(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env, homeDir: string = os.homedir()): string | null {
-  if (platform === 'darwin') return path.join(homeDir, 'Library', 'Application Support', RTK_DATA_FOLDER);
-  if (platform !== 'linux') return null;
-  const dataHomeDir = dataHome(env, homeDir);
-  return path.isAbsolute(dataHomeDir) ? path.join(dataHomeDir, RTK_DATA_FOLDER) : null;
-}
-
-function ensureDataDir(dataDir: string | null): string | null {
-  if (dataDir === null || ensuredDataDirs.has(dataDir)) return dataDir;
-  fs.mkdirSync(dataDir, { recursive: true });
-  ensuredDataDirs.add(dataDir);
-  return dataDir;
-}
-
-function rtkHookTool(binPath: string, warn: (message: string) => void): ResolvedHookTool {
-  try {
-    const dataDir = ensureDataDir(rtkDataDir());
-    return dataDir === null ? { id: 'rtk', binPath } : { id: 'rtk', binPath, dataDir };
-  } catch (error) {
-    warnOnce('rtkDataDir', `[rtk] The rtk data folder could not be created: ${String(error)}. Guarded sessions will run rtk without savings tracking.`, warn);
-    return { id: 'rtk', binPath };
-  }
-}
-
 function warnOnce(toolId: string, message: string, warn: (message: string) => void): void {
   if (warnedTools.has(toolId)) return;
   warnedTools.add(toolId);
@@ -72,15 +44,10 @@ function warnOnce(toolId: string, message: string, warn: (message: string) => vo
 }
 
 function resolveHookTools(
-  config: { rtk?: boolean; saneYolo?: boolean },
+  config: { saneYolo?: boolean },
   { skipPermissions, warn = console.warn }: { skipPermissions: boolean; warn?: (message: string) => void },
 ): ResolvedHookTool[] {
   const hookTools: ResolvedHookTool[] = [];
-  if (config.rtk) {
-    const rtkPath = getRtkPath();
-    if (rtkPath) hookTools.push(rtkHookTool(rtkPath, warn));
-    if (!rtkPath) warnOnce('rtk', '[rtk] config.rtk is true, but no rtk binary was found. Sessions will spawn without rtk hooks.', warn);
-  }
   if (config.saneYolo === false || !skipPermissions) return hookTools;
   const binPath = resolvePackageBin('cc-safety-net', 'cc-safety-net');
   if (!binPath) {
@@ -97,10 +64,9 @@ function resolveHookTools(
 }
 
 function resolveRequiredSaneYoloHookTools(
-  config: { rtk?: boolean },
   { resolve = resolveHookTools }: { resolve?: typeof resolveHookTools } = {},
 ): ResolvedHookTool[] | null {
-  const hookTools = resolve({ rtk: config.rtk, saneYolo: true }, { skipPermissions: true });
+  const hookTools = resolve({ saneYolo: true }, { skipPermissions: true });
   return hookTools.some((tool) => tool.id === 'saneYolo') ? hookTools : null;
 }
 

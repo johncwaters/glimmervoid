@@ -341,4 +341,4 @@ function decideCommandEvent({
   };
 }
 
-export { dataHome, createParseState, decideCommandEvent, historyLocations, matchesLocation, normalizeShells, parseHistoryLines };
+export { createParseState, decideCommandEvent, historyLocations, matchesLocation, normalizeShells, parseHistoryLines };

@@ -623,7 +623,7 @@ test('kimi plan limits poll /usages read-only while a kimi session is live, rare
   const sessions = new Map([['kimi-card', { agentId: 'kimi', hasLivePty: true }]]);
   let intervalTick = () => {};
   const wiring = createUsageWiring({
-    config: { usage: { rtkSavings: false } },
+    config: {},
     sessions,
     broadcast: (message) => {
       if (message.type === 'plan-limits') planLimitBroadcasts.push(message);

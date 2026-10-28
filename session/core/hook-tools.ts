@@ -1,69 +1,26 @@
-import path from 'node:path';
-import { buildHookCommand, shellQuote } from './hook-command-core.ts';
-import { CLAUDE_RELAY_FLAVOR, RTK_PATH_ENV } from './rtk-hook-core.ts';
+import { buildHookCommand } from './hook-command-core.ts';
 import { SANE_YOLO_PATH_ENV, saneYoloEnv } from './sane-yolo.ts';
 
-import { resolvePathCommandMatches } from './spawn-command.ts';
-import type { PathLookupExec } from './spawn-command.ts';
-
-interface StatApi {
-  statSync: (path: string) => { isFile: () => boolean };
-}
-
-interface RtkPathInputs {
-  glimmervoidHome: string;
-  platform: NodeJS.Platform;
-  exec: PathLookupExec;
-  fsApi: StatApi;
-}
-
-interface RtkHookEntry {
+interface ClaudeHookEntry {
   matcher: string;
   hooks: { type: string; command: string }[];
-}
-
-function firstExistingFile(candidates: readonly string[], fsApi: StatApi): string | null {
-  for (const candidate of candidates) {
-    try {
-      if (fsApi.statSync(candidate).isFile()) return path.resolve(candidate);
-    } catch {
-    }
-  }
-  return null;
-}
-
-function resolveRtkPath({ glimmervoidHome, platform, exec, fsApi }: RtkPathInputs): string | null {
-  const bundledCandidates = [
-    path.join(glimmervoidHome, 'bin', 'rtk.exe'),
-    path.join(glimmervoidHome, 'bin', 'rtk'),
-  ];
-  const bundled = firstExistingFile(bundledCandidates, fsApi);
-  if (bundled) return bundled;
-
-  const matches = resolvePathCommandMatches('rtk', { platform, exec });
-  const firstMatch = matches[0];
-  if (!firstMatch) return null;
-  return path.resolve(firstMatch);
 }
 
 function toForwardSlashes(commandPath: string): string {
   return commandPath.replace(/\\/g, '/');
 }
 
-export { resolveRtkPath };
-
-type HookToolId = 'rtk' | 'saneYolo';
+type HookToolId = 'saneYolo';
 interface ResolvedHookTool {
   id: HookToolId;
   binPath: string;
-  dataDir?: string;
 }
 
 interface HookToolDescriptor {
   capability: HookToolId;
   purpose: string;
   env(tool: ResolvedHookTool, homeDir: string): Record<string, string>;
-  claudeEntry(tool: ResolvedHookTool, relayPath: string): RtkHookEntry;
+  claudeEntry(tool: ResolvedHookTool, relayPath: string): ClaudeHookEntry;
   codexGroup(tool: ResolvedHookTool, relayPath: string): string | null;
 }
 
@@ -73,16 +30,6 @@ function codexGroup(command: string | null): string | null {
 }
 
 const HOOK_TOOLS: Record<HookToolId, HookToolDescriptor> = {
-  rtk: {
-    capability: 'rtk',
-    purpose: 'rtk command rewriting',
-    env: (tool) => ({ [RTK_PATH_ENV]: tool.binPath }),
-    claudeEntry: (_tool, relayPath) => ({
-      matcher: 'Bash',
-      hooks: [{ type: 'command', command: `node ${shellQuote(toForwardSlashes(relayPath))} rtk ${CLAUDE_RELAY_FLAVOR}` }],
-    }),
-    codexGroup: (_tool, relayPath) => codexGroup(buildHookCommand(relayPath, 'rtk')),
-  },
   saneYolo: {
     capability: 'saneYolo',
     purpose: 'Sane YOLO catastrophic command protection',

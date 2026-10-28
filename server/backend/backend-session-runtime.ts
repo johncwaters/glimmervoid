@@ -9,14 +9,12 @@ import type { ControlBroadcast } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { configSiblingPath } from '../pairings-store.ts';
-import { createRtkInstallWiring } from '../rtk-install-wiring.ts';
 import { resolveHookTools } from '../hook-tools.ts';
 import { createClaudeFolderTrust } from '../claude-trust.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 import { createSessionFactory } from '../session/session-factory.ts';
 import { createSessionGuardrails } from '../guardrails/session-guardrails.ts';
-import { buildSettingsPayload } from '../settings-payload.ts';
 import { cliPath } from '../runtime-paths.ts';
 import { createSshSigner, installCommitSigningShim } from '../ssh-signing.ts';
 import { createClaudeCredentials } from '../claude-credentials.ts';
@@ -54,17 +52,6 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     sweepOrphans();
   } catch {}
 
-  const rtkInstall = createRtkInstallWiring({
-    config: dependencies.config,
-    onStatusChange: (status) => {
-      const broadcast = dependencies.getBroadcastControl();
-      if (!broadcast) return;
-      broadcast({
-        type: 'settings-updated',
-        settings: buildSettingsPayload({ configStore: dependencies.configStore, rtkInstallStatus: status }),
-      });
-    },
-  });
   const commitSigningProgram = installCommitSigningShim({
     binDir: configSiblingPath(dependencies.configStore.configPath, 'bin'),
     nodePath: process.execPath,
@@ -138,7 +125,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     }),
   });
 
-  return { agentConnect, agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, rtkInstall, sshSigner };
+  return { agentConnect, agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, sshSigner };
 }
 
 export { createBackendSessionRuntime };

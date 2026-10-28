@@ -37,7 +37,6 @@ import {
   phoneSettingsScreenOf,
   resetConfirmationOf,
   resetValueOf,
-  rtkInstallStatusText,
   secretEnvironmentSource,
   settingSavePayload,
   settingsNavigationGroupsOf,
@@ -1188,8 +1187,7 @@ function renderControl(setting: SettingsSetting) {
 function statusText(setting: SettingsSetting) {
   const environmentSource = secretEnvironmentSource(setting, settingsPayload);
   if (environmentSource) return `Supplied by ${environmentSource}. Change the server environment and restart to replace this credential.`;
-  if (setting.status !== 'rtk-install' || storedValue(setting) !== true || settingsPayload.rtkAvailable) return '';
-  return rtkInstallStatusText(settingsPayload);
+  return '';
 }
 
 function buildStatusSlot(setting: SettingsSetting) {

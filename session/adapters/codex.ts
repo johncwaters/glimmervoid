@@ -359,7 +359,6 @@ const codex = {
     backgroundAgents: true,
     resume: true,
     statusLine: true,
-    rtk: true,
     saneYolo: true,
     compactQuiet: true,
     skipPermissionsFlag: true,

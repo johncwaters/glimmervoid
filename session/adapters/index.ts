@@ -20,7 +20,6 @@ interface AgentCapabilities {
   backgroundAgents: boolean;
   resume: boolean;
   statusLine: boolean;
-  rtk: boolean;
   saneYolo: boolean;
   compactQuiet: boolean;
   skipPermissionsFlag: boolean;

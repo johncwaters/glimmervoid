@@ -1,11 +1,10 @@
 import path from "node:path";
 import { AGENT_URL_ENV, SIGN_URL_ENV } from "../../shared/contracts/session.ts";
 import { HOOK_URL_ENV } from "./hook-relay-core.ts";
-import { RTK_PATH_ENV } from "./rtk-hook-core.ts";
 import { SANE_YOLO_PATH_ENV, saneYoloEnv } from "./sane-yolo.ts";
 
 const GLIMMERVOID_SECRET_KEYS = ["GLIMMERVOID_POSTHOG_API_KEY", "GLIMMERVOID_TELEGRAM_BOT_TOKEN", "GLIMMERVOID_CLAUDE_OAUTH_TOKEN"];
-const GLIMMERVOID_SCRUB_KEYS = ["GLIMMERVOID_PORT", "GLIMMERVOID_CONFIG", HOOK_URL_ENV, AGENT_URL_ENV, SIGN_URL_ENV, RTK_PATH_ENV, SANE_YOLO_PATH_ENV, ...GLIMMERVOID_SECRET_KEYS];
+const GLIMMERVOID_SCRUB_KEYS = ["GLIMMERVOID_PORT", "GLIMMERVOID_CONFIG", HOOK_URL_ENV, AGENT_URL_ENV, SIGN_URL_ENV, SANE_YOLO_PATH_ENV, ...GLIMMERVOID_SECRET_KEYS];
 const SANE_YOLO_GUARD_KEYS = [SANE_YOLO_PATH_ENV, ...Object.keys(saneYoloEnv(""))];
 const SAFETY_NET_ENV_PREFIXES = ["CC_SAFETY_NET_", "SAFETY_NET_"];
 const LAUNCHING_TERMINAL_IDENTITY_KEYS = ["TERM_PROGRAM", "TERM_PROGRAM_VERSION"];
@@ -18,7 +17,6 @@ interface AgentEnvProfile {
 }
 
 interface AgentEnvOptions {
-  prependPathDir?: string | null;
   prependPathDirs?: readonly string[];
 }
 
@@ -81,7 +79,7 @@ function buildAgentEnv(
   baseEnv: SpawnEnv,
   extraEnv: SpawnEnv | null | undefined,
   profile: AgentEnvProfile,
-  { prependPathDir: pathDir = null, prependPathDirs = [] }: AgentEnvOptions = {},
+  { prependPathDirs = [] }: AgentEnvOptions = {},
 ): SpawnEnv {
   const env: SpawnEnv = { ...baseEnv };
   for (const key of profile.scrub || []) delete env[key];
@@ -90,7 +88,6 @@ function buildAgentEnv(
   if (isSaneYoloGuarded(extraEnv)) scrubInheritedSafetyNetEnv(env);
   Object.assign(env, extraEnv || {});
   Object.assign(env, profile.set || {});
-  prependPathDir(env, pathDir);
   const uniquePathDirs = prependPathDirs.filter((directory, index) =>
     prependPathDirs.findIndex((candidate) => normalizePathEntry(candidate) === normalizePathEntry(directory)) === index);
   for (const directory of uniquePathDirs.reverse()) prependPathDir(env, directory);

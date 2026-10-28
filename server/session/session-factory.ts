@@ -1,6 +1,5 @@
 import { resolveCoherence, type ConfineCommand } from '../coherence/coherence-runtime.ts';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
-import { refreshRtkHookTools } from '../../session/core/rtk-settings-core.ts';
 import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
@@ -23,7 +22,7 @@ import { ensureSessionTempFolder } from '../guardrails/guardrails-launch.ts';
 import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
-  'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'settingsGuardrails' | 'prepareGuardrails' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ownerId' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
+  'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'settingsGuardrails' | 'prepareGuardrails' | 'hookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ownerId' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };
@@ -159,7 +158,6 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       detectBackgroundAgents: config.detectBackgroundAgents,
       detectScheduledWakeups: config.detectScheduledWakeups,
       hookTools: originalHookTools,
-      getHookTools: () => refreshRtkHookTools(originalHookTools, dependencies.resolveHookTools(hookToolConfig(dependencies.getConfig?.() ?? config), { skipPermissions })),
       resumeSessionId: (project.resumeSessionId as string | null | undefined) || null,
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),

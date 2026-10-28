@@ -49,7 +49,6 @@ import { expandTilde } from './usage/core/usage-scan-core.ts';
 import { HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TIMEOUT_SEC, normalizeHook, rawStoredHooks, readStoredHooks, removeHook, upsertHook } from '../session/core/user-hooks-core.ts';
 import { describeBuiltinHooks } from '../detection/settings-injector.ts';
 import { PlanDecision } from '../shared/contracts/plan-review.ts';
-import { getRtkPath } from './rtk-resolver.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { ChangeMap } from '../shared/contracts/change-map.ts';
 import { CLIENT_LOG_SCOPE_MAX_CHARS, CLIENT_LOG_TEXT_MAX_CHARS } from '../shared/contracts/control-messages.ts';
@@ -156,9 +155,7 @@ interface ControlHandlerDeps {
   requestUsageReport?: ((args: { days?: number; force?: boolean; requestId?: string | null }) => Promise<unknown>) | null;
   getPlanLimits?: (() => readonly unknown[]) | null;
   controlReplayLog?: ReplayLog | null;
-  getRtkInstallStatus?: () => Record<string, unknown> | null;
   telegramDelivery?: TelegramDeliveryControl | null;
-  resolveRtkPath?: () => string | null;
   conversationFs?: typeof fs;
   conversationGit?: (args: string[], cwd: string) => Promise<string>;
   conversationProjectsDir?: string;
@@ -373,10 +370,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
     controlReplayLog = null,
 
-    getRtkInstallStatus = (): Record<string, unknown> | null => null,
     telegramDelivery = null,
 
-    resolveRtkPath = () => getRtkPath(),
     conversationFs = fs,
     conversationGit = runGitForConversationHistory,
     conversationProjectsDir = claudeProjectsDir(process.env, os.homedir()),
@@ -398,7 +393,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   });
 
   function buildSettingsPayload() {
-    return buildSettingsPayloadFrom({ configStore, rtkInstallStatus: getRtkInstallStatus(), telegramDelivery: telegramDelivery?.status() ?? null, coderEnvironments: coderEnv?.availableEnvironments() ?? null, agentLogins: agentConnect?.logins() ?? null });
+    return buildSettingsPayloadFrom({ configStore, telegramDelivery: telegramDelivery?.status() ?? null, coderEnvironments: coderEnv?.availableEnvironments() ?? null, agentLogins: agentConnect?.logins() ?? null });
   }
 
   function findSession(msg: Pick<ClientMessageOf<'kill'>, 'id'>): Session | null {
@@ -1494,8 +1489,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   function builtinHooksReport() {
     const hookTools: ResolvedHookTool[] = [];
-    const rtkPath = config.rtk ? resolveRtkPath() : null;
-    if (rtkPath) hookTools.push({ id: 'rtk', binPath: rtkPath });
     const saneYoloPath = config.saneYolo !== false ? resolvePackageBin('cc-safety-net', 'cc-safety-net') : null;
     if (saneYoloPath) hookTools.push({ id: 'saneYolo', binPath: saneYoloPath });
     return describeBuiltinHooks({

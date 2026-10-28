@@ -77,22 +77,6 @@ test('buildHookSettings merges permissions.deny when provided, omits it otherwis
   assert.equal(buildHookSettings({ ...base, permissions: { deny: [] } }).permissions, undefined, 'an empty deny list adds nothing');
 });
 
-test('writeSessionSettings writes the rtk PreToolUse block when opted in', () => {
-  const baseDir = path.join(os.tmpdir(), `glimmervoid-rtk-${Date.now()}`);
-  const { settingsPath, cleanup } = writeSessionSettings({
-    port: 5173,
-    glimmervoidId: 'sess-rtk',
-    baseDir,
-    hookTools: [{ id: 'rtk', binPath: 'C:\\Program Files\\rtk\\rtk.exe' }],
-  });
-  const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-  assert.equal(parsed.hooks.PreToolUse.length, 1);
-  assert.equal(parsed.hooks.PreToolUse[0].matcher, 'Bash');
-  assert.match(parsed.hooks.PreToolUse[0].hooks[0].command, /^node '[^']*hook-tool-relay\.(?:js|ts)' rtk claude$/);
-  cleanup();
-  try { fs.rmSync(baseDir, { recursive: true, force: true }); } catch {}
-});
-
 test('writeSessionSettings handles colon-namespaced ids without ENOENT (Windows-safe dir)', () => {
   const baseDir = path.join(os.tmpdir(), `glimmervoid-colon-${Date.now()}`);
   const glimmervoidId = 'setup:marketing:bb78afb5-e527-48da-9632-580c00153a1b';

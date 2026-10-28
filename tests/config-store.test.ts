@@ -328,7 +328,6 @@ test('getSettings falls back to DEFAULT_CONFIG for absent keys', () => {
     const s = store.getSettings();
     assert.equal(s.cursorBlink, DEFAULT_CONFIG.cursorBlink);
     assert.equal(s.detectBackgroundAgents, DEFAULT_CONFIG.detectBackgroundAgents);
-    assert.equal(s.rtk, DEFAULT_CONFIG.rtk);
     assert.equal(s.updateChannel, 'release');
     assert.equal(s.integrationBranch, DEFAULT_CONFIG.integrationBranch);
     assert.deepEqual(s.worktreeShare, DEFAULT_CONFIG.worktreeShare);

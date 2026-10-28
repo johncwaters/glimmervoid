@@ -316,12 +316,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'toggle', keywords: ['permissions', 'yolo', 'safety'], defaultValue: true, ...MACHINE_NEW_SESSIONS,
       },
       {
-        id: 'rtk-compression', path: 'rtk', title: 'rtk output compression',
-        description: 'Compress Bash output with the rtk executable.',
-        control: 'toggle', keywords: ['bash', 'tokens'], danger: true, status: 'rtk-install',
-        warning: 'Enabling this control permits Glimmervoid to install the pinned rtk executable automatically.', defaultValue: false, ...MACHINE_NEW_SESSIONS,
-      },
-      {
         id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
         description: 'Also delete stale remote branches with no merge proof. Off keeps every unmerged branch.',
         control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true,
@@ -907,11 +901,6 @@ const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'file-usage-plan-limits', path: 'usage.planLimits', title: 'Show plan limits', group: 'machine-usage',
     description: 'Read the Claude plan limit the CLI reports and show it beside usage.',
     control: 'toggle', keywords: ['plan', 'limits', 'quota'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-rtk-savings', path: 'usage.rtkSavings', title: 'Estimate rtk savings', group: 'machine-usage',
-    description: 'Estimate the tokens rtk output compression saved and show it in the Usage view.',
-    control: 'toggle', keywords: ['rtk', 'savings', 'tokens'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
     id: 'file-usage-scan-interval', path: 'usage.scanIntervalMinutes', title: 'Scan interval', group: 'machine-usage',

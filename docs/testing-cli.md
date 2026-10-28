@@ -153,7 +153,7 @@ node bin/glimmervoid.ts --config ./does-not-exist.json
 node bin/glimmervoid.ts doctor
 ```
 
-**Expected:** a read-only report with no server started and nothing written: versions, where the CLI runs from, the npm (and pnpm, if present) global bin directory and whether each is on PATH, the agent CLIs that resolve, the rtk binary, a `node-pty` load probe, and the resolved config path. Exit 0 even when node-pty fails to load, so read the NATIVE MODULE section.
+**Expected:** a read-only report with no server started and nothing written: versions, where the CLI runs from, the npm (and pnpm, if present) global bin directory and whether each is on PATH, the agent CLIs that resolve, a `node-pty` load probe, and the resolved config path. Exit 0 even when node-pty fails to load, so read the NATIVE MODULE section.
 
 ---
 
