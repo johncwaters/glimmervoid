@@ -65,7 +65,7 @@ export function parseDataServerFrame(raw: string): DataServerFrame | null {
 export const FAST_TERMINAL_CLOSE_MS = 1000;
 export const LOGGED_FAST_CLOSE_COUNTS: ReadonlySet<number> = new Set([1, 5, 25, 100]);
 
-export interface DataAttachRequest {
+interface DataAttachRequest {
   history: DataAttachHistory;
   isOutputPaused: boolean;
 }

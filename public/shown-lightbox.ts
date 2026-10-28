@@ -135,6 +135,9 @@ export function openShownLightbox(sessionId: string, fileId: string | null = nul
     if (selectedFile) openInNewTab(shownFileUrl(sessionId, selectedFile));
   });
   btnClose.addEventListener('click', () => lightbox.close());
+  stage.addEventListener('pointerleave', () => {
+    if (stage.contains(document.activeElement)) modal.dialog.focus();
+  });
   modal.overlay.addEventListener('click', (event) => {
     if (event.target === modal.overlay) lightbox.close();
   });
