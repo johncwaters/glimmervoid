@@ -4,7 +4,7 @@ import { encodeProjectDir } from '../../../session/core/conversation-history.ts'
 import { HOOK_VIA_GUARDRAILS_PROXY_ENV } from '../../../session/core/guardrails-proxy-core.ts';
 import { isPathInside } from '../../../shared/paths.ts';
 
-type GuardrailsVendor = 'claude' | 'codex';
+type GuardrailsVendor = 'claude' | 'codex' | 'kimi';
 
 type GuardrailsNetworkAccess =
   | { access: 'none' }
@@ -127,9 +127,19 @@ const VENDOR_PROFILES: Readonly<Record<GuardrailsVendor, VendorProfile>> = Objec
     apiDomains: ['chatgpt.com', '*.chatgpt.com', 'auth.openai.com', 'api.openai.com', '*.openai.com'],
     launchEnv: {},
   },
+  kimi: {
+    homeEntries: ['.kimi-code', '.kimi'],
+    launchWritableFolders: () => [],
+    launchPrivateFolders: [],
+    launchHomeEnvName: 'KIMI_CODE_HOME',
+    loginFiles: ['credentials', 'device_id', 'region.json'],
+    configEntries: ['config.toml', 'tui.toml', 'mcp.json', 'AGENTS.md', 'skills', 'plugins'],
+    apiDomains: ['api.kimi.com', 'api.kimi.ai', 'auth.kimi.com', 'auth.kimi.ai'],
+    launchEnv: {},
+  },
 });
 
-const GUARDRAILS_VENDORS: readonly GuardrailsVendor[] = Object.freeze(['claude', 'codex']);
+const GUARDRAILS_VENDORS: readonly GuardrailsVendor[] = Object.freeze(['claude', 'codex', 'kimi']);
 const UNWRAPPED_VENDOR_HOME_ENTRIES: readonly string[] = Object.freeze(['.grok']);
 const CREDENTIAL_HOME_ENTRIES: readonly string[] = Object.freeze([
   '.ssh', '.config/gh', '.config/coderv2', 'Library/Application Support/coderv2', 'Library/Keychains', '.git-credentials',

@@ -14,6 +14,7 @@ import { bridgeSocketLauncherEnv } from './core/guardrails-bridge-socket-core.ts
 import { buildGuardrailsLaunchPlan, GUARDRAILS_TEMP_FOLDER, lockedClaudeMountPoints, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates } from './core/guardrails-policy-core.ts';
 import type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, GuardrailsRole } from './core/guardrails-policy-core.ts';
 import { codexHomes, grokHomes, projectDirCandidates } from '../usage/core/usage-scan-core.ts';
+import kimi from '../../session/adapters/kimi.ts';
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { relayPath, resolvePackageBin } from '../runtime-paths.ts';
 import { pruneAgedFiles } from '../prune-files.ts';
@@ -125,6 +126,7 @@ async function resolveVendorLocations(env: NodeJS.ProcessEnv, homeDir: string): 
       otherHomes: await realPathsWhenPresent(scannedClaudeHomes(env, homeDir)),
     },
     codex: { stateFolder: await realPathWhenPresent(codexStateFolder), configFiles: [], otherHomes: await realPathsWhenPresent(otherCodexHomes) },
+    kimi: { stateFolder: await realPathWhenPresent(path.dirname(kimi.configFilePath(env, homeDir))), configFiles: [], otherHomes: [] },
   };
 }
 

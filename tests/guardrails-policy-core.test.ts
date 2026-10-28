@@ -90,7 +90,7 @@ test('vendor homes: a lane writes only its own transcript folder, session env fo
   assert.equal(codexLanePlan.launchHomeLinks.some((link) => link.targetPath === path.join(codexHome, 'config.toml') && !link.isLogin), true);
   assert.deepEqual(planFor(roleWith({ vendors: ['codex'] }), { ...hostPaths, existingPaths: new Set() }).launchHomeLinks, []);
   const laneDenied = entryPaths(lanePolicy.denyRead);
-  for (const unreadable of ['.codex', '.grok', '.ssh', '.config/gh', '.config/coderv2', 'Library/Application Support/coderv2', '.git-credentials', '.aws', '.npmrc', '.glimmervoid']) {
+  for (const unreadable of ['.codex', '.kimi-code', '.kimi', '.grok', '.ssh', '.config/gh', '.config/coderv2', 'Library/Application Support/coderv2', '.git-credentials', '.aws', '.npmrc', '.glimmervoid']) {
     assert.equal(laneDenied.includes(path.join(homeDir, unreadable)), true, unreadable);
   }
   assert.equal(laneDenied.includes(path.join(homeDir, '.claude')), false);
@@ -113,11 +113,13 @@ test('a relocated vendor home is unreadable to other roles and holds its own rol
   const codexHome = path.resolve('/srv/codex-home');
   const xdgConfigHome = path.resolve('/srv/xdg');
   const grokHome = path.resolve('/srv/grok-home');
+  const kimiHome = path.resolve('/srv/kimi-home');
   const relocatedPaths = {
     ...hostPaths,
     vendorLocations: {
       claude: { stateFolder: claudeHome, configFiles: [path.join(claudeHome, '.claude.json')], otherHomes: [path.join(xdgConfigHome, 'claude')] },
       codex: { stateFolder: codexHome, configFiles: [], otherHomes: [] },
+      kimi: { stateFolder: kimiHome, configFiles: [], otherHomes: [] },
     },
     unwrappedVendorHomes: [grokHome],
     relocatedXdgConfigHome: xdgConfigHome,
@@ -125,7 +127,7 @@ test('a relocated vendor home is unreadable to other roles and holds its own rol
   const role = roleWith({ vendorHome: { scope: 'state' } });
   const plan = planFor(role, { ...relocatedPaths, existingPaths: new Set(guardrailsPolicyProbePaths(role, relocatedPaths)) });
   const { denyRead, allowWrite, denyWrite } = plan.policy.filesystem;
-  for (const unreadable of [codexHome, path.join(homeDir, '.codex'), path.join(xdgConfigHome, 'gh'), path.join(xdgConfigHome, 'coderv2'), path.join(xdgConfigHome, 'gcloud'), path.join(homeDir, '.config', 'gh')]) {
+  for (const unreadable of [codexHome, kimiHome, path.join(homeDir, '.codex'), path.join(xdgConfigHome, 'gh'), path.join(xdgConfigHome, 'coderv2'), path.join(xdgConfigHome, 'gcloud'), path.join(homeDir, '.config', 'gh')]) {
     assert.equal(entryPaths(denyRead).includes(unreadable), true, unreadable);
   }
   assert.equal(entryPaths(allowWrite).includes(claudeHome), true);
