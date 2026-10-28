@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-10-27
+
 ### Added
 
 - **A shorter first-run checklist**: on a new install, folders in your home that hold git repos (such as `~/src`) are saved as repository roots without a click, so the checklist goes straight to starting a session; the roots step opens only when none are found, with a single path field. The missing-agent step is one line with a Copy button beside the install command, and the help about restarting Glimmervoid or adding customAgents appears only after a Rescan still finds no agent. The intro, footer and hint lines are gone, desktop notifications sit under Optional (hidden on phone), the checklist keeps one width from step to step, and the header + Session button is hidden while it shows.

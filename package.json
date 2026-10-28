@@ -1,6 +1,6 @@
 {
   "name": "glimmervoid",
-  "version": "0.45.1-next.0",
+  "version": "0.46.0",
   "description": "Mission control that ships. Not a terminal multiplexer: Claude Code, Codex and Grok each work in their own git worktree, and the one session that needs you comes to the front",
   "main": "dist/server/index.js",
   "type": "module",
