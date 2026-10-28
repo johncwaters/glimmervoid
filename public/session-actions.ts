@@ -6,6 +6,7 @@ import type { SessionOpenStatePolicy } from './session-actions-core.ts';
 import { decideSessionOpenAction, pickRestorableSessionId } from './session-actions-core.ts';
 import { sendSessionAction } from './session-card/card-dom.ts';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
+import { SHELL_AGENT_ID } from './session-card/agent-core.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
@@ -72,6 +73,10 @@ function openWithDialogs(openDialog: (dialogs: DialogsModule) => void) {
 
 export function openAddSessionDialog() {
   openWithDialogs((dialogs) => dialogs.createAddSessionDialog());
+}
+
+export function openShellSessionDialog() {
+  openWithDialogs((dialogs) => dialogs.createAddSessionDialog({ preferredAgentId: SHELL_AGENT_ID }));
 }
 
 async function requestQuickAdd(path: string, label: string | null | undefined) {

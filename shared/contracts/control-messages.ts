@@ -198,7 +198,7 @@ export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],
   issues: ['scope', 'filter', 'search', 'filters-toggle', 'select', 'back', 'go-to-session', 'open-session', 'refresh'],
   radar: ['report', 'open-session', 'resolve', 'suppress', 'archive-investigation'],
-  onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session'],
+  onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session', 'open-shell'],
   reviews: ['open-session', 'approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh'],
   hints: ['shown', 'open', 'dismiss'],
 } as const);

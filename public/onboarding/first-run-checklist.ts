@@ -1,11 +1,11 @@
 import { createActionStatus, requestFailureText, DEFAULT_REPLY_TIMEOUT_MS } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { openAddSessionDialog } from '../session-actions.ts';
+import { openAddSessionDialog, openShellSessionDialog } from '../session-actions.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { createNotificationPermissionControl } from '../notifications.ts';
 import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
-import { agentSummaryText, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, rootsToAutoSave, UPCOMING_STEPS } from './first-run-checklist-core.ts';
+import { agentSummaryText, canOpenShell, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, rootsToAutoSave, UPCOMING_STEPS } from './first-run-checklist-core.ts';
 import type { FirstRunStepState, FirstRunSteps } from './first-run-checklist-core.ts';
 import { createRepoRootsAdder, saveRepoRoots } from './repo-roots-adder.ts';
 
@@ -17,13 +17,13 @@ const STEP_ICON_BY_STATE: Readonly<Record<FirstRunStepState, string>> = {
   upcoming: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" role="img" aria-label="Not started"><circle cx="12" cy="12" r="10"></circle></svg>',
 };
 
-type FirstRunState = { steps: FirstRunSteps; agentSummary: string; repoRoots: string[] };
+type FirstRunState = { steps: FirstRunSteps; agentSummary: string; repoRoots: string[]; isShellAvailable: boolean };
 
 let checklistEl: HTMLElement | null = null;
 let stepsEl: HTMLOListElement | null = null;
 let rescanButton: HTMLButtonElement | null = null;
 let repoRootsAdder: ReturnType<typeof createRepoRootsAdder> | null = null;
-let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', repoRoots: [] };
+let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', repoRoots: [], isShellAvailable: false };
 let loadSequence = 0;
 let hasRescanFoundNoAgent = false;
 let hasTriedSavingFoundRoots = false;
@@ -87,6 +87,16 @@ function installCommandRow(): HTMLElement {
   return row;
 }
 
+function openShellButton(): HTMLButtonElement {
+  const button = el('button', 'btn-dialog btn-dialog-cancel', 'Open shell');
+  button.type = 'button';
+  button.addEventListener('click', () => {
+    reportOnboardingAction('open-shell');
+    openShellSessionDialog();
+  });
+  return button;
+}
+
 function agentStepBody(): HTMLElement[] {
   const actions = el('div', 'first-run-step-actions');
   rescanButton = el('button', 'btn-dialog btn-dialog-cancel', 'Rescan');
@@ -96,6 +106,7 @@ function agentStepBody(): HTMLElement[] {
     void loadFirstRunState({ rescanAgents: true });
   });
   actions.append(rescanButton);
+  if (currentState.isShellAvailable) actions.append(openShellButton());
   const body = [el('p', 'first-run-step-text', agentStepLeadText()), installCommandRow(), actions];
   if (!hasRescanFoundNoAgent) return body;
   return [...body, el('p', 'first-run-step-hint', 'Still missing after a rescan? Restart Glimmervoid from a terminal where the command runs. Other terminal agents go under customAgents.')];
@@ -163,7 +174,7 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
     }
     const steps = decideFirstRunSteps({ agentListing, repoRoots });
     if (rescanAgents) hasRescanFoundNoAgent = steps.agent === 'current';
-    currentState = { steps, agentSummary: agentSummaryText(agentListing), repoRoots };
+    currentState = { steps, agentSummary: agentSummaryText(agentListing), repoRoots, isShellAvailable: canOpenShell(agentListing) };
     loadStatus.clear();
     renderSteps();
     reportOnboardingStepChanges(currentState.steps);

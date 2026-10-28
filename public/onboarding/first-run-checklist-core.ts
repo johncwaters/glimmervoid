@@ -1,5 +1,5 @@
 import type { OnboardingStepReport } from '#shared/contracts/control-messages.ts';
-import { decideAgentAvailability, decideAgentPicker } from '../session-card/agent-core.ts';
+import { SHELL_AGENT_ID, decideAgentAvailability, decideAgentPicker } from '../session-card/agent-core.ts';
 
 type FirstRunStepState = 'done' | 'current' | 'upcoming';
 
@@ -13,8 +13,25 @@ function stepStateFor(stepNumber: number, currentStepNumber: number): FirstRunSt
   return 'upcoming';
 }
 
+function isShellAgent(agent: unknown): boolean {
+  return (agent as { id?: unknown } | null)?.id === SHELL_AGENT_ID;
+}
+
+function listedAgents(agentListing: unknown): unknown[] {
+  if (typeof agentListing !== 'object' || agentListing === null) return [];
+  const agents = (agentListing as { agents?: unknown }).agents;
+  return Array.isArray(agents) ? agents : [];
+}
+
+function withoutShell(agentListing: unknown): unknown {
+  if (typeof agentListing !== 'object' || agentListing === null) return agentListing;
+  const reply = agentListing as { agents?: unknown };
+  if (!Array.isArray(reply.agents)) return agentListing;
+  return { ...reply, agents: listedAgents(reply).filter((agent) => !isShellAgent(agent)) };
+}
+
 function decideFirstRunSteps({ agentListing, repoRoots }: { agentListing: unknown; repoRoots: readonly string[] }): FirstRunSteps {
-  const hasAgent = decideAgentAvailability(agentListing).canSpawn;
+  const hasAgent = decideAgentAvailability(withoutShell(agentListing)).canSpawn;
   const currentStepNumber = !hasAgent ? 1 : repoRoots.length === 0 ? 2 : 3;
   return {
     agent: stepStateFor(1, currentStepNumber),
@@ -45,8 +62,12 @@ function decideOnboardingStepReports(reportedStepKeys: ReadonlySet<string>, step
 }
 
 function agentSummaryText(agentListing: unknown): string {
-  const agents = typeof agentListing === 'object' && agentListing !== null ? (agentListing as { agents?: unknown }).agents : [];
+  const agents = listedAgents(agentListing).filter((agent) => !isShellAgent(agent));
   return decideAgentPicker(agents).options.map((agentOption) => agentOption.label).join(', ');
+}
+
+function canOpenShell(agentListing: unknown): boolean {
+  return decideAgentPicker(listedAgents(agentListing)).options.some((agentOption) => agentOption.id === SHELL_AGENT_ID);
 }
 
 function gitRepoCountText(gitRepoCount: number): string {
@@ -67,5 +88,5 @@ function rootsToAutoSave(configuredRoots: readonly string[], suggestions: readon
   return suggestions.filter((suggestion) => suggestion.gitRepoCount > 0).map((suggestion) => suggestion.path);
 }
 
-export { decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
+export { canOpenShell, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
 export type { FirstRunStepState, FirstRunSteps };

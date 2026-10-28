@@ -214,7 +214,7 @@ export function openRemoteSetupDialog() {
   refreshAgentLogins();
 }
 
-export function createAddSessionDialog() {
+export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: { preferredAgentId?: string } = {}) {
   const { dialog, close } = createModalOverlay();
   dialog.innerHTML = addSessionHTML;
   applyDialogAria(dialog, 'add-session-title');
@@ -377,7 +377,7 @@ export function createAddSessionDialog() {
     .then((message) => {
       const availability = decideAgentAvailability(message);
       if (!availability.canSpawn) blockSpawnWithGuidance(availability.guidance);
-      const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : []);
+      const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : [], { defaultId: preferredAgentId });
       selectedAgentId = decision.selectedId;
       showShellMode();
       if (!decision.show) return;
