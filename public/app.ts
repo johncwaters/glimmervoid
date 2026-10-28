@@ -3,6 +3,8 @@ import './tailwind.css';
 
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { BrowserConfig } from '#shared/contracts/browser-config.ts';
+import { HINT_VIEW_BY_FEATURE } from '#shared/contracts/feature-hints.ts';
+import type { FeatureHint } from '#shared/contracts/feature-hints.ts';
 import { shouldShowServerAction } from '#shared/client-trust.ts';
 import { createCoalescedTimer } from '#shared/coalesce-timer.ts';
 import { STATES } from '#shared/states.ts';
@@ -62,7 +64,7 @@ import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWo
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { openAddSessionDialog, requestSessionRemoval, selectSession, spawnQuickSession } from './session-actions.ts';
 import { getSelectedId, setSelectedId } from './sidebar/selection.ts';
-import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts';
+import { createSettingsLink, isSettingsHash, settingsHash } from './settings/settings-link.ts';
 import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from './shortcuts.ts';
 import { resolveDashboardShortcut } from './shortcuts-core.ts';
 import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
@@ -504,6 +506,7 @@ const messageHandlers = {
   'update-status':      (msg) => { showUpdateBanner(msg); applySettingsUpdateStatus(msg); },
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
   'post-turn-leftovers': (msg) => showPostTurnLeftoversBanner(msg),
+  'feature-hint':       (msg) => showFeatureHintCard(msg.hint),
   'error':              (msg) => {
     const isUpdateErrorShownInline = applySettingsUpdateError(msg);
     const isTraceErrorShownInline = applyTraceError(msg);
@@ -730,6 +733,22 @@ function openSettings(section?: string) {
   if (section) activateSettingsSection(section);
   if (showPhoneScreen('settings')) return;
   activateView('settings', { section });
+}
+
+function openView(view: string) {
+  if (showPhoneScreen(view)) return;
+  activateView(view);
+}
+
+function showFeatureHintCard(hint: FeatureHint) {
+  void import('./feature-hint.ts').then(
+    (featureHint) => featureHint.showFeatureHint(hint, {
+      isFeatureEnabled: (feature) => isViewAvailable(HINT_VIEW_BY_FEATURE[feature]),
+      openView,
+      openSetting: (sectionId, settingId) => activateSettingsHash(settingsHash(sectionId, settingId)),
+    }),
+    (error: unknown) => reportToServerLog('feature-hint', `hint card failed to load: ${describeFailure(error)}`),
+  );
 }
 
 function clearSettingsHash() {
