@@ -196,7 +196,7 @@ const ClientLogReport = z.object({
 }).strict();
 
 const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'header_error_shown'] as const);
-export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'issues', 'usage', 'radar', 'visions', 'hooks', 'trace', 'benchmarks', 'settings'] as const);
+export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'issues', 'usage', 'radar', 'community', 'visions', 'hooks', 'trace', 'benchmarks', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],
   issues: ['scope', 'filter', 'search', 'filters-toggle', 'select', 'back', 'go-to-session', 'open-session', 'refresh'],

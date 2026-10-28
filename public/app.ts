@@ -34,6 +34,7 @@ import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, orderPhonePanels, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession, syncPhoneHistory } from './phone/phone-shell-gate.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-store.ts';
+import { applyCommunityStatus } from './community/community-store.ts';
 import { markStatusDirty, setStatusPainter } from './status-paint.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-store.ts';
 import { forgetSessionLinkedPrs, paintSessionPrChips, sessionRowPrSignals, setSessionLinkedPrs } from './github/session-pr-chips.ts';
@@ -530,6 +531,7 @@ const messageHandlers = {
   'radar-investigation-activity': (msg) => applyInvestigationActivity(msg),
   'radar-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
+  'community-status': (msg) => applyCommunityStatus(msg),
   'github-prs': (msg) => applyGithubPrsFrame(msg),
   'my-prs-status': applyMyPrsStatus,
   'benchmark-status': (msg) => applyBenchmarkStatus(msg),

@@ -29,6 +29,8 @@ interface UiPrefs extends FlyingAnimalsOptions {
   radarAttentionAck: string;
   prsAttentionAck: string;
   prsUnseenRows: string;
+  communityAttentionAck: string;
+  communityUnseenRows: string;
   usageAttentionAck: string;
   visionsAttentionAck: string;
 }
@@ -70,6 +72,8 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   radarAttentionAck: asString(''),
   prsAttentionAck: asString(''),
   prsUnseenRows: asString(''),
+  communityAttentionAck: asString(''),
+  communityUnseenRows: asString(''),
   usageAttentionAck: asString(''),
   visionsAttentionAck: asString(''),
 };
@@ -151,6 +155,12 @@ export const setPrsAttentionAck = (signature: string) => write('prsAttentionAck'
 
 export const getPrsUnseenRows = () => read('prsUnseenRows');
 export const setPrsUnseenRows = (signature: string) => write('prsUnseenRows', signature);
+
+export const getCommunityAttentionAck = () => read('communityAttentionAck');
+export const setCommunityAttentionAck = (signature: string) => write('communityAttentionAck', signature);
+
+export const getCommunityUnseenRows = () => read('communityUnseenRows');
+export const setCommunityUnseenRows = (signature: string) => write('communityUnseenRows', signature);
 
 export const getUsageAttentionAck = () => read('usageAttentionAck');
 export const setUsageAttentionAck = (signature: string) => write('usageAttentionAck', signature);

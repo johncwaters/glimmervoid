@@ -1,3 +1,4 @@
+import type { CommunityStateEntry } from '#shared/contracts/community.ts';
 import type { MyPr, MyPrStage } from '#shared/contracts/my-prs.ts';
 import type { InFlightReview, QueuedReview, ReviewDraft } from '#shared/contracts/team-review.ts';
 import { attentionSignature } from '../attention-ack-core.ts';
@@ -15,7 +16,11 @@ export type QueueItem =
   | { source: 'team'; key: string; prKey: string; kind: QueueRowKind; review: ReviewDraft | InFlightReview | QueuedReview; action: QueueAction | null; attention: AttentionKind | null }
   | { source: 'mine'; key: string; prKey: string; pr: MyPr; stackRow: MyPrStackRow; action: QueueAction | null; attention: AttentionKind | null };
 
-export interface QueueGroup { id: QueueGroupId; title: string; items: QueueItem[] }
+export type CommunityQueueItem = { source: 'community'; key: string; entry: CommunityStateEntry; attention: AttentionKind | null };
+
+interface KeyedQueueItem { key: string; attention: AttentionKind | null }
+
+export interface QueueGroup<Item extends KeyedQueueItem = QueueItem> { id: QueueGroupId; title: string; items: Item[] }
 
 interface QueueStateRow { state: string; group: QueueGroupId; kind: AttentionKind | null; action: QueueAction | null }
 
@@ -127,16 +132,56 @@ export function buildReviewQueue(sections: TeamReviewSections, myPrs: readonly M
   return GROUP_ORDER.map((id) => ({ id, title: GROUP_TITLES[id], items: (itemsByGroup.get(id) ?? []).toSorted(compareStatedItems).map((stated) => stated.item) }));
 }
 
-export function turnItems(groups: readonly QueueGroup[]): QueueItem[] {
+const COMMUNITY_GROUP_ORDER: readonly QueueGroupId[] = ['turn', 'working', 'aside'];
+
+interface CommunityStateRow { group: QueueGroupId; kind: AttentionKind | null }
+
+const COMMUNITY_STATE_ORDER = [
+  { state: 'error', group: 'turn', kind: 'failed' },
+  { state: 'ready-HIGH', group: 'turn', kind: 'finished' },
+  { state: 'ready-MEDIUM', group: 'turn', kind: 'finished' },
+  { state: 'ready-LOW', group: 'turn', kind: 'finished' },
+  { state: 'ready', group: 'turn', kind: 'finished' },
+  { state: 'running', group: 'working', kind: null },
+  { state: 'queued', group: 'working', kind: null },
+  { state: 'aside', group: 'aside', kind: null },
+] as const satisfies readonly (CommunityStateRow & { state: string })[];
+
+const COMMUNITY_STATE_ROWS: ReadonlyMap<string, CommunityStateRow & { rank: number }> = new Map(COMMUNITY_STATE_ORDER.map((row, rank) => [row.state, { ...row, rank }]));
+
+function communityState(entry: CommunityStateEntry): string {
+  if (entry.status === 'ready' && entry.verdict) return `ready-${entry.verdict}`;
+  return entry.status;
+}
+
+function askedAtMs(entry: CommunityStateEntry): number {
+  const createdAtMs = Date.parse(entry.item.createdAt);
+  return Number.isNaN(createdAtMs) ? Number.POSITIVE_INFINITY : createdAtMs;
+}
+
+export function buildCommunityQueue(entries: readonly CommunityStateEntry[]): QueueGroup<CommunityQueueItem>[] {
+  const stated = entries.flatMap((entry) => {
+    const row = COMMUNITY_STATE_ROWS.get(communityState(entry));
+    if (!row) return [];
+    return [{ row, askedAtMs: askedAtMs(entry), item: { source: 'community', key: entry.item.key, entry, attention: row.kind } satisfies CommunityQueueItem }];
+  }).toSorted((first, second) => first.row.rank - second.row.rank || first.askedAtMs - second.askedAtMs);
+  return COMMUNITY_GROUP_ORDER.map((id) => ({ id, title: GROUP_TITLES[id], items: stated.filter((entry) => entry.row.group === id).map((entry) => entry.item) }));
+}
+
+export function communityActivityEntry(item: CommunityQueueItem): string {
+  return `${item.key}@${item.entry.status}:${item.entry.finishedAt ?? ''}`;
+}
+
+export function turnItems<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[]): Item[] {
   return groups.find((group) => group.id === 'turn')?.items ?? [];
 }
 
-export function queueItemByKey(groups: readonly QueueGroup[], key: string | null): QueueItem | null {
+export function queueItemByKey<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[], key: string | null): Item | null {
   if (!key) return null;
   return groups.flatMap((group) => group.items).find((item) => item.key === key) ?? null;
 }
 
-export function chooseQueueSelection(visibleGroups: readonly QueueGroup[], selectedKey: string | null): string | null {
+export function chooseQueueSelection<Item extends KeyedQueueItem>(visibleGroups: readonly QueueGroup<Item>[], selectedKey: string | null): string | null {
   if (queueItemByKey(visibleGroups, selectedKey)) return selectedKey;
   return visibleGroups.flatMap((group) => group.items)[0]?.key ?? null;
 }
@@ -146,8 +191,12 @@ function itemLabel(item: QueueItem): string {
   return pullRequestLabel(item.review.repo, item.review.number);
 }
 
+export function labeledAttentionTiles<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[], labelOf: (item: Item) => string): AttentionTile[] {
+  return turnItems(groups).map((item) => ({ id: item.key, kind: item.attention ?? 'waiting', name: labelOf(item) }));
+}
+
 export function attentionTilesOf(groups: readonly QueueGroup[]): AttentionTile[] {
-  return turnItems(groups).map((item) => ({ id: item.key, kind: item.attention ?? 'waiting', name: itemLabel(item) }));
+  return labeledAttentionTiles(groups, itemLabel);
 }
 
 export function attentionCountsOf(tiles: readonly AttentionTile[]): AttentionCounts {
@@ -162,14 +211,14 @@ export function bannerTilesOf(groups: readonly QueueGroup[], selectedKey: string
   return attentionTilesOf(groups).filter((tile) => tile.id !== selectedKey);
 }
 
-export function nextTurnKey({ capturedOrder, actedKey, groups }: { capturedOrder: readonly string[]; actedKey: string; groups: readonly QueueGroup[] }): string | null {
+export function nextTurnKey<Item extends KeyedQueueItem>({ capturedOrder, actedKey, groups }: { capturedOrder: readonly string[]; actedKey: string; groups: readonly QueueGroup<Item>[] }): string | null {
   const remainingKeys = turnItems(groups).map((item) => item.key).filter((key) => key !== actedKey);
   const remainingKeySet = new Set(remainingKeys);
   const nextKey = capturedOrder.slice(capturedOrder.indexOf(actedKey) + 1).find((key) => remainingKeySet.has(key));
   return nextKey ?? capturedOrder.find((key) => remainingKeySet.has(key)) ?? remainingKeys[0] ?? null;
 }
 
-export function turnPositionText(groups: readonly QueueGroup[], key: string | null): string {
+export function turnPositionText<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[], key: string | null): string {
   const turnKeys = turnItems(groups).map((item) => item.key);
   const position = key ? turnKeys.indexOf(key) : -1;
   if (position === -1) return '';

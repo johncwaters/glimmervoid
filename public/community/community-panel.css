@@ -1,0 +1,12 @@
+.community-question-body, .community-draft-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.community-question, .community-draft { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; }
+.community-question-body { color: var(--text-dim); }
+.community-actions { display: flex; flex-direction: column; gap: 6px; padding: 8px 16px; }
+.community-action-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.community-session-picker { max-width: 24ch; }
+.community-links { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.community-goal { margin: 0; }
+.community-badge[data-tone="ok"] { color: var(--state-complete); }
+.community-badge[data-tone="warn"] { color: var(--state-waiting); }
+.community-badge[data-tone="danger"] { color: var(--state-failed); }
+.community-badge[data-tone="muted"] { color: var(--text-dim); }
