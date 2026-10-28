@@ -421,7 +421,7 @@ test('a byte-limited continuation re-arms while a real scan is in flight without
   const passBarrier = new Promise<void>((resolve) => { releasePass = resolve; });
   const wiring = createUsageWiring({
     ...options,
-    config: { usage: { rtkSavings: false, vendors: { codex: false, grok: false } } },
+    config: { usage: { vendors: { codex: false, grok: false } } },
     scannerDeps: {
       ...options.scannerDeps,
       byteBudget: Buffer.byteLength(transcript.split('\n')[0]) + 1,
@@ -502,7 +502,6 @@ test('io-failed passes retry with capped backoff and warn once per standing fail
     controlClientCount: () => 1,
     createScanner: () => scanner,
     loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    rtkPathFn: () => null,
     setTimeoutFn: (fn, ms) => {
       delays.push(ms);
       const handle = setTimeout(fn, 0);

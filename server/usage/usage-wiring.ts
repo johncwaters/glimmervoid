@@ -5,13 +5,12 @@ import { decideTelegramNotification } from '../../notifications/channels/telegra
 import { USAGE_INTEGER_RANGES } from '../../shared/settings-ranges.ts';
 import { USAGE_COST_MODES, USAGE_VENDOR_KEYS } from '../../shared/usage-config.ts';
 import type { UsageVendorKey } from '../../shared/usage-config.ts';
-import { execFileAsync as defaultExecFileAsync } from '../child-process-safe.ts';
 import { evaluateBudget, markFired, mergeFiredState, normalizeBudgetConfig } from './core/usage-budget-core.ts';
 import type { BudgetAlert, BudgetConfig, BudgetFiredState } from './core/usage-budget-core.ts';
 import { planWindowStartsMs } from './core/usage-lane-core.ts';
 import { continuationDelayMs, shouldEvaluateDespiteIoFailures } from './core/usage-scan-core.ts';
 import type { PassOutcome } from './core/usage-scan-core.ts';
-import { computeCacheSavings, normalizeRtkGain } from './core/usage-savings-core.ts';
+import { computeCacheSavings } from './core/usage-savings-core.ts';
 import {
   buildPlanLimitsMessage,
   normalizeStatuslinePayload,
@@ -22,7 +21,6 @@ import type { PlanLimitsVendor, StatuslineSnapshot } from './core/usage-statusli
 import type { CodexRateLimitSnapshot } from './core/usage-codex-core.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { createLaneLog } from '../lanes/lane-log.ts';
-import { getRtkPath } from '../rtk-resolver.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
 import { loadPricing } from './usage-pricing.ts';
 import type { PricingResult } from './usage-pricing.ts';
@@ -40,8 +38,6 @@ const DEFAULT_USAGE_CONFIG = Object.freeze({
   enabled: true,
   fetchPricing: true,
   planLimits: true,
-
-  rtkSavings: true,
   scanIntervalMinutes: 5,
   retainDays: 90,
 
@@ -64,15 +60,6 @@ const FORCE_PASS_MIN_INTERVAL_MS = 3000;
 const TELEGRAM_TIMEOUT_MS = 10000;
 const IO_FAILURE_EVALUATION_LIMIT = 3;
 
-const RTK_SAVINGS_TTL_MS = 60000;
-const RTK_GAIN_ARGS = Object.freeze(['gain', '--daily', '--format', 'json']);
-const RTK_GAIN_TIMEOUT_MS = 5000;
-const RTK_GAIN_MAX_BUFFER = 4 * 1024 * 1024;
-const RTK_UNAVAILABLE = Object.freeze({ available: false });
-
-function defaultRtkPath(): string | null {
-  return getRtkPath();
-}
 const COST_MODES = new Set<string>(USAGE_COST_MODES);
 const INTEGER_RANGES = USAGE_INTEGER_RANGES;
 
@@ -80,7 +67,6 @@ interface UsageLaneConfig {
   enabled: boolean;
   fetchPricing: boolean;
   planLimits: boolean;
-  rtkSavings: boolean;
   scanIntervalMinutes: number;
   retainDays: number;
   warehouseRetainDays: number;
@@ -115,7 +101,6 @@ type SessionsMessage = {
   }[];
 };
 
-type RtkSavings = { available: boolean } & Record<string, unknown>;
 type PassResult = Awaited<ReturnType<UsageScannerApi['runPass']>>;
 
 interface UsageWiringOptions {
@@ -132,8 +117,6 @@ interface UsageWiringOptions {
   fsPromises?: typeof nodeFsPromises;
   createScanner?: (deps?: UsageScannerOptions) => UsageScannerApi;
   loadPricingFn?: typeof loadPricing;
-  execFileAsync?: typeof defaultExecFileAsync;
-  rtkPathFn?: () => string | null;
   scannerDeps?: Record<string, unknown>;
   nowFn?: () => number;
   partialContinueMs?: number;
@@ -174,7 +157,6 @@ function resolveUsageConfig(usage: unknown): UsageLaneConfig {
     enabled: typeof source.enabled === 'boolean' ? source.enabled : DEFAULT_USAGE_CONFIG.enabled,
     fetchPricing: typeof source.fetchPricing === 'boolean' ? source.fetchPricing : DEFAULT_USAGE_CONFIG.fetchPricing,
     planLimits: typeof source.planLimits === 'boolean' ? source.planLimits : DEFAULT_USAGE_CONFIG.planLimits,
-    rtkSavings: typeof source.rtkSavings === 'boolean' ? source.rtkSavings : DEFAULT_USAGE_CONFIG.rtkSavings,
     scanIntervalMinutes: integerWithin(source.scanIntervalMinutes, INTEGER_RANGES.scanIntervalMinutes, DEFAULT_USAGE_CONFIG.scanIntervalMinutes),
     retainDays: integerWithin(source.retainDays, INTEGER_RANGES.retainDays, DEFAULT_USAGE_CONFIG.retainDays),
     warehouseRetainDays: integerWithin(source.warehouseRetainDays, INTEGER_RANGES.warehouseRetainDays, DEFAULT_USAGE_CONFIG.warehouseRetainDays),
@@ -223,9 +205,6 @@ function createUsageWiring({
   fsPromises = nodeFsPromises,
   createScanner = createUsageScanner,
   loadPricingFn = loadPricing,
-
-  execFileAsync = defaultExecFileAsync,
-  rtkPathFn = defaultRtkPath,
   scannerDeps = {},
   nowFn = Date.now,
   partialContinueMs = PARTIAL_CONTINUE_MS,
@@ -277,8 +256,6 @@ function createUsageWiring({
       budgetFiredState = mergeFiredState(budgetFiredState, loadedFiredState ?? {});
     },
   });
-  let rtkSavingsCache: RtkSavings | null = null;
-  let rtkSavingsCacheMs = 0;
 
   async function loadPricingSafely(): Promise<PricingResult> {
     try {
@@ -602,37 +579,12 @@ function createUsageWiring({
     return budgetEvaluationQueued;
   }
 
-  async function fetchRtkSavings(): Promise<RtkSavings> {
-    if (!cfg.rtkSavings) return RTK_UNAVAILABLE;
-    const rtkPath = rtkPathFn();
-    if (!rtkPath) return RTK_UNAVAILABLE;
-    if (rtkSavingsCache && nowFn() - rtkSavingsCacheMs < RTK_SAVINGS_TTL_MS) return rtkSavingsCache;
-    try {
-      const { stdout } = await execFileAsync(rtkPath, [...RTK_GAIN_ARGS], {
-        timeout: RTK_GAIN_TIMEOUT_MS,
-        maxBuffer: RTK_GAIN_MAX_BUFFER,
-        encoding: 'utf8',
-      });
-      const normalized = normalizeRtkGain(JSON.parse(stdout));
-      if (!normalized) {
-        laneLog.warnOnce('rtk-gain', 'rtk gain reported an unrecognized shape');
-        return RTK_UNAVAILABLE;
-      }
-      rtkSavingsCache = { available: true, ...normalized };
-      rtkSavingsCacheMs = nowFn();
-      return rtkSavingsCache;
-    } catch (error) {
-      laneLog.warnOnce('rtk-gain', 'rtk gain failed', { error: errorMessage(error) });
-      return RTK_UNAVAILABLE;
-    }
-  }
-
   async function buildSavings(report: { models: { model?: string | null; vendor?: string; cacheRead?: unknown }[] }) {
     try {
-      return { rtk: await fetchRtkSavings(), cache: computeCacheSavings(report.models, pricing?.table) };
+      return { cache: computeCacheSavings(report.models, pricing?.table) };
     } catch (error) {
       laneLog.warn('savings unavailable', { error: errorMessage(error) });
-      return { rtk: RTK_UNAVAILABLE, cache: null };
+      return { cache: null };
     }
   }
 

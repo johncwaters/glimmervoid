@@ -42,13 +42,6 @@ export interface UsageAnomaly {
   burn?: { ratio?: unknown; current?: unknown; baseline?: unknown } | null;
 }
 
-export interface RtkSavings {
-  available?: unknown;
-  commands?: unknown;
-  savedTokens?: unknown;
-  savingsPct?: unknown;
-}
-
 export interface CacheSavings {
   cacheReadTokens?: unknown;
   savedUSD?: unknown;
@@ -56,7 +49,6 @@ export interface CacheSavings {
 }
 
 export interface UsageSavings {
-  rtk?: RtkSavings | null;
   cache?: CacheSavings | null;
 }
 

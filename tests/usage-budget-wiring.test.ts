@@ -151,7 +151,6 @@ function harness({ root, usage = {}, telegram = null, telegramNotifications = fa
       telegrams.push(args);
       return { ok: true, error: null };
     }),
-    rtkPathFn: () => null,
     telegramTimeoutMs,
   };
   const wiring = createUsageWiring(wiringOptions);

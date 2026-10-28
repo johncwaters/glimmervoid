@@ -1,62 +1,11 @@
 import { lookupModelPrice, ratesForPrice } from './usage-pricing-core.ts';
 import { vendorOf } from './usage-aggregate-core.ts';
-import { isRecord, numberOr, rawTextOr } from '../../../shared/coerce.ts';
-
-interface RtkDailyRow {
-  date: string;
-  commands: number;
-  savedTokens: number;
-  savingsPct: number;
-}
-
-interface RtkGain {
-  commands: number;
-  inputTokens: number;
-  outputTokens: number;
-  savedTokens: number;
-  savingsPct: number;
-  daily: RtkDailyRow[];
-}
+import { numberOr, rawTextOr } from '../../../shared/coerce.ts';
 
 interface ModelUsageRow {
   model?: string | null;
   vendor?: string;
   cacheRead?: unknown;
-}
-
-const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function normalizeRtkGain(parsed: unknown): RtkGain | null {
-  if (!isRecord(parsed)) return null;
-  const payload = parsed as Record<string, unknown>;
-  if (!isRecord(payload.summary)) return null;
-  const summary = payload.summary as Record<string, unknown>;
-  return {
-    commands: numberOr(summary.total_commands, 0),
-    inputTokens: numberOr(summary.total_input, 0),
-    outputTokens: numberOr(summary.total_output, 0),
-    savedTokens: numberOr(summary.total_saved, 0),
-    savingsPct: numberOr(summary.avg_savings_pct, 0),
-    daily: normalizeRtkDaily(payload.daily),
-  };
-}
-
-function normalizeRtkDaily(daily: unknown): RtkDailyRow[] {
-  if (!Array.isArray(daily)) return [];
-  const rows: RtkDailyRow[] = [];
-  for (const rawRow of daily) {
-    if (!isRecord(rawRow)) continue;
-    const row = rawRow as Record<string, unknown>;
-    const date = rawTextOr(row.date, null);
-    if (date === null || !DAY_KEY_RE.test(date)) continue;
-    rows.push({
-      date,
-      commands: numberOr(row.commands, 0),
-      savedTokens: numberOr(row.saved_tokens, 0),
-      savingsPct: numberOr(row.savings_pct, 0),
-    });
-  }
-  return rows;
 }
 
 function computeCacheSavings(
@@ -85,4 +34,4 @@ function computeCacheSavings(
   return { savedUSD, cacheReadTokens, unpricedModels };
 }
 
-export { computeCacheSavings, normalizeRtkGain };
+export { computeCacheSavings };

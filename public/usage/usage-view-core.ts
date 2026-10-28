@@ -1,7 +1,7 @@
 import { localDayKey, localHourMinuteText, twoUnitDurationText } from '#shared/display-text.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 import { formatCount, formatTokens, formatUsd, limitPct, NO_VALUE, planWindowOf, projectedLimitPct, trimTrailingZeros, usageErrorLine } from './usage-store-core.ts';
-import type { CacheSavings, PlanLimits, PlanLimitsVendor, PlanWindow, RtkSavings, UsageAnomaly, UsageBlock, UsageBudgetRow, UsageBurn, UsageProjection, UsageReport, UsageSavings, UsageTokenLimit, UsageTotals } from './usage-store-core.ts';
+import type { CacheSavings, PlanLimits, PlanLimitsVendor, PlanWindow, UsageAnomaly, UsageBlock, UsageBudgetRow, UsageBurn, UsageProjection, UsageReport, UsageSavings, UsageTokenLimit, UsageTotals } from './usage-store-core.ts';
 
 export { blockAttentionTone, budgetRowPct, budgetRows, formatTokens, formatUsd, limitPct, planWindowOf, RANGE_OPTIONS, tokenLimitTone, usageErrorLine } from './usage-store-core.ts';
 export type { PlanLimits, UsageTotals } from './usage-store-core.ts';
@@ -347,12 +347,6 @@ export function laneSessionsText(sessions: unknown) {
   return `${formatCount(count)} ${count === 1 ? 'session' : 'sessions'}`;
 }
 
-function rtkSavings(savings: UsageSavings | null | undefined): RtkSavings | null {
-  const rtk = savings?.rtk;
-  if (!rtk || typeof rtk !== 'object' || rtk.available !== true) return null;
-  return rtk;
-}
-
 function cacheSavings(savings: UsageSavings | null | undefined): CacheSavings | null {
   const cache = savings?.cache;
   if (!cache || typeof cache !== 'object') return null;
@@ -360,18 +354,7 @@ function cacheSavings(savings: UsageSavings | null | undefined): CacheSavings | 
 }
 
 export function hasSavings(savings: UsageSavings | null | undefined) {
-  return rtkSavings(savings) !== null || cacheSavings(savings) !== null;
-}
-
-export function rtkSavingsTile(savings: UsageSavings | null | undefined) {
-  const rtk = rtkSavings(savings);
-  if (!rtk) return null;
-  const commands = numberOr(rtk.commands, 0);
-  const noun = commands === 1 ? 'command' : 'commands';
-  return {
-    value: `${formatTokens(numberOr(rtk.savedTokens, 0))} tokens`,
-    sub: `${formatPercent(numberOr(rtk.savingsPct, 0))} avg across ${formatCount(commands)} ${noun}`,
-  };
+  return cacheSavings(savings) !== null;
 }
 
 export function cacheSavingsTile(savings: UsageSavings | null | undefined) {

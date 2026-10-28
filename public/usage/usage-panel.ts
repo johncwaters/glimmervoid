@@ -78,7 +78,6 @@ import {
   provenanceLabel,
   reportDayKey,
   resetCountdownText,
-  rtkSavingsTile,
   sessionOverflowText,
   sessionRowLabel,
   shareBasis,
@@ -581,8 +580,6 @@ function buildSavingsSection() {
   if (!hasSavings(savings)) return null;
   const section = buildSection('Savings', '');
   const tiles = el('div', 'usage-tiles');
-  const rtk = rtkSavingsTile(savings);
-  if (rtk) tiles.append(buildTile('rtk compression', rtk.value, rtk.sub).tile);
   const cache = cacheSavingsTile(savings);
   if (cache) tiles.append(buildTile('Prompt cache', cache.value, cache.sub).tile);
   section.append(tiles);
