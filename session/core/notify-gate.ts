@@ -10,6 +10,7 @@ interface NotifyOptions {
   signal?: string;
   hookSeen?: boolean;
   isOwnedByParentSession?: boolean;
+  isMachineShell?: boolean;
 }
 
 interface NotifyDecision {
@@ -54,6 +55,7 @@ function explainNotification(
     return { category: null, reason: 'self-wake-no-reset' };
   }
   if (opts?.isOwnedByParentSession) return { category: null, reason: 'owned-by-parent-silent' };
+  if (opts?.isMachineShell) return { category: null, reason: 'machine-shell-silent' };
 
   if (event === 'user_kill') return { category: null, reason: 'user-kill-silent' };
   if (to === STATES.WAITING) return { category: 'waiting', reason: 'waiting-not-gated' };

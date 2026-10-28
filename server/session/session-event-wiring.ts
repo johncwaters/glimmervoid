@@ -1,6 +1,6 @@
 import { createNotifyGate, decideAcknowledge, explainNotification } from '../../session/core/notify-gate.ts';
 import type { ClaudeSessionIdEvent, Session } from '../../session/sessions.ts';
-import type { PersistedTaskTitle } from '../../shared/contracts/config.ts';
+import { SHELL_AGENT_ID, type PersistedTaskTitle } from '../../shared/contracts/config.ts';
 import type { CoherenceHooksState, UnseenOutcome } from '../../shared/contracts/session.ts';
 import type { SessionStatusFields } from '../../shared/contracts/control-messages.ts';
 import type { SessionPrLinks } from '../../shared/contracts/my-prs.ts';
@@ -281,7 +281,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         to,
         notifyGate,
         event,
-        { signal: detail?.signal ?? undefined, hookSeen: session.hookSeen, isOwnedByParentSession: session.ownerId !== null },
+        { signal: detail?.signal ?? undefined, hookSeen: session.hookSeen, isOwnedByParentSession: session.ownerId !== null, isMachineShell: session.agentId === SHELL_AGENT_ID },
       );
       session.recordNotifyDecision({
         ts: Date.now(),

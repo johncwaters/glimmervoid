@@ -10,6 +10,7 @@ import type { GitWorkspace } from '../../session/session-worktree-lifecycle.ts';
 import { Session } from '../../session/sessions.ts';
 import type { RemoteLaunch, SessionOptions, SessionPlanReviewPort } from '../../session/sessions.ts';
 import { getAdapter } from '../../session/adapters/index.ts';
+import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
@@ -130,6 +131,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true,
     });
     const builtMapping = project.environment;
+    const isMachineShell = (overrides.agent ?? project.agent) === SHELL_AGENT_ID;
     const sessionTempFolder = builtMapping ? null : ensureSessionTempFolder(project.id);
     const session = new Session({
       id: project.id,
@@ -147,7 +149,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       replayBufferKB: config.replayBufferKB,
       hookRouter: dependencies.hookRouter,
       getHookPort: dependencies.getHookPort,
-      gitWorkspace: builtMapping ? null : dependencies.getGitWorkspace(),
+      gitWorkspace: builtMapping || isMachineShell ? null : dependencies.getGitWorkspace(),
       integrationBranch: project.baseBranch || configuredIntegrationBranch(config),
       autoRebase: config.worktreeAutoRebase !== false,
       syncOnStart: config.worktreeSyncOnStart !== false,
@@ -162,7 +164,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),
-      prepareCoherence: builtMapping ? null : prepareCoherence,
+      prepareCoherence: builtMapping || isMachineShell ? null : prepareCoherence,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config) : null,
       ...overrides,

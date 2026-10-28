@@ -4,6 +4,7 @@ import claudeCode from "./claude-code.ts";
 import codex from "./codex.ts";
 import grok from "./grok.ts";
 import kimi from "./kimi.ts";
+import shell from "./shell.ts";
 import { createCustomAdapter } from "./custom.ts";
 
 import type { HookProfile } from "../../detection/hook-source.ts";
@@ -150,6 +151,7 @@ const adapterEntries: [string, AgentAdapter][] = [
   [codex.id, codex],
   [grok.id, grok],
   [kimi.id, kimi],
+  [shell.id, shell],
 ];
 const ADAPTERS = new Map(adapterEntries);
 const customAdapters = new Map<string, AgentAdapter>();
