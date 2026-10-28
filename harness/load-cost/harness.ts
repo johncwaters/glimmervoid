@@ -135,8 +135,8 @@ function watchFirstOutput(controlSocket: WebSocket, sessionName: string): () => 
   const onMessage = (raw: Buffer): void => {
     const frame: unknown = JSON.parse(raw.toString('utf8'));
     if (typeof frame !== 'object' || frame === null) return;
-    const stateChange = frame as { type?: unknown; session?: unknown; from?: unknown };
-    if (stateChange.type !== 'state-change' || stateChange.session !== sessionName || stateChange.from !== 'STARTING') return;
+    const status = frame as { type?: unknown; session?: unknown; transition?: { from?: unknown } };
+    if (status.type !== 'session-status' || status.session !== sessionName || status.transition?.from !== 'STARTING') return;
     hasOutput = true;
     controlSocket.off('message', onMessage);
   };
@@ -438,7 +438,7 @@ function statusBurstFrames(sessions: readonly BurstSession[]): BurstFrame[] {
 }
 
 function controlFrameOf(frame: BurstFrame, timestamp: number): Record<string, unknown> {
-  return { type: 'state-change', id: frame.id, session: frame.name, from: frame.from, to: frame.to, event: 'load-cost', timestamp };
+  return { type: 'session-status', id: frame.id, session: frame.name, transition: { from: frame.from, to: frame.to, event: 'load-cost' }, timestamp };
 }
 
 function dormantRowFrames(projectPath: string, timestamp: number): Record<string, unknown>[] {

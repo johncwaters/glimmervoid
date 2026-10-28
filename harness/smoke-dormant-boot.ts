@@ -15,8 +15,7 @@ interface ControlEvent {
   type?: string;
   sessions?: SnapshotSession[];
   id?: string;
-  from?: string;
-  to?: string;
+  transition?: { from?: string; to?: string };
 }
 
 const PORT = 3098;
@@ -86,15 +85,15 @@ async function main(): Promise<void> {
     await delay(500);
 
     const stateChanges = events.filter((e) =>
-      e.type === 'state-change' && e.id === target.id,
+      e.type === 'session-status' && e.transition && e.id === target.id,
     );
     const firstChange = stateChanges[0];
     assert('state-change broadcast received', !!firstChange);
     assert('first transition is DORMANT -> INITIALIZING',
-      !!firstChange && firstChange.from === 'DORMANT' && firstChange.to === 'INITIALIZING');
+      !!firstChange && firstChange.transition?.from === 'DORMANT' && firstChange.transition?.to === 'INITIALIZING');
 
     const otherChanges = events.filter((e) =>
-      e.type === 'state-change' && e.id !== target.id,
+      e.type === 'session-status' && e.transition && e.id !== target.id,
     );
     assert('other sessions remain dormant (no spurious state-changes)', otherChanges.length === 0);
 

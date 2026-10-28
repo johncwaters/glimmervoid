@@ -35,7 +35,7 @@ async function emitStateChange(page: Page, sessionId: string, state: string): Pr
     const originalSend = WebSocket.prototype.send;
     WebSocket.prototype.send = function(message) {
       if (typeof message === 'string' && JSON.parse(message).requestId === 'issues-state-probe') {
-        this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'state-change', id, session: 'issues-linked-session', from: 'DORMANT', to, event: 'test', timestamp: Date.now() }) }));
+        this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'session-status', id, session: 'issues-linked-session', transition: { from: 'DORMANT', to, event: 'test' }, timestamp: Date.now() }) }));
         return;
       }
       originalSend.call(this, message);

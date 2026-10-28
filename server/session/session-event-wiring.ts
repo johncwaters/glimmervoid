@@ -1,7 +1,8 @@
 import { createNotifyGate, decideAcknowledge, explainNotification } from '../../session/core/notify-gate.ts';
 import type { ClaudeSessionIdEvent, Session } from '../../session/sessions.ts';
 import type { PersistedTaskTitle } from '../../shared/contracts/config.ts';
-import type { CoherenceHooksState } from '../../shared/contracts/session.ts';
+import type { CoherenceHooksState, UnseenOutcome } from '../../shared/contracts/session.ts';
+import type { SessionStatusFields } from '../../shared/contracts/control-messages.ts';
 import type { SessionPrLinks } from '../../shared/contracts/my-prs.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../../shared/contracts/session.ts';
 import { decideExitClose } from '../../session/core/exit-close.ts';
@@ -136,6 +137,17 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       }, IDLE_COMPACTION_CONFIRM_MS);
       compactionConfirmTimer.unref();
     };
+    let pendingStatus: SessionStatusFields | null = null;
+    const flushStatus = () => {
+      const fields = pendingStatus;
+      pendingStatus = null;
+      if (fields === null || session._destroyed) return;
+      dependencies.broadcastControl({ type: 'session-status', id: session.id, session: session.name, timestamp: Date.now(), ...fields });
+    };
+    const noteStatus = (fields: SessionStatusFields) => {
+      if (pendingStatus === null) setImmediate(flushStatus);
+      pendingStatus = { ...pendingStatus, ...fields };
+    };
     let lastPersistedWasActive: boolean | null = null;
     let lastPersistedWasWorking: boolean | null = null;
     let isTurnWorking: boolean | null = null;
@@ -195,6 +207,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       dependencies.telemetry?.captureException(error, { handled: true });
     });
     session.on('exit', ({ exitCode, signal, reason, exitedOnItsOwn }: { exitCode: number | null; signal: unknown; reason?: string; exitedOnItsOwn?: boolean }) => {
+      flushStatus();
       clearCompactionConfirm();
       const reasonText = reason ? `, reason=${reason}` : '';
       dependencies.logger.log(`[${session.name}] exited (code=${exitCode}, signal=${signal}${reasonText})`);
@@ -243,14 +256,8 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         dependencies.telemetry?.capture('session_started', { adapter: adapterBucket(session.agentId) });
       }
       dependencies.telegramChannel.noteStateChange(session.id);
-      dependencies.broadcastControl({
-        type: 'state-change',
-        id: session.id,
-        session: session.name,
-        from,
-        to,
-        event,
-        timestamp: Date.now(),
+      noteStatus({
+        transition: { from: pendingStatus?.transition?.from ?? from, to, event },
         skipPerms: session.dangerouslySkipPermissions,
         saneYolo: session.saneYolo,
         ...(session.failureReason === null ? {} : { failureReason: session.failureReason }),
@@ -334,24 +341,11 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('agents-change', (payload: { activeAgents: number; awaitingBackgroundTasks: boolean }) => {
       persistWasWorking();
       dependencies.telegramChannel.recheck(session.id);
-      dependencies.broadcastControl({
-        type: 'session-agents',
-        id: session.id,
-        session: session.name,
-        activeAgents: payload.activeAgents,
-        awaitingBackgroundTasks: payload.awaitingBackgroundTasks,
-        timestamp: Date.now(),
-      });
+      noteStatus({ activeAgents: payload.activeAgents, awaitingBackgroundTasks: payload.awaitingBackgroundTasks });
     });
     session.on('wakeup-change', persistWasWorking);
-    session.on('prompt-kind-change', ({ pendingPromptKind: nextKind }: { pendingPromptKind: string | null }) => dependencies.broadcastControl({
-      type: 'session-prompt',
-      id: session.id,
-      session: session.name,
-      pendingPromptKind: nextKind,
-      timestamp: Date.now(),
-    }));
-    relay('unseen-outcome-change', 'session-unseen');
+    session.on('prompt-kind-change', ({ pendingPromptKind: nextKind }: { pendingPromptKind: string | null }) => noteStatus({ pendingPromptKind: nextKind }));
+    session.on('unseen-outcome-change', ({ unseenOutcome }: { unseenOutcome: UnseenOutcome | null }) => noteStatus({ unseenOutcome }));
     relay('conversation-change', 'session-conversation');
 
     session.on('merge-status', ({ mergeStatus, reason, parked }: {

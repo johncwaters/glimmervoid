@@ -127,6 +127,18 @@ export const SessionCardFields = z.object({
 });
 export type SessionCardFields = z.infer<typeof SessionCardFields>;
 
+export const SessionStatusFields = z.object({
+  transition: z.object({ from: SessionState, to: SessionState, event: z.string() }).optional(),
+  skipPerms: z.boolean().optional(),
+  saneYolo: z.boolean().optional(),
+  failureReason: z.string().optional(),
+  activeAgents: z.number().int().nonnegative().optional(),
+  awaitingBackgroundTasks: z.boolean().optional(),
+  unseenOutcome: UnseenOutcome.nullable().optional(),
+  pendingPromptKind: nullableString.optional(),
+});
+export type SessionStatusFields = z.infer<typeof SessionStatusFields>;
+
 export const CONTROL_FRAME_ENVELOPE_BYTES = 4096;
 export const CONTROL_FRAME_MAX_BYTES = CONTROL_FRAME_ENVELOPE_BYTES
   + 2 * (PLAN_BODY_CAP_BYTES + PLAN_FEEDBACK_MAX_CHARS + 2 * PLAN_COMMENTS_MAX * PLAN_COMMENT_MAX_CHARS);
@@ -325,17 +337,7 @@ const serverVariants = [
   loose('workspace-repos', { requestId, id: sessionId, ok: z.boolean(), repos: z.array(z.string()), error: optionalError }),
   loose('set-workspace-repos-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
   loose('hooks-updated', { count: z.number().int().nonnegative() }),
-  loose('state-change', {
-    id: sessionId,
-    session: z.string(),
-    from: SessionState,
-    to: SessionState,
-    event: z.string(),
-    timestamp,
-    skipPerms: z.boolean().optional(),
-    saneYolo: z.boolean().optional(),
-    failureReason: z.string().optional(),
-  }),
+  loose('session-status', { id: sessionId, session: z.string(), timestamp, ...SessionStatusFields.shape }),
   loose('session-added', SessionCardFields.shape),
   loose('session-modified', SessionCardFields.shape),
   loose('session-removed', { id: sessionId, session: z.string() }),
@@ -345,9 +347,6 @@ const serverVariants = [
   loose('session-prs', { id: sessionId, linkedPrs: z.array(LinkedPr) }),
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-coherence-hooks', { id: sessionId, coherenceHooks: CoherenceHooksState.nullable() }),
-  loose('session-agents', { id: sessionId, activeAgents: z.number().int().nonnegative(), awaitingBackgroundTasks: z.boolean(), timestamp }),
-  loose('session-unseen', { id: sessionId, unseenOutcome: UnseenOutcome.nullable(), timestamp }),
-  loose('session-prompt', { id: sessionId, pendingPromptKind: nullableString, timestamp }),
   loose('session-conversation', { id: sessionId, hasConversationBridge: z.boolean(), isConversationViewOn: z.boolean(), conversationApproval: ConversationApproval.nullable() }),
 
   loose('session-merge-status', {

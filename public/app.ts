@@ -331,45 +331,59 @@ function carryOverClientSessionFields(sessionId: string, previousUi: SessionUi |
   restoreUsageChip(sessionId);
 }
 
-function handleStateChange(msg: ServerMessageOf<'state-change'>) {
+type SessionStatusMessage = ServerMessageOf<'session-status'>;
+type SessionTransition = NonNullable<SessionStatusMessage['transition']>;
+
+const ENDED_STATES = new Set<string>([STATES.DONE, STATES.FAILED]);
+
+function isLeavingEndedState(previousState: string | undefined, nextState: string) {
+  return previousState !== undefined && ENDED_STATES.has(previousState) && !ENDED_STATES.has(nextState) && nextState !== STATES.DORMANT;
+}
+
+function rebuildAsDormantCard(msg: SessionStatusMessage) {
+  const previousUi = sessionUIs.get(String(msg.id));
+  const matchedCard = document.querySelector(`.session-card[data-id="${CSS.escape(String(msg.id))}"]`);
+  const card = matchedCard instanceof HTMLElement ? matchedCard : null;
+  const skipPerms = card ? card.dataset.skipPerms !== undefined : false;
+  const saneYolo = msg.saneYolo ?? (card ? card.dataset.saneYolo !== undefined : false);
+
+  const path = card ? card.dataset.path : undefined;
+  removeSessionCard(msg.id);
+  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, remoteWorkspace: card?.dataset.remoteWorkspace ?? null, guarded: card?.dataset.guarded !== undefined, guardrailsReleased: card?.dataset.guardrailsReleased !== undefined, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
+  setSessionAgent(msg.id, previousUi?.agent);
+  carryOverClientSessionFields(msg.id, previousUi);
+}
+
+function applySessionTransition(msg: SessionStatusMessage, transition: SessionTransition) {
+  const previousState = sessionUIs.get(String(msg.id))?.currentState;
+  if (transition.to === STATES.DORMANT && previousState !== STATES.DORMANT) {
+    rebuildAsDormantCard(msg);
+    refreshReviewSidebar(msg.id);
+    return;
+  }
+  applyState(msg.id, transition.to, msg.timestamp, transition.event);
+  setSessionFailureReason(msg.id, msg.failureReason);
+  if (msg.saneYolo !== undefined) setSessionSaneYolo(msg.id, msg.saneYolo);
+  refreshReviewSidebar(msg.id);
+  if (isLeavingEndedState(previousState, transition.to)) reconnectDataWs(msg.id);
+}
+
+function handleSessionStatus(msg: SessionStatusMessage) {
   if (!hasSession(msg.id)) {
-    createSessionCard(msg.id, msg.session, msg.to, buildSessionCardOptions({ skipPerms: msg.skipPerms, saneYolo: msg.saneYolo, stateSince: msg.timestamp }));
+    if (!msg.transition) return;
+    createSessionCard(msg.id, msg.session, msg.transition.to, buildSessionCardOptions({ skipPerms: msg.skipPerms, saneYolo: msg.saneYolo, stateSince: msg.timestamp }));
     refreshFavicon(sessionUIs);
     refreshIssuesSessionState();
     return;
   }
-
-  if (msg.to === STATES.DORMANT && msg.from !== STATES.DORMANT) {
-    const previousUi = sessionUIs.get(String(msg.id));
-    const matchedCard = document.querySelector(`.session-card[data-id="${CSS.escape(String(msg.id))}"]`);
-    const card = matchedCard instanceof HTMLElement ? matchedCard : null;
-    const skipPerms = card ? card.dataset.skipPerms !== undefined : false;
-    const saneYolo = msg.saneYolo ?? (card ? card.dataset.saneYolo !== undefined : false);
-
-    const path = card ? card.dataset.path : undefined;
-    removeSessionCard(msg.id);
-    createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, remoteWorkspace: card?.dataset.remoteWorkspace ?? null, guarded: card?.dataset.guarded !== undefined, guardrailsReleased: card?.dataset.guardrailsReleased !== undefined, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
-    setSessionAgent(msg.id, previousUi?.agent);
-    carryOverClientSessionFields(msg.id, previousUi);
-    refreshRosterAndAttentionSurfaces();
-    refreshReviewSidebar(msg.id);
-    refreshFavicon(sessionUIs);
-    return;
-  }
-
-  applyState(msg.id, msg.to, msg.timestamp, msg.event);
-  setSessionFailureReason(msg.id, msg.failureReason);
-  if (msg.saneYolo !== undefined) setSessionSaneYolo(msg.id, msg.saneYolo);
+  if (msg.transition) applySessionTransition(msg, msg.transition);
+  if (msg.activeAgents !== undefined) setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks);
+  if (msg.unseenOutcome !== undefined) setSessionUnseenOutcome(msg.id, msg.unseenOutcome);
+  if (msg.pendingPromptKind !== undefined) setSessionPrompt(msg.id, msg.pendingPromptKind);
+  if (msg.unseenOutcome !== undefined) updateAttentionTitle();
   refreshFavicon(sessionUIs);
-
-  refreshReviewSidebar(msg.id);
   refreshRosterAndAttentionSurfaces();
-
   handleDebugStateRefresh(msg.id);
-
-  if (msg.to === STATES.INITIALIZING && (msg.from === STATES.DONE || msg.from === STATES.FAILED)) {
-    reconnectDataWs(msg.id);
-  }
 }
 
 const usageBySessionId = new Map<string, SessionUsageChip>();
@@ -421,7 +435,7 @@ const messageHandlers = {
   'save-hook-result':   () => applyLateHookResult(),
   'delete-hook-result': () => applyLateHookResult(),
 
-  'state-change':       (msg) => handleStateChange(msg),
+  'session-status':     (msg) => handleSessionStatus(msg),
   'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-close-confirm': (msg) => { requestSessionRemoval(msg.id); },
   'session-removed':    (msg) => { clearHeaderErrorsForSession(msg.id); removeSessionCard(msg.id); forgetSessionCoherence(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
@@ -447,9 +461,6 @@ const messageHandlers = {
   },
   'session-git':        (msg) => setSessionWorktree(msg.id, !!msg.worktree),
 
-  'session-agents':     (msg) => { setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks); refreshRosterAndAttentionSurfaces(); handleDebugStateRefresh(msg.id); },
-  'session-unseen':     (msg) => { setSessionUnseenOutcome(msg.id, msg.unseenOutcome); updateAttentionTitle(); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); },
-  'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind); refreshAttentionSurfaces(); },
   'session-merge-status': (msg) => { setSessionMergeStatus(msg.id, msg.mergeStatus, msg.reason); setFocusMergeStatus(msg.id, msg.mergeStatus); refreshAttentionSurfaces(); },
   'session-worktree-blocked': (msg) => { reportHeaderError({ source: WORKTREE_ERROR_SOURCE, sessionId: msg.id, message: `${msg.session}: ${msg.notice || 'The integration branch was not found. Check the integration branch in Settings, then restart the session.'}` }); },
   'session-worktree-warning': (msg) => { reportHeaderError({ source: WORKTREE_WARNING_SOURCE, sessionId: msg.id, message: `${msg.session}: ${msg.notice || 'The base branch could not be synced. The session keeps working on its current base.'}` }); },

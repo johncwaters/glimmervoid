@@ -92,7 +92,7 @@ const SESSION = {
 
 const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'snapshot', sessions: [SESSION], serverBuild: 'build-1' },
-  { type: 'state-change', id: 'session-1', session: 'glimmervoid', from: STATES.IDLE, to: STATES.RUNNING, event: 'user_input', timestamp: NOW },
+  { type: 'session-status', id: 'session-1', session: 'glimmervoid', timestamp: NOW, transition: { from: STATES.IDLE, to: STATES.RUNNING, event: 'user_input' }, skipPerms: true, saneYolo: false, activeAgents: 2, awaitingBackgroundTasks: true, unseenOutcome: 'failed', pendingPromptKind: 'permission' },
   { type: 'session-added', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, guarded: true, resumeSessionId: null },
   { type: 'session-removed', id: 'session-1', session: 'glimmervoid' },
   { type: 'session-close-confirm', id: 'session-1', mergeStatus: 'pending-review' },
@@ -102,9 +102,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, guarded: true, resumeSessionId: null },
   { type: 'session-git', id: 'session-1', worktree: true },
   { type: 'session-coherence-hooks', id: 'session-1', coherenceHooks: { active: false, reason: 'check failed with exit code 1' } },
-  { type: 'session-agents', id: 'session-1', activeAgents: 2, awaitingBackgroundTasks: true, session: 'glimmervoid', timestamp: NOW },
-  { type: 'session-unseen', id: 'session-1', unseenOutcome: 'failed', session: 'glimmervoid', timestamp: NOW },
-  { type: 'session-prompt', id: 'session-1', pendingPromptKind: 'permission', session: 'glimmervoid', timestamp: NOW },
+  { type: 'session-status', id: 'session-1', session: 'glimmervoid', timestamp: NOW, unseenOutcome: null },
   { type: 'session-conversation', id: 'session-1', hasConversationBridge: true, isConversationViewOn: true, conversationApproval: { requestId: 0, kind: 'command', summary: 'touch marker.txt', isSummaryTruncated: false }, session: 'glimmervoid', timestamp: NOW },
   { type: 'session-merge-status', id: 'session-1', session: 'glimmervoid', mergeStatus: 'pending-review', reason: null, parked: false, timestamp: NOW },
   { type: 'session-worktree-blocked', id: 'session-1', session: 'glimmervoid', branch: 'develop', notice: 'missing branch', timestamp: NOW },

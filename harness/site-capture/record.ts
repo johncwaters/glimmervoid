@@ -36,7 +36,7 @@ interface RecordContext {
   terminalSize: { cols: number; rows: number } | null;
 }
 
-const StateChangeFields = z.object({ id: SessionCardFields.shape.id, to: SessionStateSchema });
+const StatusFields = z.object({ id: SessionCardFields.shape.id, transition: z.object({ to: SessionStateSchema }).optional() });
 const WorktreeReadyFields = z.object({ id: SessionCardFields.shape.id, branch: z.string().nullable() });
 const OnboardingState = z.object({ hasCompletedOnboarding: z.boolean().optional(), lastOnboardingVersion: z.string().optional() });
 const socketOpenState = 1;
@@ -126,12 +126,12 @@ function trackControlFrames(socket: WebSocket, progressById: Map<string, Session
     const parsedFrame = ServerMessage.safeParse(JSON.parse(raw.toString()));
     if (!parsedFrame.success) return;
     const frame = parsedFrame.data;
-    if (frame.type === 'state-change') {
-      const stateChange = StateChangeFields.parse(frame);
-      const progress = progressById.get(stateChange.id);
-      if (!progress) return;
-      progress.statesSeen.push(stateChange.to);
-      console.log(`  state: ${stateChange.to}`);
+    if (frame.type === 'session-status') {
+      const status = StatusFields.parse(frame);
+      const progress = progressById.get(status.id);
+      if (!progress || !status.transition) return;
+      progress.statesSeen.push(status.transition.to);
+      console.log(`  state: ${status.transition.to}`);
       return;
     }
     if (frame.type !== 'session-worktree-ready') return;
