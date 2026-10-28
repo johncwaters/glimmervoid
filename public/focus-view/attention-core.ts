@@ -168,7 +168,7 @@ export function countAttentionByKind(rows: readonly AttentionCountRow[] | null |
 
 type TallyRow = SessionAttentionRow & { ownerId: string | null };
 
-export interface AttentionTally {
+interface AttentionTally {
   counts: AttentionCounts;
   ownedCountByOwnerId: Map<string, number>;
 }

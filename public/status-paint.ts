@@ -13,7 +13,7 @@ export function markStatusDirty(sessionId: string) {
   requestAnimationFrame(flushStatusPaint);
 }
 
-export function flushStatusPaint() {
+function flushStatusPaint() {
   isFrameRequested = false;
   if (dirtySessionIds.size === 0) return;
   const sessionIds = new Set(dirtySessionIds);
@@ -56,7 +56,9 @@ function longestIncreasingRunIndices(positions: readonly number[]): Set<number> 
 
 export function placeRowsInOrder(listEl: HTMLElement, orderedRowEls: readonly HTMLElement[]) {
   const domPositionByRow = new Map<Element, number>();
-  Array.from(listEl.children).forEach((child, position) => domPositionByRow.set(child, position));
+  Array.from(listEl.children).forEach((child, position) => {
+    domPositionByRow.set(child, position);
+  });
   const keptIndices = longestIncreasingRunIndices(orderedRowEls.map((row) => domPositionByRow.get(row) ?? -1));
   let nextRow: HTMLElement | null = null;
   for (let index = orderedRowEls.length - 1; index >= 0; index -= 1) {
