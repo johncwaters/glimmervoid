@@ -1,7 +1,7 @@
 import { HANDSHAKE_DEADLINE_MS, decideConnectionActions } from './connection-supervisor-core.ts';
 import type { ConnectionAction, ConnectionEvent, SupervisorState } from './connection-supervisor-core.ts';
 import { abandonControlSocket, onControlSocketChange, probeControl, replaceControlSocket } from './control-ws.ts';
-import { startWakeTimeline, noteWakeMark } from './wake-timeline.ts';
+import { startWakeTimeline, noteWakeMark, noteNetworkMark } from './wake-timeline.ts';
 import { closeEveryTerminalUntilShown, holdTerminalInputDuringWakeCheck, reconnectShownTerminals, releaseHeldTerminalInput } from './session-card/terminal.ts';
 
 let supervisorState: SupervisorState = { isVisible: document.visibilityState === 'visible', isFrozen: false, isProbing: false, isReplacing: false };
@@ -100,7 +100,10 @@ function noteResume() {
 function watchNetworkChanges() {
   const networkInformation: unknown = Reflect.get(navigator, 'connection');
   if (!(networkInformation instanceof EventTarget)) return;
-  networkInformation.addEventListener('change', () => dispatchConnectionEvent({ kind: 'network-changed' }));
+  networkInformation.addEventListener('change', () => {
+    noteNetworkMark('link');
+    dispatchConnectionEvent({ kind: 'network-changed' });
+  });
 }
 
 export function superviseConnection() {
@@ -114,6 +117,10 @@ export function superviseConnection() {
   window.addEventListener('pageshow', (event) => {
     if (event.persisted) noteResume();
   });
-  window.addEventListener('online', () => dispatchConnectionEvent({ kind: 'network-changed' }));
+  window.addEventListener('online', () => {
+    noteNetworkMark('online');
+    dispatchConnectionEvent({ kind: 'network-changed' });
+  });
+  window.addEventListener('offline', () => noteNetworkMark('offline'));
   watchNetworkChanges();
 }

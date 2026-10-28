@@ -13,11 +13,15 @@ type WakeMarkName =
   | 'terminal-opened'
   | 'terminal-bytes';
 
+type NetworkMarkName = 'online' | 'offline' | 'link';
+
 const WAKE_TIMELINE_CAP_MS = 30_000;
+const DROPPED_MARKS_NOTE_MAX_CHARS = 24;
 
 interface WakeTimeline {
   startedAtMs: number;
   hiddenForMs: number;
+  networkAtWake: string;
   marks: string[];
   isCapped: boolean;
   capTimer: ReturnType<typeof setTimeout>;
@@ -35,13 +39,48 @@ function describeBrowser() {
   return `${engine} on ${platform}`;
 }
 
+function readConnectionFacts() {
+  const networkInformation: unknown = Reflect.get(navigator, 'connection');
+  if (typeof networkInformation !== 'object' || networkInformation === null) return [];
+  const connectionType: unknown = Reflect.get(networkInformation, 'type');
+  const roundTripMs: unknown = Reflect.get(networkInformation, 'rtt');
+  return [typeof connectionType === 'string' ? connectionType : '', typeof roundTripMs === 'number' ? `${roundTripMs}ms` : ''].filter((fact) => fact !== '');
+}
+
+function describeNetwork() {
+  return [navigator.onLine ? 'online' : 'offline', ...readConnectionFacts()].join(' ');
+}
+
+function takeMarksWithin(marks: string[], maxChars: number) {
+  const takenMarks: string[] = [];
+  let usedChars = 0;
+  for (const mark of marks) {
+    const markChars = mark.length + 1;
+    if (usedChars + markChars > maxChars) break;
+    takenMarks.push(mark);
+    usedChars += markChars;
+  }
+  return { takenMarks, usedChars };
+}
+
+function joinMarksWithin(marks: string[], maxChars: number) {
+  const allMarks = marks.join(' ');
+  if (allMarks.length <= maxChars) return allMarks;
+  const marksBudget = maxChars - DROPPED_MARKS_NOTE_MAX_CHARS;
+  const head = takeMarksWithin(marks, marksBudget / 2);
+  const tail = takeMarksWithin(marks.slice(head.takenMarks.length).reverse(), marksBudget - head.usedChars);
+  const droppedCount = marks.length - head.takenMarks.length - tail.takenMarks.length;
+  return [...head.takenMarks, `(${droppedCount} marks dropped)`, ...tail.takenMarks.reverse()].join(' ');
+}
+
 function hasTerminalOutput(timeline: WakeTimeline) {
   return timeline.marks.some((mark) => mark.startsWith('terminal-bytes'));
 }
 
 function sendWakeTimeline(timeline: WakeTimeline) {
   const outcome = hasTerminalOutput(timeline) && !timeline.isCapped ? 'terminal live' : `terminal not live after ${WAKE_TIMELINE_CAP_MS / 1000} s`;
-  const text = `hidden ${Math.round(timeline.hiddenForMs / 1000)} s, ${outcome}, ${describeBrowser()}: ${timeline.marks.join(' ')}`;
+  const header = `hidden ${Math.round(timeline.hiddenForMs / 1000)} s, ${outcome}, ${describeBrowser()}, ${timeline.networkAtWake}: `;
+  const text = header + joinMarksWithin(timeline.marks, CLIENT_LOG_TEXT_MAX_CHARS - header.length);
   return sendControlMsg({ type: 'client-log', scope: 'wake', text: text.slice(0, CLIENT_LOG_TEXT_MAX_CHARS) });
 }
 
@@ -60,11 +99,20 @@ function capWakeTimeline() {
   endWakeTimelineOnceSent();
 }
 
+function pushMark(timeline: WakeTimeline, label: string) {
+  timeline.marks.push(`${label}+${Math.round(performance.now() - timeline.startedAtMs)}`);
+}
+
 export function noteWakeMark(name: WakeMarkName) {
   if (!currentTimeline) return;
   if (name === 'terminal-bytes' && hasTerminalOutput(currentTimeline)) return;
-  currentTimeline.marks.push(`${name}+${Math.round(performance.now() - currentTimeline.startedAtMs)}`);
+  pushMark(currentTimeline, name);
   if (name === 'terminal-bytes' || name === 'control-opened') endWakeTimelineOnceSent();
+}
+
+export function noteNetworkMark(name: NetworkMarkName) {
+  if (!currentTimeline) return;
+  pushMark(currentTimeline, name === 'link' ? ['link', ...readConnectionFacts()].join('-') : name);
 }
 
 export function startWakeTimeline(name: 'shown' | 'resumed', hiddenForMs: number) {
@@ -72,6 +120,6 @@ export function startWakeTimeline(name: 'shown' | 'resumed', hiddenForMs: number
     noteWakeMark(name);
     return;
   }
-  currentTimeline = { startedAtMs: performance.now(), hiddenForMs, marks: [], isCapped: false, capTimer: setTimeout(capWakeTimeline, WAKE_TIMELINE_CAP_MS) };
+  currentTimeline = { startedAtMs: performance.now(), hiddenForMs, networkAtWake: describeNetwork(), marks: [], isCapped: false, capTimer: setTimeout(capWakeTimeline, WAKE_TIMELINE_CAP_MS) };
   noteWakeMark(name);
 }
