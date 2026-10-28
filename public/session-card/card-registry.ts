@@ -7,6 +7,7 @@ import type { ConversationFaceController } from '../conversation/conversation-co
 import type { createPlanFace } from '../plan/plan-face.ts';
 import type { SessionCardFace } from './face-core.ts';
 import type { TerminalGrid } from './grid-core.ts';
+import { createAttentionTally } from '../focus-view/attention-core.ts';
 
 type SessionCardElement = HTMLDivElement & { _cardHostClass?: string };
 
@@ -86,6 +87,7 @@ export interface SessionUi {
 }
 
 export const sessionUIs = new Map<string, SessionUi>();
+export const attentionTally = createAttentionTally();
 
 export function sessionName(ui: SessionUi) {
   return ui.card?.dataset.session || ui.nameEl?.textContent || '';

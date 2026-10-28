@@ -1,4 +1,4 @@
-import type { UnseenOutcome } from '#shared/contracts/session.ts';
+import type { AttentionCounts } from './focus-view/attention-core.ts';
 import { decideFaviconVariant, renderFaviconSvg } from './favicon-core.ts';
 
 function getFaviconElement() {
@@ -15,9 +15,8 @@ function getFaviconElement() {
 const faviconElement = getFaviconElement();
 let currentFaviconVariant = 'idle';
 
-export function refreshFavicon(sessionRegistry: Map<string, { currentState?: string; unseenOutcome?: UnseenOutcome | null }>) {
-  const sessions = [...sessionRegistry.values()].map(({ currentState, unseenOutcome }) => ({ state: currentState, unseenOutcome }));
-  const faviconVariant = decideFaviconVariant(sessions);
+export function refreshFavicon(counts: AttentionCounts) {
+  const faviconVariant = decideFaviconVariant(counts);
   if (faviconVariant === currentFaviconVariant) return;
 
   currentFaviconVariant = faviconVariant;

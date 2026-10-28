@@ -46,7 +46,7 @@ import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from './radar/radar-co
 import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from './radar/radar-store.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse, setCardCoherenceJournal, setLinkedPrsPainter, setCardSessionSetup, setSessionSaneYolo } from './session-card/card-dom.ts';
 import { applySessionSetupResponse, openSessionSetup } from './session-setup/setup-dialog.ts';
-import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
+import { attentionTally, findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
 import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, markSessionSeen, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPrompt, setSessionUnseenOutcome, setSessionUsage, setSessionGuarded, setSessionWorktree, updateAttentionTitle } from './session-card/lifecycle.ts';
@@ -306,7 +306,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     restoreUsageChip(s.id);
   }
   updateAttentionTitle();
-  refreshFavicon(sessionUIs);
+  refreshFavicon(attentionTally.counts);
 
   refreshFocusRoster();
   restoreFocusedSession();
@@ -372,7 +372,7 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   if (!hasSession(msg.id)) {
     if (!msg.transition) return;
     createSessionCard(msg.id, msg.session, msg.transition.to, buildSessionCardOptions({ skipPerms: msg.skipPerms, saneYolo: msg.saneYolo, stateSince: msg.timestamp }));
-    refreshFavicon(sessionUIs);
+    refreshFavicon(attentionTally.counts);
     refreshIssuesSessionState();
     return;
   }
@@ -381,7 +381,7 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   if (msg.unseenOutcome !== undefined) setSessionUnseenOutcome(msg.id, msg.unseenOutcome);
   if (msg.pendingPromptKind !== undefined) setSessionPrompt(msg.id, msg.pendingPromptKind);
   if (msg.unseenOutcome !== undefined) updateAttentionTitle();
-  refreshFavicon(sessionUIs);
+  refreshFavicon(attentionTally.counts);
   refreshRosterAndAttentionSurfaces();
   handleDebugStateRefresh(msg.id);
 }
@@ -436,9 +436,9 @@ const messageHandlers = {
   'delete-hook-result': () => applyLateHookResult(),
 
   'session-status':     (msg) => handleSessionStatus(msg),
-  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-close-confirm': (msg) => { requestSessionRemoval(msg.id); },
-  'session-removed':    (msg) => { clearHeaderErrorsForSession(msg.id); removeSessionCard(msg.id); forgetSessionCoherence(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-removed':    (msg) => { clearHeaderErrorsForSession(msg.id); removeSessionCard(msg.id); forgetSessionCoherence(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
   'session-prs': (msg) => setSessionLinkedPrs(msg.id, msg.linkedPrs),
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
@@ -455,7 +455,7 @@ const messageHandlers = {
     if (wasSelected) setSelectedId(String(msg.id));
     setSessionAgent(msg.id, msg.agent);
     carryOverClientSessionFields(msg.id, previousUi);
-    refreshFavicon(sessionUIs);
+    refreshFavicon(attentionTally.counts);
     refreshRosterAndAttentionSurfaces();
     syncTraceSessionsFromCards();
   },

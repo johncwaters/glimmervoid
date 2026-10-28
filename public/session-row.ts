@@ -1,7 +1,7 @@
 import { el, query, stateChip } from './dom-helpers.ts';
 import { describeOwnership } from './focus-view/attention-core.ts';
 import { paintCardOwnership, remoteWorkspaceHoverText } from './session-card/card-dom.ts';
-import { sessionName, sessionUIs } from './session-card/card-registry.ts';
+import { attentionTally, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionElapsedText } from './session-card/session-tick.ts';
@@ -113,8 +113,7 @@ function paintSessionRowCloud(cloud: HTMLElement, remoteWorkspace: string | unde
 function describeSessionOwnership(ui: SessionUi): string | null {
   const ownerUi = ui.ownerId ? sessionUIs.get(ui.ownerId) : undefined;
   const ownerName = ownerUi ? sessionName(ownerUi) : null;
-  const sessionId = ui.card.dataset.id;
-  const ownedCount = [...sessionUIs.values()].filter((other) => other.ownerId === sessionId).length;
+  const ownedCount = attentionTally.ownedCountByOwnerId.get(ui.card.dataset.id ?? '') ?? 0;
   return describeOwnership({ ownerName, ownedCount });
 }
 

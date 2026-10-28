@@ -149,15 +149,51 @@ export interface AttentionCounts {
   failedCount: number;
 }
 
+const COUNT_KEY_BY_KIND: Readonly<Record<AttentionKind, keyof AttentionCounts>> = {
+  waiting: 'waitingCount',
+  failed: 'failedCount',
+  finished: 'finishedCount',
+};
+
+function adjustAttentionCount(counts: AttentionCounts, row: AttentionCountRow, delta: number) {
+  const kind = attentionKindOf(row || {});
+  if (kind !== null) counts[COUNT_KEY_BY_KIND[kind]] += delta;
+}
+
 export function countAttentionByKind(rows: readonly AttentionCountRow[] | null | undefined): AttentionCounts {
   const counts = { waitingCount: 0, finishedCount: 0, failedCount: 0 };
-  for (const row of (rows || [])) {
-    const kind = attentionKindOf(row || {});
-    if (kind === 'waiting') counts.waitingCount++;
-    if (kind === 'failed') counts.failedCount++;
-    if (kind === 'finished') counts.finishedCount++;
-  }
+  for (const row of (rows || [])) adjustAttentionCount(counts, row, 1);
   return counts;
+}
+
+type TallyRow = SessionAttentionRow & { ownerId: string | null };
+
+export interface AttentionTally {
+  counts: AttentionCounts;
+  ownedCountByOwnerId: Map<string, number>;
+}
+
+export function createAttentionTally(): AttentionTally {
+  return { counts: { waitingCount: 0, finishedCount: 0, failedCount: 0 }, ownedCountByOwnerId: new Map() };
+}
+
+function adjustTally(tally: AttentionTally, row: TallyRow, delta: number) {
+  adjustAttentionCount(tally.counts, row, delta);
+  if (row.ownerId === null) return;
+  const ownedCount = (tally.ownedCountByOwnerId.get(row.ownerId) ?? 0) + delta;
+  if (ownedCount > 0) {
+    tally.ownedCountByOwnerId.set(row.ownerId, ownedCount);
+    return;
+  }
+  tally.ownedCountByOwnerId.delete(row.ownerId);
+}
+
+export function tallyAdd(tally: AttentionTally, row: TallyRow) {
+  adjustTally(tally, row, 1);
+}
+
+export function tallyRemove(tally: AttentionTally, row: TallyRow) {
+  adjustTally(tally, row, -1);
 }
 
 export function jumpTargetCount({ waitingCount, finishedCount, failedCount }: AttentionCounts) {

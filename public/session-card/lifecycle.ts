@@ -31,7 +31,7 @@ import { setRunningActivity } from './activity.ts';
 import type { CardOptions } from './card-dom.ts';
 import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintGuardrailsToggle, paintTaskTitle, sendSessionAction, sessionActionStatus, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
-import { container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
+import { attentionTally, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
 import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';
 import type { SessionCardFace } from './face-core.ts';
 import { openConfirmDialog } from './modal.ts';
@@ -39,7 +39,7 @@ import { requestSessionRemoval } from '../session-actions.ts';
 import { openRestartDialog } from './resume-dialog.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { reportHeaderError } from '../action-status.ts';
-import { countAttentionByKind, needsAttention, sessionAttentionTier, titleAlertCount } from '../focus-view/attention-core.ts';
+import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlertCount } from '../focus-view/attention-core.ts';
 import { canShowDesktopNotification, closeSessionNotifications } from '../notifications.ts';
 
 import {
@@ -394,10 +394,14 @@ export function refreshTerminalFonts() {
   applyTerminalFontFamily(sessionUIs.values(), currentTerminalFontFamily());
 }
 
+function tallyRowOf(ui: SessionUi) {
+  return { state: ui.currentState, unseenOutcome: ui.unseenOutcome, ownerId: ui.ownerId };
+}
+
 export function updateAttentionTitle() {
-  const counts = countAttentionByKind([...sessionUIs.values()].map((ui) => ({ state: ui.currentState, unseenOutcome: ui.unseenOutcome })));
-  const alertCount = titleAlertCount(counts);
-  document.title = alertCount > 0 ? `(${alertCount}) Glimmervoid` : 'Glimmervoid';
+  const alertCount = titleAlertCount(attentionTally.counts);
+  const title = alertCount > 0 ? `(${alertCount}) Glimmervoid` : 'Glimmervoid';
+  if (document.title !== title) document.title = title;
 }
 
 export function createSessionCard(sessionId: unknown, sessionName: unknown, initialState: unknown, options: CardOptions = {}) {
@@ -499,7 +503,10 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     updateButtonVisibility(sessionUi);
   };
   dom.card.append(planFace.el, conversationFace.el);
+  const replacedUi = sessionUIs.get(id);
+  if (replacedUi) tallyRemove(attentionTally, tallyRowOf(replacedUi));
   sessionUIs.set(id, sessionUi);
+  tallyAdd(attentionTally, tallyRowOf(sessionUi));
 
   wireCardEvents(sessionUi, id);
   updateButtonVisibility(sessionUi);
@@ -669,7 +676,9 @@ export function setSessionPrompt(sessionId: unknown, kind: unknown) {
 export function setSessionUnseenOutcome(sessionId: unknown, unseenOutcome: UnseenOutcome | null | undefined) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
+  tallyRemove(attentionTally, tallyRowOf(ui));
   ui.unseenOutcome = unseenOutcome ?? null;
+  tallyAdd(attentionTally, tallyRowOf(ui));
 }
 
 function applyMergeDataset(card: HTMLElement, ms: string) {
@@ -709,6 +718,7 @@ export function removeSessionCard(sessionId: unknown) {
   if (!ui) return;
 
   closeDebugOverlay(ui);
+  tallyRemove(attentionTally, tallyRowOf(ui));
   sessionUIs.delete(sessionIdOf(sessionId));
   loadedPlanFaceModule?.dropPlanBodyCache(sessionIdOf(sessionId));
 
@@ -791,7 +801,9 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
 
   const state = asText(nextState);
   const prevState = ui.currentState;
+  tallyRemove(attentionTally, tallyRowOf(ui));
   ui.currentState = state;
+  tallyAdd(attentionTally, tallyRowOf(ui));
   if (state !== STATES.RUNNING) ui.awaitingBackgroundTasks = false;
   ui.conversationFace.refresh();
 

@@ -1,7 +1,7 @@
 import type { StatusIcon } from '#shared/state-icons.ts';
 import { STATE_ICONS, STATUS_ICON_SHAPES } from '#shared/state-icons.ts';
 import { STATES } from '#shared/states.ts';
-import { countAttentionByKind } from './focus-view/attention-core.ts';
+import type { AttentionCounts } from './focus-view/attention-core.ts';
 
 type FaviconVariant = 'idle' | 'failed' | 'waiting';
 type AttentionVariant = Exclude<FaviconVariant, 'idle'>;
@@ -13,8 +13,7 @@ const STATUS_BY_VARIANT: Readonly<Record<AttentionVariant, { icon: StatusIcon; c
   waiting: { icon: STATE_ICONS[STATES.WAITING], color: '#f59e0b' },
 });
 
-export function decideFaviconVariant(sessions: unknown): FaviconVariant {
-  const { waitingCount, failedCount } = countAttentionByKind(Array.isArray(sessions) ? sessions : []);
+export function decideFaviconVariant({ waitingCount, failedCount }: AttentionCounts): FaviconVariant {
   if (waitingCount > 0) return 'waiting';
   if (failedCount > 0) return 'failed';
   return 'idle';
