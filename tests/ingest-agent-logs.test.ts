@@ -18,6 +18,7 @@ interface Homes {
   projects: string;
   codexSessions: string;
   grokSessions: string;
+  kimiSessions: string;
   env: NodeJS.ProcessEnv;
 }
 
@@ -32,6 +33,7 @@ function makeHomes(): Homes {
   const claudeHome = path.join(tmpDir, 'claude');
   const codexHome = path.join(tmpDir, 'codex');
   const grokHome = path.join(tmpDir, 'grok');
+  const kimiHome = path.join(tmpDir, 'kimi');
   const projects = path.join(claudeHome, 'projects');
   fs.mkdirSync(projects, { recursive: true });
   fs.mkdirSync(path.join(codexHome, 'sessions'), { recursive: true });
@@ -41,10 +43,12 @@ function makeHomes(): Homes {
     projects,
     codexSessions: path.join(codexHome, 'sessions'),
     grokSessions: path.join(grokHome, 'sessions'),
+    kimiSessions: path.join(kimiHome, 'sessions'),
     env: {
       CLAUDE_CONFIG_DIR: claudeHome,
       CODEX_HOME: codexHome,
       GROK_HOME: grokHome,
+      KIMI_CODE_HOME: kimiHome,
       HOME: tmpDir,
       USERPROFILE: tmpDir,
     },
@@ -192,6 +196,37 @@ test('a transcript born in the tick the last listing read is still found, not lo
   setMtime(dir, tick);
   await adapter.discover();
   assert.equal(adapter.trackedCount, 1, 'an unsettled listing must be re-read rather than trusted');
+}));
+
+test('a kimi transcript publishes its assistant turns and tool calls under the cwd its profile record names', withHomes(async ({ kimiSessions, events, build }) => {
+  const agentDir = path.join(kimiSessions, 'wd_repo_1bd23b510277', 'session_766a47d0-9cb9-4af9-8f5e-1eaf9374b85e', 'agents', 'main');
+  fs.mkdirSync(agentDir, { recursive: true });
+  const filePath = path.join(agentDir, 'wire.jsonl');
+  const record = (value: Record<string, unknown>): string => `${JSON.stringify(value)}\n`;
+  fs.writeFileSync(filePath, [
+    record({ type: 'metadata', protocol_version: '1.5', created_at: 1793212054305 }),
+    record({ type: 'profile.bind', agentId: 'main', environmentDisclosure: { cwd: '/work/repo' }, time: 1793212054320 }),
+  ].join(''), 'utf8');
+  const adapter = build();
+  await adapter.start();
+
+  append(filePath, record({
+    type: 'agent.message.appended',
+    time: 1793212068608,
+    message: { message: { role: 'assistant', content: [{ type: 'think', think: 'reading it' }], toolCalls: [{ type: 'function', id: 'tool_1', name: 'Read', arguments: '{"path":"a.txt"}' }] } },
+  }));
+  append(filePath, record({ type: 'agent.message.appended', time: 1793212068609, message: { message: { role: 'tool', content: [{ type: 'text', text: '1\thi' }] } } }));
+  append(filePath, record({
+    type: 'agent.message.appended',
+    time: 1793212068610,
+    message: { message: { role: 'assistant', content: [{ type: 'text', text: 'The file says hi.' }], toolCalls: [] } },
+  }));
+  await adapter.poll();
+
+  assert.deepEqual(events.map((event) => event.summary), ['kimi: Read a.txt', 'kimi: The file says hi.']);
+  for (const event of events) {
+    assert.deepEqual(event.scope, { root: '/work/repo', sessionId: 'session_766a47d0-9cb9-4af9-8f5e-1eaf9374b85e' });
+  }
 }));
 
 function laneWith(

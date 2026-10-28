@@ -33,14 +33,20 @@ type GrokUpdate = {
   _meta?: Record<string, { name?: unknown }>;
 };
 
+type KimiToolCall = { name?: unknown; arguments?: unknown };
+
+type KimiMessage = { role?: unknown; content?: unknown; toolCalls?: unknown };
+
 type TranscriptLine = {
   type?: unknown;
   cwd?: unknown;
   sessionId?: unknown;
   timestamp?: unknown;
+  time?: unknown;
   isMeta?: unknown;
   isCompactSummary?: unknown;
-  message?: { content?: unknown };
+  message?: { content?: unknown; message?: KimiMessage };
+  environmentDisclosure?: { cwd?: unknown };
   payload?: Record<string, unknown>;
   params?: { update?: GrokUpdate; sessionId?: unknown };
 };
@@ -259,8 +265,35 @@ function mapGrokLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | nu
   return mapGrokTurn(kind, update, base, { root: ctx.root, sessionId, vendorState: ctx.vendorState });
 }
 
+const KIMI_CWD_RECORD = 'profile.bind';
+
+function kimiRootOf(line: TranscriptLine): string | null {
+  if (line.type !== KIMI_CWD_RECORD) return null;
+  return textOr(line.environmentDisclosure?.cwd, null);
+}
+
+function kimiToolEvents(toolCalls: unknown, base: EventBase): AgentIngestEvent[] {
+  if (!Array.isArray(toolCalls)) return [];
+  return toolCalls.map((call: KimiToolCall) => toolEvent({
+    ...base, name: call?.name, target: toolTarget(parseJsonRecord(call?.arguments)),
+  }));
+}
+
+function mapKimiLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | null {
+  const announcedRoot = kimiRootOf(line);
+  if (announcedRoot) return result([], announcedRoot, ctx.sessionId, ctx.vendorState);
+  if (line.type !== 'agent.message.appended') return null;
+  const message = line.message?.message;
+  if (message?.role !== 'assistant') return null;
+  const base: EventBase = { ts: parseTimestamp(line.time) || ctx.now, root: ctx.root, sessionId: ctx.sessionId, vendor: 'kimi' };
+  const content = Array.isArray(message.content) ? message.content : [];
+  const turn = turnEvent({ ...base, text: firstTextBlock(content) });
+  const events = [...(turn ? [turn] : []), ...kimiToolEvents(message.toolCalls, base)];
+  return result(events, ctx.root, ctx.sessionId, ctx.vendorState);
+}
+
 const MAPPERS: Readonly<Record<string, ((line: TranscriptLine, ctx: MapContext) => AgentMapResult | null) | undefined>> =
-  Object.freeze({ claude: mapClaudeLine, codex: mapCodexLine, grok: mapGrokLine });
+  Object.freeze({ claude: mapClaudeLine, codex: mapCodexLine, grok: mapGrokLine, kimi: mapKimiLine });
 
 function mapAgentLine({
   vendor = '',
@@ -288,4 +321,4 @@ function mapAgentLine({
   return mapped;
 }
 
-export { isDispatchWorkdir, firstTextBlock, mapAgentLine, parseTimestamp };
+export { isDispatchWorkdir, firstTextBlock, kimiRootOf, mapAgentLine, parseTimestamp };

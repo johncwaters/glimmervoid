@@ -7,15 +7,16 @@ import type { FileHandle } from 'node:fs/promises';
 import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { claudeProjectsDir } from '../../session/core/conversation-history.ts';
 import {
-  codexHomes, codexRootCandidates, codexSessionIdFromPath, grokHomes, sessionsRootCandidates, isUsageFile,
+  codexHomes, codexRootCandidates, codexSessionIdFromPath, grokHomes, kimiHomes, sessionsRootCandidates, isUsageFile,
 } from '../usage/core/usage-scan-core.ts';
+import { kimiSessionIdFromPath } from '../usage/core/usage-kimi-core.ts';
 import { INTERACTIVE_LANE, laneKey } from '../usage/core/usage-lane-core.ts';
 import {
   MAX_CATCH_UP_BYTES, applyRead, canTrustCachedListing, createTailState, isActiveMtime, pickStaleByMtime,
   planRead,
 } from './core/ingest-tail-core.ts';
 import type { TailState } from './core/ingest-tail-core.ts';
-import { isDispatchWorkdir, mapAgentLine } from './core/ingest-agent-core.ts';
+import { isDispatchWorkdir, kimiRootOf, mapAgentLine } from './core/ingest-agent-core.ts';
 import type { AgentIngestEvent } from './core/ingest-agent-core.ts';
 import { createLaneLog } from '../lanes/lane-log.ts';
 import type { LaneLogger } from '../lanes/lane-log.ts';
@@ -29,7 +30,7 @@ const DEFAULT_DISCOVER_MS = 30000;
 const DEFAULT_ACTIVE_WITHIN_MS = 10 * 60 * 1000;
 const WATCH_POLL_DEBOUNCE_MS = 100;
 const WATCH_SWEEP_DEBOUNCE_MS = 500;
-const CODEX_HEAD_BYTES = 128 * 1024;
+const TRANSCRIPT_HEAD_BYTES = 128 * 1024;
 
 interface TranscriptRoot {
   vendor: string;
@@ -120,6 +121,7 @@ function decodeGrokRoot(name: string): string {
 function sessionIdFromPath(vendor: string, dir: string, filePath: string): string | null {
   if (vendor === 'claude') return path.basename(filePath, '.jsonl');
   if (vendor === 'grok') return path.basename(dir);
+  if (vendor === 'kimi') return kimiSessionIdFromPath(filePath);
   return codexSessionIdFromPath(filePath);
 }
 
@@ -129,25 +131,39 @@ function rootFromPath(vendor: string, dir: string): string | null {
   return null;
 }
 
-async function readCodexRoot(filePath: string, fsPromises: TranscriptFileSystem = fsNode.promises): Promise<string | null> {
+type HeadLine = { payload?: { cwd?: unknown }; type?: unknown; environmentDisclosure?: { cwd?: unknown } };
+
+function codexRootOf(line: HeadLine): string | null {
+  const cwd = line.payload?.cwd;
+  return typeof cwd === 'string' && cwd.trim() ? cwd.trim() : null;
+}
+
+const HEAD_ROOT_READERS: Readonly<Record<string, ((line: HeadLine) => string | null) | undefined>> =
+  Object.freeze({ codex: codexRootOf, kimi: kimiRootOf });
+
+async function readHeadRoot(
+  filePath: string,
+  rootOfLine: (line: HeadLine) => string | null,
+  fsPromises: TranscriptFileSystem = fsNode.promises,
+): Promise<string | null> {
   let handle: FileHandle | null = null;
   try {
     handle = await fsPromises.open(filePath, 'r');
-    const buffer = Buffer.alloc(CODEX_HEAD_BYTES);
-    const { bytesRead } = await handle.read(buffer, 0, CODEX_HEAD_BYTES, 0);
+    const buffer = Buffer.alloc(TRANSCRIPT_HEAD_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, TRANSCRIPT_HEAD_BYTES, 0);
     const text = buffer.subarray(0, bytesRead).toString('utf8');
     const lines = text.split(/\r?\n/);
-    if (bytesRead === CODEX_HEAD_BYTES) lines.pop();
+    if (bytesRead === TRANSCRIPT_HEAD_BYTES) lines.pop();
     for (const line of lines) {
       if (!line) continue;
-      let parsed: { payload?: { cwd?: unknown } } | null = null;
+      let parsed: HeadLine | null = null;
       try {
         parsed = JSON.parse(line);
       } catch {
         continue;
       }
-      const cwd = parsed?.payload?.cwd;
-      if (typeof cwd === 'string' && cwd.trim()) return cwd.trim();
+      const root = parsed ? rootOfLine(parsed) : null;
+      if (root) return root;
     }
     return null;
   } catch {
@@ -175,6 +191,11 @@ function transcriptRootCandidates(
   if (wanted.grok !== false) {
     for (const candidate of sessionsRootCandidates(grokHomes(env, homeDir))) {
       candidates.push({ vendor: 'grok', dir: candidate.dir, maxDepth: 2 });
+    }
+  }
+  if (wanted.kimi !== false) {
+    for (const candidate of sessionsRootCandidates(kimiHomes(env, homeDir))) {
+      candidates.push({ vendor: 'kimi', dir: candidate.dir, maxDepth: 4 });
     }
   }
   return candidates;
@@ -417,8 +438,8 @@ function createAgentLogIngest({
   ): Promise<void> {
     const sessionId = sessionIdFromPath(root.vendor, dir, filePath);
     if (isEphemeralLane(lanes, root.vendor, sessionId)) return;
-    let scopeRoot = rootFromPath(root.vendor, dir);
-    if (root.vendor === 'codex') scopeRoot = await readCodexRoot(filePath, fsPromises);
+    const headRootReader = HEAD_ROOT_READERS[root.vendor];
+    const scopeRoot = headRootReader ? await readHeadRoot(filePath, headRootReader, fsPromises) : rootFromPath(root.vendor, dir);
     if (!alive()) return;
     if (isDispatchWorkdir(scopeRoot)) return;
     tails.set(filePath, createTailState(stat, { path: filePath }));
