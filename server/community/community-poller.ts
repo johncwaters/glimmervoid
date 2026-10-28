@@ -1,7 +1,7 @@
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { TickOutcome } from '../lanes/lane-runner.ts';
 import * as core from './core/community-core.ts';
-import type { CommunityAction, CommunityState, CommunityStateEntry } from '../../shared/contracts/community.ts';
+import type { CommunityAction, CommunityItem, CommunityState, CommunityStateEntry } from '../../shared/contracts/community.ts';
 import { errorMessage } from '../../shared/text.ts';
 
 type SourceRows = { ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string };
@@ -9,6 +9,7 @@ type SourceRows = { ok: true; rows: Record<string, unknown>[] } | { ok: false; e
 interface CommunityPollerDependencies {
   intervalMinutes: number;
   queryForum: (sinceIso: string) => Promise<SourceRows>;
+  discord?: DiscordSource | null;
   readState: () => Promise<CommunityState>;
   writeState: (state: CommunityState) => Promise<void>;
   runItem?: (entry: CommunityStateEntry, signal: AbortSignal) => Promise<core.CommunityRunResult>;
@@ -17,6 +18,12 @@ interface CommunityPollerDependencies {
   firstTickDelayMs?: () => number;
   now?: () => number;
   log?: Pick<Console, 'warn'>;
+}
+
+interface DiscordSource {
+  channels: readonly string[];
+  query: (sinceIso: string) => Promise<SourceRows>;
+  judgeQuestions: (candidates: readonly CommunityItem[]) => Promise<Set<string> | null>;
 }
 
 interface CommunityPoller {
@@ -28,7 +35,7 @@ interface CommunityPoller {
 }
 
 function createCommunityPoller({
-  intervalMinutes, queryForum, readState, writeState, runItem, maxConcurrentRuns = core.MAX_CONCURRENT_RUNS,
+  intervalMinutes, queryForum, discord = null, readState, writeState, runItem, maxConcurrentRuns = core.MAX_CONCURRENT_RUNS,
   onTickComplete = () => {}, firstTickDelayMs, now = Date.now, log = console,
 }: CommunityPollerDependencies): CommunityPoller {
   let state: CommunityState = core.emptyCommunityState();
@@ -40,6 +47,7 @@ function createCommunityPoller({
     tick: () => runTick(),
     writeState: () => writeState(state),
     firstTickDelayMs,
+    now,
     log,
   });
 
@@ -51,14 +59,33 @@ function createCommunityPoller({
     const watermark = state.watermarks.forum;
     const nowIso = new Date(now()).toISOString();
     if (watermark === null) {
-      state = core.admitForumItems(state, [], nowIso).state;
+      state = core.admitSourceItems(state, 'forum', [], nowIso).state;
       return null;
     }
     const fetched = await queryForum(watermark);
     if (!fetched.ok) return fetched.error;
     const { items, droppedRows } = core.forumItemsFromRows(fetched.rows);
     if (droppedRows > 0) log.warn(`[${core.COMMUNITY_LANE_ID}] dropped ${droppedRows} malformed forum row(s)`);
-    state = core.admitForumItems(state, items, nowIso).state;
+    state = core.admitSourceItems(state, 'forum', items, nowIso).state;
+    return null;
+  }
+
+  async function pollDiscord(source: DiscordSource): Promise<string | null> {
+    const watermark = state.watermarks.discord;
+    const nowIso = new Date(now()).toISOString();
+    if (watermark === null) {
+      state = core.admitSourceItems(state, 'discord', [], nowIso).state;
+      return null;
+    }
+    const fetched = await source.query(watermark);
+    if (!fetched.ok) return fetched.error;
+    const { items, droppedRows, newestRowAt } = core.discordItemsFromRows(fetched.rows, source.channels);
+    if (droppedRows > 0) log.warn(`[${core.COMMUNITY_LANE_ID}] dropped ${droppedRows} malformed Discord event(s)`);
+    const candidates = core.freshItems(state, 'discord', items);
+    const questionKeys = candidates.length > 0 ? await source.judgeQuestions(candidates).catch(() => null) : new Set<string>();
+    if (questionKeys === null) return 'The Discord question judge gave no usable answer; these messages are checked again next poll';
+    const admitted = core.admitSourceItems(state, 'discord', items, nowIso, (key) => questionKeys.has(key)).state;
+    state = core.withWatermarkAtLeast(admitted, 'discord', newestRowAt);
     return null;
   }
 
@@ -100,11 +127,13 @@ function createCommunityPoller({
 
   async function runTick(): Promise<TickOutcome> {
     const forumError = await pollForum();
+    const discordError = discord && discord.channels.length > 0 ? await pollDiscord(discord) : null;
+    const pollError = forumError ?? discordError;
     state = core.prunedState(state, now());
     dispatchRuns();
     await loop.persist();
-    publishStatus(forumError);
-    if (forumError) return { failed: true, error: forumError };
+    publishStatus(pollError);
+    if (pollError) return { failed: true, error: pollError };
     return {};
   }
 
@@ -141,4 +170,4 @@ function createCommunityPoller({
 }
 
 export { createCommunityPoller };
-export type { SourceRows };
+export type { DiscordSource, SourceRows };

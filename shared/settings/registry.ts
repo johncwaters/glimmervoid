@@ -702,6 +702,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         description: 'Delay between community polling passes.',
         control: 'number', integer: true, range: COMMUNITY_INTERVAL_MINUTES_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 5, ...MACHINE_NOW,
       },
+      {
+        id: 'community-discord-channels', path: 'community.discordChannels', title: 'Discord channels',
+        description: 'Discord channels whose new messages and threads are checked, by name without the #. A cheap model picks out the questions; only those are researched. Empty leaves Discord out.',
+        control: 'list', keywords: ['discord', 'channels', 'allowlist'], defaultValue: [], ...MACHINE_NOW,
+      },
     ],
   },
   {

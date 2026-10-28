@@ -5,6 +5,7 @@ import type { SettingsRange } from '../settings-ranges.ts';
 import { USAGE_COST_MODES, USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../usage-config.ts';
 import { WorkflowsSettings } from './workflows.ts';
 import { repoParts } from './github-ids.ts';
+import { DISCORD_CHANNEL_NAME_RE } from './community.ts';
 import { UpdateChannel } from './update-journal.ts';
 
 export const optionalBoolean = (field: string) => z.boolean({ error: `${field} must be a boolean` }).optional();
@@ -132,6 +133,10 @@ const CommunitySettings = optionalObject('community', {
   skill: optionalString('community.skill', true),
   projectId: optionalInteger('community.projectId', ranges.POSTHOG_PROJECT_ID_RANGE),
   intervalMinutes: optionalInteger('community.intervalMinutes', ranges.COMMUNITY_INTERVAL_MINUTES_RANGE),
+  discordChannels: z.array(
+    z.string({ error: 'community.discordChannels must be an array of channel names' }).trim().regex(DISCORD_CHANNEL_NAME_RE, { error: 'community.discordChannels entries must be Discord channel names like community-questions, lowercase with no #' }),
+    { error: 'community.discordChannels must be an array of channel names' },
+  ).optional(),
 });
 
 const CoherenceSettings = optionalObject('coherence', {

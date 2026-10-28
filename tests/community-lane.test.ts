@@ -167,3 +167,56 @@ test('community lane set-aside stops a running question for good and re-run rese
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
+
+function discordRow(uuid: string, timestamp: string, channelName: string, messageContent: string): Record<string, unknown> {
+  return { uuid, event: 'message_sent', timestamp, channel_id: '222', guild_id: '111', channel_name: channelName, message_content: messageContent };
+}
+
+test('community lane admits only allowlisted Discord messages the judge calls questions, reads past rows that make no question, and retries the batch when the judge gives no answer', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'community-lane-'));
+  const statePath = path.join(directory, 'community-state.json');
+  let currentMs = ENABLED_AT;
+  const discordRows = [
+    discordRow('question', '2026-10-28T12:01:00Z', 'help', 'How do I capture events from a server?'),
+    discordRow('chatter', '2026-10-28T12:02:00Z', 'help', 'thanks all'),
+    discordRow('elsewhere', '2026-10-28T12:03:00Z', 'off-topic', 'How do I bake bread?'),
+    discordRow('image-only', '2026-10-28T12:04:00Z', 'help', ''),
+  ];
+  const judgedBatches: string[][] = [];
+  let judgeAnswer: Set<string> | null = null;
+  const stateIo = createCommunityStateIo(statePath, { warn() {} });
+  const poller = createCommunityPoller({
+    intervalMinutes: 5, queryForum: async () => ({ ok: true, rows: [] }), readState: stateIo.readState, writeState: stateIo.writeState,
+    discord: {
+      channels: ['help'],
+      query: async () => ({ ok: true, rows: discordRows }),
+      judgeQuestions: async (candidates) => {
+        judgedBatches.push(candidates.map((item) => item.key));
+        return judgeAnswer;
+      },
+    },
+    now: () => currentMs, log: { warn() {} },
+  });
+  try {
+    await poller.start();
+    const watermarkBeforeJudging = poller.state().watermarks.discord;
+
+    currentMs += 5 * 60000;
+    await poller.tick();
+    assert.deepEqual(judgedBatches, [['discord:question', 'discord:chatter']]);
+    assert.deepEqual(poller.state().entries, {});
+    assert.equal(poller.state().watermarks.discord, watermarkBeforeJudging);
+
+    judgeAnswer = new Set(['discord:question']);
+    currentMs += 31 * 60000;
+    await poller.tick();
+    await poller.stop();
+    assert.deepEqual(Object.keys(poller.state().entries), ['discord:question']);
+    const admitted = poller.state().entries['discord:question'];
+    assert.equal(admitted?.item.url, 'https://discord.com/channels/111/222');
+    assert.equal(admitted?.item.author, 'Discord member');
+    assert.equal(poller.state().watermarks.discord, '2026-10-28T12:04:00.000Z');
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});

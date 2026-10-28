@@ -11,7 +11,9 @@ import { createPosthogApi, extractRows } from '../radar/posthog-api.ts';
 import type { PosthogApi } from '../radar/posthog-api.ts';
 import * as core from './core/community-core.ts';
 import { createCommunityPoller } from './community-poller.ts';
-import type { SourceRows } from './community-poller.ts';
+import type { DiscordSource, SourceRows } from './community-poller.ts';
+import { COMMUNITY_JUDGE_TOOLS, createCommunityJudge } from './community-judge.ts';
+import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import { CommunityState } from '../../shared/contracts/community.ts';
 import type { CommunityActionRequest, CommunityActionResult, CommunityStateEntry } from '../../shared/contracts/community.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -171,6 +173,26 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings }: {
   };
 }
 
+function createDiscordSource(api: PosthogApi, settings: core.CommunitySettings, spawnDependencies: CommunitySpawnDependencies | null): DiscordSource | null {
+  if (!spawnDependencies || settings.discordChannels.length === 0) return null;
+  const judgeSpawn = createLaneSpawn({
+    laneName: core.COMMUNITY_LANE_ID,
+    sessions: spawnDependencies.investigationSessions,
+    closeSessionDataClients: spawnDependencies.closeSessionDataClients,
+    hookRouter: spawnDependencies.hookRouter,
+    getHookPort: spawnDependencies.getHookPort,
+    spawnGate: spawnDependencies.spawnGate,
+    recordLane: spawnDependencies.recordLane ?? null,
+    replayBufferKB: spawnDependencies.replayBufferKB,
+    allowTools: COMMUNITY_JUDGE_TOOLS,
+  });
+  return {
+    channels: settings.discordChannels,
+    query: (sinceIso) => hogQLRows(api, settings.projectId, core.discordQuery(), { since: sinceIso, channels: settings.discordChannels }),
+    judgeQuestions: createCommunityJudge(judgeSpawn),
+  };
+}
+
 interface CommunityWiringOptions {
   config: GlimmervoidConfig;
   broadcast?: (status: Record<string, unknown>) => void;
@@ -203,6 +225,7 @@ function createCommunityWiring({
       return createCommunityPoller({
         intervalMinutes: settings.intervalMinutes,
         queryForum: (sinceIso) => hogQLRows(api, settings.projectId, core.forumQuery(), { since: sinceIso }),
+        discord: createDiscordSource(api, settings, spawnDependencies),
         readState: stateIo.readState,
         writeState: stateIo.writeState,
         runItem,
