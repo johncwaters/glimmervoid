@@ -521,12 +521,12 @@ body {
 
 @media (hover: hover) {
   .tag-icon:hover { background: color-mix(in oklab, var(--text-head) 6%, transparent); color: var(--text-head); }
-  .perms-badge:hover { color: var(--perms-warn); }
+  .session-card:not([data-sane-yolo]) .perms-badge:hover { color: var(--perms-warn); }
 }
 
 .tag-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-.perms-badge { color: var(--perms-warn); }
+.session-card:not([data-sane-yolo]) .perms-badge { color: var(--perms-warn); }
 
 .guardrails-badge { display: none; }
 
