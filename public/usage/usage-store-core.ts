@@ -1,4 +1,5 @@
 import { attentionSignature } from '../attention-ack-core.ts';
+import type { PlanLimitsVendor } from '#shared/contracts/control-messages.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 
 export interface UsageTokenLimit {
@@ -219,10 +220,11 @@ export function planWindowOf(planLimits: PlanLimits | null | undefined, key: 'fi
   return { pct, resetsAtMs };
 }
 
-export type PlanLimitsVendor = 'claude' | 'codex';
+export type { PlanLimitsVendor };
 
 export function planLimitsVendorOf(planLimits: PlanLimits | null | undefined): PlanLimitsVendor {
-  return planLimits?.vendor === 'codex' ? 'codex' : 'claude';
+  if (planLimits?.vendor === 'codex' || planLimits?.vendor === 'kimi') return planLimits.vendor;
+  return 'claude';
 }
 
 function officialFiveHourPct(planLimits: PlanLimits | null | undefined) {

@@ -24,7 +24,7 @@ export type UsageChange = 'report' | 'sessions' | 'plan-limits' | 'refresh-statu
 
 let report: UsageReport | null = null;
 let sessions: UsageSessionsPush | null = null;
-let planLimitsByVendor: Record<PlanLimitsVendor, PlanLimits | null> = { claude: null, codex: null };
+let planLimitsByVendor: Record<PlanLimitsVendor, PlanLimits | null> = { claude: null, codex: null, kimi: null };
 let activityCallback: ((isActive: boolean) => void) | null = null;
 let sendRequest: ((message: Record<string, unknown>) => boolean) | null = null;
 let latestRequestId: string | null = null;

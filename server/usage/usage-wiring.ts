@@ -17,8 +17,10 @@ import {
   selectOfficialSessionCost,
   shouldBroadcastPlanLimits,
 } from './core/usage-statusline-core.ts';
-import type { PlanLimitsVendor, StatuslineSnapshot } from './core/usage-statusline-core.ts';
+import type { PlanLimitsVendor, RateLimitWindows, StatuslineSnapshot } from './core/usage-statusline-core.ts';
 import type { CodexRateLimitSnapshot } from './core/usage-codex-core.ts';
+import { createKimiPlanLimitsReader } from './usage-kimi-limits.ts';
+import type { KimiPlanLimitsPoll } from './usage-kimi-limits.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { createLaneLog } from '../lanes/lane-log.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
@@ -60,6 +62,10 @@ const FORCE_PASS_MIN_INTERVAL_MS = 3000;
 const TELEGRAM_TIMEOUT_MS = 10000;
 const IO_FAILURE_EVALUATION_LIMIT = 3;
 
+const KIMI_IDLE_POLL_MS = 15 * 60 * 1000;
+const KIMI_VIEWED_POLL_MS = 60 * 1000;
+const KIMI_AGENT_ID = 'kimi';
+
 const COST_MODES = new Set<string>(USAGE_COST_MODES);
 const INTEGER_RANGES = USAGE_INTEGER_RANGES;
 
@@ -86,6 +92,13 @@ interface WiringConfig {
 interface WiringSession {
   ephemeral?: boolean;
   resumeSessionId?: string | null;
+  agentId?: string;
+  hasLivePty?: boolean;
+}
+
+interface PlanLimitsSnapshot {
+  rateLimits: RateLimitWindows | null;
+  ts: number;
 }
 
 type SessionsMessage = {
@@ -117,6 +130,7 @@ interface UsageWiringOptions {
   fsPromises?: typeof nodeFsPromises;
   createScanner?: (deps?: UsageScannerOptions) => UsageScannerApi;
   loadPricingFn?: typeof loadPricing;
+  readKimiPlanLimits?: () => Promise<KimiPlanLimitsPoll>;
   scannerDeps?: Record<string, unknown>;
   nowFn?: () => number;
   partialContinueMs?: number;
@@ -205,6 +219,7 @@ function createUsageWiring({
   fsPromises = nodeFsPromises,
   createScanner = createUsageScanner,
   loadPricingFn = loadPricing,
+  readKimiPlanLimits = createKimiPlanLimitsReader().readPlanLimits,
   scannerDeps = {},
   nowFn = Date.now,
   partialContinueMs = PARTIAL_CONTINUE_MS,
@@ -234,8 +249,9 @@ function createUsageWiring({
   let ioFailureStreak = 0;
   let ioFailureStreakId = 0;
 
-  let planLimits: StatuslineSnapshot | null = null;
-  let codexPlanLimits: CodexRateLimitSnapshot | null = null;
+  const planLimitsByVendor: Record<PlanLimitsVendor, PlanLimitsSnapshot | null> = { claude: null, codex: null, kimi: null };
+  let lastKimiPollMs: number | null = null;
+  let kimiPollInFlight: Promise<void> | null = null;
   const officialCostByClaudeId = new Map<string, number>();
   let budgetFiredState: BudgetFiredState = { daily: {}, monthly: {} };
   let budgetEvaluationChain: Promise<void> = Promise.resolve();
@@ -274,6 +290,7 @@ function createUsageWiring({
 
   function onIntervalTick(): void {
     if (stopped || !scanner) return;
+    void pollKimiPlanLimits(KIMI_IDLE_POLL_MS);
     if (passInFlight) return;
     void runPassAndPush({ force: false });
   }
@@ -468,29 +485,56 @@ function createUsageWiring({
     if (!snapshot) return;
     rememberOfficialCost(snapshot);
     if (!snapshot.rateLimits) return;
+    adoptPlanLimits('claude', snapshot);
+  }
 
-    if (planLimits && snapshot.ts < planLimits.ts) return;
-    const changed = shouldBroadcastPlanLimits(planLimits, snapshot);
-    planLimits = snapshot;
+  function adoptPlanLimits(vendor: PlanLimitsVendor, snapshot: PlanLimitsSnapshot, { isFreshPoll = false } = {}): void {
+    const previous = planLimitsByVendor[vendor];
+    if (previous && snapshot.ts < previous.ts) return;
+    const changed = isFreshPoll || shouldBroadcastPlanLimits(previous, snapshot);
+    planLimitsByVendor[vendor] = snapshot;
     if (!changed) return;
-    const message = buildPlanLimitsMessage(snapshot);
+    const message = buildPlanLimitsMessage(snapshot, vendor);
     if (message) broadcast(message);
   }
 
   function ingestCodexRateLimits(snapshot: CodexRateLimitSnapshot | null): void {
     if (stopped || !cfg.enabled || !cfg.planLimits || !snapshot) return;
-    if (codexPlanLimits && snapshot.ts < codexPlanLimits.ts) return;
-    const changed = shouldBroadcastPlanLimits(codexPlanLimits, snapshot);
-    codexPlanLimits = snapshot;
-    if (!changed) return;
-    const message = buildPlanLimitsMessage(snapshot, 'codex');
-    if (message) broadcast(message);
+    adoptPlanLimits('codex', snapshot);
+  }
+
+  function hasLiveKimiSession(): boolean {
+    for (const session of sessions.values()) {
+      if (session.agentId === KIMI_AGENT_ID && session.hasLivePty !== false) return true;
+    }
+    return false;
+  }
+
+  async function runKimiPoll(): Promise<void> {
+    lastKimiPollMs = nowFn();
+    const poll = await readKimiPlanLimits();
+    if (stopped) return;
+    if (poll.kind === 'unavailable') {
+      laneLog.warnOnce(`kimi-plan-limits:${poll.reason}`, 'kimi plan limits unavailable', { reason: poll.reason });
+      return;
+    }
+    adoptPlanLimits('kimi', poll.snapshot, { isFreshPoll: true });
+  }
+
+  function pollKimiPlanLimits(minIntervalMs: number): Promise<void> {
+    if (kimiPollInFlight) return kimiPollInFlight;
+    if (stopped || !cfg.enabled || !cfg.planLimits || !cfg.vendors.kimi) return Promise.resolve();
+    if (!hasLiveKimiSession()) return Promise.resolve();
+    if (lastKimiPollMs !== null && nowFn() - lastKimiPollMs < minIntervalMs) return Promise.resolve();
+    kimiPollInFlight = runKimiPoll()
+      .catch((error: unknown) => laneLog.warn('kimi plan limits poll failed', { error: errorMessage(error) }))
+      .finally(() => { kimiPollInFlight = null; });
+    return kimiPollInFlight;
   }
 
   function getPlanLimitsMessage(vendor: PlanLimitsVendor = 'claude') {
     if (!cfg.enabled || !cfg.planLimits) return null;
-    if (vendor === 'codex') return buildPlanLimitsMessage(codexPlanLimits, 'codex');
-    return buildPlanLimitsMessage(planLimits);
+    return buildPlanLimitsMessage(planLimitsByVendor[vendor], vendor);
   }
 
   function loadBudgetState(): Promise<void> {
@@ -601,9 +645,10 @@ function createUsageWiring({
     const allowForce = force && nowFn() - lastForcedPassMs >= FORCE_PASS_MIN_INTERVAL_MS;
     if (allowForce) lastForcedPassMs = nowFn();
     if (force) await runPassAndPush({ force: allowForce });
+    void pollKimiPlanLimits(KIMI_VIEWED_POLL_MS);
     let report: ReturnType<ReturnType<typeof createUsageScanner>['buildReport']>;
     try {
-      const officialRateLimits = cfg.planLimits ? planLimits?.rateLimits : null;
+      const officialRateLimits = cfg.planLimits ? planLimitsByVendor.claude?.rateLimits : null;
       report = scanner.buildReport({ days, planWindowStarts: planWindowStartsMs(officialRateLimits, nowFn()) });
     } catch (error) {
       laneLog.warn('report build failed', { error: errorMessage(error) });

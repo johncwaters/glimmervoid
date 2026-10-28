@@ -9,6 +9,8 @@ import path from 'node:path';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { createUsageWiring } from '../server/usage/usage-wiring.ts';
+import { createKimiPlanLimitsReader } from '../server/usage/usage-kimi-limits.ts';
+import { ServerMessage } from '../shared/contracts/control-messages.ts';
 import type { UsageWiringOptions } from '../server/usage/usage-wiring.ts';
 import { createUsageScanner } from '../server/usage/usage-scanner.ts';
 import { loadPricing } from '../server/usage/usage-pricing.ts';
@@ -590,4 +592,99 @@ test('kimi usage is read only from wire.jsonl usage records, keyed to the sessio
   } finally {
     await realFsp.rm(directory, { recursive: true, force: true });
   }
+});
+
+test('kimi plan limits poll /usages read-only while a kimi session is live, rarely when idle, and keep the last windows on a 401', async (context) => {
+  const directory = await realFsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-usage-kimi-limits-'));
+  const kimiHome = path.join(directory, 'kimi-home');
+  const credentialsPath = path.join(kimiHome, 'credentials', 'kimi-code-env-0e4f99c69cc27850.json');
+  await realFsp.mkdir(path.dirname(credentialsPath), { recursive: true });
+  await realFsp.writeFile(path.join(kimiHome, 'config.toml'), [
+    '[providers."managed:kimi-code"]',
+    'type = "kimi"',
+    'base_url = "https://api.kimi.ai/coding/v1"',
+    '',
+    '[providers."managed:kimi-code".oauth]',
+    'storage = "file"',
+    'key = "oauth/kimi-code-env-0e4f99c69cc27850"',
+    '',
+  ].join('\n'));
+  let nowMs = Date.parse('2026-10-28T12:00:00Z');
+  const credentials = JSON.stringify({ access_token: 'kimi-access', refresh_token: 'kimi-refresh', expires_at: nowMs / 1000 + 7200 });
+  await realFsp.writeFile(credentialsPath, credentials);
+  const requests: { url: string; authorization: string | null }[] = [];
+  const usagesBody = { usages: { limit_5h: { used_ratio: 0.25, reset_time: '2026-10-28T14:00:00Z' }, limit_7d: { used_ratio: '0.5' } } };
+  const responses = [Response.json(usagesBody), Response.json(usagesBody), new Response('{}', { status: 401 })];
+  const fetchFn: typeof fetch = async (input, init) => {
+    requests.push({ url: String(input), authorization: new Headers(init?.headers).get('authorization') });
+    return responses[Math.min(requests.length - 1, responses.length - 1)];
+  };
+  const planLimitBroadcasts: Record<string, unknown>[] = [];
+  const sessions = new Map([['kimi-card', { agentId: 'kimi', hasLivePty: true }]]);
+  let intervalTick = () => {};
+  const wiring = createUsageWiring({
+    config: { usage: { rtkSavings: false } },
+    sessions,
+    broadcast: (message) => {
+      if (message.type === 'plan-limits') planLimitBroadcasts.push(message);
+    },
+    createScanner: () => scriptedScanner([], [COMPLETE_PASS]),
+    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
+    readKimiPlanLimits: createKimiPlanLimitsReader({ env: { KIMI_CODE_HOME: kimiHome }, homeDir: directory, fetchFn, nowFn: () => nowMs }).readPlanLimits,
+    nowFn: () => nowMs,
+    setIntervalFn: (run) => {
+      intervalTick = run;
+      return setInterval(() => {}, 60_000);
+    },
+    logger: { warn: () => {}, log: () => {} },
+  });
+  context.after(async () => {
+    await wiring.stop();
+    await realFsp.rm(directory, { recursive: true, force: true });
+  });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  await wiring.start();
+  await wiring.requestReport();
+  await settle();
+  assert.deepEqual(requests, [{ url: 'https://api.kimi.ai/coding/v1/usages', authorization: 'Bearer kimi-access' }]);
+  const firstWindows = wiring.getPlanLimitsMessage('kimi');
+  assert.deepEqual(firstWindows, {
+    type: 'plan-limits',
+    ts: nowMs,
+    fiveHour: { pct: 25, resetsAtMs: Date.parse('2026-10-28T14:00:00Z') },
+    sevenDay: { pct: 50, resetsAtMs: null },
+    source: 'usages',
+    vendor: 'kimi',
+  });
+  assert.equal(ServerMessage.safeParse(firstWindows).success, true);
+  assert.equal(planLimitBroadcasts.length, 1);
+
+  nowMs += 30_000;
+  await wiring.requestReport();
+  intervalTick();
+  await settle();
+  assert.equal(requests.length, 1);
+
+  nowMs += 16 * 60 * 1000;
+  intervalTick();
+  await settle();
+  const unchangedWindows = { ...firstWindows, ts: nowMs };
+  assert.equal(requests.length, 2);
+  assert.deepEqual(planLimitBroadcasts.at(-1), unchangedWindows);
+
+  nowMs += 16 * 60 * 1000;
+  intervalTick();
+  await settle();
+  assert.equal(requests.length, 3);
+  assert.deepEqual(wiring.getPlanLimitsMessage('kimi'), unchangedWindows);
+  assert.equal(planLimitBroadcasts.length, 2);
+  assert.equal(await realFsp.readFile(credentialsPath, 'utf8'), credentials);
+
+  sessions.clear();
+  nowMs += 16 * 60 * 1000;
+  intervalTick();
+  await wiring.requestReport();
+  await settle();
+  assert.equal(requests.length, 3);
 });

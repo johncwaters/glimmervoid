@@ -649,7 +649,7 @@ function formatRatio(ratio: unknown) {
   return `${trimTrailingZeros(value.toFixed(1))}x`;
 }
 
-const VENDOR_LABELS: Readonly<Record<string, string>> = Object.freeze({ claude: 'Claude', codex: 'Codex', grok: 'Grok' });
+const VENDOR_LABELS: Readonly<Record<string, string>> = Object.freeze({ claude: 'Claude', codex: 'Codex', grok: 'Grok', kimi: 'Kimi' });
 
 export function vendorLabel(vendor: unknown) {
   const key = textOr(vendor, '');
@@ -701,6 +701,7 @@ export const PLAN_WINDOWS: readonly { key: 'fiveHour' | 'sevenDay'; label: strin
 export const PLAN_LIMIT_VENDORS: readonly { vendor: PlanLimitsVendor; label: string }[] = Object.freeze([
   { vendor: 'claude', label: 'Claude Code' },
   { vendor: 'codex', label: 'Codex' },
+  { vendor: 'kimi', label: 'Kimi Code' },
 ]);
 
 export function planLimitsSectionHint(vendors: readonly PlanLimitsVendor[], totals: UsageTotals | null | undefined) {

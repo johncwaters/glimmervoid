@@ -1,4 +1,5 @@
 import { isRecord, numberOr } from '../../../shared/coerce.ts';
+import type { PlanLimitsVendor } from '../../../shared/contracts/control-messages.ts';
 
 const PCT_DECIMALS = 1;
 
@@ -92,11 +93,11 @@ function shouldBroadcastPlanLimits(
   return nextSignature !== planLimitsSignature(previous);
 }
 
-type PlanLimitsVendor = 'claude' | 'codex';
 
 const PLAN_LIMITS_SOURCE_BY_VENDOR: Readonly<Record<PlanLimitsVendor, string>> = Object.freeze({
   claude: 'statusline',
   codex: 'rollout',
+  kimi: 'usages',
 });
 
 function buildPlanLimitsMessage(

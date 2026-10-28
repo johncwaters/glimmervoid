@@ -14,7 +14,7 @@ import type { PlanDecision } from '../../shared/contracts/plan-review.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import type { UpdateJournal } from '../../shared/contracts/update-journal.ts';
-import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
+import type { PlanLimitsVendor, ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { UpdateApplyOutcome } from '../update-apply.ts';
 import type { UpdateStatus } from './backend-update.ts';
 import type { PlanReadResult } from '../plan-review-wiring.ts';
@@ -52,7 +52,7 @@ interface UsageControl {
   getSessionsMessage: () => Record<string, unknown> | null;
   getCachedReport: () => Record<string, unknown> | null;
   requestReport: (args: { days?: number; force?: boolean; requestId?: string | null }) => Promise<Record<string, unknown>>;
-  getPlanLimitsMessage: (vendor?: 'claude' | 'codex') => Record<string, unknown> | null;
+  getPlanLimitsMessage: (vendor?: PlanLimitsVendor) => Record<string, unknown> | null;
 }
 
 interface BackendControlDependencies {
@@ -169,7 +169,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     getUsageSessions: () => usage.getSessionsMessage(),
     getUsageReport: () => usage.getCachedReport(),
     requestUsageReport: (args) => usage.requestReport(args),
-    getPlanLimits: () => [usage.getPlanLimitsMessage('claude'), usage.getPlanLimitsMessage('codex')],
+    getPlanLimits: () => [usage.getPlanLimitsMessage('claude'), usage.getPlanLimitsMessage('codex'), usage.getPlanLimitsMessage('kimi')],
     readTracePage: dependencies.readTracePage,
     readPlanRevision: dependencies.readPlanRevision,
     decidePlanReview: dependencies.decidePlanReview,

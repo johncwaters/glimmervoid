@@ -86,6 +86,8 @@ const CoderEnvironmentOffer = z.object({
 });
 export type CoderEnvironmentOffer = z.infer<typeof CoderEnvironmentOffer>;
 export const CoderEnvironmentOffers = z.array(CoderEnvironmentOffer).nullable();
+export const PlanLimitsVendor = z.enum(['claude', 'codex', 'kimi']);
+export type PlanLimitsVendor = z.infer<typeof PlanLimitsVendor>;
 export const ConnectableAgent = z.enum(['claude-code', 'codex']);
 export type ConnectableAgent = z.infer<typeof ConnectableAgent>;
 export const AgentLoginStatus = z.object({
@@ -591,7 +593,7 @@ const serverVariants = [
     fiveHour: z.unknown().nullable(),
     sevenDay: z.unknown().nullable(),
     source: z.string(),
-    vendor: z.enum(['claude', 'codex']).optional(),
+    vendor: PlanLimitsVendor.optional(),
   }),
   loose('usage-budget-alert', {
     scope: z.string(),
