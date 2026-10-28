@@ -3,9 +3,10 @@ import os from "node:os";
 import path from "node:path";
 
 import { glimmervoidHomeDir } from "../server/core/config-path-core.ts";
+import { loadFileLocks } from "../server/guardrails/session-temp-locks.ts";
 import { writeTextAtomicSync } from "../server/json-file.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
-import { KIMI_CONFIG_NAME, KIMI_CONFLICTS_NAME, KIMI_SOURCES_NAME, fileStampKey, planKimiHome } from "./core/kimi-hooks-block-core.ts";
+import { KIMI_BASE_NAME, KIMI_CONFIG_NAME, KIMI_CONFLICTS_NAME, KIMI_IN_USE_LOCK_NAME, KIMI_SOURCES_NAME, fileStampKey, planKimiHome } from "./core/kimi-hooks-block-core.ts";
 import type { GeneratedKimiEntry, KimiHomePlan, KimiHomeStep, RealKimiEntry } from "./core/kimi-hooks-block-core.ts";
 
 const GENERATED_HOME_MODE = 0o700;
@@ -150,6 +151,7 @@ function planFromDisk({ hooksBlock, platform = process.platform }: KimiHomeOptio
     realEntries: listRealEntries(realHome, privateFolderNames),
     generatedEntries,
     realConfigText: realConfig.text,
+    baseConfigText: readOptionalText(path.join(generatedHome, KIMI_BASE_NAME)),
     generatedConfigText: readOptionalText(path.join(generatedHome, KIMI_CONFIG_NAME)),
     hooksBlock,
     sourceStamps: readSourceStamps(generatedHome),
@@ -158,7 +160,9 @@ function planFromDisk({ hooksBlock, platform = process.platform }: KimiHomeOptio
 }
 
 function stepEntryPath(generatedHome: string, step: KimiHomeStep): string {
-  return path.join(generatedHome, step.kind === "write-config" ? KIMI_CONFIG_NAME : step.name);
+  if (step.kind === "write-config") return path.join(generatedHome, KIMI_CONFIG_NAME);
+  if (step.kind === "write-base") return path.join(generatedHome, KIMI_BASE_NAME);
+  return path.join(generatedHome, step.name);
 }
 
 function promoteIntoRealHome(entryPath: string, target: string): void {
@@ -202,6 +206,7 @@ function applyStep(generatedHome: string, step: KimiHomeStep): void {
   const entryPath = stepEntryPath(generatedHome, step);
   switch (step.kind) {
     case "write-config":
+    case "write-base":
       writeTextAtomicSync(entryPath, step.text, { mode: GENERATED_FILE_MODE, enforceMode: true });
       return;
     case "unlink":
@@ -251,7 +256,7 @@ function prepareKimiHome(options: KimiHomeOptions): { home: string } | { refusal
   if (plan.kind === "refused") return { refusal: plan.reason };
   const keptPrivateNames = new Set<string>();
   for (const step of plan.steps) {
-    if (step.kind !== "write-config" && keptPrivateNames.has(step.name)) continue;
+    if ("name" in step && keptPrivateNames.has(step.name)) continue;
     try {
       applyStep(generatedHome, step);
     } catch (error) {
@@ -261,13 +266,93 @@ function prepareKimiHome(options: KimiHomeOptions): { home: string } | { refusal
   }
   const realHome = realKimiHome(options.env, options.homeDir);
   try {
-    const sourceStamps = { ...plan.sourceStamps, ...realFileStamps(realHome) };
-    writeTextAtomicSync(path.join(generatedHome, KIMI_SOURCES_NAME), `${JSON.stringify(sourceStamps, null, 2)}\n`, { mode: GENERATED_FILE_MODE });
+    writeTextAtomicSync(path.join(generatedHome, KIMI_SOURCES_NAME), `${JSON.stringify(realFileStamps(realHome), null, 2)}\n`, { mode: GENERATED_FILE_MODE });
   } catch (error) {
     return { refusal: `${path.join(generatedHome, KIMI_SOURCES_NAME)} cannot be written: ${errorMessage(error)}` };
   }
   return { home: generatedHome };
 }
 
-export { generatedKimiHomePath, inspectKimiHome, prepareKimiHome, realKimiHome };
+const liveSessionCountByHome = new Map<string, number>();
+const inUseLockDescriptorByHome = new Map<string, number>();
+
+function inUseLockPath(generatedHome: string): string {
+  return path.join(generatedHome, KIMI_IN_USE_LOCK_NAME);
+}
+
+function takeSharedInUseLock(generatedHome: string): void {
+  const locks = loadFileLocks();
+  if (locks === null) return;
+  fs.mkdirSync(generatedHome, { recursive: true, mode: GENERATED_HOME_MODE });
+  const lockDescriptor = fs.openSync(inUseLockPath(generatedHome), "a+", GENERATED_FILE_MODE);
+  locks.waitForLockSync(lockDescriptor, { shared: true });
+  inUseLockDescriptorByHome.set(generatedHome, lockDescriptor);
+}
+
+function dropSharedInUseLock(generatedHome: string): void {
+  const lockDescriptor = inUseLockDescriptorByHome.get(generatedHome);
+  if (lockDescriptor === undefined) return;
+  inUseLockDescriptorByHome.delete(generatedHome);
+  loadFileLocks()?.unlock(lockDescriptor);
+  fs.closeSync(lockDescriptor);
+}
+
+function openInUseLock(generatedHome: string): number | null {
+  try {
+    return fs.openSync(inUseLockPath(generatedHome), "a+", GENERATED_FILE_MODE);
+  } catch (error) {
+    if (isMissingFileError(error)) return null;
+    throw error;
+  }
+}
+
+function releaseSecretsUnlessHeldElsewhere(generatedHome: string, { whenLocksMissing }: { whenLocksMissing: "release" | "keep" }): void {
+  const locks = loadFileLocks();
+  if (locks === null) {
+    if (whenLocksMissing === "release") releaseKimiHomeSecrets(generatedHome);
+    return;
+  }
+  const lockDescriptor = openInUseLock(generatedHome);
+  if (lockDescriptor === null) return;
+  try {
+    if (!locks.tryLock(lockDescriptor)) return;
+    releaseKimiHomeSecrets(generatedHome);
+    locks.unlock(lockDescriptor);
+  } finally {
+    fs.closeSync(lockDescriptor);
+  }
+}
+
+function holdKimiHome(generatedHome: string): void {
+  const liveSessionCount = (liveSessionCountByHome.get(generatedHome) ?? 0) + 1;
+  liveSessionCountByHome.set(generatedHome, liveSessionCount);
+  if (liveSessionCount === 1) takeSharedInUseLock(generatedHome);
+}
+
+function releaseKimiHomeSecrets(generatedHome: string): void {
+  for (const name of [KIMI_CONFIG_NAME, KIMI_BASE_NAME]) {
+    try {
+      fs.rmSync(path.join(generatedHome, name), { force: true });
+    } catch (error) {
+      console.warn(`[kimi-home] ${path.join(generatedHome, name)} could not be deleted: ${errorMessage(error)}`);
+    }
+  }
+}
+
+function releaseKimiHome(generatedHome: string): void {
+  const liveSessionCount = (liveSessionCountByHome.get(generatedHome) ?? 0) - 1;
+  if (liveSessionCount > 0) {
+    liveSessionCountByHome.set(generatedHome, liveSessionCount);
+    return;
+  }
+  liveSessionCountByHome.delete(generatedHome);
+  dropSharedInUseLock(generatedHome);
+  releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "release" });
+}
+
+function releaseUnheldKimiHomeSecrets(generatedHome: string): void {
+  releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "keep" });
+}
+
+export { generatedKimiHomePath, holdKimiHome, inspectKimiHome, prepareKimiHome, realKimiHome, releaseKimiHome, releaseKimiHomeSecrets, releaseUnheldKimiHomeSecrets };
 export type { KimiHomeOptions, KimiHomeReading };

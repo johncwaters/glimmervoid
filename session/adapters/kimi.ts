@@ -10,7 +10,7 @@ import { KIMI_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
-import { prepareKimiHome, realKimiHome } from "../kimi-home.ts";
+import { generatedKimiHomePath, holdKimiHome, prepareKimiHome, realKimiHome, releaseKimiHome } from "../kimi-home.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import type {
   AgentAdapterShape,
@@ -147,7 +147,11 @@ function expectedHooksBlock(): string | null {
 function prepareHome(env: Record<string, string | undefined>): { home: string } | { refusal: string } {
   const hooksBlock = expectedHooksBlock();
   if (hooksBlock === null) return { refusal: "the hook relay path cannot be written into a kimi hooks block" };
-  return prepareKimiHome({ env, hooksBlock });
+  const generatedHome = generatedKimiHomePath(env);
+  holdKimiHome(generatedHome);
+  const prepared = prepareKimiHome({ env, hooksBlock });
+  if ("refusal" in prepared) releaseKimiHome(generatedHome);
+  return prepared;
 }
 
 const WINDOWS_SHAPED_ROOT = /^(?:[A-Za-z]:\/|\/\/)/;
@@ -233,6 +237,7 @@ const hooks: AgentHookProfile = {
     kind: "generated-home",
     homeEnvName: HOME_ENV_NAME,
     prepareHome,
+    releaseHome: releaseKimiHome,
   },
 };
 

@@ -71,6 +71,7 @@ interface GeneratedHomeInjection {
   kind: "generated-home";
   homeEnvName: string;
   prepareHome(env: Record<string, string | undefined>): { home: string } | { refusal: string };
+  releaseHome(home: string): void;
 }
 
 type HookInjection = SettingsFileInjection | ArgvConfigInjection | HomeHooksFileInjection | GeneratedHomeInjection;

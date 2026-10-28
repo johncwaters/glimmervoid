@@ -80,6 +80,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   let token: string | null = null;
   let settingsHandle: ReturnType<typeof writeSessionSettings> | null = null;
   let hasWarnedSaneYoloHookMissing = false;
+  let heldGeneratedHome: { injection: GeneratedHomeInjection; home: string } | null = null;
 
   function saneYoloTool(): ResolvedHookTool | undefined {
     return options.hookTools.find((tool) => tool.id === "saneYolo");
@@ -107,7 +108,14 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     return injectedHookTools(isSaneYoloActive).flatMap((tool) => tool.dataDir === undefined ? [] : [tool.dataDir]);
   }
 
+  function releaseGeneratedHome(): void {
+    if (!heldGeneratedHome) return;
+    heldGeneratedHome.injection.releaseHome(heldGeneratedHome.home);
+    heldGeneratedHome = null;
+  }
+
   function cleanup(): void {
+    releaseGeneratedHome();
     if (!token && !settingsHandle) return;
     if (options.hookRouter) {
       try { options.hookRouter.unregister(options.id); } catch {}
@@ -258,10 +266,15 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   }
 
   function injectGeneratedHomeHooks(port: number, injection: GeneratedHomeInjection): HookInjectionResult {
+    releaseGeneratedHome();
     const prepared = injection.prepareHome(process.env);
     if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
+    heldGeneratedHome = { injection, home: prepared.home };
     const relayHooks = registerRelayHooks(port, [], saneYoloTool() !== undefined);
-    if (relayHooks === NO_HOOK_INJECTION) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: its hooks could not be registered` };
+    if (relayHooks === NO_HOOK_INJECTION) {
+      releaseGeneratedHome();
+      return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: its hooks could not be registered` };
+    }
     return { ...relayHooks, env: { ...relayHooks.env, [injection.homeEnvName]: prepared.home } };
   }
 

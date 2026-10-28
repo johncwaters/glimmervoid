@@ -182,4 +182,4 @@ function trashSessionTempFolderOnceUnheld(policyDir: string, sessionId: string, 
   }
 }
 
-export { createHeldSessionTempFolder, releaseSessionLock, sessionIdOfLockFile, trashSessionTempFolderOnceUnheld };
+export { createHeldSessionTempFolder, loadFileLocks, releaseSessionLock, sessionIdOfLockFile, trashSessionTempFolderOnceUnheld };

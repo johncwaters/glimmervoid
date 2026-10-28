@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import path from "node:path";
 
 import { buildHookCommand } from "./hook-command-core.ts";
@@ -133,7 +132,9 @@ function spliceKimiHooksBlock(configText: string | null, block: string): KimiSpl
 const KIMI_CONFIG_NAME = "config.toml";
 const KIMI_SOURCES_NAME = ".glimmervoid-sources.json";
 const KIMI_CONFLICTS_NAME = ".glimmervoid-conflicts";
-const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([KIMI_CONFIG_NAME, KIMI_SOURCES_NAME, KIMI_CONFLICTS_NAME]);
+const KIMI_BASE_NAME = ".glimmervoid-base.toml";
+const KIMI_IN_USE_LOCK_NAME = ".glimmervoid-in-use.lock";
+const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([KIMI_CONFIG_NAME, KIMI_SOURCES_NAME, KIMI_CONFLICTS_NAME, KIMI_BASE_NAME, KIMI_IN_USE_LOCK_NAME]);
 const FILE_STAMP_PREFIX = "file:";
 
 type KimiLinkKind = "symlink" | "junction" | "hardlink";
@@ -157,6 +158,7 @@ interface KimiHomeInputs {
   realEntries: readonly RealKimiEntry[];
   generatedEntries: readonly GeneratedKimiEntry[];
   realConfigText: string | null;
+  baseConfigText: string | null;
   generatedConfigText: string | null;
   hooksBlock: string;
   sourceStamps: Readonly<Record<string, string>>;
@@ -169,25 +171,134 @@ type KimiHomeStep =
   | { kind: "promote"; name: string; target: string }
   | { kind: "set-aside"; name: string }
   | { kind: "adopt"; name: string; target: string; childNames: readonly string[] }
-  | { kind: "write-config"; text: string };
+  | { kind: "write-config"; text: string }
+  | { kind: "write-base"; text: string };
 
 type KimiHomePlan =
-  | { kind: "ready"; steps: KimiHomeStep[]; sourceStamps: Record<string, string>; privateNames: string[]; hasStaleBlockInRealConfig: boolean }
+  | { kind: "ready"; steps: KimiHomeStep[]; privateNames: string[]; hasStaleBlockInRealConfig: boolean }
   | { kind: "refused"; reason: string };
 
-function generatedKimiConfig(realConfigText: string | null, hooksBlock: string): { text: string; hadBlock: boolean } | { refusal: string } {
-  const configText = realConfigText ?? "";
-  const span = locateBlock(configText);
-  if (span === "foreign") return { refusal: "its Glimmervoid hooks block markers are unbalanced" };
-  const operatorText = span === "absent" ? configText : `${configText.slice(0, span.start)}${configText.slice(span.end)}`;
-  if (definesHooksOutsideArrayTables(operatorText)) return { refusal: "it defines hooks as a key or [hooks] table, which a [[hooks]] block cannot extend" };
-  const spliced = spliceKimiHooksBlock(operatorText, hooksBlock);
-  if ("refused" in spliced) return { refusal: `its hooks are ${spliced.refused}` };
-  return { text: spliced.contents, hadBlock: span !== "absent" };
+const TOML_TABLE_HEADER_PATTERN = /^\s*\[\[?([^[\]=]+)\]\]?\s*(?:#.*)?$/;
+const TOML_KEY_PATTERN = /^\s*((?:[A-Za-z0-9_-]+|"[^"]*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"[^"]*"|'[^']*'))*)\s*=/;
+const TOML_MULTILINE_QUOTES: readonly string[] = ['"""', "'''"];
+
+interface TomlUnit {
+  id: string;
+  text: string;
 }
 
-function configSourceStamp(realConfigText: string | null, hooksBlock: string): string {
-  return createHash("sha256").update(realConfigText ?? "").update("\0").update(hooksBlock).digest("hex");
+interface TomlUnits {
+  preamble: string;
+  keys: TomlUnit[];
+  tables: TomlUnit[];
+}
+
+function withoutBlock(configText: string): string | "foreign" {
+  const span = locateBlock(configText);
+  if (span === "foreign") return span;
+  if (span === "absent") return configText;
+  const operatorText = `${configText.slice(0, span.start)}${configText.slice(span.end)}`;
+  return operatorText.endsWith("\n\n") ? operatorText.slice(0, -1) : operatorText;
+}
+
+function togglesMultilineString(line: string): boolean {
+  return TOML_MULTILINE_QUOTES.some((quotes) => line.split(quotes).length % 2 === 0);
+}
+
+function splitTomlUnits(configText: string): TomlUnits {
+  const units: TomlUnits = { preamble: "", keys: [], tables: [] };
+  const tableCounts = new Map<string, number>();
+  let current: TomlUnit | null = null;
+  let isInTable = false;
+  let isInMultilineString = false;
+  for (const line of configText.split(/(?<=\n)/)) {
+    const header = isInMultilineString ? null : TOML_TABLE_HEADER_PATTERN.exec(line);
+    const key = isInMultilineString || isInTable || header ? null : TOML_KEY_PATTERN.exec(line);
+    if (togglesMultilineString(line)) isInMultilineString = !isInMultilineString;
+    if (header) {
+      const headerId = `${line.trim().startsWith("[[") ? "[[" : "["}${(header[1] ?? "").replaceAll(/\s/g, "")}`;
+      const occurrence = (tableCounts.get(headerId) ?? 0) + 1;
+      tableCounts.set(headerId, occurrence);
+      current = { id: `${headerId}#${occurrence}`, text: line };
+      units.tables.push(current);
+      isInTable = true;
+      continue;
+    }
+    if (key) {
+      current = { id: (key[1] ?? "").replaceAll(/\s/g, ""), text: line };
+      units.keys.push(current);
+      continue;
+    }
+    if (current) current.text += line;
+    if (!current) units.preamble += line;
+  }
+  return units;
+}
+
+function isSameUnit(first: TomlUnit | undefined, second: TomlUnit | undefined): boolean {
+  return first?.text.trimEnd() === second?.text.trimEnd();
+}
+
+function mergeUnitList(base: readonly TomlUnit[], ours: readonly TomlUnit[], theirs: readonly TomlUnit[]): TomlUnit[] {
+  const baseById = new Map(base.map((unit) => [unit.id, unit]));
+  const oursById = new Map(ours.map((unit) => [unit.id, unit]));
+  const theirIds = new Set(theirs.map((unit) => unit.id));
+  const merged: TomlUnit[] = [];
+  for (const theirUnit of theirs) {
+    const ourUnit = oursById.get(theirUnit.id);
+    const isOnlySessionChange = !isSameUnit(ourUnit, baseById.get(theirUnit.id)) && isSameUnit(theirUnit, baseById.get(theirUnit.id));
+    if (!isOnlySessionChange) merged.push(theirUnit);
+    if (isOnlySessionChange && ourUnit) merged.push(ourUnit);
+  }
+  for (const ourUnit of ours) {
+    if (!theirIds.has(ourUnit.id) && !baseById.has(ourUnit.id)) merged.push(ourUnit);
+  }
+  return merged;
+}
+
+function mergeTopLevelKeys(base: string, ours: string, theirs: string): string {
+  if (theirs === base) return ours;
+  if (ours === base) return theirs;
+  const [baseUnits, ourUnits, theirUnits] = [splitTomlUnits(base), splitTomlUnits(ours), splitTomlUnits(theirs)];
+  const keys = mergeUnitList(baseUnits.keys, ourUnits.keys, theirUnits.keys).map((unit) => `${unit.text.trimEnd()}\n`);
+  const tables = mergeUnitList(baseUnits.tables, ourUnits.tables, theirUnits.tables).map((unit) => `\n${unit.text.trimEnd()}\n`);
+  return [theirUnits.preamble, ...keys, ...tables].join("");
+}
+
+const HOOKS_ARRAY_TABLE_ID_PREFIX = "[[hooks#";
+
+function withoutUnmarkedHooks(ours: string, base: string): string {
+  const baseHookTexts = new Set(splitTomlUnits(base).tables.map((unit) => unit.text.trimEnd()));
+  const ourUnits = splitTomlUnits(ours);
+  const keptTables = ourUnits.tables.filter((unit) => !unit.id.startsWith(HOOKS_ARRAY_TABLE_ID_PREFIX) || baseHookTexts.has(unit.text.trimEnd()));
+  if (keptTables.length === ourUnits.tables.length) return ours;
+  return [ourUnits.preamble, ...ourUnits.keys.map((unit) => unit.text), ...keptTables.map((unit) => unit.text)].join("");
+}
+
+interface KimiConfigSources {
+  realConfigText: string | null;
+  baseConfigText: string | null;
+  generatedConfigText: string | null;
+  hooksBlock: string;
+}
+
+function generatedKimiConfig(sources: KimiConfigSources): { text: string; base: string; hadBlock: boolean } | { refusal: string } {
+  const realText = sources.realConfigText ?? "";
+  const theirs = withoutBlock(realText);
+  if (theirs === "foreign") return { refusal: "its Glimmervoid hooks block markers are unbalanced" };
+  const hadBlock = theirs !== realText;
+  const isRealUnchanged = sources.baseConfigText === theirs;
+  if (isRealUnchanged && sources.generatedConfigText !== null && classifyKimiConfig(sources.generatedConfigText, sources.hooksBlock) === "current") {
+    return { text: sources.generatedConfigText, base: theirs, hadBlock };
+  }
+  const ours = sources.generatedConfigText === null ? "foreign" : withoutBlock(sources.generatedConfigText);
+  const operatorText = ours === "foreign" || sources.baseConfigText === null
+    ? theirs
+    : mergeTopLevelKeys(sources.baseConfigText, withoutUnmarkedHooks(ours, sources.baseConfigText), theirs);
+  if (definesHooksOutsideArrayTables(operatorText)) return { refusal: "it defines hooks as a key or [hooks] table, which a [[hooks]] block cannot extend" };
+  const spliced = spliceKimiHooksBlock(operatorText, sources.hooksBlock);
+  if ("refused" in spliced) return { refusal: `its hooks are ${spliced.refused}` };
+  return { text: spliced.contents, base: theirs, hadBlock };
 }
 
 function linkKindFor(kind: RealKimiEntry["kind"], platform: NodeJS.Platform): KimiLinkKind {
@@ -223,14 +334,11 @@ function planEntryLink(real: RealKimiEntry, generated: GeneratedKimiEntry | unde
 }
 
 function planKimiHome(inputs: KimiHomeInputs): KimiHomePlan {
-  const config = generatedKimiConfig(inputs.realConfigText, inputs.hooksBlock);
+  const config = generatedKimiConfig(inputs);
   if ("refusal" in config) return { kind: "refused", reason: `the real ${KIMI_CONFIG_NAME} cannot take the hooks block: ${config.refusal}` };
   const steps: KimiHomeStep[] = [];
-  const configStamp = configSourceStamp(inputs.realConfigText, inputs.hooksBlock);
-  const isGeneratedConfigCurrent = inputs.generatedConfigText !== null
-    && inputs.sourceStamps[KIMI_CONFIG_NAME] === configStamp
-    && classifyKimiConfig(inputs.generatedConfigText, inputs.hooksBlock) === "current";
-  if (!isGeneratedConfigCurrent) steps.push({ kind: "write-config", text: config.text });
+  if (config.text !== inputs.generatedConfigText) steps.push({ kind: "write-config", text: config.text });
+  if (config.base !== inputs.baseConfigText) steps.push({ kind: "write-base", text: config.base });
   const generatedByName = new Map(inputs.generatedEntries.map((entry) => [entry.name, entry]));
   const realNames = new Set<string>();
   const privateNames: string[] = [];
@@ -250,11 +358,10 @@ function planKimiHome(inputs: KimiHomeInputs): KimiHomePlan {
   return {
     kind: "ready",
     steps,
-    sourceStamps: { [KIMI_CONFIG_NAME]: configStamp },
     privateNames,
     hasStaleBlockInRealConfig: config.hadBlock,
   };
 }
 
-export { BLOCK_START, BLOCK_END, KIMI_CONFIG_NAME, KIMI_CONFLICTS_NAME, KIMI_SOURCES_NAME, fileStampKey, renderKimiHooksBlock, classifyKimiConfig, spliceKimiHooksBlock, generatedKimiConfig, planKimiHome };
+export { BLOCK_START, BLOCK_END, KIMI_BASE_NAME, KIMI_CONFIG_NAME, KIMI_CONFLICTS_NAME, KIMI_IN_USE_LOCK_NAME, KIMI_SOURCES_NAME, fileStampKey, renderKimiHooksBlock, classifyKimiConfig, spliceKimiHooksBlock, generatedKimiConfig, mergeTopLevelKeys, planKimiHome };
 export type { GeneratedKimiEntry, KimiBlockClassification, KimiHomeInputs, KimiHomePlan, KimiHomeStep, KimiHooksBlockOptions, KimiLinkKind, RealKimiEntry };

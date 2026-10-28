@@ -12,6 +12,7 @@ import { configuredIntegrationBranch } from '../core/integration-branch-core.ts'
 import type { SessionWorktree, WorktreeArgs } from '../git/git-workspace.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { removeSessionTempFolder } from '../guardrails/guardrails-launch.ts';
+import { generatedKimiHomePath, releaseUnheldKimiHomeSecrets } from '../../session/kimi-home.ts';
 
 interface RegistryConfig extends Record<string, unknown> {
   projects: RegistryProject[];
@@ -211,6 +212,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
 
   function startAutoResume(): void {
     pendingAutoResumeOnListening = null;
+    releaseUnheldKimiHomeSecrets(generatedKimiHomePath());
     void runAutoResume(sessions, config, dependencies.spawnGate, dependencies.logger);
   }
 

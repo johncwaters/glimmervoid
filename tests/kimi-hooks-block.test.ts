@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import kimi from '../session/adapters/kimi.ts';
 import { BLOCK_END, BLOCK_START } from '../session/core/kimi-hooks-block-core.ts';
-import { generatedKimiHomePath, prepareKimiHome } from '../session/kimi-home.ts';
+import { loadFileLocks } from '../server/guardrails/session-temp-locks.ts';
+import { generatedKimiHomePath, holdKimiHome, prepareKimiHome, releaseKimiHome, releaseUnheldKimiHomeSecrets } from '../session/kimi-home.ts';
 
 const OPERATOR_CONFIG = 'default_model = "kimi-code/k3.1-pro"\r\n\n[models."kimi-code/k3.1-pro"]\ndisplay_name = "K3.1 Pro"\n';
 const HAND_EDITED_OLD_BLOCK = `${BLOCK_START}\n[[hooks]]\nevent = "Stop"\ncommand = 'curl https://example.invalid'\n${BLOCK_END}\n`;
@@ -68,6 +69,42 @@ test('a kimi spawn gets a generated home that shares the real home and never wri
     prepare(env);
     assert.equal(fs.realpathSync(path.join(generatedHome, 'sessions')), fs.realpathSync(path.join(realHome, 'sessions')));
     assert.equal(fs.readFileSync(realConfigPath, 'utf8'), realConfig);
+
+    const sessionModelEdit = fs.readFileSync(generatedConfigPath, 'utf8').replace('default_model = "kimi-code/k3.1-pro"', 'default_model = "kimi-code/k3.1-flash"');
+    fs.writeFileSync(generatedConfigPath, sessionModelEdit);
+    fs.writeFileSync(realConfigPath, `${realConfig}\n[ui]\ntheme = "light"\n`);
+    prepare(env);
+    const mergedConfig = fs.readFileSync(generatedConfigPath, 'utf8');
+    assert.match(mergedConfig, /default_model = "kimi-code\/k3\.1-flash"/);
+    assert.match(mergedConfig, /\[ui\]\ntheme = "light"/);
+    assert.equal(mergedConfig.split(BLOCK_START).length, 2);
+    assert.equal(fs.statSync(path.join(generatedHome, '.glimmervoid-base.toml')).mode & 0o777, 0o600);
+
+    const kimiRewriteWithoutMarkers = fs.readFileSync(generatedConfigPath, 'utf8').split('\n').filter((line) => !line.startsWith('#')).join('\n');
+    fs.writeFileSync(generatedConfigPath, kimiRewriteWithoutMarkers);
+    fs.writeFileSync(realConfigPath, `${realConfig}\n[ui]\ntheme = "dark"\n`);
+    prepare(env);
+    assert.equal(fs.readFileSync(generatedConfigPath, 'utf8').split('[[hooks]]').length, kimi.expectedHooksBlock()?.split('[[hooks]]').length);
+
+    const locks = loadFileLocks();
+    assert.ok(locks);
+    const otherInstanceLock = fs.openSync(path.join(generatedHome, '.glimmervoid-in-use.lock'), 'a+');
+    locks.waitForLockSync(otherInstanceLock, { shared: true });
+    releaseUnheldKimiHomeSecrets(generatedHome);
+    holdKimiHome(generatedHome);
+    releaseKimiHome(generatedHome);
+    assert.equal(fs.existsSync(generatedConfigPath), true);
+    locks.unlock(otherInstanceLock);
+    fs.closeSync(otherInstanceLock);
+
+    holdKimiHome(generatedHome);
+    holdKimiHome(generatedHome);
+    releaseKimiHome(generatedHome);
+    assert.equal(fs.existsSync(generatedConfigPath), true);
+    releaseKimiHome(generatedHome);
+    assert.equal(fs.existsSync(generatedConfigPath), false);
+    assert.equal(fs.existsSync(path.join(generatedHome, '.glimmervoid-base.toml')), false);
+    assert.equal(fs.readFileSync(path.join(generatedHome, 'device_id'), 'utf8'), 'device-1\n');
   });
 });
 
