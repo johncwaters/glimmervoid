@@ -40,7 +40,9 @@ const STAGE_ICONS: Record<MyPrStage, PrStatusIcon> = {
   'needs-approval': 'reviewer', ready: 'ready', unknown: 'unknown',
 };
 
-interface MyPrStackRow { pr: MyPr; parentKey: string | null; depth: number }
+export interface MyPrStackRow { pr: MyPr; parentKey: string | null; depth: number; stackSize: number; stackHeight: number }
+
+type StackWalkRow = Omit<MyPrStackRow, 'stackSize' | 'stackHeight'>;
 
 interface MyPrStack { root: MyPr; rows: MyPrStackRow[] }
 
@@ -63,8 +65,8 @@ function groupStackedMyPrs(prs: readonly MyPr[]): MyPrStack[] {
   const visitedKeys = new Set<string>();
   for (const root of [...roots, ...prs]) {
     if (visitedKeys.has(root.key)) continue;
-    const rows: MyPrStackRow[] = [];
-    const pendingRows: MyPrStackRow[] = [{ pr: root, parentKey: null, depth: 0 }];
+    const rows: StackWalkRow[] = [];
+    const pendingRows: StackWalkRow[] = [{ pr: root, parentKey: null, depth: 0 }];
     while (pendingRows.length > 0) {
       const row = pendingRows.pop();
       if (!row || visitedKeys.has(row.pr.key)) continue;
@@ -75,7 +77,8 @@ function groupStackedMyPrs(prs: readonly MyPr[]): MyPrStack[] {
         pendingRows.push({ pr: children[index], parentKey: row.pr.key, depth: row.depth + 1 });
       }
     }
-    stacks.push({ root, rows });
+    const stackHeight = Math.max(...rows.map((row) => row.depth + 1));
+    stacks.push({ root, rows: rows.map((row) => ({ ...row, stackSize: rows.length, stackHeight })) });
   }
   return stacks;
 }
@@ -98,6 +101,16 @@ export function sectionStackedMyPrs(prs: readonly MyPr[]): MyPrStackSection[] {
     }
   }
   return SECTION_TITLES_IN_DISPLAY_ORDER.flatMap((title) => sectionsByTitle.get(title) ?? []);
+}
+
+export function myPrStackRowsOf(prs: readonly MyPr[], prKey: string): MyPrStackRow[] {
+  return groupStackedMyPrs(prs).find((stack) => stack.rows.some((row) => row.pr.key === prKey))?.rows ?? [];
+}
+
+export function stackBadgeOf(row: MyPrStackRow): { text: string; title: string } | null {
+  if (row.stackSize < 2) return null;
+  const title = row.parentKey ? `Stacked on ${row.parentKey}` : `Base of a stack of ${row.stackSize}`;
+  return { text: `${row.depth + 1}/${row.stackHeight}`, title };
 }
 
 export function stageLabel(stage: MyPrStage): string { return STAGE_LABELS[stage]; }

@@ -6,14 +6,14 @@ import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import { classifyReviewPriority, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
-import type { QueueRowKind, TeamReviewSections } from './github-store-core.ts';
+import type { MyPrStackRow, QueueRowKind, TeamReviewSections } from './github-store-core.ts';
 
 type QueueGroupId = 'turn' | 'working' | 'waiting' | 'aside';
 type QueueAction = 'fix' | 'review' | 'reply' | 'update' | 'merge';
 
 export type QueueItem =
   | { source: 'team'; key: string; prKey: string; kind: QueueRowKind; review: ReviewDraft | InFlightReview | QueuedReview; action: QueueAction | null; attention: AttentionKind | null }
-  | { source: 'mine'; key: string; prKey: string; pr: MyPr; stackedOn: string | null; action: QueueAction | null; attention: AttentionKind | null };
+  | { source: 'mine'; key: string; prKey: string; pr: MyPr; stackRow: MyPrStackRow; action: QueueAction | null; attention: AttentionKind | null };
 
 export interface QueueGroup { id: QueueGroupId; title: string; items: QueueItem[] }
 
@@ -112,8 +112,8 @@ function teamItems(sections: TeamReviewSections): StatedItem[] {
 }
 
 function mineItems(prs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): StatedItem[] {
-  return sectionStackedMyPrs(prs).flatMap((section) => section.rows).flatMap(({ pr, parentKey }) => statedItem(mineState(pr, sessionPrKeys, isKeepMergeableEnabled), pr.createdAt, ({ action, kind: attention }) => (
-    { source: 'mine', key: `mine:${pr.key}`, prKey: comparablePrKey(pr), pr, stackedOn: parentKey, action, attention }
+  return sectionStackedMyPrs(prs).flatMap((section) => section.rows).flatMap((stackRow) => statedItem(mineState(stackRow.pr, sessionPrKeys, isKeepMergeableEnabled), stackRow.pr.createdAt, ({ action, kind: attention }) => (
+    { source: 'mine', key: `mine:${stackRow.pr.key}`, prKey: comparablePrKey(stackRow.pr), pr: stackRow.pr, stackRow, action, attention }
   )));
 }
 

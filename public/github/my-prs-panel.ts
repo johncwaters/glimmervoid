@@ -12,6 +12,10 @@ import { buildSessionRow, paintSessionRowStatus } from '../session-row.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { writeAttributeIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
+import { myPrStackRowsOf, stackBadgeOf } from './github-store-core.ts';
+import type { MyPrStackRow } from './github-store-core.ts';
+import { showPrInReviewQueue } from './review-queue-store.ts';
+import { createLineIcon } from '../svg-dom.ts';
 import { nextRequestId, sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
@@ -25,6 +29,7 @@ let selectedKey: string | null = null;
 const mergeAttempts = new Map<string, MergeAttempt>();
 const pendingMergeRequests = new Map<string, { requestId: string; head: string; timer: number }>();
 let openTerminal: ((sessionId: string) => void) | null = null;
+const STACK_ICON_PATH = 'M8 2.5L13.5 5L8 7.5L2.5 5Z M2.5 8L8 10.5L13.5 8 M2.5 11L8 13.5L13.5 11';
 interface PrToggle {
   label: string;
   pendingKeys: Set<string>;
@@ -299,6 +304,27 @@ function createAutomationSection(pr: MyPr): HTMLElement | null {
   return section;
 }
 
+function createStackSection(pr: MyPr): HTMLElement | null {
+  const stackRows = myPrStackRowsOf(myPrsSnapshot().prs, pr.key);
+  if (stackRows.length < 2) return null;
+  const section = el('section', 'my-pr-stack');
+  section.append(el('h3', 'pr-section-heading', 'Stack'), ...stackRows.map((row) => createStackMapRow(row, row.pr.key === pr.key)));
+  return section;
+}
+
+function createStackMapRow(row: MyPrStackRow, isOpenPr: boolean): HTMLElement {
+  const mapRow = isOpenPr ? el('div', 'my-pr-stack-row') : el('button', 'my-pr-stack-row');
+  mapRow.style.setProperty('--stack-depth', String(row.depth));
+  mapRow.append(el('strong', 'pr-queue-ref', row.pr.key), el('span', 'pr-queue-title', row.pr.title), stageChip(row.pr, { hasGlyph: true }));
+  if (isOpenPr) {
+    mapRow.setAttribute('aria-current', 'true');
+    return mapRow;
+  }
+  mapRow.setAttribute('type', 'button');
+  mapRow.addEventListener('click', () => showPrInReviewQueue(row.pr.key));
+  return mapRow;
+}
+
 function renderDetail(pr: MyPr | undefined): void {
   if (!detail) return;
   if (!pr) {
@@ -315,7 +341,7 @@ function renderDetail(pr: MyPr | undefined): void {
     createAutomationSection(pr),
     createMergeControl(pr),
   ];
-  content.append(createMineHeading(pr), ...sections.filter((section) => section !== null));
+  content.append(createMineHeading(pr), ...[createStackSection(pr), ...sections].filter((section) => section !== null));
   detail.replaceChildren(content);
 }
 
@@ -355,7 +381,7 @@ export function repaintSessionPills(): void {
   }
 }
 
-export function createMyPrQueueRow(pr: MyPr, stackedOn: string | null, linkedSessions: readonly LinkedLiveSession[] | undefined): { group: HTMLElement; row: HTMLButtonElement } {
+export function createMyPrQueueRow(pr: MyPr, stackRow: MyPrStackRow, linkedSessions: readonly LinkedLiveSession[] | undefined): { group: HTMLElement; row: HTMLButtonElement } {
   const row = el('button', 'pr-queue-row');
   row.type = 'button';
   row.dataset.prKey = pr.key;
@@ -366,7 +392,13 @@ export function createMyPrQueueRow(pr: MyPr, stackedOn: string | null, linkedSes
   top.append(el('strong', 'pr-queue-ref', pr.key), el('span', 'pr-queue-title', pr.title));
   const bottom = el('span', 'pr-queue-bottom');
   bottom.append(el('span', 'pr-queue-owner', 'Yours'), stageChip(pr, { hasGlyph: false }));
-  if (stackedOn) bottom.append(el('span', 'my-pr-stage', `Stacked on ${stackedOn}`));
+  const stackBadge = stackBadgeOf(stackRow);
+  if (stackBadge) {
+    const badge = el('span', 'my-pr-stack-badge');
+    badge.title = stackBadge.title;
+    badge.append(createLineIcon(STACK_ICON_PATH, '1.5'), stackBadge.text);
+    bottom.append(badge);
+  }
   const mergedAt = pr.state === 'MERGED' ? pr.mergedAt : null;
   const ageText = mergedAt ? `merged ${formatAgo(Date.parse(mergedAt))}` : `opened ${formatAgo(Date.parse(pr.createdAt))}`;
   bottom.append(el('span', 'pr-queue-elapsed', ageText));

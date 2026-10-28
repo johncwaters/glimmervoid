@@ -187,7 +187,7 @@ function rowFor(item: QueueItem, hasMultipleRepos: boolean, sessionsByPrKey: Rea
     const row = createTeamQueueRow(item.review, item.kind, hasMultipleRepos);
     return { container: row, row };
   }
-  const mineRow = createMyPrQueueRow(item.pr, item.stackedOn, sessionsByPrKey.get(item.prKey));
+  const mineRow = createMyPrQueueRow(item.pr, item.stackRow, sessionsByPrKey.get(item.prKey));
   return { container: mineRow.group, row: mineRow.row };
 }
 
