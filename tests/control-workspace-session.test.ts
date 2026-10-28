@@ -36,6 +36,22 @@ test('add-session persists the workspace folder and chosen repositories', () => 
   }
 });
 
+test('add-session under a name a live session already holds adds it under the next free name', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-add-taken-'));
+  try {
+    const existing: ProjectEntry = { id: 'aaaaaaaa-existing', name: 'general-projects', path: root };
+    const config: { projects: ProjectEntry[] } = { projects: [existing] };
+    const existingSession = new Session({ id: existing.id, name: existing.name, path: root, ptySpawn: () => fakePty() });
+    const server = createControlServer(controlDeps(config, { sessions: new Map([[existing.id, existingSession]]), generateProjectId: () => 'bbbbbbbb-added' }));
+    const connection = connectControl<{ type: string; requestId?: string; ok?: boolean; error?: string | null; sessionId?: string }>(server);
+    connection.send({ type: 'add-session', requestId: 'a1', name: 'general-projects', path: root });
+    assert.deepEqual(connection.sent.find((frame) => frame.requestId === 'a1'), { type: 'add-session-result', requestId: 'a1', ok: true, error: null, sessionId: 'bbbbbbbb-added' });
+    assert.equal(config.projects[1]?.name, 'general-projects (2)');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('quick-session copies a workspace session under the next free name, guarded once its guardrails were released, without its conversation', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-workspace-'));
   try {
