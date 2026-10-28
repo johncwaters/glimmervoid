@@ -52,6 +52,16 @@ test('add-session under a name a live session already holds adds it under the ne
   }
 });
 
+test('add-session for a shell with no folder runs it in the home folder', () => {
+  const config: { projects: ProjectEntry[] } = { projects: [] };
+  const server = createControlServer(controlDeps(config, { generateProjectId: () => 'cccccccc-shell' }));
+  const connection = connectControl<{ type: string; requestId?: string; ok?: boolean }>(server);
+  connection.send({ type: 'add-session', requestId: 's1', name: 'shell', path: '', agent: 'shell' });
+  assert.equal(connection.sent.find((frame) => frame.requestId === 's1')?.ok, true);
+  assert.equal(config.projects[0]?.path, os.homedir());
+  assert.equal(config.projects[0]?.agent, 'shell');
+});
+
 test('quick-session copies a workspace session under the next free name, guarded once its guardrails were released, without its conversation', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-workspace-'));
   try {

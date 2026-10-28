@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { WebSocket, WebSocketServer } from 'ws';
 import {
-  ClientMessage, RUNTIME_CONFIG_SCALAR_KEYS, ConfigUpdate, configIssueMessage,
+  ClientMessage, RUNTIME_CONFIG_SCALAR_KEYS, ConfigUpdate, configIssueMessage, SHELL_AGENT_ID,
   type ClientMessageOf, type OperatorActionOf, type OperatorSurface, type ServerMessageOf,
 } from '../shared/contracts/index.ts';
 import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH, TaskTitle } from '../shared/contracts/session.ts';
@@ -436,8 +436,9 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
 
-  function handleAddSession(msg: AddSessionRequest, ws: ControlSocket): Promise<void> | undefined {
-    const refusal = addSessionRefusal(msg);
+  function handleAddSession(request: AddSessionRequest, ws: ControlSocket): Promise<void> | undefined {
+    const msg = withShellDefaults(request);
+    const refusal = shellAddSessionRefusal(msg) ?? addSessionRefusal(msg);
     if (refusal) {
       refuseAddSession(msg, ws, refusal);
       return undefined;
@@ -590,6 +591,22 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     void coderEnv.provision({ projectId: id, mapping: reserved.mapping, repoRemoteUrl, baseBranch }).then((provisioned) => {
       if (!provisioned.ok) console.warn(`[control] Coder provision failed for ${project.name}: ${provisioned.reason}`);
     });
+  }
+
+  function isShellRequest(msg: AddSessionRequest): boolean {
+    return typeof msg.agent === 'string' && msg.agent.trim() === SHELL_AGENT_ID;
+  }
+
+  function withShellDefaults(msg: AddSessionRequest): AddSessionRequest {
+    if (!isShellRequest(msg)) return msg;
+    return { ...msg, path: (msg.path || '').trim() || os.homedir() };
+  }
+
+  function shellAddSessionRefusal(msg: AddSessionRequest): AddSessionRefusal | null {
+    if (!isShellRequest(msg)) return null;
+    if (typeof msg.environment === 'string' && msg.environment.trim()) return { error: 'A shell session runs on this machine, so it cannot run in a Coder environment.' };
+    if (msg.repos) return { error: 'A shell session runs in one folder, so it cannot span a workspace.' };
+    return null;
   }
 
   function addSessionRefusal(msg: AddSessionRequest): AddSessionRefusal | null {

@@ -10,7 +10,7 @@ import { createRepoRootsAdder } from './onboarding/repo-roots-adder.ts';
 import { createSandboxedFrame } from './sandboxed-frame.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
 import { buildRepoCheckbox } from './session-card/workspace-repos-dialog.ts';
-import { DEFAULT_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './session-card/agent-core.ts';
+import { DEFAULT_AGENT_ID, SHELL_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './session-card/agent-core.ts';
 import { countSessionsByName, suggestSessionName } from './session-card/naming.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
 import { formatAgo } from './poll-ago.ts';
@@ -247,6 +247,7 @@ export function createAddSessionDialog() {
   const safetyPanel = query(dialog, '#add-session-safety');
   const safetyStatusEl = query(dialog, '#add-session-safety-status');
   const errorEl = query(dialog, '#add-session-error');
+  const shellHintEl = query(dialog, '#add-session-shell-hint');
   const btnCancel = queryTag(dialog, '#add-session-cancel', 'button');
   const btnConfirm = queryTag(dialog, '#add-session-confirm', 'button');
   let isWorkspaceMode = false;
@@ -378,6 +379,7 @@ export function createAddSessionDialog() {
       if (!availability.canSpawn) blockSpawnWithGuidance(availability.guidance);
       const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : []);
       selectedAgentId = decision.selectedId;
+      showShellMode();
       if (!decision.show) return;
       agentSelectEl.textContent = '';
       for (const agentOption of decision.options) {
@@ -391,8 +393,24 @@ export function createAddSessionDialog() {
     .catch((reason) => { showWarning(`Could not load the agent list (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session uses the default agent.`); });
   agentSelectEl.addEventListener('change', () => {
     selectedAgentId = agentSelectEl.value;
+    showShellMode();
     showAgentLogin();
   });
+
+  function showShellMode() {
+    const isShell = selectedAgentId === SHELL_AGENT_ID;
+    if (isShell && isWorkspaceMode) setWorkspaceMode(false);
+    if (isShell && selectedEnvironment) {
+      environmentSelectEl.value = '';
+      environmentSelectEl.dispatchEvent(new Event('change'));
+    }
+    dialog.classList.toggle('add-session-shell', isShell);
+    shellHintEl.hidden = !isShell;
+    advancedPanel.hidden = !isShell && advancedToggle.getAttribute('aria-expanded') !== 'true';
+    if (!isShell) return;
+    if (!nameInput.value.trim()) nameInput.value = SHELL_AGENT_ID;
+    requestAnimationFrame(() => nameInput.focus());
+  }
 
   function showAgentLogin() {
     if (!dialog.isConnected) {
@@ -463,6 +481,14 @@ export function createAddSessionDialog() {
     if (isSpawnBlocked) return;
     const name = nameInput.value.trim();
     const projectPath = pathInput.value.trim();
+    if (selectedAgentId === SHELL_AGENT_ID) {
+      if (!name) {
+        errorEl.textContent = 'Enter a name.';
+        return;
+      }
+      requestAddSession({ name: suggestSessionName(name), path: projectPath, agent: SHELL_AGENT_ID });
+      return;
+    }
     if (isWorkspaceMode) {
       const repos = [...workspaceListEl.querySelectorAll<HTMLInputElement>('input:checked')].map((checkbox) => checkbox.value);
       if (!name || repos.length < 2) {

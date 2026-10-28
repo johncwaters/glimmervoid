@@ -1835,6 +1835,10 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   color: var(--text-muted);
 }
 
+.add-session-shell .add-session-agent-only {
+  display: none;
+}
+
 .dialog-sane-yolo-row,
 .dialog-safety-row {
   display: flex;

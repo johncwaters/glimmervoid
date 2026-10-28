@@ -1,4 +1,5 @@
 export const DEFAULT_AGENT_ID = 'claude-code';
+export const SHELL_AGENT_ID = 'shell';
 
 interface AgentOption {
   id?: unknown;
