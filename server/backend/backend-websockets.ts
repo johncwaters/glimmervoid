@@ -5,7 +5,7 @@ import type { WebSocketError } from 'ws';
 import type { ScreenSnapshot } from '../../session/session-output.ts';
 import type { Session } from '../../session/sessions.ts';
 import { CONTROL_FRAME_MAX_BYTES } from '../../shared/contracts/control-messages.ts';
-import { OUTPUT_BEAT_INTERVAL_MS, parseDataAttach, parseDataClientMessage } from '../../shared/contracts/data-messages.ts';
+import { describeDataAttach, FAST_TERMINAL_CLOSE_MS, LOGGED_FAST_CLOSE_COUNTS, OUTPUT_BEAT_INTERVAL_MS, parseDataAttach, parseDataClientMessage } from '../../shared/contracts/data-messages.ts';
 import type { OutputBeatFrame } from '../../shared/contracts/data-messages.ts';
 import type { PtySizeFrame } from '../../shared/contracts/data-messages.ts';
 import { createReplayLog } from '../core/control-replay-core.ts';
@@ -82,6 +82,8 @@ function sendPtySizeFrame(sender: WsSender, size: { cols: number; rows: number; 
 
 const OUTPUT_BEAT_FRAME = Buffer.from(JSON.stringify({ type: 'output-beat' } satisfies OutputBeatFrame), 'utf8');
 
+const NO_LIVE_SESSION_KEY = '';
+
 function frameType(stamped: ControlMessageRecord): string {
   return typeof stamped.type === 'string' ? stamped.type : '';
 }
@@ -107,6 +109,8 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
   });
   const controlReplayLog = createReplayLog();
   const sessionDataClients = new Map<string, Map<WebSocket, ViewerSizeRecord | null>>();
+  const fastCloseCountBySessionKey = new Map<string, number>();
+  const socketsClosedByServer = new WeakSet<WebSocket>();
   let nextViewerResizeSeq = 0;
 
   function controlClients(): Iterable<ControlSocket> {
@@ -134,27 +138,54 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     const clients = sessionDataClients.get(sessionId);
     if (!clients) return;
     for (const socket of clients.keys()) {
-      socket.close(1001, 'Session removed');
+      closeDataSocketFromServer(socket, 1001, 'Session removed');
     }
     sessionDataClients.delete(sessionId);
+    fastCloseCountBySessionKey.delete(sessionId);
+  }
+
+  function closeDataSocketFromServer(socket: WebSocket, code: number, reason: string): void {
+    socketsClosedByServer.add(socket);
+    socket.close(code, reason);
+  }
+
+  function logDataSocketClose(socket: WebSocket, sessionId: string | null, attachDescription: string, openedAtMs: number, code: number, reason: string): void {
+    const openMs = Date.now() - openedAtMs;
+    const isReject = code === 1008;
+    const session = sessionId === null ? null : getSession(sessionId);
+    const sessionKey = session ? session.id : NO_LIVE_SESSION_KEY;
+    if (openMs >= FAST_TERMINAL_CLOSE_MS && !isReject) {
+      fastCloseCountBySessionKey.delete(sessionKey);
+      return;
+    }
+    const fastCloseCount = (fastCloseCountBySessionKey.get(sessionKey) ?? 0) + 1;
+    fastCloseCountBySessionKey.set(sessionKey, fastCloseCount);
+    if (!LOGGED_FAST_CLOSE_COUNTS.has(fastCloseCount)) return;
+    const label = session ? session.name : `unknown session ${sessionId ?? '(invalid id)'}`;
+    const closer = socketsClosedByServer.has(socket) ? 'server' : 'peer';
+    logger.warn(`[data-ws] ${label} closed after ${openMs} ms by ${closer}: code ${code}, reason '${reason}', attach ${attachDescription}, fast close ${fastCloseCount}x`);
   }
 
   function attachDataConnection(): void {
     dataWss.on('connection', (socket, request) => {
       recordOutcome('dataWsOpened');
-      socket.on('close', () => recordOutcome('dataWsClosed'));
+      const openedAtMs = Date.now();
       const sessionId = dataSessionIdFromUrl(request.url);
+      const attach = parseDataAttach(request.url);
+      socket.on('close', (code, reason) => {
+        recordOutcome('dataWsClosed');
+        logDataSocketClose(socket, sessionId, describeDataAttach(attach), openedAtMs, code, reason.toString());
+      });
       if (sessionId === null) {
-        socket.close(1008, 'Invalid session id');
+        closeDataSocketFromServer(socket, 1008, 'Invalid session id');
         return;
       }
       const session = getSession(sessionId);
       if (!session) {
-        socket.close(1008, 'Session not found');
+        closeDataSocketFromServer(socket, 1008, 'Session not found');
         return;
       }
       socket.on('error', (error) => reportDataSocketError(session, error));
-      const attach = parseDataAttach(request.url);
       if (attach.history === 'screen') {
         wireDataSocket(socket, session, sessionId, session.getScreenSnapshot(), { isAttachedPaused: attach.isOutputPaused, isDeepAttach: false });
         return;
@@ -169,7 +200,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
           socket.off('message', holdMessage);
           if (socket.readyState !== WebSocket.OPEN) return;
           if (getSession(sessionId) !== session) {
-            socket.close(1008, 'Session not found');
+            closeDataSocketFromServer(socket, 1008, 'Session not found');
             return;
           }
           wireDataSocket(socket, session, sessionId, snapshot, { isAttachedPaused: attach.isOutputPaused, isDeepAttach: true });
@@ -177,7 +208,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
         },
         (error: unknown) => {
           logger.warn(`[data-ws] Deep history failed for ${session.name}: ${String(error)}`);
-          socket.close(1011, 'History unavailable');
+          closeDataSocketFromServer(socket, 1011, 'History unavailable');
         },
       );
     });
