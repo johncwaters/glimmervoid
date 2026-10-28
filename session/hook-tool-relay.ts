@@ -1,4 +1,4 @@
-import { SANE_YOLO_PATH_ENV } from "./core/sane-yolo.ts";
+import { SANE_YOLO_PATH_ENV, saneYoloHostFlag } from "./core/sane-yolo.ts";
 import type { HookToolId } from "./core/hook-tools.ts";
 
 import { readStdin } from "./relay-stdin.ts";
@@ -14,7 +14,7 @@ interface StdoutLike {
   write(text: string): unknown;
 }
 
-function runHookTool(toolId: HookToolId, binPath: string, body: Buffer): Promise<string> {
+function runHookTool(toolId: HookToolId, binPath: string, body: Buffer, agentFlavor = ""): Promise<string> {
   return new Promise((resolve) => {
     let settled = false;
     let timer: NodeJS.Timeout | null = null;
@@ -27,7 +27,7 @@ function runHookTool(toolId: HookToolId, binPath: string, body: Buffer): Promise
     let child: ReturnType<typeof spawn>;
     try {
       const command = toolId === "rtk" ? binPath : process.execPath;
-      const args = toolId === "rtk" ? ["hook", "claude"] : [binPath, "hook", "--grok-build"];
+      const args = toolId === "rtk" ? ["hook", "claude"] : [binPath, "hook", saneYoloHostFlag(agentFlavor)];
       child = spawn(command, args, { stdio: ["pipe", "pipe", "ignore"] });
     } catch {
       done("");
@@ -73,7 +73,7 @@ async function main(
   env: Record<string, string | undefined> = process.env,
   stdin: StdinLike = process.stdin,
   stdout: StdoutLike = process.stdout,
-  runner: (binPath: string, body: Buffer) => Promise<string> = (binPath, body) => runHookTool(toolId === "rtk" ? "rtk" : "saneYolo", binPath, body),
+  runner: (binPath: string, body: Buffer) => Promise<string> = (binPath, body) => runHookTool(toolId === "rtk" ? "rtk" : "saneYolo", binPath, body, agentFlavor),
   agentFlavor: string = process.argv[3] ?? "",
 ): Promise<{ code: number; reason: string }> {
   if (toolId !== "rtk" && toolId !== "saneYolo") return { code: 0, reason: "unknown-tool" };

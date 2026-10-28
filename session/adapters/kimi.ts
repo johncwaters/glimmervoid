@@ -7,6 +7,7 @@ import { execFileSync } from "../../server/child-process-safe.ts";
 import { relayPath } from "../../server/runtime-paths.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 import { classifyKimiConfig, renderKimiHooksBlock } from "../core/kimi-hooks-block-core.ts";
+import { KIMI_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
@@ -24,6 +25,7 @@ const ID = "kimi";
 const COMMAND_NAME = "kimi";
 const SETUP_COMMAND = "glimmervoid agent setup kimi";
 const RELAY_PATH = relayPath("hook-relay");
+const HOOK_TOOL_RELAY_PATH = relayPath("hook-tool-relay");
 const HOOK_EVENTS: readonly string[] = Object.freeze([
   "SessionStart",
   "SessionEnd",
@@ -39,6 +41,7 @@ const HOOK_EVENTS: readonly string[] = Object.freeze([
 const TOOL_EVENTS: readonly string[] = Object.freeze(["PreToolUse", "PostToolUse"]);
 const SUBAGENT_TOOL_NAME = "Agent";
 const MATCHED_TOOL_NAMES: readonly string[] = Object.freeze([ASK_USER_QUESTION_TOOL_NAME, SUBAGENT_TOOL_NAME]);
+const SHELL_TOOL_NAMES: readonly string[] = Object.freeze(["Bash"]);
 
 const envProfile: AgentEnvProfile = {
   scrub: [],
@@ -146,6 +149,7 @@ function expectedHooksBlock(): string | null {
     events: HOOK_EVENTS,
     toolEvents: TOOL_EVENTS,
     matchedToolNames: MATCHED_TOOL_NAMES,
+    saneYolo: { relayPath: HOOK_TOOL_RELAY_PATH, toolNames: SHELL_TOOL_NAMES, agentFlavor: KIMI_SANE_YOLO_FLAVOR },
   });
 }
 
@@ -239,7 +243,7 @@ const hooks: AgentHookProfile = {
     setupCommand: SETUP_COMMAND,
     filePath: configFilePath,
     classifyContents: classifyConfigContents,
-    isSaneYoloReady: () => false,
+    isSaneYoloReady: (contents: string) => classifyConfigContents(contents) === "current",
     projectConfigCandidates: [],
     userConfigFolders: () => [],
     mayContributeHooks: () => false,
@@ -272,7 +276,7 @@ const kimi = {
     resume: true,
     statusLine: false,
     rtk: false,
-    saneYolo: false,
+    saneYolo: true,
     compactQuiet: true,
     skipPermissionsFlag: true,
     headless: true,

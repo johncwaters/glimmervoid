@@ -1,4 +1,10 @@
 const SANE_YOLO_PATH_ENV = 'GLIMMERVOID_SANE_YOLO_PATH';
+const KIMI_SANE_YOLO_FLAVOR = 'kimi';
+const SANE_YOLO_HOST_FLAGS: Record<string, string> = { [KIMI_SANE_YOLO_FLAVOR]: '--kimi-code' };
+
+function saneYoloHostFlag(agentFlavor: string): string {
+  return SANE_YOLO_HOST_FLAGS[agentFlavor] ?? '--grok-build';
+}
 
 function saneYoloPolicy(guardrailsTempRoot: string) {
   return {
@@ -53,4 +59,4 @@ function saneYoloEnv(homeDir: string): Record<string, string> {
   };
 }
 
-export { SANE_YOLO_PATH_ENV, saneYoloEnv, saneYoloFiles };
+export { KIMI_SANE_YOLO_FLAVOR, SANE_YOLO_PATH_ENV, saneYoloEnv, saneYoloFiles, saneYoloHostFlag };

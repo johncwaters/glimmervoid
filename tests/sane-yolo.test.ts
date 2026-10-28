@@ -12,6 +12,7 @@ import type { GlimmervoidConfig } from '../server/config-store.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
 import codex from '../session/adapters/codex.ts';
 import grok from '../session/adapters/grok.ts';
+import kimi from '../session/adapters/kimi.ts';
 import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { SANE_YOLO_PATH_ENV, } from '../session/core/sane-yolo.ts';
@@ -106,5 +107,17 @@ test('the hook tool relay forwards a Grok payload to the real Sane YOLO bin and 
     const response = await executeFile(process.execPath, [grok.HOOK_TOOL_RELAY_PATH, 'saneYolo'], { cwd, env, input: hookPayload('--grok-build', 'git reset --hard', cwd) });
     const verdict = JSON.parse(response.stdout) as { decision?: string };
     assert.equal(verdict.decision, 'deny', response.stdout);
+  });
+});
+
+test('the managed kimi block PreToolUse command denies git reset --hard through the relay and the real Sane YOLO bin', async () => {
+  await withProductionHookFixture(async ({ cwd, env }) => {
+    const block = kimi.expectedHooksBlock();
+    assert.ok(block);
+    const command = block.match(/^command = '(node \S+ saneYolo kimi)'$/m)?.[1];
+    assert.ok(command, block);
+    const input = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'git reset --hard' }, tool_call_id: 'call-1', cwd, session_id: 'sane-yolo-test' });
+    const stdout = execSync(command, { cwd, env, encoding: 'utf8', input });
+    assert.equal(permissionDecisionOf(stdout), 'deny', stdout);
   });
 });

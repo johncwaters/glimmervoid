@@ -7,6 +7,7 @@ interface KimiHooksBlockOptions {
   events: readonly string[];
   toolEvents: readonly string[];
   matchedToolNames: readonly string[];
+  saneYolo: { relayPath: string; toolNames: readonly string[]; agentFlavor: string };
 }
 
 type KimiSpliceResult = { contents: string; changed: boolean } | { refused: "foreign" | "conflicting" };
@@ -40,6 +41,9 @@ function renderKimiHooksBlock(options: KimiHooksBlockOptions): string | null {
     if (!command) return null;
     for (const toolName of options.matchedToolNames) lines.push(...hookTable(event, command, `^${toolName}$`));
   }
+  const saneYoloCommand = buildHookCommand(options.saneYolo.relayPath, "saneYolo", [options.saneYolo.agentFlavor]);
+  if (!saneYoloCommand) return null;
+  for (const toolName of options.saneYolo.toolNames) lines.push(...hookTable("PreToolUse", saneYoloCommand, `^${toolName}$`));
   lines.push(BLOCK_END);
   return `${lines.join("\n")}\n`;
 }
