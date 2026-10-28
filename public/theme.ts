@@ -1,4 +1,3 @@
-import { playNyanJingle } from './alert-sound.ts';
 
 const BASE_STATE_COLORS = {
   '--state-monitoring':   '#22d3ee',
@@ -393,6 +392,7 @@ const THEMES: Record<string, ThemeDefinition> = {
 
 const DEFAULT_THEME = 'phyrexian';
 
+let unicornThemeEnteredListener: (() => void) | null = null;
 let _currentThemeId: string | null = null;
 
 export function applyTheme(themeId: string) {
@@ -409,7 +409,11 @@ export function applyTheme(themeId: string) {
 
   if (themeId !== 'unicorn') return;
   if (prev === null || prev === 'unicorn') return;
-  playNyanJingle();
+  unicornThemeEnteredListener?.();
+}
+
+export function onUnicornThemeEntered(listener: () => void) {
+  unicornThemeEnteredListener = listener;
 }
 
 export function applySessionUsageChips(isShown: boolean) {

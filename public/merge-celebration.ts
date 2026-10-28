@@ -1,100 +1,26 @@
-import { playToneSequence } from './alert-sound.ts';
-import { el, setStyleProperties } from './dom-helpers.ts';
-import { mergeCelebrationSound } from './merge-celebration/celebration-sound-core.ts';
-import { confettiPieceStyleProperties, confettiScaleFor } from './merge-celebration/confetti-core.ts';
-import { MERGE_CELEBRATION_SCENES, type MergeCelebrationScene } from './merge-celebration/scenes.ts';
+import { describeFailure } from './client-error-core.ts';
+import { reportToServerLog } from './control-ws.ts';
 import type { MergeCelebrationText } from './github/my-prs-view-core.ts';
-import { isSoundEnabled } from './ui-prefs.ts';
 
-const CONFETTI_PIECE_COUNT = 48;
-const CELEBRATION_DURATION_MS = 5600;
+type CelebrationPlayer = typeof import('./merge-celebration/celebration-player.ts');
 
 const MAX_QUEUED_CELEBRATIONS = 20;
 
-interface QueuedCelebration { text: MergeCelebrationText; scene: MergeCelebrationScene }
 interface CelebrationTrayElements { tray: HTMLElement; button: HTMLButtonElement; count: HTMLElement }
 
-let activeCelebration: HTMLElement | null = null;
-const queuedCelebrations: QueuedCelebration[] = [];
+const queuedCelebrations: MergeCelebrationText[] = [];
 let celebrationTray: CelebrationTrayElements | null = null;
 let isPlayingQueuedCelebrations = false;
 let playThroughPosition = 0;
+let pendingPlayerLoad: Promise<CelebrationPlayer | null> | null = null;
 
-function createConfettiPiece(pieceIndex: number): HTMLElement {
-  const piece = el('span', 'merge-confetti-piece');
-  const arc = el('span', 'merge-confetti-arc');
-  arc.append(el('span', 'merge-confetti-paper'));
-  piece.append(arc);
-  setStyleProperties(piece, confettiPieceStyleProperties(pieceIndex));
-  return piece;
-}
-
-function createTitle(titleText: string): HTMLElement {
-  const title = el('p', 'merge-celebration-title');
-  title.setAttribute('aria-hidden', 'true');
-  Array.from(titleText).forEach((letter, letterIndex) => {
-    const letterElement = el('span', 'merge-celebration-letter', letter);
-    letterElement.style.setProperty('--letter-delay', `${letterIndex * 45}ms`);
-    title.append(letterElement);
+function loadCelebrationPlayer(): Promise<CelebrationPlayer | null> {
+  pendingPlayerLoad ??= import('./merge-celebration/celebration-player.ts').catch((error: unknown) => {
+    pendingPlayerLoad = null;
+    reportToServerLog('merge-celebration', `celebration player failed to load: ${describeFailure(error)}`);
+    return null;
   });
-  return title;
-}
-
-function exposeTitleLayout(stage: HTMLElement, title: HTMLElement, sceneSlot: HTMLElement): void {
-  const firstLetter = title.firstElementChild;
-  const lastLetter = title.lastElementChild;
-  if (!(firstLetter instanceof HTMLElement) || !(lastLetter instanceof HTMLElement)) return;
-  stage.style.setProperty('--celebration-title-width', `${lastLetter.offsetLeft + lastLetter.offsetWidth - firstLetter.offsetLeft}px`);
-  stage.style.setProperty('--celebration-title-center-y', `${title.offsetTop + title.offsetHeight / 2 - sceneSlot.offsetTop}px`);
-}
-
-function createSceneSlot(scene: MergeCelebrationScene): HTMLElement {
-  const slot = el('div', 'merge-celebration-scene');
-  slot.setAttribute('aria-hidden', 'true');
-  slot.append(scene.buildScene());
-  return slot;
-}
-
-function pickScene(): MergeCelebrationScene {
-  return MERGE_CELEBRATION_SCENES[Math.floor(Math.random() * MERGE_CELEBRATION_SCENES.length)];
-}
-
-function playCelebrationSound(positionInPlayThrough: number): void {
-  if (!isSoundEnabled()) return;
-  try {
-    playToneSequence(mergeCelebrationSound(positionInPlayThrough));
-  } catch {
-  }
-}
-
-function createDetailList(detailLines: readonly string[]): HTMLElement {
-  const detailList = el('ul', 'merge-celebration-details');
-  for (const detailLine of detailLines) detailList.append(el('li', 'merge-celebration-detail', detailLine));
-  return detailList;
-}
-
-function playCelebration(text: MergeCelebrationText, scene: MergeCelebrationScene, positionInPlayThrough: number): void {
-  activeCelebration?.remove();
-  playCelebrationSound(positionInPlayThrough);
-  const overlay = el('div', 'merge-celebration');
-  overlay.setAttribute('role', 'status');
-  const card = el('div', 'merge-celebration-card');
-  const stage = el('div', 'merge-celebration-stage');
-  const title = createTitle(scene.title);
-  const sceneSlot = createSceneSlot(scene);
-  stage.append(title, el('p', 'merge-celebration-message', text.message), createDetailList(text.detailLines), sceneSlot);
-  const burst = el('div', 'merge-confetti');
-  burst.style.setProperty('--confetti-scale', String(confettiScaleFor(positionInPlayThrough)));
-  for (let index = 0; index < CONFETTI_PIECE_COUNT; index += 1) burst.append(createConfettiPiece(index));
-  card.append(burst, stage);
-  overlay.append(card);
-  document.body.append(overlay);
-  exposeTitleLayout(stage, title, sceneSlot);
-  activeCelebration = overlay;
-  window.setTimeout(() => {
-    overlay.remove();
-    if (activeCelebration === overlay) activeCelebration = null;
-  }, CELEBRATION_DURATION_MS);
+  return pendingPlayerLoad;
 }
 
 function trayStateFor(hasQueuedCelebrations: boolean): 'playing' | 'queued' | 'empty' {
@@ -116,9 +42,18 @@ function playNextQueuedCelebration(): void {
   isPlayingQueuedCelebrations = nextCelebration !== undefined;
   renderCelebrationTray();
   if (!nextCelebration) return;
-  playCelebration(nextCelebration.text, nextCelebration.scene, playThroughPosition);
+  const positionInPlayThrough = playThroughPosition;
   playThroughPosition += 1;
-  window.setTimeout(playNextQueuedCelebration, CELEBRATION_DURATION_MS);
+  void loadCelebrationPlayer().then((player) => {
+    if (!player) {
+      queuedCelebrations.unshift(nextCelebration);
+      isPlayingQueuedCelebrations = false;
+      renderCelebrationTray();
+      return;
+    }
+    player.playCelebration(nextCelebration, positionInPlayThrough);
+    window.setTimeout(playNextQueuedCelebration, player.CELEBRATION_DURATION_MS);
+  });
 }
 
 export function mountCelebrationTray(tray: HTMLElement, button: HTMLButtonElement, count: HTMLElement): void {
@@ -130,8 +65,8 @@ export function mountCelebrationTray(tray: HTMLElement, button: HTMLButtonElemen
   renderCelebrationTray();
 }
 
-export function queueMergeCelebration(text: MergeCelebrationText, scene: MergeCelebrationScene = pickScene()): void {
-  queuedCelebrations.push({ text, scene });
+export function queueMergeCelebration(text: MergeCelebrationText): void {
+  queuedCelebrations.push(text);
   if (queuedCelebrations.length > MAX_QUEUED_CELEBRATIONS) queuedCelebrations.shift();
   renderCelebrationTray();
 }

@@ -6,11 +6,11 @@ import { isConversationAgent } from '../conversation/conversation-core.ts';
 import { createConversationFace } from '../conversation/conversation-face.ts';
 import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
-import { playAlertSound } from '../alert-sound.ts';
 import { hasSessionDocs, openDocEditor } from '../doc-editor.ts';
 import { onShownFilesArrivedLive, openShownLightbox, paintShownButton } from '../shown-files.ts';
 import { placeShownChips } from './shown-chip.ts';
-import { sendControlMsg } from '../control-ws.ts';
+import { describeFailure } from '../client-error-core.ts';
+import { reportToServerLog, sendControlMsg } from '../control-ws.ts';
 import { el, isMonitoringState } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { setHealthMonitorDebugMode } from '../health-monitor.ts';
@@ -36,7 +36,6 @@ import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';
 import type { SessionCardFace } from './face-core.ts';
 import { openConfirmDialog } from './modal.ts';
 import { requestSessionRemoval } from '../session-actions.ts';
-import { openRestartDialog } from './resume-dialog.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { reportHeaderError } from '../action-status.ts';
 import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlertCount } from '../focus-view/attention-core.ts';
@@ -64,6 +63,35 @@ const isRestartable = (state: string) => RESTARTABLE_STATES.includes(state as Se
 let isConversationViewEnabled = false;
 
 onShownFilesArrivedLive(placeShownChips);
+
+type AlertSoundModule = typeof import('../alert-sound.ts');
+type ResumeDialogModule = typeof import('./resume-dialog.ts');
+
+let pendingAlertSoundLoad: Promise<AlertSoundModule | null> | null = null;
+let pendingResumeDialogLoad: Promise<ResumeDialogModule | null> | null = null;
+
+function loadAlertSound(): Promise<AlertSoundModule | null> {
+  pendingAlertSoundLoad ??= import('../alert-sound.ts').catch((error: unknown) => {
+    pendingAlertSoundLoad = null;
+    reportToServerLog('alert-sound', `alert sound failed to load: ${describeFailure(error)}`);
+    return null;
+  });
+  return pendingAlertSoundLoad;
+}
+
+function loadResumeDialog(): Promise<ResumeDialogModule | null> {
+  pendingResumeDialogLoad ??= import('./resume-dialog.ts').catch((error: unknown) => {
+    pendingResumeDialogLoad = null;
+    reportToServerLog('resume-dialog', `restart dialog failed to load: ${describeFailure(error)}`);
+    return null;
+  });
+  return pendingResumeDialogLoad;
+}
+
+function playAlertChime() {
+  const soundId = getSoundId();
+  void loadAlertSound().then((alertSound) => alertSound?.playAlertSound(soundId));
+}
 
 type PlanFaceModule = typeof import('../plan/plan-face.ts');
 type PlanFaceController = ReturnType<PlanFaceModule['createPlanFace']>;
@@ -250,7 +278,7 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
 
   ui.btnRestart.addEventListener('click', () => {
     closeSessionMenu(ui);
-    openRestartDialog(sessionId, { readState: () => ui.currentState, canListEarlier: ui.card.dataset.ephemeral === undefined });
+    void loadResumeDialog().then((resumeDialog) => resumeDialog?.openRestartDialog(sessionId, { readState: () => ui.currentState, canListEarlier: ui.card.dataset.ephemeral === undefined }));
   });
 
   ui.btnWorkspaceRepos.addEventListener('click', () => {
@@ -825,7 +853,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
 
   if ((state === STATES.WAITING && prevState !== STATES.WAITING)
       || (state === STATES.COMPLETE && prevState !== STATES.COMPLETE)) {
-    if (!isCompactionRestoreEvent(event) && shouldPlayAlertChime()) playAlertSound(getSoundId());
+    if (!isCompactionRestoreEvent(event) && shouldPlayAlertChime()) playAlertChime();
   }
 
   if (isCompletionWatchedAt(ui, prevState, state)) sendControlMsg({ type: 'dismiss', id: sessionIdOf(sessionId), expectedState: STATES.COMPLETE });
@@ -840,7 +868,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
         ui.card.addEventListener('animationend', () => ui.card.classList.remove('completion-flash'), { once: true });
       });
     });
-    if (shouldPlayAlertChime()) playAlertSound(getSoundId());
+    if (shouldPlayAlertChime()) playAlertChime();
   }
 
   if (state === STATES.DONE || state === STATES.FAILED) {

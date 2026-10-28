@@ -12,7 +12,7 @@ import { createClientErrorReporter, describeFailure } from './client-error-core.
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
 import { connectControl, onControlMessage, reportToServerLog, sendControlMsg, sendControlRequest, setConnectionStateCallback } from './control-ws.ts';
 import { applyAgentLogins } from './agent-logins.ts';
-import { refreshFirstRunChecklist } from './onboarding/first-run-checklist.ts';
+import { refreshFirstRunChecklist, revealFirstRunChecklist } from './onboarding/first-run-loader.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
 import { applySessionShown, applySessionShownSnapshot, onShownFilesChanged } from './shown-files.ts';
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, forgetSessionCoherence, isSessionJournalReadable, openCoherenceJournal, sessionRowCoherenceSignals, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
@@ -65,10 +65,10 @@ import { createSettingsLink, isSettingsHash } from './settings/settings-link.ts'
 import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from './shortcuts.ts';
 import { resolveDashboardShortcut } from './shortcuts-core.ts';
 import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
-import { applyFlyingAnimals } from './flying-animals.ts';
+import { applyFlyingAnimals, revealFlyingAnimals } from './flying-animals.ts';
 import { mountStreamerToggle, onStreamerModeChanged, setStreamerMode, toggleStreamerMode } from './streamer-mode.ts';
 import { mountStreamerTextMask } from './streamer-text-mask.ts';
-import { applyPhoneArrowPad, applySessionUsageChips, applyTheme } from './theme.ts';
+import { applyPhoneArrowPad, applySessionUsageChips, applyTheme, onUnicornThemeEntered } from './theme.ts';
 import { applyTraceChanged, applyTraceError, applyTraceResponse, setTraceNavigate, setTraceRequestSender, setTraceSessions } from './trace-store.ts';
 import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
 import { getActiveView as getSavedActiveView, getDismissedUpdate, getLastFocusedSessionId, getThemeId, isFlyingAnimalsEnabled, isPhoneArrowPad, isSessionUsageChips, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setTelemetryNoticeDismissed } from './ui-prefs.ts';
@@ -84,6 +84,12 @@ import { moveViewId, orderViewIds, refreshViewOnReason, refreshVisibleViews, vie
 import type { ViewRefreshReason } from './view-registry-core.ts';
 
 applyTheme(getThemeId());
+onUnicornThemeEntered(() => {
+  void import('./alert-sound.ts').then(
+    (alertSound) => alertSound.playNyanJingle(),
+    (error: unknown) => reportToServerLog('alert-sound', `nyan jingle failed to load: ${describeFailure(error)}`),
+  );
+});
 applySessionUsageChips(isSessionUsageChips());
 applyFlyingAnimals(isFlyingAnimalsEnabled());
 
@@ -128,6 +134,8 @@ function revealApp() {
   appRevealed = true;
   loadingScreen.classList.add('fade-out');
   prefetchViewsWhenIdle(VIEW_TABS);
+  revealFlyingAnimals();
+  revealFirstRunChecklist();
 
   const removeLoading = () => loadingScreen.remove();
   loadingScreen.addEventListener('transitionend', removeLoading, { once: true });

@@ -8,7 +8,7 @@ import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { groupRoster, visibleOrder } from '../focus-view/roster-groups-core.ts';
 import type { SessionGroupHeader } from '../focus-view/roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from '../focus-view/roster-group-header.ts';
-import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
+import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { quickAddSession, readSessionRows, requestSessionRemoval } from '../session-actions.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';

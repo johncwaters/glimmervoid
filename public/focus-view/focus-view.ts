@@ -2,7 +2,7 @@ import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { el } from '../dom-helpers.ts';
 import { renderStatusLegend } from '../status-legend.ts';
-import { showFirstRunChecklist } from '../onboarding/first-run-checklist.ts';
+import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { getRestorableSessionId, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession } from '../session-actions.ts';
 import { markSessionSeen, showSessionPlanFace } from '../session-card/lifecycle.ts';
