@@ -208,7 +208,10 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     broadcast: broadcastControl,
     telemetry: laneTelemetry,
   });
-  const community = createCommunityWiring({ config, broadcast: broadcastControl, homeDir: glimmervoidHomeDir(), log: logger });
+  const community = createCommunityWiring({
+    config, broadcast: broadcastControl, homeDir: glimmervoidHomeDir(), log: logger,
+    spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB },
+  });
   const githubStatus = createGithubStatus({ log: logger });
   const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger, githubStatus });
   const glimmervoidHome = glimmervoidHomeDir();

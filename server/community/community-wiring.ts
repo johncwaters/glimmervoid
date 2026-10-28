@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { GlimmervoidConfig } from '../config-store.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
@@ -12,6 +13,31 @@ import * as core from './core/community-core.ts';
 import { createCommunityPoller } from './community-poller.ts';
 import type { SourceRows } from './community-poller.ts';
 import { CommunityState } from '../../shared/contracts/community.ts';
+import type { CommunityStateEntry } from '../../shared/contracts/community.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { createTeamReviewSpawn } from '../github/team-review-wiring.ts';
+import { absolutePathReadRule } from '../github/core/team-review-core.ts';
+import { LANE_CREDENTIAL_ENV } from '../guardrails/core/guardrails-roles-core.ts';
+import { judgeRole } from '../guardrails/core/guardrails-roles-core.ts';
+import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
+import { firstLine, raceWithAbort } from '../lanes/ephemeral-session.ts';
+import type { RecordLane, SpawnGate } from '../lanes/ephemeral-session.ts';
+import type { HookRouter } from '../../detection/hook-source.ts';
+import type { SessionGuardrailsFacts } from '../../session/sessions.ts';
+
+const COMMUNITY_WORK_DIRNAME = 'community-work';
+const RESULT_MAX_BYTES = 1024 * 1024;
+const EMPTY_GH_CONFIG_DIRNAME = 'gh-config';
+const COMMUNITY_WEB_TOOLS = Object.freeze(['WebFetch', 'WebSearch']);
+const COMMUNITY_BASH_ALLOW_RULES = Object.freeze([
+  'Bash(gh search issues:*)', 'Bash(gh search prs:*)', 'Bash(gh search code:*)', 'Bash(gh issue view:*)', 'Bash(gh pr view:*)',
+]);
+const COMMUNITY_DENY_RULES = Object.freeze([
+  'Bash(gh api:*)', 'Bash(gh auth:*)', 'Bash(env:*)', 'Bash(printenv:*)', 'Bash(echo:*)', 'Bash(curl:*)', 'Bash(wget:*)', 'Bash(git push:*)',
+  'Bash(gh pr create:*)', 'Bash(gh pr comment:*)', 'Bash(gh pr review:*)', 'Bash(gh issue create:*)', 'Bash(gh issue comment:*)',
+  'Edit', 'NotebookEdit', ...LANE_CONFIG_EDIT_DENY_RULES,
+]);
 
 function createCommunityStateIo(statePath: string, log: Pick<Console, 'warn'>) {
   let loaded = core.emptyCommunityState();
@@ -43,19 +69,125 @@ function hogQLRows(api: PosthogApi, projectId: number, query: string, values: Re
   });
 }
 
+function communityClaudeArgs(mcpTools: readonly string[], workDir: string): string[] {
+  const workDirReadRules = ['Read', 'Glob', 'Grep'].map((tool) => absolutePathReadRule(workDir).replace(/^Read/, tool));
+  return ['-p', '--allowedTools', ...COMMUNITY_BASH_ALLOW_RULES, ...workDirReadRules, ...COMMUNITY_WEB_TOOLS, ...mcpTools, '--disallowedTools', ...COMMUNITY_DENY_RULES];
+}
+
+function communityAcceptEditsPermissions(): { deny: string[]; defaultMode: string } {
+  return { deny: [...COMMUNITY_DENY_RULES], defaultMode: ACCEPT_EDITS_MODE };
+}
+
+function communityRole(facts: SessionGuardrailsFacts): GuardrailsRole {
+  return {
+    ...judgeRole({ vendor: 'claude', cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId, readablePaths: facts.readablePaths }),
+    network: { access: 'open' },
+  };
+}
+
+function communitySpawnEnv(workDir: string): Record<string, string> {
+  return {
+    ...LANE_CREDENTIAL_ENV,
+    GH_CONFIG_DIR: path.join(workDir, EMPTY_GH_CONFIG_DIRNAME),
+    GH_PROMPT_DISABLED: '1',
+    GLIMMERVOID_POSTHOG_API_KEY: '',
+    GLIMMERVOID_TELEGRAM_BOT_TOKEN: '',
+    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0',
+  };
+}
+
+async function readBoundedFile(filePath: string): Promise<string | null> {
+  try {
+    const stat = await fs.stat(filePath);
+    if (stat.size > RESULT_MAX_BYTES) return null;
+    return await fs.readFile(filePath, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+interface CommunitySpawnDependencies {
+  investigationSessions: Map<string, unknown>;
+  closeSessionDataClients: (id: string) => void;
+  hookRouter: Pick<HookRouter, 'register' | 'unregister'> | null;
+  getHookPort: (() => number | null) | null;
+  spawnGate: SpawnGate;
+  recordLane?: RecordLane | null;
+  replayBufferKB?: number;
+}
+
+function createCommunityRunner({ spawnDependencies, homeDir, getSettings }: {
+  spawnDependencies: CommunitySpawnDependencies;
+  homeDir: string;
+  getSettings: () => core.CommunitySettings;
+}) {
+  const spawnSession = createTeamReviewSpawn({
+    reviewSessions: spawnDependencies.investigationSessions,
+    closeSessionDataClients: spawnDependencies.closeSessionDataClients,
+    hookRouter: spawnDependencies.hookRouter,
+    getHookPort: spawnDependencies.getHookPort,
+    spawnGate: spawnDependencies.spawnGate,
+    recordLane: spawnDependencies.recordLane ?? null,
+    replayBufferKB: spawnDependencies.replayBufferKB,
+    laneName: core.COMMUNITY_LANE_ID,
+  });
+  const workRoot = path.join(homeDir, COMMUNITY_WORK_DIRNAME);
+
+  return async function runItem(entry: CommunityStateEntry, signal: AbortSignal): Promise<core.CommunityRunResult> {
+    const settings = getSettings();
+    await fs.mkdir(workRoot, { recursive: true });
+    const workDir = await fs.mkdtemp(path.join(workRoot, `${entry.item.key.replace(/[^\w-]+/g, '-')}-`));
+    const reportPath = path.join(workDir, core.COMMUNITY_REPORT_FILENAME);
+    const postingPath = path.join(workDir, core.COMMUNITY_POSTING_FILENAME);
+    const failed = (error: string): core.CommunityRunResult => ({ report: null, posting: null, error });
+    try {
+      await fs.mkdir(path.join(workDir, EMPTY_GH_CONFIG_DIRNAME));
+      await fs.writeFile(path.join(workDir, core.COMMUNITY_PROMPT_FILENAME), core.buildCommunityPrompt({ item: entry.item, skill: settings.skill, reportPath, postingPath }));
+      return await raceWithAbort<core.CommunityRunResult>({
+        timeoutMs: core.RUN_TIMEOUT_SECONDS * 1000,
+        onTimeout: () => failed(`the research run timed out after ${core.RUN_TIMEOUT_SECONDS}s`),
+        onEmpty: () => failed('the research run ended without a result'),
+        start: async (timeoutSignal) => {
+          await spawnSession({
+            id: `${core.COMMUNITY_LANE_ID}:${entry.item.key}`,
+            name: `Community ${entry.item.key}`,
+            cwd: workDir,
+            spawnEnv: communitySpawnEnv(workDir),
+            extraClaudeArgs: communityClaudeArgs(settings.mcpTools, workDir),
+            settingsPermissions: communityAcceptEditsPermissions(),
+            guardrailsRole: communityRole,
+            signal: AbortSignal.any([signal, timeoutSignal]),
+            initialPrompt: core.COMMUNITY_BOOTSTRAP_PROMPT,
+          });
+          if (signal.aborted || timeoutSignal.aborted) return undefined;
+          return { report: await readBoundedFile(reportPath), posting: await readBoundedFile(postingPath), error: null };
+        },
+      });
+    } catch (error) {
+      return failed(firstLine(errorMessage(error)) || 'the research run failed');
+    } finally {
+      await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+    }
+  };
+}
+
 interface CommunityWiringOptions {
   config: GlimmervoidConfig;
   broadcast?: (status: Record<string, unknown>) => void;
   homeDir?: string;
   createApi?: (connection: core.PosthogConnection) => PosthogApi;
+  spawnDependencies?: CommunitySpawnDependencies | null;
   log?: Pick<Console, 'warn'>;
 }
 
 function createCommunityWiring({
   config, broadcast = () => {}, homeDir = glimmervoidHomeDir(),
-  createApi = (connection) => createPosthogApi(connection), log = console,
+  createApi = (connection) => createPosthogApi(connection), spawnDependencies = null, log = console,
 }: CommunityWiringOptions) {
   const stateIo = createCommunityStateIo(path.join(homeDir, core.COMMUNITY_STATE_FILENAME), log);
+  const runItem = spawnDependencies
+    ? createCommunityRunner({ spawnDependencies, homeDir, getSettings: () => core.readCommunitySettings(config) })
+    : undefined;
 
   const runner = createLaneRunner({
     tag: core.COMMUNITY_LANE_ID,
@@ -73,6 +205,7 @@ function createCommunityWiring({
         queryForum: (sinceIso) => hogQLRows(api, settings.projectId, core.forumQuery(), { since: sinceIso }),
         readState: stateIo.readState,
         writeState: stateIo.writeState,
+        runItem,
         onTickComplete,
         firstTickDelayMs: bootStaggerDelay,
         log,
@@ -89,4 +222,7 @@ function createCommunityWiring({
   };
 }
 
-export { createCommunityStateIo, createCommunityWiring };
+export {
+  communityAcceptEditsPermissions, communityClaudeArgs, communityRole, communitySpawnEnv,
+  createCommunityStateIo, createCommunityWiring,
+};
