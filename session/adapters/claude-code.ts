@@ -8,6 +8,7 @@ import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-e
 import { execFileSync } from "../../server/child-process-safe.ts";
 import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile, AgentLaunchSession, AgentLaunchSessionOptions, AgentSpawnCommandOptions } from "./index.ts";
 import { PLAN_TOOL_NAME } from "../../shared/contracts/index.ts";
+import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 
 const ID = "claude-code";
@@ -104,6 +105,7 @@ function mapHookToSignal(event: string, payload?: HookPayload): string | null {
       if (tool === "ScheduleWakeup") return "wakeup-scheduled";
       if (tool === "CronCreate") return "cron-created";
       if (tool === "CronDelete") return "cron-deleted";
+      if (tool === ASK_USER_QUESTION_TOOL_NAME) return "working";
       return null;
     }
     case "notification": {

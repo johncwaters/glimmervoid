@@ -78,6 +78,32 @@ test('v2 fixture (ExitPlanMode request): awaiting-input reaches the card as a pl
   assert.ok(parseExitPlanModeHookPayload(request?.payload), 'the recorded payload survives the fail-closed parse');
 });
 
+test('v2 fixture (AskUserQuestion answered while the title sits idle): the PostToolUse hook ends WAITING', (t) => {
+  const { records } = load('v2-question-answered.jsonl');
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = new Session({ id: 'fixture-question', name: 'question', path: process.cwd(), statusConflictMs: 20, statusDedupMs: 10 });
+  t.after(() => session.destroy());
+  session.state = STATES.RUNNING;
+  const transitions: string[] = [];
+  session.on('state-change', ({ to }: { to: string }) => transitions.push(to));
+  let previousTimestamp = 0;
+  for (const record of records) {
+    const timestamp = record.ts ?? previousTimestamp;
+    t.mock.timers.tick(timestamp - previousTimestamp);
+    previousTimestamp = timestamp;
+    if (record.type === 'data' && record.data) session._titleSource.feed(record.data);
+    if (record.type !== 'hook' || !record.event) continue;
+    const signal = claudeCode.hooks.mapSignal(record.event, record.payload);
+    if (!signal) continue;
+    const promptKind = signal === 'awaiting-input' ? claudeCode.hooks.mapPromptKind(record.event, record.payload) : null;
+    const promptToolName = promptKind ? claudeCode.hooks.mapPromptToolName?.(record.event, record.payload) ?? null : null;
+    session.ingestHookSignal({ signal, source: 'hook', event: record.event, payload: record.payload, ts: Date.now(), ...(promptKind ? { promptKind } : {}), ...(promptToolName ? { promptToolName } : {}) });
+  }
+  t.mock.timers.tick(2000);
+  assert.deepEqual(transitions, [STATES.WAITING, STATES.RUNNING]);
+  assert.equal(session.state, STATES.RUNNING);
+});
+
 test('v2 fixture (conflict Stop+permission): awaiting-input dominates, no ready', async () => {
   const { records } = load('v2-conflict-stop-then-notify.jsonl');
   const { signals } = await replayDetection(records, FAST);

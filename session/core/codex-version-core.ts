@@ -17,6 +17,7 @@ const EXTENDED_HOOK_EVENTS = [...LEGACY_HOOK_EVENTS, 'PreCompact', 'PostCompact'
 const EXTENDED_MATCHED_RELAY_HOOKS: readonly MatchedRelayHook[] = [
   { event: 'PreToolUse', matcher: 'request_user_input' },
   { event: 'PostToolUse', matcher: 'Bash' },
+  { event: 'PostToolUse', matcher: 'request_user_input' },
 ];
 
 const CODEX_VERSION_RE = /\bcodex-cli\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/;

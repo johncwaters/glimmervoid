@@ -84,6 +84,8 @@ function mapHookToSignal(event: string, payload?: HookPayload): string | null {
       return "subagent-stop";
     case "pretooluse":
       return isRequestUserInput(e, payload) ? "awaiting-input" : null;
+    case "posttooluse":
+      return payload?.tool_name === REQUEST_USER_INPUT_TOOL_NAME ? "working" : null;
     default:
       return null;
   }

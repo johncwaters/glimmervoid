@@ -192,7 +192,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   }
   const sharedPostToolUseMatchers: string[] = [];
   if (detectScheduledWakeups) sharedPostToolUseMatchers.push(WAKEUP_TOOL_MATCHER);
-  sharedPostToolUseMatchers.push(PR_LINK_TOOL_MATCHER);
+  sharedPostToolUseMatchers.push(PR_LINK_TOOL_MATCHER, ASK_USER_QUESTION_TOOL_NAME);
   const sharedPostToolUseUrl = hookUrl('PostToolUse');
   const postToolUse: SettingsHookEntry[] = sharedPostToolUseMatchers
     .map((matcher) => ({ matcher, hooks: [{ type: 'http', url: sharedPostToolUseUrl, timeout: timeoutSec }] }));
@@ -262,6 +262,7 @@ function describeBuiltinHooks(
   if (planReview) rows.push({ event: 'PermissionRequest', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: POST the plan to the Glimmervoid plan endpoint' });
   if (detectScheduledWakeups) rows.push({ event: 'PostToolUse', matcher: WAKEUP_TOOL_MATCHER, purpose: 'Scheduled wakeup tracking' });
   rows.push({ event: 'PostToolUse', matcher: PR_LINK_TOOL_MATCHER, purpose: 'Pull request linking: read the git operation a shell command reports' });
+  rows.push({ event: 'PostToolUse', matcher: ASK_USER_QUESTION_TOOL_NAME, purpose: 'Status detection: leave Needs input once a question is answered' });
   if (planReview) rows.push({ event: 'PostToolUse', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: record the approved plan' });
   if (holdsQuestionsForParent) {
     rows.push({ event: 'PermissionRequest', matcher: ASK_USER_QUESTION_TOOL_NAME, purpose: 'Spawned session: hold a question so the parent can answer it' });

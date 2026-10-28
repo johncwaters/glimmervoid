@@ -1,0 +1,7 @@
+{"type":"header","version":2,"session":"fixture-question","agent":"claude-code","startedAt":0,"config":{},"cols":80,"rows":24}
+{"type":"data","ts":1,"data":"\u001b]0;⠂ Claude Code\u0007thinking...\r\n"}
+{"type":"hook","ts":1000,"event":"PermissionRequest","payload":{"hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which hook scope?","header":"Scope","multiSelect":false,"options":[{"label":"One","description":"one"},{"label":"All","description":"all"}]}]}}}
+{"type":"data","ts":1200,"data":"\u001b]0;✳ Claude Code\u0007"}
+{"type":"hook","ts":7000,"event":"Notification","payload":{"hook_event_name":"Notification","notification_type":"permission_prompt"}}
+{"type":"hook","ts":20000,"event":"PostToolUse","payload":{"hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[]},"tool_response":{"answers":{"Which hook scope?":"One"}}}}
+{"type":"hook","ts":20500,"event":"PostToolUse","payload":{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"npm test"},"tool_response":"ok"}}
