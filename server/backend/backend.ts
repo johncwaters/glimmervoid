@@ -524,6 +524,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     issues,
     workflows: laneAssembly.workflows,
     benchmarks: laneAssembly.benchmarks,
+    featureHints: laneAssembly.featureHints,
     usage,
     getIngestLane: getCurrentIngestLane,
     getVisionsLane: getCurrentVisionsLane,

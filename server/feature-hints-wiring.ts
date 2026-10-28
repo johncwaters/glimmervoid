@@ -1,6 +1,9 @@
 import { FeatureHintState } from '../shared/contracts/feature-hints.ts';
 import type { FeatureHint, HintFeature, HintOutcome } from '../shared/contracts/feature-hints.ts';
 import { createJsonStateStore } from './json-file.ts';
+import { createShellHistoryIngest } from './ingest/ingest-shell-history.ts';
+import type { ShellHistoryOptions } from './ingest/ingest-shell-history.ts';
+import type { ShellIngestEvent } from './ingest/core/ingest-shell-core.ts';
 import * as core from './core/feature-hints-core.ts';
 import type { FeatureSignal, RecentPrompt } from './core/feature-hints-core.ts';
 
@@ -22,6 +25,7 @@ interface FeatureHintsWiringOptions {
   broadcast: (message: { type: 'feature-hint'; hint: FeatureHint }) => void;
   log: Pick<Console, 'warn'>;
   now?: () => number;
+  shellHistory?: Omit<ShellHistoryOptions, 'publish'> | null;
 }
 
 function bashCommandOf(payload: Record<string, unknown>): string | null {
@@ -31,10 +35,17 @@ function bashCommandOf(payload: Record<string, unknown>): string | null {
   return typeof toolInput.command === 'string' ? toolInput.command : null;
 }
 
-function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now }: FeatureHintsWiringOptions) {
+function shellCommandOf(event: ShellIngestEvent): string | null {
+  if (event.kind !== 'command') return null;
+  const shellPrefix = `${event.detail.shell}: `;
+  return event.summary.startsWith(shellPrefix) ? event.summary.slice(shellPrefix.length) : null;
+}
+
+function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now, shellHistory = {} }: FeatureHintsWiringOptions) {
   let state = core.emptyFeatureHintState();
   let recentPrompts: readonly RecentPrompt[] = [];
   const attachedSessions = new WeakSet<HintableSession>();
+  let isStopped = false;
   const store = createJsonStateStore({
     name: 'feature hints', filePath: statePath,
     parse: (raw) => FeatureHintState.safeParse(raw).data ?? null,
@@ -45,6 +56,7 @@ function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now }:
 
   function update(nextStateOf: (current: FeatureHintState) => FeatureHintState): Promise<void> {
     return loaded.then(() => {
+      if (isStopped) return;
       const nextState = core.withoutExpiredHint(nextStateOf(state), now());
       const hint = core.decideHint(nextState, now());
       state = hint ? { ...nextState, pendingHint: hint } : nextState;
@@ -86,6 +98,16 @@ function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now }:
     session.on('teardown', detach);
   }
 
+  const shellHistoryIngest = shellHistory && createShellHistoryIngest({
+    logger: log,
+    ...shellHistory,
+    publish: (event) => {
+      const command = shellCommandOf(event);
+      if (command) void recordSignals(core.classifyCommand(command, 'shell', event.ts));
+    },
+  });
+  void shellHistoryIngest?.start();
+
   function noteViewShown(view: string): Promise<void> {
     return update((current) => core.noteViewShown(current, view, now()));
   }
@@ -98,7 +120,17 @@ function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now }:
     return state.pendingHint ? { type: 'feature-hint', hint: state.pendingHint } : null;
   }
 
-  return { attachSession, noteViewShown, settle, pendingHintMessage, idle: () => loaded.then(() => store.idle()) };
+  function idle(): Promise<void> {
+    return loaded.then(() => store.idle());
+  }
+
+  async function stop(): Promise<void> {
+    await shellHistoryIngest?.stop();
+    isStopped = true;
+    await idle();
+  }
+
+  return { attachSession, noteViewShown, settle, pendingHintMessage, stop, idle };
 }
 
 type FeatureHintsWiring = ReturnType<typeof createFeatureHintsWiring>;

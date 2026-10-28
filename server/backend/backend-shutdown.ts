@@ -38,6 +38,7 @@ interface BackendShutdownDependencies {
   workflows?: { stopPoller: () => unknown } | null;
   benchmarks?: Stoppable | null;
   usage: Stoppable;
+  featureHints?: Stoppable | null;
   getIngestLane: () => Stoppable | null;
   getVisionsLane: () => Stoppable | null;
   traceWiring?: Stoppable | null;
@@ -102,6 +103,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const benchmarks = dependencies.benchmarks;
     if (benchmarks) stoppers.add('benchmarks', () => benchmarks.stop());
     stoppers.add('usage', () => dependencies.usage.stop());
+    const featureHints = dependencies.featureHints;
+    if (featureHints) stoppers.add('feature-hints', () => featureHints.stop());
     destroySessions([dependencies.investigationSessions], pendingReaps);
     stoppers.add('ingest', () => dependencies.getIngestLane()?.stop());
     stoppers.add('visions', () => dependencies.getVisionsLane()?.stop());

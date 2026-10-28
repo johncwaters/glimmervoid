@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import { createFeatureHintsWiring } from '../server/feature-hints-wiring.ts';
 import type { HintableSession } from '../server/feature-hints-wiring.ts';
+import type { ShellHistoryOptions } from '../server/ingest/ingest-shell-history.ts';
 import type { FeatureHint, HintFeature } from '../shared/contracts/feature-hints.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -21,10 +22,10 @@ function hookSession(id: string) {
   };
 }
 
-function startHints(statePath: string, clock: { nowMs: number }) {
+function startHints(statePath: string, clock: { nowMs: number }, shellHistory: ShellHistoryOptions | null = null) {
   const broadcastHints: FeatureHint[] = [];
   const featureHints = createFeatureHintsWiring({
-    statePath, log: { warn: () => {} }, now: () => clock.nowMs,
+    statePath, log: { warn: () => {} }, now: () => clock.nowMs, shellHistory,
     broadcast: (message) => { broadcastHints.push(message.hint); },
   });
   return { featureHints, broadcastHints };
@@ -131,4 +132,43 @@ test('one prompt sent to two sessions within an hour counts toward Bench', async
   }
   await featureHints.idle();
   assert.deepEqual(broadcastHints.map((hint) => hint.feature), ['benchmarks']);
+});
+
+async function waitForHints(broadcastHints: readonly FeatureHint[], deadlineMs: number): Promise<void> {
+  const startedAt = Date.now();
+  while (broadcastHints.length === 0 && Date.now() - startedAt < deadlineMs) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+test('operator shell commands trip a hint with the ingest lane off, and a stopped reader never rewrites state after restart', async () => {
+  const historyDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'feature-hints-history-'));
+  const historyFile = path.join(historyDirectory, '.bash_history');
+  fs.writeFileSync(historyFile, 'gh issue view 1\ngh issue view 2\ngh issue view 3\n');
+  const statePath = tempStatePath();
+  const clock = { nowMs: Date.now() };
+  const { featureHints, broadcastHints } = startHints(statePath, clock, {
+    env: { HISTFILE: historyFile }, homeDir: historyDirectory, platform: 'linux',
+    sourceConfig: { shells: ['bash'], pollMs: 20 }, logger: null,
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(broadcastHints.length, 0);
+
+    fs.appendFileSync(historyFile, 'gh pr view 7\ngh pr diff 8\ngh pr checkout 9\n');
+    await waitForHints(broadcastHints, 3000);
+    await featureHints.idle();
+    assert.deepEqual(broadcastHints.map((hint) => hint.feature), ['teamReview']);
+  } finally {
+    await featureHints.stop();
+  }
+
+  const restarted = startHints(statePath, clock);
+  await restarted.featureHints.settle('teamReview', 'dismissed');
+  fs.appendFileSync(historyFile, 'gh issue view 4\n');
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await restarted.featureHints.idle();
+  const afterSecondRestart = startHints(statePath, clock).featureHints;
+  await afterSecondRestart.idle();
+  assert.equal(afterSecondRestart.pendingHintMessage(), null);
 });
