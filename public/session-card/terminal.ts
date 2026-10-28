@@ -370,6 +370,61 @@ function detachUntilShown(sessionId: string, ui: SessionUi, term: Terminal) {
   sessionUisReconnectingWhenShown.add(ui);
 }
 
+interface PrewarmedDataSocket {
+  socket: WebSocket;
+  attachPath: string;
+  bufferedMessages: MessageEvent[];
+  release: () => void;
+}
+
+const PREWARM_UNCLAIMED_LIFETIME_MS = 15_000;
+const prewarmedDataSocketBySessionId = new Map<string, PrewarmedDataSocket>();
+
+export function prewarmDataSocket(sessionId: string) {
+  if (!pageToken() || prewarmedDataSocketBySessionId.has(sessionId) || sessionUIs.get(sessionId)?.dataWs) return;
+  const attachPath = dataAttachPath(sessionId, false, false);
+  const socket = new WebSocket(buildWebSocketUrl(location, withPageToken(attachPath)));
+  socket.binaryType = 'arraybuffer';
+  const bufferedMessages: MessageEvent[] = [];
+  const bufferMessage = (event: MessageEvent) => bufferedMessages.push(event);
+  const discard = () => discardPrewarmedDataSocket(sessionId, socket);
+  const abandonUnopenedHandshake = () => {
+    if (socket.readyState === WebSocket.CONNECTING) discard();
+  };
+  socket.addEventListener('message', bufferMessage);
+  socket.addEventListener('close', discard);
+  const handshakeTimer = setTimeout(abandonUnopenedHandshake, HANDSHAKE_DEADLINE_MS);
+  const unclaimedTimer = setTimeout(discard, PREWARM_UNCLAIMED_LIFETIME_MS);
+  const release = () => {
+    socket.removeEventListener('message', bufferMessage);
+    socket.removeEventListener('close', discard);
+    clearTimeout(handshakeTimer);
+    clearTimeout(unclaimedTimer);
+  };
+  prewarmedDataSocketBySessionId.set(sessionId, { socket, attachPath, bufferedMessages, release });
+}
+
+function discardPrewarmedDataSocket(sessionId: string, socket: WebSocket) {
+  const prewarmed = prewarmedDataSocketBySessionId.get(sessionId);
+  if (prewarmed?.socket !== socket) return;
+  prewarmedDataSocketBySessionId.delete(sessionId);
+  prewarmed.release();
+  socket.close();
+}
+
+function claimPrewarmedDataSocket(sessionId: string, attachPath: string): PrewarmedDataSocket | null {
+  const prewarmed = prewarmedDataSocketBySessionId.get(sessionId);
+  if (!prewarmed) return null;
+  const isStillUsable = prewarmed.socket.readyState === WebSocket.CONNECTING || prewarmed.socket.readyState === WebSocket.OPEN;
+  if (prewarmed.attachPath !== attachPath || !isStillUsable) {
+    discardPrewarmedDataSocket(sessionId, prewarmed.socket);
+    return null;
+  }
+  prewarmedDataSocketBySessionId.delete(sessionId);
+  prewarmed.release();
+  return prewarmed;
+}
+
 function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   sessionUisReconnectingWhenShown.delete(ui);
   const deepHistoryLinesFromBottom = deepHistoryLinesFromBottomBySessionUi.get(ui);
@@ -380,8 +435,9 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   const linesFromBottomToRestore = deepHistoryLinesFromBottom ?? restoredLinesFromBottom;
   let isAwaitingSnapshotScroll = false;
   const isAttachedFlowing = isTerminalOutputWanted(ui, sessionId);
-  const url = buildWebSocketUrl(location, withPageToken(dataAttachPath(sessionId, isDeepAttach, !isAttachedFlowing)));
-  const ws = new WebSocket(url);
+  const attachPath = dataAttachPath(sessionId, isDeepAttach, !isAttachedFlowing);
+  const prewarmed = claimPrewarmedDataSocket(sessionId, attachPath);
+  const ws = prewarmed?.socket ?? new WebSocket(buildWebSocketUrl(location, withPageToken(attachPath)));
   isOutputFlowingBySocket.set(ws, isAttachedFlowing);
   ws.binaryType = 'arraybuffer';
   ui.dataWs = ws;
@@ -399,7 +455,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
 
   renderScheduler.register(sessionId, (data, cb) => term.write(data, cb));
 
-  ws.addEventListener('message', (event) => {
+  const handleMessage = (event: MessageEvent) => {
     if (ui.dataWs !== ws) return;
     const frame = readDataFrame(event.data, frameState);
     if (frame.kind === 'bytes') {
@@ -437,7 +493,8 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
       ui.ptySize = nextSize;
       ui._syncGrid?.();
     });
-  });
+  };
+  ws.addEventListener('message', handleMessage);
 
   ws.addEventListener('close', () => {
     clearTimeout(handshakeTimer);
@@ -458,7 +515,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     detachThenReconnect(sessionId, ui, term, retryDelayMs);
   });
 
-  ws.addEventListener('open', () => {
+  const handleOpen = () => {
     clearTimeout(handshakeTimer);
     hasEverOpened = true;
     if (isAttachedFlowing) noteWakeMark('terminal-opened');
@@ -475,7 +532,11 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
       if (ui.dataWs !== ws) return;
       sendQueuedInput(ui);
     }, 50);
-  });
+  };
+  ws.addEventListener('open', handleOpen);
+
+  if (ws.readyState === WebSocket.OPEN) handleOpen();
+  for (const bufferedMessage of prewarmed?.bufferedMessages ?? []) handleMessage(bufferedMessage);
 }
 
 let isInputHeldForWakeCheck = false;
