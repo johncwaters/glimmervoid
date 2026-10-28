@@ -1,3 +1,4 @@
+import './issues-panel.css';
 import { paintActionStatus } from '../action-status.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { STATES } from '#shared/states.ts';

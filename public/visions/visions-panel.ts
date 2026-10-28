@@ -1,3 +1,4 @@
+import './visions-panel.css';
 import { createActionStatus } from '../action-status.ts';
 import { el, isPanelHidden } from '../dom-helpers.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';

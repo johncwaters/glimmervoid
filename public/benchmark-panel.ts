@@ -1,3 +1,4 @@
+import './benchmark-panel.css';
 import { benchmarkSnapshot, sendBenchmarkAction, subscribeBenchmarks } from './benchmark-store.ts';
 import { buildPanelSection, buildStatChip, el } from './dom-helpers.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';

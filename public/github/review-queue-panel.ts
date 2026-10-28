@@ -1,3 +1,4 @@
+import './review-queue-panel.css';
 import { buildAttentionBanner, paintAttentionBanner } from '../attention-banner.ts';
 import { createAvatar, el, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
 import { isModalOpen } from '../session-card/modal.ts';

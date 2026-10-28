@@ -1,3 +1,4 @@
+import './radar-panel.css';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { buildPanelSection, buildStatChip, el, externalLink, isPanelHidden, projectsOf } from '../dom-helpers.ts';
 import { createInvestigationDialog, createRadarReportDialog } from '../dialogs.ts';

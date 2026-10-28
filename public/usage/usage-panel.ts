@@ -1,3 +1,4 @@
+import './usage-panel.css';
 import { buildPanelSection, el, isPanelHidden } from '../dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from '../poll-ago.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';

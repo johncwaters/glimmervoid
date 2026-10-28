@@ -1,3 +1,4 @@
+import './hooks-panel.css';
 import { sendControlRequest } from './control-ws.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';

@@ -1,3 +1,4 @@
+import './settings-panel.css';
 import { renderFlyingAnimalsGallery } from '../flying-animals-gallery.ts';
 import { isPhoneLayout, onLayoutChange } from '../form-factor.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';

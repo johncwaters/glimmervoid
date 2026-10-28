@@ -1,3 +1,4 @@
+import './plan-face.css';
 import { PLAN_COMMENT_MAX_CHARS, PLAN_DRAFT_REVISION } from '#shared/contracts/plan-review.ts';
 import type {
   PlanDecisionKind,

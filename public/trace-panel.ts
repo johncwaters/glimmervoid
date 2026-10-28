@@ -1,3 +1,4 @@
+import './trace-panel.css';
 import { buildPanelSection, el, isPanelHidden, query, writeClipboardText } from './dom-helpers.ts';
 import { createActionStatus } from './action-status.ts';
 import { formatTrailOffset } from './radar/radar-core.ts';

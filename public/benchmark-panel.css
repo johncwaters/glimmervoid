@@ -1,0 +1,81 @@
+@layer components {
+
+
+.bench-content {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.bench-suite-title {
+  color: var(--text-head);
+  font-weight: 700;
+}
+
+.bench-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.bench-action-button {
+  padding: 5px 9px;
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.bench-action-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.bench-empty,
+.bench-error {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.bench-run-line {
+  margin: 12px 0 8px;
+}
+
+.bench-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.bench-table th,
+.bench-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-dim);
+  text-align: right;
+}
+
+.bench-table th:first-child,
+.bench-table td:first-child {
+  text-align: left;
+}
+
+.bench-table th {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.bench-total td {
+  color: var(--text-head);
+}
+
+.bench-score[data-degraded="true"] {
+  text-decoration: underline dotted;
+}
+}

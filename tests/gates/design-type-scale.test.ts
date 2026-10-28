@@ -4,7 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const REPO_ROOT = path.join(import.meta.dirname, '../..');
-const dashboardStylesheet = fs.readFileSync(path.join(REPO_ROOT, 'public', 'style.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const dashboardStylesheetPaths = fs.globSync('public/**/*.css', { cwd: REPO_ROOT }).filter((stylesheetPath) => !stylesheetPath.endsWith('tailwind.css'));
+const dashboardStylesheet = dashboardStylesheetPaths
+  .map((stylesheetPath) => fs.readFileSync(path.join(REPO_ROOT, stylesheetPath), 'utf8'))
+  .join('\n')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
 const dashboardMarkup = fs.readFileSync(path.join(REPO_ROOT, 'public', 'index.html'), 'utf8');
 
 const DESIGN_FONT_SIZES = new Set(['10px', '11px', '12px', '14px', '16px']);
