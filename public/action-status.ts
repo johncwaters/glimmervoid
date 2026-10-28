@@ -1,7 +1,7 @@
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import type { StatusIcon } from '#shared/state-icons.ts';
-import { sendControlMsg, sendControlRequest } from './control-ws.ts';
+import { reportHeaderErrorToServer, sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
@@ -145,6 +145,7 @@ function paintHeaderErrorAge() {
 }
 
 export function reportHeaderError({ source, sessionId, message, hidesInStreamerMode = true }: HeaderError) {
+  reportHeaderErrorToServer(source, message);
   const parts = headerStatusParts();
   if (!parts) return;
   const shownMessage = hidesInStreamerMode ? streamerSafeText('error', message) : message;

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A restored dashboard tab no longer shows an empty board**: when your browser reopens a tab from its cache (say after a restart) holding a dashboard older than the running server, the dashboard now notices on connect and reloads itself onto the current version, instead of showing no sessions until you refresh. A tab already open on an older dashboard needs one manual refresh to pick this up.
 - **Adding a session no longer fails with "already exists"**: when the name you add a session under is already taken by a running session, including one the dashboard is not showing, Glimmervoid now adds it as `name (2)`, `name (3)` and so on. The same goes for sessions opened from a GitHub issue, a pull request review or a Radar issue. Renaming a session to a taken name is still refused. A refused add now leaves a line in the server log with the name, folder and reason.
+- **Dashboard errors are no longer lost**: every error the dashboard shows in its red header line is now also written to the server log, as `[dashboard] header error: <source>: <message>`. An error raised while the dashboard is disconnected is held in the page and written once it reconnects, so connection trouble no longer leaves gaps. Log lines the dashboard sends the server for other reasons are held the same way. Closing the tab before it reconnects still drops what it held.
 
 ### Added
 

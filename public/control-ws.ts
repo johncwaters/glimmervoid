@@ -49,11 +49,15 @@ export function sendControlMsg(msg: Record<string, unknown>): boolean {
   return true;
 }
 
-const sendClientLog = createClientLogReporter(sendControlMsg);
+const clientLogReporter = createClientLogReporter(sendControlMsg);
 
 export function reportToServerLog(scope: string, text: string): void {
   console.warn(`[${scope}] ${text}`);
-  sendClientLog(scope, text);
+  clientLogReporter.report(scope, text);
+}
+
+export function reportHeaderErrorToServer(source: string, text: string): void {
+  clientLogReporter.report('header error', `${source}: ${text}`);
 }
 
 export function nextRequestId(prefix: string): string {
@@ -154,6 +158,7 @@ export function connectControl() {
     hasEverOpened = true;
     controlRetryAttempt = 0;
     if (_connectionStateCallback) _connectionStateCallback('connected', 'Connected');
+    clientLogReporter.flushUnsent();
     _controlSocketChangeListener?.('opened');
   });
 

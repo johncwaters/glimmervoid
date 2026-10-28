@@ -55,11 +55,25 @@ function frameTypeOf(rawFrame: unknown): string {
   return String(rawFrame.type);
 }
 
-function createClientLogReporter(sendReport: SendReport): (scope: string, text: string) => void {
-  const sendOnce = createOncePerKeySender(sendReport, MAX_REPORTS_PER_PAGE);
-  return (scope, text) => {
-    const report = { scope: scope.slice(0, CLIENT_LOG_SCOPE_MAX_CHARS), text: text.slice(0, CLIENT_LOG_TEXT_MAX_CHARS) };
-    sendOnce(`${report.scope}\n${report.text}`, { type: 'client-log', ...report });
+function createClientLogReporter(sendReport: SendReport): { report: (scope: string, text: string) => void; flushUnsent: () => void } {
+  const unsentLogLines: Record<string, unknown>[] = [];
+  const sendOrHold: SendReport = (message) => {
+    if (!sendReport(message)) unsentLogLines.push(message);
+    return true;
+  };
+  const sendOnce = createOncePerKeySender(sendOrHold, MAX_REPORTS_PER_PAGE);
+  return {
+    report(scope, text) {
+      const logLine = { scope: scope.slice(0, CLIENT_LOG_SCOPE_MAX_CHARS), text: text.slice(0, CLIENT_LOG_TEXT_MAX_CHARS) };
+      sendOnce(`${logLine.scope}\n${logLine.text}`, { type: 'client-log', ...logLine });
+    },
+    flushUnsent() {
+      while (unsentLogLines.length > 0) {
+        const oldestLogLine = unsentLogLines[0];
+        if (!oldestLogLine || !sendReport(oldestLogLine)) return;
+        unsentLogLines.shift();
+      }
+    },
   };
 }
 
