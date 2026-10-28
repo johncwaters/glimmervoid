@@ -118,7 +118,7 @@ const COMMUNITY_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
   'git push': 'fails',
   'cat /etc/hosts': 'fails',
 };
-const PERMISSION_REFUSAL = /permission|haven't granted|has been denied/i;
+const PERMISSION_REFUSAL = /permission|haven't granted|has been denied|was blocked/i;
 const SESSION_TRUST_PROMPT = 'trustthisfolder';
 const SELECTION_MARKER = String.fromCharCode(0x276f);
 const SELECTION_MOVE_INTERVAL_MS = 2000;
