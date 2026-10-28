@@ -11,6 +11,7 @@ import {
 } from '../usage/core/usage-scan-core.ts';
 import { kimiSessionIdFromPath } from '../usage/core/usage-kimi-core.ts';
 import { INTERACTIVE_LANE, laneKey } from '../usage/core/usage-lane-core.ts';
+import { identityFromRelPath } from '../usage/core/usage-entry-core.ts';
 import {
   MAX_CATCH_UP_BYTES, applyRead, canTrustCachedListing, createTailState, isActiveMtime, pickStaleByMtime,
   planRead,
@@ -62,6 +63,7 @@ interface FoundDir {
 
 interface TranscriptContext {
   vendor: string;
+  rootDir: string;
   dir: string;
   root: string | null;
   sessionId: string | null;
@@ -119,8 +121,23 @@ function decodeGrokRoot(name: string): string {
   }
 }
 
-function sessionIdFromPath(vendor: string, dir: string, filePath: string): string | null {
-  if (vendor === 'claude') return path.basename(filePath, '.jsonl');
+const CLAUDE_SUBAGENT_DIRS_BY_DEPTH: readonly (string | null)[] = [null, null, 'subagents', 'workflows', null];
+const CLAUDE_MAX_DEPTH = CLAUDE_SUBAGENT_DIRS_BY_DEPTH.length;
+
+function claudeSessionDirOf(filePath: string): string {
+  const subagentsMarker = `${path.sep}subagents${path.sep}`;
+  const subagentsAt = filePath.indexOf(subagentsMarker);
+  return subagentsAt === -1 ? filePath.replace(/\.jsonl$/, '') : filePath.slice(0, subagentsAt);
+}
+
+function claudeDirsToWalk(dir: string, depth: number, names: readonly string[], trackedSessionDirs: ReadonlySet<string>): readonly string[] {
+  if (depth === 1) return names.filter((name) => trackedSessionDirs.has(path.join(dir, name)));
+  const onlyDir = CLAUDE_SUBAGENT_DIRS_BY_DEPTH[depth];
+  return onlyDir ? names.filter((name) => name === onlyDir) : names;
+}
+
+function sessionIdFromPath(vendor: string, rootDir: string, dir: string, filePath: string): string | null {
+  if (vendor === 'claude') return identityFromRelPath(path.relative(rootDir, filePath)).sessionId;
   if (vendor === 'grok') return path.basename(dir);
   if (vendor === 'kimi') return kimiSessionIdFromPath(filePath);
   return codexSessionIdFromPath(filePath);
@@ -181,7 +198,7 @@ function transcriptRootCandidates(
 ): TranscriptRoot[] {
   const candidates: TranscriptRoot[] = [];
   if (wanted.claude !== false) {
-    candidates.push({ vendor: 'claude', dir: claudeProjectsDir(env, homeDir), maxDepth: 1 });
+    candidates.push({ vendor: 'claude', dir: claudeProjectsDir(env, homeDir), maxDepth: CLAUDE_MAX_DEPTH });
   }
   if (wanted.codex !== false) {
     for (const candidate of codexRootCandidates(codexHomes(env, homeDir))) {
@@ -393,7 +410,15 @@ function createAgentLogIngest({
     return entry;
   }
 
-  async function walk(root: TranscriptRoot, dir: string, depth: number, found: FoundDir[], budget: number): Promise<number> {
+  function trackedClaudeSessionDirs(): Set<string> {
+    const sessionDirs = new Set<string>();
+    for (const [filePath, context] of contexts) {
+      if (context.vendor === 'claude') sessionDirs.add(claudeSessionDirOf(filePath));
+    }
+    return sessionDirs;
+  }
+
+  async function walk(root: TranscriptRoot, dir: string, depth: number, found: FoundDir[], budget: number, trackedSessionDirs: ReadonlySet<string>): Promise<number> {
     if (budget <= 0 || !alive()) return budget;
     const remaining = budget - 1;
     const stat = await statOrNull(dir);
@@ -411,9 +436,10 @@ function createAgentLogIngest({
     found.push({ root, dir, mtimeMs: stat.mtimeMs, cached });
     if (depth >= root.maxDepth) return remaining;
     let left = remaining;
-    for (const name of cached.dirs) {
+    const dirsToWalk = root.vendor === 'claude' ? claudeDirsToWalk(dir, depth, cached.dirs, trackedSessionDirs) : cached.dirs;
+    for (const name of dirsToWalk) {
       if (isDispatchWorkdir(name)) continue;
-      left = await walk(root, path.join(dir, name), depth + 1, found, left);
+      left = await walk(root, path.join(dir, name), depth + 1, found, left, trackedSessionDirs);
       if (!alive()) return left;
     }
     return left;
@@ -439,7 +465,7 @@ function createAgentLogIngest({
     stat: fsNode.Stats,
     lanes: Map<string, string> | null,
   ): Promise<void> {
-    const sessionId = sessionIdFromPath(root.vendor, dir, filePath);
+    const sessionId = sessionIdFromPath(root.vendor, root.dir, dir, filePath);
     if (isEphemeralLane(lanes, root.vendor, sessionId)) return;
     const headRootReader = HEAD_ROOT_READERS[root.vendor];
     const scopeRoot = headRootReader ? await readHeadRoot(filePath, headRootReader, fsPromises) : rootFromPath(root.vendor, dir);
@@ -449,7 +475,7 @@ function createAgentLogIngest({
     const isBornAfterStart = readsFilesBornAfterStart && stat.birthtimeMs >= startedAtMs;
     tails.set(filePath, isBornAfterStart ? { ...tailState, offset: 0 } : tailState);
     contexts.set(filePath, {
-      vendor: root.vendor, dir, root: scopeRoot, sessionId,
+      vendor: root.vendor, rootDir: root.dir, dir, root: scopeRoot, sessionId,
     });
     active.add(filePath);
   }
@@ -535,8 +561,9 @@ function createAgentLogIngest({
     if (!alive()) return;
     const found: FoundDir[] = [];
     let budget = positiveIntOr(maxScanDirs, 2000);
+    const trackedSessionDirs = trackedClaudeSessionDirs();
     for (const root of roots) {
-      budget = await walk(root, root.dir, 0, found, budget);
+      budget = await walk(root, root.dir, 0, found, budget, trackedSessionDirs);
       if (!alive()) return;
     }
     found.sort((left, right) => right.mtimeMs - left.mtimeMs);
@@ -626,7 +653,7 @@ function createAgentLogIngest({
     const context = contexts.get(filePath);
     if (!context) return;
     context.root = rootFromPath(context.vendor, context.dir);
-    context.sessionId = sessionIdFromPath(context.vendor, context.dir, filePath);
+    context.sessionId = sessionIdFromPath(context.vendor, context.rootDir, context.dir, filePath);
   }
 
   async function drainFile(filePath: string, lanes: Map<string, string> | null): Promise<void> {
