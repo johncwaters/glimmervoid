@@ -44,7 +44,9 @@ import type { DraftExpectation, DraftPatch, NotMineOutcome, ReviewOutcome, Spawn
 import { allowGuardedSpawn } from '../guardrails/guardrails-deps.ts';
 import { judgeRole } from '../guardrails/core/guardrails-roles-core.ts';
 import { prepareGuardrailsLaunch } from '../guardrails/guardrails-launch.ts';
+import { describeRoleSandbox } from '../guardrails/core/guardrails-policy-core.ts';
 import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
+import type { TeamReviewSandboxFacts } from '../../shared/contracts/team-review-environment.ts';
 import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 import type {
   PostingPlan, PrDetail, PriorReview, ResumableReview, ReviewComment, ReviewResult, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,
@@ -73,6 +75,7 @@ const TEAM_REVIEW_EXTRA_DOMAINS = Object.freeze(['api.github.com']);
 const TEAM_REVIEW_SHELL_ALLOW_RULE = 'Bash';
 const SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM = 'win32';
 const LINKED_CHECKOUT_UNREADABLE_ENTRY = /^(?:\.env(?:\..*)?|\.claude)$/;
+const LINKED_CHECKOUT_UNREADABLE_NAMES = Object.freeze(['.env', '.env.*', '.claude']);
 const RESULT_MAX_BYTES = 1024 * 1024;
 const EMPTY_GH_CONFIG_DIRNAME = 'gh-config';
 const PUSH_DISABLED_URL = 'https://push-disabled.invalid/';
@@ -274,6 +277,21 @@ function teamReviewRole(facts: SessionGuardrailsFacts, { checkoutPath, cachedClo
     vendors: ['claude', 'codex'],
     network: teamReviewNetwork(sandbox, facts.hookPort),
     readDenied: [...unreadablePaths],
+  };
+}
+
+function describeTeamReviewSandbox(sandbox: TeamReviewSandboxSettings): TeamReviewSandboxFacts {
+  const role = teamReviewRole({ launchId: '', cwd: '', hookPort: null, readablePaths: [], writablePaths: [], agentSessionId: null }, { checkoutPath: '', cachedClone: '', unreadablePaths: [], sandbox });
+  return {
+    networkOpen: role.network.access === 'open',
+    networkDomains: role.network.access === 'allowlist' ? [...role.network.domains] : [],
+    ...describeRoleSandbox(role),
+    mcpLoaded: sandbox.loadMcpServers,
+    unreadableCheckoutEntries: [...LINKED_CHECKOUT_UNREADABLE_NAMES],
+    githubTokenStripped: true,
+    allowedTools: [TEAM_REVIEW_SHELL_ALLOW_RULE, 'Read'],
+    deniedTools: [...TEAM_REVIEW_SESSION_DENY_RULES],
+    threadJudgeTools: [...THREAD_JUDGE_TOOLS],
   };
 }
 
@@ -1291,6 +1309,6 @@ function createTeamReviewWiring({
   };
 }
 
-export { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir, emptyGhConfigDir, hooksPathPinnedSpawnEnv, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, describeTeamReviewRole, teamReviewClaudeArgs, teamReviewRole };
+export { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewDispatcher, describeTeamReviewSandbox, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir, emptyGhConfigDir, hooksPathPinnedSpawnEnv, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, describeTeamReviewRole, teamReviewClaudeArgs, teamReviewRole };
 export { readTeamReviewSettings } from './core/team-review-core.ts';
 export type { PrSessionCheckout, TeamReviewDispatchOptions, TeamReviewGitWorkspace, LaneSettingsGuardrails, TeamReviewRepoCache, TeamReviewSpawn };

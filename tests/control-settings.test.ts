@@ -9,6 +9,7 @@ import { createConfigStore } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
 import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
 import { buildSettingsPayload } from '../server/settings-payload.ts';
+import { TeamReviewEnvironment } from '../shared/contracts/team-review-environment.ts';
 import { commandFor, resetCommandCache, setCustomAgents } from '../session/adapters/index.ts';
 import { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
@@ -339,6 +340,7 @@ test('a settings payload build reads the resolution cache and spawns no PATH pro
       resolveRtk: () => null,
     });
     assert.equal(probes, 0, 'a settings payload build never probes PATH');
+    assert.ok(TeamReviewEnvironment.safeParse(payload.teamReviewEnvironment).success, 'the team review environment matches its wire contract');
     assert.deepEqual(payload.customAgents, [
       { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [], resolvable: true },
       { id: 'ghostcode', label: 'GhostCode', command: 'ghostcode', args: [], resolvable: false },

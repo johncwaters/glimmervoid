@@ -1,12 +1,15 @@
 import { cachedAgentResolvability } from '../session/adapters/index.ts';
 import type { AgentLoginStatus, CoderEnvironmentOffer, CustomAgentDeclaration, CustomAgentSummaryRow, TelegramDeliveryStatus } from '../shared/contracts/index.ts';
+import type { TeamReviewEnvironment } from '../shared/contracts/team-review-environment.ts';
+import type { TeamReviewSettingsSource } from './github/core/team-review-core.ts';
+import { currentTeamReviewEnvironment } from './github/team-review-environment.ts';
 import { getRtkPath } from './rtk-resolver.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 
 interface SettingsPayloadOptions {
   configStore: {
     getSettings: () => Record<string, unknown>;
-    config: { customAgents?: CustomAgentDeclaration[] };
+    config: { customAgents?: CustomAgentDeclaration[] } & Partial<TeamReviewSettingsSource>;
     isExperimentalBuild?: boolean;
   };
   rtkInstallStatus?: Record<string, unknown> | null;
@@ -14,6 +17,7 @@ interface SettingsPayloadOptions {
   coderEnvironments?: CoderEnvironmentOffer[] | null;
   agentLogins?: AgentLoginStatus[] | null;
   resolveRtk?: () => string | null;
+  readTeamReviewEnvironment?: (settingsSource: Partial<TeamReviewSettingsSource>) => TeamReviewEnvironment;
 }
 
 function summarizeCustomAgents(declarations: readonly CustomAgentDeclaration[]): CustomAgentSummaryRow[] {
@@ -27,7 +31,7 @@ function summarizeCustomAgents(declarations: readonly CustomAgentDeclaration[]):
 }
 
 function buildSettingsPayload({
-  configStore, rtkInstallStatus = null, telegramDelivery = null, coderEnvironments = null, agentLogins = null, resolveRtk = getRtkPath,
+  configStore, rtkInstallStatus = null, telegramDelivery = null, coderEnvironments = null, agentLogins = null, resolveRtk = getRtkPath, readTeamReviewEnvironment = currentTeamReviewEnvironment,
 }: SettingsPayloadOptions): Record<string, unknown> {
   return {
     ...configStore.getSettings(),
@@ -39,6 +43,7 @@ function buildSettingsPayload({
     telegramDelivery,
     coderEnvironments,
     agentLogins,
+    teamReviewEnvironment: readTeamReviewEnvironment(configStore.config),
   };
 }
 
