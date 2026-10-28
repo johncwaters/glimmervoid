@@ -25,6 +25,7 @@ interface AgentCapabilities {
   skipPermissionsFlag: boolean;
   headless: boolean;
   subagentTurnStops?: boolean;
+  ptyInitialPrompt?: boolean;
 }
 
 interface ProjectConfigCandidate {
@@ -128,6 +129,7 @@ interface AgentAdapter {
   operatorConfigPath?(env: SpawnEnv): string | null;
   setsOperatorInstructions?(operatorConfigText: string): boolean;
   launchSessionId?(options: AgentLaunchSessionOptions): AgentLaunchSession;
+  isWorkspaceTrusted?(cwd: string, env: SpawnEnv): boolean;
   sessionIdOf?(payload: HookPayload): unknown;
 }
 

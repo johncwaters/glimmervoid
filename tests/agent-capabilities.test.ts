@@ -8,7 +8,8 @@ import { Session } from '../session/sessions.ts';
 import { SessionRecorder } from '../session/session-recorder.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import claudeCode from '../session/adapters/claude-code.ts';
-import { fakePty } from './helpers/fake-pty.ts';
+import { capturingPty, fakePty } from './helpers/fake-pty.ts';
+import kimi from '../session/adapters/kimi.ts';
 import type { AgentAdapter, AgentCapabilities } from '../session/adapters/index.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 
@@ -135,4 +136,37 @@ test('Sane YOLO capability filters both the Claude hook and its environment', as
     assert.equal(calls[0].env.GLIMMERVOID_SANE_YOLO_PATH, undefined);
     assert.equal(calls[0].env.CC_SAFETY_NET_HOME, process.env.CC_SAFETY_NET_HOME);
   });
+});
+
+test('a kimi initial prompt is typed only into a folder kimi already trusts, never into its trust dialog', async (t) => {
+  const kimiHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-kimi-trust-'));
+  t.after(() => fsp.rm(kimiHome, { recursive: true, force: true }));
+  const prompt = 'First kimi task\x1b[201~\r/auto\r';
+  async function typedIntoFreshSession(id: string, cwd: string = process.cwd()): Promise<string[]> {
+    const writes: string[] = [];
+    const session = new Session({
+      id, name: id, path: cwd, agent: 'kimi', initialPrompt: prompt,
+      spawnCommand: { path: process.execPath, kind: 'exe' },
+      spawnEnv: { KIMI_CODE_HOME: kimiHome },
+      ptySpawn: () => capturingPty(writes),
+    });
+    try {
+      await session.start();
+      session.transition('first_output');
+      await new Promise((resolve) => setTimeout(resolve, 2200));
+      return writes;
+    } finally {
+      session.destroy();
+    }
+  }
+
+  assert.deepEqual(await typedIntoFreshSession('kimi-untrusted'), []);
+
+  fs.mkdirSync(path.join(kimiHome, 'workspace-trust'));
+  const symlinkedCwd = path.join(kimiHome, 'linked-project');
+  fs.symlinkSync(process.cwd(), symlinkedCwd);
+  fs.writeFileSync(path.join(kimiHome, 'workspace-trust', kimi.workspaceTrustKey(symlinkedCwd)), '{}');
+  assert.deepEqual(await typedIntoFreshSession('kimi-symlink-trusted-only', symlinkedCwd), []);
+  fs.writeFileSync(path.join(kimiHome, 'workspace-trust', kimi.workspaceTrustKey(fs.realpathSync(process.cwd()))), '{}');
+  assert.deepEqual(await typedIntoFreshSession('kimi-trusted'), ['\x1b[200~First kimi task[201~/auto\x1b[201~', '\r']);
 });

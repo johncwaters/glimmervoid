@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { runAgentSetupCli } from "../server/agent-setup-cli.ts";
 import { createBackend } from "../server/backend/backend.ts";
+import kimi from "../session/adapters/kimi.ts";
 import { projectHookPayload } from "../session/core/hook-payload-projection.ts";
 import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
@@ -152,10 +153,10 @@ async function runProbe(tempDirectory: string): Promise<void> {
     session.write("\r");
   }
 
-  async function runScenario(name: string, prompt: string, answerWaiting: () => Promise<void>, settleMs = 3000): Promise<HookRecord[]> {
+  async function runScenario(name: string, prompt: string | null, answerWaiting: () => Promise<void>, settleMs = 3000): Promise<HookRecord[]> {
     console.log(`\n${name}:`);
     const scenarioStart = hookRecords.length;
-    await submit(prompt);
+    if (prompt !== null) await submit(prompt);
     await waitForState(session, ["RUNNING", "WAITING"], `${name} to start`);
     while ((await waitForState(session, ["COMPLETE", "WAITING"], `${name} to finish`)) === "WAITING") {
       console.log(`  [answer] ${name}`);
@@ -182,14 +183,31 @@ async function runProbe(tempDirectory: string): Promise<void> {
   }
 
   try {
-    console.log("\nSpawn:");
+    console.log("\nSpawn into an untrusted folder:");
+    const ptyWrites: string[] = [];
+    const writeToPty = session.write.bind(session);
+    session.write = (text: string) => {
+      ptyWrites.push(text);
+      writeToPty(text);
+    };
+    session._initialPrompt = "Run the shell command: touch ./kimi-probe-approval.txt";
     await session.start();
     check("the spawn used the kimi adapter", session.agentId === "kimi");
     await delay(BOOT_SETTLE_MS);
+    check("the folder starts untrusted", !kimi.isWorkspaceTrusted(projectDirectory, process.env));
+    check("nothing was typed into the trust dialog", ptyWrites.length === 0);
     session.write("\r");
     await delay(3000);
+    check("kimi's own trust record matches the computed key", kimi.isWorkspaceTrusted(projectDirectory, process.env));
+    session.kill();
+    await waitForState(session, ["DONE", "FAILED"], "untrusted PTY reap");
 
-    const approvalHooks = await runScenario("approval-turn", "Run the shell command: touch ./kimi-probe-approval.txt", approveOnce);
+    console.log("\nRespawn into the trusted folder:");
+    ptyWrites.length = 0;
+    check("restart requested a fresh spawn", session.restart());
+    const approvalHooks = await runScenario("approval-turn", null, approveOnce);
+    check("the initial prompt was pasted without operator input", ptyWrites.some((text) => text.includes("kimi-probe-approval.txt")));
+    session._initialPrompt = null;
     const approvalEvents = eventsOf(approvalHooks);
     check("SessionStart fired on the first submitted prompt", approvalEvents[0] === "sessionstart");
     check("PermissionRequest preceded the turn's Stop", approvalEvents.indexOf("permissionrequest") >= 0 && approvalEvents.indexOf("permissionrequest") < approvalEvents.lastIndexOf("stop"));
@@ -219,7 +237,7 @@ async function runProbe(tempDirectory: string): Promise<void> {
     const resumedStarts = hookRecords.slice(resumeStart).filter((hook) => hook.event.toLowerCase() === "sessionstart");
     console.log(`  [resume] SessionStart sources: ${JSON.stringify(resumedStarts.map((hook) => hook.payload?.source ?? null))}`);
     for (const [index, call] of spawnCalls.entries()) console.log(`  [argv:${index + 1}] ${JSON.stringify([call.file, ...call.args])}`);
-    check("the resumed argv carried -S with the captured id", !!capturedId && spawnCalls[1]?.args.join(" ").includes(`-S ${capturedId}`));
+    check("the resumed argv carried -S with the captured id", !!capturedId && spawnCalls[2]?.args.join(" ").includes(`-S ${capturedId}`));
   } finally {
     try {
       session.kill();

@@ -84,6 +84,9 @@ const KILL_MAX_WAIT_MS = 3000;
 
 const KILL_REAP_MAX_WAIT_MS = 2400;
 const MAX_PENDING_ATTENTION_NOTES = 5;
+const PTY_PROMPT_SETTLE_MS = 1500;
+const PTY_PROMPT_SUBMIT_DELAY_MS = 300;
+const PASTE_BREAKING_CONTROL_BYTES = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
 const GUARDRAILS_UNAPPLIED_ERROR = "guardrail settings could not be applied, session not started";
 const GUARDRAILS_REFUSED_PREFIX = "session not started, the guardrails refused: ";
 const SPAWN_FAILURE_TEXT_BY_REASON: Record<string, string> = {
@@ -1611,11 +1614,12 @@ class Session extends EventEmitter {
     const launchSession = isSpawnGuarded
       ? this._adapter.launchSessionId?.({ resumeSessionId: spawnResumeSessionId, extraArgs: this._extraClaudeArgs, generatedId: randomUUID() }) ?? null
       : null;
+    const launchPrompt = spawnResumeSessionId && resumePrompt ? resumePrompt : this._initialPrompt;
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
       extraArgs: launchSession?.extraArgs ?? this._extraClaudeArgs,
-      initialPrompt: spawnResumeSessionId && resumePrompt ? resumePrompt : this._initialPrompt,
+      initialPrompt: launchPrompt,
       hasOuterGuardrails: isSpawnGuarded,
       hasOperatorInstructions: this._hasOperatorInstructions(env),
       canRunHelpCommand: this._canRunHelpCommand,
@@ -1696,6 +1700,18 @@ class Session extends EventEmitter {
     this.ptyProcess.onExit(({ exitCode, signal }) =>
       this._handleSpawnedPtyExit(guardrailsLaunch, exitCode, signal),
     );
+    this._deliverPtyInitialPrompt(launchPrompt, env);
+  }
+
+  _deliverPtyInitialPrompt(prompt: string | null, env: SpawnEnv): void {
+    if (!prompt || !this._can("ptyInitialPrompt")) return;
+    const cwd = this.effectiveCwd();
+    if (this._adapter.isWorkspaceTrusted?.(cwd, env) !== true) {
+      console.log(`[session ${this.id}] ${this._adapter.label} has not trusted ${cwd} yet, so the initial prompt waits for the operator to trust the folder and type it`);
+      return;
+    }
+    const pastablePrompt = prompt.replaceAll(PASTE_BREAKING_CONTROL_BYTES, "");
+    this._output.pasteTextWhenReady(pastablePrompt, { settleMs: PTY_PROMPT_SETTLE_MS, submitDelayMs: PTY_PROMPT_SUBMIT_DELAY_MS });
   }
 
   get isGuarded(): boolean {

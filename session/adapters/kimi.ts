@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -154,6 +155,39 @@ function classifyConfigContents(contents: string): string {
   return classifyKimiConfig(contents, expectedBlock);
 }
 
+const WINDOWS_SHAPED_ROOT = /^(?:[A-Za-z]:\/|\/\/)/;
+const MAX_WORKSPACE_SLUG_LENGTH = 40;
+
+function slugifyWorkspaceName(name: string): string {
+  const slug = name.toLowerCase().replaceAll(/[^a-z0-9._-]+/g, "-").replaceAll(/^-+|-+$/g, "")
+    .slice(0, MAX_WORKSPACE_SLUG_LENGTH).replaceAll(/^-+|-+$/g, "");
+  return slug === "" || slug === "." || slug === ".." ? "workspace" : slug;
+}
+
+function workspaceTrustKey(cwd: string): string {
+  const resolved = path.resolve(cwd).replaceAll("\\", "/");
+  const trimmed = resolved.replace(/\/+$/, "");
+  const root = (WINDOWS_SHAPED_ROOT.test(resolved) ? trimmed.toLowerCase() : trimmed) || resolved;
+  const normalized = root.replace(/\/+$/, "");
+  const slug = slugifyWorkspaceName(normalized.split("/").pop() ?? normalized);
+  const hash = createHash("sha256").update(normalized).digest("hex").slice(0, 12);
+  return `wd_${slug}_${hash}`;
+}
+
+function physicalPathOf(cwd: string): string | null {
+  try {
+    return fs.realpathSync(cwd);
+  } catch {
+    return null;
+  }
+}
+
+function isWorkspaceTrusted(cwd: string, env: Record<string, string | undefined> = process.env): boolean {
+  const physicalCwd = physicalPathOf(cwd);
+  if (physicalCwd === null) return false;
+  return fs.existsSync(path.join(kimiHome(env), "workspace-trust", workspaceTrustKey(physicalCwd)));
+}
+
 function resolveCommand(
   { platform, execFile = execFileSync, pathExists = fs.existsSync }: {
     platform?: NodeJS.Platform;
@@ -225,6 +259,8 @@ const kimi = {
   buildEnv,
   buildArgs,
   sessionIdOf,
+  isWorkspaceTrusted,
+  workspaceTrustKey,
   mapHookToSignal,
   mapHookPayload,
   configFilePath,
@@ -241,6 +277,7 @@ const kimi = {
     skipPermissionsFlag: true,
     headless: true,
     subagentTurnStops: true,
+    ptyInitialPrompt: true,
   },
 } satisfies AgentAdapterShape;
 

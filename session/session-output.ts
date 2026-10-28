@@ -42,6 +42,12 @@ type PasteResult = {
   deferred?: boolean;
 };
 
+interface PasteWhenReadyOptions {
+  timeoutMs?: number;
+  settleMs?: number;
+  submitDelayMs?: number | null;
+}
+
 interface ScreenSnapshot {
   data: string;
   offset: number;
@@ -56,7 +62,7 @@ interface SessionOutput {
   setMax(bytes: number): void;
   stats(): OutputRingStats;
   pasteText(text: string): PasteResult;
-  pasteTextWhenReady(text: string, options?: { timeoutMs?: number }): PasteResult;
+  pasteTextWhenReady(text: string, options?: PasteWhenReadyOptions): PasteResult;
   clearPendingPaste(): void;
   rememberSize(cols: number, rows: number): boolean;
   ptySize(): { cols: number; rows: number };
@@ -91,15 +97,32 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     return { ok: true };
   }
 
-  function pasteTextWhenReady(text: string, { timeoutMs = 120000 }: { timeoutMs?: number } = {}): PasteResult {
+  function pasteAndSubmit(text: string, submitDelayMs: number | null): PasteResult {
+    const pasted = pasteText(text);
+    if (!pasted.ok || submitDelayMs === null) return pasted;
+    setTimeout(() => {
+      if (options.hasLivePty()) options.write("\r");
+    }, submitDelayMs).unref();
+    return pasted;
+  }
+
+  function deliverPaste(text: string, settleMs: number, submitDelayMs: number | null): PasteResult {
+    if (settleMs <= 0) return pasteAndSubmit(text, submitDelayMs);
+    setTimeout(() => {
+      if (!options.isDestroyed()) pasteAndSubmit(text, submitDelayMs);
+    }, settleMs).unref();
+    return { ok: true, deferred: true };
+  }
+
+  function pasteTextWhenReady(text: string, { timeoutMs = 120000, settleMs = 0, submitDelayMs = null }: PasteWhenReadyOptions = {}): PasteResult {
     if (options.isDestroyed()) return { ok: false, reason: "destroyed" };
     const stateBeforeWaiting = options.getState();
-    if (options.hasLivePty() && PASTE_READY_STATES.has(stateBeforeWaiting)) return pasteText(text);
+    if (options.hasLivePty() && PASTE_READY_STATES.has(stateBeforeWaiting)) return deliverPaste(text, settleMs, submitDelayMs);
     clearPendingPaste();
     const onStateChange = ({ to }: StateChange): void => {
       if (!PASTE_READY_STATES.has(to)) return;
       clearPendingPaste();
-      pasteText(text);
+      deliverPaste(text, settleMs, submitDelayMs);
     };
     const onExit = (): void => clearPendingPaste();
     const timer = setTimeout(() => clearPendingPaste(), timeoutMs);
