@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const CHANGE_MAP_LIST_CAP = 20;
 
 const CHANGE_MAP_FACT_KINDS = Object.freeze([
-  'file', 'subsystem', 'co-change', 'hotspot', 'blast', 'untested', 'collision', 'link',
+  'file', 'subsystem', 'co-change', 'hotspot', 'blast', 'collision', 'link',
 ] as const);
 export type ChangeMapFactKind = (typeof CHANGE_MAP_FACT_KINDS)[number];
 
@@ -64,12 +64,6 @@ export const BlastRadiusFact = z.strictObject({
 });
 export type BlastRadiusFact = z.infer<typeof BlastRadiusFact>;
 
-export const UntestedFileFact = z.strictObject({
-  factId,
-  path: repoPath,
-});
-export type UntestedFileFact = z.infer<typeof UntestedFileFact>;
-
 export const CollisionFact = z.strictObject({
   factId,
   path: repoPath,
@@ -103,7 +97,6 @@ export const RepoChangeMap = z.strictObject({
   coChangeGaps: z.array(CoChangeGap),
   hotspots: z.array(HotspotFact),
   blastRadius: z.array(BlastRadiusFact),
-  untestedFiles: z.array(UntestedFileFact),
   collisions: z.array(CollisionFact),
   links: z.array(CrossRepoLink),
   error: z.string().nullable(),

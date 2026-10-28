@@ -71,7 +71,7 @@
     },
     {
       "name": "worth a look",
-      "definition": "The review panel's short list of change signals an operator can act on: a file another session is changing, a package link into another repository, a usual partner file left out, or a file no test reaches.",
+      "definition": "The review panel's short list of change signals an operator can act on: a file another session is changing, a package link into another repository, or a usual partner file left out.",
       "aliases": [
         "worth"
       ]

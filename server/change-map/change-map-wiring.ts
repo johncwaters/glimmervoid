@@ -147,7 +147,6 @@ function emptyRepoMap(scope: ChangeScope): RepoChangeMap {
     coChangeGaps: [],
     hotspots: [],
     blastRadius: [],
-    untestedFiles: [],
     collisions: [],
     links: [],
     error: null,
@@ -245,7 +244,7 @@ export function createChangeMapService({
     const memoized = repoFactsByRoot.get(scope.root);
     if (memoized && memoized.memoKey === memoKey) return memoized.repoFacts;
     const graph = buildImportGraph({ specifiersByPath, importsMap: readImportsMap(packageJsonText), tsconfigTargets: createTsconfigPathsResolver(configsByPath) });
-    const { blastRadius, untestedFiles } = computeBlastRadius({ repoName, graph, changedPaths: presentPaths(files) });
+    const blastRadius = computeBlastRadius({ repoName, graph, changedPaths: presentPaths(files) });
     const agentsDocs = [...agentsTitleByPath].map(([agentsPath, title]) => ({ path: agentsPath, title }));
     const commits = await commitsFor(scope.root, commonDir, historyTip);
     const { coChangeGaps, hotspots } = computeCoChange({ repoName, commits, changedPaths });
@@ -256,7 +255,6 @@ export function createChangeMapService({
       coChangeGaps,
       hotspots,
       blastRadius,
-      untestedFiles,
     };
     rememberBounded(repoFactsByRoot, scope.root, { memoKey, repoFacts }, MAX_MEMOIZED_REPO_FACTS);
     return repoFacts;

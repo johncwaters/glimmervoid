@@ -85,12 +85,6 @@ function worthALookLines(repo: RepoChangeMap, providerByName: Map<string, Provid
       detail: `${gap.support} of the ${totalCommits} commits that touched it also touched ${gap.partner}.`,
     });
   }
-  for (const untested of repo.untestedFiles) lines.push({
-    dedupeKey: `untested:${repo.sessionPathPrefix}${untested.path}`, kind: 'untested', severity: 3,
-    path: untested.path, openPath: `${repo.sessionPathPrefix}${untested.path}`,
-    text: 'No test reaches it',
-    detail: 'No dependent test was found in the import graph.',
-  });
   return lines;
 }
 

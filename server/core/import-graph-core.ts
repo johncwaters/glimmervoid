@@ -4,7 +4,6 @@ import {
   CHANGE_MAP_LIST_CAP,
   changeMapFactId,
   type BlastRadiusFact,
-  type UntestedFileFact,
 } from '../../shared/contracts/change-map.ts';
 
 export const CALL_IMPORT = /\b(?:require|import)\s*\(\s*(['"])([^'"]+)\1\s*\)/g;
@@ -226,18 +225,13 @@ export function computeBlastRadius({
   graph: ImportGraph;
   changedPaths: string[];
   maxDepth?: number;
-}): { blastRadius: BlastRadiusFact[]; untestedFiles: UntestedFileFact[] } {
+}): BlastRadiusFact[] {
   const blastRadius: BlastRadiusFact[] = [];
-  const untestedFiles: UntestedFileFact[] = [];
 
   for (const changedPath of new Set(changedPaths)) {
     if (isTestPath(changedPath)) continue;
     const transitiveDependents = collectTransitiveDependents(graph, changedPath, maxDepth);
     const dependentTests = [...transitiveDependents].filter(isTestPath).sort();
-
-    if (/\.(?:ts|js|mjs|tsx|jsx|cts|cjs|mts|py)$/.test(changedPath) && dependentTests.length === 0) {
-      untestedFiles.push({ factId: changeMapFactId('untested', repoName, changedPath), path: changedPath });
-    }
 
     const directDependents = graph.dependentsByPath.get(changedPath);
     if (!directDependents) continue;
@@ -255,6 +249,5 @@ export function computeBlastRadius({
   }
 
   blastRadius.sort((left, right) => right.transitiveDependentCount - left.transitiveDependentCount || compareRepoPaths(left.path, right.path));
-  untestedFiles.sort((left, right) => compareRepoPaths(left.path, right.path));
-  return { blastRadius, untestedFiles };
+  return blastRadius;
 }

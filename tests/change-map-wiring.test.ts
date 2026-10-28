@@ -93,7 +93,6 @@ test('change map joins git facts for a real repo into one contract-valid map', {
     const blast = repo.blastRadius.find((fact) => fact.path === 'server/a.ts');
     assert.deepEqual(blast?.directDependents, ['server/b.ts', 'tests/a.test.ts']);
     assert.deepEqual(blast?.dependentTests, ['tests/a.test.ts']);
-    assert.deepEqual(repo.untestedFiles.map((fact) => fact.path), ['server/lonely.ts']);
     assert.deepEqual(repo.collisions.map((fact) => [fact.path, fact.otherSessionName]), [['server/a.ts', 'Sibling']]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -247,7 +246,6 @@ test('tsconfig paths and NodeNext imports carry blast radius through a wizard-sh
     assert.deepEqual(blast?.directDependents, ['src/programs/index.ts']);
     assert.equal(blast?.transitiveDependentCount, 3);
     assert.deepEqual(blast?.dependentTests, ['tests/run.test.ts']);
-    assert.equal(repo.untestedFiles.some((fact) => fact.path === 'src/shared/util.ts'), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -270,7 +268,6 @@ test('Python package imports carry blast radius through a posthog-shaped repo', 
     const blast = repo.blastRadius.find((fact) => fact.path === 'posthog/models/user.py');
     assert.deepEqual(blast?.directDependents, ['posthog/api/user.py', 'posthog/models/__init__.py']);
     assert.deepEqual(blast?.dependentTests, ['posthog/api/test/test_user.py']);
-    assert.equal(repo.untestedFiles.some((fact) => fact.path === 'posthog/models/user.py'), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
