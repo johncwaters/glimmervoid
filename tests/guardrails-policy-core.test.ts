@@ -22,12 +22,13 @@ test('roles with a network policy produce a settings file the pinned sandbox run
   }
 });
 
-test('an ordinary Claude session is guarded unless it or a folder above it is marked unguarded, and is blocked only from credentials and Glimmervoid state', () => {
+test('an ordinary Claude or Kimi session is guarded unless it or a folder above it is marked unguarded, and is blocked only from credentials and Glimmervoid state', () => {
   const claudeSession = { usageVendor: 'claude', isMarkedUnguarded: false, sessionFolders: [path.resolve('/work/repo')], unguardedRepos: [] };
   assert.equal(isSessionGuarded(claudeSession), true);
   assert.equal(isSessionGuarded({ ...claudeSession, isMarkedUnguarded: true }), false);
   assert.equal(isSessionGuarded({ ...claudeSession, unguardedRepos: [path.resolve('/work')] }), false);
   assert.equal(isSessionGuarded({ ...claudeSession, unguardedRepos: [path.resolve('/work/other')] }), true);
+  assert.equal(isSessionGuarded({ ...claudeSession, usageVendor: 'kimi' }), true);
   assert.equal(isSessionGuarded({ ...claudeSession, usageVendor: 'codex' }), false);
   assert.equal(isSessionGuarded({ ...claudeSession, usageVendor: null }), false);
 
@@ -66,6 +67,20 @@ test('an ordinary Claude session is guarded unless it or a folder above it is ma
   assert.equal(strictPolicy.allowAppleEvents, false);
   assert.equal(strictPolicy.allowMachRegister, false);
   assert.equal(entryPaths(strictPolicy.filesystem.denyRead).includes(path.join(homeDir, 'Library/Keychains')), true);
+
+  const kimiHome = path.join(homeDir, '.kimi-code');
+  const generatedKimiHome = path.join(glimmervoidHome, 'agent-homes', 'kimi');
+  assert.equal(entryPaths(filesystem.denyRead).includes(kimiHome), true);
+  assert.equal(entryPaths(filesystem.denyRead).includes(generatedKimiHome), true);
+  const kimiRole = sessionRole({ ownVendor: 'kimi', writableRoots: [], readDenied: [], readablePaths: [], blockedPaths: [] });
+  assert.deepEqual(kimiRole.vendors, ['claude', 'codex', 'kimi']);
+  assert.deepEqual(sessionRole({ ownVendor: 'grok', writableRoots: [], readDenied: [], readablePaths: [], blockedPaths: [] }).vendors, ['claude', 'codex']);
+  const kimiFilesystem = planFor(kimiRole).policy.filesystem;
+  assert.equal(entryPaths(kimiFilesystem.allowWrite).includes(kimiHome), true);
+  assert.equal(entryPaths(kimiFilesystem.allowWrite).includes(generatedKimiHome), true);
+  assert.equal(entryPaths(kimiFilesystem.allowRead).includes(generatedKimiHome), true);
+  assert.equal(entryPaths(kimiFilesystem.denyRead).includes(glimmervoidHome), true);
+  assert.equal(entryPaths(kimiFilesystem.denyRead).includes(kimiHome), false);
 });
 
 test('vendor homes: a lane writes only its own transcript folder, session env folder and login, a session writes state but not config, other vendors stay unreadable', () => {
@@ -117,9 +132,9 @@ test('a relocated vendor home is unreadable to other roles and holds its own rol
   const relocatedPaths = {
     ...hostPaths,
     vendorLocations: {
-      claude: { stateFolder: claudeHome, configFiles: [path.join(claudeHome, '.claude.json')], otherHomes: [path.join(xdgConfigHome, 'claude')] },
-      codex: { stateFolder: codexHome, configFiles: [], otherHomes: [] },
-      kimi: { stateFolder: kimiHome, configFiles: [], otherHomes: [] },
+      claude: { stateFolder: claudeHome, configFiles: [path.join(claudeHome, '.claude.json')], otherHomes: [path.join(xdgConfigHome, 'claude')], generatedHomes: [] },
+      codex: { stateFolder: codexHome, configFiles: [], otherHomes: [], generatedHomes: [] },
+      kimi: { stateFolder: kimiHome, configFiles: [], otherHomes: [], generatedHomes: [] },
     },
     unwrappedVendorHomes: [grokHome],
     relocatedXdgConfigHome: xdgConfigHome,
@@ -143,6 +158,6 @@ test('a relocated vendor home is unreadable to other roles and holds its own rol
   }
   const relativeRelocation = { ...relocatedPaths, relocatedXdgConfigHome: 'relative-config' };
   assert.equal(buildGuardrailsLaunchPlan(checkRole, { ...relativeRelocation, existingPaths: new Set() }).ok, false);
-  const stateFolderOverHome = { ...relocatedPaths, vendorLocations: { ...relocatedPaths.vendorLocations, claude: { stateFolder: homeDir, configFiles: [], otherHomes: [] } } };
+  const stateFolderOverHome = { ...relocatedPaths, vendorLocations: { ...relocatedPaths.vendorLocations, claude: { stateFolder: homeDir, configFiles: [], otherHomes: [], generatedHomes: [] } } };
   assert.equal(buildGuardrailsLaunchPlan(role, { ...stateFolderOverHome, existingPaths: new Set() }).ok, false);
 });

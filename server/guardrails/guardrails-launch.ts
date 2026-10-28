@@ -15,6 +15,7 @@ import { buildGuardrailsLaunchPlan, GUARDRAILS_TEMP_FOLDER, lockedClaudeMountPoi
 import type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, GuardrailsRole } from './core/guardrails-policy-core.ts';
 import { codexHomes, grokHomes, projectDirCandidates } from '../usage/core/usage-scan-core.ts';
 import kimi from '../../session/adapters/kimi.ts';
+import { generatedKimiHomePath, kimiHomeLinkRefusal } from '../../session/kimi-home.ts';
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { relayPath, resolvePackageBin } from '../runtime-paths.ts';
 import { pruneAgedFiles } from '../prune-files.ts';
@@ -115,6 +116,12 @@ function scannedClaudeHomes(env: NodeJS.ProcessEnv, homeDir: string): string[] {
     .map((projectsDir) => path.dirname(projectsDir));
 }
 
+async function generatedKimiHomes(env: NodeJS.ProcessEnv, homeDir: string): Promise<string[]> {
+  const generatedHome = generatedKimiHomePath(env, homeDir);
+  if (kimiHomeLinkRefusal(generatedHome) !== null) return [];
+  return [await realPathWhenPresent(generatedHome)];
+}
+
 async function resolveVendorLocations(env: NodeJS.ProcessEnv, homeDir: string): Promise<GuardrailsHost['vendorLocations'] | null> {
   const [legacyClaudeConfigPath, claudeConfigPath] = listClaudeGlobalConfigPathCandidates(env, homeDir);
   const [codexStateFolder, ...otherCodexHomes] = codexHomes(env, homeDir);
@@ -124,9 +131,15 @@ async function resolveVendorLocations(env: NodeJS.ProcessEnv, homeDir: string): 
       stateFolder: await realPathWhenPresent(path.dirname(legacyClaudeConfigPath)),
       configFiles: [await realPathWhenPresent(claudeConfigPath)],
       otherHomes: await realPathsWhenPresent(scannedClaudeHomes(env, homeDir)),
+      generatedHomes: [],
     },
-    codex: { stateFolder: await realPathWhenPresent(codexStateFolder), configFiles: [], otherHomes: await realPathsWhenPresent(otherCodexHomes) },
-    kimi: { stateFolder: await realPathWhenPresent(path.dirname(kimi.configFilePath(env, homeDir))), configFiles: [], otherHomes: [] },
+    codex: { stateFolder: await realPathWhenPresent(codexStateFolder), configFiles: [], otherHomes: await realPathsWhenPresent(otherCodexHomes), generatedHomes: [] },
+    kimi: {
+      stateFolder: await realPathWhenPresent(path.dirname(kimi.configFilePath(env, homeDir))),
+      configFiles: [],
+      otherHomes: [],
+      generatedHomes: await generatedKimiHomes(env, homeDir),
+    },
   };
 }
 

@@ -40,7 +40,7 @@ test('a guarded session in a linked worktree cannot edit or commit in the main c
   const sessionGuardrails = createSessionGuardrails({
     getSettings: () => ({ blockedPaths: [], unreadablePaths: [] }), uploadsRoot: path.join(fixture, 'uploads'), readGithubToken: async () => null,
   });
-  const prepare = sessionGuardrails.prepareFor({ sessionId: 'main-checkout-proof', isWorkspace: false });
+  const prepare = sessionGuardrails.prepareFor({ sessionId: 'main-checkout-proof', isWorkspace: false, vendor: 'claude' });
   assert.ok(prepare);
   const prepared = await prepare({ launchId: 'main-checkout-proof', cwd: sessionWorktree, hookPort: null, readablePaths: [], writablePaths: [sessionWorktree], agentSessionId: null });
   assert.ok(prepared.ok, prepared.ok ? '' : prepared.reason);

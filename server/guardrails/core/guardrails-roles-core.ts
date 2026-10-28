@@ -22,6 +22,7 @@ interface WorkRoleFacts {
 }
 
 interface SessionRoleFacts {
+  ownVendor?: string | null;
   writableRoots: readonly string[];
   readDenied: readonly string[];
   readablePaths: readonly string[];
@@ -36,7 +37,7 @@ interface SessionGuardrailsFacts {
 }
 
 const SESSION_VENDORS: readonly GuardrailsRoleVendor[] = Object.freeze(['claude', 'codex']);
-const GUARDED_SESSION_VENDORS: readonly string[] = Object.freeze(['claude']);
+const GUARDED_SESSION_VENDORS: readonly GuardrailsRoleVendor[] = Object.freeze(['claude', 'kimi']);
 
 const LANE_CREDENTIAL_ENV: Readonly<Record<string, string>> = Object.freeze({
   SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0',
@@ -69,11 +70,12 @@ function workRole({ vendor, cwd, checkout, readablePaths, writablePaths = [], ag
   };
 }
 
-function sessionRole({ writableRoots, readDenied, readablePaths, blockedPaths }: SessionRoleFacts): GuardrailsRole {
+function sessionRole({ ownVendor = null, writableRoots, readDenied, readablePaths, blockedPaths }: SessionRoleFacts): GuardrailsRole {
+  const ownGuardedVendors = GUARDED_SESSION_VENDORS.filter((vendor) => vendor === ownVendor);
   return {
     guardrailLevel: 'standard',
     blockedPaths: [...blockedPaths],
-    vendors: SESSION_VENDORS,
+    vendors: [...new Set([...SESSION_VENDORS, ...ownGuardedVendors])],
     vendorHome: { scope: 'state' },
     network: { access: 'open' },
     writableRoots: [...new Set(writableRoots)],
@@ -111,7 +113,7 @@ function mainCheckoutWriteBlocks({ mainCheckout, commonGitDir, trackedPaths, kep
 }
 
 function isGuardedSessionVendor(usageVendor: string | null): boolean {
-  return usageVendor !== null && GUARDED_SESSION_VENDORS.includes(usageVendor);
+  return GUARDED_SESSION_VENDORS.some((vendor) => vendor === usageVendor);
 }
 
 function isSessionGuarded({ usageVendor, isMarkedUnguarded, sessionFolders, unguardedRepos }: SessionGuardrailsFacts): boolean {

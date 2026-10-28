@@ -31,6 +31,20 @@ function generatedKimiHomePath(env: KimiEnv = process.env, homeDir: string = os.
   return path.join(glimmervoidHomeDir(homeDir, env), "agent-homes", "kimi");
 }
 
+function kimiHomeLinkRefusal(generatedHome: string): string | null {
+  for (const folder of [path.dirname(generatedHome), generatedHome]) {
+    let folderStat: fs.Stats;
+    try {
+      folderStat = fs.lstatSync(folder);
+    } catch (error) {
+      if (isMissingFileError(error)) continue;
+      return `${folder} cannot be read: ${errorMessage(error)}`;
+    }
+    if (!folderStat.isDirectory()) return `${folder} is not a plain folder, so Glimmervoid will not build a kimi home through it`;
+  }
+  return null;
+}
+
 function listFolder(folder: string): fs.Dirent[] {
   try {
     return fs.readdirSync(folder, { withFileTypes: true });
@@ -370,5 +384,5 @@ function releaseUnheldKimiHomeSecrets(generatedHome: string): void {
   releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "keep" });
 }
 
-export { describeKimiHome, generatedKimiHomePath, holdKimiHome, inspectKimiHome, prepareKimiHome, realKimiHome, releaseKimiHome, releaseKimiHomeSecrets, releaseUnheldKimiHomeSecrets };
+export { describeKimiHome, generatedKimiHomePath, holdKimiHome, inspectKimiHome, kimiHomeLinkRefusal, prepareKimiHome, realKimiHome, releaseKimiHome, releaseKimiHomeSecrets, releaseUnheldKimiHomeSecrets };
 export type { KimiHomeOptions, KimiHomeReading };

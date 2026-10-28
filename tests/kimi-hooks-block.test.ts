@@ -180,3 +180,16 @@ test('a kimi spawn heals a file kimi replaced and adopts a private folder once t
     fs.chmodSync(path.join(realHome, 'cache'), 0o755);
   });
 });
+
+test('a kimi spawn refuses a generated home a session swapped for a symlink and writes nothing through it', () => {
+  withKimiHomes(({ env }) => {
+    const generatedHome = generatedKimiHomePath(env);
+    const swapTarget = path.join(path.dirname(env.GLIMMERVOID_HOME), 'swap-target');
+    fs.mkdirSync(swapTarget);
+    fs.mkdirSync(path.dirname(generatedHome), { recursive: true });
+    fs.symlinkSync(swapTarget, generatedHome);
+    const prepared = kimi.hooks.injection.kind === 'generated-home' ? kimi.hooks.injection.prepareHome(env) : null;
+    assert.ok(prepared && 'refusal' in prepared);
+    assert.deepEqual(fs.readdirSync(swapTarget), []);
+  });
+});

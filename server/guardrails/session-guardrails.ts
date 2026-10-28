@@ -23,6 +23,7 @@ interface SessionGuardrailsSettings {
 interface SessionGuardrailsRequest {
   sessionId: string;
   isWorkspace: boolean;
+  vendor: string | null;
 }
 
 interface SessionGuardrailsDependencies {
@@ -43,6 +44,7 @@ type SessionGuardrails = ReturnType<typeof createSessionGuardrails>;
 const UNWRAPPED_PLATFORM = 'win32';
 const GITHUB_TOKEN_TIMEOUT_MS = 5000;
 const MAIN_CHECKOUT_TREE_TIMEOUT_MS = 30_000;
+const CLAUDE_VENDOR = 'claude';
 const OPT_OUT_HINT = 'Mark the session or its repository unguarded to start it without guardrails.';
 
 async function readGithubCliToken(env: NodeJS.ProcessEnv): Promise<string | null> {
@@ -70,7 +72,7 @@ function createSessionGuardrails({
     }
   }
 
-  async function describeSessionAccess(facts: SessionGuardrailsFacts, { sessionId, isWorkspace }: SessionGuardrailsRequest): Promise<{ role: GuardrailsRole; cwd: string; trustFolder: string }> {
+  async function describeSessionAccess(facts: SessionGuardrailsFacts, { sessionId, isWorkspace, vendor }: SessionGuardrailsRequest): Promise<{ role: GuardrailsRole; cwd: string; trustFolder: string }> {
     const settings = getSettings();
     const sessionUploads = path.join(uploadsRoot, sessionId);
     await mkdir(sessionUploads, { recursive: true });
@@ -89,6 +91,7 @@ function createSessionGuardrails({
       cwd,
       trustFolder: ownRepositoryRoot ?? cwd,
       role: sessionRole({
+        ownVendor: vendor,
         writableRoots,
         readDenied: expandHome(settings.unreadablePaths).filter((unreadablePath) => path.isAbsolute(unreadablePath)),
         blockedPaths: [...expandedBlockedPaths.filter((blockedPath) => path.isAbsolute(blockedPath)), ...mainCheckoutBlocks],
@@ -111,7 +114,7 @@ function createSessionGuardrails({
         const { role, cwd, trustFolder } = await describeSessionAccess(facts, request);
         const prepared = await prepareGuardrails({ role, launchId: facts.launchId, keptTempFolderName: request.sessionId, enterDir: cwd });
         if (!prepared.ok) return { ok: false, reason: `${prepared.reason}. ${OPT_OUT_HINT}` };
-        await recordClaudeFolderTrust(trustFolder);
+        if (request.vendor === CLAUDE_VENDOR) await recordClaudeFolderTrust(trustFolder);
         const githubToken = await readGithubToken();
         if (githubToken === null) return prepared;
         return { ok: true, launch: { ...prepared.launch, env: { ...prepared.launch.env, GH_TOKEN: githubToken } } };

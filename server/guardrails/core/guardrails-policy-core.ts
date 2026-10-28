@@ -43,6 +43,7 @@ interface GuardrailsVendorLocation {
   stateFolder: string;
   configFiles: readonly string[];
   otherHomes: readonly string[];
+  generatedHomes: readonly string[];
 }
 
 interface GuardrailsHostPaths {
@@ -193,8 +194,8 @@ function vendorStatePaths(host: GuardrailsHostPaths, vendor: GuardrailsVendor, s
 }
 
 function vendorHeldPaths(host: GuardrailsHostPaths, vendor: GuardrailsVendor): string[] {
-  const { stateFolder, configFiles, otherHomes } = host.vendorLocations[vendor];
-  return [stateFolder, ...configFiles, ...otherHomes];
+  const { stateFolder, configFiles, otherHomes, generatedHomes } = host.vendorLocations[vendor];
+  return [stateFolder, ...configFiles, ...otherHomes, ...generatedHomes];
 }
 
 function launchHomeOf(host: GuardrailsHostPaths, vendor: GuardrailsVendor): string {
@@ -208,7 +209,7 @@ function vendorsWithLaunchHome(role: GuardrailsRole): GuardrailsVendor[] {
 
 function vendorWritableFolders(role: GuardrailsRole, host: GuardrailsHostPaths): string[] {
   const { vendorHome } = role;
-  if (vendorHome.scope === 'state') return role.vendors.map((vendor) => host.vendorLocations[vendor].stateFolder);
+  if (vendorHome.scope === 'state') return role.vendors.flatMap((vendor) => [host.vendorLocations[vendor].stateFolder, ...host.vendorLocations[vendor].generatedHomes]);
   return role.vendors.flatMap((vendor) => {
     const profile = VENDOR_PROFILES[vendor];
     if (profile.launchHomeEnvName !== null) return [launchHomeOf(host, vendor)];

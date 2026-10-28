@@ -74,8 +74,10 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
 
   function defaultGuardrailsFor(project: ProjectEntry, config: GlimmervoidConfig, overrides: SessionSpawnOverrides): SessionOptions['prepareGuardrails'] {
     if (!dependencies.sessionGuardrails) return null;
-    const isGuarded = willSessionRunGuarded({ ...project, agent: overrides.agent ?? project.agent }, config, dependencies.homeDir ?? null);
-    return isGuarded ? dependencies.sessionGuardrails.prepareFor({ sessionId: project.id, isWorkspace: Boolean(project.repos?.length) }) : null;
+    const agent = overrides.agent ?? project.agent;
+    const isGuarded = willSessionRunGuarded({ ...project, agent }, config, dependencies.homeDir ?? null);
+    if (!isGuarded) return null;
+    return dependencies.sessionGuardrails.prepareFor({ sessionId: project.id, isWorkspace: Boolean(project.repos?.length), vendor: getAdapter(agent)?.usageVendor ?? null });
   }
 
   function isReleasedOnlyByMark(project: ProjectEntry, config: GlimmervoidConfig, overrides: SessionSpawnOverrides): boolean {

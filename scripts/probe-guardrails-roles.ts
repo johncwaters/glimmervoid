@@ -741,7 +741,7 @@ async function probeSession(roleRoot: string): Promise<void> {
       getSettings: () => ({ blockedPaths: [listedBlockedFolder], unreadablePaths: [listedSecretFolder] }),
       uploadsRoot,
       readGithubToken: async () => null,
-    }).prepareFor({ sessionId, isWorkspace: false }),
+    }).prepareFor({ sessionId, isWorkspace: false, vendor: 'claude' }),
   });
   session.on('data', (chunk: string) => { terminalOutput += chunk; });
   const visibleTerminalText = () => terminalOutput.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\s/g, '');
