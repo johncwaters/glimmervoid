@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Desktop no longer downloads the phone layout**: the phone screens now download only when the dashboard is in the phone layout, at load or when you switch to it, so a desktop load moves about 4 KB less before the board appears. On a phone the screens appear once that download finishes.
+
 - **The open session comes back sooner after a reload**: the dashboard now connects to the terminal of the session you had open as soon as the page starts, instead of waiting for the list of sessions first. On a simulated 3G link a reload shows that session after about 2.1 seconds instead of 3.1. If that session is gone, the dashboard connects as before.
 
 - **Reloading the dashboard no longer rechecks its fonts**: the CommitMono font files now carry a content hash in their name, so the browser keeps them cached until an update changes them instead of asking the server about each one on every reload.

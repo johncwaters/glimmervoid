@@ -29,7 +29,7 @@ import { applyHooksReport, applyLateHookResult, setHooksRequestSender } from './
 import { showDesktopNotification } from './notifications.ts';
 import { clearHeaderError, clearHeaderErrorsForSession, reportHeaderError } from './action-status.ts';
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
-import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, orderPhonePanels, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession, syncPhoneHistory } from './phone/phone-shell.ts';
+import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, orderPhonePanels, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession, syncPhoneHistory } from './phone/phone-shell-gate.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from './github/team-review-store.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-store.ts';
@@ -1030,19 +1030,25 @@ function applyFormFactorLayout(layout: string) {
     const carriedSessionId = getFocusedSessionId();
     for (const viewTab of VIEW_TABS) mountedViewModule(viewTab.view)?.deactivate?.();
     const isSettingsLink = isSettingsHash(location.hash);
-    activatePhoneShell({
+    void activatePhoneShell({
       sessionId: carriedSessionId ?? undefined,
       linkedScreenId: isSettingsLink ? 'settings' : undefined,
+    }).then((isActivated) => {
+      if (isActivated && isSettingsLink) activateSettingsSection(null, null, location.hash);
+      if (!isActivated && isPhoneLayout() && !isPhoneShellActive()) restoreDesktopViews();
     });
-    if (isSettingsLink) activateSettingsSection(null, null, location.hash);
     return;
   }
   const carriedSessionId = getPhoneSessionId();
   deactivatePhoneShell();
-  const restoredView = getActiveView();
-  activateView(isViewAvailable(restoredView) ? restoredView : 'focus', { persist: shouldPersistActiveView });
+  restoreDesktopViews();
 
   if (carriedSessionId) centerSessionQuietly(carriedSessionId);
+}
+
+function restoreDesktopViews() {
+  const restoredView = getActiveView();
+  activateView(isViewAvailable(restoredView) ? restoredView : 'focus', { persist: shouldPersistActiveView });
 }
 
 if (isPhoneLayout()) applyFormFactorLayout('phone');
