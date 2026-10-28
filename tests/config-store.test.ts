@@ -363,6 +363,14 @@ test('a stable build reads experimental features as off and keeps their stored v
   }, { isExperimentalBuild: true });
 });
 
+test('a stable build saves a config that sets no experimental feature', () => {
+  withStore({ projects: [] }, (store) => {
+    const saved = store.save((config) => { config.debugMode = true; });
+    assert.equal(saved?.debugMode, true);
+    assert.equal(store.config.issues?.enabled ?? false, false);
+  }, { isExperimentalBuild: false });
+});
+
 test('settingsDefaults is never persisted and leaves other keys on DEFAULT_CONFIG', () => {
   withStore({ projects: [] }, (store, p) => {
     store.getSettings();

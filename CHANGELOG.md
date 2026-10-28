@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Settings save again on a new install**: in 0.46.0, a config file with only a few settings, as on a new install, refused every settings save, with a warning that config.json looked wiped. Saves now go through, and experimental features stay off on release builds as before.
+
 ## [0.46.0] - 2026-10-27
 
 ### Added

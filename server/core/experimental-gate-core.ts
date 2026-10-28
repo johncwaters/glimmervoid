@@ -7,12 +7,14 @@ const EXPERIMENTAL_MACHINE_SETTINGS: readonly SettingsSetting[] = settingsOf(SET
   .filter((setting) => setting.scope === 'machine' && isExperimentalSetting(setting));
 
 function replaceAtPath(target: object, [key, ...nestedKeys]: readonly string[], value: unknown): void {
+  if (!Reflect.has(target, key)) return;
   if (nestedKeys.length === 0) {
     Reflect.set(target, key, value);
     return;
   }
   const child: unknown = Reflect.get(target, key);
-  const copiedChild = isRecord(child) ? { ...child } : {};
+  if (!isRecord(child)) return;
+  const copiedChild = { ...child };
   Reflect.set(target, key, copiedChild);
   replaceAtPath(copiedChild, nestedKeys, value);
 }
