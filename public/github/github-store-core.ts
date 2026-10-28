@@ -1,6 +1,6 @@
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import type { GithubPr } from '#shared/contracts/github-prs.ts';
-import type { LinkedPr, MyPr, MyPrLaneEntry, MyPrStage } from '#shared/contracts/my-prs.ts';
+import type { LinkedPr, MyPr, MyPrLaneEntry, MyPrStage, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { DECIDING_REVIEW_STATES, decisionAsIfApprovalRequired, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
 import type { GithubReview, InFlightReview, QueuedReview, ReviewDraft, TeamReviewStatus, TeamReviewThread } from '#shared/contracts/team-review.ts';
 import { myPrFromGithubPr } from '#shared/my-pr-merge.ts';
@@ -105,6 +105,16 @@ export function stageLabel(stage: MyPrStage): string { return STAGE_LABELS[stage
 export function stageTone(stage: MyPrStage): StateTone { return STAGE_TONES[stage]; }
 
 export function stageIcon(stage: MyPrStage): PrStatusIcon { return STAGE_ICONS[stage]; }
+
+export function isKeepMergeableFeatureEnabled(status: MyPrsStatus | null): boolean {
+  return status?.isKeepMergeableEnabled !== false;
+}
+
+export function hasFailedKeepMergeableRepair(pr: Pick<MyPr, 'keepMergeable' | 'isKeepMergeableFixInFlight' | 'keepMergeableAttempt'>, isFeatureEnabled: boolean): boolean {
+  if (!isFeatureEnabled || !pr.keepMergeable || pr.isKeepMergeableFixInFlight) return false;
+  const outcome = pr.keepMergeableAttempt?.outcome;
+  return outcome !== undefined && outcome !== 'pushed' && outcome !== 'stopped';
+}
 
 export interface LiveSessionLinks { id: string; title: string; links: readonly Pick<LinkedPr, 'repo' | 'number'>[] }
 

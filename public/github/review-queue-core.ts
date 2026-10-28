@@ -3,24 +3,56 @@ import type { InFlightReview, QueuedReview, ReviewDraft } from '#shared/contract
 import { attentionSignature } from '../attention-ack-core.ts';
 import type { AttentionCounts, AttentionKind, AttentionTile } from '../focus-view/attention-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
+import type { StateTone } from '../state-tone-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
-import { classifyReviewPriority, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
+import { classifyReviewPriority, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './github-store-core.ts';
 
 type QueueGroupId = 'turn' | 'working' | 'waiting' | 'aside';
-export type QueueFilter = 'all' | 'reviewing' | 'mine';
+type QueueAction = 'fix' | 'review' | 'reply' | 'update' | 'merge';
 
 export type QueueItem =
-  | { source: 'team'; key: string; prKey: string; kind: QueueRowKind; review: ReviewDraft | InFlightReview | QueuedReview }
-  | { source: 'mine'; key: string; prKey: string; pr: MyPr; stackedOn: string | null };
+  | { source: 'team'; key: string; prKey: string; kind: QueueRowKind; review: ReviewDraft | InFlightReview | QueuedReview; action: QueueAction | null; attention: AttentionKind | null }
+  | { source: 'mine'; key: string; prKey: string; pr: MyPr; stackedOn: string | null; action: QueueAction | null; attention: AttentionKind | null };
 
 export interface QueueGroup { id: QueueGroupId; title: string; items: QueueItem[] }
 
-export const QUEUE_FILTERS: readonly { id: QueueFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'reviewing', label: 'Reviewing' },
-  { id: 'mine', label: 'Mine' },
-];
+interface QueueStateRow { state: string; group: QueueGroupId; kind: AttentionKind | null; action: QueueAction | null }
+
+const QUEUE_STATE_ORDER = [
+  { state: 'mine-repair-failed', group: 'turn', kind: 'failed', action: 'fix' },
+  { state: 'review-failed', group: 'turn', kind: 'failed', action: 'fix' },
+  { state: 'review-direct-ask', group: 'turn', kind: 'waiting', action: 'review' },
+  { state: 'review-ready', group: 'turn', kind: 'waiting', action: 'review' },
+  { state: 'review-stale', group: 'turn', kind: 'waiting', action: 'review' },
+  { state: 'review-follow-up', group: 'turn', kind: 'waiting', action: 'reply' },
+  { state: 'mine-changes-requested', group: 'turn', kind: 'waiting', action: 'reply' },
+  { state: 'mine-unresolved-threads', group: 'turn', kind: 'waiting', action: 'reply' },
+  { state: 'mine-behind', group: 'turn', kind: 'waiting', action: 'update' },
+  { state: 'mine-checks-failing', group: 'turn', kind: 'waiting', action: 'update' },
+  { state: 'mine-conflicts', group: 'turn', kind: 'waiting', action: 'update' },
+  { state: 'mine-ready', group: 'turn', kind: 'finished', action: 'merge' },
+  { state: 'mine-repairing', group: 'working', kind: null, action: null },
+  { state: 'mine-agent-fixing', group: 'working', kind: null, action: null },
+  { state: 'review-in-flight', group: 'working', kind: null, action: null },
+  { state: 'review-queued', group: 'working', kind: null, action: null },
+  { state: 'review-settled', group: 'waiting', kind: null, action: null },
+  { state: 'review-posted', group: 'waiting', kind: null, action: null },
+  { state: 'mine-checks-pending', group: 'waiting', kind: null, action: null },
+  { state: 'mine-needs-approval', group: 'waiting', kind: null, action: null },
+  { state: 'mine-unknown', group: 'waiting', kind: null, action: null },
+  { state: 'review-discarded', group: 'aside', kind: null, action: null },
+  { state: 'mine-draft', group: 'aside', kind: null, action: null },
+  { state: 'mine-merged', group: 'aside', kind: null, action: null },
+] as const satisfies readonly QueueStateRow[];
+
+type QueueState = typeof QUEUE_STATE_ORDER[number]['state'];
+
+const QUEUE_STATE_ROWS: ReadonlyMap<QueueState, QueueStateRow & { rank: number }> = new Map(QUEUE_STATE_ORDER.map((row, rank) => [row.state, { ...row, rank }]));
+
+export const QUEUE_ACTION_LABELS: Readonly<Record<QueueAction, string>> = { fix: 'Fix', review: 'Review', reply: 'Reply', update: 'Update', merge: 'Merge' };
+
+export const QUEUE_ACTION_TONES: Readonly<Record<QueueAction, StateTone>> = { fix: 'danger', review: 'wait', reply: 'warn', update: 'muted', merge: 'ok' };
 
 const GROUP_TITLES: Readonly<Record<QueueGroupId, string>> = {
   turn: 'Your turn', working: 'Agent working', waiting: 'Waiting on others', aside: 'Set aside',
@@ -28,65 +60,71 @@ const GROUP_TITLES: Readonly<Record<QueueGroupId, string>> = {
 
 const GROUP_ORDER: readonly QueueGroupId[] = ['turn', 'working', 'waiting', 'aside'];
 
-const MINE_GROUP_BY_STAGE: Readonly<Record<MyPrStage, QueueGroupId>> = {
-  conflicts: 'turn', behind: 'turn', 'checks-failing': 'turn', 'changes-requested': 'turn', 'unresolved-threads': 'turn', ready: 'turn',
-  'checks-pending': 'waiting', 'needs-approval': 'waiting', unknown: 'waiting',
-  draft: 'aside', merged: 'aside',
+const MINE_STATE_BY_STAGE: Readonly<Record<MyPrStage, QueueState>> = {
+  conflicts: 'mine-conflicts', behind: 'mine-behind', 'checks-failing': 'mine-checks-failing', 'changes-requested': 'mine-changes-requested',
+  'unresolved-threads': 'mine-unresolved-threads', ready: 'mine-ready',
+  'checks-pending': 'mine-checks-pending', 'needs-approval': 'mine-needs-approval', unknown: 'mine-unknown',
+  draft: 'mine-draft', merged: 'mine-merged',
 };
 
-const TURN_RANK = { directAsk: 0, followUp: 1, mineNeedsYou: 2, teamReady: 3, mineReady: 4, failedReview: 5, staleReview: 6 } as const;
+const TEAM_STATE_BY_KIND: Readonly<Record<Exclude<QueueRowKind, 'ready' | 'attention'>, QueueState>> = {
+  settled: 'review-settled', inReview: 'review-in-flight', queued: 'review-queued', posted: 'review-posted', discarded: 'review-discarded',
+};
 
-interface RankedItem { item: QueueItem; group: QueueGroupId; turnRank: number }
+interface StatedItem { item: QueueItem; row: QueueStateRow & { rank: number }; openedAtMs: number }
 
-function teamItem(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): QueueItem {
-  return { source: 'team', key: `team:${review.key}`, prKey: comparablePrKey(review), kind, review };
+function readyReviewState(draft: ReviewDraft): QueueState {
+  if (draft.status !== 'ready') return 'review-follow-up';
+  if (classifyReviewPriority(draft).band === 'blocking-others') return 'review-direct-ask';
+  return 'review-ready';
 }
 
-function readyTurnRank(draft: ReviewDraft): number {
-  if (draft.status !== 'ready') return TURN_RANK.followUp;
-  if (classifyReviewPriority(draft).band === 'blocking-others') return TURN_RANK.directAsk;
-  return TURN_RANK.teamReady;
+function teamState(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): QueueState {
+  if (kind === 'ready') return readyReviewState(review as ReviewDraft);
+  if (kind === 'attention') return 'status' in review && review.status === 'error' ? 'review-failed' : 'review-stale';
+  return TEAM_STATE_BY_KIND[kind];
 }
 
-function teamItems(sections: TeamReviewSections): RankedItem[] {
-  return [
-    ...sections.ready.map((draft) => ({ item: teamItem(draft, 'ready'), group: 'turn' as const, turnRank: readyTurnRank(draft) })),
-    ...sections.attention.map((draft) => ({ item: teamItem(draft, 'attention'), group: 'turn' as const, turnRank: draft.status === 'error' ? TURN_RANK.failedReview : TURN_RANK.staleReview })),
-    ...sections.inReview.map((review) => ({ item: teamItem(review, 'inReview'), group: 'working' as const, turnRank: 0 })),
-    ...sections.queued.map((review) => ({ item: teamItem(review, 'queued'), group: 'working' as const, turnRank: 0 })),
-    ...sections.noReviewNeeded.map((draft) => ({ item: teamItem(draft, 'settled'), group: 'waiting' as const, turnRank: 0 })),
-    ...sections.posted.map((draft) => ({ item: teamItem(draft, 'posted'), group: 'waiting' as const, turnRank: 0 })),
-    ...sections.discarded.map((draft) => ({ item: teamItem(draft, 'discarded'), group: 'aside' as const, turnRank: 0 })),
+function mineState(pr: MyPr, sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): QueueState {
+  const isOpen = pr.state === 'OPEN';
+  if (isOpen && hasFailedKeepMergeableRepair(pr, isKeepMergeableEnabled)) return 'mine-repair-failed';
+  if (isOpen && isKeepMergeableEnabled && pr.keepMergeable && pr.isKeepMergeableFixInFlight) return 'mine-repairing';
+  const stageState = MINE_STATE_BY_STAGE[pr.stage];
+  const isSessionFixing = QUEUE_STATE_ROWS.get(stageState)?.group === 'turn' && pr.stage !== 'ready' && sessionPrKeys.has(comparablePrKey(pr));
+  return isSessionFixing ? 'mine-agent-fixing' : stageState;
+}
+
+function statedItem(state: QueueState, openedAt: string | undefined, toItem: (row: QueueStateRow) => QueueItem): StatedItem[] {
+  const row = QUEUE_STATE_ROWS.get(state);
+  if (!row) return [];
+  const openedAtMs = openedAt ? Date.parse(openedAt) : Number.NaN;
+  return [{ item: toItem(row), row, openedAtMs: Number.isNaN(openedAtMs) ? Number.POSITIVE_INFINITY : openedAtMs }];
+}
+
+function teamItems(sections: TeamReviewSections): StatedItem[] {
+  const entries: [QueueRowKind, readonly (ReviewDraft | InFlightReview | QueuedReview)[]][] = [
+    ['ready', sections.ready], ['attention', sections.attention], ['inReview', sections.inReview], ['queued', sections.queued],
+    ['settled', sections.noReviewNeeded], ['posted', sections.posted], ['discarded', sections.discarded],
   ];
+  return entries.flatMap(([kind, reviews]) => reviews.flatMap((review) => statedItem(teamState(review, kind), review.prCreatedAt, ({ action, kind: attention }) => (
+    { source: 'team', key: `team:${review.key}`, prKey: comparablePrKey(review), kind, review, action, attention }
+  ))));
 }
 
-function mineGroup(pr: MyPr, sessionPrKeys: ReadonlySet<string>): QueueGroupId {
-  const group = MINE_GROUP_BY_STAGE[pr.stage];
-  const isSessionFixing = group === 'turn' && pr.stage !== 'ready' && sessionPrKeys.has(comparablePrKey(pr));
-  return isSessionFixing ? 'working' : group;
+function mineItems(prs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): StatedItem[] {
+  return sectionStackedMyPrs(prs).flatMap((section) => section.rows).flatMap(({ pr, parentKey }) => statedItem(mineState(pr, sessionPrKeys, isKeepMergeableEnabled), pr.createdAt, ({ action, kind: attention }) => (
+    { source: 'mine', key: `mine:${pr.key}`, prKey: comparablePrKey(pr), pr, stackedOn: parentKey, action, attention }
+  )));
 }
 
-function mineItems(prs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>): RankedItem[] {
-  return sectionStackedMyPrs(prs).flatMap((section) => section.rows).map(({ pr, parentKey }) => ({
-    item: { source: 'mine' as const, key: `mine:${pr.key}`, prKey: comparablePrKey(pr), pr, stackedOn: parentKey },
-    group: mineGroup(pr, sessionPrKeys),
-    turnRank: pr.stage === 'ready' ? TURN_RANK.mineReady : TURN_RANK.mineNeedsYou,
-  }));
+function compareStatedItems(first: StatedItem, second: StatedItem): number {
+  return first.row.rank - second.row.rank || first.openedAtMs - second.openedAtMs;
 }
 
-export function buildReviewQueue(sections: TeamReviewSections, myPrs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>): QueueGroup[] {
-  const rankedItems = [...teamItems(sections), ...mineItems(myPrs, sessionPrKeys)];
-  return GROUP_ORDER.map((id) => {
-    const groupItems = rankedItems.filter((ranked) => ranked.group === id);
-    const orderedItems = id === 'turn' ? groupItems.toSorted((first, second) => first.turnRank - second.turnRank) : groupItems;
-    return { id, title: GROUP_TITLES[id], items: orderedItems.map((ranked) => ranked.item) };
-  });
-}
-
-export function filterQueue(groups: readonly QueueGroup[], filter: QueueFilter): QueueGroup[] {
-  if (filter === 'all') return [...groups];
-  const source = filter === 'reviewing' ? 'team' : 'mine';
-  return groups.map((group) => ({ ...group, items: group.items.filter((item) => item.source === source) }));
+export function buildReviewQueue(sections: TeamReviewSections, myPrs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): QueueGroup[] {
+  const itemsByGroup = new Map<QueueGroupId, StatedItem[]>(GROUP_ORDER.map((id) => [id, []]));
+  for (const stated of [...teamItems(sections), ...mineItems(myPrs, sessionPrKeys, isKeepMergeableEnabled)]) itemsByGroup.get(stated.row.group)?.push(stated);
+  return GROUP_ORDER.map((id) => ({ id, title: GROUP_TITLES[id], items: (itemsByGroup.get(id) ?? []).toSorted(compareStatedItems).map((stated) => stated.item) }));
 }
 
 export function turnItems(groups: readonly QueueGroup[]): QueueItem[] {
@@ -108,14 +146,8 @@ function itemLabel(item: QueueItem): string {
   return pullRequestLabel(item.review.repo, item.review.number);
 }
 
-function tileKind(item: QueueItem): AttentionKind {
-  if (item.source === 'team') return item.kind === 'attention' && 'status' in item.review && item.review.status === 'error' ? 'failed' : 'waiting';
-  if (item.pr.stage === 'ready') return 'finished';
-  return item.pr.stage === 'checks-failing' || item.pr.stage === 'conflicts' ? 'failed' : 'waiting';
-}
-
 export function attentionTilesOf(groups: readonly QueueGroup[]): AttentionTile[] {
-  return turnItems(groups).map((item) => ({ id: item.key, kind: tileKind(item), name: itemLabel(item) }));
+  return turnItems(groups).map((item) => ({ id: item.key, kind: item.attention ?? 'waiting', name: itemLabel(item) }));
 }
 
 export function attentionCountsOf(tiles: readonly AttentionTile[]): AttentionCounts {

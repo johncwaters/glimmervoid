@@ -1,5 +1,6 @@
 import { attentionSignature } from '../attention-ack-core.ts';
 import { getPrsAttentionAck, getPrsUnseenRows, setPrsAttentionAck, setPrsUnseenRows } from '../ui-prefs.ts';
+import { isKeepMergeableFeatureEnabled } from './github-store-core.ts';
 import { myPrsSnapshot, subscribeMyPrs } from './my-prs-store.ts';
 import { bannerTilesOf, buildReviewQueue, decideTurnAttention, turnActivityEntries } from './review-queue-core.ts';
 import type { QueueGroup } from './review-queue-core.ts';
@@ -73,8 +74,8 @@ export function attachReviewQueueView(view: AttachedReviewQueueView): void {
 }
 
 export function rebuildReviewQueue(): QueueGroup[] {
-  const { prs, sessionsByPrKey } = myPrsSnapshot();
-  groups = buildReviewQueue(teamReviewSections(), prs, new Set(sessionsByPrKey.keys()));
+  const { prs, sessionsByPrKey, status } = myPrsSnapshot();
+  groups = buildReviewQueue(teamReviewSections(), prs, new Set(sessionsByPrKey.keys()), isKeepMergeableFeatureEnabled(status));
   refreshActivity();
   return groups;
 }

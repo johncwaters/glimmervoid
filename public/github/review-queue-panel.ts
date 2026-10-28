@@ -9,12 +9,11 @@ import { myPrsSnapshot } from './my-prs-store.ts';
 import type { LinkedLiveSession } from './my-prs-view-core.ts';
 import { emptyStateText as myPrsEmptyStateText, queueNotices as myPrsQueueNotices } from './my-prs-view-core.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
-import { createPrScopeTabs } from './pr-scope-tabs.ts';
 import {
-  QUEUE_FILTERS, attentionCountsOf, attentionTilesOf, bannerTilesOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, filterQueue, nextTurnKey,
+  QUEUE_ACTION_LABELS, QUEUE_ACTION_TONES, attentionCountsOf, attentionTilesOf, bannerTilesOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
   queueItemActivityEntry, queueItemByKey, reviewKeyActionOf, spansMultipleRepos, steppedRowKey, turnItems, turnPositionText,
 } from './review-queue-core.ts';
-import type { QueueFilter, QueueGroup, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
+import type { QueueGroup, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
 import {
   attachReviewQueueView, isQueueEntryUnseen, jumpToNextReview, markQueueEntrySeen, rebuildReviewQueue, returnToReviewQueue, reviewQueueNavigation, reviewQueueUnseenSignature, setReviewDetailScreenOpen,
   subscribeReviewQueue, takePendingReveal,
@@ -34,10 +33,8 @@ let turnPosition: HTMLElement | null = null;
 let teamChipSlot: HTMLElement | null = null;
 let teamDetail: HTMLElement | null = null;
 let mineDetail: HTMLElement | null = null;
-let filterTabs: ReturnType<typeof createPrScopeTabs<QueueFilter>> | null = null;
 let pollingControls: ReturnType<typeof createGithubPollingControls> | null = null;
 let currentGroups: QueueGroup[] = [];
-let filter: QueueFilter = 'all';
 let selectedKey: string | null = null;
 let shownKey: string | null | undefined;
 let isCaughtUp = false;
@@ -128,10 +125,6 @@ function paintBanner(): void {
 function revealItem(key: string): void {
   const item = queueItemByKey(currentGroups, key);
   if (!item) return;
-  if (!queueItemByKey(filterQueue(currentGroups, filter), key)) {
-    filter = 'all';
-    filterTabs?.select(filter);
-  }
   if (currentGroups.find((group) => group.items.includes(item))?.id === 'aside') isSetAsideOpen = true;
   selectedKey = key;
   render();
@@ -203,6 +196,11 @@ function createItemRow(item: QueueItem, isTurn: boolean, hasMultipleRepos: boole
   row.dataset.queueKey = item.key;
   row.setAttribute('aria-current', String(item.key === selectedKey));
   if (item.key === justActedKey) row.dataset.justActed = 'true';
+  if (item.action) {
+    const actionLabel = el('span', 'review-queue-action', QUEUE_ACTION_LABELS[item.action]);
+    actionLabel.dataset.tone = QUEUE_ACTION_TONES[item.action];
+    row.querySelector('.pr-queue-top')?.prepend(actionLabel);
+  }
   const entry = queueItemActivityEntry(item);
   if (isTurn && isQueueEntryUnseen(entry)) {
     const activity = el('span', 'tab-activity active pr-queue-unseen');
@@ -253,8 +251,6 @@ function queueNoticeElements(): HTMLElement[] {
 }
 
 function emptyQueueElements(): HTMLElement[] {
-  const hasAnyItem = currentGroups.some((group) => group.items.length > 0);
-  if (hasAnyItem) return [el('p', 'pr-empty', 'No pull requests match this filter.')];
   return [teamReviewEmptyState(), el('p', 'pr-empty', myPrsEmptyStateText(myPrsSnapshot().status))];
 }
 
@@ -270,8 +266,8 @@ function syncTeamChip(): void {
   teamChipSlot.replaceChildren(chip);
 }
 
-function rowsSignature(visibleGroups: readonly QueueGroup[], sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): string {
-  return JSON.stringify([visibleGroups, [...sessionsByPrKey], selectedKey, filter, isSetAsideOpen, reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
+function rowsSignature(groups: readonly QueueGroup[], sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): string {
+  return JSON.stringify([groups, [...sessionsByPrKey], selectedKey, isSetAsideOpen, reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
 }
 
 function render(): void {
@@ -280,17 +276,16 @@ function render(): void {
   currentGroups = rebuildReviewQueue();
   syncTeamChip();
   pollingControls?.update(combinedPollingStatus([teamReviewStatusView(), myPrsStatus]));
-  const visibleGroups = filterQueue(currentGroups, filter);
-  if (!isCaughtUp) selectedKey = chooseQueueSelection(visibleGroups, selectedKey);
+  if (!isCaughtUp) selectedKey = chooseQueueSelection(currentGroups, selectedKey);
   paintBanner();
-  const signature = rowsSignature(visibleGroups, sessionsByPrKey);
+  const signature = rowsSignature(currentGroups, sessionsByPrKey);
   if (signature !== renderedSignature) {
     renderedSignature = signature;
     const focusedKey = document.activeElement instanceof HTMLElement && queueElement.contains(document.activeElement) ? document.activeElement.dataset.queueKey : undefined;
     resetTeamQueueTickers();
     rowsByKey.clear();
     const hasMultipleRepos = spansMultipleRepos(currentGroups);
-    const sections = visibleGroups.filter((group) => group.items.length > 0).map((group) => createGroupSection(group, hasMultipleRepos, sessionsByPrKey));
+    const sections = currentGroups.filter((group) => group.items.length > 0).map((group) => createGroupSection(group, hasMultipleRepos, sessionsByPrKey));
     queueElement.replaceChildren(...queueNoticeElements(), ...(sections.length > 0 ? sections : emptyQueueElements()));
     if (focusedKey) rowsByKey.get(focusedKey)?.focus({ preventScroll: true });
     refreshTeamReviewAges();
@@ -325,14 +320,7 @@ function mountReviewQueue(parent: HTMLElement): void {
   const queueNavigation = reviewQueueNavigation() ?? undefined;
   root = el('div', 'pr-content review-queue');
   parent.append(root);
-  filterTabs = createPrScopeTabs({
-    label: 'Show reviews', scopes: QUEUE_FILTERS, selected: filter,
-    onSelect: (scope) => {
-      filter = scope;
-      render();
-    },
-  });
-  const shell = createPrQueueColumns({ queueLabel: 'Review queue', scopeTabs: filterTabs.element, resizerLabel: 'Resize review queue' });
+  const shell = createPrQueueColumns({ queueLabel: 'Review queue', scopeTabs: null, resizerLabel: 'Resize review queue' });
   queueElement = shell.queue;
   detailHost = el('div', 'review-queue-detail');
   const phoneBar = el('div', 'review-queue-phone-bar');

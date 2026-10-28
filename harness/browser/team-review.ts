@@ -202,7 +202,6 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     await emitTeamReviewFrames(page, [frameFor({ ...pr, commentCount: pr.commentCount + 1 })]);
     assert.equal(await unchangedTeamRow.evaluate((row) => row.isConnected), true);
     await showQueue(page);
-    await root.getByRole('tab', { name: 'Mine', exact: true }).click();
     assert.equal(await mineRow.locator('.my-pr-stage').first().textContent(), stage);
     assert.equal(await mineRow.locator('.pr-queue-glyph').innerHTML(), teamGlyph);
     if (layout === 'phone') await page.getByRole('button', { name: 'Focus', exact: true }).click();
@@ -217,7 +216,6 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     assert.equal(await chip.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML), teamIcon);
     await openReviewsView(page, layout);
     await showQueue(page);
-    await root.getByRole('tab', { name: 'All', exact: true }).click();
   }
   await showQueue(page);
   await teamRow.click();
@@ -239,7 +237,7 @@ async function verifyPhoneDetailScreen(page: Page, status: TeamReviewStatus): Pr
   await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').click();
   assert.equal(await root.getAttribute('data-detail-open'), 'true');
   assert.equal(await pane.isVisible(), false);
-  assert.match(await root.locator('.review-queue-position').textContent() ?? '', /^1 of \d+ in Your turn$/);
+  assert.match(await root.locator('.review-queue-position').textContent() ?? '', /^2 of \d+ in Your turn$/);
   const barBox = await root.locator('.pr-decision-bar').boundingBox();
   const navBox = await page.locator('.phone-nav').boundingBox();
   assert.ok(barBox && navBox && barBox.y + barBox.height <= navBox.y + 1);
@@ -723,10 +721,10 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   await verifyRows(page);
   await verifyLayout(page);
   if (layout === 'desktop') {
-    assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').getAttribute('aria-current'), 'true');
+    assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#5"]').getAttribute('aria-current'), 'true');
     const dashboardModifier = shortcutPlatformFor(await page.evaluate(() => navigator.userAgent)) === 'mac' ? 'Meta' : 'Alt';
     await page.keyboard.press(`${dashboardModifier}+KeyJ`);
-    assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#2"]').getAttribute('aria-current'), 'true');
+    assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').getAttribute('aria-current'), 'true');
     assert.equal(await page.evaluate(() => document.body.dataset.activeView), 'prs');
   }
   if (layout === 'desktop') {

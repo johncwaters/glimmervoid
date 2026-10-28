@@ -19,7 +19,6 @@ export async function showQueue(page: Page): Promise<void> {
 
 export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
   await showQueue(page);
-  await page.locator('.review-queue').getByRole('tab', { name: 'Mine', exact: true }).click();
   const timestamp = Date.now();
   const canonicalPr = GithubPr.parse({
     key: 'acme/app#1322', id: 'PR_browser', repo: 'Acme/app', number: 1322, title: 'Repair merge conflicts', url: 'https://github.com/Acme/app/pull/1322',
@@ -150,7 +149,7 @@ async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus, initialP
     await row.locator('.my-pr-stage').first().filter({ hasText: expectedStage }).waitFor();
     assert.equal(await row.locator('.pr-queue-title').textContent(), canonicalPr.title);
     assert.equal(await row.getAttribute('title'), `Acme/app#1322: ${expectedStage}`);
-    assert.equal(await panel.locator('.pr-queue-row').count(), 1);
+    assert.equal(await panel.locator('.pr-queue-row[data-pr-key]').count(), 1);
     assert.equal(await panel.locator('.my-pr-automation .pr-action', { hasText: 'Keep mergeable' }).getAttribute('aria-pressed'), 'true');
     const isPhone = await page.locator('html').getAttribute('data-layout') === 'phone';
     if (isPhone) await page.getByRole('button', { name: 'Focus', exact: true }).click();

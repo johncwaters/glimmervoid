@@ -8,7 +8,7 @@ const QUEUE_KEY_STEP_PX = 16;
 
 interface PrQueueColumnsOptions {
   queueLabel: string;
-  scopeTabs: HTMLElement;
+  scopeTabs: HTMLElement | null;
   resizerLabel: string;
 }
 

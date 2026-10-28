@@ -1,11 +1,12 @@
 import { githubPollingErrorNotice } from './github-polling-retry-core.ts';
+import { hasFailedKeepMergeableRepair } from './github-store-core.ts';
 import { MyPrMergeResult } from '#shared/contracts/my-prs.ts';
 import { mergeMethodLabel, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
 import type { MyPr, MyPrMergeKind, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 
-export { stageIcon, stageLabel, stageTone } from './github-store-core.ts';
+export { isKeepMergeableFeatureEnabled, stageIcon, stageLabel, stageTone } from './github-store-core.ts';
 export type { LinkedLiveSession, MergeCelebrationText } from './github-store-core.ts';
 
 interface ThreadRow {
@@ -32,8 +33,7 @@ export function keepMergeableRowLabel(pr: MyPr, isFeatureEnabled: boolean, attem
   if (!isFeatureEnabled || !pr.keepMergeable) return null;
   const title = keepMergeableControlState(pr, false, '', true, attemptAgeText).statusText;
   if (pr.isKeepMergeableFixInFlight) return { text: 'Repairing', tone: 'warn', title };
-  const attempt = pr.keepMergeableAttempt;
-  if (!attempt || attempt.outcome === 'pushed' || attempt.outcome === 'stopped') return null;
+  if (!hasFailedKeepMergeableRepair(pr, isFeatureEnabled)) return null;
   return { text: 'Repair failed', tone: 'danger', title };
 }
 
@@ -46,10 +46,6 @@ export function keepMergeableControlState(pr: MyPr, isPending: boolean, errorTex
   }
   if (pr.isKeepMergeableFixInFlight) settledText = 'Keep mergeable is running';
   return toggleControlState(pr, !!pr.keepMergeable, isPending, errorText, settledText, isFeatureEnabled);
-}
-
-export function isKeepMergeableFeatureEnabled(status: MyPrsStatusType | null): boolean {
-  return status?.isKeepMergeableEnabled !== false;
 }
 
 export function isMergeQueueFeatureEnabled(status: MyPrsStatusType | null): boolean {

@@ -247,3 +247,10 @@ html[data-layout="phone"] .pr-body-input { font-size: 16px; }
 html[data-layout="phone"] .pr-progress-tracker { gap: 6px; }
 html[data-layout="phone"] .pr-progress-stage { font-size: 11px; }
 html[data-layout="phone"] .pr-step { grid-template-columns: 5ch 8ch minmax(0, 1fr); gap: 6px; } }
+
+.review-queue-action { flex: none; min-width: 6ch; font-size: 11px; font-weight: 700; }
+.review-queue-action[data-tone="danger"] { color: var(--state-failed); }
+.review-queue-action[data-tone="warn"] { color: var(--state-waiting); }
+.review-queue-action[data-tone="wait"] { color: var(--text-dim); }
+.review-queue-action[data-tone="ok"] { color: var(--state-complete); }
+.review-queue-action[data-tone="muted"] { color: var(--text-muted); }
