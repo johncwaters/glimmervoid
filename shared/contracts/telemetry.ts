@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { BUILTIN_AGENT_IDS } from './config.ts';
-import { DASHBOARD_VIEWS, ONBOARDING_STEP_STATES, ONBOARDING_STEPS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES } from './control-messages.ts';
+import { DASHBOARD_VIEWS, ONBOARDING_STEP_STATES, ONBOARDING_STEPS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES, TELEMETRY_TEXT_MAX_CHARS } from './control-messages.ts';
 import type { OperatorAction, OperatorSurface } from './control-messages.ts';
 
 const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
@@ -18,7 +18,7 @@ const RADAR_HANDOFF_STEPS = Object.freeze(['read-diff', 'count-commits', 'push-b
 const OPERATOR_ACTIONS = Object.freeze([...new Set(Object.values(OPERATOR_ACTIONS_BY_SURFACE).flat())] as [OperatorAction, ...OperatorAction[]]);
 
 export const MAX_EXCEPTION_FRAMES = 64;
-export const MAX_TEXT_LENGTH = 512;
+export const MAX_TEXT_LENGTH = TELEMETRY_TEXT_MAX_CHARS;
 export const MAX_AI_PROVIDER_LENGTH = 64;
 export const MAX_AI_MODEL_LENGTH = 128;
 
@@ -67,6 +67,11 @@ const OperatorActionProperties = z.object({
   action: z.enum(OPERATOR_ACTIONS),
 }).strict().refine(isActionOfSurface, { message: 'action does not belong to its surface' });
 
+const HeaderErrorShownProperties = z.object({
+  source: boundedText,
+  message: boundedText,
+}).strict();
+
 const OnboardingStepProperties = z.object({
   step: z.enum(ONBOARDING_STEPS),
   state: z.enum(ONBOARDING_STEP_STATES),
@@ -102,6 +107,7 @@ export const DashboardTelemetryReport = z.discriminatedUnion('event', [
   z.object({ event: z.literal('view_shown'), properties: ViewShownProperties }),
   z.object({ event: z.literal('operator_action'), properties: OperatorActionProperties }),
   z.object({ event: z.literal('onboarding_step'), properties: OnboardingStepProperties }),
+  z.object({ event: z.literal('header_error_shown'), properties: HeaderErrorShownProperties }),
 ]);
 
 export const ExceptionFrame = z.object({
@@ -152,6 +158,7 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   view_shown: ViewShownProperties,
   operator_action: OperatorActionProperties,
   onboarding_step: OnboardingStepProperties,
+  header_error_shown: HeaderErrorShownProperties,
   team_review_drafted: TeamReviewDraftedProperties,
   team_review_settled: TeamReviewSettledProperties,
   team_review_post_refused: TeamReviewPostRefusedProperties,
@@ -173,6 +180,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'view_shown', description: 'A dashboard tab opened, on desktop or phone, with which tab. Sent on every open.' },
   { name: 'operator_action', description: 'An action taken in the Usage, Issues, Radar or Reviews tab or the first-run checklist: which tab and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on.' },
   { name: 'onboarding_step', description: 'The first-run checklist moved a step to current or done, with which step. Sent once per change while the page is open.' },
+  { name: 'header_error_shown', description: 'An error the dashboard showed in its header line: which part of the dashboard raised it and the message text, cut to 512 characters, with your home folder shown as ~. The message can name a session, folder or branch. Each distinct message is sent once per page load.' },
   { name: 'team_review_drafted', description: 'A team review draft became ready, with how many inline comments it drafted.' },
   { name: 'team_review_settled', description: 'A team review draft was posted (approve, comment or approve-only) or discarded, with how many inline comments were drafted and how many were posted, plus the total action duration in milliseconds.' },
   { name: 'team_review_post_refused', description: 'Posting a team review was refused, with a reason from a fixed list and the total action duration in milliseconds. Never the error text.' },

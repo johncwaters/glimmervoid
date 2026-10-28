@@ -184,13 +184,14 @@ export type ClientErrorReport = z.infer<typeof ClientErrorReport>;
 
 export const CLIENT_LOG_SCOPE_MAX_CHARS = 64;
 export const CLIENT_LOG_TEXT_MAX_CHARS = 1000;
+export const TELEMETRY_TEXT_MAX_CHARS = 512;
 
 const ClientLogReport = z.object({
   scope: z.string().min(1).max(CLIENT_LOG_SCOPE_MAX_CHARS),
   text: z.string().min(1).max(CLIENT_LOG_TEXT_MAX_CHARS),
 }).strict();
 
-const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step'] as const);
+const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'header_error_shown'] as const);
 export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'issues', 'usage', 'radar', 'visions', 'hooks', 'trace', 'benchmarks', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],

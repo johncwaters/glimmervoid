@@ -1,4 +1,4 @@
-import { CLIENT_ERROR_NAME_MAX_CHARS, CLIENT_ERROR_STACK_MAX_CHARS, CLIENT_LOG_SCOPE_MAX_CHARS, CLIENT_LOG_TEXT_MAX_CHARS } from '#shared/contracts/control-messages.ts';
+import { CLIENT_ERROR_NAME_MAX_CHARS, CLIENT_ERROR_STACK_MAX_CHARS, CLIENT_LOG_SCOPE_MAX_CHARS, CLIENT_LOG_TEXT_MAX_CHARS, TELEMETRY_TEXT_MAX_CHARS } from '#shared/contracts/control-messages.ts';
 import type { ClientErrorReport } from '#shared/contracts/control-messages.ts';
 
 const MAX_REPORTS_PER_PAGE = 32;
@@ -22,10 +22,16 @@ function buildClientErrorReport(reason: unknown): ClientErrorReport | null {
   };
 }
 
-function createOncePerKeySender(sendReport: SendReport, maxReports: number): (reportKey: string, message: Record<string, unknown>) => void {
+function createOncePerKeySender(sendReport: SendReport, maxReports: number, onLimitReached?: () => void): (reportKey: string, message: Record<string, unknown>) => void {
   const reportedKeys = new Set<string>();
+  let hasReachedLimit = false;
   return (reportKey, message) => {
-    if (reportedKeys.has(reportKey) || reportedKeys.size >= maxReports) return;
+    if (reportedKeys.has(reportKey)) return;
+    if (reportedKeys.size >= maxReports) {
+      if (!hasReachedLimit) onLimitReached?.();
+      hasReachedLimit = true;
+      return;
+    }
     if (!sendReport(message)) return;
     reportedKeys.add(reportKey);
   };
@@ -55,26 +61,48 @@ function frameTypeOf(rawFrame: unknown): string {
   return String(rawFrame.type);
 }
 
-function createClientLogReporter(sendReport: SendReport): { report: (scope: string, text: string) => void; flushUnsent: () => void } {
-  const unsentLogLines: Record<string, unknown>[] = [];
-  const sendOrHold: SendReport = (message) => {
-    if (!sendReport(message)) unsentLogLines.push(message);
-    return true;
-  };
-  const sendOnce = createOncePerKeySender(sendOrHold, MAX_REPORTS_PER_PAGE);
+function createHoldingSender(sendReport: SendReport): { sendOrHold: SendReport; flushUnsent: () => void } {
+  const unsentMessages: Record<string, unknown>[] = [];
   return {
-    report(scope, text) {
-      const logLine = { scope: scope.slice(0, CLIENT_LOG_SCOPE_MAX_CHARS), text: text.slice(0, CLIENT_LOG_TEXT_MAX_CHARS) };
-      sendOnce(`${logLine.scope}\n${logLine.text}`, { type: 'client-log', ...logLine });
+    sendOrHold(message) {
+      if (!sendReport(message)) unsentMessages.push(message);
+      return true;
     },
     flushUnsent() {
-      while (unsentLogLines.length > 0) {
-        const oldestLogLine = unsentLogLines[0];
-        if (!oldestLogLine || !sendReport(oldestLogLine)) return;
-        unsentLogLines.shift();
+      while (unsentMessages.length > 0) {
+        const oldestMessage = unsentMessages[0];
+        if (!oldestMessage || !sendReport(oldestMessage)) return;
+        unsentMessages.shift();
       }
     },
   };
 }
 
-export { createClientErrorReporter, createClientLogReporter, describeFailure, describeSchemaIssues, frameTypeOf };
+function createClientLogReporter(sendReport: SendReport): { report: (scope: string, text: string) => void; flushUnsent: () => void } {
+  const holdingSender = createHoldingSender(sendReport);
+  const sendLimitNotice = () => holdingSender.sendOrHold({ type: 'client-log', scope: 'client-log', text: `More than ${MAX_REPORTS_PER_PAGE} distinct log lines on this page; later ones were not sent.` });
+  const sendOnce = createOncePerKeySender(holdingSender.sendOrHold, MAX_REPORTS_PER_PAGE, sendLimitNotice);
+  return {
+    report(scope, text) {
+      const logLine = { scope: scope.slice(0, CLIENT_LOG_SCOPE_MAX_CHARS), text: text.slice(0, CLIENT_LOG_TEXT_MAX_CHARS) };
+      sendOnce(`${logLine.scope}\n${logLine.text}`, { type: 'client-log', ...logLine });
+    },
+    flushUnsent: holdingSender.flushUnsent,
+  };
+}
+
+function createHeaderErrorTelemetryReporter(sendReport: SendReport): { report: (source: string, message: string) => void; flushUnsent: () => void } {
+  const holdingSender = createHoldingSender(sendReport);
+  const limitNotice = { source: 'dashboard', message: `More than ${MAX_REPORTS_PER_PAGE} distinct header errors on this page; later ones were not sent.` };
+  const sendLimitNotice = () => holdingSender.sendOrHold({ type: 'dashboard-telemetry', event: 'header_error_shown', properties: limitNotice });
+  const sendOnce = createOncePerKeySender(holdingSender.sendOrHold, MAX_REPORTS_PER_PAGE, sendLimitNotice);
+  return {
+    report(source, message) {
+      const properties = { source: source.slice(0, TELEMETRY_TEXT_MAX_CHARS), message: message.slice(0, TELEMETRY_TEXT_MAX_CHARS) };
+      sendOnce(`${properties.source}\n${properties.message}`, { type: 'dashboard-telemetry', event: 'header_error_shown', properties });
+    },
+    flushUnsent: holdingSender.flushUnsent,
+  };
+}
+
+export { createClientErrorReporter, createClientLogReporter, createHeaderErrorTelemetryReporter, describeFailure, describeSchemaIssues, frameTypeOf };

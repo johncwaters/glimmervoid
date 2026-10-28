@@ -3,7 +3,7 @@ import { buildWebSocketUrl } from './ws-url-core.ts';
 import { clearPageToken, loadPageToken, pageToken, withPageToken } from './ws-token.ts';
 import { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
-import { createClientLogReporter, describeSchemaIssues, frameTypeOf } from './client-error-core.ts';
+import { createClientLogReporter, createHeaderErrorTelemetryReporter, describeSchemaIssues, frameTypeOf } from './client-error-core.ts';
 
 type ControlMessageHandler = (message: ServerMessage) => void;
 type ConnectionStateCallback = (state: string, label: string) => void;
@@ -50,6 +50,7 @@ export function sendControlMsg(msg: Record<string, unknown>): boolean {
 }
 
 const clientLogReporter = createClientLogReporter(sendControlMsg);
+const headerErrorTelemetryReporter = createHeaderErrorTelemetryReporter(sendControlMsg);
 
 export function reportToServerLog(scope: string, text: string): void {
   console.warn(`[${scope}] ${text}`);
@@ -58,6 +59,7 @@ export function reportToServerLog(scope: string, text: string): void {
 
 export function reportHeaderErrorToServer(source: string, text: string): void {
   clientLogReporter.report('header error', `${source}: ${text}`);
+  headerErrorTelemetryReporter.report(source, text);
 }
 
 export function nextRequestId(prefix: string): string {
@@ -159,6 +161,7 @@ export function connectControl() {
     controlRetryAttempt = 0;
     if (_connectionStateCallback) _connectionStateCallback('connected', 'Connected');
     clientLogReporter.flushUnsent();
+    headerErrorTelemetryReporter.flushUnsent();
     _controlSocketChangeListener?.('opened');
   });
 
