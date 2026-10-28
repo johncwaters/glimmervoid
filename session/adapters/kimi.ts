@@ -124,7 +124,7 @@ function classifyTitle(): string {
 
 const titleProfile: AgentTitleProfile = {
   classifyTitle,
-  taskTitle: { readsTranscriptTitle: false, genericTitles: [ID, "Kimi Code"], agentSuffix: null },
+  taskTitle: { readsTranscriptTitle: false, genericTitles: [ID, "Kimi Code", "New Session"], agentSuffix: null, hookTitleField: "session_title" },
 };
 
 function configFilePath(

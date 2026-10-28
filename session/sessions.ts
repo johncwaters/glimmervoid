@@ -8,7 +8,7 @@ import type { CompactionTracking } from "./core/compaction-core.ts";
 import { HOOK_TOOLS } from './core/hook-tools.ts';
 import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
-import { buildPersistedTaskTitle, cleanTaskPrompt, extractOscTaskTitle, extractPromptTaskTitle, isSelfWakePrompt, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle, seedTaskTitleSources } from "./core/task-title-core.ts";
+import { buildPersistedTaskTitle, cleanTaskPrompt, extractHookTaskTitle, extractOscTaskTitle, extractPromptTaskTitle, isSelfWakePrompt, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle, seedTaskTitleSources } from "./core/task-title-core.ts";
 import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
 import type { SessionEndCause } from "../shared/contracts/telemetry.ts";
 import type { LinkedPr, SessionPrLinks } from "../shared/contracts/my-prs.ts";
@@ -879,6 +879,11 @@ class Session extends EventEmitter {
         : (payload: HookPayload) => payload?.session_id;
       this._captureClaudeSessionId(
         sessionIdOf(raw.payload), raw.payload.source, raw.payload.transcript_path, raw.signal, raw.confidence);
+      const hookTitle = extractHookTaskTitle(raw.payload, path.basename(this.effectiveCwd()), this._adapter.titleProfile.taskTitle);
+      if (hookTitle && hookTitle !== this._taskTitleSources.aiTitle) {
+        this._taskTitleSources.aiTitle = hookTitle;
+        this._updateTaskTitle();
+      }
     }
 
     const hookEvent = String(raw.event || "").toLowerCase();

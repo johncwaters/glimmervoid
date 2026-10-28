@@ -11,6 +11,7 @@ export interface TaskTitleVocabulary {
   readsTranscriptTitle: boolean;
   genericTitles: readonly string[];
   agentSuffix: string | null;
+  hookTitleField?: string;
 }
 
 function normalizeTaskTitle(title: string): string | null {
@@ -42,11 +43,22 @@ export function extractOscTaskTitle(title: string, cwdBasename: string, vocabula
   const withoutSuffix = suffix && withoutPrefix.toLowerCase().endsWith(suffix.toLowerCase())
     ? withoutPrefix.slice(0, -suffix.length)
     : withoutPrefix;
-  const taskTitle = normalizeTaskTitle(withoutSuffix);
+  return specificTaskTitle(withoutSuffix, cwdBasename, vocabulary);
+}
+
+function specificTaskTitle(title: string, cwdBasename: string, vocabulary: TaskTitleVocabulary): string | null {
+  const taskTitle = normalizeTaskTitle(title);
   if (!taskTitle) return null;
   const genericTitles = [cwdBasename, ...vocabulary.genericTitles].map((name) => name.toLowerCase());
   if (genericTitles.includes(taskTitle.toLowerCase())) return null;
   return taskTitle;
+}
+
+export function extractHookTaskTitle(payload: Record<string, unknown>, cwdBasename: string, vocabulary: TaskTitleVocabulary): string | null {
+  if (vocabulary.hookTitleField === undefined) return null;
+  const title = payload[vocabulary.hookTitleField];
+  if (typeof title !== 'string') return null;
+  return specificTaskTitle(title, cwdBasename, vocabulary);
 }
 
 export function extractPromptTaskTitle(prompt: unknown): string | null {

@@ -112,3 +112,18 @@ for (const reset of ['clear', 'fresh'] as const) {
     }
   });
 }
+
+test('a kimi session titles its card from the hook session_title and skips the generic kimi titles', () => {
+  const session = new Session({ id: 's1', name: 'project', path: '/project', agent: 'kimi' });
+  try {
+    session.ingestHookSignal({ event: 'SessionStart', signal: 'session-start', source: 'hook', ts: 1, payload: { session_id: 'k1', session_title: 'New Session' } });
+    assert.equal(session.taskTitle, null);
+    const generatedTitle = 'Refactor the generated kimi home into a pure planning core and a thin IO shell';
+    session.ingestHookSignal({ event: 'PermissionResult', signal: 'working', source: 'hook', ts: 2, payload: { session_id: 'k1', session_title: generatedTitle } });
+    assert.equal(session.taskTitle, generatedTitle);
+    session.ingestHookSignal({ event: 'Stop', signal: 'ready', source: 'hook', ts: 3, payload: { session_id: 'k1', session_title: 'Kimi Code' } });
+    assert.equal(session.taskTitle, generatedTitle);
+  } finally {
+    session.destroy();
+  }
+});
