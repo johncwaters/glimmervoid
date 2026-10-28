@@ -173,9 +173,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnRestart.setAttribute('aria-haspopup', 'dialog');
   const btnWorkspaceRepos = buildMenuItem('Edit repositories...', 'Add or remove repositories in this workspace', 'overflow-workspace-repos');
   const btnLinkPr = buildMenuItem('Link pull request...', 'Link or unlink pull requests for this session', 'overflow-link-pr visible');
-  const btnConversationView = buildMenuItem('Conversation view', 'Show this session as messages (experimental)', 'overflow-conversation-view');
-  btnConversationView.setAttribute('role', 'menuitemcheckbox');
-  btnConversationView.setAttribute('aria-checked', 'false');
   const btnGuardrails = el('button', 'tag-icon guardrails-badge');
   btnGuardrails.type = 'button';
   btnGuardrails.setAttribute('aria-label', 'Guardrails');
@@ -202,7 +199,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openCardSessionSetup?.(sessionId);
   };
-  sessionMenu.append(btnRestart, btnWorkspaceRepos, btnConversationView, btnCoherenceJournal, btnSessionSetup, btnLinkPr);
+  sessionMenu.append(btnRestart, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnLinkPr);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug');
@@ -253,7 +250,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, btnConversationView, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnShown, shownUnopenedDot, btnDebug, sessionMenu, termWrap };
+  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, btnGuardrails, btnTrace, btnRemove, btnPlan, btnDocs, btnShown, shownUnopenedDot, btnDebug, sessionMenu, termWrap };
 }
 
 const GUARDRAILS_TIP_DETAIL = {

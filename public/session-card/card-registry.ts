@@ -2,8 +2,7 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { WebglAddon } from '@xterm/addon-webgl';
 import type { Terminal } from '@xterm/xterm';
 import type { PlanReviewState } from '#shared/contracts/plan-review.ts';
-import type { ConversationApproval, UnseenOutcome } from '#shared/contracts/session.ts';
-import type { ConversationFaceController } from '../conversation/conversation-core.ts';
+import type { UnseenOutcome } from '#shared/contracts/session.ts';
 import type { createPlanFace } from '../plan/plan-face.ts';
 import type { SessionCardFace } from './face-core.ts';
 import type { TerminalGrid } from './grid-core.ts';
@@ -35,7 +34,6 @@ export interface SessionUi {
   btnRestart: HTMLButtonElement;
   btnSessionMenu: HTMLButtonElement;
   btnWorkspaceRepos: HTMLButtonElement;
-  btnConversationView: HTMLButtonElement;
   btnGuardrails: HTMLButtonElement;
   btnTrace: HTMLButtonElement;
   btnPlan: HTMLButtonElement;
@@ -54,10 +52,6 @@ export interface SessionUi {
   pendingPromptKind: string | null;
   planReviewState: PlanReviewState;
   planFace: PlanFaceController;
-  conversationFace: ConversationFaceController;
-  conversationApproval: ConversationApproval | null;
-  hasConversationBridge: boolean;
-  isConversationViewOn: boolean;
   effectiveBase?: string;
   activeAgents?: number;
   awaitingBackgroundTasks?: boolean;

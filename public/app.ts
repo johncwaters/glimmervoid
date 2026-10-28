@@ -50,7 +50,7 @@ import { applySessionSetupResponse, openSessionSetup } from './session-setup/set
 import { attentionTally, findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
-import { applyConversationTraceChanged, applyConversationTraceError, applyConversationTraceResponse, applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, markSessionSeen, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionConversation, setConversationViewEnabled, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPrompt, setSessionUnseenOutcome, setSessionUsage, setSessionGuarded, setSessionWorktree, updateAttentionTitle } from './session-card/lifecycle.ts';
+import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, markSessionSeen, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPrompt, setSessionUnseenOutcome, setSessionUsage, setSessionGuarded, setSessionWorktree, updateAttentionTitle } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { isModalOpen, openConfirmDialog } from './session-card/modal.ts';
 import { countShownConnectingTerminals, onTerminalLinkChange, prewarmDataSocket, reconnectDataWs, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -313,7 +313,6 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
 
     setSessionPrompt(s.id, s.pendingPromptKind);
     setSessionUnseenOutcome(s.id, s.unseenOutcome);
-    setSessionConversation(s.id, s);
 
     setSessionHasPlan(s.id, s.hasPlan);
 
@@ -485,9 +484,8 @@ const messageHandlers = {
   'branch-sync-status': (msg) => setReviewBranchSync(msg.id, msg),
   'session-changed':    (msg) => notifyWorktreeChanged(msg.id),
   'debug-state-response': (msg) => handleDebugStateResponse(msg),
-  'session-trace-response': (msg) => { if (applyConversationTraceResponse(msg)) return; applyTraceResponse(msg); },
-  'session-trace-changed': (msg) => { applyConversationTraceChanged(msg.id); applyTraceChanged(msg); },
-  'session-conversation': (msg) => { setSessionConversation(msg.id, msg); refreshAttentionSurfaces(); },
+  'session-trace-response': (msg) => applyTraceResponse(msg),
+  'session-trace-changed': (msg) => applyTraceChanged(msg),
   'session-plan-changed': (msg) => { applySessionPlanChanged(msg); refreshAttentionSurfaces(); },
   'session-plan-draft': (msg) => { applySessionPlanDraft(msg); },
   'session-plan-response': (msg) => { applySessionPlanResponse(msg); },
@@ -508,7 +506,6 @@ const messageHandlers = {
   'error':              (msg) => {
     const isUpdateErrorShownInline = applySettingsUpdateError(msg);
     const isTraceErrorShownInline = applyTraceError(msg);
-    applyConversationTraceError(msg);
     const isPlanErrorShownInline = applySessionPlanError(msg);
     if (isUpdateErrorShownInline || isTraceErrorShownInline || isPlanErrorShownInline) return;
     if (msg.id) { reportSessionProblem(msg.id, msg.message); return; }
@@ -909,7 +906,7 @@ function applyTabOrder(savedViewOrder: readonly string[] | undefined) {
   orderPhonePanels(orderedViewIds);
 }
 
-function applyDashboardSettings(settings: FeatureSurfaceSettings & Pick<BrowserConfig, 'coherence' | 'viewTabOrder'> & { streamerMode?: boolean; conversationView?: boolean; isExperimentalBuild?: boolean }) {
+function applyDashboardSettings(settings: FeatureSurfaceSettings & Pick<BrowserConfig, 'coherence' | 'viewTabOrder'> & { streamerMode?: boolean; isExperimentalBuild?: boolean }) {
   applyPhoneArrowPad(settings.isExperimentalBuild === true && isPhoneArrowPad());
   applyTerminalSettings(settings);
   applySettingsBroadcast(settings);
@@ -918,7 +915,6 @@ function applyDashboardSettings(settings: FeatureSurfaceSettings & Pick<BrowserC
   syncTelemetryBanner(settings);
   applyTabOrder(settings.viewTabOrder);
   setStreamerMode(settings.streamerMode === true);
-  setConversationViewEnabled(settings.conversationView === true);
 }
 
 for (const viewTab of VIEW_TABS) {

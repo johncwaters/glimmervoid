@@ -1,9 +1,7 @@
 import { isCompactionRestoreEvent } from '#shared/compaction-restore-events.ts';
-import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import type { PlanDraftPush } from '#shared/contracts/plan-review.ts';
-import type { ConversationApproval, UnseenOutcome } from '#shared/contracts/session.ts';
-import { isConversationAgent } from '../conversation/conversation-core.ts';
-import { createConversationFace } from '../conversation/conversation-face.ts';
+import type { UnseenOutcome } from '#shared/contracts/session.ts';
 import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
 import { hasSessionDocs, openDocEditor } from '../doc-editor.ts';
@@ -32,7 +30,6 @@ import type { CardOptions } from './card-dom.ts';
 import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintGuardrailsToggle, paintTaskTitle, sendSessionAction, sessionActionStatus, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
 import { syncLiveSession } from './session-tick.ts';
-import { writeAttributeIfChanged } from '../status-paint.ts';
 import { attentionTally, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
 import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';
 import type { SessionCardFace } from './face-core.ts';
@@ -62,7 +59,6 @@ const isKillable = (state: string) => KILLABLE_STATES.includes(state as SessionS
 const isRestartable = (state: string) => RESTARTABLE_STATES.includes(state as SessionState);
 
 
-let isConversationViewEnabled = false;
 
 onShownFilesArrivedLive(placeShownChips);
 
@@ -174,78 +170,7 @@ function createDeferredPlanFace(deps: PlanFaceDeps): PlanFaceController {
   };
 }
 
-function canUseConversationView(ui: SessionUi) {
-  return isConversationViewEnabled && isConversationAgent(ui.agent) && ui.card.dataset.ephemeral === undefined;
-}
-
-function isConversationFaceAvailable(ui: SessionUi) {
-  return canUseConversationView(ui) && ui.isConversationViewOn && ui.isBorrowed;
-}
-
-function paintConversationViewItem(ui: SessionUi) {
-  ui.btnConversationView.classList.toggle('visible', canUseConversationView(ui));
-  writeAttributeIfChanged(ui.btnConversationView, 'aria-checked', String(ui.isConversationViewOn));
-}
-
-export function setConversationViewEnabled(isEnabled: boolean) {
-  isConversationViewEnabled = isEnabled;
-  for (const ui of sessionUIs.values()) {
-    if (!isEnabled && ui.face === 'conversation') ui._showTerminalFace?.();
-    updateButtonVisibility(ui);
-  }
-}
-
-function showSessionConversationFace(sessionId: unknown) {
-  const ui = findSessionUi(sessionId);
-  if (!ui || !isConversationFaceAvailable(ui)) return false;
-  ui.face = 'conversation';
-  ui.card.dataset.face = 'conversation';
-  ui.termWrap.hidden = true;
-  ui.planFace.hide();
-  ui.conversationFace.show(sessionIdOf(sessionId));
-  updateButtonVisibility(ui);
-  syncTerminalOutputFlow(ui, sessionIdOf(sessionId));
-  return true;
-}
-
-interface SessionConversationUpdate {
-  hasConversationBridge: boolean;
-  isConversationViewOn: boolean;
-  conversationApproval: ConversationApproval | null;
-}
-
-export function setSessionConversation(sessionId: unknown, update: SessionConversationUpdate) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-  const wasConversationViewOn = ui.isConversationViewOn;
-  ui.hasConversationBridge = update.hasConversationBridge;
-  ui.conversationApproval = update.conversationApproval;
-  ui.isConversationViewOn = update.isConversationViewOn;
-  updateButtonVisibility(ui);
-  ui.conversationFace.refresh();
-  if (wasConversationViewOn === update.isConversationViewOn) return;
-  if (update.isConversationViewOn) {
-    showSessionConversationFace(sessionId);
-    return;
-  }
-  if (ui.face === 'conversation') ui._showTerminalFace?.();
-}
-
-export function applyConversationTraceResponse(reply: ServerMessageOf<'session-trace-response'>) {
-  const ui = findSessionUi(reply.id);
-  return ui?.conversationFace.applyTraceResponse(reply) === true;
-}
-
-export function applyConversationTraceError(error: ServerMessageOf<'error'>) {
-  findSessionUi(error.id)?.conversationFace.applyTraceError(error);
-}
-
-export function applyConversationTraceChanged(sessionId: unknown) {
-  findSessionUi(sessionId)?.conversationFace.applyTraceChanged(sessionIdOf(sessionId));
-}
-
 function updateButtonVisibility(ui: SessionUi) {
-  paintConversationViewItem(ui);
   const state = ui.currentState;
   ui.btnRestart.classList.toggle('visible', isKillable(state) || isRestartable(state) || state === STATES.DORMANT);
   ui.btnWorkspaceRepos.classList.toggle('visible', ui.card.dataset.workspace !== undefined);
@@ -300,11 +225,6 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
   ui.btnShown.addEventListener('click', () => {
     closeSessionMenu(ui);
     openShownLightbox(sessionId);
-  });
-
-  ui.btnConversationView.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    sendSessionAction(ui, { type: 'set-session-conversation-view', id: sessionId, isOn: !ui.isConversationViewOn });
   });
 
   ui.btnGuardrails.addEventListener('click', () => {
@@ -449,27 +369,17 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     sessionUi.card.dataset.face = 'terminal';
     sessionUi.termWrap.hidden = false;
     sessionUi.planFace.hide();
-    sessionUi.conversationFace.hide();
     updateButtonVisibility(sessionUi);
     ensureTerminalReady(sessionUi, id);
-  }
-  function showConversationOrTerminalFace() {
-    if (showSessionConversationFace(id)) return;
-    showTerminalFace();
   }
   const abortController = new AbortController();
   const planFace = createDeferredPlanFace({
     signal: abortController.signal,
     requestPlan: (requestedId, agentId, revision) => sendControlMsg({ type: 'session-plan', id: requestedId, agentId, revision }),
     requestDraft: (requestedId, agentId) => sendControlMsg({ type: 'session-plan', id: requestedId, agentId, draft: true }),
-    showTerminal: showConversationOrTerminalFace,
+    showTerminal: showTerminalFace,
     sendDecision: (requestedId, request) => sendControlMsg({ type: 'plan-decision', id: requestedId, ...request }),
     reportProblem: (message: string) => reportSessionProblem(id, message),
-  });
-  const conversationFace = createConversationFace({
-    signal: abortController.signal,
-    sendControl: (message) => sendControlMsg(message),
-    showTerminal: showTerminalFace,
   });
   sessionUi = {
     term: null,
@@ -494,7 +404,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnRestart: dom.btnRestart,
     btnSessionMenu: dom.btnSessionMenu,
     btnWorkspaceRepos: dom.btnWorkspaceRepos,
-    btnConversationView: dom.btnConversationView,
     btnGuardrails: dom.btnGuardrails,
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
@@ -512,10 +421,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     pendingPromptKind: null,
     planReviewState: { reviews: [] },
     planFace,
-    conversationFace,
-    conversationApproval: null,
-    hasConversationBridge: false,
-    isConversationViewOn: false,
   };
   sessionUi._ensureTerminalReady = () => ensureTerminalReady(sessionUi, id);
   sessionUi._showTerminalFace = showTerminalFace;
@@ -524,14 +429,13 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
       showSessionPlanFace(id);
       return;
     }
-    if (showSessionConversationFace(id)) return;
     showTerminalFace();
   };
   sessionUi._setBorrowed = (isBorrowed) => {
     sessionUi.isBorrowed = isBorrowed;
     updateButtonVisibility(sessionUi);
   };
-  dom.card.append(planFace.el, conversationFace.el);
+  dom.card.append(planFace.el);
   const replacedUi = sessionUIs.get(id);
   if (replacedUi) tallyRemove(attentionTally, tallyRowOf(replacedUi));
   sessionUIs.set(id, sessionUi);
@@ -575,7 +479,6 @@ export function showSessionPlanFace(sessionId: unknown) {
   ui.face = 'plan';
   ui.card.dataset.face = 'plan';
   ui.termWrap.hidden = true;
-  ui.conversationFace.hide();
   ui.planFace.show(sessionIdOf(sessionId));
   updateButtonVisibility(ui);
   syncTerminalOutputFlow(ui, sessionIdOf(sessionId));
@@ -697,10 +600,7 @@ export function setSessionPrompt(sessionId: unknown, kind: unknown) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.pendingPromptKind = typeof kind === 'string' ? kind : null;
-  ui.conversationFace.refresh();
-  if (showPlanFaceWhenPreferred(sessionId)) return;
-  const hasPendingPrompt = typeof kind === 'string' && kind !== '';
-  if (!hasPendingPrompt && ui.face === 'terminal') showSessionConversationFace(sessionId);
+  showPlanFaceWhenPreferred(sessionId);
 }
 
 export function setSessionUnseenOutcome(sessionId: unknown, unseenOutcome: UnseenOutcome | null | undefined) {
@@ -837,7 +737,6 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
   tallyAdd(attentionTally, tallyRowOf(ui));
   syncLiveSession(sessionIdOf(sessionId), ui);
   if (state !== STATES.RUNNING) ui.awaitingBackgroundTasks = false;
-  ui.conversationFace.refresh();
 
   if (state !== prevState) {
     ui.stateSince = typeof stateSince === 'number' && Number.isFinite(stateSince) ? stateSince : Date.now();

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The Conversation view is gone**: the experimental Conversation face and its "Conversation view" card menu item no longer exist, so a session card shows its terminal or its plan. A child session's questions still reach its parent as before.
+
 ### Changed
 
 - **Reviews session pills rest while hidden**: the session pills on your own pull requests no longer repaint while the Reviews view is in the background, and catch up the moment you open it. While it is open, a status change rewrites only the pill text that actually changed.
