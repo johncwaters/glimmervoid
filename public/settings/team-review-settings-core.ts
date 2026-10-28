@@ -85,8 +85,8 @@ function teamReviewSandboxLines(sandbox: TeamReviewSandboxFacts): string[] {
     `Unreadable in your home folder: ${listOrNone(sandbox.unreadableHomeEntries.map((entry) => `~/${entry}`))}`,
     `Unreadable in a linked checkout: ${listOrNone(sandbox.unreadableCheckoutEntries)}`,
     `GitHub token: ${sandbox.githubTokenStripped ? 'removed from the environment' : 'passed through'}`,
-    `Allowed tools: ${listOrNone(sandbox.allowedTools)}; denied: ${listOrNone(sandbox.deniedTools)}`,
-    `Thread replies: judged by the review agent with ${listOrNone(sandbox.threadJudgeTools)} only`,
+    `Claude Code tools allowed: ${listOrNone(sandbox.allowedTools)}; denied: ${listOrNone(sandbox.deniedTools)}. Codex CLI and Kimi Code run every tool, held only by this sandbox`,
+    `Thread replies: judged by the review agent, with ${listOrNone(sandbox.threadJudgeTools)} only on Claude Code`,
   ];
 }
 

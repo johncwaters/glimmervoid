@@ -10,7 +10,6 @@ const KIMI_MODEL_SECTION = /^\[models\."([^"]+)"\]\s*$/;
 const TOML_TABLE_HEADER = /^\[/;
 const TOML_KEY_VALUE = /^([A-Za-z0-9_]+)\s*=\s*(.+)$/;
 const TOML_STRING = /^"((?:[^"\\]|\\.)*)"/;
-const TOML_STRING_ITEM = /"((?:[^"\\]|\\.)*)"/g;
 
 interface SkillFrontmatter { name: string; description: string }
 
@@ -53,11 +52,6 @@ function readTomlString(rawValue: string): string | null {
   return TOML_STRING.exec(rawValue.trim())?.[1] ?? null;
 }
 
-function readTomlStringArray(rawValue: string): string[] | null {
-  if (!rawValue.trim().startsWith('[')) return null;
-  return [...rawValue.matchAll(TOML_STRING_ITEM)].map((match) => match[1]);
-}
-
 function parseKimiModels(configToml: string): ReviewModelOffer[] {
   const models: ReviewModelOffer[] = [];
   let current: ReviewModelOffer | null = null;
@@ -76,8 +70,6 @@ function parseKimiModels(configToml: string): ReviewModelOffer[] {
     if (!current || !keyValue) continue;
     const [, key, rawValue] = keyValue;
     if (key === 'display_name') current.label = readTomlString(rawValue) ?? current.label;
-    if (key === 'support_efforts') current.efforts = readTomlStringArray(rawValue);
-    if (key === 'default_effort') current.defaultEffort = readTomlString(rawValue);
   }
   return models;
 }

@@ -80,7 +80,7 @@ async function scanKimi(homeDir: string, env: NodeJS.ProcessEnv): Promise<AgentS
     scanSkillFolder(path.join(kimiHome, 'skills'), 'user'),
   ]);
   const models = configToml === null ? [] : environmentCore.parseKimiModels(configToml);
-  return { id: 'kimi', models, efforts: environmentCore.uniqueEfforts(models), skills };
+  return { id: 'kimi', models, efforts: [], skills };
 }
 
 async function scanReviewAgents(homeDir: string, env: NodeJS.ProcessEnv): Promise<void> {
@@ -103,9 +103,11 @@ function currentTeamReviewEnvironment(
   { nowMs = Date.now(), homeDir = os.homedir(), env = process.env }: { nowMs?: number; homeDir?: string; env?: NodeJS.ProcessEnv } = {},
 ): TeamReviewEnvironment {
   refreshWhenStale(nowMs, homeDir, env);
+  const settings = readTeamReviewSettings(settingsSource);
+  const reviewAgents = [settings.reviewer.agent, ...(settings.stampReviewer ? [settings.stampReviewer.agent] : [])];
   return {
     agents: lastScan.map(agentOffer),
-    sandbox: describeTeamReviewSandbox(readTeamReviewSettings(settingsSource).sandbox),
+    sandbox: describeTeamReviewSandbox(settings.sandbox, reviewAgents),
   };
 }
 

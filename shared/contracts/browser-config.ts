@@ -89,7 +89,7 @@ export const GithubSettings = z.object({
 }, { error: 'github must be an object' }).nullable().optional();
 
 const SANDBOX_DOMAIN_PATTERN = /^(?:\*\.(?=[^.]+\.[^.]+))?(?:[a-z0-9-]+\.)+[a-z0-9-]+(?::\d{1,5})?$/i;
-const REVIEW_AGENT_IDS = Object.freeze(['claude'] as const);
+const REVIEW_AGENT_IDS = Object.freeze(['claude', 'codex', 'kimi'] as const);
 export const ReviewAgentId = z.enum(REVIEW_AGENT_IDS, { error: `review agent must be one of ${REVIEW_AGENT_IDS.join(', ')}` });
 export type ReviewAgentId = z.infer<typeof ReviewAgentId>;
 

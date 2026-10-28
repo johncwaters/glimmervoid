@@ -17,6 +17,6 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - The review starts inside the sandbox runtime (`teamReviewRole`: closed egress, credential folders unreadable, a Codex home of its own, no secret in env); a session that cannot apply it never spawns.
 - The wrap still runs PR code (linked `node_modules`, tests, lint) as the operator, fork PRs from anyone included (operator-accepted 2026-10-26), and the linked clone's `.env` deny is root-level only. `api.github.com` stays reachable because Codex stalls at startup without it; no GitHub credential is readable inside.
 - PR text is untrusted data, fenced in the prompt.
-- Thread resolution also acts under the operator's name: only answered nit threads resolve without a click and each at most once, a judge failure never resolves, and the judge reading untrusted replies gets only Read and Write.
+- Thread resolution also acts under the operator's name: only answered nit threads resolve without a click and each at most once, a judge failure never resolves, and the judge reading untrusted replies gets only Read and Write on Claude Code; Codex and Kimi expose no tool limit, so on them the sandbox is the only boundary (operator choice, 2026-10-28).
 - An agent's `glimmervoid review` only queues a draft, never posts, and a lane session cannot ask at all, since a lane runs on unvetted input that could steer reviews.
 - Review dirs are deleted on every exit and swept at start, bar a shutdown's resume record.

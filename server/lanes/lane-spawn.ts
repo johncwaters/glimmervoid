@@ -17,8 +17,10 @@ import { allowGuardedSpawn } from '../guardrails/guardrails-deps.ts';
 import { prepareGuardrailsLaunch } from '../guardrails/guardrails-launch.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
+import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
 
 const SETTINGS_DIR_PREFIX = 'glimmervoid-lane-settings-';
+const KIMI_AGENT_ID = 'kimi';
 const UNWRAPPED_PLATFORM = 'win32';
 const UNWRAPPED_CODEX_GUARDRAILS_ARGS = Object.freeze(['-s', 'read-only']);
 const GUARD_HOOK_UNAVAILABLE_ERROR = 'Sane YOLO is unavailable';
@@ -71,6 +73,24 @@ async function writeStandaloneDenySettings(permissions: unknown, userHooks: read
   return { args: ['--settings', settingsPath], cleanup: removeSettingsDirectory };
 }
 
+function headlessPromptLaunch(agent: string, prompt: string): { args: string[]; initialPrompt: string | null } {
+  if (agent === KIMI_AGENT_ID) return { args: ['-p', prompt], initialPrompt: null };
+  return { args: [], initialPrompt: prompt };
+}
+
+function laneVendor(agent: string): GuardrailsRole['vendors'][number] {
+  if (agent === 'codex' || agent === KIMI_AGENT_ID) return agent;
+  return 'claude';
+}
+
+function laneAgentArgs({ isClaude, isWrapped, isCodex, extraArgs, model, postureArgs, standaloneArgs }: {
+  isClaude: boolean; isWrapped: boolean; isCodex: boolean; extraArgs: readonly string[]; model: string | null; postureArgs: readonly string[]; standaloneArgs: readonly string[];
+}): string[] {
+  if (isClaude) return ['-p', ...postureArgs, ...extraArgs, ...standaloneArgs, ...(model ? ['--model', model] : [])];
+  if (isCodex && !isWrapped) return [...UNWRAPPED_CODEX_GUARDRAILS_ARGS, ...extraArgs];
+  return [...extraArgs];
+}
+
 function createLaneSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
   spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName, allowTools = [],
@@ -79,9 +99,11 @@ function createLaneSpawn({
 }: LaneSpawnOptions): LaneSpawn {
   return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput, readablePaths = [] }) {
     const isCodex = agent === 'codex';
-    const hasClaudeShell = !isCodex && settingsPermissions !== undefined;
+    const isKimi = agent === KIMI_AGENT_ID;
+    const isClaude = !isCodex && !isKimi;
+    const hasClaudeShell = isClaude && settingsPermissions !== undefined;
     const isWrapped = platform !== UNWRAPPED_PLATFORM;
-    if (!isWrapped && hasClaudeShell) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
+    if (!isWrapped && (hasClaudeShell || isKimi)) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
     const guardrailsRefusalReason = isWrapped ? guardrailsRefusal() : null;
     if (guardrailsRefusalReason !== null) throw new Error(guardrailsRefusalReason);
     const guardHookTools = hasClaudeShell && hookRouter ? resolveRequiredSaneYoloHookTools({}) ?? [] : null;
@@ -89,13 +111,13 @@ function createLaneSpawn({
       await runLaneSession();
 
     async function runLaneSession(): Promise<void> {
-      const posture = isCodex ? null : buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS, allowTools });
+      const posture = isClaude ? buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS, allowTools }) : null;
       const basePermissions = settingsPermissions ?? posture?.permissions ?? null;
       const permissions = basePermissions;
       const standalone = !hookRouter && permissions ? await writeStandaloneDenySettings(permissions, []) : null;
-      const codexArgs = isWrapped ? extraArgs : [...UNWRAPPED_CODEX_GUARDRAILS_ARGS, ...extraArgs];
-      const extraClaudeArgs = isCodex ? codexArgs : ['-p', ...(posture?.args ?? []), ...extraArgs, ...(standalone ? standalone.args : [])];
-      if (!isCodex && model) extraClaudeArgs.push('--model', model);
+      const promptLaunch = headlessPromptLaunch(agent, prompt);
+      const extraClaudeArgs = laneAgentArgs({ isClaude, isWrapped, isCodex, extraArgs, model, postureArgs: posture?.args ?? [], standaloneArgs: standalone?.args ?? [] });
+      extraClaudeArgs.push(...promptLaunch.args);
       const options: SessionOptions = {
         ...(guardHookTools ? { hookTools: guardHookTools, getHookTools: null } : {}),
         id,
@@ -104,7 +126,7 @@ function createLaneSpawn({
         agent,
         dangerouslySkipPermissions: false,
         extraClaudeArgs,
-        initialPrompt: prompt,
+        initialPrompt: promptLaunch.initialPrompt,
         ephemeral: true,
         settingsPermissions: permissions,
         spawnEnv: spawnEnv || isWrapped ? { ...spawnEnv, ...(isWrapped ? LANE_CREDENTIAL_ENV : {}) } : null,
@@ -113,7 +135,7 @@ function createLaneSpawn({
         getHookPort,
         prepareGuardrails: isWrapped ? (facts) => prepareGuardrails({
           role: judgeRole({
-            vendor: isCodex ? 'codex' : 'claude', cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId,
+            vendor: laneVendor(agent), cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId,
             readablePaths: [...facts.readablePaths, ...readablePaths],
           }),
           launchId: facts.launchId,
@@ -141,5 +163,5 @@ async function readLaneResultFile(resultPath: string): Promise<Record<string, un
   }
 }
 
-export { LANE_SPAWN_DENY_TOOLS, createLaneSpawn, readLaneResultFile };
+export { LANE_SPAWN_DENY_TOOLS, createLaneSpawn, headlessPromptLaunch, readLaneResultFile };
 export type { LaneSpawn };

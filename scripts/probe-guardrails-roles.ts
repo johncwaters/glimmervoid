@@ -27,7 +27,8 @@ const RESIZED_COLUMNS = 101;
 const RESIZED_ROWS = 37;
 const RESIZE_WAIT_MS = 15_000;
 const LAUNCH_FOLDERS = ['guardrails-policies', 'guardrails-temp', 'guardrails-homes'];
-const AGENT_IDS = ['claude-code', 'codex'];
+const AGENT_IDS = ['claude-code', 'codex', 'kimi'];
+const TEAM_REVIEW_ONLY_AGENT_IDS = ['kimi'];
 const AGENT_RUN_TIMEOUT_MS = 240_000;
 const LAUNCH_CLEANUP_WAITS = 20;
 const LAUNCH_CLEANUP_WAIT_MS = 150;
@@ -38,6 +39,7 @@ const unknownRoles = (flags.role ?? []).filter((roleName) => !ROLE_NAMES.some((k
 assert.deepEqual(unknownRoles, [], `unknown role, expected one of ${ROLE_NAMES.join(', ')}`);
 assert.ok(AGENT_IDS.includes(flags.agent), `unknown agent, expected one of ${AGENT_IDS.join(', ')}`);
 const agentId = flags.agent;
+assert.ok(!TEAM_REVIEW_ONLY_AGENT_IDS.includes(agentId) || selectedRoles.every((roleName) => roleName === 'team-review'), `${agentId} is probed in the team-review role only`);
 
 const probeRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-role-probe-')));
 const probeHome = path.join(probeRoot, 'home');
@@ -56,13 +58,13 @@ const { judgeRole, workRole } = await import('../server/guardrails/core/guardrai
 const { GUARDRAILS_PLACEHOLDER_NAMES } = await import('../server/guardrails/core/guardrails-policy-core.ts');
 const { encodeProjectDir } = await import('../session/core/conversation-history.ts');
 const { resolveRequiredSaneYoloHookTools } = await import('../server/hook-tools.ts');
-const { createLaneSpawn } = await import('../server/lanes/lane-spawn.ts');
+const { createLaneSpawn, headlessPromptLaunch } = await import('../server/lanes/lane-spawn.ts');
 const { createRadarWiring, REPORT_DIR: POSTHOG_REPORT_DIR } = await import('../server/radar/radar-wiring.ts');
 const { createVisionsSpawn, makeVisionsWorkDir, PROMPT_FILE: VISIONS_PROMPT_FILE, VISIONS_BOOTSTRAP_PROMPT } = await import('../server/visions/visions-dispatch.ts');
 const { MY_PRS_FIX_CHECKOUT_DIRNAME } = await import('../server/github/core/my-prs-core.ts');
 const { createGuardedPrStaging, keepMergeableRole } = await import('../server/github/my-prs-wiring.ts');
 const { createTeamReviewSpawn, describeTeamReviewRole, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions, teamReviewClaudeArgs } = await import('../server/github/team-review-wiring.ts');
-const { DEFAULT_SANDBOX } = await import('../server/github/core/team-review-core.ts');
+const { DEFAULT_SANDBOX, reviewAgentAdapterId, reviewerAgentArgs } = await import('../server/github/core/team-review-core.ts');
 const { prepareGuardrailsLaunch } = await import('../server/guardrails/guardrails-launch.ts');
 const { createSessionGuardrails } = await import('../server/guardrails/session-guardrails.ts');
 const { Session } = await import('../session/sessions.ts');
@@ -298,10 +300,8 @@ async function recordCheckResults(roleName: RoleName, resultsFile: string, expec
 
 async function probeTeamReview(roleRoot: string): Promise<void> {
   const roleName = 'team-review';
-  if (agentId === 'codex') {
-    probeRows.push({ role: roleName, check: 'team review run', status: 'SKIPPED', reason: 'team review always runs on Claude Code and starts Codex itself' });
-    return;
-  }
+  const reviewAgent = agentId === 'claude-code' ? 'claude' as const : agentId === 'codex' ? 'codex' as const : 'kimi' as const;
+  const reviewer = { agent: reviewAgent, model: reviewAgent === 'claude' ? 'sonnet' : null, effort: null };
   const cachedClone = path.join(probeHome, 'team-review-repos', 'probe', 'review-app');
   const checkoutPath = path.join(probeHome, 'team-review-worktrees', 'probe');
   const workDir = path.join(probeHome, 'team-review-work', 'probe');
@@ -343,12 +343,14 @@ async function probeTeamReview(roleRoot: string): Promise<void> {
     spawnGate: { run: async (task) => task() },
   });
   try {
-    await record(roleName, 'team review run', async () => {
+    await record(roleName, `${agentId} team review run`, async () => {
+      const promptLaunch = headlessPromptLaunch(reviewAgentAdapterId(reviewAgent), 'This is a guardrails contract probe. Run exactly this shell command once and do not work around a denial or retry: sh probe.sh. Then reply with the single word done.');
+      const agentArgs = reviewAgent === 'claude' ? teamReviewClaudeArgs(reviewer, DEFAULT_SANDBOX, { checkoutPath, linkedCheckout }) : reviewerAgentArgs(reviewer);
       await spawnReview({
-        id: sessionId, name: sessionId, cwd: workDir, spawnEnv: hooksPathPinnedSpawnEnv(workDir),
-        extraClaudeArgs: teamReviewClaudeArgs({ agent: 'claude', model: 'sonnet', effort: null }, DEFAULT_SANDBOX, { checkoutPath, linkedCheckout }), settingsPermissions: teamReviewAcceptEditsPermissions(),
-        guardrailsRole: await describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout }), signal: AbortSignal.timeout(AGENT_RUN_TIMEOUT_MS),
-        initialPrompt: 'This is a guardrails contract probe. Run exactly this shell command once and do not work around a denial or retry: sh probe.sh. Then reply with the single word done.',
+        id: sessionId, name: sessionId, cwd: workDir, spawnEnv: hooksPathPinnedSpawnEnv(workDir), agent: reviewAgentAdapterId(reviewAgent),
+        extraClaudeArgs: [...agentArgs, ...promptLaunch.args], settingsPermissions: teamReviewAcceptEditsPermissions(),
+        guardrailsRole: await describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout, reviewAgent }), signal: AbortSignal.timeout(AGENT_RUN_TIMEOUT_MS),
+        initialPrompt: promptLaunch.initialPrompt,
       });
     });
     await recordCheckResults(roleName, resultsFile, TEAM_REVIEW_EXPECTATIONS);
@@ -357,10 +359,12 @@ async function probeTeamReview(roleRoot: string): Promise<void> {
       await assert.rejects(readFile(outsideFile), { code: 'ENOENT' });
       assert.equal(existsSync(codexHomeFile), false, 'the shared Codex home was written');
     });
-    await record(roleName, 'Stop hook reached the host listener', async () => {
-      assert.ok(hookRequests.some((requestUrl) => requestUrl.startsWith(`/hook/${sessionId}/stop?`)), `hook requests seen: ${hookRequests.join(' ')}`);
-    });
-    await record(roleName, 'the transcript landed in the session\'s own folder', () => expectOwnTranscript(workDir));
+    if (reviewAgent === 'claude') {
+      await record(roleName, 'Stop hook reached the host listener', async () => {
+        assert.ok(hookRequests.some((requestUrl) => requestUrl.startsWith(`/hook/${sessionId}/stop?`)), `hook requests seen: ${hookRequests.join(' ')}`);
+      });
+      await record(roleName, 'the transcript landed in the session\'s own folder', () => expectOwnTranscript(workDir));
+    }
     await record(roleName, 'policy, temp, home and placeholder files removed', async () => {
       assert.deepEqual(await leftoverLaunchFiles(workDir), []);
     });
