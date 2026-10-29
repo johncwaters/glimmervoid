@@ -38,6 +38,50 @@ jobs:
           # doctor reports a broken native module and still exits 0, so this line is the real gate.
           grep -q "loads OK" doctor.log
 
+  windows:
+    timeout-minutes: 30
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: packaged global install
+        shell: bash
+        run: |
+          TARBALL=$(npm pack | tail -1)
+          npx --yes npm@12 install -g "./$TARBALL" --allow-scripts=node-pty
+          glimmervoid doctor > doctor.log
+          cat doctor.log
+          grep -q "loads OK" doctor.log
+      - name: smoke start
+        shell: pwsh
+        run: |
+          $portProbe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+          $portProbe.Start()
+          $port = $portProbe.LocalEndpoint.Port
+          $portProbe.Stop()
+          $launcher = (Get-Command glimmervoid.cmd).Source
+          $server = Start-Process -FilePath $launcher -ArgumentList '--no-open', '--port', $port -PassThru -NoNewWindow -RedirectStandardOutput server.log -RedirectStandardError server-error.log
+          $deadline = (Get-Date).AddSeconds(60)
+          $isDashboardServed = $false
+          while (-not $isDashboardServed -and -not $server.HasExited -and (Get-Date) -lt $deadline) {
+            try {
+              $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 5
+              $isDashboardServed = $response.StatusCode -eq 200
+            } catch {
+              Start-Sleep -Seconds 1
+            }
+          }
+          if (-not $server.HasExited) { taskkill /T /F /PID $server.Id | Out-Null }
+          Get-Content server.log, server-error.log
+          if (-not $isDashboardServed) { throw "glimmervoid did not serve http://127.0.0.1:$port/ with 200 within 60 s" }
+          exit 0
+
   site:
     timeout-minutes: 15
     runs-on: ubuntu-latest
