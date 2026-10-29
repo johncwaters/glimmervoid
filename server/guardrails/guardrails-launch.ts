@@ -446,6 +446,8 @@ async function prepareGuardrailsLaunch({ role, launchId, tempDir, keptTempFolder
     const policyPath = path.join(policyDir, `${launchId}.json`);
     const launcher = launcherCommand(plan, policyPath);
     if (!launcher) return { ok: false, reason: 'the sandbox runtime CLI could not be resolved' };
+    const isLauncherNodePresent = await access(launcher.file).then(() => true, (error: unknown) => !isMissingFileError(error));
+    if (!isLauncherNodePresent) return { ok: false, reason: `Glimmervoid's Node at ${launcher.file} no longer exists, likely upgraded while the server was running. Restart the Glimmervoid server.` };
     await Promise.all(plan.requiredDirectories.map((directory) => mkdir(directory, { recursive: true })));
     const startDir = enterDir === undefined ? undefined : path.join(launchTempDir, START_FOLDER);
     if (startDir !== undefined) await mkdir(startDir, { recursive: true });
