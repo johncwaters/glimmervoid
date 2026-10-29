@@ -73,6 +73,25 @@ test('backgroundAgents off: subagent signals never gate a completion', async () 
   }
 });
 
+test('an artifact comment watch is not background work, any other running monitor is', () => {
+  const artifactCommentWatch = {
+    id: 'sqf8sk1te',
+    type: 'monitor',
+    status: 'running',
+    description: 'live updates for artifact https://claude.ai/artifact/exampleArtifactId (watch requested)',
+  };
+  const mcpMonitor = { id: 'm1', type: 'monitor', status: 'running', description: 'deploy log stream' };
+  const { session } = makeSession({ id: 'watch', name: 'watch' });
+  try {
+    session.ingestHookSignal({ signal: 'ready', source: 'hook', ts: Date.now(), event: 'Stop', payload: { background_tasks: [artifactCommentWatch] } });
+    assert.equal(session.hasBackgroundWork, false);
+    session.ingestHookSignal({ signal: 'ready', source: 'hook', ts: Date.now(), event: 'Stop', payload: { background_tasks: [artifactCommentWatch, mcpMonitor] } });
+    assert.equal(session.hasBackgroundWork, true);
+  } finally {
+    session.destroy();
+  }
+});
+
 test('a claude-code recording differs only by the header agent field', async () => {
   const recorderBase = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-cap-rec-'));
   const { session } = makeSession({ id: 'rec', name: 'rec' });

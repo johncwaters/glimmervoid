@@ -32,15 +32,26 @@ const SETTLED_TASK_STATUSES = new Set([
   'killed', 'cancelled', 'canceled', 'exited', 'idle', 'success',
 ]);
 
+const ARTIFACT_COMMENT_WATCH_DESCRIPTION_PREFIX = 'live updates for artifact ';
+
+type RawBackgroundTask = { status?: unknown; id?: unknown; type?: unknown; description?: unknown } | null;
+
+function isArtifactCommentWatch(task: RawBackgroundTask): boolean {
+  return task?.type === 'monitor'
+    && typeof task.description === 'string'
+    && task.description.startsWith(ARTIFACT_COMMENT_WATCH_DESCRIPTION_PREFIX);
+}
+
 function extractBackgroundTasks(payload: unknown): DeclaredEntry[] | null {
   if (!payload) return null;
   const v = (payload as { background_tasks?: unknown }).background_tasks;
   if (!Array.isArray(v)) return null;
   const entries: DeclaredEntry[] = [];
   for (const raw of v) {
-    const t = raw as { status?: unknown; id?: unknown; type?: unknown } | null;
+    const t = raw as RawBackgroundTask;
     const status = t && typeof t.status === 'string' ? t.status.toLowerCase() : null;
     if (status && SETTLED_TASK_STATUSES.has(status)) continue;
+    if (isArtifactCommentWatch(t)) continue;
     entries.push({
       id: t && typeof t.id === 'string' && t.id ? t.id : null,
       type: t && typeof t.type === 'string' && t.type ? t.type : null,
