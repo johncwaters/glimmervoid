@@ -10,6 +10,7 @@ import { reconcileOwnedPaths } from '../owned-paths-ledger.ts';
 import type { GlimmervoidConfig } from '../config-store.ts';
 import { createLifecycle } from '../server-lifecycle.ts';
 import { execFileAsync, spawn } from '../child-process-safe.ts';
+import { refuseRunningNodeLaunches } from '../stable-node-path.ts';
 import { createAgentIngressApp, createBackendHttpApp } from './backend-http.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
 import { createAgentApiWiring } from '../agent-api-wiring.ts';
@@ -75,6 +76,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   if (isOperatorHomeUnderTest(os.homedir(), process.env)) {
     throw new Error('createBackend refused to boot on the operator\'s Glimmervoid home under node:test; run tests through npm test or npm run test:files, which isolate GLIMMERVOID_HOME');
   }
+  refuseRunningNodeLaunches();
   const { staticDir = 'auto', settingsDefaults } = options;
   const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
     version: string;

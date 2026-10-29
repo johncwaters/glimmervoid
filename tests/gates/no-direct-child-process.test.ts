@@ -34,8 +34,8 @@ const CHILD_PROCESS_REQUIRE =
 
 const TYPE_ONLY_LINE = /^\s*\*|^\s*\/\*\*|\bimport\s+type\b|@(?:type|typedef|param|property|returns)\b/;
 
-function hasRuntimeChildProcessImport(src: string): boolean {
-  return src.split("\n").some((line) => !TYPE_ONLY_LINE.test(line) && CHILD_PROCESS_REQUIRE.test(line));
+function hasRuntimeImport(src: string, importPattern: RegExp): boolean {
+  return src.split("\n").some((line) => !TYPE_ONLY_LINE.test(line) && importPattern.test(line));
 }
 
 function collectJsFiles(dir: string, acc: string[]): string[] {
@@ -66,7 +66,7 @@ test("only child-process-safe.ts imports child_process directly (all spawns go t
   for (const file of files) {
     if (ALLOWED.has(file)) continue;
     const src = fs.readFileSync(file, "utf8");
-    if (hasRuntimeChildProcessImport(src)) offenders.push(path.relative(ROOT, file));
+    if (hasRuntimeImport(src, CHILD_PROCESS_REQUIRE)) offenders.push(path.relative(ROOT, file));
   }
 
   assert.deepEqual(
@@ -76,26 +76,24 @@ test("only child-process-safe.ts imports child_process directly (all spawns go t
   );
 });
 
-const NODE_PATH_ALLOWED = new Set([
-  path.join(ROOT, "server", "stable-node-path.ts"),
-  path.join(ROOT, "session", "hook-tool-relay.ts"),
-  path.join(ROOT, "bin", "glimmervoid.ts"),
-  EXTENSION,
+const PTY_IMPORTERS = new Set([
+  path.join(ROOT, "session", "sessions.ts"),
+  path.join(ROOT, "server", "agent-login", "agent-connect.ts"),
+  path.join(ROOT, "server", "node-pty-preflight.ts"),
 ]);
 
-const RUNNING_NODE_PATH = /\bprocess\.execPath\b|\bargv\[0\]/;
+const NODE_PTY_IMPORT = /\bfrom\s*['"]node-pty['"]|\bimport\s*\(\s*['"]node-pty['"]\s*\)|require\(\s*['"]node-pty['"]\s*\)/;
 
-test("only stable-node-path.ts names the running Node binary (a Homebrew upgrade deletes process.execPath under a live server)", () => {
-  const files = collectJsFiles(ROOT, []);
-  const offenders = files
-    .filter((file) => !NODE_PATH_ALLOWED.has(file))
-    .filter((file) => RUNNING_NODE_PATH.test(fs.readFileSync(file, "utf8")))
+test("only the pty.spawn sites that call assertLaunchable import node-pty", () => {
+  const offenders = collectJsFiles(ROOT, [])
+    .filter((file) => !PTY_IMPORTERS.has(file))
+    .filter((file) => hasRuntimeImport(fs.readFileSync(file, "utf8"), NODE_PTY_IMPORT))
     .map((file) => path.relative(ROOT, file));
 
   assert.deepEqual(
     offenders,
     [],
-    `These modules must launch Node through stableNodePath from 'server/stable-node-path.ts' instead of process.execPath or argv[0]:\n  ${offenders.join("\n  ")}`,
+    `These modules import node-pty outside the guarded pty.spawn sites; spawn through session/sessions.ts or call assertLaunchable before pty.spawn:\n  ${offenders.join("\n  ")}`,
   );
 });
 

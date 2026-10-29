@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import pty from 'node-pty';
+import { assertLaunchable } from '../child-process-safe.ts';
 import { requireExecutableSpawnHelper } from '../node-pty-preflight.ts';
 import {
   CONNECT_RECIPES, CONNECT_TIMEOUT_MS, appendConnectOutput, connectHomeDir, connectingStatus, decideConnectExit, idleLoginStatus,
@@ -49,6 +50,7 @@ type ConnectReply = { ok: true } | { ok: false; error: string };
 
 function spawnConnectPty(file: string, args: string[], options: Parameters<ConnectPtySpawn>[2]): ConnectPty {
   requireExecutableSpawnHelper();
+  assertLaunchable(file);
   return pty.spawn(file, args, options);
 }
 

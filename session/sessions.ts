@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import pty from "node-pty";
 import { EventEmitter } from "node:events";
-import { execFile } from "../server/child-process-safe.ts";
+import { assertLaunchable, execFile } from "../server/child-process-safe.ts";
 import { projectDirCandidates } from "../server/usage/core/usage-scan-core.ts";
 import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
@@ -652,6 +652,7 @@ class Session extends EventEmitter {
     this._agentSpawnsInFlight = 0;
     this._ptySpawn = ptySpawn || ((file, args, opts) => {
       requireExecutableSpawnHelper();
+      assertLaunchable(file);
       return pty.spawn(file, args, opts);
     });
     this._prepareGuardrails = prepareGuardrails;

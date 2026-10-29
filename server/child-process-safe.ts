@@ -28,6 +28,17 @@ type ExecFileFn = ((file: string, ...rest: unknown[]) => ChildProcess) & {
   [promisify.custom]: (file: string, ...rest: unknown[]) => Promise<ExecFileResult>;
 };
 
+let refusedNodePath: string | null = null;
+
+function refuseLaunchesOf(nodePath: string): void {
+  refusedNodePath = nodePath;
+}
+
+function assertLaunchable(file: string): void {
+  if (file !== refusedNodePath) return;
+  throw new Error(`[launch] refused ${file}: launch Node through stableNodePath from server/stable-node-path.ts, because a Node upgrade deletes this path under the running server`);
+}
+
 function hide(options: unknown): Record<string, unknown> {
   if (!options || typeof options !== 'object') return { windowsHide: true };
   return { ...options, windowsHide: true };
@@ -54,12 +65,14 @@ function split(rest: unknown[]): {
 
 const execFile: ExecFileFn = Object.assign(
   function execFile(file: string, ...rest: unknown[]): ChildProcess {
+    assertLaunchable(file);
     const { args, options, callback } = split(rest);
     const execOptions = hide(options) as ExecFileOptions;
     return cp.execFile(file, args, execOptions, callback);
   },
   {
     [promisify.custom]: (file: string, ...rest: unknown[]) => new Promise<ExecFileResult>((resolve, reject) => {
+      assertLaunchable(file);
       const { args, options } = split(rest);
       const { input, ...commandOptions } = options ?? {};
       const execOptions = hide(commandOptions) as ExecFileOptionsWithStringEncoding;
@@ -89,6 +102,7 @@ function execFileSync(file: string, args: readonly string[], options: ExecFileSy
 function execFileSync(file: string, options?: ExecFileSyncOptions): string | Buffer;
 function execFileSync(file: string, args: readonly string[], options?: ExecFileSyncOptions): string | Buffer;
 function execFileSync(file: string, ...rest: unknown[]): string | Buffer {
+  assertLaunchable(file);
   const { args, options } = split(rest);
   const execOptions = hide(options) as ExecFileSyncOptions;
   if (args) return cp.execFileSync(file, args, execOptions);
@@ -102,6 +116,7 @@ function execSync(command: string, options?: ExecSyncOptions): string | Buffer {
 }
 
 function spawn(file: string, ...rest: unknown[]): ChildProcess {
+  assertLaunchable(file);
   const { args, options } = split(rest);
   const spawnOptions = hide(options) as SpawnOptions;
   if (args) return cp.spawn(file, args, spawnOptions);
@@ -110,4 +125,4 @@ function spawn(file: string, ...rest: unknown[]): ChildProcess {
 
 const execFileAsync = promisify(execFile);
 
-export { execFile, execFileAsync, execFileSync, execSync, spawn, hide };
+export { assertLaunchable, execFile, execFileAsync, execFileSync, execSync, refuseLaunchesOf, spawn, hide };

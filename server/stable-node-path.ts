@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { resolveArgvCommandMatches } from '../session/core/spawn-command.ts';
-import { execFileSync } from './child-process-safe.ts';
+import { execFileSync, refuseLaunchesOf } from './child-process-safe.ts';
 
 function realpathOrNull(candidate: string): string | null {
   try {
@@ -19,4 +19,9 @@ function findStableNodePath(): string {
 
 const stableNodePath = findStableNodePath();
 
-export { stableNodePath };
+function refuseRunningNodeLaunches(): void {
+  if (stableNodePath === process.execPath) return;
+  refuseLaunchesOf(process.execPath);
+}
+
+export { refuseRunningNodeLaunches, stableNodePath };
