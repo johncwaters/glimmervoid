@@ -1,10 +1,31 @@
+import type { NotifyAlertGroup, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { clearHeaderError, reportHeaderError } from './action-status.ts';
-import { desktopNotificationOptions } from './desktop-notification-core.ts';
+import { describeFailure } from './client-error-core.ts';
+import { reportToServerLog } from './control-ws.ts';
+import { alertGroupBannerOptions, desktopNotificationOptions, foldAlertGroupLines } from './desktop-notification-core.ts';
 import { el } from './dom-helpers.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { createPlanHash } from './plan/plan-link.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
-import { isNotificationsEnabled } from './ui-prefs.ts';
+import { getSoundId, isNotificationsEnabled, isSoundEnabled } from './ui-prefs.ts';
+
+type AlertSoundModule = typeof import('./alert-sound.ts');
+
+let pendingAlertSoundLoad: Promise<AlertSoundModule | null> | null = null;
+
+function loadAlertSound(): Promise<AlertSoundModule | null> {
+  pendingAlertSoundLoad ??= import('./alert-sound.ts').catch((error: unknown) => {
+    pendingAlertSoundLoad = null;
+    reportToServerLog('alert-sound', `alert sound failed to load: ${describeFailure(error)}`);
+    return null;
+  });
+  return pendingAlertSoundLoad;
+}
+
+function playAlertChime() {
+  const soundId = getSoundId();
+  void loadAlertSound().then((alertSound) => alertSound?.playAlertSound(soundId));
+}
 
 function getNotificationApi() {
   if (typeof Notification === 'undefined') return null;
@@ -100,8 +121,48 @@ function isDesktopNotificationWanted(ignoreFocus: boolean) {
   return ignoreFocus || !document.hasFocus();
 }
 
-export function canShowDesktopNotification(ignoreFocus = false) {
-  return isDesktopNotificationWanted(ignoreFocus) && notificationPermission() === 'granted';
+function canShowDesktopNotification() {
+  return isDesktopNotificationWanted(false) && notificationPermission() === 'granted';
+}
+
+let alertGroupLines: { groupId: number; lines: string[] } | null = null;
+
+function showAlertGroupBanner(msg: ServerMessageOf<'notify'>, group: NotifyAlertGroup) {
+  const notificationApi = getNotificationApi();
+  if (!notificationApi) return;
+  alertGroupLines = foldAlertGroupLines(alertGroupLines, group, msg.message);
+  clearHeaderError(NOTIFICATIONS_ERROR_SOURCE);
+  if (!claimNotification(window.localStorage, claimKey(`group-${group.id}`, `${msg.session}-${msg.category}`), Date.now())) return;
+  const onlySessionUi = group.sessionIds.length === 1 ? sessionUIs.get(msg.session) : undefined;
+  const title = group.sessionIds.length > 1 ? `${group.sessionIds.length} sessions` : (onlySessionUi ? sessionName(onlySessionUi) : 'Glimmervoid');
+  try {
+    const notification = new notificationApi(title, alertGroupBannerOptions(group, alertGroupLines.lines));
+    notification.onclick = () => {
+      window.focus();
+      if (msg.kind === 'plan') window.location.hash = createPlanHash(msg.session);
+      notification.close();
+    };
+    for (const sessionId of group.sessionIds) {
+      if (sessionUIs.has(sessionId)) rememberShownNotification(sessionId, notification);
+    }
+  } catch {
+  }
+}
+
+export function alertFromNotify(msg: ServerMessageOf<'notify'>) {
+  if (document.hasFocus()) return;
+  const group = msg.group;
+  if (canShowDesktopNotification()) {
+    if (group) {
+      showAlertGroupBanner(msg, group);
+      return;
+    }
+    showDesktopNotification(msg);
+    return;
+  }
+  if (isDesktopNotificationWanted(false) && notificationPermission() === 'denied') reportBlockedNotificationsOnce();
+  if (group?.isStart === false) return;
+  if (isSoundEnabled()) playAlertChime();
 }
 
 export function showDesktopNotification({

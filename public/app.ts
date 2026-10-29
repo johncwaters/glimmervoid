@@ -28,7 +28,7 @@ import type { HealthSnapshot } from './health-monitor.ts';
 import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
 import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, setVisionsProjectNames } from './visions/visions-store.ts';
 import { applyHooksReport, applyLateHookResult, setHooksRequestSender } from './hooks-store.ts';
-import { showDesktopNotification } from './notifications.ts';
+import { alertFromNotify, showDesktopNotification } from './notifications.ts';
 import { clearHeaderError, clearHeaderErrorsForSession, reportHeaderError } from './action-status.ts';
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, orderPhonePanels, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen, showPhoneSession, syncPhoneHistory } from './phone/phone-shell-gate.ts';
@@ -378,7 +378,7 @@ function applySessionTransition(msg: SessionStatusMessage, transition: SessionTr
     refreshReviewSidebar(msg.id);
     return;
   }
-  applyState(msg.id, transition.to, msg.timestamp, transition.event);
+  applyState(msg.id, transition.to, msg.timestamp);
   setSessionFailureReason(msg.id, msg.failureReason);
   if (msg.saneYolo !== undefined) setSessionSaneYolo(msg.id, msg.saneYolo);
   refreshReviewSidebar(msg.id);
@@ -503,7 +503,7 @@ const messageHandlers = {
   'session-coherence-journal-response': (msg) => applyCoherenceJournalResponse(msg),
   'session-setup-response': (msg) => applySessionSetupResponse(msg),
 
-  'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },
+  'notify':             (msg) => { alertFromNotify(msg); handleDebugStateRefresh(msg.session); },
   'update-status':      (msg) => { showUpdateBanner(msg); applySettingsUpdateStatus(msg); },
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
   'post-turn-leftovers': (msg) => showPostTurnLeftoversBanner(msg),

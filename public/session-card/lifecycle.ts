@@ -1,4 +1,3 @@
-import { isCompactionRestoreEvent } from '#shared/compaction-restore-events.ts';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import type { PlanDraftPush } from '#shared/contracts/plan-review.ts';
 import type { UnseenOutcome } from '#shared/contracts/session.ts';
@@ -21,7 +20,6 @@ import { isCompletionWatchedByOperator } from '../session-actions-core.ts';
 import { seedReviewMergeStatus, setReviewDiff, setReviewMergeStatus } from '../sidebar/review-sidebar.ts';
 import type { SessionDiffPayload } from '../sidebar/review-copy-core.ts';
 import { setSelectedId } from '../sidebar/selection.ts';
-import { getSoundId, isSoundEnabled } from '../ui-prefs.ts';
 import { openTraceForSession } from '../trace-store.ts';
 import type { UsageSessionUsage } from '../usage/usage-store-core.ts';
 import { sessionChipText, sessionChipTitle } from '../usage/usage-store-core.ts';
@@ -38,7 +36,7 @@ import { requestSessionRemoval } from '../session-actions.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { reportHeaderError } from '../action-status.ts';
 import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlertCount } from '../focus-view/attention-core.ts';
-import { canShowDesktopNotification, closeSessionNotifications } from '../notifications.ts';
+import { closeSessionNotifications } from '../notifications.ts';
 
 import {
   closeDataWs,
@@ -62,20 +60,9 @@ const isRestartable = (state: string) => RESTARTABLE_STATES.includes(state as Se
 
 onShownFilesArrivedLive(placeShownChips);
 
-type AlertSoundModule = typeof import('../alert-sound.ts');
 type ResumeDialogModule = typeof import('./resume-dialog.ts');
 
-let pendingAlertSoundLoad: Promise<AlertSoundModule | null> | null = null;
 let pendingResumeDialogLoad: Promise<ResumeDialogModule | null> | null = null;
-
-function loadAlertSound(): Promise<AlertSoundModule | null> {
-  pendingAlertSoundLoad ??= import('../alert-sound.ts').catch((error: unknown) => {
-    pendingAlertSoundLoad = null;
-    reportToServerLog('alert-sound', `alert sound failed to load: ${describeFailure(error)}`);
-    return null;
-  });
-  return pendingAlertSoundLoad;
-}
 
 function loadResumeDialog(): Promise<ResumeDialogModule | null> {
   pendingResumeDialogLoad ??= import('./resume-dialog.ts').catch((error: unknown) => {
@@ -84,11 +71,6 @@ function loadResumeDialog(): Promise<ResumeDialogModule | null> {
     return null;
   });
   return pendingResumeDialogLoad;
-}
-
-function playAlertChime() {
-  const soundId = getSoundId();
-  void loadAlertSound().then((alertSound) => alertSound?.playAlertSound(soundId));
 }
 
 type PlanFaceModule = typeof import('../plan/plan-face.ts');
@@ -724,11 +706,7 @@ function isCompletionWatchedAt(ui: SessionUi, previousState: string, nextState: 
   });
 }
 
-function shouldPlayAlertChime() {
-  return isSoundEnabled() && !canShowDesktopNotification();
-}
-
-export function applyState(sessionId: unknown, nextState: unknown, stateSince: unknown, event = "") {
+export function applyState(sessionId: unknown, nextState: unknown, stateSince: unknown) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
 
@@ -756,11 +734,6 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
 
   updateButtonVisibility(ui);
 
-  if ((state === STATES.WAITING && prevState !== STATES.WAITING)
-      || (state === STATES.COMPLETE && prevState !== STATES.COMPLETE)) {
-    if (!isCompactionRestoreEvent(event) && shouldPlayAlertChime()) playAlertChime();
-  }
-
   if (isCompletionWatchedAt(ui, prevState, state)) sendControlMsg({ type: 'dismiss', id: sessionIdOf(sessionId), expectedState: STATES.COMPLETE });
 
   const isEnding = state === STATES.DONE || state === STATES.FAILED;
@@ -773,7 +746,6 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
         ui.card.addEventListener('animationend', () => ui.card.classList.remove('completion-flash'), { once: true });
       });
     });
-    if (shouldPlayAlertChime()) playAlertChime();
   }
 
   if (state === STATES.DONE || state === STATES.FAILED) {
