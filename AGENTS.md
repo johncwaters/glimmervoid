@@ -11,14 +11,14 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | Path | Role |
 |------|------|
 | `server/index.ts`, `server/main.ts`, `vite.config.ts` | Production entry (bootstrap: handoff recovery, then the server module); frontend build and dev wiring |
-| `vite.server.config.ts`, `vite.extension.config.ts`, `scripts/build.mjs` | The node and VS Code bundles, and the orchestrator that owns `dist/` |
+| `vite.server.config.ts`, `scripts/build.mjs` | The node bundles, and the orchestrator that owns `dist/` |
 | `server/runtime-paths.ts` | The ONLY derivation of where a shipped asset lives (pure core in `server/core/runtime-paths.ts`); nothing else may guess from `import.meta` |
 | `package.json`, `biome.json`, `socket.yml` | Runtime/dev config; package, lint and scan policy |
 | `DESIGN.md`, `DESIGN.json`, `PRODUCT.md` | Visual system and product definition |
 | `docs/`, `bin/` | Design records and npm CLI |
 | `Glimmervoid.spec.md`, `*.spec.md`, `coherence.config.json`, `lexicon.json` | Coherence: the entry spec at the root, a component spec beside each unit's code, its config and vocabulary; `npm test` fails on a spec or lexicon problem |
 | `server/` | Backend runtime and lanes (`server/AGENTS.md`) |
-| `server/child-process-safe.ts` | The ONLY importer of `node:child_process`, bar the extension packed outside it |
+| `server/child-process-safe.ts` | The ONLY importer of `node:child_process` |
 | `server/git/git-workspace.ts` | The ONLY module allowed to run `git worktree` |
 | `server/core/` | Pure decision modules for everything in `server/`, no IO |
 | `session/` | Session domain (`session/AGENTS.md`) |
@@ -29,7 +29,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `public/` | Browser dashboard (`public/AGENTS.md`) |
 | `site/` | Public Astro website, its own npm package; reads dashboard sprites from `public/` at build time |
 | `scripts/`, `tests/`, `harness/` | Release scripts, the npm test suite, hand-run harnesses |
-| `tools/`, `assets/`, `dist/` | Dev tools, static assets and generated build output |
+| `assets/`, `dist/` | Static assets and generated build output |
 
 ## For AI Agents
 
@@ -93,7 +93,7 @@ Each subsystem states its own rules beside its code, so a rule is loaded when th
 ## Development Workflow
 
 - `npm run dev` - Vite dev server with HMR on 5173, backend attached via plugin (one process)
-- `npm run build` / `npm start` - whole package to `dist/` (dashboard, node bundles, extension); the built server entry
+- `npm run build` / `npm start` - whole package to `dist/` (dashboard, node bundles); the built server entry
 - `npm test` - the `node:test` suite; `npm run test:container` adds the Docker remote-mode run
 
 ## Platform and Runtime
@@ -105,8 +105,6 @@ Windows 11, Linux and macOS. Node floor and module split are stated under Workin
 Runtime: `express`, `ws` (no Socket.IO and no abstraction over WebSockets, ever), `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`.
 
 `@xterm/headless` with `@xterm/addon-serialize` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `@anthropic-ai/sandbox-runtime` (Seatbelt on macOS, bubblewrap on Linux) and `cc-safety-net` back the session guardrails. Glimmervoid runs each repository's own `@posthog/coherence` CLI and takes no runtime dependency on it.
-
-`@parcel/watcher` backs the fs ingest source only, chosen because it applies ignores BEFORE watch registration, which keeps a `node_modules` tree from exhausting `inotify.max_user_watches` on Linux. A load failure disables that one source and nothing else.
 
 `fs-native-extensions` gives the kernel file locks (`fcntl` OFD, `flock`, `LockFileEx`) that mark a session temp folder in use, because Node core has no file lock and the kernel drops one when its holder dies, which a pid record cannot tell from pid reuse. A load failure leaves folders to the 7-day age gate.
 

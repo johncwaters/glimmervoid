@@ -4,7 +4,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { DEFAULT_CONFIG } from '../../server/config-store.ts';
-import { INGEST_SPEC } from '../../server/core/settings-block-core.ts';
 import { UPDATE_CHANNELS } from '../../shared/contracts/update-journal.ts';
 import { BranchGcFileSettings, Config, ConfigUpdate } from '../../shared/contracts/config.ts';
 import { FLYING_ANIMALS_DEFAULTS } from '../../shared/settings-ranges.ts';
@@ -16,7 +15,7 @@ import {
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../../public/radar/radar-core.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } from '../../public/github/team-review-view-core.ts';
 import { OPTIONAL_FEATURE_SURFACES } from '../../public/feature-surfaces-core.ts';
-import { settableFromDashboard, specAllows } from '../helpers/settings-allow-list.ts';
+import { settableFromDashboard } from '../helpers/settings-allow-list.ts';
 
 const ROOT = path.join(import.meta.dirname, '../..');
 const ALL_ENTRIES: readonly SettingsSetting[] = [...settingsOf(SETTINGS_REGISTRY.sections), ...SETTINGS_REGISTRY.fileOnly];
@@ -43,7 +42,6 @@ test('search match spans expose original text without changing partial-word rank
 const SCOPES = new Set(['browser', 'machine']);
 const ACCESS_VALUES = new Set(['editable', 'advanced', 'readout', 'file-only']);
 const EFFECTS = new Set(['now', 'new-sessions', 'restart']);
-const INGEST_SOURCE_TOGGLE = /^ingest\.sources\.[A-Za-z]+\.enabled$/;
 const FILE_ONLY_BY_RULE_PATHS = ['port', 'worktreeShare', 'customAgents', 'hooks', 'remote', 'projects'];
 const EFFECT_OR_SCOPE_PROSE = /applies to every browser|applies (?:now|immediately)|takes effect|(?:after|needs|requires|on) (?:a |the next )?restart|newly (?:started|spawned|created) sessions|only new sessions|new sessions only/i;
 
@@ -150,11 +148,7 @@ test('ids and paths are unique across sections and the file-only listing', () =>
 test('each control agrees with its schema type', () => {
   for (const setting of CONFIG_ENTRIES) {
     const def = schemaLeafOf(setting.path);
-    if (!def) {
-      assert.match(setting.path, INGEST_SOURCE_TOGGLE, `${setting.path} names no schema leaf`);
-      assert.equal(setting.control, 'toggle', setting.path);
-      continue;
-    }
+    assert.ok(def, `${setting.path} names no schema leaf`);
     assert.ok(expectedControls(def).includes(setting.control), `${setting.path} is a ${def.type} leaf but uses the ${setting.control} control`);
     if (def.type === 'enum') assert.deepEqual(setting.options?.map((option) => option.value), Object.values(def.entries ?? {}), setting.path);
     if (def.type === 'union') assert.ok(setting.valueKind, `${setting.path} needs a valueKind to parse its union`);
@@ -239,10 +233,7 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
     unattended: 'machine-guardrails',
     updates: 'machine-updates',
     usage: 'machine-usage',
-    lanes: 'lanes-visions',
-    visions: 'lanes-visions',
-    'lanes-ingest': 'lanes-visions',
-    ingest: 'lanes-visions',
+    lanes: 'lanes-posthog',
     posthog: 'lanes-posthog',
     'team-review': 'lanes-team-review',
     reviews: 'lanes-team-review',
@@ -283,25 +274,23 @@ test('the byId and byPath maps cover every entry from one pass', () => {
   assert.equal(SETTINGS_INDEX.byId.size, ALL_ENTRIES.length);
   assert.equal(SETTINGS_INDEX.byPath.size, ALL_ENTRIES.length);
   assert.equal(SETTINGS_INDEX.byPath.get('cursorBlink')?.id, 'file-cursor-blink');
-  assert.equal(SETTINGS_INDEX.byId.get('visions-enabled')?.path, 'visions.enabled');
   const small = indexSettings({ sections: [SETTINGS_REGISTRY.sections[0]], fileOnly: [] });
   assert.deepEqual([...small.byId.keys()], SETTINGS_REGISTRY.sections[0].settings.map((setting) => setting.id));
 });
 
 test('unit conversion scales both ways and rounds whole-number settings', () => {
-  const quiet = SETTINGS_INDEX.byPath.get('visions.dispatch.quietMs');
-  assert.ok(quiet);
-  assert.equal(displayValue(quiet, 30000), 30);
-  assert.equal(wireValue(quiet, 30), 30000);
-  assert.equal(wireValue(quiet, 0.0004), 0);
-  assert.equal(wireValue({ ...quiet, integer: false }, 0.0004), 0.4);
+  const debounce = SETTINGS_INDEX.byPath.get('notifyDebounceMs');
+  assert.ok(debounce);
+  assert.equal(displayValue(debounce, 30000), 30);
+  assert.equal(wireValue(debounce, 30), 30000);
+  assert.equal(wireValue({ ...debounce, integer: true }, 0.0004), 0);
+  assert.equal(wireValue(debounce, 0.0004), 0.4);
   for (const setting of CONFIG_ENTRIES.filter((entry) => entry.control === 'number' && typeof entry.defaultValue === 'number')) {
     assert.equal(wireValue(setting, displayValue(setting, setting.defaultValue)), setting.defaultValue, setting.path);
   }
 });
 
-test('the block spec builder reproduces the server ingest spec from the registry', () => {
-  assert.deepEqual(settingsBlockSpec('ingest'), INGEST_SPEC);
+test('the block spec builder derives a block spec from the registry', () => {
   assert.deepEqual(settingsBlockSpec('telemetry'), { name: 'telemetry', booleans: ['enabled'], blocks: {} });
 });
 
@@ -375,7 +364,6 @@ test('the pre-existing deep links from the banner, the notice and the panels sti
   for (const [sectionId, settingId, canonical] of [
     [UPDATES_SECTION_ID, UPDATES_ACTIONS_SETTING_ID, '#settings/machine-updates/update-actions'],
     ['privacy', 'telemetry-enabled', '#settings/machine-privacy/telemetry-enabled'],
-    ['lanes-visions', 'visions-enabled', '#settings/lanes-visions/visions-enabled'],
     ['machine-usage', 'usage-daily-budget', '#settings/machine-usage/usage-daily-budget'],
     ['lanes-posthog', 'posthog-enabled', '#settings/lanes-posthog/posthog-enabled'],
     [TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, '#settings/lanes-team-review/team-review-enabled'],
@@ -438,14 +426,10 @@ test('the registry has known paths, status readouts and searchable option catalo
   }
 });
 
-test('the registry never exposes remote and ingest keys stay inside the dashboard allow-list', () => {
+test('the registry never exposes remote keys and rejects a miscased path', () => {
   assert.equal(ALL_ENTRIES.some((setting) => setting.path === 'remote' || setting.path.startsWith('remote.')), false);
-  for (const setting of ALL_ENTRIES.filter((entry) => entry.path.startsWith('ingest.'))) {
-    assert.equal(specAllows(INGEST_SPEC, setting.path.split('.').slice(1)), true, setting.path);
-  }
-  assert.equal(pathIsKnown('visions.dispatch.quietMS'), false);
+  assert.equal(pathIsKnown('branchGc.intervalMS'), false);
   assert.equal(settableFromDashboard('remote.port'), false);
-  assert.equal(settableFromDashboard('ingest.sources.fs.roots'), false);
 });
 
 test('the machine Updates section owns its alias, channel, status rows, actions and moved toggle', () => {
@@ -472,13 +456,11 @@ test('the tuning knobs, diagnostics and legacy team keys are the file-only listi
   const fileOnlyPaths = SETTINGS_REGISTRY.fileOnly.map((setting) => setting.path);
   for (const settingPath of [
     'teamReview.org', 'teamReview.team',
-    'visions.dispatch.quietMs', 'visions.dispatch.cooldownMs', 'visions.dispatch.dispatchTimeoutSeconds', 'visions.dispatch.activityMaxPerHour', 'visions.intent.threadTtlMs',
     'posthog.investigationTimeoutSeconds', 'posthog.fixTimeoutSeconds', 'posthog.userEscalationThreshold',
     'posthog.trafficSpikeMultiplier', 'posthog.trafficSpikeMinUsers', 'posthog.trafficSpikeCooldownMinutes', 'posthog.trafficSpikeBaselineDays',
     'workflows.maxActionsPerPoll',
     'usage.scanIntervalMinutes', 'usage.fetchPricing', 'usage.costMode', 'usage.vendors.codex', 'usage.vendors.grok', 'usage.vendors.kimi',
     'replayBufferKB', 'cursorBlink',
-    'ingest.sources.terminal.enabled', 'ingest.sources.agentLogs.enabled', 'ingest.sources.git.enabled', 'ingest.sources.fs.enabled', 'ingest.sources.shellHistory.enabled', 'ingest.sources.editor.enabled',
     'debugMode', 'recordSignals', 'trace.enabled', 'detectScheduledWakeups',
     'notifyDebounceMs', 'phoneEscalationMs',
   ]) {

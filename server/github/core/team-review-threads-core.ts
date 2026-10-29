@@ -1,13 +1,19 @@
+import crypto from 'node:crypto';
 import { TeamReviewThreadResult } from '../../../shared/contracts/team-review.ts';
 import type { ReviewDraft, TeamReviewCompareFiles, TeamReviewThread, TeamReviewThreadNode, TeamReviewThreadResult as ThreadResult, ViewerThreadTally } from '../../../shared/contracts/team-review.ts';
 import { parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
-import { contentMarker } from '../../visions/core/visions-dispatch-core.ts';
 
 export const THREAD_JUDGE_BACKOFF_MS = 15 * 60 * 1000;
 export const THREAD_PLACEHOLDER_ERROR = 'No local review draft. Review the answered threads below.';
 const THREAD_COMMENTS_MAX_CHARS = 20000;
 const THREAD_PATCH_MAX_CHARS = 24000;
 const COMPARE_FILES_MAX = 300;
+const MARKER_HASH_CHARS = 16;
+
+function contentMarker(prefix: string, text: unknown): string {
+  const digest = crypto.createHash('sha256').update(String(text == null ? '' : text), 'utf8').digest('hex');
+  return `GLIMMERVOID-${prefix}-${digest.slice(0, MARKER_HASH_CHARS).toUpperCase()}`;
+}
 
 export function viewerThreadTally(nodes: readonly TeamReviewThreadNode[]): ViewerThreadTally {
   const viewerThreads = nodes.filter((node) => node.comments.nodes[0]?.viewerDidAuthor);

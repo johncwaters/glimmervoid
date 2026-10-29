@@ -17,4 +17,4 @@ function settableFromDashboard(settingPath: string): boolean {
   return specAllows(settingsBlockSpecFor(topLevel), remaining);
 }
 
-export { settableFromDashboard, specAllows };
+export { settableFromDashboard };

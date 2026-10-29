@@ -83,8 +83,6 @@ function settingsBlockSpecFor(topLevelKey: string, registry: SettingsRegistry = 
   return built;
 }
 
-const INGEST_SPEC: SettingsBlockSpec = settingsBlockSpecFor('ingest');
-
 function isNestedDeeperThan(value: unknown, maxDepth: number): boolean {
   const pending: [node: unknown, depth: number][] = [[value, 0]];
   for (let next = pending.pop(); next; next = pending.pop()) {
@@ -201,4 +199,4 @@ function mergeSettingsBlock(stored: unknown, incoming: unknown, spec: SettingsBl
   return out;
 }
 
-export { INGEST_SPEC, SECRET_PRESENCE_SUFFIX, mergeSettingsBlock, pickSettingsBlock, settingsBlockSpecFor, validateSettingsBlock };
+export { SECRET_PRESENCE_SUFFIX, mergeSettingsBlock, pickSettingsBlock, settingsBlockSpecFor, validateSettingsBlock };

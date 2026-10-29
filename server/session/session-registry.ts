@@ -28,12 +28,6 @@ interface RegistrySpawnGate {
   run: (callback: () => unknown, options?: { isStillWanted?: () => boolean }) => Promise<unknown>;
 }
 
-interface RegistryIngestLane {
-  noteRepos: () => unknown;
-  detachSessionTap: (session: Session) => void;
-  releaseSessionRoots: (session: Session) => void;
-}
-
 interface SessionRegistryDependencies {
   httpServer: Server;
   sessions: Map<string, Session>;
@@ -43,7 +37,6 @@ interface SessionRegistryDependencies {
   wireSessionEvents: (session: Session) => void;
   closeSessionDataClients: (id: string) => void;
   notificationManager: { acknowledge: (id: string) => void };
-  getIngestLane: () => RegistryIngestLane | null;
   broadcastControl: (message: Record<string, unknown>) => void;
   applySettingsReload: (config: RegistryConfig) => void;
   spawnGate: RegistrySpawnGate;
@@ -205,11 +198,6 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
     return project ? project.name : null;
   }
 
-  function noteRepos(): void {
-    const ingestLane = dependencies.getIngestLane();
-    if (ingestLane) void ingestLane.noteRepos();
-  }
-
   function startAutoResume(): void {
     pendingAutoResumeOnListening = null;
     releaseUnheldKimiHomeSecrets(generatedKimiHomePath());
@@ -238,7 +226,6 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       captureAgentFingerprint(project);
       dependencies.wireSessionEvents(session);
     }
-    noteRepos();
     try {
       dependencies.reconcileSessionWorktrees({
         projects: config.projects,
@@ -249,7 +236,6 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
     } catch (error) {
       dependencies.logger.warn(`[worktree] worktree reconcile failed: ${errorMessage(error)}`);
     }
-    noteRepos();
     scheduleAutoResume();
   }
 
@@ -260,9 +246,6 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
 
     dependencies.notificationManager.acknowledge(id);
 
-    const ingestLane = dependencies.getIngestLane();
-    if (ingestLane) ingestLane.detachSessionTap(session);
-    if (ingestLane) ingestLane.releaseSessionRoots(session);
     session.destroy();
     Promise.resolve(session._killReap)
       .catch(() => {})
@@ -289,7 +272,6 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       session.start();
       dependencies.logger.log(`[config] Added session: ${project.name}`);
     }
-    noteRepos();
   }
 
   function modifySessions(modified: RegistryProject[], newConfig: RegistryConfig): void {

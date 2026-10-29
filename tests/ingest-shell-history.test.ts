@@ -6,8 +6,6 @@ import path from 'node:path';
 
 import { createShellHistoryIngest } from '../server/ingest/ingest-shell-history.ts';
 import type { ShellHistoryOptions } from '../server/ingest/ingest-shell-history.ts';
-import { createIngestLane } from '../server/ingest/ingest-wiring.ts';
-import { resolveIngestConfig } from '../server/ingest/core/ingest-core.ts';
 import type { ShellIngestEvent } from '../server/ingest/core/ingest-shell-core.ts';
 
 type ShellHistoryIngest = ReturnType<typeof createShellHistoryIngest>;
@@ -109,11 +107,6 @@ function summaries(events: ShellIngestEvent[]): string[] {
   return events.map((event) => event.summary);
 }
 
-function shellHistoryOf(lane: ReturnType<typeof createIngestLane>) {
-  if (!lane.shellHistory) throw new Error('the shell-history source is off on this lane');
-  return lane.shellHistory;
-}
-
 test('a command accepted after start publishes, and the history before it never does', withHome(async ({ psDir, events, build }) => {
   const filePath = seedPsReadLine(psDir, { lines: ['npm install', 'git push', 'npx vite build'] });
 
@@ -150,51 +143,6 @@ test('the dup collapse sees every parsed command, so the drain bound cannot resu
     assert.ok(published.includes(`powershell: ${command}`), `${command} was dropped by the bound`);
   }
   assert.ok(!published.some((line) => line.includes('earlier commands dropped')), 'nothing publishable was dropped');
-}));
-
-test('the lane builds no shell-history adapter unless the source is explicitly enabled', () => {
-  const laneOff = createIngestLane({ config: resolveIngestConfig({ enabled: true, sources: { terminal: { enabled: true } } }) });
-  assert.equal(laneOff.shellHistoryEnabled, false);
-  assert.equal(laneOff.shellHistory, null);
-  laneOff.stop();
-
-  const laneOn = createIngestLane({
-    config: resolveIngestConfig({ enabled: true, sources: { shellHistory: { enabled: true } } }),
-    shellHistoryOptions: { ...inertTimers(), env: {}, platform: 'win32' },
-  });
-  assert.equal(laneOn.shellHistoryEnabled, true);
-  assert.equal(shellHistoryOf(laneOn).name, 'shellHistory');
-  laneOn.stop();
-});
-
-function laneWithShellHistory(env: NodeJS.ProcessEnv) {
-  return createIngestLane({
-    config: resolveIngestConfig({ enabled: true, sources: { shellHistory: { enabled: true } } }),
-    shellHistoryOptions: { ...inertTimers(), platform: 'win32', env },
-  });
-}
-
-test('a secret-shaped command is scrubbed before it ever sits in a ring', withHome(async ({ psDir, env }) => {
-  const filePath = seedPsReadLine(psDir, { lines: ['npm test'] });
-  const lane = laneWithShellHistory(env);
-  try {
-    await shellHistoryOf(lane).start();
-    assert.equal(shellHistoryOf(lane).trackedCount, 1, 'the temp PSReadLine directory resolved');
-
-    append(filePath, '$env:GITHUB_TOKEN = "ghp_aaaabbbbccccdddd"\n');
-    append(filePath, 'psql postgresql://app:hunter2@db.internal:5432/app\n');
-    append(filePath, 'gh auth login --token ghp_zzzzzzzzzzzzzzzz\n');
-    await shellHistoryOf(lane).poll();
-
-    const stored = lane.recentEvents().map((event) => event.summary).join('\n');
-    assert.equal(lane.recentEvents().length, 3, 'every command still publishes, scrubbed');
-    assert.ok(!stored.includes('ghp_aaaabbbbccccdddd'), stored);
-    assert.ok(!stored.includes('hunter2'), stored);
-    assert.ok(!stored.includes('ghp_zzzzzzzzzzzzzzzz'), stored);
-    assert.ok(stored.includes('[scrubbed]'), stored);
-  } finally {
-    lane.stop();
-  }
 }));
 
 test('on macOS the unconfigured default tails the zsh history, extended-history stamps and all', withHome(async ({ tmpDir, events, warnings, build }) => {

@@ -22,11 +22,9 @@ const SKIP_DIRS = new Set([
   ".glimmervoid-worktrees",
 ]);
 
-const EXTENSION = path.join(ROOT, "tools", "vscode-visions", "extension.ts");
 const ALLOWED = new Set([
   path.join(ROOT, "server", "child-process-safe.js"),
   path.join(ROOT, "server", "child-process-safe.ts"),
-  EXTENSION,
 ]);
 
 const CHILD_PROCESS_REQUIRE =
@@ -104,7 +102,3 @@ test("child-process-safe.ts exists and exports the spawn surface", () => {
   }
 });
 
-test("the editor extension hides its own console window, since it cannot use the wrapper", () => {
-  const source = fs.readFileSync(EXTENSION, "utf8");
-  assert.match(source, /windowsHide: true/);
-});

@@ -74,7 +74,7 @@ const TOOL_TARGET_KEYS: readonly string[] = Object.freeze([
 ]);
 
 const DISPATCH_WORKDIR_MARKERS: readonly string[] = Object.freeze([
-  'glimmervoid-visions', 'glimmervoid-change-narrative', 'glimmervoid-wt-pr-review', 'glimmervoid-wt-team-review', 'glimmervoid-wt-radar-fix',
+  'glimmervoid-change-narrative', 'glimmervoid-wt-pr-review', 'glimmervoid-wt-team-review', 'glimmervoid-wt-radar-fix',
 ]);
 const DISPATCH_WORKDIR_PATTERN = new RegExp(`(^|[\\\\/-])(${DISPATCH_WORKDIR_MARKERS.join('|')})-`, 'i');
 

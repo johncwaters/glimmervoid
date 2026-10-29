@@ -11,7 +11,7 @@
     },
     {
       "name": "lane",
-      "definition": "A background job glimmervoid runs beside operator sessions on its own schedule (team review, Radar, Visions, benchmarks, usage), built as a pure core, an IO-free poller and a thin wiring shell"
+      "definition": "A background job glimmervoid runs beside operator sessions on its own schedule (team review, Radar, benchmarks, usage), built as a pure core, an IO-free poller and a thin wiring shell"
     },
     {
       "name": "view",
@@ -43,7 +43,7 @@
     },
     {
       "name": "visions",
-      "definition": "The editor lane that dispatches a model over the documents open in the VS Code extension and returns its comments and intent over LSP"
+      "definition": "The retired editor lane that commented on documents open in the VS Code extension; it survives only in the changelog's history"
     },
     {
       "name": "radar",

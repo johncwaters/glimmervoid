@@ -8,6 +8,7 @@ import path from 'node:path';
 import { createConfigStore } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
 import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
+import { settingsBlockSpecFor, validateSettingsBlock } from '../server/core/settings-block-core.ts';
 import { buildSettingsPayload } from '../server/settings-payload.ts';
 import { TeamReviewEnvironment } from '../shared/contracts/team-review-environment.ts';
 import { commandFor, resetCommandCache, setCustomAgents } from '../session/adapters/index.ts';
@@ -112,12 +113,12 @@ test('a branchGc control update keeps the stored file-only keys', () => {
   assert.deepEqual(h.cfg.branchGc, { enabled: true, prefixes: ['custom/'], dryRun: true, staleDays: 21, intervalMs: 3600000 });
 });
 
-test('a visions save carrying one leaf leaves every stored sibling and nested leaf as it was', () => {
-  const stored = { enabled: true, autoFix: true, projects: ['p1'], dispatch: { enabled: false, model: 'opus', quietMs: 5000 }, intent: { threadTtlMs: 3600000 } };
-  const h = harness({ projects: [], visions: structuredClone(stored) });
-  h.send({ type: 'update-settings', settings: { visions: { dispatch: { enabled: true } } } });
+test('a usage save carrying one nested leaf leaves every stored sibling and nested leaf as it was', () => {
+  const stored = { enabled: true, retainDays: 30, extraProjectsDirs: ['/extra'], budget: { dailyUsd: 5, monthlyUsd: 100 } };
+  const h = harness({ projects: [], usage: structuredClone(stored) });
+  h.send({ type: 'update-settings', settings: { usage: { budget: { dailyUsd: 7 } } } });
   assert.equal(errorFrom(h), undefined);
-  assert.deepEqual(h.cfg.visions, { ...stored, dispatch: { ...stored.dispatch, enabled: true } });
+  assert.deepEqual(h.cfg.usage, { ...stored, budget: { ...stored.budget, dailyUsd: 7 } });
 });
 
 test('a list value is one leaf: a saved list replaces the stored list whole and leaves sibling lists alone', () => {
@@ -127,11 +128,8 @@ test('a list value is one leaf: a saved list replaces the stored list whole and 
   assert.deepEqual(h.cfg.guardrails, { unguardedRepos: ['/repo-c'], blockedPaths: ['/secrets'] });
 });
 
-test('a leaf the registry does not list is refused by name even where the schema lets the block pass through', () => {
-  const h = harness({ projects: [], ingest: { enabled: true } });
-  h.send({ type: 'update-settings', settings: { ingest: { sources: { fs: { roots: ['/'] } } } } });
-  assert.match(String(errorFrom(h)?.message ?? ''), /ingest\.sources\.fs\.roots is not settable from the dashboard/);
-  assert.deepEqual(h.cfg.ingest, { enabled: true });
+test('the block validator refuses by name a leaf the registry does not list', () => {
+  assert.equal(validateSettingsBlock({ scanRoots: ['/'] }, settingsBlockSpecFor('usage')), 'usage.scanRoots is not settable from the dashboard');
 });
 
 test('an environment-supplied secret stays read-only through a dashboard save', () => {

@@ -6,15 +6,10 @@ import type { ControlBroadcast } from './backend-websockets.ts';
 
 const HEALTH_SNAPSHOT_INTERVAL_MS = 10000;
 
-interface IngestTapReader {
-  hasSessionTap(session: Session): boolean;
-}
-
 interface BackendHealthDependencies {
   sessions: Map<string, Session>;
   getAllSessions: () => Session[];
   sessionDataClients: Map<string, Map<WebSocket, unknown>>;
-  getIngestLane: () => IngestTapReader | null;
   getMemoryGateStatus: () => MemoryGateStatus;
   controlWss: { clients: Set<WebSocket> };
   dataWss: { clients: Set<WebSocket> };
@@ -48,8 +43,7 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
       totalOutputBufferBytes += stats.outputBufferBytes;
       if (!session.ephemeral) {
         const clientCount = dependencies.sessionDataClients.get(stats.id)?.size || 0;
-        const ingestTapCount = dependencies.getIngestLane()?.hasSessionTap(session) ? 1 : 0;
-        if (stats.dataListenerCount !== clientCount + ingestTapCount) listenerMismatch = true;
+        if (stats.dataListenerCount !== clientCount) listenerMismatch = true;
         if (stats.hasPty && (stats.state === STATES.DONE || stats.state === STATES.FAILED || stats.state === STATES.DORMANT)) {
           orphanPty = true;
         }

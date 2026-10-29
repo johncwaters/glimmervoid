@@ -213,14 +213,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'usage-report', requestId: 'usage-1', ts: NOW, tz: 'UTC', blockHours: 5, totals: {}, daily: [], models: [], sessions: [], blocks: [], activeBlock: null, anomaly: null, byLane: {}, budget: {}, savings: {}, tokenLimit: null, pricing: {}, scan: {}, warning: null, error: null },
   { type: 'plan-limits', ts: NOW, fiveHour: { pct: 10, resetsAtMs: NOW + 1000 }, sevenDay: null, source: 'statusline' },
   { type: 'usage-budget-alert', scope: 'daily', periodKey: '2026-08-26', threshold: 50, spentUsd: 5, budgetUsd: 10, text: 'budget crossed', ts: NOW },
-  { type: 'visions-findings', uri: 'file:///repo/a.js', diagnostics: [], ts: NOW },
-  { type: 'visions-comments', uri: 'file:///repo/a.js', comments: [], ts: NOW },
-  { type: 'visions-hand', uri: 'file:///repo/a.js', hand: null, ts: NOW },
-  { type: 'visions-intent', projectId: null, intent: { text: 'intent', source: 'model', ts: NOW }, ts: NOW },
-  { type: 'visions-fix', uri: 'file:///repo/a.js', fix: { code: 'x', line: 1, message: 'fixed', applied: true }, ts: NOW },
-  { type: 'visions-snapshot', documents: [], intent: { global: null, byProject: {} }, fixes: [], ts: NOW },
-  { type: 'ingest-activity', events: [], overflow: 0, ts: NOW },
-  { type: 'ingest-snapshot', events: [], sources: { terminal: true }, ts: NOW },
   { type: 'client-trust', trust: 'local' },
   { type: 'session-worktree-warning', id: 'session-1', session: 'Session 1', branch: 'glimmervoid/session/session-1', notice: 'offline', timestamp: NOW },
   { type: 'shutting-down' },
@@ -399,7 +391,6 @@ test('the control WebSocket server is built with that budget, never a hand-writt
     listenerPortsFor: () => [],
     tokenMatches: () => true,
     getSession: () => null,
-    getVisionsLane: () => null,
     logger: { warn: () => {} },
   });
   const controlOptions: unknown = Reflect.get(sockets.controlWss, 'options');

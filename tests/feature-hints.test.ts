@@ -278,7 +278,6 @@ for (const { feature, vendor, prompts } of PROMPT_TRIGGERS) {
 
 const EXPERIMENTAL_FEATURE_PROMPTS: readonly { feature: HintFeature; prompts: readonly string[] }[] = [
   { feature: 'issues', prompts: ['fix issue #3', 'see https://github.com/acme/app/issues/4', 'then issue #5'] },
-  { feature: 'visions', prompts: ['the thing in my editor is wrong', 'this file is off at src/app.ts:42', 'also in my editor, line 9'] },
 ];
 
 for (const { feature, prompts } of EXPERIMENTAL_FEATURE_PROMPTS) {

@@ -27,13 +27,6 @@ interface WiringConfig {
 }
 
 
-interface WiringIngestLane {
-  fsEnabled: boolean;
-  noteRepos: () => unknown;
-  noteSessionRoots: (session: Session) => unknown;
-  detachSessionTap: (session: Session) => unknown;
-}
-
 interface SessionEventDependencies {
   configStore: SessionPersistenceStore;
   config: WiringConfig;
@@ -46,8 +39,7 @@ interface SessionEventDependencies {
     trigger: (id: string, category: string, message: string, kind?: 'plan' | null) => void;
     noteOperatorActivity: () => void;
   };
-  getIngestLane: () => WiringIngestLane | null;
-  tapIngestForSession: (session: Session) => void;
+  attachSessionPrLink: (session: Session) => void;
   closeSessionDataClients: (id: string) => void;
   removeExitedSession?: (id: string) => void;
   taskTitleRefiner?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
@@ -233,7 +225,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('teardown', ({ cause }: { id: string; cause: SessionEndCause }) => {
       clearCompactionConfirm();
       isAcknowledgeDeferredForCompaction = false;
-      dependencies.getIngestLane()?.detachSessionTap(session);
       captureSessionEnded(cause);
     });
 
@@ -309,13 +300,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       if (agentNoteForCopy !== null) pendingAgentNote = null;
     });
 
-    const ingestLaneAtWiring = dependencies.getIngestLane();
-    if (ingestLaneAtWiring?.fsEnabled) {
-      session.on('state-change', () => {
-        const ingestLane = dependencies.getIngestLane();
-        if (ingestLane?.fsEnabled) ingestLane.noteSessionRoots(session);
-      });
-    }
     session.on('agent-attention', ({ note }: { note: string }) => {
       pendingAgentNote = pendingAgentNote === null ? note : `${pendingAgentNote}${AGENT_ATTENTION_NOTE_SEPARATOR}${note}`;
     });
@@ -399,12 +383,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         timestamp: Date.now(),
       });
       dependencies.broadcastControl({ type: 'session-git', id: session.id, worktree: !!session.isWorktree });
-      const ingestLane = dependencies.getIngestLane();
-      if (ingestLane) void ingestLane.noteRepos();
-      if (ingestLane?.fsEnabled) ingestLane.noteSessionRoots(session);
     });
     session.on('rebaseline', () => dependencies.closeSessionDataClients(session.id));
-    dependencies.tapIngestForSession(session);
+    dependencies.attachSessionPrLink(session);
   };
 }
 

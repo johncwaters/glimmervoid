@@ -1,13 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
 import { ACCEPT_EDITS_MODE, buildLanePermissions } from '../server/lanes/core/lane-permissions-core.ts';
 import { buildHookSettings } from '../detection/settings-injector.ts';
 import { LANE_SPAWN_DENY_TOOLS } from '../server/lanes/lane-spawn.ts';
-import { VISIONS_DENY_TOOLS, makeVisionsWorkDir } from '../server/visions/visions-dispatch.ts';
 
 test('the boundary is acceptEdits over the throwaway cwd, and there is no allow list at all', () => {
   const posture = buildLanePermissions({ denyTools: ['Bash'] });
@@ -18,27 +14,21 @@ test('the boundary is acceptEdits over the throwaway cwd, and there is no allow 
 });
 
 test('the mode is set by the lane, not inherited: an operator running auto has a classifier deciding', () => {
-  for (const denyTools of [LANE_SPAWN_DENY_TOOLS, VISIONS_DENY_TOOLS]) {
-    assert.equal(buildLanePermissions({ denyTools }).permissions.defaultMode, 'acceptEdits');
-  }
+  assert.equal(buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS }).permissions.defaultMode, 'acceptEdits');
 });
 
 test('no lane denies a bare Read, Write, Glob or Grep: a bare Read deny refuses the Write tool', () => {
-  for (const denyTools of [LANE_SPAWN_DENY_TOOLS, VISIONS_DENY_TOOLS]) {
-    for (const tool of ['Read', 'Write', 'Glob', 'Grep']) {
-      assert.equal(denyTools.includes(tool), false, `${tool} in ${denyTools.join(',')}`);
-    }
+  for (const tool of ['Read', 'Write', 'Glob', 'Grep']) {
+    assert.equal(LANE_SPAWN_DENY_TOOLS.includes(tool), false, `${tool} in ${LANE_SPAWN_DENY_TOOLS.join(',')}`);
   }
 });
 
 test('no lane leans on a path deny: probed, it does not refuse a Write tool call', () => {
-  for (const denyTools of [LANE_SPAWN_DENY_TOOLS, VISIONS_DENY_TOOLS]) {
-    for (const rule of denyTools) {
-      assert.equal(
-        /^(Edit|Write)\(/.test(rule), false,
-        `${rule} reads as a write boundary and is not one; the cwd plus acceptEdits is the boundary`
-      );
-    }
+  for (const rule of LANE_SPAWN_DENY_TOOLS) {
+    assert.equal(
+      /^(Edit|Write)\(/.test(rule), false,
+      `${rule} reads as a write boundary and is not one; the cwd plus acceptEdits is the boundary`
+    );
   }
 });
 
@@ -73,20 +63,6 @@ test('--tools is never the last token, since only a following option ends the va
   assert.ok(args.at(-2)?.startsWith('--'), 'whatever ends the argv, the variadic is already bounded by an option');
 
   assert.equal(args.filter((arg) => arg === 'Read' || arg === 'Write').length, 0);
-});
-
-test('the visions dispatch work dir is an empty directory under the system temp dir', async () => {
-  const workDir = await makeVisionsWorkDir();
-  try {
-    const realTmp = fs.realpathSync(os.tmpdir());
-    assert.equal(
-      fs.realpathSync(workDir).startsWith(realTmp + path.sep), true,
-      'a lane must cwd into a temp dir, or --setting-sources project,local loads a real repo\'s settings and hooks',
-    );
-    assert.deepEqual(fs.readdirSync(workDir), [], 'a lane must cwd into an EMPTY dir it owns');
-  } finally {
-    fs.rmSync(workDir, { recursive: true, force: true });
-  }
 });
 
 test('an allow-list never replaces the deny list, and never becomes a bare Write allow', () => {

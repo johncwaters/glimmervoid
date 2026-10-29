@@ -34,7 +34,7 @@ const usage = `glimmervoid settings: read and change config.json from the comman
 
   <path> is a config.json key path such as posthog.trafficSpikeEnabled, or a setting id such as posthog-traffic-enabled.
   <value> is true or false for a toggle, a number, text, a comma-separated or JSON list, or JSON for a structured value.
-  A number is in the unit config.json stores, as schema's Stored unit column names: set visions.dispatch.quietMs 45000 means 45000 ms.
+  A number is in the unit config.json stores, as schema's Stored unit column names: set branchGc.intervalMs 21600000 means 21600000 ms.
   Where the dashboard shows another unit, get, list and set add it in parentheses, such as 30000 (30 seconds).
   A secret (a bot token or API key) is never set or unset here, since a value on the command line lands in shell history;
   change it in the dashboard settings or through its environment variable.

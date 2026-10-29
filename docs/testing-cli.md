@@ -51,13 +51,6 @@ Commands:
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
 
-Editor integration (Visions):
-  visions install     Install the Visions extension into every VS Code family editor on PATH
-  visions uninstall   Remove the Visions extension and the editor config it wrote
-  visions setup       Print LSP client config for Neovim, Helix, Emacs, Kate, Sublime, JetBrains
-  visions status      Show the relay path and which editors have the extension
-  visions relay       Run the Visions LSP relay on stdio (an editor's LSP client starts this)
-
 Inside a Glimmervoid session:
   spawn <prompt>      Start a session on that prompt, with its own dashboard card, that this session owns until its task is done
   send [child] <text> Message a session this one spawned; a spawned session messages its parent with send <text>

@@ -60,8 +60,7 @@ async function bootHarness(session: Session): Promise<WaitingInputHarness> {
       trigger: () => {},
       noteOperatorActivity: () => { operatorActivity.count += 1; },
     },
-    getIngestLane: () => null,
-    tapIngestForSession: () => {},
+    attachSessionPrLink: () => {},
     closeSessionDataClients: () => {},
     logger: { error: () => {}, log: () => {}, warn: () => {} },
   });
@@ -75,7 +74,6 @@ async function bootHarness(session: Session): Promise<WaitingInputHarness> {
     listenerPortsFor: () => [],
     tokenMatches: () => true,
     getSession: (id) => (id === SESSION_ID ? session : null),
-    getVisionsLane: () => null,
     logger: { warn: () => {} },
   });
   webSockets.attachDataConnection();

@@ -18,11 +18,6 @@ function positiveNumberOr<Fallback>(value: unknown, fallback: Fallback): number 
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-function nonNegativeIntOr(value: unknown, fallback: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return fallback;
-  return Math.floor(value);
-}
-
 function coercedNumberOr(value: unknown, fallback: number): number {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
@@ -35,4 +30,4 @@ function positiveIntOr(value: unknown, fallback: number): number {
   return Math.floor(number);
 }
 
-export { coercedNumberOr, isRecord, nonNegativeIntOr, numberOr, positiveIntOr, positiveNumberOr, rawTextOr, textOr };
+export { coercedNumberOr, isRecord, numberOr, positiveIntOr, positiveNumberOr, rawTextOr, textOr };

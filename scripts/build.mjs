@@ -14,15 +14,10 @@ const REQUIRED_OUTPUTS = [
   'session/command-hook-relay.js',
   'session/statusline-relay.js',
   'session/hook-tool-relay.js',
-  'session/visions-relay.js',
   'session/guardrails-open-launcher.js',
   'session/remote-setup/SKILL.md',
   'session/remote-setup/glimmervoid.service',
   'scripts/postinstall-path-check.js',
-  'tools/vscode-visions/extension.js',
-  'tools/vscode-visions/lsp-convert.js',
-  'tools/vscode-visions/visions-lsp-core.js',
-  'tools/vscode-visions/package.json',
 ];
 
 const ENTRY_CHUNK_BUDGET_BYTES = 512 * 1024;
@@ -86,7 +81,6 @@ await build({ configFile: path.join(repoRoot, 'vite.config.ts') });
 assertLazyViewsStayOutOfEntry();
 await build({ configFile: path.join(repoRoot, 'vite.server.config.ts') });
 assertImportMetaSurvived();
-await build({ configFile: path.join(repoRoot, 'vite.extension.config.ts') });
 
 fs.cpSync(path.join(repoRoot, 'session', 'remote-setup'), path.join(distDir, 'session', 'remote-setup'), { recursive: true });
 

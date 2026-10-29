@@ -25,7 +25,6 @@ interface BackendShutdownDependencies {
   agentSessions: Map<string, ShutdownSession>;
   reviewSessions: Map<string, ShutdownSession>;
   investigationSessions: Map<string, ShutdownSession>;
-  visionsSessions: Map<string, ShutdownSession>;
   taskTitleSessions?: Map<string, ShutdownSession>;
   taskTitleRefiner?: Stoppable | null;
   benchmarkSessions?: Map<string, ShutdownSession>;
@@ -40,8 +39,6 @@ interface BackendShutdownDependencies {
   benchmarks?: Stoppable | null;
   usage: Stoppable;
   featureHints?: Stoppable | null;
-  getIngestLane: () => Stoppable | null;
-  getVisionsLane: () => Stoppable | null;
   traceWiring?: Stoppable | null;
   uploadsWiring?: Stoppable | null;
   traceChangeBroadcast?: Stoppable | null;
@@ -108,8 +105,6 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const featureHints = dependencies.featureHints;
     if (featureHints) stoppers.add('feature-hints', () => featureHints.stop());
     destroySessions([dependencies.investigationSessions], pendingReaps);
-    stoppers.add('ingest', () => dependencies.getIngestLane()?.stop());
-    stoppers.add('visions', () => dependencies.getVisionsLane()?.stop());
     const traceWiring = dependencies.traceWiring;
     if (dependencies.traceChangeBroadcast) dependencies.traceChangeBroadcast.stop();
     if (traceWiring) {
@@ -125,7 +120,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     if (planReview) stoppers.add('plan-review', () => planReview.stop());
 
     stoppers.add('telegram-outbox', () => dependencies.telegramOutbox.idle());
-    destroySessions([dependencies.visionsSessions, dependencies.taskTitleSessions ?? new Map(), dependencies.benchmarkSessions ?? new Map()], pendingReaps);
+    destroySessions([dependencies.taskTitleSessions ?? new Map(), dependencies.benchmarkSessions ?? new Map()], pendingReaps);
     const outcomes = dependencies.outcomes;
     if (outcomes) stoppers.add('outcomes', () => outcomes.stop());
     const telemetry = dependencies.telemetry;

@@ -33,7 +33,6 @@ export default defineConfig({
         'session/command-hook-relay': path.join(repoRoot, 'session', 'command-hook-relay.ts'),
         'session/statusline-relay': path.join(repoRoot, 'session', 'statusline-relay.ts'),
         'session/hook-tool-relay': path.join(repoRoot, 'session', 'hook-tool-relay.ts'),
-        'session/visions-relay': path.join(repoRoot, 'session', 'visions-relay.ts'),
         'session/guardrails-open-launcher': path.join(repoRoot, 'session', 'guardrails-open-launcher.ts'),
         'scripts/postinstall-path-check': path.join(repoRoot, 'scripts', 'postinstall-path-check.ts'),
       },

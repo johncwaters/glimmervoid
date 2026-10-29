@@ -1199,8 +1199,7 @@ function notificationWiring(triggered: { category: string; message: string }[]) 
       trigger: (_id, category, message) => { triggered.push({ category, message }); },
       noteOperatorActivity: () => {},
     },
-    getIngestLane: () => null,
-    tapIngestForSession: () => {},
+    attachSessionPrLink: () => {},
     closeSessionDataClients: () => {},
     logger: { error: () => {}, log: () => {}, warn: () => {} },
   });

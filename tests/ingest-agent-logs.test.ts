@@ -6,8 +6,6 @@ import path from 'node:path';
 
 import { createAgentLogIngest } from '../server/ingest/ingest-agent-logs.ts';
 import type { AgentLogIngestOptions } from '../server/ingest/ingest-agent-logs.ts';
-import { createIngestLane } from '../server/ingest/ingest-wiring.ts';
-import { resolveIngestConfig } from '../server/ingest/core/ingest-core.ts';
 import type { AgentIngestEvent } from '../server/ingest/core/ingest-agent-core.ts';
 import { encodeProjectDir } from '../session/core/conversation-history.ts';
 
@@ -96,11 +94,6 @@ function withHomes(fn: (context: HomesContext) => Promise<void>): () => Promise<
   };
 }
 
-function agentLogsOf(lane: ReturnType<typeof createIngestLane>) {
-  if (!lane.agentLogs) throw new Error('the agentLogs source is off on this lane');
-  return lane.agentLogs;
-}
-
 function claudeAssistant({ text = null, tools = [], sessionId, cwd = 'C:\\repo', ts = null }: {
   text?: string | null;
   tools?: { name: string; input: Record<string, unknown> }[];
@@ -137,10 +130,10 @@ function append(filePath: string, text: string): void {
 }
 
 test('layer 2, the workdir shape: a dispatch transcript is excluded with NO ledger at all', withHomes(async ({ projects, events, build }) => {
-  const workDir = path.join(os.tmpdir(), 'glimmervoid-visions-abc123');
+  const workDir = path.join(os.tmpdir(), 'glimmervoid-change-narrative-abc123');
   const filePath = seedClaudeTranscript(projects, {
     dirName: encodeProjectDir(workDir),
-    sessionId: 'unrecorded-visions',
+    sessionId: 'unrecorded-narrative',
   });
 
   const adapter = build();
@@ -148,7 +141,7 @@ test('layer 2, the workdir shape: a dispatch transcript is excluded with NO ledg
   assert.equal(adapter.trackedCount, 0, 'a dispatch workdir is not even listed');
   assert.equal(adapter.watchCount, 3, 'and it earns no watcher either, only the three vendor roots');
 
-  append(filePath, claudeAssistant({ text: 'unrecorded dispatch output', sessionId: 'unrecorded-visions', cwd: workDir }));
+  append(filePath, claudeAssistant({ text: 'unrecorded dispatch output', sessionId: 'unrecorded-narrative', cwd: workDir }));
   await adapter.poll();
   await adapter.discover();
   await adapter.poll();
@@ -229,79 +222,6 @@ test('a kimi transcript publishes its assistant turns and tool calls under the c
   }
 }));
 
-function laneWith(
-  homes: Homes,
-  rawConfig: unknown,
-  overrides: Partial<AgentLogIngestOptions> = {},
-) {
-  const broadcasts: Record<string, unknown>[] = [];
-  const lane = createIngestLane({
-    config: resolveIngestConfig(rawConfig),
-    broadcast: (message) => broadcasts.push(message),
-    logger: { warn: () => {} },
-    ...inertTimers(),
-    agentLogOptions: { env: homes.env, ...overrides },
-  });
-  return { lane, broadcasts };
-}
-
-test('a secret past a long prefix in a tool command is scrubbed whole, never down to its first word', withHomes(async (homes) => {
-  const filePath = seedClaudeTranscript(homes.projects, { sessionId: 'sess-target' });
-  const { lane } = laneWith(homes, { enabled: true, sources: { agentLogs: { enabled: true } } });
-  try {
-    await agentLogsOf(lane).start();
-    append(filePath, claudeAssistant({
-      text: 'Exporting it now.',
-      sessionId: 'sess-target',
-      tools: [{
-        name: 'Bash',
-        input: { command: `echo ${'a'.repeat(90)} --password "hunter two three four five six"` },
-      }],
-    }));
-    await agentLogsOf(lane).poll();
-
-    const tool = lane.recentEvents().find((event) => event.kind === 'agent-tool');
-    if (!tool) throw new Error('no tool event reached the ring');
-    assert.ok(tool.summary.startsWith('claude: Bash '), `the M7 vendor prefix is gone: ${tool.summary}`);
-    assert.ok(tool.summary.includes('--password [scrubbed]'), tool.summary);
-    for (const word of ['hunter', 'two three four five', 'six']) {
-      assert.ok(!tool.summary.includes(word), `leaked ${word}: ${tool.summary}`);
-    }
-  } finally {
-    lane.stop();
-  }
-}));
-
-test('a secret past a long prefix in a turn summary is scrubbed whole, and the ring is the only slice', withHomes(async (homes) => {
-  const filePath = seedClaudeTranscript(homes.projects, { sessionId: 'sess-turn-secret' });
-  const { lane } = laneWith(homes, { enabled: true, sources: { agentLogs: { enabled: true } } });
-  try {
-    await agentLogsOf(lane).start();
-    append(filePath, claudeAssistant({
-      text: `I ran ${'w'.repeat(200)} with --password "hunter two three four five six"`,
-      sessionId: 'sess-turn-secret',
-    }));
-    append(filePath, claudeAssistant({ text: `a very long turn ${'z'.repeat(900)}`, sessionId: 'sess-turn-secret' }));
-    await agentLogsOf(lane).poll();
-
-    const events = lane.recentEvents();
-    const secret = events.find((event) => event.summary.includes('--password'));
-    if (!secret) throw new Error('the command event never reached the ring');
-    assert.ok(secret.summary.startsWith('claude: I ran '), secret.summary);
-    assert.ok(secret.summary.endsWith('--password [scrubbed]'), secret.summary);
-    for (const word of ['hunter', 'two three four five', 'six']) {
-      assert.ok(!secret.summary.includes(word), `leaked ${word}: ${secret.summary}`);
-    }
-
-    const long = events.find((event) => event.summary.includes('a very long turn'));
-    if (!long) throw new Error('the long turn never reached the ring');
-    assert.equal(long.summary.length, 400, 'the ring bound is the one slice in the pipeline');
-    assert.ok(long.summary.startsWith('claude: '), long.summary);
-  } finally {
-    lane.stop();
-  }
-}));
-
 function seedCodexRollout(codexSessions: string): string {
   const dayDir = path.join(codexSessions, '2026', '10', '28');
   fs.mkdirSync(dayDir, { recursive: true });
@@ -350,20 +270,3 @@ test('each vendor publishes its operator prompts, and a Codex exec call publishe
   ]);
 }));
 
-test('the activity stream shows Codex exec commands but never an operator prompt, and a prompt never swallows the dropped-lines marker', withHomes(async (homes) => {
-  const codexFile = seedCodexRollout(homes.codexSessions);
-  const { lane } = laneWith(homes, { enabled: true, sources: { agentLogs: { enabled: true } } }, { maxLinesPerDrain: 2 });
-  try {
-    await agentLogsOf(lane).start();
-    append(codexFile, codexRecord('event_msg', { type: 'agent_message', message: 'one' }));
-    append(codexFile, codexRecord('event_msg', { type: 'user_message', message: 'review PR 12 please' }));
-    append(codexFile, codexRecord('response_item', { type: 'custom_tool_call', name: 'exec', input: 'tools.exec_command({cmd:"gh pr diff 412"})' }));
-    await agentLogsOf(lane).poll();
-
-    assert.deepEqual(lane.recentEvents().map((event) => [event.kind, event.summary]), [
-      ['agent-tool', 'codex: exec_command gh pr diff 412 [1 earlier lines dropped]'],
-    ]);
-  } finally {
-    lane.stop();
-  }
-}));

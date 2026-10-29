@@ -7,10 +7,9 @@ function upgradePathname(rawUrl: unknown): string {
   return rawUrl.slice(0, queryOrFragmentAt);
 }
 
-function classifyUpgradePath(rawUrl: unknown): 'control' | 'visions' | 'data' | 'unknown' {
+function classifyUpgradePath(rawUrl: unknown): 'control' | 'data' | 'unknown' {
   const pathname = upgradePathname(rawUrl);
   if (pathname === '/control') return 'control';
-  if (pathname === '/visions') return 'visions';
   if (pathname.startsWith(DATA_PATH_PREFIX)) return 'data';
   return 'unknown';
 }

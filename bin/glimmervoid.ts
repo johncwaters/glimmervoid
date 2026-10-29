@@ -37,13 +37,6 @@ Commands:
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
 
-Editor integration (Visions):
-  visions install     Install the Visions extension into every VS Code family editor on PATH
-  visions uninstall   Remove the Visions extension and the editor config it wrote
-  visions setup       Print LSP client config for Neovim, Helix, Emacs, Kate, Sublime, JetBrains
-  visions status      Show the relay path and which editors have the extension
-  visions relay       Run the Visions LSP relay on stdio (an editor's LSP client starts this)
-
 Inside a Glimmervoid session:
 ${agentCommandHelpLines().join('\n')}
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
@@ -96,10 +89,6 @@ const OWN_SUBCOMMAND_RUNNERS: [string, SubcommandRunner][] = [
   ['settings', async (subcommandArgs) => {
     const { runSettingsCli } = await import('../server/settings-cli.ts');
     return runSettingsCli(subcommandArgs);
-  }],
-  ['visions', async (subcommandArgs) => {
-    const { runVisionsCli } = await import('../server/visions/visions-cli.ts');
-    return runVisionsCli(subcommandArgs);
   }],
   ['ssh-sign', async (subcommandArgs) => {
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');

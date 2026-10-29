@@ -63,24 +63,6 @@ export const BranchGcControlSettings = BranchGcFileSettings.omit({ prefixes: tru
 export const BRANCH_GC_CONTROL_BOOLEAN_KEYS = Object.freeze(['enabled', 'deleteUnmerged']);
 export const BRANCH_GC_CONTROL_NUMERIC_KEYS = Object.freeze(['staleDays', 'intervalMs']);
 
-const VisionsSettings = optionalObject('visions', {
-  enabled: optionalBoolean('visions.enabled'),
-  autoFix: optionalBoolean('visions.autoFix'),
-  projects: z.array(z.string({ error: 'visions.projects must be an array of strings' }), { error: 'visions.projects must be an array of strings' }).optional(),
-  dispatch: optionalObject('visions.dispatch', {
-    enabled: optionalBoolean('visions.dispatch.enabled'),
-    model: optionalString('visions.dispatch.model', true),
-    quietMs: optionalWholeNumber('visions.dispatch.quietMs', ranges.VISIONS_QUIET_MS_RANGE),
-    cooldownMs: optionalWholeNumber('visions.dispatch.cooldownMs', ranges.VISIONS_COOLDOWN_MS_RANGE),
-    maxPerHour: optionalWholeNumber('visions.dispatch.maxPerHour', ranges.VISIONS_MAX_PER_HOUR_RANGE),
-    activityMaxPerHour: optionalWholeNumber('visions.dispatch.activityMaxPerHour', ranges.VISIONS_ACTIVITY_MAX_PER_HOUR_RANGE),
-    dispatchTimeoutSeconds: optionalWholeNumber('visions.dispatch.dispatchTimeoutSeconds', ranges.VISIONS_DISPATCH_TIMEOUT_RANGE),
-  }),
-  intent: optionalObject('visions.intent', {
-    threadTtlMs: optionalWholeNumber('visions.intent.threadTtlMs', ranges.VISIONS_INTENT_THREAD_TTL_MS_RANGE),
-  }),
-});
-
 export const GithubSettings = z.object({
   teams: z.array(
     z.string({ error: 'github.teams must be an array of org/slug strings' })
@@ -214,9 +196,6 @@ const TelegramSettings = optionalObject('telegram', {
   chatId: optionalString('telegram.chatId', true),
 });
 
-const IngestSettings = z.object({
-  enabled: optionalBoolean('ingest.enabled'),
-}, { error: 'ingest must be an object' }).passthrough().optional();
 
 export const TraceSettings = z.object({
   enabled: optionalBoolean('trace.enabled'),
@@ -273,7 +252,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   repoRoots: z.array(z.string()).optional(),
   taskTitle: TaskTitleSettings,
   branchGc: BranchGcSettings,
-  visions: VisionsSettings,
   github: GithubSettings,
   teamReview: TeamReviewSettings,
   benchmarks: BenchmarksSettings,
@@ -283,7 +261,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,
-  ingest: IngestSettings,
   guardrails: createGuardrailsSettings(isAbsolutePath),
   telemetry: TelemetrySettings,
   workflows: WorkflowsSettings.nullable().optional(),

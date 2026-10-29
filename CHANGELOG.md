@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`glimmervoid limits` prints JSON**: inside a session, `glimmervoid limits` now prints its JSON reply like every other session command, instead of text lines. `glimmervoid --help` still lists the session's limits as text. Every session command's reply is now checked against its contract before it is sent; one that breaks it comes back as `{"ok":false}` with a 500 and a `[agent-api]` line in the server log.
 
+### Removed
+
+- **Visions is gone**: the Visions tab, the editor relay, the `glimmervoid visions` commands and the machine context ingest that fed them are removed, along with their settings. A `visions` or `ingest` block left in `config.json` is ignored, so nothing needs editing there. Remove the editor pieces Visions installed by hand: uninstall the Glimmervoid Visions extension from VS Code (and Cursor or any other VS Code family editor), delete `glimmervoid-visions.lua` from your Neovim config, drop the `[language-server.glimmervoid-visions]` block from Helix's `languages.toml`, and remove the `glimmervoid-visions` server entry from Kate's `kate/lspclient/settings.json`, Sublime Text's `LSP.sublime-settings` and your Emacs init file. The install also no longer pulls in `@parcel/watcher`.
+
 ### Fixed
 
 - **Community finds Discord channels with an emoji in their name**: a Discord channel whose name starts with an emoji or other symbol, such as the PostHog server's bug and feature channels, now matches its plain name in Settings > Community (experimental), so `report-a-bug` picks up messages again. Before, no message from such a channel ever reached the Community tab.

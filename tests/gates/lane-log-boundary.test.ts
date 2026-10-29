@@ -7,7 +7,7 @@ const consoleChannel = /\bconsole\s*(?:\?\.|\.|\[)/;
 const calledLoggerChannel = /\blogger\s*(?:\??\.\s*(?:log|warn|error|info|debug)\s*\(|\[)/;
 const handRolledLoggerGuard = /typeof\s+logger\s*\??\.\s*(?:log|warn)/;
 const bracketPrefix = /['"]\s*(\[[a-z][a-z0-9:-]*\])/g;
-const laneDirectoryModule = /^server\/(?:usage|ingest|visions)\/[^/]+\.ts$/;
+const laneDirectoryModule = /^server\/(?:usage|ingest)\/[^/]+\.ts$/;
 const cliModule = /-cli\.ts$/;
 
 test('every lane module logs only through lane-log with one prefix', () => {

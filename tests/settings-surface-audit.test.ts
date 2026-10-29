@@ -12,12 +12,6 @@ import {
 
 const WHOLE_NUMBER_FIELDS = [
   ['file-replay-buffer', 'replayBufferKB'],
-  ['file-visions-quiet-delay', 'visions.dispatch.quietMs'],
-  ['file-visions-cooldown', 'visions.dispatch.cooldownMs'],
-  ['visions-max-per-hour', 'visions.dispatch.maxPerHour'],
-  ['file-visions-activity-max-per-hour', 'visions.dispatch.activityMaxPerHour'],
-  ['file-visions-dispatch-timeout', 'visions.dispatch.dispatchTimeoutSeconds'],
-  ['file-visions-intent-thread-ttl', 'visions.intent.threadTtlMs'],
   ['posthog-max-investigations', 'posthog.maxConcurrentInvestigations'],
   ['posthog-min-users', 'posthog.minUsersToInvestigate'],
   ['file-posthog-escalation', 'posthog.userEscalationThreshold'],
@@ -63,19 +57,17 @@ for (const [id, path] of WHOLE_NUMBER_FIELDS) {
 test('legacy numeric migration preserves count comparisons, floors truncated quantities and leaves the input intact', () => {
   const legacy = {
     projects: [], replayBufferKB: 0.5,
-    visions: { dispatch: { quietMs: 20.9, cooldownMs: 30.8, maxPerHour: 6.9, activityMaxPerHour: 2.9, dispatchTimeoutSeconds: 0.5 }, intent: { threadTtlMs: 80.9 }, future: true },
-    posthog: { maxConcurrentInvestigations: 2.5, minUsersToInvestigate: 2.5, userEscalationThreshold: 2.5, trafficSpikeMinUsers: 2.5, trafficSpikeBaselineDays: 2.5, intervalMinutes: 2.5 },
+    posthog: { maxConcurrentInvestigations: 2.5, minUsersToInvestigate: 2.5, userEscalationThreshold: 2.5, trafficSpikeMinUsers: 2.5, trafficSpikeBaselineDays: 2.5, intervalMinutes: 2.5, future: true },
   };
   const snapshot = structuredClone(legacy);
   const migrated = normalizeLegacyConfigNumbers(legacy);
   assert.deepEqual(migrated, {
     projects: [], replayBufferKB: 64,
-    visions: { dispatch: { quietMs: 20, cooldownMs: 30, maxPerHour: 6, activityMaxPerHour: 2, dispatchTimeoutSeconds: 1 }, intent: { threadTtlMs: 80 }, future: true },
-    posthog: { maxConcurrentInvestigations: 3, minUsersToInvestigate: 3, userEscalationThreshold: 3, trafficSpikeMinUsers: 3, trafficSpikeBaselineDays: 2, intervalMinutes: 2.5 },
+    posthog: { maxConcurrentInvestigations: 3, minUsersToInvestigate: 3, userEscalationThreshold: 3, trafficSpikeMinUsers: 3, trafficSpikeBaselineDays: 2, intervalMinutes: 2.5, future: true },
   });
   assert.deepEqual(legacy, snapshot);
   assert.deepEqual(normalizeLegacyConfigNumbers(migrated), migrated);
-  assert.deepEqual(normalizeLegacyConfigNumbers({ visions: null, posthog: null }), { visions: null, posthog: null });
+  assert.deepEqual(normalizeLegacyConfigNumbers({ posthog: null }), { posthog: null });
 });
 
 test('environment secret ownership excludes replacement edits and sibling saves carry no secret metadata', () => {

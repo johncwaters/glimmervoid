@@ -470,29 +470,25 @@ test('getSettings exposes environment ownership for both credentials without sen
 test('loading legacy fractional settings migrates counts without rejecting the file or discarding unknown keys', () => {
   withStore({
     projects: [], replayBufferKB: 512.5,
-    visions: { dispatch: { maxPerHour: 6.5, activityMaxPerHour: 2.5, quietMs: 30.5 }, futureKey: 'kept' },
-    posthog: { maxConcurrentInvestigations: 2.5, trafficSpikeBaselineDays: 7.5, intervalMinutes: 2.5 },
+    posthog: { maxConcurrentInvestigations: 2.5, trafficSpikeBaselineDays: 7.5, intervalMinutes: 2.5, futureKey: 'kept' },
   }, (store) => {
     assert.equal(store.config.replayBufferKB, 512);
-    assert.deepEqual(store.config.visions, { dispatch: { maxPerHour: 6, activityMaxPerHour: 2, quietMs: 30 }, futureKey: 'kept' });
-    assert.deepEqual(store.config.posthog, { maxConcurrentInvestigations: 3, trafficSpikeBaselineDays: 7, intervalMinutes: 2.5 });
+    assert.deepEqual(store.config.posthog, { maxConcurrentInvestigations: 3, trafficSpikeBaselineDays: 7, intervalMinutes: 2.5, futureKey: 'kept' });
   });
 });
 
 test('every block of the settings payload is picked through the registry spec, so an unlisted key never reaches the dashboard', () => {
   withStore({
     projects: [],
-    visions: { enabled: true, futureKey: 'kept-on-disk', dispatch: { enabled: false, junk: 1 } },
     teamReview: { enabled: true, org: 'PostHog', ignored: true },
     telemetry: { enabled: false, installId: 'install-1' },
-    usage: { enabled: true, budget: { dailyUsd: 5, secretLedger: 'x' } },
+    usage: { enabled: true, futureKey: 'kept-on-disk', budget: { dailyUsd: 5, secretLedger: 'x' } },
   }, (store) => {
     const settings = store.getSettings();
-    assert.deepEqual(settings.visions, { enabled: true, dispatch: { enabled: false } });
     assert.deepEqual(settings.teamReview, { enabled: true, org: 'PostHog' });
     assert.deepEqual(settings.telemetry, { enabled: false });
     assert.deepEqual(settings.usage, { enabled: true, budget: { dailyUsd: 5 } });
-    assert.equal(block(store.config.visions).futureKey, 'kept-on-disk', 'the file keeps what the payload leaves out');
+    assert.equal(block(store.config.usage).futureKey, 'kept-on-disk', 'the file keeps what the payload leaves out');
   }, { isExperimentalBuild: true });
 });
 

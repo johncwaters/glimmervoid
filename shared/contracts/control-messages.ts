@@ -203,7 +203,7 @@ const ClientLogReport = z.object({
 }).strict();
 
 const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'header_error_shown'] as const);
-export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'issues', 'usage', 'radar', 'community', 'visions', 'hooks', 'trace', 'benchmarks', 'settings'] as const);
+export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'issues', 'usage', 'radar', 'community', 'hooks', 'trace', 'benchmarks', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],
   issues: ['scope', 'filter', 'search', 'filters-toggle', 'select', 'back', 'go-to-session', 'open-session', 'refresh'],
@@ -625,19 +625,6 @@ const serverVariants = [
     text: z.string(),
     ts: timestamp,
   }),
-  loose('visions-findings', { uri: z.string(), diagnostics: opaqueArray, ts: timestamp }),
-  loose('visions-comments', { uri: z.string(), comments: opaqueArray, ts: timestamp }),
-  loose('visions-hand', { uri: z.string(), hand: nullableString, ts: timestamp }),
-  loose('visions-intent', { projectId: nullableString, intent: opaqueObject, ts: timestamp }),
-  loose('visions-fix', { uri: z.string(), fix: opaqueObject, ts: timestamp }),
-  loose('visions-snapshot', {
-    documents: z.array(opaqueObject),
-    intent: opaqueObject,
-    fixes: z.array(opaqueObject),
-    ts: timestamp,
-  }),
-  loose('ingest-activity', { events: z.array(opaqueObject), overflow: z.number().int().nonnegative(), ts: timestamp }),
-  loose('ingest-snapshot', { events: z.array(opaqueObject), sources: z.unknown(), ts: timestamp }),
   loose('client-trust', { trust: z.enum(['local', 'remote']) }),
   loose('shutting-down'),
   loose('restarting'),

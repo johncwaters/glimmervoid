@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const HINT_FEATURES = Object.freeze(['teamReview', 'issues', 'usage', 'posthog', 'visions', 'benchmarks'] as const);
+export const HINT_FEATURES = Object.freeze(['teamReview', 'issues', 'usage', 'posthog', 'benchmarks'] as const);
 export const HintFeature = z.enum(HINT_FEATURES);
 export type HintFeature = z.infer<typeof HintFeature>;
 
@@ -9,7 +9,6 @@ export const HINT_VIEW_BY_FEATURE = Object.freeze({
   issues: 'issues',
   usage: 'usage',
   posthog: 'radar',
-  visions: 'visions',
   benchmarks: 'benchmarks',
 } as const satisfies Record<HintFeature, string>);
 

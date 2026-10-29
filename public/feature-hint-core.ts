@@ -6,7 +6,6 @@ const PITCH_BY_FEATURE: Record<HintFeature, (distinctTargetCount: number) => str
   issues: (count) => `${count} issues touched this week. The Issues tab keeps them in one list and starts a session on any of them.`,
   usage: () => 'Keeping an eye on tokens? The Usage tab tracks spend per session and warns before a limit hits.',
   posthog: () => 'Hunting errors again? Radar watches PostHog error tracking and can investigate an issue for you.',
-  visions: () => 'Pointing agents at files in your editor? Visions reads your open editor and comments right on the code.',
   benchmarks: () => 'Comparing agents by hand? Bench runs the same review cases across agent setups side by side.',
 };
 

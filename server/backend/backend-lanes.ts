@@ -23,7 +23,6 @@ import { jsonStateLoadError, loadJsonStateFileSync, writeJsonAtomic } from '../j
 import { CoderOwnedWorkspaces } from '../../shared/contracts/coder-owned-workspaces.ts';
 import { createGitWorkspace, createGitWorkspaceSync } from '../git/git-workspace.ts';
 import { createOwnedPathsLedger } from '../owned-paths-ledger.ts';
-import { createIngestLane } from '../ingest/ingest-wiring.ts';
 import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-refiner.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import { createPlanReviewWiring } from '../plan-review-wiring.ts';
@@ -52,18 +51,10 @@ import { createLaneLedger } from '../usage/usage-lane-ledger.ts';
 import { createTraceWiring } from '../trace-wiring.ts';
 import { createTraceChangeBroadcast } from '../trace-control.ts';
 import { createUploadsWiring } from '../uploads-wiring.ts';
-import { createVisionsDispatcher, createVisionsSpawn } from '../visions/visions-dispatch.ts';
-import { createVisionsSetup } from '../visions/visions-setup.ts';
-import { createVisionsWiring } from '../visions/visions-wiring.ts';
-import { resolveIngestConfig } from '../ingest/core/ingest-core.ts';
-import { resolveVisionsConfig } from '../visions/core/visions-dispatch-core.ts';
-import type { DispatchState } from '../visions/core/visions-dispatch-core.ts';
-import { resolveVisionsScopeProjects, visionsLaneReloadSignature } from '../visions/core/visions-scope-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 
 interface BackendLaneOptions {
   branchGcWiringOptions?: Record<string, unknown>;
-  ingestLaneOptions?: Record<string, unknown>;
   usageWiringOptions?: Record<string, unknown>;
 }
 
@@ -80,7 +71,6 @@ interface BackendLaneDependencies {
   hookRouter: HookRouter;
   getHookPort: () => number | null;
   broadcastControl: ControlBroadcast;
-  broadcastLocalControl: ControlBroadcast;
   controlWss: {
     clients: Set<WebSocket>;
     on(event: 'connection', listener: (socket: WebSocket) => void): unknown;
@@ -106,7 +96,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     hookRouter,
     getHookPort,
     broadcastControl,
-    broadcastLocalControl,
     controlWss,
     options,
     notificationManager,
@@ -134,7 +123,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   void laneLedger.load();
   const recordLane = laneLedger.record;
   const liveSessionMaps = (): Map<string, Session>[] => [
-    sessions, agentSessions, reviewSessions, investigationSessions, visionsSessions, taskTitleSessions, benchmarkSessions,
+    sessions, agentSessions, reviewSessions, investigationSessions, taskTitleSessions, benchmarkSessions,
   ];
   const allLiveSessions = (): Session[] => liveSessionMaps().flatMap((sessionsById) => [...sessionsById.values()]);
   const findLiveSession = (id: string): Session | null => {
@@ -319,20 +308,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     log: logger,
   });
 
-  let ingestConfig = resolveIngestConfig(config.ingest);
-  let visionsConfig = resolveVisionsConfig(config.visions);
-  const visionsDispatchHistory: DispatchState['dispatchTimes'] = [];
-  let dynamicLaneSignature = visionsLaneReloadSignature(ingestConfig, visionsConfig, config.projects);
-  const gitRepoRoots = (): string[] => {
-    const directories: string[] = [];
-    for (const session of sessions.values()) {
-      for (const directory of [session.path, session.worktreeDir]) {
-        if (typeof directory !== 'string' || !directory || directories.includes(directory)) continue;
-        directories.push(directory);
-      }
-    }
-    return directories;
-  };
   const isTraceEnabled = config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled;
   const traceWiring = isTraceEnabled
     ? createTraceWiring({
@@ -372,110 +347,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
   });
 
-  let ingestLane: ReturnType<typeof createIngestLane> | null = null;
-  let visionsLane: ReturnType<typeof createVisionsWiring> | null = null;
-  const visionsSessions = new Map<string, Session>();
-
-  function buildIngestLane() {
-    if (!ingestConfig.enabled) return null;
-    return createIngestLane({
-      ...(options.ingestLaneOptions || {}),
-      config: ingestConfig,
-      logger,
-      broadcast: broadcastLocalControl,
-      laneMap: () => laneLedger.laneMap(),
-      repoRoots: gitRepoRoots,
-      editorRoots: () => (Array.isArray(config.projects) ? config.projects : [])
-        .map((project) => project?.path)
-        .filter((projectPath): projectPath is string => typeof projectPath === 'string' && projectPath !== ''),
-      configPath: configStore.configPath,
-      debug: () => configStore.getSettings().debugMode === true,
-      onActivity: () => visionsLane?.noteActivity(),
-    });
-  }
-
-  function buildVisionsLane() {
-    if (!visionsConfig.enabled) return null;
-    const dispatchConfig = visionsConfig.dispatch;
-    return createVisionsWiring({
-      logger,
-      broadcast: broadcastControl,
-      debug: () => configStore.getSettings().debugMode === true,
-      dispatchConfig,
-      dispatchHistory: visionsDispatchHistory,
-      autoFix: visionsConfig.autoFix,
-      intentThreadTtlMs: visionsConfig.intent.threadTtlMs,
-      intentStatePath: configSiblingPath(configStore.configPath, 'visions-intent.json'),
-      dispatch: dispatchConfig.enabled
-        ? createVisionsDispatcher({
-          spawnSession: createVisionsSpawn({
-            sessions: visionsSessions,
-            closeSessionDataClients,
-            hookRouter,
-            getHookPort,
-            spawnGate,
-            recordLane,
-            replayBufferKB: config.replayBufferKB,
-          }),
-          timeoutSeconds: dispatchConfig.dispatchTimeoutSeconds,
-          model: dispatchConfig.model,
-        })
-        : null,
-      contextDigest: (...args: Parameters<NonNullable<typeof ingestLane>['buildDigest']>) => ingestLane?.buildDigest(...args) ?? null,
-      contextSeq: () => ingestLane?.latestSeq() ?? null,
-      scopeProjects: resolveVisionsScopeProjects({
-        configuredIds: visionsConfig.projects, projects: config.projects, warn: logger.warn.bind(logger),
-      }),
-      onEditorEvent: (event: { method?: string; uri?: string }) => ingestLane?.noteEditorEvent(event),
-      knownProjectIds: (Array.isArray(config.projects) ? config.projects : [])
-        .map((project) => project?.id)
-        .filter((id): id is string => typeof id === 'string' && id !== ''),
-    });
-  }
-
-  function tapIngestForSession(session: Session): void {
-    sessionPrLink.attachSession(session);
-    if (ingestLane?.terminalEnabled) ingestLane.attachSessionTap(session);
-    if (ingestLane?.fsEnabled) ingestLane.noteSessionRoots(session);
-  }
-
-  ingestLane = buildIngestLane();
-  visionsLane = buildVisionsLane();
-  let laneRestart: Promise<void> = Promise.resolve();
-
-  async function rebuildDynamicLanes(): Promise<void> {
-    const stopping = [visionsLane?.stop(), ingestLane?.stop()];
-    visionsLane = null;
-    ingestLane = null;
-    await Promise.allSettled(stopping);
-    ingestLane = buildIngestLane();
-    visionsLane = buildVisionsLane();
-    if (ingestLane) {
-      for (const session of sessions.values()) tapIngestForSession(session);
-      void ingestLane.noteRepos();
-    }
-    logger.log(`[lanes] rebuilt: ingest ${ingestConfig.enabled ? 'on' : 'off'}, visions ${visionsConfig.enabled ? 'on' : 'off'}`);
-  }
-
-  function restartDynamicLanes(): Promise<void> {
-    ingestConfig = resolveIngestConfig(config.ingest);
-    visionsConfig = resolveVisionsConfig(config.visions);
-    const nextSignature = visionsLaneReloadSignature(ingestConfig, visionsConfig, config.projects);
-    if (nextSignature === dynamicLaneSignature) return laneRestart;
-    dynamicLaneSignature = nextSignature;
-    laneRestart = laneRestart
-      .then(() => rebuildDynamicLanes())
-      .catch((error: unknown) => logger.warn(`[lanes] rebuild failed: ${errorMessage(error)}`));
-    return laneRestart;
-  }
-
-  const visionsSetup = createVisionsSetup({
-    getConfig: () => config,
-    configStore,
-    logger,
-    debug: () => configStore.getSettings().debugMode === true,
-    onConfigChanged: restartDynamicLanes,
-  });
   const usage = createUsageWiring({
     config,
     sessions,
@@ -506,21 +377,15 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     'plan-review': planReview,
   };
   const fixedLanes = new Map<string, unknown>(Object.entries(fixedLaneEntries));
-  type LaneMap = typeof fixedLaneEntries & { ingest: typeof ingestLane; visions: typeof visionsLane };
+  type LaneMap = typeof fixedLaneEntries;
 
   function current<K extends keyof LaneMap>(name: K): LaneMap[K];
   function current(name: string): unknown {
-    if (name === 'ingest') return ingestLane;
-    if (name === 'visions') return visionsLane;
     return fixedLanes.get(name) || null;
   }
 
-  const currentIngest = () => ingestLane;
-  const currentVisions = () => visionsLane;
-
   function startRuntimeLanes(): void {
     const startSteps = [
-      () => void visionsSetup.maybeApply(),
       () => branchGc.start(),
       () => coderActivity.start(),
       () => coderEnv.start(),
@@ -566,9 +431,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     taskTitleRefiner,
     taskTitleSessions,
     current,
-    currentIngest,
     featureHints,
-    currentVisions,
     gitWorkspace,
     gitWorkspaceSync,
     ownedPaths,
@@ -577,7 +440,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     planReview,
     posthog,
     recordLane,
-    restartDynamicLanes,
     restartServiceLanes,
     reviewSessions,
     spawnGate,
@@ -588,13 +450,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     community,
     workflows,
     startRuntimeLanes,
-    tapIngestForSession,
+    attachSessionPrLink: (session: Session) => sessionPrLink.attachSession(session),
     traceWiring,
     uploadsWiring,
     traceChangeBroadcast,
     usage,
-    visionsSessions,
-    visionsSetup,
   };
 }
 

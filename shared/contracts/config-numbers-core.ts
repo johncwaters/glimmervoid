@@ -10,12 +10,6 @@ export const POSTHOG_WHOLE_NUMBER_ROUNDING: Record<string, (value: number) => nu
 };
 
 const LEGACY_INTEGER_FIELDS = [
-  { path: ['visions', 'dispatch', 'quietMs'], min: 1, round: Math.floor },
-  { path: ['visions', 'dispatch', 'cooldownMs'], min: 1, round: Math.floor },
-  { path: ['visions', 'dispatch', 'maxPerHour'], min: 1, round: Math.floor },
-  { path: ['visions', 'dispatch', 'activityMaxPerHour'], min: 0, round: Math.floor },
-  { path: ['visions', 'dispatch', 'dispatchTimeoutSeconds'], min: 1, round: Math.floor },
-  { path: ['visions', 'intent', 'threadTtlMs'], min: 1, round: Math.floor },
   ...Object.entries(POSTHOG_WHOLE_NUMBER_ROUNDING).map(([key, round]) => ({ path: ['posthog', key], min: 1, round })),
 ];
 

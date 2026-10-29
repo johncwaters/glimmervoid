@@ -549,7 +549,6 @@ function createConfigStore({
 
       taskTitle: pickBlock('taskTitle', config.taskTitle ?? DEFAULT_CONFIG.taskTitle),
       branchGc: pickBlock('branchGc', config.branchGc),
-      visions: pickBlock('visions', config.visions),
       github: pickBlock('github', config.github),
       teamReview: pickBlock('teamReview', config.teamReview),
       benchmarks: pickBlock('benchmarks', config.benchmarks),
@@ -563,8 +562,6 @@ function createConfigStore({
 
       usage: pickBlock('usage', config.usage),
       telegram: pickBlock('telegram', config.telegram),
-
-      ingest: pickBlock('ingest', config.ingest),
 
       projectChoices: (config.projects || []).map((p) => ({ id: p.id, name: p.name, path: p.path })),
     };
@@ -598,7 +595,6 @@ function createConfigStore({
     if (newConfig.worktreeShare != null) config.worktreeShare = newConfig.worktreeShare;
     if (newConfig.taskTitle != null) config.taskTitle = newConfig.taskTitle;
     if (newConfig.branchGc != null) config.branchGc = resolveBranchGc(newConfig.branchGc);
-    if (newConfig.visions != null) config.visions = newConfig.visions;
     if (newConfig.github != null) config.github = newConfig.github;
     if (newConfig.teamReview != null) config.teamReview = newConfig.teamReview;
     if (newConfig.benchmarks != null) config.benchmarks = newConfig.benchmarks;
@@ -608,7 +604,6 @@ function createConfigStore({
     if (newConfig.posthog != null) config.posthog = newConfig.posthog;
     if (newConfig.usage != null) config.usage = newConfig.usage;
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;
-    if (newConfig.ingest != null) config.ingest = newConfig.ingest;
     if (newConfig.guardrails != null) config.guardrails = newConfig.guardrails;
     if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
     if (newConfig.workflows == null) delete config.workflows;

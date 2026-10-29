@@ -1,4 +1,3 @@
-import { LOG_FIELD_SEPARATOR } from '../ingest/core/ingest-git-core.ts';
 import {
   CHANGE_MAP_LIST_CAP,
   changeMapFactId,
@@ -6,6 +5,8 @@ import {
   type HotspotFact,
 } from '../../shared/contracts/change-map.ts';
 import { HEX_SHA_RE } from '../../shared/git-text.ts';
+
+const LOG_FIELD_SEPARATOR = String.fromCharCode(31);
 
 export const CO_CHANGE_LOG_ARGS = Object.freeze([
   'log', '--no-merges', '--name-only', '--format=%H%x1f%s', '-n', '2000',

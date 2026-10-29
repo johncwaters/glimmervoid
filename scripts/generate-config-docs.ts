@@ -21,7 +21,7 @@ export const CONFIGURATION_DOC_PATH = path.join(import.meta.dirname, '..', 'docs
 export const ENVIRONMENT_VARIABLES: readonly EnvironmentVariable[] = Object.freeze([
   { name: 'GLIMMERVOID_HOME', audience: 'operator', description: 'Directory holding `config.json` and all machine state (pairings, recordings). Defaults to `~/.glimmervoid`.' },
   { name: 'GLIMMERVOID_CONFIG', audience: 'operator', description: 'Path to the config file, winning over `GLIMMERVOID_HOME`. The file must exist or the server exits with `Config file not found`. `--config <path>` sets it.' },
-  { name: 'GLIMMERVOID_PORT', audience: 'operator', description: 'Local dashboard port, overriding `port` in `config.json`. `--port <number>` sets it. The Visions relay also reads it to find the server.' },
+  { name: 'GLIMMERVOID_PORT', audience: 'operator', description: 'Local dashboard port, overriding `port` in `config.json`. `--port <number>` sets it.' },
   { name: 'GLIMMERVOID_HOST', audience: 'operator', description: 'Bind address for both listeners. Defaults to `127.0.0.1`; any non-loopback value is refused unless `GLIMMERVOID_INSECURE_BIND=1`.' },
   { name: 'GLIMMERVOID_INSECURE_BIND', audience: 'operator', description: 'Set to `1` to allow a non-loopback `GLIMMERVOID_HOST`. The local listener has no authentication, so this exposes full control of the machine to anyone who can reach the port.' },
   { name: 'GLIMMERVOID_POSTHOG_API_KEY', audience: 'operator', description: 'Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it.' },

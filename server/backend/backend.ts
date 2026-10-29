@@ -159,8 +159,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   });
   const { agentConnect, agentIngressServer, getHookPort, hookRouter, makeSession, sshSigner } = sessionRuntime;
 
-  const getCurrentIngestLane = () => laneAssembly.currentIngest();
-  const getCurrentVisionsLane = () => laneAssembly.currentVisions();
 
   const agentIngressDependencies: AgentIngressDependencies = {
     allowedHosts,
@@ -208,7 +206,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     listenerPortsFor,
     tokenMatches,
     getSession: getSessionAny,
-    getVisionsLane: getCurrentVisionsLane,
     recordOutcome,
     logger: console,
   });
@@ -218,7 +215,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     controlReplayLog,
     sessionDataClients,
     broadcastControl: broadcastControlFromWebSockets,
-    broadcastLocalControl,
     closeSessionDataClients,
   } = webSockets;
   broadcastControl = broadcastControlFromWebSockets;
@@ -233,7 +229,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessions,
     getAllSessions: () => allLiveSessions(),
     sessionDataClients,
-    getIngestLane: getCurrentIngestLane,
     getMemoryGateStatus: () => laneAssembly.memoryAdmission.gateStatus(),
     controlWss,
     dataWss,
@@ -278,7 +273,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     hookRouter,
     getHookPort,
     broadcastControl,
-    broadcastLocalControl,
     controlWss,
     options,
     notificationManager,
@@ -295,7 +289,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     posthog,
     recordLane,
     spawnGate,
-    tapIngestForSession,
+    attachSessionPrLink,
     teamReview,
     myPrs,
     issues,
@@ -304,8 +298,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     traceWiring,
     uploadsWiring,
     usage,
-    visionsSessions,
-    visionsSetup,
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
   agentApi = createAgentApiWiring({
@@ -351,8 +343,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastControl,
     telegramChannel,
     notificationManager,
-    getIngestLane: getCurrentIngestLane,
-    tapIngestForSession,
+    attachSessionPrLink,
     traceWiring,
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
     coherenceFeed,
@@ -372,7 +363,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     wireSessionEvents,
     closeSessionDataClients,
     notificationManager,
-    getIngestLane: getCurrentIngestLane,
     broadcastControl,
     applySettingsReload,
     spawnGate,
@@ -434,8 +424,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }
     notifications.applySettings();
     laneAssembly.restartServiceLanes();
-    void visionsSetup.maybeApply();
-    void laneAssembly.restartDynamicLanes();
   }
 
   function downloadUpdateOnceListening() {
@@ -515,7 +503,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     agentSessions,
     reviewSessions,
     investigationSessions,
-    visionsSessions,
     taskTitleSessions: laneAssembly.taskTitleSessions,
     benchmarkSessions: laneAssembly.benchmarkSessions,
     branchGc,
@@ -529,8 +516,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     benchmarks: laneAssembly.benchmarks,
     featureHints: laneAssembly.featureHints,
     usage,
-    getIngestLane: getCurrentIngestLane,
-    getVisionsLane: getCurrentVisionsLane,
     traceWiring,
     uploadsWiring,
     traceChangeBroadcast,
@@ -641,4 +626,3 @@ export {
   createBackend, runAutoResume, persistSessionField, decideWasActiveFlip, carryWorktreeAcrossRecreate,
   reconcileSessionWorktrees, shouldStartAfterModify,
 };
-export type { CreateBackendOptions };

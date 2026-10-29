@@ -13,7 +13,7 @@ A local agent orchestrator: a Node.js process that spawns and supervises coding 
 - glimmervoid: the operator runs the glimmervoid CLI to start, stop or query the server; inside a session the same CLI reaches the server only through the agent route
   handler: bin/glimmervoid.ts
   trust: operator
-- build: the operator or npm builds the dashboard, node bundles and extension into dist
+- build: the operator or npm builds the dashboard and node bundles into dist
   handler: scripts/build.mjs
   trust: operator
 - generate animal sprites: the operator regenerates the dashboard animal sprites

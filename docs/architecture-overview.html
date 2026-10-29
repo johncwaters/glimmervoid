@@ -164,7 +164,7 @@
           <text x="480" y="246" text-anchor="middle" fill="var(--ink)" stroke="none" font-size="12" font-family="Instrument Sans, sans-serif">Notification manager</text>
           <rect x="350" y="270" width="260" height="46" rx="6" stroke="var(--line)" fill="var(--surface-2)"/>
           <text x="480" y="289" text-anchor="middle" fill="var(--ink)" stroke="none" font-size="12" font-family="Instrument Sans, sans-serif">Background lanes</text>
-          <text x="480" y="305" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">PR review, Radar, usage, visions</text>
+          <text x="480" y="305" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">PR review, Radar, usage</text>
           <rect x="350" y="326" width="260" height="36" rx="6" stroke="var(--line)" fill="var(--surface-2)"/>
           <text x="480" y="348" text-anchor="middle" fill="var(--ink)" stroke="none" font-size="12" font-family="Instrument Sans, sans-serif">Config store + pure cores</text>
           <text x="480" y="386" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">state in ~/.glimmervoid</text>
@@ -658,52 +658,6 @@
       </svg>
     </div>
     <figcaption>Live scan wins inside its coverage; the warehouse fills in days the deleted transcripts can no longer show, labelled as history. Lane attribution is exact (only sessions Glimmervoid recorded spawning), so "the PR review lane cost $4.20 this week" is answerable. Costs are estimates, never bills.</figcaption>
-  </figure>
-
-  <h2>Visions: live markdown co-editor <span class="when">opt-in, per keystroke</span></h2>
-  <p class="lede">An editor relay speaks LSP over stdio and connects to a dedicated <code>/visions</code> WebSocket. Glimmervoid mirrors the open documents and answers in tiers, from instant lint rules to a gated headless model dispatch.</p>
-
-  <figure>
-    <div class="fig-scroll">
-      <svg viewBox="0 0 940 240" role="img" aria-label="Visions lane: the editor's LSP relay connects over the visions WebSocket; per-connection document buffers track versions; tier 1 pure rules return diagnostics and quick fixes instantly; a typed blank-line boundary can trigger a gated tier 3 dispatch, one ephemeral headless session whose results come back as comments, a raised hand, or model diagnostics.">
-        <defs>
-          <marker id="v1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0 0 L10 5 L0 10 z" fill="var(--ink)"/>
-          </marker>
-        </defs>
-        <g fill="none" stroke="var(--ink)" stroke-width="1.3">
-          <rect x="20" y="80" width="170" height="64" rx="8" stroke="var(--line)" fill="var(--surface-2)"/>
-          <text x="105" y="104" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="12" font-weight="600">editor (LSP relay)</text>
-          <text x="105" y="123" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">stdio framing, per project</text>
-
-          <rect x="250" y="84" width="150" height="56" rx="8" stroke="var(--accent)" fill="var(--surface)"/>
-          <text x="325" y="107" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="12" font-weight="600">/visions WS</text>
-          <text x="325" y="126" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">local listener only</text>
-
-          <rect x="460" y="80" width="180" height="64" rx="8" stroke="var(--line)" fill="var(--surface)"/>
-          <text x="550" y="104" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="12" font-weight="600">document buffers</text>
-          <text x="550" y="123" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">per connection, versioned</text>
-
-          <rect x="700" y="20" width="220" height="60" rx="8" stroke="var(--line)" fill="var(--surface)"/>
-          <text x="810" y="44" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="12" font-weight="600">tier 1 rules</text>
-          <text x="810" y="63" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">markdown lint, quick fixes, autoFix</text>
-
-          <rect x="700" y="120" width="220" height="84" rx="8" stroke="var(--signal)" fill="var(--surface)"/>
-          <text x="810" y="144" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="12" font-weight="600">tier 3 dispatch</text>
-          <text x="810" y="163" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">gated ephemeral claude -p;</text>
-          <text x="810" y="177" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">returns comments, a raised hand,</text>
-          <text x="810" y="191" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">model diagnostics, intent proposals</text>
-
-          <line x1="190" y1="112" x2="245" y2="112" marker-end="url(#v1)" marker-start="url(#v1)"/>
-          <line x1="400" y1="112" x2="455" y2="112" marker-end="url(#v1)"/>
-          <line x1="640" y1="96" x2="695" y2="56" marker-end="url(#v1)"/>
-          <text x="668" y="62" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10" font-family="Spline Sans Mono, monospace">debounced sweep</text>
-          <line x1="640" y1="128" x2="695" y2="156" marker-end="url(#v1)"/>
-          <text x="668" y="158" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10" font-family="Spline Sans Mono, monospace">blank-line pause</text>
-        </g>
-      </svg>
-    </div>
-    <figcaption>The dispatch prompt fences the buffer as data, runs with a narrow allow-list (never skip-permissions), and validates a strict result contract. A durable machine-wide intent (what is being built) persists beside the config, with operator corrections acting as a lock.</figcaption>
   </figure>
 
   <h2>Remote mode <span class="when">opt-in, config only</span></h2>

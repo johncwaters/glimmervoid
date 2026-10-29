@@ -20,9 +20,8 @@ test('a bundled install resolves the same assets as .js under dist', () => {
   assert.equal(paths.packageRoot, PACKAGE_ROOT);
   assert.equal(paths.bundled, true);
   assert.equal(paths.assetRoot, path.join(PACKAGE_ROOT, 'dist'));
-  assert.equal(paths.extensionDir, path.join(PACKAGE_ROOT, 'dist', 'tools', 'vscode-visions'));
   assert.equal(paths.cliPath, path.join(PACKAGE_ROOT, 'dist', 'bin', 'glimmervoid.js'));
-  assert.equal(paths.relayPath('visions-relay'), path.join(PACKAGE_ROOT, 'dist', 'session', 'visions-relay.js'));
+  assert.equal(paths.relayPath('hook-relay'), path.join(PACKAGE_ROOT, 'dist', 'session', 'hook-relay.js'));
 });
 
 test('the dashboard build is always read from dist/client, bundled or not', () => {

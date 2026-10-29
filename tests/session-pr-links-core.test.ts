@@ -43,7 +43,7 @@ test('linked PRs persist on the project entry, broadcast on change and survive a
         broadcastControl: (message) => { broadcasts.push(message); },
         telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
         notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
-        getIngestLane: () => null, tapIngestForSession: () => {}, closeSessionDataClients: () => {},
+        attachSessionPrLink: () => {}, closeSessionDataClients: () => {},
         logger: { error: () => {}, log: () => {}, warn: () => {} },
       })(session);
       return { store, session };

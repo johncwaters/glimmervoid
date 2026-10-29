@@ -99,17 +99,6 @@ const TRIGGER_RULES: readonly TriggerRule[] = [
     matchPrompt: (prompt) => hitWhenAnyMatches(prompt, [/\berror\s+tracking\b/i, /\bwhat'?s\s+broken\b/i, /\/triaging-posthog-errors\b/i, /\bposthog\s+errors?\b/i]),
   },
   {
-    feature: 'visions',
-    minDistinctTargets: 3,
-    countsEveryHit: true,
-    matchCommand: (command) => hitWhenAnyMatches(command, [/(?:^|[\s;&|(])(?:code|cursor)\s+(?!-)\S/]),
-    matchPrompt: (prompt) => {
-      const isEditorPhrase = /\bin\s+my\s+editor\b/i.test(prompt);
-      const isFileLineReference = /\bthis\s+file\b/i.test(prompt) && /\S+\.\w+:\d+/.test(prompt);
-      return isEditorPhrase || isFileLineReference ? ['hit'] : [];
-    },
-  },
-  {
     feature: 'benchmarks',
     minDistinctTargets: 2,
     countsEveryHit: true,

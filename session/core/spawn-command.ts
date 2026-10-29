@@ -162,4 +162,4 @@ function buildAgentSpawnCommand(
 }
 
 export { resolveArgvCommandMatches, resolvePathCommandMatches, resolveAgentCommand, buildAgentSpawnCommand };
-export type { PathLookupExec, PathLookupExecFile, ResolvedCommand };
+export type { PathLookupExecFile, ResolvedCommand };

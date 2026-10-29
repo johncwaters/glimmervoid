@@ -10,7 +10,7 @@ const MYSQL_TOOLS = '(?:mysql|mysqldump|mysqladmin|mysqlshow|mariadb|mariadb-dum
 const SECRET_ASSIGNMENT_PATTERN = new RegExp(`(${ASSIGNMENT_PREFIX})${QUOTED_OR_BARE}`, 'gi');
 const BEARER_VALUE_PATTERN = new RegExp(`(\\bBearer${GAP}+)[A-Za-z0-9._~+/=-]{8,}`, 'gi');
 
-export const SECRET_SHAPE_PATTERNS = [
+const SECRET_SHAPE_PATTERNS = [
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\bgh[pousr]_[A-Za-z0-9]{16,}\b/g,
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
@@ -35,13 +35,6 @@ const COMMAND_CREDENTIAL_PATTERNS = [
   new RegExp(`(\\bcurl\\b${FLAG_REACH}${GAP}(?:--user|-u)(?:${GAP}+|=)[^\\s:\\r\\n]+:)${QUOTED_OR_BARE}`, 'gi'),
   new RegExp(`(\\b${MYSQL_TOOLS}\\b${FLAG_REACH}${GAP}-p)${QUOTED_OR_BARE}`, 'g'),
   /\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:)[^\s@/]+(?=@)/gi,
-];
-
-export const PREFIXED_SECRET_PATTERNS = [
-  SECRET_ASSIGNMENT_PATTERN,
-  ...COMMAND_FLAG_SECRET_PATTERNS,
-  BEARER_VALUE_PATTERN,
-  ...COMMAND_CREDENTIAL_PATTERNS,
 ];
 
 const PEM_KEY_LINE_PATTERNS = [

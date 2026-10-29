@@ -32,10 +32,6 @@ interface ViewerSizeRecord {
   resizeSeq: number;
 }
 
-interface VisionsUpgradeLane {
-  handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void;
-}
-
 interface BackendWebSocketDependencies {
   remote: { enabled: boolean; allowedOrigins: string[] };
   remoteAuth: { isUpgradeAuthorized: (request: IncomingMessage) => boolean } | null;
@@ -44,7 +40,6 @@ interface BackendWebSocketDependencies {
   listenerPortsFor: (socket: { localPort?: number | null } | null) => number[];
   tokenMatches: (token: string | null) => boolean;
   getSession: (id: string) => Session | null;
-  getVisionsLane: () => VisionsUpgradeLane | null;
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
 }
@@ -55,7 +50,6 @@ interface BackendWebSockets {
   controlReplayLog: ReplayLog;
   sessionDataClients: Map<string, Map<WebSocket, ViewerSizeRecord | null>>;
   broadcastControl: ControlBroadcast;
-  broadcastLocalControl: ControlBroadcast;
   closeSessionDataClients(sessionId: string): void;
   attachDataConnection(): void;
   handleUpgrade(request: IncomingMessage, socket: UpgradeSocket, head: Buffer): void;
@@ -97,7 +91,6 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     listenerPortsFor,
     tokenMatches,
     getSession,
-    getVisionsLane,
     recordOutcome = () => {},
     logger,
   } = dependencies;
@@ -121,15 +114,6 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     const stamped = controlReplayLog.stamp({ ...message });
     const payload = JSON.stringify(stamped);
     for (const client of controlClients()) {
-      sendControlFrame(client, payload, frameType(stamped), logger);
-    }
-  }
-
-  function broadcastLocalControl(message: ControlMessageRecord): void {
-    const stamped = controlReplayLog.stamp({ ...message });
-    const payload = JSON.stringify(stamped);
-    for (const client of controlClients()) {
-      if (client.glimmervoidTrust === 'remote') continue;
       sendControlFrame(client, payload, frameType(stamped), logger);
     }
   }
@@ -337,16 +321,10 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
   function handleUpgrade(request: IncomingMessage, socket: UpgradeSocket, head: Buffer): void {
     const route = classifyUpgradePath(request.url);
     const trust = classifyRequestOrigin({ localPort: socket.localPort, remoteListenerPort });
-    const visionsLane = getVisionsLane();
-    if (route === 'unknown' || (route === 'visions' && !visionsLane)) {
+    if (route === 'unknown') {
       if (trust === 'remote') socket.destroy();
       return;
     }
-    if (route === 'visions' && (!visionsLane || trust === 'remote')) {
-      socket.destroy();
-      return;
-    }
-    if (route === 'visions' && !visionsLane) return;
     if (!decideHostAllowed(request.headers.host, allowedHosts)) {
       socket.destroy();
       return;
@@ -377,11 +355,6 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
       });
       return;
     }
-    if (route === 'visions') {
-      if (!visionsLane) return;
-      visionsLane.handleUpgrade(request, socket, head);
-      return;
-    }
     dataWss.handleUpgrade(request, socket, head, (webSocket) => {
       dataWss.emit('connection', webSocket, request);
     });
@@ -393,7 +366,6 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     controlReplayLog,
     sessionDataClients,
     broadcastControl,
-    broadcastLocalControl,
     closeSessionDataClients,
     attachDataConnection,
     handleUpgrade,

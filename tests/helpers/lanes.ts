@@ -1,23 +1,11 @@
 import type { createBackend } from '../../server/backend/backend.ts';
-import type { createIngestLane } from '../../server/ingest/ingest-wiring.ts';
 import type { createUsageWiring } from '../../server/usage/usage-wiring.ts';
-import type { createVisionsWiring } from '../../server/visions/visions-wiring.ts';
 
 type Backend = ReturnType<typeof createBackend>;
-type IngestLane = ReturnType<typeof createIngestLane>;
 type UsageLane = ReturnType<typeof createUsageWiring>;
-type VisionsLane = ReturnType<typeof createVisionsWiring>;
-
-function ingestLane(backend: Backend): IngestLane | null {
-  return backend.getLane('ingest');
-}
 
 function usageLane(backend: Backend): UsageLane {
   return backend.getLane('usage');
-}
-
-function visionsLane(backend: Backend): VisionsLane | null {
-  return backend.getLane('visions');
 }
 
 async function settleBackendShutdown(backend: Backend): Promise<void> {
@@ -26,8 +14,8 @@ async function settleBackendShutdown(backend: Backend): Promise<void> {
 }
 
 export {
-  ingestLane, settleBackendShutdown, usageLane, visionsLane,
+  settleBackendShutdown, usageLane,
 };
 export type {
-  Backend, IngestLane, UsageLane, VisionsLane,
+  Backend, UsageLane,
 };

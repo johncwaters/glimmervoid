@@ -98,7 +98,6 @@ const SECONDS_PER_MINUTE = 60;
 const MINUTES_PER_HOUR = 60;
 const MS_PER_MINUTE = MS_PER_SECOND * SECONDS_PER_MINUTE;
 const MS_PER_HOUR = MS_PER_MINUTE * MINUTES_PER_HOUR;
-const MS_PER_DAY = MS_PER_HOUR * 24;
 
 const INVESTIGATIONS: SettingsUnit = { label: 'investigations', storedPerDisplay: 1 };
 const SESSIONS: SettingsUnit = { label: 'sessions', storedPerDisplay: 1 };
@@ -113,10 +112,8 @@ const MINUTES_STORED_AS_MS: SettingsUnit = { label: 'minutes', storedPerDisplay:
 const MINUTES_STORED_AS_SECONDS: SettingsUnit = { label: 'minutes', storedPerDisplay: SECONDS_PER_MINUTE, storedLabel: 'seconds' };
 const HOURS_STORED_AS_MS: SettingsUnit = { label: 'hours', storedPerDisplay: MS_PER_HOUR, storedLabel: 'ms' };
 const HOURS_STORED_AS_MINUTES: SettingsUnit = { label: 'hours', storedPerDisplay: MINUTES_PER_HOUR, storedLabel: 'minutes' };
-const DAYS_STORED_AS_MS: SettingsUnit = { label: 'days', storedPerDisplay: MS_PER_DAY, storedLabel: 'ms' };
 const USD: SettingsUnit = { label: 'USD', storedPerDisplay: 1 };
 const USERS: SettingsUnit = { label: 'users', storedPerDisplay: 1 };
-const REVIEWS_PER_HOUR: SettingsUnit = { label: 'reviews per hour', storedPerDisplay: 1 };
 const MULTIPLIER: SettingsUnit = { label: 'times', storedPerDisplay: 1 };
 
 const TUNING_KNOB = 'A tuning knob kept out of the Settings view; the default suits almost every install.';
@@ -132,7 +129,6 @@ function capitalizedOptions(values: readonly string[]): SettingsOption[] {
 export const FILE_ONLY_GROUPS: Readonly<Record<string, SettingsGroup>> = Object.freeze({
   'machine-terminal': { title: 'Terminal', description: 'Terminal behavior shared by dashboard clients.' },
   'machine-detection-sessions': { title: 'Detection and sessions', description: 'Config-file-only detection, timing, worktree and process settings.' },
-  'lanes-ingest': { title: 'Ingest', description: 'The machine-context sources behind Visions.' },
 });
 
 const SECTIONS: readonly SettingsSection[] = Object.freeze([
@@ -402,56 +398,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     ],
   },
   {
-    id: 'lanes-visions',
-    level: 'lanes',
-    title: 'Visions (experimental)',
-    description: 'Editor-buffer findings, bounded model comments, and the machine-context ingest behind them.',
-    legacyIds: ['lanes', 'visions', 'lanes-ingest', 'ingest'],
-    settings: [
-      {
-        id: 'visions-enabled', path: 'visions.enabled', title: 'Enable Visions',
-        description: 'Set up supported editors detected on this machine, then show their buffer findings in the Visions view.',
-        control: 'toggle', keywords: ['experimental', 'editor', 'findings', 'lsp'], defaultValue: false, ...MACHINE_NOW,
-      },
-      {
-        id: 'visions-dispatch-enabled', path: 'visions.dispatch.enabled', title: 'Enable model comments',
-        description: 'Start bounded review sessions for local editor buffers.',
-        control: 'toggle', keywords: ['experimental', 'review', 'dispatch'], defaultValue: false, ...MACHINE_NOW,
-      },
-      {
-        id: 'visions-max-per-hour', path: 'visions.dispatch.maxPerHour', title: 'Max per hour',
-        description: 'Maximum review sessions dispatched per hour. One slot is reserved for edit reviews; activity-driven reviews take the rest, up to the activity cap set by visions.dispatch.activityMaxPerHour.',
-        control: 'number', range: POSITIVE_NUMBER_RANGE, unit: REVIEWS_PER_HOUR, keywords: ['experimental', 'rate limit', 'reviews'], defaultValue: 6, ...MACHINE_NOW,
-      },
-      {
-        id: 'visions-model', path: 'visions.dispatch.model', title: 'Model override',
-        description: 'Leave blank to use the opus model alias.',
-        control: 'text', keywords: ['experimental', 'claude', 'override'], defaultValue: '', ...MACHINE_NOW,
-      },
-      {
-        id: 'visions-projects', path: 'visions.projects', title: 'Projects',
-        description: 'Clear every selection, including unavailable projects, to accept buffers from every configured project.',
-        control: 'projects', keywords: ['experimental', 'repositories', 'filter'], defaultValue: [], ...MACHINE_NOW,
-      },
-      {
-        id: 'visions-auto-fix', path: 'visions.autoFix', title: 'Apply tier 1 fixes',
-        description: 'Allow Visions to edit eligible open Markdown buffers, including inactive buffers, without asking.',
-        control: 'toggle', keywords: ['experimental', 'automatic', 'edits'], danger: true,
-        warning: 'Enabling this control lets Visions edit eligible buffers without a carbon unit present.', defaultValue: false, ...MACHINE_NOW,
-      },
-      {
-        id: 'ingest-enabled', path: 'ingest.enabled', title: 'Enable machine context ingest',
-        description: 'Enable the local activity feed behind Visions. Turning Visions on enables ingest unless ingest.enabled is explicitly false.',
-        control: 'toggle', keywords: ['experimental', 'events', 'activity', 'ingest'], defaultValue: false, ...MACHINE_NOW,
-      },
-    ],
-  },
-  {
     id: 'lanes-posthog',
     level: 'lanes',
     title: 'PostHog',
     description: 'Error monitoring, investigations and traffic-spike alerts.',
-    legacyIds: ['posthog'],
+    legacyIds: ['lanes', 'posthog'],
     settings: [
       {
         id: 'posthog-enabled', path: 'posthog.enabled', title: 'Enable PostHog monitoring',
@@ -931,61 +882,6 @@ const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'file-usage-extra-projects-dirs', path: 'usage.extraProjectsDirs', title: 'Extra transcript folders', group: 'machine-usage',
     description: 'Absolute paths of additional Claude projects folders the usage scan reads.',
     control: 'list', keywords: ['transcripts', 'folders', 'scan'], defaultValue: [], takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-visions-quiet-delay', path: 'visions.dispatch.quietMs', title: 'Quiet delay', group: 'lanes-visions',
-    description: 'Editor quiet time before a scheduled review. Saves and blank-line boundaries can dispatch immediately, subject to the other review limits.',
-    control: 'number', range: POSITIVE_NUMBER_RANGE, unit: SECONDS_STORED_AS_MS, keywords: ['debounce', 'idle'], defaultValue: 30000, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-visions-cooldown', path: 'visions.dispatch.cooldownMs', title: 'Cooldown', group: 'lanes-visions',
-    description: 'Minimum delay between reviews of the same document. Initial orientation reviews bypass this delay.',
-    control: 'number', range: POSITIVE_NUMBER_RANGE, unit: MINUTES_STORED_AS_MS, keywords: ['rate limit', 'delay'], defaultValue: 300000, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-visions-activity-max-per-hour', path: 'visions.dispatch.activityMaxPerHour', title: 'Activity max per hour', group: 'lanes-visions',
-    description: 'Maximum activity-driven reviews dispatched per hour, capped at the overall hourly limit minus one to reserve an edit-review slot.',
-    control: 'number', range: NON_NEGATIVE_NUMBER_RANGE, unit: REVIEWS_PER_HOUR, keywords: ['rate limit', 'events'], defaultValue: 2, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-visions-dispatch-timeout', path: 'visions.dispatch.dispatchTimeoutSeconds', title: 'Dispatch timeout', group: 'lanes-visions',
-    description: 'Maximum time allowed for one review session.',
-    control: 'number', range: POSITIVE_NUMBER_RANGE, unit: MINUTES_STORED_AS_SECONDS, keywords: ['deadline', 'review'], defaultValue: 180, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-visions-intent-thread-ttl', path: 'visions.intent.threadTtlMs', title: 'Intent thread lifetime', group: 'lanes-visions',
-    description: 'How long an intent thread nobody advanced stays live before it retires.',
-    control: 'number', range: POSITIVE_NUMBER_RANGE, unit: DAYS_STORED_AS_MS, keywords: ['intent', 'decay', 'thread'], defaultValue: 259200000, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-ingest-terminal', path: 'ingest.sources.terminal.enabled', title: 'Terminal output source', group: 'lanes-ingest',
-    description: 'Include terminal output in the ingest feed.',
-    control: 'toggle', keywords: ['pty', 'source'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-ingest-agent-logs', path: 'ingest.sources.agentLogs.enabled', title: 'Agent logs source', group: 'lanes-ingest',
-    description: 'Include local agent logs in the ingest feed.',
-    control: 'toggle', keywords: ['transcript', 'source'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-ingest-git', path: 'ingest.sources.git.enabled', title: 'Git activity source', group: 'lanes-ingest',
-    description: 'Include local Git activity in the ingest feed.',
-    control: 'toggle', keywords: ['commits', 'source'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-ingest-fs', path: 'ingest.sources.fs.enabled', title: 'File changes source', group: 'lanes-ingest',
-    description: 'Include watched file changes in the ingest feed.',
-    control: 'toggle', keywords: ['filesystem', 'source'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-ingest-shell-history', path: 'ingest.sources.shellHistory.enabled', title: 'Shell history source', group: 'lanes-ingest',
-    description: 'Include local shell history in the ingest feed.',
-    control: 'toggle', keywords: ['commands', 'source'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-ingest-editor', path: 'ingest.sources.editor.enabled', title: 'Editor events source', group: 'lanes-ingest',
-    description: 'Include local editor events in the ingest feed.',
-    control: 'toggle', keywords: ['buffers', 'source'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
     id: 'file-posthog-investigation-timeout', path: 'posthog.investigationTimeoutSeconds', title: 'Investigation timeout', group: 'lanes-posthog',

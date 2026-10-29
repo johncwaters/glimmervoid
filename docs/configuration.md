@@ -83,25 +83,6 @@ Local transcript accounting and estimated-cost budgets.
 | `usage.costMode` | Cost mode | `"auto"` | Choose whether recorded costs, calculated costs or both can appear. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.extraProjectsDirs` | Extra transcript folders | `[]` | Absolute paths of additional Claude projects folders the usage scan reads. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
-### Visions (experimental)
-
-Editor-buffer findings, bounded model comments, and the machine-context ingest behind them.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `visions.enabled` | Enable Visions | `false` | Set up supported editors detected on this machine, then show their buffer findings in the Visions view. |
-| `visions.dispatch.enabled` | Enable model comments | `false` | Start bounded review sessions for local editor buffers. |
-| `visions.dispatch.maxPerHour` | Max per hour | `6` | Maximum review sessions dispatched per hour. One slot is reserved for edit reviews; activity-driven reviews take the rest, up to the activity cap set by visions.dispatch.activityMaxPerHour. |
-| `visions.dispatch.model` | Model override | `""` | Leave blank to use the opus model alias. |
-| `visions.projects` | Projects | `[]` | Clear every selection, including unavailable projects, to accept buffers from every configured project. |
-| `visions.autoFix` | Apply tier 1 fixes | `false` | Allow Visions to edit eligible open Markdown buffers, including inactive buffers, without asking. |
-| `ingest.enabled` | Enable machine context ingest | `false` | Enable the local activity feed behind Visions. Turning Visions on enables ingest unless ingest.enabled is explicitly false. |
-| `visions.dispatch.quietMs` | Quiet delay | `30000` | Editor quiet time before a scheduled review. Saves and blank-line boundaries can dispatch immediately, subject to the other review limits. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `visions.dispatch.cooldownMs` | Cooldown | `300000` | Minimum delay between reviews of the same document. Initial orientation reviews bypass this delay. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `visions.dispatch.activityMaxPerHour` | Activity max per hour | `2` | Maximum activity-driven reviews dispatched per hour, capped at the overall hourly limit minus one to reserve an edit-review slot. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `visions.dispatch.dispatchTimeoutSeconds` | Dispatch timeout | `180` | Maximum time allowed for one review session. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `visions.intent.threadTtlMs` | Intent thread lifetime | `259200000` | How long an intent thread nobody advanced stays live before it retires. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-
 ### PostHog
 
 Error monitoring, investigations and traffic-spike alerts.
@@ -254,19 +235,6 @@ Config-file-only detection, timing, worktree and process settings.
 | `taskTitle.refiner.minIntervalSeconds` | Task title refresh interval | `60` | Shortest pause between two title refinements of one session. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `taskTitle.refiner.timeoutSeconds` | Task title timeout | `60` | Maximum time allowed for one title refinement. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
-### Ingest
-
-The machine-context sources behind Visions.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `ingest.sources.terminal.enabled` | Terminal output source | `false` | Include terminal output in the ingest feed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `ingest.sources.agentLogs.enabled` | Agent logs source | `false` | Include local agent logs in the ingest feed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `ingest.sources.git.enabled` | Git activity source | `false` | Include local Git activity in the ingest feed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `ingest.sources.fs.enabled` | File changes source | `false` | Include watched file changes in the ingest feed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `ingest.sources.shellHistory.enabled` | Shell history source | `false` | Include local shell history in the ingest feed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `ingest.sources.editor.enabled` | Editor events source | `false` | Include local editor events in the ingest feed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-
 ## Keys outside the Settings view
 
 Edit these in `config.json` unless the note names another dashboard surface.
@@ -287,7 +255,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 |----------|----------|--------|
 | `GLIMMERVOID_HOME` | operator | Directory holding `config.json` and all machine state (pairings, recordings). Defaults to `~/.glimmervoid`. |
 | `GLIMMERVOID_CONFIG` | operator | Path to the config file, winning over `GLIMMERVOID_HOME`. The file must exist or the server exits with `Config file not found`. `--config <path>` sets it. |
-| `GLIMMERVOID_PORT` | operator | Local dashboard port, overriding `port` in `config.json`. `--port <number>` sets it. The Visions relay also reads it to find the server. |
+| `GLIMMERVOID_PORT` | operator | Local dashboard port, overriding `port` in `config.json`. `--port <number>` sets it. |
 | `GLIMMERVOID_HOST` | operator | Bind address for both listeners. Defaults to `127.0.0.1`; any non-loopback value is refused unless `GLIMMERVOID_INSECURE_BIND=1`. |
 | `GLIMMERVOID_INSECURE_BIND` | operator | Set to `1` to allow a non-loopback `GLIMMERVOID_HOST`. The local listener has no authentication, so this exposes full control of the machine to anyone who can reach the port. |
 | `GLIMMERVOID_POSTHOG_API_KEY` | operator | Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |

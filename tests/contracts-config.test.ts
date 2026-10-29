@@ -24,7 +24,7 @@ test('a config.json still holding the retired changeMap.narrator block loads unc
 });
 
 
-test('a config still carrying the retired mill, memory, agentApi and antiSlopPrompt keys parses, and the keys pass through untouched', () => {
+test('a config still carrying the retired mill, memory, agentApi, antiSlopPrompt, visions and ingest keys parses, and the keys pass through untouched', () => {
   const retired = {
     millEnabled: false,
     packsAutoRebuild: false,
@@ -33,6 +33,8 @@ test('a config still carrying the retired mill, memory, agentApi and antiSlopPro
     memory: { enabled: true, retainDays: 365, distill: { enabled: true, intervalMinutes: 60 } },
     agentApi: { enabled: true, token: 'x' },
     antiSlopPrompt: true,
+    visions: { enabled: true, dispatch: { enabled: true } },
+    ingest: { enabled: true, sources: { terminal: { enabled: true } } },
   };
   const config = {
     ...DEFAULT_CONFIG,

@@ -69,7 +69,6 @@ export {
   HOOK_URL_ENV,
   MAX_PAYLOAD_BYTES,
   MAX_RESPONSE_BYTES,
-  normalizeEvent,
   resolveHookTarget,
   decideRelayPost,
 };

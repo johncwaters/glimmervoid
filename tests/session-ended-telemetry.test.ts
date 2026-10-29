@@ -36,7 +36,7 @@ test('a running session that Glimmervoid destroys reports session_ended once wit
         broadcastControl: () => {},
         telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
         notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
-        getIngestLane: () => null, tapIngestForSession: () => {}, closeSessionDataClients: () => {},
+        attachSessionPrLink: () => {}, closeSessionDataClients: () => {},
         logger: { error: () => {}, log: () => {}, warn: () => {} },
         telemetry: {
           capture: (event: string, properties: Record<string, unknown>) => { capturedEvents.push({ event, properties }); },

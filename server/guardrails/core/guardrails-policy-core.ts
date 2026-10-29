@@ -158,7 +158,6 @@ const GUARDRAILS_TEMP_FOLDER = 'guardrails-temp';
 const AGENT_LOGINS_SIBLING_ENTRY = 'agent-logins';
 const GLIMMERVOID_CONFIG_SIBLING_ENTRIES: readonly string[] = Object.freeze([
   AGENT_LOGINS_SIBLING_ENTRY, 'bin', 'feature-hints.json', 'owned-paths.json', 'pairings.json', 'pairings-seen.json', 'plans', 'telegram-outbox.json', 'traces', 'uploads', 'usage-budget-state.json', 'usage-lanes.json', 'usage-warehouse.json',
-  'visions-intent.json',
 ]);
 const GLIMMERVOID_HOME_STATE_ENTRIES: readonly string[] = Object.freeze([
   'benchmark-runs', 'benchmarks', 'config.json', 'issues-cache.json', 'litellm-pricing.json', 'my-prs-state.json', 'my-prs-work', 'posthog-reports',

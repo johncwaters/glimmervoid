@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, POSITIVE_NUMBER_RANGE, REPLAY_BUFFER_KB_RANGE,
+import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, REPLAY_BUFFER_KB_RANGE,
   SETTINGS_RANGES, USAGE_BUDGET_RANGE, USAGE_RETAIN_DAYS_RANGE, USAGE_SCAN_INTERVAL_RANGE, WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE,
 } from '../../shared/settings-ranges.ts';
 import type { SettingsRange } from '../../shared/settings-ranges.ts';
@@ -24,7 +24,6 @@ test('the registry hands each number the same range object the schema was built 
     ['usage-monthly-budget', USAGE_BUDGET_RANGE],
     ['file-usage-scan-interval', USAGE_SCAN_INTERVAL_RANGE],
     ['file-replay-buffer', REPLAY_BUFFER_KB_RANGE],
-    ['visions-max-per-hour', POSITIVE_NUMBER_RANGE],
     ['team-review-keep-mergeable-timeout', KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE],
     ['workflows-max-concurrent-sessions', WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE],
   ] as const) {

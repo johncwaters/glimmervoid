@@ -31,8 +31,6 @@ interface SnapshotLane {
 
 interface LaneReader {
   githubStore: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness; laneStore: Pick<GithubLaneStore, 'requestIssue'> };
-  currentIngest: () => SnapshotLane | null;
-  currentVisions: () => SnapshotLane | null;
   coderEnv: NonNullable<ControlHandlerDeps['coderEnv']>;
   gitWorkspace: NonNullable<ControlHandlerDeps['remoteRepoGit']>;
   featureHints: NonNullable<ControlHandlerDeps['featureHints']>;
@@ -190,11 +188,9 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   const sendLaneSnapshotOnConnect = (
     laneName: string,
     readLane: () => SnapshotLane | null,
-    refuseRemote: boolean,
   ): void => {
     controlWss.on('connection', (socket: WebSocket) => {
       if (socket.readyState !== 1) return;
-      if (refuseRemote && (socket as ControlSocket).glimmervoidTrust === 'remote') return;
       const lane = readLane();
       if (!lane) return;
       try {
@@ -205,11 +201,9 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     });
   };
 
-  sendLaneSnapshotOnConnect('visions', laneAssembly.currentVisions, false);
-  sendLaneSnapshotOnConnect('ingest', laneAssembly.currentIngest, true);
-  sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs, false);
-  sendLaneSnapshotOnConnect('session-shown', () => dependencies.shownFiles, false);
-  sendLaneSnapshotOnConnect('coherence-feed', () => dependencies.coherenceFeed, false);
+  sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs);
+  sendLaneSnapshotOnConnect('session-shown', () => dependencies.shownFiles);
+  sendLaneSnapshotOnConnect('coherence-feed', () => dependencies.coherenceFeed);
 
   return { removeExitedSession: controlHandlers.removeExitedSession };
 }
