@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Community research no longer fetches web pages**: the Community lane keeps web search but can no longer open a page with WebFetch, so customer data it reads in PostHog has no easy way out. The `community.mcpTools` setting is gone: PostHog now reaches the lane through your own login (see Added), and other MCP tools are no longer offered.
 - **`glimmervoid limits` prints JSON**: inside a session, `glimmervoid limits` now prints its JSON reply like every other session command, instead of text lines. `glimmervoid --help` still lists the session's limits as text. Every session command's reply is now checked against its contract before it is sent; one that breaks it comes back as `{"ok":false}` with a 500 and a `[agent-api]` line in the server log.
 
 ### Removed

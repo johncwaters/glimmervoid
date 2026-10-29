@@ -33,14 +33,14 @@ import type { SessionGuardrailsFacts } from '../../session/sessions.ts';
 const COMMUNITY_WORK_DIRNAME = 'community-work';
 const RESULT_MAX_BYTES = 1024 * 1024;
 const EMPTY_GH_CONFIG_DIRNAME = 'gh-config';
-const COMMUNITY_WEB_TOOLS = Object.freeze(['WebFetch', 'WebSearch']);
+const COMMUNITY_WEB_TOOLS = Object.freeze(['WebSearch']);
 const COMMUNITY_BASH_ALLOW_RULES = Object.freeze([
   'Bash(gh search issues:*)', 'Bash(gh search prs:*)', 'Bash(gh search code:*)', 'Bash(gh issue view:*)', 'Bash(gh pr view:*)',
 ]);
 const COMMUNITY_DENY_RULES = Object.freeze([
   'Bash(gh api:*)', 'Bash(gh auth:*)', 'Bash(env:*)', 'Bash(printenv:*)', 'Bash(echo:*)', 'Bash(curl:*)', 'Bash(wget:*)', 'Bash(git push:*)',
   'Bash(gh pr create:*)', 'Bash(gh pr comment:*)', 'Bash(gh pr review:*)', 'Bash(gh issue create:*)', 'Bash(gh issue comment:*)',
-  'Edit', 'NotebookEdit', ...LANE_CONFIG_EDIT_DENY_RULES,
+  'Edit', 'NotebookEdit', 'WebFetch', ...LANE_CONFIG_EDIT_DENY_RULES,
 ]);
 
 function createCommunityStateIo(statePath: string, log: Pick<Console, 'warn'>) {
@@ -73,9 +73,9 @@ function hogQLRows(api: PosthogApi, projectId: number, query: string, values: Re
   });
 }
 
-function communityClaudeArgs(mcpTools: readonly string[], workDir: string): string[] {
+function communityClaudeArgs(workDir: string): string[] {
   const workDirReadRules = ['Read', 'Glob', 'Grep'].map((tool) => absolutePathReadRule(workDir).replace(/^Read/, tool));
-  return ['-p', '--allowedTools', ...COMMUNITY_BASH_ALLOW_RULES, ...workDirReadRules, ...COMMUNITY_WEB_TOOLS, ...mcpTools, '--disallowedTools', ...COMMUNITY_DENY_RULES];
+  return ['-p', '--allowedTools', ...COMMUNITY_BASH_ALLOW_RULES, ...workDirReadRules, ...COMMUNITY_WEB_TOOLS, '--disallowedTools', ...COMMUNITY_DENY_RULES];
 }
 
 function communityAcceptEditsPermissions(): { deny: string[]; defaultMode: string } {
@@ -157,7 +157,7 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings }: {
             name: `Community ${entry.item.key}`,
             cwd: workDir,
             spawnEnv: communitySpawnEnv(workDir),
-            extraClaudeArgs: communityClaudeArgs(settings.mcpTools, workDir),
+            extraClaudeArgs: communityClaudeArgs(workDir),
             settingsPermissions: communityAcceptEditsPermissions(),
             guardrailsRole: communityRole,
             signal: AbortSignal.any([signal, timeoutSignal]),

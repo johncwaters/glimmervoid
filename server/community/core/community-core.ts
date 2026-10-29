@@ -23,7 +23,6 @@ const COMMUNITY_REPORT_HEADINGS = ['VERDICT:', 'GOAL:', 'CHECKED:', 'GAPS:', 'OV
 const MAX_REPORT_TEXT_CHARS = 4000;
 const MAX_REPORT_BULLETS = 50;
 const MAX_REPORT_BULLET_CHARS = 1000;
-const MCP_TOOL_NAME_RE = /^mcp__[A-Za-z0-9_-]+(?:__[A-Za-z0-9_*-]+)?$/;
 const SKILL_NAME_RE = /^[A-Za-z0-9:._-]{1,100}$/;
 const DISCORD_SNOWFLAKE_RE = /^\d{1,30}$/;
 const DISCORD_CHANNEL_URL = 'https://discord.com/channels/';
@@ -44,7 +43,6 @@ interface CommunitySettings {
   skill: string;
   projectId: number;
   intervalMinutes: number;
-  mcpTools: string[];
   discordChannels: string[];
 }
 
@@ -74,7 +72,6 @@ function readCommunitySettings(config: { community?: unknown }): CommunitySettin
     skill: typeof block.skill === 'string' ? block.skill.trim() : '',
     projectId: positiveIntegerOr(block.projectId, DEFAULT_PROJECT_ID),
     intervalMinutes: positiveIntegerOr(block.intervalMinutes, DEFAULT_INTERVAL_MINUTES),
-    mcpTools: Array.isArray(block.mcpTools) ? block.mcpTools.filter((tool): tool is string => typeof tool === 'string' && MCP_TOOL_NAME_RE.test(tool)) : [],
     discordChannels: Array.isArray(block.discordChannels)
       ? [...new Set(block.discordChannels.filter((channel): channel is string => typeof channel === 'string' && DISCORD_CHANNEL_NAME_RE.test(channel)))].slice(0, MAX_DISCORD_CHANNELS)
       : [],
@@ -398,7 +395,7 @@ function buildCommunityPrompt({ item, skill, reportPath, postingPath }: { item: 
     fencedUntrusted('question-title', item.title, MAX_TITLE_CHARS),
     fencedUntrusted('question-body', item.body, MAX_BODY_CHARS),
     '',
-    'Tools: research the public web with WebFetch and WebSearch. The shell runs only gh search issues, gh search prs,',
+    'Tools: research the public web with WebSearch. The shell runs only gh search issues, gh search prs,',
     'gh search code, gh issue view and gh pr view, and gh has no GitHub login here, so it reaches only what is public.',
     'Every other shell command and every read outside the current directory is refused. Do not work around a refusal;',
     'name what it blocked under GAPS.',
