@@ -165,6 +165,7 @@ export {
   listen,
   removeHarnessTempDirectory,
   safeTextTail,
+  sanitizeProbeText,
   waitForState,
   writeHookFixture,
 };

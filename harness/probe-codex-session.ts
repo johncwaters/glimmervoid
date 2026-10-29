@@ -8,8 +8,9 @@ import path from 'node:path';
 import { createBackend } from '../server/backend/backend.ts';
 import { spawn } from '../server/child-process-safe.ts';
 import type { HookPayload } from '../shared/contracts/index.ts';
-import { projectHookPayload } from '../session/core/hook-payload-projection.ts';
 import type { Session } from '../session/sessions.ts';
+import { createProbeChecks, delay, sanitizeProbeText, waitForState, writeHookFixture } from './support/backend-harness.ts';
+import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
 
 interface SpawnCall {
   file: string;
@@ -20,16 +21,11 @@ interface SpawnCall {
 const SESSION_ID = 'codex-probe-session';
 const SENTINEL_WORD = 'velvetquartz';
 const PROMPT = `reply with the single word ${SENTINEL_WORD} and nothing else`;
-const STEP_TIMEOUT_MS = 90000;
+const STEP_TIMEOUT_MS = 120000;
 const SUBAGENT_TIMEOUT_MS = 240000;
 const FIXTURE_DIR = path.join(import.meta.dirname, '..', 'tests', 'fixtures');
 const SHOULD_WRITE_FIXTURES = process.argv.includes('--write-fixtures');
 const BRIDGE_NOTIFICATIONS_KEPT = new Set(['thread/started', 'turn/started', 'turn/completed', 'turn/plan/updated', 'item/started', 'item/completed', 'serverRequest/resolved', 'thread/compacted']);
-
-interface HookRecord {
-  event: string;
-  payload: HookPayload | null;
-}
 
 interface BridgeLine {
   direction: 'client' | 'server';
@@ -37,33 +33,7 @@ interface BridgeLine {
 }
 
 let terminalTail = '';
-let passed = 0;
-let failed = 0;
-function check(label: string, condition: boolean): void {
-  if (condition) { console.log(`  PASS  ${label}`); passed += 1; return; }
-  console.error(`  FAIL  ${label}`);
-  failed += 1;
-}
-
-function delay(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
-
-function waitForState(session: Session, states: string[], label: string): Promise<string> {
-  const wanted = new Set(states);
-  if (wanted.has(session.state)) return Promise.resolve(session.state);
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      session.off('state-change', onChange);
-      reject(new Error(`timed out waiting for ${label} (still ${session.state})`));
-    }, STEP_TIMEOUT_MS);
-    function onChange({ to }: { to: string }): void {
-      if (!wanted.has(to)) return;
-      clearTimeout(timer);
-      session.off('state-change', onChange);
-      resolve(to);
-    }
-    session.on('state-change', onChange);
-  });
-}
+const { check, passed, failed } = createProbeChecks();
 
 function makeProbeCodexHome(tmpDir: string, projectDir: string): string {
   const codexHome = path.join(tmpDir, 'codex-home');
@@ -112,27 +82,15 @@ function answerFrom(payload: HookPayload | undefined): string | null {
   return typeof answer === 'string' ? answer.trim() : null;
 }
 
-function sanitize(text: string, tmpDir: string): string {
-  return text.split(tmpDir).join('<codex-probe>').split(os.homedir()).join('<home>');
-}
-
 function fixtureDestination(fileName: string, keepDir: string): string {
   return path.join(SHOULD_WRITE_FIXTURES ? FIXTURE_DIR : keepDir, fileName);
 }
 
-function writeHookFixture(name: string, hooks: HookRecord[], tmpDir: string, keepDir: string): string {
-  const header = { type: 'header', version: 2, records: 'signals', session: `fixture-codex-${name}`, agent: 'codex', startedAt: 0, config: { hooksInjected: true } };
-  const lines = [header, ...hooks.map((hook, index) => ({ type: 'hook', ts: index + 1, event: hook.event, payload: projectHookPayload(hook.payload) }))];
-  const destination = fixtureDestination(`v2-codex-${name}.jsonl`, keepDir);
-  fs.writeFileSync(destination, `${sanitize(lines.map((line) => JSON.stringify(line)).join('\n'), tmpDir)}\n`, 'utf8');
-  return destination;
-}
-
-function payloadField(hook: HookRecord | null, field: string): unknown {
+function payloadField(hook: ProbeHookRecord | null, field: string): unknown {
   return hook?.payload ? hook.payload[field] : undefined;
 }
 
-function isSentinelEchoHook(hook: HookRecord): boolean {
+function isSentinelEchoHook(hook: ProbeHookRecord): boolean {
   if (hook.event.toLowerCase() !== 'posttooluse') return false;
   if (payloadField(hook, 'tool_name') !== 'Bash') return false;
   const toolInput = payloadField(hook, 'tool_input');
@@ -140,7 +98,7 @@ function isSentinelEchoHook(hook: HookRecord): boolean {
   return typeof toolInput.command === 'string' && toolInput.command.includes(SENTINEL_WORD);
 }
 
-function copySanitizedRecording(tmpDir: string): string | null {
+function copySanitizedRecording(tmpDir: string, fixtureTarget: ProbeFixtureTarget): string | null {
   const recordingDir = path.join(tmpDir, 'recordings');
   if (!fs.existsSync(recordingDir)) return null;
   const recorded = fs.readdirSync(recordingDir);
@@ -148,7 +106,7 @@ function copySanitizedRecording(tmpDir: string): string | null {
   const source = path.join(recordingDir, recorded[0]);
   const keepDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-codex-probe-out-'));
   const keptRecording = path.join(keepDir, recorded[0]);
-  const sanitized = sanitize(fs.readFileSync(source, 'utf8'), tmpDir);
+  const sanitized = sanitizeProbeText(fs.readFileSync(source, 'utf8'), fixtureTarget);
   fs.writeFileSync(keptRecording, sanitized, { encoding: 'utf8', mode: 0o600 });
   return keptRecording;
 }
@@ -254,8 +212,9 @@ async function main(): Promise<void> {
   const session: Session | null = backend.getSession(SESSION_ID);
   if (!session) throw new Error(`the probe config did not produce a session named ${SESSION_ID}`);
   const hookEvents: string[] = [];
-  const hookRecords: HookRecord[] = [];
+  const hookRecords: ProbeHookRecord[] = [];
   const keepDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-codex-probe-out-'));
+  const fixtureTarget: ProbeFixtureTarget = { agentId: 'codex', tempDirectory: tmpDir, keepDirectory: keepDir, shouldWriteFixtures: SHOULD_WRITE_FIXTURES };
   const answers: string[] = [];
   const titleSignals: string[] = [];
   const spawnCalls: SpawnCall[] = [];
@@ -290,10 +249,13 @@ async function main(): Promise<void> {
 
     console.log('\nFirst turn:');
     await delay(6000);
+    const firstTurnStart = hookRecords.length;
     session.write(PROMPT);
     await delay(1500);
     session.write('\r');
     await waitForState(session, ['COMPLETE'], 'the turn to finish');
+    await delay(3000);
+    writeScenario('turn-complete', firstTurnStart);
     check('the first turn answered with the sentinel', answers.at(-1)?.toLowerCase() === SENTINEL_WORD);
     console.log(`  [answer:first] ${answers.at(-1) || '(none)'}`);
 
@@ -310,7 +272,7 @@ async function main(): Promise<void> {
       }
     };
 
-    async function waitForHook(label: string, since: number, matches: (hook: HookRecord) => boolean, timeoutMs = STEP_TIMEOUT_MS): Promise<HookRecord | null> {
+    async function waitForHook(label: string, since: number, matches: (hook: ProbeHookRecord) => boolean, timeoutMs = STEP_TIMEOUT_MS): Promise<ProbeHookRecord | null> {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         const found = hookRecords.slice(since).find(matches);
@@ -322,7 +284,7 @@ async function main(): Promise<void> {
     }
 
     function writeScenario(name: string, since: number): void {
-      const destination = writeHookFixture(name, hookRecords.slice(since), tmpDir, keepDir);
+      const destination = writeHookFixture(name, hookRecords.slice(since), fixtureTarget);
       console.log(`  [fixture] ${destination}`);
       console.log(`  [events] ${hookRecords.slice(since).map((hook) => hook.event).join(', ')}`);
     }
@@ -377,6 +339,40 @@ async function main(): Promise<void> {
     session.write('\x1b');
     await delay(1000);
 
+    console.log('\nPlan approval:');
+    const planStart = hookRecords.length;
+    session.write('Present a one-step plan to create plan.txt containing ok.');
+    await delay(1500);
+    session.write('\r');
+    const planStop = await waitForHook('the plan Stop', planStart, (hook) => hook.event.toLowerCase() === 'stop');
+    check('the plan turn reached Stop', !!planStop);
+    await delay(3000);
+    session.write('\r');
+    const implementationStop = await waitForHook('the implementation Stop', planStart, (hook) => {
+      if (session.state === 'WAITING') session.write('y');
+      return hook !== planStop && hook.event.toLowerCase() === 'stop';
+    });
+    check('approving the plan ran the implementation turn to Stop', !!implementationStop);
+    check('the implementation turn was the plan-mode approval', hookRecords.slice(planStart).some((hook) => payloadField(hook, 'prompt') === 'Implement the plan.'));
+    await delay(3000);
+    writeScenario('plan-wait', planStart);
+
+    console.log('\nClear:');
+    const clearStart = hookRecords.length;
+    session.write('/clear');
+    await delay(1500);
+    session.write('\r');
+    await delay(3000);
+    session.write(PROMPT);
+    await delay(1500);
+    session.write('\r');
+    await waitForState(session, ['COMPLETE'], 'the first turn after /clear');
+    const clearedStart = await waitForHook('SessionStart after /clear', clearStart, (hook) => hook.event.toLowerCase() === 'sessionstart');
+    check('the first turn after /clear fired SessionStart', !!clearedStart);
+    console.log(`  [clear] SessionStart source: ${JSON.stringify(payloadField(clearedStart, 'source') ?? null)}`);
+    await delay(3000);
+    writeScenario('session-clear', clearStart);
+
     const capturedId = session._resumeSessionId;
     check('a codex session id was captured from the hook payloads', typeof capturedId === 'string' && capturedId.length > 0);
 
@@ -404,7 +400,7 @@ async function main(): Promise<void> {
     console.log('\nPlan-mode bridge:');
     const bridgeLines = await captureBridgeInPlanMode(projectDir);
     const bridgeFixture = fixtureDestination('v2-codex-plan-mode-bridge.jsonl', keepDir);
-    fs.writeFileSync(bridgeFixture, `${sanitize(bridgeLines.map((line) => JSON.stringify(line)).join('\n'), tmpDir)}\n`, 'utf8');
+    fs.writeFileSync(bridgeFixture, `${sanitizeProbeText(bridgeLines.map((line) => JSON.stringify(line)).join('\n'), fixtureTarget)}\n`, 'utf8');
     const completedItemTypes = bridgeLines.flatMap((line) => {
       const message = line.message as { method?: string; params?: { item?: { type?: string } } };
       return line.direction === 'server' && message.method === 'item/completed' ? [String(message.params?.item?.type)] : [];
@@ -418,7 +414,7 @@ async function main(): Promise<void> {
     console.log(`  [server requests] ${serverRequestMethods.join(', ') || '(none)'}`);
     check('the plan-mode turn completed a plan item', completedItemTypes.includes('plan'));
 
-    const keptRecording = copySanitizedRecording(tmpDir) || '(none written)';
+    const keptRecording = copySanitizedRecording(tmpDir, fixtureTarget) || '(none written)';
     console.log(`\nRecording: ${keptRecording}`);
     console.log(`Hook events seen: ${[...new Set(hookEvents)].join(', ') || '(none)'}`);
     console.log(`Title signals seen: ${[...new Set(titleSignals)].join(', ') || '(none)'}`);
@@ -431,8 +427,8 @@ async function main(): Promise<void> {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  process.exit(failed === 0 ? 0 : 1);
+  console.log(`\n${passed()} passed, ${failed()} failed`);
+  process.exit(failed() === 0 ? 0 : 1);
 }
 
 main().catch((err: unknown) => {
