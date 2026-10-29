@@ -38,9 +38,9 @@ jobs:
           # doctor reports a broken native module and still exits 0, so this line is the real gate.
           grep -q "loads OK" doctor.log
 
-  windows:
-    timeout-minutes: 30
-    runs-on: windows-latest
+  pack:
+    timeout-minutes: 15
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -48,13 +48,32 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm run build
+      - run: npm pack --pack-destination "$RUNNER_TEMP/tarball"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package-tarball
+          path: ${{ runner.temp }}/tarball/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  # npm ci cannot run on win32: @posthog/coherence declares os darwin,linux, so this job installs the Linux-built tarball users get.
+  windows:
+    needs: pack
+    timeout-minutes: 30
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package-tarball
+          path: tarball
       - name: packaged global install
         shell: bash
         run: |
-          TARBALL=$(npm pack | tail -1)
-          npx --yes npm@12 install -g "./$TARBALL" --allow-scripts=node-pty
+          npx --yes npm@12 install -g ./tarball/*.tgz --allow-scripts=node-pty
           glimmervoid doctor > doctor.log
           cat doctor.log
           grep -q "loads OK" doctor.log
