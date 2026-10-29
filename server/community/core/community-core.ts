@@ -183,13 +183,15 @@ function admitSourceItems(state: CommunityState, source: CommunitySourceName, it
   };
 }
 
+const DISCORD_CHANNEL_NAME_EXPRESSION = "replaceRegexpAll(lower(coalesce(properties.root_channel_name, properties.parent_channel_name)), '^[^a-z0-9]+', '')";
+
 function discordQuery(): string {
   return [
     'SELECT uuid, event, timestamp, properties.channel_id AS channel_id, properties.guild_id AS guild_id,',
-    'coalesce(properties.root_channel_name, properties.parent_channel_name) AS channel_name, properties.message_content AS message_content,',
+    `${DISCORD_CHANNEL_NAME_EXPRESSION} AS channel_name, properties.message_content AS message_content,`,
     'properties.thread_id AS thread_id, properties.thread_name AS thread_name',
     "FROM events WHERE event IN ('message_sent', 'thread_created') AND timestamp > parseDateTimeBestEffort({since})",
-    'AND has({channels}, coalesce(properties.root_channel_name, properties.parent_channel_name))',
+    `AND has({channels}, ${DISCORD_CHANNEL_NAME_EXPRESSION})`,
     'ORDER BY timestamp ASC',
     `LIMIT ${SOURCE_ROW_LIMIT}`,
   ].join(' ');

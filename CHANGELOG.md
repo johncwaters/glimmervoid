@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Community finds Discord channels with an emoji in their name**: a Discord channel whose name starts with an emoji or other symbol, such as the PostHog server's bug and feature channels, now matches its plain name in Settings > Community (experimental), so `report-a-bug` picks up messages again. Before, no message from such a channel ever reached the Community tab.
 - **Removing a session that needs input asks first**: closing a session whose agent is waiting for your answer (Needs input) now shows the Remove dialog, as closing a working session does, instead of stopping the agent mid-task with no warning.
 - **Restart works after a Node upgrade**: when Homebrew (or another package manager) upgraded Node while Glimmervoid was running, the dashboard Restart button stopped the server and never brought it back, with nothing in the log. The replacement server now starts through the `node` on your PATH that the server booted from, such as `/opt/homebrew/bin/node`, so it follows the upgrade. If even that Node is gone, the server log says so with a `[lifecycle]` line and the process exits 1.
 
