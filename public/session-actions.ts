@@ -79,12 +79,23 @@ export function openShellSessionDialog() {
   openWithDialogs((dialogs) => dialogs.createAddSessionDialog({ preferredAgentId: SHELL_AGENT_ID }));
 }
 
+let revealSessionInView: (id: string) => void = selectSession;
+
+export function setAddedSessionRevealer(reveal: (id: string) => void) {
+  revealSessionInView = reveal;
+}
+
+export function revealAddedSession(sessionId: string | null | undefined) {
+  clearHeaderError(ADD_SESSION_ERROR_SOURCE);
+  if (sessionId) revealSessionInView(sessionId);
+}
+
 async function requestQuickAdd(path: string, label: string | null | undefined) {
   try {
     const name = suggestSessionName(label);
     const reply = await sendControlRequest('add-session', { name, path }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
     if (reply.type === 'add-session-result' && reply.ok) {
-      clearHeaderError(ADD_SESSION_ERROR_SOURCE);
+      revealAddedSession(reply.sessionId);
       return;
     }
     reportHeaderError({ source: ADD_SESSION_ERROR_SOURCE, message: addSessionRefusalText(reply) });
@@ -98,12 +109,11 @@ export function quickAddSession(path: string | null | undefined, label: string |
   void requestQuickAdd(path, label);
 }
 
-async function requestQuickSession(sourceId: string, revealSpawnedSession: (id: string) => void) {
+async function requestQuickSession(sourceId: string) {
   try {
     const reply = await sendControlRequest('quick-session', { id: sourceId }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
     if (reply.type === 'add-session-result' && reply.ok) {
-      clearHeaderError(ADD_SESSION_ERROR_SOURCE);
-      if (reply.sessionId) revealSpawnedSession(reply.sessionId);
+      revealAddedSession(reply.sessionId);
       return;
     }
     reportHeaderError({ source: ADD_SESSION_ERROR_SOURCE, sessionId: sourceId, message: addSessionRefusalText(reply) });
@@ -112,8 +122,8 @@ async function requestQuickSession(sourceId: string, revealSpawnedSession: (id: 
   }
 }
 
-export function spawnQuickSession(sourceId: string, revealSpawnedSession: (id: string) => void) {
-  void requestQuickSession(sourceId, revealSpawnedSession);
+export function spawnQuickSession(sourceId: string) {
+  void requestQuickSession(sourceId);
 }
 
 const SESSION_REMOVAL_TIMEOUT_MS = 65 * 60_000;

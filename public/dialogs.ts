@@ -14,7 +14,7 @@ import { DEFAULT_AGENT_ID, SHELL_AGENT_ID, decideAgentAvailability, decideAgentP
 import { countSessionsByName, suggestSessionName } from './session-card/naming.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
 import { formatAgo } from './poll-ago.ts';
-import { addSessionRefusalText } from './session-actions.ts';
+import { addSessionRefusalText, revealAddedSession } from './session-actions.ts';
 import { formatTrailOffset, trailContentKey, trailStatusText, trailTimelineRows } from './radar/radar-core.ts';
 import type { InvestigationView } from './radar/radar-core.ts';
 
@@ -530,6 +530,7 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
       .then((reply) => {
         if (reply.type === 'add-session-result' && reply.ok) {
           close();
+          revealAddedSession(reply.sessionId);
           return;
         }
         errorEl.textContent = addSessionRefusalText(reply);

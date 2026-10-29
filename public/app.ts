@@ -62,7 +62,7 @@ import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, applySettingsUpdateError, onPhoneSettingsScreenChanged, refreshSettingsStatus, returnToSettingsList, setFeatureTabViews } from './settings/settings-store.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
-import { openAddSessionDialog, requestSessionRemoval, selectSession, spawnQuickSession } from './session-actions.ts';
+import { openAddSessionDialog, requestSessionRemoval, selectSession, setAddedSessionRevealer, spawnQuickSession } from './session-actions.ts';
 import { getSelectedId, setSelectedId } from './sidebar/selection.ts';
 import { createSettingsLink, isSettingsHash, settingsHash } from './settings/settings-link.ts';
 import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from './shortcuts.ts';
@@ -1126,6 +1126,7 @@ function revealSpawnedSession(id: string) {
   selectSession(id);
   requestAnimationFrame(() => requestAnimationFrame(() => sessionUIs.get(id)?.term?.focus()));
 }
+setAddedSessionRevealer(revealSpawnedSession);
 
 function addSessionLikeTheFocusedOne() {
   const sourceId = focusedTerminalSessionId() ?? getSelectedId();
@@ -1133,7 +1134,7 @@ function addSessionLikeTheFocusedOne() {
     document.getElementById('btn-add-session-header')?.click();
     return;
   }
-  spawnQuickSession(sourceId, revealSpawnedSession);
+  spawnQuickSession(sourceId);
 }
 
 function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
