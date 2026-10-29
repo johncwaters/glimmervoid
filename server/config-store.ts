@@ -68,7 +68,6 @@ const DEFAULT_CONFIG = {
   guardrails: {
     unguardedRepos: [] as string[],
     blockedPaths: [] as string[],
-    unreadablePaths: [] as string[],
   },
 
   telemetry: {
@@ -83,6 +82,7 @@ const DEFAULT_CONFIG = {
   skipPermissionsByDefault: false,
 
   saneYolo: true,
+  saneYoloUnreadablePaths: [] as string[],
 
   telegramNotifications: false,
 
@@ -363,6 +363,23 @@ function retiredGuardrailKeysWarning(config: GlimmervoidConfig): string | null {
   return `[guardrails] config.json still has ${retiredKeys.join(' and ')}. These keys are ignored, so their unreadable paths and opt-outs do not apply until you move them.`;
 }
 
+function isAbsoluteOrHomePath(entry: unknown): entry is string {
+  if (typeof entry !== 'string') return false;
+  const trimmedEntry = entry.trim();
+  return trimmedEntry === '~' || trimmedEntry.startsWith('~/') || path.isAbsolute(trimmedEntry);
+}
+
+function migrateGuardrailsUnreadablePaths(config: GlimmervoidConfig): string | null {
+  const guardrails = config.guardrails;
+  if (!isRecord(guardrails) || !Object.hasOwn(guardrails, 'unreadablePaths')) return null;
+  const { unreadablePaths: legacyUnreadablePaths, ...remainingGuardrails } = guardrails;
+  config.guardrails = remainingGuardrails;
+  if (config.saneYoloUnreadablePaths !== undefined) return '[config] Dropped guardrails.unreadablePaths: saneYoloUnreadablePaths is already set and takes its place.';
+  const legacyEntries: unknown[] = Array.isArray(legacyUnreadablePaths) ? legacyUnreadablePaths : [];
+  config.saneYoloUnreadablePaths = legacyEntries.filter(isAbsoluteOrHomePath);
+  return '[config] Moved guardrails.unreadablePaths to saneYoloUnreadablePaths: Sane YOLO now refuses reads of those folders.';
+}
+
 function readIsExperimentalBuild(): boolean {
   const manifest: unknown = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
   return isRecord(manifest) && isExperimentalVersion(manifest.version);
@@ -393,6 +410,15 @@ function createConfigStore({
   config.branchGc = resolveBranchGcAndWarn(config.branchGc);
   const retiredGuardrailKeys = retiredGuardrailKeysWarning(config);
   if (retiredGuardrailKeys !== null) console.warn(retiredGuardrailKeys);
+  const unreadablePathsMigration = migrateGuardrailsUnreadablePaths(config);
+  if (unreadablePathsMigration !== null) {
+    try {
+      writeJsonAtomicSync(configPath, withoutEnvSecrets(config, envSecrets), { mode: CONFIG_FILE_MODE });
+      console.log(unreadablePathsMigration);
+    } catch (err) {
+      console.warn('[config] Failed to persist the guardrails.unreadablePaths move:', errorMessage(err));
+    }
+  }
 
   if (Array.isArray(config.projects) && ensureProjectIds(config.projects)) {
     try {
@@ -536,6 +562,7 @@ function createConfigStore({
       telemetryForcedOff: isTelemetryForcedOff(process.env),
       telemetryInstallId: readTelemetryInstallId?.() ?? null,
       saneYolo: config.saneYolo ?? effectiveDefaults.saneYolo,
+      saneYoloUnreadablePaths: config.saneYoloUnreadablePaths ?? DEFAULT_CONFIG.saneYoloUnreadablePaths,
       checkForUpdates: config.checkForUpdates ?? effectiveDefaults.checkForUpdates,
       updateChannel: config.updateChannel ?? effectiveDefaults.updateChannel,
       autoResume: config.autoResume ?? effectiveDefaults.autoResume,

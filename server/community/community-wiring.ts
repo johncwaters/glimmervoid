@@ -178,10 +178,11 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings }: {
   };
 }
 
-function createDiscordSource(api: PosthogApi, settings: core.CommunitySettings, spawnDependencies: CommunitySpawnDependencies | null): DiscordSource | null {
+function createDiscordSource(api: PosthogApi, settings: core.CommunitySettings, spawnDependencies: CommunitySpawnDependencies | null, getSaneYoloUnreadablePaths: () => readonly string[]): DiscordSource | null {
   if (!spawnDependencies || settings.discordChannels.length === 0) return null;
   const judgeSpawn = createLaneSpawn({
     laneName: core.COMMUNITY_LANE_ID,
+    getSaneYoloUnreadablePaths,
     sessions: spawnDependencies.investigationSessions,
     closeSessionDataClients: spawnDependencies.closeSessionDataClients,
     hookRouter: spawnDependencies.hookRouter,
@@ -244,7 +245,7 @@ function createCommunityWiring({
       return createCommunityPoller({
         intervalMinutes: settings.intervalMinutes,
         queryForum: (sinceIso) => hogQLRows(api, settings.projectId, core.forumQuery(), { since: sinceIso }),
-        discord: createDiscordSource(api, settings, spawnDependencies),
+        discord: createDiscordSource(api, settings, spawnDependencies, () => config.saneYoloUnreadablePaths ?? []),
         readState: stateIo.readState,
         writeState: stateIo.writeState,
         runItem,

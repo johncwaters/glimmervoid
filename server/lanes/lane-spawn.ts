@@ -52,6 +52,7 @@ interface LaneSpawnOptions {
   replayBufferKB?: number;
   recordLane?: RecordLane | null;
   laneName: string;
+  getSaneYoloUnreadablePaths: () => readonly string[];
   allowTools?: readonly string[];
   settingsPermissions?: Record<string, unknown>;
   spawnEnv?: Readonly<Record<string, string>> | null;
@@ -95,7 +96,7 @@ function laneAgentArgs({ isClaude, isWrapped, isCodex, extraArgs, model, posture
 
 function createLaneSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
-  spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName, allowTools = [],
+  spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName, getSaneYoloUnreadablePaths, allowTools = [],
   createSession = (options) => new Session(options), settingsPermissions, spawnEnv = null,
   prepareGuardrails = prepareGuardrailsLaunch, guardrailsRefusal = allowGuardedSpawn, prepareMcp = prepareLaneMcp, platform = process.platform,
 }: LaneSpawnOptions): LaneSpawn {
@@ -108,7 +109,7 @@ function createLaneSpawn({
     if (!isWrapped && (hasClaudeShell || isKimi)) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
     const guardrailsRefusalReason = isWrapped ? guardrailsRefusal() : null;
     if (guardrailsRefusalReason !== null) throw new Error(guardrailsRefusalReason);
-    const guardHookTools = hasClaudeShell && hookRouter ? resolveRequiredSaneYoloHookTools() ?? [] : null;
+    const guardHookTools = hasClaudeShell && hookRouter ? resolveRequiredSaneYoloHookTools(getSaneYoloUnreadablePaths()) ?? [] : null;
     if (guardHookTools && !guardHookTools.some((tool) => tool.id === 'saneYolo')) throw new Error(GUARD_HOOK_UNAVAILABLE_ERROR);
       await runLaneSession();
 

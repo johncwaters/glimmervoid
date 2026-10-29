@@ -238,6 +238,23 @@ test('createConfigStore persists auto-assigned ids, stable across reloads', () =
   }
 });
 
+test('a config with guardrails.unreadablePaths boots with them moved to saneYoloUnreadablePaths on disk', () => {
+  const { dir, p } = writeTmpConfig({ projects: [], guardrails: { blockedPaths: ['~/keep'], unreadablePaths: ['~/notes', 'relative/folder', '/srv/secrets'] } });
+  const prev = process.env.GLIMMERVOID_CONFIG;
+  process.env.GLIMMERVOID_CONFIG = p;
+  try {
+    const store = createConfigStore();
+    assert.deepEqual(store.getSettings().saneYoloUnreadablePaths, ['~/notes', '/srv/secrets']);
+    const onDisk = readJson(p);
+    assert.deepEqual(onDisk.saneYoloUnreadablePaths, ['~/notes', '/srv/secrets']);
+    assert.deepEqual(block(onDisk.guardrails), { blockedPaths: ['~/keep'] });
+  } finally {
+    if (prev == null) delete process.env.GLIMMERVOID_CONFIG;
+    if (prev != null) process.env.GLIMMERVOID_CONFIG = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('createConfigStore writes a boot snapshot of the loaded config', () => {
   const original = { projects: [{ name: 'proj', path: 'C:/proj' }] };
   const { dir, p } = writeTmpConfig(original);

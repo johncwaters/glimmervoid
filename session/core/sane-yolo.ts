@@ -6,7 +6,7 @@ function saneYoloHostFlag(agentFlavor: string): string {
   return SANE_YOLO_HOST_FLAGS[agentFlavor] ?? '--grok-build';
 }
 
-function saneYoloPolicy(guardrailsTempRoot: string) {
+function saneYoloPolicy(guardrailsTempRoot: string, unreadablePaths: readonly string[]) {
   return {
     version: 1,
     destructive_command_protection: {
@@ -19,7 +19,7 @@ function saneYoloPolicy(guardrailsTempRoot: string) {
       },
       allow_paths: [guardrailsTempRoot],
     },
-    secret_protection: { enabled: true },
+    secret_protection: { enabled: true, deny_paths: [...unreadablePaths] },
   };
 }
 
@@ -42,9 +42,9 @@ const SANE_YOLO_INFRA_RULEBOOK = {
   ],
 };
 
-function saneYoloFiles(guardrailsTempRoot: string) {
+function saneYoloFiles(guardrailsTempRoot: string, unreadablePaths: readonly string[]) {
   return {
-    'policy.json': saneYoloPolicy(guardrailsTempRoot),
+    'policy.json': saneYoloPolicy(guardrailsTempRoot, unreadablePaths),
     'rules/rule.json': SANE_YOLO_RULES,
     'rules/infra/rulebook.json': SANE_YOLO_INFRA_RULEBOOK,
   };

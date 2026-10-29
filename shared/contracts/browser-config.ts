@@ -204,17 +204,17 @@ const optionalPathList = (field: string) => z.array(z.string({ error: `${field} 
 const guardrailsShape = {
   unguardedRepos: optionalPathList('guardrails.unguardedRepos'),
   blockedPaths: optionalPathList('guardrails.blockedPaths'),
-  unreadablePaths: optionalPathList('guardrails.unreadablePaths'),
 };
 const isHomeRelativePath = (entry: string) => entry === '~' || entry.startsWith('~/') || entry.startsWith('~\\');
+const absoluteOrHomePathList = (field: string, isAbsolutePath: (directory: string) => boolean) => z.array(
+  z.string({ error: `${field} must be an array of paths` }).trim()
+    .min(1, { error: `${field} must be an array of paths` })
+    .refine((entry) => isHomeRelativePath(entry) || isAbsolutePath(entry), { message: `${field} entries must be absolute paths or start with ~/` }),
+  { error: `${field} must be an array of paths` },
+).optional();
 const createGuardrailsSettings = (isAbsolutePath: (directory: string) => boolean) => z.object({
   ...guardrailsShape,
-  blockedPaths: z.array(
-    z.string({ error: 'guardrails.blockedPaths must be an array of paths' }).trim()
-      .min(1, { error: 'guardrails.blockedPaths must be an array of paths' })
-      .refine((entry) => isHomeRelativePath(entry) || isAbsolutePath(entry), { message: 'guardrails.blockedPaths entries must be absolute paths or start with ~/' }),
-    { error: 'guardrails.blockedPaths must be an array of paths' },
-  ).optional(),
+  blockedPaths: absoluteOrHomePathList('guardrails.blockedPaths', isAbsolutePath),
 }, { error: 'guardrails must be an object' }).strict().optional();
 export const GuardrailsFileSettings = z.object(guardrailsShape, { error: 'guardrails must be an object' }).passthrough().optional();
 
@@ -236,6 +236,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   detectBackgroundAgents: optionalBoolean('detectBackgroundAgents'),
   recordSignals: optionalBoolean('recordSignals'),
   saneYolo: optionalBoolean('saneYolo'),
+  saneYoloUnreadablePaths: absoluteOrHomePathList('saneYoloUnreadablePaths', isAbsolutePath),
   skipPermissionsByDefault: optionalBoolean('skipPermissionsByDefault'),
   checkForUpdates: optionalBoolean('checkForUpdates'),
   updateChannel: UpdateChannel.optional(),

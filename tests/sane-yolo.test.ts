@@ -50,7 +50,7 @@ interface ProductionHookFixture {
   saneYoloTool: ResolvedHookTool;
 }
 
-async function withProductionHookFixture(run: (fixture: ProductionHookFixture) => Promise<void>): Promise<void> {
+async function withProductionHookFixture(run: (fixture: ProductionHookFixture) => Promise<void>, saneYoloUnreadablePaths: readonly string[] = []): Promise<void> {
   const temporaryHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-sane-yolo-e2e-'));
   const previousGlimmervoidHome = process.env.GLIMMERVOID_HOME;
   process.env.GLIMMERVOID_HOME = path.join(temporaryHome, '.glimmervoid');
@@ -59,7 +59,7 @@ async function withProductionHookFixture(run: (fixture: ProductionHookFixture) =
     fs.mkdirSync(cwd);
     const baseEnv = { ...process.env, HOME: temporaryHome, USERPROFILE: temporaryHome };
     await executeFile('git', ['init', cwd], { env: baseEnv });
-    const saneYoloTool = resolveHookTools({}).find((tool) => tool.id === 'saneYolo');
+    const saneYoloTool = resolveHookTools({ saneYoloUnreadablePaths }).find((tool) => tool.id === 'saneYolo');
     assert.ok(saneYoloTool);
     const env = { ...baseEnv, ...HOOK_TOOLS.saneYolo.env(saneYoloTool, saneYoloHomeDir()) };
     await run({ cwd, env, saneYoloTool });
@@ -145,4 +145,16 @@ test('the managed kimi block PreToolUse command denies git reset --hard through 
     const stdout = execSync(command, { cwd, env, encoding: 'utf8', input });
     assert.equal(permissionDecisionOf(stdout), 'deny', stdout);
   });
+});
+
+test('the production Claude settings command denies a Read inside a folder listed in saneYoloUnreadablePaths', async () => {
+  await withProductionHookFixture(async ({ cwd, env, saneYoloTool }) => {
+    const command = saneYoloCommandOf(buildHookSettings({ port: 1, glimmervoidId: 'sane-yolo-e2e', token: 'token', hookTools: [saneYoloTool] }));
+    assert.ok(command);
+    const readOf = (filePath: string) => JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: filePath }, cwd, session_id: 'sane-yolo-test', permission_mode: 'default' });
+    const listedStdout = execSync(command, { cwd, env, encoding: 'utf8', input: readOf(path.join(env.HOME ?? '', 'private-notes', 'plan.md')) });
+    assert.equal(permissionDecisionOf(listedStdout), 'deny', listedStdout);
+    const unlistedStdout = execSync(command, { cwd, env, encoding: 'utf8', input: readOf(path.join(env.HOME ?? '', 'public-notes', 'plan.md')) });
+    assert.equal(unlistedStdout.trim(), '');
+  }, ['~/private-notes']);
 });

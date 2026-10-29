@@ -113,10 +113,10 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
     sessionGuardrails: createSessionGuardrails({
       getSettings: () => {
-        const { guardrails } = dependencies.configStore.config;
+        const { guardrails, saneYoloUnreadablePaths } = dependencies.configStore.config;
         return {
           blockedPaths: guardrails?.blockedPaths ?? DEFAULT_CONFIG.guardrails.blockedPaths,
-          unreadablePaths: guardrails?.unreadablePaths ?? DEFAULT_CONFIG.guardrails.unreadablePaths,
+          unreadablePaths: saneYoloUnreadablePaths ?? DEFAULT_CONFIG.saneYoloUnreadablePaths,
         };
       },
       uploadsRoot: configSiblingPath(dependencies.configStore.configPath, 'uploads'),

@@ -116,6 +116,7 @@ interface RadarWiringConfig {
   worktreeRoot?: string;
   integrationBranch?: string | null;
   saneYolo?: boolean;
+  saneYoloUnreadablePaths?: readonly string[];
   posthog?: RadarLaneConfig | null;
   telegram?: { botToken?: string; chatId?: string } | null;
 }
@@ -564,7 +565,7 @@ function createRadarWiring({
       radarLaneRole({ ...facts, readablePaths: [...facts.readablePaths, ...(laneMcp?.readablePaths ?? [])] }, access),
       laneMcp?.posture,
     ), guardrails);
-    const sharedHookTools = resolveHookTools({ saneYolo: config.saneYolo });
+    const sharedHookTools = resolveHookTools({ saneYolo: config.saneYolo, saneYoloUnreadablePaths: config.saneYoloUnreadablePaths });
     const sess = makeSession({
       id,
       name,

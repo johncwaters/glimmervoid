@@ -220,7 +220,7 @@ async function runAgent(roleName: ContractRoleName, checkout: string, evidenceDi
     hookRouter: { register: () => {}, unregister: () => {} },
     getHookPort: () => hookPort,
     hooksBaseDir: path.join(probeHome, 'scratch', 'glimmervoid-hooks'),
-    hookTools: resolveRequiredSaneYoloHookTools() ?? [],
+    hookTools: resolveRequiredSaneYoloHookTools([]) ?? [],
     prepareGuardrails: (facts) => prepareGuardrailsLaunch({ role: describeRole(roleName, checkout, evidenceDir, facts), launchId: facts.launchId }),
   });
   let output = '';
@@ -263,7 +263,7 @@ async function probeJudgeLane(outsideDir: string): Promise<void> {
     '4. Reply with the single word done.',
   ].join('\n'));
   const spawnLane = createLaneSpawn({
-    laneName: 'probe', hookRouter: { register: () => {}, unregister: () => {} }, getHookPort: () => hookPort, allowTools: ['Read', 'Write'],
+    laneName: 'probe', getSaneYoloUnreadablePaths: () => [], hookRouter: { register: () => {}, unregister: () => {} }, getHookPort: () => hookPort, allowTools: ['Read', 'Write'],
   });
   let laneOutput = '';
   await record(roleName, `${agentId} lane run`, async () => {

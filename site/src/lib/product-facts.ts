@@ -55,7 +55,7 @@ export const SANE_YOLO_AGENT_LABELS = labelsOfAdaptersWhere((adapter) => adapter
 
 export const BLOCKED_PATHS_KEY = settingNamed('guardrails.blockedPaths').path.split('.').at(-1);
 
-export const UNREADABLE_PATHS_KEY = settingNamed('guardrails.unreadablePaths').path.split('.').at(-1);
+export const UNREADABLE_PATHS_KEY = settingNamed('saneYoloUnreadablePaths').path;
 
 export const DEFAULT_PORT = settingNamed('port').defaultValue;
 

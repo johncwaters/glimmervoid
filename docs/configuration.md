@@ -47,11 +47,11 @@ What a guarded session may touch, and which unattended actions automated work ma
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `skipPermissionsByDefault` | Skip permission prompts by default | `false` | Start sessions whose project sets no permission choice with the agent CLI permission bypass flag. |
-| `saneYolo` | Sane YOLO | `true` | Block catastrophic commands in sessions that skip permission prompts when the cc-safety-net executable is available and trusted hooks are installed. Missing or untrusted hooks leave a session unprotected. Applies to new sessions. |
+| `saneYolo` | Sane YOLO | `true` | Block catastrophic commands and reads of credentials in every session whose agent supports it, when the cc-safety-net executable is available and trusted hooks are installed. Missing or untrusted hooks leave a session unprotected. Applies to new sessions. |
+| `saneYoloUnreadablePaths` | Unreadable folders | `[]` | Extra folders and files Sane YOLO refuses to let an agent read, on top of the built-in credential list. A leading ~ means the home folder. Applies to new sessions. |
 | `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no merge proof. Off keeps every unmerged branch. |
 | `guardrails.unguardedRepos` | Unguarded repositories | `[]` | Folders whose sessions run without guardrails. A session started in one of these folders, or below it, is not guarded. Applies to new sessions. |
 | `guardrails.blockedPaths` | Blocked folders | `[]` | Extra folders and files a guarded session cannot write, on top of credentials and Glimmervoid's own state. A leading ~ means the home folder. Applies to new sessions. |
-| `guardrails.unreadablePaths` | Unreadable folders | `[]` | Extra folders and files a guarded session cannot read, on top of the built-in credential list. A leading ~ means the home folder. Applies to new sessions. |
 
 ### Updates
 

@@ -13,6 +13,7 @@ import type { SessionOptions, SessionGuardrailsFacts } from '../../session/sessi
 import { type AwakeStopwatch, createAwakeTimeoutFn, startAwakeStopwatch } from '../awake-timer.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { resolveHookTools as resolveSharedHookTools } from '../hook-tools.ts';
+import type { HookToolConfig } from '../hook-tools.ts';
 import { trailStepFromHook } from '../core/investigation-trail-core.ts';
 import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, readOnlyGitAllowRules, withAllowRules, withLaneMcp } from '../lanes/core/lane-permissions-core.ts';
 import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
@@ -89,6 +90,7 @@ const UNMARKED_POST_WARNING = 'The review was posted on GitHub, but its draft co
 interface TeamReviewWiringConfig extends TeamReviewSettingsSource {
   replayBufferKB?: number;
   saneYolo?: boolean;
+  saneYoloUnreadablePaths?: readonly string[];
   projects?: { path: string }[];
   repoRoots?: string[];
 }
@@ -845,7 +847,7 @@ function createTeamReviewSpawn({
   replayBufferKB?: number;
   makeSession?: (options: SessionOptions) => Session;
   laneName?: string;
-  hookToolConfig?: { saneYolo?: boolean } | null;
+  hookToolConfig?: HookToolConfig | null;
   resolveHookTools?: typeof resolveSharedHookTools;
   prepareGuardrails?: typeof prepareGuardrailsLaunch;
   prepareMcp?: typeof prepareLaneMcp;
@@ -855,7 +857,7 @@ function createTeamReviewSpawn({
     if (guardrailsRole !== undefined && platform === SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
     const skipPermissions = settingsPermissions.defaultMode === 'bypassPermissions';
     const laneMcp = hookRouter ? await prepareMcp({ laneArgs: extraClaudeArgs, agent: agent ?? DEFAULT_AGENT_ID }) : null;
-    const sharedHookTools = hookToolConfig ? resolveHookTools({ saneYolo: hookToolConfig.saneYolo }) : [];
+    const sharedHookTools = hookToolConfig ? resolveHookTools(hookToolConfig) : [];
     const sess = makeSession({
       id,
       name,
@@ -1194,7 +1196,7 @@ function createTeamReviewWiring({
         skipIdleAfterMs: settings.skipIdleAfterDays * 24 * 60 * 60 * 1000,
         github, store,
         spawnReview: trackReview,
-        judgeThread: createThreadJudge(createLaneSpawn({ laneName: 'team-review', sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, allowTools: THREAD_JUDGE_TOOLS, guardrailsRefusal }), () => core.readTeamReviewSettings(config).reviewer, shutdownController.signal),
+        judgeThread: createThreadJudge(createLaneSpawn({ laneName: 'team-review', getSaneYoloUnreadablePaths: () => config.saneYoloUnreadablePaths ?? [], sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, allowTools: THREAD_JUDGE_TOOLS, guardrailsRefusal }), () => core.readTeamReviewSettings(config).reviewer, shutdownController.signal),
         guardrailsRefusal,
         beforeStart: (keepPaths) => sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, reapProcesses, log }),
         discardResumable: async (record) => {

@@ -9,7 +9,7 @@ import { resolvePackageBin } from './runtime-paths.ts';
 import { writeTextAtomicSync } from './json-file.ts';
 import { isMissingFileError } from '../shared/text.ts';
 
-const writtenHomes = new Set<string>();
+const writtenPolicyByHome = new Map<string, string>();
 const warnedTools = new Set<string>();
 
 function currentGlimmervoidHome(): string {
@@ -20,9 +20,11 @@ function saneYoloHomeDir(): string {
   return path.join(currentGlimmervoidHome(), 'sane-yolo');
 }
 
-function writeSaneYoloPolicy(homeDir: string, glimmervoidHome = currentGlimmervoidHome()): void {
-  if (writtenHomes.has(homeDir)) return;
-  for (const [relativePath, contents] of Object.entries(saneYoloFiles(path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER)))) {
+function writeSaneYoloPolicy(homeDir: string, unreadablePaths: readonly string[], glimmervoidHome = currentGlimmervoidHome()): void {
+  const policyFiles = saneYoloFiles(path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER), unreadablePaths);
+  const policyKey = JSON.stringify(policyFiles);
+  if (writtenPolicyByHome.get(homeDir) === policyKey) return;
+  for (const [relativePath, contents] of Object.entries(policyFiles)) {
     const filePath = path.join(homeDir, relativePath);
     const serialized = `${JSON.stringify(contents, null, 2)}\n`;
     fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
@@ -34,7 +36,7 @@ function writeSaneYoloPolicy(homeDir: string, glimmervoidHome = currentGlimmervo
     }
     if (previous !== serialized) writeTextAtomicSync(filePath, serialized, { mode: 0o600 });
   }
-  writtenHomes.add(homeDir);
+  writtenPolicyByHome.set(homeDir, policyKey);
 }
 
 function warnOnce(toolId: string, message: string, warn: (message: string) => void): void {
@@ -43,8 +45,10 @@ function warnOnce(toolId: string, message: string, warn: (message: string) => vo
   warn(message);
 }
 
+type HookToolConfig = { saneYolo?: boolean; saneYoloUnreadablePaths?: readonly string[] };
+
 function resolveHookTools(
-  config: { saneYolo?: boolean },
+  config: HookToolConfig,
   { warn = console.warn }: { warn?: (message: string) => void } = {},
 ): ResolvedHookTool[] {
   const hookTools: ResolvedHookTool[] = [];
@@ -55,7 +59,7 @@ function resolveHookTools(
     return hookTools;
   }
   try {
-    writeSaneYoloPolicy(saneYoloHomeDir());
+    writeSaneYoloPolicy(saneYoloHomeDir(), config.saneYoloUnreadablePaths ?? []);
     hookTools.push({ id: 'saneYolo', binPath });
   } catch (error) {
     warnOnce('saneYolo', `[sane-yolo] Policy could not be written: ${String(error)}. Sessions will spawn without Sane YOLO hooks.`, warn);
@@ -64,10 +68,12 @@ function resolveHookTools(
 }
 
 function resolveRequiredSaneYoloHookTools(
+  unreadablePaths: readonly string[],
   { resolve = resolveHookTools }: { resolve?: typeof resolveHookTools } = {},
 ): ResolvedHookTool[] | null {
-  const hookTools = resolve({ saneYolo: true });
+  const hookTools = resolve({ saneYolo: true, saneYoloUnreadablePaths: unreadablePaths });
   return hookTools.some((tool) => tool.id === 'saneYolo') ? hookTools : null;
 }
 
+export type { HookToolConfig };
 export { resolveHookTools, resolveRequiredSaneYoloHookTools, saneYoloHomeDir };

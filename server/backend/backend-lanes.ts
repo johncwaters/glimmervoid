@@ -297,7 +297,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
     spawnJudge: createLaneSpawn({
       sessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'benchmark', guardrailsRefusal,
+      replayBufferKB: config.replayBufferKB, laneName: 'benchmark', guardrailsRefusal, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [],
     }),
     credentials: claudeCredentials,
     claudeCommand,
@@ -340,7 +340,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     renameSession: dependencies.renameSessionFromTaskTitle,
     spawnLane: createLaneSpawn({
       sessions: taskTitleSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, guardrailsRefusal,
+      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, guardrailsRefusal, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [],
     }),
   });
 

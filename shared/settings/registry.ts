@@ -307,8 +307,14 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'sane-yolo', path: 'saneYolo', title: 'Sane YOLO',
-        description: 'Block catastrophic commands in sessions that skip permission prompts when the cc-safety-net executable is available and trusted hooks are installed. Missing or untrusted hooks leave a session unprotected.',
+        description: 'Block catastrophic commands and reads of credentials in every session whose agent supports it, when the cc-safety-net executable is available and trusted hooks are installed. Missing or untrusted hooks leave a session unprotected.',
         control: 'toggle', keywords: ['permissions', 'yolo', 'safety'], defaultValue: true, ...MACHINE_NEW_SESSIONS,
+      },
+      {
+        id: 'sane-yolo-unreadable-paths', path: 'saneYoloUnreadablePaths', title: 'Unreadable folders',
+        description: 'Extra folders and files Sane YOLO refuses to let an agent read, on top of the built-in credential list. A leading ~ means the home folder.',
+        control: 'list', keywords: ['guardrails', 'secrets', 'credentials', 'sane yolo'], defaultValue: [],
+        listPlaceholder: '~/folder', listEmptyText: 'Only the built-in credential list is unreadable.', ...MACHINE_NEW_SESSIONS,
       },
       {
         id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
@@ -329,12 +335,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         description: 'Extra folders and files a guarded session cannot write, on top of credentials and Glimmervoid\'s own state. A leading ~ means the home folder.',
         control: 'list', keywords: ['guardrails', 'block', 'protect'], defaultValue: [],
         listPlaceholder: '~/folder', listEmptyText: 'Only the built-in list is blocked.', ...MACHINE_NEW_SESSIONS,
-      },
-      {
-        id: 'guardrails-unreadable-paths', path: 'guardrails.unreadablePaths', title: 'Unreadable folders',
-        description: 'Extra folders and files a guarded session cannot read, on top of the built-in credential list. A leading ~ means the home folder.',
-        control: 'list', keywords: ['guardrails', 'secrets', 'credentials'], defaultValue: [],
-        listPlaceholder: '~/folder', listEmptyText: 'Only the built-in credential list is unreadable.', ...MACHINE_NEW_SESSIONS,
       },
     ],
   },
