@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { readLaneResultFile } from '../lanes/lane-spawn.ts';
+import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
 import type { LaneSpawn } from '../lanes/lane-spawn.ts';
 import type { CommunityItem } from '../../shared/contracts/community.ts';
 import * as core from './core/community-core.ts';
@@ -17,7 +18,9 @@ function createCommunityJudge(spawn: LaneSpawn, shutdownSignal?: AbortSignal): (
     timeout.unref();
     try {
       const resultPath = path.join(workDir, core.JUDGE_RESULT_FILENAME);
-      await fs.writeFile(path.join(workDir, core.JUDGE_PROMPT_FILENAME), core.buildJudgePrompt(candidates, resultPath), 'utf8');
+      const { prompt, untrustedItems } = core.buildJudgeRequest(candidates, resultPath);
+      await writeUntrustedPayload(workDir, { trust: 'untrusted', source: core.JUDGE_UNTRUSTED_SOURCE, fetchedAt: new Date().toISOString(), items: untrustedItems }, core.JUDGE_MESSAGE_CHARS);
+      await fs.writeFile(path.join(workDir, core.JUDGE_PROMPT_FILENAME), prompt, 'utf8');
       const signal = shutdownSignal ? AbortSignal.any([controller.signal, shutdownSignal]) : controller.signal;
       if (signal.aborted) return null;
       await spawn({

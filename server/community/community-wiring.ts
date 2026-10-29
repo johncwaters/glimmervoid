@@ -14,6 +14,7 @@ import { createCommunityPoller } from './community-poller.ts';
 import type { DiscordSource, SourceRows } from './community-poller.ts';
 import { COMMUNITY_JUDGE_TOOLS, createCommunityJudge } from './community-judge.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
+import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
 import { decideTelegramNotification } from '../../notifications/channels/telegram.ts';
 import { CommunityState } from '../../shared/contracts/community.ts';
@@ -146,7 +147,9 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings }: {
     const failed = (error: string): core.CommunityRunResult => ({ report: null, posting: null, error });
     try {
       await fs.mkdir(path.join(workDir, EMPTY_GH_CONFIG_DIRNAME));
-      await fs.writeFile(path.join(workDir, core.COMMUNITY_PROMPT_FILENAME), core.buildCommunityPrompt({ item: entry.item, skill: settings.skill, reportPath, postingPath }));
+      const { prompt, untrustedItems } = core.buildCommunityRequest({ item: entry.item, skill: settings.skill, reportPath, postingPath });
+      await writeUntrustedPayload(workDir, { trust: 'untrusted', source: core.COMMUNITY_UNTRUSTED_SOURCE, fetchedAt: new Date().toISOString(), items: untrustedItems }, core.MAX_BODY_CHARS);
+      await fs.writeFile(path.join(workDir, core.COMMUNITY_PROMPT_FILENAME), prompt);
       return await raceWithAbort<core.CommunityRunResult>({
         timeoutMs: core.RUN_TIMEOUT_SECONDS * 1000,
         onTimeout: () => failed(`the research run timed out after ${core.RUN_TIMEOUT_SECONDS}s`),
