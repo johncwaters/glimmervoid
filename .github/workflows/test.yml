@@ -48,7 +48,7 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npm pack --pack-destination "$RUNNER_TEMP/tarball"
+      - run: mkdir -p "$RUNNER_TEMP/tarball" && npm pack --pack-destination "$RUNNER_TEMP/tarball"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: package-tarball
