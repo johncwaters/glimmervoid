@@ -7,7 +7,7 @@ import type { UserHook } from '../../session/core/user-hooks-core.ts';
 import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
 import { Session } from '../../session/sessions.ts';
 import type { SessionOptions } from '../../session/sessions.ts';
-import { buildLanePermissions, withAllowRules, withNetworkDomains } from './core/lane-permissions-core.ts';
+import { buildLanePermissions, withAllowRules, withLaneMcp } from './core/lane-permissions-core.ts';
 import { prepareLaneMcp } from './lane-mcp.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
 import { judgeRole, LANE_CREDENTIAL_ENV } from '../guardrails/core/guardrails-roles-core.ts';
@@ -115,7 +115,7 @@ function createLaneSpawn({
     async function runLaneSession(): Promise<void> {
       const posture = isClaude ? buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS, allowTools }) : null;
       const basePermissions = settingsPermissions ?? posture?.permissions ?? null;
-      const laneMcp = (isClaude || isCodex) && hookRouter ? await prepareMcp({ laneArgs: posture?.args ?? [], agent }) : null;
+      const laneMcp = hookRouter ? await prepareMcp({ laneArgs: posture?.args ?? [], agent }) : null;
       const permissions = basePermissions && laneMcp ? withAllowRules(basePermissions, laneMcp.posture.allowRules) : basePermissions;
       const standalone = !hookRouter && permissions ? await writeStandaloneDenySettings(permissions, []) : null;
       const hookTools = [...(guardHookTools ?? []), ...(laneMcp ? [laneMcp.posture.hookTool] : [])];
@@ -140,10 +140,10 @@ function createLaneSpawn({
         hookRouter,
         getHookPort,
         prepareGuardrails: isWrapped ? (facts) => prepareGuardrails({
-          role: withNetworkDomains(judgeRole({
+          role: withLaneMcp(judgeRole({
             vendor: laneVendor(agent), cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId,
             readablePaths: [...facts.readablePaths, ...readablePaths, ...(laneMcp?.readablePaths ?? [])],
-          }), laneMcp?.posture.networkDomains ?? []),
+          }), laneMcp?.posture),
           launchId: facts.launchId,
         }) : null,
       };

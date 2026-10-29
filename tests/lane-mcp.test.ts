@@ -109,3 +109,27 @@ test('a Codex lane approves PostHog calls only when the gate hook runs trusted o
   const undisableableServer = { name: 'my.server', enabled: true, transport: { type: 'stdio', command: 'echo' } };
   assert.equal(await prepareLaneMcp({ laneArgs: [], agent: 'codex' }, { listCodexServers: async () => [...codexServers, undisableableServer] }), null);
 });
+
+test('a Kimi lane gets a launch home with only the PostHog server and the gate hook, and none when its config cannot take the hook', async () => {
+  const kimiHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lane-mcp-kimi-'));
+  fs.writeFileSync(path.join(kimiHome, 'mcp.json'), JSON.stringify({ mcpServers: { gauge: { url: 'https://gauge.example.com/mcp' }, posthog: operatorPosthogEntry } }));
+  fs.writeFileSync(path.join(kimiHome, 'config.toml'), 'default_model = "k3"\n');
+
+  const prepared = await prepareLaneMcp({ laneArgs: [], agent: 'kimi' }, { kimiHome });
+  assert.ok(prepared);
+  const laneFiles = prepared.posture.launchHomeFiles.kimi ?? {};
+  assert.deepEqual(JSON.parse(fs.readFileSync(laneFiles['mcp.json'] ?? '', 'utf8')), { mcpServers: { posthog: { ...operatorPosthogEntry, enabledTools: ['exec'] } } });
+  const laneConfig = fs.readFileSync(laneFiles['config.toml'] ?? '', 'utf8');
+  assert.match(laneConfig, /^default_model = "k3"\n\n\[\[hooks\]\]\nevent = "PreToolUse"\nmatcher = '\^mcp__posthog__'\ncommand = '.*posthog-read-gate.* posthog \|\| exit 2'\n$/);
+  await prepared.cleanup();
+  assert.equal(fs.existsSync(path.dirname(laneFiles['mcp.json'] ?? '')), false);
+
+  for (const renamedByKimi of ['posthog__prod', `posthog-${'x'.repeat(52)}`]) {
+    fs.writeFileSync(path.join(kimiHome, 'mcp.json'), JSON.stringify({ mcpServers: { [renamedByKimi]: operatorPosthogEntry } }));
+    assert.equal(await prepareLaneMcp({ laneArgs: [], agent: 'kimi' }, { kimiHome }), null, renamedByKimi);
+  }
+
+  fs.writeFileSync(path.join(kimiHome, 'mcp.json'), JSON.stringify({ mcpServers: { posthog: operatorPosthogEntry } }));
+  fs.writeFileSync(path.join(kimiHome, 'config.toml'), 'hooks = []\n');
+  assert.equal(await prepareLaneMcp({ laneArgs: [], agent: 'kimi' }, { kimiHome }), null);
+});

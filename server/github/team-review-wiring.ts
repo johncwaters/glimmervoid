@@ -14,7 +14,7 @@ import { type AwakeStopwatch, createAwakeTimeoutFn, startAwakeStopwatch } from '
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { resolveHookTools as resolveSharedHookTools } from '../hook-tools.ts';
 import { trailStepFromHook } from '../core/investigation-trail-core.ts';
-import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, withAllowRules, withNetworkDomains } from '../lanes/core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, withAllowRules, withLaneMcp } from '../lanes/core/lane-permissions-core.ts';
 import { prepareLaneMcp } from '../lanes/lane-mcp.ts';
 import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
 import * as core from './core/team-review-core.ts';
@@ -853,8 +853,7 @@ function createTeamReviewSpawn({
   return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, settingsGuardrails, guardrailsRole, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt, agent, extraUserHooks, prependPathDirs }) {
     if (guardrailsRole !== undefined && platform === SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
     const skipPermissions = settingsPermissions.defaultMode === 'bypassPermissions';
-    const laneAgent = agent ?? DEFAULT_AGENT_ID;
-    const laneMcp = hookRouter && (laneAgent === DEFAULT_AGENT_ID || laneAgent === 'codex') ? await prepareMcp({ laneArgs: extraClaudeArgs, agent: laneAgent }) : null;
+    const laneMcp = hookRouter ? await prepareMcp({ laneArgs: extraClaudeArgs, agent: agent ?? DEFAULT_AGENT_ID }) : null;
     const sharedHookTools = hookToolConfig ? resolveHookTools({ saneYolo: hookToolConfig.saneYolo }, { skipPermissions }) : [];
     const sess = makeSession({
       id,
@@ -875,7 +874,7 @@ function createTeamReviewSpawn({
       settingsPermissions: laneMcp ? withAllowRules(settingsPermissions, laneMcp.posture.allowRules) : settingsPermissions,
       settingsGuardrails: settingsGuardrails ?? null,
       prepareGuardrails: guardrailsRole === undefined ? null : (facts) => prepareGuardrails({
-        role: withNetworkDomains(guardrailsRole({ ...facts, readablePaths: [...facts.readablePaths, ...(laneMcp?.readablePaths ?? [])] }), laneMcp?.posture.networkDomains ?? []),
+        role: withLaneMcp(guardrailsRole({ ...facts, readablePaths: [...facts.readablePaths, ...(laneMcp?.readablePaths ?? [])] }), laneMcp?.posture),
         launchId: facts.launchId,
       }),
       replayBufferKB,

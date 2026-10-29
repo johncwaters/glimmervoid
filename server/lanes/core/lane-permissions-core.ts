@@ -1,5 +1,6 @@
 import { isRecord } from '../../../shared/coerce.ts';
 import type { ResolvedHookTool } from '../../../session/core/hook-tools.ts';
+import { definesHooksOutsideArrayTables } from '../../../session/core/kimi-hooks-block-core.ts';
 import type { GuardrailsRole } from '../../guardrails/core/guardrails-policy-core.ts';
 
 const ACCEPT_EDITS_MODE = 'acceptEdits';
@@ -34,6 +35,7 @@ const POSTHOG_MCP_HOST = 'mcp.posthog.com';
 const POSTHOG_OAUTH_HOST = 'oauth.posthog.com';
 const MCP_SERVER_NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const CODEX_MCP_SERVER_NAME_RE = /^[A-Za-z0-9_-]+$/;
+const KIMI_QUALIFIED_TOOL_NAME_MAX_LENGTH = 64;
 const STRICT_MCP_CONFIG_ARG = '--strict-mcp-config';
 const HOOK_COMMAND_SAFE_PATH_RE = /^[A-Za-z0-9_.:/\\ -]+$/;
 
@@ -48,6 +50,7 @@ interface LaneMcpPosture {
   hookTool: ResolvedHookTool;
   networkDomains: string[];
   bypassHookTrust: boolean;
+  launchHomeFiles: NonNullable<GuardrailsRole['launchHomeFiles']>;
 }
 
 function urlHostname(value: unknown): string | null {
@@ -95,6 +98,7 @@ function laneMcpPosture({ server, mcpConfigPath, gatePath, interpreterPath, lane
     hookTool,
     networkDomains: [POSTHOG_MCP_HOST, POSTHOG_OAUTH_HOST],
     bypassHookTrust: false,
+    launchHomeFiles: {},
   };
 }
 
@@ -110,12 +114,48 @@ function codexLaneMcpPosture({ server, otherServerNames, gatePath, interpreterPa
     hookTool,
     networkDomains: [POSTHOG_MCP_HOST, POSTHOG_OAUTH_HOST],
     bypassHookTrust: true,
+    launchHomeFiles: {},
+  };
+}
+
+function kimiLaneMcpConfig(server: LaneMcpServer): { mcpServers: Record<string, Record<string, unknown>> } {
+  return { mcpServers: { [server.name]: { ...server.entry, enabledTools: ['exec'] } } };
+}
+
+function kimiLaneConfigText(operatorConfigText: string, gateHook: { matcher: string; command: string }): string | null {
+  if (definesHooksOutsideArrayTables(operatorConfigText) || /['\r\n]/.test(gateHook.command)) return null;
+  const separator = operatorConfigText === '' || operatorConfigText.endsWith('\n') ? '' : '\n';
+  return `${operatorConfigText}${separator}\n[[hooks]]\nevent = "PreToolUse"\nmatcher = '${gateHook.matcher}'\ncommand = '${gateHook.command}'\n`;
+}
+
+function keepsKimiToolName(serverName: string): boolean {
+  return !serverName.includes('__') && `mcp__${serverName}__exec`.length <= KIMI_QUALIFIED_TOOL_NAME_MAX_LENGTH;
+}
+
+function kimiLaneMcpPosture({ server, mcpConfigPath, configPath, gatePath, interpreterPath }: {
+  server: LaneMcpServer; mcpConfigPath: string; configPath: string; gatePath: string; interpreterPath: string;
+}): LaneMcpPosture | null {
+  if (!keepsKimiToolName(server.name)) return null;
+  const hookTool = gatedPosthogTool({ server, gatePath, interpreterPath });
+  if (!hookTool) return null;
+  return {
+    args: [],
+    allowRules: [],
+    hookTool,
+    networkDomains: [POSTHOG_MCP_HOST, POSTHOG_OAUTH_HOST],
+    bypassHookTrust: false,
+    launchHomeFiles: { kimi: { 'mcp.json': mcpConfigPath, 'config.toml': configPath } },
   };
 }
 
 function withNetworkDomains(role: GuardrailsRole, domains: readonly string[]): GuardrailsRole {
   if (role.network.access !== 'allowlist' || domains.length === 0) return role;
   return { ...role, network: { ...role.network, domains: [...new Set([...role.network.domains, ...domains])] } };
+}
+
+function withLaneMcp(role: GuardrailsRole, posture: LaneMcpPosture | undefined): GuardrailsRole {
+  if (!posture) return role;
+  return { ...withNetworkDomains(role, posture.networkDomains), launchHomeFiles: { ...role.launchHomeFiles, ...posture.launchHomeFiles } };
 }
 
 function withAllowRules(permissions: Record<string, unknown>, allowRules: readonly string[]): Record<string, unknown> {
@@ -126,6 +166,7 @@ function withAllowRules(permissions: Record<string, unknown>, allowRules: readon
 
 export {
   ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS, buildLanePermissions,
-  codexLaneMcpPosture, codexMcpServers, findPosthogServer, laneMcpConfig, laneMcpPosture, withAllowRules, withNetworkDomains,
+  codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneConfigText, kimiLaneMcpConfig, kimiLaneMcpPosture, laneMcpConfig, laneMcpPosture,
+  withAllowRules, withLaneMcp,
 };
 export type { LaneMcpPosture };

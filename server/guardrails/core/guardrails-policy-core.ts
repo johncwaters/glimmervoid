@@ -37,6 +37,7 @@ interface GuardrailsRole {
   commitCheckouts: readonly GuardrailsCommitCheckout[];
   readDenied: readonly string[];
   readableWithinDenied: readonly string[];
+  launchHomeFiles?: Readonly<Partial<Record<GuardrailsVendor, Readonly<Record<string, string>>>>>;
 }
 
 interface GuardrailsVendorLocation {
@@ -224,8 +225,9 @@ function launchPrivateFolders(role: GuardrailsRole, host: GuardrailsHostPaths): 
 function launchHomeLinkCandidates(role: GuardrailsRole, host: GuardrailsHostPaths): GuardrailsLaunchHomeLink[] {
   return vendorsWithLaunchHome(role).flatMap((vendor) => {
     const { configEntries, loginFiles } = VENDOR_PROFILES[vendor];
+    const laneFileByEntry = role.launchHomeFiles?.[vendor] ?? {};
     const linkFor = (entry: string, isLogin: boolean) => ({
-      linkPath: path.join(launchHomeOf(host, vendor), entry), targetPath: path.join(host.vendorLocations[vendor].stateFolder, entry), isLogin,
+      linkPath: path.join(launchHomeOf(host, vendor), entry), targetPath: laneFileByEntry[entry] ?? path.join(host.vendorLocations[vendor].stateFolder, entry), isLogin,
     });
     return [...configEntries.map((entry) => linkFor(entry, false)), ...loginFiles.map((entry) => linkFor(entry, true))];
   });

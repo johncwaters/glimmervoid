@@ -10,15 +10,18 @@ import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { writeJsonAtomic } from '../json-file.ts';
 import { relayPath } from '../runtime-paths.ts';
 import codex from '../../session/adapters/codex.ts';
+import { realKimiHome } from '../../session/kimi-home.ts';
 import { HOOK_TOOLS } from '../../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
-import { codexLaneMcpPosture, codexMcpServers, findPosthogServer, laneMcpConfig, laneMcpPosture } from './core/lane-permissions-core.ts';
+import { codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneConfigText, kimiLaneMcpConfig, kimiLaneMcpPosture, laneMcpConfig, laneMcpPosture } from './core/lane-permissions-core.ts';
 import type { LaneMcpPosture } from './core/lane-permissions-core.ts';
 
 const LANE_MCP_DIR_PREFIX = 'glimmervoid-lane-settings-';
 const GATE_SELF_TEST_TIMEOUT_MS = 5000;
 const CODEX_MCP_LIST_TIMEOUT_MS = 10000;
 const CODEX_AGENT_ID = 'codex';
+const KIMI_AGENT_ID = 'kimi';
+const DEFAULT_AGENT_ID = 'claude';
 const HOOK_SHELL = '/bin/sh';
 const BLOCKING_EXIT_CODE = 2;
 
@@ -31,6 +34,7 @@ interface PreparedLaneMcp {
 interface LaneMcpDeps {
   readClaudeConfig?: () => Promise<unknown>;
   listCodexServers?: () => Promise<unknown>;
+  kimiHome?: string;
   gatePath?: string;
 }
 
@@ -65,11 +69,40 @@ async function prepareCodexLaneMcp(listCodexServers: () => Promise<unknown>, gat
   return { posture, readablePaths: [process.execPath], cleanup: async () => {} };
 }
 
+async function readOptionalText(filePath: string): Promise<string | null> {
+  return fsPromises.readFile(filePath, 'utf8').catch((error: NodeJS.ErrnoException) => (error.code === 'ENOENT' ? '' : null));
+}
+
+async function prepareKimiLaneMcp(kimiHome: string, gatePath: string): Promise<PreparedLaneMcp | null> {
+  const kimiMcpConfig = await fsPromises.readFile(path.join(kimiHome, 'mcp.json'), 'utf8').then(JSON.parse, () => null);
+  const server = findPosthogServer(isRecord(kimiMcpConfig) ? kimiMcpConfig.mcpServers : null);
+  const operatorConfigText = await readOptionalText(path.join(kimiHome, 'config.toml'));
+  if (!server || operatorConfigText === null) return null;
+  const configDirectory = await makeHostScratchDirectory(LANE_MCP_DIR_PREFIX);
+  const removeConfigDirectory = () => fsPromises.rm(configDirectory, { recursive: true, force: true }).catch(() => {});
+  const mcpConfigPath = path.join(configDirectory, 'mcp.json');
+  const configPath = path.join(configDirectory, 'config.toml');
+  const posture = kimiLaneMcpPosture({ server, mcpConfigPath, configPath, gatePath, interpreterPath: process.execPath });
+  const gateHook = posture ? HOOK_TOOLS.posthogReadGate.claudeEntry(posture.hookTool, '') : null;
+  const configText = gateHook ? kimiLaneConfigText(operatorConfigText, { matcher: gateHook.matcher, command: gateHook.hooks[0]?.command ?? '' }) : null;
+  try {
+    if (!posture || configText === null || !(await gateDeniesKnownWrite(posture.hookTool))) throw new Error('no gated PostHog for this lane');
+    await writeJsonAtomic(mcpConfigPath, kimiLaneMcpConfig(server), { mode: 0o600 });
+    await fsPromises.writeFile(configPath, configText, { mode: 0o600 });
+    return { posture, readablePaths: [configDirectory, process.execPath], cleanup: removeConfigDirectory };
+  } catch {
+    await removeConfigDirectory();
+    return null;
+  }
+}
+
 async function prepareLaneMcp(
   { laneArgs, agent }: { laneArgs: readonly string[]; agent?: string },
-  { readClaudeConfig = readOperatorClaudeConfig, listCodexServers = listOperatorCodexServers, gatePath = relayPath('posthog-read-gate') }: LaneMcpDeps = {},
+  { readClaudeConfig = readOperatorClaudeConfig, listCodexServers = listOperatorCodexServers, kimiHome = realKimiHome(), gatePath = relayPath('posthog-read-gate') }: LaneMcpDeps = {},
 ): Promise<PreparedLaneMcp | null> {
   if (agent === CODEX_AGENT_ID) return prepareCodexLaneMcp(listCodexServers, gatePath);
+  if (agent === KIMI_AGENT_ID) return prepareKimiLaneMcp(kimiHome, gatePath);
+  if (agent !== undefined && agent !== DEFAULT_AGENT_ID) return null;
   const claudeConfig = await readClaudeConfig().catch(() => null);
   const server = findPosthogServer(isRecord(claudeConfig) ? claudeConfig.mcpServers : null);
   if (!server) return null;

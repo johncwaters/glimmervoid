@@ -104,6 +104,9 @@ test('vendor homes: a lane writes only its own transcript folder, session env fo
   assert.deepEqual(codexLanePlan.launchHomeLinks.filter((link) => link.isLogin), [{ linkPath: path.join(codexLaunchHome, 'auth.json'), targetPath: path.join(codexHome, 'auth.json'), isLogin: true }]);
   assert.equal(codexLanePlan.launchHomeLinks.some((link) => link.targetPath === path.join(codexHome, 'config.toml') && !link.isLogin), true);
   assert.deepEqual(planFor(roleWith({ vendors: ['codex'] }), { ...hostPaths, existingPaths: new Set() }).launchHomeLinks, []);
+  const laneKimiMcpFile = path.join(path.sep, 'lane-scratch', 'mcp.json');
+  const kimiLanePlan = planFor(roleWith({ vendors: ['kimi'], launchHomeFiles: { kimi: { 'mcp.json': laneKimiMcpFile } } }));
+  assert.deepEqual(kimiLanePlan.launchHomeLinks.filter((link) => path.basename(link.linkPath) === 'mcp.json').map((link) => link.targetPath), [laneKimiMcpFile]);
   const laneDenied = entryPaths(lanePolicy.denyRead);
   for (const unreadable of ['.codex', '.kimi-code', '.kimi', '.grok', '.ssh', '.config/gh', '.config/coderv2', 'Library/Application Support/coderv2', '.git-credentials', '.aws', '.npmrc', '.glimmervoid']) {
     assert.equal(laneDenied.includes(path.join(homeDir, unreadable)), true, unreadable);
