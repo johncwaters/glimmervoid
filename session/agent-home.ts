@@ -6,32 +6,32 @@ import { glimmervoidHomeDir } from "../server/core/config-path-core.ts";
 import { loadFileLocks } from "../server/guardrails/session-temp-locks.ts";
 import { writeTextAtomicSync } from "../server/json-file.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
-import { KIMI_BASE_NAME, KIMI_CONFIG_NAME, KIMI_CONFLICTS_NAME, KIMI_IN_USE_LOCK_NAME, KIMI_SOURCES_NAME, fileStampKey, planKimiHome } from "./core/kimi-hooks-block-core.ts";
-import type { GeneratedKimiEntry, KimiHomePlan, KimiHomeStep, RealKimiEntry } from "./core/kimi-hooks-block-core.ts";
+import { AGENT_HOME_BASE_NAME, AGENT_HOME_CONFIG_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, fileStampKey, planAgentHome } from "./core/agent-home-core.ts";
+import type { AgentHomePlan, AgentHomeProfile, AgentHomeStep, GeneratedAgentHomeEntry, RealAgentHomeEntry } from "./core/agent-home-core.ts";
 
 const GENERATED_HOME_MODE = 0o700;
 const GENERATED_FILE_MODE = 0o600;
 
-type KimiEnv = Record<string, string | undefined>;
+type AgentHomeEnv = Record<string, string | undefined>;
 
-interface KimiHomeOptions {
-  env: KimiEnv;
-  hooksBlock: string;
+interface AgentHomeOptions {
+  env: AgentHomeEnv;
+  renderBlock: (operatorText: string) => string;
   homeDir?: string;
   platform?: NodeJS.Platform;
 }
 
-function realKimiHome(env: KimiEnv = process.env, homeDir: string = os.homedir()): string {
-  const configuredHome = typeof env.KIMI_CODE_HOME === "string" ? env.KIMI_CODE_HOME.trim() : "";
+function realAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir()): string {
+  const configuredHome = env[profile.homeEnvName]?.trim() ?? "";
   if (configuredHome) return path.resolve(configuredHome);
-  return path.join(homeDir, ".kimi-code");
+  return path.join(homeDir, profile.defaultHomeFolderName);
 }
 
-function generatedKimiHomePath(env: KimiEnv = process.env, homeDir: string = os.homedir()): string {
-  return path.join(glimmervoidHomeDir(homeDir, env), "agent-homes", "kimi");
+function generatedAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir()): string {
+  return path.join(glimmervoidHomeDir(homeDir, env), "agent-homes", profile.vendor);
 }
 
-function kimiHomeLinkRefusal(generatedHome: string): string | null {
+function agentHomeLinkRefusal(generatedHome: string): string | null {
   for (const folder of [path.dirname(generatedHome), generatedHome]) {
     let folderStat: fs.Stats;
     try {
@@ -40,7 +40,7 @@ function kimiHomeLinkRefusal(generatedHome: string): string | null {
       if (isMissingFileError(error)) continue;
       return `${folder} cannot be read: ${errorMessage(error)}`;
     }
-    if (!folderStat.isDirectory()) return `${folder} is not a plain folder, so Glimmervoid will not build a kimi home through it`;
+    if (!folderStat.isDirectory()) return `${folder} is not a plain folder, so Glimmervoid will not build an agent home through it`;
   }
   return null;
 }
@@ -70,8 +70,8 @@ function childNamesOf(folder: string): string[] {
   return listFolder(folder).map((dirent) => dirent.name);
 }
 
-function listRealEntries(realHome: string, privateFolderNames: ReadonlySet<string>): RealKimiEntry[] {
-  const entries: RealKimiEntry[] = [];
+function listRealEntries(realHome: string, privateFolderNames: ReadonlySet<string>): RealAgentHomeEntry[] {
+  const entries: RealAgentHomeEntry[] = [];
   for (const dirent of listFolder(realHome)) {
     const entryPath = path.join(realHome, dirent.name);
     const entryStat = statOrNull(entryPath);
@@ -100,7 +100,7 @@ function hardLinkTarget(entryStat: fs.Stats, realHome: string, name: string): st
   }
 }
 
-function describeGeneratedEntry(generatedHome: string, realHome: string, name: string): GeneratedKimiEntry {
+function describeGeneratedEntry(generatedHome: string, realHome: string, name: string): GeneratedAgentHomeEntry {
   const entryPath = path.join(generatedHome, name);
   const entryStat = fs.lstatSync(entryPath);
   if (entryStat.isSymbolicLink()) return { name, kind: "link", linkTarget: path.resolve(generatedHome, fs.readlinkSync(entryPath)), childNames: [] };
@@ -120,7 +120,7 @@ function readOptionalText(filePath: string): string | null {
 }
 
 function readRealConfig(realHome: string): { text: string | null } | { refusal: string } {
-  const configPath = path.join(realHome, KIMI_CONFIG_NAME);
+  const configPath = path.join(realHome, AGENT_HOME_CONFIG_NAME);
   try {
     return { text: fs.readFileSync(configPath, "utf8") };
   } catch (error) {
@@ -131,7 +131,7 @@ function readRealConfig(realHome: string): { text: string | null } | { refusal: 
 
 function readSourceStamps(generatedHome: string): Record<string, string> {
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(path.join(generatedHome, KIMI_SOURCES_NAME), "utf8"));
+    const parsed: unknown = JSON.parse(fs.readFileSync(path.join(generatedHome, AGENT_HOME_SOURCES_NAME), "utf8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
   } catch {
@@ -139,43 +139,44 @@ function readSourceStamps(generatedHome: string): Record<string, string> {
   }
 }
 
-interface KimiHomeReading {
+interface AgentHomeReading {
   generatedHome: string;
   realHome: string;
-  plan: KimiHomePlan;
+  plan: AgentHomePlan;
 }
 
-function inspectKimiHome(options: KimiHomeOptions): KimiHomeReading {
-  const realHome = realKimiHome(options.env, options.homeDir);
-  const generatedHome = generatedKimiHomePath(options.env, options.homeDir);
+function inspectAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions): AgentHomeReading {
+  const realHome = realAgentHome(profile, options.env, options.homeDir);
+  const generatedHome = generatedAgentHomePath(profile, options.env, options.homeDir);
   try {
-    return { generatedHome, realHome, plan: planFromDisk(options, realHome, generatedHome) };
+    return { generatedHome, realHome, plan: planFromDisk(profile, options, realHome, generatedHome) };
   } catch (error) {
     return { generatedHome, realHome, plan: { kind: "refused", reason: `${realHome} or ${generatedHome} cannot be listed: ${errorMessage(error)}` } };
   }
 }
 
-function planFromDisk({ hooksBlock, platform = process.platform }: KimiHomeOptions, realHome: string, generatedHome: string): KimiHomePlan {
+function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = process.platform }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
   const realConfig = readRealConfig(realHome);
   if ("refusal" in realConfig) return { kind: "refused", reason: realConfig.refusal };
   const generatedEntries = childNamesOf(generatedHome).map((name) => describeGeneratedEntry(generatedHome, realHome, name));
   const privateFolderNames = new Set(generatedEntries.filter((entry) => entry.kind === "folder").map((entry) => entry.name));
-  return planKimiHome({
+  return planAgentHome({
+    profile,
     realHome,
     realEntries: listRealEntries(realHome, privateFolderNames),
     generatedEntries,
     realConfigText: realConfig.text,
-    baseConfigText: readOptionalText(path.join(generatedHome, KIMI_BASE_NAME)),
-    generatedConfigText: readOptionalText(path.join(generatedHome, KIMI_CONFIG_NAME)),
-    hooksBlock,
+    baseConfigText: readOptionalText(path.join(generatedHome, AGENT_HOME_BASE_NAME)),
+    generatedConfigText: readOptionalText(path.join(generatedHome, AGENT_HOME_CONFIG_NAME)),
+    renderBlock,
     sourceStamps: readSourceStamps(generatedHome),
     platform,
   });
 }
 
-function stepEntryPath(generatedHome: string, step: KimiHomeStep): string {
-  if (step.kind === "write-config") return path.join(generatedHome, KIMI_CONFIG_NAME);
-  if (step.kind === "write-base") return path.join(generatedHome, KIMI_BASE_NAME);
+function stepEntryPath(generatedHome: string, step: AgentHomeStep): string {
+  if (step.kind === "write-config") return path.join(generatedHome, AGENT_HOME_CONFIG_NAME);
+  if (step.kind === "write-base") return path.join(generatedHome, AGENT_HOME_BASE_NAME);
   return path.join(generatedHome, step.name);
 }
 
@@ -194,7 +195,7 @@ function promoteIntoRealHome(entryPath: string, target: string): void {
 }
 
 function setAside(generatedHome: string, entryPath: string, name: string): void {
-  const conflictsFolder = path.join(generatedHome, KIMI_CONFLICTS_NAME);
+  const conflictsFolder = path.join(generatedHome, AGENT_HOME_CONFLICTS_NAME);
   fs.mkdirSync(conflictsFolder, { recursive: true, mode: GENERATED_HOME_MODE });
   let copyNumber = 1;
   while (fs.existsSync(path.join(conflictsFolder, `${name}.${copyNumber}`))) copyNumber += 1;
@@ -216,7 +217,7 @@ function adoptFolder(entryPath: string, target: string, childNames: readonly str
   fs.rmdirSync(entryPath);
 }
 
-function applyStep(generatedHome: string, step: KimiHomeStep): void {
+function applyStep(generatedHome: string, step: AgentHomeStep): void {
   const entryPath = stepEntryPath(generatedHome, step);
   switch (step.kind) {
     case "write-config":
@@ -243,7 +244,7 @@ function applyStep(generatedHome: string, step: KimiHomeStep): void {
   fs.symlinkSync(step.target, entryPath, step.linkKind === "junction" ? "junction" : undefined);
 }
 
-function stepFailure(generatedHome: string, step: KimiHomeStep, error: unknown): string {
+function stepFailure(generatedHome: string, step: AgentHomeStep, error: unknown): string {
   const entryPath = stepEntryPath(generatedHome, step);
   if (step.kind === "link") return `${entryPath} cannot be linked to ${step.target}: ${errorMessage(error)}`;
   if (step.kind === "promote") return `${entryPath} cannot be moved into ${step.target}: ${errorMessage(error)}`;
@@ -258,15 +259,15 @@ function realFileStamps(realHome: string): Record<string, string> {
   return stamps;
 }
 
-function prepareKimiHome(options: KimiHomeOptions): { home: string } | { refusal: string } {
-  const generatedHome = generatedKimiHomePath(options.env, options.homeDir);
+function prepareAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions): { home: string } | { refusal: string } {
+  const generatedHome = generatedAgentHomePath(profile, options.env, options.homeDir);
   try {
     fs.mkdirSync(generatedHome, { recursive: true, mode: GENERATED_HOME_MODE });
     fs.chmodSync(generatedHome, GENERATED_HOME_MODE);
   } catch (error) {
     return { refusal: `${generatedHome} cannot be created: ${errorMessage(error)}` };
   }
-  const { plan } = inspectKimiHome(options);
+  const { plan } = inspectAgentHome(profile, options);
   if (plan.kind === "refused") return { refusal: plan.reason };
   const keptPrivateNames = new Set<string>();
   for (const step of plan.steps) {
@@ -278,36 +279,47 @@ function prepareKimiHome(options: KimiHomeOptions): { home: string } | { refusal
       keptPrivateNames.add(step.name);
     }
   }
-  const realHome = realKimiHome(options.env, options.homeDir);
+  const realHome = realAgentHome(profile, options.env, options.homeDir);
   try {
-    writeTextAtomicSync(path.join(generatedHome, KIMI_SOURCES_NAME), `${JSON.stringify(realFileStamps(realHome), null, 2)}\n`, { mode: GENERATED_FILE_MODE });
+    writeTextAtomicSync(path.join(generatedHome, AGENT_HOME_SOURCES_NAME), `${JSON.stringify(realFileStamps(realHome), null, 2)}\n`, { mode: GENERATED_FILE_MODE });
   } catch (error) {
-    return { refusal: `${path.join(generatedHome, KIMI_SOURCES_NAME)} cannot be written: ${errorMessage(error)}` };
+    return { refusal: `${path.join(generatedHome, AGENT_HOME_SOURCES_NAME)} cannot be written: ${errorMessage(error)}` };
   }
   return { home: generatedHome };
 }
 
-function kimiHomeNotes(generatedHome: string, plan: Extract<KimiHomePlan, { kind: "ready" }>): string[] {
+function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string): { home: string } | { refusal: string } {
+  const generatedHome = generatedAgentHomePath(profile, env);
+  if (path.resolve(realAgentHome(profile, env)) === path.resolve(generatedHome)) return { refusal: `${profile.homeEnvName} already points at the generated home ${generatedHome}` };
+  const linkRefusal = agentHomeLinkRefusal(generatedHome);
+  if (linkRefusal !== null) return { refusal: linkRefusal };
+  holdAgentHome(generatedHome);
+  const prepared = prepareAgentHome(profile, { env, renderBlock });
+  if ("refusal" in prepared) releaseAgentHome(generatedHome);
+  return prepared;
+}
+
+function agentHomeNotes(profile: AgentHomeProfile, generatedHome: string, plan: Extract<AgentHomePlan, { kind: "ready" }>): string[] {
   const notes: string[] = [];
-  if (plan.hasStaleBlockInRealConfig) notes.push("the real config.toml still holds an old Glimmervoid hooks block, which kimi sessions here ignore and you can delete");
+  if (plan.hasStaleBlockInRealConfig) notes.push(`the real config.toml still holds an old Glimmervoid hooks block, which ${profile.vendor} sessions here ignore and you can delete`);
   if (plan.privateNames.length > 0) notes.push(`kept only in the generated home: ${plan.privateNames.join(", ")}`);
-  const conflictNames = childNamesOf(path.join(generatedHome, KIMI_CONFLICTS_NAME));
-  if (conflictNames.length > 0) notes.push(`${conflictNames.length} kimi copies set aside after a conflict in ${path.join(generatedHome, KIMI_CONFLICTS_NAME)}`);
+  const conflictNames = childNamesOf(path.join(generatedHome, AGENT_HOME_CONFLICTS_NAME));
+  if (conflictNames.length > 0) notes.push(`${conflictNames.length} ${profile.vendor} copies set aside after a conflict in ${path.join(generatedHome, AGENT_HOME_CONFLICTS_NAME)}`);
   return notes;
 }
 
-function describeKimiHome(hooksBlock: string | null, env: KimiEnv = process.env): string {
-  if (hooksBlock === null) return "refused: the hook relay path cannot be written into a kimi hooks block";
-  const { generatedHome, realHome, plan } = inspectKimiHome({ env, hooksBlock });
+function describeAgentHome(profile: AgentHomeProfile, hooksBlock: string | null, env: AgentHomeEnv = process.env): string {
+  if (hooksBlock === null) return `refused: the hook relay path cannot be written into a ${profile.vendor} hooks block`;
+  const { generatedHome, realHome, plan } = inspectAgentHome(profile, { env, renderBlock: () => hooksBlock });
   if (plan.kind === "refused") return `refused: ${plan.reason}`;
-  return [`ready: ${generatedHome} (real ${realHome})`, ...kimiHomeNotes(generatedHome, plan)].join("; ");
+  return [`ready: ${generatedHome} (real ${realHome})`, ...agentHomeNotes(profile, generatedHome, plan)].join("; ");
 }
 
 const liveSessionCountByHome = new Map<string, number>();
 const inUseLockDescriptorByHome = new Map<string, number>();
 
 function inUseLockPath(generatedHome: string): string {
-  return path.join(generatedHome, KIMI_IN_USE_LOCK_NAME);
+  return path.join(generatedHome, AGENT_HOME_IN_USE_LOCK_NAME);
 }
 
 function takeSharedInUseLock(generatedHome: string): void {
@@ -339,37 +351,37 @@ function openInUseLock(generatedHome: string): number | null {
 function releaseSecretsUnlessHeldElsewhere(generatedHome: string, { whenLocksMissing }: { whenLocksMissing: "release" | "keep" }): void {
   const locks = loadFileLocks();
   if (locks === null) {
-    if (whenLocksMissing === "release") releaseKimiHomeSecrets(generatedHome);
+    if (whenLocksMissing === "release") releaseAgentHomeSecrets(generatedHome);
     return;
   }
   const lockDescriptor = openInUseLock(generatedHome);
   if (lockDescriptor === null) return;
   try {
     if (!locks.tryLock(lockDescriptor)) return;
-    releaseKimiHomeSecrets(generatedHome);
+    releaseAgentHomeSecrets(generatedHome);
     locks.unlock(lockDescriptor);
   } finally {
     fs.closeSync(lockDescriptor);
   }
 }
 
-function holdKimiHome(generatedHome: string): void {
+function holdAgentHome(generatedHome: string): void {
   const liveSessionCount = (liveSessionCountByHome.get(generatedHome) ?? 0) + 1;
   liveSessionCountByHome.set(generatedHome, liveSessionCount);
   if (liveSessionCount === 1) takeSharedInUseLock(generatedHome);
 }
 
-function releaseKimiHomeSecrets(generatedHome: string): void {
-  for (const name of [KIMI_CONFIG_NAME, KIMI_BASE_NAME]) {
+function releaseAgentHomeSecrets(generatedHome: string): void {
+  for (const name of [AGENT_HOME_CONFIG_NAME, AGENT_HOME_BASE_NAME]) {
     try {
       fs.rmSync(path.join(generatedHome, name), { force: true });
     } catch (error) {
-      console.warn(`[kimi-home] ${path.join(generatedHome, name)} could not be deleted: ${errorMessage(error)}`);
+      console.warn(`[agent-home] ${path.join(generatedHome, name)} could not be deleted: ${errorMessage(error)}`);
     }
   }
 }
 
-function releaseKimiHome(generatedHome: string): void {
+function releaseAgentHome(generatedHome: string): void {
   const liveSessionCount = (liveSessionCountByHome.get(generatedHome) ?? 0) - 1;
   if (liveSessionCount > 0) {
     liveSessionCountByHome.set(generatedHome, liveSessionCount);
@@ -380,9 +392,9 @@ function releaseKimiHome(generatedHome: string): void {
   releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "release" });
 }
 
-function releaseUnheldKimiHomeSecrets(generatedHome: string): void {
+function releaseUnheldAgentHomeSecrets(generatedHome: string): void {
   releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "keep" });
 }
 
-export { describeKimiHome, generatedKimiHomePath, holdKimiHome, kimiHomeLinkRefusal, prepareKimiHome, realKimiHome, releaseKimiHome, releaseUnheldKimiHomeSecrets };
+export { agentHomeLinkRefusal, describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAgentHome, realAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets };
 

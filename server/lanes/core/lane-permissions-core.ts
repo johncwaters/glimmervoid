@@ -1,6 +1,6 @@
 import { isRecord } from '../../../shared/coerce.ts';
 import type { ResolvedHookTool } from '../../../session/core/hook-tools.ts';
-import { definesHooksOutsideArrayTables } from '../../../session/core/kimi-hooks-block-core.ts';
+import { definesHooksOutsideArrayTables } from '../../../session/core/agent-home-core.ts';
 import type { GuardrailsRole } from '../../guardrails/core/guardrails-policy-core.ts';
 
 const ACCEPT_EDITS_MODE = 'acceptEdits';

@@ -6,7 +6,8 @@ import path from "node:path";
 
 import { createBackend } from "../server/backend/backend.ts";
 import kimi from "../session/adapters/kimi.ts";
-import { generatedKimiHomePath } from "../session/kimi-home.ts";
+import { generatedAgentHomePath } from "../session/agent-home.ts";
+import { KIMI_HOME_PROFILE } from "../session/core/agent-home-core.ts";
 import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import { createProbeChecks, delay, hookEventsOf, waitForState, writeHookFixture } from "./support/backend-harness.ts";
@@ -169,11 +170,11 @@ async function runProbe(tempDirectory: string): Promise<void> {
     await session.start();
     check("the spawn used the kimi adapter", session.agentId === "kimi");
     await delay(BOOT_SETTLE_MS);
-    check("the folder starts untrusted", !kimi.isWorkspaceTrusted(projectDirectory, { ...process.env, KIMI_CODE_HOME: generatedKimiHomePath() }));
+    check("the folder starts untrusted", !kimi.isWorkspaceTrusted(projectDirectory, { ...process.env, KIMI_CODE_HOME: generatedAgentHomePath(KIMI_HOME_PROFILE) }));
     check("nothing was typed into the trust dialog", ptyWrites.length === 0);
     session.write("\r");
     await delay(3000);
-    check("kimi's own trust record matches the computed key", kimi.isWorkspaceTrusted(projectDirectory, { ...process.env, KIMI_CODE_HOME: generatedKimiHomePath() }));
+    check("kimi's own trust record matches the computed key", kimi.isWorkspaceTrusted(projectDirectory, { ...process.env, KIMI_CODE_HOME: generatedAgentHomePath(KIMI_HOME_PROFILE) }));
     session.kill();
     await waitForState(session, ["DONE", "FAILED"], "untrusted PTY reap");
 

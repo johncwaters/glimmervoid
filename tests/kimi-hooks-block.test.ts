@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import kimi from '../session/adapters/kimi.ts';
-import { BLOCK_END, BLOCK_START } from '../session/core/kimi-hooks-block-core.ts';
+import { BLOCK_END, BLOCK_START, KIMI_HOME_PROFILE, renderCodexHooksBlock } from '../session/core/agent-home-core.ts';
 import { loadFileLocks } from '../server/guardrails/session-temp-locks.ts';
-import { generatedKimiHomePath, holdKimiHome, prepareKimiHome, releaseKimiHome, releaseUnheldKimiHomeSecrets } from '../session/kimi-home.ts';
+import { generatedAgentHomePath, holdAgentHome, prepareAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets } from '../session/agent-home.ts';
 
 const OPERATOR_CONFIG = 'default_model = "kimi-code/k3.1-pro"\r\n\n[models."kimi-code/k3.1-pro"]\ndisplay_name = "K3.1 Pro"\n';
 const HAND_EDITED_OLD_BLOCK = `${BLOCK_START}\n[[hooks]]\nevent = "Stop"\ncommand = 'curl https://example.invalid'\n${BLOCK_END}\n`;
@@ -31,7 +31,7 @@ function withKimiHomes(run: (homes: KimiHomes) => void): void {
 function prepare(env: Record<string, string>): string {
   const hooksBlock = kimi.expectedHooksBlock();
   assert.ok(hooksBlock);
-  const prepared = prepareKimiHome({ env, hooksBlock });
+  const prepared = prepareAgentHome(KIMI_HOME_PROFILE, { env, renderBlock: () => hooksBlock });
   assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
   return prepared.home;
 }
@@ -43,7 +43,7 @@ test('a kimi spawn gets a generated home that shares the real home and never wri
     fs.writeFileSync(realConfigPath, realConfig);
 
     const generatedHome = prepare(env);
-    assert.equal(generatedHome, generatedKimiHomePath(env));
+    assert.equal(generatedHome, generatedAgentHomePath(KIMI_HOME_PROFILE, env));
     assert.equal(fs.statSync(generatedHome).mode & 0o777, 0o700);
     const generatedConfigPath = path.join(generatedHome, 'config.toml');
     const generatedConfig = fs.readFileSync(generatedConfigPath, 'utf8');
@@ -90,18 +90,18 @@ test('a kimi spawn gets a generated home that shares the real home and never wri
     assert.ok(locks);
     const otherInstanceLock = fs.openSync(path.join(generatedHome, '.glimmervoid-in-use.lock'), 'a+');
     locks.waitForLockSync(otherInstanceLock, { shared: true });
-    releaseUnheldKimiHomeSecrets(generatedHome);
-    holdKimiHome(generatedHome);
-    releaseKimiHome(generatedHome);
+    releaseUnheldAgentHomeSecrets(generatedHome);
+    holdAgentHome(generatedHome);
+    releaseAgentHome(generatedHome);
     assert.equal(fs.existsSync(generatedConfigPath), true);
     locks.unlock(otherInstanceLock);
     fs.closeSync(otherInstanceLock);
 
-    holdKimiHome(generatedHome);
-    holdKimiHome(generatedHome);
-    releaseKimiHome(generatedHome);
+    holdAgentHome(generatedHome);
+    holdAgentHome(generatedHome);
+    releaseAgentHome(generatedHome);
     assert.equal(fs.existsSync(generatedConfigPath), true);
-    releaseKimiHome(generatedHome);
+    releaseAgentHome(generatedHome);
     assert.equal(fs.existsSync(generatedConfigPath), false);
     assert.equal(fs.existsSync(path.join(generatedHome, '.glimmervoid-base.toml')), false);
     assert.equal(fs.readFileSync(path.join(generatedHome, 'device_id'), 'utf8'), 'device-1\n');
@@ -114,10 +114,10 @@ test('a kimi spawn refuses a real config whose own hooks key a [[hooks]] block w
     fs.writeFileSync(path.join(realHome, 'config.toml'), inlineHooks);
     const hooksBlock = kimi.expectedHooksBlock();
     assert.ok(hooksBlock);
-    const prepared = prepareKimiHome({ env, hooksBlock });
+    const prepared = prepareAgentHome(KIMI_HOME_PROFILE, { env, renderBlock: () => hooksBlock });
     assert.ok('refusal' in prepared);
     assert.match(prepared.refusal, /\[hooks\] table/);
-    assert.equal(fs.existsSync(path.join(generatedKimiHomePath(env), 'config.toml')), false);
+    assert.equal(fs.existsSync(path.join(generatedAgentHomePath(KIMI_HOME_PROFILE, env), 'config.toml')), false);
     assert.equal(fs.readFileSync(path.join(realHome, 'config.toml'), 'utf8'), inlineHooks);
   });
 });
@@ -183,7 +183,7 @@ test('a kimi spawn heals a file kimi replaced and adopts a private folder once t
 
 test('a kimi spawn refuses a generated home a session swapped for a symlink and writes nothing through it', () => {
   withKimiHomes(({ env }) => {
-    const generatedHome = generatedKimiHomePath(env);
+    const generatedHome = generatedAgentHomePath(KIMI_HOME_PROFILE, env);
     const swapTarget = path.join(path.dirname(env.GLIMMERVOID_HOME), 'swap-target');
     fs.mkdirSync(swapTarget);
     fs.mkdirSync(path.dirname(generatedHome), { recursive: true });
@@ -192,4 +192,21 @@ test('a kimi spawn refuses a generated home a session swapped for a symlink and 
     assert.ok(prepared && 'refusal' in prepared);
     assert.deepEqual(fs.readdirSync(swapTarget), []);
   });
+});
+
+test('a stale operator codex trust entry for a removed hook group does not redefine the trust table of a Glimmervoid hook', () => {
+  const realHome = path.join(path.sep, 'real-codex');
+  const generatedHome = path.join(path.sep, 'generated-codex');
+  const staleKey = `${path.join(realHome, 'config.toml')}:pre_tool_use:0:0`;
+  const block = renderCodexHooksBlock({
+    hooks: [{ event: 'PreToolUse', matcher: 'Bash', command: 'relay' }],
+    trustedHashes: ['sha256:glimmervoid'],
+    operatorText: `[hooks.state.${JSON.stringify(staleKey)}]\ntrusted_hash = "sha256:stale"\n`,
+    realHome,
+    generatedHome,
+  });
+  const trustHeaders = block.split('\n').filter((line) => line.startsWith('[hooks.state.'));
+  assert.equal(new Set(trustHeaders).size, trustHeaders.length, block);
+  assert.ok(block.includes('trusted_hash = "sha256:glimmervoid"'), block);
+  assert.ok(!block.includes('sha256:stale'), block);
 });

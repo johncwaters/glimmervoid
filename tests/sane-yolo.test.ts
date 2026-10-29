@@ -111,18 +111,27 @@ test('the production Claude settings command denies a Read tool call on an SSH p
   });
 });
 
-test('the production Codex PreToolUse override command denies git reset --hard through a shell', async () => {
-  await withProductionHookFixture(async ({ cwd, env, saneYoloTool }) => {
+test('the generated Codex home Sane YOLO hook denies git reset --hard and a shell read of an SSH private key', async () => {
+  await withProductionHookFixture(async ({ cwd, env }) => {
     const injection = codex.hooks.injection;
     assert.equal(injection.kind, 'argv-config');
-    const hookArgs = injection.buildHookArgs({ hookTools: [saneYoloTool] });
-    assert.ok(hookArgs);
-    const preToolUseValue = hookArgs.find((argument) => argument.startsWith('hooks.PreToolUse='));
-    assert.ok(preToolUseValue);
-    const command = preToolUseValue.match(/command='([^']* hook --codex)'/)?.[1];
-    assert.ok(command, preToolUseValue);
-    const stdout = execSync(command, { cwd, env, encoding: 'utf8', input: hookPayload('--codex', 'git reset --hard', cwd) });
-    assert.equal(permissionDecisionOf(stdout), 'deny', stdout);
+    assert.ok(injection.home);
+    const realCodexHome = path.join(env.HOME ?? '', '.codex');
+    fs.mkdirSync(realCodexHome);
+    const prepared = injection.home.prepareHome({ ...env, CODEX_HOME: realCodexHome });
+    assert.ok('home' in prepared, JSON.stringify(prepared));
+    try {
+      const generatedConfig = fs.readFileSync(path.join(prepared.home, 'config.toml'), 'utf8');
+      const command = generatedConfig.match(/command = '([^']* saneYolo codex)'/)?.[1];
+      assert.ok(command, generatedConfig);
+      const keyPath = path.join(env.HOME ?? '', '.ssh', 'id_ed25519');
+      for (const shellCommand of ['git reset --hard', `cat ${keyPath}`]) {
+        const stdout: string = execSync(command, { cwd, env, encoding: 'utf8', input: hookPayload('--codex', shellCommand, cwd) });
+        assert.equal(permissionDecisionOf(stdout), 'deny', `${shellCommand}: ${stdout}`);
+      }
+    } finally {
+      injection.home.releaseHome(prepared.home);
+    }
   });
 });
 

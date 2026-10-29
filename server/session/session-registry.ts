@@ -12,7 +12,8 @@ import { configuredIntegrationBranch } from '../core/integration-branch-core.ts'
 import type { SessionWorktree, WorktreeArgs } from '../git/git-workspace.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { removeSessionTempFolder } from '../guardrails/guardrails-launch.ts';
-import { generatedKimiHomePath, releaseUnheldKimiHomeSecrets } from '../../session/kimi-home.ts';
+import { generatedAgentHomePath, releaseUnheldAgentHomeSecrets } from '../../session/agent-home.ts';
+import { CODEX_HOME_PROFILE, KIMI_HOME_PROFILE } from '../../session/core/agent-home-core.ts';
 
 interface RegistryConfig extends Record<string, unknown> {
   projects: RegistryProject[];
@@ -200,7 +201,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
 
   function startAutoResume(): void {
     pendingAutoResumeOnListening = null;
-    releaseUnheldKimiHomeSecrets(generatedKimiHomePath());
+    for (const profile of [KIMI_HOME_PROFILE, CODEX_HOME_PROFILE]) releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile));
     void runAutoResume(sessions, config, dependencies.spawnGate, dependencies.logger);
   }
 

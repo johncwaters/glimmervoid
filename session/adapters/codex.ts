@@ -17,6 +17,13 @@ import { codexHomes, codexSessionIdFromPath } from "../../server/usage/core/usag
 import { openContainedFile } from "../../server/contained-file.ts";
 import { isRelevantRolloutLine, isTurnStartLine, turnEndedWithProposedPlan } from "../core/codex-plan-rollout-core.ts";
 import { codexHookPlanFor, LEGACY_HOOK_EVENTS, parseCodexVersion } from "../core/codex-version-core.ts";
+import { CODEX_HOME_PROFILE, renderCodexHookTables, renderCodexHooksBlock } from "../core/agent-home-core.ts";
+import type { CodexHomeHook } from "../core/agent-home-core.ts";
+import { CODEX_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
+import { generatedAgentHomePath, holdPreparedAgentHome, realAgentHome, releaseAgentHome } from "../agent-home.ts";
+import { readCodexHookHashes } from "../codex-hook-trust.ts";
+import type { CodexAppServerCommand } from "../../server/codex-app-server-request.ts";
+import { errorMessage } from "../../shared/text.ts";
 import type { CodexHookPlan, MatchedRelayHook } from "../core/codex-version-core.ts";
 import type {
   AgentAdapterShape,
@@ -92,7 +99,8 @@ async function readTurnRolloutLines(handle: fs.promises.FileHandle, fileSize: nu
 }
 
 async function readTurnRolloutLinesFromCodexHome(transcriptPath: string, turnId: string, agentEnv: Record<string, string | undefined>): Promise<string[] | null> {
-  for (const codexHome of codexHomes(agentEnv, null)) {
+  const rolloutHomes = [...codexHomes(agentEnv, null), generatedAgentHomePath(CODEX_HOME_PROFILE, agentEnv)];
+  for (const codexHome of rolloutHomes) {
     const opened = await openContainedFile(path.resolve(transcriptPath), path.join(codexHome, "sessions"));
     if (!opened.ok) continue;
     const { handle, stat } = opened.file;
@@ -191,6 +199,7 @@ function buildHookArgs({
   hookToolRelayPath = HOOK_TOOL_RELAY_PATH,
   userHooks = [],
   observeToolCalls = false,
+  hasHomeHooks = false,
 }: {
   relayPath?: string;
   events?: string[];
@@ -201,12 +210,16 @@ function buildHookArgs({
   hookToolRelayPath?: string;
   userHooks?: readonly UserHook[];
   observeToolCalls?: boolean;
+  hasHomeHooks?: boolean;
 } = {}): string[] | null {
   const args = bypassHookTrust ? [TRUST_BYPASS_FLAG] : [];
   const preToolUseGroups: string[] = [];
   const groupsByEvent = new Map<string, string[]>();
-  const relayedEvents = observeToolCalls && !events.includes("PreToolUse") ? [...events, "PreToolUse"] : events;
-  const relayedMatchedHooks = observeToolCalls ? matchedRelayHooks.filter(({ event }) => event !== "PreToolUse") : matchedRelayHooks;
+  const argvEvents = hasHomeHooks ? [] : events;
+  const argvMatchedHooks = hasHomeHooks ? [] : matchedRelayHooks;
+  const argvHookTools = hasHomeHooks ? hookTools.filter((tool) => tool.id !== "saneYolo") : hookTools;
+  const relayedEvents = observeToolCalls && !argvEvents.includes("PreToolUse") ? [...argvEvents, "PreToolUse"] : argvEvents;
+  const relayedMatchedHooks = observeToolCalls ? argvMatchedHooks.filter(({ event }) => event !== "PreToolUse") : argvMatchedHooks;
   for (const event of relayedEvents) {
     const command = buildHookCommand(relayPath, event);
     if (!command) return null;
@@ -226,7 +239,7 @@ function buildHookArgs({
     }
     groupsByEvent.set(event, [...(groupsByEvent.get(event) ?? []), group]);
   }
-  const groups = hookTools.flatMap((tool) => {
+  const groups = argvHookTools.flatMap((tool) => {
     const group = HOOK_TOOLS[tool.id].codexGroup(tool, hookToolRelayPath);
     return group ? [group] : [];
   });
@@ -251,7 +264,7 @@ function buildHookArgs({
     args.push('-c', `hooks.${event}=[${eventGroups.join(',')}]`);
   }
   args.push(...mergeCodexPreToolUse(preToolUseGroups));
-  if (bypassHookTrust && gatesMcpToolCalls) args.push(...hookTools.flatMap((tool) => HOOK_TOOLS[tool.id].codexTrustedArgs(tool)));
+  if (bypassHookTrust && gatesMcpToolCalls) args.push(...argvHookTools.flatMap((tool) => HOOK_TOOLS[tool.id].codexTrustedArgs(tool)));
   return args;
 }
 
@@ -285,6 +298,63 @@ function buildInstalledHookArgs(options: Parameters<typeof buildHookArgs>[0] = {
   return buildHookArgs({ ...hookPlanForInstalledCodex(), ...options });
 }
 
+function codexHomeHooks(plan: CodexHookPlan = hookPlanForInstalledCodex()): CodexHomeHook[] | null {
+  const hooks: CodexHomeHook[] = [];
+  for (const event of plan.events) {
+    const command = buildHookCommand(RELAY_PATH, event);
+    if (!command) return null;
+    hooks.push({ event, matcher: null, command });
+  }
+  for (const { event, matcher } of plan.matchedRelayHooks) {
+    const command = buildHookCommand(RELAY_PATH, event);
+    if (!command) return null;
+    hooks.push({ event, matcher, command });
+  }
+  const saneYoloCommand = buildHookCommand(HOOK_TOOL_RELAY_PATH, "saneYolo", [CODEX_SANE_YOLO_FLAVOR]);
+  if (!saneYoloCommand) return null;
+  hooks.push({ event: "PreToolUse", matcher: "Bash", command: saneYoloCommand });
+  return hooks;
+}
+
+const trustedHashesByHookTables = new Map<string, readonly string[]>();
+let pendingTrustReading: Promise<void> | null = null;
+
+function installedAppServerCommand(): CodexAppServerCommand {
+  const command = buildSpawnCommand({ platform: process.platform, resolved: resolveCommand(), agentArgs: [] });
+  return { file: command.file, argsBeforeAppServer: command.args };
+}
+
+async function readHomeHookTrust(hooks: readonly CodexHomeHook[], hookTables: string): Promise<void> {
+  const reading = await Promise.resolve()
+    .then(() => readCodexHookHashes(installedAppServerCommand(), hooks))
+    .catch((error: unknown) => ({ failure: errorMessage(error) }));
+  if ("failure" in reading) {
+    console.warn(`[codex] Glimmervoid's hooks stay untrusted in the generated Codex home, so Sane YOLO is off for this launch: ${reading.failure}`);
+    return;
+  }
+  trustedHashesByHookTables.set(hookTables, reading.hashes);
+}
+
+function readTrust(): Promise<void> {
+  const hooks = codexHomeHooks();
+  if (!hooks) return Promise.resolve();
+  const hookTables = renderCodexHookTables(hooks);
+  if (trustedHashesByHookTables.has(hookTables)) return Promise.resolve();
+  pendingTrustReading ??= readHomeHookTrust(hooks, hookTables).finally(() => { pendingTrustReading = null; });
+  return pendingTrustReading;
+}
+
+function prepareHome(env: Record<string, string | undefined>): { home: string; isTrusted: boolean } | { refusal: string } {
+  const hooks = codexHomeHooks();
+  if (!hooks) return { refusal: "the hook relay path cannot be written into a codex hooks block" };
+  const trustedHashes = trustedHashesByHookTables.get(renderCodexHookTables(hooks)) ?? null;
+  const realHome = realAgentHome(CODEX_HOME_PROFILE, env);
+  const generatedHome = generatedAgentHomePath(CODEX_HOME_PROFILE, env);
+  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, operatorText, realHome, generatedHome }));
+  if ("refusal" in prepared) return prepared;
+  return { home: prepared.home, isTrusted: trustedHashes !== null };
+}
+
 const hooks: AgentHookProfile = {
   mapSignal: mapHookToSignal,
   mapConfidence: mapHookConfidence,
@@ -298,6 +368,12 @@ const hooks: AgentHookProfile = {
     projectConfigCandidates: PROJECT_CONFIG_CANDIDATES,
     userConfigFolders,
     mayContributeHooks,
+    home: {
+      homeEnvName: CODEX_HOME_PROFILE.homeEnvName,
+      readTrust,
+      prepareHome,
+      releaseHome: releaseAgentHome,
+    },
   },
 };
 

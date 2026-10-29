@@ -2,7 +2,8 @@ import nodeFsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { realKimiHome } from '../../session/kimi-home.ts';
+import { realAgentHome } from '../../session/agent-home.ts';
+import { KIMI_HOME_PROFILE } from '../../session/core/agent-home-core.ts';
 import { createLaneLog } from '../lanes/lane-log.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { kimiUsagesSource, parseKimiUsages, pickKimiAccessToken } from './core/usage-kimi-limits-core.ts';
@@ -44,7 +45,7 @@ function createKimiPlanLimitsReader({
   const laneLog = createLaneLog({ prefix: '[usage]', logger });
 
   async function pollUsages(): Promise<KimiPlanLimitsPoll> {
-    const kimiHome = realKimiHome(env, homeDir);
+    const kimiHome = realAgentHome(KIMI_HOME_PROFILE, env, homeDir);
     const source = kimiUsagesSource(await readTextOrNull(fsPromises, path.join(kimiHome, 'config.toml')), env);
     if (!source) return { kind: 'unavailable', reason: 'no kimi OAuth login in the kimi config' };
     const credentialsText = await readTextOrNull(fsPromises, path.join(kimiHome, 'credentials', `${source.credentialsName}.json`));

@@ -10,7 +10,8 @@ import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { writeJsonAtomic } from '../json-file.ts';
 import { relayPath } from '../runtime-paths.ts';
 import codex from '../../session/adapters/codex.ts';
-import { realKimiHome } from '../../session/kimi-home.ts';
+import { realAgentHome } from '../../session/agent-home.ts';
+import { KIMI_HOME_PROFILE } from '../../session/core/agent-home-core.ts';
 import { HOOK_TOOLS } from '../../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
 import { codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneConfigText, kimiLaneMcpConfig, kimiLaneMcpPosture, laneMcpConfig, laneMcpPosture } from './core/lane-permissions-core.ts';
@@ -98,7 +99,7 @@ async function prepareKimiLaneMcp(kimiHome: string, gatePath: string): Promise<P
 
 async function prepareLaneMcp(
   { laneArgs, agent }: { laneArgs: readonly string[]; agent?: string },
-  { readClaudeConfig = readOperatorClaudeConfig, listCodexServers = listOperatorCodexServers, kimiHome = realKimiHome(), gatePath = relayPath('posthog-read-gate') }: LaneMcpDeps = {},
+  { readClaudeConfig = readOperatorClaudeConfig, listCodexServers = listOperatorCodexServers, kimiHome = realAgentHome(KIMI_HOME_PROFILE), gatePath = relayPath('posthog-read-gate') }: LaneMcpDeps = {},
 ): Promise<PreparedLaneMcp | null> {
   if (agent === CODEX_AGENT_ID) return prepareCodexLaneMcp(listCodexServers, gatePath);
   if (agent === KIMI_AGENT_ID) return prepareKimiLaneMcp(kimiHome, gatePath);

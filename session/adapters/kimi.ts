@@ -5,12 +5,12 @@ import path from "node:path";
 import { execFileSync } from "../../server/child-process-safe.ts";
 import { relayPath } from "../../server/runtime-paths.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
-import { renderKimiHooksBlock } from "../core/kimi-hooks-block-core.ts";
+import { KIMI_HOME_PROFILE, renderKimiHooksBlock } from "../core/agent-home-core.ts";
 import { KIMI_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
-import { generatedKimiHomePath, holdKimiHome, kimiHomeLinkRefusal, prepareKimiHome, realKimiHome, releaseKimiHome } from "../kimi-home.ts";
+import { holdPreparedAgentHome, realAgentHome, releaseAgentHome } from "../agent-home.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import type {
   AgentAdapterShape,
@@ -131,7 +131,7 @@ function configFilePath(
   env: Record<string, string | undefined> = process.env,
   homedir?: string,
 ): string {
-  return path.join(realKimiHome(env, homedir), "config.toml");
+  return path.join(realAgentHome(KIMI_HOME_PROFILE, env, homedir), "config.toml");
 }
 
 function expectedHooksBlock(): string | null {
@@ -147,13 +147,7 @@ function expectedHooksBlock(): string | null {
 function prepareHome(env: Record<string, string | undefined>): { home: string } | { refusal: string } {
   const hooksBlock = expectedHooksBlock();
   if (hooksBlock === null) return { refusal: "the hook relay path cannot be written into a kimi hooks block" };
-  const generatedHome = generatedKimiHomePath(env);
-  const linkRefusal = kimiHomeLinkRefusal(generatedHome);
-  if (linkRefusal !== null) return { refusal: linkRefusal };
-  holdKimiHome(generatedHome);
-  const prepared = prepareKimiHome({ env, hooksBlock });
-  if ("refusal" in prepared) releaseKimiHome(generatedHome);
-  return prepared;
+  return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock);
 }
 
 const WINDOWS_SHAPED_ROOT = /^(?:[A-Za-z]:\/|\/\/)/;
@@ -186,7 +180,7 @@ function physicalPathOf(cwd: string): string | null {
 function isWorkspaceTrusted(cwd: string, env: Record<string, string | undefined> = process.env): boolean {
   const physicalCwd = physicalPathOf(cwd);
   if (physicalCwd === null) return false;
-  return fs.existsSync(path.join(realKimiHome(env), "workspace-trust", workspaceTrustKey(physicalCwd)));
+  return fs.existsSync(path.join(realAgentHome(KIMI_HOME_PROFILE, env), "workspace-trust", workspaceTrustKey(physicalCwd)));
 }
 
 function resolveCommand(
@@ -239,7 +233,7 @@ const hooks: AgentHookProfile = {
     kind: "generated-home",
     homeEnvName: HOME_ENV_NAME,
     prepareHome,
-    releaseHome: releaseKimiHome,
+    releaseHome: releaseAgentHome,
   },
 };
 

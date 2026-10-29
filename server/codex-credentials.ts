@@ -1,23 +1,22 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from './child-process-safe.ts';
+import { requestCodexAppServer } from './codex-app-server-request.ts';
+import type { CodexAppServerCommand } from './codex-app-server-request.ts';
 import { codexHomeDir, decideCodexLogin, parseCodexAuth } from './core/codex-credentials-core.ts';
 import type { CodexLogin } from './core/codex-credentials-core.ts';
 import type { LoginSource } from './agent-login/core/agent-connect-core.ts';
 
 const HOST_REFRESH_TIMEOUT_MS = 60_000;
 
-type CodexCommand = { file: string; argsBeforeAppServer: string[] };
-
-type HostLoginRefresher = (command: CodexCommand, env: NodeJS.ProcessEnv) => Promise<boolean>;
+type HostLoginRefresher = (command: CodexAppServerCommand, env: NodeJS.ProcessEnv) => Promise<boolean>;
 
 interface CodexCredentialsOptions {
   homeDir?: string;
   connectedCodexHome?: string | null;
   env?: NodeJS.ProcessEnv;
   now?: () => number;
-  codexCommand: () => CodexCommand | null;
+  codexCommand: () => CodexAppServerCommand | null;
   refreshHostLogin?: HostLoginRefresher;
   readTextFile?: (filePath: string) => Promise<string | null>;
 }
@@ -33,52 +32,9 @@ async function readTextFileOrNull(filePath: string): Promise<string | null> {
   return fs.readFile(filePath, 'utf8').catch(() => null);
 }
 
-function refreshHostLoginOverAppServer(command: CodexCommand, env: NodeJS.ProcessEnv): Promise<boolean> {
-  return new Promise((resolve) => {
-    let child: ReturnType<typeof spawn>;
-    try {
-      child = spawn(command.file, [...command.argsBeforeAppServer, 'app-server'], { env, stdio: ['pipe', 'pipe', 'ignore'] });
-    } catch {
-      resolve(false);
-      return;
-    }
-    let bufferedOutput = '';
-    let isSettled = false;
-    const settle = (hasRefreshed: boolean) => {
-      if (isSettled) return;
-      isSettled = true;
-      clearTimeout(timer);
-      child.kill();
-      resolve(hasRefreshed);
-    };
-    const timer = setTimeout(() => settle(false), HOST_REFRESH_TIMEOUT_MS);
-    const send = (message: unknown) => { child.stdin?.write(`${JSON.stringify(message)}\n`); };
-    const handleLine = (line: string) => {
-      let message: { id?: unknown; result?: unknown; error?: unknown };
-      try {
-        message = JSON.parse(line);
-      } catch {
-        return;
-      }
-      if (message.id === 1) {
-        if (message.error !== undefined) return settle(false);
-        send({ jsonrpc: '2.0', method: 'initialized' });
-        send({ jsonrpc: '2.0', id: 2, method: 'account/read', params: { refreshToken: true } });
-        return;
-      }
-      if (message.id === 2) settle(message.error === undefined);
-    };
-    child.on('error', () => settle(false));
-    child.on('exit', () => settle(false));
-    child.stdin?.on('error', () => settle(false));
-    child.stdout?.setEncoding('utf8');
-    child.stdout?.on('data', (chunk: string) => {
-      const lines = (bufferedOutput + chunk).split('\n');
-      bufferedOutput = lines.pop() ?? '';
-      for (const line of lines) handleLine(line);
-    });
-    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'glimmervoid', title: null, version: '0.1.0' }, capabilities: null } });
-  });
+async function refreshHostLoginOverAppServer(command: CodexAppServerCommand, env: NodeJS.ProcessEnv): Promise<boolean> {
+  const response = await requestCodexAppServer(command, env, { method: 'account/read', params: { refreshToken: true }, timeoutMs: HOST_REFRESH_TIMEOUT_MS });
+  return response !== null;
 }
 
 function createCodexCredentials({

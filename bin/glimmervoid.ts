@@ -247,8 +247,9 @@ async function runDoctor(): Promise<void> {
     const grokSetup = inspectGrokAgentSetup();
     line('grok hook setup', `${grokSetup.classification}: ${grokSetup.filePath}`);
     const { default: kimi } = await import('../session/adapters/kimi.ts');
-    const { describeKimiHome } = await import('../session/kimi-home.ts');
-    line('kimi home', describeKimiHome(kimi.expectedHooksBlock()));
+    const { describeAgentHome } = await import('../session/agent-home.ts');
+    const { KIMI_HOME_PROFILE } = await import('../session/core/agent-home-core.ts');
+    line('kimi home', describeAgentHome(KIMI_HOME_PROFILE, kimi.expectedHooksBlock()));
   } catch (err) {
     line('agents', `probe failed: ${firstLine(errorText(err))}`);
   }

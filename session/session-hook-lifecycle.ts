@@ -17,6 +17,7 @@ import type {
   ArgvConfigInjection,
   GeneratedHomeInjection,
   HomeHooksFileInjection,
+  HookedAgentHome,
   ProjectConfigCandidate,
 } from "./adapters/index.ts";
 
@@ -67,6 +68,7 @@ interface SessionHookOptions {
 }
 
 interface SessionHookLifecycle {
+  prepare(): Promise<void>;
   inject(): HookInjectionResult;
   cleanup(): void;
   token(): string | null;
@@ -87,7 +89,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   let token: string | null = null;
   let settingsHandle: ReturnType<typeof writeSessionSettings> | null = null;
   let hasWarnedSaneYoloHookMissing = false;
-  let heldGeneratedHome: { injection: GeneratedHomeInjection; home: string } | null = null;
+  let heldGeneratedHome: { releaseHome: (home: string) => void; home: string } | null = null;
 
   function saneYoloTool(): ResolvedHookTool | undefined {
     return options.hookTools.find((tool) => tool.id === "saneYolo");
@@ -112,7 +114,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function releaseGeneratedHome(): void {
     if (!heldGeneratedHome) return;
-    heldGeneratedHome.injection.releaseHome(heldGeneratedHome.home);
+    heldGeneratedHome.releaseHome(heldGeneratedHome.home);
     heldGeneratedHome = null;
   }
 
@@ -208,19 +210,39 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     return [...(options.extraUserHooks ?? [])];
   }
 
+  function holdHookedHome(home: HookedAgentHome): { home: string; isTrusted: boolean } | { refusal: string } {
+    const prepared = home.prepareHome(process.env);
+    if ("refusal" in prepared) return prepared;
+    heldGeneratedHome = { releaseHome: home.releaseHome, home: prepared.home };
+    return prepared;
+  }
+
   function injectRelayHooks(port: number, injection: ArgvConfigInjection): HookInjectionResult {
+    releaseGeneratedHome();
+    const hookedHome = injection.home ? holdHookedHome(injection.home) : null;
+    if (hookedHome && "refusal" in hookedHome) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${hookedHome.refusal}` };
     const isTrustBypassed = decideTrustBypass(injection);
     const args = injection.buildHookArgs({
       bypassHookTrust: isTrustBypassed,
       hookTools: options.hookTools,
       userHooks: glimmervoidSuppliedHooks(),
       observeToolCalls: options.observeToolCalls,
+      hasHomeHooks: hookedHome !== null,
     });
     if (!args) {
+      releaseGeneratedHome();
       console.warn(`[session:${options.name}] hook injection skipped: the relay path cannot be expressed for ${options.agentId} - falling back to OSC title only`);
       return NO_HOOK_INJECTION;
     }
-    return registerRelayHooks(port, args, isTrustBypassed && argvCarriesSaneYoloHook(args, injection.relayPath));
+    const doesHomeRunHooks = hookedHome !== null && (hookedHome.isTrusted || isTrustBypassed);
+    const doesArgvRunSaneYolo = isTrustBypassed && argvCarriesSaneYoloHook(args, injection.relayPath);
+    const relayHooks = registerRelayHooks(port, args, saneYoloTool() !== undefined && (doesHomeRunHooks || doesArgvRunSaneYolo));
+    if (relayHooks === NO_HOOK_INJECTION) {
+      releaseGeneratedHome();
+      return relayHooks;
+    }
+    if (!injection.home || !hookedHome) return relayHooks;
+    return { ...relayHooks, env: { ...relayHooks.env, [injection.home.homeEnvName]: hookedHome.home } };
   }
 
   function warnIfSaneYoloHookMissing(hooksPath: string, contents: string, injection: HomeHooksFileInjection): void {
@@ -272,7 +294,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     releaseGeneratedHome();
     const prepared = injection.prepareHome(process.env);
     if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
-    heldGeneratedHome = { injection, home: prepared.home };
+    heldGeneratedHome = { releaseHome: injection.releaseHome, home: prepared.home };
     const relayHooks = registerRelayHooks(port, [], saneYoloTool() !== undefined);
     if (relayHooks === NO_HOOK_INJECTION) {
       releaseGeneratedHome();
@@ -288,6 +310,12 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     } catch {
       return null;
     }
+  }
+
+  async function prepare(): Promise<void> {
+    const injection = hookProfileOf(options.adapter)?.injection;
+    if (injection?.kind !== "argv-config" || !injection.home || !options.hookRouter || !options.getHookPort) return;
+    await injection.home.readTrust();
   }
 
   function inject(): HookInjectionResult {
@@ -344,6 +372,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   }
 
   return {
+    prepare,
     inject,
     cleanup,
     token: () => token,

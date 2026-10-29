@@ -38,6 +38,13 @@ interface SettingsFileInjection {
   kind: "settings-file";
 }
 
+interface HookedAgentHome {
+  homeEnvName: string;
+  readTrust(): Promise<void>;
+  prepareHome(env: Record<string, string | undefined>): { home: string; isTrusted: boolean } | { refusal: string };
+  releaseHome(home: string): void;
+}
+
 interface ArgvConfigInjection {
   kind: "argv-config";
   relayPath: string;
@@ -50,10 +57,12 @@ interface ArgvConfigInjection {
     hookToolRelayPath?: string;
     userHooks?: readonly UserHook[];
     observeToolCalls?: boolean;
+    hasHomeHooks?: boolean;
   }): string[] | null;
   projectConfigCandidates: readonly ProjectConfigCandidate[];
   userConfigFolders(env: Record<string, string | undefined>): string[];
   mayContributeHooks(configText: unknown): boolean;
+  home?: HookedAgentHome;
 }
 
 interface HomeHooksFileInjection {
@@ -260,4 +269,4 @@ export {
   resetCommandCache,
   setCustomAgents,
 };
-export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentLaunchSession, AgentLaunchSessionOptions, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, GeneratedHomeInjection, HomeHooksFileInjection, ProjectConfigCandidate };
+export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentLaunchSession, AgentLaunchSessionOptions, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, GeneratedHomeInjection, HomeHooksFileInjection, HookedAgentHome, ProjectConfigCandidate };

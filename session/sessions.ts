@@ -1585,6 +1585,8 @@ class Session extends EventEmitter {
       return;
     }
     const isRemoteCodex = remoteLaunch !== null && this.agentId === "codex";
+    await this._hooks.prepare();
+    if (isStartSuperseded()) return;
     const hookInjection = this._hooks.inject();
     if (hookInjection.refusal) {
       this._abandonSpawn(new Error(hookInjection.refusal));

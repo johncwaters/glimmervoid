@@ -15,7 +15,8 @@ import { buildGuardrailsLaunchPlan, GUARDRAILS_TEMP_FOLDER, lockedClaudeMountPoi
 import type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, GuardrailsRole } from './core/guardrails-policy-core.ts';
 import { codexHomes, grokHomes, projectDirCandidates } from '../usage/core/usage-scan-core.ts';
 import kimi from '../../session/adapters/kimi.ts';
-import { generatedKimiHomePath, kimiHomeLinkRefusal } from '../../session/kimi-home.ts';
+import { agentHomeLinkRefusal, generatedAgentHomePath } from '../../session/agent-home.ts';
+import { KIMI_HOME_PROFILE } from '../../session/core/agent-home-core.ts';
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { relayPath, resolvePackageBin } from '../runtime-paths.ts';
 import { pruneAgedFiles } from '../prune-files.ts';
@@ -118,8 +119,8 @@ function scannedClaudeHomes(env: NodeJS.ProcessEnv, homeDir: string): string[] {
 }
 
 async function generatedKimiHomes(env: NodeJS.ProcessEnv, homeDir: string): Promise<string[]> {
-  const generatedHome = generatedKimiHomePath(env, homeDir);
-  if (kimiHomeLinkRefusal(generatedHome) !== null) return [];
+  const generatedHome = generatedAgentHomePath(KIMI_HOME_PROFILE, env, homeDir);
+  if (agentHomeLinkRefusal(generatedHome) !== null) return [];
   return [await realPathWhenPresent(generatedHome)];
 }
 

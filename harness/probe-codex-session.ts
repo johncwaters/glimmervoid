@@ -8,6 +8,7 @@ import path from 'node:path';
 import { createBackend } from '../server/backend/backend.ts';
 import { spawn } from '../server/child-process-safe.ts';
 import type { HookPayload } from '../shared/contracts/index.ts';
+import codex from '../session/adapters/codex.ts';
 import type { Session } from '../session/sessions.ts';
 import { createProbeChecks, delay, sanitizeProbeText, waitForState, writeHookFixture } from './support/backend-harness.ts';
 import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
@@ -67,7 +68,7 @@ function writeProbeConfig(configPath: string, projectDir: string): void {
       path: projectDir,
       agent: 'codex',
       dangerouslySkipPermissions: false,
-      codexBypassHookTrust: true,
+      codexBypassHookTrust: false,
     }],
     teams: [],
     repoRoots: [],
@@ -202,6 +203,8 @@ async function main(): Promise<void> {
   const configPath = path.join(tmpDir, 'config.json');
   writeProbeConfig(configPath, projectDir);
   process.env.GLIMMERVOID_CONFIG = configPath;
+  const glimmervoidHome = path.join(tmpDir, 'glimmervoid-home');
+  process.env.GLIMMERVOID_HOME = glimmervoidHome;
   process.env.CODEX_HOME = makeProbeCodexHome(tmpDir, projectDir);
 
   const server = http.createServer();
@@ -218,9 +221,11 @@ async function main(): Promise<void> {
   const answers: string[] = [];
   const titleSignals: string[] = [];
   const spawnCalls: SpawnCall[] = [];
+  const spawnCodexHomes: (string | undefined)[] = [];
   const spawnPty = session._ptySpawn;
   session._ptySpawn = (file, args, options) => {
     spawnCalls.push({ file, args: [...args], cwd: options.cwd });
+    spawnCodexHomes.push(options.env?.CODEX_HOME);
     const spawned = spawnPty(file, args, options);
     spawned.onData((chunk) => { terminalTail = (terminalTail + chunk).slice(-6000); });
     return spawned;
@@ -244,6 +249,9 @@ async function main(): Promise<void> {
     await session.start();
     check('the spawn used the codex adapter', session.agentId === 'codex');
     check('hook injection produced a per-session token', typeof session._hooks.token() === 'string');
+    check('the spawn ran without the hook trust bypass', !spawnCalls[0]?.args.includes(codex.TRUST_BYPASS_FLAG));
+    check('the spawn ran from the generated Codex home', spawnCodexHomes[0] === path.join(glimmervoidHome, 'agent-homes', 'codex'));
+    check('Sane YOLO reported active from the trusted home hooks', session.saneYolo);
     await waitForState(session, ['RUNNING', 'IDLE'], 'first output');
     check('the session reached a live state after spawn', session.state !== 'DORMANT');
 
