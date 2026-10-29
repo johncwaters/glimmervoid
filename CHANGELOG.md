@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Clearing a Kimi Code session resets its card**: `/clear` in Kimi Code now drops the old conversation's task title, pending question kind and compaction state from the card, as `/clear` already does in Claude Code and Codex.
 - **Codex plans wait for your approval**: when Codex in plan mode proposes a plan, its card now shows Plan ready and asks for your input, as Claude Code and Kimi Code do, instead of reporting the turn as finished. Approving the plan runs it as a new turn. Glimmervoid reads this from the Codex session log on your machine, so a Codex session running on a remote host still reports the plan as a finished turn.
 - **Community finds Discord channels with an emoji in their name**: a Discord channel whose name starts with an emoji or other symbol, such as the PostHog server's bug and feature channels, now matches its plain name in Settings > Community (experimental), so `report-a-bug` picks up messages again. Before, no message from such a channel ever reached the Community tab.
 - **Removing a session that needs input asks first**: closing a session whose agent is waiting for your answer (Needs input) now shows the Remove dialog, as closing a working session does, instead of stopping the agent mid-task with no warning.

@@ -146,9 +146,14 @@ async function runProbe(tempDirectory: string): Promise<void> {
 
     console.log('\nsession-clear:');
     const clearStart = hookRecords.length;
+    await submit('Reply with the single word copperheron and nothing else.');
+    await waitForState(session, ['RUNNING', 'WAITING'], 'the turn before /clear to start');
+    await waitForState(session, ['COMPLETE'], 'the turn before /clear');
+    await delay(3000);
     await typeCommand('/clear');
     await delay(5000);
     await submit('Reply with the single word copperheron and nothing else.');
+    await waitForState(session, ['RUNNING', 'WAITING'], 'the first turn after /clear to start');
     await waitForState(session, ['COMPLETE'], 'the first turn after /clear');
     await delay(3000);
     const clearHooks = captureSince('session-clear', clearStart);

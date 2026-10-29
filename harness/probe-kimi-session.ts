@@ -93,6 +93,8 @@ async function runProbe(tempDirectory: string): Promise<void> {
     completions.push(hookRecords.length);
     for (const decision of session._observability.decisionTail(4)) console.log(`  [decision] ${JSON.stringify(decision)}`);
   });
+  let taskTitleResets = 0;
+  session.on("task-title-reset", () => { taskTitleResets += 1; });
   session.on("hook-event", ({ event, payload }: { event: string; payload: HookPayload | null }) => {
     hookRecords.push({ event, payload: payload ?? null });
   });
@@ -229,11 +231,17 @@ async function runProbe(tempDirectory: string): Promise<void> {
 
     console.log("\nsession-clear:");
     const clearStart = hookRecords.length;
+    await submit(`reply with the single word ${SENTINEL_WORD} and nothing else`);
+    check("the turn before /clear ended on Stop", await waitForHook("Stop before /clear", clearStart, "stop"));
+    await delay(3000);
+    const clearCommandStart = hookRecords.length;
+    const taskTitleResetsBeforeClear = taskTitleResets;
     await typeCommand("/clear");
     await delay(3000);
     await submit(`reply with the single word ${SENTINEL_WORD} and nothing else`);
-    check("the first turn after /clear ended on Stop", await waitForHook("Stop after /clear", clearStart, "stop"));
-    check("SessionStart fired after /clear", await waitForHook("SessionStart after /clear", clearStart, "sessionstart"));
+    check("the first turn after /clear ended on Stop", await waitForHook("Stop after /clear", clearCommandStart, "stop"));
+    check("SessionStart fired after /clear", await waitForHook("SessionStart after /clear", clearCommandStart, "sessionstart"));
+    check("the card reset its task title on /clear", taskTitleResets > taskTitleResetsBeforeClear);
     await delay(3000);
     const clearHooks = captureSince("session-clear", clearStart);
     console.log(`  [clear] SessionStart sources: ${JSON.stringify(clearHooks.filter((hook) => hook.event.toLowerCase() === "sessionstart").map((hook) => hook.payload?.source ?? null))}`);

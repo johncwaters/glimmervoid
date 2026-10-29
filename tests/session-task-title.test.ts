@@ -127,3 +127,21 @@ test('a kimi session titles its card from the hook session_title and skips the g
     session.destroy();
   }
 });
+
+test('a startup SessionStart with a new id never replaces the saved conversation on a blank spawn, but counts as a clear after a prompt', () => {
+  const savedConversationId = 'session_saved-conversation-0001';
+  const session = new Session({ id: 's-startup-clear', name: 'project', path: '/project', agent: 'kimi', resumeSessionId: savedConversationId });
+  try {
+    let taskTitleResets = 0;
+    session.on('task-title-reset', () => { taskTitleResets += 1; });
+    session.ingestHookSignal({ signal: 'session-start', source: 'hook', ts: 0, event: 'SessionStart', payload: { session_id: 'session_blank-spawn-0000001', source: 'startup' } });
+    assert.equal(session._resumeSessionId, savedConversationId);
+    assert.equal(taskTitleResets, 0);
+    session.ingestHookSignal({ signal: 'resume', source: 'hook', ts: 0, event: 'UserPromptSubmit', payload: { session_id: savedConversationId, prompt: 'hello there' } });
+    session.ingestHookSignal({ signal: 'session-start', source: 'hook', ts: 0, event: 'SessionStart', payload: { session_id: 'session_after-clear-0000001', source: 'startup' } });
+    assert.equal(session._resumeSessionId, 'session_after-clear-0000001');
+    assert.equal(taskTitleResets, 1);
+  } finally {
+    session.destroy();
+  }
+});

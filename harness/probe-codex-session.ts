@@ -360,6 +360,12 @@ async function main(): Promise<void> {
 
     console.log('\nClear:');
     const clearStart = hookRecords.length;
+    session.write(PROMPT);
+    await delay(1500);
+    session.write('\r');
+    await waitForState(session, ['RUNNING', 'WAITING'], 'the turn before /clear to start');
+    await waitForState(session, ['COMPLETE'], 'the turn before /clear');
+    await delay(3000);
     session.write('/clear');
     await delay(1500);
     session.write('\r');
@@ -367,6 +373,7 @@ async function main(): Promise<void> {
     session.write(PROMPT);
     await delay(1500);
     session.write('\r');
+    await waitForState(session, ['RUNNING', 'WAITING'], 'the first turn after /clear to start');
     await waitForState(session, ['COMPLETE'], 'the first turn after /clear');
     const clearedStart = await waitForHook('SessionStart after /clear', clearStart, (hook) => hook.event.toLowerCase() === 'sessionstart');
     check('the first turn after /clear fired SessionStart', !!clearedStart);

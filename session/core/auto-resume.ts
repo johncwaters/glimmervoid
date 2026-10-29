@@ -113,8 +113,16 @@ function shouldAdoptReportedResumeId(
   return true;
 }
 
+function isConversationReplacedAtStartup(
+  { hasPromptSinceSpawn, currentResumeSessionId, reportedId, sessionStartSource }: { hasPromptSinceSpawn: boolean; currentResumeSessionId: string | null; reportedId: string; sessionStartSource: unknown },
+): boolean {
+  if (!hasPromptSinceSpawn) return false;
+  if (String(sessionStartSource || "").toLowerCase() !== "startup") return false;
+  return !!currentResumeSessionId && reportedId !== currentResumeSessionId;
+}
+
 function resumePromptFor(project: AutoResumeProject | undefined): string | null {
   return project?.wasWorking === true ? AUTO_CONTINUE_PROMPT : null;
 }
 
-export { pickAutoResume, resolveResumeTarget, resumePromptFor, shouldAdoptReportedResumeId, AUTO_CONTINUE_PROMPT, RESUME_ID_RE };
+export { isConversationReplacedAtStartup, pickAutoResume, resolveResumeTarget, resumePromptFor, shouldAdoptReportedResumeId, AUTO_CONTINUE_PROMPT, RESUME_ID_RE };

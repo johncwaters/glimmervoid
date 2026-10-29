@@ -60,7 +60,7 @@ import { decideExitTransition } from "./core/exit-transition.ts";
 import type { ExitSignal } from "./core/exit-transition.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
-import { resolveResumeTarget, shouldAdoptReportedResumeId, AUTO_CONTINUE_PROMPT, RESUME_ID_RE } from "./core/auto-resume.ts";
+import { isConversationReplacedAtStartup, resolveResumeTarget, shouldAdoptReportedResumeId, AUTO_CONTINUE_PROMPT, RESUME_ID_RE } from "./core/auto-resume.ts";
 import { CLAUDE_TOKEN_ALIAS_ENV, CLAUDE_TOKEN_ALIASES, CODER_SSH_ENV, coderSshArgs, coderSshExecArgs, encodeCoderSshEnv, remoteLaunchScript } from "./core/remote-launch-core.ts";
 import { safePathSegment } from "../shared/paths.ts";
 import { projectSessionSnapshots } from "./core/snapshot-projection.ts";
@@ -331,6 +331,7 @@ class Session extends EventEmitter {
   worktreeLifecycle: ReturnType<typeof createSessionWorktreeLifecycle>;
 
   _receivedFirstOutput: boolean;
+  _hasPromptSinceSpawn: boolean;
   _killPollTimer: NodeJS.Timeout | null;
   _killReapTimer: NodeJS.Timeout | null;
   _titleQuietFallbackTimer: NodeJS.Timeout | null;
@@ -515,6 +516,7 @@ class Session extends EventEmitter {
     this.failureReason = null;
     this.unseenOutcome = null;
     this._receivedFirstOutput = false;
+    this._hasPromptSinceSpawn = false;
     this._killPollTimer = null;
     this._killReapTimer = null;
 
@@ -844,6 +846,10 @@ class Session extends EventEmitter {
       this.ingestHookSignal({ ...raw, signal: "awaiting-input" });
       return;
     }
+    if (this._isConversationReplacedAtStartup(raw)) {
+      this.ingestHookSignal({ ...raw, payload: { ...raw.payload, source: "clear" } });
+      return;
+    }
     if (raw?.signal === "ready" && String(raw.event || "").toLowerCase() === "stop") this._hasRespawnedForAuth = false;
     this._hookSeen = true;
     if (this._recorder && raw?.event) {
@@ -871,11 +877,8 @@ class Session extends EventEmitter {
     }
 
     if (raw?.payload) {
-      const sessionIdOf = typeof this._adapter.sessionIdOf === "function"
-        ? this._adapter.sessionIdOf
-        : (payload: HookPayload) => payload?.session_id;
       this._captureClaudeSessionId(
-        sessionIdOf(raw.payload), raw.payload.source, raw.payload.transcript_path, raw.signal, raw.confidence);
+        this._reportedSessionIdOf(raw.payload), raw.payload.source, raw.payload.transcript_path, raw.signal, raw.confidence);
       const hookTitle = extractHookTaskTitle(raw.payload, path.basename(this.effectiveCwd()), this._adapter.titleProfile.taskTitle);
       if (hookTitle && hookTitle !== this._taskTitleSources.aiTitle) {
         this._taskTitleSources.aiTitle = hookTitle;
@@ -919,6 +922,7 @@ class Session extends EventEmitter {
     }
     if (raw && raw.signal === "session-start") this._onSessionStartHook(raw);
     if (raw && raw.signal === "resume") {
+      this._hasPromptSinceSpawn = true;
       this._observeCompaction("resume");
       this._titleQuiet = false;
       this._setPendingPromptKind(null);
@@ -934,6 +938,17 @@ class Session extends EventEmitter {
       this.backgroundTracking.applyBackgroundTasks(raw.payload);
     }
     this._statusSource.ingest(raw);
+  }
+
+  _reportedSessionIdOf(payload: HookPayload): unknown {
+    return typeof this._adapter.sessionIdOf === "function" ? this._adapter.sessionIdOf(payload) : payload?.session_id;
+  }
+
+  _isConversationReplacedAtStartup(raw: HookSignal): boolean {
+    if (raw?.signal !== "session-start" || !raw.payload) return false;
+    const reportedId = this._reportedSessionIdOf(raw.payload);
+    if (typeof reportedId !== "string") return false;
+    return isConversationReplacedAtStartup({ hasPromptSinceSpawn: this._hasPromptSinceSpawn, currentResumeSessionId: this._resumeSessionId, reportedId, sessionStartSource: raw.payload.source });
   }
 
   _onSessionStartHook(raw: HookSignal): void {
@@ -1556,6 +1571,7 @@ class Session extends EventEmitter {
       if (this.mergeStatus === "pending-review") this.worktreeLifecycle.scheduleCheck();
     }
     this._receivedFirstOutput = false;
+    this._hasPromptSinceSpawn = false;
 
     this._clearDetectionTracking();
     this._output.reset();
