@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Quieter empty Changes panel**: a session with no changes yet shows a flying animal and "No changes yet" instead of a sentence about what will appear there, and the panel header no longer repeats the session name next to Review.
+
 ### Fixed
 
 - **Telegram waits for input left sitting**: a session alert no longer reaches Telegram the moment it happens when no dashboard is open. Telegram now hears only about alerts you leave unanswered for the phone escalation delay (`phoneEscalationMs`, 5 minutes by default), whether or not a dashboard is open. Escalations that land within the grouping window arrive as one message.

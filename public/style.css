@@ -4097,16 +4097,6 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   gap: 6px;
   min-width: 0;
 }
-.review-sidebar-session {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--text);
-}
-.review-sidebar-session[hidden] { display: none; }
 .review-sidebar-close { margin-left: auto; }
 .review-status-headline { display: flex; align-items: center; gap: 8px; color: var(--text-head); font-size: 12px; line-height: 1.5; }
 .review-status-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; min-width: 0; color: var(--text-muted); font: 11px/1.5 var(--font-mono); }
@@ -4217,6 +4207,9 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
 .review-empty { text-align: center; color: var(--text-dim); margin-top: 24px; }
 .review-empty-title { font-size: 14px; font-weight: 700; letter-spacing: 0.04em; color: var(--text-head); margin-bottom: 6px; }
 .review-empty-desc { font-size: 12px; line-height: 1.5; }
+.flying-animal-preview.review-empty-animal { width: 180px; margin: 0 auto 12px; }
+.review-empty-animal .flying-animal-preview-stage { left: calc(70% - var(--nyan-width) / 2); }
+.review-empty-animal .nyan-trail { width: 110px; }
 
 @media (prefers-reduced-motion: no-preference) {
   .review-loading { animation: pulse 1.4s ease-in-out infinite; }

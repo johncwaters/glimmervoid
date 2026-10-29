@@ -5,7 +5,9 @@ import { MERGEABLE_LIVE_STATES, STATES } from '#shared/states.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
+import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from '../flying-animal-preview.ts';
 import { isPhoneLayout } from '../form-factor.ts';
+import { ANIMALS } from '../nyan-animals-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -30,7 +32,6 @@ import {
   hasReviewChanges,
   mergeActionTitle,
   mergeDisabledReason,
-  noChangesDescription,
   parkedStatusText,
   reviewHeadline,
   resyncOutcomeText,
@@ -79,7 +80,6 @@ let railLabelEl: HTMLElement | null = null;
 let railStatusEl: HTMLElement | null = null;
 let railAddedEl: HTMLElement | null = null;
 let railRemovedEl: HTMLElement | null = null;
-let sessionNameEl: HTMLElement | null = null;
 let isMoreMenuOpen = false;
 let resolveOutcome: { forId: string; text: string; isError: boolean } | null = null;
 let resolveOutcomeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -112,8 +112,6 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
 
   const head = el('div', 'review-sidebar-head');
   const title = el('span', 'review-sidebar-title', 'Review');
-  sessionNameEl = el('span', 'review-sidebar-session');
-  title.append(sessionNameEl);
   const applyCollapsed = (isCollapsed: boolean) => {
     mountedPanel.toggleAttribute('data-collapsed', isCollapsed);
     setReviewSidebarExpanded(!isCollapsed);
@@ -577,10 +575,9 @@ function renderSidebar() {
 
   const id = getSelectedId();
   const ui = id ? sessionUIs.get(id) : null;
-  renderSessionName(id, ui);
   if (!id || !ui) {
     if (shortcutRefusal) controlsEl.append(statusNote(shortcutRefusal.text, true));
-    renderEmpty('No session selected', 'Click a session name to review its changes here.');
+    renderEmpty(el('div', 'review-empty-title', 'No session selected'), el('div', 'review-empty-desc', 'Click a session name to review its changes here.'));
     return;
   }
 
@@ -691,7 +688,7 @@ function renderSidebar() {
     return;
   }
   if (isEmpty) {
-    renderEmpty(headline.text, noChangesDescription(isWorkspace, effectiveBase));
+    renderEmpty(buildFlyingAnimalPreview(pickRandomIncludedAnimal() ?? ANIMALS[0], 'review-empty-animal'), el('div', 'review-empty-title', headline.text));
     return;
   }
   const changeMap = mapById.get(id);
@@ -715,18 +712,10 @@ function statusNote(text: string, isError: boolean) {
   return note;
 }
 
-function renderSessionName(id: string | null, ui: SessionUi | null | undefined) {
-  if (!sessionNameEl) return;
-  const name = id && ui ? sessionName(ui, id) : '';
-  sessionNameEl.textContent = name;
-  sessionNameEl.hidden = !name;
-  sessionNameEl.title = name;
-}
-
-function renderEmpty(title: string, desc: string) {
+function renderEmpty(...contents: HTMLElement[]) {
   if (!bodyEl) return;
   const wrap = el('div', 'review-empty');
-  wrap.append(el('div', 'review-empty-title', title), el('div', 'review-empty-desc', desc));
+  wrap.append(...contents);
   bodyEl.append(wrap);
 }
 

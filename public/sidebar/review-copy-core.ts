@@ -66,11 +66,6 @@ export function reviewHeadline({
   return changeHeadline({ changedFileCount, hasCommits, canMerge, isWorkspace, live, effectiveBase });
 }
 
-export function noChangesDescription(isWorkspace: boolean, effectiveBase: string | null | undefined): string {
-  if (isWorkspace) return 'Edits this session makes in its worktree show up here.';
-  return `Edits this session makes show up here, ready to merge into ${baseLabel(effectiveBase)}.`;
-}
-
 export function committedMergeTargetText(headline: ReviewHeadline, effectiveBase: string | null | undefined): string | null {
   if (headline.namesMergeTarget) return null;
   return `merges into ${baseLabel(effectiveBase)}`;
