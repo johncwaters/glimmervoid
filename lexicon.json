@@ -119,6 +119,10 @@
     {
       "name": "discord",
       "definition": "A community source: the PostHog Discord server, read through the Discord events PostHog already captures, limited to the channel names the operator allowlists."
+    },
+    {
+      "name": "community",
+      "definition": "The experimental lane and dashboard tab that watches community sources for new community questions and drafts researched answers the operator posts by hand"
     }
   ]
 }

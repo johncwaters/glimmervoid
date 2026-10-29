@@ -242,6 +242,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'workspace-repos', requestId: 'r4', id: 'session-1', ok: true, repos: ['/repos/one', '/repos/two'], error: null },
   { type: 'set-workspace-repos-result', requestId: 'r5', id: 'session-1', ok: false, error: 'two has uncommitted changes. Commit or discard them before removing it from the workspace.' },
   { type: 'hooks-updated', count: 1 },
+  { type: 'feature-hint', hint: { feature: 'teamReview', distinctTargetCount: 3, raisedAt: 1761740000000 } },
 ];
 
 test('real server payloads round-trip through every server contract variant', () => {
