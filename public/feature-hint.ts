@@ -51,7 +51,7 @@ export function showFeatureHint(hint: FeatureHint, host: FeatureHintHost) {
   dismissButton.type = 'button';
   const actions = el('div', 'feature-hint-actions');
   actions.append(dismissButton, showButton);
-  bubble.append(el('p', 'feature-hint-text', featureHintMessage(hint, host.isFeatureEnabled(hint.feature))), actions);
+  bubble.append(el('p', 'feature-hint-text', featureHintMessage(hint)), actions);
   const animal = pickRandomIncludedAnimal() ?? ANIMALS[0];
   hintCard.append(bubble, buildFlyingAnimalPreview(animal, 'feature-hint-animal'));
 

@@ -9,6 +9,7 @@ interface FeatureHintsWiringOptions {
   statePath: string | null;
   broadcast: (message: { type: 'feature-hint'; hint: FeatureHint }) => void;
   log: Pick<Console, 'warn'>;
+  currentConfig: () => unknown;
   now?: () => number;
 }
 
@@ -17,15 +18,16 @@ interface HintableSession extends Pick<EventEmitter, 'on' | 'off'> {
   readonly ephemeral: boolean;
 }
 
-function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now }: FeatureHintsWiringOptions) {
+function createFeatureHintsWiring({ statePath, broadcast, log, currentConfig, now = Date.now }: FeatureHintsWiringOptions) {
   let state = core.emptyFeatureHintState();
   let recentPrompts: readonly RecentPrompt[] = [];
   let isStopped = false;
+  const isFeatureEnabled: core.IsFeatureEnabled = (feature) => core.isHintFeatureEnabledIn(currentConfig(), feature);
   const attachedSessions = new WeakSet<HintableSession>();
   const store = createJsonStateStore({
     name: 'feature hints', filePath: statePath,
     parse: (raw) => FeatureHintState.safeParse(raw).data ?? null,
-    adopt: (loadedState) => { state = core.withoutStaleHint(loadedState ?? core.emptyFeatureHintState(), now()); },
+    adopt: (loadedState) => { state = core.withoutStaleHint(loadedState ?? core.emptyFeatureHintState(), now(), isFeatureEnabled); },
     warn: (message, fields) => log.warn(`[feature-hints] ${message} ${JSON.stringify(fields)}`),
   });
   const loaded = store.load();
@@ -33,8 +35,8 @@ function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now }:
   function update(nextStateOf: (current: FeatureHintState) => FeatureHintState): Promise<void> {
     return loaded.then(() => {
       if (isStopped) return;
-      const nextState = core.withoutStaleHint(nextStateOf(state), now());
-      const hint = core.decideHint(nextState, now());
+      const nextState = core.withoutStaleHint(nextStateOf(state), now(), isFeatureEnabled);
+      const hint = core.decideHint(nextState, now(), isFeatureEnabled);
       state = hint ? { ...nextState, pendingHint: hint } : nextState;
       if (hint) broadcast({ type: 'feature-hint', hint });
       const persistedState = state;
@@ -44,7 +46,7 @@ function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now }:
 
   function recordSignals(signals: readonly FeatureSignal[]): Promise<void> {
     if (signals.length === 0) return Promise.resolve();
-    return update((current) => core.recordSignals(current, signals, now()));
+    return update((current) => core.recordSignals(current, signals, now(), isFeatureEnabled));
   }
 
   function attachSession(session: HintableSession): void {
@@ -72,7 +74,8 @@ function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now }:
   }
 
   function pendingHintMessage(): { type: 'feature-hint'; hint: FeatureHint } | null {
-    return state.pendingHint ? { type: 'feature-hint', hint: state.pendingHint } : null;
+    const pendingHint = core.withoutStaleHint(state, now(), isFeatureEnabled).pendingHint;
+    return pendingHint ? { type: 'feature-hint', hint: pendingHint } : null;
   }
 
   function idle(): Promise<void> {

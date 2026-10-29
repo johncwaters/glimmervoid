@@ -35,10 +35,12 @@ function hookedSession(id: string, { ephemeral = false }: { ephemeral?: boolean 
   });
 }
 
-function startHints(statePath: string, clock: Clock) {
+const DEFAULT_ON_FEATURES_OFF = { teamReview: { enabled: false }, usage: { enabled: false } };
+
+function startHints(statePath: string, clock: Clock, config: { current: unknown } = { current: DEFAULT_ON_FEATURES_OFF }) {
   const broadcastHints: FeatureHint[] = [];
   const featureHints = createFeatureHintsWiring({
-    statePath, log: { warn: () => {} }, now: () => clock.nowMs,
+    statePath, log: { warn: () => {} }, now: () => clock.nowMs, currentConfig: () => config.current,
     broadcast: (message) => { broadcastHints.push(message.hint); },
   });
   test.after(() => featureHints.stop());
@@ -81,6 +83,25 @@ test('Bash commands reviewing three distinct PRs raise one Reviews hint that a s
   await restarted.featureHints.idle();
   assert.equal(restarted.featureHints.pendingHintMessage(), null);
   assert.deepEqual(restarted.broadcastHints, []);
+});
+
+test('a feature left on by its default never hints, and turning one on drops its pending hint', async () => {
+  const clock = { nowMs: START_MS };
+  const config: { current: unknown } = { current: {} };
+  const { featureHints, broadcastHints } = startHints(tempStatePath(), clock, config);
+  const session = attachedSession(featureHints, 'session-a');
+
+  for (const prNumber of [601, 602, 603]) session.runCommand(`gh pr diff ${prNumber}`);
+  await featureHints.idle();
+  assert.deepEqual(broadcastHints, []);
+
+  config.current = DEFAULT_ON_FEATURES_OFF;
+  for (const prNumber of [604, 605, 606]) session.runCommand(`gh pr diff ${prNumber}`);
+  await featureHints.idle();
+  assert.equal(broadcastHints.length, 1);
+
+  config.current = {};
+  assert.equal(featureHints.pendingHintMessage(), null);
 });
 
 test('only the Bash tool counts, and a torn-down session stops counting', async () => {

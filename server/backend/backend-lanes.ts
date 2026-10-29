@@ -235,7 +235,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     telemetry: laneTelemetry,
   });
   const sessionPrLink = createSessionPrLinkWiring({ store: githubStore.laneStore, git: gitWorkspace, log: logger });
-  const featureHints = createFeatureHintsWiring({ statePath: configSiblingPath(configStore.configPath, 'feature-hints.json'), broadcast: broadcastControl, log: logger });
+  const featureHints = createFeatureHintsWiring({ statePath: configSiblingPath(configStore.configPath, 'feature-hints.json'), broadcast: broadcastControl, log: logger, currentConfig: () => configStore.config });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
     config, github, store: githubStore.laneStore, log: logger, clock: githubClock,

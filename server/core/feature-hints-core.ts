@@ -1,7 +1,7 @@
 import { HINT_FEATURES, HINT_VIEW_BY_FEATURE } from '../../shared/contracts/feature-hints.ts';
 import type { FeatureHint, FeatureHintState, HintFeature, HintOutcome } from '../../shared/contracts/feature-hints.ts';
 import { isExperimentalSetting } from '../../shared/settings/registry.ts';
-import { SETTINGS_INDEX } from '../../shared/settings/registry-core.ts';
+import { SETTINGS_INDEX, valueAtPath } from '../../shared/settings/registry-core.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SIGNAL_WINDOW_MS = 7 * DAY_MS;
@@ -114,6 +114,17 @@ const EXPERIMENTAL_HINT_FEATURES: ReadonlySet<HintFeature> = new Set(HINT_FEATUR
   return enableSetting !== undefined && isExperimentalSetting(enableSetting);
 }));
 
+type IsFeatureEnabled = (feature: HintFeature) => boolean;
+
+function isHintFeatureEnabledIn(config: unknown, feature: HintFeature): boolean {
+  const enablePath = `${feature}.enabled`;
+  return (valueAtPath(config, enablePath) ?? SETTINGS_INDEX.byPath.get(enablePath)?.defaultValue) === true;
+}
+
+function isFeatureHintable(feature: HintFeature, isFeatureEnabled: IsFeatureEnabled): boolean {
+  return !EXPERIMENTAL_HINT_FEATURES.has(feature) && !isFeatureEnabled(feature);
+}
+
 function emptyFeatureHintState(): FeatureHintState {
   return { signalsByFeature: {}, settledByFeature: {}, lastShownAtByView: {}, pendingHint: null };
 }
@@ -187,21 +198,21 @@ function signalsFromHookEvent({ event, payload }: HookEventNotice, { sessionId, 
   return { signals: [...classifyPrompt(payload.prompt, ts), ...repeated.signals], recentPrompts: repeated.recentPrompts };
 }
 
-function withoutStaleHint(state: FeatureHintState, now: number): FeatureHintState {
+function withoutStaleHint(state: FeatureHintState, now: number, isFeatureEnabled: IsFeatureEnabled): FeatureHintState {
   if (!state.pendingHint) return state;
   const isExpired = now - state.pendingHint.raisedAt > SIGNAL_WINDOW_MS;
-  if (!isExpired && !EXPERIMENTAL_HINT_FEATURES.has(state.pendingHint.feature)) return state;
+  if (!isExpired && isFeatureHintable(state.pendingHint.feature, isFeatureEnabled)) return state;
   return { ...state, pendingHint: null };
 }
 
-function isFeatureCounting(state: FeatureHintState, feature: HintFeature): boolean {
-  if (EXPERIMENTAL_HINT_FEATURES.has(feature)) return false;
+function isFeatureCounting(state: FeatureHintState, feature: HintFeature, isFeatureEnabled: IsFeatureEnabled): boolean {
+  if (!isFeatureHintable(feature, isFeatureEnabled)) return false;
   if (state.settledByFeature[feature]) return false;
   return state.pendingHint?.feature !== feature;
 }
 
-function recordSignals(state: FeatureHintState, signals: readonly FeatureSignal[], now: number): FeatureHintState {
-  const countingSignals = signals.filter((signal) => isFeatureCounting(state, signal.feature));
+function recordSignals(state: FeatureHintState, signals: readonly FeatureSignal[], now: number, isFeatureEnabled: IsFeatureEnabled): FeatureHintState {
+  const countingSignals = signals.filter((signal) => isFeatureCounting(state, signal.feature, isFeatureEnabled));
   if (countingSignals.length === 0) return state;
   const signalsByFeature = { ...state.signalsByFeature };
   for (const signal of countingSignals) {
@@ -221,10 +232,10 @@ function wasViewShownRecently(state: FeatureHintState, feature: HintFeature, now
   return typeof lastShownAt === 'number' && now - lastShownAt <= RECENT_VIEW_SKIP_MS;
 }
 
-function decideHint(state: FeatureHintState, now: number): FeatureHint | null {
-  if (withoutStaleHint(state, now).pendingHint) return null;
+function decideHint(state: FeatureHintState, now: number, isFeatureEnabled: IsFeatureEnabled): FeatureHint | null {
+  if (withoutStaleHint(state, now, isFeatureEnabled).pendingHint) return null;
   for (const feature of HINT_FEATURES) {
-    if (!isFeatureCounting(state, feature) || wasViewShownRecently(state, feature, now)) continue;
+    if (!isFeatureCounting(state, feature, isFeatureEnabled) || wasViewShownRecently(state, feature, now)) continue;
     const distinctTargetCount = distinctTargetCountInWindow(state, feature, now);
     const minDistinctTargets = RULE_BY_FEATURE.get(feature)?.minDistinctTargets ?? Number.POSITIVE_INFINITY;
     if (distinctTargetCount >= minDistinctTargets) return { feature, distinctTargetCount, raisedAt: now };
@@ -251,6 +262,6 @@ function noteViewShown(state: FeatureHintState, view: string, now: number): Feat
 }
 
 export {
-  decideHint, emptyFeatureHintState, noteViewShown, recordSignals, settleHint, signalsFromHookEvent, withoutStaleHint,
+  decideHint, emptyFeatureHintState, isHintFeatureEnabledIn, noteViewShown, recordSignals, settleHint, signalsFromHookEvent, withoutStaleHint,
 };
-export type { FeatureSignal, HookEventNotice, RecentPrompt };
+export type { FeatureSignal, HookEventNotice, IsFeatureEnabled, RecentPrompt };
