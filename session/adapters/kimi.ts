@@ -41,7 +41,7 @@ const HOOK_EVENTS: readonly string[] = Object.freeze([
 const TOOL_EVENTS: readonly string[] = Object.freeze(["PreToolUse", "PostToolUse"]);
 const SUBAGENT_TOOL_NAME = "Agent";
 const MATCHED_TOOL_NAMES: readonly string[] = Object.freeze([ASK_USER_QUESTION_TOOL_NAME, SUBAGENT_TOOL_NAME]);
-const SHELL_TOOL_NAMES: readonly string[] = Object.freeze(["Bash"]);
+const SANE_YOLO_TOOL_NAMES: readonly string[] = Object.freeze(["Bash", "Read", "ReadMediaFile", "Write", "Edit", "Glob", "Grep"]);
 
 const envProfile: AgentEnvProfile = {
   scrub: [],
@@ -140,7 +140,7 @@ function expectedHooksBlock(): string | null {
     events: HOOK_EVENTS,
     toolEvents: TOOL_EVENTS,
     matchedToolNames: MATCHED_TOOL_NAMES,
-    saneYolo: { relayPath: HOOK_TOOL_RELAY_PATH, toolNames: SHELL_TOOL_NAMES, agentFlavor: KIMI_SANE_YOLO_FLAVOR },
+    saneYolo: { relayPath: HOOK_TOOL_RELAY_PATH, toolNames: SANE_YOLO_TOOL_NAMES, agentFlavor: KIMI_SANE_YOLO_FLAVOR },
   });
 }
 

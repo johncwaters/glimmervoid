@@ -855,7 +855,7 @@ function createTeamReviewSpawn({
     if (guardrailsRole !== undefined && platform === SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
     const skipPermissions = settingsPermissions.defaultMode === 'bypassPermissions';
     const laneMcp = hookRouter ? await prepareMcp({ laneArgs: extraClaudeArgs, agent: agent ?? DEFAULT_AGENT_ID }) : null;
-    const sharedHookTools = hookToolConfig ? resolveHookTools({ saneYolo: hookToolConfig.saneYolo }, { skipPermissions }) : [];
+    const sharedHookTools = hookToolConfig ? resolveHookTools({ saneYolo: hookToolConfig.saneYolo }) : [];
     const sess = makeSession({
       id,
       name,

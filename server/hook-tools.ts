@@ -45,10 +45,10 @@ function warnOnce(toolId: string, message: string, warn: (message: string) => vo
 
 function resolveHookTools(
   config: { saneYolo?: boolean },
-  { skipPermissions, warn = console.warn }: { skipPermissions: boolean; warn?: (message: string) => void },
+  { warn = console.warn }: { warn?: (message: string) => void } = {},
 ): ResolvedHookTool[] {
   const hookTools: ResolvedHookTool[] = [];
-  if (config.saneYolo === false || !skipPermissions) return hookTools;
+  if (config.saneYolo === false) return hookTools;
   const binPath = resolvePackageBin('cc-safety-net', 'cc-safety-net');
   if (!binPath) {
     warnOnce('saneYolo', '[sane-yolo] cc-safety-net was not found. Sessions will spawn without Sane YOLO hooks.', warn);
@@ -66,7 +66,7 @@ function resolveHookTools(
 function resolveRequiredSaneYoloHookTools(
   { resolve = resolveHookTools }: { resolve?: typeof resolveHookTools } = {},
 ): ResolvedHookTool[] | null {
-  const hookTools = resolve({ saneYolo: true }, { skipPermissions: true });
+  const hookTools = resolve({ saneYolo: true });
   return hookTools.some((tool) => tool.id === 'saneYolo') ? hookTools : null;
 }
 

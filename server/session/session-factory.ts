@@ -31,7 +31,7 @@ interface SessionFactoryDependencies {
   getHookPort: () => number | null;
   getGitWorkspace: () => GitWorkspace | null;
   getPlanReviewPort: () => SessionPlanReviewPort | null;
-  resolveHookTools: (config: GlimmervoidConfig, options: { skipPermissions: boolean }) => ResolvedHookTool[];
+  resolveHookTools: (config: GlimmervoidConfig) => ResolvedHookTool[];
   getUserHooks: (projectId: string) => UserHook[];
   sessionGuardrails?: SessionGuardrails;
   commitSigningProgram?: string | null;
@@ -126,7 +126,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
   ): Session {
     const skipPermissions = projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
     const hookToolConfig = (currentConfig: GlimmervoidConfig): GlimmervoidConfig => project.saneYolo === true ? { ...currentConfig, saneYolo: true } : currentConfig;
-    const originalHookTools = dependencies.resolveHookTools(hookToolConfig(config), { skipPermissions });
+    const originalHookTools = dependencies.resolveHookTools(hookToolConfig(config));
     const prepareCoherence = overrides.ephemeral ? null : (cwd: string, confine: ConfineCommand | null) => resolveCoherence({
       worktree: cwd, confine, host: getAdapter(overrides.agent ?? project.agent)?.usageVendor,
       isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true,

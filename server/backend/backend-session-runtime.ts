@@ -109,7 +109,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     getHookPort,
     getGitWorkspace: dependencies.getGitWorkspace,
     getPlanReviewPort: dependencies.getPlanReviewPort || (() => null),
-    resolveHookTools: (config, options) => resolveHookTools(config, { ...options, warn: dependencies.logger.warn.bind(dependencies.logger) }),
+    resolveHookTools: (config) => resolveHookTools(config, { warn: dependencies.logger.warn.bind(dependencies.logger) }),
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
     sessionGuardrails: createSessionGuardrails({
       getSettings: () => {

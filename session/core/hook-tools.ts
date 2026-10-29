@@ -46,7 +46,7 @@ const HOOK_TOOLS: Record<HookToolId, HookToolDescriptor> = {
     purpose: 'Sane YOLO catastrophic command protection',
     env: (tool, homeDir) => ({ [SANE_YOLO_PATH_ENV]: tool.binPath, ...saneYoloEnv(homeDir) }),
     claudeEntry: (tool) => ({
-      matcher: 'Bash|PowerShell|Monitor',
+      matcher: 'Bash|PowerShell|Monitor|Read|Edit|Write|MultiEdit|NotebookEdit|Glob|Grep',
       hooks: [{ type: 'command', command: `node "${toForwardSlashes(tool.binPath)}" hook --coding-cli` }],
     }),
     codexGroup: (tool) => codexGroup(buildHookCommand(tool.binPath, 'hook', ['--codex'])),

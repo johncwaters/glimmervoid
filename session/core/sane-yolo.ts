@@ -19,7 +19,7 @@ function saneYoloPolicy(guardrailsTempRoot: string) {
       },
       allow_paths: [guardrailsTempRoot],
     },
-    secret_protection: { enabled: false },
+    secret_protection: { enabled: true },
   };
 }
 

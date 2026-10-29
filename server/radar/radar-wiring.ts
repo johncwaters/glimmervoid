@@ -564,7 +564,7 @@ function createRadarWiring({
       radarLaneRole({ ...facts, readablePaths: [...facts.readablePaths, ...(laneMcp?.readablePaths ?? [])] }, access),
       laneMcp?.posture,
     ), guardrails);
-    const sharedHookTools = resolveHookTools({ saneYolo: config.saneYolo }, { skipPermissions: false });
+    const sharedHookTools = resolveHookTools({ saneYolo: config.saneYolo });
     const sess = makeSession({
       id,
       name,

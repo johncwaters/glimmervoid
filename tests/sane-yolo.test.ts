@@ -59,7 +59,7 @@ async function withProductionHookFixture(run: (fixture: ProductionHookFixture) =
     fs.mkdirSync(cwd);
     const baseEnv = { ...process.env, HOME: temporaryHome, USERPROFILE: temporaryHome };
     await executeFile('git', ['init', cwd], { env: baseEnv });
-    const saneYoloTool = resolveHookTools({}, { skipPermissions: true }).find((tool) => tool.id === 'saneYolo');
+    const saneYoloTool = resolveHookTools({}).find((tool) => tool.id === 'saneYolo');
     assert.ok(saneYoloTool);
     const env = { ...baseEnv, ...HOOK_TOOLS.saneYolo.env(saneYoloTool, saneYoloHomeDir()) };
     await run({ cwd, env, saneYoloTool });
@@ -70,6 +70,10 @@ async function withProductionHookFixture(run: (fixture: ProductionHookFixture) =
   }
 }
 
+function saneYoloCommandOf(settings: ReturnType<typeof buildHookSettings>): string | undefined {
+  return settings.hooks.PreToolUse?.find((entry) => entry.matcher === HOOK_TOOLS.saneYolo.claudeEntry({ id: 'saneYolo', binPath: '' }, '').matcher)?.hooks[0]?.command;
+}
+
 function permissionDecisionOf(stdout: string): string | undefined {
   const verdict = JSON.parse(stdout) as { hookSpecificOutput?: { permissionDecision?: string } };
   return verdict.hookSpecificOutput?.permissionDecision;
@@ -78,8 +82,7 @@ function permissionDecisionOf(stdout: string): string | undefined {
 test('the production Claude settings command denies git reset --hard through a shell', async () => {
   await withProductionHookFixture(async ({ cwd, env, saneYoloTool }) => {
     const settings = buildHookSettings({ port: 1, glimmervoidId: 'sane-yolo-e2e', token: 'token', hookTools: [saneYoloTool] });
-    const saneYoloEntry = settings.hooks.PreToolUse?.find((entry) => entry.matcher === 'Bash|PowerShell|Monitor');
-    const command = saneYoloEntry?.hooks[0]?.command;
+    const command = saneYoloCommandOf(settings);
     assert.ok(command);
     const stdout = execSync(command, { cwd, env, encoding: 'utf8', input: hookPayload('--coding-cli', 'git reset --hard', cwd) });
     assert.equal(permissionDecisionOf(stdout), 'deny', stdout);
@@ -89,9 +92,21 @@ test('the production Claude settings command denies git reset --hard through a s
 test('the production Claude settings command denies infra teardown hidden behind an rtk prefix', async () => {
   await withProductionHookFixture(async ({ cwd, env, saneYoloTool }) => {
     const settings = buildHookSettings({ port: 1, glimmervoidId: 'sane-yolo-e2e', token: 'token', hookTools: [saneYoloTool] });
-    const command = settings.hooks.PreToolUse?.find((entry) => entry.matcher === 'Bash|PowerShell|Monitor')?.hooks[0]?.command;
+    const command = saneYoloCommandOf(settings);
     assert.ok(command);
     const stdout = execSync(command, { cwd, env, encoding: 'utf8', input: hookPayload('--coding-cli', 'rtk terraform destroy', cwd) });
+    assert.equal(permissionDecisionOf(stdout), 'deny', stdout);
+  });
+});
+
+test('the production Claude settings command denies a Read tool call on an SSH private key', async () => {
+  await withProductionHookFixture(async ({ cwd, env, saneYoloTool }) => {
+    const settings = buildHookSettings({ port: 1, glimmervoidId: 'sane-yolo-e2e', token: 'token', hookTools: [saneYoloTool] });
+    const command = saneYoloCommandOf(settings);
+    assert.ok(command);
+    const keyPath = path.join(env.HOME ?? '', '.ssh', 'id_ed25519');
+    const input = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: keyPath }, cwd, session_id: 'sane-yolo-test', permission_mode: 'default' });
+    const stdout = execSync(command, { cwd, env, encoding: 'utf8', input });
     assert.equal(permissionDecisionOf(stdout), 'deny', stdout);
   });
 });
