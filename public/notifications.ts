@@ -71,7 +71,7 @@ export function createNotificationPermissionControl(onAnswered: () => void = () 
     control.replaceChildren();
     control.hidden = !hint && !canAskNotificationPermission();
     if (hint) {
-      control.append(el('p', 'notification-permission-hint text-xs text-text-muted', hint));
+      control.append(el('p', 'notification-permission-hint text-meta text-text-muted', hint));
       return;
     }
     const button = el('button', 'btn-dialog btn-dialog-cancel', 'Enable desktop notifications');

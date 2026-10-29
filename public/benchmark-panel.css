@@ -41,7 +41,7 @@
 .bench-error {
   margin: 12px 0 0;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--type-meta);
   line-height: 1.55;
 }
 

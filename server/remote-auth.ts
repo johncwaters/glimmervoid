@@ -51,7 +51,7 @@ function htmlPage(title: string, message: string): string {
 body { background:#12131a; color:#e6e6ee; font:16px/1.5 system-ui, sans-serif; margin:0;
   display:flex; align-items:center; justify-content:center; min-height:100vh; padding:24px; }
 main { max-width:32rem; }
-h1 { font-size:1.25rem; margin:0 0 .5rem; }
+h1 { font-size:20px; margin:0 0 .5rem; }
 p { margin:0; color:#a0a0b2; }
 </style></head>
 <body><main><h1>${escapeMarkup(title)}</h1><p>${escapeMarkup(message)}</p></main></body></html>`;

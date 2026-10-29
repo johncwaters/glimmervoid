@@ -37,7 +37,7 @@
 
 .feature-hint-text {
   margin: 0 0 10px;
-  font-size: 14px;
+  font-size: var(--type-body);
   line-height: 1.5;
 }
 

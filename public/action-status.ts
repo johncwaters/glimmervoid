@@ -76,7 +76,7 @@ export function createActionStatus(className = 'action-status'): ActionStatus {
     clearActionStatus(element);
   };
   const show = (tone: ActionStatusTone, text: string) => {
-    element.className = `${className} text-xs ${TONE_CLASS[tone]}`;
+    element.className = `${className} text-meta ${TONE_CLASS[tone]}`;
     paintActionStatus(element, tone, text);
     element.hidden = !text;
   };

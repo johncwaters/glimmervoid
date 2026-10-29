@@ -30,6 +30,13 @@
     --radius: 4px;
     --radius-lg: 5px;
   }
+  @theme inline {
+    --text-*: initial;
+    --text-meta: var(--type-meta);
+    --text-body: var(--type-body);
+    --text-title: var(--type-title);
+    --text-display: var(--type-display);
+  }
 }
 
 @import "./style.css" layer(components);

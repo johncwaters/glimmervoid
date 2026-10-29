@@ -25,36 +25,36 @@ colors:
   state-complete: "#34d399"
   state-initializing: "#6b7280"
 typography:
-  headline:
+  label:
     fontFamily: "CommitMono, Cascadia Code, Fira Code, Consolas, Menlo, monospace"
-    fontSize: "16px"
+    fontSize: "12px"
     fontWeight: 700
     lineHeight: 1.2
-    letterSpacing: "0.1em"
-  title:
+    letterSpacing: "0.08em"
+  meta:
     fontFamily: "CommitMono, Cascadia Code, Fira Code, Consolas, Menlo, monospace"
-    fontSize: "14px"
-    fontWeight: 700
-    lineHeight: 1.3
-    letterSpacing: "0.04em"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: 1.55
+    letterSpacing: "normal"
   body:
     fontFamily: "CommitMono, Cascadia Code, Fira Code, Consolas, Menlo, monospace"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.5
     letterSpacing: "normal"
-  caption:
+  title:
     fontFamily: "CommitMono, Cascadia Code, Fira Code, Consolas, Menlo, monospace"
-    fontSize: "12px"
-    fontWeight: 400
-    lineHeight: 1.55
-    letterSpacing: "0.02em"
-  label:
+    fontSize: "16px"
+    fontWeight: 700
+    lineHeight: 1.3
+    letterSpacing: "normal"
+  display:
     fontFamily: "CommitMono, Cascadia Code, Fira Code, Consolas, Menlo, monospace"
-    fontSize: "10px"
+    fontSize: "20px"
     fontWeight: 700
     lineHeight: 1.2
-    letterSpacing: "0.08em"
+    letterSpacing: "0.1em"
 rounded:
   sm: "4px"
   lg: "5px"
@@ -116,7 +116,7 @@ This system explicitly rejects the generic AI-SaaS dashboard (no gradient hero, 
 - Oil-black violet surfaces with one iridescent accent used sparingly.
 - Flat by default; depth comes from tonal layering and 1px borders, never resting shadows.
 - Color and motion are reserved for genuine state signals, so a signal always means something.
-- Compressed type scale (10px to 16px); hierarchy is built from weight, tracking, color, and case, not size.
+- Four sizes (12, 14, 16, 20px) carry five roles; hierarchy is built from weight, tracking, color, and case, not size.
 - Four shipping themes (Phyrexian is the default); the system is theme-agnostic and reads colors from CSS variables.
 
 ## 2. Colors
@@ -166,14 +166,18 @@ Always paired with a status icon; never carried by hue alone.
 **Character:** One programmer's-typeface voice for everything. It reads as an instrument readout, not a document. Because the family is fixed and the size range is narrow, hierarchy is carried by weight, letter-spacing, color, and uppercase, not by large type.
 
 ### Hierarchy
-- **Headline** (700, 16px, 0.1em tracking, uppercase): The GLIMMERVOID wordmark and top-level bar titles. The only place tracking opens up this wide.
-- **Title** (700, 14px to 16px, 0.03em to 0.04em): Dialog titles, panel names, empty-state titles.
-- **Body** (400, 14px, line-height 1.5): Base reading size; the document default.
-- **Caption** (400, 11px to 12px, 0.02em, line-height ~1.55): Descriptions, summaries, secondary metadata. The workhorse of the dense panels.
-- **Label** (700, 10px to 11px, 0.08em tracking, uppercase): Field labels, section eyebrows, state badges. Small, tracked, and shouty-quiet.
+Each role names a `--type-*` size token in `public/style.css`, and Tailwind exposes the same four as `text-meta`, `text-body`, `text-title`, `text-display`; `tests/gates/design-type-scale.test.ts` fails any other size and keeps these sizes equal to the tokens.
+
+- **Display** (700, 20px `--type-display`, 0.1em tracking, uppercase): The GLIMMERVOID wordmark, the loading screen, and the big stat numbers. The only place tracking opens up this wide.
+- **Title** (700, 16px `--type-title`): Page and section titles (settings sections, plan headings, shown pages, first run, merge celebration). Dialog titles stay at body size. Phone and dialog form fields also sit at 16px, because iOS Safari zooms the page into any smaller focused field.
+- **Body** (400, 14px `--type-body`, line-height 1.5): Base reading size; the document default.
+- **Meta** (400, 12px `--type-meta`, line-height ~1.55): Descriptions, summaries, secondary metadata. The workhorse of the dense panels, and the floor: CommitMono's 0.54 x-height keeps 12px legible.
+- **Label** (700, 12px `--type-meta`, 0.08em tracking, uppercase): Field labels, section eyebrows, state badges. Shares the meta size and differs by weight, case, and tracking.
 
 ### Named Rules
-**The Weight-Not-Size Rule.** The type scale is deliberately compressed (10px to 16px). Build hierarchy with weight, tracking, color, and case. Do not reach for larger sizes to signal importance.
+**The Weight-Not-Size Rule.** The type scale is deliberately compressed (12px to 20px, four sizes). Build hierarchy with weight, tracking, color, and case. Do not reach for larger sizes to signal importance.
+
+**The Smart Kerning Rule.** Only uppercase text is tracked. CommitMono evens out letter gaps through its `calt` contextual alternates, so lowercase text keeps normal spacing and no rule sets `font-feature-settings`, `font-variant-ligatures`, or `font-kerning`.
 
 **The Monospace Voice Rule.** UI text is monospace. Do not introduce a sans or serif for body, labels, or data. The mono is the brand's voice.
 
@@ -203,14 +207,14 @@ Every interactive element ships default, hover, focus-visible, active, and disab
 
 ### Buttons
 - **Shape:** nearly square (4px radius). Tight corners reinforce the instrument feel.
-- **Primary (accent-outline):** transparent fill, Iridescent Orchid text and 1px orchid border, padding 8px 18px, uppercase-ish mono with light tracking. Used for Run, Add, Save, the empty-state CTA. Hover fills with a ~14% orchid wash; disabled drops to 0.4 opacity.
+- **Primary (accent-outline):** transparent fill, Iridescent Orchid text and 1px orchid border, padding 8px 18px, mono. Used for Run, Add, Save, the empty-state CTA. Hover fills with a ~14% orchid wash; disabled drops to 0.4 opacity.
 - **Ghost / secondary:** transparent fill, Muted Lavender text, 1px base border, padding 6px 12px. Used for Edit, Remove, Cancel. Hover lifts the border (Remove hovers to Signal Red).
 - **Icon action button:** 26x22 transparent square, glyph only. Maximize and the overflow (kebab) sit persistently in the card header; the kebab holds the secondary actions (rename, restart, remove), and the debug button appears only when debug mode is on. An invisible inset pseudo-element extends the touch target without changing the visual size. Active scales to 0.93 for tactile feedback.
 
 ### Inputs / Fields
-- **Style:** Deep Violet Slate fill, 1px Violet Border, 4px radius, padding 8px 12px, Bright Lavender White text, mono 13px.
+- **Style:** Deep Violet Slate fill, 1px Violet Border, 4px radius, padding 8px 12px, Bright Lavender White text, mono 14px (16px on phone).
 - **Focus:** border shifts to Iridescent Orchid (no glow). Placeholders use Faint Lavender.
-- **Label:** sits above the field as a 10px uppercase tracked Label.
+- **Label:** sits above the field as a 12px uppercase tracked Label.
 - **Error:** Signal Red caption below the field, hidden when empty.
 
 ### Cards / Containers
@@ -221,10 +225,10 @@ Every interactive element ships default, hover, focus-visible, active, and disab
 - **Internal padding:** 20px to 28px on large panels; the session-card header and terminal pane carry their own rhythm.
 
 ### Navigation
-- **Primary view tabs:** mono 13px, 0.04em tracking, Muted Lavender at rest to Bright Lavender White when selected. The active tab draws a 2px orchid underline that animates in via `transform: scaleX` (ease-out-quart), never a layout shift. An optional activity dot shows steady orchid when a tab has something new; it never pulses, because a tab dot that animates for minutes reads as noise.
+- **Primary view tabs:** mono 12px, Muted Lavender at rest to Bright Lavender White when selected. The active tab draws a 2px orchid underline that animates in via `transform: scaleX` (ease-out-quart), never a layout shift. An optional activity dot shows steady orchid when a tab has something new; it never pulses, because a tab dot that animates for minutes reads as noise.
 
 ### State Badge (signature)
-- Uppercase mono, 11px, 700, 0.08em tracking, colored by `data-state` and always preceded by a status icon: a bare SVG mark, never a symbol cut out of a filled circle, because the shape alone must name the status at 12px. Every surface, the site legend and the tab favicon draw it from `shared/state-icons.ts`, so no view keeps its own copy. Starting spins and Working pulses.
+- Uppercase mono, 12px, 700, 0.08em tracking, colored by `data-state` and always preceded by a status icon: a bare SVG mark, never a symbol cut out of a filled circle, because the shape alone must name the status at 12px. Every surface, the site legend and the tab favicon draw it from `shared/state-icons.ts`, so no view keeps its own copy. Starting spins and Working pulses.
 
 ### Terminal Pane (signature, the product)
 - An xterm.js surface filling each card on the Ink Violet background. The server is a dumb pipe; xterm renders all ANSI. The terminal theme is derived from the active CSS-variable palette at runtime, so it stays in lockstep with the chrome. Chrome around it must never compete with it for contrast or color.

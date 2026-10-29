@@ -34,7 +34,7 @@
 .usage-meta {
   margin: 0;
   max-width: 78ch;
-  font-size: 11px;
+  font-size: var(--type-meta);
   line-height: 1.35;
   color: var(--text-muted);
 }
@@ -48,14 +48,14 @@
 .usage-warning {
   margin: 0;
   max-width: 78ch;
-  font-size: 11px;
+  font-size: var(--type-meta);
   line-height: 1.5;
   color: var(--state-waiting);
 }
 
 .usage-projection {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--type-meta);
   color: var(--text-dim);
 }
 
@@ -65,7 +65,7 @@
 .usage-empty {
   margin: 0;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--type-meta);
   line-height: 1.35;
   max-width: 78ch;
 }
@@ -88,21 +88,21 @@
 }
 
 .usage-tile-value {
-  font-size: 16px;
+  font-size: var(--type-display);
   font-weight: 700;
   color: var(--text-head);
   font-variant-numeric: tabular-nums;
 }
 
 .usage-tile-label {
-  font-size: 10px;
+  font-size: var(--type-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted); font-weight: 700;
 }
 
 .usage-tile-sub {
-  font-size: 11px;
+  font-size: var(--type-meta);
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -148,13 +148,13 @@
 .usage-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--type-meta);
 }
 
 .usage-table th {
   text-align: left;
   font-weight: 700;
-  font-size: 10px;
+  font-size: var(--type-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
@@ -213,7 +213,7 @@
   padding: 1px 6px;
   border: 1px solid var(--border-dim);
   border-radius: var(--radius);
-  font-size: 11px;
+  font-size: var(--type-meta);
   color: var(--text-muted);
 }
 
@@ -250,7 +250,7 @@
 
 .usage-plan-vendor-label {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--type-meta);
   font-weight: 700;
   color: var(--text-head);
 }
@@ -270,7 +270,7 @@
 }
 
 .usage-plan-label {
-  font-size: 10px;
+  font-size: var(--type-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
@@ -279,14 +279,14 @@
 
 .usage-plan-used {
   white-space: nowrap;
-  font-size: 16px;
+  font-size: var(--type-display);
   font-weight: 700;
   color: var(--text-head);
   font-variant-numeric: tabular-nums;
 }
 
 .usage-plan-reset {
-  font-size: 11px;
+  font-size: var(--type-meta);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -328,7 +328,7 @@
 }
 
 .usage-budget-label {
-  font-size: 10px;
+  font-size: var(--type-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
@@ -336,13 +336,13 @@
 }
 
 .usage-budget-value {
-  font-size: 14px;
+  font-size: var(--type-body);
   color: var(--text-head);
   font-variant-numeric: tabular-nums;
 }
 
 .usage-budget-pct {
-  font-size: 11px;
+  font-size: var(--type-meta);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -368,7 +368,7 @@
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: 10px;
+  font-size: var(--type-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer; font-weight: 700;
@@ -391,7 +391,7 @@
 }
 
 .usage-history-tag {
-  font-size: 10px;
+  font-size: var(--type-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted); font-weight: 700;
@@ -419,7 +419,7 @@
 }
 
 .usage-heatmap-day {
-  font-size: 10px;
+  font-size: var(--type-meta);
   line-height: 11px;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -507,14 +507,14 @@
 }
 
 .usage-compo-label {
-  font-size: 10px;
+  font-size: var(--type-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted); font-weight: 700;
 }
 
 .usage-compo-value {
-  font-size: 11px;
+  font-size: var(--type-meta);
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -528,7 +528,7 @@
 
 .usage-vendor-tag {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: var(--type-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted); font-weight: 700;
@@ -536,7 +536,7 @@
 
 .usage-provenance {
   margin: 0;
-  font-size: 10px;
+  font-size: var(--type-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted); font-weight: 700;
@@ -556,7 +556,7 @@
 }
 
 .usage-control-label {
-  font-size: 10px;
+  font-size: var(--type-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted); font-weight: 700;
@@ -568,7 +568,7 @@
   background: var(--bg-surface);
   color: var(--text);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--type-meta);
   padding: 2px 6px;
   cursor: pointer;
 }
@@ -579,7 +579,7 @@
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: 10px;
+  font-size: var(--type-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 2px 8px;
@@ -599,7 +599,7 @@
 }
 
 .usage-refresh-status {
-  font-size: 11px;
+  font-size: var(--type-meta);
   color: var(--text-muted);
 }
 
@@ -637,7 +637,7 @@
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: 10px;
+  font-size: var(--type-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer; font-weight: 700;
@@ -748,16 +748,16 @@
 html[data-layout="phone"] .usage-content { gap: 24px; }
 html[data-layout="phone"] .usage-band,
 html[data-layout="phone"] .usage-band-col { gap: 24px; }
-html[data-layout="phone"] .usage-table { font-size: 12px; }
+html[data-layout="phone"] .usage-table { font-size: var(--type-meta); }
 html[data-layout="phone"] .usage-tile { flex: 1 1 calc(50% - 8px); min-width: 0; }
 html[data-layout="phone"] .usage-meta,
 html[data-layout="phone"] .usage-warning,
 html[data-layout="phone"] .usage-projection,
-html[data-layout="phone"] .usage-empty { font-size: 12px; }
+html[data-layout="phone"] .usage-empty { font-size: var(--type-meta); }
 
-html[data-layout="phone"] .usage-plan-used { font-size: 14px; }
+html[data-layout="phone"] .usage-plan-used { font-size: var(--type-body); }
 
-html[data-layout="phone"] .usage-period-button { min-height: 44px; padding: 4px 14px; font-size: 11px; }
+html[data-layout="phone"] .usage-period-button { min-height: 44px; padding: 4px 14px; font-size: var(--type-meta); }
 html[data-layout="phone"] .usage-heatmap,
 html[data-layout="phone"] .usage-heatmap-days { grid-template-rows: repeat(7, 13px); }
 html[data-layout="phone"] .usage-heatmap-cell { width: 13px; height: 13px; }
@@ -766,9 +766,9 @@ html[data-layout="phone"] .usage-plan-window .usage-meter { height: 8px; }
 
 
 html[data-layout="phone"] .usage-select,
-html[data-layout="phone"] .usage-refresh { min-height: 44px; padding: 4px 12px; font-size: 12px; }
+html[data-layout="phone"] .usage-refresh { min-height: 44px; padding: 4px 12px; font-size: var(--type-meta); }
 html[data-layout="phone"] .usage-sort,
-html[data-layout="phone"] .usage-toggle { min-height: 44px; font-size: 11px; }
+html[data-layout="phone"] .usage-toggle { min-height: 44px; font-size: var(--type-meta); }
 html[data-layout="phone"] .usage-table th { padding-bottom: 8px; }
 html[data-layout="phone"] .usage-table td { padding-top: 7px; padding-bottom: 7px; }
 
