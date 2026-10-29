@@ -70,7 +70,7 @@ Inside a Glimmervoid session:
   edit <path>         Open a text file for the operator to edit in the dashboard
   show <path>... [--caption <text>] Show the operator an image, video or HTML page on this session's card
   review <pr>         Queue a team review of a pull request; the draft waits in the Reviews tab for the operator to post
-  reviews             List the Reviews tab: reviews running, queued and drafted
+  reviews [pr]        List the Reviews tab: reviews running, queued and drafted; with a pull request, read its draft in full
   prs                 List the operator's open pull requests with their checks, reviews and merge state
   link-pr <pr>        Link a pull request to this session's card
   settings list|get   Read Glimmervoid's settings; a secret shows only as configured or not

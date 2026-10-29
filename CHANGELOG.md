@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Sessions read a review in full**: `glimmervoid reviews <pr>` (a pull request url or `owner/repo#number`) gives a session the whole Reviews tab draft as JSON: verdict, summary, body, assessment, every inline comment with its severity and diff excerpt, GitHub threads and the earlier review. A review still queued or running reports its state instead, and a pull request not in the Reviews tab says to queue one with `glimmervoid review <pr>`. Ask a chat to run it instead of pasting the review in. `glimmervoid reviews` with no pull request lists the tab as before.
+
 ### Fixed
 
 - **Restart works after a Node upgrade**: when Homebrew (or another package manager) upgraded Node while Glimmervoid was running, the dashboard Restart button stopped the server and never brought it back, with nothing in the log. The replacement server now starts through the `node` on your PATH that the server booted from, such as `/opt/homebrew/bin/node`, so it follows the upgrade. If even that Node is gone, the server log says so with a `[lifecycle]` line and the process exits 1.

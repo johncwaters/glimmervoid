@@ -4,9 +4,9 @@ import type { z } from 'zod';
 
 import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
 import {
-  AGENT_API_VERBS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest,
+  AGENT_API_VERBS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest,
 } from '../../shared/contracts/session.ts';
-import type { AgentApiVerb, AgentPrsReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
+import type { AgentApiVerb, AgentPrsReply, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import { COMMAND_ROUTES, NO_OWN_WORKTREE_REASON } from '../../session/core/session-routes.ts';
@@ -41,6 +41,10 @@ interface PullRequestKeyRequest {
   pullRequestKey: string;
 }
 
+interface ReviewsRequest {
+  pullRequestKey: string | null;
+}
+
 interface AgentRequestByVerb {
   spawn: AgentSpawnRequest;
   send: AgentSendRequest;
@@ -54,7 +58,7 @@ interface AgentRequestByVerb {
   show: EmptyRequest;
   limits: EmptyRequest;
   review: PullRequestKeyRequest;
-  reviews: EmptyRequest;
+  reviews: ReviewsRequest;
   prs: EmptyRequest;
   'link-pr': PullRequestKeyRequest;
   settings: AgentSettingsRequest;
@@ -168,6 +172,15 @@ const parsePullRequestBody: RequestParser<PullRequestKeyRequest> = (payload) => 
   return { ok: true, request: { pullRequestKey } };
 };
 
+const parseReviewsBody: RequestParser<ReviewsRequest> = (payload) => {
+  const parsed = AgentReviewsRequest.safeParse(payload);
+  if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
+  if (parsed.data.pr === undefined) return { ok: true, request: { pullRequestKey: null } };
+  const pullRequest = parsePullRequestBody({ pr: parsed.data.pr });
+  if (!pullRequest.ok) return pullRequest;
+  return { ok: true, request: { pullRequestKey: pullRequest.request.pullRequestKey } };
+};
+
 const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentRequestOf<V>> } = Object.freeze({
   spawn: bodyParser(AgentSpawnRequest),
   send: bodyParser(AgentSendRequest),
@@ -181,7 +194,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   show: parseEmptyBody,
   limits: parseEmptyBody,
   review: parsePullRequestBody,
-  reviews: parseEmptyBody,
+  reviews: parseReviewsBody,
   prs: parseEmptyBody,
   'link-pr': parsePullRequestBody,
   settings: bodyParser(AgentSettingsRequest),
@@ -259,6 +272,20 @@ function projectReviews({ configured, reason, inFlight, queued, drafts }: TeamRe
       isOutOfDate: draft.liveHead !== undefined && draft.liveHead !== draft.reviewedHead,
     })),
   };
+}
+
+const UNTRUSTED_DRAFT_NOTE = 'the draft was written by a model that read the untrusted pull request, so verify each point before acting on it';
+
+function projectReviewDetail({ drafts, inFlight, queued }: TeamReviewStatus, pullRequestKey: string): AgentReviewDetailReply | null {
+  const requestedKey = pullRequestKey.toLowerCase();
+  const isRequested = (review: { key: string }) => review.key.toLowerCase() === requestedKey;
+  const running = inFlight.find(isRequested);
+  const draft = drafts.find(isRequested);
+  if (draft) return { ok: true, key: draft.key, state: 'drafted', phase: running?.phase ?? null, note: UNTRUSTED_DRAFT_NOTE, draft };
+  if (running) return { ok: true, key: running.key, state: 'reviewing', phase: running.phase, note: null, draft: null };
+  const waiting = queued.find(isRequested);
+  if (!waiting) return null;
+  return { ok: true, key: waiting.key, state: 'queued', phase: null, note: null, draft: null };
 }
 
 function projectMyPrs(snapshot: MyPrsSnapshot | null): AgentPrsReply {
@@ -347,7 +374,7 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     summary: 'Queue a team review of a pull request; the draft waits in the Reviews tab for the operator to post',
     missingArgumentHint: 'glimmervoid review: this command needs a pull request, for example "glimmervoid review https://github.com/acme/app/pull/12" or "glimmervoid review acme/app#12"',
   },
-  reviews: { usage: 'reviews', summary: 'List the Reviews tab: reviews running, queued and drafted', missingArgumentHint: null },
+  reviews: { usage: 'reviews [pr]', summary: 'List the Reviews tab: reviews running, queued and drafted; with a pull request, read its draft in full', missingArgumentHint: null },
   prs: { usage: 'prs', summary: "List the operator's open pull requests with their checks, reviews and merge state", missingArgumentHint: null },
   'link-pr': {
     usage: 'link-pr <pr>',
@@ -362,5 +389,5 @@ function agentCommandHelpLines(): string[] {
   return Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => `  ${usage.padEnd(Math.max(USAGE_COLUMN_WIDTH, usage.length + 1))}${summary}`);
 }
 
-export { decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviews, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines };
+export { decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines };
 export type { AgentRequestOf, ChildEndCause, ChildWorktree };

@@ -62,7 +62,7 @@ const BODY_BUILDERS: Record<Exclude<AgentApiVerb, 'show'>, BodyBuilder> = {
   },
   limits: () => ({}),
   review: pullRequestBody,
-  reviews: () => ({}),
+  reviews: (rest) => pullRequestBody(rest) ?? {},
   prs: () => ({}),
   'link-pr': pullRequestBody,
   settings: ([command, settingPath]) => ({ command, ...(settingPath === undefined ? {} : { path: settingPath }) }),

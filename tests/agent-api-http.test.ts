@@ -16,7 +16,8 @@ import { memoryReserveBytes } from '../server/core/memory-admission-core.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
-import { AgentLimitsReply, AgentReadReply } from '../shared/contracts/session.ts';
+import { AgentLimitsReply, AgentReadReply, AgentReviewDetailReply, AgentReviewsReply } from '../shared/contracts/session.ts';
+import { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
@@ -201,6 +202,7 @@ interface WiringFixtureOptions {
   clock?: ManualClock;
   coderWorkspaceStatus?: (workspace: string) => string | null;
   childGitWorkspace?: SessionOptions['gitWorkspace'];
+  teamReviewStatus?: TeamReviewStatus;
 }
 
 interface ManualClock {
@@ -237,7 +239,7 @@ function manualClock() {
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
   holdSpawnGate = false, parentIsGuarded = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
-  clock, coderWorkspaceStatus, childGitWorkspace,
+  clock, coderWorkspaceStatus, childGitWorkspace, teamReviewStatus,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -304,6 +306,14 @@ function wiringFixture({
     sessionDocs: createSessionDocsWiring({ broadcastControl: (message) => { broadcasts.push(message); } }),
     memoryAdmission,
     coderWorkspaceStatus,
+    ...(teamReviewStatus ? {
+      operatorState: {
+        requestReview: async () => ({ ok: false as const, error: 'not in this fixture' }),
+        teamReviewStatus: () => teamReviewStatus,
+        myPrsStatus: () => null,
+        readSettings: () => ({ ok: false as const, error: 'not in this fixture' }),
+      },
+    } : {}),
     logger: { warn: () => {} },
     ...clock,
   });
@@ -1310,5 +1320,43 @@ test('a held attention note is dropped when the session exits before it can fire
     assert.deepEqual(triggered.filter((entry) => entry.category === 'waiting'), []);
   } finally {
     session.destroy();
+  }
+});
+
+test('reviews with a pull request hands a session the whole Reviews tab draft, or the state of a review still on its way', async () => {
+  const head = 'a'.repeat(40);
+  const identity = (number: number) => ({ key: `acme/app#${number}`, repo: 'acme/app', number, title: `Change ${number}`, url: `https://github.com/acme/app/pull/${number}`, author: 'teammate' });
+  const teamReviewStatus = TeamReviewStatus.parse({
+    type: 'team-review-status', ts: 1, configured: true, reason: null,
+    drafts: [{
+      ...identity(12), tier: 'full', reasons: ['big'], reviewedHead: head, verdict: 'REQUEST CHANGES', summary: 'null deref', body: 'Fix it.', status: 'ready',
+      assessment: { goal: 'g', change: 'c', checked: ['ran it'], gaps: ['no test'], handChecks: [] },
+      comments: [{ path: 'src/app.ts', line: 3, side: 'RIGHT', body: 'this is null on a cold start', severity: 'HIGH', excerpt: [{ line: 3, kind: 'add', text: '+ start()' }] }],
+    }],
+    inFlight: [{ ...identity(13), tier: 'stamp', reasons: [], head, phase: 'checkout', startedAt: 1, deadlineAt: null, toolCalls: 0, recentSteps: [] }],
+    queued: [identity(14)],
+  });
+  const fixture = wiringFixture({ teamReviewStatus });
+  try {
+    const reviewOf = (pr?: string) => fixture.wiring.handle(fixture.parent, 'reviews', pr === undefined ? {} : { pr });
+    const listed = await reviewOf();
+    assert.deepEqual(AgentReviewsReply.parse(listed.body).drafts.map(({ key }) => key), ['acme/app#12']);
+
+    const drafted = await reviewOf('https://github.com/acme/app/pull/12');
+    assert.equal(drafted.status, 200);
+    const detail = AgentReviewDetailReply.parse(drafted.body);
+    assert.equal(detail.state, 'drafted');
+    assert.deepEqual(detail.draft, teamReviewStatus.drafts[0]);
+    assert.match(detail.note ?? '', /untrusted pull request/);
+
+    assert.deepEqual(AgentReviewDetailReply.parse((await reviewOf('acme/app#13')).body), { ok: true, key: 'acme/app#13', state: 'reviewing', phase: 'checkout', note: null, draft: null });
+    assert.deepEqual(AgentReviewDetailReply.parse((await reviewOf('Acme/App#14')).body), { ok: true, key: 'acme/app#14', state: 'queued', phase: null, note: null, draft: null });
+
+    const missing = await reviewOf('acme/app#99');
+    assert.equal(missing.status, 404);
+    assert.match(String(missing.body.error), /glimmervoid review acme\/app#99/);
+    assert.equal((await reviewOf('not a pull request')).status, 400);
+  } finally {
+    fixture.destroyAll();
   }
 });

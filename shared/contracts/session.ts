@@ -186,6 +186,10 @@ export const AgentPullRequestRequest = z.object({
   pr: z.string({ error: 'pr must be a string' }).min(1, { error: 'pr must not be empty' }).max(300, { error: 'pr must be at most 300 characters' }),
 }).strict();
 
+export const AgentReviewsRequest = z.object({
+  pr: AgentPullRequestRequest.shape.pr.optional(),
+}).strict();
+
 const AGENT_SETTINGS_COMMANDS = ['list', 'get'] as const;
 
 export const AgentSettingsRequest = z.object({
@@ -213,6 +217,15 @@ export const AgentReviewsReply = z.object({
     comments: z.number().int().nonnegative(),
     isOutOfDate: z.boolean(),
   })),
+}).strict();
+
+export const AgentReviewDetailReply = z.object({
+  ok: z.literal(true),
+  key: z.string(),
+  state: z.enum(['drafted', 'reviewing', 'queued']),
+  phase: InFlightReview.shape.phase.nullable(),
+  note: z.string().nullable(),
+  draft: ReviewDraft.nullable(),
 }).strict();
 
 export const AgentPrsReply = z.object({
@@ -293,5 +306,7 @@ export type AgentBoardRow = z.infer<typeof AgentBoardRow>;
 export type AgentPullRequestRequest = z.infer<typeof AgentPullRequestRequest>;
 export type AgentSettingsRequest = z.infer<typeof AgentSettingsRequest>;
 export type AgentSettingsReply = z.infer<typeof AgentSettingsReply>;
+export type AgentReviewsRequest = z.infer<typeof AgentReviewsRequest>;
 export type AgentReviewsReply = z.infer<typeof AgentReviewsReply>;
+export type AgentReviewDetailReply = z.infer<typeof AgentReviewDetailReply>;
 export type AgentPrsReply = z.infer<typeof AgentPrsReply>;

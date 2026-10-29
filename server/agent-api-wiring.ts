@@ -16,7 +16,7 @@ import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
   decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeRoleRefusal,
-  describeUnpushedCloseRefusal, parseAgentVerb, projectMyPrs, projectReviews,
+  describeUnpushedCloseRefusal, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews,
 } from './core/agent-api-core.ts';
 import type { AgentRequestOf, ChildEndCause, ChildWorktree } from './core/agent-api-core.ts';
 import {
@@ -525,6 +525,15 @@ function createAgentApiWiring({
     return { status: 200, body: { ...outcome, note: 'the review lands as a draft in the Reviews tab, and only the operator can post it' } };
   }
 
+  function reviews(pullRequestKey: string | null): AgentApiReply {
+    if (!operatorState) return githubLanesUnavailable();
+    const status = operatorState.teamReviewStatus();
+    if (pullRequestKey === null) return { status: 200, body: projectReviews(status) };
+    const detail = projectReviewDetail(status, pullRequestKey);
+    if (!detail) return refusal(404, `${pullRequestKey} is not in the Reviews tab, so run glimmervoid review ${pullRequestKey} to queue one`);
+    return { status: 200, body: detail };
+  }
+
   function linkPr(session: Session, pullRequestKey: string): AgentApiReply {
     const link = manualPrLink(pullRequestKey, operatorState?.myPrsStatus()?.prs ?? [], Date.now());
     if (!link) return refusal(400, `not a GitHub pull request: ${pullRequestKey}`);
@@ -635,7 +644,7 @@ function createAgentApiWiring({
     show: () => refusal(400, 'show sends the file itself; run glimmervoid show <path>'),
     limits: (session) => ({ status: 200, body: limits(session) }),
     review: (_session, { pullRequestKey }) => review(pullRequestKey),
-    reviews: () => (operatorState ? { status: 200, body: projectReviews(operatorState.teamReviewStatus()) } : githubLanesUnavailable()),
+    reviews: (_session, { pullRequestKey }) => reviews(pullRequestKey),
     prs: () => (operatorState ? { status: 200, body: projectMyPrs(operatorState.myPrsStatus()) } : githubLanesUnavailable()),
     'link-pr': (session, { pullRequestKey }) => linkPr(session, pullRequestKey),
     settings: (_session, request) => settings(request),
