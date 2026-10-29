@@ -199,17 +199,17 @@ test('a tab shown within 14 days holds its Kimi-raised hint back until the view 
   const { featureHints, broadcastHints } = startHints(tempStatePath(), clock, { homes });
   await settled(featureHints);
 
-  await featureHints.noteViewShown('issues');
-  for (const issueNumber of [7, 8, 9]) kimi.runCommand(`gh issue view ${issueNumber}`);
+  await featureHints.noteViewShown('prs');
+  for (const prNumber of [7, 8, 9]) kimi.runCommand(`gh pr view ${prNumber}`);
   await settled(featureHints);
   assert.deepEqual(broadcastHints, []);
 
   clock.nowMs += 15 * DAY_MS;
-  kimi.runCommand('gh issue comment 10 --body done');
-  kimi.runCommand('gh issue view 11');
-  kimi.runCommand('gh issue view 12');
+  kimi.runCommand('gh pr diff 10');
+  kimi.runCommand('gh pr view 11');
+  kimi.runCommand('gh pr view 12');
   await settled(featureHints);
-  assert.deepEqual(broadcastHints, [{ feature: 'issues', distinctTargetCount: 3, raisedAt: START_MS + 15 * DAY_MS }]);
+  assert.deepEqual(broadcastHints, [{ feature: 'teamReview', distinctTargetCount: 3, raisedAt: START_MS + 15 * DAY_MS }]);
 });
 
 test('opening the hinted tab settles its hint so the next feature can surface', async () => {
@@ -223,9 +223,10 @@ test('opening the hinted tab settles its hint so the next feature can surface', 
   await featureHints.noteViewShown('prs');
   assert.equal(featureHints.pendingHintMessage(), null);
 
-  for (const issueNumber of [1, 2, 3]) claude.runCommand(`gh issue view ${issueNumber}`);
+  claude.runCommand('ccusage daily');
+  claude.runCommand('ccusage monthly');
   await settled(featureHints);
-  assert.deepEqual(broadcastHints.map((hint) => hint.feature), ['teamReview', 'issues']);
+  assert.deepEqual(broadcastHints.map((hint) => hint.feature), ['teamReview', 'usage']);
 });
 
 test('subagents of an operator session count, and a lane session and its subagents never do', async () => {
@@ -257,10 +258,8 @@ test('subagents of an operator session count, and a lane session and its subagen
 
 const PROMPT_TRIGGERS: readonly { feature: HintFeature; vendor: keyof typeof AGENT_BY_VENDOR; prompts: readonly string[] }[] = [
   { feature: 'teamReview', vendor: 'codex', prompts: ['review PR 12 please', '/code-review 13', 'look at https://github.com/acme/app/pull/14'] },
-  { feature: 'issues', vendor: 'kimi', prompts: ['fix issue #3', 'see https://github.com/acme/app/issues/4', 'then issue #5'] },
   { feature: 'usage', vendor: 'claude', prompts: ['/cost', 'am I near the rate limit?'] },
   { feature: 'posthog', vendor: 'codex', prompts: ["what's broken in prod today?", 'check error tracking for spikes'] },
-  { feature: 'visions', vendor: 'kimi', prompts: ['the thing in my editor is wrong', 'this file is off at src/app.ts:42', 'also in my editor, line 9'] },
   { feature: 'benchmarks', vendor: 'claude', prompts: ['benchmark these two prompts', 'compare claude and codex on this refactor'] },
 ];
 
@@ -274,6 +273,24 @@ for (const { feature, vendor, prompts } of PROMPT_TRIGGERS) {
     for (const prompt of prompts) agent.submitPrompt(prompt);
     await settled(featureHints);
     assert.deepEqual(broadcastHints.map((hint) => hint.feature), [feature]);
+  });
+}
+
+const EXPERIMENTAL_FEATURE_PROMPTS: readonly { feature: HintFeature; prompts: readonly string[] }[] = [
+  { feature: 'issues', prompts: ['fix issue #3', 'see https://github.com/acme/app/issues/4', 'then issue #5'] },
+  { feature: 'visions', prompts: ['the thing in my editor is wrong', 'this file is off at src/app.ts:42', 'also in my editor, line 9'] },
+];
+
+for (const { feature, prompts } of EXPERIMENTAL_FEATURE_PROMPTS) {
+  test(`prompts matching the experimental ${feature} feature never raise a hint`, async () => {
+    const clock = { nowMs: START_MS };
+    const homes = transcriptHomes();
+    const agent = AGENT_BY_VENDOR.kimi(homes, '5d0c2a4e-1f7b-4c33-9a61-0b8e2f4d6c11', clock);
+    const { featureHints, broadcastHints } = startHints(tempStatePath(), clock, { homes });
+    await settled(featureHints);
+    for (const prompt of prompts) agent.submitPrompt(prompt);
+    await settled(featureHints);
+    assert.deepEqual(broadcastHints, []);
   });
 }
 
@@ -291,6 +308,16 @@ test('one first prompt sent to two Claude sessions started after Glimmervoid cou
   }
   await settled(featureHints);
   assert.deepEqual(broadcastHints.map((hint) => hint.feature), ['benchmarks']);
+});
+
+test('an Issues hint saved before it went experimental never replays after a restart', async () => {
+  const clock = { nowMs: START_MS };
+  const statePath = tempStatePath();
+  const savedIssuesHint: FeatureHint = { feature: 'issues', distinctTargetCount: 3, raisedAt: START_MS - DAY_MS };
+  fs.writeFileSync(statePath, JSON.stringify({ signalsByFeature: {}, settledByFeature: {}, lastShownAtByView: {}, pendingHint: savedIssuesHint }));
+  const { featureHints } = startHints(statePath, clock);
+  await featureHints.idle();
+  assert.equal(featureHints.pendingHintMessage(), null);
 });
 
 async function waitForHints(broadcastHints: readonly FeatureHint[], deadlineMs: number): Promise<void> {

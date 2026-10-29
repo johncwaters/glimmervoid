@@ -48,7 +48,7 @@ function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now, s
   const store = createJsonStateStore({
     name: 'feature hints', filePath: statePath,
     parse: (raw) => FeatureHintState.safeParse(raw).data ?? null,
-    adopt: (loadedState) => { state = loadedState ?? core.emptyFeatureHintState(); },
+    adopt: (loadedState) => { state = core.withoutStaleHint(loadedState ?? core.emptyFeatureHintState(), now()); },
     warn: (message, fields) => log.warn(`[feature-hints] ${message} ${JSON.stringify(fields)}`),
   });
   const loaded = store.load();
@@ -56,7 +56,7 @@ function createFeatureHintsWiring({ statePath, broadcast, log, now = Date.now, s
   function update(nextStateOf: (current: FeatureHintState) => FeatureHintState): Promise<void> {
     return loaded.then(() => {
       if (isStopped) return;
-      const nextState = core.withoutExpiredHint(nextStateOf(state), now());
+      const nextState = core.withoutStaleHint(nextStateOf(state), now());
       const hint = core.decideHint(nextState, now());
       state = hint ? { ...nextState, pendingHint: hint } : nextState;
       if (hint) broadcast({ type: 'feature-hint', hint });

@@ -404,45 +404,45 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   {
     id: 'lanes-visions',
     level: 'lanes',
-    title: 'Visions',
+    title: 'Visions (experimental)',
     description: 'Editor-buffer findings, bounded model comments, and the machine-context ingest behind them.',
     legacyIds: ['lanes', 'visions', 'lanes-ingest', 'ingest'],
     settings: [
       {
         id: 'visions-enabled', path: 'visions.enabled', title: 'Enable Visions',
         description: 'Set up supported editors detected on this machine, then show their buffer findings in the Visions view.',
-        control: 'toggle', keywords: ['editor', 'findings', 'lsp'], defaultValue: false, ...MACHINE_NOW,
+        control: 'toggle', keywords: ['experimental', 'editor', 'findings', 'lsp'], defaultValue: false, ...MACHINE_NOW,
       },
       {
         id: 'visions-dispatch-enabled', path: 'visions.dispatch.enabled', title: 'Enable model comments',
         description: 'Start bounded review sessions for local editor buffers.',
-        control: 'toggle', keywords: ['review', 'dispatch'], defaultValue: false, ...MACHINE_NOW,
+        control: 'toggle', keywords: ['experimental', 'review', 'dispatch'], defaultValue: false, ...MACHINE_NOW,
       },
       {
         id: 'visions-max-per-hour', path: 'visions.dispatch.maxPerHour', title: 'Max per hour',
         description: 'Maximum review sessions dispatched per hour. One slot is reserved for edit reviews; activity-driven reviews take the rest, up to the activity cap set by visions.dispatch.activityMaxPerHour.',
-        control: 'number', range: POSITIVE_NUMBER_RANGE, unit: REVIEWS_PER_HOUR, keywords: ['rate limit', 'reviews'], defaultValue: 6, ...MACHINE_NOW,
+        control: 'number', range: POSITIVE_NUMBER_RANGE, unit: REVIEWS_PER_HOUR, keywords: ['experimental', 'rate limit', 'reviews'], defaultValue: 6, ...MACHINE_NOW,
       },
       {
         id: 'visions-model', path: 'visions.dispatch.model', title: 'Model override',
         description: 'Leave blank to use the opus model alias.',
-        control: 'text', keywords: ['claude', 'override'], defaultValue: '', ...MACHINE_NOW,
+        control: 'text', keywords: ['experimental', 'claude', 'override'], defaultValue: '', ...MACHINE_NOW,
       },
       {
         id: 'visions-projects', path: 'visions.projects', title: 'Projects',
         description: 'Clear every selection, including unavailable projects, to accept buffers from every configured project.',
-        control: 'projects', keywords: ['repositories', 'filter'], defaultValue: [], ...MACHINE_NOW,
+        control: 'projects', keywords: ['experimental', 'repositories', 'filter'], defaultValue: [], ...MACHINE_NOW,
       },
       {
         id: 'visions-auto-fix', path: 'visions.autoFix', title: 'Apply tier 1 fixes',
         description: 'Allow Visions to edit eligible open Markdown buffers, including inactive buffers, without asking.',
-        control: 'toggle', keywords: ['automatic', 'edits'], danger: true,
+        control: 'toggle', keywords: ['experimental', 'automatic', 'edits'], danger: true,
         warning: 'Enabling this control lets Visions edit eligible buffers without a carbon unit present.', defaultValue: false, ...MACHINE_NOW,
       },
       {
         id: 'ingest-enabled', path: 'ingest.enabled', title: 'Enable machine context ingest',
         description: 'Enable the local activity feed behind Visions. Turning Visions on enables ingest unless ingest.enabled is explicitly false.',
-        control: 'toggle', keywords: ['events', 'activity', 'ingest'], defaultValue: false, ...MACHINE_NOW,
+        control: 'toggle', keywords: ['experimental', 'events', 'activity', 'ingest'], defaultValue: false, ...MACHINE_NOW,
       },
     ],
   },
