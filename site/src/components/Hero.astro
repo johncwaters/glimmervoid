@@ -2,6 +2,7 @@
 import { ANIMALS } from '../../../public/nyan-animals-core.ts';
 import DashboardRecording from './DashboardRecording.astro';
 import InstallCommand from './InstallCommand.astro';
+import PhoneNextStep from './PhoneNextStep.astro';
 import { LINUX_INSTALL_COMMAND } from '../lib/install-command.ts';
 
 const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, trail })));
@@ -19,6 +20,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
       </span>
     </div>
     <a class="install-other-platforms" href="#install">Other platforms</a>
+    <PhoneNextStep location="hero" />
   </div>
   <DashboardRecording />
 </section>
