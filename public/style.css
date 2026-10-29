@@ -4191,9 +4191,6 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
 .review-empty { text-align: center; color: var(--text-dim); margin-top: 24px; }
 .review-empty-title { font-size: var(--type-body); font-weight: 700; color: var(--text-head); margin-bottom: 6px; }
 .review-empty-desc { font-size: var(--type-meta); line-height: 1.5; }
-.flying-animal-preview.review-empty-animal { width: 180px; margin: 0 auto 12px; }
-.review-empty-animal .flying-animal-preview-stage { left: calc(70% - var(--nyan-width) / 2); }
-.review-empty-animal .nyan-trail { width: 110px; }
 
 @media (prefers-reduced-motion: no-preference) {
   .review-loading { animation: pulse 1.4s ease-in-out infinite; }

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Quieter empty Changes panel**: a session with no changes yet shows a flying animal and "No changes yet" instead of a sentence about what will appear there, and the panel header no longer repeats the session name next to Review.
+- **Quieter empty Changes panel**: a session with no changes yet shows just "No changes yet" instead of a sentence about what will appear there, and the panel header no longer repeats the session name next to Review.
 
 ### Fixed
 

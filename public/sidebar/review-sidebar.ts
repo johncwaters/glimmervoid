@@ -5,9 +5,7 @@ import { MERGEABLE_LIVE_STATES, STATES } from '#shared/states.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
-import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from '../flying-animal-preview.ts';
 import { isPhoneLayout } from '../form-factor.ts';
-import { ANIMALS } from '../nyan-animals-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -688,7 +686,7 @@ function renderSidebar() {
     return;
   }
   if (isEmpty) {
-    renderEmpty(buildFlyingAnimalPreview(pickRandomIncludedAnimal() ?? ANIMALS[0], 'review-empty-animal'), el('div', 'review-empty-title', headline.text));
+    renderEmpty(el('div', 'review-empty-title', headline.text));
     return;
   }
   const changeMap = mapById.get(id);
